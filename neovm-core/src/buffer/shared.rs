@@ -17,7 +17,7 @@ struct SharedUndoStateInner {
 
 impl SharedUndoState {
     pub fn new() -> Self {
-        Self::from_parts(Value::Nil, false, false)
+        Self::from_parts(Value::NIL, false, false)
     }
 
     pub fn from_parts(list: Value, in_progress: bool, recorded_first_change: bool) -> Self {

@@ -5,7 +5,7 @@ use crate::emacs_core::fontset::{
     DEFAULT_FONTSET_NAME, FontSpecEntry, matching_entries_for_fontset,
 };
 use crate::emacs_core::intern::{intern, resolve_sym};
-use crate::emacs_core::value::{HashKey, HashTableTest, Value, list_to_vec, with_heap};
+use crate::emacs_core::value::{HashKey, HashTableTest, Value, list_to_vec, with_heap, ValueKind, VecLikeType};
 use crate::emacs_core::{format_eval_result, parse_forms};
 use std::fs;
 use std::path::PathBuf;
@@ -232,7 +232,7 @@ fn bootstrap_fixture_path(
 }
 
 fn format_eval_error(eval: &Context, err: &EvalError) -> String {
-    match err {
+    match err.kind() {
         EvalError::Signal { symbol, data, .. } => {
             let mut items = Vec::with_capacity(data.len() + 1);
             items.push(Value::Symbol(*symbol));
@@ -263,9 +263,9 @@ fn partial_bootstrap_eval_until(stop_before: &str, prefer_compiled: bool) -> Con
         Value::list(bootstrap_load_path_entries(&lisp_dir)),
     );
     eval.set_variable("dump-mode", Value::symbol("pbootstrap"));
-    eval.set_variable("purify-flag", Value::Nil);
-    eval.set_variable("max-lisp-eval-depth", Value::Int(1600));
-    eval.set_variable("inhibit-load-charset-map", Value::True);
+    eval.set_variable("purify-flag", Value::NIL);
+    eval.set_variable("max-lisp-eval-depth", Value::fixnum(1600));
+    eval.set_variable("inhibit-load-charset-map", Value::T);
 
     let etc_dir = project_root.join("etc");
     eval.set_variable(
@@ -288,8 +288,8 @@ fn partial_bootstrap_eval_until(stop_before: &str, prefer_compiled: bool) -> Con
         .map(|s| Value::string(s.to_string()))
         .collect();
     eval.set_variable("exec-path", Value::list(path_dirs));
-    eval.set_variable("exec-suffixes", Value::Nil);
-    eval.set_variable("exec-directory", Value::Nil);
+    eval.set_variable("exec-suffixes", Value::NIL);
+    eval.set_variable("exec-directory", Value::NIL);
     eval.set_variable(
         "menu-bar-final-items",
         Value::list(vec![Value::symbol("help-menu")]),
@@ -315,7 +315,7 @@ fn partial_bootstrap_eval_until(stop_before: &str, prefer_compiled: bool) -> Con
             break;
         }
         if *name == "!enable-eager-expansion" {
-            eval.set_variable("macroexp--pending-eager-loads", Value::Nil);
+            eval.set_variable("macroexp--pending-eager-loads", Value::NIL);
             continue;
         }
         if *name == "!require-gv" {
@@ -894,7 +894,7 @@ fn bootstrap_runtime_display_selections_p_is_true_under_neomacs_gui_surface() {
         create_bootstrap_evaluator_cached_with_features(&["x", "neomacs"]).expect("bootstrap");
     let forms = parse_forms("(display-selections-p)").expect("parse display-selections-p");
     let value = eval.eval_expr(&forms[0]).expect("display-selections-p");
-    assert_eq!(value, Value::True);
+    assert_eq!(value, Value::T);
 }
 
 #[test]
@@ -1204,16 +1204,16 @@ fn bootstrap_runtime_execute_extended_command_exits_minibuffer_on_ret() {
             .keyboard
             .kboard
             .unread_events
-            .push_back(Value::Int(ch as i64));
+            .push_back(Value::fixnum(ch as i64));
     }
     eval.command_loop.keyboard.kboard.unread_events.push_back(
         crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return).to_emacs_event_value(),
     );
 
     let result = eval
-        .apply(Value::symbol("execute-extended-command"), vec![Value::Nil])
+        .apply(Value::symbol("execute-extended-command"), vec![Value::NIL])
         .expect("execute-extended-command should return after RET");
-    assert_eq!(result, Value::Nil);
+    assert_eq!(result, Value::NIL);
     assert!(
         eval.eval_symbol("neo-ret-probe-ran")
             .expect("probe var should exist")
@@ -1269,7 +1269,7 @@ fn bootstrap_runtime_command_loop_executes_meta_x_command_on_ret() {
     let result = eval
         .recursive_edit_inner()
         .expect("command loop should exit normally");
-    assert_eq!(result, Value::Nil);
+    assert_eq!(result, Value::NIL);
     assert!(
         eval.eval_symbol("neo-ret-probe-ran")
             .expect("probe var should exist")
@@ -1318,7 +1318,7 @@ fn bootstrap_runtime_window_close_routes_through_handle_delete_frame() {
     let result = eval
         .recursive_edit_inner()
         .expect("window close should exit command loop normally");
-    assert_eq!(result, Value::Nil);
+    assert_eq!(result, Value::NIL);
 
     let forms = parse_forms(
         r#"(prog1 neo-delete-frame-log
@@ -1484,10 +1484,10 @@ fn bootstrap_runtime_read_key_sequence_follows_escape_prefix_command() {
         .keyboard
         .kboard
         .unread_events
-        .push_back(Value::Int('x' as i64));
+        .push_back(Value::fixnum('x' as i64));
 
     let (keys, binding) = eval.read_key_sequence().expect("read ESC x sequence");
-    assert_eq!(keys, vec![Value::Int(27), Value::Int('x' as i64)]);
+    assert_eq!(keys, vec![Value::fixnum(27), Value::fixnum('x' as i64)]);
     assert_eq!(binding, Value::symbol("execute-extended-command"));
 }
 
@@ -1502,7 +1502,7 @@ fn bootstrap_runtime_read_key_sequence_follows_meta_x_command() {
     );
 
     let (keys, binding) = eval.read_key_sequence().expect("read M-x sequence");
-    assert_eq!(keys, vec![Value::Int(134_217_848)]);
+    assert_eq!(keys, vec![Value::fixnum(134_217_848)]);
     assert_eq!(binding, Value::symbol("execute-extended-command"));
 }
 
@@ -2329,7 +2329,7 @@ fn load_path_extraction() {
         "load-path",
         Value::list(vec![
             Value::string("/usr/share/emacs/lisp"),
-            Value::Nil,
+            Value::NIL,
             Value::string("/home/user/.emacs.d"),
         ]),
     );
@@ -2459,13 +2459,13 @@ fn load_file_records_load_history() {
 
     let mut eval = super::super::eval::Context::new();
     let loaded = load_file(&mut eval, &file).expect("load file");
-    assert_eq!(loaded, Value::True);
+    assert_eq!(loaded, Value::T);
 
     let history = eval
         .obarray()
         .symbol_value("load-history")
         .cloned()
-        .unwrap_or(Value::Nil);
+        .unwrap_or(Value::NIL);
     let entries = super::super::value::list_to_vec(&history).expect("load-history is a list");
     assert!(
         !entries.is_empty(),
@@ -2479,7 +2479,7 @@ fn load_file_records_load_history() {
     );
     assert_eq!(
         eval.obarray().symbol_value("load-file-name").cloned(),
-        Some(Value::Nil)
+        Some(Value::NIL)
     );
 
     let _ = fs::remove_dir_all(&dir);
@@ -2519,13 +2519,13 @@ fn ensure_startup_compat_variables_backfills_xfaces_bootstrap_state() {
         eval.obarray()
             .symbol_value("face-near-same-color-threshold")
             .copied(),
-        Some(Value::Int(30_000))
+        Some(Value::fixnum(30_000))
     );
     assert_eq!(
         eval.obarray()
             .symbol_value("face-font-lax-matched-attributes")
             .copied(),
-        Some(Value::True)
+        Some(Value::T)
     );
     assert!(
         eval.obarray()
@@ -2555,7 +2555,7 @@ fn ensure_startup_compat_variables_backfills_xfaces_bootstrap_state() {
         eval.obarray()
             .symbol_value("delayed-warnings-list")
             .copied(),
-        Some(Value::Nil)
+        Some(Value::NIL)
     );
 
     let table = eval
@@ -2563,7 +2563,7 @@ fn ensure_startup_compat_variables_backfills_xfaces_bootstrap_state() {
         .symbol_value("face--new-frame-defaults")
         .copied()
         .expect("face hash table backfilled");
-    let Value::HashTable(id) = table else {
+    if !table.is_hash_table() /* TODO(tagged): `id` was Value::HashTable(id), rewrite let-else */ {
         panic!("face--new-frame-defaults must be a hash table");
     };
     let test = with_heap(|heap| heap.get_hash_table(id).test.clone());
@@ -2605,7 +2605,7 @@ fn nested_load_restores_parent_load_file_name() {
 
     let mut eval = super::super::eval::Context::new();
     let loaded = load_file(&mut eval, &parent).expect("load parent fixture");
-    assert_eq!(loaded, Value::True);
+    assert_eq!(loaded, Value::T);
 
     let parent_str = parent.to_string_lossy().to_string();
     let child_str = child.to_string_lossy().to_string();
@@ -2629,7 +2629,7 @@ fn nested_load_restores_parent_load_file_name() {
     );
     assert_eq!(
         eval.obarray().symbol_value("load-file-name").cloned(),
-        Some(Value::Nil),
+        Some(Value::NIL),
         "load-file-name should be restored after top-level load",
     );
 
@@ -2656,12 +2656,12 @@ fn load_file_accepts_shebang_and_honors_second_line_lexical_binding_cookie() {
 
     let mut eval = super::super::eval::Context::new();
     let loaded = load_file(&mut eval, &file).expect("load shebang fixture");
-    assert_eq!(loaded, Value::True);
+    assert_eq!(loaded, Value::T);
     assert_eq!(
         eval.obarray()
             .symbol_value("vm-load-shebang-probe")
             .cloned(),
-        Some(Value::True),
+        Some(Value::T),
         "second-line lexical-binding cookie should set lexical-binding to t during load",
     );
 
@@ -2699,12 +2699,12 @@ fn load_file_does_not_enable_lexical_binding_from_non_cookie_second_line_text() 
 
     let mut eval = super::super::eval::Context::new();
     let loaded = load_file(&mut eval, &file).expect("load shebang non-cookie fixture");
-    assert_eq!(loaded, Value::True);
+    assert_eq!(loaded, Value::T);
     assert_eq!(
         eval.obarray()
             .symbol_value("vm-load-shebang-false-probe")
             .cloned(),
-        Some(Value::Nil),
+        Some(Value::NIL),
         "non-cookie second-line text must not flip lexical-binding to t",
     );
 
@@ -2742,7 +2742,7 @@ fn load_file_accepts_utf8_bom_prefixed_source() {
 
     let mut eval = super::super::eval::Context::new();
     let loaded = load_file(&mut eval, &file).expect("load bom fixture");
-    assert_eq!(loaded, Value::True);
+    assert_eq!(loaded, Value::T);
     assert_eq!(
         eval.obarray().symbol_value("vm-load-bom-probe").cloned(),
         Some(Value::symbol("ok")),
@@ -2750,7 +2750,7 @@ fn load_file_accepts_utf8_bom_prefixed_source() {
     );
     assert_eq!(
         eval.obarray().symbol_value("vm-load-bom-flag").cloned(),
-        Some(Value::True)
+        Some(Value::T)
     );
 
     let _ = fs::remove_dir_all(&dir);
@@ -2802,7 +2802,7 @@ fn load_elc_is_supported() {
     );
     assert_eq!(
         eval.obarray().symbol_value("vm-elc-loaded").cloned(),
-        Some(Value::True),
+        Some(Value::T),
     );
 
     let _ = fs::remove_dir_all(&dir);
@@ -2899,7 +2899,7 @@ fn neovm_loadup_bootstrap() {
     let items = crate::emacs_core::value::list_to_vec(&result).expect("result list");
     assert_eq!(
         items,
-        vec![Value::True, Value::True],
+        vec![Value::T, Value::T],
         "expected float/integer CL classes to be registered, got {result}"
     );
 
@@ -2931,7 +2931,7 @@ fn neovm_loadup_bootstrap() {
         crate::emacs_core::value::list_to_vec(&compat_result).expect("compat probe result list");
     assert_eq!(
         compat_items,
-        vec![Value::True, Value::True],
+        vec![Value::T, Value::T],
         "expected iso-8859-15 and system-configuration-features to be available, got {compat_result}"
     );
 }
@@ -3114,7 +3114,7 @@ fn uninterned_symbol_in_hook_works() {
     let result = eval.obarray().symbol_value("test-hook-result").cloned();
     eprintln!("test-hook-result: {:?}", result);
     assert!(
-        result.is_some_and(|v| v == Value::Int(42)),
+        result.is_some_and(|v| v == Value::fixnum(42)),
         "hook with uninterned symbol should fire"
     );
 }
@@ -3281,7 +3281,7 @@ fn compiled_cl_preloaded_loads_after_faces() {
     let result = eval
         .eval_expr(&probe[0])
         .expect("evaluate built-in-class constructor probe");
-    assert_eq!(result, Value::True);
+    assert_eq!(result, Value::T);
 }
 
 #[test]
@@ -3327,7 +3327,7 @@ fn source_cycle_spacing_form_loads_after_bootstrap_prefix() {
     let result = eval
         .eval_expr(&probe[0])
         .expect("evaluate cycle-spacing probe");
-    assert_eq!(result, Value::list(vec![Value::True, Value::True]));
+    assert_eq!(result, Value::list(vec![Value::T, Value::T]));
 }
 
 #[test]
@@ -3485,7 +3485,7 @@ fn define_prefix_command_sets_symbol_value_and_function() {
         .expect("evaluate define-prefix-command probe");
     assert_eq!(
         crate::emacs_core::value::list_to_vec(&result).expect("probe result list"),
-        vec![Value::True, Value::True, Value::True]
+        vec![Value::T, Value::T, Value::T]
     );
 }
 
@@ -3507,7 +3507,7 @@ fn lookup_key_returned_submenu_symbol_has_bound_value() {
         .expect("evaluate lookup-key submenu probe");
     assert_eq!(
         crate::emacs_core::value::list_to_vec(&result).expect("probe result list"),
-        vec![Value::True, Value::True]
+        vec![Value::T, Value::T]
     );
 }
 
@@ -3530,7 +3530,7 @@ fn set_language_info_alist_reuses_chinese_submenu_like_gnu_emacs() {
     let result = eval
         .eval_expr(&probe[0])
         .expect("evaluate set-language-info-alist submenu probe");
-    assert_eq!(result, Value::True);
+    assert_eq!(result, Value::T);
 }
 
 #[test]
@@ -4556,7 +4556,7 @@ conveniently adding tool bar items."
         .expect("macroexpand tool-bar define-minor-mode");
     tracing::info!("tool-bar probe: macroexpand complete");
     if let Some(forms) = list_to_vec(&expanded) {
-        if matches!(forms.first(), Some(Value::Symbol(id)) if resolve_sym(*id) == "progn") {
+        if forms.first().map_or(false, |v| v.is_symbol_named("progn")) {
             for (idx, form) in forms.iter().enumerate().skip(1) {
                 tracing::info!("tool-bar probe: eval expanded subform {}", idx);
                 let expr = value_to_expr(form);
@@ -4601,7 +4601,7 @@ conveniently adding tool bar items."
         .expect("evaluate tool-bar bootstrap probe");
     assert_eq!(
         result,
-        Value::list(vec![Value::Nil, Value::True, Value::True, Value::True])
+        Value::list(vec![Value::NIL, Value::T, Value::T, Value::T])
     );
 }
 
@@ -4674,11 +4674,11 @@ fn auth_source_backend_exposes_type_slot() {
 }
 
 fn expect_vector_ints(value: Value) -> Vec<i64> {
-    match value {
-        Value::Vector(v) => with_heap(|h| h.get_vector(v).clone())
+    match value.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => with_heap(|h| h.get_vector(v).clone())
             .iter()
             .map(|item| match item {
-                Value::Int(n) => *n,
+                ValueKind::Fixnum(n) => n,
                 other => panic!("expected int in vector, got {other:?}"),
             })
             .collect(),
@@ -5631,8 +5631,8 @@ fn macroexpand_all_pcase_terminates() {
     }
     eval.set_variable("load-path", Value::list(load_path_entries));
     eval.set_variable("dump-mode", Value::symbol("pbootstrap"));
-    eval.set_variable("purify-flag", Value::Nil);
-    eval.set_variable("max-lisp-eval-depth", Value::Int(1600));
+    eval.set_variable("purify-flag", Value::NIL);
+    eval.set_variable("max-lisp-eval-depth", Value::fixnum(1600));
 
     let load_path = get_load_path(&eval.obarray());
     let load_and_report =
@@ -5721,7 +5721,7 @@ fn macroexp_eager_reload_preserves_symbol_identity() {
     }
     eval.set_variable("load-path", Value::list(load_path_entries));
     eval.set_variable("dump-mode", Value::symbol("pbootstrap"));
-    eval.set_variable("purify-flag", Value::Nil);
+    eval.set_variable("purify-flag", Value::NIL);
     eval.set_variable(
         "macroexp--pending-eager-loads",
         Value::list(vec![Value::symbol("skip")]),
@@ -5788,10 +5788,10 @@ fn macroexp_eager_reload_preserves_symbol_identity() {
         crate::emacs_core::value::list_to_vec(&probe_result).expect("probe should return list");
     assert_eq!(
         values,
-        vec![Value::Nil, Value::Nil, Value::Nil, Value::True]
+        vec![Value::NIL, Value::NIL, Value::NIL, Value::T]
     );
 
-    eval.set_variable("macroexp--pending-eager-loads", Value::Nil);
+    eval.set_variable("macroexp--pending-eager-loads", Value::NIL);
     load(&mut eval, "emacs-lisp/macroexp");
 }
 
@@ -5838,7 +5838,7 @@ fn function_get_only_exposes_cxxr_compiler_macro_on_cxxr_symbols() {
         .expect("evaluate function-get probe");
     assert_eq!(
         crate::emacs_core::value::list_to_vec(&result).expect("probe should return list"),
-        vec![Value::Nil, Value::Nil, Value::True]
+        vec![Value::NIL, Value::NIL, Value::T]
     );
 }
 
@@ -5872,8 +5872,8 @@ fn pcase_integer_literal_pattern() {
     }
     eval.set_variable("load-path", Value::list(load_path_entries));
     eval.set_variable("dump-mode", Value::symbol("pbootstrap"));
-    eval.set_variable("purify-flag", Value::Nil);
-    eval.set_variable("max-lisp-eval-depth", Value::Int(1600));
+    eval.set_variable("purify-flag", Value::NIL);
+    eval.set_variable("max-lisp-eval-depth", Value::fixnum(1600));
 
     let load_path = get_load_path(&eval.obarray());
     let load_and_report =
@@ -6042,7 +6042,7 @@ fn key_parse_modifier_bits() {
     }
     eval.set_variable("load-path", Value::list(load_path_entries));
     eval.set_variable("dump-mode", Value::symbol("pbootstrap"));
-    eval.set_variable("purify-flag", Value::Nil);
+    eval.set_variable("purify-flag", Value::NIL);
 
     // Load the minimum bootstrap: debug-early, byte-run, backquote, subr, keymap
     let load_path = get_load_path(&eval.obarray());
@@ -6290,7 +6290,7 @@ fn generated_loaddefs_replays_metadata_forms_on_bootstrap_runtime_surface() {
         obsolete_items,
         vec![
             Value::symbol("vm-generated-fn"),
-            Value::Nil,
+            Value::NIL,
             Value::string("31.1"),
         ]
     );
@@ -6323,7 +6323,7 @@ fn contains_opaque_value_detection() {
 
     // Form with OpaqueValueRef should be detected
     let opaque_idx =
-        super::super::eval::OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(Value::Int(99)));
+        super::super::eval::OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(Value::fixnum(99)));
     let opaque = Expr::List(vec![
         Expr::Symbol(intern("quote")),
         Expr::OpaqueValueRef(opaque_idx),
@@ -6335,7 +6335,7 @@ fn contains_opaque_value_detection() {
 
     // Nested OpaqueValueRef in vector
     let nested_idx =
-        super::super::eval::OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(Value::True));
+        super::super::eval::OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(Value::T));
     let nested = Expr::Vector(vec![
         Expr::Int(1),
         Expr::List(vec![Expr::OpaqueValueRef(nested_idx)]),
@@ -6347,7 +6347,7 @@ fn contains_opaque_value_detection() {
 
     // DottedList with OpaqueValueRef in tail
     let tail_idx =
-        super::super::eval::OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(Value::Nil));
+        super::super::eval::OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(Value::NIL));
     let dotted = Expr::DottedList(vec![Expr::Int(1)], Box::new(Expr::OpaqueValueRef(tail_idx)));
     assert!(
         dotted.contains_opaque_value(),

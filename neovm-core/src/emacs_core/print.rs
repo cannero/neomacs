@@ -16,6 +16,7 @@ use super::value::{
     read_cons, with_heap,
 };
 use crate::gc::types::ObjId;
+use super::value::{ValueKind, VecLikeType};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct PrintOptions {
@@ -119,22 +120,22 @@ pub(crate) struct PrintState<'a> {
 /// Check if a value is a candidate for circle detection.
 /// Matches GNU Emacs's `print_circle_candidate_p`.
 fn is_print_circle_candidate(value: &Value, print_gensym: bool) -> bool {
-    match value {
-        Value::Cons(_) => true,
-        Value::Vector(v) => {
+    match value.kind() {
+        ValueKind::Cons => true,
+        ValueKind::Veclike(VecLikeType::Vector) => {
             // Non-empty vectors only
             with_heap(|h| !h.get_vector(*v).is_empty())
         }
-        Value::Record(_) => true,
-        Value::HashTable(_) => true,
-        Value::Str(id) => {
+        ValueKind::Veclike(VecLikeType::Record) => true,
+        ValueKind::Veclike(VecLikeType::HashTable) => true,
+        ValueKind::String => {
             // Non-empty strings only
             with_heap(|h| !h.get_string(*id).is_empty())
         }
-        Value::Symbol(id) if print_gensym => {
+        ValueKind::Symbol(id) if print_gensym => {
             // Uninterned symbols only
-            let name = resolve_sym(*id);
-            lookup_interned(name) != Some(*id)
+            let name = resolve_sym(id);
+            lookup_interned(name) != Some(id)
         }
         _ => false,
     }
@@ -142,15 +143,15 @@ fn is_print_circle_candidate(value: &Value, print_gensym: bool) -> bool {
 
 /// Return a unique identity key for a circle-candidate value.
 fn object_identity_key(value: &Value) -> Option<u64> {
-    match value {
-        Value::Cons(id)
-        | Value::Vector(id)
-        | Value::Record(id)
-        | Value::HashTable(id)
-        | Value::Str(id)
-        | Value::Lambda(id)
-        | Value::ByteCode(id) => Some(((id.index as u64) << 32) | (id.generation as u64)),
-        Value::Symbol(id) => {
+    match value.kind() {
+        ValueKind::Cons
+        | ValueKind::Veclike(VecLikeType::Vector)
+        | ValueKind::Veclike(VecLikeType::Record)
+        | ValueKind::Veclike(VecLikeType::HashTable)
+        | ValueKind::String
+        | ValueKind::Veclike(VecLikeType::Lambda)
+        | ValueKind::Veclike(VecLikeType::ByteCode) => Some(((id.index as u64) << 32) | (id.generation as u64)),
+        ValueKind::Symbol(id) => {
             // Use a distinct namespace to avoid collisions with ObjId keys.
             // Set the high bit to separate from ObjId keys.
             Some((1u64 << 63) | (id.0 as u64))
@@ -182,20 +183,20 @@ fn print_preprocess(value: &Value, state: &mut PrintCircleState, print_gensym: b
         }
         // First time seen -- mark and process children
         state.number_table.insert(key, 0);
-        match &obj {
-            Value::Cons(cell) => {
-                let pair = read_cons(*cell);
+        match obj.kind() {
+            ValueKind::Cons => {
+                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
                 // Push cdr first so car is processed first (stack is LIFO)
                 stack.push(pair.cdr);
                 stack.push(pair.car);
             }
-            Value::Vector(v) | Value::Record(v) => {
+            ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
                 let items = with_heap(|h| h.get_vector(*v).clone());
                 for item in items.iter().rev() {
                     stack.push(*item);
                 }
             }
-            Value::HashTable(id) => {
+            ValueKind::Veclike(VecLikeType::HashTable) => {
                 let table = with_heap(|h| h.get_hash_table(*id).clone());
                 for key_hk in table.insertion_order.iter().rev() {
                     if let Some(val) = table.data.get(key_hk) {
@@ -274,14 +275,14 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
         }
     }
 
-    match value {
-        Value::Nil => out.push_str("nil"),
-        Value::True => out.push_str("t"),
-        Value::Int(v) => write!(out, "{}", v).unwrap(),
-        Value::Float(f, _) => out.push_str(&format_float(*f)),
-        Value::Symbol(id) => out.push_str(&format_symbol(*id, state.options)),
-        Value::Keyword(id) => out.push_str(resolve_sym(*id)),
-        Value::Str(id) => {
+    match value.kind() {
+        ValueKind::Nil => out.push_str("nil"),
+        ValueKind::T => out.push_str("t"),
+        ValueKind::Fixnum(v) => write!(out, "{}", v).unwrap(),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => out.push_str(&format_float(*f)),
+        ValueKind::Symbol(id) => out.push_str(&format_symbol(id, state.options)),
+        ValueKind::Keyword(id) => out.push_str(resolve_sym(id)),
+        ValueKind::String => {
             let s = with_heap(|h| h.get_string(*id).to_owned());
             match get_string_text_properties(*id) {
                 Some(runs) => {
@@ -290,8 +291,8 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
                 None => out.push_str(&format_lisp_string_with_options(&s, &state.options)),
             }
         }
-        Value::Char(c) => write!(out, "{}", *c as u32).unwrap(),
-        Value::Cons(_) => {
+        ValueKind::Char(c) => write!(out, "{}", c as u32).unwrap(),
+        ValueKind::Cons => {
             // Level check for containers
             if let Some(level) = state.options.print_level {
                 if state.depth >= level {
@@ -310,7 +311,7 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
             out.push(')');
             state.depth -= 1;
         }
-        Value::Vector(v) => {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             if let Some(nbits) = bool_vector_length(value) {
                 out.push_str(&format_bool_vector(value, nbits as usize));
                 return;
@@ -372,7 +373,7 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
             out.push(']');
             state.depth -= 1;
         }
-        Value::Record(v) => {
+        ValueKind::Veclike(VecLikeType::Record) => {
             // Level check
             if let Some(level) = state.options.print_level {
                 if state.depth >= level {
@@ -401,7 +402,7 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
             out.push(')');
             state.depth -= 1;
         }
-        Value::HashTable(id) => {
+        ValueKind::Veclike(VecLikeType::HashTable) => {
             // Level check
             if let Some(level) = state.options.print_level {
                 if state.depth >= level {
@@ -413,7 +414,7 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
             write_hash_table_stateful(*id, out, state);
             state.depth -= 1;
         }
-        Value::Lambda(id) => {
+        ValueKind::Veclike(VecLikeType::Lambda) => {
             let text = with_print_object_guard(
                 PrintObjectRef::Lambda(*id),
                 |index| format!("#{index}"),
@@ -434,7 +435,7 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
             );
             out.push_str(&text);
         }
-        Value::Macro(_id) => {
+        ValueKind::Veclike(VecLikeType::Macro) => {
             let m = value.get_lambda_data().unwrap();
             let params = format_params(&m.params);
             let body = m
@@ -445,22 +446,22 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
                 .join(" ");
             write!(out, "(macro {} {})", params, body).unwrap();
         }
-        Value::Subr(id) => write!(out, "#<subr {}>", resolve_sym(*id)).unwrap(),
-        Value::ByteCode(_id) => {
+        ValueKind::Subr(id) => write!(out, "#<subr {}>", resolve_sym(id)).unwrap(),
+        ValueKind::Veclike(VecLikeType::ByteCode) => {
             let bc = value.get_bytecode_data().unwrap();
             let params = format_params(&bc.params);
             write!(out, "#<bytecode {} ({} ops)>", params, bc.ops.len()).unwrap();
         }
-        Value::Marker(_) => out.push_str(
+        ValueKind::Veclike(VecLikeType::Marker) => out.push_str(
             &print_special_handle(value, state.buffers).unwrap_or_else(|| "#<marker>".to_string()),
         ),
-        Value::Overlay(_) => out.push_str(
+        ValueKind::Veclike(VecLikeType::Overlay) => out.push_str(
             &print_special_handle(value, state.buffers).unwrap_or_else(|| "#<overlay>".to_string()),
         ),
-        Value::Buffer(id) => write!(out, "#<buffer {}>", id.0).unwrap(),
-        Value::Window(id) => write!(out, "#<window {}>", id).unwrap(),
-        Value::Frame(id) => out.push_str(&format_frame_handle(*id)),
-        Value::Timer(id) => write!(out, "#<timer {}>", id).unwrap(),
+        ValueKind::Veclike(VecLikeType::Buffer) => write!(out, "#<buffer {}>", id.0).unwrap(),
+        ValueKind::Veclike(VecLikeType::Window) => write!(out, "#<window {}>", id).unwrap(),
+        ValueKind::Veclike(VecLikeType::Frame) => out.push_str(&format_frame_handle(*id)),
+        ValueKind::Veclike(VecLikeType::Timer) => write!(out, "#<timer {}>", id).unwrap(),
     }
 }
 
@@ -472,8 +473,8 @@ fn write_list_shorthand_stateful(value: &Value, state: &mut PrintState) -> Optio
         return None;
     }
 
-    let head = match &items[0] {
-        Value::Symbol(id) => resolve_sym(*id),
+    let head = match items[0].kind() {
+        ValueKind::Symbol(id) => resolve_sym(id),
         _ => return None,
     };
 
@@ -518,8 +519,8 @@ fn quote_payload_stateful(value: &Value) -> Option<Value> {
     if items.len() != 2 {
         return None;
     }
-    match &items[0] {
-        Value::Symbol(id) if resolve_sym(*id) == "quote" => Some(items[1]),
+    match items[0].kind() {
+        ValueKind::Symbol(id) if resolve_sym(id) == "quote" => Some(items[1]),
         _ => None,
     }
 }
@@ -530,8 +531,8 @@ fn write_cons_stateful(value: &Value, out: &mut String, state: &mut PrintState) 
     let mut first = true;
     let mut count: i64 = 0;
     loop {
-        match cursor {
-            Value::Cons(cell) => {
+        match cursor.kind() {
+            ValueKind::Cons => {
                 // Length check
                 if let Some(length) = state.options.print_length {
                     if count >= length {
@@ -545,7 +546,7 @@ fn write_cons_stateful(value: &Value, out: &mut String, state: &mut PrintState) 
                 if !first {
                     out.push(' ');
                 }
-                let pair = read_cons(cell);
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
 
                 // Circle check on the cdr (for detecting shared tails)
                 // But first, print the car
@@ -555,7 +556,7 @@ fn write_cons_stateful(value: &Value, out: &mut String, state: &mut PrintState) 
                 count += 1;
 
                 // Check if cdr is a cons that has a circle label
-                if let Value::Cons(_) = cursor {
+                if cursor.is_cons() /* TODO(tagged): `_` was ValueKind::Cons, now use accessor */ {
                     if let Some(ref circle) = state.circle {
                         if let Some(key) = object_identity_key(&cursor) {
                             if let Some(label) = circle.number_table.get(&key) {
@@ -570,7 +571,7 @@ fn write_cons_stateful(value: &Value, out: &mut String, state: &mut PrintState) 
                     }
                 }
             }
-            Value::Nil => return,
+            ValueKind::Nil => return,
             other => {
                 if !first {
                     out.push_str(" . ");
@@ -670,7 +671,7 @@ fn format_marker_handle(
         return None;
     }
 
-    let Value::Marker(marker_id) = value else {
+    if !value.is_marker() /* TODO(tagged): `marker_id` was Value::Marker(marker_id), rewrite let-else */ {
         return None;
     };
     let marker = with_heap(|heap| heap.get_marker(*marker_id).clone());
@@ -700,7 +701,7 @@ fn format_overlay_handle(
     value: &Value,
     buffers: Option<&crate::buffer::BufferManager>,
 ) -> Option<String> {
-    let Value::Overlay(id) = value else {
+    if !value.is_overlay() /* TODO(tagged): `id` was Value::Overlay(id), rewrite let-else */ {
         return None;
     };
 
@@ -783,8 +784,8 @@ pub fn print_value_with_buffers_and_options(
     if let Some(handle) = print_special_handle(value, Some(buffers)) {
         return handle;
     }
-    match value {
-        Value::Buffer(id) => {
+    match value.kind() {
+        ValueKind::Veclike(VecLikeType::Buffer) => {
             if let Some(buf) = buffers.get(*id) {
                 return format!("#<buffer {}>", buf.name);
             }
@@ -793,7 +794,7 @@ pub fn print_value_with_buffers_and_options(
             }
             format!("#<buffer {}>", id.0)
         }
-        Value::Cons(_) => {
+        ValueKind::Cons => {
             // Recurse with buffer awareness
             if let Some(shorthand) = print_list_shorthand_with_buffers(value, buffers, options) {
                 return shorthand;
@@ -803,7 +804,7 @@ pub fn print_value_with_buffers_and_options(
             out.push(')');
             out
         }
-        Value::Vector(v) => {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             if let Some(nbits) = super::chartable::bool_vector_length(value) {
                 return format_bool_vector(value, nbits as usize);
             }
@@ -821,10 +822,10 @@ pub fn print_value_with_buffers_and_options(
                 .collect();
             format!("[{}]", parts.join(" "))
         }
-        Value::Marker(_) => {
+        ValueKind::Veclike(VecLikeType::Marker) => {
             print_special_handle(value, Some(buffers)).unwrap_or_else(|| "#<marker>".to_string())
         }
-        Value::Overlay(_) => {
+        ValueKind::Veclike(VecLikeType::Overlay) => {
             print_special_handle(value, Some(buffers)).unwrap_or_else(|| "#<overlay>".to_string())
         }
         _ => print_value_with_options(value, options),
@@ -840,8 +841,8 @@ fn print_list_shorthand_with_buffers(
     if items.len() != 2 {
         return None;
     }
-    let head = match &items[0] {
-        Value::Symbol(id) => resolve_sym(*id),
+    let head = match items[0].kind() {
+        ValueKind::Symbol(id) => resolve_sym(id),
         _ => return None,
     };
     if head == "make-hash-table-from-literal" {
@@ -886,19 +887,19 @@ fn print_cons_with_buffers(
     let mut cursor = *value;
     let mut first = true;
     loop {
-        match cursor {
-            Value::Cons(cell) => {
+        match cursor.kind() {
+            ValueKind::Cons => {
                 if !first {
                     out.push(' ');
                 }
-                let pair = read_cons(cell);
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 out.push_str(&print_value_with_buffers_and_options(
                     &pair.car, buffers, options,
                 ));
                 cursor = pair.cdr;
                 first = false;
             }
-            Value::Nil => return,
+            ValueKind::Nil => return,
             other => {
                 if !first {
                     out.push_str(" . ");
@@ -925,14 +926,14 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
     if let Some(handle) = print_special_handle(value, None) {
         return handle;
     }
-    match value {
-        Value::Nil => "nil".to_string(),
-        Value::True => "t".to_string(),
-        Value::Int(v) => v.to_string(),
-        Value::Float(f, _) => format_float(*f),
-        Value::Symbol(id) => format_symbol(*id, options),
-        Value::Keyword(id) => resolve_sym(*id).to_owned(),
-        Value::Str(id) => {
+    match value.kind() {
+        ValueKind::Nil => "nil".to_string(),
+        ValueKind::T => "t".to_string(),
+        ValueKind::Fixnum(v) => v.to_string(),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => format_float(*f),
+        ValueKind::Symbol(id) => format_symbol(id, options),
+        ValueKind::Keyword(id) => resolve_sym(id).to_owned(),
+        ValueKind::String => {
             let s = with_heap(|h| h.get_string(*id).to_owned());
             match get_string_text_properties(*id) {
                 Some(runs) => format_lisp_propertized_string(&s, &runs, options),
@@ -940,8 +941,8 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
             }
         }
         // Emacs chars are integer values, so print as codepoint.
-        Value::Char(c) => (*c as u32).to_string(),
-        Value::Cons(_) => {
+        ValueKind::Char(c) => (c as u32).to_string(),
+        ValueKind::Cons => {
             if let Some(shorthand) = print_list_shorthand(value, options) {
                 return shorthand;
             }
@@ -950,7 +951,7 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
             out.push(')');
             out
         }
-        Value::Vector(v) => {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             if let Some(nbits) = bool_vector_length(value) {
                 return format_bool_vector(value, nbits as usize);
             }
@@ -968,7 +969,7 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
                 .collect();
             format!("[{}]", parts.join(" "))
         }
-        Value::Record(v) => {
+        ValueKind::Veclike(VecLikeType::Record) => {
             let items = with_heap(|h| h.get_vector(*v).clone());
             let parts: Vec<String> = items
                 .iter()
@@ -976,8 +977,8 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
                 .collect();
             format!("#s({})", parts.join(" "))
         }
-        Value::HashTable(id) => format_hash_table(*id, options),
-        Value::Lambda(id) => with_print_object_guard(
+        ValueKind::Veclike(VecLikeType::HashTable) => format_hash_table(*id, options),
+        ValueKind::Veclike(VecLikeType::Lambda) => with_print_object_guard(
             PrintObjectRef::Lambda(*id),
             |index| format!("#{index}"),
             || {
@@ -995,7 +996,7 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
                 format!("(lambda {} {})", params, body)
             },
         ),
-        Value::Macro(_id) => {
+        ValueKind::Veclike(VecLikeType::Macro) => {
             let m = value.get_lambda_data().unwrap();
             let params = format_params(&m.params);
             let body = m
@@ -1006,22 +1007,22 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
                 .join(" ");
             format!("(macro {} {})", params, body)
         }
-        Value::Subr(id) => format!("#<subr {}>", resolve_sym(*id)),
-        Value::ByteCode(_id) => {
+        ValueKind::Subr(id) => format!("#<subr {}>", resolve_sym(id)),
+        ValueKind::Veclike(VecLikeType::ByteCode) => {
             let bc = value.get_bytecode_data().unwrap();
             let params = format_params(&bc.params);
             format!("#<bytecode {} ({} ops)>", params, bc.ops.len())
         }
-        Value::Marker(_) => {
+        ValueKind::Veclike(VecLikeType::Marker) => {
             print_special_handle(value, None).unwrap_or_else(|| "#<marker>".to_string())
         }
-        Value::Overlay(_) => {
+        ValueKind::Veclike(VecLikeType::Overlay) => {
             print_special_handle(value, None).unwrap_or_else(|| "#<overlay>".to_string())
         }
-        Value::Buffer(id) => format!("#<buffer {}>", id.0),
-        Value::Window(id) => format!("#<window {}>", id),
-        Value::Frame(id) => format_frame_handle(*id),
-        Value::Timer(id) => format!("#<timer {}>", id),
+        ValueKind::Veclike(VecLikeType::Buffer) => format!("#<buffer {}>", id.0),
+        ValueKind::Veclike(VecLikeType::Window) => format!("#<window {}>", id),
+        ValueKind::Veclike(VecLikeType::Frame) => format_frame_handle(*id),
+        ValueKind::Veclike(VecLikeType::Timer) => format!("#<timer {}>", id),
     }
 }
 
@@ -1047,14 +1048,14 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
         out.extend_from_slice(handle.as_bytes());
         return;
     }
-    match value {
-        Value::Nil => out.extend_from_slice(b"nil"),
-        Value::True => out.extend_from_slice(b"t"),
-        Value::Int(v) => out.extend_from_slice(v.to_string().as_bytes()),
-        Value::Float(f, _) => out.extend_from_slice(format_float(*f).as_bytes()),
-        Value::Symbol(id) => append_symbol_bytes(*id, out, options),
-        Value::Keyword(id) => out.extend_from_slice(resolve_sym(*id).as_bytes()),
-        Value::Str(id) => {
+    match value.kind() {
+        ValueKind::Nil => out.extend_from_slice(b"nil"),
+        ValueKind::T => out.extend_from_slice(b"t"),
+        ValueKind::Fixnum(v) => out.extend_from_slice(v.to_string().as_bytes()),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => out.extend_from_slice(format_float(*f).as_bytes()),
+        ValueKind::Symbol(id) => append_symbol_bytes(id, out, options),
+        ValueKind::Keyword(id) => out.extend_from_slice(resolve_sym(id).as_bytes()),
+        ValueKind::String => {
             let s = with_heap(|h| h.get_string(*id).to_owned());
             let str_bytes = format_lisp_string_bytes_inner(&s, &options);
             if let Some(runs) = get_string_text_properties(*id) {
@@ -1073,8 +1074,8 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
                 out.extend_from_slice(&str_bytes);
             }
         }
-        Value::Char(c) => out.extend_from_slice((*c as u32).to_string().as_bytes()),
-        Value::Cons(_) => {
+        ValueKind::Char(c) => out.extend_from_slice((c as u32).to_string().as_bytes()),
+        ValueKind::Cons => {
             if let Some(shorthand) = print_list_shorthand_bytes(value, options) {
                 out.extend_from_slice(&shorthand);
                 return;
@@ -1083,7 +1084,7 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
             print_cons_bytes(value, out, options);
             out.push(b')');
         }
-        Value::Vector(v) => {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             if let Some(nbits) = bool_vector_length(value) {
                 append_bool_vector_bytes(value, nbits as usize, out);
                 return;
@@ -1109,7 +1110,7 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
             }
             out.push(b']');
         }
-        Value::Record(v) => {
+        ValueKind::Veclike(VecLikeType::Record) => {
             out.extend_from_slice(b"#s(");
             let items = with_heap(|h| h.get_vector(*v).clone());
             for (idx, item) in items.iter().enumerate() {
@@ -1120,10 +1121,10 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
             }
             out.push(b')');
         }
-        Value::HashTable(id) => {
+        ValueKind::Veclike(VecLikeType::HashTable) => {
             out.extend_from_slice(format_hash_table(*id, options).as_bytes());
         }
-        Value::Lambda(id) => {
+        ValueKind::Veclike(VecLikeType::Lambda) => {
             let text = with_print_object_guard(
                 PrintObjectRef::Lambda(*id),
                 |index| format!("#{index}"),
@@ -1145,7 +1146,7 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
             );
             out.extend_from_slice(text.as_bytes());
         }
-        Value::Macro(_id) => {
+        ValueKind::Veclike(VecLikeType::Macro) => {
             let m = value.get_lambda_data().unwrap();
             let params = format_params(&m.params);
             let body = m
@@ -1156,30 +1157,30 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
                 .join(" ");
             out.extend_from_slice(format!("(macro {} {})", params, body).as_bytes());
         }
-        Value::Subr(id) => {
-            out.extend_from_slice(format!("#<subr {}>", resolve_sym(*id)).as_bytes())
+        ValueKind::Subr(id) => {
+            out.extend_from_slice(format!("#<subr {}>", resolve_sym(id)).as_bytes())
         }
-        Value::ByteCode(_id) => {
+        ValueKind::Veclike(VecLikeType::ByteCode) => {
             let bc = value.get_bytecode_data().unwrap();
             let params = format_params(&bc.params);
             out.extend_from_slice(
                 format!("#<bytecode {} ({} ops)>", params, bc.ops.len()).as_bytes(),
             );
         }
-        Value::Marker(_) => out.extend_from_slice(
+        ValueKind::Veclike(VecLikeType::Marker) => out.extend_from_slice(
             print_special_handle(value, None)
                 .unwrap_or_else(|| "#<marker>".to_string())
                 .as_bytes(),
         ),
-        Value::Overlay(_) => out.extend_from_slice(
+        ValueKind::Veclike(VecLikeType::Overlay) => out.extend_from_slice(
             print_special_handle(value, None)
                 .unwrap_or_else(|| "#<overlay>".to_string())
                 .as_bytes(),
         ),
-        Value::Buffer(id) => out.extend_from_slice(format!("#<buffer {}>", id.0).as_bytes()),
-        Value::Window(id) => out.extend_from_slice(format!("#<window {}>", id).as_bytes()),
-        Value::Frame(id) => out.extend_from_slice(format_frame_handle(*id).as_bytes()),
-        Value::Timer(id) => out.extend_from_slice(format!("#<timer {}>", id).as_bytes()),
+        ValueKind::Veclike(VecLikeType::Buffer) => out.extend_from_slice(format!("#<buffer {}>", id.0).as_bytes()),
+        ValueKind::Veclike(VecLikeType::Window) => out.extend_from_slice(format!("#<window {}>", id).as_bytes()),
+        ValueKind::Veclike(VecLikeType::Frame) => out.extend_from_slice(format_frame_handle(*id).as_bytes()),
+        ValueKind::Veclike(VecLikeType::Timer) => out.extend_from_slice(format!("#<timer {}>", id).as_bytes()),
     }
 }
 
@@ -1407,7 +1408,7 @@ fn format_interpreted_closure(lambda: &super::value::LambdaData, options: PrintO
     slots.push(format_params(&lambda.params));
     slots.push(format_lambda_body_forms(lambda.body.as_ref()));
     let env = lambda.env.expect("closure env");
-    slots.push(if env == Value::Nil {
+    slots.push(if env == Value::NIL {
         "(t)".to_string()
     } else {
         print_value_with_options(&env, options)
@@ -1431,8 +1432,8 @@ fn print_list_shorthand(value: &Value, options: PrintOptions) -> Option<String> 
         return None;
     }
 
-    let head = match &items[0] {
-        Value::Symbol(id) => resolve_sym(*id),
+    let head = match items[0].kind() {
+        ValueKind::Symbol(id) => resolve_sym(id),
         _ => return None,
     };
 
@@ -1474,8 +1475,8 @@ fn print_list_shorthand_bytes(value: &Value, options: PrintOptions) -> Option<Ve
         return None;
     }
 
-    let head = match &items[0] {
-        Value::Symbol(id) => resolve_sym(*id),
+    let head = match items[0].kind() {
+        ValueKind::Symbol(id) => resolve_sym(id),
         _ => return None,
     };
 
@@ -1517,8 +1518,8 @@ fn quote_payload(value: &Value) -> Option<Value> {
     if items.len() != 2 {
         return None;
     }
-    match &items[0] {
-        Value::Symbol(id) if resolve_sym(*id) == "quote" => Some(items[1]),
+    match items[0].kind() {
+        ValueKind::Symbol(id) if resolve_sym(id) == "quote" => Some(items[1]),
         _ => None,
     }
 }
@@ -1527,17 +1528,17 @@ fn print_cons(value: &Value, out: &mut String, options: PrintOptions) {
     let mut cursor = *value;
     let mut first = true;
     loop {
-        match cursor {
-            Value::Cons(cell) => {
+        match cursor.kind() {
+            ValueKind::Cons => {
                 if !first {
                     out.push(' ');
                 }
-                let pair = read_cons(cell);
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 out.push_str(&print_value_with_options(&pair.car, options));
                 cursor = pair.cdr;
                 first = false;
             }
-            Value::Nil => return,
+            ValueKind::Nil => return,
             other => {
                 if !first {
                     out.push_str(" . ");
@@ -1553,17 +1554,17 @@ fn print_cons_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOptions) {
     let mut cursor = *value;
     let mut first = true;
     loop {
-        match cursor {
-            Value::Cons(cell) => {
+        match cursor.kind() {
+            ValueKind::Cons => {
                 if !first {
                     out.push(b' ');
                 }
-                let pair = read_cons(cell);
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 append_print_value_bytes(&pair.car, out, options);
                 cursor = pair.cdr;
                 first = false;
             }
-            Value::Nil => return,
+            ValueKind::Nil => return,
             other => {
                 if !first {
                     out.extend_from_slice(b" . ");
@@ -1585,8 +1586,8 @@ fn format_bool_vector(value: &Value, nbits: usize) -> String {
 
 /// Append bool-vector bytes as `#&N"..."`.
 fn append_bool_vector_bytes(value: &Value, nbits: usize, out: &mut Vec<u8>) {
-    let items = match value {
-        Value::Vector(v) => with_heap(|h| h.get_vector(*v).clone()),
+    let items = match value.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => with_heap(|h| h.get_vector(*v).clone()),
         _ => return,
     };
     // items[0] = tag, items[1] = size, items[2..] = individual bit values
@@ -1604,7 +1605,7 @@ fn append_bool_vector_bytes(value: &Value, nbits: usize, out: &mut Vec<u8>) {
                 break;
             }
             let is_set = match items.get(2 + overall_bit) {
-                Some(Value::Int(n)) => *n != 0,
+                Some(ValueKind::Fixnum(n)) => *n != 0,
                 Some(v) => v.is_truthy(),
                 None => false,
             };

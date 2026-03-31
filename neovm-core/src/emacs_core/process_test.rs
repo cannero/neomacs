@@ -129,16 +129,16 @@ fn gnu_timer_before(delay: Duration, callback: &str) -> Value {
     let secs = when.as_secs() as i64;
 
     Value::vector(vec![
-        Value::Nil,
-        Value::Int(secs >> 16),
-        Value::Int(secs & 0xFFFF),
-        Value::Int(when.subsec_micros() as i64),
-        Value::Nil,
+        Value::NIL,
+        Value::fixnum(secs >> 16),
+        Value::fixnum(secs & 0xFFFF),
+        Value::fixnum(when.subsec_micros() as i64),
+        Value::NIL,
         Value::symbol(callback),
-        Value::Nil,
-        Value::Nil,
-        Value::Int(0),
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::fixnum(0),
+        Value::NIL,
     ])
 }
 
@@ -439,9 +439,9 @@ fn call_process_display_requests_redisplay_after_buffer_insert() {
         &mut ev,
         vec![
             Value::string(echo),
-            Value::Nil,
-            Value::True,
-            Value::True,
+            Value::NIL,
+            Value::T,
+            Value::T,
             Value::string("hello"),
         ],
     )
@@ -588,11 +588,11 @@ fn call_process_region_display_requests_redisplay_after_buffer_insert() {
         &mut ev,
         vec![
             Value::string("xyz"),
-            Value::Nil,
+            Value::NIL,
             Value::string(cat),
-            Value::Nil,
-            Value::True,
-            Value::True,
+            Value::NIL,
+            Value::T,
+            Value::T,
         ],
     )
     .expect("call-process-region should succeed");
@@ -1382,10 +1382,10 @@ fn accept_process_output_integer_just_this_one_suppresses_timers() {
     let first = builtin_accept_process_output(
         &mut ev,
         vec![
-            Value::Int(pid as i64),
-            Value::Float(0.0, next_float_id()),
-            Value::Nil,
-            Value::Int(1),
+            Value::fixnum(pid as i64),
+            Value::make_float(0.0),
+            Value::NIL,
+            Value::fixnum(1),
         ],
     )
     .expect("accept-process-output with integer just-this-one");
@@ -1394,17 +1394,17 @@ fn accept_process_output_integer_just_this_one_suppresses_timers() {
         .expect("timer flag after timer-suppressed wait");
     let second = builtin_accept_process_output(
         &mut ev,
-        vec![Value::Nil, Value::Float(0.0, next_float_id())],
+        vec![Value::NIL, Value::make_float(0.0)],
     )
     .expect("accept-process-output should service timers without target restriction");
     let after_second = ev
         .eval_symbol("apio-wait-timer-fired")
         .expect("timer flag after unrestricted wait");
 
-    assert_eq!(first, Value::Nil);
-    assert_eq!(after_first, Value::Nil);
-    assert_eq!(second, Value::Nil);
-    assert_eq!(after_second, Value::True);
+    assert_eq!(first, Value::NIL);
+    assert_eq!(after_first, Value::NIL);
+    assert_eq!(second, Value::NIL);
+    assert_eq!(after_second, Value::T);
 }
 
 #[test]
@@ -1429,7 +1429,7 @@ fn accept_process_output_timer_preserves_deactivate_mark_like_gnu() {
 
     builtin_accept_process_output(
         &mut ev,
-        vec![Value::Nil, Value::Float(0.05, next_float_id())],
+        vec![Value::NIL, Value::make_float(0.05)],
     )
     .expect("accept-process-output should service timer");
 
@@ -1476,18 +1476,18 @@ fn accept_process_output_runs_timer_before_filter_and_sentinel_like_gnu() {
         .expect("spawn ordering process");
     builtin_set_process_filter(
         &mut ev,
-        vec![Value::Int(pid as i64), Value::symbol("apio-order-filter")],
+        vec![Value::fixnum(pid as i64), Value::symbol("apio-order-filter")],
     )
     .expect("install ordering filter");
     builtin_set_process_sentinel(
         &mut ev,
-        vec![Value::Int(pid as i64), Value::symbol("apio-order-sentinel")],
+        vec![Value::fixnum(pid as i64), Value::symbol("apio-order-sentinel")],
     )
     .expect("install ordering sentinel");
 
     let first = builtin_accept_process_output(
         &mut ev,
-        vec![Value::Int(pid as i64), Value::Float(0.1, next_float_id())],
+        vec![Value::fixnum(pid as i64), Value::make_float(0.1)],
     )
     .expect("first accept-process-output");
     let events_after_first = ev
@@ -1495,15 +1495,15 @@ fn accept_process_output_runs_timer_before_filter_and_sentinel_like_gnu() {
         .expect("ordering event list after first wait");
     let second = builtin_accept_process_output(
         &mut ev,
-        vec![Value::Int(pid as i64), Value::Float(0.1, next_float_id())],
+        vec![Value::fixnum(pid as i64), Value::make_float(0.1)],
     )
     .expect("second accept-process-output");
     let events_after_second = ev
         .eval_symbol("apio-order-events")
         .expect("ordering event list");
 
-    assert_eq!(first, Value::True);
-    assert_eq!(second, Value::Nil);
+    assert_eq!(first, Value::T);
+    assert_eq!(second, Value::NIL);
     assert_eq!(
         format!("{}", events_after_first),
         r#"(timer (filter "out
@@ -1576,7 +1576,7 @@ fn accept_process_output_runs_gnu_timer_then_internal_timer_before_process_callb
     builtin_set_process_filter(
         &mut ev,
         vec![
-            Value::Int(pid as i64),
+            Value::fixnum(pid as i64),
             Value::symbol("apio-full-order-filter"),
         ],
     )
@@ -1584,7 +1584,7 @@ fn accept_process_output_runs_gnu_timer_then_internal_timer_before_process_callb
     builtin_set_process_sentinel(
         &mut ev,
         vec![
-            Value::Int(pid as i64),
+            Value::fixnum(pid as i64),
             Value::symbol("apio-full-order-sentinel"),
         ],
     )
@@ -1592,14 +1592,14 @@ fn accept_process_output_runs_gnu_timer_then_internal_timer_before_process_callb
 
     let first = builtin_accept_process_output(
         &mut ev,
-        vec![Value::Int(pid as i64), Value::Float(0.1, next_float_id())],
+        vec![Value::fixnum(pid as i64), Value::make_float(0.1)],
     )
     .expect("accept-process-output with mixed timer sources");
     let events_after_first = ev
         .eval_symbol("apio-full-order")
         .expect("mixed ordering event list");
 
-    assert_eq!(first, Value::True);
+    assert_eq!(first, Value::T);
     assert_eq!(
         format!("{}", events_after_first),
         r#"(gnu rust (filter "out
@@ -1624,18 +1624,18 @@ fn accept_process_output_runs_default_process_filter() {
         .expect("spawn output process");
 
     assert_eq!(
-        builtin_process_filter(&mut ev, vec![Value::Int(pid as i64)]).expect("process-filter"),
+        builtin_process_filter(&mut ev, vec![Value::fixnum(pid as i64)]).expect("process-filter"),
         Value::symbol("internal-default-process-filter")
     );
 
     let first = builtin_accept_process_output(
         &mut ev,
-        vec![Value::Int(pid as i64), Value::Float(0.1, next_float_id())],
+        vec![Value::fixnum(pid as i64), Value::make_float(0.1)],
     )
     .expect("first accept-process-output");
     let second = builtin_accept_process_output(
         &mut ev,
-        vec![Value::Int(pid as i64), Value::Float(0.1, next_float_id())],
+        vec![Value::fixnum(pid as i64), Value::make_float(0.1)],
     )
     .expect("second accept-process-output");
     let buf_id = ev
@@ -1648,8 +1648,8 @@ fn accept_process_output_runs_default_process_filter() {
         .expect("process buffer")
         .buffer_string();
 
-    assert_eq!(first, Value::True);
-    assert_eq!(second, Value::Nil);
+    assert_eq!(first, Value::T);
+    assert_eq!(second, Value::NIL);
     assert_eq!(text, "out\n");
 }
 
@@ -1683,20 +1683,20 @@ fn accept_process_output_restores_current_buffer_and_match_data() {
         .expect("spawn restore process");
     builtin_set_process_filter(
         &mut ev,
-        vec![Value::Int(pid as i64), Value::symbol("apio-restore-filter")],
+        vec![Value::fixnum(pid as i64), Value::symbol("apio-restore-filter")],
     )
     .expect("install process filter");
 
     let result = builtin_accept_process_output(
         &mut ev,
-        vec![Value::Int(pid as i64), Value::Float(0.1, next_float_id())],
+        vec![Value::fixnum(pid as i64), Value::make_float(0.1)],
     )
     .expect("accept-process-output with restoring filter");
     let after_match_data = ev
         .eval_expr(&before_match[0])
         .expect("capture match-data after callback");
 
-    assert_eq!(result, Value::True);
+    assert_eq!(result, Value::T);
     assert_eq!(ev.buffers.current_buffer_id(), before_buffer);
     assert_eq!(after_match_data, before_match_data);
 }
@@ -1865,13 +1865,13 @@ fn sleep_for_uses_shared_wait_path_for_process_output_and_timers() {
         .expect("spawn sleep-for process");
     builtin_set_process_filter(
         &mut ev,
-        vec![Value::Int(pid as i64), Value::symbol("sleep-shared-filter")],
+        vec![Value::fixnum(pid as i64), Value::symbol("sleep-shared-filter")],
     )
     .expect("install sleep-for process filter");
     ev.timers
         .add_timer(0.0, 0.0, Value::symbol("sleep-shared-timer"), vec![], false);
 
-    crate::emacs_core::timer::builtin_sleep_for(&mut ev, vec![Value::Float(0.05, next_float_id())])
+    crate::emacs_core::timer::builtin_sleep_for(&mut ev, vec![Value::make_float(0.05)])
         .expect("sleep-for should use the shared wait path");
 
     assert_eq!(
@@ -1914,7 +1914,7 @@ fn accept_process_output_services_pending_resize_from_shared_wait_path() {
 
     let result = builtin_accept_process_output(
         &mut ev,
-        vec![Value::Nil, Value::Float(0.01, next_float_id())],
+        vec![Value::NIL, Value::make_float(0.01)],
     )
     .expect("accept-process-output should service wait-path special input");
     drop(tx);
@@ -1924,9 +1924,9 @@ fn accept_process_output_services_pending_resize_from_shared_wait_path() {
     let height = crate::emacs_core::window_cmds::builtin_frame_native_height(&mut ev, vec![])
         .expect("frame-native-height should succeed");
 
-    assert_eq!(result, Value::Nil);
-    assert_eq!(width, Value::Int(700));
-    assert_eq!(height, Value::Int(800));
+    assert_eq!(result, Value::NIL);
+    assert_eq!(width, Value::fixnum(700));
+    assert_eq!(height, Value::fixnum(800));
 }
 
 #[test]
@@ -1957,7 +1957,7 @@ fn accept_process_output_services_resize_arriving_during_wait() {
 
     let result = builtin_accept_process_output(
         &mut ev,
-        vec![Value::Nil, Value::Float(0.05, next_float_id())],
+        vec![Value::NIL, Value::make_float(0.05)],
     )
     .expect("accept-process-output should service resize arriving during wait");
     resize_thread.join().expect("resize sender thread");
@@ -1968,9 +1968,9 @@ fn accept_process_output_services_resize_arriving_during_wait() {
     let height = crate::emacs_core::window_cmds::builtin_frame_native_height(&mut ev, vec![])
         .expect("frame-native-height should succeed");
 
-    assert_eq!(result, Value::Nil);
-    assert_eq!(width, Value::Int(710));
-    assert_eq!(height, Value::Int(820));
+    assert_eq!(result, Value::NIL);
+    assert_eq!(width, Value::fixnum(710));
+    assert_eq!(height, Value::fixnum(820));
 }
 
 #[test]
@@ -1991,12 +1991,12 @@ fn accept_process_output_window_close_uses_special_event_map_handler_when_loaded
 
     let result = builtin_accept_process_output(
         &mut ev,
-        vec![Value::Nil, Value::Float(0.0, next_float_id())],
+        vec![Value::NIL, Value::make_float(0.0)],
     )
     .expect("accept-process-output should consume handled window close");
     drop(tx);
 
-    assert_eq!(result, Value::Nil);
+    assert_eq!(result, Value::NIL);
     let logged = ev
         .eval_symbol("neo-last-delete-frame-event")
         .expect("delete-frame event should be logged");
@@ -2004,7 +2004,7 @@ fn accept_process_output_window_close_uses_special_event_map_handler_when_loaded
         logged,
         Value::list(vec![
             Value::symbol("delete-frame"),
-            Value::list(vec![Value::Frame(frame.0)]),
+            Value::list(vec![Value::make_frame(frame.0)]),
         ]),
     );
 }
@@ -2019,7 +2019,7 @@ fn accept_process_output_window_close_quits_without_special_handler() {
 
     let flow = builtin_accept_process_output(
         &mut ev,
-        vec![Value::Nil, Value::Float(0.0, next_float_id())],
+        vec![Value::NIL, Value::make_float(0.0)],
     )
     .expect_err("unhandled window close should still quit");
     drop(tx);
@@ -2039,18 +2039,18 @@ fn accept_process_output_window_close_honors_throw_on_input_before_quit() {
 
     let flow = builtin_accept_process_output(
         &mut ev,
-        vec![Value::Nil, Value::Float(0.0, next_float_id())],
+        vec![Value::NIL, Value::make_float(0.0)],
     )
     .expect_err("throw-on-input should interrupt accept-process-output");
     assert!(matches!(
         flow,
-        Flow::Throw { tag, value } if tag == Value::symbol("tag") && value == Value::True
+        Flow::Throw { tag, value } if tag == Value::symbol("tag") && value == Value::T
     ));
 
-    ev.obarray.set_symbol_value("throw-on-input", Value::Nil);
+    ev.obarray.set_symbol_value("throw-on-input", Value::NIL);
     let flow = builtin_accept_process_output(
         &mut ev,
-        vec![Value::Nil, Value::Float(0.0, next_float_id())],
+        vec![Value::NIL, Value::make_float(0.0)],
     )
     .expect_err("window close should still quit afterwards");
     drop(tx);

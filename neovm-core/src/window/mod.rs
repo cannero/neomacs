@@ -110,16 +110,16 @@ pub struct WindowDisplayState {
 impl Default for WindowDisplayState {
     fn default() -> Self {
         Self {
-            display_table: Value::Nil,
-            cursor_type: Value::True,
+            display_table: Value::NIL,
+            cursor_type: Value::T,
             left_fringe_width: -1,
             right_fringe_width: -1,
             fringes_outside_margins: false,
             fringes_persistent: false,
             scroll_bar_width: -1,
-            vertical_scroll_bar_type: Value::True,
+            vertical_scroll_bar_type: Value::T,
             scroll_bar_height: -1,
-            horizontal_scroll_bar_type: Value::True,
+            horizontal_scroll_bar_type: Value::T,
             scroll_bars_persistent: false,
         }
     }
@@ -136,8 +136,8 @@ pub struct WindowHistoryState {
 impl Default for WindowHistoryState {
     fn default() -> Self {
         Self {
-            prev_buffers: Value::Nil,
-            next_buffers: Value::Nil,
+            prev_buffers: Value::NIL,
+            next_buffers: Value::NIL,
             use_time: 0,
         }
     }
@@ -924,7 +924,7 @@ impl Frame {
 
     pub fn clear_realized_faces(&mut self) {
         self.realized_faces.clear();
-        if let Value::HashTable(table_id) = self.face_hash_table {
+        if self.face_hash_table.is_hash_table() /* TODO(tagged): `table_id` was Value::HashTable(table_id), now use accessor */ {
             with_heap_mut(|heap| {
                 let table = heap.get_hash_table_mut(table_id);
                 table.data.clear();
@@ -1078,9 +1078,9 @@ impl Frame {
         let text_lines = (root_height / char_height).floor().max(1.0) as i64;
         let total_lines = text_lines.saturating_add(1);
         self.parameters
-            .insert("width".to_string(), Value::Int(cols));
+            .insert("width".to_string(), Value::fixnum(cols));
         self.parameters
-            .insert("height".to_string(), Value::Int(total_lines));
+            .insert("height".to_string(), Value::fixnum(total_lines));
     }
 }
 
@@ -1989,16 +1989,16 @@ mod tests {
                 .find_window_mut(wid)
                 .and_then(Window::display_mut)
                 .expect("leaf display");
-            display.display_table = Value::Int(17);
-            display.cursor_type = Value::Nil;
+            display.display_table = Value::fixnum(17);
+            display.cursor_type = Value::NIL;
             display.left_fringe_width = 3;
             display.right_fringe_width = 5;
             display.fringes_outside_margins = true;
             display.fringes_persistent = true;
             display.scroll_bar_width = 11;
-            display.vertical_scroll_bar_type = Value::True;
+            display.vertical_scroll_bar_type = Value::T;
             display.scroll_bar_height = 7;
-            display.horizontal_scroll_bar_type = Value::Nil;
+            display.horizontal_scroll_bar_type = Value::NIL;
             display.scroll_bars_persistent = true;
         }
 
@@ -2023,10 +2023,10 @@ mod tests {
             .and_then(Window::display)
             .expect("new display");
 
-        assert_eq!(original_display.display_table, Value::Int(17));
-        assert_eq!(new_display.display_table, Value::Int(17));
-        assert_eq!(original_display.cursor_type, Value::Nil);
-        assert_eq!(new_display.cursor_type, Value::Nil);
+        assert_eq!(original_display.display_table, Value::fixnum(17));
+        assert_eq!(new_display.display_table, Value::fixnum(17));
+        assert_eq!(original_display.cursor_type, Value::NIL);
+        assert_eq!(new_display.cursor_type, Value::NIL);
         assert_eq!(original_display.left_fringe_width, 3);
         assert_eq!(new_display.left_fringe_width, 3);
         assert_eq!(original_display.right_fringe_width, 5);
@@ -2037,12 +2037,12 @@ mod tests {
         assert!(new_display.fringes_persistent);
         assert_eq!(original_display.scroll_bar_width, 11);
         assert_eq!(new_display.scroll_bar_width, 11);
-        assert_eq!(original_display.vertical_scroll_bar_type, Value::True);
-        assert_eq!(new_display.vertical_scroll_bar_type, Value::True);
+        assert_eq!(original_display.vertical_scroll_bar_type, Value::T);
+        assert_eq!(new_display.vertical_scroll_bar_type, Value::T);
         assert_eq!(original_display.scroll_bar_height, 7);
         assert_eq!(new_display.scroll_bar_height, 7);
-        assert_eq!(original_display.horizontal_scroll_bar_type, Value::Nil);
-        assert_eq!(new_display.horizontal_scroll_bar_type, Value::Nil);
+        assert_eq!(original_display.horizontal_scroll_bar_type, Value::NIL);
+        assert_eq!(new_display.horizontal_scroll_bar_type, Value::NIL);
         assert!(original_display.scroll_bars_persistent);
         assert!(new_display.scroll_bars_persistent);
     }
@@ -2225,13 +2225,13 @@ mod tests {
         let wid = mgr.get(fid).unwrap().window_list()[0];
 
         let key = Value::symbol("my-param");
-        let val = Value::Int(42);
+        let val = Value::fixnum(42);
 
         // Initially no parameter
         assert!(mgr.window_parameter(wid, &key).is_none());
 
         mgr.set_window_parameter(wid, key, val);
-        assert_eq!(mgr.window_parameter(wid, &key), Some(Value::Int(42)));
+        assert_eq!(mgr.window_parameter(wid, &key), Some(Value::fixnum(42)));
     }
 
     #[test]
@@ -2241,12 +2241,12 @@ mod tests {
         let wid = mgr.get(fid).unwrap().window_list()[0];
         let key = Value::symbol("my-param");
 
-        mgr.set_window_parameter(wid, key, Value::Int(42));
+        mgr.set_window_parameter(wid, key, Value::fixnum(42));
         let new_wid = mgr
             .split_window(fid, wid, SplitDirection::Horizontal, BufferId(2), None)
             .expect("split");
 
-        assert_eq!(mgr.window_parameter(wid, &key), Some(Value::Int(42)));
+        assert_eq!(mgr.window_parameter(wid, &key), Some(Value::fixnum(42)));
         assert_eq!(mgr.window_parameter(new_wid, &key), None);
     }
 
@@ -2260,9 +2260,9 @@ mod tests {
             .expect("split");
         let key = Value::symbol("deleted-param");
 
-        mgr.set_window_parameter(other, key, Value::Int(7));
+        mgr.set_window_parameter(other, key, Value::fixnum(7));
         assert!(mgr.delete_window(fid, other));
-        assert_eq!(mgr.window_parameter(other, &key), Some(Value::Int(7)));
+        assert_eq!(mgr.window_parameter(other, &key), Some(Value::fixnum(7)));
     }
 
     #[test]
@@ -2395,8 +2395,8 @@ mod tests {
         assert_eq!(frame.width, 400);
         assert_eq!(frame.height, 260);
         assert!(frame.display_snapshots.is_empty());
-        assert_eq!(frame.parameters.get("width"), Some(&Value::Int(40)));
-        assert_eq!(frame.parameters.get("height"), Some(&Value::Int(13)));
+        assert_eq!(frame.parameters.get("width"), Some(&Value::fixnum(40)));
+        assert_eq!(frame.parameters.get("height"), Some(&Value::fixnum(13)));
 
         let root_bounds = *frame.root_window.bounds();
         assert_eq!(root_bounds, Rect::new(0.0, 0.0, 400.0, 244.0));
@@ -2435,7 +2435,7 @@ mod tests {
         frame.char_height = 20.0;
         frame
             .parameters
-            .insert("tab-bar-lines".to_string(), Value::Int(1));
+            .insert("tab-bar-lines".to_string(), Value::fixnum(1));
 
         frame.sync_tab_bar_height_from_parameters();
         frame.resize_pixelwise(400, 260);
@@ -2449,6 +2449,6 @@ mod tests {
             *frame.minibuffer_leaf.as_ref().unwrap().bounds(),
             Rect::new(0.0, 244.0, 400.0, 16.0)
         );
-        assert_eq!(frame.parameters.get("height"), Some(&Value::Int(12)));
+        assert_eq!(frame.parameters.get("height"), Some(&Value::fixnum(12)));
     }
 }

@@ -9,13 +9,13 @@ use std::env;
 use std::path::{Path, PathBuf};
 
 use super::error::{EvalResult, Flow, signal};
-use super::value::Value;
+use super::value::{Value, ValueKind};
 
 fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -26,7 +26,7 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
     if args.len() < min || args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -34,8 +34,8 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 }
 
 fn expect_string(value: &Value) -> Result<String, Flow> {
-    match value {
-        Value::Str(id) => Ok(crate::emacs_core::value::with_heap(|h| {
+    match value.kind() {
+        ValueKind::String => Ok(crate::emacs_core::value::with_heap(|h| {
             h.get_string(*id).to_owned()
         })),
         other => Err(signal(
@@ -46,8 +46,8 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
 }
 
 fn expect_subr(value: &Value) -> Result<(), Flow> {
-    match value {
-        Value::Subr(_) => Ok(()),
+    match value.kind() {
+        ValueKind::Subr(_) => Ok(()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("subrp"), *other],
@@ -81,43 +81,43 @@ fn ensure_existing_file(path: &str) -> Result<PathBuf, Flow> {
 /// `(comp--compile-ctxt-to-file0 CTXT)` -- no-op native compilation compatibility entry.
 pub(crate) fn builtin_comp_compile_ctxt_to_file0(args: Vec<Value>) -> EvalResult {
     expect_args("comp--compile-ctxt-to-file0", &args, 1)?;
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 /// `(comp--init-ctxt)` -- initialize native compilation context.
 pub(crate) fn builtin_comp_init_ctxt(args: Vec<Value>) -> EvalResult {
     expect_args("comp--init-ctxt", &args, 0)?;
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 /// `(comp--install-trampoline FUN TARGET)` -- no-op in NeoVM.
 pub(crate) fn builtin_comp_install_trampoline(args: Vec<Value>) -> EvalResult {
     expect_args("comp--install-trampoline", &args, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(comp--late-register-subr ...)` -- no-op in NeoVM.
 pub(crate) fn builtin_comp_late_register_subr(args: Vec<Value>) -> EvalResult {
     expect_args("comp--late-register-subr", &args, 7)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(comp--register-lambda ...)` -- no-op in NeoVM.
 pub(crate) fn builtin_comp_register_lambda(args: Vec<Value>) -> EvalResult {
     expect_args("comp--register-lambda", &args, 7)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(comp--register-subr ...)` -- no-op in NeoVM.
 pub(crate) fn builtin_comp_register_subr(args: Vec<Value>) -> EvalResult {
     expect_args("comp--register-subr", &args, 7)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(comp--release-ctxt)` -- release native compilation context.
 pub(crate) fn builtin_comp_release_ctxt(args: Vec<Value>) -> EvalResult {
     expect_args("comp--release-ctxt", &args, 0)?;
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 /// `(comp--subr-signature SUBR)` -- return native signature metadata.
@@ -126,7 +126,7 @@ pub(crate) fn builtin_comp_release_ctxt(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_comp_subr_signature(args: Vec<Value>) -> EvalResult {
     expect_args("comp--subr-signature", &args, 1)?;
     expect_subr(&args[0])?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(comp-el-to-eln-filename FILE &optional OUTPUT-DIR)` -- map .el -> .eln.
@@ -152,22 +152,22 @@ pub(crate) fn builtin_comp_el_to_eln_rel_filename(args: Vec<Value>) -> EvalResul
 pub(crate) fn builtin_comp_libgccjit_version(args: Vec<Value>) -> EvalResult {
     expect_args("comp-libgccjit-version", &args, 0)?;
     Ok(Value::list(vec![
-        Value::Int(14),
-        Value::Int(3),
-        Value::Int(0),
+        Value::fixnum(14),
+        Value::fixnum(3),
+        Value::fixnum(0),
     ]))
 }
 
 /// `(comp-native-compiler-options-effective-p)` -- options are effective.
 pub(crate) fn builtin_comp_native_compiler_options_effective_p(args: Vec<Value>) -> EvalResult {
     expect_args("comp-native-compiler-options-effective-p", &args, 0)?;
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 /// `(comp-native-driver-options-effective-p)` -- options are effective.
 pub(crate) fn builtin_comp_native_driver_options_effective_p(args: Vec<Value>) -> EvalResult {
     expect_args("comp-native-driver-options-effective-p", &args, 0)?;
-    Ok(Value::True)
+    Ok(Value::T)
 }
 #[cfg(test)]
 #[path = "comp_test.rs"]

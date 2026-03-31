@@ -16,9 +16,9 @@ pub(crate) const KEY_CHAR_MOD_MASK: i64 =
 pub(crate) const KEY_CHAR_CODE_MASK: i64 = 0x3FFFFF;
 
 fn event_char_code(event: &Value) -> Option<i64> {
-    match event {
-        Value::Char(ch) => Some(i64::from(*ch as u32)),
-        Value::Int(code) if *code >= 0 => Some(*code),
+    match event.kind() {
+        ValueKind::Char(ch) => Some(i64::from(ch as u32)),
+        ValueKind::Fixnum(code) if code >= 0 => Some(code),
         _ => None,
     }
 }
@@ -213,14 +213,14 @@ fn describe_int_key(code: i64) -> Result<String, Flow> {
 }
 
 pub(crate) fn describe_single_key_value(value: &Value, no_angles: bool) -> Result<String, Flow> {
-    match value {
-        Value::Int(n) => describe_int_key(*n),
-        Value::Char(c) => describe_int_key(*c as i64),
-        Value::Symbol(id) => Ok(describe_symbol_key(resolve_sym(*id), no_angles)),
-        Value::True => Ok(describe_symbol_key("t", no_angles)),
-        Value::Nil => Ok(describe_symbol_key("nil", no_angles)),
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
-        Value::Cons(_) => {
+    match value.kind() {
+        ValueKind::Fixnum(n) => describe_int_key(n),
+        ValueKind::Char(c) => describe_int_key(c as i64),
+        ValueKind::Symbol(id) => Ok(describe_symbol_key(resolve_sym(id), no_angles)),
+        ValueKind::T => Ok(describe_symbol_key("t", no_angles)),
+        ValueKind::Nil => Ok(describe_symbol_key("nil", no_angles)),
+        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::Cons => {
             let items = list_to_vec(value).ok_or_else(invalid_single_key_error)?;
             if items.len() == 1 {
                 return describe_single_key_value(&items[0], no_angles);
@@ -236,19 +236,19 @@ pub(crate) fn describe_single_key_value(value: &Value, no_angles: bool) -> Resul
 }
 
 pub(crate) fn key_sequence_values(value: &Value) -> Result<Vec<Value>, Flow> {
-    match value {
-        Value::Nil => Ok(vec![]),
-        Value::Str(id) => {
+    match value.kind() {
+        ValueKind::Nil => Ok(vec![]),
+        ValueKind::String => {
             let s = with_heap(|h| h.get_string(*id).to_owned());
             Ok(s.chars().map(|ch| Value::Int(ch as i64)).collect())
         }
-        Value::Vector(v) => {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let elems = with_heap(|h| h.get_vector(*v).clone());
             // Convert any Lucid-style event lists inside the vector
             let converted: Vec<Value> = elems
                 .into_iter()
                 .map(|e| {
-                    if let Value::Cons(_) = &e {
+                    if &e.is_cons() /* TODO(tagged): `_` was ValueKind::Cons, now use accessor */ {
                         if let Some(items) = list_to_vec(&e) {
                             if items.len() > 1 {
                                 if let Some(c) = convert_lucid_event_list(&items) {
@@ -262,7 +262,7 @@ pub(crate) fn key_sequence_values(value: &Value) -> Result<Vec<Value>, Flow> {
                 .collect();
             Ok(converted)
         }
-        Value::Cons(_) => list_to_vec(value).ok_or_else(|| {
+        ValueKind::Cons => list_to_vec(value).ok_or_else(|| {
             signal(
                 "wrong-type-argument",
                 vec![Value::symbol("sequencep"), *value],
@@ -334,11 +334,11 @@ pub(crate) fn convert_lucid_event_list(items: &[Value]) -> Option<Value> {
 
     let base = base?;
 
-    match base {
-        Value::Int(_) | Value::Char(_) => {
+    match base.kind() {
+        ValueKind::Fixnum(_) | ValueKind::Char(_) => {
             let mut code = match base {
-                Value::Int(i) => i,
-                Value::Char(c) => c as i64,
+                ValueKind::Fixnum(i) => i,
+                ValueKind::Char(c) => c as i64,
                 _ => unreachable!(),
             };
 
@@ -363,7 +363,7 @@ pub(crate) fn convert_lucid_event_list(items: &[Value]) -> Option<Value> {
             }
             Some(Value::Int(code | mod_bits))
         }
-        Value::Symbol(id) => {
+        ValueKind::Symbol(id) => {
             let name = resolve_sym(id);
             if mod_bits == 0 {
                 Some(Value::symbol(name))
@@ -423,31 +423,31 @@ pub(crate) fn symbol_has_modifier_prefix(name: &str) -> bool {
 }
 
 pub(crate) fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray) {
-    use crate::emacs_core::value::Value;
+    use crate::emacs_core::value::{Value, ValueKind, VecLikeType};
 
-    obarray.set_symbol_value("help-char", Value::Int(8)); // Ctrl-H, keyboard.c:13058
-    obarray.set_symbol_value("help-form", Value::Nil);
-    obarray.set_symbol_value("help-event-list", Value::Nil);
-    obarray.set_symbol_value("suggest-key-bindings", Value::True);
-    obarray.set_symbol_value("timer-idle-list", Value::Nil);
-    obarray.set_symbol_value("timer-list", Value::Nil);
-    obarray.set_symbol_value("input-method-previous-message", Value::Nil);
-    obarray.set_symbol_value("auto-save-interval", Value::Int(300));
-    obarray.set_symbol_value("auto-save-timeout", Value::Int(30));
-    obarray.set_symbol_value("echo-keystrokes", Value::Int(1));
-    obarray.set_symbol_value("polling-period", Value::Int(2));
-    obarray.set_symbol_value("double-click-time", Value::Int(500));
-    obarray.set_symbol_value("double-click-fuzz", Value::Int(3));
-    obarray.set_symbol_value("num-input-keys", Value::Int(0));
-    obarray.set_symbol_value("num-nonmacro-input-events", Value::Int(0));
-    obarray.set_symbol_value("last-event-frame", Value::Nil);
-    obarray.set_symbol_value("tty-erase-char", Value::Int(0));
-    obarray.set_symbol_value("extra-keyboard-modifiers", Value::Int(0));
-    obarray.set_symbol_value("inhibit-local-menu-bar-menus", Value::Nil);
-    obarray.set_symbol_value("meta-prefix-char", Value::Int(27));
-    obarray.set_symbol_value("enable-disabled-menus-and-buttons", Value::Nil);
+    obarray.set_symbol_value("help-char", Value::fixnum(8)); // Ctrl-H, keyboard.c:13058
+    obarray.set_symbol_value("help-form", Value::NIL);
+    obarray.set_symbol_value("help-event-list", Value::NIL);
+    obarray.set_symbol_value("suggest-key-bindings", Value::T);
+    obarray.set_symbol_value("timer-idle-list", Value::NIL);
+    obarray.set_symbol_value("timer-list", Value::NIL);
+    obarray.set_symbol_value("input-method-previous-message", Value::NIL);
+    obarray.set_symbol_value("auto-save-interval", Value::fixnum(300));
+    obarray.set_symbol_value("auto-save-timeout", Value::fixnum(30));
+    obarray.set_symbol_value("echo-keystrokes", Value::fixnum(1));
+    obarray.set_symbol_value("polling-period", Value::fixnum(2));
+    obarray.set_symbol_value("double-click-time", Value::fixnum(500));
+    obarray.set_symbol_value("double-click-fuzz", Value::fixnum(3));
+    obarray.set_symbol_value("num-input-keys", Value::fixnum(0));
+    obarray.set_symbol_value("num-nonmacro-input-events", Value::fixnum(0));
+    obarray.set_symbol_value("last-event-frame", Value::NIL);
+    obarray.set_symbol_value("tty-erase-char", Value::fixnum(0));
+    obarray.set_symbol_value("extra-keyboard-modifiers", Value::fixnum(0));
+    obarray.set_symbol_value("inhibit-local-menu-bar-menus", Value::NIL);
+    obarray.set_symbol_value("meta-prefix-char", Value::fixnum(27));
+    obarray.set_symbol_value("enable-disabled-menus-and-buttons", Value::NIL);
     obarray.set_symbol_value("select-active-regions", Value::symbol("only"));
-    obarray.set_symbol_value("saved-region-selection", Value::Nil);
+    obarray.set_symbol_value("saved-region-selection", Value::NIL);
     obarray.set_symbol_value(
         "selection-inhibit-update-commands",
         Value::list(vec![
@@ -457,11 +457,11 @@ pub(crate) fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::O
             Value::symbol("handle-focus-out"),
         ]),
     );
-    obarray.set_symbol_value("minor-mode-map-alist", Value::Nil);
+    obarray.set_symbol_value("minor-mode-map-alist", Value::NIL);
     obarray.make_special("minor-mode-map-alist");
-    obarray.set_symbol_value("minor-mode-overriding-map-alist", Value::Nil);
+    obarray.set_symbol_value("minor-mode-overriding-map-alist", Value::NIL);
     obarray.make_special("minor-mode-overriding-map-alist");
-    obarray.set_symbol_value("emulation-mode-map-alists", Value::Nil);
+    obarray.set_symbol_value("emulation-mode-map-alists", Value::NIL);
     obarray.make_special("emulation-mode-map-alists");
 }
 #[cfg(test)]

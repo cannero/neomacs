@@ -22,7 +22,7 @@ impl FrameManager {
     pub fn window_prev_buffers(&self, window_id: WindowId) -> Value {
         self.live_window_history(window_id)
             .map(|history| history.prev_buffers)
-            .unwrap_or(Value::Nil)
+            .unwrap_or(Value::NIL)
     }
 
     /// Set previous-buffer list object for WINDOW-ID.
@@ -36,7 +36,7 @@ impl FrameManager {
     pub fn window_next_buffers(&self, window_id: WindowId) -> Value {
         self.live_window_history(window_id)
             .map(|history| history.next_buffers)
-            .unwrap_or(Value::Nil)
+            .unwrap_or(Value::NIL)
     }
 
     /// Set next-buffer list object for WINDOW-ID.

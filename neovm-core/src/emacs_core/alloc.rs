@@ -9,10 +9,10 @@ use crate::emacs_core::value::{Value, list_to_vec, next_float_id};
 
 /// Register bootstrap variables owned by the allocation / GC subsystem.
 pub fn register_bootstrap_vars(obarray: &mut Obarray) {
-    obarray.set_symbol_value("gc-cons-threshold", Value::Int(800_000));
-    obarray.set_symbol_value("gc-cons-percentage", Value::Float(0.1, next_float_id()));
-    obarray.set_symbol_value("garbage-collection-messages", Value::Nil);
-    obarray.set_symbol_value("post-gc-hook", Value::Nil);
+    obarray.set_symbol_value("gc-cons-threshold", Value::fixnum(800_000));
+    obarray.set_symbol_value("gc-cons-percentage", Value::make_float(0.1));
+    obarray.set_symbol_value("garbage-collection-messages", Value::NIL);
+    obarray.set_symbol_value("post-gc-hook", Value::NIL);
     obarray.set_symbol_value(
         "memory-signal-data",
         Value::list(vec![
@@ -22,9 +22,9 @@ pub fn register_bootstrap_vars(obarray: &mut Obarray) {
             ),
         ]),
     );
-    obarray.set_symbol_value("memory-full", Value::Nil);
-    obarray.set_symbol_value("gc-elapsed", Value::Float(0.0, next_float_id()));
-    obarray.set_symbol_value("gcs-done", Value::Int(0));
+    obarray.set_symbol_value("memory-full", Value::NIL);
+    obarray.set_symbol_value("gc-elapsed", Value::make_float(0.0));
+    obarray.set_symbol_value("gcs-done", Value::fixnum(0));
 }
 
 #[cfg(test)]
@@ -39,23 +39,23 @@ mod tests {
 
         assert_eq!(
             obarray.symbol_value("gc-cons-threshold").copied(),
-            Some(Value::Int(800_000))
+            Some(Value::fixnum(800_000))
         );
         assert_eq!(
             obarray.symbol_value("garbage-collection-messages").copied(),
-            Some(Value::Nil)
+            Some(Value::NIL)
         );
         assert_eq!(
             obarray.symbol_value("post-gc-hook").copied(),
-            Some(Value::Nil)
+            Some(Value::NIL)
         );
         assert_eq!(
             obarray.symbol_value("memory-full").copied(),
-            Some(Value::Nil)
+            Some(Value::NIL)
         );
         assert_eq!(
             obarray.symbol_value("gcs-done").copied(),
-            Some(Value::Int(0))
+            Some(Value::fixnum(0))
         );
 
         let signal_data = obarray
@@ -80,11 +80,11 @@ mod tests {
 
         assert_eq!(
             obarray.symbol_value("memory-full").copied(),
-            Some(Value::Nil)
+            Some(Value::NIL)
         );
         assert_eq!(
             obarray.symbol_value("post-gc-hook").copied(),
-            Some(Value::Nil)
+            Some(Value::NIL)
         );
 
         let signal_data = obarray

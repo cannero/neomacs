@@ -27,7 +27,7 @@ pub(crate) fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -38,7 +38,7 @@ pub(crate) fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Fl
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -54,7 +54,7 @@ pub(crate) fn expect_range_args(
     if args.len() < min || args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -62,8 +62,8 @@ pub(crate) fn expect_range_args(
 }
 
 pub(crate) fn expect_symbol_key(value: &Value) -> Result<Value, Flow> {
-    match value {
-        Value::Nil | Value::True | Value::Symbol(_) | Value::Keyword(_) => Ok(*value),
+    match value.kind() {
+        ValueKind::Nil | ValueKind::T | ValueKind::Symbol(_) | ValueKind::Keyword(_) => Ok(*value),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), *other],
@@ -116,9 +116,9 @@ pub(crate) fn live_frame_designator_p_in_state(
     frames: &crate::window::FrameManager,
     value: &Value,
 ) -> bool {
-    match value {
-        Value::Int(id) if *id >= 0 => frames.get(FrameId(*id as u64)).is_some(),
-        Value::Frame(id) => frames.get(FrameId(*id)).is_some(),
+    match value.kind() {
+        ValueKind::Fixnum(id) if id >= 0 => frames.get(FrameId(id as u64)).is_some(),
+        ValueKind::Veclike(VecLikeType::Frame) => frames.get(FrameId(*id)).is_some(),
         _ => false,
     }
 }
@@ -159,8 +159,8 @@ fn display_does_not_exist_error(display: &str) -> Flow {
 }
 
 fn format_get_device_terminal_arg_eval(eval: &super::eval::Context, value: &Value) -> String {
-    let window_id = match value {
-        Value::Window(id) => Some(WindowId(*id)),
+    let window_id = match value.kind() {
+        ValueKind::Veclike(VecLikeType::Window) => Some(WindowId(*id)),
         _ => None,
     };
 
@@ -202,9 +202,9 @@ fn terminal_not_x_display_error(value: &Value) -> Option<Flow> {
 }
 
 pub(crate) fn expect_frame_designator(value: &Value) -> Result<(), Flow> {
-    match value {
-        Value::Int(id) if *id >= 0 => Ok(()),
-        Value::Frame(_) => Ok(()),
+    match value.kind() {
+        ValueKind::Fixnum(id) if id >= 0 => Ok(()),
+        ValueKind::Veclike(VecLikeType::Frame) => Ok(()),
         v if v.is_nil() => Ok(()),
         _ => Err(signal(
             "wrong-type-argument",
@@ -214,10 +214,10 @@ pub(crate) fn expect_frame_designator(value: &Value) -> Result<(), Flow> {
 }
 
 fn expect_display_designator(value: &Value) -> Result<(), Flow> {
-    match value {
-        Value::Nil => Ok(()),
+    match value.kind() {
+        ValueKind::Nil => Ok(()),
         display if terminal_designator_p(display) => Ok(()),
-        Value::Str(_) => {
+        ValueKind::String => {
             let display = value.as_str().unwrap();
             Err(display_does_not_exist_error(display))
         }
@@ -229,11 +229,11 @@ pub(crate) fn expect_display_designator_in_state(
     frames: &crate::window::FrameManager,
     value: &Value,
 ) -> Result<(), Flow> {
-    match value {
-        Value::Nil => Ok(()),
+    match value.kind() {
+        ValueKind::Nil => Ok(()),
         display if terminal_designator_p(display) => Ok(()),
         display if live_frame_designator_p_in_state(frames, display) => Ok(()),
-        Value::Str(_) => {
+        ValueKind::String => {
             let display = value.as_str().unwrap();
             Err(display_does_not_exist_error(display))
         }
@@ -252,7 +252,7 @@ fn expect_display_designator_eval(
     if value.is_nil() || terminal_designator_p(value) || live_frame_designator_p(eval, value) {
         return Ok(());
     }
-    if let Value::Str(_) = value {
+    if value.is_string() /* TODO(tagged): `_` was Value::Str(_), now use accessor */ {
         let display = value.as_str().unwrap();
         return Err(display_does_not_exist_error(display));
     }
@@ -272,8 +272,8 @@ fn expect_optional_display_designator_eval(
 }
 
 fn frame_not_live_error(value: &Value) -> Flow {
-    let printable = match value {
-        Value::Str(_) => value.as_str().unwrap().to_string(),
+    let printable = match value.kind() {
+        ValueKind::String => value.as_str().unwrap().to_string(),
         _ => super::print::print_value(value),
     };
     signal(
@@ -283,8 +283,8 @@ fn frame_not_live_error(value: &Value) -> Flow {
 }
 
 fn frame_not_live_error_eval(_eval: &super::eval::Context, value: &Value) -> Flow {
-    let printable = match value {
-        Value::Str(_) => value.as_str().unwrap().to_string(),
+    let printable = match value.kind() {
+        ValueKind::String => value.as_str().unwrap().to_string(),
         _ => format_get_device_terminal_arg_eval(_eval, value),
     };
     signal(
@@ -322,10 +322,10 @@ fn x_display_open_error(display: &str) -> Flow {
 }
 
 fn x_display_query_first_arg_error(value: &Value) -> Flow {
-    match value {
-        Value::Nil => x_windows_not_initialized_error(),
-        Value::Str(_) => x_display_open_error(value.as_str().unwrap()),
-        Value::Frame(_) => x_window_system_frame_error(),
+    match value.kind() {
+        ValueKind::Nil => x_windows_not_initialized_error(),
+        ValueKind::String => x_display_open_error(value.as_str().unwrap()),
+        ValueKind::Veclike(VecLikeType::Frame) => x_window_system_frame_error(),
         other => {
             if let Some(err) = terminal_not_x_display_error(other) {
                 err
@@ -375,7 +375,7 @@ pub(crate) fn display_window_system_symbol_eval(
     display: Option<&Value>,
 ) -> Result<Option<Value>, Flow> {
     match display {
-        None | Some(Value::Nil) => {
+        None | Some(ValueKind::Nil) => {
             Ok(selected_frame_window_system_symbol(eval)
                 .or_else(|| global_window_system_symbol(eval)))
         }
@@ -383,7 +383,7 @@ pub(crate) fn display_window_system_symbol_eval(
         Some(display) if live_frame_designator_p(eval, display) => {
             frame_window_system_symbol(eval, Some(display))
         }
-        Some(Value::Str(_)) => Err(display_does_not_exist_error(
+        Some(ValueKind::String) => Err(display_does_not_exist_error(
             display.unwrap().as_str().unwrap(),
         )),
         Some(other) => Err(invalid_get_device_terminal_error_eval(eval, other)),
@@ -395,11 +395,11 @@ fn frame_window_system_symbol_read_only_in_state(
     frame: Option<&Value>,
 ) -> Result<Option<Value>, Flow> {
     match frame {
-        None | Some(Value::Nil) => Ok(selected_frame_window_system_symbol_in_state(frames)),
-        Some(Value::Int(id)) if *id >= 0 => Ok(frames
+        None | Some(ValueKind::Nil) => Ok(selected_frame_window_system_symbol_in_state(frames)),
+        Some(ValueKind::Fixnum(id)) if *id >= 0 => Ok(frames
             .get(FrameId(*id as u64))
             .and_then(|frame| frame.effective_window_system())),
-        Some(Value::Frame(id)) => Ok(frames
+        Some(ValueKind::Veclike(VecLikeType::Frame)) => Ok(frames
             .get(FrameId(*id))
             .and_then(|frame| frame.effective_window_system())),
         Some(other) => Err(signal(
@@ -416,7 +416,7 @@ pub(crate) fn display_window_system_symbol_in_state(
     display: Option<&Value>,
 ) -> Result<Option<Value>, Flow> {
     match display {
-        None | Some(Value::Nil) => Ok(frame_window_system_symbol_read_only_in_state(
+        None | Some(ValueKind::Nil) => Ok(frame_window_system_symbol_read_only_in_state(
             frames, display,
         )?
         .or_else(|| global_window_system_symbol_in_state(obarray, dynamic))),
@@ -424,7 +424,7 @@ pub(crate) fn display_window_system_symbol_in_state(
         Some(display) if live_frame_designator_p_in_state(frames, display) => {
             frame_window_system_symbol_read_only_in_state(frames, Some(display))
         }
-        Some(Value::Str(_)) => Err(display_does_not_exist_error(
+        Some(ValueKind::String) => Err(display_does_not_exist_error(
             display.unwrap().as_str().unwrap(),
         )),
         Some(other) => Err(invalid_get_device_terminal_error(other)),
@@ -447,7 +447,7 @@ fn gui_x_query_target_eval(
         return Ok(false);
     }
     Ok(match args.first() {
-        None | Some(Value::Nil) => true,
+        None | Some(Value::NIL) => true,
         Some(display) => live_frame_designator_p(eval, display),
     })
 }
@@ -466,13 +466,13 @@ fn gui_x_query_target_in_state(
         return Ok(false);
     }
     Ok(match args.first() {
-        None | Some(Value::Nil) => true,
+        None | Some(Value::NIL) => true,
         Some(display) => live_frame_designator_p_in_state(frames, display),
     })
 }
 
 fn expect_optional_window_system_frame_arg(value: &Value) -> Result<(), Flow> {
-    if value.is_nil() || matches!(value, Value::Frame(_)) {
+    if value.is_nil() || matches!(value, Value::make_frame(_)) {
         Ok(())
     } else {
         Err(signal(
@@ -487,7 +487,7 @@ fn expect_optional_window_system_frame_arg_in_state(
     value: &Value,
 ) -> Result<(), Flow> {
     if value.is_nil()
-        || matches!(value, Value::Frame(_))
+        || matches!(value, Value::make_frame(_))
         || live_frame_designator_p_in_state(frames, value)
     {
         Ok(())
@@ -579,16 +579,16 @@ fn parse_x_geometry(spec: &str) -> Option<Value> {
 
     let mut pairs = Vec::new();
     if let Some(h) = height {
-        pairs.push(Value::cons(Value::symbol("height"), Value::Int(h)));
+        pairs.push(Value::cons(Value::symbol("height"), Value::fixnum(h)));
     }
     if let Some(w) = width {
-        pairs.push(Value::cons(Value::symbol("width"), Value::Int(w)));
+        pairs.push(Value::cons(Value::symbol("width"), Value::fixnum(w)));
     }
     if let Some(y) = top {
-        pairs.push(Value::cons(Value::symbol("top"), Value::Int(y)));
+        pairs.push(Value::cons(Value::symbol("top"), Value::fixnum(y)));
     }
     if let Some(x) = left {
-        pairs.push(Value::cons(Value::symbol("left"), Value::Int(x)));
+        pairs.push(Value::cons(Value::symbol("left"), Value::fixnum(x)));
     }
     Some(Value::list(pairs))
 }
@@ -596,9 +596,9 @@ fn parse_x_geometry(spec: &str) -> Option<Value> {
 fn display_optional_capability_p(name: &str, args: &[Value]) -> EvalResult {
     expect_max_args(name, args, 1)?;
     match args.first() {
-        None | Some(Value::Nil) => Ok(Value::Nil),
-        Some(display) if is_terminal_handle(display) => Ok(Value::Nil),
-        Some(Value::Str(_)) => {
+        None | Some(ValueKind::Nil) => Ok(Value::NIL),
+        Some(display) if is_terminal_handle(display) => Ok(Value::NIL),
+        Some(ValueKind::String) => {
             let display = args[0].as_str().unwrap();
             Err(signal(
                 "error",
@@ -616,10 +616,10 @@ fn display_optional_capability_p_eval(
 ) -> EvalResult {
     expect_max_args(name, args, 1)?;
     match args.first() {
-        None | Some(Value::Nil) => Ok(Value::Nil),
-        Some(display) if is_terminal_handle(display) => Ok(Value::Nil),
-        Some(display) if live_frame_designator_p(eval, display) => Ok(Value::Nil),
-        Some(Value::Str(_)) => {
+        None | Some(ValueKind::Nil) => Ok(Value::NIL),
+        Some(display) if is_terminal_handle(display) => Ok(Value::NIL),
+        Some(display) if live_frame_designator_p(eval, display) => Ok(Value::NIL),
+        Some(ValueKind::String) => {
             let display = args[0].as_str().unwrap();
             Err(signal(
                 "error",
@@ -633,7 +633,7 @@ fn display_optional_capability_p_eval(
 fn x_optional_display_query_error(name: &str, args: &[Value]) -> EvalResult {
     expect_max_args(name, args, 1)?;
     match args.first() {
-        None | Some(Value::Nil) => Err(x_windows_not_initialized_error()),
+        None | Some(ValueKind::Nil) => Err(x_windows_not_initialized_error()),
         Some(display) if is_terminal_handle(display) => {
             if let Some(err) = terminal_not_x_display_error(display) {
                 Err(err)
@@ -641,7 +641,7 @@ fn x_optional_display_query_error(name: &str, args: &[Value]) -> EvalResult {
                 Err(invalid_get_device_terminal_error(display))
             }
         }
-        Some(Value::Str(_)) => {
+        Some(ValueKind::String) => {
             let display = args[0].as_str().unwrap();
             Err(signal(
                 "error",
@@ -693,7 +693,7 @@ pub(crate) fn builtin_display_graphic_p(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-graphic-p", &args)?;
-    Ok(Value::bool(
+    Ok(Value::bool_val(
         display_window_system_symbol_eval(eval, args.first())?
             .is_some_and(|value| value.is_symbol()),
     ))
@@ -737,7 +737,7 @@ pub(crate) fn builtin_display_pixel_width(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-pixel-width", &args)?;
-    Ok(Value::Int(80))
+    Ok(Value::fixnum(80))
 }
 
 /// Context-aware variant of `display-pixel-height`.
@@ -746,7 +746,7 @@ pub(crate) fn builtin_display_pixel_height(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-pixel-height", &args)?;
-    Ok(Value::Int(25))
+    Ok(Value::fixnum(25))
 }
 
 /// Context-aware variant of `display-mm-width`.
@@ -755,7 +755,7 @@ pub(crate) fn builtin_display_mm_width(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-mm-width", &args)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// Context-aware variant of `display-mm-height`.
@@ -764,7 +764,7 @@ pub(crate) fn builtin_display_mm_height(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-mm-height", &args)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// Context-aware variant of `display-screens`.
@@ -773,7 +773,7 @@ pub(crate) fn builtin_display_screens(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-screens", &args)?;
-    Ok(Value::Int(1))
+    Ok(Value::fixnum(1))
 }
 
 /// Context-aware variant of `display-color-cells`.
@@ -785,11 +785,11 @@ pub(crate) fn builtin_display_color_cells(
     if display_window_system_symbol_eval(eval, args.first())?
         .is_some_and(gui_window_system_active_value)
     {
-        Ok(Value::Int(16777216)) // 2^24 = 24-bit TrueColor
+        Ok(Value::fixnum(16777216)) // 2^24 = 24-bit TrueColor
     } else if terminal_runtime_supports_color() {
-        Ok(Value::Int(terminal_runtime_color_cells()))
+        Ok(Value::fixnum(terminal_runtime_color_cells()))
     } else {
-        Ok(Value::Int(0))
+        Ok(Value::fixnum(0))
     }
 }
 
@@ -802,15 +802,15 @@ pub(crate) fn builtin_display_planes(
     if display_window_system_symbol_eval(eval, args.first())?
         .is_some_and(gui_window_system_active_value)
     {
-        Ok(Value::Int(24))
+        Ok(Value::fixnum(24))
     } else if terminal_runtime_supports_color() {
-        Ok(Value::Int(if terminal_runtime_color_cells() >= 16777216 {
+        Ok(Value::fixnum(if terminal_runtime_color_cells() >= 16777216 {
             24
         } else {
             8
         }))
     } else {
-        Ok(Value::Int(3))
+        Ok(Value::fixnum(3))
     }
 }
 
@@ -856,7 +856,7 @@ pub(crate) fn builtin_display_selections_p(
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-selections-p", &args)?;
     let window_system = display_window_system_symbol_eval(eval, args.first())?;
-    Ok(Value::bool(matches!(
+    Ok(Value::bool_val(matches!(
         window_system,
         Some(value)
             if value.is_symbol_named("x")
@@ -876,7 +876,7 @@ pub(crate) fn builtin_window_system(
 ) -> EvalResult {
     expect_max_args("window-system", &args, 1)?;
     match args.first() {
-        None | Some(Value::Nil) => {
+        None | Some(ValueKind::Nil) => {
             if let Some(window_system) =
                 selected_frame_window_system_symbol_in_state(&mut eval.frames)
             {
@@ -895,7 +895,7 @@ pub(crate) fn builtin_window_system(
     }
     Ok(
         dynamic_or_global_symbol_value_in_state(&eval.obarray, &[], "window-system")
-            .unwrap_or(Value::Nil),
+            .unwrap_or(Value::NIL),
     )
 }
 
@@ -908,10 +908,10 @@ pub(crate) fn builtin_frame_edges(eval: &mut super::eval::Context, args: Vec<Val
         }
     }
     Ok(Value::list(vec![
-        Value::Int(0),
-        Value::Int(0),
-        Value::Int(80),
-        Value::Int(25),
+        Value::fixnum(0),
+        Value::fixnum(0),
+        Value::fixnum(80),
+        Value::fixnum(25),
     ]))
 }
 
@@ -921,7 +921,7 @@ pub(crate) fn builtin_display_images_p(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_optional_display_designator_eval(eval, "display-images-p", &args)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// Context-aware variant of `display-supports-face-attributes-p`.
@@ -933,7 +933,7 @@ pub(crate) fn builtin_display_supports_face_attributes_p(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("display-supports-face-attributes-p", &args, 1, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // ---------------------------------------------------------------------------
@@ -943,35 +943,35 @@ pub(crate) fn builtin_display_supports_face_attributes_p(
 /// (x-display-list) -> nil in batch-style vm context.
 pub(crate) fn builtin_x_display_list(args: Vec<Value>) -> EvalResult {
     expect_max_args("x-display-list", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (x-frame-edges &optional FRAME TYPE) -> nil in batch/no-X context.
 pub(crate) fn builtin_x_frame_edges(args: Vec<Value>) -> EvalResult {
     expect_max_args("x-frame-edges", &args, 2)?;
     if let Some(frame) = args.first() {
-        if !frame.is_nil() && !matches!(frame, Value::Frame(_)) {
+        if !frame.is_nil() && !matches!(frame, Value::make_frame(_)) {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("frame-live-p"), *frame],
             ));
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (x-frame-geometry &optional FRAME) -> nil in batch/no-X context.
 pub(crate) fn builtin_x_frame_geometry(args: Vec<Value>) -> EvalResult {
     expect_max_args("x-frame-geometry", &args, 1)?;
     if let Some(frame) = args.first() {
-        if !frame.is_nil() && !matches!(frame, Value::Frame(_)) {
+        if !frame.is_nil() && !matches!(frame, Value::make_frame(_)) {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("frame-live-p"), *frame],
             ));
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (x-frame-list-z-order &optional DISPLAY) -> error in batch/no-X context.
@@ -996,13 +996,13 @@ pub(crate) fn builtin_x_frame_restack(args: Vec<Value>) -> EvalResult {
 /// (x-mouse-absolute-pixel-position) -> nil in batch/no-X context.
 pub(crate) fn builtin_x_mouse_absolute_pixel_position(args: Vec<Value>) -> EvalResult {
     expect_args("x-mouse-absolute-pixel-position", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (x-set-mouse-absolute-pixel-position X Y) -> nil in batch/no-X context.
 pub(crate) fn builtin_x_set_mouse_absolute_pixel_position(args: Vec<Value>) -> EvalResult {
     expect_args("x-set-mouse-absolute-pixel-position", &args, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (x-send-client-message DISPLAY PROP VALUE-0 VALUE-1 VALUE-2 VALUE-3) -> error in batch/no-X context.
@@ -1015,10 +1015,10 @@ pub(crate) fn builtin_x_send_client_message(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_x_popup_dialog(args: Vec<Value>) -> EvalResult {
     expect_range_args("x-popup-dialog", &args, 2, 3)?;
 
-    if !matches!(args[0], Value::Frame(_)) {
+    if !matches!(args[0], Value::make_frame(_)) {
         return Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("windowp"), Value::Nil],
+            vec![Value::symbol("windowp"), Value::NIL],
         ));
     }
 
@@ -1026,13 +1026,13 @@ pub(crate) fn builtin_x_popup_dialog(args: Vec<Value>) -> EvalResult {
     if contents.is_nil() {
         return Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), Value::Nil],
+            vec![Value::symbol("stringp"), Value::NIL],
         ));
     }
 
     let (title, rest) = match contents {
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);
+        Value::Cons(cell) /* TODO(tagged): convert Value::Cons to new API */ => {
+            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             (pair.car, pair.cdr)
         }
         other => {
@@ -1057,7 +1057,7 @@ pub(crate) fn builtin_x_popup_dialog(args: Vec<Value>) -> EvalResult {
         ));
     }
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (x-popup-menu POSITION MENU) -> nil/error in batch context.
@@ -1067,12 +1067,12 @@ pub(crate) fn builtin_x_popup_menu(args: Vec<Value>) -> EvalResult {
     let menu = &args[1];
 
     if position.is_nil() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let (position_car, position_cdr) = match position {
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);
+        Value::Cons(cell) /* TODO(tagged): convert Value::Cons to new API */ => {
+            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             (pair.car, pair.cdr)
         }
         other => {
@@ -1084,7 +1084,7 @@ pub(crate) fn builtin_x_popup_menu(args: Vec<Value>) -> EvalResult {
     };
 
     if !position_car.is_list() {
-        if matches!(position_car, Value::Int(_)) {
+        if position_car.is_fixnum() {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("listp"), position_car],
@@ -1093,12 +1093,12 @@ pub(crate) fn builtin_x_popup_menu(args: Vec<Value>) -> EvalResult {
         if menu.is_nil() {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("stringp"), Value::Nil],
+                vec![Value::symbol("stringp"), Value::NIL],
             ));
         }
         return Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("consp"), Value::True],
+            vec![Value::symbol("consp"), Value::T],
         ));
     }
 
@@ -1110,12 +1110,12 @@ pub(crate) fn builtin_x_popup_menu(args: Vec<Value>) -> EvalResult {
     }
 
     if !position_car.is_nil() {
-        let window_designator = match position_cdr {
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
+        let window_designator = match position_cdr.kind() {
+            ValueKind::Cons => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 pair.car
             }
-            _ => Value::Nil,
+            _ => Value::NIL,
         };
         return Err(signal(
             "wrong-type-argument",
@@ -1129,13 +1129,13 @@ pub(crate) fn builtin_x_popup_menu(args: Vec<Value>) -> EvalResult {
     if menu.is_nil() {
         return Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), Value::Nil],
+            vec![Value::symbol("stringp"), Value::NIL],
         ));
     }
 
     let (title, rest) = match menu {
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);
+        Value::Cons(cell) /* TODO(tagged): convert Value::Cons to new API */ => {
+            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             (pair.car, pair.cdr)
         }
         other => {
@@ -1154,12 +1154,12 @@ pub(crate) fn builtin_x_popup_menu(args: Vec<Value>) -> EvalResult {
     }
 
     if rest.is_nil() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
-    let pane = match rest {
-        Value::Cons(cell) => {
-            let pair = read_cons(cell);
+    let pane = match rest.kind() {
+        ValueKind::Cons => {
+            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
             pair.car
         }
         other => {
@@ -1171,11 +1171,11 @@ pub(crate) fn builtin_x_popup_menu(args: Vec<Value>) -> EvalResult {
     };
 
     let (pane_title, pane_items) = match pane {
-        Value::Cons(cell) => {
-            let pair = read_cons(cell);
+        Value::Cons(cell) /* TODO(tagged): convert Value::Cons to new API */ => {
+            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
             (pair.car, pair.cdr)
         }
-        Value::Nil => (Value::Nil, Value::Nil),
+        Value::NIL => (Value::NIL, Value::NIL),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1198,7 +1198,7 @@ pub(crate) fn builtin_x_popup_menu(args: Vec<Value>) -> EvalResult {
         ));
     }
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (x-synchronize DISPLAY &optional NO-OP) -> error in batch/no-X context.
@@ -1224,7 +1224,7 @@ pub(crate) fn builtin_x_export_frames(args: Vec<Value>) -> EvalResult {
     expect_max_args("x-export-frames", &args, 2)?;
     match args.first() {
         None => Err(x_window_system_frame_error()),
-        Some(frame) if frame.is_nil() || matches!(frame, Value::Frame(_)) => {
+        Some(frame) if frame.is_nil() || matches!(frame, ValueKind::Veclike(VecLikeType::Frame)) => {
             Err(x_window_system_frame_error())
         }
         Some(other) => Err(signal(
@@ -1238,7 +1238,7 @@ pub(crate) fn builtin_x_export_frames(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_x_focus_frame(args: Vec<Value>) -> EvalResult {
     expect_range_args("x-focus-frame", &args, 1, 2)?;
     let frame = &args[0];
-    if frame.is_nil() || matches!(frame, Value::Frame(_)) {
+    if frame.is_nil() || matches!(frame, Value::make_frame(_)) {
         Err(x_window_system_frame_error())
     } else {
         Err(signal(
@@ -1251,7 +1251,7 @@ pub(crate) fn builtin_x_focus_frame(args: Vec<Value>) -> EvalResult {
 /// (x-get-clipboard) -> nil in batch/no-X context.
 pub(crate) fn builtin_x_get_clipboard(args: Vec<Value>) -> EvalResult {
     expect_args("x-get-clipboard", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (x-get-modifier-masks &optional DISPLAY) -> error in batch/no-X context.
@@ -1260,7 +1260,7 @@ pub(crate) fn builtin_x_get_modifier_masks(args: Vec<Value>) -> EvalResult {
     match args.first() {
         None => Err(x_windows_not_initialized_error()),
         Some(display) if display.is_nil() => Err(x_windows_not_initialized_error()),
-        Some(Value::Frame(_)) => Err(x_window_system_frame_error()),
+        Some(ValueKind::Veclike(VecLikeType::Frame)) => Err(x_window_system_frame_error()),
         Some(display) => Err(x_display_query_first_arg_error(display)),
     }
 }
@@ -1268,7 +1268,7 @@ pub(crate) fn builtin_x_get_modifier_masks(args: Vec<Value>) -> EvalResult {
 /// (x-hide-tip) -> nil in batch/no-X context.
 pub(crate) fn builtin_x_hide_tip(args: Vec<Value>) -> EvalResult {
     expect_args("x-hide-tip", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (x-show-tip STRING &optional FRAME PARMS TIMEOUT DX DY) -> error in batch/no-X context.
@@ -1286,9 +1286,9 @@ pub(crate) fn builtin_x_show_tip(args: Vec<Value>) -> EvalResult {
 /// (x-setup-function-keys TERMINAL) -> nil/error in batch/no-X context.
 pub(crate) fn builtin_x_setup_function_keys(args: Vec<Value>) -> EvalResult {
     expect_args("x-setup-function-keys", &args, 1)?;
-    match &args[0] {
-        Value::Frame(_) => Ok(Value::Nil),
-        Value::Int(_) | Value::Str(_) => Err(signal(
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Frame) => Ok(Value::NIL),
+        ValueKind::Fixnum(_) | ValueKind::String => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("terminal-live-p"), args[0]],
         )),
@@ -1302,7 +1302,7 @@ pub(crate) fn builtin_x_setup_function_keys(args: Vec<Value>) -> EvalResult {
 /// (x-internal-focus-input-context FRAME) -> nil in batch/no-X context.
 pub(crate) fn builtin_x_internal_focus_input_context(args: Vec<Value>) -> EvalResult {
     expect_args("x-internal-focus-input-context", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (x-wm-set-size-hint &optional FRAME) -> error in batch/no-X context.
@@ -1311,7 +1311,7 @@ pub(crate) fn builtin_x_wm_set_size_hint(args: Vec<Value>) -> EvalResult {
     match args.first() {
         None => Err(x_window_system_frame_error()),
         Some(frame) if frame.is_nil() => Err(x_window_system_frame_error()),
-        Some(Value::Frame(_)) => Err(x_window_system_frame_error()),
+        Some(ValueKind::Veclike(VecLikeType::Frame)) => Err(x_window_system_frame_error()),
         Some(other) => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("frame-live-p"), *other],
@@ -1342,7 +1342,7 @@ pub(crate) fn builtin_x_family_fonts(args: Vec<Value>) -> EvalResult {
             ));
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (x-get-atom-name ATOM &optional FRAME) -> error in batch/no-X context.
@@ -1360,7 +1360,7 @@ pub(crate) fn builtin_x_get_resource(
 ) -> EvalResult {
     expect_range_args("x-get-resource", &args, 2, 4)?;
     if x_window_system_active(eval) {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     Err(window_system_not_initialized_error())
 }
@@ -1371,7 +1371,7 @@ pub(crate) fn builtin_x_apply_session_resources(
 ) -> EvalResult {
     expect_args("x-apply-session-resources", &args, 0)?;
     if x_window_system_active(eval) {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     Err(window_system_not_initialized_error())
 }
@@ -1382,7 +1382,7 @@ pub(crate) fn builtin_x_list_fonts(
 ) -> EvalResult {
     expect_range_args("x-list-fonts", &args, 1, 5)?;
     if x_window_system_active(eval) {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     Err(window_system_not_initialized_error())
 }
@@ -1390,10 +1390,10 @@ pub(crate) fn builtin_x_list_fonts(
 /// (x-parse-geometry STRING) -> alist or nil.
 pub(crate) fn builtin_x_parse_geometry(args: Vec<Value>) -> EvalResult {
     expect_args("x-parse-geometry", &args, 1)?;
-    match &args[0] {
-        Value::Str(id) => {
+    match args[0].kind() {
+        ValueKind::String => {
             let spec = with_heap(|h| h.get_string(*id).to_owned());
-            Ok(parse_x_geometry(&spec).unwrap_or(Value::Nil))
+            Ok(parse_x_geometry(&spec).unwrap_or(ValueKind::Nil))
         }
         other => Err(signal(
             "wrong-type-argument",
@@ -1424,20 +1424,20 @@ pub(crate) fn builtin_x_delete_window_property(args: Vec<Value>) -> EvalResult {
 /// (x-disown-selection-internal SELECTION &optional TYPE FRAME) -> nil.
 pub(crate) fn builtin_x_disown_selection_internal(args: Vec<Value>) -> EvalResult {
     expect_range_args("x-disown-selection-internal", &args, 1, 3)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (x-get-local-selection &optional SELECTION TYPE) -> nil/error.
 pub(crate) fn builtin_x_get_local_selection(args: Vec<Value>) -> EvalResult {
     expect_max_args("x-get-local-selection", &args, 2)?;
-    let selection = args.first().cloned().unwrap_or(Value::Nil);
+    let selection = args.first().cloned().unwrap_or(Value::NIL);
     if !selection.is_cons() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("consp"), selection],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (x-get-selection-internal SELECTION TYPE &optional DATA-TYPE FRAME)
@@ -1457,7 +1457,7 @@ pub(crate) fn builtin_x_own_selection_internal(args: Vec<Value>) -> EvalResult {
 /// (gui-get-selection &optional TYPE DATA-TYPE) -> nil.
 pub(crate) fn builtin_gui_get_selection(args: Vec<Value>) -> EvalResult {
     expect_max_args("gui-get-selection", &args, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (gui-get-primary-selection) -> error in batch/no-X context.
@@ -1472,19 +1472,19 @@ pub(crate) fn builtin_gui_get_primary_selection(args: Vec<Value>) -> EvalResult 
 /// (gui-select-text TEXT) -> nil.
 pub(crate) fn builtin_gui_select_text(args: Vec<Value>) -> EvalResult {
     expect_args("gui-select-text", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (gui-selection-value) -> nil.
 pub(crate) fn builtin_gui_selection_value(args: Vec<Value>) -> EvalResult {
     expect_args("gui-selection-value", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (gui-set-selection TYPE VALUE) -> nil.
 pub(crate) fn builtin_gui_set_selection(args: Vec<Value>) -> EvalResult {
     expect_args("gui-set-selection", &args, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (x-selection-exists-p &optional SELECTION TYPE) -> nil in batch/no-X context.
@@ -1495,7 +1495,7 @@ pub(crate) fn builtin_x_selection_exists_p(args: Vec<Value>) -> EvalResult {
             expect_symbol_key(selection)?;
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (x-selection-owner-p &optional SELECTION TYPE) -> nil in batch/no-X context.
@@ -1506,13 +1506,13 @@ pub(crate) fn builtin_x_selection_owner_p(args: Vec<Value>) -> EvalResult {
             expect_symbol_key(selection)?;
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (x-uses-old-gtk-dialog) -> nil
 pub(crate) fn builtin_x_uses_old_gtk_dialog(args: Vec<Value>) -> EvalResult {
     expect_args("x-uses-old-gtk-dialog", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (x-window-property PROPERTY &optional FRAME TYPE DELETE-P VECTOR-RET-P) -> error in batch/no-X context.
@@ -1555,7 +1555,7 @@ pub(crate) fn builtin_x_display_grayscale_p(
     args: Vec<Value>,
 ) -> EvalResult {
     if gui_x_query_target_eval(eval, "x-display-grayscale-p", &args)? {
-        return Ok(Value::True);
+        return Ok(Value::T);
     }
     x_optional_display_query_error_eval(eval, "x-display-grayscale-p", args)
 }
@@ -1574,7 +1574,7 @@ pub(crate) fn builtin_x_display_color_cells(
     args: Vec<Value>,
 ) -> EvalResult {
     if gui_x_query_target_eval(eval, "x-display-color-cells", &args)? {
-        return Ok(Value::Int(GUI_X_DISPLAY_COLOR_CELLS));
+        return Ok(Value::fixnum(GUI_X_DISPLAY_COLOR_CELLS));
     }
     x_optional_display_query_error_eval(eval, "x-display-color-cells", args)
 }
@@ -1609,7 +1609,7 @@ pub(crate) fn builtin_x_display_planes(
     args: Vec<Value>,
 ) -> EvalResult {
     if gui_x_query_target_eval(eval, "x-display-planes", &args)? {
-        return Ok(Value::Int(GUI_X_DISPLAY_PLANES));
+        return Ok(Value::fixnum(GUI_X_DISPLAY_PLANES));
     }
     x_optional_display_query_error_eval(eval, "x-display-planes", args)
 }
@@ -1676,14 +1676,14 @@ pub(crate) fn builtin_x_open_connection(
 ) -> EvalResult {
     expect_range_args("x-open-connection", &args, 1, 3)?;
     if x_window_system_active(eval) {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
-    match &args[0] {
-        Value::Nil => Err(signal(
+    match args[0].kind() {
+        ValueKind::Nil => Err(signal(
             "error",
             vec![Value::string("Display nil can’t be opened")],
         )),
-        Value::Str(id) => {
+        ValueKind::String => {
             let display = with_heap(|h| h.get_string(*id).to_owned());
             Err(signal(
                 "error",
@@ -1713,12 +1713,12 @@ pub(crate) fn builtin_x_close_connection(
             ));
         }
     }
-    match &args[0] {
-        Value::Nil => Err(signal(
+    match args[0].kind() {
+        ValueKind::Nil => Err(signal(
             "error",
             vec![Value::string("X windows are not in use or not initialized")],
         )),
-        Value::Str(id) => {
+        ValueKind::String => {
             let display = with_heap(|h| h.get_string(*id).to_owned());
             Err(signal(
                 "error",
@@ -1756,7 +1756,7 @@ pub(crate) fn builtin_x_display_pixel_width(
         }
     }
     match args.first() {
-        None | Some(Value::Nil) => Err(signal(
+        None | Some(ValueKind::Nil) => Err(signal(
             "error",
             vec![Value::string("X windows are not in use or not initialized")],
         )),
@@ -1767,7 +1767,7 @@ pub(crate) fn builtin_x_display_pixel_width(
                 Err(invalid_get_device_terminal_error(display))
             }
         }
-        Some(Value::Str(_)) => {
+        Some(ValueKind::String) => {
             let display = args[0].as_str().unwrap();
             Err(signal(
                 "error",
@@ -1799,7 +1799,7 @@ pub(crate) fn builtin_x_display_pixel_height(
         }
     }
     match args.first() {
-        None | Some(Value::Nil) => Err(signal(
+        None | Some(ValueKind::Nil) => Err(signal(
             "error",
             vec![Value::string("X windows are not in use or not initialized")],
         )),
@@ -1810,7 +1810,7 @@ pub(crate) fn builtin_x_display_pixel_height(
                 Err(invalid_get_device_terminal_error(display))
             }
         }
-        Some(Value::Str(_)) => {
+        Some(ValueKind::String) => {
             let display = args[0].as_str().unwrap();
             Err(signal(
                 "error",
@@ -1842,7 +1842,7 @@ pub(crate) fn builtin_display_monitor_attributes_list(
         .frames
         .frame_list()
         .into_iter()
-        .map(|fid| Value::Frame(fid.0))
+        .map(|fid| Value::make_frame(fid.0))
         .collect::<Vec<_>>();
     Ok(Value::list(vec![make_monitor_alist(Value::list(frames))]))
 }
@@ -1861,7 +1861,7 @@ pub(crate) fn builtin_frame_monitor_attributes(
         .frames
         .frame_list()
         .into_iter()
-        .map(|fid| Value::Frame(fid.0))
+        .map(|fid| Value::make_frame(fid.0))
         .collect::<Vec<_>>();
     Ok(make_monitor_alist(Value::list(frames)))
 }
@@ -1870,22 +1870,22 @@ pub(crate) fn builtin_frame_monitor_attributes(
 fn make_monitor_alist(frames: Value) -> Value {
     // geometry: (x y width height)
     let geometry = Value::list(vec![
-        Value::Int(0),
-        Value::Int(0),
-        Value::Int(80),
-        Value::Int(25),
+        Value::fixnum(0),
+        Value::fixnum(0),
+        Value::fixnum(80),
+        Value::fixnum(25),
     ]);
 
     // workarea: (x y width height)
     let workarea = Value::list(vec![
-        Value::Int(0),
-        Value::Int(0),
-        Value::Int(80),
-        Value::Int(25),
+        Value::fixnum(0),
+        Value::fixnum(0),
+        Value::fixnum(80),
+        Value::fixnum(25),
     ]);
 
     // mm-size: (width-mm height-mm)
-    let mm_size = Value::list(vec![Value::Nil, Value::Nil]);
+    let mm_size = Value::list(vec![Value::NIL, Value::NIL]);
 
     make_alist(vec![
         (Value::symbol("geometry"), geometry),

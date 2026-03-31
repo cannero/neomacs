@@ -46,7 +46,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -57,7 +57,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -68,7 +68,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -90,10 +90,10 @@ pub(crate) fn builtin_make_variable_buffer_local_with_state(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("make-variable-buffer-local", &args, 1)?;
-    let name = match &args[0] {
-        Value::Symbol(id) | Value::Keyword(id) => resolve_sym(*id).to_owned(),
-        Value::Nil => "nil".to_string(),
-        Value::True => "t".to_string(),
+    let name = match args[0].kind() {
+        ValueKind::Symbol(id) | ValueKind::Keyword(id) => resolve_sym(id).to_owned(),
+        ValueKind::Nil => "nil".to_string(),
+        ValueKind::T => "t".to_string(),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -110,7 +110,7 @@ pub(crate) fn builtin_make_variable_buffer_local_with_state(
         return Err(signal("setting-constant", vec![Value::symbol(name)]));
     }
     if !obarray.boundp(&resolved) {
-        obarray.set_symbol_value(&resolved, Value::Nil);
+        obarray.set_symbol_value(&resolved, Value::NIL);
     }
     // Primary mechanism: mark in the obarray's SymbolValue enum.
     obarray.make_buffer_local(&resolved, true);
@@ -125,10 +125,10 @@ pub(crate) fn builtin_make_local_variable(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("make-local-variable", &args, 1)?;
-    let name = match &args[0] {
-        Value::Symbol(id) | Value::Keyword(id) => resolve_sym(*id).to_owned(),
-        Value::Nil => "nil".to_string(),
-        Value::True => "t".to_string(),
+    let name = match args[0].kind() {
+        ValueKind::Symbol(id) | ValueKind::Keyword(id) => resolve_sym(id).to_owned(),
+        ValueKind::Nil => "nil".to_string(),
+        ValueKind::T => "t".to_string(),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -179,13 +179,13 @@ fn runtime_binding_for_make_local_variable(
 
     let resolved_name = resolve_sym(resolved);
     if super::builtins::is_canonical_symbol_id(resolved) && resolved_name == "nil" {
-        return RuntimeBindingValue::Bound(Value::Nil);
+        return RuntimeBindingValue::Bound(Value::NIL);
     }
     if super::builtins::is_canonical_symbol_id(resolved) && resolved_name == "t" {
-        return RuntimeBindingValue::Bound(Value::True);
+        return RuntimeBindingValue::Bound(Value::T);
     }
     if super::builtins::is_canonical_symbol_id(resolved) && resolved_name.starts_with(':') {
-        return RuntimeBindingValue::Bound(Value::Keyword(resolved));
+        return RuntimeBindingValue::Bound(Value::keyword(resolved));
     }
 
     RuntimeBindingValue::Void
@@ -207,9 +207,9 @@ pub(crate) fn builtin_local_variable_p(
     let resolved = super::builtins::resolve_variable_alias_name_in_obarray(&ctx.obarray, name)?;
 
     let buf = if args.len() > 1 {
-        match &args[1] {
-            Value::Nil => ctx.buffers.current_buffer(),
-            Value::Buffer(id) => ctx.buffers.get(*id),
+        match args[1].kind() {
+            ValueKind::Nil => ctx.buffers.current_buffer(),
+            ValueKind::Veclike(VecLikeType::Buffer) => ctx.buffers.get(*id),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -222,8 +222,8 @@ pub(crate) fn builtin_local_variable_p(
     };
 
     match buf {
-        Some(b) => Ok(Value::bool(b.has_buffer_local(&resolved))),
-        None => Ok(Value::Nil),
+        Some(b) => Ok(Value::bool_val(b.has_buffer_local(&resolved))),
+        None => Ok(Value::NIL),
     }
 }
 
@@ -235,12 +235,12 @@ pub(crate) fn builtin_buffer_local_variables(
     expect_max_args("buffer-local-variables", &args, 1)?;
 
     let id = match args.first() {
-        None | Some(Value::Nil) => ctx
+        None | Some(ValueKind::Nil) => ctx
             .buffers
             .current_buffer()
             .map(|b| b.id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?,
-        Some(Value::Buffer(id)) => *id,
+        Some(ValueKind::Veclike(VecLikeType::Buffer)) => *id,
         Some(other) => {
             return Err(signal(
                 "wrong-type-argument",
@@ -280,10 +280,10 @@ pub(crate) fn builtin_kill_local_variable(
         if let Some(buffer_id) = outcome.buffer_id {
             ctx.run_variable_watchers_with_where(
                 &outcome.resolved_name,
-                &Value::Nil,
-                &Value::Nil,
+                &Value::NIL,
+                &Value::NIL,
                 "makunbound",
-                &Value::Buffer(buffer_id),
+                &Value::make_buffer(buffer_id),
             )?;
         }
     }
@@ -302,10 +302,10 @@ pub(crate) fn builtin_kill_local_variable_impl(
     args: &[Value],
 ) -> Result<KillLocalVariableOutcome, Flow> {
     expect_args("kill-local-variable", &args, 1)?;
-    let name = match &args[0] {
-        Value::Symbol(id) | Value::Keyword(id) => resolve_sym(*id).to_owned(),
-        Value::Nil => "nil".to_string(),
-        Value::True => "t".to_string(),
+    let name = match args[0].kind() {
+        ValueKind::Symbol(id) | ValueKind::Keyword(id) => resolve_sym(id).to_owned(),
+        ValueKind::Nil => "nil".to_string(),
+        ValueKind::T => "t".to_string(),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -339,10 +339,10 @@ pub(crate) fn builtin_default_value(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("default-value", &args, 1)?;
-    let symbol = match args[0] {
-        Value::Nil => intern("nil"),
-        Value::True => intern("t"),
-        Value::Symbol(id) | Value::Keyword(id) => id,
+    let symbol = match args[0].kind() {
+        ValueKind::Nil => intern("nil"),
+        ValueKind::T => intern("t"),
+        ValueKind::Symbol(id) | ValueKind::Keyword(id) => id,
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -358,7 +358,7 @@ pub(crate) fn builtin_default_value(
         None if super::builtins::is_canonical_symbol_id(resolved)
             && resolved_name.starts_with(':') =>
         {
-            Ok(Value::Keyword(resolved))
+            Ok(ValueKind::Keyword(resolved))
         }
         None => Err(signal("void-variable", vec![args[0]])),
     }
@@ -375,10 +375,10 @@ pub(crate) fn builtin_default_value(
 /// (default cell) directly, not to the dynamic frame or buffer-local slot.
 pub(crate) fn builtin_set_default(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("set-default", &args, 2)?;
-    let symbol = match args[0] {
-        Value::Nil => intern("nil"),
-        Value::True => intern("t"),
-        Value::Symbol(id) | Value::Keyword(id) => id,
+    let symbol = match args[0].kind() {
+        ValueKind::Nil => intern("nil"),
+        ValueKind::T => intern("t"),
+        ValueKind::Symbol(id) | ValueKind::Keyword(id) => id,
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -404,9 +404,9 @@ pub(crate) fn builtin_set_default(eval: &mut super::eval::Context, args: Vec<Val
     // Fire watchers AFTER the write with operation="set".
     // When the symbol was resolved through an alias, fire watchers twice
     // (matching GNU where both set_default_internal and set_internal notify).
-    eval.run_variable_watchers(resolved_name, &value, &Value::Nil, "set")?;
+    eval.run_variable_watchers(resolved_name, &value, &Value::NIL, "set")?;
     if resolved != symbol {
-        eval.run_variable_watchers(resolved_name, &value, &Value::Nil, "set")?;
+        eval.run_variable_watchers(resolved_name, &value, &Value::NIL, "set")?;
     }
     Ok(value)
 }

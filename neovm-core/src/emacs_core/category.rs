@@ -12,7 +12,7 @@ use std::cell::RefCell;
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
-use super::value::{RuntimeBindingValue, Value, read_cons, with_heap, with_heap_mut};
+use super::value::{RuntimeBindingValue, Value, read_cons, with_heap, with_heap_mut, ValueKind, VecLikeType};
 
 thread_local! {
     static STANDARD_CATEGORY_TABLE_OBJECT: RefCell<Option<Value>> = const { RefCell::new(None) };
@@ -45,7 +45,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -56,7 +56,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -67,7 +67,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -79,10 +79,10 @@ fn is_category_letter(ch: char) -> bool {
 }
 
 fn extract_char_opt(value: &Value, fn_name: &str) -> Result<Option<char>, Flow> {
-    match value {
-        Value::Char(c) => Ok(Some(*c)),
-        Value::Int(n) => {
-            if let Some(c) = char::from_u32(*n as u32) {
+    match value.kind() {
+        ValueKind::Char(c) => Ok(Some(c)),
+        ValueKind::Fixnum(n) => {
+            if let Some(c) = char::from_u32(n as u32) {
                 Ok(Some(c))
             } else if (0..=0x3F_FFFF).contains(n) {
                 Ok(None)
@@ -116,10 +116,10 @@ fn extract_char(value: &Value, fn_name: &str) -> Result<char, Flow> {
 }
 
 fn extract_char_code(value: &Value, fn_name: &str) -> Result<i64, Flow> {
-    match value {
-        Value::Char(c) => Ok(*c as i64),
-        Value::Int(n) if (0..=0x3F_FFFF).contains(n) => Ok(*n),
-        Value::Int(n) => Err(signal(
+    match value.kind() {
+        ValueKind::Char(c) => Ok(c as i64),
+        ValueKind::Fixnum(n) if (0..=0x3F_FFFF).contains(n) => Ok(n),
+        ValueKind::Fixnum(n) => Err(signal(
             "error",
             vec![Value::string(format!(
                 "{}: Invalid character code: {}",
@@ -134,12 +134,12 @@ fn extract_char_code(value: &Value, fn_name: &str) -> Result<i64, Flow> {
 }
 
 fn make_empty_category_set() -> EvalResult {
-    super::chartable::builtin_make_bool_vector(vec![Value::Int(128), Value::Nil])
+    super::chartable::builtin_make_bool_vector(vec![Value::fixnum(128), Value::NIL])
 }
 
 fn clone_vector_value(value: &Value) -> EvalResult {
-    match value {
-        Value::Vector(v) => Ok(Value::vector(with_heap(|h| h.get_vector(*v).clone()))),
+    match value.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::vector(with_heap(|h| h.get_vector(*v).clone()))),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("vectorp"), *other],
@@ -153,7 +153,7 @@ fn is_category_table_value(value: &Value) -> Result<bool, Flow> {
         return Ok(false);
     }
     let subtype = super::chartable::builtin_char_table_subtype(vec![*value])?;
-    Ok(matches!(subtype, Value::Symbol(id) if resolve_sym(id) == "category-table"))
+    Ok(subtype.is_symbol_named("category-table"))
 }
 
 fn make_category_table_object() -> EvalResult {
@@ -165,13 +165,13 @@ fn make_category_table_object() -> EvalResult {
     );
     super::chartable::builtin_set_char_table_extra_slot(vec![
         table,
-        Value::Int(CATEGORY_DOCSTRING_SLOT),
-        Value::vector(vec![Value::Nil; CATEGORY_DOCSTRING_COUNT]),
+        Value::fixnum(CATEGORY_DOCSTRING_SLOT),
+        Value::vector(vec![Value::NIL; CATEGORY_DOCSTRING_COUNT]),
     ])?;
     super::chartable::builtin_set_char_table_extra_slot(vec![
         table,
-        Value::Int(CATEGORY_VERSION_SLOT),
-        Value::Nil,
+        Value::fixnum(CATEGORY_VERSION_SLOT),
+        Value::NIL,
     ])?;
     Ok(table)
 }
@@ -189,8 +189,8 @@ pub(crate) fn ensure_standard_category_table_object() -> EvalResult {
 }
 
 fn clone_char_table_object(value: &Value) -> EvalResult {
-    match value {
-        Value::Vector(v) => Ok(Value::vector(with_heap(|h| h.get_vector(*v).clone()))),
+    match value.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::vector(with_heap(|h| h.get_vector(*v).clone()))),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("category-table-p"), *other],
@@ -207,27 +207,27 @@ fn deep_copy_category_table(source: &Value) -> EvalResult {
     }
 
     let copy = clone_char_table_object(source)?;
-    let default = super::chartable::builtin_char_table_range(vec![*source, Value::Nil])?;
-    if matches!(default, Value::Vector(_)) {
+    let default = super::chartable::builtin_char_table_range(vec![*source, Value::NIL])?;
+    if default.is_vector() {
         super::chartable::builtin_set_char_table_range(vec![
             copy,
-            Value::Nil,
+            Value::NIL,
             clone_vector_value(&default)?,
         ])?;
     }
 
     let docstrings = super::chartable::builtin_char_table_extra_slot(vec![
         *source,
-        Value::Int(CATEGORY_DOCSTRING_SLOT),
+        Value::fixnum(CATEGORY_DOCSTRING_SLOT),
     ])?;
     super::chartable::builtin_set_char_table_extra_slot(vec![
         copy,
-        Value::Int(CATEGORY_DOCSTRING_SLOT),
+        Value::fixnum(CATEGORY_DOCSTRING_SLOT),
         clone_vector_value(&docstrings)?,
     ])?;
 
     for (key, value) in super::chartable::char_table_local_entries(source)? {
-        let copied = if matches!(value, Value::Vector(_)) {
+        let copied = if value.is_vector() {
             clone_vector_value(&value)?
         } else {
             value
@@ -245,13 +245,13 @@ fn category_doc_index(category: char) -> usize {
 fn category_docstrings(table: Value) -> Result<Value, Flow> {
     super::chartable::builtin_char_table_extra_slot(vec![
         table,
-        Value::Int(CATEGORY_DOCSTRING_SLOT),
+        Value::fixnum(CATEGORY_DOCSTRING_SLOT),
     ])
 }
 
 fn category_docstring_in_table(table: Value, category: char) -> Result<Value, Flow> {
     let docs = category_docstrings(table)?;
-    let Value::Vector(arc) = docs else {
+    if !docs.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), rewrite let-else */ {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("vectorp"), docs],
@@ -261,7 +261,7 @@ fn category_docstring_in_table(table: Value, category: char) -> Result<Value, Fl
     Ok(docs
         .get(category_doc_index(category))
         .copied()
-        .unwrap_or(Value::Nil))
+        .unwrap_or(Value::NIL))
 }
 
 fn set_category_docstring_in_table(
@@ -270,7 +270,7 @@ fn set_category_docstring_in_table(
     docstring: Value,
 ) -> Result<(), Flow> {
     let docs = category_docstrings(table)?;
-    let Value::Vector(arc) = docs else {
+    if !docs.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), rewrite let-else */ {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("vectorp"), docs],
@@ -312,7 +312,7 @@ fn check_category_table_in_buffers(
     table: Option<Value>,
 ) -> Result<Value, Flow> {
     match table {
-        None | Some(Value::Nil) => current_buffer_category_table_in_buffers(buffers),
+        None | Some(ValueKind::Nil) => current_buffer_category_table_in_buffers(buffers),
         Some(table) => {
             if !is_category_table_value(&table)? {
                 return Err(signal(
@@ -344,7 +344,7 @@ fn set_current_buffer_category_table_in_buffers(
 }
 
 fn category_set_contains(category_set: &Value, category: char) -> Result<bool, Flow> {
-    let Value::Vector(arc) = category_set else {
+    if !category_set.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), rewrite let-else */ {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("categorysetp"), *category_set],
@@ -352,7 +352,7 @@ fn category_set_contains(category_set: &Value, category: char) -> Result<bool, F
     };
     let vec = with_heap(|h| h.get_vector(*arc).clone());
     let bit_idx = 2 + (category as usize);
-    Ok(matches!(vec.get(bit_idx), Some(Value::Int(n)) if *n != 0))
+    Ok(matches!(vec.get(bit_idx), Some(Value::fixnum(n)) if *n != 0))
 }
 
 fn set_category_set_member(
@@ -360,7 +360,7 @@ fn set_category_set_member(
     category: char,
     present: bool,
 ) -> Result<(), Flow> {
-    let Value::Vector(arc) = category_set else {
+    if !category_set.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), rewrite let-else */ {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("categorysetp"), *category_set],
@@ -370,7 +370,7 @@ fn set_category_set_member(
         let vec = h.get_vector_mut(*arc);
         let bit_idx = 2 + (category as usize);
         if bit_idx < vec.len() {
-            vec[bit_idx] = Value::Int(if present { 1 } else { 0 });
+            vec[bit_idx] = Value::fixnum(if present { 1 } else { 0 });
         }
     });
     Ok(())
@@ -378,7 +378,7 @@ fn set_category_set_member(
 
 pub(crate) fn builtin_category_table_p(args: Vec<Value>) -> EvalResult {
     expect_args("category-table-p", &args, 1)?;
-    Ok(Value::bool(is_category_table_value(&args[0])?))
+    Ok(Value::bool_val(is_category_table_value(&args[0])?))
 }
 
 pub(crate) fn builtin_make_category_table(args: Vec<Value>) -> EvalResult {
@@ -390,7 +390,7 @@ pub(crate) fn builtin_copy_category_table(args: Vec<Value>) -> EvalResult {
     expect_max_args("copy-category-table", &args, 1)?;
 
     let source = match args.first() {
-        None | Some(Value::Nil) => ensure_standard_category_table_object()?,
+        None | Some(ValueKind::Nil) => ensure_standard_category_table_object()?,
         Some(table) => {
             if !is_category_table_value(table)? {
                 return Err(signal(
@@ -408,8 +408,8 @@ pub(crate) fn builtin_copy_category_table(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_make_category_set(args: Vec<Value>) -> EvalResult {
     expect_args("make-category-set", &args, 1)?;
 
-    let categories = match &args[0] {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
+    let categories = match args[0].kind() {
+        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -418,16 +418,16 @@ pub(crate) fn builtin_make_category_set(args: Vec<Value>) -> EvalResult {
         }
     };
 
-    let mut bits = vec![Value::Int(0); 128];
+    let mut bits = vec![Value::fixnum(0); 128];
     for ch in categories.chars() {
         if is_category_letter(ch) {
-            bits[ch as usize] = Value::Int(1);
+            bits[ch as usize] = Value::fixnum(1);
         }
     }
 
     let mut vec = Vec::with_capacity(130);
     vec.push(Value::symbol("--bool-vector--"));
-    vec.push(Value::Int(128));
+    vec.push(Value::fixnum(128));
     vec.extend(bits);
     Ok(Value::vector(vec))
 }
@@ -435,7 +435,7 @@ pub(crate) fn builtin_make_category_set(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_category_set_mnemonics(args: Vec<Value>) -> EvalResult {
     expect_args("category-set-mnemonics", &args, 1)?;
 
-    let Value::Vector(bits_arc) = &args[0] else {
+    if !&args[0].is_vector() /* TODO(tagged): `bits_arc` was Value::Vector(bits_arc), rewrite let-else */ {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("categorysetp"), args[0]],
@@ -444,8 +444,8 @@ pub(crate) fn builtin_category_set_mnemonics(args: Vec<Value>) -> EvalResult {
 
     let bits = with_heap(|h| h.get_vector(*bits_arc).clone());
     let valid_shape = bits.len() >= 130
-        && matches!(&bits[0], Value::Symbol(id) if resolve_sym(*id) == "--bool-vector--")
-        && matches!(&bits[1], Value::Int(128));
+        && bits[0].is_symbol_named("--bool-vector--")
+        && matches!(&bits[1], Value::fixnum(128));
     if !valid_shape {
         return Err(signal(
             "wrong-type-argument",
@@ -456,8 +456,8 @@ pub(crate) fn builtin_category_set_mnemonics(args: Vec<Value>) -> EvalResult {
     let mut out = String::new();
     for idx in CATEGORY_MIN as usize..=CATEGORY_MAX as usize {
         let is_set = match bits.get(2 + idx) {
-            Some(Value::Nil) => false,
-            Some(Value::Int(0)) | None => false,
+            Some(ValueKind::Nil) => false,
+            Some(ValueKind::Fixnum(0)) | None => false,
             _ => true,
         };
         if is_set {
@@ -496,8 +496,8 @@ pub(crate) fn builtin_modify_category_entry(
     let reset = args.get(3).is_some_and(Value::is_truthy);
 
     let (start, end) = match &args[0] {
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);
+        Value::Cons(cell) /* TODO(tagged): convert Value::Cons to new API */ => {
+            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             (
                 extract_char_code(&pair.car, "modify-category-entry")?,
                 extract_char_code(&pair.cdr, "modify-category-entry")?,
@@ -510,7 +510,7 @@ pub(crate) fn builtin_modify_category_entry(
     };
 
     if start > end {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let mut cursor = start;
@@ -521,16 +521,16 @@ pub(crate) fn builtin_modify_category_entry(
             let updated = clone_vector_value(&existing)?;
             set_category_set_member(&updated, category, !reset)?;
             let key = if cursor == to {
-                Value::Int(cursor)
+                Value::fixnum(cursor)
             } else {
-                Value::cons(Value::Int(cursor), Value::Int(to))
+                Value::cons(Value::fixnum(cursor), Value::fixnum(to))
             };
             super::chartable::builtin_set_char_table_range(vec![table, key, updated])?;
         }
         cursor = to.saturating_add(1);
     }
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_define_category(
@@ -550,8 +550,8 @@ pub(crate) fn builtin_define_category(
             ))],
         ));
     }
-    let docstring = match &args[1] {
-        Value::Str(id) => Value::string(with_heap(|h| h.get_string(*id).to_owned())),
+    let docstring = match args[1].kind() {
+        ValueKind::String => Value::string(with_heap(|h| h.get_string(*id).to_owned())),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -571,7 +571,7 @@ pub(crate) fn builtin_define_category(
     }
 
     set_category_docstring_in_table(table, category, docstring)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_category_docstring(
@@ -596,10 +596,10 @@ pub(crate) fn builtin_get_unused_category(
     for code in CATEGORY_MIN..=CATEGORY_MAX {
         let category = char::from_u32(code as u32).expect("ASCII category code");
         if category_docstring_in_table(table, category)?.is_nil() {
-            return Ok(Value::Char(category));
+            return Ok(Value::char(category));
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_char_category_set(

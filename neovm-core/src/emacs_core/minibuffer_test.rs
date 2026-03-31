@@ -26,12 +26,12 @@ fn normalize_buffer_reader_default_uses_list_head_and_live_buffer_name() {
     assert_eq!(
         normalize_buffer_reader_default(
             &eval.buffers,
-            Value::list(vec![Value::Buffer(buf_id), Value::string("fallback")]),
+            Value::list(vec![Value::make_buffer(buf_id), Value::string("fallback")]),
         ),
         Value::string(" minibuffer-default ")
     );
     assert_eq!(
-        normalize_buffer_reader_default(&eval.buffers, Value::Buffer(buf_id)),
+        normalize_buffer_reader_default(&eval.buffers, Value::make_buffer(buf_id)),
         Value::string(" minibuffer-default ")
     );
 }
@@ -44,14 +44,14 @@ fn read_buffer_completing_args_use_live_buffer_names_and_normalized_default() {
         &eval.buffers,
         &[
             Value::string("Buffer: "),
-            Value::list(vec![Value::Buffer(buf_id), Value::string("fallback")]),
-            Value::True,
+            Value::list(vec![Value::make_buffer(buf_id), Value::string("fallback")]),
+            Value::T,
             Value::symbol("predicate"),
         ],
     );
     assert_eq!(args[0], Value::string("Buffer: "));
     assert_eq!(args[2], Value::symbol("predicate"));
-    assert_eq!(args[3], Value::True);
+    assert_eq!(args[3], Value::T);
     assert_eq!(args[6], Value::string(" target-buffer "));
     let names = super::value_to_string_list(&args[1]);
     assert!(names.contains(&" target-buffer ".to_string()));
@@ -72,10 +72,10 @@ fn finish_read_command_with_minibuffer_normalizes_default_and_interns_result() {
                 minibuffer_args,
                 &[
                     Value::string("Command: "),
-                    Value::Nil,
-                    Value::Nil,
-                    Value::Nil,
-                    Value::Nil,
+                    Value::NIL,
+                    Value::NIL,
+                    Value::NIL,
+                    Value::NIL,
                     Value::string("forward-char"),
                 ]
             );
@@ -95,10 +95,10 @@ fn finish_read_variable_with_minibuffer_normalizes_default_and_interns_result() 
                 minibuffer_args,
                 &[
                     Value::string("Variable: "),
-                    Value::Nil,
-                    Value::Nil,
-                    Value::Nil,
-                    Value::Nil,
+                    Value::NIL,
+                    Value::NIL,
+                    Value::NIL,
+                    Value::NIL,
                     Value::string("fill-column"),
                 ]
             );
@@ -492,9 +492,9 @@ fn completion_style_basic_case_sensitive() {
 fn alist_completion() {
     let mgr = MinibufferManager::new();
     let table = CompletionTable::Alist(vec![
-        ("alpha".into(), Value::Int(1)),
-        ("beta".into(), Value::Int(2)),
-        ("alphabetical".into(), Value::Int(3)),
+        ("alpha".into(), Value::fixnum(1)),
+        ("beta".into(), Value::fixnum(2)),
+        ("alphabetical".into(), Value::fixnum(3)),
     ]);
     let result = mgr.all_completions("alph", &table);
     assert_eq!(result.len(), 2);
@@ -506,7 +506,7 @@ fn builtin_try_completion_unique_exact() {
     let mut eval = crate::emacs_core::eval::Context::new();
     let coll = Value::list(vec![Value::string("unique"), Value::string("other")]);
     let result = builtin_try_completion(&mut eval, vec![Value::string("unique"), coll]).unwrap();
-    assert!(matches!(result, Value::True));
+    assert!(result.is_t());
 }
 
 #[test]
@@ -522,7 +522,7 @@ fn builtin_try_completion_no_match() {
     let mut eval = crate::emacs_core::eval::Context::new();
     let coll = Value::list(vec![Value::string("foo"), Value::string("bar")]);
     let result = builtin_try_completion(&mut eval, vec![Value::string("zzz"), coll]).unwrap();
-    assert!(matches!(result, Value::Nil));
+    assert!(result.is_nil());
 }
 
 #[test]
@@ -531,7 +531,7 @@ fn builtin_try_completion_rejects_more_than_three_args() {
     let coll = Value::list(vec![Value::string("a")]);
     let result = builtin_try_completion(
         &mut eval,
-        vec![Value::string(""), coll, Value::Nil, Value::Nil],
+        vec![Value::string(""), coll, Value::NIL, Value::NIL],
     );
     assert!(matches!(
         result,
@@ -558,7 +558,7 @@ fn builtin_all_completions_rejects_more_than_four_args() {
     let coll = Value::list(vec![Value::string("a")]);
     let result = builtin_all_completions(
         &mut eval,
-        vec![Value::string(""), coll, Value::Nil, Value::Nil, Value::Nil],
+        vec![Value::string(""), coll, Value::NIL, Value::NIL, Value::NIL],
     );
     assert!(matches!(
         result,
@@ -571,7 +571,7 @@ fn builtin_test_completion_match() {
     let mut eval = crate::emacs_core::eval::Context::new();
     let coll = Value::list(vec![Value::string("alpha"), Value::string("beta")]);
     let result = builtin_test_completion(&mut eval, vec![Value::string("alpha"), coll]).unwrap();
-    assert!(matches!(result, Value::True));
+    assert!(result.is_t());
 }
 
 #[test]
@@ -579,7 +579,7 @@ fn builtin_test_completion_no_match() {
     let mut eval = crate::emacs_core::eval::Context::new();
     let coll = Value::list(vec![Value::string("alpha"), Value::string("beta")]);
     let result = builtin_test_completion(&mut eval, vec![Value::string("alp"), coll]).unwrap();
-    assert!(matches!(result, Value::Nil));
+    assert!(result.is_nil());
 }
 
 #[test]
@@ -588,7 +588,7 @@ fn builtin_test_completion_rejects_more_than_three_args() {
     let coll = Value::list(vec![Value::string("a")]);
     let result = builtin_test_completion(
         &mut eval,
-        vec![Value::string(""), coll, Value::Nil, Value::Nil],
+        vec![Value::string(""), coll, Value::NIL, Value::NIL],
     );
     assert!(matches!(
         result,
@@ -599,13 +599,13 @@ fn builtin_test_completion_rejects_more_than_three_args() {
 #[test]
 fn builtin_minibuffer_depth_returns_zero() {
     let result = builtin_minibuffer_depth(vec![]).unwrap();
-    assert!(matches!(result, Value::Int(0)));
+    assert!(matches!(result, Value::fixnum(0)));
 }
 
 #[test]
 fn builtin_minibufferp_returns_nil() {
     let result = builtin_minibufferp(vec![]).unwrap();
-    assert!(matches!(result, Value::Nil));
+    assert!(result.is_nil());
 }
 
 #[test]
@@ -636,31 +636,31 @@ fn eval_minibuffer_runtime_state_tracks_active_prompt_and_contents() {
     );
     assert_eq!(
         builtin_minibuffer_depth_ctx(&mut eval, vec![]).unwrap(),
-        Value::Int(1)
+        Value::fixnum(1)
     );
     assert_eq!(
         builtin_minibufferp_ctx(&mut eval, vec![]).unwrap(),
-        Value::True
+        Value::T
     );
     assert_eq!(
-        builtin_minibufferp_ctx(&mut eval, vec![Value::Nil, Value::True]).unwrap(),
-        Value::True
+        builtin_minibufferp_ctx(&mut eval, vec![Value::NIL, Value::T]).unwrap(),
+        Value::T
     );
     assert!(matches!(
         builtin_abort_minibuffers_ctx(&mut eval, vec![]),
-        Err(Flow::Throw { tag, value }) if tag.is_symbol_named("exit") && value == Value::True
+        Err(Flow::Throw { tag, value }) if tag.is_symbol_named("exit") && value == Value::T
     ));
 }
 
 #[test]
 fn builtin_minibufferp_accepts_string_and_second_arg() {
-    let result = builtin_minibufferp(vec![Value::string("x"), Value::Nil]).unwrap();
-    assert!(matches!(result, Value::Nil));
+    let result = builtin_minibufferp(vec![Value::string("x"), Value::NIL]).unwrap();
+    assert!(result.is_nil());
 }
 
 #[test]
 fn builtin_minibufferp_rejects_non_buffer_like_values() {
-    let result = builtin_minibufferp(vec![Value::Int(1)]);
+    let result = builtin_minibufferp(vec![Value::fixnum(1)]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-type-argument"
@@ -669,7 +669,7 @@ fn builtin_minibufferp_rejects_non_buffer_like_values() {
 
 #[test]
 fn builtin_minibufferp_rejects_more_than_two_args() {
-    let result = builtin_minibufferp(vec![Value::Nil, Value::Nil, Value::Nil]);
+    let result = builtin_minibufferp(vec![Value::NIL, Value::NIL, Value::NIL]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
@@ -680,13 +680,13 @@ fn builtin_minibufferp_rejects_more_than_two_args() {
 fn builtin_recursive_edit_returns_nil() {
     let mut eval = crate::emacs_core::eval::Context::new();
     let result = builtin_recursive_edit(&mut eval, vec![]).unwrap();
-    assert!(matches!(result, Value::Nil));
+    assert!(result.is_nil());
 }
 
 #[test]
 fn builtin_recursive_edit_rejects_args() {
     let mut eval = crate::emacs_core::eval::Context::new();
-    let result = builtin_recursive_edit(&mut eval, vec![Value::Nil]);
+    let result = builtin_recursive_edit(&mut eval, vec![Value::NIL]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
@@ -701,13 +701,13 @@ fn builtin_top_level_throws_top_level_tag() {
     assert!(matches!(
         result,
         Err(Flow::Throw { tag, value })
-            if matches!(tag, Value::Symbol(ref id) if resolve_sym(*id) == "top-level") && value.is_nil()
+            if tag.is_symbol_named("top-level") && value.is_nil()
     ));
 }
 
 #[test]
 fn builtin_top_level_rejects_args() {
-    let result = builtin_top_level(vec![Value::Nil]);
+    let result = builtin_top_level(vec![Value::NIL]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
@@ -728,7 +728,7 @@ fn builtin_exit_recursive_edit_signals_user_error() {
 #[test]
 fn builtin_exit_recursive_edit_rejects_args() {
     let mut eval = super::super::eval::Context::new();
-    let result = builtin_exit_recursive_edit(&mut eval, vec![Value::Nil]);
+    let result = builtin_exit_recursive_edit(&mut eval, vec![Value::NIL]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
@@ -760,7 +760,7 @@ fn builtin_minibuffer_contents_no_properties_returns_current_buffer_text() {
 #[test]
 fn builtin_minibuffer_contents_no_properties_rejects_args() {
     let mut eval = super::super::eval::Context::new();
-    let result = builtin_minibuffer_contents_no_properties_ctx(&mut eval, vec![Value::Nil]);
+    let result = builtin_minibuffer_contents_no_properties_ctx(&mut eval, vec![Value::NIL]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
@@ -773,7 +773,7 @@ fn builtin_exit_minibuffer_throws_exit_tag() {
     assert!(matches!(
         result,
         Err(Flow::Throw { tag, value })
-            if matches!(tag, Value::Symbol(ref id) if resolve_sym(*id) == "exit") && value.is_nil()
+            if tag.is_symbol_named("exit") && value.is_nil()
     ));
 }
 
@@ -790,7 +790,7 @@ fn builtin_abort_minibuffers_signals_not_in_minibuffer_error() {
 
 #[test]
 fn builtin_abort_minibuffers_rejects_args() {
-    let result = builtin_abort_minibuffers(vec![Value::Nil]);
+    let result = builtin_abort_minibuffers(vec![Value::NIL]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
@@ -811,7 +811,7 @@ fn builtin_abort_recursive_edit_signals_user_error() {
 #[test]
 fn builtin_abort_recursive_edit_rejects_args() {
     let mut eval = super::super::eval::Context::new();
-    let result = builtin_abort_recursive_edit(&mut eval, vec![Value::Nil]);
+    let result = builtin_abort_recursive_edit(&mut eval, vec![Value::NIL]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
@@ -825,9 +825,9 @@ fn builtin_read_file_name_signals_end_of_file() {
         &mut eval,
         vec![
             Value::string("File: "),
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
             Value::string("/tmp/test.txt"),
         ],
     );
@@ -842,7 +842,7 @@ fn builtin_read_file_name_signals_end_of_file() {
 #[test]
 fn builtin_read_file_name_validates_dir_default_and_initial() {
     let mut eval = super::super::eval::Context::new();
-    let bad_dir = builtin_read_file_name(&mut eval, vec![Value::string("File: "), Value::Int(1)]);
+    let bad_dir = builtin_read_file_name(&mut eval, vec![Value::string("File: "), Value::fixnum(1)]);
     assert!(matches!(
         bad_dir,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-type-argument"
@@ -850,7 +850,7 @@ fn builtin_read_file_name_validates_dir_default_and_initial() {
 
     let bad_default = builtin_read_file_name(
         &mut eval,
-        vec![Value::string("File: "), Value::Nil, Value::Int(1)],
+        vec![Value::string("File: "), Value::NIL, Value::fixnum(1)],
     );
     assert!(matches!(
         bad_default,
@@ -861,10 +861,10 @@ fn builtin_read_file_name_validates_dir_default_and_initial() {
         &mut eval,
         vec![
             Value::string("File: "),
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Int(1),
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::fixnum(1),
         ],
     );
     assert!(matches!(
@@ -880,12 +880,12 @@ fn builtin_read_file_name_rejects_more_than_six_args() {
         &mut eval,
         vec![
             Value::string("File: "),
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
         ],
     );
     assert!(matches!(
@@ -914,11 +914,11 @@ fn builtin_read_directory_name_rejects_more_than_five_args() {
         &mut eval,
         vec![
             Value::string("Directory: "),
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
         ],
     );
     assert!(matches!(
@@ -931,7 +931,7 @@ fn builtin_read_directory_name_rejects_more_than_five_args() {
 fn builtin_read_directory_name_validates_dir_default_and_initial() {
     let mut eval = super::super::eval::Context::new();
     let bad_dir =
-        builtin_read_directory_name(&mut eval, vec![Value::string("Directory: "), Value::Int(1)]);
+        builtin_read_directory_name(&mut eval, vec![Value::string("Directory: "), Value::fixnum(1)]);
     assert!(matches!(
         bad_dir,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-type-argument"
@@ -939,7 +939,7 @@ fn builtin_read_directory_name_validates_dir_default_and_initial() {
 
     let bad_default = builtin_read_directory_name(
         &mut eval,
-        vec![Value::string("Directory: "), Value::Nil, Value::Int(1)],
+        vec![Value::string("Directory: "), Value::NIL, Value::fixnum(1)],
     );
     assert!(matches!(
         bad_default,
@@ -950,10 +950,10 @@ fn builtin_read_directory_name_validates_dir_default_and_initial() {
         &mut eval,
         vec![
             Value::string("Directory: "),
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Int(1),
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::fixnum(1),
         ],
     );
     assert!(matches!(
@@ -969,10 +969,10 @@ fn builtin_read_buffer_rejects_more_than_four_args() {
         &mut eval,
         vec![
             Value::string("Buffer: "),
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
         ],
     );
     assert!(matches!(
@@ -986,7 +986,7 @@ fn builtin_read_command_rejects_more_than_two_args() {
     let mut eval = super::super::eval::Context::new();
     let result = builtin_read_command(
         &mut eval,
-        vec![Value::string("Command: "), Value::Nil, Value::Nil],
+        vec![Value::string("Command: "), Value::NIL, Value::NIL],
     );
     assert!(matches!(
         result,
@@ -999,7 +999,7 @@ fn builtin_read_variable_rejects_more_than_two_args() {
     let mut eval = super::super::eval::Context::new();
     let result = builtin_read_variable(
         &mut eval,
-        vec![Value::string("Variable: "), Value::Nil, Value::Nil],
+        vec![Value::string("Variable: "), Value::NIL, Value::NIL],
     );
     assert!(matches!(
         result,
@@ -1023,8 +1023,8 @@ fn value_to_string_list_from_list() {
 #[test]
 fn value_to_string_list_from_alist() {
     let alist = Value::list(vec![
-        Value::cons(Value::string("key1"), Value::Int(1)),
-        Value::cons(Value::string("key2"), Value::Int(2)),
+        Value::cons(Value::string("key1"), Value::fixnum(1)),
+        Value::cons(Value::string("key2"), Value::fixnum(2)),
     ]);
     let result = value_to_string_list(&alist);
     assert_eq!(result, vec!["key1", "key2"]);
@@ -1032,7 +1032,7 @@ fn value_to_string_list_from_alist() {
 
 #[test]
 fn value_to_string_list_from_nil() {
-    let result = value_to_string_list(&Value::Nil);
+    let result = value_to_string_list(&Value::NIL);
     assert!(result.is_empty());
 }
 

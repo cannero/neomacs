@@ -40,25 +40,25 @@ fn ensure_global_keymap(eval: &mut super::eval::Context) -> Value {
 pub(crate) fn expect_key_events(value: &Value) -> Result<Vec<Value>, Flow> {
     use super::value::with_heap;
 
-    match value {
+    match value.kind() {
         // Vectors: use elements directly — integers are already emacs event codes,
         // symbols are already event symbols.
-        Value::Vector(v) => {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(*v).clone());
             let mut events = Vec::with_capacity(items.len());
             for item in &items {
-                match item {
+                match item.kind() {
                     // Integer event codes (character + modifier bits)
-                    Value::Int(_) => events.push(*item),
+                    ValueKind::Fixnum(_) => events.push(*item),
                     // Char values: convert to Int for keymap consistency
-                    Value::Char(c) => events.push(Value::Int(*c as i64)),
+                    ValueKind::Char(c) => events.push(Value::fixnum(c as i64)),
                     // Symbol events (function keys, remap, etc.)
-                    Value::Symbol(_) => events.push(*item),
+                    ValueKind::Symbol(_) => events.push(*item),
                     // nil and t can appear as events in vectors
-                    Value::Nil => events.push(Value::symbol("nil")),
-                    Value::True => events.push(Value::symbol("t")),
+                    ValueKind::Nil => events.push(Value::symbol("nil")),
+                    ValueKind::T => events.push(Value::symbol("t")),
                     // Event modifier list: (control meta ?a) etc.
-                    Value::Cons(_) => {
+                    ValueKind::Cons => {
                         match super::kbd::key_events_from_designator(&Value::vector(vec![*item])) {
                             Ok(ke) => {
                                 for e in &ke {
@@ -118,6 +118,7 @@ pub(super) fn builtin_accessible_keymaps(
 
 pub(crate) fn builtin_accessible_keymaps_impl(obarray: &Obarray, args: &[Value]) -> EvalResult {
     use super::value::with_heap;
+use super::value::{ValueKind, VecLikeType};
 
     expect_min_args("accessible-keymaps", &args, 1)?;
     expect_max_args("accessible-keymaps", &args, 2)?;
@@ -133,16 +134,16 @@ pub(crate) fn builtin_accessible_keymaps_impl(obarray: &Obarray, args: &[Value])
     if let Some(prefix_arg) = args.get(1) {
         if !prefix_arg.is_nil() {
             // Must be a sequence (string or vector), not a list or non-sequence
-            let prefix_events: Vec<Value> = match prefix_arg {
-                Value::Str(_) => {
+            let prefix_events: Vec<Value> = match prefix_arg.kind() {
+                ValueKind::String => {
                     // String prefix — convert to events
                     expect_key_events(prefix_arg)?
                 }
-                Value::Vector(id) => {
+                ValueKind::Veclike(VecLikeType::Vector) => {
                     // Vector prefix — elements are events directly
                     with_heap(|h| h.get_vector(*id).clone())
                 }
-                Value::Cons(_) => {
+                ValueKind::Cons => {
                     // Lists are not valid as key sequences for prefix
                     return Err(super::error::signal(
                         "wrong-type-argument",
@@ -161,10 +162,10 @@ pub(crate) fn builtin_accessible_keymaps_impl(obarray: &Obarray, args: &[Value])
             let filtered: Vec<Value> = all_out
                 .into_iter()
                 .filter(|entry| {
-                    if let Value::Cons(cell) = entry {
-                        let pair = read_cons(*cell);
+                    if entry.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+                        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
                         // pair.car is the prefix vector
-                        if let Value::Vector(vid) = pair.car {
+                        if pair.car.is_vector() /* TODO(tagged): `vid` was Value::Vector(vid), now use accessor */ {
                             let entry_prefix = with_heap(|h| h.get_vector(vid).clone());
                             if entry_prefix.len() >= prefix_events.len() {
                                 return entry_prefix[..prefix_events.len()] == prefix_events[..];
@@ -176,7 +177,7 @@ pub(crate) fn builtin_accessible_keymaps_impl(obarray: &Obarray, args: &[Value])
                 .collect();
 
             if filtered.is_empty() {
-                return Ok(Value::Nil);
+                return Ok(Value::NIL);
             }
             return Ok(Value::list(filtered));
         }
@@ -209,7 +210,7 @@ pub(super) fn builtin_make_sparse_keymap(
         if prompt.is_string() {
             return Ok(Value::cons(
                 Value::symbol("keymap"),
-                Value::cons(*prompt, Value::Nil),
+                Value::cons(*prompt, Value::NIL),
             ));
         }
     }
@@ -257,7 +258,7 @@ pub(super) fn builtin_lookup_key(eval: &mut super::eval::Context, args: Vec<Valu
     let keymaps = resolve_lookup_keymaps_in_runtime(eval, &args[0])?;
 
     if events.is_empty() {
-        return Ok(keymaps.first().copied().unwrap_or(Value::Nil));
+        return Ok(keymaps.first().copied().unwrap_or(Value::NIL));
     }
 
     Ok(lookup_key_in_keymaps_in_obarray(
@@ -280,7 +281,7 @@ pub(crate) fn builtin_lookup_key_impl(obarray: &Obarray, args: &[Value]) -> Eval
     let keymaps = resolve_lookup_keymaps_in_obarray(obarray, &args[0])?;
 
     if events.is_empty() {
-        return Ok(keymaps.first().copied().unwrap_or(Value::Nil));
+        return Ok(keymaps.first().copied().unwrap_or(Value::NIL));
     }
 
     Ok(lookup_key_in_keymaps_in_obarray(
@@ -296,16 +297,16 @@ fn resolve_lookup_keymaps_in_runtime(
         return Ok(vec![*value]);
     }
     if value.is_nil() {
-        return Ok(vec![Value::Nil]);
+        return Ok(vec![Value::NIL]);
     }
     if let Some(items) = list_to_vec(value) {
         if items.is_empty() {
-            return Ok(vec![Value::Nil]);
+            return Ok(vec![Value::NIL]);
         }
         let mut resolved = Vec::with_capacity(items.len());
         for item in &items {
             if item.is_nil() {
-                resolved.push(Value::Nil);
+                resolved.push(Value::NIL);
                 continue;
             }
             let keymap = maybe_keymap_in_runtime(eval, item, true)?;
@@ -328,16 +329,16 @@ fn resolve_lookup_keymaps_in_obarray(obarray: &Obarray, value: &Value) -> Result
         return Ok(vec![*value]);
     }
     if value.is_nil() {
-        return Ok(vec![Value::Nil]);
+        return Ok(vec![Value::NIL]);
     }
     if let Some(items) = list_to_vec(value) {
         if items.is_empty() {
-            return Ok(vec![Value::Nil]);
+            return Ok(vec![Value::NIL]);
         }
         let mut resolved = Vec::with_capacity(items.len());
         for item in &items {
             if item.is_nil() {
-                resolved.push(Value::Nil);
+                resolved.push(Value::NIL);
                 continue;
             }
             let Some(keymap) = maybe_keymap_in_obarray(obarray, item) else {
@@ -397,12 +398,12 @@ pub(super) fn builtin_use_local_map(
 ) -> EvalResult {
     expect_args("use-local-map", &args, 1)?;
     let keymap = if args[0].is_nil() {
-        Value::Nil
+        Value::NIL
     } else {
         expect_keymap(eval, &args[0])?
     };
     let _ = eval.buffers.set_current_local_map(keymap);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (use-global-map KEYMAP)
@@ -413,14 +414,14 @@ pub(super) fn builtin_use_global_map(
     expect_args("use-global-map", &args, 1)?;
     let keymap = get_keymap_in_runtime(eval, &args[0], true, true)?;
     eval.obarray.set_symbol_value("global-map", keymap);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_use_global_map_impl(obarray: &mut Obarray, args: &[Value]) -> EvalResult {
     expect_args("use-global-map", args, 1)?;
     let keymap = expect_keymap_in_obarray(obarray, &args[0])?;
     obarray.set_symbol_value("global-map", keymap);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (current-local-map) -> keymap or nil
@@ -489,7 +490,7 @@ pub(crate) fn builtin_current_minor_mode_maps_impl(
         ctx.buffers.current_buffer_id(),
     );
     if maps.is_empty() {
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     } else {
         Ok(Value::list(maps))
     }
@@ -504,12 +505,12 @@ pub(crate) fn plan_keymap_iteration(keymap: Value) -> KeymapIterationPlan {
     let Some(entries) = list_to_vec(&keymap) else {
         return KeymapIterationPlan {
             bindings: Vec::new(),
-            parent: Value::Nil,
+            parent: Value::NIL,
         };
     };
 
     let mut bindings = Vec::new();
-    let mut parent = Value::Nil;
+    let mut parent = Value::NIL;
 
     for (i, entry) in entries.iter().enumerate() {
         if i == 0 && entry.is_symbol_named("keymap") {
@@ -521,14 +522,14 @@ pub(crate) fn plan_keymap_iteration(keymap: Value) -> KeymapIterationPlan {
             break;
         }
 
-        match entry {
-            Value::Cons(cell) => {
-                let pair = read_cons(*cell);
+        match entry.kind() {
+            ValueKind::Cons => {
+                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
                 if !pair.cdr.is_nil() {
                     bindings.push((pair.car, pair.cdr));
                 }
             }
-            Value::Vector(obj_id) => {
+            ValueKind::Veclike(VecLikeType::Vector) => {
                 let items = with_heap(|h| h.get_vector(*obj_id).clone());
                 for (idx, binding) in items.iter().enumerate() {
                     if !binding.is_nil() {
@@ -575,7 +576,7 @@ pub(super) fn builtin_map_keymap(eval: &mut super::eval::Context, args: Vec<Valu
             break;
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(map-keymap-internal FUNCTION KEYMAP)` -> parent keymap or nil.
@@ -629,7 +630,7 @@ pub(super) fn builtin_set_keymap_parent(
     expect_args("set-keymap-parent", &args, 2)?;
     let keymap = get_keymap_in_runtime(eval, &args[0], true, true)?;
     let parent = if args[1].is_nil() {
-        Value::Nil
+        Value::NIL
     } else {
         get_keymap_in_runtime(eval, &args[1], true, false)?
     };
@@ -647,7 +648,7 @@ pub(crate) fn builtin_set_keymap_parent_impl(obarray: &Obarray, args: &[Value]) 
     expect_args("set-keymap-parent", &args, 2)?;
     let keymap = get_keymap_in_obarray(obarray, &args[0], true)?;
     let parent = if args[1].is_nil() {
-        Value::Nil
+        Value::NIL
     } else {
         get_keymap_in_obarray(obarray, &args[1], true)?
     };
@@ -673,18 +674,18 @@ pub(super) fn builtin_keymapp(eval: &mut super::eval::Context, args: Vec<Value>)
 pub(crate) fn builtin_keymapp_impl(obarray: &Obarray, args: &[Value]) -> EvalResult {
     expect_args("keymapp", &args, 1)?;
     Ok(maybe_keymap_in_obarray(obarray, &args[0])
-        .map(|_| Value::True)
-        .unwrap_or(Value::Nil))
+        .map(|_| Value::T)
+        .unwrap_or(Value::NIL))
 }
 
 /// `(event-convert-list EVENT-DESC)` -> event object or nil
 pub(crate) fn builtin_event_convert_list(args: Vec<Value>) -> EvalResult {
     expect_args("event-convert-list", &args, 1)?;
     let Some(items) = list_to_vec(&args[0]) else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     if items.is_empty() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     if items.len() == 1 {
         return Ok(items[0]);
@@ -710,14 +711,14 @@ pub(crate) fn builtin_event_convert_list(args: Vec<Value>) -> EvalResult {
     }
 
     let Some(base) = base else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
 
-    match base {
-        Value::Int(_) | Value::Char(_) => {
+    match base.kind() {
+        ValueKind::Fixnum(_) | ValueKind::Char(_) => {
             let mut code = match base {
-                Value::Int(i) => i,
-                Value::Char(c) => c as i64,
+                ValueKind::Fixnum(i) => i,
+                ValueKind::Char(c) => c as i64,
                 _ => unreachable!(),
             };
 
@@ -742,7 +743,7 @@ pub(crate) fn builtin_event_convert_list(args: Vec<Value>) -> EvalResult {
             }
             Ok(Value::Int(code | mod_bits))
         }
-        Value::Symbol(id) => {
+        ValueKind::Symbol(id) => {
             let name = resolve_sym(id);
             if mod_bits == 0 {
                 Ok(Value::symbol(name))
@@ -754,7 +755,7 @@ pub(crate) fn builtin_event_convert_list(args: Vec<Value>) -> EvalResult {
                 )))
             }
         }
-        Value::Nil | Value::True => {
+        ValueKind::Nil | ValueKind::T => {
             if mod_bits == 0 {
                 Ok(base)
             } else {
@@ -774,9 +775,9 @@ pub(crate) fn builtin_event_convert_list(args: Vec<Value>) -> EvalResult {
 /// `(text-char-description CHARACTER)` -> printable text description.
 pub(super) fn builtin_text_char_description(args: Vec<Value>) -> EvalResult {
     expect_args("text-char-description", &args, 1)?;
-    let code = match &args[0] {
-        Value::Int(n) if (0..=KEY_CHAR_CODE_MASK).contains(n) => *n,
-        Value::Char(c) => *c as i64,
+    let code = match args[0].kind() {
+        ValueKind::Fixnum(n) if (0..=KEY_CHAR_CODE_MASK).contains(n) => n,
+        ValueKind::Char(c) => c as i64,
         _ => {
             return Err(signal(
                 "wrong-type-argument",

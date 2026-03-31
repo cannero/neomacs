@@ -21,7 +21,7 @@ use super::error::{
     EvalResult, Flow, make_signal_binding_value, signal, signal_from_binding_value,
     signal_with_data,
 };
-use super::value::{Value, eq_value, read_cons};
+use super::value::{Value, eq_value, read_cons, ValueKind};
 use crate::gc::GcTrace;
 
 // ---------------------------------------------------------------------------
@@ -129,16 +129,16 @@ impl ThreadManager {
             ThreadState {
                 id: 0,
                 name: None,
-                function: Value::Nil,
+                function: Value::NIL,
                 status: ThreadStatus::Running,
-                result: Value::Nil,
+                result: Value::NIL,
                 last_error: None,
                 joined: false,
-                buffer_disposition: Value::Nil,
+                buffer_disposition: Value::NIL,
                 current_buffer: None,
-                event_object: Value::Nil,
-                error_symbol: Value::Nil,
-                error_data: Value::Nil,
+                event_object: Value::NIL,
+                error_symbol: Value::NIL,
+                error_data: Value::NIL,
             },
         );
         let mut thread_handles = HashMap::new();
@@ -171,14 +171,14 @@ impl ThreadManager {
                 name,
                 function,
                 status: ThreadStatus::Created,
-                result: Value::Nil,
+                result: Value::NIL,
                 last_error: None,
                 joined: false,
-                buffer_disposition: Value::Nil,
+                buffer_disposition: Value::NIL,
                 current_buffer: None,
-                event_object: Value::Nil,
-                error_symbol: Value::Nil,
-                error_data: Value::Nil,
+                event_object: Value::NIL,
+                error_symbol: Value::NIL,
+                error_data: Value::NIL,
             },
         );
         self.thread_handles
@@ -222,8 +222,8 @@ impl ThreadManager {
                 t.error_symbol = symbol;
                 t.error_data = data;
             } else {
-                t.error_symbol = Value::Nil;
-                t.error_data = Value::Nil;
+                t.error_symbol = Value::NIL;
+                t.error_data = Value::NIL;
             }
         }
     }
@@ -283,7 +283,7 @@ impl ThreadManager {
         self.threads
             .get(&id)
             .map(|t| t.result)
-            .unwrap_or(Value::Nil)
+            .unwrap_or(Value::NIL)
     }
 
     /// Mark a thread as joined and return its terminal error, if any.
@@ -295,7 +295,7 @@ impl ThreadManager {
 
     /// Get and optionally clear the global last-error.
     pub fn last_error(&mut self, cleanup: bool) -> Value {
-        let val = self.last_error.unwrap_or(Value::Nil);
+        let val = self.last_error.unwrap_or(Value::NIL);
         if cleanup {
             self.last_error = None;
         }
@@ -347,7 +347,7 @@ impl ThreadManager {
     }
 
     pub fn clear_thread_blocker(&mut self, id: u64) -> bool {
-        self.set_thread_blocker(id, Value::Nil)
+        self.set_thread_blocker(id, Value::NIL)
     }
 
     // -- Mutex operations ---------------------------------------------------
@@ -511,7 +511,7 @@ impl GcTrace for ThreadManager {
             roots.push(thread.error_symbol);
             roots.push(thread.error_data);
             if let Some(buffer_id) = thread.current_buffer {
-                roots.push(Value::Buffer(buffer_id));
+                roots.push(Value::make_buffer(buffer_id));
             }
             if let Some(ref err) = thread.last_error {
                 roots.push(*err);
@@ -540,7 +540,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -551,7 +551,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -562,7 +562,7 @@ fn expect_args_range(name: &str, args: &[Value], min: usize, max: usize) -> Resu
     if args.len() < min || args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -570,19 +570,19 @@ fn expect_args_range(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 }
 
 fn tagged_object_value(tag: &str, id: u64) -> Value {
-    Value::cons(Value::symbol(tag), Value::Int(id as i64))
+    Value::cons(Value::symbol(tag), Value::fixnum(id as i64))
 }
 
 fn tagged_object_id(value: &Value, expected_tag: &str) -> Option<u64> {
-    let Value::Cons(cell) = value else {
+    if !value.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
         return None;
     };
-    let pair = read_cons(*cell);
+    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
     if pair.car.as_symbol_name() != Some(expected_tag) {
         return None;
     }
-    match pair.cdr {
-        Value::Int(n) if n >= 0 => Some(n as u64),
+    match pair.cdr.kind() {
+        ValueKind::Fixnum(n) if n >= 0 => Some(n as u64),
         _ => None,
     }
 }
@@ -598,10 +598,10 @@ fn canonical_handle_id(handles: &HashMap<u64, Value>, value: &Value, tag: &str) 
 }
 
 fn split_signal_binding_value(value: Value) -> Option<(Value, Value)> {
-    let Value::Cons(cell) = value else {
+    if !value.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
         return None;
     };
-    let pair = read_cons(cell);
+    let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
     pair.car.as_symbol_name()?;
     Some((pair.car, pair.cdr))
 }
@@ -665,9 +665,9 @@ pub(crate) fn prepare_make_thread(
 
     let function = args[0];
     let name = if args.len() > 1 {
-        match &args[1] {
-            Value::Str(_) => Some(args[1].as_str().unwrap().to_string()),
-            Value::Nil => None,
+        match args[1].kind() {
+            ValueKind::String => Some(args[1].as_str().unwrap().to_string()),
+            ValueKind::Nil => None,
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -678,7 +678,7 @@ pub(crate) fn prepare_make_thread(
     } else {
         None
     };
-    let buffer_disposition = args.get(2).copied().unwrap_or(Value::Nil);
+    let buffer_disposition = args.get(2).copied().unwrap_or(Value::NIL);
 
     let thread_id = threads.create_thread(function, name);
     threads.set_thread_buffer_disposition(thread_id, buffer_disposition);
@@ -811,7 +811,7 @@ pub(crate) fn builtin_thread_yield(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("thread-yield", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(thread-name THREAD)` -- return the thread's name or nil.
@@ -829,7 +829,7 @@ pub(crate) fn builtin_thread_name(
     }
     match ctx.threads.thread_name(id) {
         Some(name) => Ok(Value::string(name)),
-        None => Ok(Value::Nil),
+        None => Ok(Value::NIL),
     }
 }
 
@@ -846,7 +846,7 @@ pub(crate) fn builtin_thread_live_p(
             vec![Value::symbol("threadp"), args[0]],
         ));
     }
-    Ok(Value::bool(ctx.threads.thread_alive_p(id)))
+    Ok(Value::bool_val(ctx.threads.thread_alive_p(id)))
 }
 
 /// `(threadp OBJ)` -- type predicate.
@@ -857,7 +857,7 @@ pub(crate) fn builtin_threadp(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("threadp", &args, 1)?;
-    Ok(Value::bool(
+    Ok(Value::bool_val(
         ctx.threads.thread_id_from_handle(&args[0]).is_some(),
     ))
 }
@@ -890,7 +890,7 @@ pub(crate) fn builtin_thread_signal(
     }
     ctx.threads
         .signal_thread(id, Value::cons(error_symbol, data));
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(current-thread)` -- return the current thread object.
@@ -937,7 +937,7 @@ pub(crate) fn builtin_thread_last_error(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("thread-last-error"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -952,7 +952,7 @@ pub(crate) fn builtin_thread_blocker(
 ) -> EvalResult {
     expect_args("thread--blocker", &args, 1)?;
     let id = expect_thread_id(&ctx.threads, &args[0])?;
-    Ok(ctx.threads.thread_blocker(id).unwrap_or(Value::Nil))
+    Ok(ctx.threads.thread_blocker(id).unwrap_or(Value::NIL))
 }
 
 /// `(thread-buffer-disposition THREAD)` -- return THREAD's buffer disposition.
@@ -965,7 +965,7 @@ pub(crate) fn builtin_thread_buffer_disposition(
     Ok(ctx
         .threads
         .thread_buffer_disposition(id)
-        .unwrap_or(Value::Nil))
+        .unwrap_or(Value::NIL))
 }
 
 /// `(thread-set-buffer-disposition THREAD VALUE)` -- set THREAD's buffer disposition.
@@ -998,13 +998,13 @@ pub(crate) fn builtin_make_mutex(
     if args.len() > 1 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("make-mutex"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("make-mutex"), Value::fixnum(args.len() as i64)],
         ));
     }
     let name = if let Some(v) = args.first() {
-        match v {
-            Value::Str(_) => Some(v.as_str().unwrap().to_string()),
-            Value::Nil => None,
+        match v.kind() {
+            ValueKind::String => Some(v.as_str().unwrap().to_string()),
+            ValueKind::Nil => None,
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -1028,7 +1028,7 @@ pub(crate) fn builtin_mutexp(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("mutexp", &args, 1)?;
-    Ok(Value::bool(
+    Ok(Value::bool_val(
         ctx.threads.mutex_id_from_handle(&args[0]).is_some(),
     ))
 }
@@ -1048,7 +1048,7 @@ pub(crate) fn builtin_mutex_name(
     }
     match ctx.threads.mutex_name(id) {
         Some(name) => Ok(Value::string(name)),
-        None => Ok(Value::Nil),
+        None => Ok(Value::NIL),
     }
 }
 
@@ -1068,7 +1068,7 @@ pub(crate) fn builtin_mutex_lock(
         ));
     }
     ctx.threads.mutex_lock(id);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(mutex-unlock MUTEX)` -- unlock a mutex.
@@ -1085,7 +1085,7 @@ pub(crate) fn builtin_mutex_unlock(
         ));
     }
     ctx.threads.mutex_unlock(id);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // ===========================================================================
@@ -1103,7 +1103,7 @@ pub(crate) fn builtin_make_condition_variable(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("make-condition-variable"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -1115,9 +1115,9 @@ pub(crate) fn builtin_make_condition_variable(
         ));
     }
     let name = if args.len() > 1 {
-        match &args[1] {
-            Value::Str(_) => Some(args[1].as_str().unwrap().to_string()),
-            Value::Nil => None,
+        match args[1].kind() {
+            ValueKind::String => Some(args[1].as_str().unwrap().to_string()),
+            ValueKind::Nil => None,
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -1146,7 +1146,7 @@ pub(crate) fn builtin_condition_variable_p(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("condition-variable-p", &args, 1)?;
-    Ok(Value::bool(
+    Ok(Value::bool_val(
         ctx.threads
             .condition_variable_id_from_handle(&args[0])
             .is_some(),
@@ -1168,7 +1168,7 @@ pub(crate) fn builtin_condition_name(
     }
     match ctx.threads.condition_variable_name(id) {
         Some(name) => Ok(Value::string(name)),
-        None => Ok(Value::Nil),
+        None => Ok(Value::NIL),
     }
 }
 
@@ -1228,7 +1228,7 @@ pub(crate) fn builtin_condition_wait(
             )],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(condition-notify COND &optional ALL)` -- notify on a condition variable.
@@ -1244,7 +1244,7 @@ pub(crate) fn builtin_condition_notify(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("condition-notify"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -1269,7 +1269,7 @@ pub(crate) fn builtin_condition_notify(
             )],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // ===========================================================================
@@ -1288,7 +1288,7 @@ pub(crate) fn sf_with_mutex(
     if tail.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::cons(Value::Int(1), Value::Int(1)), Value::Int(0)],
+            vec![Value::cons(Value::fixnum(1), Value::fixnum(1)), Value::fixnum(0)],
         ));
     }
     let mutex_val = eval.eval(&tail[0])?;

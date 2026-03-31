@@ -15,10 +15,10 @@ pub(crate) fn is_internal_symbol_plist_property(property: &str) -> bool {
 }
 
 pub(crate) fn symbol_id(value: &Value) -> Option<SymId> {
-    match value {
-        Value::Nil => Some(intern("nil")),
-        Value::True => Some(intern("t")),
-        Value::Symbol(id) | Value::Keyword(id) => Some(*id),
+    match value.kind() {
+        ValueKind::Nil => Some(intern("nil")),
+        ValueKind::T => Some(intern("t")),
+        ValueKind::Symbol(id) | ValueKind::Keyword(id) => Some(id),
         _ => None,
     }
 }
@@ -27,16 +27,16 @@ fn value_from_symbol_id(id: SymId) -> Value {
     let name = resolve_sym(id);
     if lookup_interned(name).is_some_and(|canonical| canonical == id) {
         if name == "nil" {
-            return Value::Nil;
+            return Value::NIL;
         }
         if name == "t" {
-            return Value::True;
+            return Value::T;
         }
         if name.starts_with(':') {
-            return Value::Keyword(id);
+            return Value::keyword(id);
         }
     }
-    Value::Symbol(id)
+    Value::symbol(id)
 }
 
 pub(crate) trait MacroexpandRuntime {
@@ -92,7 +92,7 @@ pub(crate) fn constant_set_outcome_in_obarray(
     }
 
     let name = resolve_sym(symbol);
-    if name.starts_with(':') && eq_value(&Value::Keyword(symbol), &new_value) {
+    if name.starts_with(':') && eq_value(&Value::keyword(symbol), &new_value) {
         return Some(Ok(new_value));
     }
 
@@ -125,7 +125,7 @@ pub(crate) fn resolve_variable_alias_id_in_obarray(
         if !seen.insert(current) {
             return Err(signal(
                 "cyclic-variable-indirection",
-                vec![Value::Symbol(symbol)],
+                vec![Value::symbol(symbol)],
             ));
         }
         // Primary: check SymbolValue::Alias variant.
@@ -225,7 +225,7 @@ fn symbol_raw_plist_value(eval: &super::eval::Context, symbol: SymId) -> Option<
 
 pub(crate) fn visible_symbol_plist_snapshot_in_obarray(obarray: &Obarray, symbol: SymId) -> Value {
     let Some(sym) = obarray.get_by_id(symbol) else {
-        return Value::Nil;
+        return Value::NIL;
     };
 
     let mut items = Vec::new();
@@ -238,7 +238,7 @@ pub(crate) fn visible_symbol_plist_snapshot_in_obarray(obarray: &Obarray, symbol
     }
 
     if items.is_empty() {
-        Value::Nil
+        Value::NIL
     } else {
         Value::list(items)
     }
@@ -250,10 +250,10 @@ fn sync_visible_symbol_plist_entries(
 ) {
     let mut cursor = plist;
     loop {
-        match cursor {
-            Value::Nil => return,
-            Value::Cons(key_cell) => {
-                let pair = read_cons(key_cell);
+        match cursor.kind() {
+            ValueKind::Nil => return,
+            ValueKind::Cons => {
+                let pair = read_cons(key_cell);  // TODO(tagged): replace read_cons with cons accessors
                 let key = pair.car;
                 let rest = pair.cdr;
                 drop(pair);
@@ -261,11 +261,11 @@ fn sync_visible_symbol_plist_entries(
                 let Some(key_id) = symbol_id(&key) else {
                     return;
                 };
-                let Value::Cons(value_cell) = rest else {
+                if !rest.is_cons() /* TODO(tagged): `value_cell` was ValueKind::Cons, rewrite let-else */ {
                     return;
                 };
 
-                let value_pair = read_cons(value_cell);
+                let value_pair = read_cons(value_cell);  // TODO(tagged): replace read_cons with cons accessors
                 let value = value_pair.car;
                 cursor = value_pair.cdr;
                 drop(value_pair);
@@ -308,17 +308,17 @@ fn set_symbol_raw_plist(eval: &mut super::eval::Context, symbol: SymId, plist: V
 pub(crate) fn plist_lookup_value(plist: &Value, prop: &Value) -> Option<Value> {
     let mut cursor = *plist;
     loop {
-        match cursor {
-            Value::Nil => return None,
-            Value::Cons(pair_cell) => {
-                let pair = read_cons(pair_cell);
+        match cursor.kind() {
+            ValueKind::Nil => return None,
+            ValueKind::Cons => {
+                let pair = read_cons(pair_cell);  // TODO(tagged): replace read_cons with cons accessors
                 let key = pair.car;
                 let rest = pair.cdr;
                 drop(pair);
-                let Value::Cons(value_cell) = rest else {
+                if !rest.is_cons() /* TODO(tagged): `value_cell` was ValueKind::Cons, rewrite let-else */ {
                     return None;
                 };
-                let value_pair = read_cons(value_cell);
+                let value_pair = read_cons(value_cell);  // TODO(tagged): replace read_cons with cons accessors
                 let value = value_pair.car;
                 let next = value_pair.cdr;
                 if eq_value(&key, prop) {
@@ -339,17 +339,17 @@ pub(crate) fn builtin_boundp(eval: &mut super::eval::Context, args: Vec<Value>) 
     let resolved_name = resolve_sym(resolved);
     if let Some(buf) = eval.buffers.current_buffer() {
         if let Some(binding) = buf.get_buffer_local_binding(resolved_name) {
-            return Ok(Value::bool(binding.as_value().is_some()));
+            return Ok(Value::bool_val(binding.as_value().is_some()));
         }
     }
-    Ok(Value::bool(
+    Ok(Value::bool_val(
         obarray.boundp_id(resolved) || obarray.is_constant_id(resolved),
     ))
 }
 
 pub(crate) fn builtin_obarrayp(args: Vec<Value>) -> EvalResult {
     expect_args("obarrayp", &args, 1)?;
-    Ok(Value::bool(expect_obarray_vector_id(&args[0]).is_ok()))
+    Ok(Value::bool_val(expect_obarray_vector_id(&args[0]).is_ok()))
 }
 
 pub(crate) fn builtin_special_variable_p(
@@ -359,7 +359,7 @@ pub(crate) fn builtin_special_variable_p(
     expect_args("special-variable-p", &args, 1)?;
     let obarray = eval.obarray();
     let resolved = resolve_variable_alias_id_in_obarray(obarray, expect_symbol_id(&args[0])?)?;
-    Ok(Value::bool(
+    Ok(Value::bool_val(
         obarray.is_special_id(resolved) || obarray.is_constant_id(resolved),
     ))
 }
@@ -371,7 +371,7 @@ pub(crate) fn builtin_default_boundp(
     expect_args("default-boundp", &args, 1)?;
     let obarray = eval.obarray();
     let resolved = resolve_variable_alias_id_in_obarray(obarray, expect_symbol_id(&args[0])?)?;
-    Ok(Value::bool(
+    Ok(Value::bool_val(
         obarray.boundp_id(resolved) || obarray.is_constant_id(resolved),
     ))
 }
@@ -392,7 +392,7 @@ pub(crate) fn builtin_default_toplevel_value(
     ) {
         Some(value) => Ok(value),
         None if is_canonical_symbol_id(resolved) && resolved_name.starts_with(':') => {
-            Ok(Value::Keyword(resolved))
+            Ok(Value::keyword(resolved))
         }
         None => Err(signal("void-variable", vec![args[0]])),
     }
@@ -404,7 +404,7 @@ pub(crate) fn builtin_internal_define_uninitialized_variable(
 ) -> EvalResult {
     expect_range_args("internal--define-uninitialized-variable", &args, 1, 2)?;
     let symbol = expect_symbol_id(&args[0])?;
-    let documentation = args.get(1).copied().unwrap_or(Value::Nil);
+    let documentation = args.get(1).copied().unwrap_or(Value::NIL);
 
     eval.obarray_mut().make_special_id(symbol);
 
@@ -414,7 +414,7 @@ pub(crate) fn builtin_internal_define_uninitialized_variable(
         preflight_symbol_plist_put(eval, &args[0], "variable-documentation")?;
     }
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_set_default_toplevel_value(
@@ -426,11 +426,11 @@ pub(crate) fn builtin_set_default_toplevel_value(
     let resolved = resolve_variable_alias_id(eval, symbol)?;
     let resolved_name = resolve_sym(resolved);
     let value = args[1];
-    eval.run_variable_watchers(resolved_name, &value, &Value::Nil, "set")?;
+    eval.run_variable_watchers(resolved_name, &value, &Value::NIL, "set")?;
     if resolved != symbol {
-        eval.run_variable_watchers(resolved_name, &value, &Value::Nil, "set")?;
+        eval.run_variable_watchers(resolved_name, &value, &Value::NIL, "set")?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn set_default_toplevel_value_impl(
@@ -451,7 +451,7 @@ pub(crate) fn set_default_toplevel_value_impl(
     ) {
         ctx.obarray.set_symbol_value_id(resolved, value);
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_defvaralias(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -459,7 +459,7 @@ pub(crate) fn builtin_defvaralias(eval: &mut super::eval::Context, args: Vec<Val
     eval.run_variable_watchers(
         &state_change.previous_target,
         &state_change.base_variable,
-        &Value::Nil,
+        &Value::NIL,
         "defvaralias",
     )?;
     eval.watchers.clear_watchers(&state_change.alias_name);
@@ -515,7 +515,7 @@ pub(crate) fn defvaralias_impl(
     ctx.obarray.make_alias(new_symbol, old_symbol);
     ctx.obarray.make_special_id(old_symbol);
     preflight_symbol_plist_put_in_obarray(&mut ctx.obarray, new_symbol, "variable-documentation")?;
-    let docstring = args.get(2).cloned().unwrap_or(Value::Nil);
+    let docstring = args.get(2).cloned().unwrap_or(Value::NIL);
     Ok(DefvaraliasStateChange {
         alias_name: new_name,
         previous_target,
@@ -541,7 +541,7 @@ pub(crate) fn builtin_indirect_variable(
 pub(crate) fn builtin_fboundp(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("fboundp", &args, 1)?;
     let symbol = expect_symbol_id(&args[0])?;
-    Ok(Value::bool(
+    Ok(Value::bool_val(
         symbol_function_cell_in_obarray(eval.obarray(), symbol)
             .is_some_and(|function| !function.is_nil()),
     ))
@@ -579,14 +579,14 @@ pub(crate) fn symbol_function_impl(obarray: &Obarray, args: Vec<Value>) -> EvalR
     let symbol = expect_symbol_id(&args[0])?;
     let name = resolve_sym(symbol);
     if obarray.is_function_unbound_id(symbol) {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     if let Some(function) = obarray.symbol_function_id(symbol) {
         // GNU Emacs exposes this symbol as autoload-shaped in startup state,
         // then subr-shaped after first invocation triggers autoload materialization.
         if name == "kmacro-name-last-macro"
-            && matches!(function, Value::Subr(subr) if resolve_sym(*subr) == "kmacro-name-last-macro")
+            && matches!(function, Value::subr(subr) if resolve_sym(*subr) == "kmacro-name-last-macro")
             && obarray
                 .get_property_id(symbol, intern("neovm--kmacro-autoload-promoted"))
                 .is_none()
@@ -595,18 +595,18 @@ pub(crate) fn symbol_function_impl(obarray: &Obarray, args: Vec<Value>) -> EvalR
                 Value::symbol("autoload"),
                 Value::string("kmacro"),
                 Value::string("Assign a name to the last keyboard macro defined."),
-                Value::True,
-                Value::Nil,
+                Value::T,
+                Value::NIL,
             ]));
         }
         return Ok(*function);
     }
 
     if !is_canonical_symbol_id(symbol) {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
-    Ok(symbol_function_cell_in_obarray(obarray, symbol).unwrap_or(Value::Nil))
+    Ok(symbol_function_cell_in_obarray(obarray, symbol).unwrap_or(Value::NIL))
 }
 
 /// `(function-get F PROP &optional AUTOLOAD)` — Rust implementation
@@ -619,9 +619,9 @@ pub(crate) fn builtin_function_get(
     expect_min_args("function-get", &args, 2)?;
     expect_max_args("function-get", &args, 3)?;
     let prop = args[1];
-    let autoload = args.get(2).copied().unwrap_or(Value::Nil);
-    let prop_id = match &prop {
-        Value::Symbol(id) | Value::Keyword(id) => *id,
+    let autoload = args.get(2).copied().unwrap_or(Value::NIL);
+    let prop_id = match prop.kind() {
+        ValueKind::Symbol(id) | ValueKind::Keyword(id) => id,
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -630,9 +630,9 @@ pub(crate) fn builtin_function_get(
         }
     };
     let mut f = args[0];
-    let mut val = Value::Nil;
+    let mut val = Value::NIL;
     let mut iterations = 0;
-    while let Value::Symbol(sym_id) = f {
+    while let Some(sym_id) = f.as_symbol_id() {
         // Check property
         if let Some(v) = eval.obarray.get_property_id(sym_id, prop_id) {
             val = *v;
@@ -642,7 +642,7 @@ pub(crate) fn builtin_function_get(
         if eval.obarray.symbol_function_id(sym_id).is_none() {
             break;
         }
-        let fundef = symbol_function_impl(eval.obarray(), vec![f]).unwrap_or(Value::Nil);
+        let fundef = symbol_function_impl(eval.obarray(), vec![f]).unwrap_or(Value::NIL);
         if fundef.is_nil() {
             break;
         }
@@ -656,7 +656,7 @@ pub(crate) fn builtin_function_get(
                     if autoload.is_symbol_named("macro") {
                         Value::symbol("macro")
                     } else {
-                        Value::Nil
+                        Value::NIL
                     },
                 ],
             );
@@ -690,7 +690,7 @@ pub(crate) fn builtin_func_arity(eval: &mut super::eval::Context, args: Vec<Valu
             if super::subr_info::is_special_form(name) {
                 return super::subr_info::builtin_func_arity_ctx(
                     eval,
-                    vec![Value::Subr(intern(name))],
+                    vec![Value::subr(intern(name))],
                 );
             }
             if let Some(arity) =
@@ -710,7 +710,7 @@ fn has_startup_subr_wrapper_in_obarray(obarray: &Obarray, name: &str) -> bool {
     let wrapper = format!("neovm--startup-subr-wrapper-{name}");
     matches!(
         obarray.symbol_function(&wrapper),
-        Some(Value::Subr(subr_id)) if resolve_sym(*subr_id) == name
+        Some(Value::subr(subr_id)) if resolve_sym(*subr_id) == name
     )
 }
 
@@ -720,12 +720,12 @@ fn dispatch_symbol_func_arity_override_in_obarray(
     function: &Value,
 ) -> Option<Value> {
     // Only applies to builtin functions (those with Subr function cells).
-    if !matches!(obarray.symbol_function(name), Some(Value::Subr(_))) {
+    if !matches!(obarray.symbol_function(name), Some(Value::subr(_))) {
         return None;
     }
 
     if super::autoload::is_autoload_value(function)
-        || (matches!(function, Value::ByteCode(_))
+        || (matches!(function, Value::ByteCode(_) /* TODO(tagged): convert Value::ByteCode to new API */)
             && has_startup_subr_wrapper_in_obarray(obarray, name))
     {
         return Some(super::subr_info::dispatch_subr_arity_value(name));
@@ -746,11 +746,11 @@ pub(crate) fn builtin_set(eval: &mut super::eval::Context, args: Vec<Value>) -> 
     let where_value = eval
         .set_runtime_binding_by_id(resolved, value)
         .map(Value::Buffer)
-        .unwrap_or(Value::Nil);
+        .unwrap_or(Value::NIL);
     eval.run_variable_watchers_with_where(
         resolve_sym(resolved),
         &value,
-        &Value::Nil,
+        &Value::NIL,
         "set",
         &where_value,
     )?;
@@ -821,8 +821,8 @@ pub(crate) fn builtin_makunbound(eval: &mut super::eval::Context, args: Vec<Valu
     eval.makunbound_runtime_binding_by_id(resolved);
     eval.run_variable_watchers(
         resolve_sym(resolved),
-        &Value::Nil,
-        &Value::Nil,
+        &Value::NIL,
+        &Value::NIL,
         "makunbound",
     )?;
     Ok(args[0])
@@ -831,7 +831,7 @@ pub(crate) fn builtin_makunbound(eval: &mut super::eval::Context, args: Vec<Valu
 pub(crate) fn builtin_defvar_1(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_range_args("defvar-1", &args, 2, 3)?;
     let symbol = expect_symbol_id(&args[0])?;
-    let documentation = args.get(2).copied().unwrap_or(Value::Nil);
+    let documentation = args.get(2).copied().unwrap_or(Value::NIL);
     let was_bound = builtin_default_boundp(eval, vec![args[0]])?.is_truthy();
 
     if documentation.is_nil() {
@@ -844,13 +844,13 @@ pub(crate) fn builtin_defvar_1(eval: &mut super::eval::Context, args: Vec<Value>
         builtin_set_default_toplevel_value(eval, vec![args[0], args[1]])?;
     }
 
-    Ok(Value::Symbol(symbol))
+    Ok(Value::symbol(symbol))
 }
 
 pub(crate) fn builtin_defconst_1(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_range_args("defconst-1", &args, 2, 3)?;
     let symbol = expect_symbol_id(&args[0])?;
-    let documentation = args.get(2).copied().unwrap_or(Value::Nil);
+    let documentation = args.get(2).copied().unwrap_or(Value::NIL);
 
     if documentation.is_nil() {
         builtin_internal_define_uninitialized_variable(eval, vec![args[0]])?;
@@ -863,9 +863,9 @@ pub(crate) fn builtin_defconst_1(eval: &mut super::eval::Context, args: Vec<Valu
     eval.obarray_mut().set_symbol_value_id(resolved, value);
     eval.obarray_mut().ensure_symbol_id(resolved).constant = true;
     eval.obarray_mut()
-        .put_property_id(resolved, intern("risky-local-variable"), Value::True);
+        .put_property_id(resolved, intern("risky-local-variable"), Value::T);
 
-    Ok(Value::Symbol(symbol))
+    Ok(Value::symbol(symbol))
 }
 
 pub(crate) fn builtin_fmakunbound(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -883,17 +883,17 @@ pub(crate) fn builtin_get(eval: &mut super::eval::Context, args: Vec<Value>) -> 
     expect_args("get", &args, 2)?;
     let sym = expect_symbol_id(&args[0])?;
     if let Some(raw) = symbol_raw_plist_value(eval, sym) {
-        return Ok(plist_lookup_value(&raw, &args[1]).unwrap_or(Value::Nil));
+        return Ok(plist_lookup_value(&raw, &args[1]).unwrap_or(Value::NIL));
     }
     let prop = expect_symbol_id(&args[1])?;
     if is_internal_symbol_plist_property(resolve_sym(prop)) {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     Ok(eval
         .obarray()
         .get_property_id(sym, prop)
         .cloned()
-        .unwrap_or(Value::Nil))
+        .unwrap_or(Value::NIL))
 }
 
 pub(crate) fn builtin_put(
@@ -967,7 +967,7 @@ fn symbol_has_valid_ccl_program_idx_in_obarray(
     let idx = obarray
         .get_property_id(symbol, intern("ccl-program-idx"))
         .copied()
-        .unwrap_or(Value::Nil);
+        .unwrap_or(Value::NIL);
     Ok(idx.as_int().is_some_and(|n| n >= 0))
 }
 
@@ -984,7 +984,7 @@ pub(super) fn builtin_ccl_program_p(
 ) -> EvalResult {
     let obarray = eval.obarray();
     if args.len() == 1 && args[0].is_symbol() {
-        return Ok(Value::bool(symbol_has_valid_ccl_program_idx_in_obarray(
+        return Ok(Value::bool_val(symbol_has_valid_ccl_program_idx_in_obarray(
             obarray, &args[0],
         )?));
     }
@@ -997,7 +997,7 @@ pub(super) fn builtin_ccl_execute(eval: &mut super::eval::Context, args: Vec<Val
         && !symbol_has_valid_ccl_program_idx_in_obarray(obarray, &args[0])?
     {
         let mut forced = args.clone();
-        forced[0] = Value::Int(0);
+        forced[0] = Value::fixnum(0);
         return super::ccl::builtin_ccl_execute_impl(forced);
     }
     super::ccl::builtin_ccl_execute_impl(args)
@@ -1012,7 +1012,7 @@ pub(super) fn builtin_ccl_execute_on_string(
         && !symbol_has_valid_ccl_program_idx_in_obarray(obarray, &args[0])?
     {
         let mut forced = args.clone();
-        forced[0] = Value::Int(0);
+        forced[0] = Value::fixnum(0);
         return super::ccl::builtin_ccl_execute_on_string_impl(forced);
     }
     super::ccl::builtin_ccl_execute_on_string_impl(args)
@@ -1066,7 +1066,7 @@ fn preflight_symbol_plist_put_in_obarray(
     let Some(raw) = symbol_raw_plist_value_in_obarray(obarray, symbol) else {
         return Ok(());
     };
-    let _ = builtin_plist_put(vec![raw, Value::symbol(property), Value::Nil])?;
+    let _ = builtin_plist_put(vec![raw, Value::symbol(property), Value::NIL])?;
     Ok(())
 }
 
@@ -1082,17 +1082,17 @@ pub(crate) fn builtin_setplist(eval: &mut super::eval::Context, args: Vec<Value>
 fn macroexpand_environment_binding_by_id(env: &Value, target: SymId) -> Option<Value> {
     let mut cursor = *env;
     loop {
-        match cursor {
-            Value::Nil => return None,
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
+        match cursor.kind() {
+            ValueKind::Nil => return None,
+            ValueKind::Cons => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 let entry = pair.car;
                 cursor = pair.cdr;
                 drop(pair);
-                let Value::Cons(entry_cell) = entry else {
+                if !entry.is_cons() /* TODO(tagged): `entry_cell` was ValueKind::Cons, rewrite let-else */ {
                     continue;
                 };
-                let entry_pair = read_cons(entry_cell);
+                let entry_pair = read_cons(entry_cell);  // TODO(tagged): replace read_cons with cons accessors
                 if matches!(symbol_id(&entry_pair.car), Some(id) if id == target) {
                     return Some(entry_pair.cdr);
                 }
@@ -1112,10 +1112,10 @@ fn macroexpand_once_with_environment<R: MacroexpandRuntime>(
     form: Value,
     environment: Option<&Value>,
 ) -> Result<(Value, bool), Flow> {
-    let Value::Cons(form_cell) = form else {
+    if !form.is_cons() /* TODO(tagged): `form_cell` was Value::Cons(form_cell), rewrite let-else */ {
         return Ok((form, false));
     };
-    let form_pair = read_cons(form_cell);
+    let form_pair = read_cons(form_cell);  // TODO(tagged): replace read_cons with cons accessors
     let head = form_pair.car;
     let tail = form_pair.cdr;
     let Some(head_id) = symbol_id(&head) else {
@@ -1153,7 +1153,7 @@ fn macroexpand_once_with_environment<R: MacroexpandRuntime>(
             // Check for Value::Macro (native macros) AND cons-cell macros
             // `(macro . fn)` — matches real Emacs eval.c which checks
             // `EQ (XCAR (def), Qmacro)`.
-            let is_macro = matches!(global, Value::Macro(_))
+            let is_macro = matches!(global, Value::Macro(_) /* TODO(tagged): convert Value::Macro to new API */)
                 || (global.is_cons() && global.cons_car().is_symbol_named("macro"));
             if is_macro {
                 function = Some(if global.is_cons() {
@@ -1174,7 +1174,7 @@ fn macroexpand_once_with_environment<R: MacroexpandRuntime>(
                 if let Some((resolved_id2, global2)) =
                     runtime.resolve_indirect_symbol_by_id(head_id)
                 {
-                    let is_macro2 = matches!(global2, Value::Macro(_))
+                    let is_macro2 = matches!(global2, Value::Macro(_) /* TODO(tagged): convert Value::Macro to new API */)
                         || (global2.is_cons() && global2.cons_car().is_symbol_named("macro"));
                     if is_macro2 {
                         function = Some(if global2.is_cons() {
@@ -1237,7 +1237,7 @@ pub(crate) fn indirect_function_impl(obarray: &Obarray, args: Vec<Value>) -> Eva
         {
             return Ok(function);
         }
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     Ok(args[0])
@@ -1289,7 +1289,7 @@ pub(crate) fn resolve_indirect_symbol_by_id_in_obarray(
         let function = symbol_function_cell_in_obarray(obarray, current)?;
         if let Some(next) = symbol_id(&function) {
             if next == intern("nil") {
-                return Some((next, Value::Nil));
+                return Some((next, Value::NIL));
             }
             current = next;
             continue;
@@ -1331,7 +1331,7 @@ pub(crate) fn builtin_macrop(eval: &mut super::eval::Context, args: Vec<Value>) 
         {
             return super::subr_info::macrop_check(&function);
         }
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     super::subr_info::macrop_check(&args[0])
@@ -1350,9 +1350,9 @@ pub(crate) fn obarray_hash(s: &str, len: usize) -> usize {
 pub(crate) fn obarray_bucket_find(bucket: Value, name: &str) -> Option<Value> {
     let mut current = bucket;
     loop {
-        match current {
-            Value::Nil => return None,
-            Value::Cons(id) => {
+        match current.kind() {
+            ValueKind::Nil => return None,
+            ValueKind::Cons => {
                 let (car, cdr) = with_heap(|h| (h.cons_car(id), h.cons_cdr(id)));
                 if let Some(sym_name) = car.as_symbol_name() {
                     if sym_name == name {
@@ -1376,7 +1376,7 @@ pub(crate) fn builtin_intern_fn(eval: &mut super::eval::Context, args: Vec<Value
     expect_min_args("intern", &args, 1)?;
     expect_max_args("intern", &args, 2)?;
     if let Some(obarray) = args.get(1) {
-        if !obarray.is_nil() && !matches!(obarray, Value::Vector(_)) {
+        if !obarray.is_nil() && !obarray.is_vector() {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("obarrayp"), *obarray],
@@ -1386,14 +1386,14 @@ pub(crate) fn builtin_intern_fn(eval: &mut super::eval::Context, args: Vec<Value
     let name = expect_string(&args[0])?;
 
     // Custom obarray path
-    if let Some(Value::Vector(vec_id)) = args
+    if let Some(Value::Vector(vec_id) /* TODO(tagged): convert Value::Vector to new API */) = args
         .get(1)
         .filter(|v| !v.is_nil() && !is_global_obarray_proxy(eval, v))
     {
         let vec_id = *vec_id;
         let vec_len = with_heap(|h| h.get_vector(vec_id).len());
         if vec_len == 0 {
-            return Err(signal("args-out-of-range", vec![Value::Int(0)]));
+            return Err(signal("args-out-of-range", vec![Value::fixnum(0)]));
         }
         let bucket_idx = obarray_hash(&name, vec_len);
         let bucket = with_heap(|h| h.get_vector(vec_id)[bucket_idx]);
@@ -1404,7 +1404,7 @@ pub(crate) fn builtin_intern_fn(eval: &mut super::eval::Context, args: Vec<Value
         }
 
         // Not found: create symbol and prepend to bucket chain
-        let sym = Value::Symbol(intern_uninterned(&name));
+        let sym = Value::symbol(intern_uninterned(&name));
         let new_bucket = Value::cons(sym, bucket);
         with_heap_mut(|h| {
             h.get_vector_mut(vec_id)[bucket_idx] = new_bucket;
@@ -1432,7 +1432,7 @@ pub(crate) fn intern_soft_impl(obarray: &Obarray, args: Vec<Value>) -> EvalResul
     expect_min_args("intern-soft", &args, 1)?;
     expect_max_args("intern-soft", &args, 2)?;
     if let Some(obarray) = args.get(1) {
-        if !obarray.is_nil() && !matches!(obarray, Value::Vector(_)) {
+        if !obarray.is_nil() && !obarray.is_vector() {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("obarrayp"), *obarray],
@@ -1441,13 +1441,13 @@ pub(crate) fn intern_soft_impl(obarray: &Obarray, args: Vec<Value>) -> EvalResul
     }
 
     // Custom obarray path
-    if let Some(Value::Vector(vec_id)) = args.get(1).filter(|v| !v.is_nil()) {
+    if let Some(Value::Vector(vec_id) /* TODO(tagged): convert Value::Vector to new API */) = args.get(1).filter(|v| !v.is_nil()) {
         let vec_id = *vec_id;
-        let name = match &args[0] {
-            Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
-            Value::Symbol(id) | Value::Keyword(id) => resolve_sym(*id).to_owned(),
-            Value::Nil => "nil".to_owned(),
-            Value::True => "t".to_owned(),
+        let name = match args[0].kind() {
+            ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+            ValueKind::Symbol(id) | ValueKind::Keyword(id) => resolve_sym(id).to_owned(),
+            ValueKind::Nil => "nil".to_owned(),
+            ValueKind::T => "t".to_owned(),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -1457,19 +1457,19 @@ pub(crate) fn intern_soft_impl(obarray: &Obarray, args: Vec<Value>) -> EvalResul
         };
         let vec_len = with_heap(|h| h.get_vector(vec_id).len());
         if vec_len == 0 {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
         let bucket_idx = obarray_hash(&name, vec_len);
         let bucket = with_heap(|h| h.get_vector(vec_id)[bucket_idx]);
-        return Ok(obarray_bucket_find(bucket, &name).unwrap_or(Value::Nil));
+        return Ok(obarray_bucket_find(bucket, &name).unwrap_or(Value::NIL));
     }
 
     // Global obarray path
-    let name = match &args[0] {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
-        Value::Nil => "nil".to_owned(),
-        Value::True => "t".to_owned(),
-        Value::Keyword(id) | Value::Symbol(id) => resolve_sym(*id).to_owned(),
+    let name = match args[0].kind() {
+        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+        ValueKind::Nil => "nil".to_owned(),
+        ValueKind::T => "t".to_owned(),
+        ValueKind::Keyword(id) | ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1480,7 +1480,7 @@ pub(crate) fn intern_soft_impl(obarray: &Obarray, args: Vec<Value>) -> EvalResul
     if obarray.intern_soft(&name).is_some() {
         Ok(Value::symbol(name))
     } else {
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     }
 }
 
@@ -1491,11 +1491,11 @@ pub(crate) fn builtin_obarray_make(args: Vec<Value>) -> EvalResult {
     } else {
         expect_wholenump(&args[0])? as usize
     };
-    Ok(Value::vector(vec![Value::Nil; size]))
+    Ok(Value::vector(vec![Value::NIL; size]))
 }
 
 pub(crate) fn expect_obarray_vector_id(value: &Value) -> Result<ObjId, Flow> {
-    let Value::Vector(id) = value else {
+    if !value.is_vector() /* TODO(tagged): `id` was Value::Vector(id), rewrite let-else */ {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("obarrayp"), *value],
@@ -1504,7 +1504,7 @@ pub(crate) fn expect_obarray_vector_id(value: &Value) -> Result<ObjId, Flow> {
     let is_obarray = with_heap(|h| {
         h.get_vector(*id)
             .iter()
-            .all(|slot| slot.is_nil() || matches!(slot, Value::Cons(_)))
+            .all(|slot| slot.is_nil() || slot.is_cons())
     });
     if !is_obarray {
         return Err(signal(
@@ -1521,10 +1521,10 @@ pub(crate) fn builtin_obarray_clear(args: Vec<Value>) -> EvalResult {
     with_heap_mut(|h| {
         let vec = h.get_vector_mut(id);
         for slot in vec.iter_mut() {
-            *slot = Value::Nil;
+            *slot = Value::NIL;
         }
     });
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_make_temp_file_internal(
@@ -1541,12 +1541,12 @@ pub(crate) fn builtin_make_temp_file_internal(
 
 pub(crate) fn builtin_minibuffer_innermost_command_loop_p(args: Vec<Value>) -> EvalResult {
     expect_range_args("minibuffer-innermost-command-loop-p", &args, 0, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_minibuffer_prompt_end(args: Vec<Value>) -> EvalResult {
     expect_args("minibuffer-prompt-end", &args, 0)?;
-    Ok(Value::Int(1))
+    Ok(Value::fixnum(1))
 }
 
 pub(crate) fn builtin_next_frame(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -1585,14 +1585,14 @@ pub(crate) fn builtin_previous_frame(
 pub(crate) fn builtin_raise_frame(args: Vec<Value>) -> EvalResult {
     expect_range_args("raise-frame", &args, 0, 1)?;
     if let Some(frame) = args.first() {
-        if !frame.is_nil() && !matches!(frame, Value::Frame(_)) {
+        if !frame.is_nil() && !matches!(frame, Value::make_frame(_)) {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("frame-live-p"), *frame],
             ));
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_redisplay(
@@ -1604,15 +1604,15 @@ pub(crate) fn builtin_redisplay(
         .eval_symbol("executing-kbd-macro")
         .is_ok_and(|value| !value.is_nil())
     {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     eval.redisplay();
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 pub(crate) fn builtin_suspend_emacs(args: Vec<Value>) -> EvalResult {
     expect_range_args("suspend-emacs", &args, 0, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(vertical-motion LINES &optional WINDOW CUR-COL)` -> integer
@@ -1632,16 +1632,16 @@ pub(crate) fn builtin_vertical_motion(
     // First arg can be LINES (integer) or (COLS . LINES) cons pair.
     // When (COLS . LINES), move LINES then position at column COLS.
     let (cols, lines) = match args[0] {
-        Value::Int(n) => (None, n),
-        Value::Cons(cell) => {
-            let pair = super::value::read_cons(cell);
-            let cols_val = match pair.car {
-                Value::Int(n) => Some(n),
-                Value::Float(f, _) => Some(f as i64),
+        Value::fixnum(n) => (None, n),
+        Value::Cons(cell) /* TODO(tagged): convert Value::Cons to new API */ => {
+            let pair = super::value::read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+            let cols_val = match pair.car.kind() {
+                ValueKind::Fixnum(n) => Some(n),
+                ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Some(f as i64),
                 _ => None,
             };
-            let lines_val = match pair.cdr {
-                Value::Int(n) => n,
+            let lines_val = match pair.cdr.kind() {
+                ValueKind::Fixnum(n) => n,
                 _ => {
                     return Err(signal(
                         "wrong-type-argument",
@@ -1660,7 +1660,7 @@ pub(crate) fn builtin_vertical_motion(
     };
     // Validate optional WINDOW arg.
     if let Some(window) = args.get(1) {
-        if !window.is_nil() && !matches!(window, Value::Window(_)) {
+        if !window.is_nil() && !matches!(window, Value::make_window(_)) {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("window-live-p"), *window],
@@ -1669,10 +1669,10 @@ pub(crate) fn builtin_vertical_motion(
     }
 
     let Some(current_id) = buffers.current_buffer_id() else {
-        return Ok(Value::Int(0));
+        return Ok(Value::fixnum(0));
     };
     let Some(buf) = buffers.get(current_id) else {
-        return Ok(Value::Int(0));
+        return Ok(Value::fixnum(0));
     };
     let text = buf.text.to_string();
     let pt = buf.pt.clamp(buf.begv, buf.zv);
@@ -1687,7 +1687,7 @@ pub(crate) fn builtin_vertical_motion(
             bol -= 1;
         }
         let _ = buffers.goto_buffer_byte(current_id, bol);
-        return Ok(Value::Int(0));
+        return Ok(Value::fixnum(0));
     }
 
     let mut pos = pt;
@@ -1747,7 +1747,7 @@ pub(crate) fn builtin_vertical_motion(
     }
 
     let _ = buffers.goto_buffer_byte(current_id, pos);
-    Ok(Value::Int(moved))
+    Ok(Value::fixnum(moved))
 }
 
 pub(crate) fn builtin_rename_buffer(
@@ -1772,7 +1772,7 @@ pub(crate) fn builtin_rename_buffer(
         }
     };
 
-    let unique = args.get(1).copied().unwrap_or(Value::Nil);
+    let unique = args.get(1).copied().unwrap_or(Value::NIL);
 
     let new_name = match buffers.find_buffer_by_name(&name) {
         Some(existing_id) if existing_id == current_id => {
@@ -1803,47 +1803,47 @@ pub(crate) fn builtin_rename_buffer(
 pub(crate) fn builtin_set_buffer_major_mode(args: Vec<Value>) -> EvalResult {
     expect_args("set-buffer-major-mode", &args, 1)?;
     let _ = expect_buffer_id(&args[0])?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_set_buffer_redisplay(args: Vec<Value>) -> EvalResult {
     expect_args("set-buffer-redisplay", &args, 4)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_put_unicode_property_internal(args: Vec<Value>) -> EvalResult {
     expect_args("put-unicode-property-internal", &args, 3)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_re_describe_compiled(args: Vec<Value>) -> EvalResult {
     expect_range_args("re--describe-compiled", &args, 1, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_map_charset_chars(args: Vec<Value>) -> EvalResult {
     expect_range_args("map-charset-chars", &args, 2, 5)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // map-keymap and map-keymap-internal are now eval-backed in keymaps.rs
 
 pub(crate) fn builtin_mapbacktrace(args: Vec<Value>) -> EvalResult {
     expect_range_args("mapbacktrace", &args, 1, 2)?;
-    match &args[0] {
-        Value::Nil | Value::True => {
+    match args[0].kind() {
+        ValueKind::Nil | ValueKind::T => {
             return Err(signal("void-function", vec![args[0]]));
         }
-        Value::Symbol(_)
-        | Value::Subr(_)
-        | Value::Lambda(_)
-        | Value::Macro(_)
-        | Value::ByteCode(_) => {}
+        ValueKind::Symbol(_)
+        | ValueKind::Subr(_)
+        | ValueKind::Veclike(VecLikeType::Lambda)
+        | ValueKind::Veclike(VecLikeType::Macro)
+        | ValueKind::Veclike(VecLikeType::ByteCode) => {}
         _ => {
             return Err(signal("invalid-function", vec![args[0]]));
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_make_record(args: Vec<Value>) -> EvalResult {
@@ -1855,7 +1855,7 @@ pub(crate) fn builtin_make_record(args: Vec<Value>) -> EvalResult {
         items.push(args[2]); // init value
     }
     let id = with_heap_mut(|h| h.alloc_vector(items));
-    Ok(Value::Record(id))
+    Ok(Value::Record(id) /* TODO(tagged): convert Value::Record to new API */)
 }
 
 pub(crate) fn builtin_marker_last_position(args: Vec<Value>) -> EvalResult {
@@ -1866,13 +1866,13 @@ pub(crate) fn builtin_marker_last_position(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("markerp"), args[0]],
         ));
     }
-    match &args[0] {
-        Value::Vector(vec) => {
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(*vec).clone());
-            if let Some(Value::Int(pos)) = items.get(2) {
-                Ok(Value::Int(*pos))
+            if let Some(ValueKind::Fixnum(pos)) = items.get(2) {
+                Ok(Value::Int(pos))
             } else {
-                Ok(Value::Int(0))
+                Ok(ValueKind::Fixnum(0))
             }
         }
         _ => unreachable!("markerp check above guarantees marker vector"),
@@ -1882,14 +1882,14 @@ pub(crate) fn builtin_marker_last_position(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_newline_cache_check(args: Vec<Value>) -> EvalResult {
     expect_range_args("newline-cache-check", &args, 0, 1)?;
     if let Some(buffer) = args.first() {
-        if !buffer.is_nil() && !matches!(buffer, Value::Buffer(_)) {
+        if !buffer.is_nil() && !matches!(buffer, Value::make_buffer(_)) {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("bufferp"), *buffer],
             ));
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_old_selected_frame(
@@ -1903,7 +1903,7 @@ pub(crate) fn builtin_old_selected_frame(
 pub(crate) fn builtin_make_frame_invisible(args: Vec<Value>) -> EvalResult {
     expect_range_args("make-frame-invisible", &args, 0, 2)?;
     if let Some(frame) = args.first() {
-        if !frame.is_nil() && !matches!(frame, Value::Frame(_)) {
+        if !frame.is_nil() && !matches!(frame, Value::make_frame(_)) {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("frame-live-p"), *frame],
@@ -1912,7 +1912,7 @@ pub(crate) fn builtin_make_frame_invisible(args: Vec<Value>) -> EvalResult {
     }
     let force = args.get(1).is_some_and(|arg| !arg.is_nil());
     if force {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     Err(signal(
         "error",
@@ -1924,18 +1924,18 @@ pub(crate) fn builtin_make_frame_invisible(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_menu_bar_menu_at_x_y(args: Vec<Value>) -> EvalResult {
     expect_range_args("menu-bar-menu-at-x-y", &args, 2, 3)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_menu_or_popup_active_p(args: Vec<Value>) -> EvalResult {
     expect_args("menu-or-popup-active-p", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 fn selected_frame_value(eval: &mut super::eval::Context) -> Value {
     let fid =
         super::window_cmds::ensure_selected_frame_id_in_state(&mut eval.frames, &mut eval.buffers);
-    Value::Frame(fid.0)
+    Value::make_frame(fid.0)
 }
 
 fn maybe_transform_mouse_position(eval: &mut super::eval::Context, value: Value) -> EvalResult {
@@ -1943,7 +1943,7 @@ fn maybe_transform_mouse_position(eval: &mut super::eval::Context, value: Value)
         .obarray
         .symbol_value("mouse-position-function")
         .copied()
-        .unwrap_or(Value::Nil);
+        .unwrap_or(Value::NIL);
     if transform.is_truthy() {
         eval.apply(transform, vec![value])
     } else {
@@ -1958,16 +1958,16 @@ fn pixel_to_char_mouse_position(
     y: i64,
 ) -> (Value, Value) {
     let Some(frame_id) = frame_id else {
-        return (Value::Nil, Value::Nil);
+        return (Value::NIL, Value::NIL);
     };
     let Some(frame) = eval.frames.get(frame_id) else {
-        return (Value::Nil, Value::Nil);
+        return (Value::NIL, Value::NIL);
     };
     let char_width = frame.char_width.max(1.0);
     let char_height = frame.char_height.max(1.0);
     (
-        Value::Int((x as f32 / char_width).floor() as i64),
-        Value::Int((y as f32 / char_height).floor() as i64),
+        Value::fixnum((x as f32 / char_width).floor() as i64),
+        Value::fixnum((y as f32 / char_height).floor() as i64),
     )
 }
 
@@ -1977,16 +1977,16 @@ fn current_mouse_position_value(eval: &mut super::eval::Context, pixel_units: bo
         Some(state) => {
             let frame_value = state
                 .frame_id
-                .map(|frame_id| Value::Frame(frame_id.0))
-                .unwrap_or(Value::Nil);
+                .map(|frame_id| Value::make_frame(frame_id.0))
+                .unwrap_or(Value::NIL);
             let (x, y) = if pixel_units {
-                (Value::Int(state.x), Value::Int(state.y))
+                (Value::fixnum(state.x), Value::fixnum(state.y))
             } else {
                 pixel_to_char_mouse_position(eval, state.frame_id, state.x, state.y)
             };
             (frame_value, x, y)
         }
-        None => (selected_frame, Value::Nil, Value::Nil),
+        None => (selected_frame, Value::NIL, Value::NIL),
     };
     maybe_transform_mouse_position(eval, Value::cons(frame_value, Value::cons(x, y)))
 }
@@ -2009,17 +2009,17 @@ pub(crate) fn builtin_mouse_position(
 
 pub(crate) fn builtin_native_comp_available_p(args: Vec<Value>) -> EvalResult {
     expect_args("native-comp-available-p", &args, 0)?;
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 pub(crate) fn builtin_native_comp_unit_file(args: Vec<Value>) -> EvalResult {
     expect_args("native-comp-unit-file", &args, 1)?;
-    let is_native_comp_unit = match &args[0] {
-        Value::Vector(items) => {
+    let is_native_comp_unit = match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(*items).clone());
             matches!(
                 items.first(),
-                Some(Value::Keyword(tag)) if resolve_sym(*tag) == "native-comp-unit"
+                Some(ValueKind::Keyword(tag)) if resolve_sym(*tag) == "native-comp-unit"
             )
         }
         _ => false,
@@ -2030,17 +2030,17 @@ pub(crate) fn builtin_native_comp_unit_file(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("native-comp-unit"), args[0]],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_native_comp_unit_set_file(args: Vec<Value>) -> EvalResult {
     expect_args("native-comp-unit-set-file", &args, 2)?;
-    let is_native_comp_unit = match &args[0] {
-        Value::Vector(items) => {
+    let is_native_comp_unit = match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(*items).clone());
             matches!(
                 items.first(),
-                Some(Value::Keyword(tag)) if resolve_sym(*tag) == "native-comp-unit"
+                Some(ValueKind::Keyword(tag)) if resolve_sym(*tag) == "native-comp-unit"
             )
         }
         _ => false,
@@ -2051,7 +2051,7 @@ pub(crate) fn builtin_native_comp_unit_set_file(args: Vec<Value>) -> EvalResult 
             vec![Value::symbol("native-comp-unit"), args[0]],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_native_elisp_load(args: Vec<Value>) -> EvalResult {
@@ -2101,12 +2101,12 @@ pub(crate) fn builtin_new_fontset(eval: &mut super::eval::Context, args: Vec<Val
 
 pub(crate) fn builtin_open_font(args: Vec<Value>) -> EvalResult {
     expect_range_args("open-font", &args, 1, 3)?;
-    let is_font_entity = match &args[0] {
-        Value::Vector(items) => {
+    let is_font_entity = match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(*items).clone());
             matches!(
                 items.first(),
-                Some(Value::Keyword(tag)) if resolve_sym(*tag) == "font-entity"
+                Some(ValueKind::Keyword(tag)) if resolve_sym(*tag) == "font-entity"
             )
         }
         _ => false,
@@ -2117,7 +2117,7 @@ pub(crate) fn builtin_open_font(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("font-entity"), args[0]],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_open_dribble_file(args: Vec<Value>) -> EvalResult {
@@ -2125,18 +2125,18 @@ pub(crate) fn builtin_open_dribble_file(args: Vec<Value>) -> EvalResult {
     if !args[0].is_nil() {
         let _ = expect_strict_string(&args[0])?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_object_intervals(args: Vec<Value>) -> EvalResult {
     expect_args("object-intervals", &args, 1)?;
-    if !matches!(args[0], Value::Str(_) | Value::Buffer(_)) {
+    if !matches!(args[0], Value::Str(_) /* TODO(tagged): convert Value::Str to new API */ | Value::make_buffer(_)) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("buffer-or-string-p"), args[0]],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_optimize_char_table(args: Vec<Value>) -> EvalResult {
@@ -2147,119 +2147,119 @@ pub(crate) fn builtin_optimize_char_table(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("char-table-p"), args[0]],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_overlay_lists(args: Vec<Value>) -> EvalResult {
     expect_args("overlay-lists", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_overlay_recenter(args: Vec<Value>) -> EvalResult {
     expect_args("overlay-recenter", &args, 1)?;
     let _ = expect_integer_or_marker(&args[0])?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_profiler_cpu_log(args: Vec<Value>) -> EvalResult {
     expect_args("profiler-cpu-log", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_profiler_cpu_running_p(args: Vec<Value>) -> EvalResult {
     expect_args("profiler-cpu-running-p", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_profiler_cpu_start(args: Vec<Value>) -> EvalResult {
     expect_args("profiler-cpu-start", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_profiler_cpu_stop(args: Vec<Value>) -> EvalResult {
     expect_args("profiler-cpu-stop", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_profiler_memory_log(args: Vec<Value>) -> EvalResult {
     expect_args("profiler-memory-log", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_profiler_memory_running_p(args: Vec<Value>) -> EvalResult {
     expect_args("profiler-memory-running-p", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_profiler_memory_start(args: Vec<Value>) -> EvalResult {
     expect_args("profiler-memory-start", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_profiler_memory_stop(args: Vec<Value>) -> EvalResult {
     expect_args("profiler-memory-stop", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_pdumper_stats(args: Vec<Value>) -> EvalResult {
     expect_args("pdumper-stats", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_position_symbol(args: Vec<Value>) -> EvalResult {
     expect_args("position-symbol", &args, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_play_sound_internal(args: Vec<Value>) -> EvalResult {
     expect_args("play-sound-internal", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_record(args: Vec<Value>) -> EvalResult {
     if args.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("record"), Value::Int(0)],
+            vec![Value::symbol("record"), Value::fixnum(0)],
         ));
     }
     let id = with_heap_mut(|h| h.alloc_vector(args));
-    Ok(Value::Record(id))
+    Ok(Value::Record(id) /* TODO(tagged): convert Value::Record to new API */)
 }
 
 pub(crate) fn builtin_recordp(args: Vec<Value>) -> EvalResult {
     expect_args("recordp", &args, 1)?;
-    Ok(Value::bool(args[0].is_record()))
+    Ok(Value::bool_val(args[0].is_record()))
 }
 
 pub(crate) fn builtin_query_font(args: Vec<Value>) -> EvalResult {
     expect_args("query-font", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_query_fontset(args: Vec<Value>) -> EvalResult {
     expect_range_args("query-fontset", &args, 1, 2)?;
     let pattern = expect_strict_string(&args[0])?;
     if pattern.is_empty() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     let regexpp = args.get(1).is_some_and(Value::is_truthy);
-    Ok(fontset::query_fontset_registry(&pattern, regexpp).map_or(Value::Nil, Value::string))
+    Ok(fontset::query_fontset_registry(&pattern, regexpp).map_or(Value::NIL, Value::string))
 }
 
 pub(crate) fn builtin_read_positioning_symbols(args: Vec<Value>) -> EvalResult {
     expect_range_args("read-positioning-symbols", &args, 0, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_recent_auto_save_p(args: Vec<Value>) -> EvalResult {
     expect_args("recent-auto-save-p", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_reconsider_frame_fonts(args: Vec<Value>) -> EvalResult {
     expect_args("reconsider-frame-fonts", &args, 1)?;
-    if !args[0].is_nil() && !matches!(args[0], Value::Frame(_)) {
+    if !args[0].is_nil() && !matches!(args[0], Value::make_frame(_)) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("frame-live-p"), args[0]],
@@ -2276,26 +2276,26 @@ pub(crate) fn builtin_redirect_debugging_output(args: Vec<Value>) -> EvalResult 
     if !args[0].is_nil() {
         let _ = expect_strict_string(&args[0])?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_redirect_frame_focus(args: Vec<Value>) -> EvalResult {
     expect_range_args("redirect-frame-focus", &args, 1, 2)?;
-    if !args[0].is_nil() && !matches!(args[0], Value::Frame(_)) {
+    if !args[0].is_nil() && !matches!(args[0], Value::make_frame(_)) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("framep"), args[0]],
         ));
     }
     if let Some(focus_frame) = args.get(1) {
-        if !focus_frame.is_nil() && !matches!(focus_frame, Value::Frame(_)) {
+        if !focus_frame.is_nil() && !matches!(focus_frame, Value::make_frame(_)) {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("frame-live-p"), *focus_frame],
             ));
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_remove_pos_from_symbol(args: Vec<Value>) -> EvalResult {
@@ -2305,12 +2305,12 @@ pub(crate) fn builtin_remove_pos_from_symbol(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_resize_mini_window_internal(args: Vec<Value>) -> EvalResult {
     expect_args("resize-mini-window-internal", &args, 1)?;
-    match args[0] {
-        Value::Window(id) if id >= crate::window::MINIBUFFER_WINDOW_ID_BASE => Err(signal(
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Window) if id >= crate::window::MINIBUFFER_WINDOW_ID_BASE => Err(signal(
             "error",
             vec![Value::string("Cannot resize mini window")],
         )),
-        Value::Window(_) => Err(signal(
+        ValueKind::Veclike(VecLikeType::Window) => Err(signal(
             "error",
             vec![Value::string("Not a valid minibuffer window")],
         )),
@@ -2333,18 +2333,18 @@ pub(crate) fn builtin_set_this_command_keys(
     expect_args("set--this-command-keys", &args, 1)?;
     let keys = expect_strict_string(&args[0])?;
     eval.set_this_command_keys_from_string(&keys)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_set_buffer_auto_saved(args: Vec<Value>) -> EvalResult {
     expect_args("set-buffer-auto-saved", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_set_charset_plist(args: Vec<Value>) -> EvalResult {
     expect_args("set-charset-plist", &args, 2)?;
-    let name = match &args[0] {
-        Value::Symbol(id) => resolve_sym(*id).to_owned(),
+    let name = match args[0].kind() {
+        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -2393,14 +2393,14 @@ pub(crate) fn builtin_set_fontset_font(
 pub(crate) fn builtin_set_frame_window_state_change(args: Vec<Value>) -> EvalResult {
     expect_range_args("set-frame-window-state-change", &args, 0, 2)?;
     if let Some(frame) = args.first() {
-        if !frame.is_nil() && !matches!(frame, Value::Frame(_)) {
+        if !frame.is_nil() && !matches!(frame, Value::make_frame(_)) {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("frame-live-p"), *frame],
             ));
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 fn is_known_fringe_bitmap(name: &str) -> bool {
@@ -2442,14 +2442,14 @@ pub(crate) fn builtin_set_fringe_bitmap_face(args: Vec<Value>) -> EvalResult {
             vec![Value::string("Undefined fringe bitmap")],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_set_minibuffer_window(args: Vec<Value>) -> EvalResult {
     expect_args("set-minibuffer-window", &args, 1)?;
-    match args[0] {
-        Value::Window(id) if id >= crate::window::MINIBUFFER_WINDOW_ID_BASE => Ok(Value::Nil),
-        Value::Window(_) => Err(signal(
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Window) if id >= crate::window::MINIBUFFER_WINDOW_ID_BASE => Ok(Value::NIL),
+        ValueKind::Veclike(VecLikeType::Window) => Err(signal(
             "error",
             vec![Value::string("Window is not a minibuffer window")],
         )),
@@ -2476,7 +2476,7 @@ pub(crate) fn builtin_set_mouse_pixel_position(
     eval.command_loop
         .keyboard
         .set_mouse_pixel_position(Some(fid), x, y);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_set_mouse_position(
@@ -2504,7 +2504,7 @@ pub(crate) fn builtin_set_mouse_position(
     eval.command_loop
         .keyboard
         .set_mouse_pixel_position(Some(fid), pixel_x, pixel_y);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_set_window_new_normal(args: Vec<Value>) -> EvalResult {
@@ -2512,7 +2512,7 @@ pub(crate) fn builtin_set_window_new_normal(args: Vec<Value>) -> EvalResult {
     expect_window_valid_or_nil(&args[0])?;
     Ok(super::stubs::set_window_new_normal_value(
         &args[0],
-        args.get(1).cloned().unwrap_or(Value::Nil),
+        args.get(1).cloned().unwrap_or(Value::NIL),
     ))
 }
 
@@ -2540,12 +2540,12 @@ pub(crate) fn builtin_set_window_new_total(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_sort_charsets(args: Vec<Value>) -> EvalResult {
     expect_args("sort-charsets", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_split_char(args: Vec<Value>) -> EvalResult {
     expect_args("split-char", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_string_distance(args: Vec<Value>) -> EvalResult {
@@ -2559,13 +2559,13 @@ pub(crate) fn builtin_string_distance(args: Vec<Value>) -> EvalResult {
         let b1 = s1.as_bytes();
         let b2 = s2.as_bytes();
         let dist = levenshtein_distance_bytes(b1, b2);
-        Ok(Value::Int(dist as i64))
+        Ok(Value::fixnum(dist as i64))
     } else {
         // Character-level Levenshtein distance
         let c1: Vec<char> = s1.chars().collect();
         let c2: Vec<char> = s2.chars().collect();
         let dist = levenshtein_distance_chars(&c1, &c2);
-        Ok(Value::Int(dist as i64))
+        Ok(Value::fixnum(dist as i64))
     }
 }
 
@@ -2609,79 +2609,79 @@ fn levenshtein_distance_bytes(a: &[u8], b: &[u8]) -> usize {
 
 pub(crate) fn builtin_subr_native_comp_unit(args: Vec<Value>) -> EvalResult {
     expect_args("subr-native-comp-unit", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_subr_native_lambda_list(args: Vec<Value>) -> EvalResult {
     expect_args("subr-native-lambda-list", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_subr_type(args: Vec<Value>) -> EvalResult {
     expect_args("subr-type", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_tool_bar_get_system_style(args: Vec<Value>) -> EvalResult {
     expect_args("tool-bar-get-system-style", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_tool_bar_pixel_width(args: Vec<Value>) -> EvalResult {
     expect_range_args("tool-bar-pixel-width", &args, 0, 1)?;
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 pub(crate) fn builtin_translate_region_internal(args: Vec<Value>) -> EvalResult {
     expect_args("translate-region-internal", &args, 3)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_transpose_regions(args: Vec<Value>) -> EvalResult {
     expect_range_args("transpose-regions", &args, 4, 5)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_tty_output_buffer_size(args: Vec<Value>) -> EvalResult {
     expect_range_args("tty--output-buffer-size", &args, 0, 1)?;
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 pub(crate) fn builtin_tty_set_output_buffer_size(args: Vec<Value>) -> EvalResult {
     expect_range_args("tty--set-output-buffer-size", &args, 1, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_tty_suppress_bold_inverse_default_colors(args: Vec<Value>) -> EvalResult {
     expect_args("tty-suppress-bold-inverse-default-colors", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_unencodable_char_position(args: Vec<Value>) -> EvalResult {
     expect_range_args("unencodable-char-position", &args, 3, 5)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_unicode_property_table_internal(args: Vec<Value>) -> EvalResult {
     expect_args("unicode-property-table-internal", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_unify_charset(args: Vec<Value>) -> EvalResult {
     expect_range_args("unify-charset", &args, 1, 3)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_unix_sync(args: Vec<Value>) -> EvalResult {
     expect_args("unix-sync", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_value_lt(args: Vec<Value>) -> EvalResult {
     expect_args("value<", &args, 2)?;
     match compare_value_lt(&args[0], &args[1]) {
-        Ok(std::cmp::Ordering::Less) => Ok(Value::True),
-        Ok(_) => Ok(Value::Nil),
+        Ok(std::cmp::Ordering::Less) => Ok(Value::T),
+        Ok(_) => Ok(Value::NIL),
         Err((lhs, rhs)) => Err(signal("type-mismatch", vec![lhs, rhs])),
     }
 }
@@ -2702,26 +2702,26 @@ pub(crate) fn compare_value_lt(
         return Ok(left.cmp(right));
     }
 
-    match (lhs, rhs) {
-        (Value::Str(left_id), Value::Str(right_id)) => Ok(with_heap(|h| {
+    match (lhs.kind(), rhs.kind()) {
+        (ValueKind::String, ValueKind::String) => Ok(with_heap(|h| {
             h.get_string(*left_id).cmp(h.get_string(*right_id))
         })),
-        (Value::Cons(left_id), Value::Cons(right_id)) => {
-            let left_pair = read_cons(*left_id);
-            let right_pair = read_cons(*right_id);
+        (ValueKind::Cons, ValueKind::Cons) => {
+            let left_pair = read_cons(*left_id);  // TODO(tagged): replace read_cons with cons accessors
+            let right_pair = read_cons(*right_id);  // TODO(tagged): replace read_cons with cons accessors
 
             let car_cmp = compare_value_lt(&left_pair.car, &right_pair.car)?;
             if car_cmp != std::cmp::Ordering::Equal {
                 return Ok(car_cmp);
             }
 
-            match (&left_pair.cdr, &right_pair.cdr) {
-                (Value::Nil, Value::Cons(_)) => Ok(std::cmp::Ordering::Less),
-                (Value::Cons(_), Value::Nil) => Ok(std::cmp::Ordering::Greater),
+            match (left_pair.cdr.kind(), right_pair.cdr.kind()) {
+                (ValueKind::Nil, ValueKind::Cons) => Ok(std::cmp::Ordering::Less),
+                (ValueKind::Cons, ValueKind::Nil) => Ok(std::cmp::Ordering::Greater),
                 _ => compare_value_lt(&left_pair.cdr, &right_pair.cdr),
             }
         }
-        (Value::Vector(left_id), Value::Vector(right_id)) => {
+        (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector)) => {
             let (pairs, left_len, right_len) = with_heap(|h| {
                 let lv = h.get_vector(*left_id);
                 let rv = h.get_vector(*right_id);
@@ -2742,20 +2742,20 @@ pub(crate) fn compare_value_lt(
 }
 
 fn as_number_for_value_lt(value: &Value) -> Option<f64> {
-    match value {
-        Value::Int(n) => Some(*n as f64),
-        Value::Char(c) => Some(*c as u32 as f64),
-        Value::Float(f, _) => Some(*f),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Some(n as f64),
+        ValueKind::Char(c) => Some(c as u32 as f64),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Some(*f),
         _ => None,
     }
 }
 
 fn symbol_name_for_value_lt(value: &Value) -> Option<&str> {
-    match value {
-        Value::Nil => Some("nil"),
-        Value::True => Some("t"),
-        Value::Symbol(id) => Some(resolve_sym(*id)),
-        Value::Keyword(id) => Some(resolve_sym(*id)),
+    match value.kind() {
+        ValueKind::Nil => Some("nil"),
+        ValueKind::T => Some("t"),
+        ValueKind::Symbol(id) => Some(resolve_sym(id)),
+        ValueKind::Keyword(id) => Some(resolve_sym(id)),
         _ => None,
     }
 }
@@ -2773,29 +2773,29 @@ pub(crate) fn builtin_variable_binding_locus(
     })?;
     let resolved = resolve_variable_alias_name_in_obarray(&ctx.obarray, name)?;
     if resolved == "nil" || resolved == "t" || resolved.starts_with(':') {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     if let Some(buf) = &ctx.buffers.current_buffer() {
         if buf.has_buffer_local(&resolved) {
-            return Ok(Value::Buffer(buf.id));
+            return Ok(Value::make_buffer(buf.id));
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_x_begin_drag(args: Vec<Value>) -> EvalResult {
     expect_range_args("x-begin-drag", &args, 1, 6)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_x_double_buffered_p(args: Vec<Value>) -> EvalResult {
     expect_range_args("x-double-buffered-p", &args, 0, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_x_menu_bar_open_internal(args: Vec<Value>) -> EvalResult {
     expect_range_args("x-menu-bar-open-internal", &args, 0, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_xw_display_color_p_ctx(
@@ -2814,15 +2814,15 @@ pub(crate) fn builtin_xw_display_color_p_ctx(
     )?
     .is_some_and(super::super::display::gui_window_system_active_value)
     {
-        Ok(Value::True)
+        Ok(Value::T)
     } else {
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     }
 }
 
 pub(crate) fn builtin_innermost_minibuffer_p(args: Vec<Value>) -> EvalResult {
     expect_range_args("innermost-minibuffer-p", &args, 0, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 fn interactive_form_from_expr_body(body: &[super::expr::Expr]) -> Option<Value> {
@@ -2855,7 +2855,7 @@ fn interactive_form_from_expr_body(body: &[super::expr::Expr]) -> Option<Value> 
         let mut interactive = vec![Value::symbol("interactive")];
         match items.get(1).map(super::eval::quote_to_value) {
             Some(spec) => interactive.push(spec),
-            None => interactive.push(Value::Nil),
+            None => interactive.push(Value::NIL),
         }
         return Some(Value::list(interactive));
     }
@@ -2864,21 +2864,21 @@ fn interactive_form_from_expr_body(body: &[super::expr::Expr]) -> Option<Value> 
 }
 
 fn interactive_form_from_quoted_interactive_form(form: &Value) -> Result<Option<Value>, Flow> {
-    let Value::Cons(cell) = form else {
+    if !form.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
         return Ok(None);
     };
-    let pair = read_cons(*cell);
+    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
     if pair.car.as_symbol_name() != Some("interactive") {
         return Ok(None);
     }
 
-    match pair.cdr {
-        Value::Nil => Ok(Some(Value::list(vec![
+    match pair.cdr.kind() {
+        ValueKind::Nil => Ok(Some(Value::list(vec![
             Value::symbol("interactive"),
-            Value::Nil,
+            ValueKind::Nil,
         ]))),
-        Value::Cons(arg_cell) => {
-            let arg_pair = read_cons(arg_cell);
+        ValueKind::Cons => {
+            let arg_pair = read_cons(arg_cell);  // TODO(tagged): replace read_cons with cons accessors
             Ok(Some(Value::list(vec![
                 Value::symbol("interactive"),
                 arg_pair.car,
@@ -2892,27 +2892,27 @@ fn interactive_form_from_quoted_interactive_form(form: &Value) -> Result<Option<
 }
 
 fn interactive_form_from_quoted_lambda(value: &Value) -> Result<Option<Value>, Flow> {
-    let Value::Cons(lambda_cell) = value else {
+    if !value.is_cons() /* TODO(tagged): `lambda_cell` was Value::Cons(lambda_cell), rewrite let-else */ {
         return Ok(None);
     };
-    let lambda_pair = read_cons(*lambda_cell);
+    let lambda_pair = read_cons(*lambda_cell);  // TODO(tagged): replace read_cons with cons accessors
     if lambda_pair.car.as_symbol_name() != Some("lambda") {
         return Ok(None);
     }
-    let Value::Cons(params_cell) = lambda_pair.cdr else {
+    if !lambda_pair.cdr.is_cons() /* TODO(tagged): `params_cell` was Value::Cons(params_cell), rewrite let-else */ {
         return Ok(None);
     };
-    let params_pair = read_cons(params_cell);
+    let params_pair = read_cons(params_cell);  // TODO(tagged): replace read_cons with cons accessors
     let body = params_pair.cdr;
     let mut cursor = body;
     let mut can_skip_doc = true;
 
     loop {
-        match cursor {
-            Value::Nil => return Ok(None),
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
-                if can_skip_doc && matches!(pair.car, Value::Str(_)) {
+        match cursor.kind() {
+            ValueKind::Nil => return Ok(None),
+            ValueKind::Cons => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+                if can_skip_doc && matches!(pair.car, ValueKind::String) {
                     can_skip_doc = false;
                     cursor = pair.cdr;
                     continue;
@@ -2935,12 +2935,12 @@ fn interactive_form_from_quoted_lambda(value: &Value) -> Result<Option<Value>, F
 }
 
 fn interactive_form_from_bytecode_value(function: Value) -> Option<Value> {
-    let Value::ByteCode(id) = function else {
+    if !function.is_bytecode() /* TODO(tagged): `id` was Value::ByteCode(id), rewrite let-else */ {
         return None;
     };
     let spec = with_heap(|h| h.get_bytecode(id).interactive);
     spec.map(|s| {
-        let spec_val = if let Value::Vector(vid) = s {
+        let spec_val = if s.is_vector() /* TODO(tagged): `vid` was Value::Vector(vid), now use accessor */ {
             with_heap(|h| {
                 if h.vector_len(vid) > 0 {
                     h.vector_ref(vid, 0)
@@ -2971,10 +2971,10 @@ pub(crate) fn plan_interactive_form_in_state(
         let Some((_, indirect_function)) =
             resolve_indirect_symbol_by_id_in_obarray(obarray, current)
         else {
-            return Ok(InteractiveFormPlan::Return(Value::Nil));
+            return Ok(InteractiveFormPlan::Return(Value::NIL));
         };
         if indirect_function.is_nil() {
-            return Ok(InteractiveFormPlan::Return(Value::Nil));
+            return Ok(InteractiveFormPlan::Return(Value::NIL));
         }
 
         loop {
@@ -2986,7 +2986,7 @@ pub(crate) fn plan_interactive_form_in_state(
                 return Ok(InteractiveFormPlan::Return(property));
             }
             let Some(next_function) = symbol_function_cell_in_obarray(obarray, current) else {
-                return Ok(InteractiveFormPlan::Return(Value::Nil));
+                return Ok(InteractiveFormPlan::Return(Value::NIL));
             };
             function = next_function;
             let Some(next_symbol) = symbol_id(&function) else {
@@ -2996,16 +2996,16 @@ pub(crate) fn plan_interactive_form_in_state(
         }
     }
 
-    match function {
-        Value::Subr(id) => {
+    match function.kind() {
+        ValueKind::Subr(id) => {
             let name = resolve_sym(id);
             Ok(InteractiveFormPlan::Return(
                 crate::emacs_core::interactive::registry_interactive_form(interactive, name)
                     .or_else(|| crate::emacs_core::interactive::builtin_subr_interactive_form(name))
-                    .unwrap_or(Value::Nil),
+                    .unwrap_or(ValueKind::Nil),
             ))
         }
-        Value::Lambda(id) | Value::Macro(id) => {
+        ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => {
             let lambda = with_heap(|h| h.get_lambda(id).clone());
             // GNU Emacs checks closure vector slot 5 first (data.c:1162-1177).
             // Check our dedicated field first, then fall back to body scanning.
@@ -3016,27 +3016,27 @@ pub(crate) fn plan_interactive_form_in_state(
                 ])))
             } else {
                 Ok(InteractiveFormPlan::Return(
-                    interactive_form_from_expr_body(&lambda.body).unwrap_or(Value::Nil),
+                    interactive_form_from_expr_body(&lambda.body).unwrap_or(ValueKind::Nil),
                 ))
             }
         }
-        Value::ByteCode(_) => Ok(InteractiveFormPlan::Return(
-            interactive_form_from_bytecode_value(function).unwrap_or(Value::Nil),
+        ValueKind::Veclike(VecLikeType::ByteCode) => Ok(InteractiveFormPlan::Return(
+            interactive_form_from_bytecode_value(function).unwrap_or(ValueKind::Nil),
         )),
-        Value::Cons(_) if super::autoload::is_autoload_value(&function) => {
+        ValueKind::Cons if super::autoload::is_autoload_value(&function) => {
             Ok(InteractiveFormPlan::Autoload {
                 fundef: function,
                 funname: if symbol_id(&cmd).is_some() {
                     cmd
                 } else {
-                    Value::Nil
+                    ValueKind::Nil
                 },
             })
         }
-        Value::Cons(_) => Ok(InteractiveFormPlan::Return(
-            interactive_form_from_quoted_lambda(&function)?.unwrap_or(Value::Nil),
+        ValueKind::Cons => Ok(InteractiveFormPlan::Return(
+            interactive_form_from_quoted_lambda(&function)?.unwrap_or(ValueKind::Nil),
         )),
-        _ => Ok(InteractiveFormPlan::Return(Value::Nil)),
+        _ => Ok(InteractiveFormPlan::Return(Value::NIL)),
     }
 }
 
@@ -3056,7 +3056,7 @@ pub(crate) fn builtin_interactive_form(
     // GNU (data.c:1133): Check indirect-function first for nil.
     let indirect = resolve_indirect_symbol(eval, &format!("{}", cmd));
     if indirect.is_none() && cmd.as_symbol_name().is_some() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     // GNU (data.c:1141-1149): Walk symbol chain checking `interactive-form`
@@ -3074,24 +3074,24 @@ pub(crate) fn builtin_interactive_form(
         }
         match symbol_function_cell_in_obarray(&eval.obarray, intern(name)) {
             Some(next) => fun = next,
-            None => return Ok(Value::Nil),
+            None => return Ok(Value::NIL),
         }
     }
 
     // Now `fun` is the resolved function value (not a symbol).
-    match fun {
+    match fun.kind() {
         // GNU (data.c:1151-1161): SUBRP
-        Value::Subr(id) => {
+        ValueKind::Subr(id) => {
             let name = resolve_sym(id);
             let result =
                 crate::emacs_core::interactive::registry_interactive_form(&eval.interactive, name)
                     .or_else(|| crate::emacs_core::interactive::builtin_subr_interactive_form(name))
-                    .unwrap_or(Value::Nil);
+                    .unwrap_or(ValueKind::Nil);
             Ok(result)
         }
 
         // GNU (data.c:1162-1177): CLOSUREP — check slot 5, then genfun
-        Value::Lambda(id) | Value::Macro(id) => {
+        ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => {
             let lambda = with_heap(|h| h.get_lambda(id).clone());
 
             // Check LambdaData.interactive (mirrors closure vector slot 5)
@@ -3130,18 +3130,18 @@ pub(crate) fn builtin_interactive_form(
                     }
                 }
             }
-            Ok(Value::Nil)
+            Ok(ValueKind::Nil)
         }
 
         // GNU (data.c:1162-1177 for COMPILED_FUNCTION_P): bytecode
-        Value::ByteCode(_) => Ok(interactive_form_from_bytecode_value(fun).unwrap_or(Value::Nil)),
+        ValueKind::Veclike(VecLikeType::ByteCode) => Ok(interactive_form_from_bytecode_value(fun).unwrap_or(Value::NIL)),
 
         // GNU (data.c:1188-1189): autoload → load then retry
-        Value::Cons(_) if super::autoload::is_autoload_value(&fun) => {
+        ValueKind::Cons if super::autoload::is_autoload_value(&fun) => {
             let funname = if cmd.as_symbol_name().is_some() {
                 cmd
             } else {
-                Value::Nil
+                ValueKind::Nil
             };
             let loaded = super::autoload::builtin_autoload_do_load(eval, vec![fun, funname])?;
             // Retry with the loaded definition
@@ -3149,9 +3149,9 @@ pub(crate) fn builtin_interactive_form(
         }
 
         // GNU (data.c:1190-1202): lambda list (cons starting with `lambda`)
-        Value::Cons(_) => Ok(interactive_form_from_quoted_lambda(&fun)?.unwrap_or(Value::Nil)),
+        ValueKind::Cons => Ok(interactive_form_from_quoted_lambda(&fun)?.unwrap_or(Value::NIL)),
 
-        _ => Ok(Value::Nil),
+        _ => Ok(Value::NIL),
     }
 }
 
@@ -3168,9 +3168,9 @@ pub(crate) fn builtin_local_variable_if_set_p(
     })?;
     let resolved = resolve_variable_alias_name_in_obarray(&ctx.obarray, name)?;
     if resolved == "nil" || resolved == "t" || resolved.starts_with(':') {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
-    Ok(Value::bool(
+    Ok(Value::bool_val(
         ctx.obarray.is_buffer_local(&resolved) || ctx.custom.is_auto_buffer_local(&resolved),
     ))
 }
@@ -3182,13 +3182,13 @@ pub(crate) fn builtin_lock_buffer(args: Vec<Value>) -> EvalResult {
             let _ = expect_strict_string(filename)?;
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_lock_file(args: Vec<Value>) -> EvalResult {
     expect_args("lock-file", &args, 1)?;
     let _ = expect_strict_string(&args[0])?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 thread_local! {
@@ -3205,9 +3205,9 @@ pub(crate) fn builtin_lossage_size(args: Vec<Value>) -> EvalResult {
 
     if let Some(value) = args.first() {
         if !value.is_nil() {
-            let n = match value {
-                Value::Int(n) => *n,
-                Value::Char(c) => *c as i64,
+            let n = match value.kind() {
+                ValueKind::Fixnum(n) => n,
+                ValueKind::Char(c) => c as i64,
                 _ => {
                     return Err(signal(
                         "user-error",
@@ -3231,18 +3231,18 @@ pub(crate) fn builtin_lossage_size(args: Vec<Value>) -> EvalResult {
         }
     }
 
-    Ok(Value::Int(LOSSAGE_SIZE.with(|slot| *slot.borrow())))
+    Ok(Value::fixnum(LOSSAGE_SIZE.with(|slot| *slot.borrow())))
 }
 
 pub(crate) fn builtin_unlock_buffer(args: Vec<Value>) -> EvalResult {
     expect_args("unlock-buffer", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_unlock_file(args: Vec<Value>) -> EvalResult {
     expect_args("unlock-file", &args, 1)?;
     let _ = expect_strict_string(&args[0])?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_internal_track_mouse(
@@ -3251,7 +3251,7 @@ pub(crate) fn builtin_internal_track_mouse(
 ) -> EvalResult {
     expect_args("internal--track-mouse", &args, 1)?;
     let specpdl_count = ctx.specpdl.len();
-    ctx.specbind(intern("track-mouse"), Value::True);
+    ctx.specbind(intern("track-mouse"), Value::T);
     let result = ctx.apply(args[0], vec![]);
     ctx.unbind_to(specpdl_count);
     result
@@ -3260,24 +3260,24 @@ pub(crate) fn builtin_internal_track_mouse(
 pub(crate) fn builtin_internal_char_font(args: Vec<Value>) -> EvalResult {
     expect_range_args("internal-char-font", &args, 1, 2)?;
     let position = &args[0];
-    let ch = args.get(1).copied().unwrap_or(Value::Nil);
+    let ch = args.get(1).copied().unwrap_or(Value::NIL);
 
     if position.is_nil() {
         let _ = expect_character_code(&ch)?;
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let _ = expect_integer_or_marker(position)?;
     if !ch.is_nil() {
         let _ = expect_character_code(&ch)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_internal_complete_buffer(args: Vec<Value>) -> EvalResult {
     expect_args("internal-complete-buffer", &args, 3)?;
     let _ = expect_strict_string(&args[0])?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_internal_describe_syntax_value(args: Vec<Value>) -> EvalResult {
@@ -3378,27 +3378,27 @@ pub(crate) fn builtin_internal_handle_focus_in(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("internal-handle-focus-in", &args, 1)?;
-    let Value::Cons(cell) = args[0] else {
+    if !args[0].is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
         return Err(signal(
             "error",
             vec![Value::string("invalid focus-in event")],
         ));
     };
-    let pair = read_cons(cell);
+    let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
     if pair.car.as_symbol_name() != Some("focus-in") {
         return Err(signal(
             "error",
             vec![Value::string("invalid focus-in event")],
         ));
     }
-    let Value::Cons(cdr_cell) = pair.cdr else {
+    if !pair.cdr.is_cons() /* TODO(tagged): `cdr_cell` was Value::Cons(cdr_cell), rewrite let-else */ {
         return Err(signal(
             "error",
             vec![Value::string("invalid focus-in event")],
         ));
     };
-    let frame_value = read_cons(cdr_cell).car;
-    let Value::Frame(frame_raw) = frame_value else {
+    let frame_value = read_cons(cdr_cell).car;  // TODO(tagged): replace read_cons with cons accessors
+    if !frame_value.is_frame() /* TODO(tagged): `frame_raw` was Value::Frame(frame_raw), rewrite let-else */ {
         return Err(signal(
             "error",
             vec![Value::string("invalid focus-in event")],
@@ -3441,7 +3441,7 @@ pub(crate) fn builtin_internal_handle_focus_in(
             ]));
     }
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_internal_make_var_non_special(
@@ -3452,7 +3452,7 @@ pub(crate) fn builtin_internal_make_var_non_special(
     let obarray = eval.obarray_mut();
     let symbol = expect_symbol_id(&args[0])?;
     obarray.make_non_special_id(symbol);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_internal_set_lisp_face_attribute_from_resource(
@@ -3496,17 +3496,17 @@ pub(crate) fn builtin_internal_set_lisp_face_attribute_from_resource(
         ":italic",
     ];
 
-    let attr_name = match &args[1] {
-        Value::Symbol(id) => resolve_sym(*id).to_owned(),
-        Value::Keyword(id) => {
-            let s = resolve_sym(*id);
+    let attr_name = match args[1].kind() {
+        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
+        ValueKind::Keyword(id) => {
+            let s = resolve_sym(id);
             if s.starts_with(':') {
                 s.to_owned()
             } else {
                 format!(":{s}")
             }
         }
-        Value::Nil | Value::True => args[1].as_symbol_name().unwrap_or_default().to_string(),
+        ValueKind::Nil | ValueKind::T => args[1].as_symbol_name().unwrap_or_default().to_string(),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -3617,17 +3617,17 @@ pub(crate) fn builtin_internal_set_lisp_face_attribute_from_resource(
 
 pub(crate) fn builtin_internal_stack_stats(args: Vec<Value>) -> EvalResult {
     expect_args("internal-stack-stats", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_internal_subr_documentation(args: Vec<Value>) -> EvalResult {
     expect_args("internal-subr-documentation", &args, 1)?;
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 pub(crate) fn builtin_malloc_info(args: Vec<Value>) -> EvalResult {
     expect_args("malloc-info", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_malloc_trim(args: Vec<Value>) -> EvalResult {
@@ -3637,17 +3637,17 @@ pub(crate) fn builtin_malloc_trim(args: Vec<Value>) -> EvalResult {
             let _ = expect_wholenump(pad)?;
         }
     }
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 pub(crate) fn builtin_memory_info(args: Vec<Value>) -> EvalResult {
     expect_args("memory-info", &args, 0)?;
     let counts = Value::memory_use_counts_snapshot();
     Ok(Value::list(vec![
-        Value::Int(counts[0]),
-        Value::Int(counts[1]),
-        Value::Int(counts[2]),
-        Value::Int(counts[3]),
+        Value::fixnum(counts[0]),
+        Value::fixnum(counts[1]),
+        Value::fixnum(counts[2]),
+        Value::fixnum(counts[3]),
     ]))
 }
 
@@ -3674,37 +3674,37 @@ pub(crate) fn builtin_module_load(args: Vec<Value>) -> EvalResult {
     }
 
     drop(lib);
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 pub(crate) fn builtin_dump_emacs_portable(args: Vec<Value>) -> EvalResult {
     expect_range_args("dump-emacs-portable", &args, 1, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_dump_emacs_portable_sort_predicate(args: Vec<Value>) -> EvalResult {
     expect_args("dump-emacs-portable--sort-predicate", &args, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_dump_emacs_portable_sort_predicate_copied(args: Vec<Value>) -> EvalResult {
     expect_args("dump-emacs-portable--sort-predicate-copied", &args, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_byte_code(args: Vec<Value>) -> EvalResult {
     expect_args("byte-code", &args, 3)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_decode_coding_region(args: Vec<Value>) -> EvalResult {
     expect_range_args("decode-coding-region", &args, 3, 4)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_encode_coding_region(args: Vec<Value>) -> EvalResult {
     expect_range_args("encode-coding-region", &args, 3, 4)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_find_operation_coding_system(args: Vec<Value>) -> EvalResult {
@@ -3713,11 +3713,11 @@ pub(crate) fn builtin_find_operation_coding_system(args: Vec<Value>) -> EvalResu
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("find-operation-coding-system"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_handler_bind_1(
@@ -3729,7 +3729,7 @@ pub(crate) fn builtin_handler_bind_1(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("handler-bind-1"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -3770,7 +3770,7 @@ pub(crate) fn builtin_handler_bind_1(
 
 pub(crate) fn builtin_iso_charset(args: Vec<Value>) -> EvalResult {
     expect_args("iso-charset", &args, 3)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_keymap_get_keyelt(args: Vec<Value>) -> EvalResult {
@@ -3783,28 +3783,28 @@ pub(crate) fn builtin_keymap_prompt(args: Vec<Value>) -> EvalResult {
     let map = args[0];
     // A keymap is (keymap [PROMPT] . BINDINGS).
     // If the arg is a cons whose car is the symbol `keymap`, check if cadr is a string.
-    if let Value::Cons(_) = map {
+    if map.is_cons() /* TODO(tagged): `_` was Value::Cons(_), now use accessor */ {
         let car = map.cons_car();
         if car.is_symbol_named("keymap") {
             let cdr = map.cons_cdr();
-            if let Value::Cons(_) = cdr {
+            if cdr.is_cons() /* TODO(tagged): `_` was Value::Cons(_), now use accessor */ {
                 let cadr = cdr.cons_car();
-                if let Value::Str(_) = cadr {
+                if cadr.is_string() /* TODO(tagged): `_` was Value::Str(_), now use accessor */ {
                     return Ok(cadr);
                 }
             }
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn plan_kill_emacs_request(
     args: &[Value],
 ) -> Result<super::eval::ShutdownRequest, Flow> {
     expect_range_args("kill-emacs", args, 0, 2)?;
-    let exit_code = match args.first().copied().unwrap_or(Value::Nil) {
-        Value::Int(n) => n as i32,
-        Value::Nil | Value::True => 0,
+    let exit_code = match args.first().copied().unwrap_or(Value::Nil).kind() {
+        ValueKind::Fixnum(n) => n as i32,
+        ValueKind::Nil | ValueKind::T => 0,
         _ => 0,
     };
     let restart = args.get(1).is_some_and(Value::is_truthy);
@@ -3815,17 +3815,17 @@ pub(crate) fn builtin_kill_emacs(eval: &mut super::eval::Context, args: Vec<Valu
     let request = plan_kill_emacs_request(&args)?;
     let _ = eval.run_hook_if_bound("kill-emacs-hook");
     eval.request_shutdown(request.exit_code, request.restart);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_lower_frame(args: Vec<Value>) -> EvalResult {
     expect_range_args("lower-frame", &args, 0, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_lread_substitute_object_in_subtree(args: Vec<Value>) -> EvalResult {
     expect_args("lread--substitute-object-in-subtree", &args, 3)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_make_byte_code(args: Vec<Value>) -> EvalResult {
@@ -3834,7 +3834,7 @@ pub(crate) fn builtin_make_byte_code(args: Vec<Value>) -> EvalResult {
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("make-byte-code"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -3877,7 +3877,7 @@ pub(crate) fn make_byte_code_from_parts(
 
     // 3. Extract constants from vector
     let mut constants: Vec<Value> = match constants_vec {
-        Value::Vector(id) => with_heap(|h| h.get_vector(*id).clone()),
+        Value::Vector(id) /* TODO(tagged): convert Value::Vector to new API */ => with_heap(|h| h.get_vector(*id).clone()),
         _ => Vec::new(),
     };
 
@@ -3900,8 +3900,8 @@ pub(crate) fn make_byte_code_from_parts(
         })?;
 
     // 5. Extract maxdepth
-    let max_stack = match maxdepth {
-        Value::Int(n) => *n as u16,
+    let max_stack = match maxdepth.kind() {
+        ValueKind::Fixnum(n) => n as u16,
         _ => 16, // fallback
     };
 
@@ -3943,8 +3943,8 @@ pub(crate) fn make_interpreted_closure_from_parts(
     docstring: Option<&Value>,
     interactive: Option<&Value>,
 ) -> EvalResult {
-    let docstring_value = docstring.copied().unwrap_or(Value::Nil);
-    let iform = interactive.copied().unwrap_or(Value::Nil);
+    let docstring_value = docstring.copied().unwrap_or(Value::NIL);
+    let iform = interactive.copied().unwrap_or(Value::NIL);
 
     let params_expr = super::eval::value_to_expr(params_value);
     let params = parse_lambda_params_from_expr(&params_expr)?;
@@ -3968,8 +3968,8 @@ pub(crate) fn make_interpreted_closure_from_parts(
     };
 
     let (docstring, doc_form) = match &docstring_value {
-        Value::Str(id) => (Some(with_heap(|h| h.get_string(*id).to_owned())), None),
-        Value::Nil => (None, None),
+        Value::Str(id) /* TODO(tagged): convert Value::Str to new API */ => (Some(with_heap(|h| h.get_string(*id).to_owned())), None),
+        Value::NIL => (None, None),
         other => (None, Some(*other)),
     };
 
@@ -4017,8 +4017,8 @@ pub(crate) fn try_convert_nested_compiled_literal(val: Value) -> Value {
         return table;
     }
 
-    let items = match val {
-        Value::Vector(id) => {
+    let items = match val.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let v = with_heap(|h| h.get_vector(id).clone());
             if v.len() < 3 {
                 return val;
@@ -4043,8 +4043,8 @@ pub(crate) fn try_convert_nested_compiled_literal(val: Value) -> Value {
     }
 
     let looks_interpreted_closure = matches!(items.len(), 3 | 5 | 6)
-        && matches!(items[0], Value::Cons(_) | Value::Nil)
-        && matches!(items[1], Value::Cons(_))
+        && matches!(items[0], Value::Cons(_) /* TODO(tagged): convert Value::Cons to new API */ | Value::NIL)
+        && matches!(items[1], Value::Cons(_) /* TODO(tagged): convert Value::Cons to new API */)
         && (items.len() < 4 || items[3].is_nil());
     if !looks_interpreted_closure {
         return val;
@@ -4126,7 +4126,7 @@ fn try_convert_hash_table_literal(val: Value) -> Option<Value> {
 
     let table_value =
         Value::hash_table_with_options(test, size, weakness, rehash_size, rehash_threshold);
-    let Value::HashTable(table_ref) = table_value else {
+    if !table_value.is_hash_table() /* TODO(tagged): `table_ref` was Value::HashTable(table_ref), rewrite let-else */ {
         return None;
     };
 
@@ -4166,7 +4166,7 @@ fn quote_payload_value(value: Value) -> Option<Value> {
 
 pub(crate) fn builtin_make_char(args: Vec<Value>) -> EvalResult {
     expect_range_args("make-char", &args, 1, 5)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_make_closure(args: Vec<Value>) -> EvalResult {
@@ -4174,7 +4174,7 @@ pub(crate) fn builtin_make_closure(args: Vec<Value>) -> EvalResult {
     if args.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("make-closure"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("make-closure"), Value::fixnum(args.len() as i64)],
         ));
     }
 
@@ -4230,8 +4230,8 @@ fn replace_env_alist_values(env: Value, closure_vars: &[Value]) -> Value {
     for (i, entry) in entries.iter().enumerate() {
         if i < closure_vars.len() {
             // Replace value: get the key from (key . old_val), make (key . new_val)
-            let key = match entry {
-                Value::Cons(cell) => with_heap(|h| h.cons_car(*cell)),
+            let key = match entry.kind() {
+                ValueKind::Cons => with_heap(|h| h.cons_car(*cell)),
                 _ => *entry, // shouldn't happen in well-formed alist
             };
             result_entries.push(Value::cons(key, closure_vars[i]));
@@ -4246,7 +4246,7 @@ fn replace_env_alist_values(env: Value, closure_vars: &[Value]) -> Value {
 
 pub(crate) fn builtin_make_finalizer(args: Vec<Value>) -> EvalResult {
     expect_args("make-finalizer", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_make_interpreted_closure(args: Vec<Value>) -> EvalResult {
@@ -4256,6 +4256,7 @@ pub(crate) fn builtin_make_interpreted_closure(args: Vec<Value>) -> EvalResult {
 
 fn parse_lambda_params_from_expr(expr: &super::super::expr::Expr) -> Result<LambdaParams, Flow> {
     use super::super::expr::Expr;
+use super::value::{ValueKind, VecLikeType};
     match expr {
         Expr::Symbol(id) if resolve_sym(*id) == "nil" => Ok(LambdaParams::simple(vec![])),
         Expr::List(items) => {
@@ -4303,230 +4304,230 @@ fn parse_lambda_params_from_expr(expr: &super::super::expr::Expr) -> Result<Lamb
 
 pub(crate) fn builtin_treesit_available_p(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-available-p", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_compiled_query_p(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-compiled-query-p", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_induce_sparse_tree(args: Vec<Value>) -> EvalResult {
     expect_range_args("treesit-induce-sparse-tree", &args, 2, 4)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_language_abi_version(args: Vec<Value>) -> EvalResult {
     expect_range_args("treesit-language-abi-version", &args, 0, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_language_available_p(args: Vec<Value>) -> EvalResult {
     expect_range_args("treesit-language-available-p", &args, 1, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_library_abi_version(args: Vec<Value>) -> EvalResult {
     expect_range_args("treesit-library-abi-version", &args, 0, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_node_check(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-node-check", &args, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_node_child(args: Vec<Value>) -> EvalResult {
     expect_range_args("treesit-node-child", &args, 2, 3)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_node_child_by_field_name(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-node-child-by-field-name", &args, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_node_child_count(args: Vec<Value>) -> EvalResult {
     expect_range_args("treesit-node-child-count", &args, 1, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_node_descendant_for_range(args: Vec<Value>) -> EvalResult {
     expect_range_args("treesit-node-descendant-for-range", &args, 3, 4)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_node_end(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-node-end", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_node_eq(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-node-eq", &args, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_node_field_name_for_child(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-node-field-name-for-child", &args, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_node_first_child_for_pos(args: Vec<Value>) -> EvalResult {
     expect_range_args("treesit-node-first-child-for-pos", &args, 2, 3)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_node_match_p(args: Vec<Value>) -> EvalResult {
     expect_range_args("treesit-node-match-p", &args, 2, 3)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_node_next_sibling(args: Vec<Value>) -> EvalResult {
     expect_range_args("treesit-node-next-sibling", &args, 1, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_node_p(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-node-p", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_node_parent(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-node-parent", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_node_parser(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-node-parser", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_node_prev_sibling(args: Vec<Value>) -> EvalResult {
     expect_range_args("treesit-node-prev-sibling", &args, 1, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_node_start(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-node-start", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_node_string(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-node-string", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_node_type(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-node-type", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_parser_add_notifier(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-parser-add-notifier", &args, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_parser_buffer(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-parser-buffer", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_parser_create(args: Vec<Value>) -> EvalResult {
     expect_range_args("treesit-parser-create", &args, 1, 4)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_parser_delete(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-parser-delete", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_parser_included_ranges(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-parser-included-ranges", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_parser_language(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-parser-language", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_parser_list(args: Vec<Value>) -> EvalResult {
     expect_range_args("treesit-parser-list", &args, 0, 3)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_parser_notifiers(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-parser-notifiers", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_parser_p(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-parser-p", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_parser_remove_notifier(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-parser-remove-notifier", &args, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_parser_root_node(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-parser-root-node", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_parser_set_included_ranges(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-parser-set-included-ranges", &args, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_parser_tag(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-parser-tag", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_pattern_expand(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-pattern-expand", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_query_capture(args: Vec<Value>) -> EvalResult {
     expect_range_args("treesit-query-capture", &args, 2, 5)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_query_compile(args: Vec<Value>) -> EvalResult {
     expect_range_args("treesit-query-compile", &args, 2, 3)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_query_expand(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-query-expand", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_query_language(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-query-language", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_query_p(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-query-p", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_search_forward(args: Vec<Value>) -> EvalResult {
     expect_range_args("treesit-search-forward", &args, 2, 4)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_search_subtree(args: Vec<Value>) -> EvalResult {
     expect_range_args("treesit-search-subtree", &args, 2, 5)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_subtree_stat(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-subtree-stat", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }

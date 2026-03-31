@@ -85,16 +85,16 @@ fn gnu_timer_before(delay: Duration, callback: &str) -> Value {
     let secs = when.as_secs() as i64;
 
     Value::vector(vec![
-        Value::Nil,
-        Value::Int(secs >> 16),
-        Value::Int(secs & 0xFFFF),
-        Value::Int(when.subsec_micros() as i64),
-        Value::Nil,
+        Value::NIL,
+        Value::fixnum(secs >> 16),
+        Value::fixnum(secs & 0xFFFF),
+        Value::fixnum(when.subsec_micros() as i64),
+        Value::NIL,
         Value::symbol(callback),
-        Value::Nil,
-        Value::Nil,
-        Value::Int(0),
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::fixnum(0),
+        Value::NIL,
     ])
 }
 
@@ -106,7 +106,7 @@ fn timer_creation_and_list() {
         2.0,
         0.0,
         Value::symbol("other-callback"),
-        vec![Value::Int(42)],
+        vec![Value::fixnum(42)],
         false,
     );
 
@@ -145,7 +145,7 @@ fn fire_pending_timers_one_shot() {
         0.0,
         0.0,
         Value::symbol("immediate"),
-        vec![Value::Int(1)],
+        vec![Value::fixnum(1)],
         false,
     );
 
@@ -155,8 +155,8 @@ fn fire_pending_timers_one_shot() {
 
     assert_eq!(fired.len(), 1);
     // Check callback is the symbol we set
-    match &fired[0].0 {
-        Value::Symbol(id) => assert_eq!(crate::emacs_core::intern::resolve_sym(*id), "immediate"),
+    match fired[0].0.kind() {
+        ValueKind::Symbol(id) => assert_eq!(crate::emacs_core::intern::resolve_sym(id), "immediate"),
         other => panic!("Expected Symbol, got {:?}", other),
     }
     assert_eq!(fired[0].1.len(), 1);
@@ -303,17 +303,17 @@ fn list_active_timers() {
 #[test]
 fn test_builtin_timerp() {
     // Timer value
-    let result = builtin_timerp(vec![Value::Timer(1)]);
+    let result = builtin_timerp(vec![Value::make_timer(1)]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_truthy());
 
     // Non-timer value
-    let result = builtin_timerp(vec![Value::Int(42)]);
+    let result = builtin_timerp(vec![Value::fixnum(42)]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 
     // Nil
-    let result = builtin_timerp(vec![Value::Nil]);
+    let result = builtin_timerp(vec![Value::NIL]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 }
@@ -341,7 +341,7 @@ fn gnu_sit_for_matches_subr_el() {
 #[test]
 fn gnu_sit_for_interactive_timeout_returns_t() {
     let mut ev = gnu_subr_sit_for_eval();
-    ev.set_variable("noninteractive", Value::Nil);
+    ev.set_variable("noninteractive", Value::NIL);
     let (tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
     let forms = super::super::parser::parse_forms("(sit-for 0.01 t)").expect("parse sit-for");
@@ -357,7 +357,7 @@ fn gnu_sit_for_interactive_timeout_returns_t() {
 #[test]
 fn gnu_sit_for_with_pending_input_does_not_run_timers_first() {
     let mut ev = gnu_subr_sit_for_eval();
-    ev.set_variable("noninteractive", Value::Nil);
+    ev.set_variable("noninteractive", Value::NIL);
     let setup = super::super::parser::parse_forms(
         r#"(progn
              (setq sit-for-pending-input-timer-fired nil)
@@ -393,13 +393,13 @@ fn gnu_sit_for_with_pending_input_does_not_run_timers_first() {
             .is_nil()
     );
     let event = ev.read_char().expect("keypress should remain available");
-    assert_eq!(event, Value::Int('a' as i64));
+    assert_eq!(event, Value::fixnum('a' as i64));
 }
 
 #[test]
 fn gnu_sit_for_pending_input_returns_nil_without_redisplay() {
     let mut ev = gnu_subr_sit_for_eval();
-    ev.set_variable("noninteractive", Value::Nil);
+    ev.set_variable("noninteractive", Value::NIL);
     let redisplays = Rc::new(RefCell::new(0usize));
     let redisplays_in_cb = Rc::clone(&redisplays);
     ev.redisplay_fn = Some(Box::new(move |_ev: &mut Context| {
@@ -419,13 +419,13 @@ fn gnu_sit_for_pending_input_returns_nil_without_redisplay() {
     assert!(result.is_nil());
     assert_eq!(*redisplays.borrow(), 0);
     let event = ev.read_char().expect("keypress should remain available");
-    assert_eq!(event, Value::Int('a' as i64));
+    assert_eq!(event, Value::fixnum('a' as i64));
 }
 
 #[test]
 fn gnu_sit_for_zero_without_nodisp_redisplays_once() {
     let mut ev = gnu_subr_sit_for_eval();
-    ev.set_variable("noninteractive", Value::Nil);
+    ev.set_variable("noninteractive", Value::NIL);
     let redisplays = Rc::new(RefCell::new(0usize));
     let redisplays_in_cb = Rc::clone(&redisplays);
     ev.redisplay_fn = Some(Box::new(move |_ev: &mut Context| {
@@ -446,7 +446,7 @@ fn gnu_sit_for_zero_without_nodisp_redisplays_once() {
 #[test]
 fn gnu_sit_for_zero_nodisp_runs_due_gnu_timer_without_redisplay() {
     let mut ev = gnu_subr_sit_for_eval();
-    ev.set_variable("noninteractive", Value::Nil);
+    ev.set_variable("noninteractive", Value::NIL);
     let setup = super::super::parser::parse_forms(
         r#"(progn
              (setq sit-for-zero-timer-fired nil)
@@ -497,11 +497,11 @@ fn test_builtin_sleep_for() {
 
     let mut eval = Context::new();
 
-    let result = builtin_sleep_for(&mut eval, vec![Value::Int(0)]);
+    let result = builtin_sleep_for(&mut eval, vec![Value::fixnum(0)]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 
-    let result = builtin_sleep_for(&mut eval, vec![Value::Int(0), Value::Int(0)]);
+    let result = builtin_sleep_for(&mut eval, vec![Value::fixnum(0), Value::fixnum(0)]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 
@@ -511,7 +511,7 @@ fn test_builtin_sleep_for() {
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
     ));
 
-    let result = builtin_sleep_for(&mut eval, vec![Value::Int(0), Value::Int(0), Value::Int(0)]);
+    let result = builtin_sleep_for(&mut eval, vec![Value::fixnum(0), Value::fixnum(0), Value::fixnum(0)]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
@@ -527,13 +527,13 @@ fn test_builtin_sleep_for() {
 
     let result = builtin_sleep_for(
         &mut eval,
-        vec![Value::Int(0), Value::Float(0.5, next_float_id())],
+        vec![Value::fixnum(0), Value::make_float(0.5)],
     );
     assert!(matches!(
         result,
         Err(Flow::Signal(sig))
             if sig.symbol_name() == "wrong-type-argument"
-                && sig.data == vec![Value::symbol("fixnump"), Value::Float(0.5, next_float_id())]
+                && sig.data == vec![Value::symbol("fixnump"), Value::make_float(0.5)]
     ));
 }
 
@@ -553,11 +553,11 @@ fn sleep_for_window_close_uses_special_event_map_handler_when_loaded() {
     ev.input_rx = Some(rx);
     ev.command_loop.running = true;
 
-    let result = builtin_sleep_for(&mut ev, vec![Value::Float(0.01, next_float_id())])
+    let result = builtin_sleep_for(&mut ev, vec![Value::make_float(0.01)])
         .expect("sleep-for should consume handled window close");
     drop(tx);
 
-    assert_eq!(result, Value::Nil);
+    assert_eq!(result, Value::NIL);
     let logged = ev
         .eval_symbol("neo-last-delete-frame-event")
         .expect("delete-frame event should be logged");
@@ -565,7 +565,7 @@ fn sleep_for_window_close_uses_special_event_map_handler_when_loaded() {
         logged,
         Value::list(vec![
             Value::symbol("delete-frame"),
-            Value::list(vec![Value::Frame(frame.0)]),
+            Value::list(vec![Value::make_frame(frame.0)]),
         ]),
     );
 }
@@ -588,19 +588,19 @@ fn sleep_for_window_close_honors_throw_on_input_before_handler() {
     ev.obarray
         .set_symbol_value("throw-on-input", Value::symbol("tag"));
 
-    let flow = builtin_sleep_for(&mut ev, vec![Value::Float(0.01, next_float_id())])
+    let flow = builtin_sleep_for(&mut ev, vec![Value::make_float(0.01)])
         .expect_err("throw-on-input should interrupt sleep-for");
     assert!(matches!(
         flow,
-        Flow::Throw { tag, value } if tag == Value::symbol("tag") && value == Value::True
+        Flow::Throw { tag, value } if tag == Value::symbol("tag") && value == Value::T
     ));
 
-    ev.obarray.set_symbol_value("throw-on-input", Value::Nil);
-    let result = builtin_sleep_for(&mut ev, vec![Value::Float(0.01, next_float_id())])
+    ev.obarray.set_symbol_value("throw-on-input", Value::NIL);
+    let result = builtin_sleep_for(&mut ev, vec![Value::make_float(0.01)])
         .expect("sleep-for should consume handled window close afterwards");
     drop(tx);
 
-    assert_eq!(result, Value::Nil);
+    assert_eq!(result, Value::NIL);
     let logged = ev
         .eval_symbol("neo-last-delete-frame-event")
         .expect("delete-frame event should be logged");
@@ -608,7 +608,7 @@ fn sleep_for_window_close_honors_throw_on_input_before_handler() {
         logged,
         Value::list(vec![
             Value::symbol("delete-frame"),
-            Value::list(vec![Value::Frame(frame.0)]),
+            Value::list(vec![Value::make_frame(frame.0)]),
         ]),
     );
 }
@@ -623,16 +623,16 @@ fn test_eval_run_at_time_and_cancel() {
     let result = builtin_run_at_time(
         &mut eval,
         vec![
-            Value::Float(0.0, next_float_id()),
-            Value::Nil,
+            Value::make_float(0.0),
+            Value::NIL,
             Value::symbol("my-func"),
-            Value::Int(1),
-            Value::Int(2),
+            Value::fixnum(1),
+            Value::fixnum(2),
         ],
     );
     assert!(result.is_ok());
     let timer_val = result.unwrap();
-    assert!(matches!(timer_val, Value::Timer(_)));
+    assert!(matches!(timer_val, Value::make_timer(_)));
 
     // cancel-timer
     let result = builtin_cancel_timer(&mut eval, vec![timer_val]);
@@ -640,7 +640,7 @@ fn test_eval_run_at_time_and_cancel() {
     assert!(result.unwrap().is_nil());
 
     // Verify it's cancelled
-    if let Value::Timer(id) = timer_val {
+    if timer_val.is_timer() /* TODO(tagged): `id` was Value::Timer(id), now use accessor */ {
         assert!(!eval.timers.timer_active_p(id));
     }
 }
@@ -653,16 +653,16 @@ fn test_eval_run_with_idle_timer() {
 
     let result = builtin_run_with_idle_timer(
         &mut eval,
-        vec![Value::Int(5), Value::Nil, Value::symbol("idle-func")],
+        vec![Value::fixnum(5), Value::NIL, Value::symbol("idle-func")],
     );
     assert!(result.is_ok());
     let timer_val = result.unwrap();
 
     // Should be a timer
-    assert!(matches!(timer_val, Value::Timer(_)));
+    assert!(matches!(timer_val, Value::make_timer(_)));
 
     // The timer should be idle
-    if let Value::Timer(id) = timer_val {
+    if timer_val.is_timer() /* TODO(tagged): `id` was Value::Timer(id), now use accessor */ {
         let timer = eval.timers.timers.iter().find(|t| t.id == id).unwrap();
         assert!(timer.idle);
     }
@@ -676,21 +676,21 @@ fn test_eval_run_at_time_accepts_nil_and_string_specs() {
 
     let from_nil = builtin_run_at_time(
         &mut eval,
-        vec![Value::Nil, Value::Nil, Value::symbol("cb-from-nil")],
+        vec![Value::NIL, Value::NIL, Value::symbol("cb-from-nil")],
     )
     .expect("nil time spec should be accepted");
-    assert!(matches!(from_nil, Value::Timer(_)));
+    assert!(matches!(from_nil, Value::make_timer(_)));
 
     let from_string = builtin_run_at_time(
         &mut eval,
         vec![
             Value::string("0 sec"),
-            Value::Nil,
+            Value::NIL,
             Value::symbol("cb-from-string"),
         ],
     )
     .expect("string time spec should be accepted");
-    assert!(matches!(from_string, Value::Timer(_)));
+    assert!(matches!(from_string, Value::make_timer(_)));
 }
 
 #[test]
@@ -874,7 +874,7 @@ fn test_eval_run_at_time_invalid_spec_signals_error() {
 
     let invalid_string = builtin_run_at_time(
         &mut eval,
-        vec![Value::string("abc"), Value::Nil, Value::symbol("cb")],
+        vec![Value::string("abc"), Value::NIL, Value::symbol("cb")],
     );
     assert!(matches!(
         invalid_string,
@@ -883,7 +883,7 @@ fn test_eval_run_at_time_invalid_spec_signals_error() {
 
     let invalid_type = builtin_run_at_time(
         &mut eval,
-        vec![Value::True, Value::Nil, Value::symbol("cb")],
+        vec![Value::T, Value::NIL, Value::symbol("cb")],
     );
     assert!(matches!(
         invalid_type,
@@ -898,13 +898,13 @@ fn test_eval_run_with_idle_timer_nil_ok_string_error() {
     let mut eval = Context::new();
 
     let from_nil =
-        builtin_run_with_idle_timer(&mut eval, vec![Value::Nil, Value::Nil, Value::symbol("cb")])
+        builtin_run_with_idle_timer(&mut eval, vec![Value::NIL, Value::NIL, Value::symbol("cb")])
             .expect("nil idle delay should be accepted");
-    assert!(matches!(from_nil, Value::Timer(_)));
+    assert!(matches!(from_nil, Value::make_timer(_)));
 
     let from_string = builtin_run_with_idle_timer(
         &mut eval,
-        vec![Value::string("0 sec"), Value::Nil, Value::symbol("cb")],
+        vec![Value::string("0 sec"), Value::NIL, Value::symbol("cb")],
     );
     assert!(matches!(
         from_string,
@@ -922,15 +922,15 @@ fn test_eval_timer_activate() {
     let result = builtin_run_at_time(
         &mut eval,
         vec![
-            Value::Float(1.0, next_float_id()),
-            Value::Nil,
+            Value::make_float(1.0),
+            Value::NIL,
             Value::symbol("cb"),
         ],
     );
     let timer_val = result.unwrap();
     builtin_cancel_timer(&mut eval, vec![timer_val]).unwrap();
 
-    if let Value::Timer(id) = &timer_val {
+    if &timer_val.is_timer() /* TODO(tagged): `id` was Value::Timer(id), now use accessor */ {
         assert!(!eval.timers.timer_active_p(*id));
     }
 
@@ -938,7 +938,7 @@ fn test_eval_timer_activate() {
     let result = builtin_timer_activate(&mut eval, vec![timer_val]);
     assert!(result.is_ok());
 
-    if let Value::Timer(id) = &timer_val {
+    if &timer_val.is_timer() /* TODO(tagged): `id` was Value::Timer(id), now use accessor */ {
         assert!(eval.timers.timer_active_p(*id));
     }
 
@@ -948,7 +948,7 @@ fn test_eval_timer_activate() {
 
     // Cancel again and verify optional args are accepted.
     builtin_cancel_timer(&mut eval, vec![timer_val]).unwrap();
-    let with_restart = builtin_timer_activate(&mut eval, vec![timer_val, Value::True]);
+    let with_restart = builtin_timer_activate(&mut eval, vec![timer_val, Value::T]);
     assert!(with_restart.is_ok());
 
     builtin_cancel_timer(&mut eval, vec![timer_val]).unwrap();
@@ -956,8 +956,8 @@ fn test_eval_timer_activate() {
         &mut eval,
         vec![
             timer_val,
-            Value::Nil,
-            Value::cons(Value::Int(1), Value::Int(2)),
+            Value::NIL,
+            Value::cons(Value::fixnum(1), Value::fixnum(2)),
         ],
     );
     assert!(with_restart_and_delta.is_ok());
@@ -968,31 +968,32 @@ fn test_eval_timer_activate_rejects_non_timer_with_error() {
     use super::super::eval::Context;
 
     let mut eval = Context::new();
-    let result = builtin_timer_activate(&mut eval, vec![Value::Nil]);
+    let result = builtin_timer_activate(&mut eval, vec![Value::NIL]);
     assert!(matches!(result, Err(Flow::Signal(sig)) if sig.symbol_name() == "error"));
 }
 
 #[test]
 fn test_eval_timer_activate_optional_delta_must_be_cons_or_nil() {
     use super::super::eval::Context;
+use crate::emacs_core::value::{ValueKind};
 
     let mut eval = Context::new();
     let timer_val = builtin_run_at_time(
         &mut eval,
         vec![
-            Value::Float(1.0, next_float_id()),
-            Value::Nil,
+            Value::make_float(1.0),
+            Value::NIL,
             Value::symbol("cb"),
         ],
     )
     .unwrap();
     builtin_cancel_timer(&mut eval, vec![timer_val]).unwrap();
 
-    let result = builtin_timer_activate(&mut eval, vec![timer_val, Value::Nil, Value::Int(2)]);
+    let result = builtin_timer_activate(&mut eval, vec![timer_val, Value::NIL, Value::fixnum(2)]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig))
             if sig.symbol_name() == "wrong-type-argument"
-                && sig.data == vec![Value::symbol("consp"), Value::Int(2)]
+                && sig.data == vec![Value::symbol("consp"), Value::fixnum(2)]
     ));
 }

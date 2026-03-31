@@ -8,26 +8,26 @@
 use crate::emacs_core::error::{EvalResult, signal};
 use crate::emacs_core::intern::resolve_sym;
 use crate::emacs_core::symbol::Obarray;
-use crate::emacs_core::value::{HashKey, HashTableTest, Value, list_to_vec, with_heap_mut};
+use crate::emacs_core::value::{HashKey, HashTableTest, Value, list_to_vec, with_heap_mut, ValueKind};
 use crate::face::Face as RuntimeFace;
 
 const FACE_ATTRIBUTES_VECTOR_LEN: usize = 20;
 
 /// Register bootstrap variables owned by the face subsystem.
 pub fn register_bootstrap_vars(obarray: &mut Obarray) {
-    obarray.set_symbol_value("face-filters-always-match", Value::Nil);
+    obarray.set_symbol_value("face-filters-always-match", Value::NIL);
     obarray.set_symbol_value(
         "face--new-frame-defaults",
         bootstrap_face_new_frame_defaults_table(),
     );
     obarray.set_symbol_value("face-default-stipple", Value::string("gray3"));
-    obarray.set_symbol_value("tty-defined-color-alist", Value::Nil);
-    obarray.set_symbol_value("scalable-fonts-allowed", Value::Nil);
-    obarray.set_symbol_value("face-ignored-fonts", Value::Nil);
-    obarray.set_symbol_value("face-remapping-alist", Value::Nil);
-    obarray.set_symbol_value("face-font-rescale-alist", Value::Nil);
-    obarray.set_symbol_value("face-near-same-color-threshold", Value::Int(30_000));
-    obarray.set_symbol_value("face-font-lax-matched-attributes", Value::True);
+    obarray.set_symbol_value("tty-defined-color-alist", Value::NIL);
+    obarray.set_symbol_value("scalable-fonts-allowed", Value::NIL);
+    obarray.set_symbol_value("face-ignored-fonts", Value::NIL);
+    obarray.set_symbol_value("face-remapping-alist", Value::NIL);
+    obarray.set_symbol_value("face-font-rescale-alist", Value::NIL);
+    obarray.set_symbol_value("face-near-same-color-threshold", Value::fixnum(30_000));
+    obarray.set_symbol_value("face-font-lax-matched-attributes", Value::T);
 }
 
 /// Backfill xfaces-owned bootstrap variables after loading a dump or partial
@@ -35,18 +35,18 @@ pub fn register_bootstrap_vars(obarray: &mut Obarray) {
 /// delegate here instead of duplicating the values itself.
 pub(crate) fn ensure_startup_compat_variables(eval: &mut crate::emacs_core::eval::Context) {
     let defaults = [
-        ("face-filters-always-match", Value::Nil),
+        ("face-filters-always-match", Value::NIL),
         (
             "face--new-frame-defaults",
             bootstrap_face_new_frame_defaults_table(),
         ),
         ("face-default-stipple", Value::string("gray3")),
-        ("scalable-fonts-allowed", Value::Nil),
-        ("face-ignored-fonts", Value::Nil),
-        ("face-remapping-alist", Value::Nil),
-        ("face-font-rescale-alist", Value::Nil),
-        ("face-near-same-color-threshold", Value::Int(30_000)),
-        ("face-font-lax-matched-attributes", Value::True),
+        ("scalable-fonts-allowed", Value::NIL),
+        ("face-ignored-fonts", Value::NIL),
+        ("face-remapping-alist", Value::NIL),
+        ("face-font-rescale-alist", Value::NIL),
+        ("face-near-same-color-threshold", Value::fixnum(30_000)),
+        ("face-font-lax-matched-attributes", Value::T),
     ];
     for (name, value) in defaults {
         if eval.obarray().symbol_value(name).is_none() {
@@ -107,8 +107,8 @@ fn face_attributes_vector_slot(attr_name: &str) -> Option<usize> {
 }
 
 fn face_attr_key_name(value: &Value) -> Option<&str> {
-    match value {
-        Value::Keyword(id) | Value::Symbol(id) => Some(resolve_sym(*id)),
+    match value.kind() {
+        ValueKind::Keyword(id) | ValueKind::Symbol(id) => Some(resolve_sym(id)),
         _ => None,
     }
 }
@@ -136,7 +136,7 @@ pub(crate) fn builtin_face_attributes_as_vector(args: Vec<Value>) -> EvalResult 
         match attr_name {
             ":foreground" | ":background" | ":distant-foreground" if value.is_nil() => {}
             ":stipple" | ":font" | ":inherit" | ":fontset" => {}
-            ":box" if matches!(value, Value::True) => attrs[slot] = Value::Int(1),
+            ":box" if value.is_t() => attrs[slot] = Value::fixnum(1),
             _ => attrs[slot] = value,
         }
 
@@ -168,7 +168,7 @@ pub(crate) fn seed_face_new_frame_defaults_table(table: Value) {
             Some((
                 Value::symbol(face_name.as_str()),
                 Value::cons(
-                    Value::Int(face_id),
+                    Value::fixnum(face_id),
                     crate::emacs_core::font::make_lisp_face_vector(),
                 ),
             ))
@@ -200,7 +200,7 @@ pub(crate) fn ensure_face_new_frame_defaults_entry(
         table,
         Value::symbol(face_name),
         Value::cons(
-            Value::Int(face_id),
+            Value::fixnum(face_id),
             crate::emacs_core::font::make_lisp_face_vector(),
         ),
     );
@@ -208,14 +208,14 @@ pub(crate) fn ensure_face_new_frame_defaults_entry(
 }
 
 fn upsert_frame_face_hash_entry(table: Value, key: Value, value: Value) {
-    let Value::HashTable(table_id) = table else {
+    if !table.is_hash_table() /* TODO(tagged): `table_id` was Value::HashTable(table_id), rewrite let-else */ {
         unreachable!("frame face hash table must be a hash table");
     };
     with_heap_mut(|heap| {
         let hash_table = heap.get_hash_table_mut(table_id);
-        let hash_key = match key {
-            Value::Symbol(id) => HashKey::Symbol(id),
-            Value::Keyword(id) => HashKey::Keyword(id),
+        let hash_key = match key.kind() {
+            ValueKind::Symbol(id) => HashKey::Symbol(id),
+            ValueKind::Keyword(id) => HashKey::Keyword(id),
             _ => unreachable!("face hash keys are symbols"),
         };
         if !hash_table.data.contains_key(&hash_key) {
@@ -244,20 +244,20 @@ mod tests {
             obarray
                 .symbol_value("face-near-same-color-threshold")
                 .copied(),
-            Some(Value::Int(30_000))
+            Some(Value::fixnum(30_000))
         );
         assert_eq!(
             obarray
                 .symbol_value("face-font-lax-matched-attributes")
                 .copied(),
-            Some(Value::True)
+            Some(Value::T)
         );
 
         let table = obarray
             .symbol_value("face--new-frame-defaults")
             .copied()
             .expect("face--new-frame-defaults");
-        let Value::HashTable(id) = table else {
+        if !table.is_hash_table() /* TODO(tagged): `id` was Value::HashTable(id), rewrite let-else */ {
             panic!("face--new-frame-defaults must be a hash table");
         };
         let test = with_heap(|heap| heap.get_hash_table(id).test.clone());
@@ -267,9 +267,9 @@ mod tests {
     #[test]
     fn frame_face_hash_table_eval_is_empty_before_any_face_realization() {
         let mut eval = crate::emacs_core::eval::Context::new();
-        let out = builtin_frame_face_hash_table(&mut eval, vec![Value::Nil])
+        let out = builtin_frame_face_hash_table(&mut eval, vec![Value::NIL])
             .expect("live frame face hash table");
-        let Value::HashTable(id) = out else {
+        if !out.is_hash_table() /* TODO(tagged): `id` was Value::HashTable(id), rewrite let-else */ {
             panic!("expected hash table");
         };
         let len = with_heap(|heap| heap.get_hash_table(id).data.len());
@@ -279,9 +279,9 @@ mod tests {
     #[test]
     fn frame_face_hash_table_eval_returns_stable_frame_owned_table() {
         let mut eval = crate::emacs_core::eval::Context::new();
-        let first = builtin_frame_face_hash_table(&mut eval, vec![Value::Nil])
+        let first = builtin_frame_face_hash_table(&mut eval, vec![Value::NIL])
             .expect("first face hash table");
-        let second = builtin_frame_face_hash_table(&mut eval, vec![Value::Nil])
+        let second = builtin_frame_face_hash_table(&mut eval, vec![Value::NIL])
             .expect("second face hash table");
         assert_eq!(first, second);
     }
@@ -314,7 +314,7 @@ mod tests {
             .symbol_value("face--new-frame-defaults")
             .copied()
             .expect("face hash table backfilled");
-        let Value::HashTable(id) = table else {
+        if !table.is_hash_table() /* TODO(tagged): `id` was Value::HashTable(id), rewrite let-else */ {
             panic!("face--new-frame-defaults must be a hash table");
         };
         let has_seeded_faces = with_heap(|heap| {

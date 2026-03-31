@@ -1,4 +1,5 @@
 use super::*;
+use super::value::{ValueKind, VecLikeType};
 
 // ===========================================================================
 // Cons / List operations
@@ -31,7 +32,7 @@ pub(crate) fn lambda_to_cons_list(value: &Value) -> Option<Value> {
     if let Some(env_val) = data.env {
         elements.push(Value::symbol("closure"));
         if env_val.is_nil() {
-            elements.push(Value::list(vec![Value::True]));
+            elements.push(Value::list(vec![Value::T]));
         } else {
             elements.push(env_val);
         }
@@ -103,9 +104,9 @@ pub fn lambda_to_closure_vector(value: &Value) -> Vec<Value> {
     // Env — already stored as a flat cons alist matching GNU Emacs's
     // Vinternal_interpreter_environment.
     let env = match data.env {
-        Some(env_val) if env_val.is_nil() => Value::list(vec![Value::True]),
+        Some(env_val) if env_val.is_nil() => Value::list(vec![Value::T]),
         Some(env_val) => env_val,
-        None => Value::Nil,
+        None => Value::NIL,
     };
 
     let mut result = vec![args, body, env];
@@ -114,7 +115,7 @@ pub fn lambda_to_closure_vector(value: &Value) -> Vec<Value> {
         .doc_form
         .or_else(|| data.docstring.as_ref().map(|d| Value::string(d.clone())));
     if let Some(slot4) = slot4 {
-        result.push(Value::Nil);
+        result.push(Value::NIL);
         result.push(slot4);
     }
     crate::emacs_core::eval::restore_scratch_gc_roots(saved_roots);
@@ -128,9 +129,9 @@ pub(crate) fn bytecode_closure_length(value: &Value) -> Option<i64> {
 }
 
 pub(crate) fn closure_vector_length(value: &Value) -> Option<i64> {
-    match value {
-        Value::Lambda(_) => lambda_closure_length(value),
-        Value::ByteCode(_) => bytecode_closure_length(value),
+    match value.kind() {
+        ValueKind::Veclike(VecLikeType::Lambda) => lambda_closure_length(value),
+        ValueKind::Veclike(VecLikeType::ByteCode) => bytecode_closure_length(value),
         _ => None,
     }
 }
@@ -150,7 +151,7 @@ pub(crate) fn bytecode_to_closure_vector(value: &Value) -> Vec<Value> {
     crate::emacs_core::eval::push_scratch_gc_root(args);
 
     // Slot 1: bytecode string — NeoVM uses decoded IR, not raw bytes
-    let code = Value::Nil;
+    let code = Value::NIL;
 
     // Slot 2: env if NeoVM-compiled (cons alist), else constants vector
     let env = if let Some(env_val) = bc.env {
@@ -161,7 +162,7 @@ pub(crate) fn bytecode_to_closure_vector(value: &Value) -> Vec<Value> {
     crate::emacs_core::eval::push_scratch_gc_root(env);
 
     // Slot 3: max stack depth
-    let depth = Value::Int(bc.max_stack as i64);
+    let depth = Value::fixnum(bc.max_stack as i64);
 
     let mut result = vec![args, code, env, depth];
 
@@ -179,27 +180,27 @@ pub(crate) fn bytecode_to_closure_vector(value: &Value) -> Vec<Value> {
 fn lambda_params_to_value(params: &LambdaParams) -> Value {
     let mut elements = Vec::new();
     for p in &params.required {
-        elements.push(Value::Symbol(*p));
+        elements.push(Value::symbol(*p));
     }
     if !params.optional.is_empty() {
         elements.push(Value::symbol("&optional"));
         for p in &params.optional {
-            elements.push(Value::Symbol(*p));
+            elements.push(Value::symbol(*p));
         }
     }
     if let Some(ref rest) = params.rest {
         elements.push(Value::symbol("&rest"));
-        elements.push(Value::Symbol(*rest));
+        elements.push(Value::symbol(*rest));
     }
     Value::list(elements)
 }
 
 fn car_value(value: &Value) -> Result<Value, Flow> {
-    match value {
-        Value::Nil => Ok(Value::Nil),
-        Value::Cons(cell) => Ok(with_heap(|h| h.cons_car(*cell))),
+    match value.kind() {
+        ValueKind::Nil => Ok(Value::NIL),
+        ValueKind::Cons => Ok(with_heap(|h| h.cons_car(*cell))),
         // In official Emacs, closures are cons lists with car = closure/lambda.
-        Value::Lambda(_) => {
+        ValueKind::Veclike(VecLikeType::Lambda) => {
             let data = value.get_lambda_data().unwrap();
             if data.env.is_some() {
                 Ok(Value::symbol("closure"))
@@ -215,15 +216,15 @@ fn car_value(value: &Value) -> Result<Value, Flow> {
 }
 
 fn cdr_value(value: &Value) -> Result<Value, Flow> {
-    match value {
-        Value::Nil => Ok(Value::Nil),
-        Value::Cons(cell) => Ok(with_heap(|h| h.cons_cdr(*cell))),
+    match value.kind() {
+        ValueKind::Nil => Ok(Value::NIL),
+        ValueKind::Cons => Ok(with_heap(|h| h.cons_cdr(*cell))),
         // Convert Lambda to cons list, return cdr.
-        Value::Lambda(_) => {
-            let list = lambda_to_cons_list(value).unwrap_or(Value::Nil);
-            match list {
-                Value::Cons(cell) => Ok(with_heap(|h| h.cons_cdr(cell))),
-                _ => Ok(Value::Nil),
+        ValueKind::Veclike(VecLikeType::Lambda) => {
+            let list = lambda_to_cons_list(value).unwrap_or(ValueKind::Nil);
+            match list.kind() {
+                ValueKind::Cons => Ok(with_heap(|h| h.cons_cdr(cell))),
+                _ => Ok(Value::NIL),
             }
         }
         _ => Err(signal(
@@ -245,24 +246,24 @@ pub(crate) fn builtin_cdr(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_car_safe(args: Vec<Value>) -> EvalResult {
     expect_args("car-safe", &args, 1)?;
-    match &args[0] {
-        Value::Cons(cell) => Ok(with_heap(|h| h.cons_car(*cell))),
-        _ => Ok(Value::Nil),
+    match args[0].kind() {
+        ValueKind::Cons => Ok(with_heap(|h| h.cons_car(*cell))),
+        _ => Ok(Value::NIL),
     }
 }
 
 pub(crate) fn builtin_cdr_safe(args: Vec<Value>) -> EvalResult {
     expect_args("cdr-safe", &args, 1)?;
-    match &args[0] {
-        Value::Cons(cell) => Ok(with_heap(|h| h.cons_cdr(*cell))),
-        _ => Ok(Value::Nil),
+    match args[0].kind() {
+        ValueKind::Cons => Ok(with_heap(|h| h.cons_cdr(*cell))),
+        _ => Ok(Value::NIL),
     }
 }
 
 pub(crate) fn builtin_setcar(args: Vec<Value>) -> EvalResult {
     expect_args("setcar", &args, 2)?;
-    match &args[0] {
-        Value::Cons(cell) => {
+    match args[0].kind() {
+        ValueKind::Cons => {
             with_heap_mut(|h| h.set_car(*cell, args[1]));
             Ok(args[1])
         }
@@ -275,8 +276,8 @@ pub(crate) fn builtin_setcar(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_setcdr(args: Vec<Value>) -> EvalResult {
     expect_args("setcdr", &args, 2)?;
-    match &args[0] {
-        Value::Cons(cell) => {
+    match args[0].kind() {
+        ValueKind::Cons => {
             with_heap_mut(|h| h.set_cdr(*cell, args[1]));
             Ok(args[1])
         }
@@ -293,22 +294,22 @@ pub(crate) fn builtin_list(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_length(args: Vec<Value>) -> EvalResult {
     expect_args("length", &args, 1)?;
-    match &args[0] {
-        Value::Nil => Ok(Value::Int(0)),
-        Value::Lambda(_) | Value::ByteCode(_) => {
+    match args[0].kind() {
+        ValueKind::Nil => Ok(Value::fixnum(0)),
+        ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => {
             Ok(Value::Int(closure_vector_length(&args[0]).unwrap()))
         }
-        Value::Cons(_) => match list_length(&args[0]) {
-            Some(n) => Ok(Value::Int(n as i64)),
+        ValueKind::Cons => match list_length(&args[0]) {
+            Some(n) => Ok(Value::fixnum(n as i64)),
             None => Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("listp"), args[0]],
             )),
         },
-        Value::Str(id) => Ok(Value::Int(
+        ValueKind::String => Ok(Value::fixnum(
             with_heap(|h| storage_char_len(h.get_string(*id))) as i64,
         )),
-        Value::Vector(v) | Value::Record(v) => Ok(Value::Int(vector_sequence_length(&args[0], *v))),
+        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => Ok(Value::fixnum(vector_sequence_length(&args[0], *v))),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("sequencep"), args[0]],
@@ -323,22 +324,22 @@ fn vector_sequence_length(sequence: &Value, vector: ObjId) -> i64 {
 }
 
 fn sequence_length_less_than(sequence: &Value, target: i64) -> Result<bool, Flow> {
-    match sequence {
-        Value::Nil => Ok(0 < target),
-        Value::Lambda(_) | Value::ByteCode(_) => {
+    match sequence.kind() {
+        ValueKind::Nil => Ok(0 < target),
+        ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => {
             Ok(closure_vector_length(sequence).unwrap() < target)
         }
-        Value::Str(id) => Ok((with_heap(|h| storage_char_len(h.get_string(*id))) as i64) < target),
-        Value::Vector(v) | Value::Record(v) => Ok(vector_sequence_length(sequence, *v) < target),
-        Value::Cons(_) => {
+        ValueKind::String => Ok((with_heap(|h| storage_char_len(h.get_string(*id))) as i64) < target),
+        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => Ok(vector_sequence_length(sequence, *v) < target),
+        ValueKind::Cons => {
             if target <= 0 {
                 return Ok(false);
             }
             let mut remaining = target;
             let mut cursor = *sequence;
             while remaining > 0 {
-                match cursor {
-                    Value::Cons(cell) => {
+                match cursor.kind() {
+                    ValueKind::Cons => {
                         cursor = with_heap(|h| h.cons_cdr(cell));
                         remaining -= 1;
                     }
@@ -355,29 +356,29 @@ fn sequence_length_less_than(sequence: &Value, target: i64) -> Result<bool, Flow
 }
 
 fn sequence_length_equal(sequence: &Value, target: i64) -> Result<bool, Flow> {
-    match sequence {
-        Value::Nil => Ok(target == 0),
-        Value::Lambda(_) | Value::ByteCode(_) => {
+    match sequence.kind() {
+        ValueKind::Nil => Ok(target == 0),
+        ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => {
             Ok(closure_vector_length(sequence).unwrap() == target)
         }
-        Value::Str(id) => Ok((with_heap(|h| storage_char_len(h.get_string(*id))) as i64) == target),
-        Value::Vector(v) | Value::Record(v) => Ok(vector_sequence_length(sequence, *v) == target),
-        Value::Cons(_) => {
+        ValueKind::String => Ok((with_heap(|h| storage_char_len(h.get_string(*id))) as i64) == target),
+        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => Ok(vector_sequence_length(sequence, *v) == target),
+        ValueKind::Cons => {
             if target < 0 {
                 return Ok(false);
             }
             let mut remaining = target;
             let mut cursor = *sequence;
             while remaining > 0 {
-                match cursor {
-                    Value::Cons(cell) => {
+                match cursor.kind() {
+                    ValueKind::Cons => {
                         cursor = with_heap(|h| h.cons_cdr(cell));
                         remaining -= 1;
                     }
                     _ => return Ok(false),
                 }
             }
-            Ok(!matches!(cursor, Value::Cons(_)))
+            Ok(!cursor.is_cons())
         }
         other => Err(signal(
             "wrong-type-argument",
@@ -387,14 +388,14 @@ fn sequence_length_equal(sequence: &Value, target: i64) -> Result<bool, Flow> {
 }
 
 fn sequence_length_greater_than(sequence: &Value, target: i64) -> Result<bool, Flow> {
-    match sequence {
-        Value::Nil => Ok(0 > target),
-        Value::Lambda(_) | Value::ByteCode(_) => {
+    match sequence.kind() {
+        ValueKind::Nil => Ok(0 > target),
+        ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => {
             Ok(closure_vector_length(sequence).unwrap() > target)
         }
-        Value::Str(id) => Ok((with_heap(|h| storage_char_len(h.get_string(*id))) as i64) > target),
-        Value::Vector(v) | Value::Record(v) => Ok(vector_sequence_length(sequence, *v) > target),
-        Value::Cons(_) => {
+        ValueKind::String => Ok((with_heap(|h| storage_char_len(h.get_string(*id))) as i64) > target),
+        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => Ok(vector_sequence_length(sequence, *v) > target),
+        ValueKind::Cons => {
             if target < 0 {
                 return Ok(true);
             }
@@ -404,8 +405,8 @@ fn sequence_length_greater_than(sequence: &Value, target: i64) -> Result<bool, F
             let mut remaining = target + 1;
             let mut cursor = *sequence;
             while remaining > 0 {
-                match cursor {
-                    Value::Cons(cell) => {
+                match cursor.kind() {
+                    ValueKind::Cons => {
                         cursor = with_heap(|h| h.cons_cdr(cell));
                         remaining -= 1;
                     }
@@ -424,28 +425,28 @@ fn sequence_length_greater_than(sequence: &Value, target: i64) -> Result<bool, F
 pub(crate) fn builtin_length_lt(args: Vec<Value>) -> EvalResult {
     expect_args("length<", &args, 2)?;
     let target = expect_fixnum(&args[1])?;
-    Ok(Value::bool(sequence_length_less_than(&args[0], target)?))
+    Ok(Value::bool_val(sequence_length_less_than(&args[0], target)?))
 }
 
 pub(crate) fn builtin_length_eq(args: Vec<Value>) -> EvalResult {
     expect_args("length=", &args, 2)?;
     let target = expect_fixnum(&args[1])?;
-    Ok(Value::bool(sequence_length_equal(&args[0], target)?))
+    Ok(Value::bool_val(sequence_length_equal(&args[0], target)?))
 }
 
 pub(crate) fn builtin_length_gt(args: Vec<Value>) -> EvalResult {
     expect_args("length>", &args, 2)?;
     let target = expect_fixnum(&args[1])?;
-    Ok(Value::bool(sequence_length_greater_than(&args[0], target)?))
+    Ok(Value::bool_val(sequence_length_greater_than(&args[0], target)?))
 }
 
 pub(crate) fn builtin_nth(args: Vec<Value>) -> EvalResult {
     expect_args("nth", &args, 2)?;
     let n = expect_int(&args[0])?;
     let tail = nthcdr_impl(n, args[1])?;
-    match tail {
-        Value::Cons(cell) => Ok(with_heap(|h| h.cons_car(cell))),
-        Value::Nil => Ok(Value::Nil),
+    match tail.kind() {
+        ValueKind::Cons => Ok(with_heap(|h| h.cons_car(cell))),
+        ValueKind::Nil => Ok(Value::NIL),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("listp"), other],
@@ -460,15 +461,15 @@ fn nthcdr_impl(n: i64, list: Value) -> EvalResult {
 
     // Convert Lambda to cons list for traversal.
     let mut cursor = match list {
-        Value::Lambda(_) => lambda_to_cons_list(&list).unwrap_or(Value::Nil),
+        Value::Lambda(_) /* TODO(tagged): convert Value::Lambda to new API */ => lambda_to_cons_list(&list).unwrap_or(Value::NIL),
         other => other,
     };
     for _ in 0..(n as usize) {
-        match cursor {
-            Value::Cons(cell) => {
+        match cursor.kind() {
+            ValueKind::Cons => {
                 cursor = with_heap(|h| h.cons_cdr(cell));
             }
-            Value::Nil => return Ok(Value::Nil),
+            ValueKind::Nil => return Ok(Value::NIL),
             _ => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -490,10 +491,10 @@ pub(crate) fn builtin_append(args: Vec<Value>) -> EvalResult {
     fn extend_from_proper_list(out: &mut Vec<Value>, list: &Value) -> Result<(), Flow> {
         let mut cursor = *list;
         loop {
-            match cursor {
-                Value::Nil => return Ok(()),
-                Value::Cons(cell) => {
-                    let pair = read_cons(cell);
+            match cursor.kind() {
+                ValueKind::Nil => return Ok(()),
+                ValueKind::Cons => {
+                    let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                     out.push(pair.car);
                     cursor = pair.cdr;
                 }
@@ -508,7 +509,7 @@ pub(crate) fn builtin_append(args: Vec<Value>) -> EvalResult {
     }
 
     if args.is_empty() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     if args.len() == 1 {
         return Ok(args[0]);
@@ -517,15 +518,15 @@ pub(crate) fn builtin_append(args: Vec<Value>) -> EvalResult {
     // Collect all elements from all lists except the last, then use last as tail
     let mut elements: Vec<Value> = Vec::new();
     for arg in &args[..args.len() - 1] {
-        match arg {
-            Value::Nil => {}
-            Value::Cons(_) => extend_from_proper_list(&mut elements, arg)?,
-            Value::Lambda(_) => elements.extend(lambda_to_closure_vector(arg).into_iter()),
-            Value::ByteCode(_) => elements.extend(bytecode_to_closure_vector(arg).into_iter()),
-            Value::Vector(v) => {
+        match arg.kind() {
+            ValueKind::Nil => {}
+            ValueKind::Cons => extend_from_proper_list(&mut elements, arg)?,
+            ValueKind::Veclike(VecLikeType::Lambda) => elements.extend(lambda_to_closure_vector(arg).into_iter()),
+            ValueKind::Veclike(VecLikeType::ByteCode) => elements.extend(bytecode_to_closure_vector(arg).into_iter()),
+            ValueKind::Veclike(VecLikeType::Vector) => {
                 elements.extend(with_heap(|h| h.get_vector(*v).clone()).into_iter())
             }
-            Value::Str(id) => {
+            ValueKind::String => {
                 let s = with_heap(|h| h.get_string(*id).to_owned());
                 elements.extend(
                     decode_storage_char_codes(&s)
@@ -557,9 +558,9 @@ pub(crate) fn builtin_append(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_reverse(args: Vec<Value>) -> EvalResult {
     expect_args("reverse", &args, 1)?;
-    match &args[0] {
-        Value::Nil => Ok(Value::Nil),
-        Value::Cons(_) => {
+    match args[0].kind() {
+        ValueKind::Nil => Ok(Value::NIL),
+        ValueKind::Cons => {
             let items = list_to_vec(&args[0]).ok_or_else(|| {
                 signal("wrong-type-argument", vec![Value::symbol("listp"), args[0]])
             })?;
@@ -567,12 +568,12 @@ pub(crate) fn builtin_reverse(args: Vec<Value>) -> EvalResult {
             reversed.reverse();
             Ok(Value::list(reversed))
         }
-        Value::Vector(v) => {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let mut items = with_heap(|h| h.get_vector(*v).clone());
             items.reverse();
             Ok(Value::vector(items))
         }
-        Value::Str(id) => {
+        ValueKind::String => {
             let s = with_heap(|h| h.get_string(*id).to_owned());
             let reversed: String = s.chars().rev().collect();
             Ok(Value::string(reversed))
@@ -589,22 +590,22 @@ pub(crate) fn builtin_nreverse(args: Vec<Value>) -> EvalResult {
         let mut cursor = *list;
         let mut prefix = Vec::new();
         loop {
-            match cursor {
-                Value::Cons(cell) => {
-                    let pair = read_cons(cell);
+            match cursor.kind() {
+                ValueKind::Cons => {
+                    let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                     prefix.push(pair.car);
                     cursor = pair.cdr;
                 }
-                Value::Nil => return None,
+                ValueKind::Nil => return None,
                 _ => return Some(Value::list(prefix)),
             }
         }
     }
 
     expect_args("nreverse", &args, 1)?;
-    match &args[0] {
-        Value::Nil => Ok(Value::Nil),
-        Value::Cons(_) => {
+    match args[0].kind() {
+        ValueKind::Nil => Ok(Value::NIL),
+        ValueKind::Cons => {
             // Match Emacs list semantics: reject dotted lists with proper-prefix payload.
             if let Some(prefix) = dotted_list_prefix(&args[0]) {
                 return Err(signal(
@@ -613,26 +614,26 @@ pub(crate) fn builtin_nreverse(args: Vec<Value>) -> EvalResult {
                 ));
             }
 
-            let mut prev = Value::Nil;
+            let mut prev = ValueKind::Nil;
             let mut current = args[0];
             loop {
-                match current {
-                    Value::Nil => return Ok(prev),
-                    Value::Cons(cell) => {
+                match current.kind() {
+                    ValueKind::Nil => return Ok(prev),
+                    ValueKind::Cons => {
                         let next = with_heap(|h| h.cons_cdr(cell));
                         with_heap_mut(|h| h.set_cdr(cell, prev));
-                        prev = Value::Cons(cell);
+                        prev = ValueKind::Cons;
                         current = next;
                     }
                     _ => unreachable!("proper-list check should reject dotted tails"),
                 }
             }
         }
-        Value::Vector(v) => {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             with_heap_mut(|h| h.get_vector_mut(*v).reverse());
             Ok(args[0])
         }
-        Value::Str(_) => builtin_reverse(args),
+        ValueKind::String => builtin_reverse(args),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("arrayp"), args[0]],
@@ -646,13 +647,13 @@ pub(crate) fn builtin_member(args: Vec<Value>) -> EvalResult {
     let list = args[1];
     let mut cursor = list;
     loop {
-        match cursor {
-            Value::Nil => return Ok(Value::Nil),
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
+        match cursor.kind() {
+            ValueKind::Nil => return Ok(Value::NIL),
+            ValueKind::Cons => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 if equal_value(target, &pair.car, 0) {
                     drop(pair);
-                    return Ok(Value::Cons(cell));
+                    return Ok(ValueKind::Cons);
                 }
                 cursor = pair.cdr;
             }
@@ -672,13 +673,13 @@ pub(crate) fn builtin_memq(args: Vec<Value>) -> EvalResult {
     let list = args[1];
     let mut cursor = list;
     loop {
-        match cursor {
-            Value::Nil => return Ok(Value::Nil),
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
+        match cursor.kind() {
+            ValueKind::Nil => return Ok(Value::NIL),
+            ValueKind::Cons => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 if eq_value(target, &pair.car) {
                     drop(pair);
-                    return Ok(Value::Cons(cell));
+                    return Ok(ValueKind::Cons);
                 }
                 cursor = pair.cdr;
             }
@@ -698,13 +699,13 @@ pub(crate) fn builtin_memql(args: Vec<Value>) -> EvalResult {
     let list = args[1];
     let mut cursor = list;
     loop {
-        match cursor {
-            Value::Nil => return Ok(Value::Nil),
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
+        match cursor.kind() {
+            ValueKind::Nil => return Ok(Value::NIL),
+            ValueKind::Cons => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 if eql_value(target, &pair.car) {
                     drop(pair);
-                    return Ok(Value::Cons(cell));
+                    return Ok(ValueKind::Cons);
                 }
                 cursor = pair.cdr;
             }
@@ -733,12 +734,12 @@ pub(crate) fn builtin_assoc(eval: &mut super::eval::Context, args: Vec<Value>) -
                 ctx.root(test_fn.unwrap());
                 let mut cursor = list;
                 loop {
-                    match cursor {
-                        Value::Nil => return Ok(Value::Nil),
-                        Value::Cons(cell) => {
-                            let pair = read_cons(cell);
-                            if let Value::Cons(ref entry) = pair.car {
-                                let entry_pair = read_cons(*entry);
+                    match cursor.kind() {
+                        ValueKind::Nil => return Ok(Value::NIL),
+                        ValueKind::Cons => {
+                            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+                            if let ValueKind::Cons = pair.car {
+                                let entry_pair = read_cons(*entry);  // TODO(tagged): replace read_cons with cons accessors
                                 let matches = if let Some(test_fn) = &test_fn {
                                     ctx.apply(*test_fn, vec![entry_pair.car, *key])?.is_truthy()
                                 } else {
@@ -765,12 +766,12 @@ pub(crate) fn builtin_assoc(eval: &mut super::eval::Context, args: Vec<Value>) -
             ctx.root(list);
             let mut cursor = list;
             loop {
-                match cursor {
-                    Value::Nil => return Ok(Value::Nil),
-                    Value::Cons(cell) => {
-                        let pair = read_cons(cell);
-                        if let Value::Cons(ref entry) = pair.car {
-                            let entry_pair = read_cons(*entry);
+                match cursor.kind() {
+                    ValueKind::Nil => return Ok(Value::NIL),
+                    ValueKind::Cons => {
+                        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+                        if let ValueKind::Cons = pair.car {
+                            let entry_pair = read_cons(*entry);  // TODO(tagged): replace read_cons with cons accessors
                             if equal_value(key, &entry_pair.car, 0) {
                                 return Ok(pair.car);
                             }
@@ -795,12 +796,12 @@ pub(crate) fn builtin_assq(args: Vec<Value>) -> EvalResult {
     let list = args[1];
     let mut cursor = list;
     loop {
-        match cursor {
-            Value::Nil => return Ok(Value::Nil),
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
-                if let Value::Cons(ref entry) = pair.car {
-                    let entry_pair = read_cons(*entry);
+        match cursor.kind() {
+            ValueKind::Nil => return Ok(Value::NIL),
+            ValueKind::Cons => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+                if let ValueKind::Cons = pair.car {
+                    let entry_pair = read_cons(*entry);  // TODO(tagged): replace read_cons with cons accessors
                     if eq_value(key, &entry_pair.car) {
                         return Ok(pair.car);
                     }
@@ -819,16 +820,16 @@ pub(crate) fn builtin_assq(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_copy_sequence(args: Vec<Value>) -> EvalResult {
     expect_args("copy-sequence", &args, 1)?;
-    match &args[0] {
-        Value::Nil => Ok(Value::Nil),
-        Value::Cons(_) => {
+    match args[0].kind() {
+        ValueKind::Nil => Ok(Value::NIL),
+        ValueKind::Cons => {
             let mut items = Vec::new();
             let mut cursor = args[0];
             loop {
-                match cursor {
-                    Value::Nil => break,
-                    Value::Cons(cell) => {
-                        let pair = read_cons(cell);
+                match cursor.kind() {
+                    ValueKind::Nil => break,
+                    ValueKind::Cons => {
+                        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                         items.push(pair.car);
                         cursor = pair.cdr;
                     }
@@ -842,7 +843,7 @@ pub(crate) fn builtin_copy_sequence(args: Vec<Value>) -> EvalResult {
             }
             Ok(Value::list(items))
         }
-        Value::Str(id) => {
+        ValueKind::String => {
             let s = with_heap(|h| h.get_string(*id).to_owned());
             // GNU Emacs: (copy-sequence "") returns "" itself (eq).
             if s.is_empty() {
@@ -850,14 +851,14 @@ pub(crate) fn builtin_copy_sequence(args: Vec<Value>) -> EvalResult {
             }
             let new_val = Value::string(&s);
             // Copy text properties
-            if let Value::Str(new_id) = &new_val {
+            if &new_val.is_string() /* TODO(tagged): `new_id` was ValueKind::String, now use accessor */ {
                 if let Some(table) = get_string_text_properties_table(*id) {
                     set_string_text_properties_table(*new_id, table);
                 }
             }
             Ok(new_val)
         }
-        Value::Vector(v) => {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let elems = with_heap(|h| h.get_vector(*v).clone());
             // GNU Emacs: (copy-sequence (vector)) returns the same empty vector (eq).
             if elems.is_empty() {
@@ -865,10 +866,10 @@ pub(crate) fn builtin_copy_sequence(args: Vec<Value>) -> EvalResult {
             }
             Ok(Value::vector(elems))
         }
-        Value::Record(v) => {
+        ValueKind::Veclike(VecLikeType::Record) => {
             let items = with_heap(|h| h.get_vector(*v).clone());
             let id = with_heap_mut(|h| h.alloc_vector(items));
-            Ok(Value::Record(id))
+            Ok(ValueKind::Veclike(VecLikeType::Record))
         }
         other => Err(signal(
             "wrong-type-argument",
@@ -887,9 +888,9 @@ where
 {
     let mut probe = *seq;
     loop {
-        match probe {
-            Value::Nil => break,
-            Value::Cons(cell) => {
+        match probe.kind() {
+            ValueKind::Nil => break,
+            ValueKind::Cons => {
                 probe = with_heap(|h| h.cons_cdr(cell));
             }
             tail => {
@@ -903,11 +904,11 @@ where
 
     let mut head = *seq;
     loop {
-        match head {
-            Value::Nil => return Ok(Value::Nil),
-            Value::Cons(cell) => {
+        match head.kind() {
+            ValueKind::Nil => return Ok(Value::NIL),
+            ValueKind::Cons => {
                 let remove = {
-                    let pair = read_cons(cell);
+                    let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                     should_delete(&pair.car)?
                 };
                 if remove {
@@ -921,18 +922,18 @@ where
     }
 
     let mut prev = match &head {
-        Value::Cons(cell) => *cell,
-        Value::Nil => return Ok(Value::Nil),
+        Value::Cons(cell) /* TODO(tagged): convert Value::Cons to new API */ => *cell,
+        Value::NIL => return Ok(Value::NIL),
         _ => unreachable!("head must be list"),
     };
 
     loop {
         let next = with_heap(|h| h.cons_cdr(prev));
-        match next {
-            Value::Nil => break,
-            Value::Cons(next_cell) => {
+        match next.kind() {
+            ValueKind::Nil => break,
+            ValueKind::Cons => {
                 let remove = {
-                    let pair = read_cons(next_cell);
+                    let pair = read_cons(next_cell);  // TODO(tagged): replace read_cons with cons accessors
                     should_delete(&pair.car)?
                 };
                 if remove {
@@ -959,10 +960,10 @@ where
 pub(crate) fn builtin_delete(args: Vec<Value>) -> EvalResult {
     expect_args("delete", &args, 2)?;
     let elt = &args[0];
-    match &args[1] {
-        Value::Nil => Ok(Value::Nil),
-        Value::Cons(_) => delete_from_list_in_place(&args[1], |item| equal_value(elt, item, 0)),
-        Value::Vector(v) => {
+    match args[1].kind() {
+        ValueKind::Nil => Ok(Value::NIL),
+        ValueKind::Cons => delete_from_list_in_place(&args[1], |item| equal_value(elt, item, 0)),
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(*v).clone());
             let mut changed = false;
             let mut kept = Vec::with_capacity(items.len());
@@ -979,7 +980,7 @@ pub(crate) fn builtin_delete(args: Vec<Value>) -> EvalResult {
                 Ok(args[1])
             }
         }
-        Value::Str(id) => {
+        ValueKind::String => {
             let mut changed = false;
             let mut kept = Vec::new();
             let s = with_heap(|h| h.get_string(*id).to_owned());
@@ -1006,9 +1007,9 @@ pub(crate) fn builtin_delete(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_delq(args: Vec<Value>) -> EvalResult {
     expect_args("delq", &args, 2)?;
     let elt = &args[0];
-    match &args[1] {
-        Value::Nil => Ok(Value::Nil),
-        Value::Cons(_) => delete_from_list_in_place(&args[1], |item| eq_value(elt, item)),
+    match args[1].kind() {
+        ValueKind::Nil => Ok(Value::NIL),
+        ValueKind::Cons => delete_from_list_in_place(&args[1], |item| eq_value(elt, item)),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("listp"), args[1]],
@@ -1018,9 +1019,9 @@ pub(crate) fn builtin_delq(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_elt(args: Vec<Value>) -> EvalResult {
     expect_args("elt", &args, 2)?;
-    match &args[0] {
-        Value::Cons(_) | Value::Nil | Value::Lambda(_) => builtin_nth(vec![args[1], args[0]]),
-        Value::Vector(_) | Value::Record(_) | Value::Str(_) => builtin_aref(vec![args[0], args[1]]),
+    match args[0].kind() {
+        ValueKind::Cons | ValueKind::Nil | ValueKind::Veclike(VecLikeType::Lambda) => builtin_nth(vec![args[1], args[0]]),
+        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) | ValueKind::String => builtin_aref(vec![args[0], args[1]]),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("sequencep"), *other],
@@ -1030,7 +1031,7 @@ pub(crate) fn builtin_elt(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_nconc(args: Vec<Value>) -> EvalResult {
     if args.is_empty() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let mut result_head: Option<Value> = None;
@@ -1040,30 +1041,30 @@ pub(crate) fn builtin_nconc(args: Vec<Value>) -> EvalResult {
         let is_last = index + 1 == args.len();
 
         if is_last {
-            if let Some(Value::Cons(cell)) = &last_cons {
+            if let Some(Value::Cons(cell) /* TODO(tagged): convert Value::Cons to new API */) = &last_cons {
                 with_heap_mut(|h| h.set_cdr(*cell, *arg));
                 return Ok(result_head.unwrap_or(*arg));
             }
             return Ok(*arg);
         }
 
-        match arg {
-            Value::Nil => continue,
-            Value::Cons(head) => {
+        match arg.kind() {
+            ValueKind::Nil => continue,
+            ValueKind::Cons => {
                 if result_head.is_none() {
                     result_head = Some(*arg);
                 }
-                if let Some(Value::Cons(prev)) = &last_cons {
+                if let Some(ValueKind::Cons) = &last_cons {
                     with_heap_mut(|h| h.set_cdr(*prev, *arg));
                 }
 
                 let mut tail = *head;
                 loop {
                     let next = with_heap(|h| h.cons_cdr(tail));
-                    match next {
-                        Value::Cons(next_cell) => tail = next_cell,
+                    match next.kind() {
+                        ValueKind::Cons => tail = next_cell,
                         _ => {
-                            last_cons = Some(Value::Cons(tail));
+                            last_cons = Some(ValueKind::Cons);
                             break;
                         }
                     }
@@ -1078,7 +1079,7 @@ pub(crate) fn builtin_nconc(args: Vec<Value>) -> EvalResult {
         }
     }
 
-    Ok(result_head.unwrap_or(Value::Nil))
+    Ok(result_head.unwrap_or(Value::NIL))
 }
 
 // ===========================================================================

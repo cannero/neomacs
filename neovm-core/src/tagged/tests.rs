@@ -63,7 +63,7 @@ fn fixnum_not_nil() {
 
 #[test]
 fn symbol_encoding() {
-    let sym = TaggedValue::symbol(SymId(42));
+    let sym = TaggedValue::from_sym_id(SymId(42));
     assert!(sym.is_symbol());
     assert_eq!(sym.as_symbol_id(), Some(SymId(42)));
     assert!(!sym.is_fixnum());
@@ -87,7 +87,7 @@ fn char_encoding() {
 
 #[test]
 fn keyword_encoding() {
-    let kw = TaggedValue::keyword(SymId(99));
+    let kw = TaggedValue::from_kw_id(SymId(99));
     assert!(kw.is_keyword());
     assert!(kw.is_immediate());
     assert_eq!(kw.as_keyword_id(), Some(SymId(99)));
@@ -187,13 +187,13 @@ fn value_kind_dispatch() {
     let n = TaggedValue::fixnum(42);
     assert!(matches!(n.kind(), ValueKind::Fixnum(42)));
 
-    let sym = TaggedValue::symbol(SymId(5));
+    let sym = TaggedValue::from_sym_id(SymId(5));
     assert!(matches!(sym.kind(), ValueKind::Symbol(SymId(5))));
 
     let ch = TaggedValue::char('x');
     assert!(matches!(ch.kind(), ValueKind::Char('x')));
 
-    let kw = TaggedValue::keyword(SymId(3));
+    let kw = TaggedValue::from_kw_id(SymId(3));
     assert!(matches!(kw.kind(), ValueKind::Keyword(SymId(3))));
 }
 
@@ -272,8 +272,8 @@ fn equality_identity() {
     assert_eq!(TaggedValue::NIL, TaggedValue::NIL);
 
     // Symbol identity
-    let s1 = TaggedValue::symbol(SymId(5));
-    let s2 = TaggedValue::symbol(SymId(5));
+    let s1 = TaggedValue::from_sym_id(SymId(5));
+    let s2 = TaggedValue::from_sym_id(SymId(5));
     assert_eq!(s1, s2);
 }
 

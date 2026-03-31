@@ -129,16 +129,16 @@ fn manager_set_standard() {
 #[test]
 fn builtin_case_table_p_on_non_table() {
     assert!(matches!(
-        builtin_case_table_p(vec![Value::Nil]).unwrap(),
-        Value::Nil
+        builtin_case_table_p(vec![Value::NIL]).unwrap(),
+        Value::NIL
     ));
     assert!(matches!(
-        builtin_case_table_p(vec![Value::Int(42)]).unwrap(),
-        Value::Nil
+        builtin_case_table_p(vec![Value::fixnum(42)]).unwrap(),
+        Value::NIL
     ));
     assert!(matches!(
         builtin_case_table_p(vec![Value::string("hello")]).unwrap(),
-        Value::Nil
+        Value::NIL
     ));
 }
 
@@ -148,14 +148,14 @@ fn builtin_case_table_p_on_char_table() {
     let ct = make_case_table_value();
     assert!(matches!(
         builtin_case_table_p(vec![ct]).unwrap(),
-        Value::True
+        Value::T
     ));
 }
 
 #[test]
 fn builtin_case_table_p_wrong_arg_count() {
     assert!(builtin_case_table_p(vec![]).is_err());
-    assert!(builtin_case_table_p(vec![Value::Nil, Value::Nil]).is_err());
+    assert!(builtin_case_table_p(vec![Value::NIL, Value::NIL]).is_err());
 }
 
 #[test]
@@ -168,7 +168,7 @@ fn builtin_current_case_table_returns_case_table() {
 #[test]
 fn builtin_current_case_table_wrong_args() {
     let mut ctx = super::super::eval::Context::new();
-    assert!(builtin_current_case_table(&mut ctx, vec![Value::Nil]).is_err());
+    assert!(builtin_current_case_table(&mut ctx, vec![Value::NIL]).is_err());
 }
 
 #[test]
@@ -181,7 +181,7 @@ fn builtin_standard_case_table_returns_case_table() {
 #[test]
 fn builtin_standard_case_table_wrong_args() {
     let mut ctx = super::super::eval::Context::new();
-    assert!(builtin_standard_case_table(&mut ctx, vec![Value::Nil]).is_err());
+    assert!(builtin_standard_case_table(&mut ctx, vec![Value::NIL]).is_err());
 }
 
 #[test]
@@ -195,14 +195,14 @@ fn builtin_set_case_table_returns_arg() {
 #[test]
 fn builtin_set_case_table_rejects_non_table() {
     let mut ctx = super::super::eval::Context::new();
-    assert!(builtin_set_case_table(&mut ctx, vec![Value::Int(1)]).is_err());
+    assert!(builtin_set_case_table(&mut ctx, vec![Value::fixnum(1)]).is_err());
 }
 
 #[test]
 fn builtin_set_case_table_wrong_args() {
     let mut ctx = super::super::eval::Context::new();
     assert!(builtin_set_case_table(&mut ctx, vec![]).is_err());
-    assert!(builtin_set_case_table(&mut ctx, vec![Value::Nil, Value::Nil]).is_err());
+    assert!(builtin_set_case_table(&mut ctx, vec![Value::NIL, Value::NIL]).is_err());
 }
 
 #[test]
@@ -216,7 +216,7 @@ fn builtin_set_standard_case_table_returns_arg() {
 #[test]
 fn builtin_set_standard_case_table_rejects_non_table() {
     let mut ctx = super::super::eval::Context::new();
-    assert!(builtin_set_standard_case_table(&mut ctx, vec![Value::Int(1)]).is_err());
+    assert!(builtin_set_standard_case_table(&mut ctx, vec![Value::fixnum(1)]).is_err());
 }
 
 #[test]
@@ -252,34 +252,34 @@ fn evaluator_case_table_roundtrip_and_isolation() {
 #[test]
 fn builtin_downcase_char_uppercase() {
     // (downcase ?A) -> 97 (i.e., ?a)
-    let result = builtin_downcase_char(vec![Value::Char('A')]).unwrap();
-    assert!(matches!(result, Value::Int(97)));
+    let result = builtin_downcase_char(vec![Value::char('A')]).unwrap();
+    assert!(matches!(result, Value::fixnum(97)));
 }
 
 #[test]
 fn builtin_downcase_char_lowercase_unchanged() {
     // (downcase ?a) -> 97
-    let result = builtin_downcase_char(vec![Value::Char('a')]).unwrap();
-    assert!(matches!(result, Value::Int(97)));
+    let result = builtin_downcase_char(vec![Value::char('a')]).unwrap();
+    assert!(matches!(result, Value::fixnum(97)));
 }
 
 #[test]
 fn builtin_downcase_char_from_int() {
     // (downcase 65) -> 97 (65 = ?A, 97 = ?a)
-    let result = builtin_downcase_char(vec![Value::Int(65)]).unwrap();
-    assert!(matches!(result, Value::Int(97)));
+    let result = builtin_downcase_char(vec![Value::fixnum(65)]).unwrap();
+    assert!(matches!(result, Value::fixnum(97)));
 }
 
 #[test]
 fn builtin_downcase_char_wrong_type() {
     assert!(builtin_downcase_char(vec![Value::string("A")]).is_err());
-    assert!(builtin_downcase_char(vec![Value::Nil]).is_err());
+    assert!(builtin_downcase_char(vec![Value::NIL]).is_err());
 }
 
 #[test]
 fn builtin_downcase_char_wrong_arg_count() {
     assert!(builtin_downcase_char(vec![]).is_err());
-    assert!(builtin_downcase_char(vec![Value::Char('A'), Value::Char('B')]).is_err());
+    assert!(builtin_downcase_char(vec![Value::char('A'), Value::char('B')]).is_err());
 }
 
 #[test]
@@ -334,14 +334,14 @@ fn non_ascii_chars_unchanged() {
 #[test]
 fn is_case_table_on_short_vector() {
     // A vector too short to be a char-table.
-    let v = Value::vector(vec![Value::Symbol(intern(CT_CHAR_TABLE_TAG)), Value::Nil]);
+    let v = Value::vector(vec![Value::symbol(intern(CT_CHAR_TABLE_TAG)), Value::NIL]);
     assert!(!is_case_table(&v));
 }
 
 #[test]
 fn is_case_table_wrong_subtype() {
     // A char-table with a different subtype is NOT a case table.
-    let v = build_char_table("syntax-table", &[], Value::Nil, &[]);
+    let v = build_char_table("syntax-table", &[], Value::NIL, &[]);
     assert!(!is_case_table(&v));
 }
 
@@ -356,10 +356,10 @@ fn standard_case_table_is_char_table() {
 #[test]
 fn standard_case_table_has_extra_slots() {
     let ct = make_standard_case_table_value();
-    if let Value::Vector(arc) = ct {
+    if ct.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), now use accessor */ {
         let vec = with_heap(|h| h.get_vector(arc).clone());
         // extra count should be 3
-        assert!(matches!(vec[CT_EXTRA_COUNT], Value::Int(3)));
+        assert!(matches!(vec[CT_EXTRA_COUNT], Value::fixnum(3)));
         // extra slots 0,1,2 should be char-tables (subsidiary tables)
         use super::super::chartable::is_char_table;
         assert!(is_char_table(&vec[CT_EXTRA_START])); // upcase

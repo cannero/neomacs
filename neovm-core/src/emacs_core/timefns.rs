@@ -13,6 +13,7 @@ use std::cell::RefCell;
 use std::ffi::{CStr, OsString};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
+use crate::emacs_core::value::{ValueKind};
 
 // ---------------------------------------------------------------------------
 // Argument helpers
@@ -22,7 +23,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -33,7 +34,7 @@ fn expect_min_max_args(name: &str, args: &[Value], min: usize, max: usize) -> Re
     if args.len() < min || args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -79,10 +80,10 @@ impl TimeMicros {
         let high = self.secs >> 16;
         let low = self.secs & 0xFFFF;
         Value::list(vec![
-            Value::Int(high),
-            Value::Int(low),
-            Value::Int(self.usecs),
-            Value::Int(self.psecs),
+            Value::fixnum(high),
+            Value::fixnum(low),
+            Value::fixnum(self.usecs),
+            Value::fixnum(self.psecs),
         ])
     }
 
@@ -157,14 +158,14 @@ impl TimeMicros {
 ///   - (HIGH LOW USEC)       -> with microseconds
 ///   - (HIGH LOW USEC PSEC)  -> with microseconds (PSEC ignored)
 fn parse_time(val: &Value) -> Result<TimeMicros, Flow> {
-    match val {
-        Value::Nil => Ok(TimeMicros::now()),
-        Value::Int(n) => Ok(TimeMicros {
-            secs: *n,
+    match val.kind() {
+        ValueKind::Nil => Ok(TimeMicros::now()),
+        ValueKind::Fixnum(n) => Ok(TimeMicros {
+            secs: n,
             usecs: 0,
             psecs: 0,
         }),
-        Value::Float(f, _) => {
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => {
             let secs = f.floor() as i64;
             let usecs = ((f - f.floor()) * 1_000_000.0).round() as i64;
             Ok(TimeMicros {
@@ -173,7 +174,7 @@ fn parse_time(val: &Value) -> Result<TimeMicros, Flow> {
                 psecs: 0,
             })
         }
-        Value::Cons(_) => {
+        ValueKind::Cons => {
             let items = list_to_vec(val)
                 .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("listp"), *val]))?;
             if items.len() < 2 {
@@ -489,13 +490,13 @@ fn with_tz_env<T>(spec: Option<&str>, f: impl FnOnce() -> T) -> T {
 }
 
 fn parse_zone_rule(zone: &Value) -> Result<ZoneRule, Flow> {
-    match zone {
-        Value::Nil => Ok(ZoneRule::Local),
-        Value::True => Ok(ZoneRule::Utc),
-        Value::Symbol(id) if resolve_sym(*id) == "wall" => Ok(ZoneRule::Local),
-        Value::Int(n) => Ok(ZoneRule::FixedOffset(*n)),
-        Value::Str(_) => Ok(ZoneRule::TzString(zone.as_str().unwrap().to_string())),
-        Value::Cons(_) => {
+    match zone.kind() {
+        ValueKind::Nil => Ok(ZoneRule::Local),
+        ValueKind::T => Ok(ZoneRule::Utc),
+        ValueKind::Symbol(id) if resolve_sym(id) == "wall" => Ok(ZoneRule::Local),
+        ValueKind::Fixnum(n) => Ok(ZoneRule::FixedOffset(n)),
+        ValueKind::String => Ok(ZoneRule::TzString(zone.as_str().unwrap().to_string())),
+        ValueKind::Cons => {
             let items = list_to_vec(zone).ok_or_else(|| invalid_time_zone_spec(zone))?;
             if items.len() != 2 {
                 return Err(invalid_time_zone_spec(zone));
@@ -503,9 +504,9 @@ fn parse_zone_rule(zone: &Value) -> Result<ZoneRule, Flow> {
             let Some(offset) = items[0].as_int() else {
                 return Err(invalid_time_zone_spec(zone));
             };
-            let name = match &items[1] {
-                Value::Str(_) => items[1].as_str().unwrap().to_string(),
-                Value::Symbol(id) => resolve_sym(*id).to_owned(),
+            let name = match items[1].kind() {
+                ValueKind::String => items[1].as_str().unwrap().to_string(),
+                ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
                 _ => return Err(invalid_time_zone_spec(zone)),
             };
             Ok(ZoneRule::FixedNamedOffset(offset, name))
@@ -565,7 +566,7 @@ pub(crate) fn builtin_float_time(args: Vec<Value>) -> EvalResult {
     } else {
         parse_time(&args[0])?
     };
-    Ok(Value::Float(tm.to_float(), next_float_id()))
+    Ok(Value::make_float(tm.to_float()))
 }
 
 /// `(time-add A B)` -> `(HIGH LOW USEC PSEC)`
@@ -589,7 +590,7 @@ pub(crate) fn builtin_time_less_p(args: Vec<Value>) -> EvalResult {
     expect_args("time-less-p", &args, 2)?;
     let a = parse_time(&args[0])?;
     let b = parse_time(&args[1])?;
-    Ok(Value::bool(a.less_than(b)))
+    Ok(Value::bool_val(a.less_than(b)))
 }
 
 /// `(time-equal-p A B)` -> t or nil
@@ -597,7 +598,7 @@ pub(crate) fn builtin_time_equal_p(args: Vec<Value>) -> EvalResult {
     expect_args("time-equal-p", &args, 2)?;
     let a = parse_time(&args[0])?;
     let b = parse_time(&args[1])?;
-    Ok(Value::bool(a.equal(b)))
+    Ok(Value::bool_val(a.equal(b)))
 }
 
 /// `(current-time-string &optional TIME ZONE)` -> human-readable string.
@@ -644,7 +645,7 @@ pub(crate) fn builtin_current_time_zone(args: Vec<Value>) -> EvalResult {
     };
 
     let (offset, name) = zone_rule_to_offset_name(&rule, tm.secs);
-    Ok(Value::list(vec![Value::Int(offset), Value::string(name)]))
+    Ok(Value::list(vec![Value::fixnum(offset), Value::string(name)]))
 }
 
 /// `(encode-time TIME &rest OBSOLESCENT-ARGUMENTS)` -> `(HIGH LOW)`
@@ -665,12 +666,12 @@ pub(crate) fn builtin_encode_time(args: Vec<Value>) -> EvalResult {
             require_integer_component(&items[3])?,
             require_integer_component(&items[4])?,
             require_integer_component(&items[5])?,
-            items.get(8).copied().unwrap_or(Value::Nil),
+            items.get(8).copied().unwrap_or(Value::NIL),
         )
     } else if args.len() < 6 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("encode-time"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("encode-time"), Value::fixnum(args.len() as i64)],
         ));
     } else {
         (
@@ -681,9 +682,9 @@ pub(crate) fn builtin_encode_time(args: Vec<Value>) -> EvalResult {
             require_integer_component(&args[4])?,
             require_integer_component(&args[5])?,
             if args.len() > 6 {
-                args.last().copied().unwrap_or(Value::Nil)
+                args.last().copied().unwrap_or(Value::NIL)
             } else {
-                Value::Nil
+                Value::NIL
             },
         )
     };
@@ -693,7 +694,7 @@ pub(crate) fn builtin_encode_time(args: Vec<Value>) -> EvalResult {
     let total_secs = local_secs - zone_offset;
     let high = total_secs >> 16;
     let low = total_secs & 0xFFFF;
-    Ok(Value::list(vec![Value::Int(high), Value::Int(low)]))
+    Ok(Value::list(vec![Value::fixnum(high), Value::fixnum(low)]))
 }
 
 /// `(decode-time &optional TIME ZONE)`
@@ -709,15 +710,15 @@ pub(crate) fn builtin_decode_time(args: Vec<Value>) -> EvalResult {
     };
     let dt = decode_epoch_secs(tm.secs);
     Ok(Value::list(vec![
-        Value::Int(dt.sec),
-        Value::Int(dt.min),
-        Value::Int(dt.hour),
-        Value::Int(dt.day),
-        Value::Int(dt.month),
-        Value::Int(dt.year),
-        Value::Int(dt.dow),
-        Value::Nil,    // DST
-        Value::Int(0), // UTCOFF
+        Value::fixnum(dt.sec),
+        Value::fixnum(dt.min),
+        Value::fixnum(dt.hour),
+        Value::fixnum(dt.day),
+        Value::fixnum(dt.month),
+        Value::fixnum(dt.year),
+        Value::fixnum(dt.dow),
+        Value::NIL,    // DST
+        Value::fixnum(0), // UTCOFF
     ]))
 }
 
@@ -735,28 +736,28 @@ pub(crate) fn builtin_time_convert(args: Vec<Value>) -> EvalResult {
     let form = if args.len() > 1 {
         &args[1]
     } else {
-        &Value::Nil
+        &Value::NIL
     };
 
-    match form {
-        Value::Nil => Ok(tm.to_list()),
-        Value::True => {
+    match form.kind() {
+        ValueKind::Nil => Ok(tm.to_list()),
+        ValueKind::T => {
             // Emacs 29+: t means highest resolution → (TICKS . HZ)
             // Use microsecond resolution: TICKS = secs*1000000 + usecs, HZ = 1000000
             let hz: i64 = 1_000_000;
             let ticks = tm.secs * hz + tm.usecs;
-            Ok(Value::cons(Value::Int(ticks), Value::Int(hz)))
+            Ok(Value::cons(ValueKind::Fixnum(ticks), ValueKind::Fixnum(hz)))
         }
-        Value::Symbol(id) => match resolve_sym(*id) {
+        ValueKind::Symbol(id) => match resolve_sym(id) {
             "list" => Ok(tm.to_list()),
-            "integer" => Ok(Value::Int(tm.secs)),
-            "float" => Ok(Value::Float(tm.to_float(), next_float_id())),
+            "integer" => Ok(Value::fixnum(tm.secs)),
+            "float" => Ok(Value::make_float(tm.to_float())),
             _ => Ok(tm.to_list()),
         },
-        Value::Int(_) => {
+        ValueKind::Fixnum(_) => {
             // When FORM is an integer, Emacs returns a cons (TICKS . HZ).
             // We approximate by returning (TICKS . 1) where TICKS = seconds.
-            Ok(Value::cons(Value::Int(tm.secs), Value::Int(1)))
+            Ok(Value::cons(Value::Int(tm.secs), ValueKind::Fixnum(1)))
         }
         _ => Ok(tm.to_list()),
     }
@@ -767,7 +768,7 @@ pub(crate) fn builtin_set_time_zone_rule(args: Vec<Value>) -> EvalResult {
     expect_args("set-time-zone-rule", &args, 1)?;
     let rule = parse_zone_rule(&args[0])?;
     TIME_ZONE_RULE.with(|slot| *slot.borrow_mut() = rule);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // ---------------------------------------------------------------------------

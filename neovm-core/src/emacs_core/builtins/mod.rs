@@ -47,7 +47,7 @@ pub(super) fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Fl
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -59,7 +59,7 @@ pub(super) fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -71,7 +71,7 @@ pub(super) fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -87,7 +87,7 @@ pub(super) fn expect_range_args(
     if args.len() < min || args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -96,9 +96,9 @@ pub(super) fn expect_range_args(
 
 /// Extract an integer, signaling wrong-type-argument if not.
 pub(super) fn expect_int(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *other],
@@ -107,9 +107,9 @@ pub(super) fn expect_int(value: &Value) -> Result<i64, Flow> {
 }
 
 pub(super) fn expect_fixnum(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("fixnump"), *other],
@@ -130,9 +130,9 @@ pub(super) fn expect_char_table_index(value: &Value) -> Result<i64, Flow> {
 }
 
 pub(super) fn expect_char_equal_code(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) if (0..=KEY_CHAR_CODE_MASK).contains(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) if (0..=KEY_CHAR_CODE_MASK).contains(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => {
             maybe_trace_characterp_nil(other, "expect_char_equal_code");
             Err(signal(
@@ -144,9 +144,9 @@ pub(super) fn expect_char_equal_code(value: &Value) -> Result<i64, Flow> {
 }
 
 pub(super) fn expect_character_code(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Char(c) => Ok(*c as i64),
-        Value::Int(n) if (0..=0x3FFFFF).contains(n) => Ok(*n),
+    match value.kind() {
+        ValueKind::Char(c) => Ok(c as i64),
+        ValueKind::Fixnum(n) if (0..=0x3FFFFF).contains(n) => Ok(n),
         other => {
             maybe_trace_characterp_nil(other, "expect_character_code");
             Err(signal(
@@ -158,7 +158,7 @@ pub(super) fn expect_character_code(value: &Value) -> Result<i64, Flow> {
 }
 
 fn maybe_trace_characterp_nil(value: &Value, source: &str) {
-    if !matches!(value, Value::Nil) {
+    if !value.is_nil() {
         return;
     }
     if std::env::var("NEOVM_TRACE_CHARACTERP_NIL").unwrap_or_default() != "1" {
@@ -179,9 +179,9 @@ pub(super) fn char_equal_folded(code: i64) -> Option<String> {
 /// GNU Emacs accepts marker designators anywhere `integer-or-marker-p`
 /// is allowed, using the marker's current position.
 pub(super) fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other if super::marker::is_marker(other) => super::marker::marker_position_as_int(other),
         other => Err(signal(
             "wrong-type-argument",
@@ -194,9 +194,9 @@ pub(super) fn expect_integer_or_marker_eval(
     eval: &super::eval::Context,
     value: &Value,
 ) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other if super::marker::is_marker(other) => {
             super::marker::marker_position_as_int_eval(eval, other)
         }
@@ -209,9 +209,9 @@ pub(super) fn expect_integer_or_marker_eval(
 
 /// Extract a non-negative integer, signaling `wholenump` on failure.
 pub(super) fn expect_wholenump(value: &Value) -> Result<i64, Flow> {
-    let n = match value {
-        Value::Int(n) => *n,
-        Value::Char(c) => *c as i64,
+    let n = match value.kind() {
+        ValueKind::Fixnum(n) => n,
+        ValueKind::Char(c) => c as i64,
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -234,10 +234,10 @@ pub(super) enum NumberOrMarker {
 }
 
 pub(super) fn expect_number_or_marker(value: &Value) -> Result<NumberOrMarker, Flow> {
-    match value {
-        Value::Int(n) => Ok(NumberOrMarker::Int(*n)),
-        Value::Char(c) => Ok(NumberOrMarker::Int(*c as i64)),
-        Value::Float(f, _) => Ok(NumberOrMarker::Float(*f)),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(NumberOrMarker::Int(n)),
+        ValueKind::Char(c) => Ok(NumberOrMarker::Int(c as i64)),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(NumberOrMarker::Float(*f)),
         other if super::marker::is_marker(other) => Ok(NumberOrMarker::Int(
             super::marker::marker_position_as_int(other)?,
         )),
@@ -252,10 +252,10 @@ pub(super) fn expect_number_or_marker_eval(
     eval: &super::eval::Context,
     value: &Value,
 ) -> Result<NumberOrMarker, Flow> {
-    match value {
-        Value::Int(n) => Ok(NumberOrMarker::Int(*n)),
-        Value::Char(c) => Ok(NumberOrMarker::Int(*c as i64)),
-        Value::Float(f, _) => Ok(NumberOrMarker::Float(*f)),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(NumberOrMarker::Int(n)),
+        ValueKind::Char(c) => Ok(NumberOrMarker::Int(c as i64)),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(NumberOrMarker::Float(*f)),
         other if super::marker::is_marker(other) => Ok(NumberOrMarker::Int(
             super::marker::marker_position_as_int_eval(eval, other)?,
         )),
@@ -268,10 +268,10 @@ pub(super) fn expect_number_or_marker_eval(
 
 /// Extract a number as f64.
 pub(super) fn expect_number(value: &Value) -> Result<f64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n as f64),
-        Value::Float(f, _) => Ok(*f),
-        Value::Char(c) => Ok(*c as u32 as f64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n as f64),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(*f),
+        ValueKind::Char(c) => Ok(c as u32 as f64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("numberp"), *other],
@@ -321,7 +321,7 @@ pub(super) fn expect_integer_or_marker_after_number_check_eval(
 
 /// True if any arg is a float (triggers float arithmetic).
 pub(super) fn has_float(args: &[Value]) -> bool {
-    args.iter().any(|v| matches!(v, Value::Float(_, _)))
+    args.iter().any(|v| v.is_float())
 }
 
 pub(super) fn normalize_string_start_arg(
@@ -346,14 +346,14 @@ pub(super) fn normalize_string_start_arg(
     let Some(start_idx) = normalized else {
         return Err(signal(
             "args-out-of-range",
-            vec![Value::string(string), Value::Int(raw_start)],
+            vec![Value::string(string), Value::fixnum(raw_start)],
         ));
     };
 
     if !(0..=len).contains(&start_idx) {
         return Err(signal(
             "args-out-of-range",
-            vec![Value::string(string), Value::Int(raw_start)],
+            vec![Value::string(string), Value::fixnum(raw_start)],
         ));
     }
 
@@ -437,8 +437,8 @@ pub(crate) use symbols::*;
 // ===========================================================================
 
 pub(super) fn expect_string(value: &Value) -> Result<String, Flow> {
-    match value {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+    match value.kind() {
+        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -447,8 +447,8 @@ pub(super) fn expect_string(value: &Value) -> Result<String, Flow> {
 }
 
 pub(super) fn expect_string_comparison_operand(value: &Value) -> Result<String, Flow> {
-    match value {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+    match value.kind() {
+        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         _ => value.as_symbol_name().map(str::to_owned).ok_or_else(|| {
             signal(
                 "wrong-type-argument",
@@ -459,8 +459,8 @@ pub(super) fn expect_string_comparison_operand(value: &Value) -> Result<String, 
 }
 
 pub(super) fn expect_strict_string(value: &Value) -> Result<String, Flow> {
-    match value {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+    match value.kind() {
+        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -4511,7 +4511,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
             };
 
             let mut constants: Vec<Value> = match constants_vec {
-                Value::Vector(id) => super::value::with_heap(|h| h.get_vector(id).clone()),
+                Value::Vector(id) /* TODO(tagged): convert Value::Vector to new API */ => super::value::with_heap(|h| h.get_vector(id).clone()),
                 _ => {
                     return Err(super::error::signal(
                         "wrong-type-argument",
@@ -4532,8 +4532,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
                     )
                 })?;
 
-            let max_stack = match maxdepth {
-                Value::Int(n) => n as u16,
+            let max_stack = match maxdepth.kind() {
+                ValueKind::Fixnum(n) => n as u16,
                 _ => 16,
             };
 

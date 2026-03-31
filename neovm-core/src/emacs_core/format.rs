@@ -18,7 +18,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -29,7 +29,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -37,8 +37,8 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
 }
 
 fn require_string(_name: &str, val: &Value) -> Result<String, Flow> {
-    match val {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+    match val.kind() {
+        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -47,9 +47,9 @@ fn require_string(_name: &str, val: &Value) -> Result<String, Flow> {
 }
 
 fn require_char(val: &Value) -> Result<char, Flow> {
-    match val {
-        Value::Char(c) => Ok(*c),
-        Value::Int(n) => char::from_u32(*n as u32).ok_or_else(|| {
+    match val.kind() {
+        ValueKind::Char(c) => Ok(c),
+        ValueKind::Fixnum(n) => char::from_u32(n as u32).ok_or_else(|| {
             signal(
                 "wrong-type-argument",
                 vec![Value::symbol("characterp"), *val],
@@ -239,7 +239,7 @@ pub(crate) fn builtin_format_time_string(args: Vec<Value>) -> EvalResult {
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("format-time-string"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -248,10 +248,10 @@ pub(crate) fn builtin_format_time_string(args: Vec<Value>) -> EvalResult {
 
     // Determine timestamp.
     let timestamp: i64 = if args.len() >= 2 && !args[1].is_nil() {
-        match &args[1] {
-            Value::Int(n) => *n,
-            Value::Float(f, _) => *f as i64,
-            Value::Cons(_) => {
+        match args[1].kind() {
+            ValueKind::Fixnum(n) => n,
+            ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => *f as i64,
+            ValueKind::Cons => {
                 // Emacs time value: (HIGH LOW) or (HIGH LOW USEC) or (HIGH LOW USEC PSEC).
                 // Decode as HIGH * 65536 + LOW.
                 let items = list_to_vec(&args[1]).unwrap_or_default();
@@ -277,6 +277,7 @@ pub(crate) fn builtin_format_time_string(args: Vec<Value>) -> EvalResult {
 /// Get current Unix timestamp using `std::time::SystemTime`.
 fn current_unix_timestamp() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
+use crate::emacs_core::value::{ValueKind};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)

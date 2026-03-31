@@ -17,20 +17,20 @@ pub(crate) fn init_textprop_vars(
     obarray: &mut crate::emacs_core::symbol::Obarray,
     custom: &mut crate::emacs_core::custom::CustomManager,
 ) {
-    obarray.set_symbol_value("default-text-properties", Value::Nil);
+    obarray.set_symbol_value("default-text-properties", Value::NIL);
     obarray.make_special("default-text-properties");
 
-    obarray.set_symbol_value("char-property-alias-alist", Value::Nil);
+    obarray.set_symbol_value("char-property-alias-alist", Value::NIL);
     obarray.make_special("char-property-alias-alist");
 
-    obarray.set_symbol_value("inhibit-point-motion-hooks", Value::True);
+    obarray.set_symbol_value("inhibit-point-motion-hooks", Value::T);
     obarray.make_special("inhibit-point-motion-hooks");
 
     obarray.set_symbol_value(
         "text-property-default-nonsticky",
         Value::list(vec![
-            Value::cons(Value::symbol("syntax-table"), Value::True),
-            Value::cons(Value::symbol("display"), Value::True),
+            Value::cons(Value::symbol("syntax-table"), Value::T),
+            Value::cons(Value::symbol("display"), Value::T),
         ]),
     );
     obarray.make_special("text-property-default-nonsticky");
@@ -46,7 +46,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -57,7 +57,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -68,7 +68,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -76,9 +76,9 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 }
 
 fn expect_int(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         marker if super::marker::is_marker(marker) => super::marker::marker_position_as_int(marker),
         other => Err(signal(
             "wrong-type-argument",
@@ -88,9 +88,9 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
 }
 
 fn expect_int_eval(eval: &super::eval::Context, value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         marker if super::marker::is_marker(marker) => {
             super::marker::marker_position_as_int_eval(eval, marker)
         }
@@ -102,9 +102,9 @@ fn expect_int_eval(eval: &super::eval::Context, value: &Value) -> Result<i64, Fl
 }
 
 fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         marker if super::marker::is_marker(marker) => super::marker::marker_position_as_int(marker),
         other => Err(signal(
             "wrong-type-argument",
@@ -114,9 +114,9 @@ fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
 }
 
 fn expect_integer_or_marker_eval(eval: &super::eval::Context, value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         marker if super::marker::is_marker(marker) => {
             super::marker::marker_position_as_int_eval(eval, marker)
         }
@@ -131,9 +131,9 @@ fn expect_integer_or_marker_in_buffers(
     buffers: &BufferManager,
     value: &Value,
 ) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         marker if super::marker::is_marker(marker) => {
             super::marker::marker_position_as_int_with_buffers(buffers, marker)
         }
@@ -149,8 +149,8 @@ pub(crate) fn expect_symbol_name(value: &Value) -> Result<String, Flow> {
     match value.as_symbol_name() {
         Some(s) => Ok(s.to_string()),
         None => match value {
-            Value::Str(_) => Ok(value.as_str().unwrap().to_string()),
-            Value::Keyword(id) => Ok(resolve_sym(*id).to_owned()),
+            ValueKind::String => Ok(value.as_str().unwrap().to_string()),
+            ValueKind::Keyword(id) => Ok(resolve_sym(*id).to_owned()),
             other => Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("symbolp"), *other],
@@ -160,14 +160,14 @@ pub(crate) fn expect_symbol_name(value: &Value) -> Result<String, Flow> {
 }
 
 pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray) {
-    obarray.set_symbol_value("default-text-properties", Value::Nil);
-    obarray.set_symbol_value("char-property-alias-alist", Value::Nil);
-    obarray.set_symbol_value("inhibit-point-motion-hooks", Value::True);
+    obarray.set_symbol_value("default-text-properties", Value::NIL);
+    obarray.set_symbol_value("char-property-alias-alist", Value::NIL);
+    obarray.set_symbol_value("inhibit-point-motion-hooks", Value::T);
     obarray.set_symbol_value(
         "text-property-default-nonsticky",
         Value::list(vec![
-            Value::cons(Value::symbol("syntax-table"), Value::True),
-            Value::cons(Value::symbol("display"), Value::True),
+            Value::cons(Value::symbol("syntax-table"), Value::T),
+            Value::cons(Value::symbol("display"), Value::T),
         ]),
     );
 }
@@ -188,26 +188,26 @@ fn current_textprop_variable_value(
 fn plist_get_named_value(plist: Value, prop_name: &str) -> Option<Value> {
     let mut tail = plist;
     loop {
-        let Value::Cons(cell) = tail else {
+        if !tail.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
             return None;
         };
-        let pair = read_cons(cell);
-        let Value::Cons(value_cell) = pair.cdr else {
+        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+        if !pair.cdr.is_cons() /* TODO(tagged): `value_cell` was Value::Cons(value_cell), rewrite let-else */ {
             return None;
         };
         if pair.car.as_symbol_name() == Some(prop_name) {
-            return Some(read_cons(value_cell).car);
+            return Some(read_cons(value_cell).car);  // TODO(tagged): replace read_cons with cons accessors
         }
-        tail = read_cons(value_cell).cdr;
+        tail = read_cons(value_cell).cdr;  // TODO(tagged): replace read_cons with cons accessors
     }
 }
 
 fn assq_rest(list: Value, prop_name: &str) -> Option<Value> {
     let mut cursor = list;
-    while let Value::Cons(cell) = cursor {
-        let pair = read_cons(cell);
-        if let Value::Cons(entry_cell) = pair.car {
-            let entry = read_cons(entry_cell);
+    while cursor.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+        if pair.car.is_cons() /* TODO(tagged): `entry_cell` was Value::Cons(entry_cell), now use accessor */ {
+            let entry = read_cons(entry_cell);  // TODO(tagged): replace read_cons with cons accessors
             if entry.car.as_symbol_name() == Some(prop_name) {
                 return Some(entry.cdr);
             }
@@ -231,7 +231,7 @@ where
         return value;
     }
 
-    let mut fallback = Value::Nil;
+    let mut fallback = Value::NIL;
 
     if let Some(category) = direct_get("category")
         && let Some(category_name) = category.as_symbol_name()
@@ -249,8 +249,8 @@ where
             .and_then(|value| assq_rest(value, prop))
     {
         let mut cursor = aliases;
-        while let Value::Cons(cell) = cursor {
-            let pair = read_cons(cell);
+        while cursor.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
             if let Some(alias_name) = pair.car.as_symbol_name()
                 && let Some(value) = direct_get(alias_name)
                 && !value.is_nil()
@@ -340,7 +340,7 @@ fn validate_buffer_range(
     if beg < point_min || beg > point_max || end < point_min || end > point_max {
         return Err(signal(
             "args-out-of-range",
-            vec![Value::Int(beg), Value::Int(end)],
+            vec![Value::fixnum(beg), Value::fixnum(end)],
         ));
     }
     Ok(())
@@ -365,11 +365,11 @@ fn resolve_buffer_id_in_buffers(
     object: Option<&Value>,
 ) -> Result<BufferId, Flow> {
     match object {
-        None | Some(Value::Nil) => buffers
+        None | Some(ValueKind::Nil) => buffers
             .current_buffer()
             .map(|b| b.id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")])),
-        Some(Value::Buffer(id)) => Ok(*id),
+        Some(ValueKind::Veclike(VecLikeType::Buffer)) => Ok(*id),
         Some(other) => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("bufferp"), *other],
@@ -384,8 +384,8 @@ fn current_buffer_id_in_buffers(buffers: &BufferManager) -> Result<BufferId, Flo
 }
 
 fn expect_overlay(value: &Value) -> Result<crate::gc::ObjId, Flow> {
-    match value {
-        Value::Overlay(id) => Ok(*id),
+    match value.kind() {
+        ValueKind::Veclike(VecLikeType::Overlay) => Ok(*id),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("overlayp"), *value],
@@ -420,7 +420,7 @@ fn ensure_marker_points_into_buffer(
 /// Check if the OBJECT argument is a string.  Returns Some(ObjId) if so.
 pub(crate) fn is_string_object(object: Option<&Value>) -> Option<crate::gc::types::ObjId> {
     match object {
-        Some(Value::Str(id)) => Some(*id),
+        Some(ValueKind::String) => Some(*id),
         _ => None,
     }
 }
@@ -502,7 +502,7 @@ pub(crate) fn builtin_put_text_property_in_buffers(
         let byte_end = string_elisp_pos_to_byte(&s, end);
         table.put_property(byte_beg, byte_end, &prop, val);
         save_string_props(str_id, table);
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(4))?;
@@ -513,7 +513,7 @@ pub(crate) fn builtin_put_text_property_in_buffers(
     let byte_beg = elisp_pos_to_byte(buf, beg);
     let byte_end = elisp_pos_to_byte(buf, end);
     let _ = buffers.put_buffer_text_property(buf_id, byte_beg, byte_end, &prop, val);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (get-text-property POS PROP &optional OBJECT)
@@ -663,7 +663,7 @@ pub(crate) fn builtin_add_text_properties_in_buffers(
             }
         }
         save_string_props(str_id, table);
-        return Ok(if any_changed { Value::True } else { Value::Nil });
+        return Ok(if any_changed { Value::T } else { Value::NIL });
     }
 
     let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(3))?;
@@ -682,7 +682,7 @@ pub(crate) fn builtin_add_text_properties_in_buffers(
             any_changed = true;
         }
     }
-    Ok(if any_changed { Value::True } else { Value::Nil })
+    Ok(if any_changed { Value::T } else { Value::NIL })
 }
 
 fn merge_face_property(existing: Option<Value>, new_face: Value, append: bool) -> Value {
@@ -737,15 +737,15 @@ pub(crate) fn builtin_add_face_text_property_in_buffers(
         let merged = merge_face_property(existing, new_face, append);
         table.put_property(byte_beg, byte_end, "face", merged);
         save_string_props(str_id, table);
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let buf_id = match object {
-        None | Some(Value::Nil) => buffers
+        None | Some(ValueKind::Nil) => buffers
             .current_buffer()
             .map(|b| b.id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")])),
-        Some(Value::Buffer(id)) => Ok(*id),
+        Some(ValueKind::Veclike(VecLikeType::Buffer)) => Ok(*id),
         Some(other) => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("buffer-or-string-p"), *other],
@@ -760,7 +760,7 @@ pub(crate) fn builtin_add_face_text_property_in_buffers(
     let existing = buf.text.text_props_get_property(byte_beg, "face");
     let merged = merge_face_property(existing, new_face, append);
     let _ = buffers.put_buffer_text_property(buf_id, byte_beg, byte_end, "face", merged);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (remove-text-properties BEG END PROPS &optional OBJECT)
@@ -793,7 +793,7 @@ pub(crate) fn builtin_remove_text_properties_in_buffers(
             }
         }
         save_string_props(str_id, table);
-        return Ok(if any_removed { Value::True } else { Value::Nil });
+        return Ok(if any_removed { Value::T } else { Value::NIL });
     }
 
     let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(3))?;
@@ -812,7 +812,7 @@ pub(crate) fn builtin_remove_text_properties_in_buffers(
             any_removed = true;
         }
     }
-    Ok(if any_removed { Value::True } else { Value::Nil })
+    Ok(if any_removed { Value::T } else { Value::NIL })
 }
 
 /// (set-text-properties BEG END PROPS &optional OBJECT)
@@ -848,7 +848,7 @@ pub(crate) fn builtin_set_text_properties_in_buffers(
             table.put_property(byte_beg, byte_end, &name, val);
         }
         save_string_props(str_id, table);
-        return Ok(Value::True);
+        return Ok(Value::T);
     }
 
     let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(3))?;
@@ -862,7 +862,7 @@ pub(crate) fn builtin_set_text_properties_in_buffers(
     for (name, val) in pairs {
         let _ = buffers.put_buffer_text_property(buf_id, byte_beg, byte_end, &name, val);
     }
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 /// (remove-list-of-text-properties BEG END LIST &optional OBJECT)
@@ -898,7 +898,7 @@ pub(crate) fn builtin_remove_list_of_text_properties_in_buffers(
             table.remove_property(byte_beg, byte_end, &name);
         }
         save_string_props(str_id, table);
-        return Ok(if changed { Value::True } else { Value::Nil });
+        return Ok(if changed { Value::T } else { Value::NIL });
     }
 
     let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(3))?;
@@ -928,7 +928,7 @@ pub(crate) fn builtin_remove_list_of_text_properties_in_buffers(
         }
         let _ = buffers.remove_buffer_text_property(buf_id, byte_beg, byte_end, &name);
     }
-    Ok(if changed { Value::True } else { Value::Nil })
+    Ok(if changed { Value::T } else { Value::NIL })
 }
 
 /// (text-properties-at POS &optional OBJECT)
@@ -954,7 +954,7 @@ pub(crate) fn builtin_text_properties_at_in_buffers(
             let props = table.get_properties_ordered(byte_pos);
             return Ok(ordered_pairs_to_plist(&props));
         }
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(1))?;
@@ -1005,8 +1005,8 @@ pub(crate) fn builtin_next_single_property_change_in_state(
                     if let Some(lim) = byte_limit {
                         if next >= lim {
                             return Ok(match limit_val {
-                                Some(lv) => Value::Int(lv),
-                                None => Value::Nil,
+                                Some(lv) => Value::fixnum(lv),
+                                None => Value::NIL,
                             });
                         }
                     }
@@ -1025,8 +1025,8 @@ pub(crate) fn builtin_next_single_property_change_in_state(
             }
         }
         return Ok(match limit_val {
-            Some(lv) => Value::Int(lv),
-            None => Value::Nil,
+            Some(lv) => Value::fixnum(lv),
+            None => Value::NIL,
         });
     }
 
@@ -1055,8 +1055,8 @@ pub(crate) fn builtin_next_single_property_change_in_state(
                 if let Some(lim) = byte_limit {
                     if next >= lim {
                         return Ok(match limit_val {
-                            Some(lv) => Value::Int(lv),
-                            None => Value::Nil,
+                            Some(lv) => Value::fixnum(lv),
+                            None => Value::NIL,
                         });
                     }
                 }
@@ -1075,8 +1075,8 @@ pub(crate) fn builtin_next_single_property_change_in_state(
     }
 
     Ok(match limit_val {
-        Some(lv) => Value::Int(lv),
-        None => Value::Nil,
+        Some(lv) => Value::fixnum(lv),
+        None => Value::NIL,
     })
 }
 
@@ -1118,8 +1118,8 @@ pub(crate) fn builtin_previous_single_property_change_in_state(
                     if let Some(lim) = byte_limit {
                         if prev <= lim {
                             return Ok(match limit_val {
-                                Some(lv) => Value::Int(lv),
-                                None => Value::Nil,
+                                Some(lv) => Value::fixnum(lv),
+                                None => Value::NIL,
                             });
                         }
                     }
@@ -1139,8 +1139,8 @@ pub(crate) fn builtin_previous_single_property_change_in_state(
             }
         }
         return Ok(match limit_val {
-            Some(lv) => Value::Int(lv),
-            None => Value::Nil,
+            Some(lv) => Value::fixnum(lv),
+            None => Value::NIL,
         });
     }
 
@@ -1169,8 +1169,8 @@ pub(crate) fn builtin_previous_single_property_change_in_state(
                 if let Some(lim) = byte_limit {
                     if prev <= lim {
                         return Ok(match limit_val {
-                            Some(lv) => Value::Int(lv),
-                            None => Value::Nil,
+                            Some(lv) => Value::fixnum(lv),
+                            None => Value::NIL,
                         });
                     }
                 }
@@ -1190,8 +1190,8 @@ pub(crate) fn builtin_previous_single_property_change_in_state(
     }
 
     Ok(match limit_val {
-        Some(lv) => Value::Int(lv),
-        None => Value::Nil,
+        Some(lv) => Value::fixnum(lv),
+        None => Value::NIL,
     })
 }
 
@@ -1230,23 +1230,23 @@ pub(crate) fn builtin_next_property_change_in_buffers(
                 if let Some(lim) = byte_limit {
                     if next >= lim {
                         return Ok(match limit_val {
-                            Some(lv) => Value::Int(lv),
-                            None => Value::Nil,
+                            Some(lv) => Value::fixnum(lv),
+                            None => Value::NIL,
                         });
                     }
                 }
                 // If the change is at or past the end of the string, treat as no change
                 if next >= str_byte_len {
                     return Ok(match limit_val {
-                        Some(lv) => Value::Int(lv),
-                        None => Value::Nil,
+                        Some(lv) => Value::fixnum(lv),
+                        None => Value::NIL,
                     });
                 }
-                Ok(Value::Int(string_byte_to_elisp_pos(&s, next)))
+                Ok(Value::fixnum(string_byte_to_elisp_pos(&s, next)))
             }
             None => Ok(match limit_val {
-                Some(lv) => Value::Int(lv),
-                None => Value::Nil,
+                Some(lv) => Value::fixnum(lv),
+                None => Value::NIL,
             }),
         };
     }
@@ -1274,23 +1274,23 @@ pub(crate) fn builtin_next_property_change_in_buffers(
             if let Some(lim) = byte_limit {
                 if next >= lim {
                     return Ok(match limit_val {
-                        Some(lv) => Value::Int(lv),
-                        None => Value::Nil,
+                        Some(lv) => Value::fixnum(lv),
+                        None => Value::NIL,
                     });
                 }
             }
             // If the change is at or past buffer end, treat as no change
             if next >= buf_end {
                 return Ok(match limit_val {
-                    Some(lv) => Value::Int(lv),
-                    None => Value::Nil,
+                    Some(lv) => Value::fixnum(lv),
+                    None => Value::NIL,
                 });
             }
             Ok(Value::Int(byte_to_elisp_pos(buf, next)))
         }
         None => Ok(match limit_val {
-            Some(lv) => Value::Int(lv),
-            None => Value::Nil,
+            Some(lv) => Value::fixnum(lv),
+            None => Value::NIL,
         }),
     }
 }
@@ -1324,14 +1324,14 @@ pub(crate) fn builtin_text_property_any_in_state(
         while cursor < byte_end {
             let found = lookup_string_text_property(obarray, buffers, &table, cursor, &prop);
             if equal_value(&found, val, 0) {
-                return Ok(Value::Int(string_byte_to_elisp_pos(&s, cursor)));
+                return Ok(Value::fixnum(string_byte_to_elisp_pos(&s, cursor)));
             }
             match table.next_property_change(cursor) {
                 Some(next) if next <= byte_end => cursor = next,
                 _ => break,
             }
         }
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(4))?;
@@ -1347,7 +1347,7 @@ pub(crate) fn builtin_text_property_any_in_state(
     while cursor < byte_end {
         let found = lookup_buffer_text_property(obarray, buffers, buf, cursor, &prop);
         if equal_value(&found, val, 0) {
-            return Ok(Value::Int(byte_to_elisp_pos(buf, cursor)));
+            return Ok(Value::fixnum(byte_to_elisp_pos(buf, cursor)));
         }
         match buf.text.text_props_next_change(cursor) {
             Some(next) if next <= byte_end => {
@@ -1356,7 +1356,7 @@ pub(crate) fn builtin_text_property_any_in_state(
             _ => break,
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (text-property-not-all BEG END PROP VAL &optional OBJECT)
@@ -1389,14 +1389,14 @@ pub(crate) fn builtin_text_property_not_all_in_state(
             let found = lookup_string_text_property(obarray, buffers, &table, cursor, &prop);
             let matches = equal_value(&found, val, 0);
             if !matches {
-                return Ok(Value::Int(string_byte_to_elisp_pos(&s, cursor)));
+                return Ok(Value::fixnum(string_byte_to_elisp_pos(&s, cursor)));
             }
             match table.next_property_change(cursor) {
                 Some(next) if next > cursor && next < byte_end => cursor = next,
                 _ => break,
             }
         }
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(4))?;
@@ -1413,7 +1413,7 @@ pub(crate) fn builtin_text_property_not_all_in_state(
         let found = lookup_buffer_text_property(obarray, buffers, buf, cursor, &prop);
         let matches = equal_value(&found, val, 0);
         if !matches {
-            return Ok(Value::Int(byte_to_elisp_pos(buf, cursor)));
+            return Ok(Value::fixnum(byte_to_elisp_pos(buf, cursor)));
         }
 
         match buf.text.text_props_next_change(cursor) {
@@ -1422,7 +1422,7 @@ pub(crate) fn builtin_text_property_not_all_in_state(
         }
     }
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (get-char-property-and-overlay POS PROP &optional OBJECT)
@@ -1446,7 +1446,7 @@ pub(crate) fn builtin_get_char_property_and_overlay_in_state(
     // For strings, no overlays — just return (text-prop-value . nil)
     if is_string_object(args.get(2)).is_some() {
         let value = builtin_get_text_property_in_state(obarray, buffers, args)?;
-        return Ok(Value::cons(value, Value::Nil));
+        return Ok(Value::cons(value, Value::NIL));
     }
 
     let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(2))?;
@@ -1456,12 +1456,12 @@ pub(crate) fn builtin_get_char_property_and_overlay_in_state(
         if let Some((value, ov_id)) =
             buffer_overlay_property_at_byte_pos(obarray, buffers, buf, byte_pos, &prop)
         {
-            return Ok(Value::cons(value, Value::Overlay(ov_id)));
+            return Ok(Value::cons(value, Value::Overlay(ov_id) /* TODO(tagged): convert Value::Overlay to new API */));
         }
     }
 
     let value = builtin_get_char_property_in_state(obarray, buffers, args)?;
-    Ok(Value::cons(value, Value::Nil))
+    Ok(Value::cons(value, Value::NIL))
 }
 
 /// (get-display-property POS PROP &optional OBJECT PROPERTIES)
@@ -1481,7 +1481,7 @@ pub(crate) fn builtin_get_display_property_in_state(
     expect_max_args("get-display-property", &args, 4)?;
     let prop = expect_symbol_name(&args[1])?;
     if prop != "display" {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     let mut forwarded = vec![args[0], args[1]];
     if let Some(object) = args.get(2) {
@@ -1515,8 +1515,8 @@ pub(crate) fn builtin_next_overlay_change_in_buffers(
 
     let byte_pos = elisp_pos_to_byte(buf, pos);
     match buf.overlays.next_boundary_after(byte_pos) {
-        Some(next) => Ok(Value::Int(byte_to_elisp_pos(buf, next))),
-        None => Ok(Value::Int(byte_to_elisp_pos(buf, buf.point_max()))),
+        Some(next) => Ok(Value::fixnum(byte_to_elisp_pos(buf, next))),
+        None => Ok(Value::fixnum(byte_to_elisp_pos(buf, buf.point_max()))),
     }
 }
 
@@ -1541,8 +1541,8 @@ pub(crate) fn builtin_previous_overlay_change_in_buffers(
 
     let byte_pos = elisp_pos_to_byte(buf, pos);
     match buf.overlays.previous_boundary_before(byte_pos) {
-        Some(prev) => Ok(Value::Int(byte_to_elisp_pos(buf, prev))),
-        None => Ok(Value::Int(byte_to_elisp_pos(buf, buf.point_min()))),
+        Some(prev) => Ok(Value::fixnum(byte_to_elisp_pos(buf, prev))),
+        None => Ok(Value::fixnum(byte_to_elisp_pos(buf, buf.point_min()))),
     }
 }
 
@@ -1579,7 +1579,7 @@ pub(crate) fn builtin_make_overlay_in_buffers(
     let byte_end = elisp_pos_to_byte(buf, end);
     let overlay = with_heap_mut(|h| {
         h.alloc_overlay(crate::gc::types::OverlayData {
-            plist: Value::Nil,
+            plist: Value::NIL,
             buffer: Some(buf_id),
             start: byte_beg,
             end: byte_end,
@@ -1588,7 +1588,7 @@ pub(crate) fn builtin_make_overlay_in_buffers(
         })
     });
     buf.overlays.insert_overlay(overlay);
-    Ok(Value::Overlay(overlay))
+    Ok(Value::Overlay(overlay) /* TODO(tagged): convert Value::Overlay to new API */)
 }
 
 /// (delete-overlay OVERLAY)
@@ -1608,7 +1608,7 @@ pub(crate) fn builtin_delete_overlay_in_buffers(
     if let Some(buf_id) = resolve_overlay_buffer_id(overlay) {
         let _ = buffers.delete_buffer_overlay(buf_id, overlay);
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (overlay-put OVERLAY PROP VAL)
@@ -1672,7 +1672,7 @@ pub(crate) fn builtin_overlay_get_in_buffers(
     {
         return Ok(val);
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (overlayp OBJ)
@@ -1682,10 +1682,10 @@ pub(crate) fn builtin_overlayp(_eval: &mut super::eval::Context, args: Vec<Value
 
 pub(crate) fn builtin_overlayp_pure(args: Vec<Value>) -> EvalResult {
     expect_args("overlayp", &args, 1)?;
-    if matches!(args[0], Value::Overlay(_)) {
-        return Ok(Value::True);
+    if matches!(args[0], Value::Overlay(_) /* TODO(tagged): convert Value::Overlay to new API */) {
+        return Ok(Value::T);
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (overlays-at POS &optional SORTED)
@@ -1823,15 +1823,15 @@ pub(crate) fn builtin_overlay_start_in_buffers(
     expect_args("overlay-start", &args, 1)?;
     let overlay = expect_overlay(&args[0])?;
     let Some(buf_id) = resolve_overlay_buffer_id(overlay) else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
     match buf.overlays.overlay_start(overlay) {
-        Some(byte_pos) => Ok(Value::Int(byte_to_elisp_pos(buf, byte_pos))),
-        None => Ok(Value::Nil),
+        Some(byte_pos) => Ok(Value::fixnum(byte_to_elisp_pos(buf, byte_pos))),
+        None => Ok(Value::NIL),
     }
 }
 
@@ -1847,15 +1847,15 @@ pub(crate) fn builtin_overlay_end_in_buffers(
     expect_args("overlay-end", &args, 1)?;
     let overlay = expect_overlay(&args[0])?;
     let Some(buf_id) = resolve_overlay_buffer_id(overlay) else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
     match buf.overlays.overlay_end(overlay) {
-        Some(byte_pos) => Ok(Value::Int(byte_to_elisp_pos(buf, byte_pos))),
-        None => Ok(Value::Nil),
+        Some(byte_pos) => Ok(Value::fixnum(byte_to_elisp_pos(buf, byte_pos))),
+        None => Ok(Value::NIL),
     }
 }
 
@@ -1876,9 +1876,9 @@ pub(crate) fn builtin_overlay_buffer_in_buffers(
     if let Some(buf_id) = resolve_overlay_buffer_id(overlay)
         && buffers.get(buf_id).is_some()
     {
-        return Ok(Value::Buffer(buf_id));
+        return Ok(Value::make_buffer(buf_id));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (overlay-properties OVERLAY)
@@ -1965,7 +1965,7 @@ pub(crate) fn builtin_remove_overlays(
         }
     }
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // ===========================================================================

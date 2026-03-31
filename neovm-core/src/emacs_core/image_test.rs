@@ -62,7 +62,7 @@ fn type_available_unknown() {
 
 #[test]
 fn type_available_wrong_type() {
-    let result = builtin_image_type_available_p(vec![Value::Int(42)]);
+    let result = builtin_image_type_available_p(vec![Value::fixnum(42)]);
     assert!(result.is_err());
 }
 
@@ -96,7 +96,7 @@ fn create_image_data() {
     let result = builtin_create_image(vec![
         Value::string("raw-png-data"),
         Value::symbol("png"),
-        Value::True, // DATA-P
+        Value::T, // DATA-P
     ]);
     assert!(result.is_ok());
     let spec = result.unwrap();
@@ -147,7 +147,7 @@ fn create_image_default_type_falls_back_to_neomacs() {
 fn create_image_data_type_from_mime_hint() {
     let result = builtin_create_image(vec![
         Value::string("raw-image-bytes"),
-        Value::Nil,
+        Value::NIL,
         Value::symbol("image/jpeg"),
     ]);
     assert!(result.is_ok());
@@ -163,11 +163,11 @@ fn create_image_with_props() {
     let result = builtin_create_image(vec![
         Value::string("icon.svg"),
         Value::symbol("svg"),
-        Value::Nil,
+        Value::NIL,
         Value::keyword("width"),
-        Value::Int(64),
+        Value::fixnum(64),
         Value::keyword("height"),
-        Value::Int(64),
+        Value::fixnum(64),
     ]);
     assert!(result.is_ok());
     let spec = result.unwrap();
@@ -190,7 +190,7 @@ fn create_image_wrong_arity() {
 fn create_image_bad_type() {
     let result = builtin_create_image(vec![
         Value::string("test.png"),
-        Value::Int(42), // not a symbol
+        Value::fixnum(42), // not a symbol
     ]);
     assert!(matches!(
         result,
@@ -206,7 +206,7 @@ fn create_image_bad_type() {
 fn image_size_pixels() {
     let spec = builtin_create_image(vec![Value::string("test.png"), Value::symbol("png")]).unwrap();
 
-    let result = builtin_image_size(vec![spec, Value::True]);
+    let result = builtin_image_size(vec![spec, Value::T]);
     assert!(result.is_err());
 }
 
@@ -220,7 +220,7 @@ fn image_size_chars() {
 
 #[test]
 fn image_size_not_image_spec() {
-    let result = builtin_image_size(vec![Value::Int(42)]);
+    let result = builtin_image_size(vec![Value::fixnum(42)]);
     assert!(result.is_err());
 }
 
@@ -256,7 +256,7 @@ fn image_mask_p_not_image() {
 fn put_image_requires_image_and_point() {
     let spec = builtin_create_image(vec![Value::string("test.png"), Value::symbol("png")]).unwrap();
 
-    let result = builtin_put_image(vec![spec, Value::Int(1)]);
+    let result = builtin_put_image(vec![spec, Value::fixnum(1)]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_truthy());
 }
@@ -265,7 +265,7 @@ fn put_image_requires_image_and_point() {
 fn put_image_accepts_char_point() {
     let spec = builtin_create_image(vec![Value::string("test.png"), Value::symbol("png")]).unwrap();
 
-    let result = builtin_put_image(vec![spec, Value::Char('a')]);
+    let result = builtin_put_image(vec![spec, Value::char('a')]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_truthy());
 }
@@ -288,8 +288,8 @@ fn put_image_invalid_area() {
     let spec = builtin_create_image(vec![Value::string("test.png"), Value::symbol("png")]).unwrap();
     let result = builtin_put_image(vec![
         spec,
-        Value::Int(1),
-        Value::Nil,
+        Value::fixnum(1),
+        Value::NIL,
         Value::symbol("center"),
     ]);
     assert!(matches!(
@@ -302,7 +302,7 @@ fn put_image_invalid_area() {
 
 #[test]
 fn put_image_not_image() {
-    let result = builtin_put_image(vec![Value::Int(1), Value::Int(1)]);
+    let result = builtin_put_image(vec![Value::fixnum(1), Value::fixnum(1)]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig))
@@ -321,12 +321,12 @@ fn insert_image_without_position_returns_true() {
 
     let result = builtin_insert_image(vec![spec]);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), Value::True);
+    assert_eq!(result.unwrap(), Value::T);
 }
 
 #[test]
 fn insert_image_not_image() {
-    let result = builtin_insert_image(vec![Value::Int(42)]);
+    let result = builtin_insert_image(vec![Value::fixnum(42)]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig))
@@ -338,7 +338,7 @@ fn insert_image_not_image() {
 #[test]
 fn insert_image_invalid_area() {
     let spec = builtin_create_image(vec![Value::string("test.png"), Value::symbol("png")]).unwrap();
-    let result = builtin_insert_image(vec![spec, Value::Nil, Value::symbol("center")]);
+    let result = builtin_insert_image(vec![spec, Value::NIL, Value::symbol("center")]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig))
@@ -352,11 +352,11 @@ fn insert_image_too_many_args() {
     let spec = builtin_create_image(vec![Value::string("test.png"), Value::symbol("png")]).unwrap();
     let result = builtin_insert_image(vec![
         spec,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
     ]);
     assert!(result.is_err());
 }
@@ -367,21 +367,21 @@ fn insert_image_too_many_args() {
 
 #[test]
 fn remove_images_no_error_for_default_args() {
-    let result = builtin_remove_images(vec![Value::Int(1), Value::Int(100)]);
+    let result = builtin_remove_images(vec![Value::fixnum(1), Value::fixnum(100)]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 }
 
 #[test]
 fn remove_images_accepts_char_positions() {
-    let result = builtin_remove_images(vec![Value::Char('a'), Value::Char('z')]);
+    let result = builtin_remove_images(vec![Value::char('a'), Value::char('z')]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 }
 
 #[test]
 fn remove_images_bad_start() {
-    let result = builtin_remove_images(vec![Value::string("x"), Value::Int(100)]);
+    let result = builtin_remove_images(vec![Value::string("x"), Value::fixnum(100)]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig))
@@ -392,7 +392,7 @@ fn remove_images_bad_start() {
 
 #[test]
 fn remove_images_bad_end() {
-    let result = builtin_remove_images(vec![Value::Int(1), Value::string("x")]);
+    let result = builtin_remove_images(vec![Value::fixnum(1), Value::string("x")]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig))
@@ -403,14 +403,14 @@ fn remove_images_bad_end() {
 
 #[test]
 fn remove_images_bad_buffer() {
-    let result = builtin_remove_images(vec![Value::Int(1), Value::Int(10), Value::Int(1)]);
+    let result = builtin_remove_images(vec![Value::fixnum(1), Value::fixnum(10), Value::fixnum(1)]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 }
 
 #[test]
 fn remove_images_wrong_arity() {
-    let result = builtin_remove_images(vec![Value::Int(1)]);
+    let result = builtin_remove_images(vec![Value::fixnum(1)]);
     assert!(result.is_err());
 }
 
@@ -434,7 +434,7 @@ fn image_flush_rejects_non_window_frame() {
 #[test]
 fn image_flush_all_frames() {
     let spec = builtin_create_image(vec![Value::string("test.png"), Value::symbol("png")]).unwrap();
-    let result = builtin_image_flush(vec![spec, Value::True]);
+    let result = builtin_image_flush(vec![spec, Value::T]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 }
@@ -442,7 +442,7 @@ fn image_flush_all_frames() {
 #[test]
 fn image_flush_non_t_frame_errors() {
     let spec = builtin_create_image(vec![Value::string("test.png"), Value::symbol("png")]).unwrap();
-    let result = builtin_image_flush(vec![spec, Value::Int(1)]);
+    let result = builtin_image_flush(vec![spec, Value::fixnum(1)]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig))
@@ -453,7 +453,7 @@ fn image_flush_non_t_frame_errors() {
 
 #[test]
 fn image_flush_not_image() {
-    let result = builtin_image_flush(vec![Value::Int(42)]);
+    let result = builtin_image_flush(vec![Value::fixnum(42)]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig))
@@ -474,20 +474,20 @@ fn clear_image_cache_no_args() {
 
 #[test]
 fn clear_image_cache_nil_filter_errors() {
-    let result = builtin_clear_image_cache(vec![Value::Nil]);
+    let result = builtin_clear_image_cache(vec![Value::NIL]);
     assert!(result.is_err());
 }
 
 #[test]
 fn clear_image_cache_with_filter() {
-    let result = builtin_clear_image_cache(vec![Value::True]);
+    let result = builtin_clear_image_cache(vec![Value::T]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 }
 
 #[test]
 fn clear_image_cache_animation_cache_non_list() {
-    let result = builtin_clear_image_cache(vec![Value::True, Value::True]);
+    let result = builtin_clear_image_cache(vec![Value::T, Value::T]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig))
@@ -498,7 +498,7 @@ fn clear_image_cache_animation_cache_non_list() {
 
 #[test]
 fn clear_image_cache_nil_second_arg_but_valid_filter() {
-    let result = builtin_clear_image_cache(vec![Value::True, Value::Nil]);
+    let result = builtin_clear_image_cache(vec![Value::T, Value::NIL]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 }
@@ -506,7 +506,7 @@ fn clear_image_cache_nil_second_arg_but_valid_filter() {
 #[test]
 fn clear_image_cache_with_animation_cache_list() {
     let cache_arg = Value::list(vec![Value::symbol("foo"), Value::symbol("bar")]);
-    let result = builtin_clear_image_cache(vec![Value::True, cache_arg]);
+    let result = builtin_clear_image_cache(vec![Value::T, cache_arg]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 }
@@ -514,7 +514,7 @@ fn clear_image_cache_with_animation_cache_list() {
 #[test]
 fn image_cache_size_is_zero() {
     let result = builtin_image_cache_size(vec![]);
-    assert_eq!(result.unwrap(), Value::Int(0));
+    assert_eq!(result.unwrap(), Value::fixnum(0));
 }
 
 #[test]
@@ -522,7 +522,7 @@ fn imagep_matches_image_spec_shape() {
     let spec = builtin_create_image(vec![Value::string("test.png"), Value::symbol("png")])
         .expect("create-image should succeed");
     assert!(builtin_imagep(vec![spec]).unwrap().is_truthy());
-    assert!(builtin_imagep(vec![Value::Int(1)]).unwrap().is_nil());
+    assert!(builtin_imagep(vec![Value::fixnum(1)]).unwrap().is_nil());
     assert!(
         builtin_imagep(vec![Value::list(vec![
             Value::symbol("image"),
@@ -545,7 +545,7 @@ fn imagep_matches_image_spec_shape() {
 
 #[test]
 fn image_metadata_non_spec_returns_nil() {
-    let result = builtin_image_metadata(vec![Value::Int(1)]).unwrap();
+    let result = builtin_image_metadata(vec![Value::fixnum(1)]).unwrap();
     assert!(result.is_nil());
 }
 
@@ -566,7 +566,7 @@ fn image_metadata_window_system_error_shape() {
 fn image_metadata_second_arg_validates_frame_designator() {
     let spec = builtin_create_image(vec![Value::string("test.png"), Value::symbol("png")])
         .expect("create-image should succeed");
-    let result = builtin_image_metadata(vec![spec, Value::True]);
+    let result = builtin_image_metadata(vec![spec, Value::T]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig))
@@ -595,7 +595,7 @@ fn image_type_svg() {
 
 #[test]
 fn image_type_not_image() {
-    let result = builtin_image_type(vec![Value::Int(42)]);
+    let result = builtin_image_type(vec![Value::fixnum(42)]);
     assert!(result.is_err());
 }
 
@@ -617,7 +617,7 @@ fn image_type_explicit_type() {
     let result = builtin_image_type(vec![
         Value::string("no-extension"),
         Value::symbol("png"),
-        Value::Nil,
+        Value::NIL,
     ]);
     assert!(result.is_ok());
     assert_eq!(result.unwrap().as_symbol_name(), Some("png"));
@@ -645,26 +645,26 @@ fn image_transforms_p_returns_t() {
 
 #[test]
 fn image_transforms_p_with_frame() {
-    let result = builtin_image_transforms_p(vec![Value::Nil]);
+    let result = builtin_image_transforms_p(vec![Value::NIL]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 }
 
 #[test]
 fn image_transforms_p_with_non_integer_or_small_frame() {
-    let result = builtin_image_transforms_p(vec![Value::Int(1)]);
+    let result = builtin_image_transforms_p(vec![Value::fixnum(1)]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig))
             if sig.symbol_name() == "wrong-type-argument"
                 && sig.data
-                    == vec![Value::symbol("frame-live-p"), Value::Int(1)]
+                    == vec![Value::symbol("frame-live-p"), Value::fixnum(1)]
     ));
 }
 
 #[test]
 fn image_transforms_p_too_many_args() {
-    let result = builtin_image_transforms_p(vec![Value::Nil, Value::Nil]);
+    let result = builtin_image_transforms_p(vec![Value::NIL, Value::NIL]);
     assert!(result.is_err());
 }
 
@@ -714,8 +714,8 @@ fn is_image_spec_bare_plist() {
 
 #[test]
 fn is_image_spec_not_image() {
-    assert!(!is_image_spec(&Value::Int(42)));
-    assert!(!is_image_spec(&Value::Nil));
+    assert!(!is_image_spec(&Value::fixnum(42)));
+    assert!(!is_image_spec(&Value::NIL));
     assert!(!is_image_spec(&Value::string("not an image")));
 }
 
@@ -809,6 +809,6 @@ fn round_trip_create_then_size() {
     let spec =
         builtin_create_image(vec![Value::string("photo.jpg"), Value::symbol("jpeg")]).unwrap();
 
-    let result = builtin_image_size(vec![spec, Value::True]);
+    let result = builtin_image_size(vec![spec, Value::T]);
     assert!(result.is_err());
 }

@@ -13,6 +13,7 @@ use crate::emacs_core::terminal::pure::{
 use crate::emacs_core::value::*;
 use crate::window::WindowId;
 use std::cell::{Cell, RefCell};
+use super::value::{ValueKind, VecLikeType};
 
 // ---------------------------------------------------------------------------
 // Thread-local cursor state
@@ -37,7 +38,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -48,7 +49,7 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
     if args.len() < min || args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -59,7 +60,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -82,11 +83,11 @@ fn expect_window_designator(value: &Value) -> Result<(), Flow> {
 }
 
 fn live_window_designator_p(eval: &mut crate::emacs_core::eval::Context, value: &Value) -> bool {
-    match value {
-        Value::Window(id) => eval.frames.find_window_frame_id(WindowId(*id)).is_some(),
-        Value::Int(id) if *id >= 0 => eval
+    match value.kind() {
+        ValueKind::Veclike(VecLikeType::Window) => eval.frames.find_window_frame_id(WindowId(*id)).is_some(),
+        ValueKind::Fixnum(id) if id >= 0 => eval
             .frames
-            .find_window_frame_id(WindowId(*id as u64))
+            .find_window_frame_id(WindowId(id as u64))
             .is_some(),
         _ => false,
     }
@@ -107,9 +108,9 @@ fn expect_window_designator_eval(
 }
 
 fn live_window_designator_p_in_state(frames: &crate::window::FrameManager, value: &Value) -> bool {
-    match value {
-        Value::Window(id) => frames.find_window_frame_id(WindowId(*id)).is_some(),
-        Value::Int(id) if *id >= 0 => frames.find_window_frame_id(WindowId(*id as u64)).is_some(),
+    match value.kind() {
+        ValueKind::Veclike(VecLikeType::Window) => frames.find_window_frame_id(WindowId(*id)).is_some(),
+        ValueKind::Fixnum(id) if id >= 0 => frames.find_window_frame_id(WindowId(id as u64)).is_some(),
         _ => false,
     }
 }
@@ -129,9 +130,9 @@ fn expect_window_designator_in_state(
 }
 
 fn window_id_from_window_designator(value: &Value) -> Option<WindowId> {
-    match value {
-        Value::Window(id) => Some(WindowId(*id)),
-        Value::Int(id) if *id >= 0 => Some(WindowId(*id as u64)),
+    match value.kind() {
+        ValueKind::Veclike(VecLikeType::Window) => Some(WindowId(*id)),
+        ValueKind::Fixnum(id) if id >= 0 => Some(WindowId(id as u64)),
         _ => None,
     }
 }
@@ -222,13 +223,13 @@ pub(crate) fn builtin_redraw_frame(
             ));
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (redraw-display) -> nil
 pub(crate) fn builtin_redraw_display(args: Vec<Value>) -> EvalResult {
     expect_args("redraw-display", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (open-termscript FILE) -> error
@@ -245,7 +246,7 @@ pub(crate) fn builtin_open_termscript(args: Vec<Value>) -> EvalResult {
 /// (ding &optional ARG) -> nil
 pub(crate) fn builtin_ding(args: Vec<Value>) -> EvalResult {
     expect_range_args("ding", &args, 0, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// Context-aware variant of `send-string-to-terminal`.
@@ -256,12 +257,12 @@ pub(crate) fn builtin_send_string_to_terminal(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("send-string-to-terminal", &args, 1, 2)?;
-    match &args[0] {
-        Value::Str(_) => {
+    match args[0].kind() {
+        ValueKind::String => {
             if let Some(terminal) = args.get(1) {
                 expect_terminal_designator_eval(eval, terminal)?;
             }
-            Ok(Value::Nil)
+            Ok(ValueKind::Nil)
         }
         other => Err(signal(
             "wrong-type-argument",
@@ -285,7 +286,7 @@ pub(crate) fn builtin_internal_show_cursor(
     } else {
         CURSOR_VISIBLE.with(|slot| slot.set(visible));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// Context-aware variant of `internal-show-cursor-p`.
@@ -299,20 +300,20 @@ pub(crate) fn builtin_internal_show_cursor_p(
     if let Some(window) = args.first() {
         expect_window_designator_eval(eval, window)?;
     }
-    let query_window = args.first().unwrap_or(&Value::Nil);
+    let query_window = args.first().unwrap_or(&Value::NIL);
     if let Some(window_id) = resolve_internal_show_cursor_window_id(eval, query_window) {
-        return Ok(Value::bool(window_cursor_visible(window_id)));
+        return Ok(Value::bool_val(window_cursor_visible(window_id)));
     }
-    Ok(Value::bool(CURSOR_VISIBLE.with(|slot| slot.get())))
+    Ok(Value::bool_val(CURSOR_VISIBLE.with(|slot| slot.get())))
 }
 
 /// (force-window-update &optional OBJECT) -> t/nil
 pub(crate) fn builtin_force_window_update(args: Vec<Value>) -> EvalResult {
     expect_max_args("force-window-update", &args, 1)?;
     if args.first().is_some_and(|v| !v.is_nil()) {
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     } else {
-        Ok(Value::True)
+        Ok(Value::T)
     }
 }
 
@@ -322,5 +323,5 @@ pub(crate) fn builtin_force_window_update(args: Vec<Value>) -> EvalResult {
 /// z-order so this always returns nil.
 pub(crate) fn builtin_frame_z_order_lessp(args: Vec<Value>) -> EvalResult {
     expect_args("frame--z-order-lessp", &args, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }

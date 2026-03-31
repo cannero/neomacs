@@ -21,7 +21,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -32,7 +32,7 @@ fn expect_min_max_args(name: &str, args: &[Value], min: usize, max: usize) -> Re
     if args.len() < min || args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -79,7 +79,7 @@ fn execute_documentation_plan(
 }
 
 fn finish_documentation_result(value: Value, raw: bool) -> EvalResult {
-    if raw || !matches!(value, Value::Str(_)) {
+    if raw || !value.is_string() {
         Ok(value)
     } else {
         builtin_substitute_command_keys(vec![value])
@@ -157,24 +157,24 @@ fn function_doc_or_error(func_val: Value) -> EvalResult {
         return result;
     }
 
-    match func_val {
-        Value::Lambda(_) | Value::Macro(_) => {
+    match func_val.kind() {
+        ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => {
             let data = func_val.get_lambda_data().unwrap();
             match &data.docstring {
                 Some(doc) => Ok(Value::string(doc.clone())),
-                None => Ok(Value::Nil),
+                None => Ok(Value::NIL),
             }
         }
-        Value::Subr(id) => Ok(Value::string(
+        ValueKind::Subr(id) => Ok(Value::string(
             subr_documentation_stub(resolve_sym(id)).unwrap_or("Built-in function."),
         )),
-        Value::Str(_) | Value::Vector(_) => Ok(Value::string("Keyboard macro.")),
-        Value::ByteCode(_) => {
+        ValueKind::String | ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::string("Keyboard macro.")),
+        ValueKind::Veclike(VecLikeType::ByteCode) => {
             let bc = func_val.get_bytecode_data().unwrap();
             Ok(bc
                 .docstring
                 .as_ref()
-                .map_or(Value::Nil, |doc| Value::string(doc.clone())))
+                .map_or(ValueKind::Nil, |doc| Value::string(doc.clone())))
         }
         other => Err(signal("invalid-function", vec![other])),
     }
@@ -227,31 +227,31 @@ If COND yields nil, and there are no ELSE’s, the value is nil.\n\
 }
 
 fn quoted_lambda_documentation(function: &Value) -> Option<EvalResult> {
-    let Value::Cons(cell) = function else {
+    if !function.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
         return None;
     };
 
-    let pair = read_cons(*cell);
+    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
     if pair.car.as_symbol_name() != Some("lambda") {
         return None;
     }
 
     let mut tail = pair.cdr;
 
-    let Value::Cons(param_cell) = tail else {
+    if !tail.is_cons() /* TODO(tagged): `param_cell` was Value::Cons(param_cell), rewrite let-else */ {
         return Some(Err(signal("invalid-function", vec![*function])));
     };
-    let params_and_body = read_cons(param_cell);
+    let params_and_body = read_cons(param_cell);  // TODO(tagged): replace read_cons with cons accessors
     tail = params_and_body.cdr;
 
-    match tail {
-        Value::Nil => Some(Ok(Value::Nil)),
-        Value::Cons(body_cell) => {
-            let body = read_cons(body_cell);
+    match tail.kind() {
+        ValueKind::Nil => Some(Ok(Value::NIL)),
+        ValueKind::Cons => {
+            let body = read_cons(body_cell);  // TODO(tagged): replace read_cons with cons accessors
             if let Some(doc) = body.car.as_str() {
                 Some(Ok(Value::string(doc)))
             } else {
-                Some(Ok(Value::Nil))
+                Some(Ok(ValueKind::Nil))
             }
         }
         other => Some(Err(signal(
@@ -262,18 +262,18 @@ fn quoted_lambda_documentation(function: &Value) -> Option<EvalResult> {
 }
 
 fn quoted_macro_invalid_designator(function: &Value) -> Option<EvalResult> {
-    let Value::Cons(cell) = function else {
+    if !function.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
         return None;
     };
 
-    let pair = read_cons(*cell);
+    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
     if pair.car.as_symbol_name() != Some("macro") {
         return None;
     }
 
     let payload = pair.cdr;
     if payload.is_nil() {
-        return Some(Err(signal("void-function", vec![Value::Nil])));
+        return Some(Err(signal("void-function", vec![Value::NIL])));
     }
 
     // GNU extracts the docstring from the function part of (macro . fn),
@@ -295,18 +295,18 @@ fn documentation_plan_from_property_value(
     }
 
     // Integer doc offsets require DOC-file lookup; return nil when unresolved.
-    if matches!(value, Value::Int(_)) {
-        return Ok(DocumentationPlan::Final(Value::Nil));
+    if value.is_fixnum() {
+        return Ok(DocumentationPlan::Final(Value::NIL));
     }
 
     Ok(DocumentationPlan::Eval(value))
 }
 
 fn compiled_doc_ref(value: &Value) -> Option<(String, i64)> {
-    let Value::Cons(cell) = value else {
+    if !value.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
         return None;
     };
-    let pair = read_cons(*cell);
+    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
     Some((pair.car.as_str_owned()?, pair.cdr.as_int()?))
 }
 
@@ -442,11 +442,11 @@ fn load_compiled_doc_string(lisp_directory: Option<&str>, file: &str, position: 
     };
 
     let Some(end_index) = end_index else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
 
     if offset == 0 || buffer.len() < offset || !compiled_doc_prefix_is_valid(&buffer[..offset]) {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     decode_compiled_doc_bytes(&buffer[offset..end_index])
@@ -454,7 +454,7 @@ fn load_compiled_doc_string(lisp_directory: Option<&str>, file: &str, position: 
 
 fn startup_variable_doc_offset_symbol(sym: &str, prop: &str, value: &Value) -> bool {
     prop == "variable-documentation"
-        && matches!(value, Value::Int(_))
+        && value.is_fixnum()
         && startup_variable_doc_stub(sym).is_some()
 }
 
@@ -10551,7 +10551,7 @@ fn documentation_property_plan(
     })?;
 
     let Some(prop) = args[1].as_symbol_name() else {
-        return Ok(DocumentationPlan::Final(Value::Nil));
+        return Ok(DocumentationPlan::Final(Value::NIL));
     };
     let raw = args.get(2).is_some_and(Value::is_truthy);
 
@@ -10579,7 +10579,7 @@ fn documentation_property_plan(
             Ok(DocumentationPlan::Final(Value::string(doc)))
         }
         Some(value) => documentation_plan_from_property_value(lisp_directory.as_deref(), value),
-        _ => Ok(DocumentationPlan::Final(Value::Nil)),
+        _ => Ok(DocumentationPlan::Final(Value::NIL)),
     }
 }
 
@@ -10644,7 +10644,7 @@ pub(crate) fn builtin_snarf_documentation(args: Vec<Value>) -> EvalResult {
     // In batch compatibility mode, allow the canonical DOC token while
     // preserving observable error classes for invalid/missing names.
     if filename == "DOC" {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     if filename.starts_with("DOC/") {

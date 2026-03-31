@@ -30,13 +30,13 @@ fn ding_returns_nil() {
 
 #[test]
 fn ding_with_arg_returns_nil() {
-    let result = builtin_ding(vec![Value::True]).unwrap();
+    let result = builtin_ding(vec![Value::T]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn open_termscript_signals_tty_error() {
-    let result = builtin_open_termscript(vec![Value::Nil]);
+    let result = builtin_open_termscript(vec![Value::NIL]);
     match result {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
@@ -52,7 +52,7 @@ fn open_termscript_signals_tty_error() {
 #[test]
 fn send_string_to_terminal_rejects_non_string() {
     let mut eval = crate::emacs_core::eval::Context::new();
-    let result = builtin_send_string_to_terminal(&mut eval, vec![Value::Int(42)]);
+    let result = builtin_send_string_to_terminal(&mut eval, vec![Value::fixnum(42)]);
     assert!(result.is_err());
 }
 
@@ -68,40 +68,40 @@ fn internal_show_cursor_tracks_visibility() {
     reset_dispnew_thread_locals();
     let mut eval = crate::emacs_core::eval::Context::new();
     let default_visible = builtin_internal_show_cursor_p(&mut eval, vec![]).unwrap();
-    assert_eq!(default_visible, Value::True);
+    assert_eq!(default_visible, Value::T);
 
-    builtin_internal_show_cursor(&mut eval, vec![Value::Nil, Value::Nil]).unwrap();
+    builtin_internal_show_cursor(&mut eval, vec![Value::NIL, Value::NIL]).unwrap();
     let hidden = builtin_internal_show_cursor_p(&mut eval, vec![]).unwrap();
     assert!(hidden.is_nil());
 
-    builtin_internal_show_cursor(&mut eval, vec![Value::Nil, Value::True]).unwrap();
+    builtin_internal_show_cursor(&mut eval, vec![Value::NIL, Value::T]).unwrap();
     let visible = builtin_internal_show_cursor_p(&mut eval, vec![]).unwrap();
-    assert_eq!(visible, Value::True);
+    assert_eq!(visible, Value::T);
 }
 
 #[test]
 fn internal_show_cursor_rejects_non_window() {
     let mut eval = crate::emacs_core::eval::Context::new();
-    let result = builtin_internal_show_cursor(&mut eval, vec![Value::Int(1), Value::Nil]);
+    let result = builtin_internal_show_cursor(&mut eval, vec![Value::fixnum(1), Value::NIL]);
     assert!(result.is_err());
 }
 
 #[test]
 fn force_window_update_no_arg_returns_t() {
     let result = builtin_force_window_update(vec![]).unwrap();
-    assert_eq!(result, Value::True);
+    assert_eq!(result, Value::T);
 }
 
 #[test]
 fn force_window_update_with_arg_returns_nil() {
-    let result = builtin_force_window_update(vec![Value::True]).unwrap();
+    let result = builtin_force_window_update(vec![Value::T]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn force_window_update_nil_arg_returns_t() {
-    let result = builtin_force_window_update(vec![Value::Nil]).unwrap();
-    assert_eq!(result, Value::True);
+    let result = builtin_force_window_update(vec![Value::NIL]).unwrap();
+    assert_eq!(result, Value::T);
 }
 
 #[test]
@@ -114,7 +114,7 @@ fn eval_internal_show_cursor_per_window_state() {
     let other = crate::emacs_core::builtins::dispatch_builtin(
         &mut eval,
         "split-window-internal",
-        vec![Value::Nil, Value::Nil, Value::Nil, Value::Nil],
+        vec![Value::NIL, Value::NIL, Value::NIL, Value::NIL],
     )
     .unwrap()
     .unwrap();
@@ -122,15 +122,15 @@ fn eval_internal_show_cursor_per_window_state() {
     // Both start visible
     assert_eq!(
         builtin_internal_show_cursor_p(&mut eval, vec![selected]).unwrap(),
-        Value::True
+        Value::T
     );
     assert_eq!(
         builtin_internal_show_cursor_p(&mut eval, vec![other]).unwrap(),
-        Value::True
+        Value::T
     );
 
     // Hide selected window cursor
-    builtin_internal_show_cursor(&mut eval, vec![Value::Nil, Value::Nil]).unwrap();
+    builtin_internal_show_cursor(&mut eval, vec![Value::NIL, Value::NIL]).unwrap();
     assert!(
         builtin_internal_show_cursor_p(&mut eval, vec![selected])
             .unwrap()
@@ -138,18 +138,18 @@ fn eval_internal_show_cursor_per_window_state() {
     );
     assert_eq!(
         builtin_internal_show_cursor_p(&mut eval, vec![other]).unwrap(),
-        Value::True
+        Value::T
     );
 }
 
 #[test]
 fn frame_z_order_lessp_returns_nil() {
-    let result = builtin_frame_z_order_lessp(vec![Value::Nil, Value::Nil]).unwrap();
+    let result = builtin_frame_z_order_lessp(vec![Value::NIL, Value::NIL]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn frame_z_order_lessp_requires_two_args() {
     assert!(builtin_frame_z_order_lessp(vec![]).is_err());
-    assert!(builtin_frame_z_order_lessp(vec![Value::Nil]).is_err());
+    assert!(builtin_frame_z_order_lessp(vec![Value::NIL]).is_err());
 }

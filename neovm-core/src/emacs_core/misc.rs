@@ -11,6 +11,7 @@ use super::expr::Expr;
 use super::intern::resolve_sym;
 use super::string_escape::{bytes_to_unibyte_storage_string, encode_nonunicode_char_for_storage};
 use super::value::*;
+use crate::emacs_core::value::{ValueKind};
 
 const RAW_BYTE_SENTINEL_BASE: u32 = 0xE000;
 const RAW_BYTE_SENTINEL_MIN: u32 = 0xE080;
@@ -28,7 +29,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -39,7 +40,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -50,7 +51,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -58,8 +59,8 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 }
 
 fn expect_wholenump(val: &Value) -> Result<i64, Flow> {
-    match val {
-        Value::Int(n) if *n >= 0 => Ok(*n),
+    match val.kind() {
+        ValueKind::Fixnum(n) if n >= 0 => Ok(n),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("wholenump"), *other],
@@ -68,8 +69,8 @@ fn expect_wholenump(val: &Value) -> Result<i64, Flow> {
 }
 
 fn expect_string(val: &Value) -> Result<String, Flow> {
-    match val {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+    match val.kind() {
+        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -78,9 +79,9 @@ fn expect_string(val: &Value) -> Result<String, Flow> {
 }
 
 fn expect_char(val: &Value) -> Result<char, Flow> {
-    match val {
-        Value::Char(c) => Ok(*c),
-        Value::Int(n) => char::from_u32(*n as u32).ok_or_else(|| {
+    match val.kind() {
+        ValueKind::Char(c) => Ok(c),
+        ValueKind::Fixnum(n) => char::from_u32(n as u32).ok_or_else(|| {
             signal(
                 "wrong-type-argument",
                 vec![Value::symbol("characterp"), *val],
@@ -94,9 +95,9 @@ fn expect_char(val: &Value) -> Result<char, Flow> {
 }
 
 fn expect_character_code(val: &Value) -> Result<i64, Flow> {
-    match val {
-        Value::Char(c) => Ok(*c as i64),
-        Value::Int(n) if (0..=MAX_EMACS_CHAR).contains(n) => Ok(*n),
+    match val.kind() {
+        ValueKind::Char(c) => Ok(c as i64),
+        ValueKind::Fixnum(n) if (0..=MAX_EMACS_CHAR).contains(n) => Ok(n),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *other],
@@ -152,14 +153,14 @@ pub(crate) fn builtin_copy_alist(args: Vec<Value>) -> EvalResult {
     let mut result = Vec::new();
     let mut cursor = *alist;
     loop {
-        match cursor {
-            Value::Nil => break,
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
+        match cursor.kind() {
+            ValueKind::Nil => break,
+            ValueKind::Cons => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 // If the element is a cons, copy it; otherwise keep as-is
-                let entry = match &pair.car {
-                    Value::Cons(inner) => {
-                        let inner_pair = read_cons(*inner);
+                let entry = match pair.car.kind() {
+                    ValueKind::Cons => {
+                        let inner_pair = read_cons(*inner);  // TODO(tagged): replace read_cons with cons accessors
                         Value::cons(inner_pair.car, inner_pair.cdr)
                     }
                     other => *other,
@@ -186,12 +187,12 @@ pub(crate) fn builtin_rassoc(args: Vec<Value>) -> EvalResult {
     let alist = &args[1];
     let mut cursor = *alist;
     loop {
-        match cursor {
-            Value::Nil => return Ok(Value::Nil),
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
-                if let Value::Cons(inner) = &pair.car {
-                    let inner_pair = read_cons(*inner);
+        match cursor.kind() {
+            ValueKind::Nil => return Ok(Value::NIL),
+            ValueKind::Cons => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+                if &pair.car.is_cons() /* TODO(tagged): `inner` was ValueKind::Cons, now use accessor */ {
+                    let inner_pair = read_cons(*inner);  // TODO(tagged): replace read_cons with cons accessors
                     if equal_value(&inner_pair.cdr, key, 0) {
                         return Ok(pair.car);
                     }
@@ -215,19 +216,19 @@ pub(crate) fn builtin_rassq(args: Vec<Value>) -> EvalResult {
     let alist = &args[1];
     let mut cursor = *alist;
     loop {
-        match cursor {
-            Value::Nil => return Ok(Value::Nil),
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
-                if let Value::Cons(inner) = &pair.car {
-                    let inner_pair = read_cons(*inner);
+        match cursor.kind() {
+            ValueKind::Nil => return Ok(Value::NIL),
+            ValueKind::Cons => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+                if &pair.car.is_cons() /* TODO(tagged): `inner` was ValueKind::Cons, now use accessor */ {
+                    let inner_pair = read_cons(*inner);  // TODO(tagged): replace read_cons with cons accessors
                     if eq_value(&inner_pair.cdr, key) {
                         return Ok(pair.car);
                     }
                 }
                 cursor = pair.cdr;
             }
-            _ => return Ok(Value::Nil),
+            _ => return Ok(Value::NIL),
         }
     }
 }
@@ -256,10 +257,10 @@ pub(crate) fn builtin_safe_length(args: Vec<Value>) -> EvalResult {
     expect_args("safe-length", &args, 1)?;
     let list = &args[0];
     if list.is_nil() {
-        return Ok(Value::Int(0));
+        return Ok(Value::fixnum(0));
     }
     if !list.is_cons() {
-        return Ok(Value::Int(0));
+        return Ok(Value::fixnum(0));
     }
 
     // GNU uses FOR_EACH_TAIL_SAFE which implements Brent's cycle
@@ -272,20 +273,20 @@ pub(crate) fn builtin_safe_length(args: Vec<Value>) -> EvalResult {
     let mut step: i64 = 0;
 
     loop {
-        match hare {
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
+        match hare.kind() {
+            ValueKind::Cons => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 hare = pair.cdr;
                 length += 1;
                 step += 1;
             }
-            _ => return Ok(Value::Int(length)),
+            _ => return Ok(Value::fixnum(length)),
         }
 
         // Brent's: check if hare caught up to tortoise
-        if let (Value::Cons(a), Value::Cons(b)) = (&hare, &tortoise) {
+        if let (Value::Cons(a) /* TODO(tagged): convert Value::Cons to new API */, Value::Cons(b) /* TODO(tagged): convert Value::Cons to new API */) = (&hare, &tortoise) {
             if a == b {
-                return Ok(Value::Int(length));
+                return Ok(Value::fixnum(length));
             }
         }
 
@@ -298,7 +299,7 @@ pub(crate) fn builtin_safe_length(args: Vec<Value>) -> EvalResult {
         }
 
         if length > 10_000_000 {
-            return Ok(Value::Int(length));
+            return Ok(Value::fixnum(length));
         }
     }
 }
@@ -322,7 +323,7 @@ pub(crate) fn builtin_subst_char_in_string(args: Vec<Value>) -> EvalResult {
 /// `(string-to-multibyte STRING)` -- convert unibyte storage bytes to multibyte chars.
 pub(crate) fn builtin_string_to_multibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-to-multibyte", &args, 1)?;
-    if let Value::Str(id) = args[0] {
+    if args[0].is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
         if with_heap(|h| h.string_is_multibyte(id)) {
             return Ok(args[0]);
         }
@@ -336,7 +337,7 @@ pub(crate) fn builtin_string_to_multibyte(args: Vec<Value>) -> EvalResult {
 /// `(string-to-unibyte STRING)` -- convert to unibyte storage.
 pub(crate) fn builtin_string_to_unibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-to-unibyte", &args, 1)?;
-    if let Value::Str(id) = args[0] {
+    if args[0].is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
         if !with_heap(|h| h.string_is_multibyte(id)) {
             return Ok(args[0]);
         }
@@ -375,7 +376,7 @@ pub(crate) fn builtin_string_to_unibyte(args: Vec<Value>) -> EvalResult {
 /// `(string-as-unibyte STRING)` -- reinterpret as unibyte byte sequence.
 pub(crate) fn builtin_string_as_unibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-as-unibyte", &args, 1)?;
-    if let Value::Str(id) = args[0] {
+    if args[0].is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
         if !with_heap(|h| h.string_is_multibyte(id)) {
             return Ok(args[0]);
         }
@@ -411,7 +412,7 @@ pub(crate) fn builtin_string_as_unibyte(args: Vec<Value>) -> EvalResult {
 /// `(string-as-multibyte STRING)` -- reinterpret unibyte storage as multibyte.
 pub(crate) fn builtin_string_as_multibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-as-multibyte", &args, 1)?;
-    if let Value::Str(id) = args[0] {
+    if args[0].is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
         if with_heap(|h| h.string_is_multibyte(id)) {
             return Ok(args[0]);
         }
@@ -433,9 +434,9 @@ pub(crate) fn builtin_unibyte_char_to_multibyte(args: Vec<Value>) -> EvalResult 
         ));
     }
     if code < 0x80 {
-        Ok(Value::Int(code))
+        Ok(Value::fixnum(code))
     } else {
-        Ok(Value::Int(code + 0x3FFF00))
+        Ok(Value::fixnum(code + 0x3FFF00))
     }
 }
 
@@ -444,21 +445,21 @@ pub(crate) fn builtin_multibyte_char_to_unibyte(args: Vec<Value>) -> EvalResult 
     expect_args("multibyte-char-to-unibyte", &args, 1)?;
     let code = expect_character_code(&args[0])?;
     if code <= 0xFF {
-        return Ok(Value::Int(code));
+        return Ok(Value::fixnum(code));
     }
     if (0x3FFF80..=0x3FFFFF).contains(&code) {
-        return Ok(Value::Int(code - 0x3FFF00));
+        return Ok(Value::fixnum(code - 0x3FFF00));
     }
-    Ok(Value::Int(-1))
+    Ok(Value::fixnum(-1))
 }
 
 /// `(locale-info ITEM)` -- minimal locale info.
 /// Returns a small oracle-aligned subset in batch mode.
 pub(crate) fn builtin_locale_info(args: Vec<Value>) -> EvalResult {
     expect_args("locale-info", &args, 1)?;
-    match &args[0] {
-        Value::Symbol(item) if resolve_sym(*item) == "codeset" => Ok(Value::string("UTF-8")),
-        Value::Symbol(item) if resolve_sym(*item) == "days" => Ok(Value::vector(vec![
+    match args[0].kind() {
+        ValueKind::Symbol(item) if resolve_sym(item) == "codeset" => Ok(Value::string("UTF-8")),
+        ValueKind::Symbol(item) if resolve_sym(item) == "days" => Ok(Value::vector(vec![
             Value::string("Sunday"),
             Value::string("Monday"),
             Value::string("Tuesday"),
@@ -467,7 +468,7 @@ pub(crate) fn builtin_locale_info(args: Vec<Value>) -> EvalResult {
             Value::string("Friday"),
             Value::string("Saturday"),
         ])),
-        Value::Symbol(item) if resolve_sym(*item) == "months" => Ok(Value::vector(vec![
+        ValueKind::Symbol(item) if resolve_sym(item) == "months" => Ok(Value::vector(vec![
             Value::string("January"),
             Value::string("February"),
             Value::string("March"),
@@ -481,10 +482,10 @@ pub(crate) fn builtin_locale_info(args: Vec<Value>) -> EvalResult {
             Value::string("November"),
             Value::string("December"),
         ])),
-        Value::Symbol(item) if resolve_sym(*item) == "paper" => {
-            Ok(Value::list(vec![Value::Int(210), Value::Int(297)]))
+        ValueKind::Symbol(item) if resolve_sym(item) == "paper" => {
+            Ok(Value::list(vec![ValueKind::Fixnum(210), ValueKind::Fixnum(297)]))
         }
-        _ => Ok(Value::Nil),
+        _ => Ok(Value::NIL),
     }
 }
 
@@ -492,7 +493,7 @@ pub(crate) fn builtin_locale_info(args: Vec<Value>) -> EvalResult {
 #[cfg(test)]
 pub(crate) fn builtin_display_line_numbers_update_width(args: Vec<Value>) -> EvalResult {
     expect_args("display-line-numbers-update-width", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // ===========================================================================
@@ -510,31 +511,31 @@ pub(crate) fn builtin_backtrace_frame(
     let nframes = expect_wholenump(&args[0])?;
 
     if args.get(1).is_some_and(|v| v.is_truthy()) {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
-    match nframes {
+    match nframes.kind() {
         0 => {
-            let mut frame = vec![Value::True, Value::symbol("backtrace-frame"), Value::Int(0)];
+            let mut frame = vec![ValueKind::T, Value::symbol("backtrace-frame"), ValueKind::Fixnum(0)];
             if args.len() > 1 {
                 frame.push(args[1]);
             }
             Ok(Value::list(frame))
         }
         1 => {
-            let mut call = vec![Value::symbol("backtrace-frame"), Value::Int(1)];
+            let mut call = vec![Value::symbol("backtrace-frame"), ValueKind::Fixnum(1)];
             if args.len() > 1 {
                 call.push(args[1]);
             }
             Ok(Value::list(vec![
-                Value::True,
+                ValueKind::T,
                 Value::symbol("eval"),
                 Value::list(call),
-                Value::Nil,
+                ValueKind::Nil,
             ]))
         }
-        2 | 3 => Ok(Value::list(vec![Value::Nil])),
-        _ => Ok(Value::Nil),
+        2 | 3 => Ok(Value::list(vec![Value::NIL])),
+        _ => Ok(Value::NIL),
     }
 }
 
@@ -563,7 +564,7 @@ pub(crate) fn builtin_backtrace_frames_from_thread(
     expect_args("backtrace--frames-from-thread", &args, 1)?;
     expect_threadp_in_state(&eval.threads, &args[0])?;
     Ok(Value::list(vec![Value::list(vec![
-        Value::True,
+        Value::T,
         Value::symbol("backtrace--frames-from-thread"),
         args[0],
     ])]))
@@ -580,13 +581,13 @@ pub(crate) fn builtin_backtrace_locals(
     if frame == 0 {
         return Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("wholenump"), Value::Int(-1)],
+            vec![Value::symbol("wholenump"), Value::fixnum(-1)],
         ));
     }
     if let Some(base) = args.get(1) {
         let _ = expect_wholenump(base)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(backtrace-debug FRAME INDEX &optional FLAG)` -- batch-compatible helper.
@@ -610,15 +611,15 @@ pub(crate) fn builtin_backtrace_eval(
     expect_max_args("backtrace-eval", &args, 3)?;
     let _ = expect_wholenump(&args[0])?;
     let _ = expect_wholenump(&args[1])?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 fn runtime_backtrace_indirect_function(
     eval: &super::eval::Context,
     function: Value,
 ) -> Option<Value> {
-    match function {
-        Value::Symbol(symbol) => {
+    match function.kind() {
+        ValueKind::Symbol(symbol) => {
             super::builtins::symbols::resolve_indirect_symbol_by_id_in_obarray(
                 &eval.obarray,
                 symbol,
@@ -626,8 +627,8 @@ fn runtime_backtrace_indirect_function(
             .map(|(_, value)| value)
             .or(Some(function))
         }
-        Value::True => runtime_backtrace_indirect_function(eval, Value::symbol("t")),
-        Value::Keyword(symbol) => {
+        ValueKind::T => runtime_backtrace_indirect_function(eval, Value::symbol("t")),
+        ValueKind::Keyword(symbol) => {
             super::builtins::symbols::resolve_indirect_symbol_by_id_in_obarray(
                 &eval.obarray,
                 symbol,
@@ -635,7 +636,7 @@ fn runtime_backtrace_indirect_function(
             .map(|(_, value)| value)
             .or(Some(function))
         }
-        Value::Nil => None,
+        ValueKind::Nil => None,
         other => Some(other),
     }
 }
@@ -646,9 +647,9 @@ fn runtime_backtrace_frames_from_base(
 ) -> Result<Vec<super::eval::RuntimeBacktraceFrame>, Flow> {
     let mut offset = 0usize;
     let mut base_function = base;
-    if let Value::Cons(cell) = base {
-        let pair = read_cons(cell);
-        if let Value::Int(raw_offset) = pair.car {
+    if base.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+        if let Some(raw_offset) = pair.car.as_fixnum() {
             if raw_offset < 0 {
                 return Err(signal(
                     "wrong-type-argument",
@@ -701,9 +702,9 @@ fn runtime_backtrace_frames_from_base(
 
 fn runtime_backtrace_frame_flags(frame: &super::eval::RuntimeBacktraceFrame) -> Value {
     if frame.debug_on_exit {
-        Value::list(vec![Value::symbol(":debug-on-exit"), Value::True])
+        Value::list(vec![Value::symbol(":debug-on-exit"), Value::T])
     } else {
-        Value::Nil
+        Value::NIL
     }
 }
 
@@ -715,7 +716,7 @@ fn apply_backtrace_callback(
     eval.apply(
         function,
         vec![
-            Value::bool(frame.evaluated),
+            Value::bool_val(frame.evaluated),
             frame.function,
             Value::list(frame.args.clone()),
             runtime_backtrace_frame_flags(frame),
@@ -736,7 +737,7 @@ pub(crate) fn builtin_backtrace_frame_internal(
     let nframes = expect_wholenump(&args[1])? as usize;
     let frames = runtime_backtrace_frames_from_base(eval, args[2])?;
     let Some(frame) = frames.get(nframes) else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     apply_backtrace_callback(eval, args[0], frame)
 }
@@ -749,12 +750,12 @@ pub(crate) fn builtin_mapbacktrace(
 ) -> EvalResult {
     expect_min_args("mapbacktrace", &args, 1)?;
     expect_max_args("mapbacktrace", &args, 2)?;
-    let base = args.get(1).copied().unwrap_or(Value::Nil);
+    let base = args.get(1).copied().unwrap_or(Value::NIL);
     let frames = runtime_backtrace_frames_from_base(eval, base)?;
     for frame in &frames {
         apply_backtrace_callback(eval, args[0], frame)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(recursion-depth)` -- return the current Lisp recursion depth.
@@ -765,7 +766,7 @@ pub(crate) fn builtin_recursion_depth(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("recursion-depth", &args, 0)?;
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 // ===========================================================================

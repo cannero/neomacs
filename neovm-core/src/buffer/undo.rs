@@ -16,11 +16,11 @@
 //! - `(t . MODTIME)` — first-change marker
 //! - `nil` — undo boundary
 
-use crate::emacs_core::value::Value;
+use crate::emacs_core::value::{Value, ValueKind};
 
 /// Returns `true` when `buffer-undo-list` is `t` (undo disabled).
 pub fn undo_list_is_disabled(undo_list: &Value) -> bool {
-    matches!(undo_list, Value::True)
+    undo_list.is_t()
 }
 
 /// Record that text was inserted at byte position `beg` with byte length
@@ -51,15 +51,15 @@ pub fn undo_list_record_insert(undo_list: &mut Value, beg: usize, len: usize, pt
         if head.is_cons() {
             let car = head.cons_car();
             let cdr = head.cons_cdr();
-            if let (Value::Int(prev_beg), Value::Int(prev_end)) = (car, cdr) {
+            if let (Value::fixnum(prev_beg), Value::fixnum(prev_end)) = (car, cdr) {
                 if prev_end == beg1 {
                     // Merge: extend the existing insert entry.
-                    head.set_cdr(Value::Int(prev_end + len as i64));
+                    head.set_cdr(Value::fixnum(prev_end + len as i64));
                     return;
                 }
                 // Check if insert is at the beginning of the previous range
                 if prev_beg == end1 {
-                    head.set_car(Value::Int(beg1));
+                    head.set_car(Value::fixnum(beg1));
                     return;
                 }
                 let _ = (prev_beg, prev_end); // suppress unused warnings
@@ -67,7 +67,7 @@ pub fn undo_list_record_insert(undo_list: &mut Value, beg: usize, len: usize, pt
         }
     }
 
-    let entry = Value::cons(Value::Int(beg1), Value::Int(end1));
+    let entry = Value::cons(Value::fixnum(beg1), Value::fixnum(end1));
     *undo_list = Value::cons(entry, *undo_list);
 }
 
@@ -90,7 +90,7 @@ pub fn undo_list_record_delete(undo_list: &mut Value, beg: usize, text: &str, pt
     let pos1 = (beg + 1) as i64;
     let stored_pos = if pt == beg + text.len() { -pos1 } else { pos1 };
 
-    let entry = Value::cons(Value::string(text), Value::Int(stored_pos));
+    let entry = Value::cons(Value::string(text), Value::fixnum(stored_pos));
     *undo_list = Value::cons(entry, *undo_list);
 }
 
@@ -100,7 +100,7 @@ pub fn undo_list_record_point(undo_list: &mut Value, pt: usize) {
     if undo_list_is_disabled(undo_list) {
         return;
     }
-    let pt1 = Value::Int((pt + 1) as i64);
+    let pt1 = Value::fixnum((pt + 1) as i64);
 
     // Don't record consecutive identical positions.
     if undo_list.is_cons() {
@@ -128,13 +128,13 @@ pub fn undo_list_record_property_change(
     if undo_list_is_disabled(undo_list) || beg >= end {
         return;
     }
-    let beg1 = Value::Int((beg + 1) as i64);
-    let end1 = Value::Int((end + 1) as i64);
+    let beg1 = Value::fixnum((beg + 1) as i64);
+    let end1 = Value::fixnum((end + 1) as i64);
     // Build (nil PROP VAL BEG . END)
     let inner = Value::cons(beg1, end1);
     let inner = Value::cons(val, inner);
     let inner = Value::cons(prop, inner);
-    let entry = Value::cons(Value::Nil, inner);
+    let entry = Value::cons(Value::NIL, inner);
     *undo_list = Value::cons(entry, *undo_list);
 }
 
@@ -143,7 +143,7 @@ pub fn undo_list_record_first_change(undo_list: &mut Value) {
     if undo_list_is_disabled(undo_list) {
         return;
     }
-    let entry = Value::cons(Value::True, Value::Int(0));
+    let entry = Value::cons(Value::T, Value::fixnum(0));
     *undo_list = Value::cons(entry, *undo_list);
 }
 
@@ -160,7 +160,7 @@ pub fn undo_list_boundary(undo_list: &mut Value) {
     if undo_list.is_cons() && undo_list.cons_car().is_nil() {
         return;
     }
-    *undo_list = Value::cons(Value::Nil, *undo_list);
+    *undo_list = Value::cons(Value::NIL, *undo_list);
 }
 
 /// Pop one undo group from the front of the list.
@@ -215,19 +215,19 @@ pub fn undo_list_has_trailing_boundary(undo_list: &Value) -> bool {
 /// Estimate the byte size of one undo entry for truncation purposes.
 /// Each cons cell counts as 16 bytes; strings count their byte length.
 fn undo_entry_size(entry: &Value) -> usize {
-    match entry {
-        Value::Nil => 0,
-        Value::Int(_) => 8,
-        Value::Str(_) => entry.as_str().map(|s| s.len()).unwrap_or(8),
+    match entry.kind() {
+        ValueKind::Nil => 0,
+        ValueKind::Fixnum(_) => 8,
+        ValueKind::String => entry.as_str().map(|s| s.len()).unwrap_or(8),
         _ if entry.is_cons() => {
             let car = entry.cons_car();
             let cdr = entry.cons_cdr();
-            let car_size = match car {
-                Value::Str(_) => car.as_str().map(|s| s.len()).unwrap_or(8),
+            let car_size = match car.kind() {
+                ValueKind::String => car.as_str().map(|s| s.len()).unwrap_or(8),
                 _ => 8,
             };
-            let cdr_size = match cdr {
-                Value::Str(_) => cdr.as_str().map(|s| s.len()).unwrap_or(8),
+            let cdr_size = match cdr.kind() {
+                ValueKind::String => cdr.as_str().map(|s| s.len()).unwrap_or(8),
                 _ => 8,
             };
             16 + car_size + cdr_size
@@ -258,7 +258,7 @@ pub fn truncate_undo_list(undo_list: Value, undo_limit: usize, undo_strong_limit
 
         if total_size > undo_strong_limit {
             // Immediate truncation: cut here.
-            scan.set_cdr(Value::Nil);
+            scan.set_cdr(Value::NIL);
             return undo_list;
         }
 
@@ -268,7 +268,7 @@ pub fn truncate_undo_list(undo_list: Value, undo_limit: usize, undo_strong_limit
 
         if past_limit && entry.is_nil() {
             // Found a boundary past the limit — truncate after this boundary.
-            scan.set_cdr(Value::Nil);
+            scan.set_cdr(Value::NIL);
             return undo_list;
         }
 
@@ -289,7 +289,7 @@ mod tests {
 
     #[test]
     fn basic_insert_undo() {
-        let mut list = Value::Nil;
+        let mut list = Value::NIL;
         undo_list_record_insert(&mut list, 0, 5, 0);
         undo_list_record_insert(&mut list, 5, 3, 5);
         undo_list_boundary(&mut list);
@@ -302,13 +302,13 @@ mod tests {
         assert_eq!(group.len(), 1); // merged into one entry
         let entry = group[0];
         assert!(entry.is_cons());
-        assert_eq!(entry.cons_car(), Value::Int(1));
-        assert_eq!(entry.cons_cdr(), Value::Int(9));
+        assert_eq!(entry.cons_car(), Value::fixnum(1));
+        assert_eq!(entry.cons_cdr(), Value::fixnum(9));
     }
 
     #[test]
     fn delete_records_text() {
-        let mut list = Value::Nil;
+        let mut list = Value::NIL;
         undo_list_record_delete(&mut list, 3, "hello", 3);
         undo_list_boundary(&mut list);
 
@@ -317,14 +317,14 @@ mod tests {
         let entry = group[0];
         assert!(entry.is_cons());
         let car = entry.cons_car();
-        assert!(matches!(car, Value::Str(_)));
+        assert!(car.is_string());
         // POS should be positive (4) because pt==beg
-        assert_eq!(entry.cons_cdr(), Value::Int(4));
+        assert_eq!(entry.cons_cdr(), Value::fixnum(4));
     }
 
     #[test]
     fn boundary_separates_groups() {
-        let mut list = Value::Nil;
+        let mut list = Value::NIL;
         undo_list_record_insert(&mut list, 0, 1, 0);
         undo_list_boundary(&mut list);
         undo_list_record_insert(&mut list, 1, 1, 1);
@@ -334,44 +334,44 @@ mod tests {
         assert_eq!(g2.len(), 1);
         let entry = g2[0];
         assert!(entry.is_cons());
-        assert_eq!(entry.cons_car(), Value::Int(2)); // 1+1
-        assert_eq!(entry.cons_cdr(), Value::Int(3)); // 1+1+1
+        assert_eq!(entry.cons_car(), Value::fixnum(2)); // 1+1
+        assert_eq!(entry.cons_cdr(), Value::fixnum(3)); // 1+1+1
 
         let g1 = undo_list_pop_group(&mut list);
         assert_eq!(g1.len(), 1);
         let entry = g1[0];
         assert!(entry.is_cons());
-        assert_eq!(entry.cons_car(), Value::Int(1)); // 0+1
-        assert_eq!(entry.cons_cdr(), Value::Int(2)); // 0+1+1
+        assert_eq!(entry.cons_car(), Value::fixnum(1)); // 0+1
+        assert_eq!(entry.cons_cdr(), Value::fixnum(2)); // 0+1+1
     }
 
     #[test]
     fn disabled_records_nothing() {
-        let mut list = Value::True;
+        let mut list = Value::T;
         undo_list_record_insert(&mut list, 0, 5, 0);
         assert!(undo_list_is_disabled(&list));
     }
 
     #[test]
     fn cursor_move_dedup() {
-        let mut list = Value::Nil;
+        let mut list = Value::NIL;
         undo_list_record_point(&mut list, 5);
         undo_list_record_point(&mut list, 5);
         undo_list_record_point(&mut list, 5);
         // Should only have one entry
         assert!(list.is_cons());
-        assert_eq!(list.cons_car(), Value::Int(6));
+        assert_eq!(list.cons_car(), Value::fixnum(6));
         assert!(list.cons_cdr().is_nil());
 
         undo_list_record_point(&mut list, 10);
         // Now should have two entries
         assert!(list.is_cons());
-        assert_eq!(list.cons_car(), Value::Int(11));
+        assert_eq!(list.cons_car(), Value::fixnum(11));
     }
 
     #[test]
     fn no_double_boundary() {
-        let mut list = Value::Nil;
+        let mut list = Value::NIL;
         undo_list_record_insert(&mut list, 0, 1, 0);
         undo_list_boundary(&mut list);
         undo_list_boundary(&mut list);
@@ -385,7 +385,7 @@ mod tests {
 
     #[test]
     fn to_value_produces_list() {
-        let mut list = Value::Nil;
+        let mut list = Value::NIL;
         undo_list_record_insert(&mut list, 0, 5, 0);
         undo_list_boundary(&mut list);
         assert!(list.is_list());
@@ -395,11 +395,11 @@ mod tests {
     fn undoing_flag_not_needed() {
         // The undoing flag is now tracked on Buffer, not in the undo list itself.
         // This test just verifies that disabled lists don't record.
-        let mut list = Value::True; // disabled
+        let mut list = Value::T; // disabled
         undo_list_record_insert(&mut list, 0, 5, 0);
         assert!(undo_list_is_disabled(&list));
 
-        let mut list2 = Value::Nil; // enabled
+        let mut list2 = Value::NIL; // enabled
         undo_list_record_insert(&mut list2, 0, 5, 0);
         assert!(!undo_list_is_empty(&list2));
     }

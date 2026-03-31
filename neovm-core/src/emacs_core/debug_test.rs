@@ -17,7 +17,7 @@ fn backtrace_push_pop() {
 
     bt.push(BacktraceFrame {
         function: "foo".to_string(),
-        args: vec![Value::Int(1)],
+        args: vec![Value::fixnum(1)],
         file: None,
         line: None,
         is_special_form: false,
@@ -26,7 +26,7 @@ fn backtrace_push_pop() {
 
     bt.push(BacktraceFrame {
         function: "bar".to_string(),
-        args: vec![Value::Int(2), Value::Int(3)],
+        args: vec![Value::fixnum(2), Value::fixnum(3)],
         file: Some("test.el".to_string()),
         line: Some(42),
         is_special_form: false,
@@ -64,14 +64,14 @@ fn backtrace_format_nonempty() {
     let mut bt = Backtrace::new();
     bt.push(BacktraceFrame {
         function: "+".to_string(),
-        args: vec![Value::Int(1), Value::Int(2)],
+        args: vec![Value::fixnum(1), Value::fixnum(2)],
         file: None,
         line: None,
         is_special_form: false,
     });
     bt.push(BacktraceFrame {
         function: "my-add".to_string(),
-        args: vec![Value::Int(1), Value::Int(2)],
+        args: vec![Value::fixnum(1), Value::fixnum(2)],
         file: Some("test.el".to_string()),
         line: Some(10),
         is_special_form: false,
@@ -94,7 +94,7 @@ fn backtrace_format_special_form() {
     let mut bt = Backtrace::new();
     bt.push(BacktraceFrame {
         function: "if".to_string(),
-        args: vec![Value::True],
+        args: vec![Value::T],
         file: None,
         line: None,
         is_special_form: true,
@@ -367,7 +367,7 @@ fn help_describe_function_with_docstore() {
 
 #[test]
 fn help_describe_function_subr() {
-    let subr = Value::Subr(intern("car"));
+    let subr = Value::subr(intern("car"));
     let output = HelpFormatter::describe_function("car", &subr, Some("Return the car of LIST."));
     assert!(output.contains("car is a built-in function."));
     assert!(output.contains("Return the car of LIST."));
@@ -375,7 +375,7 @@ fn help_describe_function_subr() {
 
 #[test]
 fn help_describe_function_no_doc() {
-    let subr = Value::Subr(intern("mystery"));
+    let subr = Value::subr(intern("mystery"));
     let output = HelpFormatter::describe_function("mystery", &subr, None);
     assert!(output.contains("Not documented."));
 }
@@ -387,7 +387,7 @@ fn help_describe_function_closure() {
     let lam = Value::make_lambda(LambdaData {
         params: LambdaParams::simple(vec![intern("x")]),
         body: vec![].into(),
-        env: Some(Value::Nil),
+        env: Some(Value::NIL),
         docstring: None,
         doc_form: None,
         interactive: None,
@@ -400,7 +400,7 @@ fn help_describe_function_closure() {
 fn help_describe_variable() {
     let output = HelpFormatter::describe_variable(
         "fill-column",
-        &Value::Int(70),
+        &Value::fixnum(70),
         Some("Column beyond which automatic line-filling takes place."),
     );
     assert!(output.contains("fill-column's value is 70"));
@@ -409,7 +409,7 @@ fn help_describe_variable() {
 
 #[test]
 fn help_describe_variable_no_doc() {
-    let output = HelpFormatter::describe_variable("x", &Value::Nil, None);
+    let output = HelpFormatter::describe_variable("x", &Value::NIL, None);
     assert!(output.contains("x's value is nil"));
     assert!(output.contains("Not documented."));
 }
@@ -488,7 +488,7 @@ fn debug_state_full_workflow() {
     // Use the backtrace
     ds.current_backtrace.push(BacktraceFrame {
         function: "my-fn".to_string(),
-        args: vec![Value::Int(1)],
+        args: vec![Value::fixnum(1)],
         file: None,
         line: None,
         is_special_form: false,

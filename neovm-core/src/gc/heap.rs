@@ -3,7 +3,7 @@
 use super::types::{HeapObject, MarkerData, ObjId, OverlayData};
 use crate::buffer::BufferId;
 use crate::emacs_core::bytecode::ByteCodeFunction;
-use crate::emacs_core::value::{HashTableTest, LambdaData, LispHashTable, Value};
+use crate::emacs_core::value::{HashTableTest, LambdaData, LispHashTable, Value, ValueKind, VecLikeType};
 use std::collections::HashSet;
 
 /// GC collection phase (tri-color incremental).
@@ -259,11 +259,11 @@ impl LispHeap {
 
     /// Extract ObjId from a Value, if it contains one.
     fn value_objid(val: &Value) -> Option<ObjId> {
-        match val {
-            Value::Cons(id) | Value::Vector(id) | Value::Record(id)
-            | Value::HashTable(id) | Value::Str(id) | Value::Lambda(id)
-            | Value::Macro(id) | Value::ByteCode(id) | Value::Overlay(id)
-            | Value::Marker(id) => Some(*id),
+        match val.kind() {
+            ValueKind::Cons | ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record)
+            | ValueKind::Veclike(VecLikeType::HashTable) | ValueKind::String | ValueKind::Veclike(VecLikeType::Lambda)
+            | ValueKind::Veclike(VecLikeType::Macro) | ValueKind::Veclike(VecLikeType::ByteCode) | ValueKind::Veclike(VecLikeType::Overlay)
+            | ValueKind::Veclike(VecLikeType::Marker) => Some(*id),
             _ => None,
         }
     }
@@ -574,9 +574,9 @@ impl LispHeap {
         let mut result = Vec::new();
         let mut cursor = *value;
         loop {
-            match cursor {
-                Value::Nil => return Some(result),
-                Value::Cons(id) => {
+            match cursor.kind() {
+                ValueKind::Nil => return Some(result),
+                ValueKind::Cons => {
                     result.push(self.cons_car(id));
                     cursor = self.cons_cdr(id);
                 }
@@ -589,9 +589,9 @@ impl LispHeap {
         let mut len = 0;
         let mut cursor = *value;
         loop {
-            match cursor {
-                Value::Nil => return Some(len),
-                Value::Cons(id) => {
+            match cursor.kind() {
+                ValueKind::Nil => return Some(len),
+                ValueKind::Cons => {
                     len += 1;
                     cursor = self.cons_cdr(id);
                 }
@@ -608,8 +608,8 @@ impl LispHeap {
         if depth > 4096 {
             return false;
         }
-        match (a, b) {
-            (Value::Cons(ai), Value::Cons(bi)) => {
+        match (a.kind(), b.kind()) {
+            (ValueKind::Cons, ValueKind::Cons) => {
                 if ai == bi {
                     return true;
                 }
@@ -620,7 +620,7 @@ impl LispHeap {
                 self.equal_value(&a_car, &b_car, depth + 1)
                     && self.equal_value(&a_cdr, &b_cdr, depth + 1)
             }
-            (Value::Vector(ai), Value::Vector(bi)) | (Value::Record(ai), Value::Record(bi)) => {
+            (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector)) | (ValueKind::Veclike(VecLikeType::Record), ValueKind::Veclike(VecLikeType::Record)) => {
                 if ai == bi {
                     return true;
                 }
@@ -923,17 +923,17 @@ impl LispHeap {
     }
 
     fn push_value_ids(val: &Value, worklist: &mut Vec<ObjId>) {
-        match val {
-            Value::Cons(id)
-            | Value::Vector(id)
-            | Value::Record(id)
-            | Value::HashTable(id)
-            | Value::Str(id)
-            | Value::Lambda(id)
-            | Value::Macro(id)
-            | Value::ByteCode(id)
-            | Value::Overlay(id)
-            | Value::Marker(id) => worklist.push(*id),
+        match val.kind() {
+            ValueKind::Cons
+            | ValueKind::Veclike(VecLikeType::Vector)
+            | ValueKind::Veclike(VecLikeType::Record)
+            | ValueKind::Veclike(VecLikeType::HashTable)
+            | ValueKind::String
+            | ValueKind::Veclike(VecLikeType::Lambda)
+            | ValueKind::Veclike(VecLikeType::Macro)
+            | ValueKind::Veclike(VecLikeType::ByteCode)
+            | ValueKind::Veclike(VecLikeType::Overlay)
+            | ValueKind::Veclike(VecLikeType::Marker) => worklist.push(*id),
             _ => {}
         }
     }

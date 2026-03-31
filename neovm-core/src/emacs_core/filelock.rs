@@ -10,14 +10,14 @@ use std::path::{Path, PathBuf};
 
 use super::error::{EvalResult, Flow, signal};
 use super::fileio::resolve_filename_for_eval;
-use super::value::{Value, with_heap};
+use super::value::{Value, with_heap, ValueKind};
 use crate::buffer::BufferId;
 
 fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -28,7 +28,7 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
     if args.len() < min || args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -36,8 +36,8 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 }
 
 fn expect_string_arg(value: &Value) -> Result<String, Flow> {
-    match value {
-        Value::Str(id) => Ok(with_heap(|heap| heap.get_string(*id).to_owned())),
+    match value.kind() {
+        ValueKind::String => Ok(with_heap(|heap| heap.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -137,8 +137,8 @@ fn make_lock_file_name(
 ) -> Result<Option<String>, Flow> {
     let file = Value::string(filename);
     match eval.apply(Value::symbol("make-lock-file-name"), vec![file]) {
-        Ok(Value::Nil) => Ok(None),
-        Ok(Value::Str(id)) => Ok(Some(with_heap(|heap| heap.get_string(id).to_owned()))),
+        Ok(ValueKind::Nil) => Ok(None),
+        Ok(ValueKind::String) => Ok(Some(with_heap(|heap| heap.get_string(id).to_owned()))),
         Ok(other) => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), other],
@@ -213,11 +213,11 @@ fn lock_file_resolved(eval: &mut super::eval::Context, filename: &str) -> Result
         .visible_variable_value_or_nil("create-lockfiles")
         .is_truthy()
     {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let Some(lock_name) = make_lock_file_name(eval, filename)? else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     let lock_path = PathBuf::from(lock_name);
 
@@ -231,13 +231,13 @@ fn lock_file_resolved(eval: &mut super::eval::Context, filename: &str) -> Result
                     Value::symbol("ask-user-about-lock"),
                     vec![Value::string(filename), Value::string(owner)],
                 )
-                .unwrap_or(Value::Nil);
+                .unwrap_or(Value::NIL);
             if !attack.is_truthy() {
-                return Ok(Value::Nil);
+                return Ok(Value::NIL);
             }
             create_lock_file(&lock_path, &current_lock_info_string(), true)
                 .map_err(|err| file_lock_error("Locking file", filename, err))?;
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
     }
 
@@ -248,22 +248,22 @@ fn lock_file_resolved(eval: &mut super::eval::Context, filename: &str) -> Result
             file_lock_error("Locking file", filename, err)
         }
     })?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 fn unlock_file_resolved(eval: &mut super::eval::Context, filename: &str) -> Result<Value, Flow> {
     let Some(lock_name) = make_lock_file_name(eval, filename)? else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     let lock_path = PathBuf::from(lock_name);
 
     match current_lock_owner(&lock_path)
         .map_err(|err| file_lock_error("Unlocking file", filename, err))?
     {
-        LockOwner::None | LockOwner::Other(_) => Ok(Value::Nil),
+        LockOwner::None | LockOwner::Other(_) => Ok(Value::NIL),
         LockOwner::Current => match fs::remove_file(&lock_path) {
-            Ok(()) => Ok(Value::Nil),
-            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(Value::Nil),
+            Ok(()) => Ok(Value::NIL),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(Value::NIL),
             Err(err) => Err(file_lock_error("Unlocking file", filename, err)),
         },
     }
@@ -277,8 +277,8 @@ fn current_buffer_file_lock_target(
     let buffer = eval.buffers.get(root_id)?;
     let file_name = buffer.buffer_local_value("buffer-file-name")?;
     let file_truename = buffer.buffer_local_value("buffer-file-truename")?;
-    match (file_name, file_truename) {
-        (Value::Str(_), Value::Str(id)) => Some(with_heap(|heap| heap.get_string(id).to_owned())),
+    match (file_name.kind(), file_truename.kind()) {
+        (ValueKind::String, ValueKind::String) => Some(with_heap(|heap| heap.get_string(id).to_owned())),
         _ => None,
     }
 }
@@ -324,15 +324,15 @@ pub(crate) fn builtin_file_locked_p(
     let filename = expect_string_arg(&args[0])?;
     let filename = resolve_filename_for_eval(eval, &filename);
     let Some(lock_name) = make_lock_file_name(eval, &filename)? else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     let lock_path = PathBuf::from(lock_name);
 
     match current_lock_owner(&lock_path)
         .map_err(|err| file_lock_error("Testing file lock", &filename, err))?
     {
-        LockOwner::None => Ok(Value::Nil),
-        LockOwner::Current => Ok(Value::True),
+        LockOwner::None => Ok(Value::NIL),
+        LockOwner::Current => Ok(Value::T),
         LockOwner::Other(user) => Ok(Value::string(user)),
     }
 }
@@ -356,7 +356,7 @@ pub(crate) fn builtin_lock_buffer(eval: &mut super::eval::Context, args: Vec<Val
         current
             .buffer_local_value("buffer-file-truename")
             .and_then(|value| match value {
-                Value::Str(id) => Some(with_heap(|heap| heap.get_string(id).to_owned())),
+                Value::Str(id) /* TODO(tagged): convert Value::Str to new API */ => Some(with_heap(|heap| heap.get_string(id).to_owned())),
                 _ => None,
             })
             .map(|filename| resolve_filename_for_eval(eval, &filename))
@@ -369,7 +369,7 @@ pub(crate) fn builtin_lock_buffer(eval: &mut super::eval::Context, args: Vec<Val
     if modified && let Some(filename) = filename {
         let _ = lock_file_resolved(eval, &filename)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_unlock_buffer(
@@ -378,14 +378,14 @@ pub(crate) fn builtin_unlock_buffer(
 ) -> EvalResult {
     expect_args("unlock-buffer", &args, 0)?;
     let Some(current) = eval.buffers.current_buffer() else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     if current.modified_state_value().is_truthy()
-        && let Some(Value::Str(id)) = current.buffer_local_value("buffer-file-truename")
+        && let Some(Value::Str(id) /* TODO(tagged): convert Value::Str to new API */) = current.buffer_local_value("buffer-file-truename")
     {
         let filename = with_heap(|heap| heap.get_string(id).to_owned());
         let filename = resolve_filename_for_eval(eval, &filename);
         let _ = unlock_file_resolved(eval, &filename)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }

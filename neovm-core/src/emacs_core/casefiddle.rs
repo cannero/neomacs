@@ -7,6 +7,7 @@ use super::symbol::Obarray;
 use super::syntax::forward_word;
 use super::value::*;
 use crate::buffer::Buffer;
+use crate::emacs_core::value::{ValueKind};
 
 // ---------------------------------------------------------------------------
 // Argument helpers
@@ -16,7 +17,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -27,7 +28,7 @@ fn expect_min_max_args(name: &str, args: &[Value], min: usize, max: usize) -> Re
     if args.len() < min || args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -35,9 +36,9 @@ fn expect_min_max_args(name: &str, args: &[Value], min: usize, max: usize) -> Re
 }
 
 fn expect_int(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *other],
@@ -342,7 +343,7 @@ fn replace_current_buffer_region_in_buffers(
     if restore_point {
         buf.goto_char(saved_pt.min(buf.point_max()));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 fn casify_region_in_state(
@@ -373,7 +374,7 @@ fn casify_region_in_state(
 
     let replacement = transform(&text);
     if replacement == text {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     replace_current_buffer_region_in_buffers(buffers, beg, end, &replacement, true)
@@ -413,7 +414,7 @@ fn casify_word_in_state(
 
     let replacement = transform(&text);
     if replacement == text {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     if read_only {
         return Err(signal("buffer-read-only", vec![Value::string(buffer_name)]));
@@ -430,17 +431,17 @@ fn casify_word_in_state(
 /// (uppercase first, lowercase rest).  If OBJ is a character, uppercase it.
 pub(crate) fn builtin_capitalize(args: Vec<Value>) -> EvalResult {
     expect_args("capitalize", &args, 1)?;
-    match &args[0] {
-        Value::Str(_) => {
+    match args[0].kind() {
+        ValueKind::String => {
             let s = args[0].as_str().unwrap();
             let capitalized = capitalize_string(s);
             Ok(Value::string(capitalized))
         }
-        Value::Char(c) => {
-            let code = *c as i64;
+        ValueKind::Char(c) => {
+            let code = c as i64;
             Ok(Value::Int(upcase_char(code)))
         }
-        Value::Int(n) => Ok(Value::Int(upcase_char(*n))),
+        ValueKind::Fixnum(n) => Ok(Value::fixnum(upcase_char(n))),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("char-or-string-p"), *other],
@@ -477,17 +478,17 @@ fn capitalize_string(s: &str) -> String {
 /// a string, leaving the rest unchanged.  For a char, uppercase it.
 pub(crate) fn builtin_upcase_initials(args: Vec<Value>) -> EvalResult {
     expect_args("upcase-initials", &args, 1)?;
-    match &args[0] {
-        Value::Str(_) => {
+    match args[0].kind() {
+        ValueKind::String => {
             let s = args[0].as_str().unwrap();
             let result = upcase_initials_string(s);
             Ok(Value::string(result))
         }
-        Value::Char(c) => {
-            let code = *c as i64;
+        ValueKind::Char(c) => {
+            let code = c as i64;
             Ok(Value::Int(upcase_char(code)))
         }
-        Value::Int(n) => Ok(Value::Int(upcase_char(*n))),
+        ValueKind::Fixnum(n) => Ok(Value::fixnum(upcase_char(n))),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("char-or-string-p"), *other],
@@ -668,9 +669,9 @@ pub(crate) fn builtin_capitalize_word(
 pub(crate) fn builtin_char_resolve_modifiers(args: Vec<Value>) -> EvalResult {
     expect_args("char-resolve-modifiers", &args, 1)?;
 
-    let code = match &args[0] {
-        Value::Int(n) => *n,
-        Value::Char(c) => *c as i64,
+    let code = match args[0].kind() {
+        ValueKind::Fixnum(n) => n,
+        ValueKind::Char(c) => c as i64,
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -705,7 +706,7 @@ pub(crate) fn builtin_char_resolve_modifiers(args: Vec<Value>) -> EvalResult {
         }
     }
 
-    Ok(Value::Int(base | remaining_mods))
+    Ok(Value::fixnum(base | remaining_mods))
 }
 
 // ---------------------------------------------------------------------------

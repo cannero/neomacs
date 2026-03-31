@@ -27,7 +27,7 @@ fn test_undo_boundary_eval_inserts_boundary_marker() {
 #[test]
 fn test_undo_boundary_wrong_args() {
     let mut eval = super::super::eval::Context::new();
-    let result = builtin_undo_boundary(&mut eval, vec![Value::Int(1)]);
+    let result = builtin_undo_boundary(&mut eval, vec![Value::fixnum(1)]);
     assert!(result.is_err());
 }
 
@@ -35,8 +35,8 @@ fn test_undo_boundary_wrong_args() {
 fn test_primitive_undo_with_count_and_list() {
     use super::super::eval::Context;
     let mut eval = Context::new();
-    let list = Value::list(vec![Value::Nil, Value::Nil, Value::Nil]);
-    let result = builtin_primitive_undo(&mut eval, vec![Value::Int(1), list]);
+    let list = Value::list(vec![Value::NIL, Value::NIL, Value::NIL]);
+    let result = builtin_primitive_undo(&mut eval, vec![Value::fixnum(1), list]);
     assert!(result.is_ok());
     // All-nil list: one group of nothing returns unconsumed tail.
 }
@@ -45,8 +45,8 @@ fn test_primitive_undo_with_count_and_list() {
 fn test_primitive_undo_zero_count() {
     use super::super::eval::Context;
     let mut eval = Context::new();
-    let list = Value::list(vec![Value::Nil, Value::Nil]);
-    let result = builtin_primitive_undo(&mut eval, vec![Value::Int(0), list]);
+    let list = Value::list(vec![Value::NIL, Value::NIL]);
+    let result = builtin_primitive_undo(&mut eval, vec![Value::fixnum(0), list]);
     assert!(result.is_ok());
     // Zero count returns list unchanged.
     assert_eq!(format!("{:?}", result.unwrap()), format!("{:?}", list));
@@ -56,8 +56,8 @@ fn test_primitive_undo_zero_count() {
 fn test_primitive_undo_negative_count() {
     use super::super::eval::Context;
     let mut eval = Context::new();
-    let list = Value::list(vec![Value::Nil]);
-    let result = builtin_primitive_undo(&mut eval, vec![Value::Int(-5), list]);
+    let list = Value::list(vec![Value::NIL]);
+    let result = builtin_primitive_undo(&mut eval, vec![Value::fixnum(-5), list]);
     assert!(result.is_ok());
     // Negative count returns list unchanged.
     assert_eq!(format!("{:?}", result.unwrap()), format!("{:?}", list));
@@ -68,7 +68,7 @@ fn test_primitive_undo_invalid_count() {
     use super::super::eval::Context;
     let mut eval = Context::new();
     let list = Value::list(vec![]);
-    let result = builtin_primitive_undo(&mut eval, vec![Value::Float(1.5, next_float_id()), list]);
+    let result = builtin_primitive_undo(&mut eval, vec![Value::make_float(1.5), list]);
     assert!(result.is_err());
 }
 
@@ -76,7 +76,7 @@ fn test_primitive_undo_invalid_count() {
 fn test_primitive_undo_non_list_signals_wrong_type() {
     use super::super::eval::Context;
     let mut eval = Context::new();
-    let result = builtin_primitive_undo(&mut eval, vec![Value::Int(1), Value::Int(7)]);
+    let result = builtin_primitive_undo(&mut eval, vec![Value::fixnum(1), Value::fixnum(7)]);
     assert!(result.is_err());
 }
 
@@ -84,13 +84,13 @@ fn test_primitive_undo_non_list_signals_wrong_type() {
 fn test_primitive_undo_wrong_arg_count() {
     use super::super::eval::Context;
     let mut eval = Context::new();
-    let result = builtin_primitive_undo(&mut eval, vec![Value::Int(1)]);
+    let result = builtin_primitive_undo(&mut eval, vec![Value::fixnum(1)]);
     assert!(result.is_err());
 
     let result = builtin_primitive_undo(&mut eval, vec![]);
     assert!(result.is_err());
 
-    let result = builtin_primitive_undo(&mut eval, vec![Value::Int(1), Value::Nil, Value::Nil]);
+    let result = builtin_primitive_undo(&mut eval, vec![Value::fixnum(1), Value::NIL, Value::NIL]);
     assert!(result.is_err());
 }
 
@@ -105,9 +105,9 @@ fn test_primitive_undo_reverts_insertion() {
     }
     // Build an undo list that describes the insertion: (1 . 6)
     // meaning bytes [1,6) were inserted (1-indexed).
-    let entry = Value::cons(Value::Int(1), Value::Int(6));
-    let list = Value::cons(entry, Value::Nil);
-    let result = builtin_primitive_undo(&mut eval, vec![Value::Int(1), list]);
+    let entry = Value::cons(Value::fixnum(1), Value::fixnum(6));
+    let list = Value::cons(entry, Value::NIL);
+    let result = builtin_primitive_undo(&mut eval, vec![Value::fixnum(1), list]);
     assert!(result.is_ok());
     let contents = eval
         .buffers
@@ -122,9 +122,9 @@ fn test_primitive_undo_reverts_deletion() {
     use super::super::eval::Context;
     let mut eval = Context::new();
     // Buffer starts empty; the undo entry says "hello" was deleted at pos 1.
-    let entry = Value::cons(Value::string("hello"), Value::Int(1));
-    let list = Value::cons(entry, Value::Nil);
-    let result = builtin_primitive_undo(&mut eval, vec![Value::Int(1), list]);
+    let entry = Value::cons(Value::string("hello"), Value::fixnum(1));
+    let list = Value::cons(entry, Value::NIL);
+    let result = builtin_primitive_undo(&mut eval, vec![Value::fixnum(1), list]);
     assert!(result.is_ok());
     let contents = eval
         .buffers
@@ -148,7 +148,7 @@ fn test_undo_with_arg() {
     use super::super::eval::Context;
 
     let mut eval = Context::new();
-    let result = builtin_undo(&mut eval, vec![Value::Int(5)]);
+    let result = builtin_undo(&mut eval, vec![Value::fixnum(5)]);
     assert!(result.is_err());
 }
 
@@ -157,7 +157,7 @@ fn test_undo_with_invalid_arg() {
     use super::super::eval::Context;
 
     let mut eval = Context::new();
-    let result = builtin_undo(&mut eval, vec![Value::Float(1.5, next_float_id())]);
+    let result = builtin_undo(&mut eval, vec![Value::make_float(1.5)]);
     assert!(result.is_err());
 }
 
@@ -166,7 +166,7 @@ fn test_undo_with_multiple_args() {
     use super::super::eval::Context;
 
     let mut eval = Context::new();
-    let result = builtin_undo(&mut eval, vec![Value::Int(2), Value::Int(3)]);
+    let result = builtin_undo(&mut eval, vec![Value::fixnum(2), Value::fixnum(3)]);
     assert!(result.is_err());
 }
 
@@ -182,7 +182,7 @@ fn test_undo_reverts_inserted_text() {
         crate::buffer::undo::undo_list_boundary(&mut ul);
         buffer.set_undo_list(ul);
     }
-    let result = builtin_undo(&mut eval, vec![Value::Int(1)]);
+    let result = builtin_undo(&mut eval, vec![Value::fixnum(1)]);
     assert!(result.is_ok());
     let contents = eval
         .buffers
@@ -201,7 +201,7 @@ fn test_undo_without_boundary_signals_user_error_after_apply() {
         let buffer = eval.buffers.current_buffer_mut().expect("scratch buffer");
         buffer.insert("x");
     }
-    let result = builtin_undo(&mut eval, vec![Value::Int(1)]);
+    let result = builtin_undo(&mut eval, vec![Value::fixnum(1)]);
     assert!(result.is_err());
     let contents = eval
         .buffers
@@ -223,7 +223,7 @@ fn test_undo_with_non_positive_arg_and_boundary_returns_undo() {
         crate::buffer::undo::undo_list_boundary(&mut ul);
         buffer.set_undo_list(ul);
     }
-    let result = builtin_undo(&mut eval, vec![Value::Int(0)]).unwrap();
+    let result = builtin_undo(&mut eval, vec![Value::fixnum(0)]).unwrap();
     assert_eq!(result, Value::string("Undo"));
     let contents = eval
         .buffers

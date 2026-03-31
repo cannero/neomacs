@@ -15,6 +15,7 @@
 use super::error::{EvalResult, Flow, signal};
 use super::intern::intern;
 use super::value::*;
+use crate::emacs_core::value::{ValueKind};
 
 // ---------------------------------------------------------------------------
 // Argument helpers
@@ -24,7 +25,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -35,7 +36,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -46,7 +47,7 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
     if args.len() < min || args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -54,9 +55,9 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 }
 
 fn expect_int(val: &Value) -> Result<i64, Flow> {
-    match val {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match val.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *other],
@@ -65,9 +66,9 @@ fn expect_int(val: &Value) -> Result<i64, Flow> {
 }
 
 fn expect_integer_or_marker(val: &Value) -> Result<i64, Flow> {
-    match val {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match val.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *other],
@@ -76,8 +77,8 @@ fn expect_integer_or_marker(val: &Value) -> Result<i64, Flow> {
 }
 
 fn expect_string(val: &Value) -> Result<String, Flow> {
-    match val {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+    match val.kind() {
+        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -104,14 +105,14 @@ fn normalize_string_start_arg(string: &str, start: Option<&Value>) -> Result<usi
     let Some(start_idx) = normalized else {
         return Err(signal(
             "args-out-of-range",
-            vec![Value::string(string), Value::Int(raw_start)],
+            vec![Value::string(string), Value::fixnum(raw_start)],
         ));
     };
 
     if !(0..=len).contains(&start_idx) {
         return Err(signal(
             "args-out-of-range",
-            vec![Value::string(string), Value::Int(raw_start)],
+            vec![Value::string(string), Value::fixnum(raw_start)],
         ));
     }
 
@@ -148,13 +149,13 @@ pub(crate) fn normalize_lisp_string_start_arg(
         let Some(start_idx) = normalized else {
             return Err(signal(
                 "args-out-of-range",
-                vec![Value::string(string.as_str()), Value::Int(raw_start)],
+                vec![Value::string(string.as_str()), Value::fixnum(raw_start)],
             ));
         };
         if !(0..=len).contains(&start_idx) {
             return Err(signal(
                 "args-out-of-range",
-                vec![Value::string(string.as_str()), Value::Int(raw_start)],
+                vec![Value::string(string.as_str()), Value::fixnum(raw_start)],
             ));
         }
         return Ok(start_idx as usize);
@@ -230,8 +231,8 @@ fn flatten_match_data(md: &super::regex::MatchData) -> Value {
                 flat.push(Value::Int(*end as i64));
             }
             None => {
-                flat.push(Value::Nil);
-                flat.push(Value::Nil);
+                flat.push(ValueKind::Nil);
+                flat.push(ValueKind::Nil);
             }
         }
     }
@@ -269,16 +270,16 @@ pub(crate) fn builtin_regexp_quote(args: Vec<Value>) -> EvalResult {
 fn parse_replace_regexp_subexp_start(args: &[Value], s: &str) -> Result<(i64, usize), Flow> {
     // args[5] = SUBEXP (optional), args[6] = START (optional)
     let subexp = match args.get(5) {
-        Some(Value::Nil) | None => 0i64,
+        Some(ValueKind::Nil) | None => 0i64,
         Some(value) => expect_int(value)?,
     };
     if subexp < 0 {
         return Err(signal(
             "args-out-of-range",
             vec![
-                Value::Int(subexp),
-                Value::Int(0),
-                Value::Int(s.len() as i64),
+                Value::fixnum(subexp),
+                Value::fixnum(0),
+                Value::fixnum(s.len() as i64),
             ],
         ));
     }
@@ -300,7 +301,7 @@ fn replace_regexp_in_string_core(
 
     let (subexp, start) = if let Some(so) = start_override {
         let sub = match args.get(5) {
-            Some(Value::Nil) | None => 0i64,
+            Some(ValueKind::Nil) | None => 0i64,
             Some(value) => expect_int(value)?,
         };
         (sub, so)
@@ -318,7 +319,7 @@ fn replace_regexp_in_string_core(
             "error",
             vec![
                 Value::string("replace-match subexpression does not exist"),
-                Value::Int(subexp),
+                Value::fixnum(subexp),
             ],
         ));
     }
@@ -348,7 +349,7 @@ fn replace_regexp_in_string_core(
                 "error",
                 vec![
                     Value::string("replace-match subexpression does not exist"),
-                    Value::Int(subexp),
+                    Value::fixnum(subexp),
                 ],
             ));
         };
@@ -407,7 +408,7 @@ pub(crate) fn builtin_replace_regexp_in_string(
             "error",
             vec![
                 Value::string("replace-match subexpression does not exist"),
-                Value::Int(subexp),
+                Value::fixnum(subexp),
             ],
         ));
     }
@@ -416,8 +417,8 @@ pub(crate) fn builtin_replace_regexp_in_string(
     let mut out = String::with_capacity(search_region.len());
     let mut cursor = start;
     let prefix_chars = s[..start].chars().count();
-    let searched_string = match args[2] {
-        Value::Str(id) => super::regex::SearchedString::Heap(id),
+    let searched_string = match args[2].kind() {
+        ValueKind::String => super::regex::SearchedString::Heap(id),
         _ => super::regex::SearchedString::Owned(s.clone()),
     };
 
@@ -444,7 +445,7 @@ pub(crate) fn builtin_replace_regexp_in_string(
                     "error",
                     vec![
                         Value::string("replace-match subexpression does not exist"),
-                        Value::Int(subexp),
+                        Value::fixnum(subexp),
                     ],
                 ));
             };

@@ -14,11 +14,11 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 fn is_integer(value: &Value) -> bool {
-    matches!(value, Value::Int(_))
+    value.is_fixnum()
 }
 
 fn is_valid_ccl_program(program: &Value) -> bool {
-    let Value::Vector(program) = program else {
+    if !program.is_vector() /* TODO(tagged): `program` was Value::Vector(program), rewrite let-else */ {
         return false;
     };
 
@@ -134,7 +134,7 @@ enum CclProgramDesignatorKind {
 }
 
 fn resolve_ccl_program_designator(value: &Value) -> Option<(Value, CclProgramDesignatorKind)> {
-    if matches!(value, Value::Vector(_)) {
+    if value.is_vector() {
         return Some((*value, CclProgramDesignatorKind::Inline));
     }
     let name = value.as_symbol_name()?;
@@ -149,8 +149,8 @@ fn ccl_program_code_index_message(
     program: &Value,
     designator_kind: CclProgramDesignatorKind,
 ) -> String {
-    let base_len = match program {
-        Value::Vector(handle) => with_heap(|h| h.vector_len(*handle) as i64),
+    let base_len = match program.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => with_heap(|h| h.vector_len(*handle) as i64),
         _ => 0,
     };
     let index = match designator_kind {
@@ -168,7 +168,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -179,7 +179,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -190,7 +190,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -208,7 +208,7 @@ pub(crate) fn builtin_ccl_program_p_impl(args: Vec<Value>) -> EvalResult {
     let is_program = resolve_ccl_program_designator(&args[0])
         .map(|(program, _)| is_valid_ccl_program(&program))
         .unwrap_or(false);
-    Ok(Value::bool(is_program))
+    Ok(Value::bool_val(is_program))
 }
 
 /// (ccl-execute CCL-PROGRAM STATUS) -> nil
@@ -222,8 +222,8 @@ pub(crate) fn builtin_ccl_execute_impl(args: Vec<Value>) -> EvalResult {
         ));
     }
 
-    let status_len = match &args[1] {
-        Value::Vector(vec) => with_heap(|h| h.vector_len(*vec)),
+    let status_len = match args[1].kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => with_heap(|h| h.vector_len(*vec)),
         _ => unreachable!("status already validated as vector"),
     };
     if status_len != 8 {
@@ -255,8 +255,8 @@ pub(crate) fn builtin_ccl_execute_on_string_impl(args: Vec<Value>) -> EvalResult
             vec![Value::symbol("vectorp"), args[1]],
         ));
     }
-    let status_len = match &args[1] {
-        Value::Vector(vec) => with_heap(|h| h.vector_len(*vec)),
+    let status_len = match args[1].kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => with_heap(|h| h.vector_len(*vec)),
         _ => unreachable!("status already validated as vector"),
     };
     if status_len != 9 {
@@ -280,8 +280,8 @@ pub(crate) fn builtin_ccl_execute_on_string_impl(args: Vec<Value>) -> EvalResult
     //   3: CONTINUE (optional, we don't use)
     //   4: UNIBYTE-P (optional, we don't use)
 
-    match &args[2] {
-        Value::Str(_s) => {
+    match args[2].kind() {
+        ValueKind::String => {
             let message = ccl_program_code_index_message(&program, designator_kind);
             Err(signal("error", vec![Value::string(message)]))
         }
@@ -307,7 +307,7 @@ pub(crate) fn builtin_register_ccl_program_impl(args: Vec<Value>) -> EvalResult 
     }
     let program = if args[1].is_nil() {
         // Oracle accepts nil and behaves like a minimal valid registered program.
-        Value::vector(vec![Value::Int(0), Value::Int(0), Value::Int(0)])
+        Value::vector(vec![Value::fixnum(0), Value::fixnum(0), Value::fixnum(0)])
     } else {
         if !args[1].is_vector() {
             return Err(signal(
@@ -326,7 +326,7 @@ pub(crate) fn builtin_register_ccl_program_impl(args: Vec<Value>) -> EvalResult 
         .as_symbol_name()
         .expect("symbol already validated by is_symbol");
     let program_id = with_ccl_registry_mut(|registry| registry.register_program(name, program));
-    Ok(Value::Int(program_id))
+    Ok(Value::fixnum(program_id))
 }
 
 /// (register-code-conversion-map SYMBOL MAP) -> nil
@@ -351,7 +351,7 @@ pub(crate) fn builtin_register_code_conversion_map_impl(args: Vec<Value>) -> Eva
         .expect("symbol already validated by is_symbol");
     let map_id =
         with_ccl_registry_mut(|registry| registry.register_code_conversion_map(name, args[1]));
-    Ok(Value::Int(map_id))
+    Ok(Value::fixnum(map_id))
 }
 #[cfg(test)]
 #[path = "ccl_test.rs"]

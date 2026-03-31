@@ -4,9 +4,9 @@ use super::*;
 fn dbus_init_bus_contract() {
     assert_eq!(
         builtin_dbus_init_bus(vec![Value::keyword(":session")]).unwrap(),
-        Value::Int(2)
+        Value::fixnum(2)
     );
-    let err = builtin_dbus_init_bus(vec![Value::Int(1)]).unwrap_err();
+    let err = builtin_dbus_init_bus(vec![Value::fixnum(1)]).unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
         other => panic!("expected signal, got {other:?}"),

@@ -253,7 +253,7 @@ mod tests {
 
         // Set a symbol value to verify round-trip
         eval.obarray
-            .set_symbol_value("test-pdump-var", Value::Int(42));
+            .set_symbol_value("test-pdump-var", Value::fixnum(42));
 
         // Dump to temp file
         let dir = tempfile::tempdir().unwrap();
@@ -266,7 +266,7 @@ mod tests {
         // Verify the symbol value survived
         assert_eq!(
             loaded.obarray.symbol_value("test-pdump-var"),
-            Some(&Value::Int(42))
+            Some(&Value::fixnum(42))
         );
     }
 
@@ -307,7 +307,7 @@ mod tests {
         // Verify the loaded evaluator can evaluate Elisp
         let forms = crate::emacs_core::parser::parse_forms("(+ 1 2)").unwrap();
         let result = loaded.eval_expr(&forms[0]).expect("eval should succeed");
-        assert_eq!(result, Value::Int(3));
+        assert_eq!(result, Value::fixnum(3));
 
         // Verify features survived (bootstrap sets many features)
         // Note: subr.el does NOT call (provide 'subr); use 'backquote instead
@@ -315,12 +315,12 @@ mod tests {
         let result = loaded
             .eval_expr(&forms[0])
             .expect("featurep should succeed");
-        assert_eq!(result, Value::True, "featurep 'backquote should be t");
+        assert_eq!(result, Value::T, "featurep 'backquote should be t");
 
         // Verify a bootstrapped function works
         let forms = crate::emacs_core::parser::parse_forms("(length '(a b c))").unwrap();
         let result = loaded.eval_expr(&forms[0]).expect("eval should succeed");
-        assert_eq!(result, Value::Int(3));
+        assert_eq!(result, Value::fixnum(3));
 
         // Verify string operations (tests heap String objects)
         let forms =
@@ -334,7 +334,7 @@ mod tests {
         )
         .unwrap();
         let result = loaded.eval_expr(&forms[0]).expect("eval should succeed");
-        assert_eq!(result, Value::Int(42));
+        assert_eq!(result, Value::fixnum(42));
 
         // Verify defun works (tests lambda/macro round-trip)
         let forms = crate::emacs_core::parser::parse_forms(
@@ -342,7 +342,7 @@ mod tests {
         )
         .unwrap();
         let result = loaded.eval_expr(&forms[0]).expect("eval should succeed");
-        assert_eq!(result, Value::Int(49));
+        assert_eq!(result, Value::fixnum(49));
     }
 
     #[test]

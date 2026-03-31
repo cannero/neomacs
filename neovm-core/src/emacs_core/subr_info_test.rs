@@ -42,13 +42,13 @@ fn make_bytecode(required: Vec<&str>, rest: Option<&str>) -> Value {
 
 #[test]
 fn subr_name_returns_string() {
-    let result = builtin_subr_name(vec![Value::Subr(intern("cons"))]).unwrap();
+    let result = builtin_subr_name(vec![Value::subr(intern("cons"))]).unwrap();
     assert_eq!(result.as_str(), Some("cons"));
 }
 
 #[test]
 fn subr_name_error_for_non_subr() {
-    let result = builtin_subr_name(vec![Value::Int(1)]);
+    let result = builtin_subr_name(vec![Value::fixnum(1)]);
     assert!(result.is_err());
 }
 
@@ -56,9 +56,9 @@ fn subr_name_error_for_non_subr() {
 
 fn assert_subr_arity(name: &str, min: i64, max: Option<i64>) {
     let mut ctx = crate::emacs_core::eval::Context::new();
-    let result = builtin_subr_arity(&mut ctx, vec![Value::Subr(intern(name))]).unwrap();
-    if let Value::Cons(cell) = &result {
-        let pair = read_cons(*cell);
+    let result = builtin_subr_arity(&mut ctx, vec![Value::subr(intern(name))]).unwrap();
+    if &result.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
         assert_eq!(
             pair.car.as_int(),
             Some(min),
@@ -89,7 +89,7 @@ fn subr_arity_returns_cons() {
 #[test]
 fn subr_arity_error_for_non_subr() {
     let mut ctx = crate::emacs_core::eval::Context::new();
-    let result = builtin_subr_arity(&mut ctx, vec![Value::Nil]);
+    let result = builtin_subr_arity(&mut ctx, vec![Value::NIL]);
     assert!(result.is_err());
 }
 
@@ -103,9 +103,9 @@ fn subr_arity_message_is_one_or_more() {
 #[test]
 fn subr_arity_if_is_unevalled() {
     let mut ctx = crate::emacs_core::eval::Context::new();
-    let result = builtin_subr_arity(&mut ctx, vec![Value::Subr(intern("if"))]).unwrap();
-    if let Value::Cons(cell) = &result {
-        let pair = read_cons(*cell);
+    let result = builtin_subr_arity(&mut ctx, vec![Value::subr(intern("if"))]).unwrap();
+    if &result.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
         assert_eq!(pair.car.as_int(), Some(2));
         assert_eq!(pair.cdr.as_symbol_name(), Some("unevalled"));
     } else {
@@ -126,9 +126,9 @@ fn subr_arity_core_special_forms_match_oracle_unevalled_shapes() {
         ("unwind-protect", 1),
     ] {
         let mut ctx = crate::emacs_core::eval::Context::new();
-        let result = builtin_subr_arity(&mut ctx, vec![Value::Subr(intern(name))]).unwrap();
-        if let Value::Cons(cell) = &result {
-            let pair = read_cons(*cell);
+        let result = builtin_subr_arity(&mut ctx, vec![Value::subr(intern(name))]).unwrap();
+        if &result.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             assert_eq!(pair.car.as_int(), Some(min));
             assert_eq!(pair.cdr.as_symbol_name(), Some("unevalled"));
         } else {
@@ -1837,10 +1837,10 @@ fn subr_arity_window_frame_primitives_match_oracle() {
 
 #[test]
 fn subr_primitive_and_native_predicates() {
-    let primitive = builtin_subr_primitive_p(vec![Value::Subr(intern("car"))]).unwrap();
+    let primitive = builtin_subr_primitive_p(vec![Value::subr(intern("car"))]).unwrap();
     assert!(primitive.is_truthy());
 
-    let non_subr = builtin_subr_primitive_p(vec![Value::Int(1)]).unwrap();
+    let non_subr = builtin_subr_primitive_p(vec![Value::fixnum(1)]).unwrap();
     assert!(non_subr.is_nil());
 }
 
@@ -1862,7 +1862,7 @@ fn interpreted_function_p_false_for_bytecode() {
 
 #[test]
 fn interpreted_function_p_false_for_subr() {
-    let result = builtin_interpreted_function_p(vec![Value::Subr(intern("car"))]).unwrap();
+    let result = builtin_interpreted_function_p(vec![Value::subr(intern("car"))]).unwrap();
     assert!(result.is_nil());
 }
 
@@ -1906,7 +1906,7 @@ fn special_form_p_false_for_throw() {
 
 #[test]
 fn special_form_p_false_for_int() {
-    let result = builtin_special_form_p(vec![Value::Int(42)]).unwrap();
+    let result = builtin_special_form_p(vec![Value::fixnum(42)]).unwrap();
     assert!(result.is_nil());
 }
 
@@ -1928,13 +1928,13 @@ fn macrop_false_for_lambda() {
 
 #[test]
 fn macrop_false_for_nil() {
-    let result = macrop_check(&Value::Nil).unwrap();
+    let result = macrop_check(&Value::NIL).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn macrop_true_for_macro_cons_marker() {
-    let marker = Value::cons(Value::symbol("macro"), Value::Int(1));
+    let marker = Value::cons(Value::symbol("macro"), Value::fixnum(1));
     let result = macrop_check(&marker).unwrap();
     assert!(result.is_truthy());
 }
@@ -1944,14 +1944,14 @@ fn macrop_autoload_macro_returns_macro_marker_list() {
     let autoload_macro = Value::list(vec![
         Value::symbol("autoload"),
         Value::string("dummy-file"),
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
         Value::symbol("macro"),
     ]);
     let result = macrop_check(&autoload_macro).unwrap();
     assert_eq!(
         result,
-        Value::list(vec![Value::symbol("macro"), Value::True])
+        Value::list(vec![Value::symbol("macro"), Value::T])
     );
 }
 
@@ -1960,9 +1960,9 @@ fn macrop_autoload_function_is_nil() {
     let autoload_function = Value::list(vec![
         Value::symbol("autoload"),
         Value::string("dummy-file"),
-        Value::Nil,
-        Value::True,
-        Value::Nil,
+        Value::NIL,
+        Value::T,
+        Value::NIL,
     ]);
     let result = macrop_check(&autoload_function).unwrap();
     assert!(result.is_nil());
@@ -1973,19 +1973,19 @@ fn macrop_autoload_t_marker_returns_single_t_list() {
     let autoload_t_marker = Value::list(vec![
         Value::symbol("autoload"),
         Value::string("dummy-file"),
-        Value::Nil,
-        Value::Nil,
-        Value::True,
+        Value::NIL,
+        Value::NIL,
+        Value::T,
     ]);
     let result = macrop_check(&autoload_t_marker).unwrap();
-    assert_eq!(result, Value::list(vec![Value::True]));
+    assert_eq!(result, Value::list(vec![Value::T]));
 }
 
 // -- commandp --
 
 #[test]
 fn commandp_true_for_subr() {
-    let result = builtin_commandp(vec![Value::Subr(intern("car"))]).unwrap();
+    let result = builtin_commandp(vec![Value::subr(intern("car"))]).unwrap();
     assert!(result.is_truthy());
 }
 
@@ -1998,19 +1998,19 @@ fn commandp_true_for_lambda() {
 
 #[test]
 fn commandp_false_for_int() {
-    let result = builtin_commandp(vec![Value::Int(42)]).unwrap();
+    let result = builtin_commandp(vec![Value::fixnum(42)]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn commandp_false_for_nil() {
-    let result = builtin_commandp(vec![Value::Nil]).unwrap();
+    let result = builtin_commandp(vec![Value::NIL]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn commandp_rejects_overflow_arity() {
-    let err = builtin_commandp(vec![Value::symbol("car"), Value::Nil, Value::Nil])
+    let err = builtin_commandp(vec![Value::symbol("car"), Value::NIL, Value::NIL])
         .expect_err("commandp should reject more than two arguments");
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
@@ -2024,8 +2024,8 @@ fn commandp_rejects_overflow_arity() {
 fn func_arity_lambda_required_only() {
     let lam = make_lambda(vec!["a", "b"], vec![], None);
     let result = builtin_func_arity_impl(vec![lam]).unwrap();
-    if let Value::Cons(cell) = &result {
-        let pair = read_cons(*cell);
+    if &result.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
         assert_eq!(pair.car.as_int(), Some(2));
         assert_eq!(pair.cdr.as_int(), Some(2));
     } else {
@@ -2037,8 +2037,8 @@ fn func_arity_lambda_required_only() {
 fn func_arity_lambda_with_optional() {
     let lam = make_lambda(vec!["a"], vec!["b", "c"], None);
     let result = builtin_func_arity_impl(vec![lam]).unwrap();
-    if let Value::Cons(cell) = &result {
-        let pair = read_cons(*cell);
+    if &result.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
         assert_eq!(pair.car.as_int(), Some(1));
         assert_eq!(pair.cdr.as_int(), Some(3));
     } else {
@@ -2050,8 +2050,8 @@ fn func_arity_lambda_with_optional() {
 fn func_arity_lambda_with_rest() {
     let lam = make_lambda(vec!["a"], vec![], Some("rest"));
     let result = builtin_func_arity_impl(vec![lam]).unwrap();
-    if let Value::Cons(cell) = &result {
-        let pair = read_cons(*cell);
+    if &result.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
         assert_eq!(pair.car.as_int(), Some(1));
         assert_eq!(pair.cdr.as_symbol_name(), Some("many"));
     } else {
@@ -2063,8 +2063,8 @@ fn func_arity_lambda_with_rest() {
 fn func_arity_bytecode() {
     let bc = make_bytecode(vec!["x", "y"], Some("rest"));
     let result = builtin_func_arity_impl(vec![bc]).unwrap();
-    if let Value::Cons(cell) = &result {
-        let pair = read_cons(*cell);
+    if &result.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
         assert_eq!(pair.car.as_int(), Some(2));
         assert_eq!(pair.cdr.as_symbol_name(), Some("many"));
     } else {
@@ -2074,9 +2074,9 @@ fn func_arity_bytecode() {
 
 #[test]
 fn func_arity_subr() {
-    let result = builtin_func_arity_impl(vec![Value::Subr(intern("+"))]).unwrap();
-    if let Value::Cons(cell) = &result {
-        let pair = read_cons(*cell);
+    let result = builtin_func_arity_impl(vec![Value::subr(intern("+"))]).unwrap();
+    if &result.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
         assert_eq!(pair.car.as_int(), Some(0));
         assert_eq!(pair.cdr.as_symbol_name(), Some("many"));
     } else {
@@ -2086,18 +2086,18 @@ fn func_arity_subr() {
 
 #[test]
 fn func_arity_subr_uses_compat_overrides() {
-    let message = builtin_func_arity_impl(vec![Value::Subr(intern("message"))]).unwrap();
-    if let Value::Cons(cell) = &message {
-        let pair = read_cons(*cell);
+    let message = builtin_func_arity_impl(vec![Value::subr(intern("message"))]).unwrap();
+    if &message.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
         assert_eq!(pair.car.as_int(), Some(1));
         assert_eq!(pair.cdr.as_symbol_name(), Some("many"));
     } else {
         panic!("expected cons cell");
     }
 
-    let car = builtin_func_arity_impl(vec![Value::Subr(intern("car"))]).unwrap();
-    if let Value::Cons(cell) = &car {
-        let pair = read_cons(*cell);
+    let car = builtin_func_arity_impl(vec![Value::subr(intern("car"))]).unwrap();
+    if &car.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
         assert_eq!(pair.car.as_int(), Some(1));
         assert_eq!(pair.cdr.as_int(), Some(1));
     } else {
@@ -2109,8 +2109,8 @@ fn func_arity_subr_uses_compat_overrides() {
 fn func_arity_macro() {
     let m = make_macro(vec!["a", "b"]);
     let result = builtin_func_arity_impl(vec![m]).unwrap();
-    if let Value::Cons(cell) = &result {
-        let pair = read_cons(*cell);
+    if &result.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
         assert_eq!(pair.car.as_int(), Some(2));
         assert_eq!(pair.cdr.as_int(), Some(2));
     } else {
@@ -2146,7 +2146,7 @@ fn gnu_lisp_macro_forms_are_not_evaluator_special_forms() {
 
 #[test]
 fn func_arity_error_for_non_callable() {
-    let result = builtin_func_arity_impl(vec![Value::Int(42)]);
+    let result = builtin_func_arity_impl(vec![Value::fixnum(42)]);
     assert!(result.is_err());
 }
 
@@ -2155,9 +2155,9 @@ fn func_arity_autoload_object_signals_wrong_type_argument_symbolp() {
     let autoload_fn = Value::list(vec![
         Value::symbol("autoload"),
         Value::string("vm-auto-file"),
-        Value::Nil,
-        Value::True,
-        Value::Nil,
+        Value::NIL,
+        Value::T,
+        Value::NIL,
     ]);
     let result = builtin_func_arity_impl(vec![autoload_fn])
         .expect_err("autoload forms should not satisfy func-arity");

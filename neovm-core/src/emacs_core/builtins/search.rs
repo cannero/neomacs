@@ -1,5 +1,6 @@
 use super::*;
 use crate::emacs_core::regex::char_pos_to_byte;
+use super::value::{ValueKind, VecLikeType};
 
 // ===========================================================================
 // Search / Regex builtins (evaluator-dependent)
@@ -26,7 +27,7 @@ pub(crate) fn builtin_search_forward_with_state(
     let (current_id, opts, start_pt, start_char) =
         current_search_context_in_manager(buffers, args, SearchKind::ForwardLiteral)?;
     if opts.steps == 0 {
-        return Ok(Value::Int(start_char));
+        return Ok(Value::fixnum(start_char));
     }
 
     let mut last_pos = None;
@@ -103,9 +104,9 @@ struct SearchOptions {
 
 fn search_count_arg(args: &[Value]) -> Result<i64, Flow> {
     match args.get(3) {
-        None | Some(Value::Nil) => Ok(1),
-        Some(Value::Int(n)) => Ok(*n),
-        Some(Value::Char(c)) => Ok(*c as i64),
+        None | Some(ValueKind::Nil) => Ok(1),
+        Some(ValueKind::Fixnum(n)) => Ok(*n),
+        Some(ValueKind::Char(c)) => Ok(*c as i64),
         Some(other) => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("fixnump"), *other],
@@ -130,8 +131,8 @@ fn parse_search_options_in_manager(
 ) -> Result<SearchOptions, Flow> {
     let count = search_count_arg(args)?;
     let noerror_mode = match args.get(2) {
-        None | Some(Value::Nil) => SearchNoErrorMode::Signal,
-        Some(Value::True) => SearchNoErrorMode::KeepPoint,
+        None | Some(ValueKind::Nil) => SearchNoErrorMode::Signal,
+        Some(ValueKind::T) => SearchNoErrorMode::KeepPoint,
         Some(_) => SearchNoErrorMode::MoveToBound,
     };
     let (bound_lisp, bound) = match args.get(1) {
@@ -213,7 +214,7 @@ fn buffer_byte_to_char_result_in_manager(
     let buf = buffers
         .get(buffer_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    Ok(Value::Int(buf.text.byte_to_char(byte) as i64 + 1))
+    Ok(Value::fixnum(buf.text.byte_to_char(byte) as i64 + 1))
 }
 
 fn search_failure_position(buf: &crate::buffer::Buffer, opts: SearchOptions) -> usize {
@@ -234,7 +235,7 @@ fn handle_search_failure_in_manager(
     start_pt: usize,
     kind: SearchErrorKind,
 ) -> EvalResult {
-    match kind {
+    match kind.kind() {
         SearchErrorKind::NotFound => match opts.noerror_mode {
             SearchNoErrorMode::Signal => {
                 let _ = buffers.goto_buffer_byte(buffer_id, start_pt);
@@ -242,7 +243,7 @@ fn handle_search_failure_in_manager(
             }
             SearchNoErrorMode::KeepPoint => {
                 let _ = buffers.goto_buffer_byte(buffer_id, start_pt);
-                Ok(Value::Nil)
+                Ok(ValueKind::Nil)
             }
             SearchNoErrorMode::MoveToBound => {
                 let target = buffers
@@ -250,7 +251,7 @@ fn handle_search_failure_in_manager(
                     .map(|buf| search_failure_position(buf, opts))
                     .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
                 let _ = buffers.goto_buffer_byte(buffer_id, target);
-                Ok(Value::Nil)
+                Ok(ValueKind::Nil)
             }
         },
     }
@@ -277,7 +278,7 @@ pub(crate) fn builtin_search_backward_with_state(
     let (current_id, opts, start_pt, start_char) =
         current_search_context_in_manager(buffers, args, SearchKind::BackwardLiteral)?;
     if opts.steps == 0 {
-        return Ok(Value::Int(start_char));
+        return Ok(Value::fixnum(start_char));
     }
 
     let mut last_pos = None;
@@ -338,7 +339,7 @@ pub(crate) fn builtin_re_search_forward_with_state(
     let (current_id, opts, start_pt, start_char) =
         current_search_context_in_manager(buffers, args, SearchKind::ForwardRegexp)?;
     if opts.steps == 0 {
-        return Ok(Value::Int(start_char));
+        return Ok(Value::fixnum(start_char));
     }
 
     let mut last_pos = None;
@@ -404,7 +405,7 @@ pub(crate) fn builtin_re_search_backward_with_state(
     let (current_id, opts, start_pt, start_char) =
         current_search_context_in_manager(buffers, args, SearchKind::BackwardRegexp)?;
     if opts.steps == 0 {
-        return Ok(Value::Int(start_char));
+        return Ok(Value::fixnum(start_char));
     }
 
     let mut last_pos = None;
@@ -527,7 +528,7 @@ pub(crate) fn builtin_looking_at_with_state(
     };
 
     match result {
-        Ok(matched) => Ok(Value::bool(matched)),
+        Ok(matched) => Ok(Value::bool_val(matched)),
         Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
     }
 }
@@ -556,7 +557,7 @@ pub(crate) fn builtin_looking_at_p_with_state(
 
     let mut throwaway_match_data = None;
     match super::regex::looking_at(buf, &pattern, case_fold, &mut throwaway_match_data) {
-        Ok(matched) => Ok(Value::bool(matched)),
+        Ok(matched) => Ok(Value::bool_val(matched)),
         Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
     }
 }
@@ -592,8 +593,8 @@ pub(crate) fn builtin_string_match_with_state(
             expect_range_args("string-match", args, 2, 4)?;
             let inhibit_modify = args.get(3).is_some_and(|v| v.is_truthy());
 
-            match (&args[0], &args[1]) {
-                (Value::Str(pattern_id), Value::Str(string_id)) => with_heap(|h| {
+            match (args[0].kind(), args[1].kind()) {
+                (ValueKind::String, ValueKind::String) => with_heap(|h| {
                     let pattern = h.get_string(*pattern_id);
                     let string = h.get_lisp_string(*string_id);
                     let start = crate::emacs_core::search::normalize_lisp_string_start_arg(
@@ -614,8 +615,8 @@ pub(crate) fn builtin_string_match_with_state(
                         case_fold,
                         target,
                     ) {
-                        Ok(Some(char_pos)) => Ok(Value::Int(char_pos as i64)),
-                        Ok(None) => Ok(Value::Nil),
+                        Ok(Some(char_pos)) => Ok(Value::fixnum(char_pos as i64)),
+                        Ok(None) => Ok(Value::NIL),
                         Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
                     }
                 }),
@@ -632,8 +633,8 @@ pub(crate) fn builtin_string_match_with_state(
                     match super::regex::string_match_full_with_case_fold(
                         &pattern, &s, start, case_fold, target,
                     ) {
-                        Ok(Some(char_pos)) => Ok(Value::Int(char_pos as i64)),
-                        Ok(None) => Ok(Value::Nil),
+                        Ok(Some(char_pos)) => Ok(Value::fixnum(char_pos as i64)),
+                        Ok(None) => Ok(Value::NIL),
                         Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
                     }
                 }
@@ -664,8 +665,8 @@ pub(crate) fn builtin_posix_string_match_with_state(
 
 pub(crate) fn builtin_string_match_p_with_case_fold(case_fold: bool, args: &[Value]) -> EvalResult {
     expect_range_args("string-match-p", args, 2, 3)?;
-    match (&args[0], &args[1]) {
-        (Value::Str(pattern_id), Value::Str(string_id)) => with_heap(|h| {
+    match (args[0].kind(), args[1].kind()) {
+        (ValueKind::String, ValueKind::String) => with_heap(|h| {
             let pattern = h.get_string(*pattern_id);
             let string = h.get_lisp_string(*string_id);
             let start =
@@ -679,8 +680,8 @@ pub(crate) fn builtin_string_match_p_with_case_fold(case_fold: bool, args: &[Val
                 case_fold,
                 &mut throwaway,
             ) {
-                Ok(Some(char_pos)) => Ok(Value::Int(char_pos as i64)),
-                Ok(None) => Ok(Value::Nil),
+                Ok(Some(char_pos)) => Ok(Value::fixnum(char_pos as i64)),
+                Ok(None) => Ok(Value::NIL),
                 Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
             }
         }),
@@ -697,8 +698,8 @@ pub(crate) fn builtin_string_match_p_with_case_fold(case_fold: bool, args: &[Val
                 case_fold,
                 &mut throwaway,
             ) {
-                Ok(Some(char_pos)) => Ok(Value::Int(char_pos as i64)),
-                Ok(None) => Ok(Value::Nil),
+                Ok(Some(char_pos)) => Ok(Value::fixnum(char_pos as i64)),
+                Ok(None) => Ok(Value::NIL),
                 Err(msg) => Err(signal("invalid-regexp", vec![Value::string(msg)])),
             }
         }
@@ -734,24 +735,24 @@ pub(crate) fn builtin_match_string(
     if group < 0 {
         return Err(signal(
             "args-out-of-range",
-            vec![Value::Int(group), Value::Int(0)],
+            vec![Value::fixnum(group), Value::fixnum(0)],
         ));
     }
     let group = group as usize;
 
     let md = match &eval.match_data {
         Some(md) => md,
-        None => return Ok(Value::Nil),
+        None => return Ok(Value::NIL),
     };
 
     let (start, end) = match md.groups.get(group) {
         Some(Some(pair)) => *pair,
-        _ => return Ok(Value::Nil),
+        _ => return Ok(Value::NIL),
     };
 
     // If an optional second arg is a string, use that first.
     if args.len() > 1 {
-        if let Value::Str(id) = args[1] {
+        if args[1].is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
             return with_heap(|h| {
                 let string = h.get_lisp_string(id);
                 let text = string.as_str();
@@ -765,7 +766,7 @@ pub(crate) fn builtin_match_string(
                         return Ok(Value::heap_string(slice));
                     }
                 }
-                Ok(Value::Nil)
+                Ok(Value::NIL)
             });
         }
 
@@ -778,7 +779,7 @@ pub(crate) fn builtin_match_string(
             if byte_end <= s.len() && byte_start <= byte_end {
                 return Ok(Value::string(&s[byte_start..byte_end]));
             }
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
     }
 
@@ -795,7 +796,7 @@ pub(crate) fn builtin_match_string(
                         return Ok(Value::heap_string(slice));
                     }
                 }
-                Ok(Value::Nil)
+                Ok(Value::NIL)
             });
         }
 
@@ -805,19 +806,19 @@ pub(crate) fn builtin_match_string(
             if byte_end <= searched.len() {
                 Ok(Value::string(&searched[byte_start..byte_end]))
             } else {
-                Ok(Value::Nil)
+                Ok(Value::NIL)
             }
         });
     }
 
     let buf = match eval.buffers.current_buffer() {
         Some(b) => b,
-        None => return Ok(Value::Nil),
+        None => return Ok(Value::NIL),
     };
     if end <= buf.text.len() {
         Ok(Value::string(buf.text.text_range(start, end)))
     } else {
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     }
 }
 
@@ -834,14 +835,14 @@ pub(crate) fn builtin_match_beginning_with_state(
             if group < 0 {
                 return Err(signal(
                     "args-out-of-range",
-                    vec![Value::Int(group), Value::Int(0)],
+                    vec![Value::fixnum(group), Value::fixnum(0)],
                 ));
             }
             let group = group as usize;
 
             let md = match match_data {
                 Some(md) => md,
-                None => return Ok(Value::Nil),
+                None => return Ok(Value::NIL),
             };
 
             match md.groups.get(group) {
@@ -854,7 +855,7 @@ pub(crate) fn builtin_match_beginning_with_state(
                     {
                         if *start <= buf.text.len() {
                             let pos = buf.text.byte_to_char(*start) as i64 + 1;
-                            Ok(Value::Int(pos))
+                            Ok(ValueKind::Fixnum(pos))
                         } else {
                             Ok(Value::Int(*start as i64))
                         }
@@ -862,8 +863,8 @@ pub(crate) fn builtin_match_beginning_with_state(
                         Ok(Value::Int(*start as i64))
                     }
                 }
-                Some(None) => Ok(Value::Nil),
-                None => Ok(Value::Nil),
+                Some(None) => Ok(Value::NIL),
+                None => Ok(Value::NIL),
             }
         },
     )
@@ -889,14 +890,14 @@ pub(crate) fn builtin_match_end_with_state(
             if group < 0 {
                 return Err(signal(
                     "args-out-of-range",
-                    vec![Value::Int(group), Value::Int(0)],
+                    vec![Value::fixnum(group), Value::fixnum(0)],
                 ));
             }
             let group = group as usize;
 
             let md = match match_data {
                 Some(md) => md,
-                None => return Ok(Value::Nil),
+                None => return Ok(Value::NIL),
             };
 
             match md.groups.get(group) {
@@ -909,7 +910,7 @@ pub(crate) fn builtin_match_end_with_state(
                     {
                         if *end <= buf.text.len() {
                             let pos = buf.text.byte_to_char(*end) as i64 + 1;
-                            Ok(Value::Int(pos))
+                            Ok(ValueKind::Fixnum(pos))
                         } else {
                             Ok(Value::Int(*end as i64))
                         }
@@ -917,8 +918,8 @@ pub(crate) fn builtin_match_end_with_state(
                         Ok(Value::Int(*end as i64))
                     }
                 }
-                Some(None) => Ok(Value::Nil),
-                None => Ok(Value::Nil),
+                Some(None) => Ok(Value::NIL),
+                None => Ok(Value::NIL),
             }
         },
     )
@@ -936,12 +937,12 @@ pub(crate) fn builtin_match_data_with_state(
     if args.len() > 3 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("match-data"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("match-data"), Value::fixnum(args.len() as i64)],
         ));
     }
 
     let Some(md) = match_data else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     let integers = args.first().is_some_and(|arg| arg.is_truthy());
     let searched_buffer_id = if md.searched_string.is_none() {
@@ -983,8 +984,8 @@ pub(crate) fn builtin_match_data_with_state(
 
                 if integers {
                     if let Some((start_pos, end_pos)) = buffer_positions {
-                        flat.push(Value::Int(start_pos));
-                        flat.push(Value::Int(end_pos));
+                        flat.push(ValueKind::Fixnum(start_pos));
+                        flat.push(ValueKind::Fixnum(end_pos));
                     } else {
                         flat.push(Value::Int(*start as i64));
                         flat.push(Value::Int(*end as i64));
@@ -1008,15 +1009,15 @@ pub(crate) fn builtin_match_data_with_state(
                 flat.push(Value::Int(*end as i64));
             }
             None => {
-                flat.push(Value::Nil);
-                flat.push(Value::Nil);
+                flat.push(ValueKind::Nil);
+                flat.push(ValueKind::Nil);
             }
         }
     }
 
     if integers && md.searched_string.is_none() {
         if let Some(buffer_id) = searched_buffer_id {
-            flat.push(Value::Buffer(buffer_id));
+            flat.push(Value::make_buffer(buffer_id));
         }
     }
     Ok(Value::list(flat))
@@ -1026,8 +1027,8 @@ fn match_data_item_buffer_id_in_manager(
     buffers: &crate::buffer::BufferManager,
     value: &Value,
 ) -> Option<crate::buffer::BufferId> {
-    match value {
-        Value::Buffer(buffer_id) => Some(*buffer_id),
+    match value.kind() {
+        ValueKind::Veclike(VecLikeType::Buffer) => Some(*buffer_id),
         marker if super::marker::is_marker(marker) => super::marker::marker_logical_fields(marker)
             .and_then(|(buffer_id, _, _)| buffer_id)
             .filter(|buffer_id| buffers.get(*buffer_id).is_some()),
@@ -1039,9 +1040,9 @@ fn expect_match_data_item_in_manager(
     buffers: &crate::buffer::BufferManager,
     value: &Value,
 ) -> Result<(i64, Option<crate::buffer::BufferId>), Flow> {
-    match value {
-        Value::Int(n) => Ok((*n, None)),
-        Value::Char(c) => Ok((*c as i64, None)),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok((n, None)),
+        ValueKind::Char(c) => Ok((c as i64, None)),
         marker if super::marker::is_marker(marker) => Ok((
             super::marker::marker_position_as_int_with_buffers(buffers, marker)?,
             match_data_item_buffer_id_in_manager(buffers, marker),
@@ -1068,14 +1069,14 @@ pub(crate) fn builtin_set_match_data_with_state(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("set-match-data"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
 
     if args[0].is_nil() {
         *match_data = None;
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let items = list_to_vec(&args[0])
@@ -1083,7 +1084,7 @@ pub(crate) fn builtin_set_match_data_with_state(
 
     let explicit_buffer_id = if items.len() % 2 == 1 {
         items.last().and_then(|value| match value {
-            Value::Buffer(buffer_id) => Some(*buffer_id),
+            Value::make_buffer(buffer_id) => Some(*buffer_id),
             _ => None,
         })
     } else {
@@ -1140,7 +1141,7 @@ pub(crate) fn builtin_set_match_data_with_state(
         });
     }
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_set_match_data(
@@ -1168,7 +1169,7 @@ pub(crate) fn builtin_match_data_translate_with_state(
     expect_args("match-data--translate", args, 1)?;
     let delta = expect_fixnum(&args[0])?;
     translate_match_data(match_data, delta);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_match_data_translate(
@@ -1222,7 +1223,7 @@ pub(crate) fn builtin_replace_match_with_state(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("replace-match"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -1230,7 +1231,7 @@ pub(crate) fn builtin_replace_match_with_state(
     let newtext = expect_strict_string(&args[0])?;
     let fixedcase = args.get(1).is_some_and(|arg| arg.is_truthy());
     let literal = args.get(2).is_some_and(|arg| arg.is_truthy());
-    let raw_subexp = args.get(4).copied().unwrap_or(Value::Nil);
+    let raw_subexp = args.get(4).copied().unwrap_or(Value::NIL);
     let string_arg = if args.get(3).is_some_and(|arg| !arg.is_nil()) {
         Some(expect_strict_string(&args[3])?)
     } else {
@@ -1243,13 +1244,13 @@ pub(crate) fn builtin_replace_match_with_state(
                 Err(signal(
                     "args-out-of-range",
                     vec![
-                        Value::Int(n),
-                        Value::Int(0),
-                        Value::Int(source.chars().count() as i64),
+                        Value::fixnum(n),
+                        Value::fixnum(0),
+                        Value::fixnum(source.chars().count() as i64),
                     ],
                 ))
             } else {
-                Err(signal("args-out-of-range", vec![Value::Int(n)]))
+                Err(signal("args-out-of-range", vec![Value::fixnum(n)]))
             };
         }
         n as usize
@@ -1288,7 +1289,7 @@ pub(crate) fn builtin_replace_match_with_state(
         .as_ref()
         .is_some_and(|m| m.searched_string.is_some())
     {
-        return Err(signal("args-out-of-range", vec![Value::Int(0)]));
+        return Err(signal("args-out-of-range", vec![Value::fixnum(0)]));
     }
 
     let current_id = buffers
@@ -1336,7 +1337,7 @@ pub(crate) fn builtin_replace_match_with_state(
         Ok(()) => {
             let newend = oldstart + replacement_len;
             update_match_data_after_buffer_replace(match_data, oldstart, oldend, newend);
-            Ok(Value::Nil)
+            Ok(ValueKind::Nil)
         }
         Err(msg) if msg == missing_subexp_error => Err(missing_subexp_signal(raw_subexp)),
         Err(msg) => Err(signal("error", vec![Value::string(msg)])),

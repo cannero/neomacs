@@ -4,6 +4,7 @@ use super::eval::Context;
 use super::intern::{SymId, intern};
 use super::symbol::Obarray;
 use super::value::*;
+use crate::emacs_core::value::{ValueKind};
 
 pub(crate) trait HookRuntime {
     fn hook_context(&self) -> &Context;
@@ -41,13 +42,13 @@ fn collect_hook_functions_impl(
     inherit_global: bool,
     out: &mut Vec<Value>,
 ) {
-    match hook_value {
-        Value::Nil => {}
-        Value::Cons(_) => {
+    match hook_value.kind() {
+        ValueKind::Nil => {}
+        ValueKind::Cons => {
             let mut cursor = hook_value;
             let mut saw_global_marker = false;
-            while let Value::Cons(cell) = cursor {
-                let pair = read_cons(cell);
+            while cursor.is_cons() /* TODO(tagged): `cell` was ValueKind::Cons, now use accessor */ {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 if pair.car.as_symbol_name() == Some("t") {
                     saw_global_marker = true;
                 } else {
@@ -60,7 +61,7 @@ fn collect_hook_functions_impl(
                 let global_value = obarray
                     .default_value_id(hook_sym)
                     .copied()
-                    .unwrap_or(Value::Nil);
+                    .unwrap_or(ValueKind::Nil);
                 collect_hook_functions_impl(obarray, hook_sym, global_value, false, out);
             }
         }
@@ -101,7 +102,7 @@ pub(crate) fn run_hook_value<R: HookRuntime>(
     for func in funcs {
         let _ = runtime.call_hook_callable(func, hook_args)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn safe_run_hook_value<R: HookRuntime>(
@@ -113,7 +114,7 @@ pub(crate) fn safe_run_hook_value<R: HookRuntime>(
 ) -> EvalResult {
     match run_hook_value(runtime, hook_sym, hook_value, hook_args, inherit_global) {
         Ok(value) => Ok(value),
-        Err(Flow::Signal(_)) => Ok(Value::Nil),
+        Err(Flow::Signal(_)) => Ok(Value::NIL),
         Err(flow) => Err(flow),
     }
 }
@@ -137,7 +138,7 @@ pub(crate) fn run_hook_value_until_success<R: HookRuntime>(
             return Ok(value);
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn run_hook_value_until_failure<R: HookRuntime>(
@@ -156,10 +157,10 @@ pub(crate) fn run_hook_value_until_failure<R: HookRuntime>(
     for func in funcs {
         let value = runtime.call_hook_callable(func, hook_args)?;
         if value.is_nil() {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
     }
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 pub(crate) fn run_hook_value_wrapped<R: HookRuntime>(
@@ -185,7 +186,7 @@ pub(crate) fn run_hook_value_wrapped<R: HookRuntime>(
             return Ok(value);
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn run_hook_query_error_with_timeout<R: HookRuntime>(
@@ -208,7 +209,7 @@ pub(crate) fn run_named_hook<R: HookRuntime>(
     hook_sym: SymId,
     hook_args: &[Value],
 ) -> EvalResult {
-    let hook_value = hook_value_by_id(runtime.hook_context(), hook_sym).unwrap_or(Value::Nil);
+    let hook_value = hook_value_by_id(runtime.hook_context(), hook_sym).unwrap_or(Value::NIL);
     run_hook_value(runtime, hook_sym, hook_value, hook_args, true)
 }
 
@@ -217,7 +218,7 @@ pub(crate) fn safe_run_named_hook<R: HookRuntime>(
     hook_sym: SymId,
     hook_args: &[Value],
 ) -> EvalResult {
-    let hook_value = hook_value_by_id(runtime.hook_context(), hook_sym).unwrap_or(Value::Nil);
+    let hook_value = hook_value_by_id(runtime.hook_context(), hook_sym).unwrap_or(Value::NIL);
     safe_run_hook_value(runtime, hook_sym, hook_value, hook_args, true)
 }
 
@@ -229,7 +230,7 @@ pub(crate) fn run_named_hooks<R: HookRuntime>(
         let hook_sym = resolve_hook_symbol(runtime.hook_context(), *hook_symbol)?;
         let _ = run_named_hook(runtime, hook_sym, &[])?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn run_named_hook_with_args<R: HookRuntime>(
@@ -237,7 +238,7 @@ pub(crate) fn run_named_hook_with_args<R: HookRuntime>(
     args: &[Value],
 ) -> EvalResult {
     let hook_sym = resolve_hook_symbol(runtime.hook_context(), args[0])?;
-    let hook_value = hook_value_by_id(runtime.hook_context(), hook_sym).unwrap_or(Value::Nil);
+    let hook_value = hook_value_by_id(runtime.hook_context(), hook_sym).unwrap_or(Value::NIL);
     run_hook_value(runtime, hook_sym, hook_value, &args[1..], true)
 }
 
@@ -246,7 +247,7 @@ pub(crate) fn run_named_hook_with_args_until_success<R: HookRuntime>(
     args: &[Value],
 ) -> EvalResult {
     let hook_sym = resolve_hook_symbol(runtime.hook_context(), args[0])?;
-    let hook_value = hook_value_by_id(runtime.hook_context(), hook_sym).unwrap_or(Value::Nil);
+    let hook_value = hook_value_by_id(runtime.hook_context(), hook_sym).unwrap_or(Value::NIL);
     run_hook_value_until_success(runtime, hook_sym, hook_value, &args[1..], true)
 }
 
@@ -255,7 +256,7 @@ pub(crate) fn run_named_hook_with_args_until_failure<R: HookRuntime>(
     args: &[Value],
 ) -> EvalResult {
     let hook_sym = resolve_hook_symbol(runtime.hook_context(), args[0])?;
-    let hook_value = hook_value_by_id(runtime.hook_context(), hook_sym).unwrap_or(Value::Nil);
+    let hook_value = hook_value_by_id(runtime.hook_context(), hook_sym).unwrap_or(Value::NIL);
     run_hook_value_until_failure(runtime, hook_sym, hook_value, &args[1..], true)
 }
 
@@ -265,6 +266,6 @@ pub(crate) fn run_named_hook_wrapped<R: HookRuntime>(
 ) -> EvalResult {
     let hook_sym = resolve_hook_symbol(runtime.hook_context(), args[0])?;
     let wrapper = args[1];
-    let hook_value = hook_value_by_id(runtime.hook_context(), hook_sym).unwrap_or(Value::Nil);
+    let hook_value = hook_value_by_id(runtime.hook_context(), hook_sym).unwrap_or(Value::NIL);
     run_hook_value_wrapped(runtime, hook_sym, hook_value, wrapper, &args[2..], true)
 }

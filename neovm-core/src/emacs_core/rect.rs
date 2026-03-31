@@ -14,6 +14,7 @@
 use super::error::{EvalResult, Flow, signal};
 use super::intern::intern;
 use super::value::*;
+use crate::emacs_core::value::{ValueKind};
 
 // ---------------------------------------------------------------------------
 // Argument helpers (local copies — same pattern as other modules)
@@ -23,7 +24,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -34,7 +35,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -45,7 +46,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -53,9 +54,9 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 }
 
 fn expect_int(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *other],
@@ -65,8 +66,8 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
 #[cfg(test)]
 
 fn expect_string(value: &Value) -> Result<String, Flow> {
-    match value {
-        Value::Str(_) => Ok(value.as_str().unwrap().to_string()),
+    match value.kind() {
+        ValueKind::String => Ok(value.as_str().unwrap().to_string()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -87,8 +88,8 @@ fn rectangle_strings_from_value(value: &Value) -> Result<Vec<String>, Flow> {
         .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("listp"), *value]))?;
     let mut out = Vec::with_capacity(items.len());
     for item in items {
-        match item {
-            Value::Str(_) => out.push(item.as_str().unwrap().to_string()),
+        match item.kind() {
+            ValueKind::String => out.push(item.as_str().unwrap().to_string()),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -295,7 +296,7 @@ pub(crate) fn builtin_extract_rectangle_line(args: Vec<Value>) -> EvalResult {
     if start_col < 0 || end_col < 0 {
         return Err(signal(
             "args-out-of-range",
-            vec![Value::Int(start_col), Value::Int(end_col)],
+            vec![Value::fixnum(start_col), Value::fixnum(end_col)],
         ));
     }
     if args.len() == 3 {

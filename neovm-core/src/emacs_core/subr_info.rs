@@ -18,7 +18,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -29,7 +29,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -40,7 +40,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -164,16 +164,16 @@ pub(crate) fn is_evaluator_callable_name(name: &str) -> bool {
 /// `max` of `None` means "many" (unbounded &rest), represented by the
 /// symbol `many`.
 fn arity_cons(min: usize, max: Option<usize>) -> Value {
-    let min_val = Value::Int(min as i64);
+    let min_val = Value::fixnum(min as i64);
     let max_val = match max {
-        Some(n) => Value::Int(n as i64),
+        Some(n) => Value::fixnum(n as i64),
         None => Value::symbol("many"),
     };
     Value::cons(min_val, max_val)
 }
 
 fn arity_unevalled(min: usize) -> Value {
-    Value::cons(Value::Int(min as i64), Value::symbol("unevalled"))
+    Value::cons(Value::fixnum(min as i64), Value::symbol("unevalled"))
 }
 
 fn is_cxr_subr_name(name: &str) -> bool {
@@ -195,9 +195,9 @@ pub(crate) fn dispatch_subr_arity_value(name: &str) -> Value {
 }
 
 fn is_macro_object(value: &Value) -> bool {
-    match value {
-        Value::Macro(_) => true,
-        Value::Cons(cell) => read_cons(*cell).car.as_symbol_name() == Some("macro"),
+    match value.kind() {
+        ValueKind::Veclike(VecLikeType::Macro) => true,
+        ValueKind::Cons => read_cons(*cell).car.as_symbol_name() == Some("macro"),  // TODO(tagged): replace read_cons with cons accessors
         _ => false,
     }
 }
@@ -210,11 +210,11 @@ fn autoload_macro_marker(value: &Value) -> Option<Value> {
     let items = list_to_vec(value)?;
     let autoload_type = items.get(4)?;
     if autoload_type.as_symbol_name() == Some("macro") {
-        Some(Value::list(vec![Value::symbol("macro"), Value::True]))
-    } else if matches!(autoload_type, Value::True) {
+        Some(Value::list(vec![Value::symbol("macro"), Value::T]))
+    } else if autoload_type.is_t() {
         // GNU Emacs uses `t` as a legacy macro marker for some startup
         // autoloads (notably `pcase-dolist`), and `macrop` returns `(t)`.
-        Some(Value::list(vec![Value::True]))
+        Some(Value::list(vec![Value::T]))
     } else {
         None
     }
@@ -227,8 +227,8 @@ fn autoload_macro_marker(value: &Value) -> Option<Value> {
 /// `(subr-name SUBR)` -- return the name of a subroutine as a string.
 pub(crate) fn builtin_subr_name(args: Vec<Value>) -> EvalResult {
     expect_args("subr-name", &args, 1)?;
-    match &args[0] {
-        Value::Subr(id) => Ok(Value::string(resolve_sym(*id))),
+    match args[0].kind() {
+        ValueKind::Subr(id) => Ok(Value::string(resolve_sym(id))),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("subrp"), *other],
@@ -242,8 +242,8 @@ pub(crate) fn builtin_subr_name(args: Vec<Value>) -> EvalResult {
 /// Falls back to the hardcoded table for builtins not yet updated.
 pub(crate) fn builtin_subr_arity(ctx: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("subr-arity", &args, 1)?;
-    match &args[0] {
-        Value::Subr(id) => Ok(subr_arity_from_registry(ctx, *id)),
+    match args[0].kind() {
+        ValueKind::Subr(id) => Ok(subr_arity_from_registry(ctx, id)),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("subrp"), *other],
@@ -281,13 +281,13 @@ fn subr_arity_from_registry(ctx: &super::eval::Context, sym_id: SymId) -> Value 
 /// always returns nil.
 pub(crate) fn builtin_native_comp_function_p(args: Vec<Value>) -> EvalResult {
     expect_args("native-comp-function-p", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(subr-primitive-p OBJECT)` -- return t if OBJECT is a primitive subr.
 pub(crate) fn builtin_subr_primitive_p(args: Vec<Value>) -> EvalResult {
     expect_args("subr-primitive-p", &args, 1)?;
-    Ok(Value::bool(matches!(&args[0], Value::Subr(_))))
+    Ok(Value::bool_val(matches!(&args[0], Value::subr(_))))
 }
 
 /// `(interpreted-function-p OBJECT)` -- return t if OBJECT is an interpreted
@@ -297,7 +297,7 @@ pub(crate) fn builtin_subr_primitive_p(args: Vec<Value>) -> EvalResult {
 /// `Value::ByteCode`).
 pub(crate) fn builtin_interpreted_function_p(args: Vec<Value>) -> EvalResult {
     expect_args("interpreted-function-p", &args, 1)?;
-    Ok(Value::bool(matches!(&args[0], Value::Lambda(_))))
+    Ok(Value::bool_val(matches!(&args[0], Value::Lambda(_) /* TODO(tagged): convert Value::Lambda to new API */)))
 }
 
 /// `(special-form-p OBJECT)` -- return t if OBJECT is a special form.
@@ -307,12 +307,12 @@ pub(crate) fn builtin_interpreted_function_p(args: Vec<Value>) -> EvalResult {
 /// name against the evaluator's special-form table.
 pub(crate) fn builtin_special_form_p(args: Vec<Value>) -> EvalResult {
     expect_args("special-form-p", &args, 1)?;
-    let result = match &args[0] {
-        Value::Symbol(id) => is_public_special_form_name(resolve_sym(*id)),
-        Value::Subr(id) => is_public_special_form_name(resolve_sym(*id)),
+    let result = match args[0].kind() {
+        ValueKind::Symbol(id) => is_public_special_form_name(resolve_sym(id)),
+        ValueKind::Subr(id) => is_public_special_form_name(resolve_sym(id)),
         _ => false,
     };
-    Ok(Value::bool(result))
+    Ok(Value::bool_val(result))
 }
 
 /// Check if a single value is a macro.  Shared by `builtin_macrop` and tests.
@@ -320,7 +320,7 @@ pub(crate) fn macrop_check(obj: &Value) -> EvalResult {
     if let Some(marker) = autoload_macro_marker(obj) {
         return Ok(marker);
     }
-    Ok(Value::bool(is_macro_object(obj)))
+    Ok(Value::bool_val(is_macro_object(obj)))
 }
 
 /// `(commandp FUNCTION &optional FOR-CALL-INTERACTIVELY)` -- return t if
@@ -332,7 +332,7 @@ pub(crate) fn macrop_check(obj: &Value) -> EvalResult {
 pub(crate) fn builtin_commandp(args: Vec<Value>) -> EvalResult {
     expect_min_args("commandp", &args, 1)?;
     expect_max_args("commandp", &args, 2)?;
-    Ok(Value::bool(args[0].is_function()))
+    Ok(Value::bool_val(args[0].is_function()))
 }
 
 /// `(func-arity FUNCTION)` -- return (MIN . MAX) for any callable.
@@ -350,21 +350,21 @@ pub(crate) fn builtin_func_arity_ctx(
             vec![Value::symbol("symbolp"), args[0]],
         ));
     }
-    match &args[0] {
-        Value::Lambda(_) => {
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Lambda) => {
             let ld = args[0].get_lambda_data().unwrap();
             let min = ld.params.min_arity();
             let max = ld.params.max_arity();
             Ok(arity_cons(min, max))
         }
-        Value::ByteCode(_) => {
+        ValueKind::Veclike(VecLikeType::ByteCode) => {
             let bc = args[0].get_bytecode_data().unwrap();
             let min = bc.params.min_arity();
             let max = bc.params.max_arity();
             Ok(arity_cons(min, max))
         }
-        Value::Subr(id) => Ok(subr_arity_from_registry(ctx, *id)),
-        Value::Macro(_) => {
+        ValueKind::Subr(id) => Ok(subr_arity_from_registry(ctx, id)),
+        ValueKind::Veclike(VecLikeType::Macro) => {
             let ld = args[0].get_lambda_data().unwrap();
             let min = ld.params.min_arity();
             let max = ld.params.max_arity();
@@ -383,17 +383,17 @@ pub(crate) fn builtin_func_arity_impl(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("symbolp"), args[0]],
         ));
     }
-    match &args[0] {
-        Value::Lambda(_) => {
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Lambda) => {
             let ld = args[0].get_lambda_data().unwrap();
             Ok(arity_cons(ld.params.min_arity(), ld.params.max_arity()))
         }
-        Value::ByteCode(_) => {
+        ValueKind::Veclike(VecLikeType::ByteCode) => {
             let bc = args[0].get_bytecode_data().unwrap();
             Ok(arity_cons(bc.params.min_arity(), bc.params.max_arity()))
         }
-        Value::Subr(id) => Ok(subr_arity_value(resolve_sym(*id))),
-        Value::Macro(_) => {
+        ValueKind::Subr(id) => Ok(subr_arity_value(resolve_sym(id))),
+        ValueKind::Veclike(VecLikeType::Macro) => {
             let ld = args[0].get_lambda_data().unwrap();
             Ok(arity_cons(ld.params.min_arity(), ld.params.max_arity()))
         }

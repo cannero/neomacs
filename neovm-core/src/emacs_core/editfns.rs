@@ -15,6 +15,7 @@ use super::value::*;
 use crate::buffer::{Buffer, BufferManager};
 #[cfg(unix)]
 use std::ffi::CStr;
+use crate::emacs_core::value::{ValueKind};
 
 // ---------------------------------------------------------------------------
 // Argument helpers
@@ -24,7 +25,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -35,7 +36,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -46,7 +47,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -119,7 +120,7 @@ pub(crate) fn ensure_current_buffer_writable_in_state(
     if let Some(buf) = buffers.current_buffer()
         && buffer_read_only_active_in_state(obarray, dynamic, buf)
     {
-        return Err(signal("buffer-read-only", vec![Value::Buffer(buf.id)]));
+        return Err(signal("buffer-read-only", vec![Value::make_buffer(buf.id)]));
     }
     Ok(())
 }
@@ -165,7 +166,7 @@ fn run_named_hook_reset_on_error(
 ) -> Result<(), Flow> {
     let hook_sym = crate::emacs_core::hook_runtime::hook_symbol_by_name(ctx, hook_name);
     let hook_value =
-        crate::emacs_core::hook_runtime::hook_value_by_id(ctx, hook_sym).unwrap_or(Value::Nil);
+        crate::emacs_core::hook_runtime::hook_value_by_id(ctx, hook_sym).unwrap_or(Value::NIL);
     if hook_value.is_nil() {
         return Ok(());
     }
@@ -174,7 +175,7 @@ fn run_named_hook_reset_on_error(
     ) {
         Ok(_) => Ok(()),
         Err(flow) => {
-            let _ = ctx.set_runtime_binding_by_id(hook_sym, Value::Nil);
+            let _ = ctx.set_runtime_binding_by_id(hook_sym, Value::NIL);
             Err(flow)
         }
     }
@@ -187,7 +188,7 @@ fn run_named_hook_without_reset(
 ) -> Result<(), Flow> {
     let hook_sym = crate::emacs_core::hook_runtime::hook_symbol_by_name(ctx, hook_name);
     let hook_value =
-        crate::emacs_core::hook_runtime::hook_value_by_id(ctx, hook_sym).unwrap_or(Value::Nil);
+        crate::emacs_core::hook_runtime::hook_value_by_id(ctx, hook_sym).unwrap_or(Value::NIL);
     if hook_value.is_nil() {
         return Ok(());
     }
@@ -225,14 +226,14 @@ pub(crate) fn signal_before_change(
         (beg_char, end_char)
     };
 
-    let hook_args = vec![Value::Int(lisp_beg), Value::Int(lisp_end)];
+    let hook_args = vec![Value::fixnum(lisp_beg), Value::fixnum(lisp_end)];
     let run_first_change = ctx
         .buffers
         .get(current_id)
         .is_some_and(|buf| buf.modified_state_value().is_nil());
     let overlay_hooks = collect_overlay_modification_hooks(ctx, beg, end);
     let specpdl_count = ctx.specpdl.len();
-    ctx.specbind(intern("inhibit-modification-hooks"), Value::True);
+    ctx.specbind(intern("inhibit-modification-hooks"), Value::T);
     let result = (|| -> Result<(), Flow> {
         if run_first_change {
             run_named_hook_without_reset(ctx, "first-change-hook", &[])?;
@@ -240,7 +241,7 @@ pub(crate) fn signal_before_change(
         run_named_hook_reset_on_error(ctx, "before-change-functions", &hook_args)?;
 
         if !overlay_hooks.is_empty() {
-            let overlay_arg = Value::True; // `t` signals "before change" to overlay hooks
+            let overlay_arg = Value::T; // `t` signals "before change" to overlay hooks
             ctx.with_gc_scope_result(|ctx| {
                 for (func, ov_val) in &overlay_hooks {
                     ctx.root(*func);
@@ -252,8 +253,8 @@ pub(crate) fn signal_before_change(
                         vec![
                             *ov_val,
                             overlay_arg,
-                            Value::Int(lisp_beg),
-                            Value::Int(lisp_end),
+                            Value::fixnum(lisp_beg),
+                            Value::fixnum(lisp_end),
                         ],
                     )?;
                 }
@@ -297,13 +298,13 @@ pub(crate) fn signal_after_change(
     };
 
     let hook_args = vec![
-        Value::Int(lisp_beg),
-        Value::Int(lisp_end),
-        Value::Int(lisp_old_len),
+        Value::fixnum(lisp_beg),
+        Value::fixnum(lisp_end),
+        Value::fixnum(lisp_old_len),
     ];
 
     let specpdl_count = ctx.specpdl.len();
-    ctx.specbind(intern("inhibit-modification-hooks"), Value::True);
+    ctx.specbind(intern("inhibit-modification-hooks"), Value::T);
     let result = (|| -> Result<(), Flow> {
         run_named_hook_reset_on_error(ctx, "after-change-functions", &hook_args)?;
 
@@ -338,7 +339,7 @@ fn collect_overlay_modification_hooks(
     let mut result = Vec::new();
     for ov_id in overlay_ids {
         if let Some(hooks_val) = buf.overlays.overlay_get_named(ov_id, "modification-hooks") {
-            let ov_val = Value::Overlay(ov_id);
+            let ov_val = Value::Overlay(ov_id) /* TODO(tagged): convert Value::Overlay to new API */;
             for func in value_list_iter(hooks_val) {
                 result.push((func, ov_val));
             }
@@ -377,7 +378,7 @@ fn run_overlay_after_change_hooks(
                     .overlays
                     .overlay_get_named(*ov_id, "insert-in-front-hooks")
                 {
-                    let ov_val = Value::Overlay(*ov_id);
+                    let ov_val = Value::Overlay(*ov_id) /* TODO(tagged): convert Value::Overlay to new API */;
                     for func in value_list_iter(hook_val) {
                         hooks.push((func, ov_val, "front"));
                     }
@@ -397,7 +398,7 @@ fn run_overlay_after_change_hooks(
                     .overlays
                     .overlay_get_named(*ov_id, "insert-behind-hooks")
                 {
-                    let ov_val = Value::Overlay(*ov_id);
+                    let ov_val = Value::Overlay(*ov_id) /* TODO(tagged): convert Value::Overlay to new API */;
                     for func in value_list_iter(hook_val) {
                         hooks.push((func, ov_val, "behind"));
                     }
@@ -409,7 +410,7 @@ fn run_overlay_after_change_hooks(
         let mod_overlays = buf.overlays.overlays_in(beg, search_end);
         for ov_id in &mod_overlays {
             if let Some(hook_val) = buf.overlays.overlay_get_named(*ov_id, "modification-hooks") {
-                let ov_val = Value::Overlay(*ov_id);
+                let ov_val = Value::Overlay(*ov_id) /* TODO(tagged): convert Value::Overlay to new API */;
                 for func in value_list_iter(hook_val) {
                     hooks.push((func, ov_val, "mod"));
                 }
@@ -423,7 +424,7 @@ fn run_overlay_after_change_hooks(
         return Ok(());
     }
 
-    let after_flag = Value::Nil; // nil signals "after change" to overlay hooks
+    let after_flag = Value::NIL; // nil signals "after change" to overlay hooks
     ctx.with_gc_scope_result(|ctx| {
         for (func, ov_val, _) in &hooks {
             ctx.root(*func);
@@ -435,9 +436,9 @@ fn run_overlay_after_change_hooks(
                 vec![
                     *ov_val,
                     after_flag,
-                    Value::Int(lisp_beg),
-                    Value::Int(lisp_end),
-                    Value::Int(lisp_old_len),
+                    Value::fixnum(lisp_beg),
+                    Value::fixnum(lisp_end),
+                    Value::fixnum(lisp_old_len),
                 ],
             )?;
         }
@@ -449,13 +450,13 @@ fn run_overlay_after_change_hooks(
 fn value_list_iter(list: Value) -> Vec<Value> {
     let mut result = Vec::new();
     let mut cursor = list;
-    while let Value::Cons(cell) = cursor {
-        let pair = crate::emacs_core::value::read_cons(cell);
+    while cursor.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+        let pair = crate::emacs_core::value::read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
         result.push(pair.car);
         cursor = pair.cdr;
     }
     // If it's a single non-nil, non-cons value, treat it as a single-element list.
-    if result.is_empty() && !list.is_nil() && !matches!(list, Value::Cons(_)) {
+    if result.is_empty() && !list.is_nil() && !list.is_cons() {
         result.push(list);
     }
     result
@@ -465,9 +466,9 @@ fn expect_integer_or_marker_in_buffers(
     buffers: &BufferManager,
     value: &Value,
 ) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other if super::marker::is_marker(other) => {
             super::marker::marker_position_as_int_with_buffers(buffers, other)
         }
@@ -494,7 +495,7 @@ fn current_buffer_accessible_char_region_in_buffers(
     if start < point_min || start > point_max || end < point_min || end > point_max {
         return Err(signal(
             "args-out-of-range",
-            vec![Value::Buffer(buf.id), *start_arg, *end_arg],
+            vec![Value::make_buffer(buf.id), *start_arg, *end_arg],
         ));
     }
 
@@ -517,15 +518,15 @@ fn current_buffer_accessible_char_region_in_buffers(
 pub(crate) fn collect_insert_text(_name: &str, args: &[Value]) -> Result<String, Flow> {
     let mut text = String::new();
     for arg in args {
-        match arg {
-            Value::Str(id) => {
+        match arg.kind() {
+            ValueKind::String => {
                 let s = with_heap(|h| h.get_string(*id).to_owned());
                 text.push_str(&s);
             }
-            Value::Char(c) => text.push(*c),
-            Value::Int(n) => {
+            ValueKind::Char(c) => text.push(c),
+            ValueKind::Fixnum(n) => {
                 // Emacs treats integers as character codes.
-                if let Some(ch) = char::from_u32(*n as u32) {
+                if let Some(ch) = char::from_u32(n as u32) {
                     text.push(ch);
                 } else {
                     return Err(signal(
@@ -554,7 +555,7 @@ pub(crate) fn builtin_insert_before_markers(
 ) -> EvalResult {
     let text = collect_insert_text("insert-before-markers", &args)?;
     if text.is_empty() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     ensure_current_buffer_writable_in_state(&ctx.obarray, &[], &ctx.buffers)?;
     if let Some(id) = ctx.buffers.current_buffer_id() {
@@ -564,7 +565,7 @@ pub(crate) fn builtin_insert_before_markers(
         let _ = ctx.buffers.insert_into_buffer_before_markers(id, &text);
         signal_after_change(ctx, insert_pos, insert_pos + text_len, 0)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(delete-char N &optional KILLFLAG)` — delete N characters forward.
@@ -579,7 +580,7 @@ pub(crate) fn builtin_delete_char(
     if let Some(current_id) = ctx.buffers.current_buffer_id() {
         let Some((start, end)) = ({
             let Some(buf) = ctx.buffers.get(current_id) else {
-                return Ok(Value::Nil);
+                return Ok(Value::NIL);
             };
             let pt = buf.pt;
             if n > 0 {
@@ -616,14 +617,14 @@ pub(crate) fn builtin_delete_char(
                 None
             }
         }) else {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         };
         let old_len = current_buffer_byte_span_char_len(ctx, start, end);
         signal_before_change(ctx, start, end)?;
         let _ = ctx.buffers.delete_buffer_region(current_id, start, end);
         signal_after_change(ctx, start, start, old_len)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(delete-region START END)` — delete text in the accessible current buffer.
@@ -635,21 +636,21 @@ pub(crate) fn builtin_delete_region(
     let Some((start_byte, end_byte)) =
         current_buffer_accessible_char_region_in_buffers(&ctx.buffers, &args[0], &args[1])?
     else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     if start_byte == end_byte {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let Some(current_id) = ctx.buffers.current_buffer_id() else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     let read_only = ctx
         .buffers
         .get(current_id)
         .is_some_and(|buf| buffer_read_only_active_in_state(&ctx.obarray, &[], buf));
     if read_only {
-        return Err(signal("buffer-read-only", vec![Value::Buffer(current_id)]));
+        return Err(signal("buffer-read-only", vec![Value::make_buffer(current_id)]));
     }
 
     let old_len = current_buffer_byte_span_char_len(ctx, start_byte, end_byte);
@@ -658,7 +659,7 @@ pub(crate) fn builtin_delete_region(
         .buffers
         .delete_buffer_region(current_id, start_byte, end_byte);
     signal_after_change(ctx, start_byte, start_byte, old_len)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(delete-and-extract-region START END)` — delete text and return it.
@@ -684,7 +685,7 @@ pub(crate) fn builtin_delete_and_extract_region(
             return Ok(Value::string(""));
         };
         if buffer_read_only_active_in_state(&ctx.obarray, &[], buf) {
-            return Err(signal("buffer-read-only", vec![Value::Buffer(current_id)]));
+            return Err(signal("buffer-read-only", vec![Value::make_buffer(current_id)]));
         }
         Value::string(buf.buffer_substring(start_byte, end_byte))
     };
@@ -705,7 +706,7 @@ pub(crate) fn builtin_erase_buffer(
 ) -> EvalResult {
     expect_args("erase-buffer", &args, 0)?;
     let Some(current_id) = ctx.buffers.current_buffer_id() else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     let buf_len = ctx
         .buffers
@@ -720,7 +721,7 @@ pub(crate) fn builtin_erase_buffer(
     if buf_len > 0 {
         signal_after_change(ctx, 0, 0, old_len)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn erase_buffer_impl(
@@ -731,20 +732,20 @@ pub(crate) fn erase_buffer_impl(
 ) -> EvalResult {
     expect_args("erase-buffer", &args, 0)?;
     let Some(current_id) = buffers.current_buffer_id() else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
 
     let should_signal_read_only = buffers.get(current_id).is_some_and(|buf| {
         !buf.text.is_empty() && buffer_read_only_active_in_state(obarray, dynamic, buf)
     });
     if should_signal_read_only {
-        return Err(signal("buffer-read-only", vec![Value::Buffer(current_id)]));
+        return Err(signal("buffer-read-only", vec![Value::make_buffer(current_id)]));
     }
 
     let _ = buffers.clear_buffer_labeled_restrictions(current_id);
     let len = {
         let Some(buf) = buffers.get_mut(current_id) else {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         };
         buf.widen();
         buf.text.len()
@@ -755,7 +756,7 @@ pub(crate) fn erase_buffer_impl(
     if let Some(buf) = buffers.get_mut(current_id) {
         buf.goto_byte(0);
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(buffer-substring-no-properties START END)` — same as buffer-substring
@@ -784,10 +785,10 @@ pub(crate) fn builtin_following_char(
     expect_args("following-char", &args, 0)?;
     match ctx.buffers.current_buffer() {
         Some(buf) => match (buf.pt < buf.zv).then(|| buf.char_after(buf.pt)).flatten() {
-            Some(ch) => Ok(Value::Int(ch as i64)),
-            None => Ok(Value::Int(0)),
+            Some(ch) => Ok(Value::fixnum(ch as i64)),
+            None => Ok(Value::fixnum(0)),
         },
-        None => Ok(Value::Int(0)),
+        None => Ok(Value::fixnum(0)),
     }
 }
 
@@ -802,10 +803,10 @@ pub(crate) fn builtin_preceding_char(
             .then(|| buf.char_before(buf.pt))
             .flatten()
         {
-            Some(ch) => Ok(Value::Int(ch as i64)),
-            None => Ok(Value::Int(0)),
+            Some(ch) => Ok(Value::fixnum(ch as i64)),
+            None => Ok(Value::fixnum(0)),
         },
-        None => Ok(Value::Int(0)),
+        None => Ok(Value::fixnum(0)),
     }
 }
 
@@ -817,45 +818,45 @@ pub(crate) fn builtin_preceding_char(
 /// Uses the `id -u` command on Unix; falls back to 1000.
 pub(crate) fn builtin_user_uid(args: Vec<Value>) -> EvalResult {
     expect_args("user-uid", &args, 0)?;
-    Ok(Value::Int(get_uid()))
+    Ok(Value::fixnum(get_uid()))
 }
 
 /// `(file-user-uid)` — return the UID used for file ownership.
 pub(crate) fn builtin_file_user_uid(args: Vec<Value>) -> EvalResult {
     expect_args("file-user-uid", &args, 0)?;
-    Ok(Value::Int(get_uid()))
+    Ok(Value::fixnum(get_uid()))
 }
 
 /// `(user-real-uid)` — return real user ID.
 pub(crate) fn builtin_user_real_uid(args: Vec<Value>) -> EvalResult {
     expect_args("user-real-uid", &args, 0)?;
-    Ok(Value::Int(get_uid()))
+    Ok(Value::fixnum(get_uid()))
 }
 
 /// `(group-gid)` — return the effective group ID.
 pub(crate) fn builtin_group_gid(args: Vec<Value>) -> EvalResult {
     expect_args("group-gid", &args, 0)?;
-    Ok(Value::Int(get_gid()))
+    Ok(Value::fixnum(get_gid()))
 }
 
 /// `(file-group-gid)` — return the GID used for file ownership.
 pub(crate) fn builtin_file_group_gid(args: Vec<Value>) -> EvalResult {
     expect_args("file-group-gid", &args, 0)?;
-    Ok(Value::Int(get_gid()))
+    Ok(Value::fixnum(get_gid()))
 }
 
 /// `(group-real-gid)` — return the real group ID.
 pub(crate) fn builtin_group_real_gid(args: Vec<Value>) -> EvalResult {
     expect_args("group-real-gid", &args, 0)?;
-    Ok(Value::Int(get_gid()))
+    Ok(Value::fixnum(get_gid()))
 }
 
 /// `(group-name GID)` — return the group name for numeric GID.
 pub(crate) fn builtin_group_name(args: Vec<Value>) -> EvalResult {
     expect_args("group-name", &args, 1)?;
-    let gid = match &args[0] {
-        Value::Int(n) => *n,
-        Value::Char(c) => *c as i64,
+    let gid = match args[0].kind() {
+        ValueKind::Fixnum(n) => n,
+        ValueKind::Char(c) => c as i64,
         _ => {
             return Err(signal(
                 "error",
@@ -888,15 +889,15 @@ pub(crate) fn builtin_load_average(args: Vec<Value>) -> EvalResult {
     let loads = read_load_average().unwrap_or([0.0, 0.0, 0.0]);
     if use_floats {
         Ok(Value::list(vec![
-            Value::Float(loads[0], next_float_id()),
-            Value::Float(loads[1], next_float_id()),
-            Value::Float(loads[2], next_float_id()),
+            Value::make_float(loads[0]),
+            Value::make_float(loads[1]),
+            Value::make_float(loads[2]),
         ]))
     } else {
         Ok(Value::list(vec![
-            Value::Int((loads[0] * 100.0) as i64),
-            Value::Int((loads[1] * 100.0) as i64),
-            Value::Int((loads[2] * 100.0) as i64),
+            Value::fixnum((loads[0] * 100.0) as i64),
+            Value::fixnum((loads[1] * 100.0) as i64),
+            Value::fixnum((loads[2] * 100.0) as i64),
         ]))
     }
 }
@@ -905,9 +906,9 @@ pub(crate) fn builtin_load_average(args: Vec<Value>) -> EvalResult {
 /// or the number of 0 bits in two's-complement form for negative integers.
 pub(crate) fn builtin_logcount(args: Vec<Value>) -> EvalResult {
     expect_args("logcount", &args, 1)?;
-    let n = match &args[0] {
-        Value::Int(v) => *v,
-        Value::Char(c) => *c as i64,
+    let n = match args[0].kind() {
+        ValueKind::Fixnum(v) => v,
+        ValueKind::Char(c) => c as i64,
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -920,7 +921,7 @@ pub(crate) fn builtin_logcount(args: Vec<Value>) -> EvalResult {
     } else {
         ((!n) as u64).count_ones() as i64
     };
-    Ok(Value::Int(bits))
+    Ok(Value::fixnum(bits))
 }
 
 // ---------------------------------------------------------------------------

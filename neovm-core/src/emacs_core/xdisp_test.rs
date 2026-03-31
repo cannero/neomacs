@@ -1,6 +1,7 @@
 use super::*;
 use crate::emacs_core::Context;
 use crate::emacs_core::value::{
+use crate::emacs_core::value::{ValueKind};
     StringTextPropertyRun, get_string_text_properties_table, set_string_text_properties,
 };
 
@@ -9,14 +10,14 @@ fn test_register_bootstrap_vars_include_tab_bar_display_vars() {
     let mut obarray = crate::emacs_core::symbol::Obarray::new();
     register_bootstrap_vars(&mut obarray);
 
-    assert_eq!(obarray.symbol_value("inhibit-redisplay"), Some(&Value::Nil));
+    assert_eq!(obarray.symbol_value("inhibit-redisplay"), Some(&Value::NIL));
     assert_eq!(
         obarray.symbol_value("auto-resize-tab-bars"),
-        Some(&Value::True)
+        Some(&Value::T)
     );
     assert_eq!(
         obarray.symbol_value("auto-raise-tab-bar-buttons"),
-        Some(&Value::True)
+        Some(&Value::T)
     );
     assert_eq!(
         obarray.symbol_value("tab-bar-border"),
@@ -24,7 +25,7 @@ fn test_register_bootstrap_vars_include_tab_bar_display_vars() {
     );
     assert_eq!(
         obarray.symbol_value("tab-bar-button-margin"),
-        Some(&Value::Int(1))
+        Some(&Value::fixnum(1))
     );
 }
 
@@ -37,7 +38,7 @@ fn test_format_mode_line() {
     let result = builtin_format_mode_line(vec![
         Value::string("test"),
         Value::symbol("default"),
-        Value::Nil,
+        Value::NIL,
     ])
     .unwrap();
     assert_eq!(result, Value::string(""));
@@ -56,7 +57,7 @@ fn test_format_mode_line() {
     let err = builtin_format_mode_line(vec![
         Value::string("test"),
         Value::symbol("default"),
-        Value::Nil,
+        Value::NIL,
         Value::symbol("buffer"),
     ])
     .unwrap_err();
@@ -79,9 +80,9 @@ fn test_format_mode_line_eval_optional_designators() {
         &mut eval,
         vec![
             Value::string("%b"),
-            Value::Nil,
-            Value::Int(window_id),
-            Value::Buffer(buffer_id),
+            Value::NIL,
+            Value::fixnum(window_id),
+            Value::make_buffer(buffer_id),
         ],
     )
     .unwrap();
@@ -95,7 +96,7 @@ fn test_format_mode_line_eval_optional_designators() {
 
     let err = builtin_format_mode_line_ctx(
         &mut eval,
-        vec![Value::string("%b"), Value::Nil, Value::string("x")],
+        vec![Value::string("%b"), Value::NIL, Value::string("x")],
     )
     .unwrap_err();
     match err {
@@ -107,8 +108,8 @@ fn test_format_mode_line_eval_optional_designators() {
         &mut eval,
         vec![
             Value::string("%b"),
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
             Value::string("x"),
         ],
     )
@@ -141,7 +142,7 @@ fn test_resolve_live_window_display_context_uses_selected_window_buffer_point() 
     let ctx = resolve_live_window_display_context(
         &eval.frames,
         &eval.buffers,
-        Some(&Value::Window(selected_window.0)),
+        Some(&Value::make_window(selected_window.0)),
     )
     .expect("display context")
     .expect("selected window context");
@@ -160,9 +161,9 @@ fn test_format_mode_line_eval_uses_explicit_buffer_instead_of_current_buffer() {
         &mut eval,
         vec![
             Value::string("%b"),
-            Value::Nil,
-            Value::Nil,
-            Value::Buffer(other_id),
+            Value::NIL,
+            Value::NIL,
+            Value::make_buffer(other_id),
         ],
     )
     .unwrap();
@@ -196,9 +197,9 @@ fn test_format_mode_line_eval_uses_window_buffer_instead_of_current_buffer() {
         &mut eval,
         vec![
             Value::string("%b"),
-            Value::Nil,
-            Value::Window(window_id as u64),
-            Value::Nil,
+            Value::NIL,
+            Value::make_window(window_id as u64),
+            Value::NIL,
         ],
     )
     .unwrap();
@@ -229,9 +230,9 @@ fn test_format_mode_line_in_state_uses_buffer_local_symbols_and_restores_buffer(
                 Value::string(" "),
                 Value::symbol("mode-line-front-space"),
             ]),
-            Value::Nil,
-            Value::Nil,
-            Value::Buffer(other_id),
+            Value::NIL,
+            Value::NIL,
+            Value::make_buffer(other_id),
         ],
     )
     .expect("format-mode-line shared state")
@@ -257,9 +258,9 @@ fn test_format_mode_line_eval_keeps_shared_buffer_context_around_eval_forms() {
                 Value::string("%b "),
                 Value::list(vec![Value::symbol(":eval"), Value::symbol("mode-name")]),
             ]),
-            Value::Nil,
-            Value::Nil,
-            Value::Buffer(other_id),
+            Value::NIL,
+            Value::NIL,
+            Value::make_buffer(other_id),
         ],
     )
     .expect("format-mode-line eval");
@@ -288,9 +289,9 @@ fn test_format_mode_line_in_state_with_eval_keeps_shared_buffer_context_around_e
                 Value::string("%b "),
                 Value::list(vec![Value::symbol(":eval"), Value::symbol("mode-name")]),
             ]),
-            Value::Nil,
-            Value::Nil,
-            Value::Buffer(other_id),
+            Value::NIL,
+            Value::NIL,
+            Value::make_buffer(other_id),
         ],
         |form, buffers| {
             assert_eq!(*form, Value::symbol("mode-name"));
@@ -309,7 +310,7 @@ fn test_format_mode_line_in_state_with_eval_keeps_shared_buffer_context_around_e
 #[test]
 fn test_format_mode_line_symbol_conditional_uses_only_selected_branch() {
     let mut eval = super::super::eval::Context::new();
-    eval.obarray.set_symbol_value("mode-line-flag", Value::True);
+    eval.obarray.set_symbol_value("mode-line-flag", Value::T);
 
     let then_rendered = builtin_format_mode_line_ctx(
         &mut eval,
@@ -324,7 +325,7 @@ fn test_format_mode_line_symbol_conditional_uses_only_selected_branch() {
     )
     .expect("format-mode-line should use then branch");
 
-    eval.obarray.set_symbol_value("mode-line-flag", Value::Nil);
+    eval.obarray.set_symbol_value("mode-line-flag", Value::NIL);
     let else_rendered = builtin_format_mode_line_ctx(
         &mut eval,
         vec![Value::list(vec![
@@ -358,9 +359,9 @@ fn test_format_mode_line_string_valued_symbols_render_literally() {
         &eval.processes,
         vec![
             Value::list(vec![Value::string("%b "), Value::symbol("mode-name")]),
-            Value::Nil,
-            Value::Nil,
-            Value::Buffer(other_id),
+            Value::NIL,
+            Value::NIL,
+            Value::make_buffer(other_id),
         ],
     )
     .expect("format-mode-line shared state")
@@ -382,13 +383,13 @@ fn test_format_mode_line_fixnum_elements_pad_and_truncate_tail() {
         &eval.processes,
         vec![
             Value::list(vec![
-                Value::list(vec![Value::Int(5), Value::string("%b")]),
+                Value::list(vec![Value::fixnum(5), Value::string("%b")]),
                 Value::string("!"),
-                Value::list(vec![Value::Int(-1), Value::string("%b")]),
+                Value::list(vec![Value::fixnum(-1), Value::string("%b")]),
             ]),
-            Value::Nil,
-            Value::Nil,
-            Value::Buffer(other_id),
+            Value::NIL,
+            Value::NIL,
+            Value::make_buffer(other_id),
         ],
     )
     .expect("format-mode-line shared state")
@@ -410,9 +411,9 @@ fn test_format_mode_line_percent_specs_keep_gnu_field_width_and_dash_semantics()
         &eval.processes,
         vec![
             Value::string("%5b|%-|%2*"),
-            Value::Nil,
-            Value::Nil,
-            Value::Buffer(other_id),
+            Value::NIL,
+            Value::NIL,
+            Value::make_buffer(other_id),
         ],
     )
     .expect("format-mode-line shared state")
@@ -436,7 +437,7 @@ fn test_format_mode_line_respects_risky_local_variable_for_eval_forms() {
         Value::list(vec![Value::symbol(":eval"), Value::string("ok")]),
     );
     eval.obarray
-        .put_property("trusted-mode-line", "risky-local-variable", Value::True);
+        .put_property("trusted-mode-line", "risky-local-variable", Value::T);
 
     let suppressed =
         builtin_format_mode_line_ctx(&mut eval, vec![Value::symbol("unsafe-mode-line")])
@@ -465,7 +466,7 @@ fn test_format_mode_line_propertize_preserves_text_properties() {
     .expect("format-mode-line propertize");
 
     assert_eq!(rendered.as_str(), Some("abc"));
-    let Value::Str(id) = rendered else {
+    if !rendered.is_string() /* TODO(tagged): `id` was Value::Str(id), rewrite let-else */ {
         panic!("expected string result");
     };
     let props = get_string_text_properties_table(id).expect("mode-line text properties");
@@ -486,7 +487,7 @@ fn test_format_mode_line_percent_specs_preserve_source_string_text_properties() 
     eval.buffers.set_current(buffer_id);
 
     let format = Value::string("%b!");
-    let Value::Str(id) = format else {
+    if !format.is_string() /* TODO(tagged): `id` was Value::Str(id), rewrite let-else */ {
         panic!("expected string format");
     };
     set_string_text_properties(
@@ -507,7 +508,7 @@ fn test_format_mode_line_percent_specs_preserve_source_string_text_properties() 
         builtin_format_mode_line_ctx(&mut eval, vec![format]).expect("format-mode-line props");
 
     assert_eq!(rendered.as_str(), Some("fmt-prop-buffer!"));
-    let Value::Str(id) = rendered else {
+    if !rendered.is_string() /* TODO(tagged): `id` was Value::Str(id), rewrite let-else */ {
         panic!("expected string result");
     };
     let props = get_string_text_properties_table(id).expect("mode-line text properties");
@@ -539,7 +540,7 @@ fn test_format_mode_line_status_specs_match_gnu_buffer_state() {
         let buffer = eval.buffers.get_mut(buffer_id).expect("buffer");
         buffer.insert("abc");
         buffer.set_modified(true);
-        buffer.set_buffer_local("buffer-read-only", Value::True);
+        buffer.set_buffer_local("buffer-read-only", Value::T);
     }
 
     let status =
@@ -548,7 +549,7 @@ fn test_format_mode_line_status_specs_match_gnu_buffer_state() {
 
     {
         let buffer = eval.buffers.get_mut(buffer_id).expect("buffer");
-        buffer.set_buffer_local("buffer-read-only", Value::Nil);
+        buffer.set_buffer_local("buffer-read-only", Value::NIL);
         buffer.set_modified(false);
         buffer.narrow_to_region(1, 2);
     }
@@ -579,7 +580,7 @@ fn test_format_mode_line_face_argument_adds_default_face_and_merges_explicit_fac
     .expect("format-mode-line face arg");
 
     assert_eq!(rendered.as_str(), Some("ab"));
-    let Value::Str(id) = rendered else {
+    if !rendered.is_string() /* TODO(tagged): `id` was Value::Str(id), rewrite let-else */ {
         panic!("expected string result");
     };
     let props = get_string_text_properties_table(id).expect("mode-line text properties");
@@ -610,13 +611,13 @@ fn test_format_mode_line_integer_face_argument_discards_text_properties() {
                 Value::symbol("help-echo"),
                 Value::string("h"),
             ]),
-            Value::Int(0),
+            Value::fixnum(0),
         ],
     )
     .expect("format-mode-line face int");
 
     assert_eq!(rendered, Value::string("abc"));
-    let Value::Str(id) = rendered else {
+    if !rendered.is_string() /* TODO(tagged): `id` was Value::Str(id), rewrite let-else */ {
         panic!("expected string result");
     };
     assert!(
@@ -631,7 +632,7 @@ fn test_format_mode_line_fixnum_padding_does_not_inherit_inner_properties() {
     let rendered = builtin_format_mode_line_ctx(
         &mut eval,
         vec![Value::list(vec![
-            Value::Int(5),
+            Value::fixnum(5),
             Value::list(vec![
                 Value::symbol(":propertize"),
                 Value::string("x"),
@@ -643,7 +644,7 @@ fn test_format_mode_line_fixnum_padding_does_not_inherit_inner_properties() {
     .expect("format-mode-line fixnum padding");
 
     assert_eq!(rendered.as_str(), Some("x    "));
-    let Value::Str(id) = rendered else {
+    if !rendered.is_string() /* TODO(tagged): `id` was Value::Str(id), rewrite let-else */ {
         panic!("expected string result");
     };
     let props = get_string_text_properties_table(id).expect("mode-line text properties");
@@ -825,8 +826,8 @@ fn test_format_mode_line_position_o_and_q_specs() {
         &mut eval,
         vec![
             Value::string("%o|%p|%P"),
-            Value::Nil,
-            Value::Window(selected_window.0),
+            Value::NIL,
+            Value::make_window(selected_window.0),
         ],
     )
     .expect("mid pos");
@@ -852,8 +853,8 @@ fn test_format_mode_line_position_o_and_q_specs() {
         &mut eval,
         vec![
             Value::string("%o|%p"),
-            Value::Nil,
-            Value::Window(selected_window.0),
+            Value::NIL,
+            Value::make_window(selected_window.0),
         ],
     )
     .expect("top pos");
@@ -902,8 +903,8 @@ fn test_format_mode_line_percent_specs_use_window_buffer_and_completed_window_en
         &mut eval,
         vec![
             Value::string("%o|%p|%P"),
-            Value::Nil,
-            Value::Window(selected_window.0),
+            Value::NIL,
+            Value::make_window(selected_window.0),
         ],
     )
     .expect("mode-line percent specs");
@@ -913,43 +914,43 @@ fn test_format_mode_line_percent_specs_use_window_buffer_and_completed_window_en
 
 #[test]
 fn test_invisible_p() {
-    let err = builtin_invisible_p(vec![Value::Int(0)]).unwrap_err();
+    let err = builtin_invisible_p(vec![Value::fixnum(0)]).unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "args-out-of-range"),
         other => panic!("expected args-out-of-range, got {:?}", other),
     }
-    let result = builtin_invisible_p(vec![Value::Int(1)]).unwrap();
+    let result = builtin_invisible_p(vec![Value::fixnum(1)]).unwrap();
     assert!(result.is_nil());
 
     let result = builtin_invisible_p(vec![Value::symbol("invisible")]).unwrap();
     assert!(result.is_truthy());
 
-    let result = builtin_invisible_p(vec![Value::Int(-1)]).unwrap();
+    let result = builtin_invisible_p(vec![Value::fixnum(-1)]).unwrap();
     assert!(result.is_truthy());
 
-    let result = builtin_invisible_p(vec![Value::Nil]).unwrap();
+    let result = builtin_invisible_p(vec![Value::NIL]).unwrap();
     assert!(result.is_nil());
 
     let result = builtin_invisible_p(vec![Value::string("x")]).unwrap();
     assert!(result.is_truthy());
 
-    let result = builtin_invisible_p(vec![Value::Float(1.5, next_float_id())]).unwrap();
+    let result = builtin_invisible_p(vec![Value::make_float(1.5)]).unwrap();
     assert!(result.is_truthy());
 }
 
 #[test]
 fn test_line_pixel_height() {
     let result = builtin_line_pixel_height(vec![]).unwrap();
-    assert_eq!(result, Value::Int(1));
+    assert_eq!(result, Value::fixnum(1));
 }
 
 #[test]
 fn test_window_text_pixel_size() {
     let result = builtin_window_text_pixel_size(vec![]).unwrap();
-    if let Value::Cons(cell) = result {
-        let pair = read_cons(cell);
-        assert_eq!(pair.car, Value::Int(0));
-        assert_eq!(pair.cdr, Value::Int(0));
+    if result.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+        assert_eq!(pair.car, Value::fixnum(0));
+        assert_eq!(pair.cdr, Value::fixnum(0));
     } else {
         panic!("expected cons");
     }
@@ -957,19 +958,19 @@ fn test_window_text_pixel_size() {
 
 #[test]
 fn test_window_text_pixel_size_arg_validation() {
-    let err = builtin_window_text_pixel_size(vec![Value::Int(1)]).unwrap_err();
+    let err = builtin_window_text_pixel_size(vec![Value::fixnum(1)]).unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
         other => panic!("expected wrong-type-argument, got {:?}", other),
     }
 
-    let err = builtin_window_text_pixel_size(vec![Value::Nil, Value::symbol("x")]).unwrap_err();
+    let err = builtin_window_text_pixel_size(vec![Value::NIL, Value::symbol("x")]).unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
         other => panic!("expected wrong-type-argument, got {:?}", other),
     }
 
-    let err = builtin_window_text_pixel_size(vec![Value::Nil, Value::Nil, Value::symbol("x")])
+    let err = builtin_window_text_pixel_size(vec![Value::NIL, Value::NIL, Value::symbol("x")])
         .unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
@@ -979,9 +980,9 @@ fn test_window_text_pixel_size_arg_validation() {
     // X-LIMIT / Y-LIMIT / MODE / PIXELWISE are accepted without strict type checks.
     assert!(
         builtin_window_text_pixel_size(vec![
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
             Value::symbol("x"),
             Value::symbol("y"),
             Value::symbol("z"),
@@ -999,13 +1000,13 @@ fn test_window_text_pixel_size_eval_window_validation() {
     let selected_window = eval.frames.get(frame_id).expect("frame").selected_window.0 as i64;
 
     let ok =
-        builtin_window_text_pixel_size_ctx(&mut eval, vec![Value::Int(selected_window)]).unwrap();
-    match ok {
-        Value::Cons(_) => {}
+        builtin_window_text_pixel_size_ctx(&mut eval, vec![Value::fixnum(selected_window)]).unwrap();
+    match ok.kind() {
+        ValueKind::Cons => {}
         other => panic!("expected cons return, got {other:?}"),
     }
 
-    let err = builtin_window_text_pixel_size_ctx(&mut eval, vec![Value::Int(999_999)]).unwrap_err();
+    let err = builtin_window_text_pixel_size_ctx(&mut eval, vec![Value::fixnum(999_999)]).unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
         other => panic!("expected wrong-type-argument, got {:?}", other),
@@ -1014,10 +1015,10 @@ fn test_window_text_pixel_size_eval_window_validation() {
 
 #[test]
 fn test_pos_visible_in_window_p() {
-    let result = builtin_pos_visible_in_window_p(vec![Value::Int(1)]).unwrap();
+    let result = builtin_pos_visible_in_window_p(vec![Value::fixnum(1)]).unwrap();
     assert!(result.is_nil());
 
-    let result = builtin_pos_visible_in_window_p(vec![Value::Int(100), Value::symbol("window")])
+    let result = builtin_pos_visible_in_window_p(vec![Value::fixnum(100), Value::symbol("window")])
         .unwrap_err();
     match result {
         Flow::Signal(sig) => {
@@ -1028,7 +1029,7 @@ fn test_pos_visible_in_window_p() {
     }
 
     let result =
-        builtin_pos_visible_in_window_p(vec![Value::symbol("left"), Value::Int(1)]).unwrap_err();
+        builtin_pos_visible_in_window_p(vec![Value::symbol("left"), Value::fixnum(1)]).unwrap_err();
     match result {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -1047,14 +1048,14 @@ fn test_pos_visible_in_window_p() {
     }
 
     let result =
-        builtin_pos_visible_in_window_p(vec![Value::Int(1), Value::Nil, Value::Int(1)]).unwrap();
+        builtin_pos_visible_in_window_p(vec![Value::fixnum(1), Value::NIL, Value::fixnum(1)]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn test_pos_visible_in_window_p_eval_window_validation() {
     let mut eval = super::super::eval::Context::new();
-    let err = builtin_pos_visible_in_window_p_ctx(&mut eval, vec![Value::Nil, Value::string("x")])
+    let err = builtin_pos_visible_in_window_p_ctx(&mut eval, vec![Value::NIL, Value::string("x")])
         .unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
@@ -1062,7 +1063,7 @@ fn test_pos_visible_in_window_p_eval_window_validation() {
     }
 
     let err =
-        builtin_pos_visible_in_window_p_ctx(&mut eval, vec![Value::symbol("left"), Value::Int(1)])
+        builtin_pos_visible_in_window_p_ctx(&mut eval, vec![Value::symbol("left"), Value::fixnum(1)])
             .unwrap_err();
     match err {
         Flow::Signal(sig) => {
@@ -1072,7 +1073,7 @@ fn test_pos_visible_in_window_p_eval_window_validation() {
         other => panic!("expected wrong-type-argument, got {:?}", other),
     }
 
-    let ok = builtin_pos_visible_in_window_p_ctx(&mut eval, vec![Value::Int(1)]).unwrap();
+    let ok = builtin_pos_visible_in_window_p_ctx(&mut eval, vec![Value::fixnum(1)]).unwrap();
     assert!(ok.is_nil());
 }
 
@@ -1107,7 +1108,7 @@ fn test_pos_visible_in_window_p_eval_returns_partial_geometry_for_live_window() 
 
     let result = builtin_pos_visible_in_window_p_ctx(
         &mut eval,
-        vec![Value::Int(5), Value::Window(selected_window.0), Value::True],
+        vec![Value::fixnum(5), Value::make_window(selected_window.0), Value::T],
     )
     .unwrap();
     assert_eq!(super::super::print::print_value(&result), "(0 16)");
@@ -1146,12 +1147,12 @@ fn test_window_line_height_eval_returns_live_gui_row_metrics() {
 
     let current = builtin_window_line_height(
         &mut eval,
-        vec![Value::Nil, Value::Window(selected_window.0)],
+        vec![Value::NIL, Value::make_window(selected_window.0)],
     )
     .unwrap();
     let last = builtin_window_line_height(
         &mut eval,
-        vec![Value::Int(-1), Value::Window(selected_window.0)],
+        vec![Value::fixnum(-1), Value::make_window(selected_window.0)],
     )
     .unwrap();
     assert_eq!(super::super::print::print_value(&current), "(16 1 16 0)");
@@ -1210,7 +1211,7 @@ fn test_posn_at_point_eval_uses_exact_redisplay_snapshot() {
 
     let result = builtin_posn_at_point(
         &mut eval,
-        vec![Value::Int(5), Value::Window(selected_window.0)],
+        vec![Value::fixnum(5), Value::make_window(selected_window.0)],
     )
     .unwrap();
     assert_eq!(
@@ -1258,10 +1259,10 @@ fn test_posn_at_x_y_eval_uses_exact_redisplay_snapshot() {
     let text_relative = builtin_posn_at_x_y(
         &mut eval,
         vec![
-            Value::Int(30),
-            Value::Int(20),
-            Value::Window(selected_window.0),
-            Value::Nil,
+            Value::fixnum(30),
+            Value::fixnum(20),
+            Value::make_window(selected_window.0),
+            Value::NIL,
         ],
     )
     .unwrap();
@@ -1273,10 +1274,10 @@ fn test_posn_at_x_y_eval_uses_exact_redisplay_snapshot() {
     let whole_window = builtin_posn_at_x_y(
         &mut eval,
         vec![
-            Value::Int(38),
-            Value::Int(20),
-            Value::Window(selected_window.0),
-            Value::True,
+            Value::fixnum(38),
+            Value::fixnum(20),
+            Value::make_window(selected_window.0),
+            Value::T,
         ],
     )
     .unwrap();
@@ -1341,17 +1342,17 @@ fn test_posn_at_point_eval_returns_nil_outside_visible_snapshot_span() {
 
     let before = builtin_posn_at_point(
         &mut eval,
-        vec![Value::Int(5), Value::Window(selected_window.0)],
+        vec![Value::fixnum(5), Value::make_window(selected_window.0)],
     )
     .unwrap();
     let after = builtin_posn_at_point(
         &mut eval,
-        vec![Value::Int(20), Value::Window(selected_window.0)],
+        vec![Value::fixnum(20), Value::make_window(selected_window.0)],
     )
     .unwrap();
     let hidden_gap = builtin_posn_at_point(
         &mut eval,
-        vec![Value::Int(12), Value::Window(selected_window.0)],
+        vec![Value::fixnum(12), Value::make_window(selected_window.0)],
     )
     .unwrap();
 
@@ -1433,7 +1434,7 @@ fn test_posn_at_point_eval_returns_nil_for_positions_missing_entire_visible_row(
 
     let missing = builtin_posn_at_point(
         &mut eval,
-        vec![Value::Int(2), Value::Window(selected_window.0)],
+        vec![Value::fixnum(2), Value::make_window(selected_window.0)],
     )
     .unwrap();
     assert!(
@@ -1445,14 +1446,14 @@ fn test_posn_at_point_eval_returns_nil_for_positions_missing_entire_visible_row(
 #[test]
 fn test_move_point_visually() {
     for direction in [1_i64, 0, -1, 2] {
-        let err = builtin_move_point_visually(vec![Value::Int(direction)]).unwrap_err();
+        let err = builtin_move_point_visually(vec![Value::fixnum(direction)]).unwrap_err();
         match err {
             Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "args-out-of-range"),
             other => panic!("expected args-out-of-range, got {:?}", other),
         }
     }
 
-    let err = builtin_move_point_visually(vec![Value::Char('a')]).unwrap_err();
+    let err = builtin_move_point_visually(vec![Value::char('a')]).unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "args-out-of-range"),
         other => panic!("expected args-out-of-range, got {:?}", other),
@@ -1468,7 +1469,7 @@ fn test_move_point_visually() {
 #[test]
 fn test_lookup_image_map() {
     let result =
-        builtin_lookup_image_map(vec![Value::symbol("map"), Value::Int(10), Value::Int(20)])
+        builtin_lookup_image_map(vec![Value::symbol("map"), Value::fixnum(10), Value::fixnum(20)])
             .unwrap();
     assert!(result.is_nil());
 
@@ -1485,7 +1486,7 @@ fn test_lookup_image_map() {
 
     let err = builtin_lookup_image_map(vec![
         Value::symbol("image"),
-        Value::Int(1),
+        Value::fixnum(1),
         Value::symbol("y"),
     ])
     .unwrap_err();
@@ -1495,7 +1496,7 @@ fn test_lookup_image_map() {
     }
 
     let result =
-        builtin_lookup_image_map(vec![Value::Nil, Value::Int(1), Value::string("y")]).unwrap();
+        builtin_lookup_image_map(vec![Value::NIL, Value::fixnum(1), Value::string("y")]).unwrap();
     assert!(result.is_nil());
 
     let err = builtin_lookup_image_map(vec![]).unwrap_err();
@@ -1511,7 +1512,7 @@ fn test_current_bidi_paragraph_direction() {
     assert_eq!(result, Value::symbol("left-to-right"));
 
     let result =
-        builtin_current_bidi_paragraph_direction(vec![Value::Buffer(crate::buffer::BufferId(1))])
+        builtin_current_bidi_paragraph_direction(vec![Value::make_buffer(crate::buffer::BufferId(1))])
             .unwrap();
     assert_eq!(result, Value::symbol("left-to-right"));
 
@@ -1526,21 +1527,21 @@ fn test_current_bidi_paragraph_direction() {
 fn test_bidi_resolved_levels() {
     assert!(builtin_bidi_resolved_levels(vec![]).unwrap().is_nil());
     assert!(
-        builtin_bidi_resolved_levels(vec![Value::Nil])
+        builtin_bidi_resolved_levels(vec![Value::NIL])
             .unwrap()
             .is_nil()
     );
     assert!(
-        builtin_bidi_resolved_levels(vec![Value::Int(0)])
+        builtin_bidi_resolved_levels(vec![Value::fixnum(0)])
             .unwrap()
             .is_nil()
     );
 
-    let err = builtin_bidi_resolved_levels(vec![Value::True]).unwrap_err();
+    let err = builtin_bidi_resolved_levels(vec![Value::T]).unwrap_err();
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("fixnump"), Value::True]);
+            assert_eq!(sig.data, vec![Value::symbol("fixnump"), ValueKind::T]);
         }
         other => panic!("expected wrong-type-argument, got {:?}", other),
     }
@@ -1551,7 +1552,7 @@ fn test_bidi_find_overridden_directionality() {
     assert!(
         builtin_bidi_find_overridden_directionality(vec![
             Value::string("abc"),
-            Value::Int(0),
+            Value::fixnum(0),
             Value::string("x"),
         ])
         .unwrap()
@@ -1559,8 +1560,8 @@ fn test_bidi_find_overridden_directionality() {
     );
     assert!(
         builtin_bidi_find_overridden_directionality(vec![
-            Value::Nil,
-            Value::Int(0),
+            Value::NIL,
+            Value::fixnum(0),
             Value::string("x"),
         ])
         .unwrap()
@@ -1568,7 +1569,7 @@ fn test_bidi_find_overridden_directionality() {
     );
     assert!(
         builtin_bidi_find_overridden_directionality(
-            vec![Value::Int(1), Value::Int(2), Value::Nil,]
+            vec![Value::fixnum(1), Value::fixnum(2), Value::NIL,]
         )
         .unwrap()
         .is_nil()
@@ -1576,27 +1577,27 @@ fn test_bidi_find_overridden_directionality() {
 
     let third_arg_err = builtin_bidi_find_overridden_directionality(vec![
         Value::string("abc"),
-        Value::Int(0),
-        Value::Int(3),
+        Value::fixnum(0),
+        Value::fixnum(3),
     ])
     .unwrap_err();
     match third_arg_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::Int(3)]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(3)]);
         }
         other => panic!("expected wrong-type-argument, got {:?}", other),
     }
 
     let region_arg_err =
-        builtin_bidi_find_overridden_directionality(vec![Value::Nil, Value::Int(2), Value::Nil])
+        builtin_bidi_find_overridden_directionality(vec![Value::NIL, Value::fixnum(2), Value::NIL])
             .unwrap_err();
     match region_arg_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("integer-or-marker-p"), Value::Nil]
+                vec![Value::symbol("integer-or-marker-p"), ValueKind::Nil]
             );
         }
         other => panic!("expected wrong-type-argument, got {:?}", other),
@@ -1607,7 +1608,7 @@ fn test_bidi_find_overridden_directionality() {
 fn test_move_to_window_line() {
     // Without a selected frame, move-to-window-line should signal an error.
     let mut ev = crate::emacs_core::Context::new();
-    for arg in [Value::Int(1), Value::Int(0), Value::symbol("left")] {
+    for arg in [Value::fixnum(1), Value::fixnum(0), Value::symbol("left")] {
         let err = builtin_move_to_window_line(&mut ev, vec![arg]).unwrap_err();
         match err {
             Flow::Signal(sig) => {
@@ -1621,10 +1622,10 @@ fn test_move_to_window_line() {
 #[test]
 fn test_tool_bar_height() {
     let result = builtin_tool_bar_height(vec![]).unwrap();
-    assert_eq!(result, Value::Int(0));
+    assert_eq!(result, Value::fixnum(0));
 
     let result = builtin_tool_bar_height(vec![Value::symbol("frame")]).unwrap();
-    assert_eq!(result, Value::Int(0));
+    assert_eq!(result, Value::fixnum(0));
 }
 
 #[test]
@@ -1634,8 +1635,8 @@ fn test_tool_bar_height_eval_frame_validation() {
     let frame_id = eval.frames.create_frame("xdisp-test", 80, 24, buf_id);
 
     let result =
-        builtin_tool_bar_height_ctx(&mut eval, vec![Value::Int(frame_id.0 as i64)]).unwrap();
-    assert_eq!(result, Value::Int(0));
+        builtin_tool_bar_height_ctx(&mut eval, vec![Value::fixnum(frame_id.0 as i64)]).unwrap();
+    assert_eq!(result, Value::fixnum(0));
 
     let err = builtin_tool_bar_height_ctx(&mut eval, vec![Value::string("x")]).unwrap_err();
     match err {
@@ -1647,10 +1648,10 @@ fn test_tool_bar_height_eval_frame_validation() {
 #[test]
 fn test_tab_bar_height() {
     let result = builtin_tab_bar_height(vec![]).unwrap();
-    assert_eq!(result, Value::Int(0));
+    assert_eq!(result, Value::fixnum(0));
 
     let result = builtin_tab_bar_height(vec![Value::symbol("frame")]).unwrap();
-    assert_eq!(result, Value::Int(0));
+    assert_eq!(result, Value::fixnum(0));
 }
 
 #[test]
@@ -1660,8 +1661,8 @@ fn test_tab_bar_height_eval_frame_validation() {
     let frame_id = eval.frames.create_frame("xdisp-test", 80, 24, buf_id);
 
     let result =
-        builtin_tab_bar_height_ctx(&mut eval, vec![Value::Int(frame_id.0 as i64)]).unwrap();
-    assert_eq!(result, Value::Int(0));
+        builtin_tab_bar_height_ctx(&mut eval, vec![Value::fixnum(frame_id.0 as i64)]).unwrap();
+    assert_eq!(result, Value::fixnum(0));
 
     let err = builtin_tab_bar_height_ctx(&mut eval, vec![Value::string("x")]).unwrap_err();
     match err {
@@ -1681,22 +1682,22 @@ fn test_tab_bar_height_eval_reflects_tab_bar_lines_and_pixels() {
     super::super::window_cmds::builtin_modify_frame_parameters(
         &mut eval,
         vec![
-            Value::Int(frame_id.0 as i64),
+            Value::fixnum(frame_id.0 as i64),
             Value::list(vec![Value::cons(
                 Value::symbol("tab-bar-lines"),
-                Value::Int(1),
+                Value::fixnum(1),
             )]),
         ],
     )
     .unwrap();
 
-    let lines = builtin_tab_bar_height_ctx(&mut eval, vec![Value::Int(frame_id.0 as i64)]).unwrap();
-    assert_eq!(lines, Value::Int(1));
+    let lines = builtin_tab_bar_height_ctx(&mut eval, vec![Value::fixnum(frame_id.0 as i64)]).unwrap();
+    assert_eq!(lines, Value::fixnum(1));
 
     let pixels =
-        builtin_tab_bar_height_ctx(&mut eval, vec![Value::Int(frame_id.0 as i64), Value::True])
+        builtin_tab_bar_height_ctx(&mut eval, vec![Value::fixnum(frame_id.0 as i64), Value::T])
             .unwrap();
-    assert_eq!(pixels, Value::Int(20));
+    assert_eq!(pixels, Value::fixnum(20));
 
     let frame = eval.frames.get(frame_id).expect("selected frame");
     assert_eq!(frame.tab_bar_height, 20);
@@ -1705,10 +1706,10 @@ fn test_tab_bar_height_eval_reflects_tab_bar_lines_and_pixels() {
 #[test]
 fn test_line_number_display_width() {
     let result = builtin_line_number_display_width(vec![]).unwrap();
-    assert_eq!(result, Value::Int(0));
+    assert_eq!(result, Value::fixnum(0));
 
-    let result = builtin_line_number_display_width(vec![Value::True]).unwrap();
-    assert_eq!(result, Value::Int(0));
+    let result = builtin_line_number_display_width(vec![Value::T]).unwrap();
+    assert_eq!(result, Value::fixnum(0));
 }
 
 #[test]
@@ -1720,10 +1721,10 @@ fn test_long_line_optimizations_p() {
 // Test wrong arity errors
 #[test]
 fn test_wrong_arity() {
-    assert!(builtin_line_pixel_height(vec![Value::Int(1)]).is_err());
+    assert!(builtin_line_pixel_height(vec![Value::fixnum(1)]).is_err());
     assert!(builtin_invisible_p(vec![]).is_err());
     assert!(builtin_move_point_visually(vec![]).is_err());
-    assert!(builtin_lookup_image_map(vec![Value::Int(1), Value::Int(2)]).is_err());
+    assert!(builtin_lookup_image_map(vec![Value::fixnum(1), Value::fixnum(2)]).is_err());
     {
         let mut ev = crate::emacs_core::Context::new();
         assert!(builtin_move_to_window_line(&mut ev, vec![]).is_err());
@@ -1740,8 +1741,8 @@ fn test_optional_args() {
         builtin_format_mode_line(vec![
             Value::string("fmt"),
             Value::symbol("face"),
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
         ])
         .is_ok()
     );
@@ -1760,15 +1761,15 @@ fn test_optional_args() {
     assert!(builtin_window_text_pixel_size(vec![]).is_ok());
     assert!(
         builtin_window_text_pixel_size(vec![
-            Value::Nil,
-            Value::Int(1),
-            Value::Int(100),
-            Value::Int(500),
-            Value::Int(300),
+            Value::NIL,
+            Value::fixnum(1),
+            Value::fixnum(100),
+            Value::fixnum(500),
+            Value::fixnum(300),
             Value::symbol("mode"),
             Value::symbol("pixelwise"),
         ])
         .is_ok()
     );
-    assert!(builtin_window_text_pixel_size(vec![Value::Int(1); 8]).is_err());
+    assert!(builtin_window_text_pixel_size(vec![Value::fixnum(1); 8]).is_err());
 }

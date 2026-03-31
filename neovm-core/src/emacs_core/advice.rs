@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use super::intern::resolve_sym;
 use super::symbol::Obarray;
-use super::value::Value;
+use super::value::{Value, ValueKind, VecLikeType};
 use crate::gc::GcTrace;
 
 // ---------------------------------------------------------------------------
@@ -123,8 +123,8 @@ fn watcher_callback_matches(registered: &Value, candidate: &Value) -> bool {
     if registered == candidate {
         return true;
     }
-    match (registered, candidate) {
-        (Value::Lambda(_), Value::Lambda(_)) | (Value::Macro(_), Value::Macro(_)) => {
+    match (registered.kind(), candidate.kind()) {
+        (ValueKind::Veclike(VecLikeType::Lambda), ValueKind::Veclike(VecLikeType::Lambda)) | (ValueKind::Veclike(VecLikeType::Macro), ValueKind::Veclike(VecLikeType::Macro)) => {
             lambda_data_matches(registered, candidate)
         }
         _ => false,
@@ -177,7 +177,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -186,10 +186,10 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
 
 /// Extract a symbol name from a Value.
 fn expect_symbol_name(value: &Value) -> Result<String, Flow> {
-    match value {
-        Value::Symbol(id) => Ok(resolve_sym(*id).to_owned()),
-        Value::Nil => Ok("nil".to_string()),
-        Value::True => Ok("t".to_string()),
+    match value.kind() {
+        ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
+        ValueKind::Nil => Ok("nil".to_string()),
+        ValueKind::T => Ok("t".to_string()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), *other],
@@ -212,7 +212,7 @@ pub(crate) fn builtin_add_variable_watcher(
     let callback = args[1];
 
     eval.watchers.add_watcher(&resolved, callback);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(remove-variable-watcher SYMBOL WATCH-FUNCTION)`
@@ -230,7 +230,7 @@ pub(crate) fn builtin_remove_variable_watcher(
     let callback = args[1];
 
     eval.watchers.remove_watcher(&resolved, &callback);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(get-variable-watchers SYMBOL)`

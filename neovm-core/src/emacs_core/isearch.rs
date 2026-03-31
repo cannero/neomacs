@@ -12,7 +12,7 @@ use std::collections::VecDeque;
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::intern;
-use super::value::{Value, with_heap};
+use super::value::{Value, with_heap, ValueKind};
 use crate::buffer::Buffer;
 
 // ---------------------------------------------------------------------------
@@ -23,7 +23,7 @@ fn expect_min_max_args(name: &str, args: &[Value], min: usize, max: usize) -> Re
     if args.len() < min || args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -31,8 +31,8 @@ fn expect_min_max_args(name: &str, args: &[Value], min: usize, max: usize) -> Re
 }
 
 fn expect_string(val: &Value) -> Result<String, Flow> {
-    match val {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+    match val.kind() {
+        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -41,9 +41,9 @@ fn expect_string(val: &Value) -> Result<String, Flow> {
 }
 
 fn expect_integer_or_marker(val: &Value) -> Result<i64, Flow> {
-    match val {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match val.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *other],
@@ -52,8 +52,8 @@ fn expect_integer_or_marker(val: &Value) -> Result<i64, Flow> {
 }
 
 fn expect_sequence_string(val: &Value) -> Result<String, Flow> {
-    match val {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+    match val.kind() {
+        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("sequencep"), *other],
@@ -180,8 +180,8 @@ fn replace_lax_whitespace_enabled(eval: &super::eval::Context) -> bool {
 
 fn resolve_search_whitespace_regexp(eval: &super::eval::Context) -> Option<String> {
     let raw = match dynamic_or_global_symbol_value(eval, "search-whitespace-regexp") {
-        Some(Value::Str(id)) => with_heap(|h| h.get_string(id).to_owned()),
-        Some(Value::Nil) | None => "[ \t\n\r]+".to_string(),
+        Some(ValueKind::String) => with_heap(|h| h.get_string(id).to_owned()),
+        Some(ValueKind::Nil) | None => "[ \t\n\r]+".to_string(),
         Some(_) => return None,
     };
     Some(raw)
@@ -1412,7 +1412,7 @@ fn replace_string_eval_impl(
             .current_buffer_id()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         let _ = eval.buffers.goto_buffer_byte(current_id, point_max);
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     let (start, end, source, read_only, buffer_name) = {
         let buf = eval
@@ -1437,7 +1437,7 @@ fn replace_string_eval_impl(
 
     if from.is_empty() {
         if source.is_empty() {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
         if read_only {
             return Err(signal("buffer-read-only", vec![Value::string(buffer_name)]));
@@ -1455,7 +1455,7 @@ fn replace_string_eval_impl(
             }
         }
         if out == source {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
         let current_id = eval
             .buffers
@@ -1488,7 +1488,7 @@ fn replace_string_eval_impl(
         } else {
             let _ = eval.buffers.goto_buffer_byte(current_id, start + out.len());
         }
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let case_fold = case_fold_for_pattern(eval, &from);
@@ -1564,7 +1564,7 @@ fn replace_string_eval_impl(
     }
 
     if replaced == 0 {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     if read_only {
         return Err(signal("buffer-read-only", vec![Value::string(buffer_name)]));
@@ -1597,7 +1597,7 @@ fn replace_string_eval_impl(
         let _ = eval.buffers.goto_buffer_byte(current_id, start + out.len());
     }
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(replace-string FROM-STRING TO-STRING &optional DELIMITED START END BACKWARD REGION-NONCONTIGUOUS-P)` —
@@ -1641,7 +1641,7 @@ fn replace_regexp_eval_impl(
             .current_buffer_id()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         let _ = eval.buffers.goto_buffer_byte(current_id, point_max);
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let (start, end, source, read_only, buffer_name) = {
@@ -1734,7 +1734,7 @@ fn replace_regexp_eval_impl(
     out.push_str(&source[last..]);
 
     if replaced == 0 {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     if read_only {
         return Err(signal("buffer-read-only", vec![Value::string(buffer_name)]));
@@ -1767,7 +1767,7 @@ fn replace_regexp_eval_impl(
         let _ = eval.buffers.goto_buffer_byte(current_id, start + out.len());
     }
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(replace-regexp REGEXP TO-STRING &optional DELIMITED START END BACKWARD REGION-NONCONTIGUOUS-P)` —
@@ -1805,7 +1805,7 @@ pub(crate) fn builtin_query_replace_regexp(
     match replace_regexp_eval_impl(eval, args, true) {
         // Batch `query-replace-regexp` does not signal invalid regexp payloads;
         // it reports and returns nil in non-interactive compatibility mode.
-        Err(Flow::Signal(sig)) if sig.symbol_name() == "invalid-regexp" => Ok(Value::Nil),
+        Err(Flow::Signal(sig)) if sig.symbol_name() == "invalid-regexp" => Ok(Value::NIL),
         other => other,
     }
 }
@@ -1858,7 +1858,7 @@ pub(crate) fn builtin_keep_lines(eval: &mut super::eval::Context, args: Vec<Valu
         let keep_line = match string_matches_regexp(line, &regexp, case_fold) {
             Ok(matched) => matched,
             Err(Flow::Signal(sig)) if sig.symbol_name() == "invalid-regexp" => {
-                return Ok(Value::Nil);
+                return Ok(ValueKind::Nil);
             }
             Err(err) => return Err(err),
         };
@@ -1894,7 +1894,7 @@ pub(crate) fn builtin_keep_lines(eval: &mut super::eval::Context, args: Vec<Valu
     }
     let _ = eval.buffers.goto_buffer_byte(current_id, start);
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(flush-lines REGEXP &optional RSTART REND INTERACTIVE)` —
@@ -1974,7 +1974,7 @@ pub(crate) fn builtin_flush_lines(eval: &mut super::eval::Context, args: Vec<Val
     let _ = eval.buffers.goto_buffer_byte(current_id, start);
 
     // Emacs returns integer 0 from flush-lines regardless of match count.
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 /// `(how-many REGEXP &optional RSTART REND INTERACTIVE)` —
@@ -1993,11 +1993,11 @@ pub(crate) fn builtin_how_many(eval: &mut super::eval::Context, args: Vec<Value>
     };
 
     if regexp.is_empty() {
-        return Ok(Value::Int(source.chars().count() as i64));
+        return Ok(Value::fixnum(source.chars().count() as i64));
     }
 
     let case_fold = case_fold_for_pattern(eval, &regexp);
-    Ok(Value::Int(count_string_regexp_matches(
+    Ok(Value::fixnum(count_string_regexp_matches(
         &source, &regexp, case_fold,
     )?))
 }
@@ -2021,11 +2021,11 @@ pub(crate) fn builtin_count_matches(
     };
 
     if regexp.is_empty() {
-        return Ok(Value::Int(source.chars().count() as i64));
+        return Ok(Value::fixnum(source.chars().count() as i64));
     }
 
     let case_fold = case_fold_for_pattern(eval, &regexp);
-    Ok(Value::Int(count_string_regexp_matches(
+    Ok(Value::fixnum(count_string_regexp_matches(
         &source, &regexp, case_fold,
     )?))
 }

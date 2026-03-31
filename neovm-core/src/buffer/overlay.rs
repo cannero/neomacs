@@ -10,7 +10,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Bound::{Excluded, Unbounded};
 
-use crate::emacs_core::value::{Value, eq_value, read_cons, with_heap, with_heap_mut};
+use crate::emacs_core::value::{Value, eq_value, read_cons, with_heap, with_heap_mut, ValueKind};
 use crate::gc::GcTrace;
 use crate::gc::types::{ObjId, OverlayData};
 
@@ -479,9 +479,9 @@ fn overlay_priority(overlay: &Overlay) -> (i64, i64) {
     match plist_get_named(overlay.plist, "priority") {
         None => (0, 0),
         Some(value) => match value {
-            Value::Int(n) => (n, 0),
-            Value::Char(c) => (c as i64, 0),
-            Value::Cons(_) => (
+            ValueKind::Fixnum(n) => (n, 0),
+            ValueKind::Char(c) => (c as i64, 0),
+            ValueKind::Cons => (
                 priority_component(value.cons_car()),
                 priority_component(value.cons_cdr()),
             ),
@@ -491,9 +491,9 @@ fn overlay_priority(overlay: &Overlay) -> (i64, i64) {
 }
 
 fn priority_component(value: Value) -> i64 {
-    match value {
-        Value::Int(n) => n,
-        Value::Char(c) => c as i64,
+    match value.kind() {
+        ValueKind::Fixnum(n) => n,
+        ValueKind::Char(c) => c as i64,
         _ => 0,
     }
 }
@@ -501,11 +501,11 @@ fn priority_component(value: Value) -> i64 {
 pub(crate) fn plist_get_eq(plist: Value, prop: &Value) -> Option<Value> {
     let mut tail = plist;
     loop {
-        let Value::Cons(cell) = tail else {
+        if !tail.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
             return None;
         };
-        let pair = read_cons(cell);
-        let Value::Cons(value_cell) = pair.cdr else {
+        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+        if !pair.cdr.is_cons() /* TODO(tagged): `value_cell` was Value::Cons(value_cell), rewrite let-else */ {
             return None;
         };
         if eq_value(&pair.car, prop) {
@@ -518,11 +518,11 @@ pub(crate) fn plist_get_eq(plist: Value, prop: &Value) -> Option<Value> {
 fn plist_get_named(plist: Value, prop_name: &str) -> Option<Value> {
     let mut tail = plist;
     loop {
-        let Value::Cons(cell) = tail else {
+        if !tail.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
             return None;
         };
-        let pair = read_cons(cell);
-        let Value::Cons(value_cell) = pair.cdr else {
+        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+        if !pair.cdr.is_cons() /* TODO(tagged): `value_cell` was Value::Cons(value_cell), rewrite let-else */ {
             return None;
         };
         if pair.car.as_symbol_name() == Some(prop_name) {
@@ -535,12 +535,12 @@ fn plist_get_named(plist: Value, prop_name: &str) -> Option<Value> {
 pub(crate) fn plist_put_eq(plist: Value, prop: Value, value: Value) -> (Value, bool) {
     let mut tail = plist;
     loop {
-        let Value::Cons(cell) = tail else {
+        if !tail.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
             let changed = !value.is_nil();
             return (Value::cons(prop, Value::cons(value, plist)), changed);
         };
-        let pair = read_cons(cell);
-        let Value::Cons(value_cell) = pair.cdr else {
+        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+        if !pair.cdr.is_cons() /* TODO(tagged): `value_cell` was Value::Cons(value_cell), rewrite let-else */ {
             let changed = !value.is_nil();
             return (Value::cons(prop, Value::cons(value, plist)), changed);
         };
@@ -562,7 +562,7 @@ impl Default for OverlayList {
 impl GcTrace for OverlayList {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
         for overlay in &self.overlays {
-            roots.push(Value::Overlay(*overlay));
+            roots.push(Value::Overlay(*overlay) /* TODO(tagged): convert Value::Overlay to new API */);
         }
     }
 }
@@ -576,7 +576,7 @@ mod tests {
     fn alloc_overlay(start: usize, end: usize) -> ObjId {
         with_heap_mut(|h| {
             h.alloc_overlay(OverlayData {
-                plist: Value::Nil,
+                plist: Value::NIL,
                 buffer: Some(BufferId(1)),
                 start,
                 end,
@@ -672,7 +672,7 @@ mod tests {
         let mut list = OverlayList::new();
         let overlay = alloc_overlay(5, 10);
         list.insert_overlay(overlay);
-        list.overlay_put(overlay, Value::symbol("evaporate"), Value::True);
+        list.overlay_put(overlay, Value::symbol("evaporate"), Value::T);
         list.adjust_for_delete(5, 10);
         assert!(list.is_empty());
         assert!(overlay_live_buffer(overlay).is_none());
@@ -686,12 +686,12 @@ mod tests {
         list.insert_overlay(low);
         list.insert_overlay(high);
         list.overlay_put(low, Value::symbol("face"), Value::symbol("bold"));
-        list.overlay_put(low, Value::symbol("priority"), Value::Int(1));
+        list.overlay_put(low, Value::symbol("priority"), Value::fixnum(1));
         list.overlay_put(high, Value::symbol("face"), Value::symbol("italic"));
         list.overlay_put(
             high,
             Value::symbol("priority"),
-            Value::cons(Value::Int(1), Value::Int(2)),
+            Value::cons(Value::fixnum(1), Value::fixnum(2)),
         );
         let mut ids = list.overlays_at(4);
         list.sort_overlay_ids_by_priority_desc(&mut ids);

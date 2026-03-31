@@ -12,6 +12,7 @@ use super::intern::intern;
 use super::symbol::Obarray;
 use super::value::*;
 use crate::buffer::{Buffer, BufferManager};
+use crate::emacs_core::value::{ValueKind};
 
 // ---------------------------------------------------------------------------
 // Argument helpers (local to this module)
@@ -21,7 +22,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -32,7 +33,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -43,7 +44,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -51,9 +52,9 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 }
 
 fn expect_fixnump(val: &Value) -> Result<i64, Flow> {
-    match val {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match val.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("fixnump"), *other],
@@ -62,9 +63,9 @@ fn expect_fixnump(val: &Value) -> Result<i64, Flow> {
 }
 
 fn expect_wholenump(val: &Value) -> Result<usize, Flow> {
-    match val {
-        Value::Int(n) if *n >= 0 => Ok(*n as usize),
-        Value::Char(c) => Ok(*c as usize),
+    match val.kind() {
+        ValueKind::Fixnum(n) if n >= 0 => Ok(n as usize),
+        ValueKind::Char(c) => Ok(c as usize),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("wholenump"), *other],
@@ -92,8 +93,8 @@ fn tab_width_in_state(
     buf: Option<&Buffer>,
 ) -> usize {
     match dynamic_buffer_or_global_symbol_value(obarray, dynamic, buf, "tab-width") {
-        Some(Value::Int(n)) if n > 0 => n as usize,
-        Some(Value::Char(c)) if (c as u32) > 0 => c as usize,
+        Some(ValueKind::Fixnum(n)) if n > 0 => n as usize,
+        Some(ValueKind::Char(c)) if (c as u32) > 0 => c as usize,
         _ => 8,
     }
 }
@@ -250,7 +251,7 @@ pub(crate) fn builtin_current_indentation(
 ) -> EvalResult {
     expect_args("current-indentation", &args, 0)?;
     let Some(buf) = &ctx.buffers.current_buffer() else {
-        return Ok(Value::Int(0));
+        return Ok(Value::fixnum(0));
     };
 
     let tabw = tab_width_in_state(&ctx.obarray, &[], Some(buf));
@@ -266,7 +267,7 @@ pub(crate) fn builtin_current_indentation(
         }
     }
 
-    Ok(Value::Int(column as i64))
+    Ok(Value::fixnum(column as i64))
 }
 
 /// (current-column) -> integer
@@ -278,7 +279,7 @@ pub(crate) fn builtin_current_column(
 ) -> EvalResult {
     expect_args("current-column", &args, 0)?;
     let Some(buf) = &ctx.buffers.current_buffer() else {
-        return Ok(Value::Int(0));
+        return Ok(Value::fixnum(0));
     };
 
     let tabw = tab_width_in_state(&ctx.obarray, &[], Some(buf));
@@ -287,7 +288,7 @@ pub(crate) fn builtin_current_column(
     let (bol, _) = line_bounds(&text, buf.begv, buf.zv, pt);
     let prefix = &text[bol..pt];
 
-    Ok(Value::Int(column_for_prefix(prefix, tabw) as i64))
+    Ok(Value::fixnum(column_for_prefix(prefix, tabw) as i64))
 }
 
 /// (move-to-column COLUMN &optional FORCE) -> COLUMN-REACHED
@@ -302,10 +303,10 @@ pub(crate) fn builtin_move_to_column(
     let target = expect_wholenump(&args[0])?;
     let force = args.get(1).is_some_and(|v| v.is_truthy());
     let Some(current_id) = ctx.buffers.current_buffer_id() else {
-        return Ok(Value::Int(0));
+        return Ok(Value::fixnum(0));
     };
     let Some(buf) = ctx.buffers.get(current_id) else {
-        return Ok(Value::Int(0));
+        return Ok(Value::fixnum(0));
     };
     let tabw = tab_width_in_state(&ctx.obarray, &[], Some(buf));
     let read_only = buffer_read_only_active_in_state(&ctx.obarray, &[], buf);
@@ -317,7 +318,7 @@ pub(crate) fn builtin_move_to_column(
 
     if target == 0 {
         let _ = ctx.buffers.goto_buffer_byte(current_id, bol);
-        return Ok(Value::Int(0));
+        return Ok(Value::fixnum(0));
     }
 
     let mut column = 0usize;
@@ -364,7 +365,7 @@ pub(crate) fn builtin_move_to_column(
         super::editfns::signal_before_change(ctx, insert_pos, insert_pos)?;
         let _ = ctx.buffers.insert_into_buffer(current_id, &pad);
         super::editfns::signal_after_change(ctx, insert_pos, insert_pos + pad_len, 0)?;
-        return Ok(Value::Int(target as i64));
+        return Ok(Value::fixnum(target as i64));
     }
 
     let _ = ctx.buffers.goto_buffer_byte(current_id, dest_byte);
@@ -382,7 +383,7 @@ pub(crate) fn builtin_move_to_column(
         reached = target;
     }
 
-    Ok(Value::Int(reached as i64))
+    Ok(Value::fixnum(reached as i64))
 }
 
 /// (indent-to COLUMN &optional MINIMUM) -> COLUMN
@@ -424,7 +425,7 @@ pub(crate) fn builtin_indent_to(
 
     let mincol = column.max(fromcol + minimum);
     if fromcol >= mincol {
-        return Ok(Value::Int(mincol as i64));
+        return Ok(Value::fixnum(mincol as i64));
     }
 
     if buffer_read_only_active_in_state(&ctx.obarray, &[], buf) {
@@ -465,7 +466,7 @@ pub(crate) fn builtin_indent_to(
         super::editfns::signal_after_change(ctx, insert_pos, insert_pos + indent_len, 0)?;
     }
 
-    Ok(Value::Int(mincol as i64))
+    Ok(Value::fixnum(mincol as i64))
 }
 
 // ---------------------------------------------------------------------------
@@ -478,19 +479,19 @@ pub(crate) fn builtin_indent_to(
 /// but before any user code runs).
 pub fn init_indent_vars(obarray: &mut super::symbol::Obarray) {
     // tab-width: default 8 (buffer-local in real Emacs, global default here)
-    obarray.set_symbol_value("tab-width", Value::Int(8));
+    obarray.set_symbol_value("tab-width", Value::fixnum(8));
     obarray.make_special("tab-width");
 
     // indent-tabs-mode: default t
-    obarray.set_symbol_value("indent-tabs-mode", Value::True);
+    obarray.set_symbol_value("indent-tabs-mode", Value::T);
     obarray.make_special("indent-tabs-mode");
 
     // standard-indent: default 4
-    obarray.set_symbol_value("standard-indent", Value::Int(4));
+    obarray.set_symbol_value("standard-indent", Value::fixnum(4));
     obarray.make_special("standard-indent");
 
     // tab-stop-list: default nil
-    obarray.set_symbol_value("tab-stop-list", Value::Nil);
+    obarray.set_symbol_value("tab-stop-list", Value::NIL);
     obarray.make_special("tab-stop-list");
 }
 

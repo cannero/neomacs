@@ -3,6 +3,7 @@ use crate::emacs_core::intern::intern;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use crate::emacs_core::{format_eval_result, parse_forms};
 use std::sync::{Mutex, OnceLock};
+use crate::emacs_core::value::{ValueKind};
 
 fn tz_test_lock() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -12,7 +13,7 @@ fn tz_test_lock() -> std::sync::MutexGuard<'static, ()> {
 }
 
 fn reset_tz_rule() {
-    let _ = builtin_set_time_zone_rule(vec![Value::Nil]);
+    let _ = builtin_set_time_zone_rule(vec![Value::NIL]);
 }
 
 fn bootstrap_eval(src: &str) -> Vec<String> {
@@ -137,21 +138,21 @@ fn time_micros_equal() {
 
 #[test]
 fn parse_time_nil() {
-    let tm = parse_time(&Value::Nil).unwrap();
+    let tm = parse_time(&Value::NIL).unwrap();
     // Just check it returns something reasonable (recent epoch).
     assert!(tm.secs > 1_000_000_000);
 }
 
 #[test]
 fn parse_time_integer() {
-    let tm = parse_time(&Value::Int(1_700_000_000)).unwrap();
+    let tm = parse_time(&Value::fixnum(1_700_000_000)).unwrap();
     assert_eq!(tm.secs, 1_700_000_000);
     assert_eq!(tm.usecs, 0);
 }
 
 #[test]
 fn parse_time_float() {
-    let tm = parse_time(&Value::Float(1000.5, next_float_id())).unwrap();
+    let tm = parse_time(&Value::make_float(1000.5)).unwrap();
     assert_eq!(tm.secs, 1000);
     assert_eq!(tm.usecs, 500_000);
 }
@@ -161,7 +162,7 @@ fn parse_time_list_two() {
     // (HIGH LOW) format: 25939 * 65536 + 34304 = 1700000000
     let high = 1_700_000_000i64 >> 16;
     let low = 1_700_000_000i64 & 0xFFFF;
-    let list = Value::list(vec![Value::Int(high), Value::Int(low)]);
+    let list = Value::list(vec![Value::fixnum(high), Value::fixnum(low)]);
     let tm = parse_time(&list).unwrap();
     assert_eq!(tm.secs, 1_700_000_000);
     assert_eq!(tm.usecs, 0);
@@ -172,10 +173,10 @@ fn parse_time_list_four() {
     let high = 1_700_000_000i64 >> 16;
     let low = 1_700_000_000i64 & 0xFFFF;
     let list = Value::list(vec![
-        Value::Int(high),
-        Value::Int(low),
-        Value::Int(42),
-        Value::Int(0),
+        Value::fixnum(high),
+        Value::fixnum(low),
+        Value::fixnum(42),
+        Value::fixnum(0),
     ]);
     let tm = parse_time(&list).unwrap();
     assert_eq!(tm.secs, 1_700_000_000);
@@ -282,15 +283,15 @@ fn builtin_current_time_returns_four_element_list() {
 
 #[test]
 fn builtin_current_time_wrong_arity() {
-    let result = builtin_current_time(vec![Value::Int(1)]);
+    let result = builtin_current_time(vec![Value::fixnum(1)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn builtin_float_time_no_args() {
     let result = builtin_float_time(vec![]).unwrap();
-    match result {
-        Value::Float(f, _) => assert!(f > 1_000_000_000.0),
+    match result.kind() {
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => assert!(f > 1_000_000_000.0),
         _ => panic!("expected float"),
     }
 }
@@ -300,31 +301,31 @@ fn builtin_float_time_from_list() {
     let high = 1_700_000_000i64 >> 16;
     let low = 1_700_000_000i64 & 0xFFFF;
     let list = Value::list(vec![
-        Value::Int(high),
-        Value::Int(low),
-        Value::Int(500_000),
-        Value::Int(0),
+        Value::fixnum(high),
+        Value::fixnum(low),
+        Value::fixnum(500_000),
+        Value::fixnum(0),
     ]);
     let result = builtin_float_time(vec![list]).unwrap();
-    match result {
-        Value::Float(f, _) => assert!((f - 1_700_000_000.5).abs() < 1e-3),
+    match result.kind() {
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => assert!((f - 1_700_000_000.5).abs() < 1e-3),
         _ => panic!("expected float"),
     }
 }
 
 #[test]
 fn builtin_float_time_from_integer() {
-    let result = builtin_float_time(vec![Value::Int(42)]).unwrap();
-    match result {
-        Value::Float(f, _) => assert!((f - 42.0).abs() < 1e-9),
+    let result = builtin_float_time(vec![Value::fixnum(42)]).unwrap();
+    match result.kind() {
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => assert!((f - 42.0).abs() < 1e-9),
         _ => panic!("expected float"),
     }
 }
 
 #[test]
 fn builtin_time_add_basic() {
-    let a = Value::Int(100);
-    let b = Value::Int(200);
+    let a = Value::fixnum(100);
+    let b = Value::fixnum(200);
     let result = builtin_time_add(vec![a, b]).unwrap();
     let items = list_to_vec(&result).unwrap();
     let high = items[0].as_int().unwrap();
@@ -334,8 +335,8 @@ fn builtin_time_add_basic() {
 
 #[test]
 fn builtin_time_subtract_basic() {
-    let a = Value::Int(300);
-    let b = Value::Int(100);
+    let a = Value::fixnum(300);
+    let b = Value::fixnum(100);
     let result = builtin_time_subtract(vec![a, b]).unwrap();
     let items = list_to_vec(&result).unwrap();
     let high = items[0].as_int().unwrap();
@@ -345,25 +346,25 @@ fn builtin_time_subtract_basic() {
 
 #[test]
 fn builtin_time_less_p_true() {
-    let result = builtin_time_less_p(vec![Value::Int(1), Value::Int(2)]).unwrap();
+    let result = builtin_time_less_p(vec![Value::fixnum(1), Value::fixnum(2)]).unwrap();
     assert!(result.is_truthy());
 }
 
 #[test]
 fn builtin_time_less_p_false() {
-    let result = builtin_time_less_p(vec![Value::Int(2), Value::Int(1)]).unwrap();
+    let result = builtin_time_less_p(vec![Value::fixnum(2), Value::fixnum(1)]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn builtin_time_equal_p_true() {
-    let result = builtin_time_equal_p(vec![Value::Int(42), Value::Int(42)]).unwrap();
+    let result = builtin_time_equal_p(vec![Value::fixnum(42), Value::fixnum(42)]).unwrap();
     assert!(result.is_truthy());
 }
 
 #[test]
 fn builtin_time_equal_p_false() {
-    let result = builtin_time_equal_p(vec![Value::Int(42), Value::Int(43)]).unwrap();
+    let result = builtin_time_equal_p(vec![Value::fixnum(42), Value::fixnum(43)]).unwrap();
     assert!(result.is_nil());
 }
 
@@ -371,7 +372,7 @@ fn builtin_time_equal_p_false() {
 fn builtin_current_time_string_known_time() {
     // 2024-01-15 12:30:45 UTC
     let epoch = encode_to_epoch_secs(45, 30, 12, 15, 1, 2024);
-    let result = builtin_current_time_string(vec![Value::Int(epoch)]).unwrap();
+    let result = builtin_current_time_string(vec![Value::fixnum(epoch)]).unwrap();
     let s = result.as_str().unwrap();
     assert!(s.contains("Jan"));
     assert!(s.contains("12:30:45"));
@@ -399,13 +400,13 @@ fn builtin_current_time_zone_default() {
 #[test]
 fn builtin_encode_time_known() {
     let result = builtin_encode_time(vec![
-        Value::Int(0),
-        Value::Int(0),
-        Value::Int(0),
-        Value::Int(1),
-        Value::Int(1),
-        Value::Int(1970),
-        Value::True,
+        Value::fixnum(0),
+        Value::fixnum(0),
+        Value::fixnum(0),
+        Value::fixnum(1),
+        Value::fixnum(1),
+        Value::fixnum(1970),
+        Value::T,
     ])
     .unwrap();
     let items = list_to_vec(&result).unwrap();
@@ -417,13 +418,13 @@ fn builtin_encode_time_known() {
 #[test]
 fn builtin_encode_time_y2k() {
     let result = builtin_encode_time(vec![
-        Value::Int(0),
-        Value::Int(0),
-        Value::Int(0),
-        Value::Int(1),
-        Value::Int(1),
-        Value::Int(2000),
-        Value::True,
+        Value::fixnum(0),
+        Value::fixnum(0),
+        Value::fixnum(0),
+        Value::fixnum(1),
+        Value::fixnum(1),
+        Value::fixnum(2000),
+        Value::T,
     ])
     .unwrap();
     let items = list_to_vec(&result).unwrap();
@@ -441,15 +442,15 @@ fn builtin_encode_time_wrong_arity() {
 #[test]
 fn builtin_encode_time_decoded_time_list() {
     let result = builtin_encode_time(vec![Value::list(vec![
-        Value::Int(0),
-        Value::Int(0),
-        Value::Int(0),
-        Value::Int(1),
-        Value::Int(1),
-        Value::Int(1970),
-        Value::Nil,
-        Value::Int(-1),
-        Value::True,
+        Value::fixnum(0),
+        Value::fixnum(0),
+        Value::fixnum(0),
+        Value::fixnum(1),
+        Value::fixnum(1),
+        Value::fixnum(1970),
+        Value::NIL,
+        Value::fixnum(-1),
+        Value::T,
     ])])
     .unwrap();
     let items = list_to_vec(&result).unwrap();
@@ -461,15 +462,15 @@ fn builtin_encode_time_decoded_time_list() {
 #[test]
 fn builtin_encode_time_honors_zone_offset() {
     let result = builtin_encode_time(vec![Value::list(vec![
-        Value::Int(0),
-        Value::Int(0),
-        Value::Int(0),
-        Value::Int(1),
-        Value::Int(1),
-        Value::Int(1970),
-        Value::Nil,
-        Value::Int(-1),
-        Value::Int(-3600),
+        Value::fixnum(0),
+        Value::fixnum(0),
+        Value::fixnum(0),
+        Value::fixnum(1),
+        Value::fixnum(1),
+        Value::fixnum(1970),
+        Value::NIL,
+        Value::fixnum(-1),
+        Value::fixnum(-3600),
     ])])
     .unwrap();
     let items = list_to_vec(&result).unwrap();
@@ -480,7 +481,7 @@ fn builtin_encode_time_honors_zone_offset() {
 
 #[test]
 fn builtin_decode_time_epoch_zero() {
-    let result = builtin_decode_time(vec![Value::Int(0)]).unwrap();
+    let result = builtin_decode_time(vec![Value::fixnum(0)]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 9);
     assert_eq!(items[0].as_int(), Some(0)); // sec
@@ -505,13 +506,13 @@ fn builtin_decode_time_no_args() {
 fn builtin_encode_decode_roundtrip() {
     // Encode a specific time.
     let encoded = builtin_encode_time(vec![
-        Value::Int(30),
-        Value::Int(45),
-        Value::Int(14),
-        Value::Int(20),
-        Value::Int(3),
-        Value::Int(2025),
-        Value::True,
+        Value::fixnum(30),
+        Value::fixnum(45),
+        Value::fixnum(14),
+        Value::fixnum(20),
+        Value::fixnum(3),
+        Value::fixnum(2025),
+        Value::T,
     ])
     .unwrap();
 
@@ -528,7 +529,7 @@ fn builtin_encode_decode_roundtrip() {
 
 #[test]
 fn builtin_time_convert_to_list() {
-    let result = builtin_time_convert(vec![Value::Int(1000)]).unwrap();
+    let result = builtin_time_convert(vec![Value::fixnum(1000)]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 4);
     let high = items[0].as_int().unwrap();
@@ -538,15 +539,15 @@ fn builtin_time_convert_to_list() {
 
 #[test]
 fn builtin_time_convert_to_integer() {
-    let result = builtin_time_convert(vec![Value::Int(1000), Value::symbol("integer")]).unwrap();
+    let result = builtin_time_convert(vec![Value::fixnum(1000), Value::symbol("integer")]).unwrap();
     assert_eq!(result.as_int(), Some(1000));
 }
 
 #[test]
 fn builtin_time_convert_to_float() {
-    let result = builtin_time_convert(vec![Value::Int(1000), Value::symbol("float")]).unwrap();
-    match result {
-        Value::Float(f, _) => assert!((f - 1000.0).abs() < 1e-9),
+    let result = builtin_time_convert(vec![Value::fixnum(1000), Value::symbol("float")]).unwrap();
+    match result.kind() {
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => assert!((f - 1000.0).abs() < 1e-9),
         _ => panic!("expected float"),
     }
 }
@@ -554,10 +555,10 @@ fn builtin_time_convert_to_float() {
 #[test]
 fn builtin_time_convert_with_t() {
     // Emacs 29+: (time-convert 42 t) returns (TICKS . HZ) cons
-    let result = builtin_time_convert(vec![Value::Int(42), Value::True]).unwrap();
-    match &result {
-        Value::Cons(id) => {
-            let snap = super::super::value::read_cons(*id);
+    let result = builtin_time_convert(vec![Value::fixnum(42), Value::T]).unwrap();
+    match result.kind() {
+        ValueKind::Cons => {
+            let snap = super::super::value::read_cons(*id);  // TODO(tagged): replace read_cons with cons accessors
             let ticks = snap.car.as_int().expect("expected int ticks");
             let hz = snap.cdr.as_int().expect("expected int hz");
             assert_eq!(hz, 1_000_000);
@@ -572,10 +573,10 @@ fn builtin_set_time_zone_rule_t() {
     let _guard = tz_test_lock();
     reset_tz_rule();
 
-    let result = builtin_set_time_zone_rule(vec![Value::True]).unwrap();
+    let result = builtin_set_time_zone_rule(vec![Value::T]).unwrap();
     assert!(result.is_nil());
     let tz = builtin_current_time_zone(vec![]).unwrap();
-    assert_eq!(tz, Value::list(vec![Value::Int(0), Value::string("GMT")]));
+    assert_eq!(tz, Value::list(vec![Value::fixnum(0), Value::string("GMT")]));
     reset_tz_rule();
 }
 
@@ -584,25 +585,25 @@ fn builtin_set_time_zone_rule_fixed_offsets() {
     let _guard = tz_test_lock();
     reset_tz_rule();
 
-    builtin_set_time_zone_rule(vec![Value::Int(3600)]).unwrap();
+    builtin_set_time_zone_rule(vec![Value::fixnum(3600)]).unwrap();
     let plus = builtin_current_time_zone(vec![]).unwrap();
     assert_eq!(
         plus,
-        Value::list(vec![Value::Int(3600), Value::string("+01")])
+        Value::list(vec![Value::fixnum(3600), Value::string("+01")])
     );
 
-    builtin_set_time_zone_rule(vec![Value::Int(-3600)]).unwrap();
+    builtin_set_time_zone_rule(vec![Value::fixnum(-3600)]).unwrap();
     let minus = builtin_current_time_zone(vec![]).unwrap();
     assert_eq!(
         minus,
-        Value::list(vec![Value::Int(-3600), Value::string("-01")])
+        Value::list(vec![Value::fixnum(-3600), Value::string("-01")])
     );
 
-    builtin_set_time_zone_rule(vec![Value::Int(1)]).unwrap();
+    builtin_set_time_zone_rule(vec![Value::fixnum(1)]).unwrap();
     let one = builtin_current_time_zone(vec![]).unwrap();
     assert_eq!(
         one,
-        Value::list(vec![Value::Int(1), Value::string("+000001")])
+        Value::list(vec![Value::fixnum(1), Value::string("+000001")])
     );
     reset_tz_rule();
 }
@@ -614,13 +615,13 @@ fn builtin_set_time_zone_rule_string_specs() {
 
     builtin_set_time_zone_rule(vec![Value::string("UTC")]).unwrap();
     let utc = builtin_current_time_zone(vec![]).unwrap();
-    assert_eq!(utc, Value::list(vec![Value::Int(0), Value::string("UTC")]));
+    assert_eq!(utc, Value::list(vec![Value::fixnum(0), Value::string("UTC")]));
 
     builtin_set_time_zone_rule(vec![Value::string("JST-9")]).unwrap();
     let jst = builtin_current_time_zone(vec![]).unwrap();
     assert_eq!(
         jst,
-        Value::list(vec![Value::Int(32400), Value::string("JST")])
+        Value::list(vec![Value::fixnum(32400), Value::string("JST")])
     );
     reset_tz_rule();
 }
@@ -648,13 +649,13 @@ fn builtin_current_time_zone_with_zone_arg() {
     let _guard = tz_test_lock();
     reset_tz_rule();
 
-    let gmt = builtin_current_time_zone(vec![Value::Nil, Value::True]).unwrap();
-    assert_eq!(gmt, Value::list(vec![Value::Int(0), Value::string("GMT")]));
+    let gmt = builtin_current_time_zone(vec![Value::NIL, Value::T]).unwrap();
+    assert_eq!(gmt, Value::list(vec![Value::fixnum(0), Value::string("GMT")]));
 
-    let plus = builtin_current_time_zone(vec![Value::Nil, Value::Int(3600)]).unwrap();
+    let plus = builtin_current_time_zone(vec![Value::NIL, Value::fixnum(3600)]).unwrap();
     assert_eq!(
         plus,
-        Value::list(vec![Value::Int(3600), Value::string("+01")])
+        Value::list(vec![Value::fixnum(3600), Value::string("+01")])
     );
 
     match builtin_current_time_zone(vec![Value::Nil, Value::Keyword(intern(":x"))]) {
@@ -697,16 +698,16 @@ fn safe_date_to_time_bootstrap_matches_gnu_elisp() {
 #[test]
 fn time_add_with_usec_overflow() {
     let a = Value::list(vec![
-        Value::Int(0),
-        Value::Int(10),
-        Value::Int(999_000),
-        Value::Int(0),
+        Value::fixnum(0),
+        Value::fixnum(10),
+        Value::fixnum(999_000),
+        Value::fixnum(0),
     ]);
     let b = Value::list(vec![
-        Value::Int(0),
-        Value::Int(5),
-        Value::Int(500_000),
-        Value::Int(0),
+        Value::fixnum(0),
+        Value::fixnum(5),
+        Value::fixnum(500_000),
+        Value::fixnum(0),
     ]);
     let result = builtin_time_add(vec![a, b]).unwrap();
     let items = list_to_vec(&result).unwrap();
@@ -720,16 +721,16 @@ fn time_add_with_usec_overflow() {
 #[test]
 fn time_subtract_with_usec_borrow() {
     let a = Value::list(vec![
-        Value::Int(0),
-        Value::Int(10),
-        Value::Int(100_000),
-        Value::Int(0),
+        Value::fixnum(0),
+        Value::fixnum(10),
+        Value::fixnum(100_000),
+        Value::fixnum(0),
     ]);
     let b = Value::list(vec![
-        Value::Int(0),
-        Value::Int(5),
-        Value::Int(500_000),
-        Value::Int(0),
+        Value::fixnum(0),
+        Value::fixnum(5),
+        Value::fixnum(500_000),
+        Value::fixnum(0),
     ]);
     let result = builtin_time_subtract(vec![a, b]).unwrap();
     let items = list_to_vec(&result).unwrap();
@@ -742,9 +743,9 @@ fn time_subtract_with_usec_borrow() {
 
 #[test]
 fn float_time_nil_arg() {
-    let result = builtin_float_time(vec![Value::Nil]).unwrap();
-    match result {
-        Value::Float(f, _) => assert!(f > 1_000_000_000.0),
+    let result = builtin_float_time(vec![Value::NIL]).unwrap();
+    match result.kind() {
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => assert!(f > 1_000_000_000.0),
         _ => panic!("expected float"),
     }
 }
@@ -752,12 +753,12 @@ fn float_time_nil_arg() {
 #[test]
 fn time_operations_with_mixed_formats() {
     // Add an integer to a list-format time.
-    let a = Value::Int(100);
+    let a = Value::fixnum(100);
     let b = Value::list(vec![
-        Value::Int(0),
-        Value::Int(50),
-        Value::Int(250_000),
-        Value::Int(0),
+        Value::fixnum(0),
+        Value::fixnum(50),
+        Value::fixnum(250_000),
+        Value::fixnum(0),
     ]);
     let result = builtin_time_add(vec![a, b]).unwrap();
     let items = list_to_vec(&result).unwrap();
@@ -770,7 +771,7 @@ fn time_operations_with_mixed_formats() {
 
 #[test]
 fn current_time_string_epoch() {
-    let result = builtin_current_time_string(vec![Value::Int(0)]).unwrap();
+    let result = builtin_current_time_string(vec![Value::fixnum(0)]).unwrap();
     let s = result.as_str().unwrap();
     // 1970-01-01 00:00:00 UTC, Thursday
     assert!(s.contains("Thu"));

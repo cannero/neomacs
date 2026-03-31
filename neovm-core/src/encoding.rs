@@ -9,7 +9,7 @@ use crate::emacs_core::string_escape::{
     bytes_to_unibyte_storage_string, decode_storage_char_codes, encode_nonunicode_char_for_storage,
     storage_byte_len,
 };
-use crate::emacs_core::value::{StringTextPropertyRun, Value, with_heap};
+use crate::emacs_core::value::{StringTextPropertyRun, Value, with_heap, ValueKind};
 
 const MAX_CHAR_CODE: i64 = 0x3F_FFFF;
 const RAW_BYTE_SENTINEL_BASE: u32 = 0xE000;
@@ -622,7 +622,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), crate::emacs_
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -637,7 +637,7 @@ fn expect_min_args(
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -645,8 +645,8 @@ fn expect_min_args(
 }
 
 fn expect_string(val: &Value) -> Result<String, crate::emacs_core::error::Flow> {
-    match val {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+    match val.kind() {
+        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -661,9 +661,9 @@ fn known_coding_system(name: &str) -> bool {
 /// `(char-width CHAR)` -> integer
 pub(crate) fn builtin_char_width(args: Vec<Value>) -> EvalResult {
     expect_args("char-width", &args, 1)?;
-    let code = match &args[0] {
-        Value::Char(c) => *c as i64,
-        Value::Int(n) => *n,
+    let code = match args[0].kind() {
+        ValueKind::Char(c) => c as i64,
+        ValueKind::Fixnum(n) => n,
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -674,30 +674,30 @@ pub(crate) fn builtin_char_width(args: Vec<Value>) -> EvalResult {
     if !(0..=MAX_CHAR_CODE).contains(&code) {
         return Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("characterp"), Value::Int(code)],
+            vec![Value::symbol("characterp"), Value::fixnum(code)],
         ));
     }
     // Non-Unicode char codes still have width 1 in Emacs.
     if code > 0x10_FFFF {
-        return Ok(Value::Int(1));
+        return Ok(Value::fixnum(1));
     }
     let width = char::from_u32(code as u32).map(char_width).unwrap_or(1);
-    Ok(Value::Int(width as i64))
+    Ok(Value::fixnum(width as i64))
 }
 
 /// `(string-bytes STRING)` -> integer byte length of STRING.
 pub(crate) fn builtin_string_bytes(args: Vec<Value>) -> EvalResult {
     expect_args("string-bytes", &args, 1)?;
     let s = expect_string(&args[0])?;
-    Ok(Value::Int(storage_byte_len(&s) as i64))
+    Ok(Value::fixnum(storage_byte_len(&s) as i64))
 }
 
 /// `(multibyte-string-p STRING)` -> t or nil
 pub(crate) fn builtin_multibyte_string_p(args: Vec<Value>) -> EvalResult {
     expect_args("multibyte-string-p", &args, 1)?;
-    match &args[0] {
-        Value::Str(id) => Ok(Value::bool(with_heap(|h| h.string_is_multibyte(*id)))),
-        _ => Ok(Value::Nil),
+    match args[0].kind() {
+        ValueKind::String => Ok(Value::bool_val(with_heap(|h| h.string_is_multibyte(*id)))),
+        _ => Ok(Value::NIL),
     }
 }
 
@@ -705,9 +705,9 @@ pub(crate) fn builtin_multibyte_string_p(args: Vec<Value>) -> EvalResult {
 #[cfg(test)]
 pub(crate) fn builtin_unibyte_string_p(args: Vec<Value>) -> EvalResult {
     expect_args("unibyte-string-p", &args, 1)?;
-    match &args[0] {
-        Value::Str(id) => Ok(Value::bool(with_heap(|h| !h.string_is_multibyte(*id)))),
-        _ => Ok(Value::Nil),
+    match args[0].kind() {
+        ValueKind::String => Ok(Value::bool_val(with_heap(|h| !h.string_is_multibyte(*id)))),
+        _ => Ok(Value::NIL),
     }
 }
 
@@ -719,14 +719,14 @@ pub(crate) fn builtin_encode_coding_string(args: Vec<Value>) -> EvalResult {
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("encode-coding-string"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
     let s = expect_string(&args[0])?;
-    let coding = match &args[1] {
-        Value::Nil => return Ok(args[0]),
-        Value::Symbol(id) => resolve_sym(*id).to_owned(),
+    let coding = match args[1].kind() {
+        ValueKind::Nil => return Ok(args[0]),
+        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -767,14 +767,14 @@ pub(crate) fn builtin_decode_coding_string(args: Vec<Value>) -> EvalResult {
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("decode-coding-string"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
     let s = expect_string(&args[0])?;
-    let coding = match &args[1] {
-        Value::Nil => return Ok(args[0]),
-        Value::Symbol(id) => resolve_sym(*id).to_owned(),
+    let coding = match args[1].kind() {
+        ValueKind::Nil => return Ok(args[0]),
+        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -813,20 +813,20 @@ pub(crate) fn builtin_decode_coding_string(args: Vec<Value>) -> EvalResult {
 /// `(char-or-string-p OBJ)` -> t or nil
 pub(crate) fn builtin_char_or_string_p(args: Vec<Value>) -> EvalResult {
     expect_args("char-or-string-p", &args, 1)?;
-    let is_char_or_string = match &args[0] {
-        Value::Char(_) | Value::Str(_) => true,
-        Value::Int(n) => (0..=MAX_CHAR_CODE).contains(n),
+    let is_char_or_string = match args[0].kind() {
+        ValueKind::Char(_) | ValueKind::String => true,
+        ValueKind::Fixnum(n) => (0..=MAX_CHAR_CODE).contains(n),
         _ => false,
     };
-    Ok(Value::bool(is_char_or_string))
+    Ok(Value::bool_val(is_char_or_string))
 }
 
 /// `(char-displayable-p CHAR)` -> t, nil, or `unicode`
 pub(crate) fn builtin_char_displayable_p(args: Vec<Value>) -> EvalResult {
     expect_args("char-displayable-p", &args, 1)?;
-    let code = match &args[0] {
-        Value::Char(c) => *c as i64,
-        Value::Int(n) => *n,
+    let code = match args[0].kind() {
+        ValueKind::Char(c) => c as i64,
+        ValueKind::Fixnum(n) => n,
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -837,16 +837,16 @@ pub(crate) fn builtin_char_displayable_p(args: Vec<Value>) -> EvalResult {
     if !(0..=MAX_CHAR_CODE).contains(&code) {
         return Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("characterp"), Value::Int(code)],
+            vec![Value::symbol("characterp"), Value::fixnum(code)],
         ));
     }
     if code <= 0x7F {
-        return Ok(Value::True);
+        return Ok(Value::T);
     }
     if code <= 0x10_FFFF {
         return Ok(Value::symbol("unicode"));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(max-char)` -> integer
@@ -854,11 +854,11 @@ pub(crate) fn builtin_max_char(args: Vec<Value>) -> EvalResult {
     if args.len() > 1 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("max-char"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("max-char"), Value::fixnum(args.len() as i64)],
         ));
     }
     let unicode_only = args.first().is_some_and(|v| !v.is_nil());
-    Ok(Value::Int(if unicode_only {
+    Ok(Value::fixnum(if unicode_only {
         0x10_FFFF
     } else {
         MAX_CHAR_CODE
@@ -917,32 +917,32 @@ mod tests {
     #[test]
     fn builtin_string_bytes_counts_utf8_length() {
         let result = builtin_string_bytes(vec![Value::string("Aé中")]).unwrap();
-        assert_eq!(result, Value::Int(6));
+        assert_eq!(result, Value::fixnum(6));
     }
 
     #[test]
     fn builtin_char_displayable_p_matches_oracle_bounds_and_types() {
         assert_eq!(
-            builtin_char_displayable_p(vec![Value::Int('a' as i64)]).unwrap(),
-            Value::True
+            builtin_char_displayable_p(vec![Value::fixnum('a' as i64)]).unwrap(),
+            Value::T
         );
         assert_eq!(
-            builtin_char_displayable_p(vec![Value::Int(0x00E9)]).unwrap(),
+            builtin_char_displayable_p(vec![Value::fixnum(0x00E9)]).unwrap(),
             Value::symbol("unicode")
         );
         assert_eq!(
-            builtin_char_displayable_p(vec![Value::Int(0x11_0000)]).unwrap(),
-            Value::Nil
+            builtin_char_displayable_p(vec![Value::fixnum(0x11_0000)]).unwrap(),
+            Value::NIL
         );
 
-        let overflow = builtin_char_displayable_p(vec![Value::Int(0x40_0000)])
+        let overflow = builtin_char_displayable_p(vec![Value::fixnum(0x40_0000)])
             .expect_err("overflow char code should signal wrong-type-argument characterp");
         match overflow {
             Flow::Signal(sig) => {
                 assert_eq!(sig.symbol_name(), "wrong-type-argument");
                 assert_eq!(
                     sig.data,
-                    vec![Value::symbol("characterp"), Value::Int(0x40_0000)]
+                    vec![Value::symbol("characterp"), ValueKind::Fixnum(0x40_0000)]
                 );
             }
             other => panic!("expected signal, got: {other:?}"),
@@ -965,27 +965,27 @@ mod tests {
     #[test]
     fn builtin_char_width_matches_oracle_control_and_bounds() {
         assert_eq!(
-            builtin_char_width(vec![Value::Int(0)]).unwrap(),
-            Value::Int(2)
+            builtin_char_width(vec![Value::fixnum(0)]).unwrap(),
+            Value::fixnum(2)
         );
         assert_eq!(
-            builtin_char_width(vec![Value::Int(9)]).unwrap(),
-            Value::Int(8)
+            builtin_char_width(vec![Value::fixnum(9)]).unwrap(),
+            Value::fixnum(8)
         );
         assert_eq!(
-            builtin_char_width(vec![Value::Int(10)]).unwrap(),
-            Value::Int(0)
+            builtin_char_width(vec![Value::fixnum(10)]).unwrap(),
+            Value::fixnum(0)
         );
         assert_eq!(
-            builtin_char_width(vec![Value::Int(0x80)]).unwrap(),
-            Value::Int(4)
+            builtin_char_width(vec![Value::fixnum(0x80)]).unwrap(),
+            Value::fixnum(4)
         );
         assert_eq!(
-            builtin_char_width(vec![Value::Int(0x11_0000)]).unwrap(),
-            Value::Int(1)
+            builtin_char_width(vec![Value::fixnum(0x11_0000)]).unwrap(),
+            Value::fixnum(1)
         );
 
-        let negative = builtin_char_width(vec![Value::Int(-1)])
+        let negative = builtin_char_width(vec![Value::fixnum(-1)])
             .expect_err("negative character code should signal");
         match negative {
             Flow::Signal(sig) => {
@@ -995,14 +995,14 @@ mod tests {
             other => panic!("expected signal, got: {other:?}"),
         }
 
-        let overflow = builtin_char_width(vec![Value::Int(0x40_0000)])
+        let overflow = builtin_char_width(vec![Value::fixnum(0x40_0000)])
             .expect_err("overflow character code should signal");
         match overflow {
             Flow::Signal(sig) => {
                 assert_eq!(sig.symbol_name(), "wrong-type-argument");
                 assert_eq!(
                     sig.data,
-                    vec![Value::symbol("characterp"), Value::Int(0x40_0000)]
+                    vec![Value::symbol("characterp"), ValueKind::Fixnum(0x40_0000)]
                 );
             }
             other => panic!("expected signal, got: {other:?}"),
@@ -1012,49 +1012,49 @@ mod tests {
     #[test]
     fn builtin_char_or_string_p_respects_character_bounds() {
         assert_eq!(
-            builtin_char_or_string_p(vec![Value::Int(0)]).unwrap(),
-            Value::True
+            builtin_char_or_string_p(vec![Value::fixnum(0)]).unwrap(),
+            Value::T
         );
         assert_eq!(
-            builtin_char_or_string_p(vec![Value::Int(0x3F_FFFF)]).unwrap(),
-            Value::True
+            builtin_char_or_string_p(vec![Value::fixnum(0x3F_FFFF)]).unwrap(),
+            Value::T
         );
         assert_eq!(
-            builtin_char_or_string_p(vec![Value::Int(-1)]).unwrap(),
-            Value::Nil
+            builtin_char_or_string_p(vec![Value::fixnum(-1)]).unwrap(),
+            Value::NIL
         );
         assert_eq!(
-            builtin_char_or_string_p(vec![Value::Int(0x40_0000)]).unwrap(),
-            Value::Nil
+            builtin_char_or_string_p(vec![Value::fixnum(0x40_0000)]).unwrap(),
+            Value::NIL
         );
         assert_eq!(
             builtin_char_or_string_p(vec![Value::symbol("x")]).unwrap(),
-            Value::Nil
+            Value::NIL
         );
     }
 
     #[test]
     fn builtin_max_char_optional_unicode_matches_oracle() {
-        assert_eq!(builtin_max_char(vec![]).unwrap(), Value::Int(0x3F_FFFF));
+        assert_eq!(builtin_max_char(vec![]).unwrap(), Value::fixnum(0x3F_FFFF));
         assert_eq!(
-            builtin_max_char(vec![Value::Nil]).unwrap(),
-            Value::Int(0x3F_FFFF)
+            builtin_max_char(vec![Value::NIL]).unwrap(),
+            Value::fixnum(0x3F_FFFF)
         );
         assert_eq!(
-            builtin_max_char(vec![Value::True]).unwrap(),
-            Value::Int(0x10_FFFF)
+            builtin_max_char(vec![Value::T]).unwrap(),
+            Value::fixnum(0x10_FFFF)
         );
         assert_eq!(
             builtin_max_char(vec![Value::symbol("foo")]).unwrap(),
-            Value::Int(0x10_FFFF)
+            Value::fixnum(0x10_FFFF)
         );
 
-        let wrong_arity = builtin_max_char(vec![Value::Int(1), Value::Int(2)])
+        let wrong_arity = builtin_max_char(vec![Value::fixnum(1), Value::fixnum(2)])
             .expect_err("max-char should reject more than one argument");
         match wrong_arity {
             Flow::Signal(sig) => {
                 assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
-                assert_eq!(sig.data, vec![Value::symbol("max-char"), Value::Int(2)]);
+                assert_eq!(sig.data, vec![Value::symbol("max-char"), ValueKind::Fixnum(2)]);
             }
             other => panic!("expected signal, got: {other:?}"),
         }
@@ -1065,9 +1065,9 @@ mod tests {
         let encode_over = builtin_encode_coding_string(vec![
             Value::string("a"),
             Value::symbol("utf-8"),
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
         ])
         .expect_err("encode-coding-string should reject more than four arguments");
         match encode_over {
@@ -1075,7 +1075,7 @@ mod tests {
                 assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
                 assert_eq!(
                     sig.data,
-                    vec![Value::symbol("encode-coding-string"), Value::Int(5)]
+                    vec![Value::symbol("encode-coding-string"), ValueKind::Fixnum(5)]
                 );
             }
             other => panic!("expected signal, got: {other:?}"),
@@ -1084,9 +1084,9 @@ mod tests {
         let decode_over = builtin_decode_coding_string(vec![
             Value::string("a"),
             Value::symbol("utf-8"),
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
         ])
         .expect_err("decode-coding-string should reject more than four arguments");
         match decode_over {
@@ -1094,7 +1094,7 @@ mod tests {
                 assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
                 assert_eq!(
                     sig.data,
-                    vec![Value::symbol("decode-coding-string"), Value::Int(5)]
+                    vec![Value::symbol("decode-coding-string"), ValueKind::Fixnum(5)]
                 );
             }
             other => panic!("expected signal, got: {other:?}"),
@@ -1119,11 +1119,11 @@ mod tests {
         assert_eq!(decode_utf8, Value::string("é"));
 
         let nil_encode =
-            builtin_encode_coding_string(vec![Value::string("é"), Value::Nil]).expect("nil coding");
+            builtin_encode_coding_string(vec![Value::string("é"), Value::NIL]).expect("nil coding");
         assert_eq!(nil_encode, Value::string("é"));
 
         let nil_decode =
-            builtin_decode_coding_string(vec![Value::string("é"), Value::Nil]).expect("nil coding");
+            builtin_decode_coding_string(vec![Value::string("é"), Value::NIL]).expect("nil coding");
         assert_eq!(nil_decode, Value::string("é"));
 
         let coding_string =
@@ -1220,7 +1220,7 @@ mod tests {
         let encoded = Value::unibyte_string(bytes_to_unibyte_storage_string(&[0xE9]));
         let decoded = builtin_decode_coding_string(vec![encoded, Value::symbol("latin-1")])
             .expect("latin-1 decode should succeed");
-        let Value::Str(id) = decoded else {
+        if !decoded.is_string() /* TODO(tagged): `id` was Value::Str(id), rewrite let-else */ {
             panic!("decode-coding-string should return a string");
         };
         let props = get_string_text_properties(id).expect("decoded string should be propertized");
@@ -1238,7 +1238,7 @@ mod tests {
         let source = Value::unibyte_string(bytes_to_unibyte_storage_string(&[0xE9]));
         let encoded =
             builtin_encode_coding_string(vec![source, Value::symbol("no-conversion")]).unwrap();
-        let Value::Str(id) = encoded else {
+        if !encoded.is_string() /* TODO(tagged): `id` was Value::Str(id), rewrite let-else */ {
             panic!("encode-coding-string should return a string");
         };
         assert!(!with_heap(|h| h.string_is_multibyte(id)));
@@ -1255,7 +1255,7 @@ mod tests {
                 .expect("encoding should succeed");
         let decoded =
             builtin_decode_coding_string(vec![encoded, Value::symbol("no-conversion")]).unwrap();
-        let Value::Str(id) = decoded else {
+        if !decoded.is_string() /* TODO(tagged): `id` was Value::Str(id), rewrite let-else */ {
             panic!("decode-coding-string should return a string");
         };
         assert!(!with_heap(|h| h.string_is_multibyte(id)));
@@ -1297,7 +1297,7 @@ mod tests {
             Value::symbol("raw-text-dos"),
         ])
         .unwrap();
-        let Value::Str(id) = encoded else {
+        if !encoded.is_string() /* TODO(tagged): `id` was Value::Str(id), rewrite let-else */ {
             panic!("encode-coding-string should return a string");
         };
         assert_eq!(
@@ -1310,7 +1310,7 @@ mod tests {
             Value::symbol("raw-text-dos"),
         ])
         .unwrap();
-        let Value::Str(id) = decoded else {
+        if !decoded.is_string() /* TODO(tagged): `id` was Value::Str(id), rewrite let-else */ {
             panic!("decode-coding-string should return a string");
         };
         assert_eq!(
@@ -1356,23 +1356,23 @@ mod tests {
     fn builtin_multibyte_string_p_matches_oracle_non_string_and_unibyte_storage() {
         assert_eq!(
             builtin_multibyte_string_p(vec![Value::string("abc")]).unwrap(),
-            Value::Nil
+            Value::NIL
         );
         assert_eq!(
             builtin_multibyte_string_p(vec![Value::string("é")]).unwrap(),
-            Value::True
+            Value::T
         );
 
         let unibyte_ascii =
             crate::emacs_core::string_escape::bytes_to_unibyte_storage_string(b"abc");
         assert_eq!(
             builtin_multibyte_string_p(vec![Value::string(unibyte_ascii)]).unwrap(),
-            Value::Nil
+            Value::NIL
         );
 
         assert_eq!(
-            builtin_multibyte_string_p(vec![Value::Int(1)]).unwrap(),
-            Value::Nil
+            builtin_multibyte_string_p(vec![Value::fixnum(1)]).unwrap(),
+            Value::NIL
         );
     }
 
@@ -1380,11 +1380,11 @@ mod tests {
     fn builtin_unibyte_string_p_basics() {
         assert_eq!(
             builtin_unibyte_string_p(vec![Value::string("hello")]).unwrap(),
-            Value::True
+            Value::T
         );
         assert_eq!(
             builtin_unibyte_string_p(vec![Value::string("héllo")]).unwrap(),
-            Value::Nil
+            Value::NIL
         );
     }
 
@@ -1394,8 +1394,8 @@ mod tests {
         assert!(builtin_unibyte_string_p(vec![]).is_err());
         // Non-string arg returns nil (type predicates don't error on wrong type).
         assert_eq!(
-            builtin_unibyte_string_p(vec![Value::Int(1)]).unwrap(),
-            Value::Nil
+            builtin_unibyte_string_p(vec![Value::fixnum(1)]).unwrap(),
+            Value::NIL
         );
     }
 

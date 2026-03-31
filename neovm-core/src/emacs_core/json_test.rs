@@ -1,4 +1,5 @@
 use super::*;
+use super::value::{ValueKind, VecLikeType};
 
 // -----------------------------------------------------------------------
 // Serializer tests
@@ -6,61 +7,61 @@ use super::*;
 
 #[test]
 fn serialize_null() {
-    let result = builtin_json_serialize(vec![Value::Nil]);
+    let result = builtin_json_serialize(vec![Value::NIL]);
     assert_eq!(result.unwrap().as_str(), Some("null"));
 }
 
 #[test]
 fn serialize_true() {
-    let result = builtin_json_serialize(vec![Value::True]);
+    let result = builtin_json_serialize(vec![Value::T]);
     assert_eq!(result.unwrap().as_str(), Some("true"));
 }
 
 #[test]
 fn serialize_false_keyword() {
-    let result = builtin_json_serialize(vec![Value::Keyword(intern(":false"))]);
+    let result = builtin_json_serialize(vec![Value::keyword(intern(":false"))]);
     assert_eq!(result.unwrap().as_str(), Some("false"));
 }
 
 #[test]
 fn serialize_json_false_keyword() {
-    let result = builtin_json_serialize(vec![Value::Keyword(intern(":json-false"))]);
+    let result = builtin_json_serialize(vec![Value::keyword(intern(":json-false"))]);
     assert_eq!(result.unwrap().as_str(), Some("false"));
 }
 
 #[test]
 fn serialize_integer() {
-    let result = builtin_json_serialize(vec![Value::Int(42)]);
+    let result = builtin_json_serialize(vec![Value::fixnum(42)]);
     assert_eq!(result.unwrap().as_str(), Some("42"));
 }
 
 #[test]
 fn serialize_negative_integer() {
-    let result = builtin_json_serialize(vec![Value::Int(-7)]);
+    let result = builtin_json_serialize(vec![Value::fixnum(-7)]);
     assert_eq!(result.unwrap().as_str(), Some("-7"));
 }
 
 #[test]
 fn serialize_float() {
-    let result = builtin_json_serialize(vec![Value::Float(3.14, next_float_id())]);
+    let result = builtin_json_serialize(vec![Value::make_float(3.14)]);
     assert_eq!(result.unwrap().as_str(), Some("3.14"));
 }
 
 #[test]
 fn serialize_float_whole() {
-    let result = builtin_json_serialize(vec![Value::Float(1.0, next_float_id())]);
+    let result = builtin_json_serialize(vec![Value::make_float(1.0)]);
     assert_eq!(result.unwrap().as_str(), Some("1.0"));
 }
 
 #[test]
 fn serialize_nan_errors() {
-    let result = builtin_json_serialize(vec![Value::Float(f64::NAN, next_float_id())]);
+    let result = builtin_json_serialize(vec![Value::make_float(f64::NAN)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn serialize_inf_errors() {
-    let result = builtin_json_serialize(vec![Value::Float(f64::INFINITY, next_float_id())]);
+    let result = builtin_json_serialize(vec![Value::make_float(f64::INFINITY)]);
     assert!(result.is_err());
 }
 
@@ -85,10 +86,10 @@ fn serialize_empty_vector() {
 #[test]
 fn serialize_vector() {
     let result = builtin_json_serialize(vec![Value::vector(vec![
-        Value::Int(1),
+        Value::fixnum(1),
         Value::string("two"),
-        Value::True,
-        Value::Nil,
+        Value::T,
+        Value::NIL,
     ])]);
     assert_eq!(result.unwrap().as_str(), Some("[1,\"two\",true,null]"));
 }
@@ -96,7 +97,7 @@ fn serialize_vector() {
 #[test]
 fn serialize_hash_table() {
     let ht = Value::hash_table(HashTableTest::Equal);
-    if let Value::HashTable(ref table_arc) = ht {
+    if let Value::HashTable(ref table_arc) /* TODO(tagged): convert Value::HashTable to new API */ = ht {
         with_heap_mut(|h| {
             h.get_hash_table_mut(*table_arc)
                 .data
@@ -110,8 +111,8 @@ fn serialize_hash_table() {
 #[test]
 fn serialize_alist() {
     let alist = Value::list(vec![
-        Value::cons(Value::symbol("a"), Value::Int(1)),
-        Value::cons(Value::symbol("b"), Value::Int(2)),
+        Value::cons(Value::symbol("a"), Value::fixnum(1)),
+        Value::cons(Value::symbol("b"), Value::fixnum(2)),
     ]);
     let result = builtin_json_serialize(vec![alist]);
     assert_eq!(result.unwrap().as_str(), Some("{\"a\":1,\"b\":2}"));
@@ -119,7 +120,7 @@ fn serialize_alist() {
 
 #[test]
 fn serialize_nested() {
-    let inner = Value::vector(vec![Value::Int(1), Value::Int(2)]);
+    let inner = Value::vector(vec![Value::fixnum(1), Value::fixnum(2)]);
     let alist = Value::list(vec![Value::cons(Value::symbol("arr"), inner)]);
     let result = builtin_json_serialize(vec![alist]);
     assert_eq!(result.unwrap().as_str(), Some("{\"arr\":[1,2]}"));
@@ -127,7 +128,7 @@ fn serialize_nested() {
 
 #[test]
 fn serialize_alist_string_key_type_error() {
-    let alist = Value::list(vec![Value::cons(Value::string("a"), Value::Int(1))]);
+    let alist = Value::list(vec![Value::cons(Value::string("a"), Value::fixnum(1))]);
     match builtin_json_serialize(vec![alist]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -141,9 +142,9 @@ fn serialize_alist_string_key_type_error() {
 fn serialize_custom_false_object() {
     // Use nil as the false-object.
     let result = builtin_json_serialize(vec![
-        Value::Nil,
-        Value::Keyword(intern(":false-object")),
-        Value::Nil,
+        Value::NIL,
+        Value::keyword(intern(":false-object")),
+        Value::NIL,
     ]);
     // nil matches both null_object (default) and false_object (nil).
     // null_object is checked first, so it becomes "null".
@@ -167,7 +168,7 @@ fn json_parse_buffer_advances_point_after_value() {
     }
 
     let value = builtin_json_parse_buffer(&mut eval, vec![]).expect("parse buffer");
-    assert_eq!(value, Value::Int(42));
+    assert_eq!(value, Value::fixnum(42));
     assert_eq!(
         eval.buffers
             .current_buffer()
@@ -189,7 +190,7 @@ fn json_insert_writes_at_point_and_advances() {
 
     builtin_json_insert(
         &mut eval,
-        vec![Value::vector(vec![Value::Int(1), Value::True])],
+        vec![Value::vector(vec![Value::fixnum(1), Value::T])],
     )
     .expect("json insert");
 
@@ -206,39 +207,39 @@ fn json_insert_writes_at_point_and_advances() {
 fn parse_null() {
     let result = builtin_json_parse_string(vec![Value::string("null")]);
     let val = result.unwrap();
-    assert!(matches!(val, Value::Keyword(ref k) if resolve_sym(*k) == ":null"));
+    assert!(val.as_keyword_id().map_or(false, |k| resolve_sym(k) == ":null"));
 }
 
 #[test]
 fn parse_true() {
     let result = builtin_json_parse_string(vec![Value::string("true")]);
-    assert!(matches!(result.unwrap(), Value::True));
+    assert!(matches!(result.unwrap(), Value::T));
 }
 
 #[test]
 fn parse_false() {
     let result = builtin_json_parse_string(vec![Value::string("false")]);
     let val = result.unwrap();
-    assert!(matches!(val, Value::Keyword(ref k) if resolve_sym(*k) == ":false"));
+    assert!(val.as_keyword_id().map_or(false, |k| resolve_sym(k) == ":false"));
 }
 
 #[test]
 fn parse_integer() {
     let result = builtin_json_parse_string(vec![Value::string("42")]);
-    assert!(matches!(result.unwrap(), Value::Int(42)));
+    assert!(matches!(result.unwrap(), Value::fixnum(42)));
 }
 
 #[test]
 fn parse_negative_integer() {
     let result = builtin_json_parse_string(vec![Value::string("-7")]);
-    assert!(matches!(result.unwrap(), Value::Int(-7)));
+    assert!(matches!(result.unwrap(), Value::fixnum(-7)));
 }
 
 #[test]
 fn parse_float() {
     let result = builtin_json_parse_string(vec![Value::string("3.14")]);
-    match result.unwrap() {
-        Value::Float(f, _) => assert!((f - 3.14).abs() < 1e-10),
+    match result.unwrap().kind() {
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => assert!((f - 3.14).abs() < 1e-10),
         other => panic!("expected float, got {:?}", other),
     }
 }
@@ -246,8 +247,8 @@ fn parse_float() {
 #[test]
 fn parse_float_exponent() {
     let result = builtin_json_parse_string(vec![Value::string("1.5e2")]);
-    match result.unwrap() {
-        Value::Float(f, _) => assert!((f - 150.0).abs() < 1e-10),
+    match result.unwrap().kind() {
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => assert!((f - 150.0).abs() < 1e-10),
         other => panic!("expected float, got {:?}", other),
     }
 }
@@ -255,7 +256,7 @@ fn parse_float_exponent() {
 #[test]
 fn parse_zero() {
     let result = builtin_json_parse_string(vec![Value::string("0")]);
-    assert!(matches!(result.unwrap(), Value::Int(0)));
+    assert!(matches!(result.unwrap(), Value::fixnum(0)));
 }
 
 #[test]
@@ -290,8 +291,8 @@ fn parse_empty_array() {
     crate::emacs_core::value::set_current_heap(&mut heap);
 
     let result = builtin_json_parse_string(vec![Value::string("[]")]);
-    match result.unwrap() {
-        Value::Vector(v) => assert!(with_heap(|h| h.get_vector(v).is_empty())),
+    match result.unwrap().kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => assert!(with_heap(|h| h.get_vector(v).is_empty())),
         other => panic!("expected vector, got {:?}", other),
     }
 }
@@ -299,13 +300,13 @@ fn parse_empty_array() {
 #[test]
 fn parse_array() {
     let result = builtin_json_parse_string(vec![Value::string("[1, 2, 3]")]);
-    match result.unwrap() {
-        Value::Vector(v) => {
+    match result.unwrap().kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(v).clone());
             assert_eq!(items.len(), 3);
-            assert!(matches!(items[0], Value::Int(1)));
-            assert!(matches!(items[1], Value::Int(2)));
-            assert!(matches!(items[2], Value::Int(3)));
+            assert!(matches!(items[0], ValueKind::Fixnum(1)));
+            assert!(matches!(items[1], ValueKind::Fixnum(2)));
+            assert!(matches!(items[2], ValueKind::Fixnum(3)));
         }
         other => panic!("expected vector, got {:?}", other),
     }
@@ -315,21 +316,21 @@ fn parse_array() {
 fn parse_array_as_list() {
     let result = builtin_json_parse_string(vec![
         Value::string("[1, 2]"),
-        Value::Keyword(intern(":array-type")),
+        Value::keyword(intern(":array-type")),
         Value::symbol("list"),
     ]);
     let val = result.unwrap();
     let items = list_to_vec(&val).expect("should be a list");
     assert_eq!(items.len(), 2);
-    assert!(matches!(items[0], Value::Int(1)));
-    assert!(matches!(items[1], Value::Int(2)));
+    assert!(matches!(items[0], Value::fixnum(1)));
+    assert!(matches!(items[1], Value::fixnum(2)));
 }
 
 #[test]
 fn parse_empty_object() {
     let result = builtin_json_parse_string(vec![Value::string("{}")]);
-    match result.unwrap() {
-        Value::HashTable(ht) => {
+    match result.unwrap().kind() {
+        ValueKind::Veclike(VecLikeType::HashTable) => {
             let table = with_heap(|h| h.get_hash_table(ht).clone());
             assert!(table.data.is_empty());
         }
@@ -340,18 +341,18 @@ fn parse_empty_object() {
 #[test]
 fn parse_object_hash_table() {
     let result = builtin_json_parse_string(vec![Value::string("{\"a\": 1, \"b\": 2}")]);
-    match result.unwrap() {
-        Value::HashTable(ht) => {
+    match result.unwrap().kind() {
+        ValueKind::Veclike(VecLikeType::HashTable) => {
             let table = with_heap(|h| h.get_hash_table(ht).clone());
             assert_eq!(table.data.len(), 2);
             assert_eq!(table.key_snapshots.len(), 2);
             assert!(matches!(
                 table.data.get(&HashKey::from_str("a")),
-                Some(Value::Int(1))
+                Some(ValueKind::Fixnum(1))
             ));
             assert!(matches!(
                 table.data.get(&HashKey::from_str("b")),
-                Some(Value::Int(2))
+                Some(ValueKind::Fixnum(2))
             ));
             assert!(matches!(
                 table.key_snapshots.get(&HashKey::from_str("a")),
@@ -370,18 +371,18 @@ fn parse_object_hash_table() {
 fn parse_object_as_alist() {
     let result = builtin_json_parse_string(vec![
         Value::string("{\"x\": 10}"),
-        Value::Keyword(intern(":object-type")),
+        Value::keyword(intern(":object-type")),
         Value::symbol("alist"),
     ]);
     let val = result.unwrap();
     let items = list_to_vec(&val).expect("should be a list");
     assert_eq!(items.len(), 1);
     // Each item should be (key . value).
-    match &items[0] {
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);
+    match items[0].kind() {
+        ValueKind::Cons => {
+            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             assert_eq!(pair.car, Value::symbol("x"));
-            assert!(matches!(pair.cdr, Value::Int(10)));
+            assert!(matches!(pair.cdr, ValueKind::Fixnum(10)));
         }
         other => panic!("expected cons, got {:?}", other),
     }
@@ -391,14 +392,14 @@ fn parse_object_as_alist() {
 fn parse_object_as_plist() {
     let result = builtin_json_parse_string(vec![
         Value::string("{\"key\": 42}"),
-        Value::Keyword(intern(":object-type")),
+        Value::keyword(intern(":object-type")),
         Value::symbol("plist"),
     ]);
     let val = result.unwrap();
     let items = list_to_vec(&val).expect("should be a list");
     assert_eq!(items.len(), 2);
-    assert!(matches!(&items[0], Value::Keyword(k) if resolve_sym(*k) == ":key"));
-    assert!(matches!(items[1], Value::Int(42)));
+    assert!(items[0].as_keyword_id().map_or(false, |k| resolve_sym(k) == ":key"));
+    assert!(matches!(items[1], Value::fixnum(42)));
 }
 
 #[test]
@@ -412,21 +413,21 @@ fn parse_nested() {
 fn parse_custom_null_object() {
     let result = builtin_json_parse_string(vec![
         Value::string("null"),
-        Value::Keyword(intern(":null-object")),
-        Value::Nil,
+        Value::keyword(intern(":null-object")),
+        Value::NIL,
     ]);
-    assert!(matches!(result.unwrap(), Value::Nil));
+    assert!(matches!(result.unwrap(), Value::NIL));
 }
 
 #[test]
 fn parse_custom_false_object() {
     let result = builtin_json_parse_string(vec![
         Value::string("false"),
-        Value::Keyword(intern(":false-object")),
-        Value::Keyword(intern(":json-false")),
+        Value::keyword(intern(":false-object")),
+        Value::keyword(intern(":json-false")),
     ]);
     let val = result.unwrap();
-    assert!(matches!(val, Value::Keyword(ref k) if resolve_sym(*k) == ":json-false"));
+    assert!(val.as_keyword_id().map_or(false, |k| resolve_sym(k) == ":json-false"));
 }
 
 #[test]
@@ -453,7 +454,7 @@ fn parse_invalid_json_error() {
 
 #[test]
 fn parse_wrong_type_argument() {
-    let result = builtin_json_parse_string(vec![Value::Int(42)]);
+    let result = builtin_json_parse_string(vec![Value::fixnum(42)]);
     assert!(result.is_err());
 }
 
@@ -469,9 +470,9 @@ fn parse_no_args() {
 
 #[test]
 fn round_trip_integer() {
-    let serialized = builtin_json_serialize(vec![Value::Int(123)]).unwrap();
+    let serialized = builtin_json_serialize(vec![Value::fixnum(123)]).unwrap();
     let parsed = builtin_json_parse_string(vec![serialized]).unwrap();
-    assert!(matches!(parsed, Value::Int(123)));
+    assert!(matches!(parsed, Value::fixnum(123)));
 }
 
 #[test]
@@ -484,16 +485,16 @@ fn round_trip_string() {
 
 #[test]
 fn round_trip_array() {
-    let original = Value::vector(vec![Value::Int(1), Value::string("two"), Value::True]);
+    let original = Value::vector(vec![Value::fixnum(1), Value::string("two"), Value::T]);
     let serialized = builtin_json_serialize(vec![original]).unwrap();
     let parsed = builtin_json_parse_string(vec![serialized]).unwrap();
-    match parsed {
-        Value::Vector(v) => {
+    match parsed.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(v).clone());
             assert_eq!(items.len(), 3);
-            assert!(matches!(items[0], Value::Int(1)));
+            assert!(matches!(items[0], ValueKind::Fixnum(1)));
             assert_eq!(items[1].as_str(), Some("two"));
-            assert!(matches!(items[2], Value::True));
+            assert!(matches!(items[2], ValueKind::T));
         }
         _ => panic!("expected vector"),
     }
@@ -502,21 +503,21 @@ fn round_trip_array() {
 #[test]
 fn round_trip_object() {
     let ht = Value::hash_table(HashTableTest::Equal);
-    if let Value::HashTable(ref table_arc) = ht {
+    if let Value::HashTable(ref table_arc) /* TODO(tagged): convert Value::HashTable to new API */ = ht {
         with_heap_mut(|h| {
             h.get_hash_table_mut(*table_arc)
                 .data
-                .insert(HashKey::from_str("key"), Value::Int(99));
+                .insert(HashKey::from_str("key"), Value::fixnum(99));
         });
     }
     let serialized = builtin_json_serialize(vec![ht]).unwrap();
     let parsed = builtin_json_parse_string(vec![serialized]).unwrap();
-    match parsed {
-        Value::HashTable(ht) => {
+    match parsed.kind() {
+        ValueKind::Veclike(VecLikeType::HashTable) => {
             let table = with_heap(|h| h.get_hash_table(ht).clone());
             assert!(matches!(
                 table.data.get(&HashKey::from_str("key")),
-                Some(Value::Int(99))
+                Some(ValueKind::Fixnum(99))
             ));
         }
         _ => panic!("expected hash-table"),
@@ -545,8 +546,8 @@ fn encode_backspace_formfeed() {
 fn parse_large_number_as_float() {
     // Number too large for i64.
     let result = builtin_json_parse_string(vec![Value::string("99999999999999999999")]);
-    match result.unwrap() {
-        Value::Float(_, _) => {} // OK — fell back to f64
+    match result.unwrap().kind() {
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => {} // OK — fell back to f64
         other => panic!("expected float for large number, got {:?}", other),
     }
 }

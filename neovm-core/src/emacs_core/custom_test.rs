@@ -283,14 +283,14 @@ fn uninterned_value_cells_ignore_buffer_local_namesakes() {
     eval.buffers
         .current_buffer_mut()
         .expect("current buffer")
-        .set_buffer_local("depth-alist", Value::Int(7));
+        .set_buffer_local("depth-alist", Value::fixnum(7));
 
-    builtin_set(&mut eval, vec![Value::Symbol(uninterned), Value::Nil])
+    builtin_set(&mut eval, vec![Value::symbol(uninterned), Value::NIL])
         .expect("set should bind uninterned symbol");
 
     assert_eq!(
         eval.obarray().symbol_value_id(uninterned).copied(),
-        Some(Value::Nil)
+        Some(Value::NIL)
     );
     assert_eq!(eval.obarray().symbol_value_id(canonical).copied(), None);
     assert_eq!(
@@ -299,15 +299,15 @@ fn uninterned_value_cells_ignore_buffer_local_namesakes() {
             .expect("current buffer")
             .get_buffer_local("depth-alist")
             .copied(),
-        Some(Value::Int(7))
+        Some(Value::fixnum(7))
     );
 
-    let value = builtin_default_value(&mut eval, vec![Value::Symbol(uninterned)])
+    let value = builtin_default_value(&mut eval, vec![Value::symbol(uninterned)])
         .expect("default-value should read uninterned symbol");
-    assert_eq!(value, Value::Nil);
-    let symbol_value = builtin_symbol_value(&mut eval, vec![Value::Symbol(uninterned)])
+    assert_eq!(value, Value::NIL);
+    let symbol_value = builtin_symbol_value(&mut eval, vec![Value::symbol(uninterned)])
         .expect("symbol-value should read uninterned symbol");
-    assert_eq!(symbol_value, Value::Nil);
+    assert_eq!(symbol_value, Value::NIL);
 }
 
 #[test]
@@ -321,12 +321,12 @@ fn set_default_preserves_current_buffer_local_binding() {
     let mut eval = Context::new();
     let current = eval.buffers.current_buffer_id().expect("current buffer");
     eval.buffers
-        .set_buffer_local_property(current, "vm-set-default-local", Value::Int(7))
+        .set_buffer_local_property(current, "vm-set-default-local", Value::fixnum(7))
         .expect("buffer-local binding");
 
     builtin_set_default(
         &mut eval,
-        vec![Value::symbol("vm-set-default-local"), Value::Int(99)],
+        vec![Value::symbol("vm-set-default-local"), Value::fixnum(99)],
     )
     .expect("set-default");
 
@@ -335,17 +335,17 @@ fn set_default_preserves_current_buffer_local_binding() {
             .current_buffer()
             .expect("current buffer")
             .buffer_local_value("vm-set-default-local"),
-        Some(Value::Int(7))
+        Some(Value::fixnum(7))
     );
     assert_eq!(
         builtin_default_value(&mut eval, vec![Value::symbol("vm-set-default-local")])
             .expect("default-value"),
-        Value::Int(99)
+        Value::fixnum(99)
     );
     assert_eq!(
         builtin_symbol_value(&mut eval, vec![Value::symbol("vm-set-default-local")])
             .expect("symbol-value"),
-        Value::Int(7)
+        Value::fixnum(7)
     );
 }
 

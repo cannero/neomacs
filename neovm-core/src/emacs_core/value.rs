@@ -1,6 +1,17 @@
 //! Lisp value representation and fundamental operations.
+//!
+//! After the tagged pointer migration, `Value` is a type alias for
+//! `TaggedValue`.  This module provides:
+//!
+//! - The `Value` type alias and re-exports of `ValueKind`, `VecLikeType`
+//! - Convenience constructors that allocate on the thread-local heap
+//! - Data types: `LambdaData`, `LambdaParams`, `LispHashTable`, `HashKey`, etc.
+//! - Equality functions: `eq_value`, `eql_value`, `equal_value`
+//! - List helpers: `list_to_vec`, `list_length`
+//! - Lexical environment helpers: `lexenv_*`
+//! - String text property helpers
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::rc::Rc;
@@ -8,22 +19,32 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::intern::{SymId, intern, resolve_sym};
 use crate::buffer::text_props::TextPropertyTable;
-use crate::gc::GcTrace;
+use crate::gc::types::LispString;
+use crate::tagged::gc::with_tagged_heap;
+use crate::tagged::header::{
+    BufferObj, ByteCodeObj, FloatObj, FrameObj, HashTableObj, LambdaObj, MacroObj, MarkerObj,
+    OverlayObj, RecordObj, StringObj, TimerObj, VecLikeHeader, VectorObj, WindowObj,
+};
+use crate::tagged::value::TaggedValue;
 
-thread_local! {
-    static FLOAT_ALLOC_ID: Cell<u32> = const { Cell::new(0) };
-}
+// ---------------------------------------------------------------------------
+// The Value type — now a tagged pointer
+// ---------------------------------------------------------------------------
 
-/// Allocate a fresh float identity. Each call returns a unique u32
-/// (within the current thread), matching GNU Emacs's `make_float`
-/// semantics where every float creation produces a distinct object.
-pub fn next_float_id() -> u32 {
-    FLOAT_ALLOC_ID.with(|c| {
-        let id = c.get();
-        c.set(id.wrapping_add(1));
-        id
-    })
-}
+/// Runtime Lisp value.
+///
+/// This is a type alias for `TaggedValue` — a single machine word (8 bytes on
+/// 64-bit) encoding type and payload via tag bits.  Pattern matching uses
+/// `value.kind()` → `ValueKind`.
+pub type Value = TaggedValue;
+
+// Re-export tagged types for downstream use.
+pub use crate::tagged::header::VecLikeType;
+pub use crate::tagged::value::ValueKind;
+
+// ---------------------------------------------------------------------------
+// Data structures (unchanged — not part of the Value enum)
+// ---------------------------------------------------------------------------
 
 /// An insertion-order-preserving map from SymId to Value.
 ///
@@ -39,7 +60,13 @@ pub struct OrderedSymMap {
 
 impl PartialEq for OrderedSymMap {
     fn eq(&self, other: &Self) -> bool {
-        self.entries == other.entries
+        if self.entries.len() != other.entries.len() {
+            return false;
+        }
+        self.entries
+            .iter()
+            .zip(other.entries.iter())
+            .all(|((k1, v1), (k2, v2))| k1 == k2 && eq_value(v1, v2))
     }
 }
 
@@ -212,8 +239,9 @@ impl OrderedRuntimeBindingMap {
     }
 }
 
-use crate::gc::heap::LispHeap;
-use crate::gc::types::ObjId;
+// ---------------------------------------------------------------------------
+// Allocation statistics counters (unchanged)
+// ---------------------------------------------------------------------------
 
 const ZERO_COUNT: u64 = 0;
 
@@ -224,10 +252,6 @@ static SYMBOLS_CONSED: AtomicU64 = AtomicU64::new(ZERO_COUNT);
 static STRING_CHARS_CONSED: AtomicU64 = AtomicU64::new(ZERO_COUNT);
 static INTERVALS_CONSED: AtomicU64 = AtomicU64::new(ZERO_COUNT);
 static STRINGS_CONSED: AtomicU64 = AtomicU64::new(ZERO_COUNT);
-thread_local! {
-    static STRING_TEXT_PROPS: RefCell<HashMap<usize, TextPropertyTable>> =
-        RefCell::new(HashMap::new());
-}
 
 fn add_wrapping(counter: &AtomicU64, delta: u64) {
     counter.fetch_add(delta, Ordering::Relaxed);
@@ -235,6 +259,15 @@ fn add_wrapping(counter: &AtomicU64, delta: u64) {
 
 fn as_neovm_int(value: u64) -> i64 {
     value as i64
+}
+
+// ---------------------------------------------------------------------------
+// String text properties (keyed by pointer address now)
+// ---------------------------------------------------------------------------
+
+thread_local! {
+    static STRING_TEXT_PROPS: RefCell<HashMap<usize, TextPropertyTable>> =
+        RefCell::new(HashMap::new());
 }
 
 /// Clear all string text properties (must be called when heap changes,
@@ -252,19 +285,109 @@ pub fn collect_string_text_prop_gc_roots(roots: &mut Vec<Value>) {
     });
 }
 
+/// Get the text property key for a string value (pointer address).
+fn string_text_prop_key(value: Value) -> Option<usize> {
+    value.as_string_ptr().map(|p| p as usize)
+}
+
+pub fn set_string_text_properties_table_for_value(value: Value, table: TextPropertyTable) {
+    if let Some(key) = string_text_prop_key(value) {
+        STRING_TEXT_PROPS.with(|slot| {
+            let mut props = slot.borrow_mut();
+            if table.is_empty() {
+                props.remove(&key);
+            } else {
+                props.insert(key, table);
+            }
+        });
+    }
+}
+
+pub fn set_string_text_properties_for_value(value: Value, runs: Vec<StringTextPropertyRun>) {
+    let mut table = TextPropertyTable::new();
+    for run in &runs {
+        if let Some(items) = list_to_vec(&run.plist) {
+            for chunk in items.chunks(2) {
+                if chunk.len() == 2 {
+                    if let Some(name) = chunk[0].as_symbol_name() {
+                        table.put_property(run.start, run.end, name, chunk[1]);
+                    }
+                }
+            }
+        }
+    }
+    set_string_text_properties_table_for_value(value, table);
+}
+
+pub fn get_string_text_properties_for_value(value: Value) -> Option<Vec<StringTextPropertyRun>> {
+    let key = string_text_prop_key(value)?;
+    STRING_TEXT_PROPS.with(|slot| {
+        let table = slot.borrow();
+        let table = table.get(&key)?;
+        if table.is_empty() {
+            return None;
+        }
+        let mut runs = Vec::new();
+        for interval in table.intervals_snapshot() {
+            if interval.properties.is_empty() {
+                continue;
+            }
+            let mut plist_items = Vec::new();
+            for (key, val) in interval.ordered_properties() {
+                plist_items.push(Value::make_symbol(key.to_string()));
+                plist_items.push(*val);
+            }
+            runs.push(StringTextPropertyRun {
+                start: interval.start,
+                end: interval.end,
+                plist: Value::list(plist_items),
+            });
+        }
+        if runs.is_empty() { None } else { Some(runs) }
+    })
+}
+
+pub fn get_string_text_properties_table_for_value(value: Value) -> Option<TextPropertyTable> {
+    let key = string_text_prop_key(value)?;
+    STRING_TEXT_PROPS.with(|slot| slot.borrow().get(&key).cloned())
+}
+
+/// Snapshot the string text properties table (for pdump serialization).
+pub(crate) fn snapshot_string_text_props() -> Vec<(u64, TextPropertyTable)> {
+    STRING_TEXT_PROPS.with(|slot| {
+        slot.borrow()
+            .iter()
+            .map(|(&key, table)| (key as u64, table.clone()))
+            .collect()
+    })
+}
+
+/// Restore string text properties from a pdump snapshot.
+pub(crate) fn restore_string_text_props(entries: Vec<(u64, TextPropertyTable)>) {
+    STRING_TEXT_PROPS.with(|slot| {
+        let mut props = slot.borrow_mut();
+        props.clear();
+        for (key, table) in entries {
+            props.insert(key as usize, table);
+        }
+    });
+}
+
 // ---------------------------------------------------------------------------
-// Thread-local heap access
+// Legacy ObjId-based text property API (backward compat during migration)
 // ---------------------------------------------------------------------------
+
+use crate::gc::heap::LispHeap;
+use crate::gc::types::ObjId;
+use std::cell::Cell;
 
 thread_local! {
     static CURRENT_HEAP: Cell<*mut LispHeap> = const { Cell::new(std::ptr::null_mut()) };
-    /// Auto-allocated heap for tests that construct Values without an Context.
     #[cfg(test)]
     static TEST_FALLBACK_HEAP: std::cell::RefCell<Option<Box<LispHeap>>> = const { std::cell::RefCell::new(None) };
 }
 
 /// Set the current thread-local heap pointer.
-/// Must be called before any Value constructors that allocate on the heap.
 pub fn set_current_heap(heap: &mut LispHeap) {
     CURRENT_HEAP.with(|h| h.set(heap as *mut LispHeap));
 }
@@ -280,7 +403,6 @@ pub fn has_current_heap() -> bool {
 }
 
 /// Save and restore the current heap pointer around a closure.
-/// Used when a temporary Context is created that would overwrite the thread-local.
 pub(crate) fn with_saved_heap<R>(f: impl FnOnce() -> R) -> R {
     let saved = CURRENT_HEAP.with(|h| h.get());
     let result = f();
@@ -288,8 +410,7 @@ pub(crate) fn with_saved_heap<R>(f: impl FnOnce() -> R) -> R {
     result
 }
 
-/// Get raw pointer to the current heap. Panics if not set (unless in test mode,
-/// where a fallback heap is auto-created).
+/// Get raw pointer to the current heap.
 #[inline]
 pub(crate) fn current_heap_ptr() -> *mut LispHeap {
     CURRENT_HEAP.with(|h| {
@@ -299,7 +420,6 @@ pub(crate) fn current_heap_ptr() -> *mut LispHeap {
         }
         #[cfg(test)]
         {
-            // Auto-create a heap for tests that don't use Context.
             TEST_FALLBACK_HEAP.with(|fb| {
                 let mut borrow = fb.borrow_mut();
                 if borrow.is_none() {
@@ -319,10 +439,6 @@ pub(crate) fn current_heap_ptr() -> *mut LispHeap {
 }
 
 /// Immutable access to the current thread-local heap.
-///
-/// # Safety
-/// The returned reference is valid only for the duration of `f`.
-/// Do NOT call `with_heap` or `with_heap_mut` from within `f`.
 #[inline]
 pub fn with_heap<R>(f: impl FnOnce(&LispHeap) -> R) -> R {
     let ptr = current_heap_ptr();
@@ -330,31 +446,15 @@ pub fn with_heap<R>(f: impl FnOnce(&LispHeap) -> R) -> R {
 }
 
 /// Mutable access to the current thread-local heap.
-///
-/// # Safety
-/// The returned reference is valid only for the duration of `f`.
-/// Do NOT call `with_heap` or `with_heap_mut` from within `f`.
 #[inline]
 pub(crate) fn with_heap_mut<R>(f: impl FnOnce(&mut LispHeap) -> R) -> R {
     let ptr = current_heap_ptr();
     f(unsafe { &mut *ptr })
 }
 
-/// Snapshot of a cons cell's car and cdr values.
-///
-/// Returned by `read_cons()`. Used as a drop-in replacement for the
-/// old `MutexGuard<ConsCell>` pattern: `pair.car` / `pair.cdr` just work.
-pub struct ConsSnapshot {
-    pub car: Value,
-    pub cdr: Value,
-}
-
-/// A string text property run used by printed propertized-string literals.
-#[derive(Clone, Debug, PartialEq)]
-pub struct StringTextPropertyRun {
-    pub start: usize,
-    pub end: usize,
-    pub plist: Value,
+// Legacy ObjId-based text property functions (still used during migration)
+fn obj_id_to_key(id: ObjId) -> usize {
+    ((id.index as usize) << 32) | (id.generation as usize)
 }
 
 pub fn set_string_text_properties_table(id: ObjId, table: TextPropertyTable) {
@@ -372,7 +472,6 @@ pub fn set_string_text_properties_table(id: ObjId, table: TextPropertyTable) {
 pub fn set_string_text_properties(id: ObjId, runs: Vec<StringTextPropertyRun>) {
     let mut table = TextPropertyTable::new();
     for run in &runs {
-        // Convert plist Value to individual properties
         if let Some(items) = list_to_vec(&run.plist) {
             for chunk in items.chunks(2) {
                 if chunk.len() == 2 {
@@ -401,7 +500,7 @@ pub fn get_string_text_properties(id: ObjId) -> Option<Vec<StringTextPropertyRun
             }
             let mut plist_items = Vec::new();
             for (key, val) in interval.ordered_properties() {
-                plist_items.push(Value::symbol(key.to_string()));
+                plist_items.push(Value::make_symbol(key.to_string()));
                 plist_items.push(*val);
             }
             runs.push(StringTextPropertyRun {
@@ -419,35 +518,21 @@ pub fn get_string_text_properties_table(id: ObjId) -> Option<TextPropertyTable> 
     STRING_TEXT_PROPS.with(|slot| slot.borrow().get(&key).cloned())
 }
 
-fn obj_id_to_key(id: ObjId) -> usize {
-    ((id.index as usize) << 32) | (id.generation as usize)
+/// Snapshot of a cons cell's car and cdr values.
+pub struct ConsSnapshot {
+    pub car: Value,
+    pub cdr: Value,
 }
 
-/// Snapshot the string text properties table (for pdump serialization).
-/// Returns entries as (combined_key, table) pairs.
-pub(crate) fn snapshot_string_text_props() -> Vec<(u64, TextPropertyTable)> {
-    STRING_TEXT_PROPS.with(|slot| {
-        slot.borrow()
-            .iter()
-            .map(|(&key, table)| (key as u64, table.clone()))
-            .collect()
-    })
+/// A string text property run used by printed propertized-string literals.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StringTextPropertyRun {
+    pub start: usize,
+    pub end: usize,
+    pub plist: Value,
 }
 
-/// Restore string text properties from a pdump snapshot.
-pub(crate) fn restore_string_text_props(entries: Vec<(u64, TextPropertyTable)>) {
-    STRING_TEXT_PROPS.with(|slot| {
-        let mut props = slot.borrow_mut();
-        props.clear();
-        for (key, table) in entries {
-            props.insert(key as usize, table);
-        }
-    });
-}
-
-/// Read car and cdr from a cons cell on the heap.
-///
-/// Drop-in replacement for `cell.lock().expect("poisoned")`.
+/// Read car and cdr from a cons cell on the heap (legacy ObjId version).
 #[inline]
 pub fn read_cons(id: ObjId) -> ConsSnapshot {
     with_heap(|h| ConsSnapshot {
@@ -456,55 +541,14 @@ pub fn read_cons(id: ObjId) -> ConsSnapshot {
     })
 }
 
-// ---------------------------------------------------------------------------
-// Core value types
-// ---------------------------------------------------------------------------
-
-/// Runtime Lisp value.
-///
-/// All heap-allocated types use `ObjId` handles into a thread-local `LispHeap`.
-/// Symbol, Keyword, and Subr names use `SymId` handles into a thread-local
-/// `StringInterner`, making Value `Copy` and 16 bytes.
-#[derive(Clone, Copy, Debug)]
-pub enum Value {
-    Nil,
-    /// `t` — the canonical true value.
-    True,
-    Int(i64),
-    Float(f64, u32),
-    Symbol(SymId),
-    Keyword(SymId),
-    Str(ObjId),
-    Cons(ObjId),
-    Vector(ObjId),
-    Record(ObjId),
-    HashTable(ObjId),
-    Lambda(ObjId),
-    Macro(ObjId),
-    Char(char),
-    /// Subr = built-in function reference (name).  Dispatched by the evaluator.
-    Subr(SymId),
-    /// Compiled bytecode function.
-    ByteCode(ObjId),
-    /// Marker object.
-    Marker(ObjId),
-    /// Overlay object.
-    Overlay(ObjId),
-    /// Buffer reference (opaque id into the BufferManager).
-    Buffer(crate::buffer::BufferId),
-    /// Window reference (opaque id into the FrameManager).
-    Window(u64),
-    /// Frame reference (opaque id into the FrameManager).
-    Frame(u64),
-    /// Timer reference (opaque id into the TimerManager).
-    Timer(u64),
+/// Allocate a fresh float identity (legacy — no longer needed with tagged pointers).
+pub fn next_float_id() -> u32 {
+    0 // Stub: float identity is now pointer-based
 }
 
-impl PartialEq for Value {
-    fn eq(&self, other: &Self) -> bool {
-        equal_value(self, other, 0)
-    }
-}
+// ---------------------------------------------------------------------------
+// LambdaData, LambdaParams
+// ---------------------------------------------------------------------------
 
 /// Shared representation for lambda and macro bodies.
 #[derive(Clone, Debug)]
@@ -516,13 +560,8 @@ pub struct LambdaData {
     pub env: Option<Value>,
     pub docstring: Option<String>,
     /// Slot 4 in the closure vector: the `:documentation` form result.
-    /// For oclosures, this is a symbol (the type name).
-    /// Falls back to docstring if not set.
     pub doc_form: Option<Value>,
     /// Slot 5 in GNU Emacs's closure vector: the interactive specification.
-    /// Extracted from the lambda body's `(interactive ...)` form during
-    /// closure creation, matching GNU Emacs's `Ffunction` (eval.c:604-612).
-    /// When present, `commandp` returns t for this closure.
     pub interactive: Option<Value>,
 }
 
@@ -543,12 +582,10 @@ impl LambdaParams {
         }
     }
 
-    /// Total minimum arity.
     pub fn min_arity(&self) -> usize {
         self.required.len()
     }
 
-    /// Total maximum arity (None = unbounded due to &rest).
     pub fn max_arity(&self) -> Option<usize> {
         if self.rest.is_some() {
             None
@@ -558,24 +595,21 @@ impl LambdaParams {
     }
 }
 
+// ---------------------------------------------------------------------------
+// LispHashTable, HashKey
+// ---------------------------------------------------------------------------
+
 /// Hash table with configurable test function.
 #[derive(Clone, Debug)]
 pub struct LispHashTable {
     pub test: HashTableTest,
-    /// Symbol name provided via `:test` at construction time.
-    /// For user-defined tests this preserves the alias returned by
-    /// `hash-table-test`.
     pub test_name: Option<SymId>,
     pub size: i64,
     pub weakness: Option<HashTableWeakness>,
     pub rehash_size: f64,
     pub rehash_threshold: f64,
     pub data: HashMap<HashKey, Value>,
-    /// Original key objects for diagnostics/iteration where pointer-identity
-    /// keys cannot be reconstructed from `HashKey`.
     pub key_snapshots: HashMap<HashKey, Value>,
-    /// Insertion order for keys — used by `maphash` to iterate in the same
-    /// order as GNU Emacs (insertion order for freshly-created tables).
     pub insertion_order: Vec<HashKey>,
 }
 
@@ -595,35 +629,27 @@ pub enum HashTableWeakness {
 }
 
 /// Key type that supports hashing for `eq`, `eql`, and `equal` tests.
-/// For simplicity, we normalize keys to a hashable representation.
-///
-/// `Str` stores an `ObjId` and hashes/compares by string *content* via the
-/// heap, avoiding a `String` clone on every `equal`-test hash lookup.
 #[derive(Clone, Debug)]
 pub enum HashKey {
     Nil,
     True,
     Int(i64),
-    Float(u64),        // bits (for eql/equal hash tables)
-    FloatEq(u64, u32), // bits + alloc ID (for eq hash tables)
+    Float(u64),
+    FloatEq(u64, u32),
     Symbol(SymId),
     Keyword(SymId),
-    Str(ObjId),
     Char(char),
     Window(u64),
     Frame(u64),
-    /// Pointer identity for eq hash tables (legacy, unused with ObjId migration).
+    /// Pointer identity for eq hash tables (tagged pointer bits).
     Ptr(usize),
-    /// Object identity for eq hash tables (heap-allocated types).
-    ObjId(u32, u32),
     /// Structural cons key for `equal`-test hash tables.
-    /// Two cons cells with structurally-equal car/cdr produce equal keys.
     EqualCons(Box<HashKey>, Box<HashKey>),
     /// Structural vector/record key for `equal`-test hash tables.
     EqualVec(Vec<HashKey>),
     /// Back-reference marker used when structural objects recurse.
     Cycle(u32),
-    /// Owned textual key used for structural hashing of AST-backed objects.
+    /// Owned textual key used for structural hashing.
     Text(String),
 }
 
@@ -636,12 +662,10 @@ impl std::hash::Hash for HashKey {
             HashKey::Float(_) => 3,
             HashKey::FloatEq(_, _) => 4,
             HashKey::Symbol(_) => 5,
-            HashKey::Str(_) => 6,
             HashKey::Char(_) => 7,
             HashKey::Window(_) => 8,
             HashKey::Frame(_) => 9,
             HashKey::Ptr(_) => 10,
-            HashKey::ObjId(_, _) => 11,
             HashKey::EqualCons(_, _) => 12,
             HashKey::EqualVec(_) => 13,
             HashKey::Keyword(_) => 14,
@@ -657,16 +681,10 @@ impl std::hash::Hash for HashKey {
                 bits.hash(state);
                 id.hash(state);
             }
-            HashKey::Symbol(id) => id.hash(state),
-            HashKey::Keyword(id) => id.hash(state),
-            HashKey::Str(id) => with_heap(|h| h.get_string(*id).hash(state)),
+            HashKey::Symbol(id) | HashKey::Keyword(id) => id.hash(state),
             HashKey::Char(c) => c.hash(state),
             HashKey::Window(id) | HashKey::Frame(id) => id.hash(state),
             HashKey::Ptr(p) => p.hash(state),
-            HashKey::ObjId(idx, generation) => {
-                idx.hash(state);
-                generation.hash(state);
-            }
             HashKey::EqualCons(car, cdr) => {
                 car.hash(state);
                 cdr.hash(state);
@@ -692,15 +710,11 @@ impl PartialEq for HashKey {
             (HashKey::FloatEq(a, id_a), HashKey::FloatEq(b, id_b)) => a == b && id_a == id_b,
             (HashKey::Symbol(a), HashKey::Symbol(b)) => a == b,
             (HashKey::Keyword(a), HashKey::Keyword(b)) => a == b,
-            (HashKey::Str(a), HashKey::Str(b)) => {
-                a == b || with_heap(|h| h.get_string(*a) == h.get_string(*b))
-            }
             (HashKey::Char(a), HashKey::Char(b)) => a == b,
             (HashKey::Window(a), HashKey::Window(b)) | (HashKey::Frame(a), HashKey::Frame(b)) => {
                 a == b
             }
             (HashKey::Ptr(a), HashKey::Ptr(b)) => a == b,
-            (HashKey::ObjId(ai, ag), HashKey::ObjId(bi, bg)) => ai == bi && ag == bg,
             (HashKey::EqualCons(a_car, a_cdr), HashKey::EqualCons(b_car, b_cdr)) => {
                 a_car == b_car && a_cdr == b_cdr
             }
@@ -715,12 +729,10 @@ impl PartialEq for HashKey {
 impl Eq for HashKey {}
 
 impl HashKey {
-    /// Create a `Str` hash key by allocating the string on the heap.
+    /// Create a string hash key by allocating on the heap.
     pub fn from_str(s: impl Into<String>) -> Self {
-        match Value::string(s) {
-            Value::Str(id) => HashKey::Str(id),
-            _ => unreachable!(),
-        }
+        // For `equal` hash tables, use text content directly
+        HashKey::Text(s.into())
     }
 }
 
@@ -751,133 +763,171 @@ impl LispHashTable {
 }
 
 // ---------------------------------------------------------------------------
-// Value constructors
+// Convenience constructors on TaggedValue
 // ---------------------------------------------------------------------------
 
-impl Value {
-    pub fn t() -> Self {
-        Value::True
-    }
-
-    pub fn bool(b: bool) -> Self {
-        if b { Value::True } else { Value::Nil }
-    }
-
+impl TaggedValue {
+    /// Create a symbol by interning a name string, with nil/t/keyword canonicalization.
+    /// This is the old `Value::symbol("name")` API.
     pub fn symbol(s: impl AsRef<str>) -> Self {
+        Self::make_symbol(s)
+    }
+
+    /// Create a symbol by interning a name string, with nil/t/keyword canonicalization.
+    pub fn make_symbol(s: impl AsRef<str>) -> Self {
         let s = s.as_ref();
         if s == "nil" {
-            Value::Nil
+            Value::NIL
         } else if s == "t" {
-            Value::True
+            Value::T
         } else if s.starts_with(':') {
-            // Canonicalize leading-colon names as keywords so values created
-            // via `intern` and reader literals share the same representation.
             add_wrapping(&SYMBOLS_CONSED, 1);
-            Value::Keyword(intern(s))
+            TaggedValue::from_kw_id(intern(s))
         } else {
             add_wrapping(&SYMBOLS_CONSED, 1);
-            Value::Symbol(intern(s))
+            TaggedValue::from_sym_id(intern(s))
         }
     }
 
+    /// Create a keyword by interning a name string (old API name).
     pub fn keyword(s: impl AsRef<str>) -> Self {
-        add_wrapping(&SYMBOLS_CONSED, 1);
-        Value::Keyword(intern(s.as_ref()))
+        Self::make_keyword(s)
     }
 
+    /// Create a keyword by interning a name string.
+    pub fn make_keyword(s: impl AsRef<str>) -> Self {
+        add_wrapping(&SYMBOLS_CONSED, 1);
+        TaggedValue::from_kw_id(intern(s.as_ref()))
+    }
+
+    /// Convert bool to Value (T or NIL).
+    #[inline]
+    pub fn bool(b: bool) -> Self {
+        if b { Value::T } else { Value::NIL }
+    }
+
+    // -- Heap-allocating constructors --
+
+    /// Allocate a string on the heap (old API name).
     pub fn string(s: impl Into<String>) -> Self {
+        Self::make_string(s)
+    }
+
+    /// Allocate a string on the heap.
+    pub fn make_string(s: impl Into<String>) -> Self {
         let s = s.into();
         add_wrapping(&STRINGS_CONSED, 1);
         add_wrapping(&STRING_CHARS_CONSED, s.len() as u64);
-        let id = with_heap_mut(|heap| heap.alloc_string(s));
-        Value::Str(id)
+        with_tagged_heap(|h| h.alloc_string(LispString::new(&s, true)))
     }
 
-    pub fn heap_string(s: crate::gc::types::LispString) -> Self {
+    /// Allocate a string from a pre-built LispString.
+    pub fn heap_string(s: LispString) -> Self {
         add_wrapping(&STRINGS_CONSED, 1);
         add_wrapping(&STRING_CHARS_CONSED, s.as_str().len() as u64);
-        let id = with_heap_mut(|heap| heap.alloc_lisp_string(s));
-        Value::Str(id)
+        with_tagged_heap(|h| h.alloc_string(s))
     }
 
+    /// Allocate a multibyte string.
     pub fn multibyte_string(s: impl Into<String>) -> Self {
         let s = s.into();
         add_wrapping(&STRINGS_CONSED, 1);
         add_wrapping(&STRING_CHARS_CONSED, s.len() as u64);
-        let id = with_heap_mut(|heap| heap.alloc_string_with_flag(s, true));
-        Value::Str(id)
+        with_tagged_heap(|h| h.alloc_string(LispString::new(&s, true)))
     }
 
+    /// Allocate a unibyte string.
     pub fn unibyte_string(s: impl Into<String>) -> Self {
         let s = s.into();
         add_wrapping(&STRINGS_CONSED, 1);
         add_wrapping(&STRING_CHARS_CONSED, s.len() as u64);
-        let id = with_heap_mut(|heap| heap.alloc_string_with_flag(s, false));
-        Value::Str(id)
+        with_tagged_heap(|h| h.alloc_string(LispString::new(&s, false)))
     }
 
+    /// Allocate a string with text properties.
     pub fn string_with_text_properties(
         s: impl Into<String>,
         runs: Vec<StringTextPropertyRun>,
     ) -> Self {
-        let value = Self::string(s);
-        if let Value::Str(id) = &value {
-            set_string_text_properties(*id, runs);
-        }
+        let value = Self::make_string(s);
+        set_string_text_properties_for_value(value, runs);
         value
     }
 
+    /// Allocate a multibyte string with text properties.
     pub fn multibyte_string_with_text_properties(
         s: impl Into<String>,
         runs: Vec<StringTextPropertyRun>,
     ) -> Self {
         let value = Self::multibyte_string(s);
-        if let Value::Str(id) = &value {
-            set_string_text_properties(*id, runs);
-        }
+        set_string_text_properties_for_value(value, runs);
         value
     }
 
-    pub fn make_lambda(data: LambdaData) -> Self {
-        let id = with_heap_mut(|heap| heap.alloc_lambda(data));
-        Value::Lambda(id)
+    /// Allocate a float on the heap.
+    pub fn make_float(f: f64) -> Self {
+        add_wrapping(&FLOATS_CONSED, 1);
+        with_tagged_heap(|h| h.alloc_float(f))
     }
 
-    pub fn make_macro(data: LambdaData) -> Self {
-        let id = with_heap_mut(|heap| heap.alloc_macro(data));
-        Value::Macro(id)
-    }
-
-    pub fn make_bytecode(bc: super::bytecode::ByteCodeFunction) -> Self {
-        let id = with_heap_mut(|heap| heap.alloc_bytecode(bc));
-        Value::ByteCode(id)
-    }
-
+    /// Allocate a cons cell (old API name).
     pub fn cons(car: Value, cdr: Value) -> Self {
-        add_wrapping(&CONS_CELLS_CONSED, 1);
-        let id = with_heap_mut(|heap| heap.alloc_cons(car, cdr));
-        Value::Cons(id)
+        Self::make_cons(car, cdr)
     }
 
+    /// Allocate a cons cell.
+    pub fn make_cons(car: Value, cdr: Value) -> Self {
+        add_wrapping(&CONS_CELLS_CONSED, 1);
+        with_tagged_heap(|h| h.alloc_cons(car, cdr))
+    }
+
+    /// Build a proper list from a Vec.
     pub fn list(values: Vec<Value>) -> Self {
         values
             .into_iter()
             .rev()
-            .fold(Value::Nil, |acc, item| Value::cons(item, acc))
+            .fold(Value::NIL, |acc, item| Value::cons(item, acc))
     }
 
+    /// Allocate a vector (old API name).
     pub fn vector(values: Vec<Value>) -> Self {
-        add_wrapping(&VECTOR_CELLS_CONSED, values.len() as u64);
-        let id = with_heap_mut(|heap| heap.alloc_vector(values));
-        Value::Vector(id)
+        Self::make_vector(values)
     }
 
+    /// Allocate a vector.
+    pub fn make_vector(values: Vec<Value>) -> Self {
+        add_wrapping(&VECTOR_CELLS_CONSED, values.len() as u64);
+        with_tagged_heap(|h| h.alloc_vector(values))
+    }
+
+    /// Allocate a record.
+    pub fn make_record(values: Vec<Value>) -> Self {
+        add_wrapping(&VECTOR_CELLS_CONSED, values.len() as u64);
+        with_tagged_heap(|h| h.alloc_record(values))
+    }
+
+    /// Allocate a lambda.
+    pub fn make_lambda(data: LambdaData) -> Self {
+        with_tagged_heap(|h| h.alloc_lambda(data))
+    }
+
+    /// Allocate a macro.
+    pub fn make_macro(data: LambdaData) -> Self {
+        with_tagged_heap(|h| h.alloc_macro(data))
+    }
+
+    /// Allocate a bytecode function.
+    pub fn make_bytecode(bc: super::bytecode::ByteCodeFunction) -> Self {
+        with_tagged_heap(|h| h.alloc_bytecode(bc))
+    }
+
+    /// Allocate a hash table.
     pub fn hash_table(test: HashTableTest) -> Self {
         add_wrapping(&VECTOR_CELLS_CONSED, 1);
-        let id = with_heap_mut(|heap| heap.alloc_hash_table(test));
-        Value::HashTable(id)
+        with_tagged_heap(|h| h.alloc_hash_table(LispHashTable::new(test)))
     }
 
+    /// Allocate a hash table with options.
     pub fn hash_table_with_options(
         test: HashTableTest,
         size: i64,
@@ -886,10 +936,455 @@ impl Value {
         rehash_threshold: f64,
     ) -> Self {
         add_wrapping(&VECTOR_CELLS_CONSED, 1);
-        let id = with_heap_mut(|heap| {
-            heap.alloc_hash_table_with_options(test, size, weakness, rehash_size, rehash_threshold)
+        with_tagged_heap(|h| {
+            h.alloc_hash_table(LispHashTable::new_with_options(
+                test,
+                size,
+                weakness,
+                rehash_size,
+                rehash_threshold,
+            ))
+        })
+    }
+
+    /// Allocate a marker.
+    pub fn make_marker(data: crate::gc::types::MarkerData) -> Self {
+        with_tagged_heap(|h| h.alloc_marker(data))
+    }
+
+    /// Allocate an overlay.
+    pub fn make_overlay(data: crate::gc::types::OverlayData) -> Self {
+        with_tagged_heap(|h| h.alloc_overlay(data))
+    }
+
+    /// Allocate a buffer reference.
+    pub fn make_buffer(id: crate::buffer::BufferId) -> Self {
+        let obj = Box::new(BufferObj {
+            header: VecLikeHeader::new(VecLikeType::Buffer),
+            id,
         });
-        Value::HashTable(id)
+        let ptr = Box::into_raw(obj);
+        with_tagged_heap(|h| {
+            // Link into GC list
+            unsafe {
+                (*ptr).header.gc.next = std::ptr::null_mut();
+            }
+            h.allocated_count += 1;
+            unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
+        })
+    }
+
+    /// Allocate a window reference.
+    pub fn make_window(id: u64) -> Self {
+        let obj = Box::new(WindowObj {
+            header: VecLikeHeader::new(VecLikeType::Window),
+            id,
+        });
+        let ptr = Box::into_raw(obj);
+        with_tagged_heap(|h| {
+            h.allocated_count += 1;
+            unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
+        })
+    }
+
+    /// Allocate a frame reference.
+    pub fn make_frame(id: u64) -> Self {
+        let obj = Box::new(FrameObj {
+            header: VecLikeHeader::new(VecLikeType::Frame),
+            id,
+        });
+        let ptr = Box::into_raw(obj);
+        with_tagged_heap(|h| {
+            h.allocated_count += 1;
+            unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
+        })
+    }
+
+    /// Allocate a timer reference.
+    pub fn make_timer(id: u64) -> Self {
+        let obj = Box::new(TimerObj {
+            header: VecLikeHeader::new(VecLikeType::Timer),
+            id,
+        });
+        let ptr = Box::into_raw(obj);
+        with_tagged_heap(|h| {
+            h.allocated_count += 1;
+            unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
+        })
+    }
+
+    // -- Veclike accessor helpers --
+
+    /// Check if this is a lambda.
+    #[inline]
+    pub fn is_lambda(self) -> bool {
+        self.veclike_type() == Some(VecLikeType::Lambda)
+    }
+
+    /// Check if this is a macro.
+    #[inline]
+    pub fn is_macro(self) -> bool {
+        self.veclike_type() == Some(VecLikeType::Macro)
+    }
+
+    /// Check if this is a bytecode function.
+    #[inline]
+    pub fn is_bytecode(self) -> bool {
+        self.veclike_type() == Some(VecLikeType::ByteCode)
+    }
+
+    /// Check if this is a buffer.
+    #[inline]
+    pub fn is_buffer(self) -> bool {
+        self.veclike_type() == Some(VecLikeType::Buffer)
+    }
+
+    /// Check if this is a window.
+    #[inline]
+    pub fn is_window(self) -> bool {
+        self.veclike_type() == Some(VecLikeType::Window)
+    }
+
+    /// Check if this is a frame.
+    #[inline]
+    pub fn is_frame(self) -> bool {
+        self.veclike_type() == Some(VecLikeType::Frame)
+    }
+
+    /// Check if this is a timer.
+    #[inline]
+    pub fn is_timer(self) -> bool {
+        self.veclike_type() == Some(VecLikeType::Timer)
+    }
+
+    /// Check if this is a marker.
+    #[inline]
+    pub fn is_marker(self) -> bool {
+        self.veclike_type() == Some(VecLikeType::Marker)
+    }
+
+    /// Check if this is an overlay.
+    #[inline]
+    pub fn is_overlay(self) -> bool {
+        self.veclike_type() == Some(VecLikeType::Overlay)
+    }
+
+    // -- Data accessors for heap types --
+
+    /// Get an owned copy of the string contents.
+    pub fn as_str_owned(self) -> Option<String> {
+        self.as_str().map(|s| s.to_owned())
+    }
+
+    /// Access the heap string via a closure.
+    pub fn with_str<R>(self, f: impl FnOnce(&str) -> R) -> Option<R> {
+        self.as_str().map(f)
+    }
+
+    /// Borrow the LispString for a string value.
+    pub fn as_lisp_string(self) -> Option<&'static LispString> {
+        self.as_string_ptr()
+            .map(|p| unsafe { &(*p).data })
+    }
+
+    /// Check if a string is multibyte.
+    pub fn string_is_multibyte(self) -> bool {
+        self.as_lisp_string().map_or(false, |s| s.multibyte)
+    }
+
+    /// Borrow the LambdaData from a Lambda or Macro value.
+    pub fn get_lambda_data(self) -> Option<&'static LambdaData> {
+        match self.veclike_type()? {
+            VecLikeType::Lambda => {
+                let ptr = self.as_veclike_ptr().unwrap() as *const LambdaObj;
+                Some(unsafe { &(*ptr).data })
+            }
+            VecLikeType::Macro => {
+                let ptr = self.as_veclike_ptr().unwrap() as *const MacroObj;
+                Some(unsafe { &(*ptr).data })
+            }
+            _ => None,
+        }
+    }
+
+    /// Borrow the ByteCodeFunction from a ByteCode value.
+    pub fn get_bytecode_data(self) -> Option<&'static super::bytecode::ByteCodeFunction> {
+        if self.veclike_type()? == VecLikeType::ByteCode {
+            let ptr = self.as_veclike_ptr().unwrap() as *const ByteCodeObj;
+            Some(unsafe { &(*ptr).data })
+        } else {
+            None
+        }
+    }
+
+    /// Get the pointer address as a unique identity for a string value.
+    /// Used for text property operations.
+    pub fn str_ptr_key(self) -> Option<usize> {
+        self.as_string_ptr().map(|p| p as usize)
+    }
+
+    /// Get the buffer ID from a buffer value.
+    pub fn as_buffer_id(self) -> Option<crate::buffer::BufferId> {
+        if self.is_buffer() {
+            let ptr = self.as_veclike_ptr().unwrap() as *const BufferObj;
+            Some(unsafe { (*ptr).id })
+        } else {
+            None
+        }
+    }
+
+    /// Get the window ID from a window value.
+    pub fn as_window_id(self) -> Option<u64> {
+        if self.is_window() {
+            let ptr = self.as_veclike_ptr().unwrap() as *const WindowObj;
+            Some(unsafe { (*ptr).id })
+        } else {
+            None
+        }
+    }
+
+    /// Get the frame ID from a frame value.
+    pub fn as_frame_id(self) -> Option<u64> {
+        if self.is_frame() {
+            let ptr = self.as_veclike_ptr().unwrap() as *const FrameObj;
+            Some(unsafe { (*ptr).id })
+        } else {
+            None
+        }
+    }
+
+    /// Get the timer ID from a timer value.
+    pub fn as_timer_id(self) -> Option<u64> {
+        if self.is_timer() {
+            let ptr = self.as_veclike_ptr().unwrap() as *const TimerObj;
+            Some(unsafe { (*ptr).id })
+        } else {
+            None
+        }
+    }
+
+    /// Get the marker data from a marker value.
+    pub fn as_marker_data(self) -> Option<&'static crate::gc::types::MarkerData> {
+        if self.is_marker() {
+            let ptr = self.as_veclike_ptr().unwrap() as *const MarkerObj;
+            Some(unsafe { &(*ptr).data })
+        } else {
+            None
+        }
+    }
+
+    /// Get the overlay data from an overlay value.
+    pub fn as_overlay_data(self) -> Option<&'static crate::gc::types::OverlayData> {
+        if self.is_overlay() {
+            let ptr = self.as_veclike_ptr().unwrap() as *const OverlayObj;
+            Some(unsafe { &(*ptr).data })
+        } else {
+            None
+        }
+    }
+
+    /// Get vector elements.
+    pub fn as_vector_data(self) -> Option<&'static Vec<Value>> {
+        if self.is_vector() {
+            let ptr = self.as_veclike_ptr().unwrap() as *const VectorObj;
+            Some(unsafe { &(*ptr).data })
+        } else {
+            None
+        }
+    }
+
+    /// Get mutable vector elements.
+    pub fn as_vector_data_mut(self) -> Option<&'static mut Vec<Value>> {
+        if self.is_vector() {
+            let ptr = self.as_veclike_ptr().unwrap() as *mut VectorObj;
+            Some(unsafe { &mut (*ptr).data })
+        } else {
+            None
+        }
+    }
+
+    /// Get record elements.
+    pub fn as_record_data(self) -> Option<&'static Vec<Value>> {
+        if self.is_record() {
+            let ptr = self.as_veclike_ptr().unwrap() as *const RecordObj;
+            Some(unsafe { &(*ptr).data })
+        } else {
+            None
+        }
+    }
+
+    /// Get mutable record elements.
+    pub fn as_record_data_mut(self) -> Option<&'static mut Vec<Value>> {
+        if self.is_record() {
+            let ptr = self.as_veclike_ptr().unwrap() as *mut RecordObj;
+            Some(unsafe { &mut (*ptr).data })
+        } else {
+            None
+        }
+    }
+
+    /// Get hash table reference.
+    pub fn as_hash_table(self) -> Option<&'static LispHashTable> {
+        if self.is_hash_table() {
+            let ptr = self.as_veclike_ptr().unwrap() as *const HashTableObj;
+            Some(unsafe { &(*ptr).table })
+        } else {
+            None
+        }
+    }
+
+    /// Get mutable hash table reference.
+    pub fn as_hash_table_mut(self) -> Option<&'static mut LispHashTable> {
+        if self.is_hash_table() {
+            let ptr = self.as_veclike_ptr().unwrap() as *mut HashTableObj;
+            Some(unsafe { &mut (*ptr).table })
+        } else {
+            None
+        }
+    }
+
+    /// Get mutable lambda data reference.
+    pub fn get_lambda_data_mut(self) -> Option<&'static mut LambdaData> {
+        match self.veclike_type()? {
+            VecLikeType::Lambda => {
+                let ptr = self.as_veclike_ptr().unwrap() as *mut LambdaObj;
+                Some(unsafe { &mut (*ptr).data })
+            }
+            VecLikeType::Macro => {
+                let ptr = self.as_veclike_ptr().unwrap() as *mut MacroObj;
+                Some(unsafe { &mut (*ptr).data })
+            }
+            _ => None,
+        }
+    }
+
+    /// Get mutable bytecode data reference.
+    pub fn get_bytecode_data_mut(self) -> Option<&'static mut super::bytecode::ByteCodeFunction> {
+        if self.veclike_type()? == VecLikeType::ByteCode {
+            let ptr = self.as_veclike_ptr().unwrap() as *mut ByteCodeObj;
+            Some(unsafe { &mut (*ptr).data })
+        } else {
+            None
+        }
+    }
+
+    /// Get mutable string data reference.
+    pub fn as_lisp_string_mut(self) -> Option<&'static mut LispString> {
+        self.as_string_ptr()
+            .map(|p| unsafe { &mut (*(p as *mut StringObj)).data })
+    }
+
+    /// Convert to hash key based on the hash table test.
+    pub fn to_hash_key(&self, test: &HashTableTest) -> HashKey {
+        match test {
+            HashTableTest::Eq => self.to_eq_key(),
+            HashTableTest::Eql => self.to_eql_key(),
+            HashTableTest::Equal => self.to_equal_key(),
+        }
+    }
+
+    fn to_eq_key(&self) -> HashKey {
+        match self.kind() {
+            ValueKind::Nil => HashKey::Nil,
+            ValueKind::T => HashKey::True,
+            ValueKind::Fixnum(n) => HashKey::Int(n),
+            ValueKind::Float => {
+                // For eq, each float allocation is unique (pointer identity)
+                HashKey::Ptr(self.bits())
+            }
+            ValueKind::Symbol(id) => HashKey::Symbol(id),
+            ValueKind::Keyword(id) => HashKey::Keyword(id),
+            ValueKind::Char(c) => HashKey::Int(c as i64),
+            ValueKind::Subr(id) => HashKey::Symbol(id),
+            // All heap types: use pointer identity
+            ValueKind::Cons | ValueKind::String | ValueKind::Veclike(_) => {
+                HashKey::Ptr(self.bits())
+            }
+            ValueKind::Unknown => HashKey::Ptr(self.bits()),
+        }
+    }
+
+    fn to_eql_key(&self) -> HashKey {
+        match self.kind() {
+            ValueKind::Fixnum(n) => HashKey::Int(n),
+            ValueKind::Float => HashKey::Float(self.xfloat().to_bits()),
+            ValueKind::Char(c) => HashKey::Int(c as i64),
+            _ => self.to_eq_key(),
+        }
+    }
+
+    fn to_equal_key(&self) -> HashKey {
+        let mut seen = Vec::new();
+        self.to_equal_key_depth(0, &mut seen)
+    }
+
+    fn to_equal_key_depth(&self, depth: usize, seen: &mut Vec<usize>) -> HashKey {
+        if depth > 200 {
+            return self.to_eq_key();
+        }
+        match self.kind() {
+            ValueKind::Nil => HashKey::Nil,
+            ValueKind::T => HashKey::True,
+            ValueKind::Fixnum(n) => HashKey::Int(n),
+            ValueKind::Float => HashKey::Float(self.xfloat().to_bits()),
+            ValueKind::Symbol(id) => HashKey::Symbol(id),
+            ValueKind::Keyword(id) => HashKey::Keyword(id),
+            ValueKind::String => {
+                // Use content for equal hashing
+                if let Some(s) = self.as_str() {
+                    HashKey::Text(s.to_string())
+                } else {
+                    self.to_eq_key()
+                }
+            }
+            ValueKind::Char(c) => HashKey::Int(c as i64),
+            ValueKind::Cons => {
+                let ptr = self.bits();
+                if let Some(index) = seen.iter().position(|&p| p == ptr) {
+                    return HashKey::Cycle(index as u32);
+                }
+                seen.push(ptr);
+                let car = self.cons_car();
+                let cdr = self.cons_cdr();
+                let car_key = car.to_equal_key_depth(depth + 1, seen);
+                let cdr_key = cdr.to_equal_key_depth(depth + 1, seen);
+                seen.pop();
+                HashKey::EqualCons(Box::new(car_key), Box::new(cdr_key))
+            }
+            ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
+                let ptr = self.bits();
+                if let Some(index) = seen.iter().position(|&p| p == ptr) {
+                    return HashKey::Cycle(index as u32);
+                }
+                seen.push(ptr);
+                let items = if self.is_vector() {
+                    self.as_vector_data().unwrap().clone()
+                } else {
+                    self.as_record_data().unwrap().clone()
+                };
+                let keys: Vec<HashKey> = items
+                    .iter()
+                    .map(|item| item.to_equal_key_depth(depth + 1, seen))
+                    .collect();
+                seen.pop();
+                HashKey::EqualVec(keys)
+            }
+            ValueKind::Veclike(VecLikeType::Marker) => {
+                super::marker::marker_equal_hash_key_tagged(*self)
+            }
+            ValueKind::Veclike(VecLikeType::Lambda) => {
+                let ptr = self.bits();
+                if let Some(index) = seen.iter().position(|&p| p == ptr) {
+                    return HashKey::Cycle(index as u32);
+                }
+                seen.push(ptr);
+                let lambda = self.get_lambda_data().unwrap().clone();
+                let key = lambda_to_equal_key(&lambda, depth + 1, seen);
+                seen.pop();
+                key
+            }
+            _ => self.to_eq_key(),
+        }
     }
 
     pub(crate) fn memory_use_counts_snapshot() -> [i64; 7] {
@@ -903,399 +1398,37 @@ impl Value {
             as_neovm_int(STRINGS_CONSED.load(Ordering::Relaxed)),
         ]
     }
-
-    // -----------------------------------------------------------------------
-    // Heap accessor methods (via thread-local)
-    // -----------------------------------------------------------------------
-
-    /// Get the car of a cons cell.
-    pub fn cons_car(&self) -> Value {
-        match self {
-            Value::Cons(id) => with_heap(|h| h.cons_car(*id)),
-            _ => panic!("cons_car on non-cons: {}", self.type_name()),
-        }
-    }
-
-    /// Get the cdr of a cons cell.
-    pub fn cons_cdr(&self) -> Value {
-        match self {
-            Value::Cons(id) => with_heap(|h| h.cons_cdr(*id)),
-            _ => panic!("cons_cdr on non-cons: {}", self.type_name()),
-        }
-    }
-
-    /// Set the car of a cons cell.
-    pub fn set_car(&self, val: Value) {
-        match self {
-            Value::Cons(id) => with_heap_mut(|h| h.set_car(*id, val)),
-            _ => panic!("set_car on non-cons: {}", self.type_name()),
-        }
-    }
-
-    /// Set the cdr of a cons cell.
-    pub fn set_cdr(&self, val: Value) {
-        match self {
-            Value::Cons(id) => with_heap_mut(|h| h.set_cdr(*id, val)),
-            _ => panic!("set_cdr on non-cons: {}", self.type_name()),
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Type predicates
-    // -----------------------------------------------------------------------
-
-    pub fn is_nil(&self) -> bool {
-        matches!(self, Value::Nil)
-    }
-
-    pub fn is_truthy(&self) -> bool {
-        !self.is_nil()
-    }
-
-    pub fn is_list(&self) -> bool {
-        matches!(self, Value::Nil | Value::Cons(_))
-    }
-
-    pub fn is_cons(&self) -> bool {
-        matches!(self, Value::Cons(_))
-    }
-
-    pub fn is_number(&self) -> bool {
-        matches!(self, Value::Int(_) | Value::Char(_) | Value::Float(_, _))
-    }
-
-    pub fn is_integer(&self) -> bool {
-        matches!(self, Value::Int(_) | Value::Char(_))
-    }
-
-    pub fn is_float(&self) -> bool {
-        matches!(self, Value::Float(_, _))
-    }
-
-    pub fn is_string(&self) -> bool {
-        matches!(self, Value::Str(_))
-    }
-
-    pub fn is_symbol(&self) -> bool {
-        matches!(
-            self,
-            Value::Nil | Value::True | Value::Symbol(_) | Value::Keyword(_)
-        )
-    }
-
-    pub fn is_keyword(&self) -> bool {
-        matches!(self, Value::Keyword(_))
-    }
-
-    pub fn is_vector(&self) -> bool {
-        matches!(self, Value::Vector(_))
-    }
-
-    pub fn is_record(&self) -> bool {
-        matches!(self, Value::Record(_))
-    }
-
-    pub fn is_char(&self) -> bool {
-        matches!(self, Value::Char(_))
-    }
-
-    pub fn is_hash_table(&self) -> bool {
-        matches!(self, Value::HashTable(_))
-    }
-
-    pub fn is_function(&self) -> bool {
-        matches!(self, Value::Lambda(_) | Value::Subr(_) | Value::ByteCode(_))
-    }
-
-    pub fn type_name(&self) -> &'static str {
-        match self {
-            Value::Nil => "symbol",
-            Value::True => "symbol",
-            Value::Int(_) => "integer",
-            Value::Float(_, _) => "float",
-            Value::Symbol(_) => "symbol",
-            Value::Keyword(_) => "symbol",
-            Value::Str(_) => "string",
-            Value::Cons(_) => "cons",
-            Value::Vector(_) => "vector",
-            Value::Record(_) => "record",
-            Value::HashTable(_) => "hash-table",
-            Value::Lambda(_) => "function",
-            Value::Macro(_) => "macro",
-            Value::Char(_) => "integer", // Emacs chars are integers
-            Value::Subr(_) => "subr",
-            Value::ByteCode(_) => "byte-code-function",
-            Value::Marker(_) => "marker",
-            Value::Overlay(_) => "overlay",
-            Value::Buffer(_) => "buffer",
-            Value::Window(_) => "window",
-            Value::Frame(_) => "frame",
-            Value::Timer(_) => "timer",
-        }
-    }
-
-    /// Extract as number (int or float).  Promotes int → float if needed.
-    pub fn as_number_f64(&self) -> Option<f64> {
-        match self {
-            Value::Int(n) => Some(*n as f64),
-            Value::Float(f, _) => Some(*f),
-            Value::Char(c) => Some(*c as u32 as f64),
-            _ => None,
-        }
-    }
-
-    pub fn as_int(&self) -> Option<i64> {
-        match self {
-            Value::Int(n) => Some(*n),
-            Value::Char(c) => Some(*c as i64),
-            _ => None,
-        }
-    }
-
-    pub fn as_float(&self) -> Option<f64> {
-        match self {
-            Value::Float(f, _) => Some(*f),
-            _ => None,
-        }
-    }
-
-    /// Borrow the string contents from the heap.
-    ///
-    /// # Safety
-    /// The returned reference borrows from the thread-local heap.  It is valid
-    /// as long as no GC collection occurs (which would free/move objects).
-    /// This is safe at normal call sites because GC only runs at explicit safe
-    /// points (`gc_safe_point`), never during a borrow.
-    pub fn as_str(&self) -> Option<&str> {
-        match self {
-            Value::Str(id) => {
-                let ptr = current_heap_ptr();
-                let heap = unsafe { &*ptr };
-                Some(heap.get_string(*id))
-            }
-            _ => None,
-        }
-    }
-
-    /// Get an owned copy of the string contents.
-    pub fn as_str_owned(&self) -> Option<String> {
-        self.as_str().map(|s| s.to_owned())
-    }
-
-    /// Access the heap string via a closure.
-    pub fn with_str<R>(&self, f: impl FnOnce(&str) -> R) -> Option<R> {
-        self.as_str().map(f)
-    }
-
-    pub fn as_symbol_name(&self) -> Option<&str> {
-        match self {
-            Value::Nil => Some("nil"),
-            Value::True => Some("t"),
-            Value::Symbol(id) => Some(resolve_sym(*id)),
-            Value::Keyword(id) => Some(resolve_sym(*id)),
-            _ => None,
-        }
-    }
-
-    /// Check if this value is a symbol with the given name.
-    /// Convenience for the common `if s == "foo"` pattern in match guards.
-    pub fn is_symbol_named(&self, name: &str) -> bool {
-        self.as_symbol_name() == Some(name)
-    }
-
-    /// Borrow the LambdaData from a Lambda or Macro value on the heap.
-    pub fn get_lambda_data(&self) -> Option<&LambdaData> {
-        let ptr = current_heap_ptr();
-        let heap = unsafe { &*ptr };
-        match self {
-            Value::Lambda(id) => Some(heap.get_lambda(*id)),
-            Value::Macro(id) => Some(heap.get_macro_data(*id)),
-            _ => None,
-        }
-    }
-
-    /// Borrow the ByteCodeFunction from a ByteCode value on the heap.
-    pub fn get_bytecode_data(&self) -> Option<&super::bytecode::ByteCodeFunction> {
-        let ptr = current_heap_ptr();
-        let heap = unsafe { &*ptr };
-        match self {
-            Value::ByteCode(id) => Some(heap.get_bytecode(*id)),
-            _ => None,
-        }
-    }
-
-    /// Get the ObjId of a string value (for text property operations).
-    pub fn str_id(&self) -> Option<ObjId> {
-        match self {
-            Value::Str(id) => Some(*id),
-            _ => None,
-        }
-    }
-
-    /// Convert to hash key based on the hash table test.
-    pub fn to_hash_key(&self, test: &HashTableTest) -> HashKey {
-        match test {
-            HashTableTest::Eq => self.to_eq_key(),
-            HashTableTest::Eql => self.to_eql_key(),
-            HashTableTest::Equal => self.to_equal_key(),
-        }
-    }
-
-    fn to_eq_key(&self) -> HashKey {
-        match self {
-            Value::Nil => HashKey::Nil,
-            Value::True => HashKey::True,
-            Value::Int(n) => HashKey::Int(*n),
-            Value::Float(f, id) => HashKey::FloatEq(f.to_bits(), *id),
-            Value::Symbol(id) => HashKey::Symbol(*id),
-            Value::Keyword(id) => HashKey::Keyword(*id),
-            // Emacs chars are integers for equality/hash semantics.
-            Value::Char(c) => HashKey::Int(*c as i64),
-            // All heap-allocated types: use ObjId for identity
-            Value::Cons(id)
-            | Value::Vector(id)
-            | Value::Record(id)
-            | Value::HashTable(id)
-            | Value::Str(id)
-            | Value::Lambda(id)
-            | Value::Macro(id)
-            | Value::ByteCode(id)
-            | Value::Marker(id)
-            | Value::Overlay(id) => HashKey::ObjId(id.index, id.generation),
-            Value::Subr(id) => HashKey::Symbol(*id),
-            Value::Buffer(id) => HashKey::Int(id.0 as i64),
-            Value::Window(id) => HashKey::Window(*id),
-            Value::Frame(id) => HashKey::Frame(*id),
-            Value::Timer(id) => HashKey::Int(*id as i64),
-        }
-    }
-
-    fn to_eql_key(&self) -> HashKey {
-        match self {
-            // eql is like eq but also does value-equality for numbers
-            Value::Int(n) => HashKey::Int(*n),
-            Value::Float(f, _) => HashKey::Float(f.to_bits()),
-            Value::Char(c) => HashKey::Int(*c as i64),
-            other => other.to_eq_key(),
-        }
-    }
-
-    fn to_equal_key(&self) -> HashKey {
-        let mut seen = Vec::new();
-        self.to_equal_key_depth(0, &mut seen)
-    }
-
-    fn to_equal_key_depth(&self, depth: usize, seen: &mut Vec<StructuralRef>) -> HashKey {
-        if depth > 200 {
-            // Prevent runaway recursion on circular structures; fall back to eq.
-            return self.to_eq_key();
-        }
-        match self {
-            Value::Nil => HashKey::Nil,
-            Value::True => HashKey::True,
-            Value::Int(n) => HashKey::Int(*n),
-            Value::Float(f, _) => HashKey::Float(f.to_bits()),
-            Value::Symbol(id) => HashKey::Symbol(*id),
-            Value::Keyword(id) => HashKey::Keyword(*id),
-            Value::Str(id) => HashKey::Str(*id),
-            Value::Char(c) => HashKey::Int(*c as i64),
-            Value::Window(id) => HashKey::Window(*id),
-            Value::Frame(id) => HashKey::Frame(*id),
-            // Structural comparison for cons cells (critical for cl-generic memoization).
-            Value::Cons(cons) => {
-                if let Some(index) = seen
-                    .iter()
-                    .position(|entry| matches!(entry, StructuralRef::Cons(id) if id == cons))
-                {
-                    return HashKey::Cycle(index as u32);
-                }
-                seen.push(StructuralRef::Cons(*cons));
-                let pair = read_cons(*cons);
-                let car_key = pair.car.to_equal_key_depth(depth + 1, seen);
-                let cdr_key = pair.cdr.to_equal_key_depth(depth + 1, seen);
-                seen.pop();
-                HashKey::EqualCons(Box::new(car_key), Box::new(cdr_key))
-            }
-            // Structural comparison for vectors and records.
-            Value::Vector(v) | Value::Record(v) => {
-                let marker = match self {
-                    Value::Vector(_) => StructuralRef::Vector(*v),
-                    _ => StructuralRef::Record(*v),
-                };
-                if let Some(index) = seen.iter().position(|entry| *entry == marker) {
-                    return HashKey::Cycle(index as u32);
-                }
-                seen.push(marker);
-                let items = with_heap(|h| h.get_vector(*v).clone());
-                let keys: Vec<HashKey> = items
-                    .iter()
-                    .map(|item| item.to_equal_key_depth(depth + 1, seen))
-                    .collect();
-                seen.pop();
-                HashKey::EqualVec(keys)
-            }
-            Value::Marker(id) => super::marker::marker_equal_hash_key(*id),
-            Value::Lambda(id) => {
-                if let Some(index) = seen
-                    .iter()
-                    .position(|entry| matches!(entry, StructuralRef::Lambda(other) if other == id))
-                {
-                    return HashKey::Cycle(index as u32);
-                }
-                seen.push(StructuralRef::Lambda(*id));
-                let lambda = with_heap(|h| h.get_lambda(*id).clone());
-                let key = lambda_to_equal_key(&lambda, depth + 1, seen);
-                seen.pop();
-                key
-            }
-            // Functions, hash tables, etc. use identity.
-            other => other.to_eq_key(),
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
 // Equality
 // ---------------------------------------------------------------------------
 
-/// `eq` — identity comparison.
+/// `eq` — identity comparison (pointer equality for heap types).
 pub fn eq_value(left: &Value, right: &Value) -> bool {
-    match (left, right) {
-        (Value::Nil, Value::Nil) => true,
-        (Value::True, Value::True) => true,
-        (Value::Int(a), Value::Int(b)) => a == b,
-        (Value::Float(a, id_a), Value::Float(b, id_b)) => {
-            id_a == id_b && a.to_bits() == b.to_bits()
-        }
-        (Value::Int(a), Value::Char(b)) => *a == *b as i64,
-        (Value::Char(a), Value::Int(b)) => *a as i64 == *b,
-        (Value::Char(a), Value::Char(b)) => a == b,
-        (Value::Symbol(a), Value::Symbol(b)) => a == b,
-        (Value::Keyword(a), Value::Keyword(b)) => a == b,
-        (Value::Str(a), Value::Str(b)) => a == b,
-        (Value::Cons(a), Value::Cons(b)) => a == b,
-        (Value::Vector(a), Value::Vector(b)) => a == b,
-        (Value::Record(a), Value::Record(b)) => a == b,
-        (Value::Lambda(a), Value::Lambda(b)) => a == b,
-        (Value::Macro(a), Value::Macro(b)) => a == b,
-        (Value::HashTable(a), Value::HashTable(b)) => a == b,
-        (Value::Subr(a), Value::Subr(b)) => a == b,
-        (Value::ByteCode(a), Value::ByteCode(b)) => a == b,
-        (Value::Marker(a), Value::Marker(b)) => a == b,
-        (Value::Overlay(a), Value::Overlay(b)) => a == b,
-        (Value::Buffer(a), Value::Buffer(b)) => a == b,
-        (Value::Window(a), Value::Window(b)) => a == b,
-        (Value::Frame(a), Value::Frame(b)) => a == b,
-        (Value::Timer(a), Value::Timer(b)) => a == b,
+    // For tagged pointers, eq is just bitwise comparison,
+    // EXCEPT that Char values should be eq to Fixnums with same numeric value.
+    if left.bits() == right.bits() {
+        return true;
+    }
+    // Cross-type char/int eq
+    match (left.kind(), right.kind()) {
+        (ValueKind::Fixnum(a), ValueKind::Char(b)) => a == b as i64,
+        (ValueKind::Char(a), ValueKind::Fixnum(b)) => a as i64 == b,
         _ => false,
     }
 }
 
 /// `eql` — like `eq` but also value-equality for numbers of same type.
 pub fn eql_value(left: &Value, right: &Value) -> bool {
-    match (left, right) {
-        (Value::Float(a, _), Value::Float(b, _)) => a.to_bits() == b.to_bits(),
-        _ => eq_value(left, right),
+    if left.bits() == right.bits() {
+        return true;
+    }
+    match (left.kind(), right.kind()) {
+        (ValueKind::Float, ValueKind::Float) => left.xfloat().to_bits() == right.xfloat().to_bits(),
+        (ValueKind::Fixnum(a), ValueKind::Char(b)) => a == b as i64,
+        (ValueKind::Char(a), ValueKind::Fixnum(b)) => a as i64 == b,
+        _ => false,
     }
 }
 
@@ -1309,94 +1442,81 @@ fn equal_value_inner(
     left: &Value,
     right: &Value,
     depth: usize,
-    seen: &mut HashSet<EqualPairRef>,
+    seen: &mut HashSet<(usize, usize)>,
 ) -> bool {
     if depth > 200 {
         return false;
     }
-    match (left, right) {
-        (Value::Nil, Value::Nil) => true,
-        (Value::True, Value::True) => true,
-        (Value::Int(a), Value::Int(b)) => a == b,
-        (Value::Int(a), Value::Char(b)) => *a == *b as i64,
-        (Value::Char(a), Value::Int(b)) => *a as i64 == *b,
-        (Value::Float(a, _), Value::Float(b, _)) => a.to_bits() == b.to_bits(),
-        (Value::Char(a), Value::Char(b)) => a == b,
-        (Value::Symbol(a), Value::Symbol(b)) => a == b,
-        (Value::Keyword(a), Value::Keyword(b)) => a == b,
-        (Value::Str(a), Value::Str(b)) => {
-            if a == b {
-                return true;
-            }
-            with_heap(|h| h.get_string(*a) == h.get_string(*b))
+    // Fast path: bitwise equal
+    if left.bits() == right.bits() {
+        return true;
+    }
+    match (left.kind(), right.kind()) {
+        (ValueKind::Nil, ValueKind::Nil) => true,
+        (ValueKind::T, ValueKind::T) => true,
+        (ValueKind::Fixnum(a), ValueKind::Fixnum(b)) => a == b,
+        (ValueKind::Fixnum(a), ValueKind::Char(b)) => a == b as i64,
+        (ValueKind::Char(a), ValueKind::Fixnum(b)) => a as i64 == b,
+        (ValueKind::Float, ValueKind::Float) => {
+            left.xfloat().to_bits() == right.xfloat().to_bits()
         }
-        (Value::Marker(_), Value::Marker(_)) => {
-            super::marker::marker_logical_fields(left)
-                == super::marker::marker_logical_fields(right)
+        (ValueKind::Char(a), ValueKind::Char(b)) => a == b,
+        (ValueKind::Symbol(a), ValueKind::Symbol(b)) => a == b,
+        (ValueKind::Keyword(a), ValueKind::Keyword(b)) => a == b,
+        (ValueKind::String, ValueKind::String) => left.as_str() == right.as_str(),
+        (ValueKind::Veclike(VecLikeType::Marker), ValueKind::Veclike(VecLikeType::Marker)) => {
+            super::marker::marker_logical_fields_tagged(left)
+                == super::marker::marker_logical_fields_tagged(right)
         }
-        (Value::Cons(a), Value::Cons(b)) => {
-            if a == b {
+        (ValueKind::Cons, ValueKind::Cons) => {
+            let pair = (left.bits(), right.bits());
+            if !seen.insert(pair) {
                 return true;
             }
-            let pair_ref = EqualPairRef::Cons(*a, *b);
-            if !seen.insert(pair_ref) {
-                return true;
-            }
-            let a_car = with_heap(|h| h.cons_car(*a));
-            let a_cdr = with_heap(|h| h.cons_cdr(*a));
-            let b_car = with_heap(|h| h.cons_car(*b));
-            let b_cdr = with_heap(|h| h.cons_cdr(*b));
+            let a_car = left.cons_car();
+            let a_cdr = left.cons_cdr();
+            let b_car = right.cons_car();
+            let b_cdr = right.cons_cdr();
             equal_value_inner(&a_car, &b_car, depth + 1, seen)
                 && equal_value_inner(&a_cdr, &b_cdr, depth + 1, seen)
         }
-        (Value::Vector(a), Value::Vector(b)) | (Value::Record(a), Value::Record(b)) => {
-            if a == b {
+        (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector))
+        | (ValueKind::Veclike(VecLikeType::Record), ValueKind::Veclike(VecLikeType::Record)) => {
+            let pair = (left.bits(), right.bits());
+            if !seen.insert(pair) {
                 return true;
             }
-            let pair_ref = match (left, right) {
-                (Value::Vector(_), Value::Vector(_)) => EqualPairRef::Vector(*a, *b),
-                _ => EqualPairRef::Record(*a, *b),
-            };
-            if !seen.insert(pair_ref) {
-                return true;
-            }
-            // Copy element pairs out (Value is Copy) to compare outside the borrow.
-            // Returns None if lengths differ, Some(pairs) otherwise.
-            let pairs: Option<Vec<(Value, Value)>> = with_heap(|h| {
-                let av = h.get_vector(*a);
-                let bv = h.get_vector(*b);
-                if av.len() != bv.len() {
-                    return None;
+            let av = left.as_vector_data().or_else(|| left.as_record_data());
+            let bv = right.as_vector_data().or_else(|| right.as_record_data());
+            match (av, bv) {
+                (Some(a), Some(b)) => {
+                    if a.len() != b.len() {
+                        return false;
+                    }
+                    a.iter()
+                        .zip(b.iter())
+                        .all(|(x, y)| equal_value_inner(x, y, depth + 1, seen))
                 }
-                Some(av.iter().copied().zip(bv.iter().copied()).collect())
-            });
-            matches!(pairs, Some(ref p) if p
-                .iter()
-                .all(|(x, y)| equal_value_inner(x, y, depth + 1, seen)))
+                _ => false,
+            }
         }
-        // Hash tables: identity comparison only (same as eq), matching GNU Emacs
-        // where PVEC_HASH_TABLE < PVEC_CLOSURE causes early return false.
-        (Value::HashTable(a), Value::HashTable(b)) => a == b,
-        (Value::Lambda(a), Value::Lambda(b)) => {
-            if a == b {
+        (ValueKind::Veclike(VecLikeType::HashTable), ValueKind::Veclike(VecLikeType::HashTable)) => {
+            left.bits() == right.bits()
+        }
+        (ValueKind::Veclike(VecLikeType::Lambda), ValueKind::Veclike(VecLikeType::Lambda)) => {
+            let pair = (left.bits(), right.bits());
+            if !seen.insert(pair) {
                 return true;
             }
-            let pair_ref = EqualPairRef::Lambda(*a, *b);
-            if !seen.insert(pair_ref) {
-                return true;
-            }
-            let (left_lambda, right_lambda) =
-                with_heap(|h| (h.get_lambda(*a).clone(), h.get_lambda(*b).clone()));
+            let left_lambda = left.get_lambda_data().unwrap().clone();
+            let right_lambda = right.get_lambda_data().unwrap().clone();
             lambda_data_equal(&left_lambda, &right_lambda, depth + 1, seen)
         }
-        (Value::Macro(a), Value::Macro(b)) => a == b,
-        (Value::Subr(a), Value::Subr(b)) => a == b,
-        (Value::ByteCode(a), Value::ByteCode(b)) => a == b,
-        (Value::Overlay(a), Value::Overlay(b)) => a == b,
-        (Value::Buffer(a), Value::Buffer(b)) => a == b,
-        (Value::Window(a), Value::Window(b)) => a == b,
-        (Value::Frame(a), Value::Frame(b)) => a == b,
-        (Value::Timer(a), Value::Timer(b)) => a == b,
+        (ValueKind::Subr(a), ValueKind::Subr(b)) => a == b,
+        // For all other same-type veclike comparisons, use identity
+        (ValueKind::Veclike(a), ValueKind::Veclike(b)) if a == b => {
+            left.bits() == right.bits()
+        }
         _ => false,
     }
 }
@@ -1404,7 +1524,7 @@ fn equal_value_inner(
 fn lambda_to_equal_key(
     lambda: &LambdaData,
     depth: usize,
-    seen: &mut Vec<StructuralRef>,
+    seen: &mut Vec<usize>,
 ) -> HashKey {
     if depth > 200 {
         return HashKey::Text("#<lambda-depth-limit>".to_string());
@@ -1438,7 +1558,7 @@ fn lambda_to_equal_key(
                 .collect(),
         ),
         match lambda.env {
-            Some(env) => env.to_equal_key_depth(depth + 1, seen),
+            Some(env) => env.to_equal_key_depth(0, seen),
             None => HashKey::Text("dynamic".to_string()),
         },
     ];
@@ -1446,7 +1566,7 @@ fn lambda_to_equal_key(
     if lambda.docstring.is_some() || lambda.doc_form.is_some() {
         slots.push(HashKey::Nil);
         let doc = if let Some(doc_form) = lambda.doc_form {
-            doc_form.to_equal_key_depth(depth + 1, seen)
+            doc_form.to_equal_key_depth(0, seen)
         } else if let Some(docstring) = &lambda.docstring {
             HashKey::Text(docstring.clone())
         } else {
@@ -1462,7 +1582,7 @@ fn lambda_data_equal(
     left: &LambdaData,
     right: &LambdaData,
     depth: usize,
-    seen: &mut HashSet<EqualPairRef>,
+    seen: &mut HashSet<(usize, usize)>,
 ) -> bool {
     if left.params != right.params || left.body.as_ref() != right.body.as_ref() {
         return false;
@@ -1484,87 +1604,64 @@ fn lambda_data_equal(
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum StructuralRef {
-    Cons(ObjId),
-    Vector(ObjId),
-    Record(ObjId),
-    Lambda(ObjId),
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-enum EqualPairRef {
-    Cons(ObjId, ObjId),
-    Vector(ObjId, ObjId),
-    Record(ObjId, ObjId),
-    Lambda(ObjId, ObjId),
-}
-
 // ---------------------------------------------------------------------------
 // List iteration helpers
 // ---------------------------------------------------------------------------
 
-/// Collect a proper list into a Vec.  Returns None if not a proper list or
-/// circular list.  Uses tortoise-and-hare cycle detection.
+/// Collect a proper list into a Vec.
 pub fn list_to_vec(value: &Value) -> Option<Vec<Value>> {
     let mut result = Vec::new();
     let mut tortoise = *value;
     let mut hare = *value;
     let mut step = 0u64;
     loop {
-        match hare {
-            Value::Nil => return Some(result),
-            Value::Cons(id) => {
-                result.push(with_heap(|h| h.cons_car(id)));
-                hare = with_heap(|h| h.cons_cdr(id));
-                step += 1;
-                // Advance tortoise every other step
-                if step % 2 == 0 {
-                    if let Value::Cons(tid) = tortoise {
-                        tortoise = with_heap(|h| h.cons_cdr(tid));
-                    }
-                    if tortoise == hare {
-                        return None; // cycle detected
-                    }
+        if hare.is_nil() {
+            return Some(result);
+        } else if hare.is_cons() {
+            result.push(hare.cons_car());
+            hare = hare.cons_cdr();
+            step += 1;
+            if step % 2 == 0 {
+                if tortoise.is_cons() {
+                    tortoise = tortoise.cons_cdr();
+                }
+                if tortoise.bits() == hare.bits() {
+                    return None; // cycle
                 }
             }
-            _ => return None,
+        } else {
+            return None;
         }
     }
 }
 
-/// Length of a list (counts cons cells).  Returns None if improper or circular
-/// list detected.  Uses tortoise-and-hare cycle detection (like GNU Emacs
-/// `FOR_EACH_TAIL_SAFE`).
+/// Length of a list (counts cons cells).
 pub fn list_length(value: &Value) -> Option<usize> {
     let mut len = 0;
     let mut tortoise = *value;
     let mut hare = *value;
     loop {
-        match hare {
-            Value::Nil => return Some(len),
-            Value::Cons(id) => {
+        if hare.is_nil() {
+            return Some(len);
+        } else if hare.is_cons() {
+            len += 1;
+            hare = hare.cons_cdr();
+            if hare.is_nil() {
+                return Some(len);
+            } else if hare.is_cons() {
                 len += 1;
-                hare = with_heap(|h| h.cons_cdr(id));
-                // Advance hare a second step
-                match hare {
-                    Value::Nil => return Some(len),
-                    Value::Cons(id2) => {
-                        len += 1;
-                        hare = with_heap(|h| h.cons_cdr(id2));
-                    }
-                    _ => return None, // improper
-                }
-                // Advance tortoise one step
-                if let Value::Cons(tid) = tortoise {
-                    tortoise = with_heap(|h| h.cons_cdr(tid));
-                }
-                // Cycle detection: if tortoise == hare, it's circular
-                if tortoise == hare {
-                    return None;
-                }
+                hare = hare.cons_cdr();
+            } else {
+                return None; // improper
             }
-            _ => return None,
+            if tortoise.is_cons() {
+                tortoise = tortoise.cons_cdr();
+            }
+            if tortoise.bits() == hare.bits() {
+                return None; // cycle
+            }
+        } else {
+            return None;
         }
     }
 }
@@ -1573,7 +1670,7 @@ pub fn list_length(value: &Value) -> Option<usize> {
 // Display
 // ---------------------------------------------------------------------------
 
-impl fmt::Display for Value {
+impl fmt::Display for TaggedValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", super::print::print_value(self))
     }
@@ -1583,52 +1680,48 @@ impl fmt::Display for Value {
 // Flat cons-alist lexical environment helpers
 // ---------------------------------------------------------------------------
 
-/// Walk a cons-alist lexenv for a symbol.  Returns the `ObjId` of the
-/// `(sym . val)` cons cell, or `None` if not found.
-pub fn lexenv_assq(lexenv: Value, sym_id: SymId) -> Option<ObjId> {
+/// Walk a cons-alist lexenv for a symbol. Returns the cons cell Value
+/// of the `(sym . val)` binding, or `None` if not found.
+pub fn lexenv_assq(lexenv: Value, sym_id: SymId) -> Option<Value> {
     let mut cursor = lexenv;
     loop {
-        match cursor {
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
-                // Elements are either (sym . val) lexical bindings, bare
-                // symbols declaring local dynamic scope, or the GNU top-level
-                // lexical sentinel `(t)`.
-                if let Value::Cons(binding) = pair.car {
-                    let bp = read_cons(binding);
-                    if let Some(s) = lexenv_binding_symbol_id(bp.car)
-                        && s == sym_id
-                    {
-                        return Some(binding);
+        if cursor.is_cons() {
+            let car = cursor.cons_car();
+            if car.is_cons() {
+                let binding_sym = car.cons_car();
+                if let Some(s) = lexenv_binding_symbol_id(binding_sym) {
+                    if s == sym_id {
+                        return Some(car);
                     }
                 }
-                cursor = pair.cdr;
             }
-            _ => return None,
+            cursor = cursor.cons_cdr();
+        } else {
+            return None;
         }
     }
 }
 
 fn lexenv_binding_symbol_id(value: Value) -> Option<SymId> {
-    match value {
-        Value::Symbol(sym) => Some(sym),
-        Value::True => Some(intern("t")),
-        Value::Nil => Some(intern("nil")),
+    match value.kind() {
+        ValueKind::Symbol(sym) => Some(sym),
+        ValueKind::T => Some(intern("t")),
+        ValueKind::Nil => Some(intern("nil")),
         _ => None,
     }
 }
 
 fn lexenv_binding_symbol_value(sym_id: SymId) -> Value {
     match resolve_sym(sym_id) {
-        "t" => Value::True,
-        "nil" => Value::Nil,
-        _ => Value::Symbol(sym_id),
+        "t" => Value::T,
+        "nil" => Value::NIL,
+        _ => TaggedValue::from_sym_id(sym_id),
     }
 }
 
 /// Look up symbol value in a cons-alist lexenv.
 pub fn lexenv_lookup(lexenv: Value, sym_id: SymId) -> Option<Value> {
-    lexenv_assq(lexenv, sym_id).map(|cell| read_cons(cell).cdr)
+    lexenv_assq(lexenv, sym_id).map(|cell| cell.cons_cdr())
 }
 
 /// Return true if the lexical environment contains a bare-symbol declaration
@@ -1636,50 +1729,46 @@ pub fn lexenv_lookup(lexenv: Value, sym_id: SymId) -> Option<Value> {
 pub fn lexenv_declares_special(lexenv: Value, sym_id: SymId) -> bool {
     let mut cursor = lexenv;
     loop {
-        match cursor {
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
-                if let Value::Symbol(s) = pair.car
-                    && s == sym_id
-                {
+        if cursor.is_cons() {
+            let car = cursor.cons_car();
+            if let Some(id) = car.as_symbol_id() {
+                if id == sym_id {
                     return true;
                 }
-                cursor = pair.cdr;
             }
-            _ => return false,
+            cursor = cursor.cons_cdr();
+        } else {
+            return false;
         }
     }
 }
 
-/// Collect bare-symbol entries from the lexical environment. GNU Emacs uses
-/// these to propagate local `defvar` declarations into `macroexp--dynvars`
-/// during macro expansion.
+/// Collect bare-symbol entries from the lexical environment.
 pub fn lexenv_bare_symbols(lexenv: Value) -> Vec<SymId> {
     let mut cursor = lexenv;
     let mut symbols = Vec::new();
     loop {
-        match cursor {
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
-                if let Value::Symbol(s) = pair.car {
-                    symbols.push(s);
-                }
-                cursor = pair.cdr;
+        if cursor.is_cons() {
+            let car = cursor.cons_car();
+            if let Some(s) = car.as_symbol_id() {
+                symbols.push(s);
             }
-            _ => return symbols,
+            cursor = cursor.cons_cdr();
+        } else {
+            return symbols;
         }
     }
 }
 
 /// Mutate a binding in place: set cdr of the `(sym . val)` cons cell.
-pub fn lexenv_set(cell_id: ObjId, value: Value) {
-    with_heap_mut(|h| h.set_cdr(cell_id, value));
+pub fn lexenv_set(cell: Value, value: Value) {
+    cell.set_cdr(value);
 }
 
-/// Prepend a `(sym . val)` binding onto a lexenv alist.  Returns the new head.
+/// Prepend a `(sym . val)` binding onto a lexenv alist. Returns the new head.
 pub fn lexenv_prepend(lexenv: Value, sym_id: SymId, val: Value) -> Value {
-    let binding = Value::cons(lexenv_binding_symbol_value(sym_id), val);
-    Value::cons(binding, lexenv)
+    let binding = Value::make_cons(lexenv_binding_symbol_value(sym_id), val);
+    Value::make_cons(binding, lexenv)
 }
 
 // ---------------------------------------------------------------------------

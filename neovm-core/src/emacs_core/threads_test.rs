@@ -11,14 +11,14 @@ fn thread_manager_new_has_main_thread() {
     assert_eq!(mgr.current_thread_id(), 0);
     assert!(mgr.thread_alive_p(0));
     assert_eq!(mgr.thread_name(0), None);
-    assert_eq!(mgr.thread_buffer_disposition(0), Some(Value::Nil));
+    assert_eq!(mgr.thread_buffer_disposition(0), Some(Value::NIL));
 }
 
 #[test]
 fn create_thread_assigns_unique_ids() {
     let mut mgr = ThreadManager::new();
-    let id1 = mgr.create_thread(Value::Nil, Some("t1".into()));
-    let id2 = mgr.create_thread(Value::Nil, Some("t2".into()));
+    let id1 = mgr.create_thread(Value::NIL, Some("t1".into()));
+    let id2 = mgr.create_thread(Value::NIL, Some("t2".into()));
     assert_ne!(id1, id2);
     assert!(mgr.is_thread(id1));
     assert!(mgr.is_thread(id2));
@@ -28,7 +28,7 @@ fn create_thread_assigns_unique_ids() {
 #[test]
 fn thread_lifecycle_created_running_finished() {
     let mut mgr = ThreadManager::new();
-    let id = mgr.create_thread(Value::Nil, None);
+    let id = mgr.create_thread(Value::NIL, None);
     assert_eq!(mgr.get_thread(id).unwrap().status, ThreadStatus::Created);
     assert!(mgr.thread_alive_p(id));
 
@@ -36,7 +36,7 @@ fn thread_lifecycle_created_running_finished() {
     assert_eq!(mgr.get_thread(id).unwrap().status, ThreadStatus::Running);
     assert!(mgr.thread_alive_p(id));
 
-    mgr.finish_thread(id, Value::Int(42));
+    mgr.finish_thread(id, Value::fixnum(42));
     assert_eq!(mgr.get_thread(id).unwrap().status, ThreadStatus::Finished);
     assert!(!mgr.thread_alive_p(id));
     assert_eq!(mgr.thread_result(id).as_int(), Some(42));
@@ -45,7 +45,7 @@ fn thread_lifecycle_created_running_finished() {
 #[test]
 fn thread_signal_records_error() {
     let mut mgr = ThreadManager::new();
-    let id = mgr.create_thread(Value::Nil, None);
+    let id = mgr.create_thread(Value::NIL, None);
     mgr.start_thread(id);
     mgr.signal_thread(id, Value::symbol("test-error"));
     assert_eq!(mgr.get_thread(id).unwrap().status, ThreadStatus::Signaled);
@@ -55,7 +55,7 @@ fn thread_signal_records_error() {
 #[test]
 fn all_thread_ids_includes_main_and_created() {
     let mut mgr = ThreadManager::new();
-    let id = mgr.create_thread(Value::Nil, None);
+    let id = mgr.create_thread(Value::NIL, None);
     let ids = mgr.all_thread_ids();
     assert!(ids.len() >= 2);
     assert!(ids.contains(&0));
@@ -65,11 +65,11 @@ fn all_thread_ids_includes_main_and_created() {
 #[test]
 fn all_thread_ids_excludes_finished_thread() {
     let mut mgr = ThreadManager::new();
-    let id = mgr.create_thread(Value::Nil, None);
+    let id = mgr.create_thread(Value::NIL, None);
     let before_join = mgr.all_thread_ids();
     assert!(before_join.contains(&id));
 
-    mgr.finish_thread(id, Value::Int(1));
+    mgr.finish_thread(id, Value::fixnum(1));
     let after_join = mgr.all_thread_ids();
     assert!(!after_join.contains(&id));
     assert!(after_join.contains(&0));
@@ -78,8 +78,8 @@ fn all_thread_ids_excludes_finished_thread() {
 #[test]
 fn thread_buffer_disposition_round_trips() {
     let mut mgr = ThreadManager::new();
-    let id = mgr.create_thread(Value::Nil, None);
-    assert_eq!(mgr.thread_buffer_disposition(id), Some(Value::Nil));
+    let id = mgr.create_thread(Value::NIL, None);
+    assert_eq!(mgr.thread_buffer_disposition(id), Some(Value::NIL));
     assert!(mgr.set_thread_buffer_disposition(id, Value::symbol("silently")));
     assert_eq!(
         mgr.thread_buffer_disposition(id),
@@ -90,14 +90,14 @@ fn thread_buffer_disposition_round_trips() {
 #[test]
 fn thread_manager_tracks_current_buffer_and_blocker_state() {
     let mut mgr = ThreadManager::new();
-    let id = mgr.create_thread(Value::Nil, None);
+    let id = mgr.create_thread(Value::NIL, None);
     let buffer_id = crate::buffer::BufferId(99);
     assert!(mgr.set_thread_current_buffer(id, Some(buffer_id)));
     assert_eq!(mgr.thread_current_buffer(id), Some(buffer_id));
     assert!(mgr.set_thread_blocker(id, Value::symbol("test-blocker")));
     assert_eq!(mgr.thread_blocker(id), Some(Value::symbol("test-blocker")));
     assert!(mgr.clear_thread_blocker(id));
-    assert_eq!(mgr.thread_blocker(id), Some(Value::Nil));
+    assert_eq!(mgr.thread_blocker(id), Some(Value::NIL));
 }
 
 #[test]
@@ -180,7 +180,7 @@ fn condition_variable_requires_valid_mutex() {
 fn test_builtin_make_thread_runs_function() {
     let mut eval = Context::new();
     // Define a simple function that returns 42
-    eval.set_variable("thread-test-result", Value::Nil);
+    eval.set_variable("thread-test-result", Value::NIL);
     eval.set_function(
         "thread-test-fn",
         Value::make_lambda(super::super::value::LambdaData {
@@ -244,9 +244,9 @@ fn test_builtin_make_thread_rejects_more_than_three_args() {
                 doc_form: None,
                 interactive: None,
             }),
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
         ],
     );
     assert!(matches!(
@@ -264,7 +264,7 @@ fn test_builtin_threadp() {
     assert!(r.is_ok());
     assert!(r.unwrap().is_truthy());
 
-    let r = builtin_threadp(&mut eval, vec![Value::Int(0)]);
+    let r = builtin_threadp(&mut eval, vec![Value::fixnum(0)]);
     assert!(r.is_ok());
     assert!(r.unwrap().is_nil());
 
@@ -272,12 +272,12 @@ fn test_builtin_threadp() {
     assert!(r.is_ok());
     assert!(r.unwrap().is_nil());
 
-    let fake = Value::cons(Value::symbol("thread"), Value::Int(999));
+    let fake = Value::cons(Value::symbol("thread"), Value::fixnum(999));
     let r = builtin_threadp(&mut eval, vec![fake]);
     assert!(r.is_ok());
     assert!(r.unwrap().is_nil());
 
-    let forged_main = Value::cons(Value::symbol("thread"), Value::Int(0));
+    let forged_main = Value::cons(Value::symbol("thread"), Value::fixnum(0));
     let r = builtin_threadp(&mut eval, vec![forged_main]);
     assert!(r.is_ok());
     assert!(r.unwrap().is_nil());
@@ -448,12 +448,12 @@ fn test_builtin_thread_signal_current_thread_raises() {
     let current = builtin_current_thread(&mut eval, vec![]).unwrap();
     let result = builtin_thread_signal(
         &mut eval,
-        vec![current, Value::symbol("foo"), Value::Int(1)],
+        vec![current, Value::symbol("foo"), Value::fixnum(1)],
     );
     match result {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "foo");
-            assert_eq!(sig.raw_data, Some(Value::Int(1)));
+            assert_eq!(sig.raw_data, Some(ValueKind::Fixnum(1)));
         }
         other => panic!("expected signal from thread-signal current thread, got {other:?}"),
     }
@@ -463,13 +463,13 @@ fn test_builtin_thread_signal_current_thread_raises() {
 fn test_builtin_thread_last_error_cleanup() {
     let mut eval = Context::new();
     eval.threads
-        .record_last_error(Value::list(vec![Value::symbol("err"), Value::Int(1)]));
+        .record_last_error(Value::list(vec![Value::symbol("err"), Value::fixnum(1)]));
 
-    let e1 = builtin_thread_last_error(&mut eval, vec![Value::Nil]).unwrap();
+    let e1 = builtin_thread_last_error(&mut eval, vec![Value::NIL]).unwrap();
     assert!(e1.is_truthy());
 
     // Cleanup
-    let e2 = builtin_thread_last_error(&mut eval, vec![Value::True]).unwrap();
+    let e2 = builtin_thread_last_error(&mut eval, vec![Value::T]).unwrap();
     assert!(e2.is_truthy());
 
     // Should be gone now
@@ -490,7 +490,7 @@ fn test_builtin_thread_blocker_reads_runtime_state() {
     eval.threads.clear_thread_blocker(0);
     assert_eq!(
         builtin_thread_blocker(&mut eval, vec![current]).unwrap(),
-        Value::Nil
+        Value::NIL
     );
 }
 
@@ -512,15 +512,15 @@ fn test_builtin_thread_buffer_disposition_round_trips() {
 
     assert_eq!(
         builtin_thread_buffer_disposition(&mut eval, vec![worker]).unwrap(),
-        Value::Nil
+        Value::NIL
     );
     assert_eq!(
-        builtin_thread_set_buffer_disposition(&mut eval, vec![worker, Value::True]).unwrap(),
-        Value::True
+        builtin_thread_set_buffer_disposition(&mut eval, vec![worker, Value::T]).unwrap(),
+        Value::T
     );
     assert_eq!(
         builtin_thread_buffer_disposition(&mut eval, vec![worker]).unwrap(),
-        Value::True
+        Value::T
     );
 }
 
@@ -531,7 +531,7 @@ fn test_builtin_thread_set_buffer_disposition_rejects_non_nil_main_thread_value(
     match builtin_thread_set_buffer_disposition(&mut eval, vec![main_thread, Value::True]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("null"), Value::True]);
+            assert_eq!(sig.data, vec![Value::symbol("null"), ValueKind::T]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
@@ -554,7 +554,7 @@ fn test_builtin_make_thread_preserves_caller_current_buffer() {
                     Expr::Symbol(intern("set-buffer")),
                     Expr::OpaqueValueRef(
                         super::super::eval::OPAQUE_POOL
-                            .with(|pool| pool.borrow_mut().insert(Value::Buffer(worker_buffer))),
+                            .with(|pool| pool.borrow_mut().insert(Value::make_buffer(worker_buffer))),
                     ),
                 ]),
                 Expr::List(vec![Expr::Symbol(intern("current-buffer"))]),
@@ -572,7 +572,7 @@ fn test_builtin_make_thread_preserves_caller_current_buffer() {
     let thread_id = tagged_object_id(&thread, "thread").expect("thread id");
     let joined = builtin_thread_join(&mut eval, vec![thread]).expect("thread-join");
 
-    assert_eq!(joined, Value::Buffer(worker_buffer));
+    assert_eq!(joined, Value::make_buffer(worker_buffer));
     assert_eq!(eval.buffers.current_buffer_id(), Some(main_buffer));
     assert_eq!(
         eval.threads.thread_current_buffer(thread_id),
@@ -601,15 +601,15 @@ fn test_builtin_mutexp() {
     assert!(r.is_ok());
     assert!(r.unwrap().is_truthy());
 
-    let r = builtin_mutexp(&mut eval, vec![Value::Int(1)]);
+    let r = builtin_mutexp(&mut eval, vec![Value::fixnum(1)]);
     assert!(r.is_ok());
     assert!(r.unwrap().is_nil());
 
-    let r = builtin_mutexp(&mut eval, vec![Value::Nil]);
+    let r = builtin_mutexp(&mut eval, vec![Value::NIL]);
     assert!(r.is_ok());
     assert!(r.unwrap().is_nil());
 
-    let forged = Value::cons(Value::symbol("mutex"), Value::Int(1));
+    let forged = Value::cons(Value::symbol("mutex"), Value::fixnum(1));
     let r = builtin_mutexp(&mut eval, vec![forged]);
     assert!(r.is_ok());
     assert!(r.unwrap().is_nil());
@@ -655,15 +655,15 @@ fn test_builtin_condition_variable_p() {
     assert!(r.is_ok());
     assert!(r.unwrap().is_truthy());
 
-    let r = builtin_condition_variable_p(&mut eval, vec![Value::Int(1)]);
+    let r = builtin_condition_variable_p(&mut eval, vec![Value::fixnum(1)]);
     assert!(r.is_ok());
     assert!(r.unwrap().is_nil());
 
-    let r = builtin_condition_variable_p(&mut eval, vec![Value::Nil]);
+    let r = builtin_condition_variable_p(&mut eval, vec![Value::NIL]);
     assert!(r.is_ok());
     assert!(r.unwrap().is_nil());
 
-    let forged = Value::cons(Value::symbol("condition-variable"), Value::Int(1));
+    let forged = Value::cons(Value::symbol("condition-variable"), Value::fixnum(1));
     let r = builtin_condition_variable_p(&mut eval, vec![forged]);
     assert!(r.is_ok());
     assert!(r.unwrap().is_nil());
@@ -697,13 +697,13 @@ fn test_builtin_condition_mutex() {
 #[test]
 fn test_builtin_condition_name_wrong_type_argument() {
     let mut eval = Context::new();
-    let result = builtin_condition_name(&mut eval, vec![Value::Nil]);
+    let result = builtin_condition_name(&mut eval, vec![Value::NIL]);
     match result {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("condition-variable-p"), Value::Nil]
+                vec![Value::symbol("condition-variable-p"), ValueKind::Nil]
             );
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
@@ -713,13 +713,13 @@ fn test_builtin_condition_name_wrong_type_argument() {
 #[test]
 fn test_builtin_condition_mutex_wrong_type_argument() {
     let mut eval = Context::new();
-    let result = builtin_condition_mutex(&mut eval, vec![Value::Int(1)]);
+    let result = builtin_condition_mutex(&mut eval, vec![Value::fixnum(1)]);
     match result {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("condition-variable-p"), Value::Int(1)]
+                vec![Value::symbol("condition-variable-p"), ValueKind::Fixnum(1)]
             );
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
@@ -784,6 +784,7 @@ fn test_sf_with_mutex_executes_body() {
 #[test]
 fn test_sf_with_mutex_unlocks_on_error() {
     use super::super::expr::Expr;
+use crate::emacs_core::value::{ValueKind};
 
     let mut eval = Context::new();
     let mx = builtin_make_mutex(&mut eval, vec![]).unwrap();
@@ -814,7 +815,7 @@ fn test_sf_with_mutex_wrong_args() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::cons(Value::Int(1), Value::Int(1)), Value::Int(0)]
+                vec![Value::cons(ValueKind::Fixnum(1), ValueKind::Fixnum(1)), ValueKind::Fixnum(0)]
             );
         }
         other => panic!("expected wrong-number-of-arguments signal, got {other:?}"),
@@ -826,21 +827,21 @@ fn test_sf_with_mutex_wrong_args() {
 #[test]
 fn test_thread_yield_wrong_args() {
     let mut eval = Context::new();
-    let result = builtin_thread_yield(&mut eval, vec![Value::Int(1)]);
+    let result = builtin_thread_yield(&mut eval, vec![Value::fixnum(1)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn test_current_thread_wrong_args() {
     let mut eval = Context::new();
-    let result = builtin_current_thread(&mut eval, vec![Value::Int(1)]);
+    let result = builtin_current_thread(&mut eval, vec![Value::fixnum(1)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn test_make_thread_non_callable_returns_thread_object() {
     let mut eval = Context::new();
-    let result = builtin_make_thread(&mut eval, vec![Value::Int(42)]).unwrap();
+    let result = builtin_make_thread(&mut eval, vec![Value::fixnum(42)]).unwrap();
     let is_thread = builtin_threadp(&mut eval, vec![result]).unwrap();
     assert!(is_thread.is_truthy());
 }
@@ -848,7 +849,7 @@ fn test_make_thread_non_callable_returns_thread_object() {
 #[test]
 fn test_make_thread_non_callable_last_error_shape() {
     let mut eval = Context::new();
-    let thread = builtin_make_thread(&mut eval, vec![Value::Int(1)]).unwrap();
+    let thread = builtin_make_thread(&mut eval, vec![Value::fixnum(1)]).unwrap();
     let result = builtin_thread_join(&mut eval, vec![thread]);
     assert!(matches!(result, Err(Flow::Signal(_))));
     let err = builtin_thread_last_error(&mut eval, vec![]).unwrap();
@@ -861,7 +862,7 @@ fn test_make_thread_non_callable_last_error_shape() {
 #[test]
 fn test_thread_last_error_is_published_when_signaled_thread_exits() {
     let mut eval = Context::new();
-    let _ = builtin_thread_last_error(&mut eval, vec![Value::True]).unwrap();
+    let _ = builtin_thread_last_error(&mut eval, vec![Value::T]).unwrap();
 
     let thread = builtin_make_thread(&mut eval, vec![Value::symbol("car")]).unwrap();
     let published = builtin_thread_last_error(&mut eval, vec![]).unwrap();
@@ -873,7 +874,7 @@ fn test_thread_last_error_is_published_when_signaled_thread_exits() {
     let join_result = builtin_thread_join(&mut eval, vec![thread]);
     assert!(matches!(join_result, Err(Flow::Signal(_))));
 
-    let _ = builtin_thread_last_error(&mut eval, vec![Value::True]).unwrap();
+    let _ = builtin_thread_last_error(&mut eval, vec![Value::T]).unwrap();
     let cleared = builtin_thread_last_error(&mut eval, vec![]).unwrap();
     assert!(cleared.is_nil());
 }
@@ -881,7 +882,7 @@ fn test_thread_last_error_is_published_when_signaled_thread_exits() {
 #[test]
 fn test_thread_signal_noncurrent_thread_changes_join_outcome_without_publishing_last_error() {
     let mut eval = Context::new();
-    let _ = builtin_thread_last_error(&mut eval, vec![Value::True]).unwrap();
+    let _ = builtin_thread_last_error(&mut eval, vec![Value::T]).unwrap();
     let thread = builtin_make_thread(
         &mut eval,
         vec![Value::make_lambda(super::super::value::LambdaData {
@@ -905,7 +906,7 @@ fn test_thread_signal_noncurrent_thread_changes_join_outcome_without_publishing_
             ],
         )
         .unwrap(),
-        Value::Nil
+        Value::NIL
     );
 
     let join_result = builtin_thread_join(&mut eval, vec![thread]);
@@ -924,7 +925,7 @@ fn test_thread_signal_noncurrent_thread_changes_join_outcome_without_publishing_
 #[test]
 fn test_thread_name_nonexistent() {
     let mut eval = Context::new();
-    let fake = Value::cons(Value::symbol("thread"), Value::Int(999));
+    let fake = Value::cons(Value::symbol("thread"), Value::fixnum(999));
     let result = builtin_thread_name(&mut eval, vec![fake]);
     assert!(result.is_err());
 }
@@ -932,7 +933,7 @@ fn test_thread_name_nonexistent() {
 #[test]
 fn test_mutex_lock_nonexistent() {
     let mut eval = Context::new();
-    let fake = Value::cons(Value::symbol("mutex"), Value::Int(999));
+    let fake = Value::cons(Value::symbol("mutex"), Value::fixnum(999));
     let result = builtin_mutex_lock(&mut eval, vec![fake]);
     assert!(result.is_err());
 }
@@ -940,7 +941,7 @@ fn test_mutex_lock_nonexistent() {
 #[test]
 fn test_condition_wait_nonexistent() {
     let mut eval = Context::new();
-    let fake = Value::cons(Value::symbol("condition-variable"), Value::Int(999));
+    let fake = Value::cons(Value::symbol("condition-variable"), Value::fixnum(999));
     let result = builtin_condition_wait(&mut eval, vec![fake]);
     assert!(result.is_err());
 }

@@ -11,7 +11,7 @@
 //! - Face merging (overlay face on top of base face)
 
 use crate::emacs_core::intern::resolve_sym;
-use crate::emacs_core::value::{Value, next_float_id, read_cons};
+use crate::emacs_core::value::{Value, next_float_id, read_cons, ValueKind};
 use std::collections::{HashMap, HashSet};
 
 // X11 color table generated at compile time from etc/rgb.txt
@@ -440,7 +440,7 @@ impl Face {
         }
         if let Some(w) = &self.weight {
             items.push(Value::keyword("weight"));
-            items.push(Value::Int(w.0 as i64));
+            items.push(Value::fixnum(w.0 as i64));
         }
         if let Some(s) = &self.slant {
             items.push(Value::keyword("slant"));
@@ -455,8 +455,8 @@ impl Face {
         if let Some(h) = &self.height {
             items.push(Value::keyword("height"));
             match h {
-                FaceHeight::Absolute(n) => items.push(Value::Int(*n as i64)),
-                FaceHeight::Relative(f) => items.push(Value::Float(*f, next_float_id())),
+                FaceHeight::Absolute(n) => items.push(Value::fixnum(*n as i64)),
+                FaceHeight::Relative(f) => items.push(Value::make_float(*f)),
             }
         }
 
@@ -469,9 +469,9 @@ impl Face {
         let mut i = 0;
 
         while i + 1 < plist.len() {
-            let key = match &plist[i] {
-                Value::Keyword(id) => resolve_sym(*id),
-                Value::Symbol(id) => resolve_sym(*id),
+            let key = match plist[i].kind() {
+                ValueKind::Keyword(id) => resolve_sym(id),
+                ValueKind::Symbol(id) => resolve_sym(id),
                 _ => {
                     i += 2;
                     continue;
@@ -504,8 +504,8 @@ impl Face {
                     }
                 }
                 "height" => match val {
-                    Value::Int(n) => face.height = Some(FaceHeight::Absolute(*n as i32)),
-                    Value::Float(f, _) => face.height = Some(FaceHeight::Relative(*f)),
+                    ValueKind::Fixnum(n) => face.height = Some(FaceHeight::Absolute(*n as i32)),
+                    ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => face.height = Some(FaceHeight::Relative(*f)),
                     _ => {}
                 },
                 "family" => {
@@ -582,19 +582,19 @@ impl Face {
 }
 
 fn parse_underline_value(value: &Value) -> Option<Underline> {
-    match value {
-        Value::True => Some(Underline {
+    match value.kind() {
+        ValueKind::T => Some(Underline {
             style: UnderlineStyle::Line,
             color: None,
             position: None,
         }),
-        Value::Nil => None,
+        ValueKind::Nil => None,
         _ if value.as_str().is_some() => Some(Underline {
             style: UnderlineStyle::Line,
             color: value.as_str().and_then(Color::parse),
             position: None,
         }),
-        Value::Cons(_) => {
+        ValueKind::Cons => {
             let items = crate::emacs_core::value::list_to_vec(value)?;
             let mut style = UnderlineStyle::Line;
             let mut color = None;
@@ -622,7 +622,7 @@ fn parse_underline_value(value: &Value) -> Option<Underline> {
                         }
                     }
                     "position" => {
-                        if let Value::Int(n) = item {
+                        if let Some(n) = item.as_fixnum() {
                             position = Some(*n as i32);
                         }
                     }
@@ -646,16 +646,16 @@ fn parse_underline_value(value: &Value) -> Option<Underline> {
 }
 
 fn parse_box_value(value: &Value) -> Option<BoxBorder> {
-    match value {
-        Value::True => Some(BoxBorder {
+    match value.kind() {
+        ValueKind::T => Some(BoxBorder {
             color: None,
             width: 1,
             style: BoxStyle::Flat,
         }),
-        Value::Nil => None,
-        Value::Int(n) => Some(BoxBorder {
+        ValueKind::Nil => None,
+        ValueKind::Fixnum(n) => Some(BoxBorder {
             color: None,
-            width: *n as i32,
+            width: n as i32,
             style: BoxStyle::Flat,
         }),
         _ if value.as_str().is_some() => Some(BoxBorder {
@@ -663,7 +663,7 @@ fn parse_box_value(value: &Value) -> Option<BoxBorder> {
             width: 1,
             style: BoxStyle::Flat,
         }),
-        Value::Cons(_) => {
+        ValueKind::Cons => {
             let items = crate::emacs_core::value::list_to_vec(value)?;
             let mut color = None;
             let mut width = 1i32;
@@ -675,12 +675,12 @@ fn parse_box_value(value: &Value) -> Option<BoxBorder> {
                     .unwrap_or("")
                     .trim_start_matches(':');
                 let item = &items[i + 1];
-                match key {
+                match key.kind() {
                     "line-width" => match item {
-                        Value::Int(n) => width = *n as i32,
-                        Value::Cons(cell) => {
-                            let pair = read_cons(*cell);
-                            if let Value::Int(n) = pair.car {
+                        ValueKind::Fixnum(n) => width = n as i32,
+                        ValueKind::Cons => {
+                            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+                            if let Some(n) = pair.car.as_fixnum() {
                                 width = n as i32;
                             }
                         }
@@ -778,10 +778,10 @@ impl FaceRemapping {
 
         for entry in &alist {
             // Each entry is (FACE . SPEC) — a cons cell
-            let Value::Cons(cons_id) = entry else {
+            if !entry.is_cons() /* TODO(tagged): `cons_id` was Value::Cons(cons_id), rewrite let-else */ {
                 continue;
             };
-            let cell = read_cons(*cons_id);
+            let cell = read_cons(*cons_id);  // TODO(tagged): replace read_cons with cons accessors
             let Some(face_name) = cell.car.as_symbol_name() else {
                 continue;
             };
@@ -802,9 +802,9 @@ impl FaceRemapping {
     fn parse_remap_spec(spec: &Value) -> Vec<FaceRemapEntry> {
         use crate::emacs_core::value::list_to_vec;
 
-        match spec {
+        match spec.kind() {
             // Simple symbol remap: (FACE . other-face)
-            Value::Symbol(_) | Value::True => {
+            ValueKind::Symbol(_) | ValueKind::T => {
                 if let Some(name) = spec.as_symbol_name() {
                     if name != "nil" {
                         return vec![FaceRemapEntry::RemapFace(name.to_string())];
@@ -812,9 +812,9 @@ impl FaceRemapping {
                 }
                 Vec::new()
             }
-            Value::Nil => Vec::new(),
+            ValueKind::Nil => Vec::new(),
             // List form: could be a plist or a list of specs
-            Value::Cons(_) => {
+            ValueKind::Cons => {
                 let Some(items) = list_to_vec(spec) else {
                     return Vec::new();
                 };
@@ -823,7 +823,7 @@ impl FaceRemapping {
                 }
 
                 // Check if it's a plist (starts with keyword)
-                if matches!(items[0], Value::Keyword(_)) {
+                if matches!(items[0], ValueKind::Keyword(_)) {
                     let face = Face::from_plist("--remap--", &items);
                     return vec![FaceRemapEntry::RemapAttrs(face)];
                 }
@@ -831,19 +831,19 @@ impl FaceRemapping {
                 // Otherwise it's a list of specs: (face1 face2 (:k v ...) ...)
                 let mut entries = Vec::new();
                 for item in &items {
-                    match item {
-                        Value::Symbol(_) | Value::True => {
+                    match item.kind() {
+                        ValueKind::Symbol(_) | ValueKind::T => {
                             if let Some(name) = item.as_symbol_name() {
                                 if name != "nil" {
                                     entries.push(FaceRemapEntry::RemapFace(name.to_string()));
                                 }
                             }
                         }
-                        Value::Cons(_) => {
+                        ValueKind::Cons => {
                             if let Some(sub_items) = list_to_vec(item) {
                                 if sub_items
                                     .first()
-                                    .is_some_and(|v| matches!(v, Value::Keyword(_)))
+                                    .is_some_and(|v| v.is_keyword())
                                 {
                                     let face = Face::from_plist("--remap--", &sub_items);
                                     entries.push(FaceRemapEntry::RemapAttrs(face));
@@ -1575,7 +1575,7 @@ mod tests {
             Value::keyword("weight"),
             Value::symbol("bold"),
             Value::keyword("height"),
-            Value::Float(1.5, next_float_id()),
+            Value::make_float(1.5),
         ];
         let face = Face::from_plist("test", &plist);
         assert_eq!(face.foreground, Some(Color::rgb(255, 0, 0)));
@@ -1600,7 +1600,7 @@ mod tests {
             Value::symbol(":box"),
             Value::list(vec![
                 Value::symbol(":line-width"),
-                Value::Int(2),
+                Value::fixnum(2),
                 Value::symbol(":color"),
                 Value::string("#336699"),
                 Value::symbol(":style"),
@@ -1883,15 +1883,15 @@ mod tests {
     fn face_from_plist_underline_and_flags() {
         let plist = vec![
             Value::keyword("underline"),
-            Value::True,
+            Value::T,
             Value::keyword("overline"),
-            Value::True,
+            Value::T,
             Value::keyword("strike-through"),
-            Value::True,
+            Value::T,
             Value::keyword("inverse-video"),
-            Value::True,
+            Value::T,
             Value::keyword("extend"),
-            Value::True,
+            Value::T,
             Value::keyword("inherit"),
             Value::symbol("bold"),
         ];

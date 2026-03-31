@@ -35,7 +35,7 @@ fn with_vm_eval_in_context<R>(
     let forms = parse_forms(src).expect("parse");
     let mut compiler = Compiler::new(lexical);
 
-    let mut last = Value::Nil;
+    let mut last = Value::NIL;
     for form in &forms {
         let func = compiler.compile_toplevel(form);
         let mut vm = new_vm(&mut eval);
@@ -85,7 +85,7 @@ fn vm_eval_with_init_str(src: &str, init: impl FnOnce(&mut Context)) -> String {
     let forms = parse_forms(src).expect("parse");
     let mut compiler = Compiler::new(false);
 
-    let mut last = Value::Nil;
+    let mut last = Value::NIL;
     for form in &forms {
         let func = compiler.compile_toplevel(form);
         let mut vm = new_vm(&mut eval);
@@ -857,20 +857,20 @@ fn vm_kmacro_builtins_use_shared_runtime_state() {
 
     let mut vm = new_vm(&mut eval);
     assert_eq!(
-        vm.dispatch_vm_builtin("start-kbd-macro", vec![Value::Nil, Value::Nil])
+        vm.dispatch_vm_builtin("start-kbd-macro", vec![Value::NIL, Value::NIL])
             .expect("vm start-kbd-macro"),
-        Value::Nil
+        Value::NIL
     );
     assert_eq!(
         vm.dispatch_vm_builtin("store-kbd-macro-event", vec![Value::symbol("ignore")])
             .expect("vm store-kbd-macro-event"),
-        Value::Nil
+        Value::NIL
     );
     vm.ctx.finalize_kbd_macro_runtime_chars();
     assert_eq!(
         vm.dispatch_vm_builtin("end-kbd-macro", vec![])
             .expect("vm end-kbd-macro"),
-        Value::Nil
+        Value::NIL
     );
     assert_eq!(
         vm.ctx
@@ -882,7 +882,7 @@ fn vm_kmacro_builtins_use_shared_runtime_state() {
     assert_eq!(
         vm.dispatch_vm_builtin("call-last-kbd-macro", vec![])
             .expect("vm call-last-kbd-macro"),
-        Value::Nil
+        Value::NIL
     );
     assert_eq!(
         vm.dispatch_vm_builtin(
@@ -890,20 +890,20 @@ fn vm_kmacro_builtins_use_shared_runtime_state() {
             vec![Value::vector(vec![Value::symbol("ignore")])]
         )
         .expect("vm execute-kbd-macro"),
-        Value::Nil
+        Value::NIL
     );
 
     assert_eq!(
         vm.ctx
             .eval_symbol("vm-kmacro-shared-count")
             .expect("vm-kmacro-shared-count"),
-        Value::Int(2)
+        Value::fixnum(2)
     );
     assert_eq!(
         vm.ctx
             .eval_symbol("vm-kmacro-ignore-direct-called")
             .expect("vm-kmacro-ignore-direct-called"),
-        Value::Nil
+        Value::NIL
     );
 }
 
@@ -1097,7 +1097,7 @@ fn vm_unbind_restores_saved_current_buffer() {
             optional: vec![],
             rest: None,
         });
-        let other_buffer_idx = func.add_constant(Value::Buffer(other_buffer));
+        let other_buffer_idx = func.add_constant(Value::make_buffer(other_buffer));
         let set_buffer_idx = func.add_symbol("set-buffer");
         func.ops = vec![
             Op::SaveCurrentBuffer,
@@ -1112,7 +1112,7 @@ fn vm_unbind_restores_saved_current_buffer() {
         (func, saved_buffer)
     });
 
-    assert_eq!(result, Value::Nil);
+    assert_eq!(result, Value::NIL);
     assert_eq!(
         buffers.current_buffer().map(|buffer| buffer.id),
         Some(saved_buffer)
@@ -1138,8 +1138,8 @@ fn vm_unbind_counts_unwind_protect_entries_like_gnu() {
         });
         let a_idx = func.add_symbol("vm-up-a");
         let b_idx = func.add_symbol("vm-up-b");
-        let a_val_idx = func.add_constant(Value::Int(7));
-        let b_val_idx = func.add_constant(Value::Int(9));
+        let a_val_idx = func.add_constant(Value::fixnum(7));
+        let b_val_idx = func.add_constant(Value::fixnum(9));
         let cleanup_idx = func.add_constant(noop);
         func.ops = vec![
             Op::Constant(a_val_idx),
@@ -1155,7 +1155,7 @@ fn vm_unbind_counts_unwind_protect_entries_like_gnu() {
         func.max_stack = 2;
         (func, ())
     });
-    assert_eq!(result, Value::Int(9));
+    assert_eq!(result, Value::fixnum(9));
 }
 
 fn vm_unbind_restores_saved_excursion_point() {
@@ -1174,7 +1174,7 @@ fn vm_unbind_restores_saved_excursion_point() {
             optional: vec![],
             rest: None,
         });
-        let goto_target_idx = func.add_constant(Value::Int(5));
+        let goto_target_idx = func.add_constant(Value::fixnum(5));
         let goto_char_idx = func.add_symbol("goto-char");
         func.ops = vec![
             Op::SaveExcursion,
@@ -1189,7 +1189,7 @@ fn vm_unbind_restores_saved_excursion_point() {
         (func, (buffer_id, saved_point))
     });
 
-    assert_eq!(result, Value::Nil);
+    assert_eq!(result, Value::NIL);
     assert_eq!(
         buffers.current_buffer().map(|buffer| buffer.id),
         Some(buffer_id)
@@ -1216,8 +1216,8 @@ fn vm_unbind_restores_saved_restriction() {
             optional: vec![],
             rest: None,
         });
-        let beg_idx = func.add_constant(Value::Int(2));
-        let end_idx = func.add_constant(Value::Int(4));
+        let beg_idx = func.add_constant(Value::fixnum(2));
+        let end_idx = func.add_constant(Value::fixnum(4));
         let narrow_idx = func.add_symbol("narrow-to-region");
         func.ops = vec![
             Op::SaveRestriction,
@@ -1233,7 +1233,7 @@ fn vm_unbind_restores_saved_restriction() {
         (func, saved)
     });
 
-    assert_eq!(result, Value::Nil);
+    assert_eq!(result, Value::NIL);
     let buffer = buffers.get(buffer_id).expect("buffer");
     assert_eq!(buffer.begv, saved_begv);
     assert_eq!(buffer.zv, saved_zv);
@@ -1254,14 +1254,14 @@ fn vm_eval_shared_runtime_path_preserves_active_shared_catches() {
             Value::symbol("quote"),
             Value::symbol("vm-bridge-catch"),
         ]),
-        Value::Int(7),
+        Value::fixnum(7),
     ]);
-    let result = vm.call_function(Value::symbol("eval"), vec![throw_form, Value::Nil]);
+    let result = vm.call_function(Value::symbol("eval"), vec![throw_form, Value::NIL]);
 
     assert!(matches!(
         result,
         Err(Flow::Throw { tag, value })
-            if tag == Value::symbol("vm-bridge-catch") && value == Value::Int(7)
+            if tag == Value::symbol("vm-bridge-catch") && value == Value::fixnum(7)
     ));
     drop(vm);
     eval.pop_condition_frame();
@@ -1402,13 +1402,13 @@ fn vm_switch_branches_using_hash_table_jump_table() {
     let mut eval = Context::new_minimal_vm_harness();
 
     let table = Value::hash_table(HashTableTest::Eq);
-    let Value::HashTable(table_id) = table else {
+    if !table.is_hash_table() /* TODO(tagged): `table_id` was Value::HashTable(table_id), rewrite let-else */ {
         panic!("expected hash table constant");
     };
     crate::emacs_core::value::with_heap_mut(|heap| {
         let ht = heap.get_hash_table_mut(table_id);
         let key = Value::symbol("foo").to_hash_key(&ht.test);
-        ht.data.insert(key.clone(), Value::Int(8));
+        ht.data.insert(key.clone(), Value::fixnum(8));
         ht.key_snapshots.insert(key.clone(), Value::symbol("foo"));
         ht.insertion_order.push(key);
     });
@@ -1423,7 +1423,7 @@ fn vm_switch_branches_using_hash_table_jump_table() {
             Op::Constant(3),
             Op::Return,
         ],
-        constants: vec![table, Value::symbol("foo"), Value::Int(10), Value::Int(20)],
+        constants: vec![table, Value::symbol("foo"), Value::fixnum(10), Value::fixnum(20)],
         max_stack: 2,
         params: crate::emacs_core::value::LambdaParams::simple(vec![]),
         lexical: false,
@@ -1436,7 +1436,7 @@ fn vm_switch_branches_using_hash_table_jump_table() {
 
     let mut vm = new_vm(&mut eval);
     let result = vm.execute(&func, vec![]).expect("vm switch should execute");
-    assert_eq!(result, Value::Int(20));
+    assert_eq!(result, Value::fixnum(20));
 }
 
 #[test]
@@ -1533,7 +1533,7 @@ fn vm_length_accepts_plain_bytecode_closure_shape() {
         crate::emacs_core::value::LambdaParams::simple(vec![intern("x")]),
     ));
 
-    assert_eq!(length_value(&bc).unwrap(), Value::Int(4));
+    assert_eq!(length_value(&bc).unwrap(), Value::fixnum(4));
 }
 
 #[test]
@@ -1563,7 +1563,7 @@ fn vm_throw_restores_saved_stack_before_resuming_catch() {
             Op::List(2),
             Op::Return,
         ],
-        constants: vec![Value::Int(42), Value::symbol("done"), Value::Int(99)],
+        constants: vec![Value::fixnum(42), Value::symbol("done"), Value::fixnum(99)],
         max_stack: 3,
         params: crate::emacs_core::value::LambdaParams::simple(vec![]),
         lexical: false,
@@ -1578,7 +1578,7 @@ fn vm_throw_restores_saved_stack_before_resuming_catch() {
     let mut vm = new_vm(&mut eval);
 
     let result = vm.execute(&func, vec![]).expect("vm catch should execute");
-    assert_eq!(result, Value::list(vec![Value::Int(42), Value::Int(99)]));
+    assert_eq!(result, Value::list(vec![Value::fixnum(42), Value::fixnum(99)]));
 }
 
 #[test]
@@ -1602,7 +1602,7 @@ fn vm_throw_uses_shared_condition_stack_for_outer_catch_without_catch_tag_mirror
         Err(Flow::Throw {
             tag: thrown_tag,
             value
-        }) if thrown_tag == tag && value == Value::Int(42)
+        }) if thrown_tag == tag && value == Value::fixnum(42)
     ));
     assert_eq!(eval.condition_stack_depth_for_test(), 1);
 
@@ -1621,7 +1621,7 @@ fn vm_throw_selection_uses_resume_identity_not_numeric_tuple() {
     });
     let inner_tag_idx = inner.add_constant(Value::symbol("vm-inner-catch"));
     let outer_tag_idx = inner.add_constant(Value::symbol("vm-outer-catch"));
-    let thrown_value_idx = inner.add_constant(Value::Int(7));
+    let thrown_value_idx = inner.add_constant(Value::fixnum(7));
     let inner_result_idx = inner.add_constant(Value::symbol("vm-inner-handled"));
     inner.ops = vec![
         Op::Constant(inner_tag_idx),
@@ -1676,7 +1676,7 @@ fn vm_signal_selection_uses_resume_identity_not_numeric_tuple() {
     });
     let inner_conditions_idx = inner.add_constant(Value::symbol("arith-error"));
     let error_sym_idx = inner.add_constant(Value::symbol("error"));
-    let signal_data_idx = inner.add_constant(Value::list(vec![Value::Int(1)]));
+    let signal_data_idx = inner.add_constant(Value::list(vec![Value::fixnum(1)]));
     let signal_subr_idx = inner.add_symbol("signal");
     let inner_result_idx = inner.add_constant(Value::symbol("vm-inner-signal-handled"));
     inner.ops = vec![
@@ -2001,7 +2001,7 @@ fn vm_x_create_frame_syncs_pending_resize_before_adopting_opening_gui_frame() {
                     mini_leaf.set_bounds(crate::window::Rect::new(0.0, 600.0, 960.0, 40.0));
                 }
             }
-            eval.set_variable("terminal-frame", Value::Frame(fid.0));
+            eval.set_variable("terminal-frame", Value::make_frame(fid.0));
             let (tx, rx) = crossbeam_channel::unbounded();
             eval.input_rx = Some(rx);
             tx.send(crate::keyboard::InputEvent::Focus {
@@ -2048,7 +2048,7 @@ fn vm_make_frame_uses_gui_creation_path_when_display_host_is_active() {
                     mini_leaf.set_bounds(crate::window::Rect::new(0.0, 600.0, 960.0, 40.0));
                 }
             }
-            eval.set_variable("terminal-frame", Value::Frame(fid.0));
+            eval.set_variable("terminal-frame", Value::make_frame(fid.0));
             eval.set_display_host(Box::new(host.clone()));
         },
     );
@@ -2084,7 +2084,7 @@ fn vm_x_create_frame_prefers_display_host_primary_window_size_when_available() {
                     mini_leaf.set_bounds(crate::window::Rect::new(0.0, 600.0, 960.0, 40.0));
                 }
             }
-            eval.set_variable("terminal-frame", Value::Frame(fid.0));
+            eval.set_variable("terminal-frame", Value::make_frame(fid.0));
             eval.set_display_host(Box::new(host.clone()));
         },
     );
@@ -2325,8 +2325,8 @@ fn vm_interactive_minibuffer_query_builtins_use_shared_runtime_state() {
                 eval.minibuffers
                     .read_from_minibuffer(minibuffer_buffer_id, "M-x ", None, None)
                     .expect("active minibuffer state");
-                eval.record_input_event(Value::Int(97));
-                eval.set_read_command_keys(vec![Value::Int(97)]);
+                eval.record_input_event(Value::fixnum(97));
+                eval.set_read_command_keys(vec![Value::fixnum(97)]);
             },
         ),
         "OK (\"a\" [97] (\"\" [97]) 42 t t t t)"
@@ -2637,7 +2637,7 @@ fn vm_runtime_control_tail_uses_localized_shared_paths() {
         let mut vm = new_vm(&mut eval);
         let kill_result = vm.execute(&kill_func, vec![]);
         assert!(
-            matches!(kill_result, Ok(Value::Nil)),
+            matches!(kill_result, Ok(Value::NIL)),
             "compiled kill-emacs should return nil, got {kill_result:?}"
         );
     }
@@ -3674,7 +3674,7 @@ fn vm_completion_builtins_use_shared_runtime_callbacks() {
                                    (eq sym 'neo-vm-completion-target))))))
                       (try-completion "al" collection pred)))))"#,
             |eval| {
-                let obarray_proxy = Value::vector(vec![Value::Nil]);
+                let obarray_proxy = Value::vector(vec![Value::NIL]);
                 eval.obarray.set_symbol_value("obarray", obarray_proxy);
                 eval.obarray
                     .set_symbol_value("neovm--obarray-object", obarray_proxy);
@@ -4585,6 +4585,7 @@ fn vm_network_and_serial_process_config_builtins_use_shared_runtime_state() {
                  'error))"#,
         |eval| {
             use crate::emacs_core::process::ProcessKind;
+use crate::emacs_core::value::{ValueKind};
 
             let buffer_id = eval.buffers.create_buffer("*vm-serial-proc*");
             eval.buffers.set_current(buffer_id);
@@ -4695,7 +4696,7 @@ fn vm_make_thread_restores_caller_current_buffer() {
               (eq (current-buffer) orig)))"#,
         |eval| {
             let target = eval.buffers.create_buffer("vm-thread-target-buffer");
-            eval.set_variable("vm-thread-target-buffer", Value::Buffer(target));
+            eval.set_variable("vm-thread-target-buffer", Value::make_buffer(target));
         },
     );
     assert_eq!(result, "OK (t t)");
@@ -5061,7 +5062,7 @@ fn vm_insert_file_contents_and_write_region_use_shared_runtime_state() {
     let insert_parts =
         crate::emacs_core::value::list_to_vec(&insert_result).expect("insert return list");
     assert_eq!(insert_parts[0].as_str(), Some(alpha.as_str()));
-    assert_eq!(insert_parts[1], Value::Int(6));
+    assert_eq!(insert_parts[1], Value::fixnum(6));
     let buf = eval.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.buffer_string(), "abcdef");
     assert_eq!(buf.file_name.as_deref(), Some(alpha.as_str()));
@@ -6501,7 +6502,7 @@ fn vm_compiled_autoload_do_load_uses_shared_runtime_and_load_bridge() {
             .expect("compiled autoload-do-load should execute")
     };
 
-    assert_eq!(result, Value::Int(91));
+    assert_eq!(result, Value::fixnum(91));
 }
 
 #[test]
@@ -6533,7 +6534,7 @@ fn vm_compiled_named_autoload_call_uses_shared_runtime_and_load_bridge() {
             .expect("compiled autoloaded call should execute")
     };
 
-    assert_eq!(result, Value::Int(12));
+    assert_eq!(result, Value::fixnum(12));
 }
 
 #[test]
@@ -6549,7 +6550,7 @@ fn vm_indentation_builtins_use_buffer_local_current_buffer_state() {
             |eval| {
                 let current = eval.buffers.current_buffer_id().expect("scratch buffer");
                 let buffer = eval.buffers.get_mut(current).expect("scratch buffer");
-                buffer.set_buffer_local("tab-width", Value::Int(4));
+                buffer.set_buffer_local("tab-width", Value::fixnum(4));
                 buffer.insert("\tb");
                 buffer.goto_char(3);
             },
@@ -6912,7 +6913,7 @@ fn vm_buffer_local_and_binding_builtins_use_shared_state() {
             |eval| {
                 let current = eval.buffers.current_buffer_id().expect("scratch buffer");
                 let buffer = eval.buffers.get_mut(current).expect("scratch buffer");
-                buffer.set_buffer_local("vm-vm-base", Value::Int(3));
+                buffer.set_buffer_local("vm-vm-base", Value::fixnum(3));
             },
         ),
         "OK (3 3 t t t t)"
@@ -7144,8 +7145,8 @@ fn vm_aref_aset_error_parity() {
             assert_eq!(
                 data,
                 vec![
-                    Value::vector(vec![Value::Int(10), Value::Int(20), Value::Int(30)]),
-                    Value::Int(-1)
+                    Value::vector(vec![Value::fixnum(10), Value::fixnum(20), Value::fixnum(30)]),
+                    Value::fixnum(-1)
                 ]
             );
         }
@@ -7158,8 +7159,8 @@ fn vm_aref_aset_error_parity() {
             assert_eq!(
                 data,
                 vec![
-                    Value::vector(vec![Value::Int(10), Value::Int(20), Value::Int(30)]),
-                    Value::Int(-1)
+                    Value::vector(vec![Value::fixnum(10), Value::fixnum(20), Value::fixnum(30)]),
+                    Value::fixnum(-1)
                 ]
             );
         }
@@ -7169,7 +7170,7 @@ fn vm_aref_aset_error_parity() {
     with_vm_eval("(aset \"abc\" 1 nil)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
-            assert_eq!(data, vec![Value::symbol("characterp"), Value::Nil]);
+            assert_eq!(data, vec![Value::symbol("characterp"), Value::NIL]);
         }
         other => panic!("unexpected error: {other:?}"),
     });
@@ -7180,7 +7181,7 @@ fn vm_builtin_wrong_arity_uses_subr_payload() {
     with_vm_eval("(car)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-number-of-arguments");
-            assert_eq!(data, vec![Value::Subr(intern("car")), Value::Int(0)]);
+            assert_eq!(data, vec![Value::subr(intern("car")), Value::fixnum(0)]);
         }
         other => panic!("unexpected error: {other:?}"),
     });
@@ -7188,7 +7189,7 @@ fn vm_builtin_wrong_arity_uses_subr_payload() {
     with_vm_eval("(car 1 2)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-number-of-arguments");
-            assert_eq!(data, vec![Value::Subr(intern("car")), Value::Int(2)]);
+            assert_eq!(data, vec![Value::subr(intern("car")), Value::fixnum(2)]);
         }
         other => panic!("unexpected error: {other:?}"),
     });
@@ -7199,7 +7200,7 @@ fn vm_bytecode_wrong_arity_matches_gnu_entry_check() {
     let mut func = ByteCodeFunction::new(
         crate::emacs_core::bytecode::decode::parse_arglist_descriptor(2 | (3 << 8)),
     );
-    func.constants = vec![Value::Nil];
+    func.constants = vec![Value::NIL];
     func.ops = vec![Op::Constant(0), Op::Return];
     func.max_stack = 1;
 
@@ -7207,14 +7208,14 @@ fn vm_bytecode_wrong_arity_matches_gnu_entry_check() {
     let mut vm = new_vm(&mut eval);
 
     let err = vm
-        .execute(&func, vec![Value::Int(1)])
+        .execute(&func, vec![Value::fixnum(1)])
         .expect_err("bytecode arity must be validated at VM entry");
-    match map_flow(err) {
+    match map_flow(err).kind() {
         EvalError::Signal { symbol, data, .. } => {
             assert_eq!(resolve_sym(symbol), "wrong-number-of-arguments");
             assert_eq!(
                 data,
-                vec![Value::cons(Value::Int(2), Value::Int(3)), Value::Int(1)]
+                vec![Value::cons(ValueKind::Fixnum(2), ValueKind::Fixnum(3)), ValueKind::Fixnum(1)]
             );
         }
         other => panic!("unexpected error: {other:?}"),
@@ -7226,7 +7227,7 @@ fn vm_string_compare_type_errors_match_oracle() {
     with_vm_eval("(string= \"ab\" 1)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
-            assert_eq!(data, vec![Value::symbol("stringp"), Value::Int(1)]);
+            assert_eq!(data, vec![Value::symbol("stringp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
     });
@@ -7234,7 +7235,7 @@ fn vm_string_compare_type_errors_match_oracle() {
     with_vm_eval("(string-lessp \"ab\" 1)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
-            assert_eq!(data, vec![Value::symbol("stringp"), Value::Int(1)]);
+            assert_eq!(data, vec![Value::symbol("stringp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
     });
@@ -7245,7 +7246,7 @@ fn vm_list_lookup_type_errors_match_oracle() {
     with_vm_eval("(car 1)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
-            assert_eq!(data, vec![Value::symbol("listp"), Value::Int(1)]);
+            assert_eq!(data, vec![Value::symbol("listp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
     });
@@ -7253,17 +7254,17 @@ fn vm_list_lookup_type_errors_match_oracle() {
     with_vm_eval("(cdr 1)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
-            assert_eq!(data, vec![Value::symbol("listp"), Value::Int(1)]);
+            assert_eq!(data, vec![Value::symbol("listp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
     });
 
     with_vm_eval("(car-safe 1)", false, |result| match result {
-        Ok(value) => assert_eq!(value, Value::Nil),
+        Ok(value) => assert_eq!(value, Value::NIL),
         other => panic!("unexpected error: {other:?}"),
     });
     with_vm_eval("(cdr-safe 1)", false, |result| match result {
-        Ok(value) => assert_eq!(value, Value::Nil),
+        Ok(value) => assert_eq!(value, Value::NIL),
         other => panic!("unexpected error: {other:?}"),
     });
 
@@ -7278,7 +7279,7 @@ fn vm_list_lookup_type_errors_match_oracle() {
     with_vm_eval("(nth 1 1)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
-            assert_eq!(data, vec![Value::symbol("listp"), Value::Int(1)]);
+            assert_eq!(data, vec![Value::symbol("listp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
     });
@@ -7294,7 +7295,7 @@ fn vm_list_lookup_type_errors_match_oracle() {
     with_vm_eval("(nthcdr 1 1)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
-            assert_eq!(data, vec![Value::symbol("listp"), Value::Int(1)]);
+            assert_eq!(data, vec![Value::symbol("listp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
     });
@@ -7302,7 +7303,7 @@ fn vm_list_lookup_type_errors_match_oracle() {
     with_vm_eval("(memq 'a 1)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
-            assert_eq!(data, vec![Value::symbol("listp"), Value::Int(1)]);
+            assert_eq!(data, vec![Value::symbol("listp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
     });
@@ -7310,7 +7311,7 @@ fn vm_list_lookup_type_errors_match_oracle() {
     with_vm_eval("(assq 'a 1)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
-            assert_eq!(data, vec![Value::symbol("listp"), Value::Int(1)]);
+            assert_eq!(data, vec![Value::symbol("listp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
     });
@@ -7321,7 +7322,7 @@ fn vm_length_and_symbol_access_type_errors_match_oracle() {
     with_vm_eval("(length '(1 . 2))", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
-            assert_eq!(data, vec![Value::symbol("listp"), Value::Int(2)]);
+            assert_eq!(data, vec![Value::symbol("listp"), Value::fixnum(2)]);
         }
         other => panic!("unexpected error: {other:?}"),
     });
@@ -7329,7 +7330,7 @@ fn vm_length_and_symbol_access_type_errors_match_oracle() {
     with_vm_eval("(symbol-value 1)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
-            assert_eq!(data, vec![Value::symbol("symbolp"), Value::Int(1)]);
+            assert_eq!(data, vec![Value::symbol("symbolp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
     });
@@ -7337,7 +7338,7 @@ fn vm_length_and_symbol_access_type_errors_match_oracle() {
     with_vm_eval("(symbol-plist 1)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
-            assert_eq!(data, vec![Value::symbol("symbolp"), Value::Int(1)]);
+            assert_eq!(data, vec![Value::symbol("symbolp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
     });
@@ -7345,7 +7346,7 @@ fn vm_length_and_symbol_access_type_errors_match_oracle() {
     with_vm_eval("(symbol-function 1)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
-            assert_eq!(data, vec![Value::symbol("symbolp"), Value::Int(1)]);
+            assert_eq!(data, vec![Value::symbol("symbolp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
     });
@@ -7394,7 +7395,7 @@ fn vm_variable_lookup_builtins_use_shared_dynamic_and_buffer_local_state() {
             |eval| {
                 let current = eval.buffers.current_buffer_id().expect("current buffer");
                 let buffer = eval.buffers.get_mut(current).expect("current buffer");
-                buffer.set_buffer_local("vm-vm-base", Value::Int(3));
+                buffer.set_buffer_local("vm-vm-base", Value::fixnum(3));
             },
         ),
         // After the specbind refactor, `let` for a buffer-local variable
@@ -8034,7 +8035,7 @@ fn vm_symbol_mutator_type_errors_match_oracle() {
     with_vm_eval("(set 1 2)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
-            assert_eq!(data, vec![Value::symbol("symbolp"), Value::Int(1)]);
+            assert_eq!(data, vec![Value::symbol("symbolp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
     });
@@ -8042,7 +8043,7 @@ fn vm_symbol_mutator_type_errors_match_oracle() {
     with_vm_eval("(fset 1 2)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
-            assert_eq!(data, vec![Value::symbol("symbolp"), Value::Int(1)]);
+            assert_eq!(data, vec![Value::symbol("symbolp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
     });
@@ -8050,7 +8051,7 @@ fn vm_symbol_mutator_type_errors_match_oracle() {
     with_vm_eval("(get 1 'p)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
-            assert_eq!(data, vec![Value::symbol("symbolp"), Value::Int(1)]);
+            assert_eq!(data, vec![Value::symbol("symbolp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
     });
@@ -8058,7 +8059,7 @@ fn vm_symbol_mutator_type_errors_match_oracle() {
     with_vm_eval("(put 1 'p 2)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
-            assert_eq!(data, vec![Value::symbol("symbolp"), Value::Int(1)]);
+            assert_eq!(data, vec![Value::symbol("symbolp"), Value::fixnum(1)]);
         }
         other => panic!("unexpected error: {other:?}"),
     });
@@ -8137,18 +8138,18 @@ fn vm_gnu_arg_descriptor_preserves_optional_and_rest_slots() {
     let result = vm
         .execute(
             &func,
-            vec![Value::Int(1), Value::Int(2), Value::Int(3), Value::Int(4)],
+            vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3), Value::fixnum(4)],
         )
         .expect("vm should preserve GNU descriptor slot layout");
 
     assert_eq!(
         result,
         Value::list(vec![
-            Value::Int(1),
-            Value::Int(2),
-            Value::Int(3),
-            Value::Int(4),
-            Value::Nil,
+            Value::fixnum(1),
+            Value::fixnum(2),
+            Value::fixnum(3),
+            Value::fixnum(4),
+            Value::NIL,
         ])
     );
 }
@@ -8178,7 +8179,7 @@ fn vm_compiled_autoload_registration_updates_shared_autoload_manager() {
 #[test]
 fn vm_compiled_this_single_command_keys_uses_live_eval_key_context() {
     let mut eval = Context::new_vm_runtime_harness();
-    eval.set_read_command_keys(vec![Value::Int(97)]);
+    eval.set_read_command_keys(vec![Value::fixnum(97)]);
 
     let forms = parse_forms("(this-single-command-keys)").expect("parse");
     let mut compiler = Compiler::new(false);
@@ -8190,7 +8191,7 @@ fn vm_compiled_this_single_command_keys_uses_live_eval_key_context() {
             .expect("compiled this-single-command-keys should execute")
     };
 
-    assert_eq!(result, Value::vector(vec![Value::Int(97)]));
+    assert_eq!(result, Value::vector(vec![Value::fixnum(97)]));
 }
 
 #[test]
@@ -8227,7 +8228,7 @@ fn vm_compiled_require_respects_recursive_require_guard() {
 
     assert_eq!(
         result,
-        Value::Nil,
+        Value::NIL,
         "compiled require should return immediately without loading the file again"
     );
 }
@@ -8269,8 +8270,8 @@ fn vm_compiled_require_loads_feature_with_nil_filename_through_shared_runtime() 
         result,
         Value::list(vec![
             Value::symbol("vm-bytecode-load"),
-            Value::True,
-            Value::True,
+            Value::T,
+            Value::T,
         ])
     );
     assert!(
@@ -8314,9 +8315,9 @@ fn vm_compiled_load_uses_shared_runtime_and_restores_load_file_name() {
     assert_eq!(
         result,
         Value::list(vec![
-            Value::True,
+            Value::T,
             Value::string(fixture.to_string_lossy()),
-            Value::Nil,
+            Value::NIL,
         ])
     );
     assert!(
@@ -8353,7 +8354,7 @@ fn vm_compiled_load_allows_gnu_normal_recursive_load_depth() {
 
     assert_eq!(
         result,
-        Value::True,
+        Value::T,
         "compiled load should proceed until GNU's recursive-load limit is exceeded"
     );
     assert_eq!(

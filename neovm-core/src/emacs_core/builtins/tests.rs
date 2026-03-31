@@ -5,7 +5,7 @@ use crate::emacs_core::editfns::{
 use crate::emacs_core::expr::Expr;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use crate::emacs_core::textprop::builtin_make_overlay;
-use crate::emacs_core::value::{LambdaData, LambdaParams};
+use crate::emacs_core::value::{LambdaData, LambdaParams, ValueKind};
 use crate::emacs_core::{format_eval_result, parse_forms};
 
 /// Test-only shim: creates an evaluator context and delegates to
@@ -81,7 +81,7 @@ fn install_noarg_hook_probe(
 
 fn create_unique_test_buffer(eval: &mut crate::emacs_core::eval::Context, name: &str) -> Value {
     let unique_name = eval.buffers.generate_new_buffer_name(name);
-    Value::Buffer(eval.buffers.create_buffer(&unique_name))
+    Value::make_buffer(eval.buffers.create_buffer(&unique_name))
 }
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
@@ -96,42 +96,42 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
 
 #[test]
 fn pure_dispatch_typed_add_still_works() {
-    let result = dispatch_builtin_pure("+", vec![Value::Int(2), Value::Int(3)])
+    let result = dispatch_builtin_pure("+", vec![Value::fixnum(2), Value::fixnum(3)])
         .expect("builtin + should resolve")
         .expect("builtin + should evaluate");
-    assert_eq!(result, Value::Int(5));
+    assert_eq!(result, Value::fixnum(5));
 }
 
 #[test]
 fn pure_dispatch_typed_percent_and_mod_follow_emacs_sign_rules() {
-    let percent = dispatch_builtin_pure("%", vec![Value::Int(-5), Value::Int(2)])
+    let percent = dispatch_builtin_pure("%", vec![Value::fixnum(-5), Value::fixnum(2)])
         .expect("builtin % should resolve")
         .expect("builtin % should evaluate");
-    let mod_name = dispatch_builtin_pure("mod", vec![Value::Int(-5), Value::Int(2)])
+    let mod_name = dispatch_builtin_pure("mod", vec![Value::fixnum(-5), Value::fixnum(2)])
         .expect("builtin mod should resolve")
         .expect("builtin mod should evaluate");
-    assert_eq!(percent, Value::Int(-1));
-    assert_eq!(mod_name, Value::Int(1));
+    assert_eq!(percent, Value::fixnum(-1));
+    assert_eq!(mod_name, Value::fixnum(1));
 }
 
 #[test]
 fn pure_dispatch_typed_mod_zero_remainder_with_negative_divisor_stays_zero() {
-    let int_mod = dispatch_builtin_pure("mod", vec![Value::Int(0), Value::Int(-3)])
+    let int_mod = dispatch_builtin_pure("mod", vec![Value::fixnum(0), Value::fixnum(-3)])
         .expect("builtin mod should resolve")
         .expect("builtin mod should evaluate");
-    assert_eq!(int_mod, Value::Int(0));
+    assert_eq!(int_mod, Value::fixnum(0));
 
     let float_mod = dispatch_builtin_pure(
         "mod",
         vec![
-            Value::Float(0.5, next_float_id()),
-            Value::Float(-0.5, next_float_id()),
+            Value::make_float(0.5),
+            Value::make_float(-0.5),
         ],
     )
     .expect("builtin mod should resolve")
     .expect("builtin mod should evaluate");
-    match float_mod {
-        Value::Float(f, _) => {
+    match float_mod.kind() {
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => {
             assert_eq!(f, 0.0);
             assert!(!f.is_sign_negative(), "expected +0.0");
         }
@@ -141,14 +141,14 @@ fn pure_dispatch_typed_mod_zero_remainder_with_negative_divisor_stays_zero() {
     let neg_zero_mod = dispatch_builtin_pure(
         "mod",
         vec![
-            Value::Float(-0.5, next_float_id()),
-            Value::Float(-0.5, next_float_id()),
+            Value::make_float(-0.5),
+            Value::make_float(-0.5),
         ],
     )
     .expect("builtin mod should resolve")
     .expect("builtin mod should evaluate");
-    match neg_zero_mod {
-        Value::Float(f, _) => {
+    match neg_zero_mod.kind() {
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => {
             assert_eq!(f, 0.0);
             assert!(f.is_sign_negative(), "expected -0.0");
         }
@@ -160,62 +160,62 @@ fn pure_dispatch_typed_mod_zero_remainder_with_negative_divisor_stays_zero() {
 fn pure_dispatch_typed_max_min_preserve_selected_operand_type() {
     let max_int = dispatch_builtin_pure(
         "max",
-        vec![Value::Float(-2.5, next_float_id()), Value::Int(1)],
+        vec![Value::make_float(-2.5), Value::fixnum(1)],
     )
     .expect("builtin max should resolve")
     .expect("builtin max should evaluate");
-    assert_eq!(max_int, Value::Int(1));
+    assert_eq!(max_int, Value::fixnum(1));
 
     let min_int = dispatch_builtin_pure(
         "min",
-        vec![Value::Int(1), Value::Float(1.0, next_float_id())],
+        vec![Value::fixnum(1), Value::make_float(1.0)],
     )
     .expect("builtin min should resolve")
     .expect("builtin min should evaluate");
-    assert_eq!(min_int, Value::Int(1));
+    assert_eq!(min_int, Value::fixnum(1));
 
     let max_float = dispatch_builtin_pure(
         "max",
-        vec![Value::Float(1.0, next_float_id()), Value::Int(1)],
+        vec![Value::make_float(1.0), Value::fixnum(1)],
     )
     .expect("builtin max should resolve")
     .expect("builtin max should evaluate");
-    assert_eq!(max_float, Value::Float(1.0, next_float_id()));
+    assert_eq!(max_float, Value::make_float(1.0));
 }
 
 #[test]
 fn pure_dispatch_typed_numeric_primitives_accept_markers() {
     let marker = crate::emacs_core::marker::make_marker_value(None, Some(4), false);
 
-    let max_with_marker = dispatch_builtin_pure("max", vec![Value::Int(1), marker])
+    let max_with_marker = dispatch_builtin_pure("max", vec![Value::fixnum(1), marker])
         .expect("builtin max should resolve")
         .expect("builtin max should evaluate");
-    assert_eq!(max_with_marker, Value::Int(4));
+    assert_eq!(max_with_marker, Value::fixnum(4));
 
     let marker = crate::emacs_core::marker::make_marker_value(None, Some(4), false);
-    let min_with_marker = dispatch_builtin_pure("min", vec![Value::Int(10), marker])
+    let min_with_marker = dispatch_builtin_pure("min", vec![Value::fixnum(10), marker])
         .expect("builtin min should resolve")
         .expect("builtin min should evaluate");
-    assert_eq!(min_with_marker, Value::Int(4));
+    assert_eq!(min_with_marker, Value::fixnum(4));
 
     let left_marker = crate::emacs_core::marker::make_marker_value(None, Some(2), false);
     let right_marker = crate::emacs_core::marker::make_marker_value(None, Some(5), false);
     let lt_with_markers = dispatch_builtin_pure("<", vec![left_marker, right_marker])
         .expect("builtin < should resolve")
         .expect("builtin < should evaluate");
-    assert_eq!(lt_with_markers, Value::True);
+    assert_eq!(lt_with_markers, Value::T);
 
     let marker = crate::emacs_core::marker::make_marker_value(None, Some(4), false);
     let add1_with_marker = dispatch_builtin_pure("1+", vec![marker])
         .expect("builtin 1+ should resolve")
         .expect("builtin 1+ should evaluate");
-    assert_eq!(add1_with_marker, Value::Int(5));
+    assert_eq!(add1_with_marker, Value::fixnum(5));
 
     let marker = crate::emacs_core::marker::make_marker_value(None, Some(4), false);
     let sub1_with_marker = dispatch_builtin_pure("1-", vec![marker])
         .expect("builtin 1- should resolve")
         .expect("builtin 1- should evaluate");
-    assert_eq!(sub1_with_marker, Value::Int(3));
+    assert_eq!(sub1_with_marker, Value::fixnum(3));
 }
 
 #[test]
@@ -236,7 +236,7 @@ fn eval_dispatch_typed_max_uses_live_marker_position_after_insertions() {
         .last()
         .expect("one form")
         .expect("evaluation succeeds");
-    assert_eq!(result, Value::Int(7));
+    assert_eq!(result, Value::fixnum(7));
 }
 
 #[test]
@@ -257,12 +257,12 @@ fn eval_dispatch_typed_min_uses_live_marker_position_after_insertions() {
         .last()
         .expect("one form")
         .expect("evaluation succeeds");
-    assert_eq!(result, Value::Int(7));
+    assert_eq!(result, Value::fixnum(7));
 }
 
 #[test]
 fn pure_dispatch_typed_percent_rejects_float_args() {
-    let err = dispatch_builtin_pure("%", vec![Value::Float(1.5, next_float_id()), Value::Int(2)])
+    let err = dispatch_builtin_pure("%", vec![Value::make_float(1.5), Value::fixnum(2)])
         .expect("builtin % should resolve")
         .expect_err("builtin % should reject non-integer args");
     match err {
@@ -272,7 +272,7 @@ fn pure_dispatch_typed_percent_rejects_float_args() {
                 sig.data,
                 vec![
                     Value::symbol("integer-or-marker-p"),
-                    Value::Float(1.5, next_float_id())
+                    Value::make_float(1.5)
                 ]
             );
         }
@@ -285,7 +285,7 @@ fn pure_dispatch_typed_log_bitops_reject_with_integer_or_marker_p() {
     for name in ["logand", "logior", "logxor"] {
         let err = dispatch_builtin_pure(
             name,
-            vec![Value::Int(1), Value::Float(2.0, next_float_id())],
+            vec![Value::fixnum(1), Value::make_float(2.0)],
         )
         .expect("builtin should resolve")
         .expect_err("bit operation should reject non-integer args");
@@ -296,7 +296,7 @@ fn pure_dispatch_typed_log_bitops_reject_with_integer_or_marker_p() {
                     sig.data,
                     vec![
                         Value::symbol("integer-or-marker-p"),
-                        Value::Float(2.0, next_float_id())
+                        Value::make_float(2.0)
                     ]
                 );
             }
@@ -309,10 +309,10 @@ fn pure_dispatch_typed_log_bitops_reject_with_integer_or_marker_p() {
 fn pure_dispatch_typed_numeric_symbol_rejections_use_number_or_marker_p() {
     let symbol_arg = Value::symbol("a");
     let cases = [
-        ("+", vec![Value::Int(1), symbol_arg]),
-        ("mod", vec![Value::Int(1), symbol_arg]),
-        ("logand", vec![Value::Int(1), symbol_arg]),
-        ("=", vec![Value::Int(1), symbol_arg]),
+        ("+", vec![Value::fixnum(1), symbol_arg]),
+        ("mod", vec![Value::fixnum(1), symbol_arg]),
+        ("logand", vec![Value::fixnum(1), symbol_arg]),
+        ("=", vec![Value::fixnum(1), symbol_arg]),
     ];
 
     for (name, args) in cases {
@@ -337,62 +337,62 @@ fn pure_dispatch_typed_div_float_zero_uses_ieee_results() {
     let pos_inf = dispatch_builtin_pure(
         "/",
         vec![
-            Value::Float(1.0, next_float_id()),
-            Value::Float(0.0, next_float_id()),
+            Value::make_float(1.0),
+            Value::make_float(0.0),
         ],
     )
     .expect("builtin / should resolve")
     .expect("float division should evaluate");
-    match pos_inf {
-        Value::Float(f, _) => assert!(f.is_infinite() && f.is_sign_positive()),
+    match pos_inf.kind() {
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => assert!(f.is_infinite() && f.is_sign_positive()),
         other => panic!("expected float, got {other:?}"),
     }
 
     let neg_inf = dispatch_builtin_pure(
         "/",
         vec![
-            Value::Float(-1.0, next_float_id()),
-            Value::Float(0.0, next_float_id()),
+            Value::make_float(-1.0),
+            Value::make_float(0.0),
         ],
     )
     .expect("builtin / should resolve")
     .expect("float division should evaluate");
-    match neg_inf {
-        Value::Float(f, _) => assert!(f.is_infinite() && f.is_sign_negative()),
+    match neg_inf.kind() {
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => assert!(f.is_infinite() && f.is_sign_negative()),
         other => panic!("expected float, got {other:?}"),
     }
 
     let neg_nan = dispatch_builtin_pure(
         "/",
         vec![
-            Value::Float(0.0, next_float_id()),
-            Value::Float(0.0, next_float_id()),
+            Value::make_float(0.0),
+            Value::make_float(0.0),
         ],
     )
     .expect("builtin / should resolve")
     .expect("float division should evaluate");
-    match neg_nan {
-        Value::Float(f, _) => assert!(f.is_nan() && f.is_sign_negative()),
+    match neg_nan.kind() {
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => assert!(f.is_nan() && f.is_sign_negative()),
         other => panic!("expected float, got {other:?}"),
     }
 }
 
 #[test]
 fn pure_dispatch_typed_ash_handles_extreme_negative_shift_counts() {
-    let right = dispatch_builtin_pure("ash", vec![Value::Int(3), Value::Int(i64::MIN)])
+    let right = dispatch_builtin_pure("ash", vec![Value::fixnum(3), Value::fixnum(i64::MIN)])
         .expect("builtin ash should resolve")
         .expect("builtin ash should evaluate");
-    assert_eq!(right, Value::Int(0));
+    assert_eq!(right, Value::fixnum(0));
 
-    let right_neg = dispatch_builtin_pure("ash", vec![Value::Int(-3), Value::Int(i64::MIN)])
+    let right_neg = dispatch_builtin_pure("ash", vec![Value::fixnum(-3), Value::fixnum(i64::MIN)])
         .expect("builtin ash should resolve")
         .expect("builtin ash should evaluate");
-    assert_eq!(right_neg, Value::Int(-1));
+    assert_eq!(right_neg, Value::fixnum(-1));
 }
 
 #[test]
 fn pure_dispatch_typed_abs_min_fixnum_signals_overflow_error() {
-    let err = dispatch_builtin_pure("abs", vec![Value::Int(i64::MIN)])
+    let err = dispatch_builtin_pure("abs", vec![Value::fixnum(i64::MIN)])
         .expect("builtin abs should resolve")
         .expect_err("abs on i64::MIN should not panic");
     match err {
@@ -412,18 +412,18 @@ fn pure_dispatch_typed_eq_returns_truthy_for_same_symbol() {
 
 #[test]
 fn pure_dispatch_typed_append_concatenates_lists() {
-    let left = Value::list(vec![Value::Int(1), Value::Int(2)]);
-    let right = Value::list(vec![Value::Int(3), Value::Int(4)]);
+    let left = Value::list(vec![Value::fixnum(1), Value::fixnum(2)]);
+    let right = Value::list(vec![Value::fixnum(3), Value::fixnum(4)]);
     let result = dispatch_builtin_pure("append", vec![left, right])
         .expect("builtin append should resolve")
         .expect("builtin append should evaluate");
     assert_eq!(
         result,
         Value::list(vec![
-            Value::Int(1),
-            Value::Int(2),
-            Value::Int(3),
-            Value::Int(4)
+            Value::fixnum(1),
+            Value::fixnum(2),
+            Value::fixnum(3),
+            Value::fixnum(4)
         ])
     );
 }
@@ -433,15 +433,15 @@ fn pure_dispatch_typed_append_flattens_bytecode_slots() {
     let bc = Value::make_bytecode(crate::emacs_core::bytecode::ByteCodeFunction::new(
         LambdaParams::simple(vec![intern("x")]),
     ));
-    let result = dispatch_builtin_pure("append", vec![bc, Value::Nil])
+    let result = dispatch_builtin_pure("append", vec![bc, Value::NIL])
         .expect("builtin append should resolve")
         .expect("builtin append should evaluate");
     let slots = list_to_vec(&result).expect("bytecode append should produce a proper list");
     assert_eq!(slots.len(), 4);
-    assert!(matches!(slots[0], Value::Cons(_) | Value::Nil));
-    assert!(matches!(slots[1], Value::Nil | Value::Str(_)));
-    assert!(matches!(slots[2], Value::Vector(_)));
-    assert!(matches!(slots[3], Value::Int(_)));
+    assert!(matches!(slots[0], Value::Cons(_) /* TODO(tagged): convert Value::Cons to new API */ | Value::NIL));
+    assert!(matches!(slots[1], Value::NIL | Value::Str(_) /* TODO(tagged): convert Value::Str to new API */));
+    assert!(matches!(slots[2], Value::Vector(_) /* TODO(tagged): convert Value::Vector to new API */));
+    assert!(matches!(slots[3], Value::fixnum(_)));
 }
 
 #[test]
@@ -449,11 +449,11 @@ fn pure_dispatch_typed_length_predicates_accept_bytecode_functions() {
     let bc = Value::make_bytecode(crate::emacs_core::bytecode::ByteCodeFunction::new(
         LambdaParams::simple(vec![intern("x")]),
     ));
-    let eq = dispatch_builtin_pure("length=", vec![bc, Value::Int(4)])
+    let eq = dispatch_builtin_pure("length=", vec![bc, Value::fixnum(4)])
         .expect("builtin length= should resolve")
         .expect("builtin length= should evaluate");
     assert!(eq.is_truthy());
-    let gt = dispatch_builtin_pure("length>", vec![bc, Value::Int(3)])
+    let gt = dispatch_builtin_pure("length>", vec![bc, Value::fixnum(3)])
         .expect("builtin length> should resolve")
         .expect("builtin length> should evaluate");
     assert!(gt.is_truthy());
@@ -470,7 +470,7 @@ fn pure_dispatch_typed_length_tracks_bytecode_doc_slot() {
         .expect("builtin length should resolve")
         .expect("builtin length should evaluate");
 
-    assert_eq!(len, Value::Int(5));
+    assert_eq!(len, Value::fixnum(5));
 }
 
 #[test]
@@ -481,15 +481,15 @@ fn pure_dispatch_typed_vconcat_flattens_bytecode_slots() {
     let result = dispatch_builtin_pure("vconcat", vec![bc])
         .expect("builtin vconcat should resolve")
         .expect("builtin vconcat should evaluate");
-    let Value::Vector(id) = result else {
+    if !result.is_vector() /* TODO(tagged): `id` was Value::Vector(id), rewrite let-else */ {
         panic!("expected vector result, got {result:?}");
     };
     let slots = with_heap(|h| h.get_vector(id).clone());
     assert_eq!(slots.len(), 4);
-    assert!(matches!(slots[0], Value::Cons(_) | Value::Nil));
-    assert!(matches!(slots[1], Value::Nil | Value::Str(_)));
-    assert!(matches!(slots[2], Value::Vector(_)));
-    assert!(matches!(slots[3], Value::Int(_)));
+    assert!(matches!(slots[0], Value::Cons(_) /* TODO(tagged): convert Value::Cons to new API */ | Value::NIL));
+    assert!(matches!(slots[1], Value::NIL | Value::Str(_) /* TODO(tagged): convert Value::Str to new API */));
+    assert!(matches!(slots[2], Value::Vector(_) /* TODO(tagged): convert Value::Vector to new API */));
+    assert!(matches!(slots[3], Value::fixnum(_)));
 }
 
 #[test]
@@ -497,7 +497,7 @@ fn pure_dispatch_typed_length_tracks_interpreted_closure_slot_count() {
     let bare = Value::make_lambda(LambdaData {
         params: LambdaParams::simple(vec![intern("x")]),
         body: vec![Expr::Symbol(intern("x"))].into(),
-        env: Some(Value::Nil),
+        env: Some(Value::NIL),
         docstring: None,
         doc_form: None,
         interactive: None,
@@ -505,7 +505,7 @@ fn pure_dispatch_typed_length_tracks_interpreted_closure_slot_count() {
     let with_doc = Value::make_lambda(LambdaData {
         params: LambdaParams::simple(vec![intern("x")]),
         body: vec![Expr::Symbol(intern("x"))].into(),
-        env: Some(Value::Nil),
+        env: Some(Value::NIL),
         docstring: Some("doc".into()),
         doc_form: None,
         interactive: None,
@@ -518,8 +518,8 @@ fn pure_dispatch_typed_length_tracks_interpreted_closure_slot_count() {
         .expect("builtin length should resolve")
         .expect("builtin length should evaluate");
 
-    assert_eq!(bare_len, Value::Int(3));
-    assert_eq!(doc_len, Value::Int(5));
+    assert_eq!(bare_len, Value::fixnum(3));
+    assert_eq!(doc_len, Value::fixnum(5));
 }
 
 #[test]
@@ -530,18 +530,18 @@ fn compiled_literal_reifier_turns_interpreted_closure_vectors_callable() {
         Value::list(vec![Value::list(vec![
             Value::symbol("+"),
             Value::symbol("x"),
-            Value::Int(1),
+            Value::fixnum(1),
         ])]),
-        Value::Nil,
+        Value::NIL,
     ]);
 
     let converted = super::symbols::try_convert_nested_compiled_literal(closure_vec);
-    assert!(matches!(converted, Value::Lambda(_)));
+    assert!(matches!(converted, Value::Lambda(_) /* TODO(tagged): convert Value::Lambda to new API */));
 
     let out = eval
-        .apply(converted, vec![Value::Int(41)])
+        .apply(converted, vec![Value::fixnum(41)])
         .expect("converted closure should be callable");
-    assert_eq!(out, Value::Int(42));
+    assert_eq!(out, Value::fixnum(42));
 }
 
 #[test]
@@ -565,23 +565,23 @@ fn pure_dispatch_typed_string_comparisons_accept_symbol_designators() {
         .expect("builtin string< should evaluate");
     assert!(less.is_truthy());
 
-    let equal = dispatch_builtin_pure("string-equal", vec![Value::True, Value::string("t")])
+    let equal = dispatch_builtin_pure("string-equal", vec![Value::T, Value::string("t")])
         .expect("builtin string-equal should resolve")
         .expect("builtin string-equal should evaluate");
     assert!(equal.is_truthy());
 
-    let greater = dispatch_builtin_pure("string>", vec![Value::Nil, Value::string("a")])
+    let greater = dispatch_builtin_pure("string>", vec![Value::NIL, Value::string("a")])
         .expect("builtin string> should resolve")
         .expect("builtin string> should evaluate");
     assert!(greater.is_truthy());
 
-    let err = dispatch_builtin_pure("string>", vec![Value::Int(7), Value::string("a")])
+    let err = dispatch_builtin_pure("string>", vec![Value::fixnum(7), Value::string("a")])
         .expect("builtin string> should resolve")
         .expect_err("string> should reject non string/symbol designators");
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::Int(7)],);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(7)],);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -608,20 +608,20 @@ fn pure_dispatch_typed_downcase_unicode_edge_payloads_match_oracle() {
     ];
 
     for (input, expected) in cases {
-        let result = dispatch_builtin_pure("downcase", vec![Value::Int(input)])
+        let result = dispatch_builtin_pure("downcase", vec![Value::fixnum(input)])
             .expect("builtin downcase should resolve")
             .expect("builtin downcase should evaluate");
         assert_eq!(
             result,
-            Value::Int(expected),
+            Value::fixnum(expected),
             "downcase({input}) should equal {expected}"
         );
     }
 
-    let dotted_i = dispatch_builtin_pure("downcase", vec![Value::Char('\u{0130}')])
+    let dotted_i = dispatch_builtin_pure("downcase", vec![Value::char('\u{0130}')])
         .expect("builtin downcase should resolve")
         .expect("builtin downcase should evaluate");
-    assert_eq!(dotted_i, Value::Char('\u{0130}'));
+    assert_eq!(dotted_i, Value::char('\u{0130}'));
 
     let kelvin = dispatch_builtin_pure("downcase", vec![Value::string("\u{212A}")])
         .expect("builtin downcase should resolve")
@@ -648,7 +648,7 @@ fn pure_dispatch_typed_downcase_unicode_edge_payloads_match_oracle() {
         .expect("builtin downcase should evaluate");
     assert_eq!(preserve_adlam, Value::string("\u{16EA0}"));
 
-    let negative = dispatch_builtin_pure("downcase", vec![Value::Int(-1)])
+    let negative = dispatch_builtin_pure("downcase", vec![Value::fixnum(-1)])
         .expect("builtin downcase should resolve")
         .expect_err("builtin downcase should reject negative integer designators");
     match negative {
@@ -687,20 +687,20 @@ fn pure_dispatch_typed_upcase_unicode_edge_payloads_match_oracle() {
     ];
 
     for (input, expected) in cases {
-        let result = dispatch_builtin_pure("upcase", vec![Value::Int(input)])
+        let result = dispatch_builtin_pure("upcase", vec![Value::fixnum(input)])
             .expect("builtin upcase should resolve")
             .expect("builtin upcase should evaluate");
         assert_eq!(
             result,
-            Value::Int(expected),
+            Value::fixnum(expected),
             "upcase({input}) should equal {expected}"
         );
     }
 
-    let sharp_s = dispatch_builtin_pure("upcase", vec![Value::Char('ß')])
+    let sharp_s = dispatch_builtin_pure("upcase", vec![Value::char('ß')])
         .expect("builtin upcase should resolve")
         .expect("builtin upcase should evaluate");
-    assert_eq!(sharp_s, Value::Char('\u{1E9E}'));
+    assert_eq!(sharp_s, Value::char('\u{1E9E}'));
 
     let sharp_s_string = dispatch_builtin_pure("upcase", vec![Value::string("ß")])
         .expect("builtin upcase should resolve")
@@ -727,7 +727,7 @@ fn pure_dispatch_typed_upcase_unicode_edge_payloads_match_oracle() {
         .expect("builtin upcase should evaluate");
     assert_eq!(preserve_adlam, Value::string("\u{16EBB}"));
 
-    let negative = dispatch_builtin_pure("upcase", vec![Value::Int(-1)])
+    let negative = dispatch_builtin_pure("upcase", vec![Value::fixnum(-1)])
         .expect("builtin upcase should resolve")
         .expect_err("builtin upcase should reject negative integer designators");
     match negative {
@@ -749,31 +749,31 @@ fn keymapp_accepts_lisp_keymap_cons_cells() {
     let proper = Value::list(vec![Value::symbol("keymap")]);
     assert_eq!(
         builtin_keymapp(&mut eval, vec![proper]).unwrap(),
-        Value::True
+        Value::T
     );
 
     let proper_with_entry = Value::cons(
         Value::symbol("keymap"),
         Value::cons(
-            Value::cons(Value::Int(97), Value::symbol("ignore")),
-            Value::Nil,
+            Value::cons(Value::fixnum(97), Value::symbol("ignore")),
+            Value::NIL,
         ),
     );
     assert_eq!(
         builtin_keymapp(&mut eval, vec![proper_with_entry]).unwrap(),
-        Value::True
+        Value::T
     );
 
     let improper = Value::cons(Value::symbol("keymap"), Value::symbol("tail"));
     assert_eq!(
         builtin_keymapp(&mut eval, vec![improper]).unwrap(),
-        Value::True
+        Value::T
     );
 
     let non_keymap = Value::list(vec![Value::symbol("foo"), Value::symbol("keymap")]);
     assert_eq!(
         builtin_keymapp(&mut eval, vec![non_keymap]).unwrap(),
-        Value::Nil
+        Value::NIL
     );
 }
 
@@ -783,15 +783,15 @@ fn keymapp_rejects_non_keymap_integer_designators() {
     let keymap = builtin_make_sparse_keymap(&mut eval, vec![]).unwrap();
     assert_eq!(
         builtin_keymapp(&mut eval, vec![keymap]).unwrap(),
-        Value::True
+        Value::T
     );
     assert_eq!(
-        builtin_keymapp(&mut eval, vec![Value::Int(16)]).unwrap(),
-        Value::Nil
+        builtin_keymapp(&mut eval, vec![Value::fixnum(16)]).unwrap(),
+        Value::NIL
     );
     assert_eq!(
-        builtin_keymapp(&mut eval, vec![Value::Int(999_999)]).unwrap(),
-        Value::Nil
+        builtin_keymapp(&mut eval, vec![Value::fixnum(999_999)]).unwrap(),
+        Value::NIL
     );
 }
 
@@ -810,29 +810,29 @@ fn accessible_keymaps_reports_root_and_prefix_paths() {
     let all_items = list_to_vec(&all).expect("accessible-keymaps should return list");
     assert_eq!(all_items.len(), 2);
 
-    let first = match &all_items[0] {
-        Value::Cons(cell) => read_cons(*cell),
+    let first = match all_items[0].kind() {
+        ValueKind::Cons => read_cons(*cell),  // TODO(tagged): replace read_cons with cons accessors
         other => panic!("expected cons cell, got {other:?}"),
     };
     assert_eq!(first.car, Value::vector(vec![]));
     assert_eq!(
         builtin_keymapp(&mut eval, vec![first.cdr]).unwrap(),
-        Value::True
+        Value::T
     );
 
     let filtered =
-        builtin_accessible_keymaps(&mut eval, vec![root, Value::vector(vec![Value::Int(24)])])
+        builtin_accessible_keymaps(&mut eval, vec![root, Value::vector(vec![Value::fixnum(24)])])
             .unwrap();
     let filtered_items = list_to_vec(&filtered).expect("filtered accessible-keymaps list");
     assert_eq!(filtered_items.len(), 1);
-    let only = match &filtered_items[0] {
-        Value::Cons(cell) => read_cons(*cell),
+    let only = match filtered_items[0].kind() {
+        ValueKind::Cons => read_cons(*cell),  // TODO(tagged): replace read_cons with cons accessors
         other => panic!("expected cons cell, got {other:?}"),
     };
-    assert_eq!(only.car, Value::vector(vec![Value::Int(24)]));
+    assert_eq!(only.car, Value::vector(vec![Value::fixnum(24)]));
 
     let no_match =
-        builtin_accessible_keymaps(&mut eval, vec![root, Value::vector(vec![Value::Int(97)])])
+        builtin_accessible_keymaps(&mut eval, vec![root, Value::vector(vec![Value::fixnum(97)])])
             .unwrap();
     assert!(no_match.is_nil());
 }
@@ -842,11 +842,11 @@ fn accessible_keymaps_prefix_type_errors_match_oracle_shape() {
     let mut eval = super::super::eval::Context::new();
     let map = builtin_make_sparse_keymap(&mut eval, vec![]).unwrap();
 
-    let sequence_err = builtin_accessible_keymaps(&mut eval, vec![map, Value::True]).unwrap_err();
+    let sequence_err = builtin_accessible_keymaps(&mut eval, vec![map, Value::T]).unwrap_err();
     match sequence_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("sequencep"), Value::True]);
+            assert_eq!(sig.data, vec![Value::symbol("sequencep"), ValueKind::T]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -902,7 +902,7 @@ fn key_description_symbol_modifier_edges_match_emacs() {
         Value::string("C-<M-a>")
     );
     assert_eq!(
-        builtin_single_key_description(vec![Value::symbol("M-a"), Value::True])
+        builtin_single_key_description(vec![Value::symbol("M-a"), Value::T])
             .expect("single-key-description should succeed"),
         Value::string("M-a")
     );
@@ -921,37 +921,37 @@ fn key_description_symbol_modifier_edges_match_emacs() {
 #[test]
 fn key_description_integer_modifier_and_nonunicode_edges_match_emacs() {
     assert_eq!(
-        builtin_single_key_description(vec![Value::Int(0x40_0000)])
+        builtin_single_key_description(vec![Value::fixnum(0x40_0000)])
             .expect("single-key-description should succeed"),
         Value::string("A-C-@")
     );
     assert_eq!(
-        builtin_single_key_description(vec![Value::Int(58_720_257)])
+        builtin_single_key_description(vec![Value::fixnum(58_720_257)])
             .expect("single-key-description should succeed"),
         Value::string("C-H-S-s-a")
     );
     assert_eq!(
-        builtin_single_key_description(vec![Value::Int(264_241_249)])
+        builtin_single_key_description(vec![Value::fixnum(264_241_249)])
             .expect("single-key-description should succeed"),
         Value::string("A-C-H-M-S-s-a")
     );
     assert_eq!(
-        builtin_single_key_description(vec![Value::Int(134_217_737)])
+        builtin_single_key_description(vec![Value::fixnum(134_217_737)])
             .expect("single-key-description should succeed"),
         Value::string("C-M-i")
     );
     assert_eq!(
-        builtin_single_key_description(vec![Value::Int(138_412_041)])
+        builtin_single_key_description(vec![Value::fixnum(138_412_041)])
             .expect("single-key-description should succeed"),
         Value::string("A-C-M-i")
     );
     assert_eq!(
-        builtin_single_key_description(vec![Value::Int(201_326_601)])
+        builtin_single_key_description(vec![Value::fixnum(201_326_601)])
             .expect("single-key-description should succeed"),
         Value::string("C-M-i")
     );
 
-    let single_nonunicode = builtin_single_key_description(vec![Value::Int(0x11_0000)])
+    let single_nonunicode = builtin_single_key_description(vec![Value::fixnum(0x11_0000)])
         .expect("single-key-description should support nonunicode char code");
     assert_eq!(
         decode_storage_char_codes(
@@ -962,7 +962,7 @@ fn key_description_integer_modifier_and_nonunicode_edges_match_emacs() {
         vec![0x11_0000]
     );
 
-    let key_nonunicode = builtin_key_description(vec![Value::vector(vec![Value::Int(0x20_0000)])])
+    let key_nonunicode = builtin_key_description(vec![Value::vector(vec![Value::fixnum(0x20_0000)])])
         .expect("key-description should support nonunicode char code");
     assert_eq!(
         decode_storage_char_codes(
@@ -974,17 +974,17 @@ fn key_description_integer_modifier_and_nonunicode_edges_match_emacs() {
     );
 
     assert_eq!(
-        builtin_key_description(vec![Value::vector(vec![Value::Int(0x40_0000)])])
+        builtin_key_description(vec![Value::vector(vec![Value::fixnum(0x40_0000)])])
             .expect("key-description should succeed"),
         Value::string("A-C-@")
     );
     assert_eq!(
-        builtin_key_description(vec![Value::vector(vec![Value::Int(134_217_737)])])
+        builtin_key_description(vec![Value::vector(vec![Value::fixnum(134_217_737)])])
             .expect("key-description should succeed"),
         Value::string("C-M-i")
     );
     assert_eq!(
-        builtin_key_description(vec![Value::vector(vec![Value::Int(201_326_601)])])
+        builtin_key_description(vec![Value::vector(vec![Value::fixnum(201_326_601)])])
             .expect("key-description should succeed"),
         Value::string("C-M-i")
     );
@@ -1001,21 +1001,21 @@ fn eval_get_file_buffer_matches_visited_paths() {
     eval.buffers.get_mut(id).unwrap().file_name = Some(file.clone());
 
     let exact = builtin_get_file_buffer(&mut eval, vec![Value::string(&file)]).unwrap();
-    assert_eq!(exact, Value::Buffer(id));
+    assert_eq!(exact, Value::make_buffer(id));
 
     let truename = std::fs::canonicalize(&path)
         .expect("canonicalize file")
         .to_string_lossy()
         .to_string();
     let true_match = builtin_get_file_buffer(&mut eval, vec![Value::string(truename)]).unwrap();
-    assert_eq!(true_match, Value::Buffer(id));
+    assert_eq!(true_match, Value::make_buffer(id));
 
     let default_dir = format!("{}/", path.parent().unwrap().to_string_lossy());
     let basename = path.file_name().unwrap().to_string_lossy().to_string();
     eval.obarray
         .set_symbol_value("default-directory", Value::string(default_dir));
     let relative = builtin_get_file_buffer(&mut eval, vec![Value::string(basename)]).unwrap();
-    assert_eq!(relative, Value::Buffer(id));
+    assert_eq!(relative, Value::make_buffer(id));
 
     let _ = std::fs::remove_file(path);
 }
@@ -1029,7 +1029,7 @@ fn eval_get_file_buffer_type_and_missing_paths() {
     )
     .unwrap();
     assert!(missing.is_nil());
-    assert!(builtin_get_file_buffer(&mut eval, vec![Value::Int(1)]).is_err());
+    assert!(builtin_get_file_buffer(&mut eval, vec![Value::fixnum(1)]).is_err());
 }
 
 #[test]
@@ -1037,13 +1037,13 @@ fn eval_builtin_rejects_too_many_args() {
     let mut eval = super::super::eval::Context::new();
     let err = builtin_eval(
         &mut eval,
-        vec![Value::Int(1), Value::Nil, Value::symbol("ignored")],
+        vec![Value::fixnum(1), Value::NIL, Value::symbol("ignored")],
     )
     .expect_err("eval should reject more than two arguments");
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
-            assert_eq!(sig.data, vec![Value::symbol("eval"), Value::Int(3)]);
+            assert_eq!(sig.data, vec![Value::symbol("eval"), ValueKind::Fixnum(3)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -1054,11 +1054,11 @@ fn eval_buffer_live_p_tracks_killed_buffers() {
     let mut eval = super::super::eval::Context::new();
     let buf = builtin_get_buffer_create(&mut eval, vec![Value::string("*blp*")]).unwrap();
     let live = builtin_buffer_live_p(&mut eval, vec![buf]).unwrap();
-    assert_eq!(live, Value::True);
+    assert_eq!(live, Value::T);
 
     let _ = builtin_kill_buffer(&mut eval, vec![buf]).unwrap();
     let dead = builtin_buffer_live_p(&mut eval, vec![buf]).unwrap();
-    assert_eq!(dead, Value::Nil);
+    assert_eq!(dead, Value::NIL);
 }
 
 #[test]
@@ -1070,14 +1070,14 @@ fn kill_buffer_optional_arg_and_error_semantics() {
 
     // Optional argument omitted kills current buffer and selects another.
     let killed_current = builtin_kill_buffer(&mut eval, vec![]).unwrap();
-    assert_eq!(killed_current, Value::True);
+    assert_eq!(killed_current, Value::T);
     assert_eq!(
         builtin_buffer_live_p(&mut eval, vec![a]).unwrap(),
-        Value::Nil
+        Value::NIL
     );
     assert!(matches!(
         builtin_current_buffer(&mut eval, vec![]).unwrap(),
-        Value::Buffer(_)
+        Value::make_buffer(_)
     ));
 
     // Missing buffer name signals `(error "No buffer named ...")`.
@@ -1098,20 +1098,20 @@ fn kill_buffer_optional_arg_and_error_semantics() {
     let dead = create_unique_test_buffer(&mut eval, "*kb-opt-dead*");
     assert_eq!(
         builtin_kill_buffer(&mut eval, vec![dead]).unwrap(),
-        Value::True
+        Value::T
     );
     assert_eq!(
         builtin_kill_buffer(&mut eval, vec![dead]).unwrap(),
-        Value::Nil
+        Value::NIL
     );
 
     // Non-buffer/non-string designators signal `wrong-type-argument`.
-    let type_err = builtin_kill_buffer(&mut eval, vec![Value::Int(1)])
+    let type_err = builtin_kill_buffer(&mut eval, vec![Value::fixnum(1)])
         .expect_err("kill-buffer should reject non-string designator");
     match type_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -1140,24 +1140,24 @@ fn set_buffer_rejects_deleted_buffer_object() {
 fn eval_buffer_live_p_non_buffer_objects_return_nil() {
     let mut eval = super::super::eval::Context::new();
     let by_name = builtin_buffer_live_p(&mut eval, vec![Value::string("*scratch*")]).unwrap();
-    assert_eq!(by_name, Value::Nil);
-    let nil_arg = builtin_buffer_live_p(&mut eval, vec![Value::Nil]).unwrap();
-    assert_eq!(nil_arg, Value::Nil);
+    assert_eq!(by_name, Value::NIL);
+    let nil_arg = builtin_buffer_live_p(&mut eval, vec![Value::NIL]).unwrap();
+    assert_eq!(nil_arg, Value::NIL);
 }
 
 #[test]
 fn get_buffer_create_accepts_optional_second_arg() {
     let mut eval = super::super::eval::Context::new();
     let first =
-        builtin_get_buffer_create(&mut eval, vec![Value::string("*gbc-opt*"), Value::Int(7)])
+        builtin_get_buffer_create(&mut eval, vec![Value::string("*gbc-opt*"), Value::fixnum(7)])
             .unwrap();
     let second =
-        builtin_get_buffer_create(&mut eval, vec![Value::string("*gbc-opt*"), Value::Nil]).unwrap();
+        builtin_get_buffer_create(&mut eval, vec![Value::string("*gbc-opt*"), Value::NIL]).unwrap();
     assert_eq!(first, second);
 
     let err = builtin_get_buffer_create(
         &mut eval,
-        vec![Value::string("*gbc-opt*"), Value::Nil, Value::Nil],
+        vec![Value::string("*gbc-opt*"), Value::NIL, Value::NIL],
     )
     .expect_err("get-buffer-create should reject more than two args");
     match err {
@@ -1165,7 +1165,7 @@ fn get_buffer_create_accepts_optional_second_arg() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("get-buffer-create"), Value::Int(3)]
+                vec![Value::symbol("get-buffer-create"), ValueKind::Fixnum(3)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -1183,7 +1183,7 @@ fn buffer_creation_helpers_reject_missing_required_name_arg() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("get-buffer-create"), Value::Int(0)]
+                vec![Value::symbol("get-buffer-create"), ValueKind::Fixnum(0)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -1196,7 +1196,7 @@ fn buffer_creation_helpers_reject_missing_required_name_arg() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("generate-new-buffer-name"), Value::Int(0)]
+                vec![Value::symbol("generate-new-buffer-name"), ValueKind::Fixnum(0)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -1206,7 +1206,7 @@ fn buffer_creation_helpers_reject_missing_required_name_arg() {
 #[test]
 fn get_buffer_rejects_non_string_non_buffer_designators() {
     let mut eval = super::super::eval::Context::new();
-    for bad in [Value::Int(1), Value::Nil, Value::symbol("foo")] {
+    for bad in [Value::fixnum(1), Value::NIL, Value::symbol("foo")] {
         let err = builtin_get_buffer(&mut eval, vec![bad])
             .expect_err("get-buffer should reject non-string/non-buffer args");
         match err {
@@ -1230,10 +1230,10 @@ fn generate_new_buffer_name_optional_arg_matches_expected_types() {
     let _ = builtin_get_buffer_create(&mut eval, vec![Value::string("*gnbn-opt*<2>")]).unwrap();
 
     let with_nil =
-        builtin_generate_new_buffer_name(&mut eval, vec![Value::string("*gnbn-opt*"), Value::Nil])
+        builtin_generate_new_buffer_name(&mut eval, vec![Value::string("*gnbn-opt*"), Value::NIL])
             .unwrap();
     let with_true =
-        builtin_generate_new_buffer_name(&mut eval, vec![Value::string("*gnbn-opt*"), Value::True])
+        builtin_generate_new_buffer_name(&mut eval, vec![Value::string("*gnbn-opt*"), Value::T])
             .unwrap();
     let with_symbol = builtin_generate_new_buffer_name(
         &mut eval,
@@ -1244,7 +1244,7 @@ fn generate_new_buffer_name_optional_arg_matches_expected_types() {
         &mut eval,
         vec![
             Value::string("*gnbn-opt*"),
-            Value::Keyword(intern("ignored")),
+            Value::keyword(intern("ignored")),
         ],
     )
     .unwrap();
@@ -1264,7 +1264,7 @@ fn generate_new_buffer_name_optional_arg_matches_expected_types() {
         &mut eval,
         vec![
             Value::string("*gnbn-opt*"),
-            Value::list(vec![Value::Int(1)]),
+            Value::list(vec![Value::fixnum(1)]),
         ],
     )
     .expect_err("generate-new-buffer-name should reject non string/symbol optional arg");
@@ -1273,7 +1273,7 @@ fn generate_new_buffer_name_optional_arg_matches_expected_types() {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("stringp"), Value::list(vec![Value::Int(1)])]
+                vec![Value::symbol("stringp"), Value::list(vec![ValueKind::Fixnum(1)])]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -1287,12 +1287,12 @@ fn buffer_size_and_modified_p_return_defaults_for_deleted_buffer_objects() {
     let dead_for_size = create_unique_test_buffer(&mut eval, "*bs-dead*");
     let _ = builtin_kill_buffer(&mut eval, vec![dead_for_size]).unwrap();
     let size = builtin_buffer_size(&mut eval, vec![dead_for_size]).unwrap();
-    assert_eq!(size, Value::Int(0));
+    assert_eq!(size, Value::fixnum(0));
 
     let dead_for_modified = create_unique_test_buffer(&mut eval, "*bm-dead*");
     let _ = builtin_kill_buffer(&mut eval, vec![dead_for_modified]).unwrap();
     let modified = builtin_buffer_modified_p(&mut eval, vec![dead_for_modified]).unwrap();
-    assert_eq!(modified, Value::Nil);
+    assert_eq!(modified, Value::NIL);
 }
 
 #[test]
@@ -1304,23 +1304,23 @@ fn buffer_base_buffer_and_last_name_semantics() {
 
     assert_eq!(
         builtin_buffer_base_buffer(&mut eval, vec![]).unwrap(),
-        Value::Nil
+        Value::NIL
     );
     assert_eq!(
         builtin_buffer_last_name(&mut eval, vec![]).unwrap(),
-        Value::Nil
+        Value::NIL
     );
     assert_eq!(
-        builtin_buffer_base_buffer(&mut eval, vec![Value::Nil]).unwrap(),
-        Value::Nil
+        builtin_buffer_base_buffer(&mut eval, vec![Value::NIL]).unwrap(),
+        Value::NIL
     );
     assert_eq!(
-        builtin_buffer_base_buffer(&mut eval, vec![Value::Buffer(indirect_id)]).unwrap(),
-        Value::Buffer(base_id)
+        builtin_buffer_base_buffer(&mut eval, vec![Value::make_buffer(indirect_id)]).unwrap(),
+        Value::make_buffer(base_id)
     );
     assert_eq!(
-        builtin_buffer_last_name(&mut eval, vec![Value::Nil]).unwrap(),
-        Value::Nil
+        builtin_buffer_last_name(&mut eval, vec![Value::NIL]).unwrap(),
+        Value::NIL
     );
 
     let base_type = builtin_buffer_base_buffer(&mut eval, vec![Value::symbol("x")])
@@ -1343,27 +1343,27 @@ fn buffer_base_buffer_and_last_name_semantics() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    let base_arity = builtin_buffer_base_buffer(&mut eval, vec![Value::Nil, Value::Nil])
+    let base_arity = builtin_buffer_base_buffer(&mut eval, vec![Value::NIL, Value::NIL])
         .expect_err("buffer-base-buffer should reject >1 args");
     match base_arity {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("buffer-base-buffer"), Value::Int(2)]
+                vec![Value::symbol("buffer-base-buffer"), ValueKind::Fixnum(2)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    let last_arity = builtin_buffer_last_name(&mut eval, vec![Value::Nil, Value::Nil])
+    let last_arity = builtin_buffer_last_name(&mut eval, vec![Value::NIL, Value::NIL])
         .expect_err("buffer-last-name should reject >1 args");
     match last_arity {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("buffer-last-name"), Value::Int(2)]
+                vec![Value::symbol("buffer-last-name"), ValueKind::Fixnum(2)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -1375,7 +1375,7 @@ fn buffer_base_buffer_and_last_name_semantics() {
 
     assert_eq!(
         builtin_buffer_base_buffer(&mut eval, vec![dead]).unwrap(),
-        Value::Nil
+        Value::NIL
     );
     assert_eq!(
         builtin_buffer_last_name(&mut eval, vec![dead]).unwrap(),
@@ -1387,7 +1387,7 @@ fn buffer_base_buffer_and_last_name_semantics() {
 fn make_indirect_buffer_shares_text_and_flattens_base_buffer_chain() {
     let mut eval = super::super::eval::Context::new();
     let base = create_unique_test_buffer(&mut eval, "*mib-base*");
-    let Value::Buffer(base_id) = base else {
+    if !base.is_buffer() /* TODO(tagged): `base_id` was Value::Buffer(base_id), rewrite let-else */ {
         panic!("expected buffer object");
     };
 
@@ -1397,7 +1397,7 @@ fn make_indirect_buffer_shares_text_and_flattens_base_buffer_chain() {
     let indirect =
         builtin_make_indirect_buffer(&mut eval, vec![base, Value::string("*mib-indirect*")])
             .expect("make-indirect-buffer should create a buffer");
-    let Value::Buffer(indirect_id) = indirect else {
+    if !indirect.is_buffer() /* TODO(tagged): `indirect_id` was Value::Buffer(indirect_id), rewrite let-else */ {
         panic!("expected buffer object");
     };
 
@@ -1453,7 +1453,7 @@ fn make_indirect_buffer_rejects_duplicate_and_empty_names() {
 fn make_indirect_buffer_clone_and_hook_semantics_follow_buffer_c() {
     let mut eval = super::super::eval::Context::new();
     let base = create_unique_test_buffer(&mut eval, "*mib-clone-base*");
-    let Value::Buffer(base_id) = base else {
+    if !base.is_buffer() /* TODO(tagged): `base_id` was Value::Buffer(base_id), rewrite let-else */ {
         panic!("expected buffer object");
     };
 
@@ -1492,16 +1492,16 @@ fn make_indirect_buffer_clone_and_hook_semantics_follow_buffer_c() {
         Value::list(vec![Value::symbol("mib-buffer-list-hook")]),
     );
     eval.obarray_mut()
-        .set_symbol_value("mib-last-clone-buffer", Value::Nil);
+        .set_symbol_value("mib-last-clone-buffer", Value::NIL);
     eval.obarray_mut()
-        .set_symbol_value("mib-buffer-list-ran", Value::Nil);
+        .set_symbol_value("mib-buffer-list-ran", Value::NIL);
 
     let cloned = builtin_make_indirect_buffer(
         &mut eval,
-        vec![base, Value::string("*mib-clone*"), Value::True],
+        vec![base, Value::string("*mib-clone*"), Value::T],
     )
     .expect("clone indirect buffer");
-    let Value::Buffer(cloned_id) = cloned else {
+    if !cloned.is_buffer() /* TODO(tagged): `cloned_id` was Value::Buffer(cloned_id), rewrite let-else */ {
         panic!("expected buffer object");
     };
 
@@ -1525,21 +1525,21 @@ fn make_indirect_buffer_clone_and_hook_semantics_follow_buffer_c() {
     );
     assert_eq!(
         eval.obarray().symbol_value("mib-buffer-list-ran"),
-        Some(&Value::True)
+        Some(&Value::T)
     );
 
     eval.obarray_mut()
-        .set_symbol_value("mib-last-clone-buffer", Value::Nil);
+        .set_symbol_value("mib-last-clone-buffer", Value::NIL);
     eval.obarray_mut()
-        .set_symbol_value("mib-buffer-list-ran", Value::Nil);
+        .set_symbol_value("mib-buffer-list-ran", Value::NIL);
 
     let _ = builtin_make_indirect_buffer(
         &mut eval,
         vec![
             base,
             Value::string("*mib-clone-inhibit*"),
-            Value::True,
-            Value::True,
+            Value::T,
+            Value::T,
         ],
     )
     .expect("clone indirect buffer with inhibited buffer hooks");
@@ -1553,7 +1553,7 @@ fn make_indirect_buffer_clone_and_hook_semantics_follow_buffer_c() {
     );
     assert_eq!(
         eval.obarray().symbol_value("mib-buffer-list-ran"),
-        Some(&Value::Nil),
+        Some(&Value::NIL),
         "buffer-list-update-hook should be inhibited"
     );
 }
@@ -1562,7 +1562,7 @@ fn make_indirect_buffer_clone_and_hook_semantics_follow_buffer_c() {
 fn make_indirect_buffer_clone_nil_resets_buffer_state() {
     let mut eval = super::super::eval::Context::new();
     let base = create_unique_test_buffer(&mut eval, "*mib-clone-nil-base*");
-    let Value::Buffer(base_id) = base else {
+    if !base.is_buffer() /* TODO(tagged): `base_id` was Value::Buffer(base_id), rewrite let-else */ {
         panic!("expected buffer object");
     };
 
@@ -1577,7 +1577,7 @@ fn make_indirect_buffer_clone_nil_resets_buffer_state() {
     let indirect =
         builtin_make_indirect_buffer(&mut eval, vec![base, Value::string("*mib-default*")])
             .expect("indirect buffer without clone");
-    let Value::Buffer(indirect_id) = indirect else {
+    if !indirect.is_buffer() /* TODO(tagged): `indirect_id` was Value::Buffer(indirect_id), rewrite let-else */ {
         panic!("expected buffer object");
     };
 
@@ -1600,52 +1600,52 @@ fn buffer_modified_tick_semantics() {
 
     assert_eq!(
         builtin_buffer_modified_tick(&mut eval, vec![]).unwrap(),
-        Value::Int(1)
+        Value::fixnum(1)
     );
     assert_eq!(
         builtin_buffer_chars_modified_tick(&mut eval, vec![]).unwrap(),
-        Value::Int(1)
+        Value::fixnum(1)
     );
 
     builtin_insert(&mut eval, vec![Value::string("abcdef")]).unwrap();
     assert_eq!(
         builtin_buffer_modified_tick(&mut eval, vec![]).unwrap(),
-        Value::Int(4)
+        Value::fixnum(4)
     );
     assert_eq!(
         builtin_buffer_chars_modified_tick(&mut eval, vec![]).unwrap(),
-        Value::Int(4)
+        Value::fixnum(4)
     );
 
-    builtin_set_buffer_modified_p(&mut eval, vec![Value::Nil]).unwrap();
+    builtin_set_buffer_modified_p(&mut eval, vec![Value::NIL]).unwrap();
     assert_eq!(
         builtin_buffer_modified_tick(&mut eval, vec![]).unwrap(),
-        Value::Int(4)
+        Value::fixnum(4)
     );
     assert_eq!(
         builtin_buffer_chars_modified_tick(&mut eval, vec![]).unwrap(),
-        Value::Int(4)
+        Value::fixnum(4)
     );
 
-    builtin_delete_region(&mut eval, vec![Value::Int(1), Value::Int(7)]).unwrap();
+    builtin_delete_region(&mut eval, vec![Value::fixnum(1), Value::fixnum(7)]).unwrap();
     assert_eq!(
         builtin_buffer_modified_tick(&mut eval, vec![]).unwrap(),
-        Value::Int(7)
+        Value::fixnum(7)
     );
     assert_eq!(
         builtin_buffer_chars_modified_tick(&mut eval, vec![]).unwrap(),
-        Value::Int(7)
+        Value::fixnum(7)
     );
 
     let dead = create_unique_test_buffer(&mut eval, "*ticks-dead*");
     let _ = builtin_kill_buffer(&mut eval, vec![dead]).unwrap();
     assert_eq!(
         builtin_buffer_modified_tick(&mut eval, vec![dead]).unwrap(),
-        Value::Int(1)
+        Value::fixnum(1)
     );
     assert_eq!(
         builtin_buffer_chars_modified_tick(&mut eval, vec![dead]).unwrap(),
-        Value::Int(1)
+        Value::fixnum(1)
     );
 
     let type_error = builtin_buffer_modified_tick(&mut eval, vec![Value::symbol("x")])
@@ -1658,14 +1658,14 @@ fn buffer_modified_tick_semantics() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    let arity_error = builtin_buffer_chars_modified_tick(&mut eval, vec![Value::Nil, Value::Nil])
+    let arity_error = builtin_buffer_chars_modified_tick(&mut eval, vec![Value::NIL, Value::NIL])
         .expect_err("buffer-chars-modified-tick should reject >1 args");
     match arity_error {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("buffer-chars-modified-tick"), Value::Int(2)]
+                vec![Value::symbol("buffer-chars-modified-tick"), ValueKind::Fixnum(2)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -1680,10 +1680,10 @@ fn subst_char_in_region_replaces_chars_in_accessible_region() {
     builtin_subst_char_in_region(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(18),
-            Value::Int('l' as i64),
-            Value::Int('L' as i64),
+            Value::fixnum(1),
+            Value::fixnum(18),
+            Value::fixnum('l' as i64),
+            Value::fixnum('L' as i64),
         ],
     )
     .expect("subst-char-in-region should succeed");
@@ -1698,16 +1698,16 @@ fn subst_char_in_region_replaces_chars_in_accessible_region() {
 fn subst_char_in_region_preserves_modified_flag_with_noundo() {
     let mut eval = super::super::eval::Context::new();
     builtin_insert(&mut eval, vec![Value::string("a\nb\n")]).unwrap();
-    builtin_set_buffer_modified_p(&mut eval, vec![Value::Nil]).unwrap();
+    builtin_set_buffer_modified_p(&mut eval, vec![Value::NIL]).unwrap();
 
     builtin_subst_char_in_region(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(5),
-            Value::Int('\n' as i64),
-            Value::Int(' ' as i64),
-            Value::True,
+            Value::fixnum(1),
+            Value::fixnum(5),
+            Value::fixnum('\n' as i64),
+            Value::fixnum(' ' as i64),
+            Value::T,
         ],
     )
     .expect("subst-char-in-region with NOUNDO should succeed");
@@ -1718,7 +1718,7 @@ fn subst_char_in_region_preserves_modified_flag_with_noundo() {
     );
     assert_eq!(
         builtin_buffer_modified_p(&mut eval, vec![]).unwrap(),
-        Value::Nil
+        Value::NIL
     );
 }
 
@@ -1850,10 +1850,10 @@ fn subst_char_in_region_rejects_different_utf8_lengths() {
     let err = builtin_subst_char_in_region(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(3),
-            Value::Int('a' as i64),
-            Value::Int('ß' as i64),
+            Value::fixnum(1),
+            Value::fixnum(3),
+            Value::fixnum('a' as i64),
+            Value::fixnum('ß' as i64),
         ],
     )
     .unwrap_err();
@@ -1876,9 +1876,9 @@ fn subst_char_in_region_rejects_different_utf8_lengths() {
 fn insert_honors_inhibit_read_only_override() {
     let mut eval = super::super::eval::Context::new();
     eval.obarray
-        .set_symbol_value("buffer-read-only", Value::True);
+        .set_symbol_value("buffer-read-only", Value::T);
     eval.obarray
-        .set_symbol_value("inhibit-read-only", Value::True);
+        .set_symbol_value("inhibit-read-only", Value::T);
 
     builtin_insert(&mut eval, vec![Value::string("ok")]).expect("insert should bypass read-only");
 
@@ -1893,21 +1893,21 @@ fn insert_inherit_variants_reuse_insert_semantics() {
     assert_eq!(
         builtin_insert_and_inherit(
             &mut eval,
-            vec![Value::string("a"), Value::Char('b'), Value::Int('c' as i64)],
+            vec![Value::string("a"), Value::char('b'), Value::fixnum('c' as i64)],
         )
         .unwrap(),
-        Value::Nil
+        Value::NIL
     );
     assert_eq!(
         builtin_insert_before_markers_and_inherit(&mut eval, vec![Value::string("d")]).unwrap(),
-        Value::Nil
+        Value::NIL
     );
     assert_eq!(
         builtin_buffer_string(&mut eval, vec![]).unwrap(),
         Value::string("abcd")
     );
 
-    let type_error = builtin_insert_and_inherit(&mut eval, vec![Value::list(vec![Value::Int(1)])])
+    let type_error = builtin_insert_and_inherit(&mut eval, vec![Value::list(vec![Value::fixnum(1)])])
         .expect_err("insert-and-inherit should reject non char/string values");
     match type_error {
         Flow::Signal(sig) => {
@@ -1916,7 +1916,7 @@ fn insert_inherit_variants_reuse_insert_semantics() {
                 sig.data,
                 vec![
                     Value::symbol("char-or-string-p"),
-                    Value::list(vec![Value::Int(1)])
+                    Value::list(vec![ValueKind::Fixnum(1)])
                 ]
             );
         }
@@ -1928,8 +1928,8 @@ fn insert_inherit_variants_reuse_insert_semantics() {
 fn insert_copies_string_text_properties_into_buffer() {
     let mut eval = super::super::eval::Context::new();
     let text = Value::string("xy");
-    let str_id = match text {
-        Value::Str(id) => id,
+    let str_id = match text.kind() {
+        ValueKind::String => id,
         other => panic!("expected string value, got {other:?}"),
     };
 
@@ -1937,7 +1937,7 @@ fn insert_copies_string_text_properties_into_buffer() {
     table.put_property(0, 2, "face", Value::symbol("bold"));
     crate::emacs_core::value::set_string_text_properties_table(str_id, table);
 
-    assert_eq!(builtin_insert(&mut eval, vec![text]).unwrap(), Value::Nil);
+    assert_eq!(builtin_insert(&mut eval, vec![text]).unwrap(), Value::NIL);
 
     let buf = eval.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.buffer_string(), "xy");
@@ -1963,7 +1963,7 @@ fn insert_and_inherit_copies_previous_text_properties() {
 
     assert_eq!(
         builtin_insert_and_inherit(&mut eval, vec![Value::string("X")]).unwrap(),
-        Value::Nil
+        Value::NIL
     );
 
     let buf = eval.buffers.current_buffer().expect("current buffer");
@@ -1987,7 +1987,7 @@ fn plain_insert_does_not_inherit_spanning_text_properties() {
 
     assert_eq!(
         builtin_insert(&mut eval, vec![Value::string("X")]).unwrap(),
-        Value::Nil
+        Value::NIL
     );
 
     let buf = eval.buffers.current_buffer().expect("current buffer");
@@ -2016,10 +2016,10 @@ fn insert_char_nil_count_defaults_to_one_and_can_inherit_text_properties() {
     assert_eq!(
         builtin_insert_char(
             &mut eval,
-            vec![Value::Int('X' as i64), Value::Nil, Value::True],
+            vec![Value::fixnum('X' as i64), Value::NIL, Value::T],
         )
         .unwrap(),
-        Value::Nil
+        Value::NIL
     );
 
     let buf = eval.buffers.current_buffer().expect("current buffer");
@@ -2037,8 +2037,8 @@ fn insert_and_inherit_copies_string_properties_then_inherits_overlapping_names()
     crate::emacs_core::textprop::builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(2),
+            Value::fixnum(1),
+            Value::fixnum(2),
             Value::symbol("face"),
             Value::symbol("bold"),
         ],
@@ -2046,8 +2046,8 @@ fn insert_and_inherit_copies_string_properties_then_inherits_overlapping_names()
     .unwrap();
 
     let text = Value::string("X");
-    let str_id = match text {
-        Value::Str(id) => id,
+    let str_id = match text.kind() {
+        ValueKind::String => id,
         other => panic!("expected string value, got {other:?}"),
     };
     let mut table = crate::buffer::text_props::TextPropertyTable::new();
@@ -2076,9 +2076,9 @@ fn delete_all_overlays_clears_current_buffer() {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("hello");
     }
-    builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(3)])
+    builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(3)])
         .expect("first overlay should be created");
-    builtin_make_overlay(&mut eval, vec![Value::Int(2), Value::Int(5)])
+    builtin_make_overlay(&mut eval, vec![Value::fixnum(2), Value::fixnum(5)])
         .expect("second overlay should be created");
 
     let buf = eval.buffers.current_buffer().expect("current buffer");
@@ -2086,7 +2086,7 @@ fn delete_all_overlays_clears_current_buffer() {
 
     assert_eq!(
         builtin_delete_all_overlays(&mut eval, vec![]).unwrap(),
-        Value::Nil
+        Value::NIL
     );
 
     let buf = eval.buffers.current_buffer().expect("current buffer");
@@ -2107,10 +2107,10 @@ fn insert_buffer_substring_inserts_source_region() {
     assert_eq!(
         builtin_insert_buffer_substring(
             &mut eval,
-            vec![Value::Buffer(source_id), Value::Int(2), Value::Int(5)],
+            vec![Value::make_buffer(source_id), Value::fixnum(2), Value::fixnum(5)],
         )
         .unwrap(),
-        Value::Nil
+        Value::NIL
     );
     assert_eq!(
         eval.buffers
@@ -2120,19 +2120,19 @@ fn insert_buffer_substring_inserts_source_region() {
         "start:bcd"
     );
 
-    let bad_designator = builtin_insert_buffer_substring(&mut eval, vec![Value::Int(9)])
+    let bad_designator = builtin_insert_buffer_substring(&mut eval, vec![Value::fixnum(9)])
         .expect_err("insert-buffer-substring should reject non-buffer designators");
     match bad_designator {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::Int(9)]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(9)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
 
     let bad_start = builtin_insert_buffer_substring(
         &mut eval,
-        vec![Value::Buffer(source_id), Value::string("x")],
+        vec![Value::make_buffer(source_id), Value::string("x")],
     )
     .expect_err("insert-buffer-substring should reject non integer-or-marker START");
     match bad_start {
@@ -2159,8 +2159,8 @@ fn insert_buffer_substring_defaults_to_source_accessible_region() {
     eval.buffers.set_current(dest_id);
 
     assert_eq!(
-        builtin_insert_buffer_substring(&mut eval, vec![Value::Buffer(source_id)]).unwrap(),
-        Value::Nil
+        builtin_insert_buffer_substring(&mut eval, vec![Value::make_buffer(source_id)]).unwrap(),
+        Value::NIL
     );
     assert_eq!(
         eval.buffers
@@ -2180,12 +2180,12 @@ fn insert_buffer_substring_signals_when_bounds_escape_source_narrowing() {
     let _ = eval.buffers.narrow_buffer_to_region(source_id, 1, 4);
 
     let err =
-        builtin_insert_buffer_substring(&mut eval, vec![Value::Buffer(source_id), Value::Int(1)])
+        builtin_insert_buffer_substring(&mut eval, vec![Value::make_buffer(source_id), Value::fixnum(1)])
             .expect_err("insert-buffer-substring should reject out-of-range narrowed START");
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![Value::Int(1), Value::Int(5)]);
+            assert_eq!(sig.data, vec![ValueKind::Fixnum(1), ValueKind::Fixnum(5)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -2213,11 +2213,11 @@ fn kill_all_local_variables_clears_buffer_locals() {
     let mut eval = super::super::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().unwrap();
-        buf.set_buffer_local("tab-width", Value::Int(8));
-        buf.set_buffer_local("fill-column", Value::Int(80));
+        buf.set_buffer_local("tab-width", Value::fixnum(8));
+        buf.set_buffer_local("fill-column", Value::fixnum(80));
         buf.set_buffer_local("major-mode", Value::symbol("neo-mode"));
         buf.set_buffer_local("mode-name", Value::string("Neo"));
-        buf.set_buffer_local("buffer-undo-list", Value::True);
+        buf.set_buffer_local("buffer-undo-list", Value::T);
     }
     let _ = eval
         .buffers
@@ -2225,13 +2225,13 @@ fn kill_all_local_variables_clears_buffer_locals() {
 
     assert_eq!(
         builtin_kill_all_local_variables(&mut eval, vec![]).unwrap(),
-        Value::Nil
+        Value::NIL
     );
 
     let buf = eval.buffers.current_buffer().unwrap();
     assert!(buf.get_buffer_local("tab-width").is_none());
     assert!(buf.get_buffer_local("fill-column").is_none());
-    assert_eq!(buf.get_buffer_local("buffer-read-only"), Some(&Value::Nil));
+    assert_eq!(buf.get_buffer_local("buffer-read-only"), Some(&Value::NIL));
     assert_eq!(
         buf.get_buffer_local("major-mode"),
         Some(&Value::symbol("fundamental-mode"))
@@ -2240,41 +2240,41 @@ fn kill_all_local_variables_clears_buffer_locals() {
         buf.get_buffer_local("mode-name"),
         Some(&Value::string("Fundamental"))
     );
-    assert_eq!(buf.get_buffer_local("buffer-undo-list"), Some(&Value::True));
+    assert_eq!(buf.get_buffer_local("buffer-undo-list"), Some(&Value::T));
     assert!(eval.buffers.current_local_map().is_nil());
 }
 
 #[test]
 fn ntake_destructively_truncates_lists() {
     let list = Value::list(vec![
-        Value::Int(1),
-        Value::Int(2),
-        Value::Int(3),
-        Value::Int(4),
+        Value::fixnum(1),
+        Value::fixnum(2),
+        Value::fixnum(3),
+        Value::fixnum(4),
     ]);
-    let kept = builtin_ntake(vec![Value::Int(2), list]).unwrap();
-    assert_eq!(kept, Value::list(vec![Value::Int(1), Value::Int(2)]));
+    let kept = builtin_ntake(vec![Value::fixnum(2), list]).unwrap();
+    assert_eq!(kept, Value::list(vec![Value::fixnum(1), Value::fixnum(2)]));
     assert_eq!(
         list_to_vec(&list).expect("list should stay proper after ntake"),
-        vec![Value::Int(1), Value::Int(2)]
+        vec![Value::fixnum(1), Value::fixnum(2)]
     );
 
-    let unchanged = Value::list(vec![Value::Int(5), Value::Int(6)]);
+    let unchanged = Value::list(vec![Value::fixnum(5), Value::fixnum(6)]);
     assert_eq!(
-        builtin_ntake(vec![Value::Int(10), unchanged]).unwrap(),
+        builtin_ntake(vec![Value::fixnum(10), unchanged]).unwrap(),
         unchanged
     );
     assert_eq!(
-        builtin_ntake(vec![Value::Int(0), list]).unwrap(),
-        Value::Nil
+        builtin_ntake(vec![Value::fixnum(0), list]).unwrap(),
+        Value::NIL
     );
 
-    let type_error = builtin_ntake(vec![Value::Int(1), Value::Int(3)])
+    let type_error = builtin_ntake(vec![Value::fixnum(1), Value::fixnum(3)])
         .expect_err("ntake should reject non-list arguments");
     match type_error {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("listp"), Value::Int(3)]);
+            assert_eq!(sig.data, vec![Value::symbol("listp"), ValueKind::Fixnum(3)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -2291,7 +2291,7 @@ fn kill_all_local_variables_preserves_partial_permanent_local_hooks() {
         Value::symbol("permanent-local-hook"),
     );
     eval.obarray
-        .put_property("compat--keep-hook", "permanent-local-hook", Value::True);
+        .put_property("compat--keep-hook", "permanent-local-hook", Value::T);
     {
         let buf = eval.buffers.current_buffer_mut().unwrap();
         buf.set_buffer_local(
@@ -2299,14 +2299,14 @@ fn kill_all_local_variables_preserves_partial_permanent_local_hooks() {
             Value::list(vec![
                 Value::symbol("compat--drop-hook"),
                 Value::symbol("compat--keep-hook"),
-                Value::True,
+                Value::T,
             ]),
         );
     }
 
     assert_eq!(
         builtin_kill_all_local_variables(&mut eval, vec![]).unwrap(),
-        Value::Nil
+        Value::NIL
     );
 
     let buf = eval.buffers.current_buffer().unwrap();
@@ -2316,7 +2316,7 @@ fn kill_all_local_variables_preserves_partial_permanent_local_hooks() {
         .expect("partial permanent hook should remain local");
     let items =
         crate::emacs_core::value::list_to_vec(&hook).expect("hook value should stay a proper list");
-    assert_eq!(items, vec![Value::symbol("compat--keep-hook"), Value::True]);
+    assert_eq!(items, vec![Value::symbol("compat--keep-hook"), Value::T]);
 }
 
 #[test]
@@ -2331,8 +2331,8 @@ fn replace_buffer_contents_and_set_buffer_multibyte_runtime_semantics() {
     builtin_insert(&mut eval, vec![Value::string("dest-text")]).unwrap();
 
     assert_eq!(
-        builtin_replace_buffer_contents(&mut eval, vec![Value::Buffer(source_id)]).unwrap(),
-        Value::True
+        builtin_replace_buffer_contents(&mut eval, vec![Value::make_buffer(source_id)]).unwrap(),
+        Value::T
     );
     assert_eq!(
         eval.buffers
@@ -2343,8 +2343,8 @@ fn replace_buffer_contents_and_set_buffer_multibyte_runtime_semantics() {
     );
 
     assert_eq!(
-        builtin_set_buffer_multibyte(&mut eval, vec![Value::Nil]).unwrap(),
-        Value::Nil
+        builtin_set_buffer_multibyte(&mut eval, vec![Value::NIL]).unwrap(),
+        Value::NIL
     );
     assert!(!eval.buffers.current_buffer().unwrap().multibyte);
 
@@ -2372,16 +2372,16 @@ fn compare_buffer_substrings_nil_bounds_use_accessible_region() {
         builtin_compare_buffer_substrings(
             &mut eval,
             vec![
-                Value::Buffer(left_id),
-                Value::Nil,
-                Value::Nil,
-                Value::Buffer(right_id),
-                Value::Nil,
-                Value::Nil,
+                Value::make_buffer(left_id),
+                Value::NIL,
+                Value::NIL,
+                Value::make_buffer(right_id),
+                Value::NIL,
+                Value::NIL,
             ],
         )
         .unwrap(),
-        Value::Int(0)
+        Value::fixnum(0)
     );
 }
 
@@ -2401,19 +2401,19 @@ fn compare_buffer_substrings_signals_when_bounds_escape_narrowing() {
     let err = builtin_compare_buffer_substrings(
         &mut eval,
         vec![
-            Value::Buffer(left_id),
-            Value::Int(1),
-            Value::Nil,
-            Value::Buffer(right_id),
-            Value::Nil,
-            Value::Nil,
+            Value::make_buffer(left_id),
+            Value::fixnum(1),
+            Value::NIL,
+            Value::make_buffer(right_id),
+            Value::NIL,
+            Value::NIL,
         ],
     )
     .expect_err("compare-buffer-substrings should reject out-of-range narrowed START");
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![Value::Int(1), Value::Nil]);
+            assert_eq!(sig.data, vec![ValueKind::Fixnum(1), ValueKind::Nil]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -2432,7 +2432,7 @@ fn compare_buffer_substrings_rejects_deleted_buffer_object() {
 
     let err = builtin_compare_buffer_substrings(
         &mut eval,
-        vec![dead, Value::Nil, Value::Nil, live, Value::Nil, Value::Nil],
+        vec![dead, Value::NIL, Value::NIL, live, Value::NIL, Value::NIL],
     )
     .expect_err("compare-buffer-substrings should reject deleted buffer objects");
     match err {
@@ -2453,14 +2453,14 @@ fn replace_region_contents_replaces_from_string_and_buffer_sources() {
         builtin_replace_region_contents(
             &mut eval,
             vec![
-                Value::Int(3),
-                Value::Int(5),
+                Value::fixnum(3),
+                Value::fixnum(5),
                 Value::string("cd"),
-                Value::Int(0)
+                Value::fixnum(0)
             ]
         )
         .unwrap(),
-        Value::True
+        Value::T
     );
     assert_eq!(
         eval.buffers.current_buffer().unwrap().buffer_string(),
@@ -2478,10 +2478,10 @@ fn replace_region_contents_replaces_from_string_and_buffer_sources() {
     assert_eq!(
         builtin_replace_region_contents(
             &mut eval,
-            vec![Value::Int(3), Value::Int(5), Value::Buffer(source_id)]
+            vec![Value::fixnum(3), Value::fixnum(5), Value::make_buffer(source_id)]
         )
         .unwrap(),
-        Value::True
+        Value::T
     );
     assert_eq!(
         eval.buffers.current_buffer().unwrap().buffer_string(),
@@ -2504,13 +2504,13 @@ fn replace_region_contents_accepts_vector_buffer_slices() {
         builtin_replace_region_contents(
             &mut eval,
             vec![
-                Value::Int(3),
-                Value::Int(5),
-                Value::vector(vec![Value::Buffer(source_id), Value::Int(2), Value::Int(4)])
+                Value::fixnum(3),
+                Value::fixnum(5),
+                Value::vector(vec![Value::make_buffer(source_id), Value::fixnum(2), Value::fixnum(4)])
             ]
         )
         .unwrap(),
-        Value::True
+        Value::T
     );
     assert_eq!(
         eval.buffers
@@ -2526,18 +2526,18 @@ fn split_window_internal_validates_core_argument_types() {
     let mut eval = super::super::eval::Context::new();
     let split = builtin_split_window_internal(
         &mut eval,
-        vec![Value::Nil, Value::Nil, Value::symbol("below"), Value::Nil],
+        vec![Value::NIL, Value::NIL, Value::symbol("below"), Value::NIL],
     )
     .unwrap();
-    assert!(matches!(split, Value::Window(_)));
+    assert!(matches!(split, Value::make_window(_)));
 
     let window_type = builtin_split_window_internal(
         &mut eval,
         vec![
             Value::symbol("not-a-window"),
-            Value::Nil,
+            Value::NIL,
             Value::symbol("below"),
-            Value::Nil,
+            Value::NIL,
         ],
     )
     .expect_err("split-window-internal should reject non-window objects");
@@ -2555,10 +2555,10 @@ fn split_window_internal_validates_core_argument_types() {
     let size_type = builtin_split_window_internal(
         &mut eval,
         vec![
-            Value::Nil,
+            Value::NIL,
             Value::string("bad"),
             Value::symbol("below"),
-            Value::Nil,
+            Value::NIL,
         ],
     )
     .expect_err("split-window-internal should reject non-fixnum sizes");
@@ -2575,13 +2575,13 @@ fn split_window_internal_validates_core_argument_types() {
 
     let side_type = builtin_split_window_internal(
         &mut eval,
-        vec![Value::Nil, Value::Nil, Value::Int(9), Value::Nil],
+        vec![Value::NIL, Value::NIL, Value::fixnum(9), Value::NIL],
     )
     .expect_err("split-window-internal should reject non-symbol SIDE");
     match side_type {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("symbolp"), Value::Int(9)]);
+            assert_eq!(sig.data, vec![Value::symbol("symbolp"), ValueKind::Fixnum(9)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -2592,21 +2592,21 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
     let mut eval = super::super::eval::Context::new();
 
     assert!(
-        builtin_char_equal(&mut eval, vec![Value::Int(97), Value::Int(65)])
+        builtin_char_equal(&mut eval, vec![Value::fixnum(97), Value::fixnum(65)])
             .unwrap()
             .is_truthy()
     );
     eval.obarray
-        .set_symbol_value("case-fold-search", Value::Nil);
+        .set_symbol_value("case-fold-search", Value::NIL);
     assert!(
-        builtin_char_equal(&mut eval, vec![Value::Int(97), Value::Int(65)])
+        builtin_char_equal(&mut eval, vec![Value::fixnum(97), Value::fixnum(65)])
             .unwrap()
             .is_nil()
     );
     eval.obarray
-        .set_symbol_value("case-fold-search", Value::True);
+        .set_symbol_value("case-fold-search", Value::T);
 
-    let char_type = builtin_char_equal(&mut eval, vec![Value::Int(1), Value::string("a")])
+    let char_type = builtin_char_equal(&mut eval, vec![Value::fixnum(1), Value::string("a")])
         .expect_err("char-equal should reject non-character args");
     match char_type {
         Flow::Signal(sig) => {
@@ -2620,19 +2620,19 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
     }
 
     assert_eq!(
-        builtin_cl_type_of(vec![Value::Nil]).unwrap(),
+        builtin_cl_type_of(vec![Value::NIL]).unwrap(),
         Value::symbol("null")
     );
     assert_eq!(
-        builtin_cl_type_of(vec![Value::True]).unwrap(),
+        builtin_cl_type_of(vec![Value::T]).unwrap(),
         Value::symbol("boolean")
     );
     assert_eq!(
-        builtin_cl_type_of(vec![Value::Int(1)]).unwrap(),
+        builtin_cl_type_of(vec![Value::fixnum(1)]).unwrap(),
         Value::symbol("fixnum")
     );
     assert_eq!(
-        builtin_cl_type_of(vec![Value::Float(1.0, next_float_id())]).unwrap(),
+        builtin_cl_type_of(vec![Value::make_float(1.0)]).unwrap(),
         Value::symbol("float")
     );
     assert_eq!(
@@ -2644,11 +2644,11 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
         Value::symbol("symbol")
     );
     assert_eq!(
-        builtin_cl_type_of(vec![Value::cons(Value::Int(1), Value::Int(2))]).unwrap(),
+        builtin_cl_type_of(vec![Value::cons(Value::fixnum(1), Value::fixnum(2))]).unwrap(),
         Value::symbol("cons")
     );
     assert_eq!(
-        builtin_cl_type_of(vec![Value::vector(vec![Value::Int(1)])]).unwrap(),
+        builtin_cl_type_of(vec![Value::vector(vec![Value::fixnum(1)])]).unwrap(),
         Value::symbol("vector")
     );
     assert_eq!(
@@ -2656,7 +2656,7 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
         Value::symbol("hash-table")
     );
     assert_eq!(
-        builtin_cl_type_of(vec![Value::Subr(intern("car"))]).unwrap(),
+        builtin_cl_type_of(vec![Value::subr(intern("car"))]).unwrap(),
         Value::symbol("primitive-function")
     );
     let lambda = Value::make_lambda(LambdaData {
@@ -2675,16 +2675,16 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
     let mut cancel_eval = crate::emacs_core::eval::Context::new();
     assert_eq!(
         builtin_cancel_kbd_macro_events(&mut cancel_eval, vec![]).unwrap(),
-        Value::Nil
+        Value::NIL
     );
-    let cancel_arity = builtin_cancel_kbd_macro_events(&mut cancel_eval, vec![Value::Nil])
+    let cancel_arity = builtin_cancel_kbd_macro_events(&mut cancel_eval, vec![Value::NIL])
         .expect_err("cancel-kbd-macro-events should reject args");
     match cancel_arity {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("cancel-kbd-macro-events"), Value::Int(1)]
+                vec![Value::symbol("cancel-kbd-macro-events"), ValueKind::Fixnum(1)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -2696,11 +2696,11 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
     builtin_insert(&mut eval, vec![Value::string("abc")]).expect("seed barf test buffer");
 
     assert_eq!(
-        builtin_barf_if_buffer_read_only(&mut eval, vec![Value::Int(0)]).unwrap(),
-        Value::Nil
+        builtin_barf_if_buffer_read_only(&mut eval, vec![Value::fixnum(0)]).unwrap(),
+        Value::NIL
     );
     if let Some(buf) = eval.buffers.current_buffer_mut() {
-        buf.set_buffer_local("buffer-read-only", Value::True);
+        buf.set_buffer_local("buffer-read-only", Value::T);
     }
     let barf_read_only = builtin_barf_if_buffer_read_only(&mut eval, vec![])
         .expect_err("barf-if-buffer-read-only should signal on read-only buffers");
@@ -2714,19 +2714,19 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
 
     if let Some(buf) = eval.buffers.current_buffer_mut() {
         buf.text
-            .text_props_put_property(1, 2, "inhibit-read-only", Value::True);
+            .text_props_put_property(1, 2, "inhibit-read-only", Value::T);
     }
     assert_eq!(
-        builtin_barf_if_buffer_read_only(&mut eval, vec![Value::Int(2)]).unwrap(),
-        Value::Nil
+        builtin_barf_if_buffer_read_only(&mut eval, vec![Value::fixnum(2)]).unwrap(),
+        Value::NIL
     );
 
-    let barf_range = builtin_barf_if_buffer_read_only(&mut eval, vec![Value::Int(0)])
+    let barf_range = builtin_barf_if_buffer_read_only(&mut eval, vec![Value::fixnum(0)])
         .expect_err("barf-if-buffer-read-only should check lower-bound positions");
     match barf_range {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![Value::Int(0), Value::Int(0)]);
+            assert_eq!(sig.data, vec![ValueKind::Fixnum(0), ValueKind::Fixnum(0)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -2741,26 +2741,26 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    let barf_arity = builtin_barf_if_buffer_read_only(&mut eval, vec![Value::Nil, Value::Nil])
+    let barf_arity = builtin_barf_if_buffer_read_only(&mut eval, vec![Value::NIL, Value::NIL])
         .expect_err("barf-if-buffer-read-only should reject >1 args");
     match barf_arity {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("barf-if-buffer-read-only"), Value::Int(2)]
+                vec![Value::symbol("barf-if-buffer-read-only"), ValueKind::Fixnum(2)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
     }
     if let Some(buf) = eval.buffers.current_buffer_mut() {
-        buf.set_buffer_local("buffer-read-only", Value::Nil);
+        buf.set_buffer_local("buffer-read-only", Value::NIL);
     }
 
     let buffer = create_unique_test_buffer(&mut eval, "*bury*");
     assert_eq!(
         builtin_bury_buffer_internal(&mut eval, vec![buffer]).unwrap(),
-        Value::Nil
+        Value::NIL
     );
     let bury_type = builtin_bury_buffer_internal(&mut eval, vec![Value::symbol("x")])
         .expect_err("bury-buffer-internal should reject non-buffer values");
@@ -2778,7 +2778,7 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("bury-buffer-internal"), Value::Int(0)]
+                vec![Value::symbol("bury-buffer-internal"), ValueKind::Fixnum(0)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -2790,44 +2790,44 @@ fn byte_position_and_clear_bitmap_semantics() {
     let mut eval = super::super::eval::Context::new();
 
     assert_eq!(
-        builtin_byte_to_position(&mut eval, vec![Value::Int(1)]).unwrap(),
-        Value::Int(1)
+        builtin_byte_to_position(&mut eval, vec![Value::fixnum(1)]).unwrap(),
+        Value::fixnum(1)
     );
     assert_eq!(
-        builtin_byte_to_position(&mut eval, vec![Value::Int(2)]).unwrap(),
-        Value::Nil
+        builtin_byte_to_position(&mut eval, vec![Value::fixnum(2)]).unwrap(),
+        Value::NIL
     );
 
     builtin_erase_buffer(&mut eval, vec![]).unwrap();
     builtin_insert(&mut eval, vec![Value::string("a\u{00E9}")]).unwrap();
 
     assert_eq!(
-        builtin_byte_to_position(&mut eval, vec![Value::Int(1)]).unwrap(),
-        Value::Int(1)
+        builtin_byte_to_position(&mut eval, vec![Value::fixnum(1)]).unwrap(),
+        Value::fixnum(1)
     );
     assert_eq!(
-        builtin_byte_to_position(&mut eval, vec![Value::Int(2)]).unwrap(),
-        Value::Int(2)
+        builtin_byte_to_position(&mut eval, vec![Value::fixnum(2)]).unwrap(),
+        Value::fixnum(2)
     );
     assert_eq!(
-        builtin_byte_to_position(&mut eval, vec![Value::Int(3)]).unwrap(),
-        Value::Int(2)
+        builtin_byte_to_position(&mut eval, vec![Value::fixnum(3)]).unwrap(),
+        Value::fixnum(2)
     );
     assert_eq!(
-        builtin_byte_to_position(&mut eval, vec![Value::Int(4)]).unwrap(),
-        Value::Int(3)
+        builtin_byte_to_position(&mut eval, vec![Value::fixnum(4)]).unwrap(),
+        Value::fixnum(3)
     );
     assert_eq!(
-        builtin_position_bytes(&mut eval, vec![Value::Int(1)]).unwrap(),
-        Value::Int(1)
+        builtin_position_bytes(&mut eval, vec![Value::fixnum(1)]).unwrap(),
+        Value::fixnum(1)
     );
     assert_eq!(
-        builtin_position_bytes(&mut eval, vec![Value::Int(2)]).unwrap(),
-        Value::Int(2)
+        builtin_position_bytes(&mut eval, vec![Value::fixnum(2)]).unwrap(),
+        Value::fixnum(2)
     );
     assert_eq!(
-        builtin_position_bytes(&mut eval, vec![Value::Int(3)]).unwrap(),
-        Value::Int(4)
+        builtin_position_bytes(&mut eval, vec![Value::fixnum(3)]).unwrap(),
+        Value::fixnum(4)
     );
     assert_eq!(
         builtin_position_bytes(
@@ -2839,19 +2839,19 @@ fn byte_position_and_clear_bitmap_semantics() {
             )],
         )
         .unwrap(),
-        Value::Int(2)
+        Value::fixnum(2)
     );
     assert_eq!(
-        builtin_byte_to_position(&mut eval, vec![Value::Int(5)]).unwrap(),
-        Value::Nil
+        builtin_byte_to_position(&mut eval, vec![Value::fixnum(5)]).unwrap(),
+        Value::NIL
     );
     assert_eq!(
-        builtin_byte_to_position(&mut eval, vec![Value::Int(0)]).unwrap(),
-        Value::Nil
+        builtin_byte_to_position(&mut eval, vec![Value::fixnum(0)]).unwrap(),
+        Value::NIL
     );
     assert_eq!(
-        builtin_byte_to_position(&mut eval, vec![Value::Int(-1)]).unwrap(),
-        Value::Nil
+        builtin_byte_to_position(&mut eval, vec![Value::fixnum(-1)]).unwrap(),
+        Value::NIL
     );
 
     let byte_to_position_type = builtin_byte_to_position(&mut eval, vec![Value::string("x")])
@@ -2865,23 +2865,23 @@ fn byte_position_and_clear_bitmap_semantics() {
     }
 
     let byte_to_position_arity =
-        builtin_byte_to_position(&mut eval, vec![Value::Int(1), Value::Int(2)])
+        builtin_byte_to_position(&mut eval, vec![Value::fixnum(1), Value::fixnum(2)])
             .expect_err("byte-to-position should reject wrong arity");
     match byte_to_position_arity {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("byte-to-position"), Value::Int(2)]
+                vec![Value::symbol("byte-to-position"), ValueKind::Fixnum(2)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    let byte_to_string = builtin_byte_to_string(vec![Value::Int(255)]).unwrap();
+    let byte_to_string = builtin_byte_to_string(vec![Value::fixnum(255)]).unwrap();
     assert_eq!(
-        builtin_get_byte(&mut eval, vec![Value::Int(0), byte_to_string]).unwrap(),
-        Value::Int(255)
+        builtin_get_byte(&mut eval, vec![Value::fixnum(0), byte_to_string]).unwrap(),
+        Value::fixnum(255)
     );
 
     let byte_to_string_type = builtin_byte_to_string(vec![Value::symbol("x")])
@@ -2894,7 +2894,7 @@ fn byte_position_and_clear_bitmap_semantics() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    let byte_to_string_range = builtin_byte_to_string(vec![Value::Int(256)])
+    let byte_to_string_range = builtin_byte_to_string(vec![Value::fixnum(256)])
         .expect_err("byte-to-string should reject bytes above 255");
     match byte_to_string_range {
         Flow::Signal(sig) => {
@@ -2904,7 +2904,7 @@ fn byte_position_and_clear_bitmap_semantics() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    assert_eq!(builtin_bitmap_spec_p(vec![Value::Nil]).unwrap(), Value::Nil);
+    assert_eq!(builtin_bitmap_spec_p(vec![Value::NIL]).unwrap(), Value::NIL);
     let bitmap_arity =
         builtin_bitmap_spec_p(vec![]).expect_err("bitmap-spec-p should reject wrong arity");
     match bitmap_arity {
@@ -2912,25 +2912,25 @@ fn byte_position_and_clear_bitmap_semantics() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("bitmap-spec-p"), Value::Int(0)]
+                vec![Value::symbol("bitmap-spec-p"), ValueKind::Fixnum(0)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    assert_eq!(builtin_clear_face_cache(vec![]).unwrap(), Value::Nil);
+    assert_eq!(builtin_clear_face_cache(vec![]).unwrap(), Value::NIL);
     assert_eq!(
         builtin_clear_face_cache(vec![Value::symbol("all")]).unwrap(),
-        Value::Nil
+        Value::NIL
     );
-    let clear_face_arity = builtin_clear_face_cache(vec![Value::Nil, Value::Nil])
+    let clear_face_arity = builtin_clear_face_cache(vec![Value::NIL, Value::NIL])
         .expect_err("clear-face-cache should reject >1 args");
     match clear_face_arity {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("clear-face-cache"), Value::Int(2)]
+                vec![Value::symbol("clear-face-cache"), ValueKind::Fixnum(2)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -2938,9 +2938,9 @@ fn byte_position_and_clear_bitmap_semantics() {
 
     assert_eq!(
         builtin_clear_buffer_auto_save_failure(vec![]).unwrap(),
-        Value::Nil
+        Value::NIL
     );
-    let clear_auto_save_arity = builtin_clear_buffer_auto_save_failure(vec![Value::Nil])
+    let clear_auto_save_arity = builtin_clear_buffer_auto_save_failure(vec![Value::NIL])
         .expect_err("clear-buffer-auto-save-failure should reject args");
     match clear_auto_save_arity {
         Flow::Signal(sig) => {
@@ -2949,7 +2949,7 @@ fn byte_position_and_clear_bitmap_semantics() {
                 sig.data,
                 vec![
                     Value::symbol("clear-buffer-auto-save-failure"),
-                    Value::Int(1)
+                    ValueKind::Fixnum(1)
                 ]
             );
         }
@@ -2963,7 +2963,7 @@ fn buffer_undo_designators_match_deleted_and_missing_buffer_semantics() {
 
     let disable_current =
         builtin_buffer_disable_undo(&mut eval, vec![]).expect("buffer-disable-undo should work");
-    assert_eq!(disable_current, Value::True);
+    assert_eq!(disable_current, Value::T);
     let current_id = eval.buffers.current_buffer_id().expect("current buffer");
     let current = eval.buffers.get(current_id).expect("current buffer");
     assert!(crate::buffer::undo_list_is_disabled(
@@ -2971,19 +2971,19 @@ fn buffer_undo_designators_match_deleted_and_missing_buffer_semantics() {
     ));
     assert_eq!(
         current.get_buffer_local("buffer-undo-list"),
-        Some(&Value::True)
+        Some(&Value::T)
     );
 
     let enable_current =
         builtin_buffer_enable_undo(&mut eval, vec![]).expect("buffer-enable-undo should work");
-    assert_eq!(enable_current, Value::Nil);
+    assert_eq!(enable_current, Value::NIL);
     let current = eval.buffers.get(current_id).expect("current buffer");
     assert!(!crate::buffer::undo_list_is_disabled(
         &current.get_undo_list()
     ));
     assert_eq!(
         current.get_buffer_local("buffer-undo-list"),
-        Some(&Value::Nil)
+        Some(&Value::NIL)
     );
 
     let enable_missing_name =
@@ -3006,7 +3006,7 @@ fn buffer_undo_designators_match_deleted_and_missing_buffer_semantics() {
     match disable_missing_name {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::Nil]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Nil]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -3014,7 +3014,7 @@ fn buffer_undo_designators_match_deleted_and_missing_buffer_semantics() {
     let dead_for_enable = create_unique_test_buffer(&mut eval, "*undo-enable-deleted*");
     let _ = builtin_kill_buffer(&mut eval, vec![dead_for_enable]).unwrap();
     let enable_deleted = builtin_buffer_enable_undo(&mut eval, vec![dead_for_enable]).unwrap();
-    assert_eq!(enable_deleted, Value::Nil);
+    assert_eq!(enable_deleted, Value::NIL);
 
     let dead_for_disable = create_unique_test_buffer(&mut eval, "*undo-disable-deleted*");
     let _ = builtin_kill_buffer(&mut eval, vec![dead_for_disable]).unwrap();
@@ -3048,7 +3048,7 @@ fn other_buffer_prefers_live_alternative_and_enforces_arity() {
     );
 
     let visible_ok =
-        builtin_other_buffer(&mut eval, vec![avoid, Value::True]).expect("other-buffer visible-ok");
+        builtin_other_buffer(&mut eval, vec![avoid, Value::T]).expect("other-buffer visible-ok");
     assert_eq!(
         visible_ok,
         eval.buffers
@@ -3058,7 +3058,7 @@ fn other_buffer_prefers_live_alternative_and_enforces_arity() {
     );
 
     let from_non_buffer =
-        builtin_other_buffer(&mut eval, vec![Value::Int(1)]).expect("other-buffer int");
+        builtin_other_buffer(&mut eval, vec![Value::fixnum(1)]).expect("other-buffer int");
     assert_eq!(
         from_non_buffer,
         eval.buffers
@@ -3079,13 +3079,13 @@ fn other_buffer_prefers_live_alternative_and_enforces_arity() {
 
     let err = builtin_other_buffer(
         &mut eval,
-        vec![Value::Nil, Value::Nil, Value::Nil, Value::Nil],
+        vec![Value::NIL, Value::NIL, Value::NIL, Value::NIL],
     )
     .expect_err("other-buffer should reject more than three args");
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
-            assert_eq!(sig.data, vec![Value::symbol("other-buffer"), Value::Int(4)]);
+            assert_eq!(sig.data, vec![Value::symbol("other-buffer"), ValueKind::Fixnum(4)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -3103,7 +3103,7 @@ fn buffer_list_returns_live_buffers_in_creation_order() {
 
     assert_eq!(
         builtin_buffer_list(&mut eval, vec![]).expect("buffer-list"),
-        Value::list(vec![Value::Buffer(scratch), a, b])
+        Value::list(vec![Value::make_buffer(scratch), a, b])
     );
 }
 
@@ -3117,18 +3117,18 @@ fn featurep_accepts_optional_subfeature_arg() {
     eval.obarray_mut().put_property(
         "vm-featurep-present",
         "subfeatures",
-        Value::list(vec![Value::symbol("vm-sub"), Value::Int(1)]),
+        Value::list(vec![Value::symbol("vm-sub"), Value::fixnum(1)]),
     );
 
     let base = builtin_featurep(&mut eval, vec![Value::symbol("vm-featurep-present")]).unwrap();
-    assert_eq!(base, Value::True);
+    assert_eq!(base, Value::T);
 
     let with_nil = builtin_featurep(
         &mut eval,
-        vec![Value::symbol("vm-featurep-present"), Value::Nil],
+        vec![Value::symbol("vm-featurep-present"), Value::NIL],
     )
     .unwrap();
-    assert_eq!(with_nil, Value::True);
+    assert_eq!(with_nil, Value::T);
 
     let with_sub = builtin_featurep(
         &mut eval,
@@ -3138,7 +3138,7 @@ fn featurep_accepts_optional_subfeature_arg() {
         ],
     )
     .unwrap();
-    assert_eq!(with_sub, Value::True);
+    assert_eq!(with_sub, Value::T);
 
     let with_other = builtin_featurep(
         &mut eval,
@@ -3148,7 +3148,7 @@ fn featurep_accepts_optional_subfeature_arg() {
         ],
     )
     .unwrap();
-    assert_eq!(with_other, Value::Nil);
+    assert_eq!(with_other, Value::NIL);
 }
 
 #[test]
@@ -3159,7 +3159,7 @@ fn featurep_subfeatures_property_must_be_list() {
         Value::list(vec![Value::symbol("vm-featurep-present")]),
     );
     eval.obarray_mut()
-        .put_property("vm-featurep-present", "subfeatures", Value::Int(1));
+        .put_property("vm-featurep-present", "subfeatures", Value::fixnum(1));
 
     let err = builtin_featurep(
         &mut eval,
@@ -3172,7 +3172,7 @@ fn featurep_subfeatures_property_must_be_list() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("listp"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("listp"), ValueKind::Fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -3185,7 +3185,7 @@ fn featurep_rejects_more_than_two_args() {
         &mut eval,
         vec![
             Value::symbol("vm-featurep-present"),
-            Value::Nil,
+            Value::NIL,
             Value::symbol("extra"),
         ],
     )
@@ -3193,7 +3193,7 @@ fn featurep_rejects_more_than_two_args() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
-            assert_eq!(sig.data, vec![Value::symbol("featurep"), Value::Int(3)]);
+            assert_eq!(sig.data, vec![Value::symbol("featurep"), ValueKind::Fixnum(3)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -3203,7 +3203,7 @@ fn featurep_rejects_more_than_two_args() {
 fn pure_dispatch_typed_string_constructor_builds_string() {
     let result = dispatch_builtin_pure(
         "string",
-        vec![Value::Int(65), Value::Int(66), Value::Char('C')],
+        vec![Value::fixnum(65), Value::fixnum(66), Value::char('C')],
     )
     .expect("builtin string should resolve")
     .expect("builtin string should evaluate");
@@ -3227,13 +3227,13 @@ fn pure_dispatch_typed_propertize_validates_and_returns_string() {
 
 #[test]
 fn pure_dispatch_typed_propertize_non_string_signals_stringp() {
-    let result = dispatch_builtin_pure("propertize", vec![Value::Int(1)])
+    let result = dispatch_builtin_pure("propertize", vec![Value::fixnum(1)])
         .expect("builtin propertize should resolve")
         .expect_err("propertize should reject non-string first arg");
     match result {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -3250,7 +3250,7 @@ fn pure_dispatch_typed_propertize_odd_property_list_signals_arity() {
     match result {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
-            assert_eq!(sig.data, vec![Value::symbol("propertize"), Value::Int(2)]);
+            assert_eq!(sig.data, vec![Value::symbol("propertize"), ValueKind::Fixnum(2)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -3260,7 +3260,7 @@ fn pure_dispatch_typed_propertize_odd_property_list_signals_arity() {
 fn pure_dispatch_typed_propertize_accepts_non_symbol_property_keys() {
     let result = dispatch_builtin_pure(
         "propertize",
-        vec![Value::string("x"), Value::Int(1), Value::symbol("v")],
+        vec![Value::string("x"), Value::fixnum(1), Value::symbol("v")],
     )
     .expect("builtin propertize should resolve")
     .expect("builtin propertize should evaluate");
@@ -3271,7 +3271,7 @@ fn pure_dispatch_typed_propertize_accepts_non_symbol_property_keys() {
 fn pure_dispatch_typed_unibyte_string_round_trips_bytes() {
     let s = dispatch_builtin_pure(
         "unibyte-string",
-        vec![Value::Int(65), Value::Int(255), Value::Int(66)],
+        vec![Value::fixnum(65), Value::fixnum(255), Value::fixnum(66)],
     )
     .expect("builtin unibyte-string should resolve")
     .expect("builtin unibyte-string should evaluate");
@@ -3279,27 +3279,27 @@ fn pure_dispatch_typed_unibyte_string_round_trips_bytes() {
     let len = dispatch_builtin_pure("string-bytes", vec![s])
         .expect("builtin string-bytes should resolve")
         .expect("builtin string-bytes should evaluate");
-    assert_eq!(len, Value::Int(3));
+    assert_eq!(len, Value::fixnum(3));
 
-    let a = dispatch_builtin_pure("aref", vec![s, Value::Int(0)])
+    let a = dispatch_builtin_pure("aref", vec![s, Value::fixnum(0)])
         .expect("builtin aref should resolve")
         .expect("builtin aref should evaluate");
-    assert_eq!(a, Value::Int(65));
+    assert_eq!(a, Value::fixnum(65));
 
-    let ff = dispatch_builtin_pure("aref", vec![s, Value::Int(1)])
+    let ff = dispatch_builtin_pure("aref", vec![s, Value::fixnum(1)])
         .expect("builtin aref should resolve")
         .expect("builtin aref should evaluate");
-    assert_eq!(ff, Value::Int(255));
+    assert_eq!(ff, Value::fixnum(255));
 
-    let b = dispatch_builtin_pure("aref", vec![s, Value::Int(2)])
+    let b = dispatch_builtin_pure("aref", vec![s, Value::fixnum(2)])
         .expect("builtin aref should resolve")
         .expect("builtin aref should evaluate");
-    assert_eq!(b, Value::Int(66));
+    assert_eq!(b, Value::fixnum(66));
 }
 
 #[test]
 fn pure_dispatch_typed_unibyte_string_validates_range_and_type() {
-    let out_of_range = dispatch_builtin_pure("unibyte-string", vec![Value::Int(256)])
+    let out_of_range = dispatch_builtin_pure("unibyte-string", vec![Value::fixnum(256)])
         .expect("builtin unibyte-string should resolve")
         .expect_err("expected args-out-of-range");
     match out_of_range {
@@ -3307,7 +3307,7 @@ fn pure_dispatch_typed_unibyte_string_validates_range_and_type() {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
             assert_eq!(
                 sig.data,
-                vec![Value::Int(256), Value::Int(0), Value::Int(255)]
+                vec![ValueKind::Fixnum(256), ValueKind::Fixnum(0), ValueKind::Fixnum(255)]
             );
         }
         other => panic!("expected signal flow, got {other:?}"),
@@ -3330,15 +3330,15 @@ fn pure_dispatch_typed_unibyte_string_validates_range_and_type() {
 
 #[test]
 fn pure_dispatch_typed_vector_builds_vector() {
-    let result = dispatch_builtin_pure("vector", vec![Value::Int(7), Value::Int(9)])
+    let result = dispatch_builtin_pure("vector", vec![Value::fixnum(7), Value::fixnum(9)])
         .expect("builtin vector should resolve")
         .expect("builtin vector should evaluate");
-    assert_eq!(result, Value::vector(vec![Value::Int(7), Value::Int(9)]));
+    assert_eq!(result, Value::vector(vec![Value::fixnum(7), Value::fixnum(9)]));
 }
 
 #[test]
 fn pure_dispatch_typed_make_vector_validates_wholenump_length() {
-    let ok = dispatch_builtin_pure("make-vector", vec![Value::Int(3), Value::symbol("x")])
+    let ok = dispatch_builtin_pure("make-vector", vec![Value::fixnum(3), Value::symbol("x")])
         .expect("builtin make-vector should resolve")
         .expect("builtin make-vector should evaluate");
     assert_eq!(
@@ -3351,11 +3351,11 @@ fn pure_dispatch_typed_make_vector_validates_wholenump_length() {
     );
 
     for bad_len in [
-        Value::Int(-1),
-        Value::Float(1.5, next_float_id()),
+        Value::fixnum(-1),
+        Value::make_float(1.5),
         Value::symbol("foo"),
     ] {
-        let err = dispatch_builtin_pure("make-vector", vec![bad_len, Value::Nil])
+        let err = dispatch_builtin_pure("make-vector", vec![bad_len, Value::NIL])
             .expect("builtin make-vector should resolve")
             .expect_err("invalid lengths should signal");
         match err {
@@ -3372,23 +3372,23 @@ fn pure_dispatch_typed_make_vector_validates_wholenump_length() {
 fn pure_dispatch_typed_aref_bool_vector_returns_boolean_bits() {
     let bv = Value::vector(vec![
         Value::symbol("--bool-vector--"),
-        Value::Int(4),
-        Value::Int(0),
-        Value::Int(0),
-        Value::Int(0),
-        Value::Int(0),
+        Value::fixnum(4),
+        Value::fixnum(0),
+        Value::fixnum(0),
+        Value::fixnum(0),
+        Value::fixnum(0),
     ]);
 
-    let initial = dispatch_builtin_pure("aref", vec![bv, Value::Int(2)])
+    let initial = dispatch_builtin_pure("aref", vec![bv, Value::fixnum(2)])
         .expect("builtin aref should resolve")
         .expect("builtin aref should evaluate");
     assert!(initial.is_nil());
 
-    let _ = dispatch_builtin_pure("aset", vec![bv, Value::Int(2), Value::True])
+    let _ = dispatch_builtin_pure("aset", vec![bv, Value::fixnum(2), Value::T])
         .expect("builtin aset should resolve")
         .expect("builtin aset should evaluate");
 
-    let updated = dispatch_builtin_pure("aref", vec![bv, Value::Int(2)])
+    let updated = dispatch_builtin_pure("aref", vec![bv, Value::fixnum(2)])
         .expect("builtin aref should resolve")
         .expect("builtin aref should evaluate");
     assert!(updated.is_truthy());
@@ -3398,32 +3398,32 @@ fn pure_dispatch_typed_aref_bool_vector_returns_boolean_bits() {
 fn pure_dispatch_typed_aref_aset_char_table_uses_character_index_semantics() {
     let ct = Value::vector(vec![
         Value::symbol("--char-table--"),
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
         Value::symbol("syntax-table"),
-        Value::Int(0),
+        Value::fixnum(0),
     ]);
 
-    let initial = dispatch_builtin_pure("aref", vec![ct, Value::Int(0)])
+    let initial = dispatch_builtin_pure("aref", vec![ct, Value::fixnum(0)])
         .expect("builtin aref should resolve")
         .expect("builtin aref should evaluate");
-    assert_eq!(initial, Value::Nil);
+    assert_eq!(initial, Value::NIL);
 
-    let _ = dispatch_builtin_pure("aset", vec![ct, Value::Int(0x3F_FFFF), Value::Int(9)])
+    let _ = dispatch_builtin_pure("aset", vec![ct, Value::fixnum(0x3F_FFFF), Value::fixnum(9)])
         .expect("builtin aset should resolve")
         .expect("builtin aset should evaluate");
 
-    let edge = dispatch_builtin_pure("aref", vec![ct, Value::Int(0x3F_FFFF)])
+    let edge = dispatch_builtin_pure("aref", vec![ct, Value::fixnum(0x3F_FFFF)])
         .expect("builtin aref should resolve")
         .expect("builtin aref should evaluate");
-    assert_eq!(edge, Value::Int(9));
+    assert_eq!(edge, Value::fixnum(9));
 
-    let elt = dispatch_builtin_pure("elt", vec![ct, Value::Int(0x3F_FFFF)])
+    let elt = dispatch_builtin_pure("elt", vec![ct, Value::fixnum(0x3F_FFFF)])
         .expect("builtin elt should resolve")
         .expect("builtin elt should evaluate");
-    assert_eq!(elt, Value::Int(9));
+    assert_eq!(elt, Value::fixnum(9));
 
-    let negative = dispatch_builtin_pure("aref", vec![ct, Value::Int(-1)])
+    let negative = dispatch_builtin_pure("aref", vec![ct, Value::fixnum(-1)])
         .expect("builtin aref should resolve")
         .expect_err("negative char-table index should fail");
     match negative {
@@ -3434,7 +3434,7 @@ fn pure_dispatch_typed_aref_aset_char_table_uses_character_index_semantics() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    let too_large = dispatch_builtin_pure("aset", vec![ct, Value::Int(0x40_0000), Value::Int(1)])
+    let too_large = dispatch_builtin_pure("aset", vec![ct, Value::fixnum(0x40_0000), Value::fixnum(1)])
         .expect("builtin aset should resolve")
         .expect_err("out-of-range char-table index should fail");
     match too_large {
@@ -3442,7 +3442,7 @@ fn pure_dispatch_typed_aref_aset_char_table_uses_character_index_semantics() {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("characterp"), Value::Int(0x40_0000)],
+                vec![Value::symbol("characterp"), ValueKind::Fixnum(0x40_0000)],
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -3453,76 +3453,76 @@ fn pure_dispatch_typed_aref_aset_char_table_uses_character_index_semantics() {
 fn pure_dispatch_typed_length_family_uses_bool_vector_logical_length() {
     let bv = Value::vector(vec![
         Value::symbol("--bool-vector--"),
-        Value::Int(3),
-        Value::Int(1),
-        Value::Int(0),
-        Value::Int(1),
+        Value::fixnum(3),
+        Value::fixnum(1),
+        Value::fixnum(0),
+        Value::fixnum(1),
     ]);
 
     let len = dispatch_builtin_pure("length", vec![bv])
         .expect("builtin length should resolve")
         .expect("builtin length should evaluate");
-    assert_eq!(len, Value::Int(3));
+    assert_eq!(len, Value::fixnum(3));
 
-    let lt = dispatch_builtin_pure("length<", vec![bv, Value::Int(4)])
+    let lt = dispatch_builtin_pure("length<", vec![bv, Value::fixnum(4)])
         .expect("builtin length< should resolve")
         .expect("builtin length< should evaluate");
-    assert_eq!(lt, Value::True);
+    assert_eq!(lt, Value::T);
 
-    let eq = dispatch_builtin_pure("length=", vec![bv, Value::Int(3)])
+    let eq = dispatch_builtin_pure("length=", vec![bv, Value::fixnum(3)])
         .expect("builtin length= should resolve")
         .expect("builtin length= should evaluate");
-    assert_eq!(eq, Value::True);
+    assert_eq!(eq, Value::T);
 
-    let gt = dispatch_builtin_pure("length>", vec![bv, Value::Int(2)])
+    let gt = dispatch_builtin_pure("length>", vec![bv, Value::fixnum(2)])
         .expect("builtin length> should resolve")
         .expect("builtin length> should evaluate");
-    assert_eq!(gt, Value::True);
+    assert_eq!(gt, Value::T);
 }
 
 #[test]
 fn pure_dispatch_typed_length_family_uses_char_table_logical_length() {
     let ct = Value::vector(vec![
         Value::symbol("--char-table--"),
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
         Value::symbol("syntax-table"),
-        Value::Int(0),
+        Value::fixnum(0),
     ]);
 
     let len = dispatch_builtin_pure("length", vec![ct])
         .expect("builtin length should resolve")
         .expect("builtin length should evaluate");
-    assert_eq!(len, Value::Int(0x3F_FFFF));
+    assert_eq!(len, Value::fixnum(0x3F_FFFF));
 
-    let lt = dispatch_builtin_pure("length<", vec![ct, Value::Int(100)])
+    let lt = dispatch_builtin_pure("length<", vec![ct, Value::fixnum(100)])
         .expect("builtin length< should resolve")
         .expect("builtin length< should evaluate");
-    assert_eq!(lt, Value::Nil);
+    assert_eq!(lt, Value::NIL);
 
-    let eq = dispatch_builtin_pure("length=", vec![ct, Value::Int(0x3F_FFFF)])
+    let eq = dispatch_builtin_pure("length=", vec![ct, Value::fixnum(0x3F_FFFF)])
         .expect("builtin length= should resolve")
         .expect("builtin length= should evaluate");
-    assert_eq!(eq, Value::True);
+    assert_eq!(eq, Value::T);
 
-    let gt = dispatch_builtin_pure("length>", vec![ct, Value::Int(0)])
+    let gt = dispatch_builtin_pure("length>", vec![ct, Value::fixnum(0)])
         .expect("builtin length> should resolve")
         .expect("builtin length> should evaluate");
-    assert_eq!(gt, Value::True);
+    assert_eq!(gt, Value::T);
 }
 
 #[test]
 fn pure_dispatch_typed_aset_string_returns_new_element_and_computes_replacement() {
     let result = dispatch_builtin_pure(
         "aset",
-        vec![Value::string("abc"), Value::Int(1), Value::Int(120)],
+        vec![Value::string("abc"), Value::fixnum(1), Value::fixnum(120)],
     )
     .expect("builtin aset should resolve")
     .expect("builtin aset should evaluate");
-    assert_eq!(result, Value::Int(120));
+    assert_eq!(result, Value::fixnum(120));
 
     let replacement =
-        aset_string_replacement(&Value::string("abc"), &Value::Int(1), &Value::Int(120))
+        aset_string_replacement(&Value::string("abc"), &Value::fixnum(1), &Value::fixnum(120))
             .expect("string replacement should succeed");
     assert_eq!(replacement, Value::string("axc"));
 }
@@ -3531,7 +3531,7 @@ fn pure_dispatch_typed_aset_string_returns_new_element_and_computes_replacement(
 fn pure_dispatch_typed_aset_string_errors_match_oracle() {
     let out_of_range = dispatch_builtin_pure(
         "aset",
-        vec![Value::string("abc"), Value::Int(-1), Value::Int(120)],
+        vec![Value::string("abc"), Value::fixnum(-1), Value::fixnum(120)],
     )
     .expect("builtin aset should resolve")
     .expect_err("aset should reject negative index");
@@ -3545,14 +3545,14 @@ fn pure_dispatch_typed_aset_string_errors_match_oracle() {
 
     let wrong_type = dispatch_builtin_pure(
         "aset",
-        vec![Value::string("abc"), Value::Int(1), Value::Nil],
+        vec![Value::string("abc"), Value::fixnum(1), Value::NIL],
     )
     .expect("builtin aset should resolve")
     .expect_err("aset should validate replacement character");
     match wrong_type {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("characterp"), Value::Nil]);
+            assert_eq!(sig.data, vec![Value::symbol("characterp"), ValueKind::Nil]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -3563,9 +3563,9 @@ fn pure_dispatch_typed_char_string_conversions_work() {
     let as_code = dispatch_builtin_pure("string-to-char", vec![Value::string("A")])
         .expect("builtin string-to-char should resolve")
         .expect("builtin string-to-char should evaluate");
-    assert_eq!(as_code, Value::Int(65));
+    assert_eq!(as_code, Value::fixnum(65));
 
-    let as_string = dispatch_builtin_pure("char-to-string", vec![Value::Int(65)])
+    let as_string = dispatch_builtin_pure("char-to-string", vec![Value::fixnum(65)])
         .expect("builtin char-to-string should resolve")
         .expect("builtin char-to-string should evaluate");
     assert_eq!(as_string, Value::string("A"));
@@ -3582,7 +3582,7 @@ fn pure_dispatch_typed_hash_table_round_trip() {
 
     dispatch_builtin_pure(
         "puthash",
-        vec![Value::string("answer"), Value::Int(42), table],
+        vec![Value::string("answer"), Value::fixnum(42), table],
     )
     .expect("builtin puthash should resolve")
     .expect("builtin puthash should evaluate");
@@ -3590,12 +3590,12 @@ fn pure_dispatch_typed_hash_table_round_trip() {
     let value = dispatch_builtin_pure("gethash", vec![Value::string("answer"), table])
         .expect("builtin gethash should resolve")
         .expect("builtin gethash should evaluate");
-    assert_eq!(value, Value::Int(42));
+    assert_eq!(value, Value::fixnum(42));
 
     let count = dispatch_builtin_pure("hash-table-count", vec![table])
         .expect("builtin hash-table-count should resolve")
         .expect("builtin hash-table-count should evaluate");
-    assert_eq!(count, Value::Int(1));
+    assert_eq!(count, Value::fixnum(1));
 }
 
 #[test]
@@ -3620,34 +3620,34 @@ fn pure_dispatch_typed_hash_table_extended_builtins_round_trip() {
     let size = dispatch_builtin_pure("hash-table-size", vec![table])
         .expect("hash-table-size should resolve")
         .expect("hash-table-size should evaluate");
-    assert_eq!(size, Value::Int(0));
+    assert_eq!(size, Value::fixnum(0));
 
     let weakness = dispatch_builtin_pure("hash-table-weakness", vec![table])
         .expect("hash-table-weakness should resolve")
         .expect("hash-table-weakness should evaluate");
-    assert_eq!(weakness, Value::Nil);
+    assert_eq!(weakness, Value::NIL);
 
     let rehash_size = dispatch_builtin_pure("hash-table-rehash-size", vec![table])
         .expect("hash-table-rehash-size should resolve")
         .expect("hash-table-rehash-size should evaluate");
-    assert_eq!(rehash_size, Value::Float(1.5, next_float_id()));
+    assert_eq!(rehash_size, Value::make_float(1.5));
 
     let rehash_threshold = dispatch_builtin_pure("hash-table-rehash-threshold", vec![table])
         .expect("hash-table-rehash-threshold should resolve")
         .expect("hash-table-rehash-threshold should evaluate");
-    assert_eq!(rehash_threshold, Value::Float(0.8125, next_float_id()));
+    assert_eq!(rehash_threshold, Value::make_float(0.8125));
 
     let sxhash = dispatch_builtin_pure("sxhash-eq", vec![Value::symbol("k")])
         .expect("sxhash-eq should resolve")
         .expect("sxhash-eq should evaluate");
-    assert!(matches!(sxhash, Value::Int(_)));
+    assert!(sxhash.is_fixnum());
 
     let buckets_before = dispatch_builtin_pure("internal--hash-table-buckets", vec![table])
         .expect("internal--hash-table-buckets should resolve")
         .expect("internal--hash-table-buckets should evaluate");
-    assert_eq!(buckets_before, Value::Nil);
+    assert_eq!(buckets_before, Value::NIL);
 
-    let _ = dispatch_builtin_pure("puthash", vec![Value::symbol("k"), Value::Int(1), table])
+    let _ = dispatch_builtin_pure("puthash", vec![Value::symbol("k"), Value::fixnum(1), table])
         .expect("puthash should resolve")
         .expect("puthash should evaluate");
 
@@ -3664,7 +3664,7 @@ fn pure_dispatch_typed_hash_table_extended_builtins_round_trip() {
     let index_size = dispatch_builtin_pure("internal--hash-table-index-size", vec![table])
         .expect("internal--hash-table-index-size should resolve")
         .expect("internal--hash-table-index-size should evaluate");
-    assert!(matches!(index_size, Value::Int(n) if n >= 1));
+    assert!(matches!(index_size, Value::fixnum(n) if n >= 1));
 
     let copied = dispatch_builtin_pure("copy-hash-table", vec![table])
         .expect("copy-hash-table should resolve")
@@ -3697,7 +3697,7 @@ fn pure_dispatch_typed_define_hash_table_test_registers_alias() {
         .expect("hash-table-test should evaluate");
     assert_eq!(observed, alias);
 
-    let Value::HashTable(table) = table else {
+    if !table.is_hash_table() /* TODO(tagged): `table` was Value::HashTable(table), rewrite let-else */ {
         panic!("expected hash table");
     };
     assert!(matches!(
@@ -3735,7 +3735,7 @@ fn pure_dispatch_typed_define_hash_table_test_accepts_equal_including_properties
         .expect("hash-table-test should evaluate");
     assert_eq!(observed, alias);
 
-    let Value::HashTable(table) = table else {
+    if !table.is_hash_table() /* TODO(tagged): `table` was Value::HashTable(table), rewrite let-else */ {
         panic!("expected hash table");
     };
     assert!(matches!(
@@ -3785,7 +3785,7 @@ fn define_hash_table_test_alias_redefinition_updates_mapping() {
         .expect("hash-table-test should evaluate for initial alias mapping");
     assert_eq!(first_name, Value::symbol(alias_name));
 
-    let Value::HashTable(first) = first else {
+    if !first.is_hash_table() /* TODO(tagged): `first` was Value::HashTable(first), rewrite let-else */ {
         panic!("expected hash table");
     };
     assert!(matches!(
@@ -3809,7 +3809,7 @@ fn define_hash_table_test_alias_redefinition_updates_mapping() {
         .expect("hash-table-test should evaluate after alias redefinition");
     assert_eq!(second_name, Value::symbol(alias_name));
 
-    let Value::HashTable(second) = second else {
+    if !second.is_hash_table() /* TODO(tagged): `second` was Value::HashTable(second), rewrite let-else */ {
         panic!("expected hash table");
     };
     assert!(matches!(
@@ -3822,7 +3822,7 @@ fn define_hash_table_test_alias_redefinition_updates_mapping() {
 fn pure_dispatch_typed_plist_and_symbol_round_trip() {
     let plist = dispatch_builtin_pure(
         "plist-put",
-        vec![Value::Nil, Value::keyword(":lang"), Value::string("rust")],
+        vec![Value::NIL, Value::keyword(":lang"), Value::string("rust")],
     )
     .expect("builtin plist-put should resolve")
     .expect("builtin plist-put should evaluate");
@@ -3843,17 +3843,17 @@ fn pure_dispatch_typed_plist_and_symbol_round_trip() {
 
 #[test]
 fn pure_dispatch_typed_math_ops_work() {
-    let sqrt = dispatch_builtin_pure("sqrt", vec![Value::Int(4)])
+    let sqrt = dispatch_builtin_pure("sqrt", vec![Value::fixnum(4)])
         .expect("builtin sqrt should resolve")
         .expect("builtin sqrt should evaluate");
-    assert_eq!(sqrt, Value::Float(2.0, next_float_id()));
+    assert_eq!(sqrt, Value::make_float(2.0));
 
-    let expt = dispatch_builtin_pure("expt", vec![Value::Int(2), Value::Int(8)])
+    let expt = dispatch_builtin_pure("expt", vec![Value::fixnum(2), Value::fixnum(8)])
         .expect("builtin expt should resolve")
         .expect("builtin expt should evaluate");
-    assert_eq!(expt, Value::Int(256));
+    assert_eq!(expt, Value::fixnum(256));
 
-    let nan_check = dispatch_builtin_pure("isnan", vec![Value::Float(f64::NAN, next_float_id())])
+    let nan_check = dispatch_builtin_pure("isnan", vec![Value::make_float(f64::NAN)])
         .expect("builtin isnan should resolve")
         .expect("builtin isnan should evaluate");
     assert!(nan_check.is_truthy());
@@ -3861,7 +3861,7 @@ fn pure_dispatch_typed_math_ops_work() {
 
 #[test]
 fn pure_dispatch_typed_expt_and_isnan_type_errors_match_oracle() {
-    let expt_base = dispatch_builtin_pure("expt", vec![Value::symbol("a"), Value::Int(2)])
+    let expt_base = dispatch_builtin_pure("expt", vec![Value::symbol("a"), Value::fixnum(2)])
         .expect("builtin expt should resolve")
         .expect_err("expt should reject non-numeric base");
     match expt_base {
@@ -3872,7 +3872,7 @@ fn pure_dispatch_typed_expt_and_isnan_type_errors_match_oracle() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    let expt_exp = dispatch_builtin_pure("expt", vec![Value::Int(2), Value::symbol("a")])
+    let expt_exp = dispatch_builtin_pure("expt", vec![Value::fixnum(2), Value::symbol("a")])
         .expect("builtin expt should resolve")
         .expect_err("expt should reject non-numeric exponent");
     match expt_exp {
@@ -3883,13 +3883,13 @@ fn pure_dispatch_typed_expt_and_isnan_type_errors_match_oracle() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    let isnan_non_float = dispatch_builtin_pure("isnan", vec![Value::Int(1)])
+    let isnan_non_float = dispatch_builtin_pure("isnan", vec![Value::fixnum(1)])
         .expect("builtin isnan should resolve")
         .expect_err("isnan should reject non-floats");
     match isnan_non_float {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("floatp"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("floatp"), ValueKind::Fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -3897,26 +3897,26 @@ fn pure_dispatch_typed_expt_and_isnan_type_errors_match_oracle() {
 
 #[test]
 fn pure_dispatch_typed_round_half_ties_to_even() {
-    let positive_half = dispatch_builtin_pure("round", vec![Value::Float(2.5, next_float_id())])
+    let positive_half = dispatch_builtin_pure("round", vec![Value::make_float(2.5)])
         .expect("builtin round should resolve")
         .expect("builtin round should evaluate");
-    assert_eq!(positive_half, Value::Int(2));
+    assert_eq!(positive_half, Value::fixnum(2));
 
-    let negative_half = dispatch_builtin_pure("round", vec![Value::Float(-2.5, next_float_id())])
+    let negative_half = dispatch_builtin_pure("round", vec![Value::make_float(-2.5)])
         .expect("builtin round should resolve")
         .expect("builtin round should evaluate");
-    assert_eq!(negative_half, Value::Int(-2));
+    assert_eq!(negative_half, Value::fixnum(-2));
 
-    let zero_half = dispatch_builtin_pure("round", vec![Value::Float(0.5, next_float_id())])
+    let zero_half = dispatch_builtin_pure("round", vec![Value::make_float(0.5)])
         .expect("builtin round should resolve")
         .expect("builtin round should evaluate");
-    assert_eq!(zero_half, Value::Int(0));
+    assert_eq!(zero_half, Value::fixnum(0));
 
     let negative_zero_half =
-        dispatch_builtin_pure("round", vec![Value::Float(-0.5, next_float_id())])
+        dispatch_builtin_pure("round", vec![Value::make_float(-0.5)])
             .expect("builtin round should resolve")
             .expect("builtin round should evaluate");
-    assert_eq!(negative_zero_half, Value::Int(0));
+    assert_eq!(negative_zero_half, Value::fixnum(0));
 }
 
 #[test]
@@ -3924,41 +3924,41 @@ fn pure_dispatch_typed_string_width_and_bytes_work() {
     let width = dispatch_builtin_pure("string-width", vec![Value::string("ab")])
         .expect("builtin string-width should resolve")
         .expect("builtin string-width should evaluate");
-    assert_eq!(width, Value::Int(2));
+    assert_eq!(width, Value::fixnum(2));
 
     let bytes = dispatch_builtin_pure("string-bytes", vec![Value::string("ab")])
         .expect("builtin string-bytes should resolve")
         .expect("builtin string-bytes should evaluate");
-    assert_eq!(bytes, Value::Int(2));
+    assert_eq!(bytes, Value::fixnum(2));
 }
 
 #[test]
 fn pure_dispatch_typed_extended_list_ops_work() {
     let seq = Value::list(vec![
-        Value::Int(1),
-        Value::Int(2),
-        Value::Int(3),
-        Value::Int(4),
+        Value::fixnum(1),
+        Value::fixnum(2),
+        Value::fixnum(3),
+        Value::fixnum(4),
     ]);
 
     let truncated = dispatch_builtin_pure(
         "ntake",
         vec![
-            Value::Int(2),
-            Value::list(vec![Value::Int(7), Value::Int(8), Value::Int(9)]),
+            Value::fixnum(2),
+            Value::list(vec![Value::fixnum(7), Value::fixnum(8), Value::fixnum(9)]),
         ],
     )
     .expect("builtin ntake should resolve")
     .expect("builtin ntake should evaluate");
-    assert_eq!(truncated, Value::list(vec![Value::Int(7), Value::Int(8)]));
+    assert_eq!(truncated, Value::list(vec![Value::fixnum(7), Value::fixnum(8)]));
 }
 
 #[test]
 fn pure_dispatch_obarray_make_and_clear_use_vector_semantics() {
-    let made = dispatch_builtin_pure("obarray-make", vec![Value::Int(3)])
+    let made = dispatch_builtin_pure("obarray-make", vec![Value::fixnum(3)])
         .expect("builtin obarray-make should resolve")
         .expect("builtin obarray-make should evaluate");
-    let Value::Vector(created) = &made else {
+    if !&made.is_vector() /* TODO(tagged): `created` was Value::Vector(created), rewrite let-else */ {
         panic!("obarray-make should return vector");
     };
     let created = with_heap(|h| h.get_vector(*created).clone());
@@ -3968,17 +3968,17 @@ fn pure_dispatch_obarray_make_and_clear_use_vector_semantics() {
     let default = dispatch_builtin_pure("obarray-make", vec![])
         .expect("builtin obarray-make should resolve")
         .expect("builtin obarray-make should evaluate");
-    let Value::Vector(default) = &default else {
+    if !&default.is_vector() /* TODO(tagged): `default` was Value::Vector(default), rewrite let-else */ {
         panic!("obarray-make default should return vector");
     };
     assert_eq!(with_heap(|h| h.get_vector(*default).len()), 1511);
 
-    let table = Value::vector(vec![Value::Nil, Value::list(vec![Value::symbol("x")])]);
+    let table = Value::vector(vec![Value::NIL, Value::list(vec![Value::symbol("x")])]);
     let cleared = dispatch_builtin_pure("obarray-clear", vec![table])
         .expect("builtin obarray-clear should resolve")
         .expect("builtin obarray-clear should evaluate");
     assert!(cleared.is_nil());
-    let Value::Vector(cleared) = &table else {
+    if !&table.is_vector() /* TODO(tagged): `cleared` was Value::Vector(cleared), rewrite let-else */ {
         panic!("table should stay vector");
     };
     assert!(
@@ -3987,13 +3987,13 @@ fn pure_dispatch_obarray_make_and_clear_use_vector_semantics() {
             .all(Value::is_nil)
     );
 
-    let wrong_type = dispatch_builtin_pure("obarray-clear", vec![Value::Int(1)])
+    let wrong_type = dispatch_builtin_pure("obarray-clear", vec![Value::fixnum(1)])
         .expect("builtin obarray-clear should resolve")
         .expect_err("obarray-clear should reject non-obarray arguments");
     match wrong_type {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("obarrayp"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("obarrayp"), ValueKind::Fixnum(1)]);
         }
         other => panic!("expected signal, got: {other:?}"),
     }
@@ -4001,13 +4001,13 @@ fn pure_dispatch_obarray_make_and_clear_use_vector_semantics() {
 
 #[test]
 fn eval_dispatch_obarrayp_accepts_custom_obarrays() {
-    let table = crate::emacs_core::builtins::symbols::builtin_obarray_make(vec![Value::Int(3)])
+    let table = crate::emacs_core::builtins::symbols::builtin_obarray_make(vec![Value::fixnum(3)])
         .expect("obarray-make should evaluate");
     let result = crate::emacs_core::builtins::symbols::builtin_obarrayp(vec![table])
         .expect("obarrayp should evaluate");
     assert!(result.is_truthy());
 
-    let non_obarray = Value::vector(vec![Value::Int(0); 3]);
+    let non_obarray = Value::vector(vec![Value::fixnum(0); 3]);
     let result = crate::emacs_core::builtins::symbols::builtin_obarrayp(vec![non_obarray])
         .expect("obarrayp should evaluate");
     assert!(result.is_nil());
@@ -4019,9 +4019,9 @@ fn pure_dispatch_make_temp_file_internal_delegates_make_temp_file() {
         "make-temp-file-internal",
         vec![
             Value::string("neovm-mtfi-"),
-            Value::Nil,
+            Value::NIL,
             Value::string(".tmp"),
-            Value::Nil,
+            Value::NIL,
         ],
     )
     .expect("builtin make-temp-file-internal should resolve")
@@ -4038,7 +4038,7 @@ fn pure_dispatch_make_temp_file_internal_delegates_make_temp_file() {
         "make-temp-file-internal",
         vec![
             Value::string("neovm-mtfi-mode-"),
-            Value::Nil,
+            Value::NIL,
             Value::string(".tmp"),
             Value::string("bad"),
         ],
@@ -4066,11 +4066,11 @@ fn pure_dispatch_minibuffer_and_frame_placeholders_match_compat_contracts() {
 
     for (name, args) in vec![
         ("next-frame", vec![]),
-        ("next-frame", vec![Value::Nil, Value::Nil]),
+        ("next-frame", vec![Value::NIL, Value::NIL]),
         ("previous-frame", vec![]),
-        ("previous-frame", vec![Value::Nil, Value::Nil]),
+        ("previous-frame", vec![Value::NIL, Value::NIL]),
         ("raise-frame", vec![]),
-        ("raise-frame", vec![Value::Nil]),
+        ("raise-frame", vec![Value::NIL]),
         ("suspend-emacs", vec![]),
         ("suspend-emacs", vec![Value::string("hold")]),
     ] {
@@ -4081,17 +4081,17 @@ fn pure_dispatch_minibuffer_and_frame_placeholders_match_compat_contracts() {
     }
 
     // vertical-motion needs buffer state — correctly eval-backed.
-    assert!(dispatch_builtin_pure("vertical-motion", vec![Value::Int(3)]).is_none());
+    assert!(dispatch_builtin_pure("vertical-motion", vec![Value::fixnum(3)]).is_none());
 
     let redisplay = dispatch_builtin_pure("redisplay", vec![])
         .expect("builtin redisplay should resolve")
         .expect("builtin redisplay should evaluate");
-    assert_eq!(redisplay, Value::True);
+    assert_eq!(redisplay, Value::T);
 
-    let redisplay_force = dispatch_builtin_pure("redisplay", vec![Value::True])
+    let redisplay_force = dispatch_builtin_pure("redisplay", vec![Value::T])
         .expect("builtin redisplay should resolve with optional arg")
         .expect("builtin redisplay should evaluate with optional arg");
-    assert_eq!(redisplay_force, Value::True);
+    assert_eq!(redisplay_force, Value::T);
 }
 
 #[test]
@@ -4110,7 +4110,7 @@ fn pure_dispatch_buffer_placeholder_mutators_match_compat_contracts() {
 
     let major_mode = dispatch_builtin_pure(
         "set-buffer-major-mode",
-        vec![Value::Buffer(crate::buffer::BufferId(1))],
+        vec![Value::make_buffer(crate::buffer::BufferId(1))],
     )
     .expect("builtin set-buffer-major-mode should resolve")
     .expect("builtin set-buffer-major-mode should evaluate");
@@ -4118,7 +4118,7 @@ fn pure_dispatch_buffer_placeholder_mutators_match_compat_contracts() {
 
     let redisplay = dispatch_builtin_pure(
         "set-buffer-redisplay",
-        vec![Value::Nil, Value::Int(1), Value::Int(1), Value::Int(0)],
+        vec![Value::NIL, Value::fixnum(1), Value::fixnum(1), Value::fixnum(0)],
     )
     .expect("builtin set-buffer-redisplay should resolve")
     .expect("builtin set-buffer-redisplay should evaluate");
@@ -4129,7 +4129,7 @@ fn pure_dispatch_buffer_placeholder_mutators_match_compat_contracts() {
 fn pure_dispatch_unicode_and_re_placeholders_match_compat_contracts() {
     let unicode = dispatch_builtin_pure(
         "put-unicode-property-internal",
-        vec![Value::Nil, Value::Int(0), Value::Int(1)],
+        vec![Value::NIL, Value::fixnum(0), Value::fixnum(1)],
     )
     .expect("builtin put-unicode-property-internal should resolve")
     .expect("builtin put-unicode-property-internal should evaluate");
@@ -4142,7 +4142,7 @@ fn pure_dispatch_unicode_and_re_placeholders_match_compat_contracts() {
 
     let re_indent = dispatch_builtin_pure(
         "re--describe-compiled",
-        vec![Value::string("x"), Value::Int(2)],
+        vec![Value::string("x"), Value::fixnum(2)],
     )
     .expect("builtin re--describe-compiled should resolve with indent")
     .expect("builtin re--describe-compiled should evaluate with indent");
@@ -4153,7 +4153,7 @@ fn pure_dispatch_unicode_and_re_placeholders_match_compat_contracts() {
 fn pure_dispatch_map_placeholders_match_compat_contracts() {
     let map_charset_chars = dispatch_builtin_pure(
         "map-charset-chars",
-        vec![Value::Nil, Value::symbol("unicode"), Value::Nil],
+        vec![Value::NIL, Value::symbol("unicode"), Value::NIL],
     )
     .expect("builtin map-charset-chars should resolve")
     .expect("builtin map-charset-chars should evaluate");
@@ -4164,7 +4164,7 @@ fn pure_dispatch_map_placeholders_match_compat_contracts() {
     assert!(
         dispatch_builtin_pure(
             "map-keymap",
-            vec![Value::Nil, Value::list(vec![Value::symbol("keymap")])],
+            vec![Value::NIL, Value::list(vec![Value::symbol("keymap")])],
         )
         .is_none()
     );
@@ -4172,7 +4172,7 @@ fn pure_dispatch_map_placeholders_match_compat_contracts() {
     assert!(
         dispatch_builtin_pure(
             "map-keymap-internal",
-            vec![Value::Nil, Value::list(vec![Value::symbol("keymap")])],
+            vec![Value::NIL, Value::list(vec![Value::symbol("keymap")])],
         )
         .is_none()
     );
@@ -4184,7 +4184,7 @@ fn pure_dispatch_map_placeholders_match_compat_contracts() {
 fn pure_dispatch_record_and_state_placeholders_match_compat_contracts() {
     let make_record = dispatch_builtin_pure(
         "make-record",
-        vec![Value::symbol("tag"), Value::Int(0), Value::Int(0)],
+        vec![Value::symbol("tag"), Value::fixnum(0), Value::fixnum(0)],
     )
     .expect("builtin make-record should resolve")
     .expect("builtin make-record should evaluate");
@@ -4198,10 +4198,10 @@ fn pure_dispatch_record_and_state_placeholders_match_compat_contracts() {
     )
     .expect("builtin marker-last-position should resolve")
     .expect("builtin marker-last-position should evaluate");
-    assert_eq!(marker_last_position, Value::Int(0));
+    assert_eq!(marker_last_position, Value::fixnum(0));
 
     // match-data--translate is now dispatched in eval path (needs &mut eval)
-    assert!(dispatch_builtin_pure("match-data--translate", vec![Value::Int(1)]).is_none());
+    assert!(dispatch_builtin_pure("match-data--translate", vec![Value::fixnum(1)]).is_none());
 
     let newline_cache_check = dispatch_builtin_pure("newline-cache-check", vec![])
         .expect("builtin newline-cache-check should resolve")
@@ -4217,12 +4217,12 @@ fn pure_dispatch_record_and_state_placeholders_match_compat_contracts() {
 #[test]
 fn pure_dispatch_frame_menu_mouse_placeholders_match_compat_contracts() {
     let frame_invisible =
-        dispatch_builtin_pure("make-frame-invisible", vec![Value::Nil, Value::True])
+        dispatch_builtin_pure("make-frame-invisible", vec![Value::NIL, Value::T])
             .expect("builtin make-frame-invisible should resolve")
             .expect("builtin make-frame-invisible should evaluate");
     assert!(frame_invisible.is_nil());
 
-    let terminal_frame = dispatch_builtin_pure("make-terminal-frame", vec![Value::Nil])
+    let terminal_frame = dispatch_builtin_pure("make-terminal-frame", vec![Value::NIL])
         .expect("builtin make-terminal-frame should resolve")
         .expect_err("builtin make-terminal-frame should signal unknown terminal type");
     match terminal_frame {
@@ -4232,7 +4232,7 @@ fn pure_dispatch_frame_menu_mouse_placeholders_match_compat_contracts() {
 
     let menu_at = dispatch_builtin_pure(
         "menu-bar-menu-at-x-y",
-        vec![Value::Int(0), Value::Int(0), Value::Nil],
+        vec![Value::fixnum(0), Value::fixnum(0), Value::NIL],
     )
     .expect("builtin menu-bar-menu-at-x-y should resolve")
     .expect("builtin menu-bar-menu-at-x-y should evaluate");
@@ -4317,7 +4317,7 @@ fn pure_dispatch_open_overlay_placeholders_match_compat_contracts() {
     assert!(intervals.is_nil());
 
     let char_table =
-        crate::emacs_core::chartable::make_char_table_value(Value::symbol("test-only"), Value::Nil);
+        crate::emacs_core::chartable::make_char_table_value(Value::symbol("test-only"), Value::NIL);
 
     let optimized = dispatch_builtin_pure(
         "optimize-char-table",
@@ -4332,7 +4332,7 @@ fn pure_dispatch_open_overlay_placeholders_match_compat_contracts() {
         .expect("builtin overlay-lists should evaluate");
     assert!(overlays.is_nil());
 
-    let recentered = dispatch_builtin_pure("overlay-recenter", vec![Value::Int(0)])
+    let recentered = dispatch_builtin_pure("overlay-recenter", vec![Value::fixnum(0)])
         .expect("builtin overlay-recenter should resolve")
         .expect("builtin overlay-recenter should evaluate");
     assert!(recentered.is_nil());
@@ -4350,7 +4350,7 @@ fn pure_dispatch_profiler_placeholders_match_compat_contracts() {
         .expect("builtin profiler-cpu-running-p should evaluate");
     assert!(cpu_running.is_nil());
 
-    let cpu_start = dispatch_builtin_pure("profiler-cpu-start", vec![Value::Int(1)])
+    let cpu_start = dispatch_builtin_pure("profiler-cpu-start", vec![Value::fixnum(1)])
         .expect("builtin profiler-cpu-start should resolve")
         .expect("builtin profiler-cpu-start should evaluate");
     assert!(cpu_start.is_nil());
@@ -4389,7 +4389,7 @@ fn pure_dispatch_position_placeholders_match_compat_contracts() {
     assert!(pdumper.is_nil());
 
     let position_symbol =
-        dispatch_builtin_pure("position-symbol", vec![Value::symbol("x"), Value::Nil])
+        dispatch_builtin_pure("position-symbol", vec![Value::symbol("x"), Value::NIL])
             .expect("builtin position-symbol should resolve")
             .expect("builtin position-symbol should evaluate");
     assert!(position_symbol.is_nil());
@@ -4399,12 +4399,12 @@ fn pure_dispatch_position_placeholders_match_compat_contracts() {
         .expect("builtin posn-at-point should evaluate");
     assert!(posn_at_point.is_nil());
 
-    let posn_at_xy = dispatch_builtin_pure("posn-at-x-y", vec![Value::Int(0), Value::Int(0)])
+    let posn_at_xy = dispatch_builtin_pure("posn-at-x-y", vec![Value::fixnum(0), Value::fixnum(0)])
         .expect("builtin posn-at-x-y should resolve")
         .expect("builtin posn-at-x-y should evaluate");
     assert!(posn_at_xy.is_nil());
 
-    let play_sound = dispatch_builtin_pure("play-sound-internal", vec![Value::Nil])
+    let play_sound = dispatch_builtin_pure("play-sound-internal", vec![Value::NIL])
         .expect("builtin play-sound-internal should resolve")
         .expect("builtin play-sound-internal should evaluate");
     assert!(play_sound.is_nil());
@@ -4412,7 +4412,7 @@ fn pure_dispatch_position_placeholders_match_compat_contracts() {
 
 #[test]
 fn pure_dispatch_record_query_placeholders_match_compat_contracts() {
-    let record = dispatch_builtin_pure("record", vec![Value::symbol("tag"), Value::Int(1)])
+    let record = dispatch_builtin_pure("record", vec![Value::symbol("tag"), Value::fixnum(1)])
         .expect("builtin record should resolve")
         .expect("builtin record should evaluate");
     assert!(record.is_record());
@@ -4423,17 +4423,17 @@ fn pure_dispatch_record_query_placeholders_match_compat_contracts() {
     match record_arity {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
-            assert_eq!(sig.data, vec![Value::symbol("record"), Value::Int(0)]);
+            assert_eq!(sig.data, vec![Value::symbol("record"), ValueKind::Fixnum(0)]);
         }
         other => panic!("expected signal, got: {other:?}"),
     }
 
-    let recordp = dispatch_builtin_pure("recordp", vec![Value::Nil])
+    let recordp = dispatch_builtin_pure("recordp", vec![Value::NIL])
         .expect("builtin recordp should resolve")
         .expect("builtin recordp should evaluate");
     assert!(recordp.is_nil());
 
-    let query_font = dispatch_builtin_pure("query-font", vec![Value::Nil])
+    let query_font = dispatch_builtin_pure("query-font", vec![Value::NIL])
         .expect("builtin query-font should resolve")
         .expect("builtin query-font should evaluate");
     assert!(query_font.is_nil());
@@ -4461,7 +4461,7 @@ fn pure_dispatch_record_query_placeholders_match_compat_contracts() {
 
 #[test]
 fn pure_dispatch_reconsider_redirect_placeholders_match_compat_contracts() {
-    let reconsider = dispatch_builtin_pure("reconsider-frame-fonts", vec![Value::Nil])
+    let reconsider = dispatch_builtin_pure("reconsider-frame-fonts", vec![Value::NIL])
         .expect("builtin reconsider-frame-fonts should resolve")
         .expect_err("reconsider-frame-fonts should require a window system frame");
     match reconsider {
@@ -4475,12 +4475,12 @@ fn pure_dispatch_reconsider_redirect_placeholders_match_compat_contracts() {
         other => panic!("expected signal, got: {other:?}"),
     }
 
-    let redirect_dbg = dispatch_builtin_pure("redirect-debugging-output", vec![Value::Nil])
+    let redirect_dbg = dispatch_builtin_pure("redirect-debugging-output", vec![Value::NIL])
         .expect("builtin redirect-debugging-output should resolve")
         .expect("builtin redirect-debugging-output should evaluate");
     assert!(redirect_dbg.is_nil());
 
-    let redirect_focus = dispatch_builtin_pure("redirect-frame-focus", vec![Value::Nil])
+    let redirect_focus = dispatch_builtin_pure("redirect-frame-focus", vec![Value::NIL])
         .expect("builtin redirect-frame-focus should resolve")
         .expect("builtin redirect-frame-focus should evaluate");
     assert!(redirect_focus.is_nil());
@@ -4490,7 +4490,7 @@ fn pure_dispatch_reconsider_redirect_placeholders_match_compat_contracts() {
         .expect("builtin remove-pos-from-symbol should evaluate");
     assert_eq!(remove_pos, Value::symbol("x"));
 
-    let resize_mini = dispatch_builtin_pure("resize-mini-window-internal", vec![Value::Window(1)])
+    let resize_mini = dispatch_builtin_pure("resize-mini-window-internal", vec![Value::make_window(1)])
         .expect("builtin resize-mini-window-internal should resolve")
         .expect_err("resize-mini-window-internal should reject non-minibuffer windows");
     match resize_mini {
@@ -4504,7 +4504,7 @@ fn pure_dispatch_reconsider_redirect_placeholders_match_compat_contracts() {
         other => panic!("expected signal, got: {other:?}"),
     }
 
-    let restore_modified = dispatch_builtin_pure("restore-buffer-modified-p", vec![Value::Nil])
+    let restore_modified = dispatch_builtin_pure("restore-buffer-modified-p", vec![Value::NIL])
         .expect("builtin restore-buffer-modified-p should resolve")
         .expect("builtin restore-buffer-modified-p should evaluate");
     assert!(restore_modified.is_nil());
@@ -4513,7 +4513,7 @@ fn pure_dispatch_reconsider_redirect_placeholders_match_compat_contracts() {
     let set_command_keys = builtin_set_this_command_keys(&mut eval, vec![Value::string("x")])
         .expect("builtin set--this-command-keys should evaluate");
     assert!(set_command_keys.is_nil());
-    assert_eq!(eval.read_command_keys(), &[Value::Int('x' as i64)]);
+    assert_eq!(eval.read_command_keys(), &[Value::fixnum('x' as i64)]);
 
     let set_auto_saved = dispatch_builtin_pure("set-buffer-auto-saved", vec![])
         .expect("builtin set-buffer-auto-saved should resolve")
@@ -4537,7 +4537,7 @@ fn pure_dispatch_set_window_placeholder_cluster_matches_compat_contracts() {
             vec![
                 Value::string("fontset-default"),
                 Value::symbol("target"),
-                Value::Nil,
+                Value::NIL,
             ],
         )
         .is_none()
@@ -4560,7 +4560,7 @@ fn pure_dispatch_set_window_placeholder_cluster_matches_compat_contracts() {
         crate::window::MINIBUFFER_WINDOW_ID_BASE + crate::window::FRAME_ID_BASE;
     let set_mini = dispatch_builtin_pure(
         "set-minibuffer-window",
-        vec![Value::Window(minibuffer_window_id)],
+        vec![Value::make_window(minibuffer_window_id)],
     )
     .expect("builtin set-minibuffer-window should resolve")
     .expect("builtin set-minibuffer-window should evaluate");
@@ -4568,7 +4568,7 @@ fn pure_dispatch_set_window_placeholder_cluster_matches_compat_contracts() {
 
     let set_combination = dispatch_builtin_pure(
         "set-window-combination-limit",
-        vec![Value::Window(1), Value::Nil],
+        vec![Value::make_window(1), Value::NIL],
     )
     .expect("builtin set-window-combination-limit should resolve")
     .expect_err("set-window-combination-limit should reject leaf windows");
@@ -4585,26 +4585,26 @@ fn pure_dispatch_set_window_placeholder_cluster_matches_compat_contracts() {
         other => panic!("expected signal, got: {other:?}"),
     }
 
-    let set_new_normal = dispatch_builtin_pure("set-window-new-normal", vec![Value::Nil])
+    let set_new_normal = dispatch_builtin_pure("set-window-new-normal", vec![Value::NIL])
         .expect("builtin set-window-new-normal should resolve")
         .expect("builtin set-window-new-normal should evaluate");
     assert!(set_new_normal.is_nil());
 
     let set_new_pixel = dispatch_builtin_pure(
         "set-window-new-pixel",
-        vec![Value::Nil, Value::Int(1), Value::Int(2)],
+        vec![Value::NIL, Value::fixnum(1), Value::fixnum(2)],
     )
     .expect("builtin set-window-new-pixel should resolve")
     .expect("builtin set-window-new-pixel should evaluate");
-    assert_eq!(set_new_pixel, Value::Int(1));
+    assert_eq!(set_new_pixel, Value::fixnum(1));
 
     let set_new_total = dispatch_builtin_pure(
         "set-window-new-total",
-        vec![Value::Nil, Value::Int(1), Value::Int(2)],
+        vec![Value::NIL, Value::fixnum(1), Value::fixnum(2)],
     )
     .expect("builtin set-window-new-total should resolve")
     .expect("builtin set-window-new-total should evaluate");
-    assert_eq!(set_new_total, Value::Int(1));
+    assert_eq!(set_new_total, Value::fixnum(1));
 }
 
 #[test]
@@ -4614,7 +4614,7 @@ fn pure_dispatch_sort_subr_placeholder_cluster_matches_compat_contracts() {
         .expect("builtin sort-charsets should evaluate");
     assert!(sort_charsets.is_nil());
 
-    let split_char = dispatch_builtin_pure("split-char", vec![Value::Int(65)])
+    let split_char = dispatch_builtin_pure("split-char", vec![Value::fixnum(65)])
         .expect("builtin split-char should resolve")
         .expect("builtin split-char should evaluate");
     assert!(split_char.is_nil());
@@ -4625,19 +4625,19 @@ fn pure_dispatch_sort_subr_placeholder_cluster_matches_compat_contracts() {
     )
     .expect("builtin string-distance should resolve")
     .expect("builtin string-distance should evaluate");
-    assert_eq!(string_distance, Value::Int(1));
+    assert_eq!(string_distance, Value::fixnum(1));
 
-    let subr_unit = dispatch_builtin_pure("subr-native-comp-unit", vec![Value::Nil])
+    let subr_unit = dispatch_builtin_pure("subr-native-comp-unit", vec![Value::NIL])
         .expect("builtin subr-native-comp-unit should resolve")
         .expect("builtin subr-native-comp-unit should evaluate");
     assert!(subr_unit.is_nil());
 
-    let subr_lambda_list = dispatch_builtin_pure("subr-native-lambda-list", vec![Value::Nil])
+    let subr_lambda_list = dispatch_builtin_pure("subr-native-lambda-list", vec![Value::NIL])
         .expect("builtin subr-native-lambda-list should resolve")
         .expect("builtin subr-native-lambda-list should evaluate");
     assert!(subr_lambda_list.is_nil());
 
-    let subr_type = dispatch_builtin_pure("subr-type", vec![Value::Nil])
+    let subr_type = dispatch_builtin_pure("subr-type", vec![Value::NIL])
         .expect("builtin subr-type should resolve")
         .expect("builtin subr-type should evaluate");
     assert!(subr_type.is_nil());
@@ -4655,7 +4655,7 @@ fn pure_dispatch_sort_subr_placeholder_cluster_matches_compat_contracts() {
 
 #[test]
 fn pure_dispatch_tty_tool_bar_placeholder_cluster_matches_compat_contracts() {
-    let thread_blocker = dispatch_builtin_pure("thread--blocker", vec![Value::Nil])
+    let thread_blocker = dispatch_builtin_pure("thread--blocker", vec![Value::NIL])
         .expect("builtin thread--blocker should resolve")
         .expect("builtin thread--blocker should evaluate");
     assert!(thread_blocker.is_nil());
@@ -4668,11 +4668,11 @@ fn pure_dispatch_tty_tool_bar_placeholder_cluster_matches_compat_contracts() {
     let tool_bar_width = dispatch_builtin_pure("tool-bar-pixel-width", vec![])
         .expect("builtin tool-bar-pixel-width should resolve")
         .expect("builtin tool-bar-pixel-width should evaluate");
-    assert_eq!(tool_bar_width, Value::Int(0));
+    assert_eq!(tool_bar_width, Value::fixnum(0));
 
     let translate = dispatch_builtin_pure(
         "translate-region-internal",
-        vec![Value::Int(1), Value::Int(2), Value::Nil],
+        vec![Value::fixnum(1), Value::fixnum(2), Value::NIL],
     )
     .expect("builtin translate-region-internal should resolve")
     .expect("builtin translate-region-internal should evaluate");
@@ -4681,11 +4681,11 @@ fn pure_dispatch_tty_tool_bar_placeholder_cluster_matches_compat_contracts() {
     let transpose = dispatch_builtin_pure(
         "transpose-regions",
         vec![
-            Value::Int(1),
-            Value::Int(2),
-            Value::Int(3),
-            Value::Int(4),
-            Value::Nil,
+            Value::fixnum(1),
+            Value::fixnum(2),
+            Value::fixnum(3),
+            Value::fixnum(4),
+            Value::NIL,
         ],
     )
     .expect("builtin transpose-regions should resolve")
@@ -4695,15 +4695,15 @@ fn pure_dispatch_tty_tool_bar_placeholder_cluster_matches_compat_contracts() {
     let tty_buf = dispatch_builtin_pure("tty--output-buffer-size", vec![])
         .expect("builtin tty--output-buffer-size should resolve")
         .expect("builtin tty--output-buffer-size should evaluate");
-    assert_eq!(tty_buf, Value::Int(0));
+    assert_eq!(tty_buf, Value::fixnum(0));
 
-    let tty_set = dispatch_builtin_pure("tty--set-output-buffer-size", vec![Value::Int(4096)])
+    let tty_set = dispatch_builtin_pure("tty--set-output-buffer-size", vec![Value::fixnum(4096)])
         .expect("builtin tty--set-output-buffer-size should resolve")
         .expect("builtin tty--set-output-buffer-size should evaluate");
     assert!(tty_set.is_nil());
 
     let tty_suppress =
-        dispatch_builtin_pure("tty-suppress-bold-inverse-default-colors", vec![Value::Nil])
+        dispatch_builtin_pure("tty-suppress-bold-inverse-default-colors", vec![Value::NIL])
             .expect("builtin tty-suppress-bold-inverse-default-colors should resolve")
             .expect("builtin tty-suppress-bold-inverse-default-colors should evaluate");
     assert!(tty_suppress.is_nil());
@@ -4713,7 +4713,7 @@ fn pure_dispatch_tty_tool_bar_placeholder_cluster_matches_compat_contracts() {
 fn pure_dispatch_unicode_value_placeholder_cluster_matches_compat_contracts() {
     let unencodable = dispatch_builtin_pure(
         "unencodable-char-position",
-        vec![Value::Int(1), Value::Int(2), Value::symbol("utf-8")],
+        vec![Value::fixnum(1), Value::fixnum(2), Value::symbol("utf-8")],
     )
     .expect("builtin unencodable-char-position should resolve")
     .expect("builtin unencodable-char-position should evaluate");
@@ -4729,7 +4729,7 @@ fn pure_dispatch_unicode_value_placeholder_cluster_matches_compat_contracts() {
 
     let unify = dispatch_builtin_pure(
         "unify-charset",
-        vec![Value::symbol("from"), Value::symbol("to"), Value::Nil],
+        vec![Value::symbol("from"), Value::symbol("to"), Value::NIL],
     )
     .expect("builtin unify-charset should resolve")
     .expect("builtin unify-charset should evaluate");
@@ -4740,7 +4740,7 @@ fn pure_dispatch_unicode_value_placeholder_cluster_matches_compat_contracts() {
         .expect("builtin unix-sync should evaluate");
     assert!(unix_sync.is_nil());
 
-    let value_lt = dispatch_builtin_pure("value<", vec![Value::Int(1), Value::Int(2)])
+    let value_lt = dispatch_builtin_pure("value<", vec![Value::fixnum(1), Value::fixnum(2)])
         .expect("builtin value< should resolve")
         .expect("builtin value< should evaluate");
     assert!(value_lt.is_truthy());
@@ -4753,7 +4753,7 @@ fn pure_dispatch_unicode_value_placeholder_cluster_matches_compat_contracts() {
 
 #[test]
 fn pure_dispatch_x_display_placeholder_cluster_matches_compat_contracts() {
-    let x_begin_drag = dispatch_builtin_pure("x-begin-drag", vec![Value::Nil])
+    let x_begin_drag = dispatch_builtin_pure("x-begin-drag", vec![Value::NIL])
         .expect("builtin x-begin-drag should resolve")
         .expect("builtin x-begin-drag should evaluate");
     assert!(x_begin_drag.is_nil());
@@ -4770,7 +4770,7 @@ fn pure_dispatch_x_display_placeholder_cluster_matches_compat_contracts() {
 
     let xw_defined = dispatch_builtin_pure(
         "xw-color-defined-p",
-        vec![Value::string("black"), Value::Nil],
+        vec![Value::string("black"), Value::NIL],
     )
     .expect("builtin xw-color-defined-p should resolve")
     .expect("builtin xw-color-defined-p should evaluate");
@@ -4804,7 +4804,7 @@ fn pure_dispatch_minibuffer_lock_placeholder_cluster_matches_compat_contracts() 
             .expect("builtin interactive-form should evaluate");
     assert_eq!(
         interactive_ignore,
-        Value::list(vec![Value::symbol("interactive"), Value::Nil])
+        Value::list(vec![Value::symbol("interactive"), Value::NIL])
     );
 
     let local_if_set = dispatch_builtin_pure("local-variable-if-set-p", vec![Value::symbol("x")])
@@ -4827,7 +4827,7 @@ fn pure_dispatch_minibuffer_lock_placeholder_cluster_matches_compat_contracts() 
     let lossage_size = dispatch_builtin_pure("lossage-size", vec![])
         .expect("builtin lossage-size should resolve")
         .expect("builtin lossage-size should evaluate");
-    assert_eq!(lossage_size, Value::Int(300));
+    assert_eq!(lossage_size, Value::fixnum(300));
 
     let unlock_buffer = dispatch_builtin_pure("unlock-buffer", vec![])
         .expect("builtin unlock-buffer should resolve")
@@ -4845,9 +4845,9 @@ fn interactive_form_eval_resolves_symbol_lambda_and_alias() {
     let mut eval = crate::emacs_core::eval::Context::new();
     let lambda = Value::list(vec![
         Value::symbol("lambda"),
-        Value::Nil,
+        Value::NIL,
         Value::list(vec![Value::symbol("interactive"), Value::string("p")]),
-        Value::Int(1),
+        Value::fixnum(1),
     ]);
     eval.obarray_mut()
         .set_symbol_function("vm-interactive-form-lambda", lambda);
@@ -4877,7 +4877,7 @@ fn interactive_form_eval_resolves_symbol_lambda_and_alias() {
 #[test]
 fn interactive_form_eval_uses_symbol_properties_and_builtin_subr_specs() {
     let mut eval = crate::emacs_core::eval::Context::new();
-    let target = Value::list(vec![Value::symbol("lambda"), Value::Nil, Value::Int(1)]);
+    let target = Value::list(vec![Value::symbol("lambda"), Value::NIL, Value::fixnum(1)]);
     eval.obarray_mut()
         .set_symbol_function("vm-interactive-form-property-target", target);
     eval.obarray_mut().set_symbol_function(
@@ -4938,10 +4938,10 @@ fn interactive_form_eval_skips_docstring_before_interactive_spec() {
     let mut eval = crate::emacs_core::eval::Context::new();
     let lambda_with_doc = Value::list(vec![
         Value::symbol("lambda"),
-        Value::Nil,
+        Value::NIL,
         Value::string("doc"),
         Value::list(vec![Value::symbol("interactive"), Value::string("P")]),
-        Value::Int(1),
+        Value::fixnum(1),
     ]);
     eval.obarray_mut()
         .set_symbol_function("vm-interactive-form-doc", lambda_with_doc);
@@ -4956,7 +4956,7 @@ fn interactive_form_eval_skips_docstring_before_interactive_spec() {
 #[test]
 fn interactive_form_eval_returns_nil_for_non_interactive_lambda() {
     let mut eval = crate::emacs_core::eval::Context::new();
-    let lambda = Value::list(vec![Value::symbol("lambda"), Value::Nil, Value::Int(1)]);
+    let lambda = Value::list(vec![Value::symbol("lambda"), Value::NIL, Value::fixnum(1)]);
     eval.obarray_mut()
         .set_symbol_function("vm-interactive-form-plain", lambda);
 
@@ -4971,7 +4971,7 @@ fn interactive_form_eval_returns_nil_for_non_interactive_lambda() {
             .is_nil()
     );
     assert!(
-        builtin_interactive_form(&mut eval, vec![Value::Int(0)])
+        builtin_interactive_form(&mut eval, vec![Value::fixnum(0)])
             .expect("interactive-form should evaluate")
             .is_nil()
     );
@@ -4982,15 +4982,15 @@ fn interactive_form_eval_preserves_noarg_and_explicit_nil_shapes() {
     let mut eval = crate::emacs_core::eval::Context::new();
     let noarg_lambda = Value::list(vec![
         Value::symbol("lambda"),
-        Value::Nil,
+        Value::NIL,
         Value::list(vec![Value::symbol("interactive")]),
-        Value::Int(1),
+        Value::fixnum(1),
     ]);
     let nil_lambda = Value::list(vec![
         Value::symbol("lambda"),
-        Value::Nil,
-        Value::list(vec![Value::symbol("interactive"), Value::Nil]),
-        Value::Int(1),
+        Value::NIL,
+        Value::list(vec![Value::symbol("interactive"), Value::NIL]),
+        Value::fixnum(1),
     ]);
     eval.obarray_mut()
         .set_symbol_function("vm-interactive-form-noarg", noarg_lambda);
@@ -5000,22 +5000,22 @@ fn interactive_form_eval_preserves_noarg_and_explicit_nil_shapes() {
     assert_eq!(
         builtin_interactive_form(&mut eval, vec![noarg_lambda])
             .expect("interactive-form should evaluate"),
-        Value::list(vec![Value::symbol("interactive"), Value::Nil])
+        Value::list(vec![Value::symbol("interactive"), Value::NIL])
     );
     assert_eq!(
         builtin_interactive_form(&mut eval, vec![Value::symbol("vm-interactive-form-noarg")])
             .expect("interactive-form should evaluate"),
-        Value::list(vec![Value::symbol("interactive"), Value::Nil])
+        Value::list(vec![Value::symbol("interactive"), Value::NIL])
     );
     assert_eq!(
         builtin_interactive_form(&mut eval, vec![nil_lambda])
             .expect("interactive-form should evaluate"),
-        Value::list(vec![Value::symbol("interactive"), Value::Nil])
+        Value::list(vec![Value::symbol("interactive"), Value::NIL])
     );
     assert_eq!(
         builtin_interactive_form(&mut eval, vec![Value::symbol("vm-interactive-form-nil")])
             .expect("interactive-form should evaluate"),
-        Value::list(vec![Value::symbol("interactive"), Value::Nil])
+        Value::list(vec![Value::symbol("interactive"), Value::NIL])
     );
 }
 
@@ -5025,27 +5025,27 @@ fn interactive_form_eval_signals_listp_for_improper_lambda_shapes() {
 
     let dotted_interactive = Value::list(vec![
         Value::symbol("lambda"),
-        Value::Nil,
+        Value::NIL,
         Value::cons(Value::symbol("interactive"), Value::string("p")),
-        Value::Int(1),
+        Value::fixnum(1),
     ]);
     let dotted_body = Value::cons(
         Value::symbol("lambda"),
-        Value::cons(Value::Nil, Value::cons(Value::Int(1), Value::Int(2))),
+        Value::cons(Value::NIL, Value::cons(Value::fixnum(1), Value::fixnum(2))),
     );
     let doc_dotted_body = Value::cons(
         Value::symbol("lambda"),
-        Value::cons(Value::Nil, Value::cons(Value::string("doc"), Value::Int(2))),
+        Value::cons(Value::NIL, Value::cons(Value::string("doc"), Value::fixnum(2))),
     );
     let doc_interactive_dotted_tail = Value::cons(
         Value::symbol("lambda"),
         Value::cons(
-            Value::Nil,
+            Value::NIL,
             Value::cons(
                 Value::string("doc"),
                 Value::cons(
                     Value::list(vec![Value::symbol("interactive")]),
-                    Value::Int(2),
+                    Value::fixnum(2),
                 ),
             ),
         ),
@@ -5069,7 +5069,7 @@ fn interactive_form_eval_signals_listp_for_improper_lambda_shapes() {
                 sig.data,
                 vec![
                     Value::symbol("listp"),
-                    Value::cons(Value::Int(1), Value::Int(2))
+                    Value::cons(ValueKind::Fixnum(1), ValueKind::Fixnum(2))
                 ]
             );
         }
@@ -5085,7 +5085,7 @@ fn interactive_form_eval_signals_listp_for_improper_lambda_shapes() {
                 sig.data,
                 vec![
                     Value::symbol("listp"),
-                    Value::cons(Value::string("doc"), Value::Int(2))
+                    Value::cons(Value::string("doc"), ValueKind::Fixnum(2))
                 ]
             );
         }
@@ -5095,36 +5095,36 @@ fn interactive_form_eval_signals_listp_for_improper_lambda_shapes() {
     assert_eq!(
         builtin_interactive_form(&mut eval, vec![doc_interactive_dotted_tail])
             .expect("interactive-form should stop at first interactive form"),
-        Value::list(vec![Value::symbol("interactive"), Value::Nil])
+        Value::list(vec![Value::symbol("interactive"), Value::NIL])
     );
 }
 
 #[test]
 fn pure_dispatch_internal_placeholder_cluster_matches_compat_contracts() {
-    let char_font = dispatch_builtin_pure("internal-char-font", vec![Value::Int(65)])
+    let char_font = dispatch_builtin_pure("internal-char-font", vec![Value::fixnum(65)])
         .expect("builtin internal-char-font should resolve")
         .expect("builtin internal-char-font should evaluate");
     assert!(char_font.is_nil());
 
     let char_font_with_nil_position =
-        dispatch_builtin_pure("internal-char-font", vec![Value::Nil, Value::Int(65)])
+        dispatch_builtin_pure("internal-char-font", vec![Value::NIL, Value::fixnum(65)])
             .expect("builtin internal-char-font should resolve nil-position probe")
             .expect("builtin internal-char-font should accept nil position with char probe");
     assert!(char_font_with_nil_position.is_nil());
 
     let complete_buffer = dispatch_builtin_pure(
         "internal-complete-buffer",
-        vec![Value::string("a"), Value::Int(1), Value::Int(2)],
+        vec![Value::string("a"), Value::fixnum(1), Value::fixnum(2)],
     )
     .expect("builtin internal-complete-buffer should resolve")
     .expect("builtin internal-complete-buffer should evaluate");
     assert!(complete_buffer.is_nil());
 
     let describe_syntax =
-        dispatch_builtin_pure("internal-describe-syntax-value", vec![Value::Int(0)])
+        dispatch_builtin_pure("internal-describe-syntax-value", vec![Value::fixnum(0)])
             .expect("builtin internal-describe-syntax-value should resolve")
             .expect("builtin internal-describe-syntax-value should evaluate");
-    assert_eq!(describe_syntax, Value::Int(0));
+    assert_eq!(describe_syntax, Value::fixnum(0));
 
     let parse_modifiers = dispatch_builtin_pure(
         "internal-event-symbol-parse-modifiers",
@@ -5137,7 +5137,7 @@ fn pure_dispatch_internal_placeholder_cluster_matches_compat_contracts() {
         Value::list(vec![Value::symbol("x"), Value::symbol("control")])
     );
 
-    let handle_focus_in = dispatch_builtin_pure("internal-handle-focus-in", vec![Value::Nil])
+    let handle_focus_in = dispatch_builtin_pure("internal-handle-focus-in", vec![Value::NIL])
         .expect("builtin internal-handle-focus-in should resolve")
         .expect_err("builtin internal-handle-focus-in should signal on invalid events");
     match handle_focus_in {
@@ -5165,10 +5165,10 @@ fn pure_dispatch_internal_placeholder_cluster_matches_compat_contracts() {
         .expect("builtin internal-stack-stats should evaluate");
     assert!(stack_stats.is_nil());
 
-    let subr_doc = dispatch_builtin_pure("internal-subr-documentation", vec![Value::Nil])
+    let subr_doc = dispatch_builtin_pure("internal-subr-documentation", vec![Value::NIL])
         .expect("builtin internal-subr-documentation should resolve")
         .expect("builtin internal-subr-documentation should evaluate");
-    assert_eq!(subr_doc, Value::True);
+    assert_eq!(subr_doc, Value::T);
 }
 
 #[test]
@@ -5186,7 +5186,7 @@ fn internal_track_mouse_binds_and_restores_track_mouse() {
     let result = eval.eval_expr(&forms[0]).expect("internal--track-mouse");
     assert_eq!(
         result,
-        Value::list(vec![Value::True, Value::symbol("outer")])
+        Value::list(vec![Value::T, Value::symbol("outer")])
     );
 }
 
@@ -5242,22 +5242,22 @@ fn pure_dispatch_memory_module_placeholder_cluster_matches_compat_contracts() {
     let malloc_trim = dispatch_builtin_pure("malloc-trim", vec![])
         .expect("builtin malloc-trim should resolve")
         .expect("builtin malloc-trim should evaluate");
-    assert_eq!(malloc_trim, Value::True);
+    assert_eq!(malloc_trim, Value::T);
 
-    let malloc_trim_nil = dispatch_builtin_pure("malloc-trim", vec![Value::Nil])
+    let malloc_trim_nil = dispatch_builtin_pure("malloc-trim", vec![Value::NIL])
         .expect("builtin malloc-trim should resolve with nil pad")
         .expect("builtin malloc-trim should evaluate with nil pad");
-    assert_eq!(malloc_trim_nil, Value::True);
+    assert_eq!(malloc_trim_nil, Value::T);
 
-    let malloc_trim_zero = dispatch_builtin_pure("malloc-trim", vec![Value::Int(0)])
+    let malloc_trim_zero = dispatch_builtin_pure("malloc-trim", vec![Value::fixnum(0)])
         .expect("builtin malloc-trim should resolve with integer pad")
         .expect("builtin malloc-trim should evaluate with integer pad");
-    assert_eq!(malloc_trim_zero, Value::True);
+    assert_eq!(malloc_trim_zero, Value::T);
 
     for bad in [
-        Value::Int(-1),
-        Value::True,
-        Value::vector(vec![Value::Int(1)]),
+        Value::fixnum(-1),
+        Value::T,
+        Value::vector(vec![Value::fixnum(1)]),
     ] {
         let err = dispatch_builtin_pure("malloc-trim", vec![bad])
             .expect("builtin malloc-trim should resolve for bad pad")
@@ -5276,7 +5276,7 @@ fn pure_dispatch_memory_module_placeholder_cluster_matches_compat_contracts() {
         .expect("builtin memory-info should evaluate");
     let items = list_to_vec(&memory_info).expect("memory-info should return list");
     assert_eq!(items.len(), 4);
-    assert!(items.iter().all(|item| matches!(item, Value::Int(_))));
+    assert!(items.iter().all(|item| item.is_fixnum()));
 
     let module_path = "__neovm_missing_module__.so";
     let module_load_err = dispatch_builtin_pure("module-load", vec![Value::string(module_path)])
@@ -5287,20 +5287,20 @@ fn pure_dispatch_memory_module_placeholder_cluster_matches_compat_contracts() {
             assert_eq!(sig.symbol_name(), "module-open-failed");
             assert_eq!(sig.data.first(), Some(&Value::string(module_path)));
             assert!(
-                matches!(sig.data.get(1), Some(Value::Str(_))),
+                matches!(sig.data.get(1), Some(ValueKind::String)),
                 "module-open-failed should include string error message payload"
             );
         }
         other => panic!("expected signal, got: {other:?}"),
     }
 
-    let module_load_type_err = dispatch_builtin_pure("module-load", vec![Value::Nil])
+    let module_load_type_err = dispatch_builtin_pure("module-load", vec![Value::NIL])
         .expect("builtin module-load should resolve")
         .expect_err("module-load should reject non-string path");
     match module_load_type_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::Nil]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Nil]);
         }
         other => panic!("expected signal, got: {other:?}"),
     }
@@ -5310,7 +5310,7 @@ fn pure_dispatch_memory_module_placeholder_cluster_matches_compat_contracts() {
 fn pure_dispatch_dump_portable_placeholder_cluster_matches_compat_contracts() {
     let dump_portable = dispatch_builtin_pure(
         "dump-emacs-portable",
-        vec![Value::string("dump.pdmp"), Value::Nil],
+        vec![Value::string("dump.pdmp"), Value::NIL],
     )
     .expect("builtin dump-emacs-portable should resolve")
     .expect("builtin dump-emacs-portable should evaluate");
@@ -5318,7 +5318,7 @@ fn pure_dispatch_dump_portable_placeholder_cluster_matches_compat_contracts() {
 
     let sort_predicate = dispatch_builtin_pure(
         "dump-emacs-portable--sort-predicate",
-        vec![Value::Nil, Value::Nil],
+        vec![Value::NIL, Value::NIL],
     )
     .expect("builtin dump-emacs-portable--sort-predicate should resolve")
     .expect("builtin dump-emacs-portable--sort-predicate should evaluate");
@@ -5326,7 +5326,7 @@ fn pure_dispatch_dump_portable_placeholder_cluster_matches_compat_contracts() {
 
     let sort_predicate_copied = dispatch_builtin_pure(
         "dump-emacs-portable--sort-predicate-copied",
-        vec![Value::Nil, Value::Nil],
+        vec![Value::NIL, Value::NIL],
     )
     .expect("builtin dump-emacs-portable--sort-predicate-copied should resolve")
     .expect("builtin dump-emacs-portable--sort-predicate-copied should evaluate");
@@ -5337,7 +5337,7 @@ fn pure_dispatch_dump_portable_placeholder_cluster_matches_compat_contracts() {
 fn pure_dispatch_coding_placeholder_cluster_matches_compat_contracts() {
     let byte_code = dispatch_builtin_pure(
         "byte-code",
-        vec![Value::string(""), Value::vector(vec![]), Value::Int(0)],
+        vec![Value::string(""), Value::vector(vec![]), Value::fixnum(0)],
     )
     .expect("builtin byte-code should resolve")
     .expect("builtin byte-code should evaluate");
@@ -5346,10 +5346,10 @@ fn pure_dispatch_coding_placeholder_cluster_matches_compat_contracts() {
     let decode_region = dispatch_builtin_pure(
         "decode-coding-region",
         vec![
-            Value::Int(1),
-            Value::Int(2),
+            Value::fixnum(1),
+            Value::fixnum(2),
             Value::symbol("utf-8"),
-            Value::Nil,
+            Value::NIL,
         ],
     )
     .expect("builtin decode-coding-region should resolve")
@@ -5359,10 +5359,10 @@ fn pure_dispatch_coding_placeholder_cluster_matches_compat_contracts() {
     let encode_region = dispatch_builtin_pure(
         "encode-coding-region",
         vec![
-            Value::Int(1),
-            Value::Int(2),
+            Value::fixnum(1),
+            Value::fixnum(2),
             Value::symbol("utf-8"),
-            Value::Nil,
+            Value::NIL,
         ],
     )
     .expect("builtin encode-coding-region should resolve")
@@ -5389,32 +5389,32 @@ fn pure_dispatch_def_keymap_placeholder_cluster_matches_compat_contracts() {
     assert!(
         dispatch_builtin_pure(
             "defconst-1",
-            vec![Value::symbol("foo"), Value::Int(1), Value::string("doc")],
+            vec![Value::symbol("foo"), Value::fixnum(1), Value::string("doc")],
         )
         .is_none()
     );
 
-    assert!(dispatch_builtin_pure("defvar-1", vec![Value::symbol("foo"), Value::Int(1)]).is_none());
+    assert!(dispatch_builtin_pure("defvar-1", vec![Value::symbol("foo"), Value::fixnum(1)]).is_none());
 
     let iso_charset = dispatch_builtin_pure(
         "iso-charset",
-        vec![Value::Int(1), Value::Int(2), Value::Int(3)],
+        vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)],
     )
     .expect("builtin iso-charset should resolve")
     .expect("builtin iso-charset should evaluate");
     assert!(iso_charset.is_nil());
 
-    let keyelt = dispatch_builtin_pure("keymap--get-keyelt", vec![Value::Nil, Value::Nil])
+    let keyelt = dispatch_builtin_pure("keymap--get-keyelt", vec![Value::NIL, Value::NIL])
         .expect("builtin keymap--get-keyelt should resolve")
         .expect("builtin keymap--get-keyelt should evaluate");
     assert!(keyelt.is_nil());
 
-    let keyelt_true = dispatch_builtin_pure("keymap--get-keyelt", vec![Value::True, Value::Nil])
+    let keyelt_true = dispatch_builtin_pure("keymap--get-keyelt", vec![Value::T, Value::NIL])
         .expect("builtin keymap--get-keyelt should resolve")
         .expect("builtin keymap--get-keyelt should evaluate");
     assert!(keyelt_true.is_truthy());
 
-    let keymap_prompt = dispatch_builtin_pure("keymap-prompt", vec![Value::Nil])
+    let keymap_prompt = dispatch_builtin_pure("keymap-prompt", vec![Value::NIL])
         .expect("builtin keymap-prompt should resolve")
         .expect("builtin keymap-prompt should evaluate");
     assert!(keymap_prompt.is_nil());
@@ -5428,7 +5428,7 @@ fn defvar_1_binds_only_when_default_is_unbound() {
         &mut eval,
         vec![
             Value::symbol("vm-defvar-1"),
-            Value::Int(7),
+            Value::fixnum(7),
             Value::string("doc"),
         ],
     )
@@ -5438,17 +5438,17 @@ fn defvar_1_binds_only_when_default_is_unbound() {
         eval.obarray()
             .symbol_value_id(intern("vm-defvar-1"))
             .copied(),
-        Some(Value::Int(7))
+        Some(Value::fixnum(7))
     );
 
-    let result = builtin_defvar_1(&mut eval, vec![Value::symbol("vm-defvar-1"), Value::Int(9)])
+    let result = builtin_defvar_1(&mut eval, vec![Value::symbol("vm-defvar-1"), Value::fixnum(9)])
         .expect("second defvar-1 should succeed");
     assert_eq!(result, Value::symbol("vm-defvar-1"));
     assert_eq!(
         eval.obarray()
             .symbol_value_id(intern("vm-defvar-1"))
             .copied(),
-        Some(Value::Int(7))
+        Some(Value::fixnum(7))
     );
 }
 
@@ -5460,7 +5460,7 @@ fn defconst_1_sets_constant_value_and_risky_local_property() {
         &mut eval,
         vec![
             Value::symbol("vm-defconst-1"),
-            Value::Int(11),
+            Value::fixnum(11),
             Value::string("doc"),
         ],
     )
@@ -5470,14 +5470,14 @@ fn defconst_1_sets_constant_value_and_risky_local_property() {
     let symbol = intern("vm-defconst-1");
     assert_eq!(
         eval.obarray().symbol_value_id(symbol).copied(),
-        Some(Value::Int(11))
+        Some(Value::fixnum(11))
     );
     assert!(eval.obarray().is_constant_id(symbol));
     assert_eq!(
         eval.obarray()
             .get_property_id(symbol, intern("risky-local-variable"))
             .copied(),
-        Some(Value::True)
+        Some(Value::T)
     );
 }
 
@@ -5486,7 +5486,7 @@ fn pure_dispatch_define_coding_system_internal_not_in_pure_path() {
     // define-coding-system-internal is now dispatched via the eval-aware
     // path (it needs &mut CodingSystemManager from the Context).
     // The pure dispatch returns None for it.
-    let result = dispatch_builtin_pure("define-coding-system-internal", vec![Value::Nil; 13]);
+    let result = dispatch_builtin_pure("define-coding-system-internal", vec![Value::NIL; 13]);
     assert!(result.is_none(), "should not resolve in pure dispatch");
 }
 
@@ -5505,7 +5505,7 @@ fn pure_dispatch_process_placeholder_cluster_matches_compat_contracts() {
 
     let lread_substitute = dispatch_builtin_pure(
         "lread--substitute-object-in-subtree",
-        vec![Value::Int(1), Value::Int(2), Value::Int(3)],
+        vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)],
     )
     .expect("builtin lread--substitute-object-in-subtree should resolve")
     .expect("builtin lread--substitute-object-in-subtree should evaluate");
@@ -5517,7 +5517,7 @@ fn kill_emacs_eval_requests_shutdown_and_stops_command_loop() {
     let mut eval = crate::emacs_core::eval::Context::new();
     eval.command_loop.running = true;
 
-    let result = super::symbols::builtin_kill_emacs(&mut eval, vec![Value::Int(7)])
+    let result = super::symbols::builtin_kill_emacs(&mut eval, vec![Value::fixnum(7)])
         .expect("kill-emacs eval dispatch");
     assert!(result.is_nil());
     assert_eq!(
@@ -5538,16 +5538,16 @@ fn pure_dispatch_make_placeholder_cluster_matches_compat_contracts() {
     let make_byte_code = dispatch_builtin_pure(
         "make-byte-code",
         vec![
-            Value::Int(0),
+            Value::fixnum(0),
             Value::string(""),
             Value::vector(vec![]),
-            Value::Int(0),
+            Value::fixnum(0),
         ],
     )
     .expect("builtin make-byte-code should resolve")
     .expect("builtin make-byte-code should evaluate");
     assert!(
-        matches!(make_byte_code, Value::ByteCode(_)),
+        matches!(make_byte_code, Value::ByteCode(_) /* TODO(tagged): convert Value::ByteCode to new API */),
         "make-byte-code should return a ByteCode value, got {:?}",
         make_byte_code
     );
@@ -5561,17 +5561,17 @@ fn pure_dispatch_make_placeholder_cluster_matches_compat_contracts() {
                 Value::symbol("test"),
                 Value::symbol("eq"),
                 Value::symbol("data"),
-                Value::list(vec![Value::symbol("foo"), Value::Int(42)]),
+                Value::list(vec![Value::symbol("foo"), Value::fixnum(42)]),
             ]),
         ]),
     ]);
     let make_byte_code_with_hash = dispatch_builtin_pure(
         "make-byte-code",
         vec![
-            Value::Int(0),
+            Value::fixnum(0),
             Value::string("\u{00C0}\u{0087}"),
             Value::vector(vec![hash_literal]),
-            Value::Int(1),
+            Value::fixnum(1),
         ],
     )
     .expect("builtin make-byte-code with hash literal should resolve")
@@ -5579,7 +5579,7 @@ fn pure_dispatch_make_placeholder_cluster_matches_compat_contracts() {
     let bc = make_byte_code_with_hash
         .get_bytecode_data()
         .expect("make-byte-code should produce bytecode data");
-    let Value::HashTable(table_id) = bc.constants[0] else {
+    if !bc.constants[0].is_hash_table() /* TODO(tagged): `table_id` was Value::HashTable(table_id), rewrite let-else */ {
         panic!("expected hash-table constant, got {:?}", bc.constants[0]);
     };
     let entry = with_heap(|heap| {
@@ -5587,15 +5587,15 @@ fn pure_dispatch_make_placeholder_cluster_matches_compat_contracts() {
         let key = Value::symbol("foo").to_hash_key(&table.test);
         table.data.get(&key).copied()
     });
-    assert_eq!(entry, Some(Value::Int(42)));
+    assert_eq!(entry, Some(Value::fixnum(42)));
 
-    let make_char = dispatch_builtin_pure("make-char", vec![Value::Int(1)])
+    let make_char = dispatch_builtin_pure("make-char", vec![Value::fixnum(1)])
         .expect("builtin make-char should resolve")
         .expect("builtin make-char should evaluate");
     assert!(make_char.is_nil());
 
     // make-closure requires a bytecode prototype; nil signals wrong-type-argument
-    let make_closure_result = dispatch_builtin_pure("make-closure", vec![Value::Nil])
+    let make_closure_result = dispatch_builtin_pure("make-closure", vec![Value::NIL])
         .expect("builtin make-closure should resolve");
     assert!(
         make_closure_result.is_err(),
@@ -5618,12 +5618,12 @@ fn pure_dispatch_make_placeholder_cluster_matches_compat_contracts() {
 
     let make_interpreted = dispatch_builtin_pure(
         "make-interpreted-closure",
-        vec![Value::list(vec![]), Value::list(vec![]), Value::Nil],
+        vec![Value::list(vec![]), Value::list(vec![]), Value::NIL],
     )
     .expect("builtin make-interpreted-closure should resolve")
     .expect("builtin make-interpreted-closure should evaluate");
     // make-interpreted-closure now returns a Lambda value (not nil)
-    assert!(matches!(make_interpreted, Value::Lambda(_)));
+    assert!(matches!(make_interpreted, Value::Lambda(_) /* TODO(tagged): convert Value::Lambda to new API */));
 }
 
 #[test]
@@ -5633,13 +5633,13 @@ fn pure_dispatch_treesit_placeholder_cluster_matches_compat_contracts() {
         .expect("builtin treesit-available-p should evaluate");
     assert!(available.is_nil());
 
-    let compiled_query = dispatch_builtin_pure("treesit-compiled-query-p", vec![Value::Nil])
+    let compiled_query = dispatch_builtin_pure("treesit-compiled-query-p", vec![Value::NIL])
         .expect("builtin treesit-compiled-query-p should resolve")
         .expect("builtin treesit-compiled-query-p should evaluate");
     assert!(compiled_query.is_nil());
 
     let induce_sparse =
-        dispatch_builtin_pure("treesit-induce-sparse-tree", vec![Value::Nil, Value::Nil])
+        dispatch_builtin_pure("treesit-induce-sparse-tree", vec![Value::NIL, Value::NIL])
             .expect("builtin treesit-induce-sparse-tree should resolve")
             .expect("builtin treesit-induce-sparse-tree should evaluate");
     assert!(induce_sparse.is_nil());
@@ -5651,7 +5651,7 @@ fn pure_dispatch_treesit_placeholder_cluster_matches_compat_contracts() {
 
     let language_available = dispatch_builtin_pure(
         "treesit-language-available-p",
-        vec![Value::symbol("rust"), Value::Nil],
+        vec![Value::symbol("rust"), Value::NIL],
     )
     .expect("builtin treesit-language-available-p should resolve")
     .expect("builtin treesit-language-available-p should evaluate");
@@ -5662,33 +5662,33 @@ fn pure_dispatch_treesit_placeholder_cluster_matches_compat_contracts() {
         .expect("builtin treesit-library-abi-version should evaluate");
     assert!(library_abi.is_nil());
 
-    let node_check = dispatch_builtin_pure("treesit-node-check", vec![Value::Nil, Value::Nil])
+    let node_check = dispatch_builtin_pure("treesit-node-check", vec![Value::NIL, Value::NIL])
         .expect("builtin treesit-node-check should resolve")
         .expect("builtin treesit-node-check should evaluate");
     assert!(node_check.is_nil());
 
-    let node_child = dispatch_builtin_pure("treesit-node-child", vec![Value::Nil, Value::Int(0)])
+    let node_child = dispatch_builtin_pure("treesit-node-child", vec![Value::NIL, Value::fixnum(0)])
         .expect("builtin treesit-node-child should resolve")
         .expect("builtin treesit-node-child should evaluate");
     assert!(node_child.is_nil());
 
     let node_child_by_field = dispatch_builtin_pure(
         "treesit-node-child-by-field-name",
-        vec![Value::Nil, Value::string("name")],
+        vec![Value::NIL, Value::string("name")],
     )
     .expect("builtin treesit-node-child-by-field-name should resolve")
     .expect("builtin treesit-node-child-by-field-name should evaluate");
     assert!(node_child_by_field.is_nil());
 
     let node_child_count =
-        dispatch_builtin_pure("treesit-node-child-count", vec![Value::Nil, Value::Nil])
+        dispatch_builtin_pure("treesit-node-child-count", vec![Value::NIL, Value::NIL])
             .expect("builtin treesit-node-child-count should resolve")
             .expect("builtin treesit-node-child-count should evaluate");
     assert!(node_child_count.is_nil());
 
     let node_descendant = dispatch_builtin_pure(
         "treesit-node-descendant-for-range",
-        vec![Value::Nil, Value::Int(0), Value::Int(1), Value::Nil],
+        vec![Value::NIL, Value::fixnum(0), Value::fixnum(1), Value::NIL],
     )
     .expect("builtin treesit-node-descendant-for-range should resolve")
     .expect("builtin treesit-node-descendant-for-range should evaluate");
@@ -5701,7 +5701,7 @@ fn make_byte_code_from_parts_preserves_non_string_doc_slot_as_doc_form() {
         &Value::list(vec![]),
         &Value::string(""),
         &Value::vector(vec![]),
-        &Value::Int(0),
+        &Value::fixnum(0),
         Some(&Value::symbol("advice")),
         None,
     )
@@ -5716,19 +5716,19 @@ fn make_byte_code_from_parts_preserves_non_string_doc_slot_as_doc_form() {
 
 #[test]
 fn pure_dispatch_treesit_node_placeholder_cluster_matches_compat_contracts() {
-    let node_end = dispatch_builtin_pure("treesit-node-end", vec![Value::Nil])
+    let node_end = dispatch_builtin_pure("treesit-node-end", vec![Value::NIL])
         .expect("builtin treesit-node-end should resolve")
         .expect("builtin treesit-node-end should evaluate");
     assert!(node_end.is_nil());
 
-    let node_eq = dispatch_builtin_pure("treesit-node-eq", vec![Value::Nil, Value::Nil])
+    let node_eq = dispatch_builtin_pure("treesit-node-eq", vec![Value::NIL, Value::NIL])
         .expect("builtin treesit-node-eq should resolve")
         .expect("builtin treesit-node-eq should evaluate");
     assert!(node_eq.is_nil());
 
     let field_name = dispatch_builtin_pure(
         "treesit-node-field-name-for-child",
-        vec![Value::Nil, Value::Int(0)],
+        vec![Value::NIL, Value::fixnum(0)],
     )
     .expect("builtin treesit-node-field-name-for-child should resolve")
     .expect("builtin treesit-node-field-name-for-child should evaluate");
@@ -5736,53 +5736,53 @@ fn pure_dispatch_treesit_node_placeholder_cluster_matches_compat_contracts() {
 
     let first_child_for_pos = dispatch_builtin_pure(
         "treesit-node-first-child-for-pos",
-        vec![Value::Nil, Value::Int(0), Value::Nil],
+        vec![Value::NIL, Value::fixnum(0), Value::NIL],
     )
     .expect("builtin treesit-node-first-child-for-pos should resolve")
     .expect("builtin treesit-node-first-child-for-pos should evaluate");
     assert!(first_child_for_pos.is_nil());
 
-    let match_p = dispatch_builtin_pure("treesit-node-match-p", vec![Value::Nil, Value::Nil])
+    let match_p = dispatch_builtin_pure("treesit-node-match-p", vec![Value::NIL, Value::NIL])
         .expect("builtin treesit-node-match-p should resolve")
         .expect("builtin treesit-node-match-p should evaluate");
     assert!(match_p.is_nil());
 
-    let next_sibling = dispatch_builtin_pure("treesit-node-next-sibling", vec![Value::Nil])
+    let next_sibling = dispatch_builtin_pure("treesit-node-next-sibling", vec![Value::NIL])
         .expect("builtin treesit-node-next-sibling should resolve")
         .expect("builtin treesit-node-next-sibling should evaluate");
     assert!(next_sibling.is_nil());
 
-    let node_p = dispatch_builtin_pure("treesit-node-p", vec![Value::Nil])
+    let node_p = dispatch_builtin_pure("treesit-node-p", vec![Value::NIL])
         .expect("builtin treesit-node-p should resolve")
         .expect("builtin treesit-node-p should evaluate");
     assert!(node_p.is_nil());
 
-    let parent = dispatch_builtin_pure("treesit-node-parent", vec![Value::Nil])
+    let parent = dispatch_builtin_pure("treesit-node-parent", vec![Value::NIL])
         .expect("builtin treesit-node-parent should resolve")
         .expect("builtin treesit-node-parent should evaluate");
     assert!(parent.is_nil());
 
-    let parser = dispatch_builtin_pure("treesit-node-parser", vec![Value::Nil])
+    let parser = dispatch_builtin_pure("treesit-node-parser", vec![Value::NIL])
         .expect("builtin treesit-node-parser should resolve")
         .expect("builtin treesit-node-parser should evaluate");
     assert!(parser.is_nil());
 
-    let prev_sibling = dispatch_builtin_pure("treesit-node-prev-sibling", vec![Value::Nil])
+    let prev_sibling = dispatch_builtin_pure("treesit-node-prev-sibling", vec![Value::NIL])
         .expect("builtin treesit-node-prev-sibling should resolve")
         .expect("builtin treesit-node-prev-sibling should evaluate");
     assert!(prev_sibling.is_nil());
 
-    let start = dispatch_builtin_pure("treesit-node-start", vec![Value::Nil])
+    let start = dispatch_builtin_pure("treesit-node-start", vec![Value::NIL])
         .expect("builtin treesit-node-start should resolve")
         .expect("builtin treesit-node-start should evaluate");
     assert!(start.is_nil());
 
-    let node_string = dispatch_builtin_pure("treesit-node-string", vec![Value::Nil])
+    let node_string = dispatch_builtin_pure("treesit-node-string", vec![Value::NIL])
         .expect("builtin treesit-node-string should resolve")
         .expect("builtin treesit-node-string should evaluate");
     assert!(node_string.is_nil());
 
-    let node_type = dispatch_builtin_pure("treesit-node-type", vec![Value::Nil])
+    let node_type = dispatch_builtin_pure("treesit-node-type", vec![Value::NIL])
         .expect("builtin treesit-node-type should resolve")
         .expect("builtin treesit-node-type should evaluate");
     assert!(node_type.is_nil());
@@ -5797,7 +5797,7 @@ fn pure_dispatch_typed_ignore_accepts_any_arity() {
 
     let many = dispatch_builtin_pure(
         "ignore",
-        vec![Value::Int(1), Value::string("x"), Value::symbol("foo")],
+        vec![Value::fixnum(1), Value::string("x"), Value::symbol("foo")],
     )
     .expect("builtin ignore should resolve")
     .expect("builtin ignore should evaluate");
@@ -5811,12 +5811,12 @@ fn match_data_round_trip_with_nil_groups() {
     builtin_set_match_data(
         &mut eval,
         vec![Value::list(vec![
-            Value::Int(0),
-            Value::Int(2),
-            Value::Nil,
-            Value::Nil,
-            Value::Int(5),
-            Value::Int(7),
+            Value::fixnum(0),
+            Value::fixnum(2),
+            Value::NIL,
+            Value::NIL,
+            Value::fixnum(5),
+            Value::fixnum(7),
         ])],
     )
     .expect("set-match-data should succeed");
@@ -5825,12 +5825,12 @@ fn match_data_round_trip_with_nil_groups() {
     assert_eq!(
         md,
         Value::list(vec![
-            Value::Int(0),
-            Value::Int(2),
-            Value::Nil,
-            Value::Nil,
-            Value::Int(5),
-            Value::Int(7)
+            Value::fixnum(0),
+            Value::fixnum(2),
+            Value::NIL,
+            Value::NIL,
+            Value::fixnum(5),
+            Value::fixnum(7)
         ])
     );
 }
@@ -5859,12 +5859,12 @@ fn bootstrap_runtime_set_match_data_restores_multibyte_buffer_positions_like_gnu
 #[test]
 fn match_beginning_end_return_nil_without_match_data() {
     let mut eval = crate::emacs_core::eval::Context::new();
-    builtin_set_match_data(&mut eval, vec![Value::Nil]).expect("set-match-data nil");
+    builtin_set_match_data(&mut eval, vec![Value::NIL]).expect("set-match-data nil");
 
-    let beg = builtin_match_beginning(&mut eval, vec![Value::Int(0)])
+    let beg = builtin_match_beginning(&mut eval, vec![Value::fixnum(0)])
         .expect("match-beginning should not error");
     let end =
-        builtin_match_end(&mut eval, vec![Value::Int(0)]).expect("match-end should not error");
+        builtin_match_end(&mut eval, vec![Value::fixnum(0)]).expect("match-end should not error");
     assert!(beg.is_nil());
     assert!(end.is_nil());
 }
@@ -5873,32 +5873,32 @@ fn match_beginning_end_return_nil_without_match_data() {
 fn negative_match_group_signals_args_out_of_range() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
-    let match_string_err = builtin_match_string(&mut eval, vec![Value::Int(-1)])
+    let match_string_err = builtin_match_string(&mut eval, vec![Value::fixnum(-1)])
         .expect_err("negative subgroup should signal");
     match match_string_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![Value::Int(-1), Value::Int(0)]);
+            assert_eq!(sig.data, vec![Value::Int(-1), ValueKind::Fixnum(0)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    let match_beginning_err = builtin_match_beginning(&mut eval, vec![Value::Int(-1)])
+    let match_beginning_err = builtin_match_beginning(&mut eval, vec![Value::fixnum(-1)])
         .expect_err("negative subgroup should signal");
     match match_beginning_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![Value::Int(-1), Value::Int(0)]);
+            assert_eq!(sig.data, vec![Value::Int(-1), ValueKind::Fixnum(0)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    let match_end_err = builtin_match_end(&mut eval, vec![Value::Int(-1)])
+    let match_end_err = builtin_match_end(&mut eval, vec![Value::fixnum(-1)])
         .expect_err("negative subgroup should signal");
     match match_end_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![Value::Int(-1), Value::Int(0)]);
+            assert_eq!(sig.data, vec![Value::Int(-1), ValueKind::Fixnum(0)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -5910,43 +5910,43 @@ fn buffer_region_negative_bounds_signal_without_panicking() {
     builtin_insert(&mut eval, vec![Value::string("abc")]).expect("insert should succeed");
     let current = builtin_current_buffer(&mut eval, vec![]).expect("current-buffer should work");
 
-    let substring_err = builtin_buffer_substring(&mut eval, vec![Value::Int(-1), Value::Int(2)])
+    let substring_err = builtin_buffer_substring(&mut eval, vec![Value::fixnum(-1), Value::fixnum(2)])
         .expect_err("negative start should signal");
     match substring_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![current, Value::Int(-1), Value::Int(2)]);
+            assert_eq!(sig.data, vec![current, Value::Int(-1), ValueKind::Fixnum(2)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    let delete_err = builtin_delete_region(&mut eval, vec![Value::Int(-1), Value::Int(2)])
+    let delete_err = builtin_delete_region(&mut eval, vec![Value::fixnum(-1), Value::fixnum(2)])
         .expect_err("negative start should signal");
     match delete_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![current, Value::Int(-1), Value::Int(2)]);
+            assert_eq!(sig.data, vec![current, Value::Int(-1), ValueKind::Fixnum(2)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    let narrow_err = builtin_narrow_to_region(&mut eval, vec![Value::Int(-1), Value::Int(2)])
+    let narrow_err = builtin_narrow_to_region(&mut eval, vec![Value::fixnum(-1), Value::fixnum(2)])
         .expect_err("negative start should signal");
     match narrow_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![Value::Int(-1), Value::Int(2)]);
+            assert_eq!(sig.data, vec![Value::Int(-1), ValueKind::Fixnum(2)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
 
     assert_eq!(
-        builtin_char_after(&mut eval, vec![Value::Int(-1)]).expect("char-after should succeed"),
-        Value::Nil
+        builtin_char_after(&mut eval, vec![Value::fixnum(-1)]).expect("char-after should succeed"),
+        Value::NIL
     );
     assert_eq!(
-        builtin_char_before(&mut eval, vec![Value::Int(0)]).expect("char-before should succeed"),
-        Value::Nil
+        builtin_char_before(&mut eval, vec![Value::fixnum(0)]).expect("char-before should succeed"),
+        Value::NIL
     );
 }
 
@@ -5955,7 +5955,7 @@ fn delete_region_normalizes_reversed_bounds() {
     let mut eval = crate::emacs_core::eval::Context::new();
     builtin_insert(&mut eval, vec![Value::string("abc")]).expect("insert should succeed");
 
-    builtin_delete_region(&mut eval, vec![Value::Int(3), Value::Int(2)])
+    builtin_delete_region(&mut eval, vec![Value::fixnum(3), Value::fixnum(2)])
         .expect("delete-region should accept reversed bounds");
 
     let text = builtin_buffer_string(&mut eval, vec![]).expect("buffer-string should succeed");
@@ -5967,21 +5967,21 @@ fn string_match_start_handles_nil_and_negative_offsets() {
     let mut eval = crate::emacs_core::eval::Context::new();
     let with_nil = builtin_string_match(
         &mut eval,
-        vec![Value::string("a"), Value::string("ba"), Value::Nil],
+        vec![Value::string("a"), Value::string("ba"), Value::NIL],
     )
     .expect("string-match with nil start");
-    assert_eq!(with_nil, Value::Int(1));
+    assert_eq!(with_nil, Value::fixnum(1));
 
     let with_negative = builtin_string_match(
         &mut eval,
-        vec![Value::string("a"), Value::string("ba"), Value::Int(-1)],
+        vec![Value::string("a"), Value::string("ba"), Value::fixnum(-1)],
     )
     .expect("string-match with negative start");
-    assert_eq!(with_negative, Value::Int(1));
+    assert_eq!(with_negative, Value::fixnum(1));
 
     let out_of_range = builtin_string_match(
         &mut eval,
-        vec![Value::string("a"), Value::string("ba"), Value::Int(3)],
+        vec![Value::string("a"), Value::string("ba"), Value::fixnum(3)],
     );
     assert!(out_of_range.is_err());
 }
@@ -5994,10 +5994,10 @@ fn search_match_runtime_arity_edges_match_oracle_contracts() {
         &mut eval,
         vec![
             Value::string("a"),
-            Value::Nil,
-            Value::Nil,
-            Value::Int(1),
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
+            Value::fixnum(1),
+            Value::NIL,
         ],
     );
     assert!(matches!(
@@ -6009,10 +6009,10 @@ fn search_match_runtime_arity_edges_match_oracle_contracts() {
         &mut eval,
         vec![
             Value::string("a"),
-            Value::Nil,
-            Value::Nil,
-            Value::Int(1),
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
+            Value::fixnum(1),
+            Value::NIL,
         ],
     );
     assert!(matches!(
@@ -6021,24 +6021,24 @@ fn search_match_runtime_arity_edges_match_oracle_contracts() {
     ));
 
     let looking_at_optional_second =
-        builtin_looking_at(&mut eval, vec![Value::string("a"), Value::True]);
+        builtin_looking_at(&mut eval, vec![Value::string("a"), Value::T]);
     assert!(looking_at_optional_second.is_ok());
 
     let looking_at_over_arity =
-        builtin_looking_at(&mut eval, vec![Value::string("a"), Value::Nil, Value::Nil]);
+        builtin_looking_at(&mut eval, vec![Value::string("a"), Value::NIL, Value::NIL]);
     assert!(matches!(
         looking_at_over_arity,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
     ));
 
     let looking_at_p_over_arity =
-        builtin_looking_at_p(&mut eval, vec![Value::string("a"), Value::Nil]);
+        builtin_looking_at_p(&mut eval, vec![Value::string("a"), Value::NIL]);
     assert!(matches!(
         looking_at_p_over_arity,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
     ));
 
-    let looking_at_p_bad_type = builtin_looking_at_p(&mut eval, vec![Value::Int(1)]);
+    let looking_at_p_bad_type = builtin_looking_at_p(&mut eval, vec![Value::fixnum(1)]);
     assert!(matches!(
         looking_at_p_bad_type,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-type-argument"
@@ -6046,7 +6046,7 @@ fn search_match_runtime_arity_edges_match_oracle_contracts() {
 
     let match_string_over_arity = builtin_match_string(
         &mut eval,
-        vec![Value::Int(0), Value::string("a"), Value::Nil],
+        vec![Value::fixnum(0), Value::string("a"), Value::NIL],
     );
     assert!(matches!(
         match_string_over_arity,
@@ -6057,11 +6057,11 @@ fn search_match_runtime_arity_edges_match_oracle_contracts() {
         &mut eval,
         vec![
             Value::string("x"),
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
         ],
     );
     assert!(matches!(
@@ -6074,9 +6074,9 @@ fn search_match_runtime_arity_edges_match_oracle_contracts() {
         vec![
             Value::string("a"),
             Value::string("a"),
-            Value::Int(0),
-            Value::Nil,
-            Value::Nil,
+            Value::fixnum(0),
+            Value::NIL,
+            Value::NIL,
         ],
     );
     assert!(matches!(
@@ -6089,8 +6089,8 @@ fn search_match_runtime_arity_edges_match_oracle_contracts() {
         vec![
             Value::string("a"),
             Value::string("a"),
-            Value::Int(0),
-            Value::Nil,
+            Value::fixnum(0),
+            Value::NIL,
         ],
     );
     assert!(matches!(
@@ -6102,7 +6102,7 @@ fn search_match_runtime_arity_edges_match_oracle_contracts() {
 #[test]
 fn set_match_data_rejects_non_list() {
     let mut eval = crate::emacs_core::eval::Context::new();
-    let result = builtin_set_match_data(&mut eval, vec![Value::Int(1)]);
+    let result = builtin_set_match_data(&mut eval, vec![Value::fixnum(1)]);
     assert!(result.is_err());
 }
 
@@ -6117,9 +6117,9 @@ fn looking_at_inhibit_modify_preserves_match_data() {
         buffer.goto_char(0);
     }
 
-    let baseline = Value::list(vec![Value::Int(10), Value::Int(11)]);
+    let baseline = Value::list(vec![Value::fixnum(10), Value::fixnum(11)]);
     builtin_set_match_data(&mut eval, vec![baseline]).expect("setting baseline match-data");
-    let result = builtin_looking_at(&mut eval, vec![Value::string("a"), Value::True]);
+    let result = builtin_looking_at(&mut eval, vec![Value::string("a"), Value::T]);
     assert!(result.is_ok());
 
     let observed = builtin_match_data(&mut eval, vec![]).expect("read match-data");
@@ -6137,8 +6137,8 @@ fn looking_at_updates_match_data_when_allowed() {
         buffer.goto_char(0);
     }
 
-    builtin_set_match_data(&mut eval, vec![Value::Nil]).expect("clear match-data");
-    let result = builtin_looking_at(&mut eval, vec![Value::string("a"), Value::Nil]);
+    builtin_set_match_data(&mut eval, vec![Value::NIL]).expect("clear match-data");
+    let result = builtin_looking_at(&mut eval, vec![Value::string("a"), Value::NIL]);
     assert!(result.is_ok());
 
     let observed = builtin_match_data(&mut eval, vec![]).expect("read match-data");
@@ -6150,7 +6150,7 @@ fn looking_at_updates_match_data_when_allowed() {
     );
     // Check with INTEGERS flag to get integer positions.
     let int_md =
-        builtin_match_data(&mut eval, vec![Value::True]).expect("read match-data integers");
+        builtin_match_data(&mut eval, vec![Value::T]).expect("read match-data integers");
     // Compare structurally: extract the integer values
     let items =
         crate::emacs_core::value::list_to_vec(&int_md).expect("match-data should be a proper list");
@@ -6180,7 +6180,7 @@ fn looking_at_p_preserves_match_data() {
         buffer.goto_char(0);
     }
 
-    let baseline = Value::list(vec![Value::Int(1), Value::Int(2)]);
+    let baseline = Value::list(vec![Value::fixnum(1), Value::fixnum(2)]);
     builtin_set_match_data(&mut eval, vec![baseline]).expect("seed baseline");
     let _ = builtin_looking_at_p(&mut eval, vec![Value::string("z")])
         .expect("looking-at-p handles non-match");
@@ -6193,7 +6193,7 @@ fn string_match_inhibit_modify_preserves_match_data() {
     use crate::emacs_core::eval::Context;
 
     let mut eval = Context::new();
-    let baseline = Value::list(vec![Value::Int(10), Value::Int(11)]);
+    let baseline = Value::list(vec![Value::fixnum(10), Value::fixnum(11)]);
     builtin_set_match_data(&mut eval, vec![baseline]).expect("seed baseline");
 
     let result = builtin_string_match(
@@ -6201,12 +6201,12 @@ fn string_match_inhibit_modify_preserves_match_data() {
         vec![
             Value::string("\\(foo\\)\\(bar\\)"),
             Value::string("foobar"),
-            Value::Nil,
-            Value::True,
+            Value::NIL,
+            Value::T,
         ],
     )
     .expect("string-match with inhibit-modify");
-    assert_eq!(result, Value::Int(0));
+    assert_eq!(result, Value::fixnum(0));
 
     let observed = builtin_match_data(&mut eval, vec![]).expect("read match-data");
     assert_eq!(observed, baseline);
@@ -6227,10 +6227,10 @@ fn replace_match_missing_subexp_signals_error() {
         &mut eval,
         vec![
             Value::string("bar"),
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
             Value::string("foo"),
-            Value::Int(2),
+            Value::fixnum(2),
         ],
     );
     assert!(matches!(
@@ -6240,7 +6240,7 @@ fn replace_match_missing_subexp_signals_error() {
                 && sig.data
                     == vec![
                         Value::string("replace-match subexpression does not exist"),
-                        Value::Int(2),
+                        Value::fixnum(2),
                     ]
     ));
 }
@@ -6250,7 +6250,7 @@ fn replace_match_without_active_match_data_signals_missing_subexp_like_gnu() {
     use crate::emacs_core::eval::Context;
 
     let mut eval = Context::new();
-    builtin_set_match_data(&mut eval, vec![Value::Nil]).expect("clear match data");
+    builtin_set_match_data(&mut eval, vec![Value::NIL]).expect("clear match data");
 
     let result = builtin_replace_match(&mut eval, vec![Value::string("bar")]);
     assert!(matches!(
@@ -6260,7 +6260,7 @@ fn replace_match_without_active_match_data_signals_missing_subexp_like_gnu() {
                 && sig.data
                     == vec![
                         Value::string("replace-match subexpression does not exist"),
-                        Value::Nil,
+                        Value::NIL,
                     ]
     ));
 }
@@ -6285,28 +6285,28 @@ fn replace_match_buffer_updates_live_match_data_like_gnu() {
     assert_eq!(buffer.text.text_range(0, buffer.text.len()), "42-foo");
 
     assert_eq!(
-        builtin_match_beginning(&mut eval, vec![Value::Int(0)]).expect("match-beginning 0"),
-        Value::Int(1)
+        builtin_match_beginning(&mut eval, vec![Value::fixnum(0)]).expect("match-beginning 0"),
+        Value::fixnum(1)
     );
     assert_eq!(
-        builtin_match_end(&mut eval, vec![Value::Int(0)]).expect("match-end 0"),
-        Value::Int(7)
+        builtin_match_end(&mut eval, vec![Value::fixnum(0)]).expect("match-end 0"),
+        Value::fixnum(7)
     );
     assert_eq!(
-        builtin_match_beginning(&mut eval, vec![Value::Int(1)]).expect("match-beginning 1"),
-        Value::Int(1)
+        builtin_match_beginning(&mut eval, vec![Value::fixnum(1)]).expect("match-beginning 1"),
+        Value::fixnum(1)
     );
     assert_eq!(
-        builtin_match_end(&mut eval, vec![Value::Int(1)]).expect("match-end 1"),
-        Value::Int(1)
+        builtin_match_end(&mut eval, vec![Value::fixnum(1)]).expect("match-end 1"),
+        Value::fixnum(1)
     );
     assert_eq!(
-        builtin_match_beginning(&mut eval, vec![Value::Int(2)]).expect("match-beginning 2"),
-        Value::Int(1)
+        builtin_match_beginning(&mut eval, vec![Value::fixnum(2)]).expect("match-beginning 2"),
+        Value::fixnum(1)
     );
     assert_eq!(
-        builtin_match_end(&mut eval, vec![Value::Int(2)]).expect("match-end 2"),
-        Value::Int(7)
+        builtin_match_end(&mut eval, vec![Value::fixnum(2)]).expect("match-end 2"),
+        Value::fixnum(7)
     );
 }
 
@@ -6318,23 +6318,23 @@ fn match_data_translate_shifts_groups_in_shared_eval_state() {
     builtin_set_match_data(
         &mut eval,
         vec![Value::list(vec![
-            Value::Int(1),
-            Value::Int(4),
-            Value::Int(2),
-            Value::Int(3),
+            Value::fixnum(1),
+            Value::fixnum(4),
+            Value::fixnum(2),
+            Value::fixnum(3),
         ])],
     )
     .expect("seed match data");
 
-    builtin_match_data_translate(&mut eval, vec![Value::Int(5)]).expect("translate match data");
+    builtin_match_data_translate(&mut eval, vec![Value::fixnum(5)]).expect("translate match data");
 
     assert_eq!(
         builtin_match_data(&mut eval, vec![]).expect("read translated match data"),
         Value::list(vec![
-            Value::Int(6),
-            Value::Int(9),
-            Value::Int(7),
-            Value::Int(8),
+            Value::fixnum(6),
+            Value::fixnum(9),
+            Value::fixnum(7),
+            Value::fixnum(8),
         ])
     );
 }
@@ -6350,16 +6350,16 @@ fn looking_at_p_respects_case_fold_search() {
         buffer.goto_char(0);
     }
 
-    eval.set_variable("case-fold-search", Value::Nil);
-    let sensitive = builtin_looking_at(&mut eval, vec![Value::string("a"), Value::Nil])
+    eval.set_variable("case-fold-search", Value::NIL);
+    let sensitive = builtin_looking_at(&mut eval, vec![Value::string("a"), Value::NIL])
         .expect("looking-at with case-fold-search=nil");
     let sensitive_p = builtin_looking_at_p(&mut eval, vec![Value::string("a")])
         .expect("looking-at-p with case-fold-search=nil");
     assert!(sensitive.is_nil());
     assert!(sensitive_p.is_nil());
 
-    eval.set_variable("case-fold-search", Value::True);
-    let insensitive = builtin_looking_at(&mut eval, vec![Value::string("a"), Value::Nil])
+    eval.set_variable("case-fold-search", Value::T);
+    let insensitive = builtin_looking_at(&mut eval, vec![Value::string("a"), Value::NIL])
         .expect("looking-at with case-fold-search=t");
     let insensitive_p = builtin_looking_at_p(&mut eval, vec![Value::string("a")])
         .expect("looking-at-p with case-fold-search=t");
@@ -6433,20 +6433,20 @@ fn dispatch_builtin_pure_defers_evaluator_window_accessors_and_mutators() {
 
 #[test]
 fn dispatch_builtin_pure_handles_treesit_parser_query_and_search_placeholders() {
-    let parser = dispatch_builtin_pure("treesit-parser-buffer", vec![Value::Nil])
+    let parser = dispatch_builtin_pure("treesit-parser-buffer", vec![Value::NIL])
         .expect("treesit-parser-buffer should resolve")
         .expect("treesit-parser-buffer should evaluate");
-    assert_eq!(parser, Value::Nil);
+    assert_eq!(parser, Value::NIL);
 
     let search = dispatch_builtin_pure(
         "treesit-search-forward",
-        vec![Value::Nil, Value::Nil, Value::Nil, Value::Nil],
+        vec![Value::NIL, Value::NIL, Value::NIL, Value::NIL],
     )
     .expect("treesit-search-forward should resolve")
     .expect("treesit-search-forward should evaluate");
-    assert_eq!(search, Value::Nil);
+    assert_eq!(search, Value::NIL);
 
-    let err = dispatch_builtin_pure("treesit-query-compile", vec![Value::Nil])
+    let err = dispatch_builtin_pure("treesit-query-compile", vec![Value::NIL])
         .expect("treesit-query-compile should resolve")
         .unwrap_err();
     match err {
@@ -6459,24 +6459,24 @@ fn dispatch_builtin_pure_handles_treesit_parser_query_and_search_placeholders() 
 fn dispatch_builtin_pure_handles_inotify_watch_lifecycle() {
     let watch = dispatch_builtin_pure(
         "inotify-add-watch",
-        vec![Value::string("/tmp"), Value::Nil, Value::symbol("ignore")],
+        vec![Value::string("/tmp"), Value::NIL, Value::symbol("ignore")],
     )
     .expect("inotify-add-watch should resolve")
     .expect("inotify-add-watch should evaluate");
     let active = dispatch_builtin_pure("inotify-valid-p", vec![watch])
         .expect("inotify-valid-p should resolve")
         .expect("inotify-valid-p should evaluate");
-    assert_eq!(active, Value::True);
+    assert_eq!(active, Value::T);
 
     let removed = dispatch_builtin_pure("inotify-rm-watch", vec![watch])
         .expect("inotify-rm-watch should resolve")
         .expect("inotify-rm-watch should evaluate");
-    assert_eq!(removed, Value::True);
+    assert_eq!(removed, Value::T);
 
     let inactive = dispatch_builtin_pure("inotify-valid-p", vec![watch])
         .expect("inotify-valid-p should resolve")
         .expect("inotify-valid-p should evaluate");
-    assert_eq!(inactive, Value::Nil);
+    assert_eq!(inactive, Value::NIL);
 }
 
 #[test]
@@ -6487,12 +6487,12 @@ fn dispatch_builtin_pure_handles_sqlite_lifecycle_and_closed_handle_guard() {
     let sqlitep = dispatch_builtin_pure("sqlitep", vec![db])
         .expect("sqlitep should resolve")
         .expect("sqlitep should evaluate");
-    assert_eq!(sqlitep, Value::True);
+    assert_eq!(sqlitep, Value::T);
 
     let closed = dispatch_builtin_pure("sqlite-close", vec![db])
         .expect("sqlite-close should resolve")
         .expect("sqlite-close should evaluate");
-    assert_eq!(closed, Value::True);
+    assert_eq!(closed, Value::T);
 
     let err = dispatch_builtin_pure("sqlite-execute", vec![db, Value::string("select 1")])
         .expect("sqlite-execute should resolve")
@@ -6505,22 +6505,22 @@ fn dispatch_builtin_pure_handles_sqlite_lifecycle_and_closed_handle_guard() {
 
 #[test]
 fn dispatch_builtin_pure_handles_fillarray_and_find_coding_region_internal() {
-    let vector = Value::vector(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
-    let filled = dispatch_builtin_pure("fillarray", vec![vector, Value::Int(9)])
+    let vector = Value::vector(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
+    let filled = dispatch_builtin_pure("fillarray", vec![vector, Value::fixnum(9)])
         .expect("fillarray should resolve")
         .expect("fillarray should evaluate");
-    let Value::Vector(values) = filled else {
+    if !filled.is_vector() /* TODO(tagged): `values` was Value::Vector(values), rewrite let-else */ {
         panic!("expected vector");
     };
     assert_eq!(
         &*with_heap(|h| h.get_vector(values).clone()),
-        &[Value::Int(9), Value::Int(9), Value::Int(9)]
+        &[Value::fixnum(9), Value::fixnum(9), Value::fixnum(9)]
     );
 
     assert!(
         dispatch_builtin_pure(
             "find-coding-systems-region-internal",
-            vec![Value::Int(0), Value::Int(1)]
+            vec![Value::fixnum(0), Value::fixnum(1)]
         )
         .is_none(),
         "find-coding-systems-region-internal should use the eval-aware path"
@@ -6530,18 +6530,18 @@ fn dispatch_builtin_pure_handles_fillarray_and_find_coding_region_internal() {
     let coding = dispatch_builtin(
         &mut eval,
         "find-coding-systems-region-internal",
-        vec![Value::string("hello"), Value::Nil],
+        vec![Value::string("hello"), Value::NIL],
     )
     .expect("find-coding-systems-region-internal should resolve")
     .expect("find-coding-systems-region-internal should evaluate");
-    assert_eq!(coding, Value::True);
+    assert_eq!(coding, Value::T);
 }
 
 #[test]
 fn dispatch_builtin_pure_handles_fringe_display_and_debug_output_placeholders() {
     let bitmap = dispatch_builtin_pure(
         "define-fringe-bitmap",
-        vec![Value::symbol("neo"), Value::vector(vec![Value::Int(0)])],
+        vec![Value::symbol("neo"), Value::vector(vec![Value::fixnum(0)])],
     )
     .expect("define-fringe-bitmap should resolve")
     .expect("define-fringe-bitmap should evaluate");
@@ -6550,19 +6550,19 @@ fn dispatch_builtin_pure_handles_fringe_display_and_debug_output_placeholders() 
     let destroy = dispatch_builtin_pure("destroy-fringe-bitmap", vec![Value::symbol("neo")])
         .expect("destroy-fringe-bitmap should resolve")
         .expect("destroy-fringe-bitmap should evaluate");
-    assert_eq!(destroy, Value::Nil);
+    assert_eq!(destroy, Value::NIL);
 
     let line = dispatch_builtin_pure("display--line-is-continued-p", vec![])
         .expect("display--line-is-continued-p should resolve")
         .expect("display--line-is-continued-p should evaluate");
-    assert_eq!(line, Value::Nil);
+    assert_eq!(line, Value::NIL);
 
     let autosave = dispatch_builtin_pure("do-auto-save", vec![])
         .expect("do-auto-save should resolve")
         .expect("do-auto-save should evaluate");
-    assert_eq!(autosave, Value::Nil);
+    assert_eq!(autosave, Value::NIL);
 
-    let err = dispatch_builtin_pure("external-debugging-output", vec![Value::Int(-1)])
+    let err = dispatch_builtin_pure("external-debugging-output", vec![Value::fixnum(-1)])
         .expect("external-debugging-output should resolve")
         .unwrap_err();
     match err {
@@ -6583,7 +6583,7 @@ fn mouse_position_builtins_default_to_selected_frame_with_nil_coords() {
         .expect("mouse-pixel-position should evaluate");
     assert_eq!(
         pixel,
-        Value::cons(selected, Value::cons(Value::Nil, Value::Nil))
+        Value::cons(selected, Value::cons(Value::NIL, Value::NIL))
     );
 
     let pos = dispatch_builtin(&mut eval, "mouse-position", vec![])
@@ -6591,7 +6591,7 @@ fn mouse_position_builtins_default_to_selected_frame_with_nil_coords() {
         .expect("mouse-position should evaluate");
     assert_eq!(
         pos,
-        Value::cons(selected, Value::cons(Value::Nil, Value::Nil))
+        Value::cons(selected, Value::cons(Value::NIL, Value::NIL))
     );
 }
 
@@ -6601,7 +6601,7 @@ fn display_update_for_mouse_movement_updates_shared_mouse_state() {
     let frame = dispatch_builtin(&mut eval, "selected-frame", vec![])
         .expect("selected-frame should resolve")
         .expect("selected-frame should evaluate");
-    let Value::Frame(frame_id) = frame else {
+    if !frame.is_frame() /* TODO(tagged): `frame_id` was Value::Frame(frame_id), rewrite let-else */ {
         panic!("selected-frame should return a frame");
     };
     if let Some(frame) = eval.frames.get_mut(crate::window::FrameId(frame_id)) {
@@ -6612,18 +6612,18 @@ fn display_update_for_mouse_movement_updates_shared_mouse_state() {
     let update = dispatch_builtin(
         &mut eval,
         "display--update-for-mouse-movement",
-        vec![frame, Value::Int(16), Value::Int(32)],
+        vec![frame, Value::fixnum(16), Value::fixnum(32)],
     )
     .expect("display--update-for-mouse-movement should resolve")
     .expect("display--update-for-mouse-movement should evaluate");
-    assert_eq!(update, Value::Nil);
+    assert_eq!(update, Value::NIL);
 
     let pixel = dispatch_builtin(&mut eval, "mouse-pixel-position", vec![])
         .expect("mouse-pixel-position should resolve")
         .expect("mouse-pixel-position should evaluate");
     assert_eq!(
         pixel,
-        Value::cons(frame, Value::cons(Value::Int(16), Value::Int(32)))
+        Value::cons(frame, Value::cons(Value::fixnum(16), Value::fixnum(32)))
     );
 
     let pos = dispatch_builtin(&mut eval, "mouse-position", vec![])
@@ -6631,7 +6631,7 @@ fn display_update_for_mouse_movement_updates_shared_mouse_state() {
         .expect("mouse-position should evaluate");
     assert_eq!(
         pos,
-        Value::cons(frame, Value::cons(Value::Int(2), Value::Int(2)))
+        Value::cons(frame, Value::cons(Value::fixnum(2), Value::fixnum(2)))
     );
 }
 
@@ -6641,7 +6641,7 @@ fn set_mouse_position_builtins_update_shared_mouse_state() {
     let frame = dispatch_builtin(&mut eval, "selected-frame", vec![])
         .expect("selected-frame should resolve")
         .expect("selected-frame should evaluate");
-    let Value::Frame(frame_id) = frame else {
+    if !frame.is_frame() /* TODO(tagged): `frame_id` was Value::Frame(frame_id), rewrite let-else */ {
         panic!("selected-frame should return a frame");
     };
     if let Some(frame) = eval.frames.get_mut(crate::window::FrameId(frame_id)) {
@@ -6652,37 +6652,37 @@ fn set_mouse_position_builtins_update_shared_mouse_state() {
     let set_pixel = dispatch_builtin(
         &mut eval,
         "set-mouse-pixel-position",
-        vec![frame, Value::Int(9), Value::Int(17)],
+        vec![frame, Value::fixnum(9), Value::fixnum(17)],
     )
     .expect("set-mouse-pixel-position should resolve")
     .expect("set-mouse-pixel-position should evaluate");
-    assert_eq!(set_pixel, Value::Nil);
+    assert_eq!(set_pixel, Value::NIL);
     assert_eq!(
         dispatch_builtin(&mut eval, "mouse-pixel-position", vec![])
             .expect("mouse-pixel-position should resolve")
             .expect("mouse-pixel-position should evaluate"),
-        Value::cons(frame, Value::cons(Value::Int(9), Value::Int(17)))
+        Value::cons(frame, Value::cons(Value::fixnum(9), Value::fixnum(17)))
     );
 
     let set_char = dispatch_builtin(
         &mut eval,
         "set-mouse-position",
-        vec![frame, Value::Int(3), Value::Int(4)],
+        vec![frame, Value::fixnum(3), Value::fixnum(4)],
     )
     .expect("set-mouse-position should resolve")
     .expect("set-mouse-position should evaluate");
-    assert_eq!(set_char, Value::Nil);
+    assert_eq!(set_char, Value::NIL);
     assert_eq!(
         dispatch_builtin(&mut eval, "mouse-position", vec![])
             .expect("mouse-position should resolve")
             .expect("mouse-position should evaluate"),
-        Value::cons(frame, Value::cons(Value::Int(3), Value::Int(4)))
+        Value::cons(frame, Value::cons(Value::fixnum(3), Value::fixnum(4)))
     );
     assert_eq!(
         dispatch_builtin(&mut eval, "mouse-pixel-position", vec![])
             .expect("mouse-pixel-position should resolve")
             .expect("mouse-pixel-position should evaluate"),
-        Value::cons(frame, Value::cons(Value::Int(28), Value::Int(72)))
+        Value::cons(frame, Value::cons(Value::fixnum(28), Value::fixnum(72)))
     );
 }
 
@@ -6691,7 +6691,7 @@ fn dispatch_builtin_pure_handles_internal_labeled_and_modified_tick_placeholders
     assert!(
         dispatch_builtin_pure(
             "internal--define-uninitialized-variable",
-            vec![Value::symbol("neo-var"), Value::Nil],
+            vec![Value::symbol("neo-var"), Value::NIL],
         )
         .is_none(),
         "internal--define-uninitialized-variable should require evaluator context"
@@ -6699,29 +6699,29 @@ fn dispatch_builtin_pure_handles_internal_labeled_and_modified_tick_placeholders
 
     let narrow = dispatch_builtin_pure(
         "internal--labeled-narrow-to-region",
-        vec![Value::Int(0), Value::Int(1), Value::symbol("tag")],
+        vec![Value::fixnum(0), Value::fixnum(1), Value::symbol("tag")],
     )
     .expect("internal--labeled-narrow-to-region should resolve")
     .expect("internal--labeled-narrow-to-region should evaluate");
-    assert_eq!(narrow, Value::Nil);
+    assert_eq!(narrow, Value::NIL);
 
     let widen = dispatch_builtin_pure("internal--labeled-widen", vec![Value::symbol("tag")])
         .expect("internal--labeled-widen should resolve")
         .expect("internal--labeled-widen should evaluate");
-    assert_eq!(widen, Value::Nil);
+    assert_eq!(widen, Value::NIL);
 
     let buckets = dispatch_builtin_pure("internal--obarray-buckets", vec![Value::vector(vec![])])
         .expect("internal--obarray-buckets should resolve")
         .expect("internal--obarray-buckets should evaluate");
-    assert_eq!(buckets, Value::Nil);
+    assert_eq!(buckets, Value::NIL);
 
     let tick = dispatch_builtin_pure(
         "internal--set-buffer-modified-tick",
-        vec![Value::Int(0), Value::Nil],
+        vec![Value::fixnum(0), Value::NIL],
     )
     .expect("internal--set-buffer-modified-tick should resolve")
     .expect("internal--set-buffer-modified-tick should evaluate");
-    assert_eq!(tick, Value::Nil);
+    assert_eq!(tick, Value::NIL);
 }
 
 #[test]
@@ -6734,7 +6734,7 @@ fn internal_define_uninitialized_variable_marks_special_and_sets_doc() {
     )
     .expect("internal--define-uninitialized-variable should resolve")
     .expect("internal--define-uninitialized-variable should evaluate");
-    assert_eq!(result, Value::Nil);
+    assert_eq!(result, Value::NIL);
     assert!(eval.obarray().is_special("neo-var"));
     assert_eq!(
         eval.obarray()
@@ -6753,7 +6753,7 @@ fn internal_labeled_narrow_to_region_clamps_within_current_restriction() {
     dispatch_builtin(
         &mut eval,
         "internal--labeled-narrow-to-region",
-        vec![Value::Int(2), Value::Int(5), Value::symbol("outer-tag")],
+        vec![Value::fixnum(2), Value::fixnum(5), Value::symbol("outer-tag")],
     )
     .expect("outer internal--labeled-narrow-to-region should resolve")
     .expect("outer internal--labeled-narrow-to-region should evaluate");
@@ -6761,11 +6761,11 @@ fn internal_labeled_narrow_to_region_clamps_within_current_restriction() {
     let narrowed = dispatch_builtin(
         &mut eval,
         "internal--labeled-narrow-to-region",
-        vec![Value::Int(1), Value::Int(7), Value::symbol("inner-tag")],
+        vec![Value::fixnum(1), Value::fixnum(7), Value::symbol("inner-tag")],
     )
     .expect("internal--labeled-narrow-to-region should resolve")
     .expect("internal--labeled-narrow-to-region should evaluate");
-    assert_eq!(narrowed, Value::Nil);
+    assert_eq!(narrowed, Value::NIL);
 
     let buf = eval.buffers.get(buf_id).expect("buffer should stay live");
     assert_eq!(buf.point_min_char() as i64 + 1, 2);
@@ -6777,22 +6777,22 @@ fn dispatch_builtin_pure_handles_window_resize_and_frame_switch_placeholders() {
     let save = dispatch_builtin_pure("handle-save-session", vec![Value::symbol("event")])
         .expect("handle-save-session should resolve")
         .expect("handle-save-session should evaluate");
-    assert_eq!(save, Value::Nil);
+    assert_eq!(save, Value::NIL);
 
-    let frame = dispatch_builtin_pure("handle-switch-frame", vec![Value::Frame(1)])
+    let frame = dispatch_builtin_pure("handle-switch-frame", vec![Value::make_frame(1)])
         .expect("handle-switch-frame should resolve")
         .expect("handle-switch-frame should evaluate");
-    assert_eq!(frame, Value::Nil);
+    assert_eq!(frame, Value::NIL);
 
     let divider = dispatch_builtin_pure("window-bottom-divider-width", vec![])
         .expect("window-bottom-divider-width should resolve")
         .expect("window-bottom-divider-width should evaluate");
-    assert_eq!(divider, Value::Int(0));
+    assert_eq!(divider, Value::fixnum(0));
 
     let resize = dispatch_builtin_pure("window-resize-apply-total", vec![])
         .expect("window-resize-apply-total should resolve")
         .expect("window-resize-apply-total should evaluate");
-    assert_eq!(resize, Value::True);
+    assert_eq!(resize, Value::T);
 }
 
 #[test]
@@ -6800,7 +6800,7 @@ fn dispatch_builtin_pure_handles_window_placeholder_accessors() {
     // Window accessor functions need eval state (FrameManager) and are
     // correctly deferred from dispatch_builtin_pure to the eval-backed
     // dispatch.  Verify they return None from pure dispatch.
-    assert!(dispatch_builtin_pure("window-left-child", vec![Value::Nil]).is_none());
+    assert!(dispatch_builtin_pure("window-left-child", vec![Value::NIL]).is_none());
     assert!(dispatch_builtin_pure("window-next-sibling", vec![]).is_none());
     assert!(dispatch_builtin_pure("window-prev-sibling", vec![]).is_none());
     assert!(dispatch_builtin_pure("window-normal-size", vec![]).is_none());
@@ -6816,23 +6816,23 @@ fn dispatch_builtin_pure_handles_window_placeholder_accessors() {
     // Window functions that don't need frame state and ARE in pure dispatch:
     let line_height = dispatch_builtin_pure(
         "window-line-height",
-        vec![Value::Int(0), Value::symbol("window")],
+        vec![Value::fixnum(0), Value::symbol("window")],
     )
     .expect("window-line-height should resolve")
     .expect("window-line-height should evaluate");
-    assert_eq!(line_height, Value::Nil);
+    assert_eq!(line_height, Value::NIL);
 
     let old_body = dispatch_builtin_pure("window-old-body-pixel-height", vec![])
         .expect("window-old-body-pixel-height should resolve")
         .expect("window-old-body-pixel-height should evaluate");
-    assert_eq!(old_body, Value::Int(0));
+    assert_eq!(old_body, Value::fixnum(0));
 
     let tab = dispatch_builtin_pure("window-tab-line-height", vec![])
         .expect("window-tab-line-height should resolve")
         .expect("window-tab-line-height should evaluate");
-    assert_eq!(tab, Value::Int(0));
+    assert_eq!(tab, Value::fixnum(0));
 
-    let err = dispatch_builtin_pure("window-right-divider-width", vec![Value::Int(1)])
+    let err = dispatch_builtin_pure("window-right-divider-width", vec![Value::fixnum(1)])
         .expect("window-right-divider-width should resolve")
         .unwrap_err();
     match err {
@@ -6854,28 +6854,28 @@ fn dispatch_builtin_pure_handles_gpm_help_and_init_image_placeholders() {
     let stop = dispatch_builtin_pure("gpm-mouse-stop", vec![])
         .expect("gpm-mouse-stop should resolve")
         .expect("gpm-mouse-stop should evaluate");
-    assert_eq!(stop, Value::Nil);
+    assert_eq!(stop, Value::NIL);
 
     let help = dispatch_builtin_pure(
         "help--describe-vector",
         vec![
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
         ],
     )
     .expect("help--describe-vector should resolve")
     .expect("help--describe-vector should evaluate");
-    assert_eq!(help, Value::Nil);
+    assert_eq!(help, Value::NIL);
 
     let init = dispatch_builtin_pure("init-image-library", vec![Value::symbol("png")])
         .expect("init-image-library should resolve")
         .expect("init-image-library should evaluate");
-    assert_eq!(init, Value::Nil);
+    assert_eq!(init, Value::NIL);
 }
 
 #[test]
@@ -6883,7 +6883,7 @@ fn dispatch_builtin_pure_handles_frame_placeholder_accessors() {
     let face_table = dispatch_builtin_pure("frame--face-hash-table", vec![])
         .expect("frame--face-hash-table should resolve")
         .expect("frame--face-hash-table should evaluate");
-    let Value::HashTable(table) = face_table else {
+    if !face_table.is_hash_table() /* TODO(tagged): `table` was Value::HashTable(table), rewrite let-else */ {
         panic!("expected hash table");
     };
     assert!(matches!(
@@ -6892,32 +6892,32 @@ fn dispatch_builtin_pure_handles_frame_placeholder_accessors() {
     ));
 
     let was_invisible =
-        dispatch_builtin_pure("frame--set-was-invisible", vec![Value::Nil, Value::True])
+        dispatch_builtin_pure("frame--set-was-invisible", vec![Value::NIL, Value::T])
             .expect("frame--set-was-invisible should resolve")
             .expect("frame--set-was-invisible should evaluate");
-    assert_eq!(was_invisible, Value::True);
+    assert_eq!(was_invisible, Value::T);
 
     let changed = dispatch_builtin_pure("frame-or-buffer-changed-p", vec![])
         .expect("frame-or-buffer-changed-p should resolve")
         .expect("frame-or-buffer-changed-p should evaluate");
-    assert_eq!(changed, Value::True);
+    assert_eq!(changed, Value::T);
 
-    let changed_nil = dispatch_builtin_pure("frame-or-buffer-changed-p", vec![Value::Nil])
+    let changed_nil = dispatch_builtin_pure("frame-or-buffer-changed-p", vec![Value::NIL])
         .expect("frame-or-buffer-changed-p should resolve")
         .expect("frame-or-buffer-changed-p should evaluate");
-    assert_eq!(changed_nil, Value::Nil);
+    assert_eq!(changed_nil, Value::NIL);
 
     let scale = dispatch_builtin_pure("frame-scale-factor", vec![])
         .expect("frame-scale-factor should resolve")
         .expect("frame-scale-factor should evaluate");
-    assert_eq!(scale, Value::Float(1.0, next_float_id()));
+    assert_eq!(scale, Value::make_float(1.0));
 
     let pointer = dispatch_builtin_pure("frame-pointer-visible-p", vec![])
         .expect("frame-pointer-visible-p should resolve")
         .expect("frame-pointer-visible-p should evaluate");
-    assert_eq!(pointer, Value::True);
+    assert_eq!(pointer, Value::T);
 
-    let err = dispatch_builtin_pure("frame-or-buffer-changed-p", vec![Value::Int(1)])
+    let err = dispatch_builtin_pure("frame-or-buffer-changed-p", vec![Value::fixnum(1)])
         .expect("frame-or-buffer-changed-p should resolve")
         .unwrap_err();
     match err {
@@ -6930,15 +6930,15 @@ fn dispatch_builtin_pure_handles_frame_placeholder_accessors() {
 fn dispatch_builtin_pure_handles_describe_and_delete_terminal_placeholders() {
     let bindings = dispatch_builtin_pure(
         "describe-buffer-bindings",
-        vec![Value::Buffer(crate::buffer::BufferId(0))],
+        vec![Value::make_buffer(crate::buffer::BufferId(0))],
     )
     .expect("describe-buffer-bindings should resolve")
     .expect("describe-buffer-bindings should evaluate");
-    assert_eq!(bindings, Value::Nil);
+    assert_eq!(bindings, Value::NIL);
 
     let seq_err = dispatch_builtin_pure(
         "describe-buffer-bindings",
-        vec![Value::Buffer(crate::buffer::BufferId(0)), Value::Int(1)],
+        vec![Value::make_buffer(crate::buffer::BufferId(0)), Value::fixnum(1)],
     )
     .expect("describe-buffer-bindings should resolve")
     .unwrap_err();
@@ -6950,7 +6950,7 @@ fn dispatch_builtin_pure_handles_describe_and_delete_terminal_placeholders() {
     let vec_err = dispatch_builtin_pure(
         "describe-vector",
         vec![
-            Value::vector(vec![Value::Int(1)]),
+            Value::vector(vec![Value::fixnum(1)]),
             Value::symbol("display-buffer"),
         ],
     )
@@ -6972,34 +6972,34 @@ fn dispatch_builtin_pure_handles_describe_and_delete_terminal_placeholders() {
     let deleted = dispatch_builtin_pure("delete-terminal", vec![Value::symbol("tty")])
         .expect("delete-terminal should resolve")
         .expect("delete-terminal should evaluate");
-    assert_eq!(deleted, Value::Nil);
+    assert_eq!(deleted, Value::NIL);
 }
 
 #[test]
 fn dispatch_builtin_pure_handles_fringe_gap_and_garbage_placeholders() {
-    let fringe = dispatch_builtin_pure("fringe-bitmaps-at-pos", vec![Value::Nil, Value::Nil])
+    let fringe = dispatch_builtin_pure("fringe-bitmaps-at-pos", vec![Value::NIL, Value::NIL])
         .expect("fringe-bitmaps-at-pos should resolve")
         .expect("fringe-bitmaps-at-pos should evaluate");
-    assert_eq!(fringe, Value::Nil);
+    assert_eq!(fringe, Value::NIL);
 
     let gap_pos = dispatch_builtin_pure("gap-position", vec![])
         .expect("gap-position should resolve")
         .expect("gap-position should evaluate");
-    assert_eq!(gap_pos, Value::Int(1));
+    assert_eq!(gap_pos, Value::fixnum(1));
 
     let gap_size = dispatch_builtin_pure("gap-size", vec![])
         .expect("gap-size should resolve")
         .expect("gap-size should evaluate");
-    assert_eq!(gap_size, Value::Int(2001));
+    assert_eq!(gap_size, Value::fixnum(2001));
 
-    let gc = dispatch_builtin_pure("garbage-collect-maybe", vec![Value::Int(0)])
+    let gc = dispatch_builtin_pure("garbage-collect-maybe", vec![Value::fixnum(0)])
         .expect("garbage-collect-maybe should resolve")
         .expect("garbage-collect-maybe should evaluate");
-    assert_eq!(gc, Value::Nil);
+    assert_eq!(gc, Value::NIL);
 
     let prop_err = dispatch_builtin_pure(
         "get-unicode-property-internal",
-        vec![Value::Nil, Value::Int(0)],
+        vec![Value::NIL, Value::fixnum(0)],
     )
     .expect("get-unicode-property-internal should resolve")
     .unwrap_err();
@@ -7031,17 +7031,17 @@ fn dispatch_builtin_pure_handles_gnutls_query_and_error_placeholders() {
         .expect("gnutls-macs should evaluate");
     assert_eq!(macs, Value::list(vec![Value::symbol("AEAD")]));
 
-    let errorp = dispatch_builtin_pure("gnutls-errorp", vec![Value::Int(0)])
+    let errorp = dispatch_builtin_pure("gnutls-errorp", vec![Value::fixnum(0)])
         .expect("gnutls-errorp should resolve")
         .expect("gnutls-errorp should evaluate");
-    assert_eq!(errorp, Value::True);
+    assert_eq!(errorp, Value::T);
 
-    let success = dispatch_builtin_pure("gnutls-error-string", vec![Value::Int(0)])
+    let success = dispatch_builtin_pure("gnutls-error-string", vec![Value::fixnum(0)])
         .expect("gnutls-error-string should resolve")
         .expect("gnutls-error-string should evaluate");
     assert_eq!(success, Value::string("Success."));
 
-    let fatal_err = dispatch_builtin_pure("gnutls-error-fatalp", vec![Value::Nil])
+    let fatal_err = dispatch_builtin_pure("gnutls-error-fatalp", vec![Value::NIL])
         .expect("gnutls-error-fatalp should resolve")
         .unwrap_err();
     match fatal_err {
@@ -7053,12 +7053,12 @@ fn dispatch_builtin_pure_handles_gnutls_query_and_error_placeholders() {
 #[test]
 fn dispatch_builtin_pure_handles_gnutls_runtime_placeholders() {
     let peer_warning =
-        dispatch_builtin_pure("gnutls-peer-status-warning-describe", vec![Value::Nil])
+        dispatch_builtin_pure("gnutls-peer-status-warning-describe", vec![Value::NIL])
             .expect("gnutls-peer-status-warning-describe should resolve")
             .expect("gnutls-peer-status-warning-describe should evaluate");
-    assert_eq!(peer_warning, Value::Nil);
+    assert_eq!(peer_warning, Value::NIL);
 
-    let bye_err = dispatch_builtin_pure("gnutls-bye", vec![Value::Nil, Value::Nil])
+    let bye_err = dispatch_builtin_pure("gnutls-bye", vec![Value::NIL, Value::NIL])
         .expect("gnutls-bye should resolve")
         .unwrap_err();
     match bye_err {
@@ -7066,7 +7066,7 @@ fn dispatch_builtin_pure_handles_gnutls_runtime_placeholders() {
         other => panic!("expected signal, got {other:?}"),
     }
 
-    let cert_err = dispatch_builtin_pure("gnutls-format-certificate", vec![Value::Nil])
+    let cert_err = dispatch_builtin_pure("gnutls-format-certificate", vec![Value::NIL])
         .expect("gnutls-format-certificate should resolve")
         .unwrap_err();
     match cert_err {
@@ -7075,7 +7075,7 @@ fn dispatch_builtin_pure_handles_gnutls_runtime_placeholders() {
     }
 
     let digest_err =
-        dispatch_builtin_pure("gnutls-hash-digest", vec![Value::Nil, Value::string("a")])
+        dispatch_builtin_pure("gnutls-hash-digest", vec![Value::NIL, Value::string("a")])
             .expect("gnutls-hash-digest should resolve")
             .unwrap_err();
     match digest_err {
@@ -7107,15 +7107,15 @@ fn dispatch_builtin_pure_handles_gnutls_runtime_placeholders() {
     )
     .expect("gnutls-symmetric-encrypt should resolve")
     .expect("gnutls-symmetric-encrypt should evaluate");
-    assert_eq!(enc, Value::Nil);
+    assert_eq!(enc, Value::NIL);
 }
 
 #[test]
 fn dispatch_builtin_pure_handles_font_face_placeholders() {
-    let face = dispatch_builtin_pure("face-attributes-as-vector", vec![Value::Nil])
+    let face = dispatch_builtin_pure("face-attributes-as-vector", vec![Value::NIL])
         .expect("face-attributes-as-vector should resolve")
         .expect("face-attributes-as-vector should evaluate");
-    let Value::Vector(values) = face else {
+    if !face.is_vector() /* TODO(tagged): `values` was Value::Vector(values), rewrite let-else */ {
         panic!("expected vector");
     };
     assert_eq!(
@@ -7129,7 +7129,7 @@ fn dispatch_builtin_pure_handles_font_face_placeholders() {
     let attrs = dispatch_builtin_pure("font-face-attributes", vec![font_object])
         .expect("font-face-attributes should resolve")
         .expect("font-face-attributes should evaluate");
-    let Value::Vector(values) = attrs else {
+    if !attrs.is_vector() /* TODO(tagged): `values` was Value::Vector(values), rewrite let-else */ {
         panic!("expected vector");
     };
     assert_eq!(
@@ -7139,19 +7139,19 @@ fn dispatch_builtin_pure_handles_font_face_placeholders() {
 
     let glyphs = dispatch_builtin_pure(
         "font-get-glyphs",
-        vec![font_object, Value::Int(0), Value::Int(1)],
+        vec![font_object, Value::fixnum(0), Value::fixnum(1)],
     )
     .expect("font-get-glyphs should resolve")
     .expect("font-get-glyphs should evaluate");
-    assert_eq!(glyphs, Value::Nil);
+    assert_eq!(glyphs, Value::NIL);
 
     let has_char =
-        dispatch_builtin_pure("font-has-char-p", vec![font_spec, Value::Int('a' as i64)])
+        dispatch_builtin_pure("font-has-char-p", vec![font_spec, Value::fixnum('a' as i64)])
             .expect("font-has-char-p should resolve")
             .expect("font-has-char-p should evaluate");
-    assert_eq!(has_char, Value::Nil);
+    assert_eq!(has_char, Value::NIL);
 
-    let match_err = dispatch_builtin_pure("font-match-p", vec![Value::Nil, font_spec])
+    let match_err = dispatch_builtin_pure("font-match-p", vec![Value::NIL, font_spec])
         .expect("font-match-p should resolve")
         .unwrap_err();
     match match_err {
@@ -7159,7 +7159,7 @@ fn dispatch_builtin_pure_handles_font_face_placeholders() {
         other => panic!("expected signal, got {other:?}"),
     }
 
-    let at_err = dispatch_builtin_pure("font-at", vec![Value::Int(1)])
+    let at_err = dispatch_builtin_pure("font-at", vec![Value::fixnum(1)])
         .expect("font-at should resolve")
         .unwrap_err();
     match at_err {
@@ -7174,20 +7174,20 @@ fn dispatch_builtin_pure_handles_fontset_placeholders() {
     let system = dispatch_builtin_pure("font-get-system-font", vec![])
         .expect("font-get-system-font should resolve")
         .expect("font-get-system-font should evaluate");
-    assert_eq!(system, Value::Nil);
+    assert_eq!(system, Value::NIL);
 
     let normal = dispatch_builtin_pure("font-get-system-normal-font", vec![])
         .expect("font-get-system-normal-font should resolve")
         .expect("font-get-system-normal-font should evaluate");
-    assert_eq!(normal, Value::Nil);
+    assert_eq!(normal, Value::NIL);
 
     let fontset = dispatch_builtin_pure(
         "fontset-font",
-        vec![Value::symbol("fontset-default"), Value::Int('a' as i64)],
+        vec![Value::symbol("fontset-default"), Value::fixnum('a' as i64)],
     )
     .expect("fontset-font should resolve")
     .expect("fontset-font should evaluate");
-    assert_eq!(fontset, Value::Nil);
+    assert_eq!(fontset, Value::NIL);
 
     let info_err = dispatch_builtin_pure("fontset-info", vec![Value::symbol("fontset-default")])
         .expect("fontset-info should resolve")
@@ -7220,7 +7220,7 @@ fn dispatch_builtin_pure_handles_fontset_placeholders() {
 
     let fontset_err = dispatch_builtin_pure(
         "fontset-font",
-        vec![Value::symbol("fontset-default"), Value::Nil],
+        vec![Value::symbol("fontset-default"), Value::NIL],
     )
     .expect("fontset-font should resolve")
     .unwrap_err();
@@ -7263,19 +7263,19 @@ fn prin1_to_string_prints_canonical_threading_handles_as_opaque() {
 fn prin1_to_string_keeps_forged_threading_handles_as_cons() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
-    let forged_thread = Value::cons(Value::symbol("thread"), Value::Int(0));
+    let forged_thread = Value::cons(Value::symbol("thread"), Value::fixnum(0));
     let thread_text = dispatch_builtin(&mut eval, "prin1-to-string", vec![forged_thread])
         .expect("prin1-to-string should resolve for forged thread")
         .expect("prin1-to-string should evaluate for forged thread");
     assert_eq!(thread_text, Value::string("(thread . 0)"));
 
-    let forged_mutex = Value::cons(Value::symbol("mutex"), Value::Int(1));
+    let forged_mutex = Value::cons(Value::symbol("mutex"), Value::fixnum(1));
     let mutex_text = dispatch_builtin(&mut eval, "prin1-to-string", vec![forged_mutex])
         .expect("prin1-to-string should resolve for forged mutex")
         .expect("prin1-to-string should evaluate for forged mutex");
     assert_eq!(mutex_text, Value::string("(mutex . 1)"));
 
-    let forged_condvar = Value::cons(Value::symbol("condition-variable"), Value::Int(1));
+    let forged_condvar = Value::cons(Value::symbol("condition-variable"), Value::fixnum(1));
     let condvar_text = dispatch_builtin(&mut eval, "prin1-to-string", vec![forged_condvar])
         .expect("prin1-to-string should resolve for forged condvar")
         .expect("prin1-to-string should evaluate for forged condvar");
@@ -7294,7 +7294,7 @@ fn prin1_to_string_supports_noescape_for_strings() {
     // through literally in prin1-to-string.
     assert_eq!(escaped, Value::string("\"a\nb\""));
 
-    let noescape = dispatch_builtin(&mut eval, "prin1-to-string", vec![value, Value::True])
+    let noescape = dispatch_builtin(&mut eval, "prin1-to-string", vec![value, Value::T])
         .expect("prin1-to-string should resolve with noescape")
         .expect("prin1-to-string should evaluate with noescape");
     assert_eq!(noescape, Value::string("a\nb"));
@@ -7303,14 +7303,14 @@ fn prin1_to_string_supports_noescape_for_strings() {
 #[test]
 fn prin1_to_string_respects_print_gensym_binding() {
     let mut eval = crate::emacs_core::eval::Context::new();
-    let sym = Value::Symbol(intern_uninterned("vm-print-gensym"));
+    let sym = Value::symbol(intern_uninterned("vm-print-gensym"));
 
     let default_text = dispatch_builtin(&mut eval, "prin1-to-string", vec![sym])
         .expect("prin1-to-string should resolve")
         .expect("prin1-to-string should evaluate");
     assert_eq!(default_text, Value::string("vm-print-gensym"));
 
-    eval.set_variable("print-gensym", Value::True);
+    eval.set_variable("print-gensym", Value::T);
     let gensym_text = dispatch_builtin(&mut eval, "prin1-to-string", vec![sym])
         .expect("prin1-to-string should resolve with print-gensym")
         .expect("prin1-to-string should evaluate with print-gensym");
@@ -7323,7 +7323,7 @@ fn prin1_to_string_ignores_extra_args_for_compat() {
     let result = dispatch_builtin(
         &mut eval,
         "prin1-to-string",
-        vec![Value::Int(1), Value::Nil, Value::Nil],
+        vec![Value::fixnum(1), Value::NIL, Value::NIL],
     )
     .expect("prin1-to-string should resolve with extra args")
     .expect("prin1-to-string should evaluate with extra args");
@@ -7665,7 +7665,7 @@ fn error_message_string_preserves_percent_s_handle_semantics() {
             other => panic!("expected signal flow, got: {other:?}"),
         };
         let mut err_data = Vec::with_capacity(data.len() + 1);
-        err_data.push(Value::Symbol(symbol));
+        err_data.push(Value::symbol(symbol));
         err_data.extend(data);
         let rendered = dispatch_builtin(eval, "error-message-string", vec![Value::list(err_data)])
             .expect("error-message-string should resolve")
@@ -7718,29 +7718,29 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
         match err {
             Flow::Signal(sig) => {
                 assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
-                assert_eq!(sig.data, vec![Value::symbol(symbol), Value::Int(0)]);
+                assert_eq!(sig.data, vec![Value::symbol(symbol), ValueKind::Fixnum(0)]);
             }
             other => panic!("expected signal, got: {other:?}"),
         }
     }
 
-    let message_box_nil = dispatch_builtin(&mut eval, "message-box", vec![Value::Nil])
+    let message_box_nil = dispatch_builtin(&mut eval, "message-box", vec![Value::NIL])
         .expect("message-box should resolve")
         .expect("message-box should evaluate");
     assert!(message_box_nil.is_nil());
-    let message_or_box_nil = dispatch_builtin(&mut eval, "message-or-box", vec![Value::Nil])
+    let message_or_box_nil = dispatch_builtin(&mut eval, "message-or-box", vec![Value::NIL])
         .expect("message-or-box should resolve")
         .expect("message-or-box should evaluate");
     assert!(message_or_box_nil.is_nil());
 
     for builtin in ["message-box", "message-or-box"] {
-        let wrong_type = dispatch_builtin(&mut eval, builtin, vec![Value::Int(1)])
+        let wrong_type = dispatch_builtin(&mut eval, builtin, vec![Value::fixnum(1)])
             .expect("wrapper should resolve")
             .expect_err("wrapper should signal for non-string format");
         match wrong_type {
             Flow::Signal(sig) => {
                 assert_eq!(sig.symbol_name(), "wrong-type-argument");
-                assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::Int(1)]);
+                assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(1)]);
             }
             other => panic!("expected signal, got: {other:?}"),
         }
@@ -7748,7 +7748,7 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
         let missing = dispatch_builtin(
             &mut eval,
             builtin,
-            vec![Value::string("%s %s"), Value::Int(1)],
+            vec![Value::string("%s %s"), Value::fixnum(1)],
         )
         .expect("wrapper should resolve")
         .expect_err("wrapper should signal when format args are missing");
@@ -7766,7 +7766,7 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
         let negative_char = dispatch_builtin(
             &mut eval,
             builtin,
-            vec![Value::string("%c"), Value::Int(-1)],
+            vec![Value::string("%c"), Value::fixnum(-1)],
         )
         .expect("wrapper should resolve")
         .expect_err("wrapper should reject negative character code");
@@ -7781,7 +7781,7 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
         let overflow_char = dispatch_builtin(
             &mut eval,
             builtin,
-            vec![Value::string("%c"), Value::Int(0x40_0000)],
+            vec![Value::string("%c"), Value::fixnum(0x40_0000)],
         )
         .expect("wrapper should resolve")
         .expect_err("wrapper should reject out-of-range character code");
@@ -7790,7 +7790,7 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
                 assert_eq!(sig.symbol_name(), "wrong-type-argument");
                 assert_eq!(
                     sig.data,
-                    vec![Value::symbol("characterp"), Value::Int(0x40_0000)]
+                    vec![Value::symbol("characterp"), ValueKind::Fixnum(0x40_0000)]
                 );
             }
             other => panic!("expected signal, got: {other:?}"),
@@ -7805,7 +7805,7 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
         let rendered = dispatch_builtin(
             &mut eval,
             builtin,
-            vec![Value::string("%c"), Value::Int(value)],
+            vec![Value::string("%c"), Value::fixnum(value)],
         )
         .expect("wrapper should resolve")
         .expect("wrapper should evaluate");
@@ -7974,7 +7974,7 @@ fn message_nil_returns_nil() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let eval_result =
-        builtin_message(&mut eval, vec![Value::Nil]).expect("message eval should accept nil");
+        builtin_message(&mut eval, vec![Value::NIL]).expect("message eval should accept nil");
     assert!(eval_result.is_nil());
 
     let displayed = builtin_message(&mut eval, vec![Value::string("hello echo")])
@@ -7984,7 +7984,7 @@ fn message_nil_returns_nil() {
         .expect("current-message should read stored echo text");
     assert_eq!(current, Value::string("hello echo"));
 
-    let cleared = builtin_message(&mut eval, vec![Value::Nil]).expect("message eval should clear");
+    let cleared = builtin_message(&mut eval, vec![Value::NIL]).expect("message eval should clear");
     assert!(cleared.is_nil());
     let current_after_clear =
         builtin_current_message(&mut eval, vec![]).expect("current-message should clear");
@@ -8006,7 +8006,7 @@ fn message_eval_triggers_redisplay_with_current_echo_state() {
 
     builtin_message(&mut eval, vec![Value::string("hello echo")])
         .expect("message eval should store echo text");
-    builtin_message(&mut eval, vec![Value::Nil]).expect("message eval should clear");
+    builtin_message(&mut eval, vec![Value::NIL]).expect("message eval should clear");
 
     let redisplays = redisplays.lock().expect("captured redisplays");
     assert_eq!(*redisplays, vec![Some("hello echo".to_string()), None]);
@@ -8014,7 +8014,7 @@ fn message_eval_triggers_redisplay_with_current_echo_state() {
 
 #[test]
 fn make_string_nonunicode_char_code_bounds_match_oracle() {
-    let overflow = dispatch_builtin_pure("make-string", vec![Value::Int(1), Value::Int(0x40_0000)])
+    let overflow = dispatch_builtin_pure("make-string", vec![Value::fixnum(1), Value::fixnum(0x40_0000)])
         .expect("make-string should resolve")
         .expect_err("make-string should reject out-of-range character code");
     match overflow {
@@ -8022,13 +8022,13 @@ fn make_string_nonunicode_char_code_bounds_match_oracle() {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("characterp"), Value::Int(0x40_0000)]
+                vec![Value::symbol("characterp"), ValueKind::Fixnum(0x40_0000)]
             );
         }
         other => panic!("expected signal, got: {other:?}"),
     }
 
-    let repeated = dispatch_builtin_pure("make-string", vec![Value::Int(2), Value::Int(0x11_0000)])
+    let repeated = dispatch_builtin_pure("make-string", vec![Value::fixnum(2), Value::fixnum(0x11_0000)])
         .expect("make-string should resolve")
         .expect("make-string should evaluate");
     let repeated_text = repeated
@@ -8039,7 +8039,7 @@ fn make_string_nonunicode_char_code_bounds_match_oracle() {
         vec![0x11_0000, 0x11_0000]
     );
 
-    let high = dispatch_builtin_pure("make-string", vec![Value::Int(1), Value::Int(0x20_0000)])
+    let high = dispatch_builtin_pure("make-string", vec![Value::fixnum(1), Value::fixnum(0x20_0000)])
         .expect("make-string should resolve")
         .expect("make-string should evaluate");
     let high_text = high
@@ -8050,10 +8050,10 @@ fn make_string_nonunicode_char_code_bounds_match_oracle() {
 
 #[test]
 fn make_string_matches_emacs_ascii_boundary() {
-    let ascii = dispatch_builtin_pure("make-string", vec![Value::Int(3), Value::Int('a' as i64)])
+    let ascii = dispatch_builtin_pure("make-string", vec![Value::fixnum(3), Value::fixnum('a' as i64)])
         .expect("make-string should resolve")
         .expect("ascii make-string should evaluate");
-    let byte_200 = dispatch_builtin_pure("make-string", vec![Value::Int(2), Value::Int(200)])
+    let byte_200 = dispatch_builtin_pure("make-string", vec![Value::fixnum(2), Value::fixnum(200)])
         .expect("make-string should resolve")
         .expect("byte-200 make-string should evaluate");
 
@@ -8064,13 +8064,13 @@ fn make_string_matches_emacs_ascii_boundary() {
         .expect("multibyte-string-p should resolve")
         .expect("byte-200 multibyte-string-p should evaluate");
 
-    assert_eq!(ascii_multibyte, Value::Nil);
-    assert_eq!(byte_200_multibyte, Value::True);
+    assert_eq!(ascii_multibyte, Value::NIL);
+    assert_eq!(byte_200_multibyte, Value::T);
 }
 
 #[test]
 fn text_char_description_nonunicode_char_code_bounds_match_oracle() {
-    let high = dispatch_builtin_pure("text-char-description", vec![Value::Int(0x11_0000)])
+    let high = dispatch_builtin_pure("text-char-description", vec![Value::fixnum(0x11_0000)])
         .expect("text-char-description should resolve")
         .expect("text-char-description should evaluate");
     let high_text = high
@@ -8078,7 +8078,7 @@ fn text_char_description_nonunicode_char_code_bounds_match_oracle() {
         .expect("text-char-description should return string output");
     assert_eq!(decode_storage_char_codes(high_text), vec![0x11_0000]);
 
-    let higher = dispatch_builtin_pure("text-char-description", vec![Value::Int(0x20_0000)])
+    let higher = dispatch_builtin_pure("text-char-description", vec![Value::fixnum(0x20_0000)])
         .expect("text-char-description should resolve")
         .expect("text-char-description should evaluate");
     let higher_text = higher
@@ -8086,7 +8086,7 @@ fn text_char_description_nonunicode_char_code_bounds_match_oracle() {
         .expect("text-char-description should return string output");
     assert_eq!(decode_storage_char_codes(higher_text), vec![0x20_0000]);
 
-    let overflow = dispatch_builtin_pure("text-char-description", vec![Value::Int(0x40_0000)])
+    let overflow = dispatch_builtin_pure("text-char-description", vec![Value::fixnum(0x40_0000)])
         .expect("text-char-description should resolve")
         .expect_err("text-char-description should reject out-of-range character code");
     match overflow {
@@ -8094,7 +8094,7 @@ fn text_char_description_nonunicode_char_code_bounds_match_oracle() {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("characterp"), Value::Int(0x40_0000)]
+                vec![Value::symbol("characterp"), ValueKind::Fixnum(0x40_0000)]
             );
         }
         other => panic!("expected signal, got: {other:?}"),
@@ -8122,7 +8122,7 @@ fn insert_char_nonunicode_char_code_bounds_match_oracle() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
     builtin_erase_buffer(&mut eval, vec![]).expect("erase-buffer should succeed");
-    builtin_insert_char(&mut eval, vec![Value::Int(0x11_0000), Value::Int(1)])
+    builtin_insert_char(&mut eval, vec![Value::fixnum(0x11_0000), Value::fixnum(1)])
         .expect("insert-char should accept nonunicode char code");
     let first = builtin_buffer_string(&mut eval, vec![])
         .expect("buffer-string should evaluate")
@@ -8132,7 +8132,7 @@ fn insert_char_nonunicode_char_code_bounds_match_oracle() {
     assert_eq!(decode_storage_char_codes(&first), vec![0x11_0000]);
 
     builtin_erase_buffer(&mut eval, vec![]).expect("erase-buffer should succeed");
-    builtin_insert_char(&mut eval, vec![Value::Int(0x20_0000), Value::Int(2)])
+    builtin_insert_char(&mut eval, vec![Value::fixnum(0x20_0000), Value::fixnum(2)])
         .expect("insert-char should repeat nonunicode char code");
     let second = builtin_buffer_string(&mut eval, vec![])
         .expect("buffer-string should evaluate")
@@ -8144,14 +8144,14 @@ fn insert_char_nonunicode_char_code_bounds_match_oracle() {
         vec![0x20_0000, 0x20_0000]
     );
 
-    let overflow = builtin_insert_char(&mut eval, vec![Value::Int(0x40_0000), Value::Int(1)])
+    let overflow = builtin_insert_char(&mut eval, vec![Value::fixnum(0x40_0000), Value::fixnum(1)])
         .expect_err("insert-char should reject out-of-range character code");
     match overflow {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("characterp"), Value::Int(0x40_0000)]
+                vec![Value::symbol("characterp"), ValueKind::Fixnum(0x40_0000)]
             );
         }
         other => panic!("expected signal, got: {other:?}"),
@@ -8163,7 +8163,7 @@ fn insert_nonunicode_integer_arguments_match_oracle() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
     builtin_erase_buffer(&mut eval, vec![]).expect("erase-buffer should succeed");
-    builtin_insert(&mut eval, vec![Value::Int(0x11_0000)])
+    builtin_insert(&mut eval, vec![Value::fixnum(0x11_0000)])
         .expect("insert should accept nonunicode integer char code");
     let first = builtin_buffer_string(&mut eval, vec![])
         .expect("buffer-string should evaluate")
@@ -8175,7 +8175,7 @@ fn insert_nonunicode_integer_arguments_match_oracle() {
     builtin_erase_buffer(&mut eval, vec![]).expect("erase-buffer should succeed");
     builtin_insert(
         &mut eval,
-        vec![Value::Int(0x20_0000), Value::Int(0x20_0000)],
+        vec![Value::fixnum(0x20_0000), Value::fixnum(0x20_0000)],
     )
     .expect("insert should repeat nonunicode integer char codes");
     let second = builtin_buffer_string(&mut eval, vec![])
@@ -8188,14 +8188,14 @@ fn insert_nonunicode_integer_arguments_match_oracle() {
         vec![0x20_0000, 0x20_0000]
     );
 
-    let overflow = builtin_insert(&mut eval, vec![Value::Int(0x40_0000)])
+    let overflow = builtin_insert(&mut eval, vec![Value::fixnum(0x40_0000)])
         .expect_err("insert should reject out-of-range integer char code");
     match overflow {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("char-or-string-p"), Value::Int(0x40_0000)]
+                vec![Value::symbol("char-or-string-p"), ValueKind::Fixnum(0x40_0000)]
             );
         }
         other => panic!("expected signal, got: {other:?}"),
@@ -8206,7 +8206,7 @@ fn insert_nonunicode_integer_arguments_match_oracle() {
 fn insert_byte_matches_gnu_multibyte_and_unibyte_storage() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
-    builtin_insert_byte(&mut eval, vec![Value::Int(65), Value::Int(2)])
+    builtin_insert_byte(&mut eval, vec![Value::fixnum(65), Value::fixnum(2)])
         .expect("insert-byte should insert ASCII bytes");
     let ascii = builtin_buffer_string(&mut eval, vec![])
         .expect("buffer-string should evaluate")
@@ -8216,7 +8216,7 @@ fn insert_byte_matches_gnu_multibyte_and_unibyte_storage() {
     assert_eq!(ascii, "AA");
 
     builtin_erase_buffer(&mut eval, vec![]).expect("erase-buffer should succeed");
-    builtin_insert_byte(&mut eval, vec![Value::Int(200), Value::Int(1)])
+    builtin_insert_byte(&mut eval, vec![Value::fixnum(200), Value::fixnum(1)])
         .expect("insert-byte should insert raw byte chars in multibyte buffers");
     let multibyte = builtin_buffer_string(&mut eval, vec![])
         .expect("buffer-string should evaluate")
@@ -8230,7 +8230,7 @@ fn insert_byte_matches_gnu_multibyte_and_unibyte_storage() {
     eval.buffers
         .set_buffer_multibyte_flag(current_id, false)
         .expect("set-buffer-multibyte should accept current buffer");
-    builtin_insert_byte(&mut eval, vec![Value::Int(200), Value::Int(1)])
+    builtin_insert_byte(&mut eval, vec![Value::fixnum(200), Value::fixnum(1)])
         .expect("insert-byte should insert plain bytes in unibyte buffers");
     let unibyte = builtin_buffer_string(&mut eval, vec![])
         .expect("buffer-string should evaluate")
@@ -8245,7 +8245,7 @@ fn format_message_and_message_signal_strict_format_errors() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
     for builtin in ["format", "format-message"] {
-        for bad in [Value::Int(1), Value::Nil, Value::symbol("foo")] {
+        for bad in [Value::fixnum(1), Value::NIL, Value::symbol("foo")] {
             let err = dispatch_builtin(&mut eval, builtin, vec![bad])
                 .expect("builtin should resolve")
                 .expect_err("builtin should signal for non-string format");
@@ -8259,7 +8259,7 @@ fn format_message_and_message_signal_strict_format_errors() {
         }
     }
 
-    for bad in [Value::Int(1), Value::symbol("foo")] {
+    for bad in [Value::fixnum(1), Value::symbol("foo")] {
         let err = dispatch_builtin(&mut eval, "message", vec![bad])
             .expect("message should resolve")
             .expect_err("message should signal for non-string/non-nil format");
@@ -8276,7 +8276,7 @@ fn format_message_and_message_signal_strict_format_errors() {
         let err = dispatch_builtin(
             &mut eval,
             builtin,
-            vec![Value::string("%s %s"), Value::Int(1)],
+            vec![Value::string("%s %s"), Value::fixnum(1)],
         )
         .expect("builtin should resolve")
         .expect_err("builtin should signal when format args are missing");
@@ -8320,7 +8320,7 @@ fn format_message_and_message_signal_strict_format_errors() {
         let err = dispatch_builtin(
             &mut eval,
             builtin,
-            vec![Value::string("%c"), Value::Int(-1)],
+            vec![Value::string("%c"), Value::fixnum(-1)],
         )
         .expect("builtin should resolve")
         .expect_err("builtin should reject negative character code");
@@ -8337,7 +8337,7 @@ fn format_message_and_message_signal_strict_format_errors() {
         let err = dispatch_builtin(
             &mut eval,
             builtin,
-            vec![Value::string("%c"), Value::Int(0x40_0000)],
+            vec![Value::string("%c"), Value::fixnum(0x40_0000)],
         )
         .expect("builtin should resolve")
         .expect_err("builtin should reject out-of-range character code");
@@ -8346,7 +8346,7 @@ fn format_message_and_message_signal_strict_format_errors() {
                 assert_eq!(sig.symbol_name(), "wrong-type-argument");
                 assert_eq!(
                     sig.data,
-                    vec![Value::symbol("characterp"), Value::Int(0x40_0000)]
+                    vec![Value::symbol("characterp"), ValueKind::Fixnum(0x40_0000)]
                 );
             }
             other => panic!("expected signal, got: {other:?}"),
@@ -8362,7 +8362,7 @@ fn format_message_and_message_signal_strict_format_errors() {
         let rendered = dispatch_builtin(
             &mut eval,
             builtin,
-            vec![Value::string("%c"), Value::Int(value)],
+            vec![Value::string("%c"), Value::fixnum(value)],
         )
         .expect("builtin should resolve")
         .expect("builtin should evaluate");
@@ -8443,7 +8443,7 @@ fn functionp_eval_matches_symbol_and_lambda_form_semantics() {
         .expect("functionp should resolve symbol alias to lambda list");
     assert!(alias_result.is_truthy());
 
-    let improper_lambda = Value::cons(Value::symbol("lambda"), Value::Int(1));
+    let improper_lambda = Value::cons(Value::symbol("lambda"), Value::fixnum(1));
     let improper_result = builtin_functionp(&mut eval, vec![improper_lambda])
         .expect("functionp should accept improper lambda forms");
     assert!(improper_result.is_truthy());
@@ -8451,7 +8451,7 @@ fn functionp_eval_matches_symbol_and_lambda_form_semantics() {
     // In official Emacs, (closure ENV PARAMS BODY...) cons lists ARE functions.
     let quoted_closure = Value::list(vec![
         Value::symbol("closure"),
-        Value::list(vec![Value::True]),
+        Value::list(vec![Value::T]),
         Value::list(vec![Value::symbol("x")]),
         Value::symbol("x"),
     ]);
@@ -8514,18 +8514,18 @@ fn functionp_eval_matches_symbol_and_lambda_form_semantics() {
     }
     let macro_marker_cons = builtin_functionp(
         &mut eval,
-        vec![Value::cons(Value::symbol("macro"), Value::True)],
+        vec![Value::cons(Value::symbol("macro"), Value::T)],
     )
     .expect("functionp should reject dotted macro marker cons");
     assert!(macro_marker_cons.is_nil());
     let macro_marker_list = builtin_functionp(
         &mut eval,
-        vec![Value::list(vec![Value::symbol("macro"), Value::True])],
+        vec![Value::list(vec![Value::symbol("macro"), Value::T])],
     )
     .expect("functionp should reject macro marker lists");
     assert!(macro_marker_list.is_nil());
 
-    let special_subr = builtin_functionp(&mut eval, vec![Value::Subr(intern("if"))])
+    let special_subr = builtin_functionp(&mut eval, vec![Value::subr(intern("if"))])
         .expect("functionp should reject special-form subr objects");
     assert!(special_subr.is_nil());
 
@@ -8566,24 +8566,24 @@ fn functionp_eval_resolves_t_and_keyword_symbol_designators() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let keyword = Value::keyword(":vm-functionp-keyword");
-    let orig_t = builtin_symbol_function(&mut eval, vec![Value::True])
+    let orig_t = builtin_symbol_function(&mut eval, vec![Value::T])
         .expect("symbol-function should read t cell");
     let orig_keyword = builtin_symbol_function(&mut eval, vec![keyword])
         .expect("symbol-function should read keyword cell");
 
-    builtin_fset(&mut eval, vec![Value::True, Value::symbol("car")])
+    builtin_fset(&mut eval, vec![Value::T, Value::symbol("car")])
         .expect("fset should bind t function cell");
     builtin_fset(&mut eval, vec![keyword, Value::symbol("car")])
         .expect("fset should bind keyword function cell");
 
     let t_result =
-        builtin_functionp(&mut eval, vec![Value::True]).expect("functionp should accept t");
+        builtin_functionp(&mut eval, vec![Value::T]).expect("functionp should accept t");
     assert!(t_result.is_truthy());
     let keyword_result = builtin_functionp(&mut eval, vec![keyword])
         .expect("functionp should accept keyword designator");
     assert!(keyword_result.is_truthy());
 
-    builtin_fset(&mut eval, vec![Value::True, orig_t]).expect("restore t function cell");
+    builtin_fset(&mut eval, vec![Value::T, orig_t]).expect("restore t function cell");
     builtin_fset(&mut eval, vec![keyword, orig_keyword]).expect("restore keyword function cell");
 }
 
@@ -8651,7 +8651,7 @@ fn fmakunbound_masks_builtin_special_and_evaluator_callables() {
 fn fset_nil_clears_fboundp_for_regular_and_fallback_names() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
-    let regular = builtin_fset(&mut eval, vec![Value::symbol("vm-fsetnil"), Value::Nil])
+    let regular = builtin_fset(&mut eval, vec![Value::symbol("vm-fsetnil"), Value::NIL])
         .expect("fset should accept nil definition payload");
     assert!(regular.is_nil());
     let regular_bound = builtin_fboundp(&mut eval, vec![Value::symbol("vm-fsetnil")])
@@ -8661,7 +8661,7 @@ fn fset_nil_clears_fboundp_for_regular_and_fallback_names() {
         .expect("symbol-function should accept symbol");
     assert!(regular_fn.is_nil());
 
-    let fallback = builtin_fset(&mut eval, vec![Value::symbol("length"), Value::Nil])
+    let fallback = builtin_fset(&mut eval, vec![Value::symbol("length"), Value::NIL])
         .expect("fset should accept nil for fallback builtin name");
     assert!(fallback.is_nil());
     let fallback_bound = builtin_fboundp(&mut eval, vec![Value::symbol("length")])
@@ -8673,14 +8673,14 @@ fn fset_nil_clears_fboundp_for_regular_and_fallback_names() {
 fn fset_nil_nil_is_allowed_and_fmakunbound_rejects_constants() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
-    let fset_nil = builtin_fset(&mut eval, vec![Value::Nil, Value::Nil])
+    let fset_nil = builtin_fset(&mut eval, vec![Value::NIL, Value::NIL])
         .expect("fset nil nil should match GNU");
     assert!(fset_nil.is_nil());
-    let nil_fn = builtin_symbol_function(&mut eval, vec![Value::Nil])
+    let nil_fn = builtin_symbol_function(&mut eval, vec![Value::NIL])
         .expect("symbol-function should read nil function cell");
     assert!(nil_fn.is_nil());
 
-    for constant in [Value::Nil, Value::True] {
+    for constant in [Value::NIL, Value::T] {
         let err = builtin_fmakunbound(&mut eval, vec![constant])
             .expect_err("fmakunbound should reject constants");
         match err {
@@ -8699,38 +8699,38 @@ fn func_arity_eval_resolves_symbol_designators_and_nil_cells() {
 
     let keyword = Value::keyword(":vm-func-arity-keyword");
     let vm_nil = Value::symbol("vm-func-arity-nil-cell");
-    let orig_t = builtin_symbol_function(&mut eval, vec![Value::True])
+    let orig_t = builtin_symbol_function(&mut eval, vec![Value::T])
         .expect("symbol-function should read t function cell");
     let orig_keyword = builtin_symbol_function(&mut eval, vec![keyword])
         .expect("symbol-function should read keyword function cell");
     let orig_vm_nil = builtin_symbol_function(&mut eval, vec![vm_nil])
         .expect("symbol-function should read symbol function cell");
 
-    builtin_fset(&mut eval, vec![Value::True, Value::symbol("car")])
+    builtin_fset(&mut eval, vec![Value::T, Value::symbol("car")])
         .expect("fset should bind t function cell");
     builtin_fset(&mut eval, vec![keyword, Value::symbol("car")])
         .expect("fset should bind keyword function cell");
-    builtin_fset(&mut eval, vec![vm_nil, Value::Nil])
+    builtin_fset(&mut eval, vec![vm_nil, Value::NIL])
         .expect("fset should bind explicit nil function cell");
 
-    let t_arity = builtin_func_arity(&mut eval, vec![Value::True])
+    let t_arity = builtin_func_arity(&mut eval, vec![Value::T])
         .expect("func-arity should resolve t designator");
-    match &t_arity {
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);
-            assert_eq!(pair.car, Value::Int(1));
-            assert_eq!(pair.cdr, Value::Int(1));
+    match t_arity.kind() {
+        ValueKind::Cons => {
+            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+            assert_eq!(pair.car, ValueKind::Fixnum(1));
+            assert_eq!(pair.cdr, ValueKind::Fixnum(1));
         }
         other => panic!("expected cons arity pair, got {other:?}"),
     }
 
     let keyword_arity = builtin_func_arity(&mut eval, vec![keyword])
         .expect("func-arity should resolve keyword designator");
-    match &keyword_arity {
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);
-            assert_eq!(pair.car, Value::Int(1));
-            assert_eq!(pair.cdr, Value::Int(1));
+    match keyword_arity.kind() {
+        ValueKind::Cons => {
+            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+            assert_eq!(pair.car, ValueKind::Fixnum(1));
+            assert_eq!(pair.cdr, ValueKind::Fixnum(1));
         }
         other => panic!("expected cons arity pair, got {other:?}"),
     }
@@ -8745,7 +8745,7 @@ fn func_arity_eval_resolves_symbol_designators_and_nil_cells() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    builtin_fset(&mut eval, vec![Value::True, orig_t]).expect("restore t function cell");
+    builtin_fset(&mut eval, vec![Value::T, orig_t]).expect("restore t function cell");
     builtin_fset(&mut eval, vec![keyword, orig_keyword]).expect("restore keyword function cell");
     builtin_fset(&mut eval, vec![vm_nil, orig_vm_nil]).expect("restore symbol function cell");
 }
@@ -8757,7 +8757,7 @@ fn indirect_function_follows_t_and_keyword_alias_values() {
     let keyword = Value::keyword(":vm-indirect-keyword-alias");
     let t_alias = Value::symbol("vm-indirect-through-t");
     let keyword_alias = Value::symbol("vm-indirect-through-keyword");
-    let orig_t = builtin_symbol_function(&mut eval, vec![Value::True])
+    let orig_t = builtin_symbol_function(&mut eval, vec![Value::T])
         .expect("symbol-function should read t function cell");
     let orig_keyword = builtin_symbol_function(&mut eval, vec![keyword])
         .expect("symbol-function should read keyword function cell");
@@ -8766,23 +8766,23 @@ fn indirect_function_follows_t_and_keyword_alias_values() {
     let orig_keyword_alias = builtin_symbol_function(&mut eval, vec![keyword_alias])
         .expect("symbol-function should read alias function cell");
 
-    builtin_fset(&mut eval, vec![Value::True, Value::symbol("car")])
+    builtin_fset(&mut eval, vec![Value::T, Value::symbol("car")])
         .expect("fset should bind t function cell");
     builtin_fset(&mut eval, vec![keyword, Value::symbol("car")])
         .expect("fset should bind keyword function cell");
-    builtin_fset(&mut eval, vec![t_alias, Value::True])
+    builtin_fset(&mut eval, vec![t_alias, Value::T])
         .expect("fset should bind alias to t symbol designator");
     builtin_fset(&mut eval, vec![keyword_alias, keyword])
         .expect("fset should bind alias to keyword designator");
 
     let resolved_t_alias = builtin_indirect_function(&mut eval, vec![t_alias])
         .expect("indirect-function should resolve alias through t");
-    assert_eq!(resolved_t_alias, Value::Subr(intern("car")));
+    assert_eq!(resolved_t_alias, Value::subr(intern("car")));
     let resolved_keyword_alias = builtin_indirect_function(&mut eval, vec![keyword_alias])
         .expect("indirect-function should resolve alias through keyword");
-    assert_eq!(resolved_keyword_alias, Value::Subr(intern("car")));
+    assert_eq!(resolved_keyword_alias, Value::subr(intern("car")));
 
-    builtin_fset(&mut eval, vec![Value::True, orig_t]).expect("restore t function cell");
+    builtin_fset(&mut eval, vec![Value::T, orig_t]).expect("restore t function cell");
     builtin_fset(&mut eval, vec![keyword, orig_keyword]).expect("restore keyword function cell");
     builtin_fset(&mut eval, vec![t_alias, orig_t_alias]).expect("restore alias function cell");
     builtin_fset(&mut eval, vec![keyword_alias, orig_keyword_alias])
@@ -8838,13 +8838,13 @@ fn macroexpand_runtime_environment_overrides_and_shadows_global_macros() {
             Value::symbol("list"),
             Value::list(vec![Value::symbol("quote"), Value::symbol("vm-env-result")]),
             Value::symbol("x"),
-            Value::Int(1),
+            Value::fixnum(1),
         ]),
     ])]);
     let expanded = builtin_macroexpand(
         &mut eval,
         vec![
-            Value::list(vec![Value::symbol("vm-env"), Value::True]),
+            Value::list(vec![Value::symbol("vm-env"), Value::T]),
             env_lambda,
         ],
     )
@@ -8853,8 +8853,8 @@ fn macroexpand_runtime_environment_overrides_and_shadows_global_macros() {
         expanded,
         Value::list(vec![
             Value::symbol("vm-env-result"),
-            Value::True,
-            Value::Int(1),
+            Value::T,
+            Value::fixnum(1),
         ])
     );
 
@@ -8864,14 +8864,14 @@ fn macroexpand_runtime_environment_overrides_and_shadows_global_macros() {
     let shadow = builtin_macroexpand(
         &mut eval,
         vec![
-            Value::list(vec![Value::symbol("with-temp-buffer"), Value::Int(1)]),
+            Value::list(vec![Value::symbol("with-temp-buffer"), Value::fixnum(1)]),
             Value::list(vec![Value::list(vec![Value::symbol("with-temp-buffer")])]),
         ],
     )
     .expect("environment shadow entries should suppress global macro expansion");
     assert_eq!(
         shadow,
-        Value::list(vec![Value::symbol("with-temp-buffer"), Value::Int(1),])
+        Value::list(vec![Value::symbol("with-temp-buffer"), Value::fixnum(1),])
     );
 }
 
@@ -8880,7 +8880,7 @@ fn macroexpand_runtime_environment_type_and_payload_edges_match_oracle() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let atom_ignores_bad_env =
-        builtin_macroexpand(&mut eval, vec![Value::symbol("x"), Value::Int(1)])
+        builtin_macroexpand(&mut eval, vec![Value::symbol("x"), Value::fixnum(1)])
             .expect("non-list forms should ignore non-list environments");
     assert_eq!(atom_ignores_bad_env, Value::symbol("x"));
 
@@ -8889,9 +8889,9 @@ fn macroexpand_runtime_environment_type_and_payload_edges_match_oracle() {
         vec![
             Value::list(vec![
                 Value::list(vec![Value::symbol("lambda")]),
-                Value::Int(1),
+                Value::fixnum(1),
             ]),
-            Value::Int(1),
+            Value::fixnum(1),
         ],
     )
     .expect("list forms without symbol heads should ignore non-list env");
@@ -8899,22 +8899,22 @@ fn macroexpand_runtime_environment_type_and_payload_edges_match_oracle() {
         nonsymbol_head_ignores_bad_env,
         Value::list(vec![
             Value::list(vec![Value::symbol("lambda")]),
-            Value::Int(1)
+            Value::fixnum(1)
         ])
     );
 
     let env_type_err = builtin_macroexpand(
         &mut eval,
         vec![
-            Value::list(vec![Value::symbol("foo"), Value::Int(1)]),
-            Value::Int(1),
+            Value::list(vec![Value::symbol("foo"), Value::fixnum(1)]),
+            Value::fixnum(1),
         ],
     )
     .expect_err("symbol-headed forms should validate environment list-ness");
     match env_type_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("listp"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("listp"), ValueKind::Fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -8922,15 +8922,15 @@ fn macroexpand_runtime_environment_type_and_payload_edges_match_oracle() {
     let invalid_env_function = builtin_macroexpand(
         &mut eval,
         vec![
-            Value::list(vec![Value::symbol("vm-f"), Value::Int(1)]),
-            Value::list(vec![Value::cons(Value::symbol("vm-f"), Value::Int(42))]),
+            Value::list(vec![Value::symbol("vm-f"), Value::fixnum(1)]),
+            Value::list(vec![Value::cons(Value::symbol("vm-f"), Value::fixnum(42))]),
         ],
     )
     .expect_err("environment entries with non-callables should surface invalid-function");
     match invalid_env_function {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "invalid-function");
-            assert_eq!(sig.data, vec![Value::Int(42)]);
+            assert_eq!(sig.data, vec![ValueKind::Fixnum(42)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -8942,24 +8942,24 @@ fn macroexpand_runtime_improper_lists_match_oracle_error_behavior() {
 
     let not_macro = builtin_macroexpand(
         &mut eval,
-        vec![Value::cons(Value::symbol("foo"), Value::Int(1))],
+        vec![Value::cons(Value::symbol("foo"), Value::fixnum(1))],
     )
     .expect("non-macro improper forms should pass through unchanged");
-    assert_eq!(not_macro, Value::cons(Value::symbol("foo"), Value::Int(1)));
+    assert_eq!(not_macro, Value::cons(Value::symbol("foo"), Value::fixnum(1)));
 
     // Use with-temp-buffer (a real GNU Lisp macro) instead of when.
     let improper_macro = builtin_macroexpand(
         &mut eval,
         vec![Value::cons(
             Value::symbol("with-temp-buffer"),
-            Value::Int(1),
+            Value::fixnum(1),
         )],
     )
     .expect_err("macro expansion should reject improper argument lists");
     match improper_macro {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("listp"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("listp"), ValueKind::Fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -8971,7 +8971,7 @@ fn indirect_function_nil_and_non_symbol_behavior() {
 
     let noerror = builtin_indirect_function(
         &mut eval,
-        vec![Value::symbol("definitely-not-a-function"), Value::True],
+        vec![Value::symbol("definitely-not-a-function"), Value::T],
     )
     .expect("indirect-function should return nil when noerror is non-nil");
     assert!(noerror.is_nil());
@@ -8981,24 +8981,24 @@ fn indirect_function_nil_and_non_symbol_behavior() {
             .expect("indirect-function should return nil for unresolved function");
     assert!(unresolved.is_nil());
 
-    let nil_input = builtin_indirect_function(&mut eval, vec![Value::Nil])
+    let nil_input = builtin_indirect_function(&mut eval, vec![Value::NIL])
         .expect("indirect-function should return nil for nil input");
     assert!(nil_input.is_nil());
 
-    let true_input = builtin_indirect_function(&mut eval, vec![Value::True])
+    let true_input = builtin_indirect_function(&mut eval, vec![Value::T])
         .expect("indirect-function should treat t as a symbol and return nil");
     assert!(true_input.is_nil());
 
     let keyword_input = builtin_indirect_function(
         &mut eval,
-        vec![Value::Keyword(intern(":vm-indirect-keyword"))],
+        vec![Value::keyword(intern(":vm-indirect-keyword"))],
     )
     .expect("indirect-function should treat keywords as symbols and return nil");
     assert!(keyword_input.is_nil());
 
-    let passthrough = builtin_indirect_function(&mut eval, vec![Value::Int(42)])
+    let passthrough = builtin_indirect_function(&mut eval, vec![Value::fixnum(42)])
         .expect("non-symbol should be returned as-is");
-    assert_eq!(passthrough, Value::Int(42));
+    assert_eq!(passthrough, Value::fixnum(42));
 }
 
 #[test]
@@ -9006,7 +9006,7 @@ fn indirect_function_rejects_overflow_arity() {
     let mut eval = crate::emacs_core::eval::Context::new();
     let err = builtin_indirect_function(
         &mut eval,
-        vec![Value::symbol("ignore"), Value::Nil, Value::Nil],
+        vec![Value::symbol("ignore"), Value::NIL, Value::NIL],
     )
     .expect_err("indirect-function should reject more than two arguments");
     match err {
@@ -9033,7 +9033,7 @@ fn indirect_function_resolves_deep_alias_chain_without_depth_cutoff() {
     let resolved =
         builtin_indirect_function(&mut eval, vec![Value::symbol("vm-test-deep-alias-0")])
             .expect("indirect-function should resolve deep alias chains");
-    assert_eq!(resolved, Value::Subr(intern("car")));
+    assert_eq!(resolved, Value::subr(intern("car")));
 }
 
 #[test]
@@ -9117,10 +9117,10 @@ fn fset_rejects_keyword_and_t_alias_cycles() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    builtin_fset(&mut eval, vec![Value::True, Value::keyword(":vmk")])
+    builtin_fset(&mut eval, vec![Value::T, Value::keyword(":vmk")])
         .expect("fset should allow binding t to keyword alias");
 
-    let t_cycle = builtin_fset(&mut eval, vec![Value::keyword(":vmk"), Value::True])
+    let t_cycle = builtin_fset(&mut eval, vec![Value::keyword(":vmk"), Value::T])
         .expect_err("keyword->t edge should be rejected when t->keyword exists");
     match t_cycle {
         Flow::Signal(sig) => {
@@ -9135,7 +9135,7 @@ fn fset_rejects_keyword_and_t_alias_cycles() {
 fn fset_nil_signals_setting_constant() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
-    let err = builtin_fset(&mut eval, vec![Value::Nil, Value::symbol("car")])
+    let err = builtin_fset(&mut eval, vec![Value::NIL, Value::symbol("car")])
         .expect_err("fset should reject writing nil's function cell");
     match err {
         Flow::Signal(sig) => {
@@ -9150,13 +9150,13 @@ fn fset_nil_signals_setting_constant() {
 fn fset_t_accepts_symbol_cell_updates() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
-    let result = builtin_fset(&mut eval, vec![Value::True, Value::symbol("car")])
+    let result = builtin_fset(&mut eval, vec![Value::T, Value::symbol("car")])
         .expect("fset should allow writing t's function cell");
     assert_eq!(result, Value::symbol("car"));
 
-    let resolved = builtin_indirect_function(&mut eval, vec![Value::True])
+    let resolved = builtin_indirect_function(&mut eval, vec![Value::T])
         .expect("indirect-function should resolve t after fset");
-    assert_eq!(resolved, Value::Subr(intern("car")));
+    assert_eq!(resolved, Value::subr(intern("car")));
 }
 
 #[test]
@@ -9181,11 +9181,11 @@ fn boundp_and_symbol_value_see_dynamic_and_current_buffer_local_bindings() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
     eval.obarray_mut().make_special_id(intern("vm-bound-dyn"));
-    eval.specbind(intern("vm-bound-dyn"), Value::Int(9));
+    eval.specbind(intern("vm-bound-dyn"), Value::fixnum(9));
 
     let current = eval.buffers.current_buffer_id().expect("current buffer");
     let buffer = eval.buffers.get_mut(current).expect("current buffer");
-    buffer.set_buffer_local("vm-bound-buf", Value::Int(7));
+    buffer.set_buffer_local("vm-bound-buf", Value::fixnum(7));
 
     let dyn_bound = builtin_boundp(&mut eval, vec![Value::symbol("vm-bound-dyn")])
         .expect("boundp should see dynamic binding");
@@ -9195,7 +9195,7 @@ fn boundp_and_symbol_value_see_dynamic_and_current_buffer_local_bindings() {
     assert!(dyn_default.is_truthy());
     let dyn_value = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-bound-dyn")])
         .expect("symbol-value should see dynamic binding");
-    assert_eq!(dyn_value, Value::Int(9));
+    assert_eq!(dyn_value, Value::fixnum(9));
 
     let buf_bound = builtin_boundp(&mut eval, vec![Value::symbol("vm-bound-buf")])
         .expect("boundp should see current buffer-local binding");
@@ -9205,7 +9205,7 @@ fn boundp_and_symbol_value_see_dynamic_and_current_buffer_local_bindings() {
     assert!(buf_default.is_nil());
     let buf_value = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-bound-buf")])
         .expect("symbol-value should read current buffer-local binding");
-    assert_eq!(buf_value, Value::Int(7));
+    assert_eq!(buf_value, Value::fixnum(7));
 }
 
 #[test]
@@ -9248,13 +9248,13 @@ fn defvaralias_and_indirect_variable_follow_runtime_aliases() {
 
     let set_value = builtin_set(
         &mut eval,
-        vec![Value::symbol("vm-defvaralias-new"), Value::Int(7)],
+        vec![Value::symbol("vm-defvaralias-new"), Value::fixnum(7)],
     )
     .expect("set should assign through aliases");
-    assert_eq!(set_value, Value::Int(7));
+    assert_eq!(set_value, Value::fixnum(7));
     let old_value = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-defvaralias-old")])
         .expect("symbol-value should read aliased target");
-    assert_eq!(old_value, Value::Int(7));
+    assert_eq!(old_value, Value::fixnum(7));
 
     builtin_defvaralias(
         &mut eval,
@@ -9298,7 +9298,7 @@ fn variable_watchers_observe_set_setq_and_makunbound() {
 
     builtin_set(
         &mut eval,
-        vec![Value::symbol("vm-watcher-target"), Value::Int(7)],
+        vec![Value::symbol("vm-watcher-target"), Value::fixnum(7)],
     )
     .expect("set should trigger watcher");
     let set_op = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-watcher-last-op")])
@@ -9306,7 +9306,7 @@ fn variable_watchers_observe_set_setq_and_makunbound() {
     let set_val = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-watcher-last-value")])
         .expect("watcher should record value");
     assert_eq!(set_op, Value::symbol("set"));
-    assert_eq!(set_val, Value::Int(7));
+    assert_eq!(set_val, Value::fixnum(7));
 
     eval.eval_expr(&Expr::List(vec![
         Expr::Symbol(intern("setq")),
@@ -9319,7 +9319,7 @@ fn variable_watchers_observe_set_setq_and_makunbound() {
     let setq_val = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-watcher-last-value")])
         .expect("watcher should record setq value");
     assert_eq!(setq_op, Value::symbol("set"));
-    assert_eq!(setq_val, Value::Int(11));
+    assert_eq!(setq_val, Value::fixnum(11));
 
     builtin_makunbound(&mut eval, vec![Value::symbol("vm-watcher-target")])
         .expect("makunbound should trigger watcher");
@@ -9347,7 +9347,7 @@ fn variable_watchers_observe_set_default_toplevel_value() {
 
     builtin_set_default_toplevel_value(
         &mut eval,
-        vec![Value::symbol("vm-watcher-default-target"), Value::Int(23)],
+        vec![Value::symbol("vm-watcher-default-target"), Value::fixnum(23)],
     )
     .expect("set-default-toplevel-value should trigger watcher");
     let op = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-watcher-last-op")])
@@ -9355,7 +9355,7 @@ fn variable_watchers_observe_set_default_toplevel_value() {
     let val = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-watcher-last-value")])
         .expect("watcher should record value");
     assert_eq!(op, Value::symbol("set"));
-    assert_eq!(val, Value::Int(23));
+    assert_eq!(val, Value::fixnum(23));
 }
 
 #[test]
@@ -9415,7 +9415,7 @@ fn defvaralias_raw_plist_errors_skip_variable_watcher_callbacks() {
 
     builtin_setplist(
         &mut eval,
-        vec![Value::symbol("vm-defvaralias-watch-bad"), Value::Int(1)],
+        vec![Value::symbol("vm-defvaralias-watch-bad"), Value::fixnum(1)],
     )
     .expect("setplist should install malformed raw plist");
 
@@ -9430,7 +9430,7 @@ fn defvaralias_raw_plist_errors_skip_variable_watcher_callbacks() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("plistp"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("plistp"), ValueKind::Fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -9505,13 +9505,13 @@ fn defvaralias_rejects_invalid_inputs_and_cycles() {
 
     let type_err = builtin_defvaralias(
         &mut eval,
-        vec![Value::symbol("vm-defvaralias-bad"), Value::Int(1)],
+        vec![Value::symbol("vm-defvaralias-bad"), Value::fixnum(1)],
     )
     .expect_err("defvaralias should validate OLD-BASE");
     match type_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("symbolp"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("symbolp"), ValueKind::Fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -9547,9 +9547,9 @@ fn setplist_runtime_controls_get_put_and_symbol_plist_edges() {
 
     let initial_plist = Value::list(vec![
         Value::symbol("a"),
-        Value::Int(1),
+        Value::fixnum(1),
         Value::symbol("b"),
-        Value::Int(2),
+        Value::fixnum(2),
     ]);
     let stored = builtin_setplist(&mut eval, vec![Value::symbol("vm-setplist"), initial_plist])
         .expect("setplist should store plist values");
@@ -9561,9 +9561,9 @@ fn setplist_runtime_controls_get_put_and_symbol_plist_edges() {
         read_plist,
         Value::list(vec![
             Value::symbol("a"),
-            Value::Int(1),
+            Value::fixnum(1),
             Value::symbol("b"),
-            Value::Int(2),
+            Value::fixnum(2),
         ])
     );
 
@@ -9572,35 +9572,35 @@ fn setplist_runtime_controls_get_put_and_symbol_plist_edges() {
         vec![Value::symbol("vm-setplist"), Value::symbol("a")],
     )
     .expect("get should read entries from raw plist");
-    assert_eq!(lookup, Value::Int(1));
+    assert_eq!(lookup, Value::fixnum(1));
 
     let put = builtin_put(
         &mut eval,
         vec![
             Value::symbol("vm-setplist"),
             Value::symbol("a"),
-            Value::Int(5),
+            Value::fixnum(5),
         ],
     )
     .expect("put should update raw plist entries");
-    assert_eq!(put, Value::Int(5));
+    assert_eq!(put, Value::fixnum(5));
     let updated = builtin_symbol_plist_fn(&mut eval, vec![Value::symbol("vm-setplist")])
         .expect("symbol-plist should reflect updated plist values");
     assert_eq!(
         updated,
         Value::list(vec![
             Value::symbol("a"),
-            Value::Int(5),
+            Value::fixnum(5),
             Value::symbol("b"),
-            Value::Int(2),
+            Value::fixnum(2),
         ])
     );
 
-    builtin_setplist(&mut eval, vec![Value::symbol("vm-setplist"), Value::Int(1)])
+    builtin_setplist(&mut eval, vec![Value::symbol("vm-setplist"), Value::fixnum(1)])
         .expect("setplist should accept non-list plist values");
     let non_list = builtin_symbol_plist_fn(&mut eval, vec![Value::symbol("vm-setplist")])
         .expect("symbol-plist should return raw non-list values");
-    assert_eq!(non_list, Value::Int(1));
+    assert_eq!(non_list, Value::fixnum(1));
 
     let missing = builtin_get(
         &mut eval,
@@ -9614,14 +9614,14 @@ fn setplist_runtime_controls_get_put_and_symbol_plist_edges() {
         vec![
             Value::symbol("vm-setplist"),
             Value::symbol("a"),
-            Value::Int(8),
+            Value::fixnum(8),
         ],
     )
     .expect_err("put should fail on non-plist raw values");
     match put_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("plistp"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("plistp"), ValueKind::Fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -9646,18 +9646,18 @@ fn put_promotes_symbol_properties_to_live_raw_plists() {
     let plist = builtin_symbol_plist_fn(&mut eval, vec![sym])
         .expect("symbol-plist should return a live plist object");
 
-    builtin_put(&mut eval, vec![sym, Value::symbol("type"), Value::Nil])
+    builtin_put(&mut eval, vec![sym, Value::symbol("type"), Value::NIL])
         .expect("put should mutate the live plist in place");
-    builtin_put(&mut eval, vec![sym, Value::symbol("doc"), Value::Nil])
+    builtin_put(&mut eval, vec![sym, Value::symbol("doc"), Value::NIL])
         .expect("put should mutate the live plist in place");
 
     assert_eq!(
         plist,
         Value::list(vec![
             Value::symbol("type"),
-            Value::Nil,
+            Value::NIL,
             Value::symbol("doc"),
-            Value::Nil,
+            Value::NIL,
         ])
     );
 }
@@ -9665,7 +9665,7 @@ fn put_promotes_symbol_properties_to_live_raw_plists() {
 #[test]
 fn register_code_conversion_map_publishes_symbol_properties() {
     let mut eval = crate::emacs_core::eval::Context::new();
-    let map = Value::vector(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
+    let map = Value::vector(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
 
     let map_id = dispatch_builtin(
         &mut eval,
@@ -9674,10 +9674,10 @@ fn register_code_conversion_map_publishes_symbol_properties() {
     )
     .expect("register-code-conversion-map should dispatch")
     .expect("register-code-conversion-map should succeed");
-    let map_id_value = match map_id {
-        Value::Int(id) => {
+    let map_id_value = match map_id.kind() {
+        ValueKind::Fixnum(id) => {
             assert!(id >= 0);
-            Value::Int(id)
+            ValueKind::Fixnum(id)
         }
         other => panic!("expected integer map id, got {other:?}"),
     };
@@ -9716,7 +9716,7 @@ fn register_code_conversion_map_publishes_symbol_properties() {
 #[test]
 fn register_ccl_program_publishes_symbol_properties() {
     let mut eval = crate::emacs_core::eval::Context::new();
-    let program = Value::vector(vec![Value::Int(10), Value::Int(0), Value::Int(0)]);
+    let program = Value::vector(vec![Value::fixnum(10), Value::fixnum(0), Value::fixnum(0)]);
 
     let program_id = dispatch_builtin(
         &mut eval,
@@ -9725,10 +9725,10 @@ fn register_ccl_program_publishes_symbol_properties() {
     )
     .expect("register-ccl-program should dispatch")
     .expect("register-ccl-program should succeed");
-    let program_id_value = match program_id {
-        Value::Int(id) => {
+    let program_id_value = match program_id.kind() {
+        ValueKind::Fixnum(id) => {
             assert!(id > 0);
-            Value::Int(id)
+            ValueKind::Fixnum(id)
         }
         other => panic!("expected integer program id, got {other:?}"),
     };
@@ -9751,7 +9751,7 @@ fn register_ccl_program_publishes_symbol_properties() {
         ],
     )
     .expect("get should return nil for ccl-program property");
-    assert_eq!(unpublished_program, Value::Nil);
+    assert_eq!(unpublished_program, Value::NIL);
 
     let sym_value = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-ccl-program-prop")])
         .expect_err("register-ccl-program should not bind symbol value");
@@ -9773,7 +9773,7 @@ fn ccl_symbol_designators_follow_plist_idx_gates() {
         vec![
             Value::symbol("vm-ccl-manual-programp"),
             Value::symbol("ccl-program-idx"),
-            Value::Int(1),
+            Value::fixnum(1),
         ],
     )
     .expect("put should seed ccl-program-idx");
@@ -9784,14 +9784,14 @@ fn ccl_symbol_designators_follow_plist_idx_gates() {
     )
     .expect("ccl-program-p should dispatch")
     .expect("ccl-program-p should evaluate symbol plist idx");
-    assert_eq!(manual_programp, Value::True);
+    assert_eq!(manual_programp, Value::T);
 
     let first_id = dispatch_builtin(
         &mut eval,
         "register-ccl-program",
         vec![
             Value::symbol("vm-ccl-plist-gate"),
-            Value::vector(vec![Value::Int(10), Value::Int(0), Value::Int(0)]),
+            Value::vector(vec![Value::fixnum(10), Value::fixnum(0), Value::fixnum(0)]),
         ],
     )
     .expect("initial register-ccl-program should dispatch")
@@ -9799,7 +9799,7 @@ fn ccl_symbol_designators_follow_plist_idx_gates() {
 
     let _ = builtin_setplist(
         &mut eval,
-        vec![Value::symbol("vm-ccl-plist-gate"), Value::Nil],
+        vec![Value::symbol("vm-ccl-plist-gate"), Value::NIL],
     )
     .expect("setplist should clear symbol plist");
     let second_id = dispatch_builtin(
@@ -9808,10 +9808,10 @@ fn ccl_symbol_designators_follow_plist_idx_gates() {
         vec![
             Value::symbol("vm-ccl-plist-gate"),
             Value::vector(vec![
-                Value::Int(10),
-                Value::Int(0),
-                Value::Int(0),
-                Value::Int(0),
+                Value::fixnum(10),
+                Value::fixnum(0),
+                Value::fixnum(0),
+                Value::fixnum(0),
             ]),
         ],
     )
@@ -9827,7 +9827,7 @@ fn ccl_symbol_designators_follow_plist_idx_gates() {
         ],
     )
     .expect("get should read plist gate");
-    assert_eq!(missing_idx, Value::Nil);
+    assert_eq!(missing_idx, Value::NIL);
 
     let gated_programp = dispatch_builtin(
         &mut eval,
@@ -9836,7 +9836,7 @@ fn ccl_symbol_designators_follow_plist_idx_gates() {
     )
     .expect("ccl-program-p should dispatch")
     .expect("ccl-program-p should gate on plist idx");
-    assert_eq!(gated_programp, Value::Nil);
+    assert_eq!(gated_programp, Value::NIL);
 
     let execute_err = dispatch_builtin(
         &mut eval,
@@ -9844,14 +9844,14 @@ fn ccl_symbol_designators_follow_plist_idx_gates() {
         vec![
             Value::symbol("vm-ccl-plist-gate"),
             Value::vector(vec![
-                Value::Int(0),
-                Value::Int(0),
-                Value::Int(0),
-                Value::Int(0),
-                Value::Int(0),
-                Value::Int(0),
-                Value::Int(0),
-                Value::Int(0),
+                Value::fixnum(0),
+                Value::fixnum(0),
+                Value::fixnum(0),
+                Value::fixnum(0),
+                Value::fixnum(0),
+                Value::fixnum(0),
+                Value::fixnum(0),
+                Value::fixnum(0),
             ]),
         ],
     )
@@ -9871,15 +9871,15 @@ fn ccl_symbol_designators_follow_plist_idx_gates() {
         vec![
             Value::symbol("vm-ccl-plist-gate"),
             Value::vector(vec![
-                Value::Int(0),
-                Value::Int(0),
-                Value::Int(0),
-                Value::Int(0),
-                Value::Int(0),
-                Value::Int(0),
-                Value::Int(0),
-                Value::Int(0),
-                Value::Int(0),
+                Value::fixnum(0),
+                Value::fixnum(0),
+                Value::fixnum(0),
+                Value::fixnum(0),
+                Value::fixnum(0),
+                Value::fixnum(0),
+                Value::fixnum(0),
+                Value::fixnum(0),
+                Value::fixnum(0),
             ]),
             Value::string("abc"),
         ],
@@ -9896,7 +9896,7 @@ fn ccl_symbol_designators_follow_plist_idx_gates() {
 
     let _ = builtin_setplist(
         &mut eval,
-        vec![Value::symbol("vm-ccl-plist-gate"), Value::Int(1)],
+        vec![Value::symbol("vm-ccl-plist-gate"), Value::fixnum(1)],
     )
     .expect("setplist should allow malformed plist");
     let malformed_reregister = dispatch_builtin(
@@ -9905,10 +9905,10 @@ fn ccl_symbol_designators_follow_plist_idx_gates() {
         vec![
             Value::symbol("vm-ccl-plist-gate"),
             Value::vector(vec![
-                Value::Int(10),
-                Value::Int(0),
-                Value::Int(0),
-                Value::Int(0),
+                Value::fixnum(10),
+                Value::fixnum(0),
+                Value::fixnum(0),
+                Value::fixnum(0),
             ]),
         ],
     )
@@ -9926,16 +9926,16 @@ fn register_code_conversion_map_existing_symbol_plist_edges() {
         "register-code-conversion-map",
         vec![
             Value::symbol("vm-map-plist-edge"),
-            Value::vector(vec![Value::Int(1), Value::Int(2), Value::Int(3)]),
+            Value::vector(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]),
         ],
     )
     .expect("register-code-conversion-map should dispatch")
     .expect("initial register-code-conversion-map should succeed");
-    assert_eq!(first_id, Value::Int(0));
+    assert_eq!(first_id, Value::fixnum(0));
 
     let _ = builtin_setplist(
         &mut eval,
-        vec![Value::symbol("vm-map-plist-edge"), Value::Nil],
+        vec![Value::symbol("vm-map-plist-edge"), Value::NIL],
     )
     .expect("setplist should clear plist");
 
@@ -9944,7 +9944,7 @@ fn register_code_conversion_map_existing_symbol_plist_edges() {
         "register-code-conversion-map",
         vec![
             Value::symbol("vm-map-plist-edge"),
-            Value::vector(vec![Value::Int(4), Value::Int(5), Value::Int(6)]),
+            Value::vector(vec![Value::fixnum(4), Value::fixnum(5), Value::fixnum(6)]),
         ],
     )
     .expect("register-code-conversion-map should dispatch after plist clear")
@@ -9961,7 +9961,7 @@ fn register_code_conversion_map_existing_symbol_plist_edges() {
     .expect("get should read republished map");
     assert_eq!(
         republished_map,
-        Value::vector(vec![Value::Int(4), Value::Int(5), Value::Int(6)])
+        Value::vector(vec![Value::fixnum(4), Value::fixnum(5), Value::fixnum(6)])
     );
     let republished_id = builtin_get(
         &mut eval,
@@ -9975,7 +9975,7 @@ fn register_code_conversion_map_existing_symbol_plist_edges() {
 
     let _ = builtin_setplist(
         &mut eval,
-        vec![Value::symbol("vm-map-plist-edge"), Value::Int(1)],
+        vec![Value::symbol("vm-map-plist-edge"), Value::fixnum(1)],
     )
     .expect("setplist should seed malformed plist");
     let malformed = dispatch_builtin(
@@ -9983,7 +9983,7 @@ fn register_code_conversion_map_existing_symbol_plist_edges() {
         "register-code-conversion-map",
         vec![
             Value::symbol("vm-map-plist-edge"),
-            Value::vector(vec![Value::Int(7), Value::Int(8), Value::Int(9)]),
+            Value::vector(vec![Value::fixnum(7), Value::fixnum(8), Value::fixnum(9)]),
         ],
     )
     .expect("register-code-conversion-map malformed path should dispatch")
@@ -9991,7 +9991,7 @@ fn register_code_conversion_map_existing_symbol_plist_edges() {
     match malformed {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("plistp"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("plistp"), ValueKind::Fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -10004,19 +10004,19 @@ fn register_code_conversion_map_existing_symbol_plist_edges() {
         ],
     )
     .expect("get should read hidden id after malformed plist");
-    assert_eq!(hidden_id, Value::Nil);
+    assert_eq!(hidden_id, Value::NIL);
 
     let next_id = dispatch_builtin(
         &mut eval,
         "register-code-conversion-map",
         vec![
             Value::symbol("vm-map-plist-edge-next"),
-            Value::vector(vec![Value::Int(9), Value::Int(8), Value::Int(7)]),
+            Value::vector(vec![Value::fixnum(9), Value::fixnum(8), Value::fixnum(7)]),
         ],
     )
     .expect("register-code-conversion-map next should dispatch")
     .expect("register-code-conversion-map next should succeed");
-    assert_eq!(next_id, Value::Int(1));
+    assert_eq!(next_id, Value::fixnum(1));
 }
 
 #[test]
@@ -10028,7 +10028,7 @@ fn ccl_registration_plist_errors_preserve_oracle_id_side_effects() {
         "register-ccl-program",
         vec![
             Value::symbol("vm-ccl-program-id-baseline"),
-            Value::vector(vec![Value::Int(10), Value::Int(0), Value::Int(0)]),
+            Value::vector(vec![Value::fixnum(10), Value::fixnum(0), Value::fixnum(0)]),
         ],
     )
     .expect("register-ccl-program baseline should dispatch")
@@ -10038,7 +10038,7 @@ fn ccl_registration_plist_errors_preserve_oracle_id_side_effects() {
 
     builtin_setplist(
         &mut eval,
-        vec![Value::symbol("vm-ccl-program-id-bad"), Value::Int(1)],
+        vec![Value::symbol("vm-ccl-program-id-bad"), Value::fixnum(1)],
     )
     .expect("setplist should seed malformed plist");
     let program_err = dispatch_builtin(
@@ -10046,7 +10046,7 @@ fn ccl_registration_plist_errors_preserve_oracle_id_side_effects() {
         "register-ccl-program",
         vec![
             Value::symbol("vm-ccl-program-id-bad"),
-            Value::vector(vec![Value::Int(10), Value::Int(0), Value::Int(0)]),
+            Value::vector(vec![Value::fixnum(10), Value::fixnum(0), Value::fixnum(0)]),
         ],
     )
     .expect("register-ccl-program error path should dispatch")
@@ -10054,7 +10054,7 @@ fn ccl_registration_plist_errors_preserve_oracle_id_side_effects() {
     match program_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("plistp"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("plistp"), ValueKind::Fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -10065,14 +10065,14 @@ fn ccl_registration_plist_errors_preserve_oracle_id_side_effects() {
     )
     .expect("ccl-program-p should dispatch")
     .expect("ccl-program-p should return predicate value");
-    assert_eq!(bad_program_designator, Value::Nil);
+    assert_eq!(bad_program_designator, Value::NIL);
 
     let next_program_id = dispatch_builtin(
         &mut eval,
         "register-ccl-program",
         vec![
             Value::symbol("vm-ccl-program-id-next"),
-            Value::vector(vec![Value::Int(10), Value::Int(0), Value::Int(0)]),
+            Value::vector(vec![Value::fixnum(10), Value::fixnum(0), Value::fixnum(0)]),
         ],
     )
     .expect("register-ccl-program next should dispatch")
@@ -10086,7 +10086,7 @@ fn ccl_registration_plist_errors_preserve_oracle_id_side_effects() {
         "register-code-conversion-map",
         vec![
             Value::symbol("vm-ccl-map-id-baseline"),
-            Value::vector(vec![Value::Int(1), Value::Int(2), Value::Int(3)]),
+            Value::vector(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]),
         ],
     )
     .expect("register-code-conversion-map baseline should dispatch")
@@ -10096,7 +10096,7 @@ fn ccl_registration_plist_errors_preserve_oracle_id_side_effects() {
 
     builtin_setplist(
         &mut eval,
-        vec![Value::symbol("vm-ccl-map-id-bad"), Value::Int(1)],
+        vec![Value::symbol("vm-ccl-map-id-bad"), Value::fixnum(1)],
     )
     .expect("setplist should seed malformed plist");
     let map_err = dispatch_builtin(
@@ -10104,7 +10104,7 @@ fn ccl_registration_plist_errors_preserve_oracle_id_side_effects() {
         "register-code-conversion-map",
         vec![
             Value::symbol("vm-ccl-map-id-bad"),
-            Value::vector(vec![Value::Int(4), Value::Int(5), Value::Int(6)]),
+            Value::vector(vec![Value::fixnum(4), Value::fixnum(5), Value::fixnum(6)]),
         ],
     )
     .expect("register-code-conversion-map error path should dispatch")
@@ -10112,7 +10112,7 @@ fn ccl_registration_plist_errors_preserve_oracle_id_side_effects() {
     match map_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("plistp"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("plistp"), ValueKind::Fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -10122,7 +10122,7 @@ fn ccl_registration_plist_errors_preserve_oracle_id_side_effects() {
         "register-code-conversion-map",
         vec![
             Value::symbol("vm-ccl-map-id-next"),
-            Value::vector(vec![Value::Int(7), Value::Int(8), Value::Int(9)]),
+            Value::vector(vec![Value::fixnum(7), Value::fixnum(8), Value::fixnum(9)]),
         ],
     )
     .expect("register-code-conversion-map next should dispatch")
@@ -10140,14 +10140,14 @@ fn variable_alias_to_constant_reports_alias_in_setting_constant_errors() {
         vec![
             Value::symbol("vm-alias-constant"),
             Value::symbol("nil"),
-            Value::Nil,
+            Value::NIL,
         ],
     )
     .expect("defvaralias should allow aliasing to nil");
 
     let set_err = builtin_set(
         &mut eval,
-        vec![Value::symbol("vm-alias-constant"), Value::Int(1)],
+        vec![Value::symbol("vm-alias-constant"), Value::fixnum(1)],
     )
     .expect_err("set should reject writes through nil aliases");
     match set_err {
@@ -10160,7 +10160,7 @@ fn variable_alias_to_constant_reports_alias_in_setting_constant_errors() {
 
     let default_err = builtin_set_default_toplevel_value(
         &mut eval,
-        vec![Value::symbol("vm-alias-constant"), Value::Int(1)],
+        vec![Value::symbol("vm-alias-constant"), Value::fixnum(1)],
     )
     .expect_err("set-default-toplevel-value should reject nil aliases");
     match default_err {
@@ -10193,7 +10193,7 @@ fn set_allows_keyword_self_assignment_like_gnu_emacs() {
 
     builtin_defvaralias(
         &mut eval,
-        vec![Value::symbol("vm-set-keyword-alias"), keyword, Value::Nil],
+        vec![Value::symbol("vm-set-keyword-alias"), keyword, Value::NIL],
     )
     .expect("defvaralias should allow keyword targets");
 
@@ -10210,7 +10210,7 @@ fn defvaralias_raises_plistp_errors_when_symbol_plist_is_non_list() {
     let mut eval = crate::emacs_core::eval::Context::new();
     builtin_setplist(
         &mut eval,
-        vec![Value::symbol("vm-defvaralias-bad-plist"), Value::Int(1)],
+        vec![Value::symbol("vm-defvaralias-bad-plist"), Value::fixnum(1)],
     )
     .expect("setplist should seed malformed symbol plist value");
 
@@ -10226,7 +10226,7 @@ fn defvaralias_raises_plistp_errors_when_symbol_plist_is_non_list() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("plistp"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("plistp"), ValueKind::Fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -10242,30 +10242,30 @@ fn get_byte_string_semantics_match_oracle_edges() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
     assert_eq!(
-        builtin_get_byte(&mut eval, vec![Value::Int(0), Value::string("abc")]).unwrap(),
-        Value::Int(97)
+        builtin_get_byte(&mut eval, vec![Value::fixnum(0), Value::string("abc")]).unwrap(),
+        Value::fixnum(97)
     );
     assert_eq!(
-        builtin_get_byte(&mut eval, vec![Value::Int(1), Value::string("abc")]).unwrap(),
-        Value::Int(98)
+        builtin_get_byte(&mut eval, vec![Value::fixnum(1), Value::string("abc")]).unwrap(),
+        Value::fixnum(98)
     );
     assert_eq!(
-        builtin_get_byte(&mut eval, vec![Value::Nil, Value::string("abc")]).unwrap(),
-        Value::Int(97)
+        builtin_get_byte(&mut eval, vec![Value::NIL, Value::string("abc")]).unwrap(),
+        Value::fixnum(97)
     );
 
     let out_of_range =
-        builtin_get_byte(&mut eval, vec![Value::Int(3), Value::string("abc")]).unwrap_err();
+        builtin_get_byte(&mut eval, vec![Value::fixnum(3), Value::string("abc")]).unwrap_err();
     match out_of_range {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![Value::string("abc"), Value::Int(3)]);
+            assert_eq!(sig.data, vec![Value::string("abc"), ValueKind::Fixnum(3)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
 
     let negative =
-        builtin_get_byte(&mut eval, vec![Value::Int(-1), Value::string("abc")]).unwrap_err();
+        builtin_get_byte(&mut eval, vec![Value::fixnum(-1), Value::string("abc")]).unwrap_err();
     match negative {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -10274,7 +10274,7 @@ fn get_byte_string_semantics_match_oracle_edges() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    let non_ascii = builtin_get_byte(&mut eval, vec![Value::Int(0), Value::string("é")])
+    let non_ascii = builtin_get_byte(&mut eval, vec![Value::fixnum(0), Value::string("é")])
         .expect_err("multibyte non-byte8 should signal");
     match non_ascii {
         Flow::Signal(sig) => {
@@ -10294,14 +10294,14 @@ fn get_byte_buffer_semantics_match_oracle_edges() {
     builtin_erase_buffer(&mut eval, vec![]).unwrap();
     builtin_insert(&mut eval, vec![Value::string("abc")]).unwrap();
 
-    assert_eq!(builtin_get_byte(&mut eval, vec![]).unwrap(), Value::Int(0));
+    assert_eq!(builtin_get_byte(&mut eval, vec![]).unwrap(), Value::fixnum(0));
     assert_eq!(
-        builtin_get_byte(&mut eval, vec![Value::Int(1)]).unwrap(),
-        Value::Int(97)
+        builtin_get_byte(&mut eval, vec![Value::fixnum(1)]).unwrap(),
+        Value::fixnum(97)
     );
     assert_eq!(
-        builtin_get_byte(&mut eval, vec![Value::Int(2)]).unwrap(),
-        Value::Int(98)
+        builtin_get_byte(&mut eval, vec![Value::fixnum(2)]).unwrap(),
+        Value::fixnum(98)
     );
     assert_eq!(
         builtin_get_byte(
@@ -10313,33 +10313,33 @@ fn get_byte_buffer_semantics_match_oracle_edges() {
             )],
         )
         .unwrap(),
-        Value::Int(98)
+        Value::fixnum(98)
     );
     assert_eq!(
-        builtin_get_byte(&mut eval, vec![Value::Int(3)]).unwrap(),
-        Value::Int(99)
+        builtin_get_byte(&mut eval, vec![Value::fixnum(3)]).unwrap(),
+        Value::fixnum(99)
     );
 
-    builtin_goto_char(&mut eval, vec![Value::Int(2)]).unwrap();
+    builtin_goto_char(&mut eval, vec![Value::fixnum(2)]).unwrap();
     assert_eq!(
-        builtin_get_byte(&mut eval, vec![Value::Nil]).unwrap(),
-        Value::Int(98)
+        builtin_get_byte(&mut eval, vec![Value::NIL]).unwrap(),
+        Value::fixnum(98)
     );
 
-    let zero = builtin_get_byte(&mut eval, vec![Value::Int(0)]).unwrap_err();
+    let zero = builtin_get_byte(&mut eval, vec![Value::fixnum(0)]).unwrap_err();
     match zero {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![Value::Int(0), Value::Int(1), Value::Int(4)]);
+            assert_eq!(sig.data, vec![ValueKind::Fixnum(0), ValueKind::Fixnum(1), ValueKind::Fixnum(4)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    let end = builtin_get_byte(&mut eval, vec![Value::Int(4)]).unwrap_err();
+    let end = builtin_get_byte(&mut eval, vec![Value::fixnum(4)]).unwrap_err();
     match end {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![Value::Int(4), Value::Int(1), Value::Int(4)]);
+            assert_eq!(sig.data, vec![ValueKind::Fixnum(4), ValueKind::Fixnum(1), ValueKind::Fixnum(4)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -10349,29 +10349,29 @@ fn get_byte_buffer_semantics_match_oracle_edges() {
     eval.buffers
         .set_buffer_multibyte_flag(current_id, false)
         .expect("set-buffer-multibyte should accept current buffer");
-    builtin_insert_byte(&mut eval, vec![Value::Int(200), Value::Int(1)]).unwrap();
-    builtin_insert_byte(&mut eval, vec![Value::Int(65), Value::Int(1)]).unwrap();
+    builtin_insert_byte(&mut eval, vec![Value::fixnum(200), Value::fixnum(1)]).unwrap();
+    builtin_insert_byte(&mut eval, vec![Value::fixnum(65), Value::fixnum(1)]).unwrap();
     assert_eq!(
-        builtin_get_byte(&mut eval, vec![Value::Int(1)]).unwrap(),
-        Value::Int(200)
+        builtin_get_byte(&mut eval, vec![Value::fixnum(1)]).unwrap(),
+        Value::fixnum(200)
     );
     assert_eq!(
-        builtin_get_byte(&mut eval, vec![Value::Int(2)]).unwrap(),
-        Value::Int(65)
+        builtin_get_byte(&mut eval, vec![Value::fixnum(2)]).unwrap(),
+        Value::fixnum(65)
     );
 }
 
 #[test]
 fn get_byte_unibyte_string_returns_raw_byte_values() {
     let mut eval = crate::emacs_core::eval::Context::new();
-    let s = builtin_unibyte_string(vec![Value::Int(255), Value::Int(65)]).unwrap();
+    let s = builtin_unibyte_string(vec![Value::fixnum(255), Value::fixnum(65)]).unwrap();
 
     assert_eq!(
-        builtin_get_byte(&mut eval, vec![Value::Int(0), s]).unwrap(),
-        Value::Int(255)
+        builtin_get_byte(&mut eval, vec![Value::fixnum(0), s]).unwrap(),
+        Value::fixnum(255)
     );
     assert_eq!(
-        builtin_get_byte(&mut eval, vec![Value::Int(1), s]).unwrap(),
-        Value::Int(65)
+        builtin_get_byte(&mut eval, vec![Value::fixnum(1), s]).unwrap(),
+        Value::fixnum(65)
     );
 }

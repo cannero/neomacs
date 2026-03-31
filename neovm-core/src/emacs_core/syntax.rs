@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
-use super::value::{RuntimeBindingValue, Value, list_to_vec, read_cons, with_heap};
+use super::value::{RuntimeBindingValue, Value, list_to_vec, read_cons, with_heap, ValueKind, VecLikeType};
 use crate::buffer::{Buffer, BufferManager};
 
 thread_local! {
@@ -52,18 +52,18 @@ pub fn init_syntax_vars(
     obarray: &mut super::symbol::Obarray,
     custom: &mut super::custom::CustomManager,
 ) {
-    obarray.set_symbol_value("parse-sexp-ignore-comments", Value::Nil);
-    obarray.set_symbol_value("parse-sexp-lookup-properties", Value::Nil);
-    obarray.set_symbol_value("syntax-propertize--done", Value::Int(-1));
-    obarray.set_symbol_value("words-include-escapes", Value::Nil);
-    obarray.set_symbol_value("multibyte-syntax-as-symbol", Value::Nil);
-    obarray.set_symbol_value("open-paren-in-column-0-is-defun-start", Value::True);
+    obarray.set_symbol_value("parse-sexp-ignore-comments", Value::NIL);
+    obarray.set_symbol_value("parse-sexp-lookup-properties", Value::NIL);
+    obarray.set_symbol_value("syntax-propertize--done", Value::fixnum(-1));
+    obarray.set_symbol_value("words-include-escapes", Value::NIL);
+    obarray.set_symbol_value("multibyte-syntax-as-symbol", Value::NIL);
+    obarray.set_symbol_value("open-paren-in-column-0-is-defun-start", Value::T);
     obarray.set_symbol_value(
         "find-word-boundary-function-table",
-        super::chartable::make_char_table_value(Value::Nil, Value::Nil),
+        super::chartable::make_char_table_value(Value::NIL, Value::NIL),
     );
-    obarray.set_symbol_value("comment-end-can-be-escaped", Value::Nil);
-    obarray.set_symbol_value("forward-comment-function", Value::Nil);
+    obarray.set_symbol_value("comment-end-can-be-escaped", Value::NIL);
+    obarray.set_symbol_value("forward-comment-function", Value::NIL);
 
     for name in &[
         "parse-sexp-ignore-comments",
@@ -361,10 +361,10 @@ pub fn string_to_syntax(s: &str) -> Result<SyntaxEntry, String> {
 pub fn syntax_entry_to_value(entry: &SyntaxEntry) -> Value {
     let code = entry.class.code() | ((entry.flags.bits() as i64) << 16);
     let matching = match entry.matching_char {
-        Some(ch) => Value::Int(ch as i64),
-        None => Value::Nil,
+        Some(ch) => Value::fixnum(ch as i64),
+        None => Value::NIL,
     };
-    Value::cons(Value::Int(code), matching)
+    Value::cons(Value::fixnum(code), matching)
 }
 
 // ===========================================================================
@@ -1139,12 +1139,12 @@ pub(crate) fn builtin_string_to_syntax(args: Vec<Value>) -> EvalResult {
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("string-to-syntax"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
-    let s = match &args[0] {
-        Value::Str(_) => args[0].as_str().unwrap().to_string(),
+    let s = match args[0].kind() {
+        ValueKind::String => args[0].as_str().unwrap().to_string(),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1154,7 +1154,7 @@ pub(crate) fn builtin_string_to_syntax(args: Vec<Value>) -> EvalResult {
     };
     let entry = string_to_syntax(&s).map_err(|msg| signal("error", vec![Value::string(&msg)]))?;
     if matches!(entry.class, SyntaxClass::InheritStd) {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     Ok(syntax_entry_to_value(&entry))
 }
@@ -1166,12 +1166,12 @@ pub(crate) fn builtin_make_syntax_table(args: Vec<Value>) -> EvalResult {
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("make-syntax-table"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
 
-    let table = super::chartable::make_char_table_value(Value::symbol("syntax-table"), Value::Nil);
+    let table = super::chartable::make_char_table_value(Value::symbol("syntax-table"), Value::NIL);
     let parent = if args.is_empty() || args[0].is_nil() {
         ensure_standard_syntax_table_object()?
     } else {
@@ -1190,7 +1190,7 @@ pub(crate) fn builtin_copy_syntax_table(args: Vec<Value>) -> EvalResult {
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("copy-syntax-table"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -1208,10 +1208,10 @@ pub(crate) fn builtin_copy_syntax_table(args: Vec<Value>) -> EvalResult {
         table
     };
 
-    match source {
-        Value::Vector(v) => {
+    match source.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let copy = Value::vector(with_heap(|h| h.get_vector(v).clone()));
-            super::chartable::builtin_set_char_table_range(vec![copy, Value::Nil, Value::Nil])?;
+            super::chartable::builtin_set_char_table_range(vec![copy, ValueKind::Nil, ValueKind::Nil])?;
             if super::chartable::builtin_char_table_parent(vec![copy])?.is_nil() {
                 super::chartable::builtin_set_char_table_parent(vec![
                     copy,
@@ -1241,23 +1241,23 @@ fn ensure_standard_syntax_table_object() -> EvalResult {
         for cp in 0..=(' ' as i64 - 1) {
             super::chartable::builtin_set_char_table_range(vec![
                 table,
-                Value::Int(cp),
+                Value::fixnum(cp),
                 punctuation,
             ])?;
         }
-        super::chartable::builtin_set_char_table_range(vec![table, Value::Int(0x7f), punctuation])?;
+        super::chartable::builtin_set_char_table_range(vec![table, Value::fixnum(0x7f), punctuation])?;
 
         let standard = SyntaxTable::new_standard();
         for (ch, entry) in &standard.entries {
             super::chartable::builtin_set_char_table_range(vec![
                 table,
-                Value::Int(*ch as i64),
+                Value::fixnum(*ch as i64),
                 syntax_entry_to_value(entry),
             ])?;
         }
         super::chartable::builtin_set_char_table_range(vec![
             table,
-            Value::cons(Value::Int(0x80), Value::Int(0x3F_FFFF)),
+            Value::cons(Value::fixnum(0x80), Value::fixnum(0x3F_FFFF)),
             word,
         ])?;
         *slot.borrow_mut() = Some(table);
@@ -1331,19 +1331,19 @@ fn set_current_buffer_syntax_table_object(
 }
 
 fn syntax_entry_from_chartable_entry(entry: &Value) -> Option<SyntaxEntry> {
-    match entry {
-        Value::Nil => None,
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);
-            let code = match pair.car {
-                Value::Int(code) => code,
+    match entry.kind() {
+        ValueKind::Nil => None,
+        ValueKind::Cons => {
+            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+            let code = match pair.car.kind() {
+                ValueKind::Fixnum(code) => code,
                 _ => return None,
             };
             let class = SyntaxClass::from_code(code)?;
-            let matching_char = match pair.cdr {
-                Value::Int(n) => char::from_u32(n as u32),
-                Value::Char(c) => Some(c),
-                Value::Nil => None,
+            let matching_char = match pair.cdr.kind() {
+                ValueKind::Fixnum(n) => char::from_u32(n as u32),
+                ValueKind::Char(c) => Some(c),
+                ValueKind::Nil => None,
                 _ => None,
             };
             Some(SyntaxEntry {
@@ -1352,7 +1352,7 @@ fn syntax_entry_from_chartable_entry(entry: &Value) -> Option<SyntaxEntry> {
                 flags: SyntaxFlags::new(((code >> 16) & 0xFF) as u8),
             })
         }
-        Value::Int(code) => Some(SyntaxEntry {
+        ValueKind::Fixnum(code) => Some(SyntaxEntry {
             class: SyntaxClass::from_code(*code)?,
             matching_char: None,
             flags: SyntaxFlags::new(((*code >> 16) & 0xFF) as u8),
@@ -1366,8 +1366,8 @@ fn apply_compiled_syntax_entry(
     key: Value,
     entry: Option<&SyntaxEntry>,
 ) -> Result<(), Flow> {
-    match key {
-        Value::Int(n) => {
+    match key.kind() {
+        ValueKind::Fixnum(n) => {
             if let Some(ch) = char::from_u32(n as u32) {
                 if let Some(entry) = entry {
                     syntax_table.modify_syntax_entry(ch, entry.clone());
@@ -1376,17 +1376,17 @@ fn apply_compiled_syntax_entry(
                 }
             }
         }
-        Value::Char(ch) => {
+        ValueKind::Char(ch) => {
             if let Some(entry) = entry {
                 syntax_table.modify_syntax_entry(ch, entry.clone());
             } else {
                 syntax_table.entries.remove(&ch);
             }
         }
-        Value::Cons(cell) => {
-            let pair = read_cons(cell);
+        ValueKind::Cons => {
+            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
             let (start, end) = match (pair.car, pair.cdr) {
-                (Value::Int(start), Value::Int(end)) => (start, end),
+                (ValueKind::Fixnum(start), ValueKind::Fixnum(end)) => (start, end),
                 _ => return Ok(()),
             };
             if start > end {
@@ -1442,7 +1442,7 @@ fn syntax_table_from_chartable(table: Value) -> Result<SyntaxTable, Flow> {
 fn syntax_entry_from_syntax_property(prop: Value, ch: char) -> Option<SyntaxEntry> {
     if builtin_syntax_table_p(vec![prop]).ok()?.is_truthy() {
         let raw =
-            super::chartable::builtin_char_table_range(vec![prop, Value::Int(ch as i64)]).ok()?;
+            super::chartable::builtin_char_table_range(vec![prop, Value::fixnum(ch as i64)]).ok()?;
         syntax_entry_from_chartable_entry(&raw)
     } else {
         syntax_entry_from_chartable_entry(&prop)
@@ -1484,7 +1484,7 @@ fn parse_sexp_lookup_properties_enabled(ctx: &super::eval::Context) -> bool {
     ctx.obarray
         .symbol_value("parse-sexp-lookup-properties")
         .copied()
-        .unwrap_or(Value::Nil)
+        .unwrap_or(Value::NIL)
         .is_truthy()
 }
 
@@ -1495,14 +1495,14 @@ pub(crate) fn builtin_syntax_class_to_char(args: Vec<Value>) -> EvalResult {
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("syntax-class-to-char"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
 
-    let class = match &args[0] {
-        Value::Int(n) => *n,
-        Value::Char(c) => *c as i64,
+    let class = match args[0].kind() {
+        ValueKind::Fixnum(n) => n,
+        ValueKind::Char(c) => c as i64,
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1511,7 +1511,7 @@ pub(crate) fn builtin_syntax_class_to_char(args: Vec<Value>) -> EvalResult {
         }
     };
 
-    let ch = match class {
+    let ch = match class.kind() {
         0 => ' ',
         1 => '.',
         2 => 'w',
@@ -1531,12 +1531,12 @@ pub(crate) fn builtin_syntax_class_to_char(args: Vec<Value>) -> EvalResult {
         n => {
             return Err(signal(
                 "args-out-of-range",
-                vec![Value::Int(15), Value::Int(n)],
+                vec![ValueKind::Fixnum(15), ValueKind::Fixnum(n)],
             ));
         }
     };
 
-    Ok(Value::Char(ch))
+    Ok(Value::char(ch))
 }
 
 /// `(matching-paren CHAR)` — return matching paren for bracket chars.
@@ -1560,19 +1560,19 @@ pub(crate) fn builtin_matching_paren_in_buffers(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("matching-paren"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
 
-    let ch = match &args[0] {
-        Value::Int(n) => char::from_u32(*n as u32).ok_or_else(|| {
+    let ch = match args[0].kind() {
+        ValueKind::Fixnum(n) => char::from_u32(n as u32).ok_or_else(|| {
             signal(
                 "wrong-type-argument",
                 vec![Value::symbol("characterp"), args[0]],
             )
         })?,
-        Value::Char(c) => *c,
+        ValueKind::Char(c) => c,
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1587,7 +1587,7 @@ pub(crate) fn builtin_matching_paren_in_buffers(
         if let Some(e) = entry {
             if matches!(e.class, SyntaxClass::Open | SyntaxClass::Close) {
                 if let Some(m) = e.matching_char {
-                    return Ok(Value::Char(m));
+                    return Ok(Value::char(m));
                 }
             }
         }
@@ -1603,7 +1603,7 @@ pub(crate) fn builtin_matching_paren_in_buffers(
         '}' => Some('{'),
         _ => None,
     };
-    Ok(out.map_or(Value::Nil, Value::Char))
+    Ok(out.map_or(Value::NIL, Value::Char))
 }
 
 /// `(standard-syntax-table)` — return the standard syntax table.
@@ -1613,7 +1613,7 @@ pub(crate) fn builtin_standard_syntax_table(args: Vec<Value>) -> EvalResult {
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("standard-syntax-table"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -1627,20 +1627,20 @@ pub(crate) fn builtin_syntax_table_p(args: Vec<Value>) -> EvalResult {
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("syntax-table-p"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
 
     let is_char_table = super::chartable::builtin_char_table_p(vec![args[0]])?;
     if !is_char_table.is_truthy() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let subtype = super::chartable::builtin_char_table_subtype(vec![args[0]])?;
-    match subtype {
-        Value::Symbol(id) if resolve_sym(id) == "syntax-table" => Ok(Value::True),
-        _ => Ok(Value::Nil),
+    match subtype.kind() {
+        ValueKind::Symbol(id) if resolve_sym(id) == "syntax-table" => Ok(Value::T),
+        _ => Ok(Value::NIL),
     }
 }
 
@@ -1662,7 +1662,7 @@ pub(crate) fn builtin_syntax_table_in_buffers(
     if !args.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("syntax-table"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("syntax-table"), Value::fixnum(args.len() as i64)],
         ));
     }
     current_buffer_syntax_table_object_in_buffers(buffers)
@@ -1688,7 +1688,7 @@ pub(crate) fn builtin_set_syntax_table_in_buffers(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("set-syntax-table"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -1732,12 +1732,12 @@ pub(crate) fn modify_syntax_entry_in_buffers(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("modify-syntax-entry"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
-    let descriptor = match &args[1] {
-        Value::Str(_) => args[1].as_str().unwrap().to_string(),
+    let descriptor = match args[1].kind() {
+        ValueKind::String => args[1].as_str().unwrap().to_string(),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1763,14 +1763,14 @@ pub(crate) fn modify_syntax_entry_in_buffers(
 
     // Update the exposed syntax-table object.
     let chartable_entry = if matches!(entry.class, SyntaxClass::InheritStd) {
-        Value::Nil
+        Value::NIL
     } else {
         syntax_entry_to_value(&entry)
     };
     super::chartable::builtin_set_char_table_range(vec![target_table, args[0], chartable_entry])?;
 
     if !update_current_buffer_table {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     let compiled = syntax_table_from_chartable(target_table)?;
     let current_id = buffers
@@ -1780,7 +1780,7 @@ pub(crate) fn modify_syntax_entry_in_buffers(
         .get_mut(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     buf.syntax_table = compiled;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(char-syntax CHAR)` — return the syntax class designator char.
@@ -1795,12 +1795,12 @@ pub(crate) fn builtin_char_syntax_in_buffers(
     if args.len() != 1 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("char-syntax"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("char-syntax"), Value::fixnum(args.len() as i64)],
         ));
     }
-    let ch = match &args[0] {
-        Value::Char(c) => *c,
-        Value::Int(n) => char::from_u32(*n as u32).ok_or_else(|| {
+    let ch = match args[0].kind() {
+        ValueKind::Char(c) => c,
+        ValueKind::Fixnum(n) => char::from_u32(n as u32).ok_or_else(|| {
             signal(
                 "error",
                 vec![Value::string(format!("Invalid character code: {}", n))],
@@ -1818,7 +1818,7 @@ pub(crate) fn builtin_char_syntax_in_buffers(
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let class = buf.syntax_table.char_syntax(ch);
-    Ok(Value::Char(class.to_char()))
+    Ok(Value::char(class.to_char()))
 }
 
 /// `(syntax-after POS)` — return syntax descriptor for char at POS.
@@ -1836,12 +1836,12 @@ pub(crate) fn builtin_syntax_after_in_buffers(
     if args.len() != 1 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("syntax-after"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("syntax-after"), Value::fixnum(args.len() as i64)],
         ));
     }
 
-    let pos = match &args[0] {
-        Value::Int(n) => *n,
+    let pos = match args[0].kind() {
+        ValueKind::Fixnum(n) => n,
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1850,7 +1850,7 @@ pub(crate) fn builtin_syntax_after_in_buffers(
         }
     };
     if pos <= 0 {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let buf = buffers
@@ -1860,7 +1860,7 @@ pub(crate) fn builtin_syntax_after_in_buffers(
     let char_index = pos as usize - 1;
     let byte_index = buf.text.char_to_byte(char_index.min(buf.text.char_count()));
     let Some(ch) = buf.char_after(byte_index) else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
 
     let entry =
@@ -1890,13 +1890,13 @@ pub(crate) fn builtin_forward_comment_in_buffers(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("forward-comment"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
 
-    let count = match &args[0] {
-        Value::Int(n) => *n,
+    let count = match args[0].kind() {
+        ValueKind::Fixnum(n) => n,
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1913,15 +1913,15 @@ pub(crate) fn builtin_forward_comment_in_buffers(
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
     if count == 0 {
-        return Ok(Value::True);
+        return Ok(Value::T);
     }
 
     if count > 0 {
         let ok = forward_comment_forward(buf, count as u64, honor_properties);
-        return Ok(if ok { Value::True } else { Value::Nil });
+        return Ok(if ok { Value::T } else { Value::NIL });
     } else {
         let ok = forward_comment_backward(buf, (-count) as u64, honor_properties);
-        return Ok(if ok { Value::True } else { Value::Nil });
+        return Ok(if ok { Value::T } else { Value::NIL });
     }
 }
 
@@ -2572,7 +2572,7 @@ pub(crate) fn builtin_backward_prefix_chars_in_buffers(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("backward-prefix-chars"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -2608,7 +2608,7 @@ pub(crate) fn builtin_backward_prefix_chars_in_buffers(
         buf.goto_char(pt.saturating_sub(ch.len_utf8()));
     }
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(forward-word &optional COUNT)` — move point forward COUNT words.
@@ -2619,8 +2619,8 @@ pub(crate) fn builtin_forward_word(
     let count = if args.is_empty() || args[0].is_nil() {
         1
     } else {
-        match &args[0] {
-            Value::Int(n) => *n,
+        match args[0].kind() {
+            ValueKind::Fixnum(n) => n,
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -2643,7 +2643,7 @@ pub(crate) fn builtin_forward_word(
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let _ = eval.buffers.goto_buffer_byte(current_id, new_pos);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_forward_word_in_buffers(
@@ -2653,8 +2653,8 @@ pub(crate) fn builtin_forward_word_in_buffers(
     let count = if args.is_empty() || args[0].is_nil() {
         1
     } else {
-        match &args[0] {
-            Value::Int(n) => *n,
+        match args[0].kind() {
+            ValueKind::Fixnum(n) => n,
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -2676,7 +2676,7 @@ pub(crate) fn builtin_forward_word_in_buffers(
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let _ = buffers.goto_buffer_byte(current_id, new_pos);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(backward-word &optional COUNT)` — move point backward COUNT words.
@@ -2687,8 +2687,8 @@ pub(crate) fn builtin_backward_word(
     let count = if args.is_empty() || args[0].is_nil() {
         1
     } else {
-        match &args[0] {
-            Value::Int(n) => *n,
+        match args[0].kind() {
+            ValueKind::Fixnum(n) => n,
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -2711,7 +2711,7 @@ pub(crate) fn builtin_backward_word(
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let _ = eval.buffers.goto_buffer_byte(current_id, new_pos);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(forward-sexp &optional COUNT)` — move point forward over COUNT balanced
@@ -2723,8 +2723,8 @@ pub(crate) fn builtin_forward_sexp(
     let count = if args.is_empty() || args[0].is_nil() {
         1i64
     } else {
-        match &args[0] {
-            Value::Int(n) => *n,
+        match args[0].kind() {
+            ValueKind::Fixnum(n) => n,
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -2749,7 +2749,7 @@ pub(crate) fn builtin_forward_sexp(
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let _ = eval.buffers.goto_buffer_byte(current_id, new_pos);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(backward-sexp &optional COUNT)` — move point backward over COUNT balanced
@@ -2761,8 +2761,8 @@ pub(crate) fn builtin_backward_sexp(
     let count = if args.is_empty() || args[0].is_nil() {
         1i64
     } else {
-        match &args[0] {
-            Value::Int(n) => *n,
+        match args[0].kind() {
+            ValueKind::Fixnum(n) => n,
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -2788,7 +2788,7 @@ pub(crate) fn builtin_backward_sexp(
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let _ = eval.buffers.goto_buffer_byte(current_id, new_pos);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(scan-lists FROM COUNT DEPTH)` — scan across balanced expressions.
@@ -2798,12 +2798,12 @@ pub(crate) fn builtin_scan_lists(ctx: &mut super::eval::Context, args: Vec<Value
     if args.len() != 3 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("scan-lists"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("scan-lists"), Value::fixnum(args.len() as i64)],
         ));
     }
 
-    let from = match &args[0] {
-        Value::Int(n) => *n,
+    let from = match args[0].kind() {
+        ValueKind::Fixnum(n) => n,
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -2811,8 +2811,8 @@ pub(crate) fn builtin_scan_lists(ctx: &mut super::eval::Context, args: Vec<Value
             ));
         }
     };
-    let count = match &args[1] {
-        Value::Int(n) => *n,
+    let count = match args[1].kind() {
+        ValueKind::Fixnum(n) => n,
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -2820,8 +2820,8 @@ pub(crate) fn builtin_scan_lists(ctx: &mut super::eval::Context, args: Vec<Value
             ));
         }
     };
-    let _depth = match &args[2] {
-        Value::Int(n) => *n,
+    let _depth = match args[2].kind() {
+        ValueKind::Fixnum(n) => n,
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -2841,8 +2841,8 @@ pub(crate) fn builtin_scan_lists(ctx: &mut super::eval::Context, args: Vec<Value
 
     let honor_properties = parse_sexp_lookup_properties_enabled(ctx);
     match scan_sexps_with_options(buf, &table, from_byte, count, honor_properties) {
-        Ok(new_byte) => Ok(Value::Int(buf.text.byte_to_char(new_byte) as i64 + 1)),
-        Err(_) if count < 0 => Ok(Value::Nil),
+        Ok(new_byte) => Ok(Value::fixnum(buf.text.byte_to_char(new_byte) as i64 + 1)),
+        Err(_) if count < 0 => Ok(Value::NIL),
         Err(msg) => Err(signal("scan-error", vec![Value::string(&msg)])),
     }
 }
@@ -2852,12 +2852,12 @@ pub(crate) fn builtin_scan_sexps(ctx: &mut super::eval::Context, args: Vec<Value
     if args.len() != 2 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("scan-sexps"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("scan-sexps"), Value::fixnum(args.len() as i64)],
         ));
     }
 
-    let from = match &args[0] {
-        Value::Int(n) => *n,
+    let from = match args[0].kind() {
+        ValueKind::Fixnum(n) => n,
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -2865,8 +2865,8 @@ pub(crate) fn builtin_scan_sexps(ctx: &mut super::eval::Context, args: Vec<Value
             ));
         }
     };
-    let count = match &args[1] {
-        Value::Int(n) => *n,
+    let count = match args[1].kind() {
+        ValueKind::Fixnum(n) => n,
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -2886,8 +2886,8 @@ pub(crate) fn builtin_scan_sexps(ctx: &mut super::eval::Context, args: Vec<Value
 
     let honor_properties = parse_sexp_lookup_properties_enabled(ctx);
     match scan_sexps_with_options(buf, &table, from_byte, count, honor_properties) {
-        Ok(new_byte) => Ok(Value::Int(buf.text.byte_to_char(new_byte) as i64 + 1)),
-        Err(_) if count < 0 => Ok(Value::Nil),
+        Ok(new_byte) => Ok(Value::fixnum(buf.text.byte_to_char(new_byte) as i64 + 1)),
+        Err(_) if count < 0 => Ok(Value::NIL),
         Err(msg) => Err(signal("scan-error", vec![Value::string(&msg)])),
     }
 }
@@ -2957,24 +2957,24 @@ impl PartialParseState {
         state.depth = items
             .first()
             .and_then(|v| match v {
-                Value::Int(n) => Some(*n),
+                Value::fixnum(n) => Some(*n),
                 _ => None,
             })
             .unwrap_or(0);
 
-        if let Some(Value::Int(start)) = items.get(8) {
+        if let Some(Value::fixnum(start)) = items.get(8) {
             state.comment_or_string_start = Some(*start);
         }
 
-        if let Some(Value::True) = items.get(5) {
+        if let Some(Value::T) = items.get(5) {
             state.quoted = true;
         }
 
         if let Some(item) = items.get(3) {
             state.in_string = match item {
-                Value::Nil => None,
-                Value::True => Some(ParseStringState::Fence),
-                Value::Int(n) => u32::try_from(*n)
+                Value::NIL => None,
+                Value::T => Some(ParseStringState::Fence),
+                Value::fixnum(n) => u32::try_from(*n)
                     .ok()
                     .and_then(char::from_u32)
                     .map(ParseStringState::Delim),
@@ -2984,13 +2984,13 @@ impl PartialParseState {
 
         if let Some(item) = items.get(4) {
             state.in_comment = match item {
-                Value::Nil => None,
-                Value::True => Some(ParseCommentState::Syntax {
+                Value::NIL => None,
+                Value::T => Some(ParseCommentState::Syntax {
                     depth: 1,
                     style_b: false,
                     nestable: false,
                 }),
-                Value::Int(n) => Some(ParseCommentState::Syntax {
+                Value::fixnum(n) => Some(ParseCommentState::Syntax {
                     depth: *n,
                     style_b: false,
                     nestable: true,
@@ -3005,7 +3005,7 @@ impl PartialParseState {
             state.stack = stack_items
                 .into_iter()
                 .filter_map(|v| match v {
-                    Value::Int(n) => Some(n),
+                    Value::fixnum(n) => Some(n),
                     _ => None,
                 })
                 .collect();
@@ -3020,15 +3020,15 @@ impl PartialParseState {
         }
 
         let stack_value = if self.depth > 0 {
-            Value::list(self.stack.iter().map(|p| Value::Int(*p)).collect())
+            Value::list(self.stack.iter().map(|p| Value::fixnum(*p)).collect())
         } else {
-            Value::Nil
+            Value::NIL
         };
 
         let string_value = match self.in_string {
-            Some(ParseStringState::Delim(term)) => Value::Int(term as i64),
-            Some(ParseStringState::Fence) => Value::True,
-            None => Value::Nil,
+            Some(ParseStringState::Delim(term)) => Value::fixnum(term as i64),
+            Some(ParseStringState::Fence) => Value::T,
+            None => Value::NIL,
         };
 
         let comment_value = match self.in_comment {
@@ -3038,31 +3038,31 @@ impl PartialParseState {
                 ..
             }) => {
                 debug_assert_eq!(comment_depth, 1);
-                Value::True
+                ValueKind::T
             }
             Some(ParseCommentState::Syntax {
                 depth: comment_depth,
                 nestable: true,
                 ..
-            }) => Value::Int(comment_depth),
+            }) => ValueKind::Fixnum(comment_depth),
             Some(ParseCommentState::Fence {
                 depth: comment_depth,
-            }) => Value::Int(comment_depth),
-            None => Value::Nil,
+            }) => ValueKind::Fixnum(comment_depth),
+            None => Value::NIL,
         };
 
         Value::list(vec![
-            Value::Int(self.depth),
-            self.stack.last().map_or(Value::Nil, |p| Value::Int(*p)),
-            self.last_sexp_start.map_or(Value::Nil, Value::Int),
+            Value::fixnum(self.depth),
+            self.stack.last().map_or(Value::NIL, |p| Value::fixnum(*p)),
+            self.last_sexp_start.map_or(Value::NIL, Value::Int),
             string_value,
             comment_value,
-            if self.quoted { Value::True } else { Value::Nil },
-            Value::Int(self.mindepth),
-            Value::Nil,
-            self.comment_or_string_start.map_or(Value::Nil, Value::Int),
+            if self.quoted { Value::T } else { Value::NIL },
+            Value::fixnum(self.mindepth),
+            Value::NIL,
+            self.comment_or_string_start.map_or(Value::NIL, Value::Int),
             stack_value,
-            Value::Nil,
+            Value::NIL,
         ])
     }
 }
@@ -3080,8 +3080,8 @@ fn syntax_class_and_flags(
 
 fn parse_commentstop_mode(arg: Option<&Value>) -> CommentStopMode {
     match arg {
-        None | Some(Value::Nil) => CommentStopMode::None,
-        Some(Value::Symbol(sym)) if resolve_sym(*sym) == "syntax-table" => {
+        None | Some(ValueKind::Nil) => CommentStopMode::None,
+        Some(ValueKind::Symbol(sym)) if resolve_sym(*sym) == "syntax-table" => {
             CommentStopMode::SyntaxTable
         }
         Some(_) => CommentStopMode::Comment,
@@ -3415,13 +3415,13 @@ pub(crate) fn builtin_parse_partial_sexp(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("parse-partial-sexp"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
 
-    let from = match &args[0] {
-        Value::Int(n) => *n,
+    let from = match args[0].kind() {
+        ValueKind::Fixnum(n) => n,
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -3429,8 +3429,8 @@ pub(crate) fn builtin_parse_partial_sexp(
             ));
         }
     };
-    let to = match &args[1] {
-        Value::Int(n) => *n,
+    let to = match args[1].kind() {
+        ValueKind::Fixnum(n) => n,
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -3475,7 +3475,7 @@ pub(crate) fn builtin_syntax_ppss(eval: &mut super::eval::Context, args: Vec<Val
     if args.len() > 1 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("syntax-ppss"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("syntax-ppss"), Value::fixnum(args.len() as i64)],
         ));
     }
 
@@ -3488,8 +3488,8 @@ pub(crate) fn builtin_syntax_ppss(eval: &mut super::eval::Context, args: Vec<Val
     let pos = if args.is_empty() || args[0].is_nil() {
         buf.point_char() as i64 + 1
     } else {
-        match &args[0] {
-            Value::Int(n) => *n,
+        match args[0].kind() {
+            ValueKind::Fixnum(n) => n,
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -3523,12 +3523,12 @@ pub(crate) fn builtin_syntax_ppss_flush_cache(
     if args.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("syntax-ppss-flush-cache"), Value::Int(0)],
+            vec![Value::symbol("syntax-ppss-flush-cache"), Value::fixnum(0)],
         ));
     }
 
-    match &args[0] {
-        Value::Int(_) | Value::Char(_) => Ok(Value::Nil),
+    match args[0].kind() {
+        ValueKind::Fixnum(_) | ValueKind::Char(_) => Ok(Value::NIL),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("number-or-marker-p"), *other],
@@ -3558,11 +3558,11 @@ pub(crate) fn builtin_skip_syntax_forward_in_buffers(
     if args.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("skip-syntax-forward"), Value::Int(0)],
+            vec![Value::symbol("skip-syntax-forward"), Value::fixnum(0)],
         ));
     }
-    let syntax_chars = match &args[0] {
-        Value::Str(_) => args[0].as_str().unwrap().to_string(),
+    let syntax_chars = match args[0].kind() {
+        ValueKind::String => args[0].as_str().unwrap().to_string(),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -3571,8 +3571,8 @@ pub(crate) fn builtin_skip_syntax_forward_in_buffers(
         }
     };
     let limit = if args.len() > 1 && !args[1].is_nil() {
-        match &args[1] {
-            Value::Int(n) => Some(*n),
+        match args[1].kind() {
+            ValueKind::Fixnum(n) => Some(n),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -3611,7 +3611,7 @@ pub(crate) fn builtin_skip_syntax_forward_in_buffers(
     } else {
         buf.text.byte_to_char(old_pt) as i64 - buf.text.byte_to_char(new_pos) as i64
     };
-    Ok(Value::Int(chars_moved))
+    Ok(Value::fixnum(chars_moved))
 }
 
 /// `(skip-syntax-backward SYNTAX &optional LIMIT)` — skip backward over chars
@@ -3632,11 +3632,11 @@ pub(crate) fn builtin_skip_syntax_backward_in_buffers(
     if args.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("skip-syntax-backward"), Value::Int(0)],
+            vec![Value::symbol("skip-syntax-backward"), Value::fixnum(0)],
         ));
     }
-    let syntax_chars = match &args[0] {
-        Value::Str(_) => args[0].as_str().unwrap().to_string(),
+    let syntax_chars = match args[0].kind() {
+        ValueKind::String => args[0].as_str().unwrap().to_string(),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -3645,8 +3645,8 @@ pub(crate) fn builtin_skip_syntax_backward_in_buffers(
         }
     };
     let limit = if args.len() > 1 && !args[1].is_nil() {
-        match &args[1] {
-            Value::Int(n) => Some(*n),
+        match args[1].kind() {
+            ValueKind::Fixnum(n) => Some(n),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -3685,7 +3685,7 @@ pub(crate) fn builtin_skip_syntax_backward_in_buffers(
     } else {
         buf.text.byte_to_char(new_pos) as i64 - buf.text.byte_to_char(old_pt) as i64
     };
-    Ok(Value::Int(chars_moved))
+    Ok(Value::fixnum(chars_moved))
 }
 
 // ===========================================================================

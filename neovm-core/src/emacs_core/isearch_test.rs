@@ -907,7 +907,7 @@ fn builtin_isearch_backward_signals_batch_buffer_error() {
 
 #[test]
 fn builtin_isearch_forward_rejects_too_many_args() {
-    let result = builtin_isearch_forward(vec![Value::Nil, Value::Nil, Value::Nil]);
+    let result = builtin_isearch_forward(vec![Value::NIL, Value::NIL, Value::NIL]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig))
@@ -917,7 +917,7 @@ fn builtin_isearch_forward_rejects_too_many_args() {
 
 #[test]
 fn builtin_isearch_backward_rejects_too_many_args() {
-    let result = builtin_isearch_backward(vec![Value::Nil, Value::Nil, Value::Nil]);
+    let result = builtin_isearch_backward(vec![Value::NIL, Value::NIL, Value::NIL]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig))

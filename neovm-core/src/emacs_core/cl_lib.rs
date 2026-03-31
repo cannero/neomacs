@@ -17,7 +17,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -28,7 +28,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -40,7 +40,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -51,9 +51,9 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 static CL_GENSYM_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn expect_int(val: &Value) -> Result<i64, Flow> {
-    match val {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match val.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *other],
@@ -62,10 +62,10 @@ fn expect_int(val: &Value) -> Result<i64, Flow> {
 }
 
 fn expect_number_or_marker(val: &Value) -> Result<f64, Flow> {
-    match val {
-        Value::Int(n) => Ok(*n as f64),
-        Value::Float(f, _) => Ok(*f),
-        Value::Char(c) => Ok(*c as i64 as f64),
+    match val.kind() {
+        ValueKind::Fixnum(n) => Ok(n as f64),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(*f),
+        ValueKind::Char(c) => Ok(c as i64 as f64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("number-or-marker-p"), *other],
@@ -75,11 +75,11 @@ fn expect_number_or_marker(val: &Value) -> Result<f64, Flow> {
 
 /// Collect elements from any sequence type into a Vec.
 fn collect_sequence(val: &Value) -> Vec<Value> {
-    match val {
-        Value::Nil => Vec::new(),
-        Value::Cons(_) => list_to_vec(val).unwrap_or_default(),
-        Value::Vector(v) => with_heap(|h| h.get_vector(*v).clone()),
-        Value::Str(s) => with_heap(|h| h.get_string(*s).chars().map(Value::Char).collect()),
+    match val.kind() {
+        ValueKind::Nil => Vec::new(),
+        ValueKind::Cons => list_to_vec(val).unwrap_or_default(),
+        ValueKind::Veclike(VecLikeType::Vector) => with_heap(|h| h.get_vector(*v).clone()),
+        ValueKind::String => with_heap(|h| h.get_string(*s).chars().map(Value::Char).collect()),
         _ => vec![*val],
     }
 }
@@ -88,10 +88,10 @@ fn collect_sequence(val: &Value) -> Vec<Value> {
 fn cl_list_nth(list: &Value, index: usize) -> EvalResult {
     let mut cursor = *list;
     for _ in 0..index {
-        match cursor {
-            Value::Nil => return Ok(Value::Nil),
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
+        match cursor.kind() {
+            ValueKind::Nil => return Ok(Value::NIL),
+            ValueKind::Cons => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 cursor = pair.cdr;
             }
             tail => {
@@ -103,9 +103,9 @@ fn cl_list_nth(list: &Value, index: usize) -> EvalResult {
         }
     }
 
-    match cursor {
-        Value::Nil => Ok(Value::Nil),
-        Value::Cons(cell) => Ok(with_heap(|h| h.cons_car(cell))),
+    match cursor.kind() {
+        ValueKind::Nil => Ok(Value::NIL),
+        ValueKind::Cons => Ok(with_heap(|h| h.cons_car(cell))),
         tail => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("listp"), tail],
@@ -187,9 +187,9 @@ pub(crate) fn builtin_cl_tenth(args: Vec<Value>) -> EvalResult {
 #[cfg(test)]
 pub(crate) fn builtin_cl_rest(args: Vec<Value>) -> EvalResult {
     expect_args("cl-rest", &args, 1)?;
-    match &args[0] {
-        Value::Nil => Ok(Value::Nil),
-        Value::Cons(cell) => Ok(with_heap(|h| h.cons_cdr(*cell))),
+    match args[0].kind() {
+        ValueKind::Nil => Ok(Value::NIL),
+        ValueKind::Cons => Ok(with_heap(|h| h.cons_cdr(*cell))),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("listp"), *other],
@@ -202,7 +202,7 @@ pub(crate) fn builtin_cl_rest(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_cl_evenp(args: Vec<Value>) -> EvalResult {
     expect_args("cl-evenp", &args, 1)?;
     let n = expect_int(&args[0])?;
-    Ok(Value::bool(n % 2 == 0))
+    Ok(Value::bool_val(n % 2 == 0))
 }
 
 /// `(cl-oddp N)` -- return t if N is odd.
@@ -210,7 +210,7 @@ pub(crate) fn builtin_cl_evenp(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_cl_oddp(args: Vec<Value>) -> EvalResult {
     expect_args("cl-oddp", &args, 1)?;
     let n = expect_int(&args[0])?;
-    Ok(Value::bool(n % 2 != 0))
+    Ok(Value::bool_val(n % 2 != 0))
 }
 
 /// `(cl-plusp N)` -- return t if N is strictly positive.
@@ -218,7 +218,7 @@ pub(crate) fn builtin_cl_oddp(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_cl_plusp(args: Vec<Value>) -> EvalResult {
     expect_args("cl-plusp", &args, 1)?;
     let n = expect_number_or_marker(&args[0])?;
-    Ok(Value::bool(n > 0.0))
+    Ok(Value::bool_val(n > 0.0))
 }
 
 /// `(cl-minusp N)` -- return t if N is strictly negative.
@@ -226,7 +226,7 @@ pub(crate) fn builtin_cl_plusp(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_cl_minusp(args: Vec<Value>) -> EvalResult {
     expect_args("cl-minusp", &args, 1)?;
     let n = expect_number_or_marker(&args[0])?;
-    Ok(Value::bool(n < 0.0))
+    Ok(Value::bool_val(n < 0.0))
 }
 
 /// `(cl-member ITEM LIST)` -- CL alias for `member`.
@@ -266,10 +266,10 @@ fn seq_position_list_elements(seq: &Value) -> Result<Vec<Value>, Flow> {
     let mut elements = Vec::new();
     let mut cursor = *seq;
     loop {
-        match cursor {
-            Value::Nil => return Ok(elements),
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
+        match cursor.kind() {
+            ValueKind::Nil => return Ok(elements),
+            ValueKind::Cons => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 elements.push(pair.car);
                 cursor = pair.cdr;
             }
@@ -284,11 +284,11 @@ fn seq_position_list_elements(seq: &Value) -> Result<Vec<Value>, Flow> {
 }
 
 fn seq_position_elements(seq: &Value) -> Result<Vec<Value>, Flow> {
-    match seq {
-        Value::Nil => Ok(Vec::new()),
-        Value::Cons(_) => seq_position_list_elements(seq),
-        Value::Vector(v) => Ok(with_heap(|h| h.get_vector(*v).clone())),
-        Value::Str(s) => Ok(with_heap(|h| {
+    match seq.kind() {
+        ValueKind::Nil => Ok(Vec::new()),
+        ValueKind::Cons => seq_position_list_elements(seq),
+        ValueKind::Veclike(VecLikeType::Vector) => Ok(with_heap(|h| h.get_vector(*v).clone())),
+        ValueKind::String => Ok(with_heap(|h| {
             h.get_string(*s)
                 .chars()
                 .map(|ch| Value::Int(ch as i64))
@@ -305,24 +305,24 @@ fn seq_default_match(left: &Value, right: &Value) -> bool {
     if equal_value(left, right, 0) {
         return true;
     }
-    match (left, right) {
-        (Value::Char(a), Value::Int(b)) => (*a as i64) == *b,
-        (Value::Int(a), Value::Char(b)) => *a == (*b as i64),
+    match (left.kind(), right.kind()) {
+        (ValueKind::Char(a), ValueKind::Fixnum(b)) => (a as i64) == b,
+        (ValueKind::Fixnum(a), ValueKind::Char(b)) => a == (b as i64),
         _ => false,
     }
 }
 
 fn seq_collect_concat_arg(arg: &Value) -> Result<Vec<Value>, Flow> {
-    match arg {
-        Value::Nil => Ok(Vec::new()),
-        Value::Cons(_) => {
+    match arg.kind() {
+        ValueKind::Nil => Ok(Vec::new()),
+        ValueKind::Cons => {
             let mut out = Vec::new();
             let mut cursor = *arg;
             loop {
-                match cursor {
-                    Value::Nil => return Ok(out),
-                    Value::Cons(cell) => {
-                        let pair = read_cons(cell);
+                match cursor.kind() {
+                    ValueKind::Nil => return Ok(out),
+                    ValueKind::Cons => {
+                        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                         out.push(pair.car);
                         cursor = pair.cdr;
                     }
@@ -335,8 +335,8 @@ fn seq_collect_concat_arg(arg: &Value) -> Result<Vec<Value>, Flow> {
                 }
             }
         }
-        Value::Vector(v) => Ok(with_heap(|h| h.get_vector(*v).clone())),
-        Value::Str(s) => Ok(with_heap(|h| {
+        ValueKind::Veclike(VecLikeType::Vector) => Ok(with_heap(|h| h.get_vector(*v).clone())),
+        ValueKind::String => Ok(with_heap(|h| {
             h.get_string(*s)
                 .chars()
                 .map(|ch| Value::Int(ch as i64))
@@ -361,14 +361,14 @@ pub(crate) fn builtin_seq_reverse(args: Vec<Value>) -> EvalResult {
     expect_args("seq-reverse", &args, 1)?;
     let mut elems = seq_position_elements(&args[0])?;
     elems.reverse();
-    match &args[0] {
-        Value::Vector(_) => Ok(Value::vector(elems)),
-        Value::Str(_) => {
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::vector(elems)),
+        ValueKind::String => {
             let mut s = String::new();
             for value in &elems {
-                let ch = match value {
-                    Value::Char(c) => *c,
-                    Value::Int(n) => char::from_u32(*n as u32).ok_or_else(|| {
+                let ch = match value.kind() {
+                    ValueKind::Char(c) => c,
+                    ValueKind::Fixnum(n) => char::from_u32(n as u32).ok_or_else(|| {
                         signal(
                             "wrong-type-argument",
                             vec![Value::symbol("characterp"), *value],
@@ -394,9 +394,9 @@ pub(crate) fn builtin_seq_drop(args: Vec<Value>) -> EvalResult {
     expect_args("seq-drop", &args, 2)?;
     let n = expect_int(&args[1])?;
 
-    match &args[0] {
-        Value::Nil => Ok(Value::Nil),
-        Value::Vector(v) => {
+    match args[0].kind() {
+        ValueKind::Nil => Ok(Value::NIL),
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let elems = with_heap(|h| h.get_vector(*v).clone());
             if n <= 0 {
                 return Ok(Value::vector(elems.clone()));
@@ -404,7 +404,7 @@ pub(crate) fn builtin_seq_drop(args: Vec<Value>) -> EvalResult {
             let n = (n as usize).min(elems.len());
             Ok(Value::vector(elems[n..].to_vec()))
         }
-        Value::Str(s) => {
+        ValueKind::String => {
             let string = with_heap(|h| h.get_string(*s).to_owned());
             let chars: Vec<char> = string.chars().collect();
             if n <= 0 {
@@ -414,17 +414,17 @@ pub(crate) fn builtin_seq_drop(args: Vec<Value>) -> EvalResult {
             let out: String = chars[n..].iter().collect();
             Ok(Value::string(out))
         }
-        Value::Cons(_) => {
+        ValueKind::Cons => {
             if n <= 0 {
                 return Ok(args[0]);
             }
             let mut cursor = args[0];
             let mut remaining = n as usize;
             while remaining > 0 {
-                match cursor {
-                    Value::Nil => return Ok(Value::Nil),
-                    Value::Cons(cell) => {
-                        let pair = read_cons(cell);
+                match cursor.kind() {
+                    ValueKind::Nil => return Ok(Value::NIL),
+                    ValueKind::Cons => {
+                        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                         cursor = pair.cdr;
                         remaining -= 1;
                     }
@@ -450,9 +450,9 @@ pub(crate) fn builtin_seq_take(args: Vec<Value>) -> EvalResult {
     expect_args("seq-take", &args, 2)?;
     let n = expect_int(&args[1])?;
 
-    match &args[0] {
-        Value::Nil => Ok(Value::Nil),
-        Value::Vector(v) => {
+    match args[0].kind() {
+        ValueKind::Nil => Ok(Value::NIL),
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let elems = with_heap(|h| h.get_vector(*v).clone());
             if n <= 0 {
                 return Ok(Value::vector(Vec::new()));
@@ -460,7 +460,7 @@ pub(crate) fn builtin_seq_take(args: Vec<Value>) -> EvalResult {
             let n = (n as usize).min(elems.len());
             Ok(Value::vector(elems[..n].to_vec()))
         }
-        Value::Str(s) => {
+        ValueKind::String => {
             let string = with_heap(|h| h.get_string(*s).to_owned());
             let chars: Vec<char> = string.chars().collect();
             if n <= 0 {
@@ -470,18 +470,18 @@ pub(crate) fn builtin_seq_take(args: Vec<Value>) -> EvalResult {
             let out: String = chars[..n].iter().collect();
             Ok(Value::string(out))
         }
-        Value::Cons(_) => {
+        ValueKind::Cons => {
             if n <= 0 {
-                return Ok(Value::Nil);
+                return Ok(ValueKind::Nil);
             }
             let mut out = Vec::new();
             let mut cursor = args[0];
             let mut remaining = n as usize;
             while remaining > 0 {
-                match cursor {
-                    Value::Nil => break,
-                    Value::Cons(cell) => {
-                        let pair = read_cons(cell);
+                match cursor.kind() {
+                    ValueKind::Nil => break,
+                    ValueKind::Cons => {
+                        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                         out.push(pair.car);
                         cursor = pair.cdr;
                         remaining -= 1;
@@ -514,11 +514,11 @@ fn builtin_seq_subseq_legacy(args: &[Value]) -> EvalResult {
     let start = start.min(elems.len());
     let end = end.min(elems.len());
     if start > end {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     let result: Vec<Value> = elems[start..end].to_vec();
-    match &args[0] {
-        Value::Vector(_) => Ok(Value::vector(result)),
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::vector(result)),
         _ => Ok(Value::list(result)),
     }
 }
@@ -539,12 +539,12 @@ pub(crate) fn builtin_seq_subseq(args: Vec<Value>) -> EvalResult {
         return builtin_seq_subseq_legacy(&args);
     }
 
-    match &args[0] {
-        Value::Nil | Value::Cons(_) | Value::Vector(_) | Value::Str(_) => {
-            let dropped = builtin_seq_drop(vec![args[0], Value::Int(start)])?;
+    match args[0].kind() {
+        ValueKind::Nil | ValueKind::Cons | ValueKind::Veclike(VecLikeType::Vector) | ValueKind::String => {
+            let dropped = builtin_seq_drop(vec![args[0], ValueKind::Fixnum(start)])?;
             if let Some(end_idx) = end {
                 let span = end_idx - start;
-                builtin_seq_take(vec![dropped, Value::Int(span)])
+                builtin_seq_take(vec![dropped, ValueKind::Fixnum(span)])
             } else {
                 Ok(dropped)
             }
@@ -562,8 +562,8 @@ pub(crate) fn builtin_seq_subseq(args: Vec<Value>) -> EvalResult {
 /// `(seq-concatenate TYPE &rest SEQS)` — concatenate sequences into target type.
 pub(crate) fn builtin_seq_concatenate(args: Vec<Value>) -> EvalResult {
     expect_min_args("seq-concatenate", &args, 1)?;
-    let target = match &args[0] {
-        Value::Symbol(id) => resolve_sym(*id),
+    let target = match args[0].kind() {
+        ValueKind::Symbol(id) => resolve_sym(id),
         other => {
             return Err(signal(
                 "error",
@@ -594,9 +594,9 @@ pub(crate) fn builtin_seq_concatenate(args: Vec<Value>) -> EvalResult {
         "string" => {
             let mut s = String::new();
             for value in &combined {
-                let ch = match value {
-                    Value::Char(c) => *c,
-                    Value::Int(n) => char::from_u32(*n as u32).ok_or_else(|| {
+                let ch = match value.kind() {
+                    ValueKind::Char(c) => c,
+                    ValueKind::Fixnum(n) => char::from_u32(n as u32).ok_or_else(|| {
                         signal(
                             "wrong-type-argument",
                             vec![Value::symbol("characterp"), *value],
@@ -620,12 +620,12 @@ pub(crate) fn builtin_seq_concatenate(args: Vec<Value>) -> EvalResult {
 /// `(seq-empty-p SEQ)` — is sequence empty?
 pub(crate) fn builtin_seq_empty_p(args: Vec<Value>) -> EvalResult {
     expect_args("seq-empty-p", &args, 1)?;
-    match &args[0] {
-        Value::Nil => Ok(Value::True),
-        Value::Cons(_) => Ok(Value::Nil),
-        Value::Lambda(_) | Value::ByteCode(_) => Ok(Value::Nil),
-        Value::Str(s) => Ok(Value::bool(with_heap(|h| h.get_string(*s).is_empty()))),
-        Value::Vector(v) => Ok(Value::bool(with_heap(|h| h.vector_len(*v)) == 0)),
+    match args[0].kind() {
+        ValueKind::Nil => Ok(Value::T),
+        ValueKind::Cons => Ok(Value::NIL),
+        ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => Ok(Value::NIL),
+        ValueKind::String => Ok(Value::bool_val(with_heap(|h| h.get_string(*s).is_empty()))),
+        ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::bool_val(with_heap(|h| h.vector_len(*v)) == 0)),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("sequencep"), *other],
@@ -640,7 +640,7 @@ pub(crate) fn builtin_seq_min(args: Vec<Value>) -> EvalResult {
     if elems.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::Subr(intern("min")), Value::Int(0)],
+            vec![Value::subr(intern("min")), Value::fixnum(0)],
         ));
     }
     let mut min_val = &elems[0];
@@ -662,7 +662,7 @@ pub(crate) fn builtin_seq_max(args: Vec<Value>) -> EvalResult {
     if elems.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::Subr(intern("max")), Value::Int(0)],
+            vec![Value::subr(intern("max")), Value::fixnum(0)],
         ));
     }
     let mut max_val = &elems[0];
@@ -688,8 +688,8 @@ pub(crate) fn builtin_seq_position(
 ) -> EvalResult {
     expect_min_args("seq-position", &args, 2)?;
     let seq = &args[0];
-    if matches!(seq, Value::Lambda(_) | Value::ByteCode(_)) {
-        return Ok(Value::Nil);
+    if matches!(seq, Value::Lambda(_) /* TODO(tagged): convert Value::Lambda to new API */ | Value::ByteCode(_) /* TODO(tagged): convert Value::ByteCode to new API */) {
+        return Ok(Value::NIL);
     }
     let target = args[1];
     let test_fn = if args.len() > 2 && !args[2].is_nil() {
@@ -715,10 +715,10 @@ pub(crate) fn builtin_seq_position(
                 seq_default_match(&element, &target)
             };
             if matches {
-                return Ok(Value::Int(idx as i64));
+                return Ok(Value::fixnum(idx as i64));
             }
         }
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     })
 }
 
@@ -742,14 +742,14 @@ pub(crate) fn builtin_cl_position(eval: &mut super::eval::Context, args: Vec<Val
 #[cfg(test)]
 pub(crate) fn builtin_cl_notany(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let found = builtin_seq_some(eval, args)?;
-    Ok(Value::bool(found.is_nil()))
+    Ok(Value::bool_val(found.is_nil()))
 }
 
 /// `(cl-notevery PREDICATE SEQ)` -- true when not all elements satisfy PREDICATE.
 #[cfg(test)]
 pub(crate) fn builtin_cl_notevery(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let every = builtin_seq_every_p(eval, args)?;
-    Ok(Value::bool(!every.is_truthy()))
+    Ok(Value::bool_val(!every.is_truthy()))
 }
 
 /// `(cl-gensym &optional PREFIX)` -- generate an uninterned-style symbol name.
@@ -758,8 +758,8 @@ pub(crate) fn builtin_cl_gensym(args: Vec<Value>) -> EvalResult {
     expect_max_args("cl-gensym", &args, 1)?;
     let prefix = match args.first() {
         None => "G".to_string(),
-        Some(Value::Nil) => "G".to_string(),
-        Some(Value::Str(s)) => with_heap(|h| h.get_string(*s).to_owned()),
+        Some(ValueKind::Nil) => "G".to_string(),
+        Some(ValueKind::String) => with_heap(|h| h.get_string(*s).to_owned()),
         Some(other) => {
             return Err(signal(
                 "wrong-type-argument",
@@ -782,7 +782,7 @@ pub(crate) fn builtin_cl_find(args: Vec<Value>) -> EvalResult {
             return Ok(element);
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(cl-find-if PREDICATE SEQ)` -- return first element satisfying PREDICATE.
@@ -802,7 +802,7 @@ pub(crate) fn builtin_cl_find_if(eval: &mut super::eval::Context, args: Vec<Valu
                 return Ok(element);
             }
         }
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     })
 }
 
@@ -818,10 +818,10 @@ pub(crate) fn builtin_cl_subsetp(args: Vec<Value>) -> EvalResult {
             .iter()
             .any(|candidate| equal_value(&item, candidate, 0))
         {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
     }
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 /// `(cl-intersection LIST1 LIST2)` -- set-style intersection preserving LIST1 order.
@@ -982,30 +982,30 @@ pub(crate) fn builtin_cl_map(eval: &mut super::eval::Context, args: Vec<Value>) 
     forwarded.extend(seqs);
     let mapped = builtin_seq_mapn(eval, forwarded)?;
 
-    match result_type {
-        Value::Symbol(id) if resolve_sym(id) == "list" => Ok(mapped),
-        Value::Symbol(id) if resolve_sym(id) == "vector" => {
+    match result_type.kind() {
+        ValueKind::Symbol(id) if resolve_sym(id) == "list" => Ok(mapped),
+        ValueKind::Symbol(id) if resolve_sym(id) == "vector" => {
             let items = list_to_vec(&mapped).ok_or_else(|| {
                 signal("wrong-type-argument", vec![Value::symbol("listp"), mapped])
             })?;
             Ok(Value::vector(items))
         }
-        Value::Symbol(id) if resolve_sym(id) == "string" => {
+        ValueKind::Symbol(id) if resolve_sym(id) == "string" => {
             let items = list_to_vec(&mapped).ok_or_else(|| {
                 signal("wrong-type-argument", vec![Value::symbol("listp"), mapped])
             })?;
             let mut out = String::new();
             for item in items {
                 let ch =
-                    match item {
-                        Value::Char(c) => c,
-                        Value::Int(n) => u32::try_from(n)
+                    match item.kind() {
+                        ValueKind::Char(c) => c,
+                        ValueKind::Fixnum(n) => u32::try_from(n)
                             .ok()
                             .and_then(char::from_u32)
                             .ok_or_else(|| {
                                 signal(
                                     "wrong-type-argument",
-                                    vec![Value::symbol("characterp"), Value::Int(n)],
+                                    vec![Value::symbol("characterp"), ValueKind::Fixnum(n)],
                                 )
                             })?,
                         other => {
@@ -1039,7 +1039,7 @@ pub(crate) fn builtin_seq_contains_p(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("seq-contains-p"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -1068,10 +1068,10 @@ pub(crate) fn builtin_seq_contains_p(
                 seq_default_match(&element, &target)
             };
             if matches {
-                return Ok(Value::True);
+                return Ok(Value::T);
             }
         }
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     })
 }
 
@@ -1081,7 +1081,7 @@ pub(crate) fn builtin_seq_mapn(eval: &mut super::eval::Context, args: Vec<Value>
     let func = args[0];
     let seqs: Vec<Vec<Value>> = args[1..].iter().map(collect_sequence).collect();
     if seqs.is_empty() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     let min_len = seqs.iter().map(|s| s.len()).min().unwrap_or(0);
     eval.with_gc_scope_result(|ctx| {
@@ -1115,7 +1115,7 @@ pub(crate) fn builtin_seq_do(eval: &mut super::eval::Context, args: Vec<Value>) 
         for e in elems {
             ctx.apply(func, vec![e])?;
         }
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     })
 }
 
@@ -1136,7 +1136,7 @@ pub(crate) fn builtin_seq_count(eval: &mut super::eval::Context, args: Vec<Value
                 count += 1;
             }
         }
-        Ok(Value::Int(count))
+        Ok(Value::fixnum(count))
     })
 }
 
@@ -1176,7 +1176,7 @@ pub(crate) fn builtin_seq_some(eval: &mut super::eval::Context, args: Vec<Value>
                 return Ok(r);
             }
         }
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     })
 }
 
@@ -1193,10 +1193,10 @@ pub(crate) fn builtin_seq_every_p(eval: &mut super::eval::Context, args: Vec<Val
         for e in elems {
             let r = ctx.apply(pred, vec![e])?;
             if r.is_nil() {
-                return Ok(Value::Nil);
+                return Ok(Value::NIL);
             }
         }
-        Ok(Value::True)
+        Ok(Value::T)
     })
 }
 

@@ -3,37 +3,37 @@ use crate::emacs_core::value::{HashTableTest, Value, next_float_id, with_heap};
 
 #[test]
 fn fillarray_vector_is_in_place() {
-    let vec = Value::vector(vec![Value::Int(1), Value::Int(2)]);
-    let out = crate::emacs_core::builtins::builtin_fillarray(vec![vec, Value::Int(9)]).unwrap();
+    let vec = Value::vector(vec![Value::fixnum(1), Value::fixnum(2)]);
+    let out = crate::emacs_core::builtins::builtin_fillarray(vec![vec, Value::fixnum(9)]).unwrap();
     assert_eq!(out, vec);
-    let Value::Vector(values) = out else {
+    if !out.is_vector() /* TODO(tagged): `values` was Value::Vector(values), rewrite let-else */ {
         panic!("expected vector");
     };
     let values = with_heap(|h: &crate::gc::heap::LispHeap| h.get_vector(values).clone());
-    assert_eq!(&*values, &[Value::Int(9), Value::Int(9)]);
+    assert_eq!(&*values, &[Value::fixnum(9), Value::fixnum(9)]);
 }
 
 #[test]
 fn fillarray_bool_vector_preserves_layout_and_sets_bits() {
     let bv =
-        crate::emacs_core::chartable::builtin_make_bool_vector(vec![Value::Int(4), Value::Nil])
+        crate::emacs_core::chartable::builtin_make_bool_vector(vec![Value::fixnum(4), Value::NIL])
             .unwrap();
     let out =
         crate::emacs_core::builtins::builtin_fillarray(vec![bv, Value::symbol("non-nil")]).unwrap();
     assert_eq!(out, bv);
     assert_eq!(
         crate::emacs_core::chartable::builtin_bool_vector_p(vec![bv]).unwrap(),
-        Value::True
+        Value::T
     );
     assert_eq!(
         crate::emacs_core::chartable::builtin_bool_vector_count_population(vec![bv]).unwrap(),
-        Value::Int(4)
+        Value::fixnum(4)
     );
 
-    crate::emacs_core::builtins::builtin_fillarray(vec![bv, Value::Nil]).unwrap();
+    crate::emacs_core::builtins::builtin_fillarray(vec![bv, Value::NIL]).unwrap();
     assert_eq!(
         crate::emacs_core::chartable::builtin_bool_vector_count_population(vec![bv]).unwrap(),
-        Value::Int(0)
+        Value::fixnum(0)
     );
 }
 
@@ -41,39 +41,39 @@ fn fillarray_bool_vector_preserves_layout_and_sets_bits() {
 fn fillarray_char_table_preserves_shape_and_updates_default_slot() {
     let table = crate::emacs_core::chartable::make_char_table_value(
         Value::symbol("syntax-table"),
-        Value::Int(0),
+        Value::fixnum(0),
     );
     crate::emacs_core::chartable::builtin_set_char_table_range(vec![
         table,
-        Value::Int('a' as i64),
-        Value::Int(9),
+        Value::fixnum('a' as i64),
+        Value::fixnum(9),
     ])
     .unwrap();
 
-    let out = crate::emacs_core::builtins::builtin_fillarray(vec![table, Value::Int(7)]).unwrap();
+    let out = crate::emacs_core::builtins::builtin_fillarray(vec![table, Value::fixnum(7)]).unwrap();
     assert_eq!(out, table);
     assert_eq!(
         crate::emacs_core::chartable::builtin_char_table_p(vec![table]).unwrap(),
-        Value::True
+        Value::T
     );
     assert_eq!(
         crate::emacs_core::chartable::builtin_char_table_subtype(vec![table]).unwrap(),
         Value::symbol("syntax-table")
     );
     assert_eq!(
-        crate::emacs_core::chartable::builtin_char_table_range(vec![table, Value::Int('a' as i64)])
+        crate::emacs_core::chartable::builtin_char_table_range(vec![table, Value::fixnum('a' as i64)])
             .unwrap(),
-        Value::Int(9)
+        Value::fixnum(9)
     );
     assert_eq!(
-        crate::emacs_core::chartable::builtin_char_table_range(vec![table, Value::Nil]).unwrap(),
-        Value::Int(7)
+        crate::emacs_core::chartable::builtin_char_table_range(vec![table, Value::NIL]).unwrap(),
+        Value::fixnum(7)
     );
 }
 
 #[test]
 fn external_debugging_rejects_negative_fixnum() {
-    let err = crate::emacs_core::builtins::builtin_external_debugging_output(vec![Value::Int(-1)])
+    let err = crate::emacs_core::builtins::builtin_external_debugging_output(vec![Value::fixnum(-1)])
         .unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "error"),
@@ -84,7 +84,7 @@ fn external_debugging_rejects_negative_fixnum() {
 #[test]
 fn define_hash_table_test_requires_symbol_name() {
     let err = crate::emacs_core::builtins::builtin_define_hash_table_test(vec![
-        Value::Int(1),
+        Value::fixnum(1),
         Value::symbol("eq"),
         Value::symbol("sxhash-eq"),
     ])
@@ -98,8 +98,8 @@ fn define_hash_table_test_requires_symbol_name() {
 #[test]
 fn face_attributes_as_vector_shape() {
     let out =
-        crate::emacs_core::builtins::builtin_face_attributes_as_vector(vec![Value::Nil]).unwrap();
-    let Value::Vector(values) = out else {
+        crate::emacs_core::builtins::builtin_face_attributes_as_vector(vec![Value::NIL]).unwrap();
+    if !out.is_vector() /* TODO(tagged): `values` was Value::Vector(values), rewrite let-else */ {
         panic!("expected vector");
     };
     let values = with_heap(|h: &crate::gc::heap::LispHeap| h.get_vector(values).clone());
@@ -110,7 +110,7 @@ fn face_attributes_as_vector_shape() {
 fn frame_face_hash_table_uses_eq_test() {
     let mut eval = crate::emacs_core::Context::new();
     let out = crate::emacs_core::xfaces::builtin_frame_face_hash_table(&mut eval, vec![]).unwrap();
-    let Value::HashTable(table) = out else {
+    if !out.is_hash_table() /* TODO(tagged): `table` was Value::HashTable(table), rewrite let-else */ {
         panic!("expected hash table");
     };
     assert!(matches!(
@@ -121,7 +121,7 @@ fn frame_face_hash_table_uses_eq_test() {
 
 #[test]
 fn font_match_p_requires_font_spec_values() {
-    let err = crate::emacs_core::builtins::builtin_font_match_p(vec![Value::Nil, Value::Nil])
+    let err = crate::emacs_core::builtins::builtin_font_match_p(vec![Value::NIL, Value::NIL])
         .unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
@@ -132,14 +132,14 @@ fn font_match_p_requires_font_spec_values() {
 #[test]
 fn frame_set_was_invisible_returns_new_state() {
     let out =
-        crate::emacs_core::builtins::builtin_frame_set_was_invisible(vec![Value::Nil, Value::True])
+        crate::emacs_core::builtins::builtin_frame_set_was_invisible(vec![Value::NIL, Value::T])
             .unwrap();
-    assert_eq!(out, Value::True);
+    assert_eq!(out, Value::T);
 }
 
 #[test]
 fn frame_bottom_divider_width_rejects_non_frame_designator() {
-    let err = crate::emacs_core::builtins::builtin_frame_bottom_divider_width(vec![Value::Int(0)])
+    let err = crate::emacs_core::builtins::builtin_frame_bottom_divider_width(vec![Value::fixnum(0)])
         .unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
@@ -150,13 +150,13 @@ fn frame_bottom_divider_width_rejects_non_frame_designator() {
 #[test]
 fn frame_scale_factor_defaults_to_one_float() {
     let out = crate::emacs_core::builtins::builtin_frame_scale_factor(vec![]).unwrap();
-    assert_eq!(out, Value::Float(1.0, next_float_id()));
+    assert_eq!(out, Value::make_float(1.0));
 }
 
 #[test]
 fn garbage_collect_maybe_requires_whole_number() {
     let err =
-        crate::emacs_core::builtins::builtin_garbage_collect_maybe(vec![Value::True]).unwrap_err();
+        crate::emacs_core::builtins::builtin_garbage_collect_maybe(vec![Value::T]).unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
         other => panic!("expected signal, got {other:?}"),
@@ -166,14 +166,14 @@ fn garbage_collect_maybe_requires_whole_number() {
 #[test]
 fn gnutls_error_string_zero_is_success() {
     let out =
-        crate::emacs_core::builtins::builtin_gnutls_error_string(vec![Value::Int(0)]).unwrap();
+        crate::emacs_core::builtins::builtin_gnutls_error_string(vec![Value::fixnum(0)]).unwrap();
     assert_eq!(out, Value::string("Success."));
 }
 
 #[test]
 fn gnutls_peer_status_warning_describe_rejects_non_symbol() {
     let err =
-        crate::emacs_core::builtins::builtin_gnutls_peer_status_warning_describe(vec![Value::Int(
+        crate::emacs_core::builtins::builtin_gnutls_peer_status_warning_describe(vec![Value::fixnum(
             0,
         )])
         .unwrap_err();
@@ -195,28 +195,28 @@ fn gpm_mouse_start_signals_console_only_error() {
 #[test]
 fn sqlite_version_returns_string() {
     let out = crate::emacs_core::builtins::builtin_sqlite_version(vec![]).unwrap();
-    assert!(matches!(out, Value::Str(_)));
+    assert!(out.is_string());
 }
 
 #[test]
 fn inotify_valid_p_returns_nil() {
-    let out = crate::emacs_core::builtins::builtin_inotify_valid_p(vec![Value::Int(0)]).unwrap();
-    assert_eq!(out, Value::Nil);
+    let out = crate::emacs_core::builtins::builtin_inotify_valid_p(vec![Value::fixnum(0)]).unwrap();
+    assert_eq!(out, Value::NIL);
 }
 
 #[test]
 fn sqlite_open_and_close_round_trip() {
     let db = crate::emacs_core::builtins::builtin_sqlite_open(vec![]).unwrap();
     let sqlitep = crate::emacs_core::builtins::builtin_sqlitep(vec![db]).unwrap();
-    assert_eq!(sqlitep, Value::True);
+    assert_eq!(sqlitep, Value::T);
     let closed = crate::emacs_core::builtins::builtin_sqlite_close(vec![db]).unwrap();
-    assert_eq!(closed, Value::True);
+    assert_eq!(closed, Value::T);
 }
 
 #[test]
 fn sqlite_execute_rejects_non_handle() {
     let err = crate::emacs_core::builtins::builtin_sqlite_execute(vec![
-        Value::Nil,
+        Value::NIL,
         Value::string("select 1"),
     ])
     .unwrap_err();
@@ -230,22 +230,22 @@ fn sqlite_execute_rejects_non_handle() {
 fn inotify_watch_lifecycle() {
     let watch = crate::emacs_core::builtins::builtin_inotify_add_watch(vec![
         Value::string("/tmp"),
-        Value::Nil,
+        Value::NIL,
         Value::symbol("ignore"),
     ])
     .unwrap();
     let active = crate::emacs_core::builtins::builtin_inotify_valid_p(vec![watch]).unwrap();
-    assert_eq!(active, Value::True);
+    assert_eq!(active, Value::T);
     let removed = crate::emacs_core::builtins::builtin_inotify_rm_watch(vec![watch]).unwrap();
-    assert_eq!(removed, Value::True);
+    assert_eq!(removed, Value::T);
     let inactive = crate::emacs_core::builtins::builtin_inotify_valid_p(vec![watch]).unwrap();
-    assert_eq!(inactive, Value::Nil);
+    assert_eq!(inactive, Value::NIL);
 }
 
 #[test]
 fn inotify_rm_watch_invalid_descriptor_signals() {
     let err =
-        crate::emacs_core::builtins::builtin_inotify_rm_watch(vec![Value::Int(1)]).unwrap_err();
+        crate::emacs_core::builtins::builtin_inotify_rm_watch(vec![Value::fixnum(1)]).unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "file-notify-error"),
         other => panic!("expected signal, got {other:?}"),
@@ -255,7 +255,7 @@ fn inotify_rm_watch_invalid_descriptor_signals() {
 #[test]
 fn gnutls_bye_requires_process() {
     let err =
-        crate::emacs_core::builtins::builtin_gnutls_bye(vec![Value::Nil, Value::Nil]).unwrap_err();
+        crate::emacs_core::builtins::builtin_gnutls_bye(vec![Value::NIL, Value::NIL]).unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
         other => panic!("expected signal, got {other:?}"),
@@ -264,7 +264,7 @@ fn gnutls_bye_requires_process() {
 
 #[test]
 fn gnutls_format_certificate_requires_string() {
-    let err = crate::emacs_core::builtins::builtin_gnutls_format_certificate(vec![Value::Nil])
+    let err = crate::emacs_core::builtins::builtin_gnutls_format_certificate(vec![Value::NIL])
         .unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
@@ -275,7 +275,7 @@ fn gnutls_format_certificate_requires_string() {
 #[test]
 fn gnutls_hash_digest_nil_method_signals_error() {
     let err = crate::emacs_core::builtins::builtin_gnutls_hash_digest(vec![
-        Value::Nil,
+        Value::NIL,
         Value::string("a"),
     ])
     .unwrap_err();
@@ -293,7 +293,7 @@ fn gnutls_hash_mac_symbol_method_returns_string() {
         Value::string("a"),
     ])
     .unwrap();
-    assert!(matches!(out, Value::Str(_)));
+    assert!(out.is_string());
 }
 
 #[test]
@@ -306,18 +306,18 @@ fn gnutls_symmetric_encrypt_accepts_optional_aad_slot() {
         Value::string("aad"),
     ])
     .unwrap();
-    assert_eq!(out, Value::Nil);
+    assert_eq!(out, Value::NIL);
 }
 
 #[test]
 fn handle_switch_frame_accepts_switch_frame_event_and_rejects_nil() {
-    let frame_event = Value::list(vec![Value::symbol("switch-frame"), Value::Frame(1)]);
+    let frame_event = Value::list(vec![Value::symbol("switch-frame"), Value::make_frame(1)]);
     let out = crate::emacs_core::builtins::builtin_handle_switch_frame(vec![frame_event])
         .expect("switch-frame event should be accepted");
-    assert_eq!(out, Value::Nil);
+    assert_eq!(out, Value::NIL);
 
     let err =
-        crate::emacs_core::builtins::builtin_handle_switch_frame(vec![Value::Nil]).unwrap_err();
+        crate::emacs_core::builtins::builtin_handle_switch_frame(vec![Value::NIL]).unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
         other => panic!("expected signal, got {other:?}"),
@@ -334,13 +334,13 @@ fn interactive_form_for_ignore_returns_interactive_list() {
     .unwrap();
     assert_eq!(
         out,
-        Value::list(vec![Value::symbol("interactive"), Value::Nil])
+        Value::list(vec![Value::symbol("interactive"), Value::NIL])
     );
 }
 
 #[test]
 fn lock_file_requires_string_argument() {
-    let err = crate::emacs_core::builtins::builtin_lock_file(vec![Value::Nil]).unwrap_err();
+    let err = crate::emacs_core::builtins::builtin_lock_file(vec![Value::NIL]).unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
         other => panic!("expected signal, got {other:?}"),
@@ -349,7 +349,7 @@ fn lock_file_requires_string_argument() {
 
 #[test]
 fn unlock_file_requires_string_argument() {
-    let err = crate::emacs_core::builtins::builtin_unlock_file(vec![Value::Nil]).unwrap_err();
+    let err = crate::emacs_core::builtins::builtin_unlock_file(vec![Value::NIL]).unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
         other => panic!("expected signal, got {other:?}"),
@@ -359,9 +359,9 @@ fn unlock_file_requires_string_argument() {
 #[test]
 fn inotify_add_watch_requires_string_path_argument() {
     let err = crate::emacs_core::builtins::builtin_inotify_add_watch(vec![
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
     ])
     .unwrap_err();
     match err {
@@ -372,7 +372,7 @@ fn inotify_add_watch_requires_string_path_argument() {
 
 #[test]
 fn window_bottom_divider_width_rejects_non_window_designator() {
-    let err = crate::emacs_core::builtins::builtin_window_bottom_divider_width(vec![Value::Int(1)])
+    let err = crate::emacs_core::builtins::builtin_window_bottom_divider_width(vec![Value::fixnum(1)])
         .unwrap_err();
     match err {
         Flow::Signal(sig) => {
@@ -386,13 +386,13 @@ fn window_bottom_divider_width_rejects_non_window_designator() {
 #[test]
 fn treesit_available_p_defaults_to_nil() {
     let out = crate::emacs_core::builtins::builtin_treesit_available_p(vec![]).unwrap();
-    assert_eq!(out, Value::Nil);
+    assert_eq!(out, Value::NIL);
 }
 
 #[test]
 fn treesit_query_compile_validates_arity() {
     let err =
-        crate::emacs_core::builtins::builtin_treesit_query_compile(vec![Value::Nil]).unwrap_err();
+        crate::emacs_core::builtins::builtin_treesit_query_compile(vec![Value::NIL]).unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
         other => panic!("expected signal, got {other:?}"),
@@ -402,7 +402,7 @@ fn treesit_query_compile_validates_arity() {
 #[test]
 fn internal_stack_stats_returns_nil() {
     let out = crate::emacs_core::builtins::builtin_internal_stack_stats(vec![]).unwrap();
-    assert_eq!(out, Value::Nil);
+    assert_eq!(out, Value::NIL);
 }
 
 #[test]
@@ -410,7 +410,7 @@ fn internal_labeled_narrow_to_region_validates_arity() {
     let mut eval = crate::emacs_core::Context::new();
     let err = crate::emacs_core::builtins::builtin_internal_labeled_narrow_to_region(
         &mut eval,
-        vec![Value::Nil, Value::Nil],
+        vec![Value::NIL, Value::NIL],
     )
     .unwrap_err();
     match err {
@@ -422,5 +422,5 @@ fn internal_labeled_narrow_to_region_validates_arity() {
 #[test]
 fn lossage_size_defaults_to_three_hundred() {
     let out = crate::emacs_core::builtins::builtin_lossage_size(vec![]).unwrap();
-    assert_eq!(out, Value::Int(300));
+    assert_eq!(out, Value::fixnum(300));
 }

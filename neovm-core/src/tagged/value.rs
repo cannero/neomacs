@@ -108,7 +108,7 @@ impl TaggedValue {
 
     /// Create a symbol value from a SymId.
     #[inline]
-    pub fn symbol(id: SymId) -> Self {
+    pub fn from_sym_id(id: SymId) -> Self {
         Self((id.0 as usize) << TAG_BITS | TAG_SYMBOL)
     }
 
@@ -119,7 +119,7 @@ impl TaggedValue {
     /// # Safety
     /// `cell` must be a valid, 8-byte-aligned pointer to a live `ConsCell`.
     #[inline]
-    pub unsafe fn cons(cell: *const ConsCell) -> Self {
+    pub unsafe fn from_cons_ptr(cell: *const ConsCell) -> Self {
         debug_assert!(!cell.is_null());
         debug_assert!(cell as usize & TAG_MASK == 0, "ConsCell not aligned");
         Self(cell as usize | TAG_CONS)
@@ -132,7 +132,7 @@ impl TaggedValue {
     /// # Safety
     /// `obj` must be a valid, 8-byte-aligned pointer to a live `StringObj`.
     #[inline]
-    pub unsafe fn string(obj: *const StringObj) -> Self {
+    pub unsafe fn from_string_ptr(obj: *const StringObj) -> Self {
         debug_assert!(!obj.is_null());
         debug_assert!(obj as usize & TAG_MASK == 0, "StringObj not aligned");
         Self(obj as usize | TAG_STRING)
@@ -145,7 +145,7 @@ impl TaggedValue {
     /// # Safety
     /// `obj` must be a valid, 8-byte-aligned pointer to a live `FloatObj`.
     #[inline]
-    pub unsafe fn float(obj: *const FloatObj) -> Self {
+    pub unsafe fn from_float_ptr(obj: *const FloatObj) -> Self {
         debug_assert!(!obj.is_null());
         debug_assert!(obj as usize & TAG_MASK == 0, "FloatObj not aligned");
         Self(obj as usize | TAG_FLOAT)
@@ -158,7 +158,7 @@ impl TaggedValue {
     /// # Safety
     /// `obj` must be a valid, 8-byte-aligned pointer to a live veclike object.
     #[inline]
-    pub unsafe fn veclike(obj: *const VecLikeHeader) -> Self {
+    pub unsafe fn from_veclike_ptr(obj: *const VecLikeHeader) -> Self {
         debug_assert!(!obj.is_null());
         debug_assert!(obj as usize & TAG_MASK == 0, "VecLikeHeader not aligned");
         Self(obj as usize | TAG_VECLIKE)
@@ -174,7 +174,7 @@ impl TaggedValue {
 
     /// Create a keyword value from a SymId.
     #[inline]
-    pub fn keyword(id: SymId) -> Self {
+    pub fn from_kw_id(id: SymId) -> Self {
         Self(TAG_IMMEDIATE | IMM_KEYWORD | ((id.0 as usize) << IMM_PAYLOAD_SHIFT))
     }
 
@@ -504,12 +504,12 @@ impl TaggedValue {
 
     /// Create a symbol by interning a name string.
     pub fn symbol_by_name(s: impl AsRef<str>) -> Self {
-        Self::symbol(crate::emacs_core::intern::intern(s.as_ref()))
+        Self::from_sym_id(crate::emacs_core::intern::intern(s.as_ref()))
     }
 
     /// Create a keyword by interning a name string.
     pub fn keyword_by_name(s: impl AsRef<str>) -> Self {
-        Self::keyword(crate::emacs_core::intern::intern(s.as_ref()))
+        Self::from_kw_id(crate::emacs_core::intern::intern(s.as_ref()))
     }
 
     /// `Value::t()` — compat alias for `Value::T`.

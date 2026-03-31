@@ -16,7 +16,7 @@ use std::time::Duration;
 #[cfg(test)]
 use super::error::{Flow, signal};
 #[cfg(test)]
-use super::value::Value;
+use super::value::{Value, ValueKind};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -451,7 +451,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -463,7 +463,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -472,13 +472,13 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
 
 #[cfg(test)]
 fn expect_string(value: &Value) -> Result<String, Flow> {
-    match value {
-        Value::Str(id) => Ok(crate::emacs_core::value::with_heap(|h| {
+    match value.kind() {
+        ValueKind::String => Ok(crate::emacs_core::value::with_heap(|h| {
             h.get_string(*id).to_owned()
         })),
-        Value::Symbol(id) => Ok(crate::emacs_core::intern::resolve_sym(*id).to_owned()),
-        Value::Nil => Ok("nil".to_string()),
-        Value::True => Ok("t".to_string()),
+        ValueKind::Symbol(id) => Ok(crate::emacs_core::intern::resolve_sym(id).to_owned()),
+        ValueKind::Nil => Ok("nil".to_string()),
+        ValueKind::T => Ok("t".to_string()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -488,9 +488,9 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
 
 #[cfg(test)]
 fn expect_int(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *other],

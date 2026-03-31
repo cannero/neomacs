@@ -1,5 +1,5 @@
 use super::super::eval::Context;
-use super::super::value::Value;
+use super::super::value::{Value, ValueKind};
 use crate::emacs_core::load::{
     apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state,
     create_bootstrap_evaluator_cached,
@@ -132,8 +132,8 @@ fn eval_str(ev: &mut Context, src: &str) -> Value {
 
 /// Evaluate and expect an integer result.
 fn eval_int(ev: &mut Context, src: &str) -> i64 {
-    match eval_str(ev, src) {
-        Value::Int(n) => n,
+    match eval_str(ev, src).kind() {
+        ValueKind::Fixnum(n) => n,
         other => panic!("expected Int, got {:?}", other),
     }
 }
@@ -318,7 +318,7 @@ fn bootstrap_next_and_previous_line_match_simple_el() {
         "(list (subrp (symbol-function 'next-line))
                (subrp (symbol-function 'previous-line)))",
     );
-    assert_eq!(ownership, Value::list(vec![Value::Nil, Value::Nil]));
+    assert_eq!(ownership, Value::list(vec![Value::NIL, Value::NIL]));
 
     let next_line_pos = eval_int(
         &mut ev,
@@ -408,7 +408,7 @@ fn bootstrap_beginning_and_end_of_buffer_match_simple_el() {
         "(list (subrp (symbol-function 'beginning-of-buffer))
                (subrp (symbol-function 'end-of-buffer)))",
     );
-    assert_eq!(ownership, Value::list(vec![Value::Nil, Value::Nil]));
+    assert_eq!(ownership, Value::list(vec![Value::NIL, Value::NIL]));
     eval_str(&mut ev, "(fset 'push-mark (lambda (&rest _args) nil))");
     eval_str(&mut ev, "(fset 'region-active-p (lambda () nil))");
 
@@ -466,7 +466,7 @@ fn bootstrap_goto_line_matches_simple_el() {
     let mut ev = gnu_simple_line_eval();
 
     let ownership = eval_str(&mut ev, "(subrp (symbol-function 'goto-line))");
-    assert_eq!(ownership, Value::Nil);
+    assert_eq!(ownership, Value::NIL);
 
     let default_pos = eval_int(
         &mut ev,

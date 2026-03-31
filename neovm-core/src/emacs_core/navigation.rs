@@ -6,7 +6,7 @@
 use super::error::{EvalResult, Flow, signal};
 use super::intern::intern;
 use super::textprop::lookup_buffer_text_property;
-use super::value::{Value, lexenv_lookup, read_cons, with_heap};
+use super::value::{Value, lexenv_lookup, read_cons, with_heap, ValueKind};
 use crate::buffer::BufferManager;
 
 // ---------------------------------------------------------------------------
@@ -17,7 +17,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -28,7 +28,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -39,7 +39,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -47,9 +47,9 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 }
 
 fn expect_int(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *other],
@@ -214,7 +214,7 @@ pub(crate) fn check_point_motion_hooks(
         .obarray
         .symbol_value("inhibit-point-motion-hooks")
         .cloned()
-        .unwrap_or(Value::Nil);
+        .unwrap_or(Value::NIL);
     if inhibit.is_truthy() {
         return Ok(());
     }
@@ -267,25 +267,25 @@ pub(crate) fn check_point_motion_hooks(
     if leave_before != enter_before && leave_before.is_truthy() {
         eval.apply(
             leave_before,
-            vec![Value::Int(old_lisp), Value::Int(new_lisp)],
+            vec![Value::fixnum(old_lisp), Value::fixnum(new_lisp)],
         )?;
     }
     if leave_after != enter_after && leave_after.is_truthy() {
         eval.apply(
             leave_after,
-            vec![Value::Int(old_lisp), Value::Int(new_lisp)],
+            vec![Value::fixnum(old_lisp), Value::fixnum(new_lisp)],
         )?;
     }
     if enter_before != leave_before && enter_before.is_truthy() {
         eval.apply(
             enter_before,
-            vec![Value::Int(old_lisp), Value::Int(new_lisp)],
+            vec![Value::fixnum(old_lisp), Value::fixnum(new_lisp)],
         )?;
     }
     if enter_after != leave_after && enter_after.is_truthy() {
         eval.apply(
             enter_after,
-            vec![Value::Int(old_lisp), Value::Int(new_lisp)],
+            vec![Value::fixnum(old_lisp), Value::fixnum(new_lisp)],
         )?;
     }
     Ok(())
@@ -301,12 +301,12 @@ fn point_motion_property(
 ) -> Value {
     if after_point {
         if point_byte >= buf.zv {
-            return Value::Nil;
+            return Value::NIL;
         }
         lookup_buffer_text_property(obarray, buffers, buf, point_byte, property)
     } else {
         if point_byte <= buf.begv {
-            return Value::Nil;
+            return Value::NIL;
         }
         lookup_buffer_text_property(obarray, buffers, buf, point_byte - 1, property)
     }
@@ -321,7 +321,7 @@ pub(crate) fn adjust_for_intangible(
         .obarray
         .symbol_value("inhibit-point-motion-hooks")
         .cloned()
-        .unwrap_or(Value::Nil);
+        .unwrap_or(Value::NIL);
     if inhibit.is_truthy() {
         return pos;
     }
@@ -396,14 +396,14 @@ pub(crate) fn adjust_for_intangible(
 pub(crate) fn builtin_bobp(ctx: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("bobp", &args, 0)?;
     let buf = current_buffer_in_manager(&ctx.buffers)?;
-    Ok(Value::bool(buf.pt == buf.begv))
+    Ok(Value::bool_val(buf.pt == buf.begv))
 }
 
 /// (eobp) -- at end of buffer?
 pub(crate) fn builtin_eobp(ctx: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("eobp", &args, 0)?;
     let buf = current_buffer_in_manager(&ctx.buffers)?;
-    Ok(Value::bool(buf.pt == buf.zv))
+    Ok(Value::bool_val(buf.pt == buf.zv))
 }
 
 /// (bolp) -- at beginning of line?
@@ -411,11 +411,11 @@ pub(crate) fn builtin_bolp(ctx: &mut super::eval::Context, args: Vec<Value>) -> 
     expect_args("bolp", &args, 0)?;
     let buf = current_buffer_in_manager(&ctx.buffers)?;
     if buf.pt == buf.begv {
-        return Ok(Value::True);
+        return Ok(Value::T);
     }
     let text = buffer_text(buf);
     let at_bol = buf.pt > 0 && buf.pt <= text.len() && text.as_bytes()[buf.pt - 1] == b'\n';
-    Ok(Value::bool(buf.pt == 0 || at_bol))
+    Ok(Value::bool_val(buf.pt == 0 || at_bol))
 }
 
 /// (eolp) -- at end of line?
@@ -423,11 +423,11 @@ pub(crate) fn builtin_eolp(ctx: &mut super::eval::Context, args: Vec<Value>) -> 
     expect_args("eolp", &args, 0)?;
     let buf = current_buffer_in_manager(&ctx.buffers)?;
     if buf.pt == buf.zv {
-        return Ok(Value::True);
+        return Ok(Value::T);
     }
     match buf.char_after(buf.pt) {
-        Some('\n') => Ok(Value::True),
-        _ => Ok(Value::Nil),
+        Some('\n') => Ok(Value::T),
+        _ => Ok(Value::NIL),
     }
 }
 
@@ -457,7 +457,7 @@ pub(crate) fn builtin_line_beginning_position(
         pos = new_pos;
     }
     let bol = line_beginning_byte_narrowed(&text, pos, begv);
-    Ok(Value::Int(byte_to_char_pos(buf, bol)))
+    Ok(Value::fixnum(byte_to_char_pos(buf, bol)))
 }
 
 /// (line-end-position &optional N)
@@ -484,10 +484,10 @@ pub(crate) fn builtin_line_end_position(
         moved = actual_moved;
     }
     if n != 1 && moved != n - 1 && pos == begv {
-        return Ok(Value::Int(byte_to_char_pos(buf, begv)));
+        return Ok(Value::fixnum(byte_to_char_pos(buf, begv)));
     }
     let eol = line_end_byte_narrowed(&text, pos, zv);
-    Ok(Value::Int(byte_to_char_pos(buf, eol)))
+    Ok(Value::fixnum(byte_to_char_pos(buf, eol)))
 }
 
 /// (line-number-at-pos &optional POS ABSOLUTE)
@@ -506,7 +506,7 @@ pub(crate) fn builtin_line_number_at_pos(
     let text = buffer_text(buf);
     let start = if _absolute { 0 } else { buf.begv };
     let line_num = count_newlines(&text, start, byte_pos) + 1;
-    Ok(Value::Int(line_num as i64))
+    Ok(Value::fixnum(line_num as i64))
 }
 
 /// (count-lines BEG END)
@@ -531,7 +531,7 @@ pub(crate) fn builtin_count_lines(eval: &mut super::eval::Context, args: Vec<Val
     if s != e && e > 0 && e <= text.len() && text.as_bytes()[e - 1] != b'\n' {
         n += 1;
     }
-    Ok(Value::Int(n as i64))
+    Ok(Value::fixnum(n as i64))
 }
 
 /// (forward-line &optional N) -> integer
@@ -566,7 +566,7 @@ pub(crate) fn builtin_forward_line(
         shortage -= 1;
     }
     check_point_motion_hooks(eval, old_byte, adjusted)?;
-    Ok(Value::Int(shortage))
+    Ok(Value::fixnum(shortage))
 }
 
 /// (beginning-of-line &optional N)
@@ -595,7 +595,7 @@ pub(crate) fn builtin_beginning_of_line(
     let adjusted = adjust_for_intangible(eval, bol, -1);
     let _ = eval.buffers.goto_buffer_byte(current_id, adjusted);
     check_point_motion_hooks(eval, old_byte, adjusted)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (end-of-line &optional N)
@@ -623,13 +623,13 @@ pub(crate) fn builtin_end_of_line(eval: &mut super::eval::Context, args: Vec<Val
         let adjusted = adjust_for_intangible(eval, begv, -1);
         let _ = eval.buffers.goto_buffer_byte(current_id, adjusted);
         check_point_motion_hooks(eval, old_byte, adjusted)?;
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     let eol = line_end_byte_narrowed(&text, pos, zv);
     let adjusted = adjust_for_intangible(eval, eol, 1);
     let _ = eval.buffers.goto_buffer_byte(current_id, adjusted);
     check_point_motion_hooks(eval, old_byte, adjusted)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // ===========================================================================
@@ -678,7 +678,7 @@ pub(crate) fn builtin_forward_char(
         return Err(signal("end-of-buffer", vec![]));
     }
     check_point_motion_hooks(eval, old_byte, adjusted)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (backward-char &optional N)
@@ -692,7 +692,7 @@ pub(crate) fn builtin_backward_char(
         expect_int(&args[0])?
     };
     // backward-char N == forward-char (- N)
-    builtin_forward_char(eval, vec![Value::Int(-n)])
+    builtin_forward_char(eval, vec![Value::fixnum(-n)])
 }
 
 /// Parse a skip-chars set matching GNU syntax.c skip_chars behavior.
@@ -748,8 +748,8 @@ pub(crate) fn builtin_skip_chars_forward(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("skip-chars-forward", &args, 1)?;
-    let set_str = match &args[0] {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
+    let set_str = match args[0].kind() {
+        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -794,7 +794,7 @@ pub(crate) fn builtin_skip_chars_forward(
 
     debug_assert!(pos >= start_pos || limit <= start_pos);
     let _ = ctx.buffers.goto_buffer_byte(current_id, pos);
-    Ok(Value::Int(moved_chars))
+    Ok(Value::fixnum(moved_chars))
 }
 
 /// (skip-chars-backward STRING &optional LIM)
@@ -803,8 +803,8 @@ pub(crate) fn builtin_skip_chars_backward(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("skip-chars-backward", &args, 1)?;
-    let set_str = match &args[0] {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
+    let set_str = match args[0].kind() {
+        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -846,7 +846,7 @@ pub(crate) fn builtin_skip_chars_backward(
         (pos, moved_chars)
     };
     let _ = ctx.buffers.goto_buffer_byte(current_id, pos);
-    Ok(Value::Int(moved_chars))
+    Ok(Value::fixnum(moved_chars))
 }
 
 // ===========================================================================
@@ -858,8 +858,8 @@ pub(crate) fn builtin_mark_nav(eval: &mut super::eval::Context, args: Vec<Value>
     let _force = args.first().is_some_and(|v| v.is_truthy());
     let buf = eval.buffers.current_buffer().ok_or_else(no_buffer)?;
     match buf.mark() {
-        Some(byte_pos) => Ok(Value::Int(byte_to_char_pos(buf, byte_pos))),
-        None => Ok(Value::Nil),
+        Some(byte_pos) => Ok(Value::fixnum(byte_to_char_pos(buf, byte_pos))),
+        None => Ok(Value::NIL),
     }
 }
 
@@ -880,7 +880,7 @@ pub(crate) fn builtin_region_beginning(
     })?;
     let pt = buf.pt;
     let start = pt.min(mark);
-    Ok(Value::Int(byte_to_char_pos(buf, start)))
+    Ok(Value::fixnum(byte_to_char_pos(buf, start)))
 }
 
 /// (region-end) -> integer
@@ -897,7 +897,7 @@ pub(crate) fn builtin_region_end(eval: &mut super::eval::Context, args: Vec<Valu
     })?;
     let pt = buf.pt;
     let end = pt.max(mark);
-    Ok(Value::Int(byte_to_char_pos(buf, end)))
+    Ok(Value::fixnum(byte_to_char_pos(buf, end)))
 }
 
 // ===========================================================================
@@ -920,7 +920,7 @@ pub(crate) fn builtin_transient_mark_mode(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("transient-mark-mode"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -929,38 +929,38 @@ pub(crate) fn builtin_transient_mark_mode(
         .obarray
         .symbol_value("transient-mark-mode")
         .cloned()
-        .unwrap_or(Value::Nil);
+        .unwrap_or(Value::NIL);
 
     let new_val = if args.is_empty() || args[0].is_nil() {
         // No arg or nil → enable
-        Value::True
+        Value::T
     } else if args[0].is_symbol_named("toggle") {
         // 'toggle → flip
         if current.is_truthy() {
-            Value::Nil
+            Value::NIL
         } else {
-            Value::True
+            Value::T
         }
     } else {
         // Numeric arg: positive → enable, zero/negative → disable.
         // Floats are truncated to integer first (GNU define-minor-mode behavior).
-        match &args[0] {
-            Value::Int(n) => {
-                if *n > 0 {
-                    Value::True
+        match args[0].kind() {
+            ValueKind::Fixnum(n) => {
+                if n > 0 {
+                    ValueKind::T
                 } else {
-                    Value::Nil
+                    ValueKind::Nil
                 }
             }
-            Value::Float(f, _) => {
+            ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => {
                 let truncated = *f as i64;
                 if truncated > 0 {
-                    Value::True
+                    ValueKind::T
                 } else {
-                    Value::Nil
+                    ValueKind::Nil
                 }
             }
-            _ => Value::True,
+            _ => Value::T,
         }
     };
 

@@ -6,6 +6,7 @@ use crate::window::{FrameManager, WindowId};
 use arboard::Clipboard;
 #[cfg(target_os = "linux")]
 use arboard::{Clipboard, GetExtLinux, LinuxClipboardKind, SetExtLinux};
+use super::value::{ValueKind, VecLikeType};
 
 // =========================================================================
 // fontset.c gap-fill stubs
@@ -22,7 +23,7 @@ pub(crate) fn builtin_fontset_list_all(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_debug_timer_check(args: Vec<Value>) -> EvalResult {
     expect_args("debug-timer-check", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // =========================================================================
@@ -31,12 +32,12 @@ pub(crate) fn builtin_debug_timer_check(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_inotify_watch_list(args: Vec<Value>) -> EvalResult {
     expect_args("inotify-watch-list", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_inotify_allocated_p(args: Vec<Value>) -> EvalResult {
     expect_args("inotify-allocated-p", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // =========================================================================
@@ -45,17 +46,17 @@ pub(crate) fn builtin_inotify_allocated_p(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_dbus_make_inhibitor_lock(args: Vec<Value>) -> EvalResult {
     expect_range_args("dbus-make-inhibitor-lock", &args, 2, 3)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_dbus_close_inhibitor_lock(args: Vec<Value>) -> EvalResult {
     expect_args("dbus-close-inhibitor-lock", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_dbus_registered_inhibitor_locks(args: Vec<Value>) -> EvalResult {
     expect_args("dbus-registered-inhibitor-locks", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // =========================================================================
@@ -64,37 +65,37 @@ pub(crate) fn builtin_dbus_registered_inhibitor_locks(args: Vec<Value>) -> EvalR
 
 pub(crate) fn builtin_tty_frame_at(args: Vec<Value>) -> EvalResult {
     expect_args("tty-frame-at", &args, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_tty_frame_geometry(args: Vec<Value>) -> EvalResult {
     expect_range_args("tty-frame-geometry", &args, 0, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_tty_frame_edges(args: Vec<Value>) -> EvalResult {
     expect_range_args("tty-frame-edges", &args, 0, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_tty_frame_list_z_order(args: Vec<Value>) -> EvalResult {
     expect_range_args("tty-frame-list-z-order", &args, 0, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_tty_frame_restack(args: Vec<Value>) -> EvalResult {
     expect_range_args("tty-frame-restack", &args, 2, 3)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_tty_display_pixel_width(args: Vec<Value>) -> EvalResult {
     expect_range_args("tty-display-pixel-width", &args, 0, 1)?;
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 pub(crate) fn builtin_tty_display_pixel_height(args: Vec<Value>) -> EvalResult {
     expect_range_args("tty-display-pixel-height", &args, 0, 1)?;
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 // =========================================================================
@@ -103,42 +104,42 @@ pub(crate) fn builtin_tty_display_pixel_height(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_lcms2_available_p(args: Vec<Value>) -> EvalResult {
     expect_args("lcms2-available-p", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_lcms_cie_de2000(args: Vec<Value>) -> EvalResult {
     expect_range_args("lcms-cie-de2000", &args, 2, 5)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_lcms_xyz_to_jch(args: Vec<Value>) -> EvalResult {
     expect_range_args("lcms-xyz->jch", &args, 1, 3)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_lcms_jch_to_xyz(args: Vec<Value>) -> EvalResult {
     expect_range_args("lcms-jch->xyz", &args, 1, 3)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_lcms_jch_to_jab(args: Vec<Value>) -> EvalResult {
     expect_range_args("lcms-jch->jab", &args, 1, 3)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_lcms_jab_to_jch(args: Vec<Value>) -> EvalResult {
     expect_range_args("lcms-jab->jch", &args, 1, 3)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_lcms_cam02_ucs(args: Vec<Value>) -> EvalResult {
     expect_range_args("lcms-cam02-ucs", &args, 2, 4)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_lcms_temp_to_white_point(args: Vec<Value>) -> EvalResult {
     expect_args("lcms-temp->white-point", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // =========================================================================
@@ -147,62 +148,62 @@ pub(crate) fn builtin_lcms_temp_to_white_point(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_treesit_grammar_location(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-grammar-location", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_tracking_line_column_p(args: Vec<Value>) -> EvalResult {
     expect_range_args("treesit-tracking-line-column-p", &args, 0, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_parser_tracking_line_column_p(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-parser-tracking-line-column-p", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_query_eagerly_compiled_p(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-query-eagerly-compiled-p", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_query_source(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-query-source", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_parser_embed_level(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-parser-embed-level", &args, 1)?;
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 pub(crate) fn builtin_treesit_parser_set_embed_level(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-parser-set-embed-level", &args, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_parse_string(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-parse-string", &args, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_parser_changed_regions(args: Vec<Value>) -> EvalResult {
     expect_args("treesit-parser-changed-regions", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_linecol_at(args: Vec<Value>) -> EvalResult {
     expect_args("treesit--linecol-at", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_linecol_cache_set(args: Vec<Value>) -> EvalResult {
     expect_args("treesit--linecol-cache-set", &args, 3)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_treesit_linecol_cache(args: Vec<Value>) -> EvalResult {
     expect_args("treesit--linecol-cache", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // =========================================================================
@@ -292,17 +293,17 @@ fn get_system_primary_selection_text() -> Option<String> {
 
 fn monitor_geometry_value(monitor: &NeomacsMonitorInfo) -> Value {
     Value::list(vec![
-        Value::Int(monitor.x as i64),
-        Value::Int(monitor.y as i64),
-        Value::Int(monitor.width as i64),
-        Value::Int(monitor.height as i64),
+        Value::fixnum(monitor.x as i64),
+        Value::fixnum(monitor.y as i64),
+        Value::fixnum(monitor.width as i64),
+        Value::fixnum(monitor.height as i64),
     ])
 }
 
 fn monitor_mm_size_value(monitor: &NeomacsMonitorInfo) -> Value {
     Value::list(vec![
-        Value::Int(monitor.width_mm as i64),
-        Value::Int(monitor.height_mm as i64),
+        Value::fixnum(monitor.width_mm as i64),
+        Value::fixnum(monitor.height_mm as i64),
     ])
 }
 
@@ -314,7 +315,7 @@ fn monitor_alist_value(monitor: &NeomacsMonitorInfo, frames: Value) -> Value {
         Value::cons(Value::symbol("frames"), frames),
         Value::cons(
             Value::symbol("scale-factor"),
-            Value::Float(monitor.scale, next_float_id()),
+            Value::make_float(monitor.scale),
         ),
         Value::cons(
             Value::symbol("name"),
@@ -322,7 +323,7 @@ fn monitor_alist_value(monitor: &NeomacsMonitorInfo, frames: Value) -> Value {
                 .name
                 .as_deref()
                 .map(Value::string)
-                .unwrap_or(Value::Nil),
+                .unwrap_or(Value::NIL),
         ),
         Value::cons(Value::symbol("source"), Value::string("Neomacs")),
     ])
@@ -330,22 +331,22 @@ fn monitor_alist_value(monitor: &NeomacsMonitorInfo, frames: Value) -> Value {
 
 pub(crate) fn builtin_neomacs_frame_geometry(args: Vec<Value>) -> EvalResult {
     expect_range_args("neomacs-frame-geometry", &args, 0, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_neomacs_frame_edges(args: Vec<Value>) -> EvalResult {
     expect_range_args("neomacs-frame-edges", &args, 0, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_neomacs_mouse_absolute_pixel_position(args: Vec<Value>) -> EvalResult {
     expect_args("neomacs-mouse-absolute-pixel-position", &args, 0)?;
-    Ok(Value::cons(Value::Int(0), Value::Int(0)))
+    Ok(Value::cons(Value::fixnum(0), Value::fixnum(0)))
 }
 
 pub(crate) fn builtin_neomacs_set_mouse_absolute_pixel_position(args: Vec<Value>) -> EvalResult {
     expect_args("neomacs-set-mouse-absolute-pixel-position", &args, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_neomacs_display_monitor_attributes_list(
@@ -357,11 +358,11 @@ pub(crate) fn builtin_neomacs_display_monitor_attributes_list(
         .frames
         .frame_list()
         .into_iter()
-        .map(|fid| Value::Frame(fid.0))
+        .map(|fid| Value::make_frame(fid.0))
         .collect::<Vec<_>>();
     let monitor_values = neomacs_monitor_info_snapshot();
     if monitor_values.is_empty() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let mut alists = Vec::with_capacity(monitor_values.len());
@@ -369,7 +370,7 @@ pub(crate) fn builtin_neomacs_display_monitor_attributes_list(
         let frame_list = if index == 0 {
             Value::list(frames.clone())
         } else {
-            Value::Nil
+            Value::NIL
         };
         alists.push(monitor_alist_value(monitor, frame_list));
     }
@@ -378,26 +379,26 @@ pub(crate) fn builtin_neomacs_display_monitor_attributes_list(
 
 pub(crate) fn builtin_x_scroll_bar_foreground(args: Vec<Value>) -> EvalResult {
     expect_args("x-scroll-bar-foreground", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_x_scroll_bar_background(args: Vec<Value>) -> EvalResult {
     expect_args("x-scroll-bar-background", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_neomacs_clipboard_set(args: Vec<Value>) -> EvalResult {
     expect_args("neomacs-clipboard-set", &args, 1)?;
-    let text = match args[0] {
-        Value::Nil => None,
-        Value::Str(id) => Some(with_heap(|heap| heap.get_string(id).to_owned())),
+    let text = match args[0].kind() {
+        ValueKind::Nil => None,
+        ValueKind::String => Some(with_heap(|heap| heap.get_string(id).to_owned())),
         other => Some(format!("{other}")),
     };
     set_cached_clipboard_text(text.clone());
     if let Some(text) = text {
         let _ = set_system_clipboard_text(&text);
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_neomacs_clipboard_get(args: Vec<Value>) -> EvalResult {
@@ -405,21 +406,21 @@ pub(crate) fn builtin_neomacs_clipboard_get(args: Vec<Value>) -> EvalResult {
     Ok(get_system_clipboard_text()
         .or_else(cached_clipboard_text)
         .map(Value::string)
-        .unwrap_or(Value::Nil))
+        .unwrap_or(Value::NIL))
 }
 
 pub(crate) fn builtin_neomacs_primary_selection_set(args: Vec<Value>) -> EvalResult {
     expect_args("neomacs-primary-selection-set", &args, 1)?;
-    let text = match args[0] {
-        Value::Nil => None,
-        Value::Str(id) => Some(with_heap(|heap| heap.get_string(id).to_owned())),
+    let text = match args[0].kind() {
+        ValueKind::Nil => None,
+        ValueKind::String => Some(with_heap(|heap| heap.get_string(id).to_owned())),
         other => Some(format!("{other}")),
     };
     set_cached_primary_selection_text(text.clone());
     if let Some(text) = text {
         let _ = set_system_primary_selection_text(&text);
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_neomacs_primary_selection_get(args: Vec<Value>) -> EvalResult {
@@ -427,7 +428,7 @@ pub(crate) fn builtin_neomacs_primary_selection_get(args: Vec<Value>) -> EvalRes
     Ok(get_system_primary_selection_text()
         .or_else(cached_primary_selection_text)
         .map(Value::string)
-        .unwrap_or(Value::Nil))
+        .unwrap_or(Value::NIL))
 }
 
 pub(crate) fn builtin_neomacs_core_backend(args: Vec<Value>) -> EvalResult {
@@ -465,8 +466,8 @@ pub(crate) fn snapshot_window_new_normal() -> HashMap<u64, f64> {
         slot.borrow()
             .iter()
             .filter_map(|(&id, v)| match v {
-                Value::Float(f, _) => Some((id, *f)),
-                Value::Int(i) => Some((id, *i as f64)),
+                Value::make_float(f) /* TODO(tagged): dropped float id `_` */ => Some((id, *f)),
+                Value::fixnum(i) => Some((id, *i as f64)),
                 _ => None,
             })
             .collect()
@@ -485,20 +486,20 @@ thread_local! {
 }
 
 fn window_state_id(value: &Value) -> Option<u64> {
-    match value {
-        Value::Window(id) => Some(*id),
-        Value::Int(id) if *id >= 0 => Some(*id as u64),
+    match value.kind() {
+        ValueKind::Veclike(VecLikeType::Window) => Some(*id),
+        ValueKind::Fixnum(id) if id >= 0 => Some(id as u64),
         _ => None,
     }
 }
 
 pub(super) fn window_new_normal_value(window: Option<&Value>) -> Value {
     let Some(id) = window.and_then(window_state_id) else {
-        return Value::Nil;
+        return Value::NIL;
     };
     WINDOW_NEW_NORMAL
         .with(|slot| slot.borrow().get(&id).copied())
-        .unwrap_or(Value::Nil)
+        .unwrap_or(Value::NIL)
 }
 
 pub(super) fn set_window_new_normal_value(window: &Value, value: Value) -> Value {
@@ -512,9 +513,9 @@ pub(super) fn set_window_new_normal_value(window: &Value, value: Value) -> Value
 
 pub(super) fn window_new_pixel_value(window: Option<&Value>) -> Value {
     let Some(id) = window.and_then(window_state_id) else {
-        return Value::Int(0);
+        return Value::fixnum(0);
     };
-    Value::Int(
+    Value::fixnum(
         WINDOW_NEW_PIXEL
             .with(|slot| slot.borrow().get(&id).copied())
             .unwrap_or(0),
@@ -523,7 +524,7 @@ pub(super) fn window_new_pixel_value(window: Option<&Value>) -> Value {
 
 pub(super) fn set_window_new_pixel_value(window: &Value, size: i64, add: bool) -> Value {
     let Some(id) = window_state_id(window) else {
-        return Value::Int(size);
+        return Value::fixnum(size);
     };
     let stored = WINDOW_NEW_PIXEL.with(|slot| {
         let mut state = slot.borrow_mut();
@@ -535,14 +536,14 @@ pub(super) fn set_window_new_pixel_value(window: &Value, size: i64, add: bool) -
         }
         *entry
     });
-    Value::Int(stored)
+    Value::fixnum(stored)
 }
 
 pub(super) fn window_new_total_value(window: Option<&Value>) -> Value {
     let Some(id) = window.and_then(window_state_id) else {
-        return Value::Int(0);
+        return Value::fixnum(0);
     };
-    Value::Int(
+    Value::fixnum(
         WINDOW_NEW_TOTAL
             .with(|slot| slot.borrow().get(&id).copied())
             .unwrap_or(0),
@@ -551,7 +552,7 @@ pub(super) fn window_new_total_value(window: Option<&Value>) -> Value {
 
 pub(super) fn set_window_new_total_value(window: &Value, size: i64, add: bool) -> Value {
     let Some(id) = window_state_id(window) else {
-        return Value::Int(size);
+        return Value::fixnum(size);
     };
     let stored = WINDOW_NEW_TOTAL.with(|slot| {
         let mut state = slot.borrow_mut();
@@ -563,19 +564,19 @@ pub(super) fn set_window_new_total_value(window: &Value, size: i64, add: bool) -
         }
         *entry
     });
-    Value::Int(stored)
+    Value::fixnum(stored)
 }
 
 fn sqlite_handle_id(value: &Value) -> Option<i64> {
-    let Value::Vector(items) = value else {
+    if !value.is_vector() /* TODO(tagged): `items` was Value::Vector(items), rewrite let-else */ {
         return None;
     };
     let items = with_heap(|h| h.get_vector(*items).clone());
     if items.len() != 2 {
         return None;
     }
-    match (&items[0], &items[1]) {
-        (Value::Keyword(tag), Value::Int(id)) if resolve_sym(*tag) == "sqlite-handle" => Some(*id),
+    match (items[0].kind(), items[1].kind()) {
+        (ValueKind::Keyword(tag), ValueKind::Fixnum(id)) if resolve_sym(*tag) == "sqlite-handle" => Some(id),
         _ => None,
     }
 }
@@ -616,7 +617,7 @@ fn expect_sqlitep(value: &Value) -> Result<i64, Flow> {
 
 pub(crate) fn builtin_sqlite_available_p(args: Vec<Value>) -> EvalResult {
     expect_args("sqlite-available-p", &args, 0)?;
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 pub(crate) fn builtin_sqlite_version(args: Vec<Value>) -> EvalResult {
@@ -626,7 +627,7 @@ pub(crate) fn builtin_sqlite_version(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_sqlitep(args: Vec<Value>) -> EvalResult {
     expect_args("sqlitep", &args, 1)?;
-    Ok(Value::bool(sqlite_handle_id(&args[0]).is_some()))
+    Ok(Value::bool_val(sqlite_handle_id(&args[0]).is_some()))
 }
 
 pub(crate) fn builtin_sqlite_open(args: Vec<Value>) -> EvalResult {
@@ -639,7 +640,7 @@ pub(crate) fn builtin_sqlite_open(args: Vec<Value>) -> EvalResult {
     let id = sqlite_register_handle();
     Ok(Value::vector(vec![
         Value::keyword("sqlite-handle"),
-        Value::Int(id),
+        Value::fixnum(id),
     ]))
 }
 
@@ -647,7 +648,7 @@ pub(crate) fn builtin_sqlite_close(args: Vec<Value>) -> EvalResult {
     expect_args("sqlite-close", &args, 1)?;
     let id = expect_sqlitep(&args[0])?;
     sqlite_close_handle(id);
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 pub(crate) fn builtin_sqlite_execute(args: Vec<Value>) -> EvalResult {
@@ -666,7 +667,7 @@ pub(crate) fn builtin_sqlite_execute(args: Vec<Value>) -> EvalResult {
             vec![Value::string("table sqlite_master may not be modified")],
         ));
     }
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 pub(crate) fn builtin_sqlite_execute_batch(
@@ -682,7 +683,7 @@ pub(crate) fn builtin_sqlite_execute_batch(
         ));
     }
     let _ = expect_strict_string(&args[1])?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_sqlite_select(args: Vec<Value>) -> EvalResult {
@@ -696,9 +697,9 @@ pub(crate) fn builtin_sqlite_select(args: Vec<Value>) -> EvalResult {
     }
     let sql = expect_strict_string(&args[1])?;
     if sql.trim() == "select 1" {
-        return Ok(Value::list(vec![Value::list(vec![Value::Int(1)])]));
+        return Ok(Value::list(vec![Value::list(vec![Value::fixnum(1)])]));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_sqlite_next(args: Vec<Value>) -> EvalResult {
@@ -710,7 +711,7 @@ pub(crate) fn builtin_sqlite_next(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("sqlitep"), args[0]],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_sqlite_more_p(args: Vec<Value>) -> EvalResult {
@@ -722,7 +723,7 @@ pub(crate) fn builtin_sqlite_more_p(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("sqlitep"), args[0]],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_sqlite_columns(args: Vec<Value>) -> EvalResult {
@@ -734,7 +735,7 @@ pub(crate) fn builtin_sqlite_columns(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("sqlitep"), args[0]],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_sqlite_finalize(args: Vec<Value>) -> EvalResult {
@@ -746,7 +747,7 @@ pub(crate) fn builtin_sqlite_finalize(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("sqlitep"), args[0]],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_sqlite_pragma(args: Vec<Value>) -> EvalResult {
@@ -759,7 +760,7 @@ pub(crate) fn builtin_sqlite_pragma(args: Vec<Value>) -> EvalResult {
         ));
     }
     let _ = expect_strict_string(&args[1])?;
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 pub(crate) fn builtin_sqlite_commit(args: Vec<Value>) -> EvalResult {
@@ -771,7 +772,7 @@ pub(crate) fn builtin_sqlite_commit(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("sqlitep"), args[0]],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_sqlite_rollback(args: Vec<Value>) -> EvalResult {
@@ -783,7 +784,7 @@ pub(crate) fn builtin_sqlite_rollback(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("sqlitep"), args[0]],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_sqlite_transaction(args: Vec<Value>) -> EvalResult {
@@ -795,7 +796,7 @@ pub(crate) fn builtin_sqlite_transaction(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("sqlitep"), args[0]],
         ));
     }
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 pub(crate) fn builtin_sqlite_load_extension(args: Vec<Value>) -> EvalResult {
@@ -815,9 +816,9 @@ pub(crate) fn builtin_sqlite_load_extension(args: Vec<Value>) -> EvalResult {
 }
 
 fn fillarray_character_from_value(value: &Value) -> Result<char, Flow> {
-    match value {
-        Value::Int(n) if *n >= 0 => Ok((*n as u8) as char),
-        Value::Char(c) => Ok(*c),
+    match value.kind() {
+        ValueKind::Fixnum(n) if n >= 0 => Ok((n as u8) as char),
+        ValueKind::Char(c) => Ok(c),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *other],
@@ -831,16 +832,16 @@ pub(crate) fn builtin_fillarray(args: Vec<Value>) -> EvalResult {
     const BOOL_VECTOR_BITS_START: usize = 2;
 
     expect_args("fillarray", &args, 2)?;
-    match &args[0] {
-        Value::Vector(items) => {
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let is_bool_vector = super::chartable::is_bool_vector(&args[0]);
             let is_char_table = !is_bool_vector && super::chartable::is_char_table(&args[0]);
             if is_bool_vector {
                 let fill_bit = if args[1].is_nil() { 0 } else { 1 };
                 let (logical_len, available_bits) = with_heap(|h| {
                     let v = h.get_vector(*items);
-                    let ll = match v.get(BOOL_VECTOR_SIZE_SLOT) {
-                        Some(Value::Int(n)) if *n > 0 => *n as usize,
+                    let ll = match v.get(BOOL_VECTOR_SIZE_SLOT).kind() {
+                        Some(ValueKind::Fixnum(n)) if n > 0 => n as usize,
                         _ => 0,
                     };
                     let ab = v.len().saturating_sub(BOOL_VECTOR_BITS_START);
@@ -850,7 +851,7 @@ pub(crate) fn builtin_fillarray(args: Vec<Value>) -> EvalResult {
                 with_heap_mut(|h| {
                     let vec = h.get_vector_mut(*items);
                     for bit in vec.iter_mut().skip(BOOL_VECTOR_BITS_START).take(bit_count) {
-                        *bit = Value::Int(fill_bit);
+                        *bit = ValueKind::Fixnum(fill_bit);
                     }
                 });
                 return Ok(args[0]);
@@ -872,7 +873,7 @@ pub(crate) fn builtin_fillarray(args: Vec<Value>) -> EvalResult {
             });
             Ok(args[0])
         }
-        Value::Str(id) => {
+        ValueKind::String => {
             let fill = fillarray_character_from_value(&args[1])?;
             let len = with_heap(|h| h.get_string(*id).chars().count());
             let new_str = fill.to_string().repeat(len);
@@ -894,7 +895,7 @@ pub(crate) fn builtin_define_fringe_bitmap(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("symbolp"), args[0]],
         ));
     }
-    if !matches!(args[1], Value::Vector(_) | Value::Str(_)) {
+    if !matches!(args[1], Value::Vector(_) /* TODO(tagged): convert Value::Vector to new API */ | Value::Str(_) /* TODO(tagged): convert Value::Str to new API */) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("arrayp"), args[1]],
@@ -928,12 +929,12 @@ pub(crate) fn builtin_destroy_fringe_bitmap(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("symbolp"), args[0]],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_display_line_is_continued_p(args: Vec<Value>) -> EvalResult {
     expect_args("display--line-is-continued-p", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_display_update_for_mouse_movement(
@@ -950,7 +951,7 @@ pub(crate) fn builtin_display_update_for_mouse_movement(
     let x = expect_fixnum(&args[1])?;
     let y = expect_fixnum(&args[2])?;
     eval.note_mouse_move_for_frame(Some(fid), x, y);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_external_debugging_output(args: Vec<Value>) -> EvalResult {
@@ -962,7 +963,7 @@ pub(crate) fn builtin_external_debugging_output(args: Vec<Value>) -> EvalResult 
             vec![Value::string("Invalid character: f03fffff")],
         ));
     }
-    Ok(Value::Int(ch))
+    Ok(Value::fixnum(ch))
 }
 
 pub(crate) fn builtin_internal_labeled_narrow_to_region(
@@ -986,7 +987,7 @@ pub(crate) fn builtin_internal_labeled_narrow_to_region_in_buffers(
     let (byte_start, byte_end) =
         super::buffers::normalize_narrow_region_in_buffers(buffers, current_id, start, end)?;
     let _ = buffers.internal_labeled_narrow_to_region(current_id, byte_start, byte_end, label);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_internal_labeled_widen(
@@ -1005,7 +1006,7 @@ pub(crate) fn builtin_internal_labeled_widen_in_buffers(
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let _ = buffers.internal_labeled_widen(current_id, &args[0]);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_internal_obarray_buckets(args: Vec<Value>) -> EvalResult {
@@ -1017,20 +1018,20 @@ pub(crate) fn builtin_internal_obarray_buckets(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_handle_save_session(args: Vec<Value>) -> EvalResult {
     expect_args("handle-save-session", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_handle_switch_frame(args: Vec<Value>) -> EvalResult {
     expect_args("handle-switch-frame", &args, 1)?;
-    let frame = match args[0] {
-        Value::Frame(_) => args[0],
-        Value::Cons(cell) => {
-            let pair = read_cons(cell);
-            match pair.car.as_symbol_name() {
+    let frame = match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Frame) => args[0],
+        ValueKind::Cons => {
+            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+            match pair.car.as_symbol_name().kind() {
                 Some("switch-frame") => {
                     let cdr = pair.cdr;
-                    match cdr {
-                        Value::Cons(cdr_cell) => read_cons(cdr_cell).car,
+                    match cdr.kind() {
+                        ValueKind::Cons => read_cons(cdr_cell).car,  // TODO(tagged): replace read_cons with cons accessors
                         _ => {
                             return Err(signal(
                                 "wrong-type-argument",
@@ -1054,13 +1055,13 @@ pub(crate) fn builtin_handle_switch_frame(args: Vec<Value>) -> EvalResult {
             ));
         }
     };
-    if !matches!(frame, Value::Frame(_)) {
+    if !matches!(frame, Value::make_frame(_)) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("framep"), frame],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_gpm_mouse_start(args: Vec<Value>) -> EvalResult {
@@ -1075,22 +1076,22 @@ pub(crate) fn builtin_gpm_mouse_start(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_gpm_mouse_stop(args: Vec<Value>) -> EvalResult {
     expect_args("gpm-mouse-stop", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_help_describe_vector(args: Vec<Value>) -> EvalResult {
     expect_args("help--describe-vector", &args, 7)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_init_image_library(args: Vec<Value>) -> EvalResult {
     expect_args("init-image-library", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_describe_buffer_bindings(args: Vec<Value>) -> EvalResult {
     expect_range_args("describe-buffer-bindings", &args, 1, 3)?;
-    if !matches!(args[0], Value::Buffer(_)) {
+    if !matches!(args[0], Value::make_buffer(_)) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("bufferp"), args[0]],
@@ -1100,7 +1101,7 @@ pub(crate) fn builtin_describe_buffer_bindings(args: Vec<Value>) -> EvalResult {
         if !prefixes.is_nil()
             && !matches!(
                 prefixes,
-                Value::Cons(_) | Value::Vector(_) | Value::Str(_) | Value::Nil
+                Value::Cons(_) /* TODO(tagged): convert Value::Cons to new API */ | Value::Vector(_) /* TODO(tagged): convert Value::Vector to new API */ | Value::Str(_) /* TODO(tagged): convert Value::Str to new API */ | Value::NIL
             )
         {
             return Err(signal(
@@ -1109,12 +1110,12 @@ pub(crate) fn builtin_describe_buffer_bindings(args: Vec<Value>) -> EvalResult {
             ));
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_describe_vector(args: Vec<Value>) -> EvalResult {
     expect_range_args("describe-vector", &args, 1, 2)?;
-    if !matches!(args[0], Value::Vector(_)) {
+    if !matches!(args[0], Value::Vector(_) /* TODO(tagged): convert Value::Vector to new API */) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("vector-or-char-table-p"), args[0]],
@@ -1127,7 +1128,7 @@ pub(crate) fn builtin_describe_vector(args: Vec<Value>) -> EvalResult {
             }
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_frame_set_was_invisible(args: Vec<Value>) -> EvalResult {
@@ -1139,14 +1140,14 @@ pub(crate) fn builtin_frame_set_was_invisible(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_frame_after_make_frame(args: Vec<Value>) -> EvalResult {
     expect_args("frame-after-make-frame", &args, 2)?;
     expect_frame_live_or_nil(&args[0])?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_frame_ancestor_p(args: Vec<Value>) -> EvalResult {
     expect_args("frame-ancestor-p", &args, 2)?;
     expect_frame_live_or_nil(&args[0])?;
     expect_frame_live_or_nil(&args[1])?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_frame_bottom_divider_width(args: Vec<Value>) -> EvalResult {
@@ -1154,7 +1155,7 @@ pub(crate) fn builtin_frame_bottom_divider_width(args: Vec<Value>) -> EvalResult
     if let Some(frame) = args.first() {
         expect_frame_live_or_nil(frame)?;
     }
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 pub(crate) fn builtin_frame_child_frame_border_width(args: Vec<Value>) -> EvalResult {
@@ -1162,7 +1163,7 @@ pub(crate) fn builtin_frame_child_frame_border_width(args: Vec<Value>) -> EvalRe
     if let Some(frame) = args.first() {
         expect_frame_live_or_nil(frame)?;
     }
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 pub(crate) fn builtin_frame_focus(args: Vec<Value>) -> EvalResult {
@@ -1170,7 +1171,7 @@ pub(crate) fn builtin_frame_focus(args: Vec<Value>) -> EvalResult {
     if let Some(frame) = args.first() {
         expect_frame_live_or_nil(frame)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_frame_font_cache(args: Vec<Value>) -> EvalResult {
@@ -1178,7 +1179,7 @@ pub(crate) fn builtin_frame_font_cache(args: Vec<Value>) -> EvalResult {
     if let Some(frame) = args.first() {
         expect_frame_live_or_nil(frame)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_frame_fringe_width(args: Vec<Value>) -> EvalResult {
@@ -1186,7 +1187,7 @@ pub(crate) fn builtin_frame_fringe_width(args: Vec<Value>) -> EvalResult {
     if let Some(frame) = args.first() {
         expect_frame_live_or_nil(frame)?;
     }
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 pub(crate) fn builtin_frame_internal_border_width(args: Vec<Value>) -> EvalResult {
@@ -1194,16 +1195,16 @@ pub(crate) fn builtin_frame_internal_border_width(args: Vec<Value>) -> EvalResul
     if let Some(frame) = args.first() {
         expect_frame_live_or_nil(frame)?;
     }
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 pub(crate) fn builtin_frame_or_buffer_changed_p(args: Vec<Value>) -> EvalResult {
     expect_range_args("frame-or-buffer-changed-p", &args, 0, 1)?;
     let Some(symbol) = args.first() else {
-        return Ok(Value::True);
+        return Ok(Value::T);
     };
     if symbol.is_nil() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     if symbol.as_symbol_name().is_none() {
         return Err(signal(
@@ -1219,7 +1220,7 @@ pub(crate) fn builtin_frame_parent(args: Vec<Value>) -> EvalResult {
     if let Some(frame) = args.first() {
         expect_frame_live_or_nil(frame)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_frame_pointer_visible_p(args: Vec<Value>) -> EvalResult {
@@ -1227,7 +1228,7 @@ pub(crate) fn builtin_frame_pointer_visible_p(args: Vec<Value>) -> EvalResult {
     if let Some(frame) = args.first() {
         expect_frame_live_or_nil(frame)?;
     }
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 pub(crate) fn builtin_frame_right_divider_width(args: Vec<Value>) -> EvalResult {
@@ -1235,7 +1236,7 @@ pub(crate) fn builtin_frame_right_divider_width(args: Vec<Value>) -> EvalResult 
     if let Some(frame) = args.first() {
         expect_frame_live_or_nil(frame)?;
     }
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 pub(crate) fn builtin_frame_scale_factor(args: Vec<Value>) -> EvalResult {
@@ -1243,7 +1244,7 @@ pub(crate) fn builtin_frame_scale_factor(args: Vec<Value>) -> EvalResult {
     if let Some(frame) = args.first() {
         expect_frame_live_or_nil(frame)?;
     }
-    Ok(Value::Float(1.0, next_float_id()))
+    Ok(Value::make_float(1.0))
 }
 
 pub(crate) fn builtin_frame_scroll_bar_height(args: Vec<Value>) -> EvalResult {
@@ -1251,7 +1252,7 @@ pub(crate) fn builtin_frame_scroll_bar_height(args: Vec<Value>) -> EvalResult {
     if let Some(frame) = args.first() {
         expect_frame_live_or_nil(frame)?;
     }
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 pub(crate) fn builtin_frame_scroll_bar_width(args: Vec<Value>) -> EvalResult {
@@ -1259,7 +1260,7 @@ pub(crate) fn builtin_frame_scroll_bar_width(args: Vec<Value>) -> EvalResult {
     if let Some(frame) = args.first() {
         expect_frame_live_or_nil(frame)?;
     }
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 pub(crate) fn builtin_frame_window_state_change(args: Vec<Value>) -> EvalResult {
@@ -1267,7 +1268,7 @@ pub(crate) fn builtin_frame_window_state_change(args: Vec<Value>) -> EvalResult 
     if let Some(frame) = args.first() {
         expect_frame_live_or_nil(frame)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // --- frame.c missing builtins ---
@@ -1286,7 +1287,7 @@ pub(crate) fn builtin_frame_id(eval: &mut super::eval::Context, args: Vec<Value>
     } else {
         fid.0
     };
-    Ok(Value::Int(public_id as i64))
+    Ok(Value::fixnum(public_id as i64))
 }
 
 /// Eval-dependent variant: defaults to selected frame.
@@ -1301,7 +1302,7 @@ pub(crate) fn builtin_frame_root_frame(
         args.first(),
         "frame-live-p",
     )?;
-    Ok(Value::Frame(fid.0))
+    Ok(Value::make_frame(fid.0))
 }
 
 /// `(set-frame-size-and-position-pixelwise FRAME WIDTH HEIGHT LEFT TOP &optional GRAVITY)`
@@ -1309,13 +1310,13 @@ pub(crate) fn builtin_frame_root_frame(
 pub(crate) fn builtin_set_frame_size_and_position_pixelwise(args: Vec<Value>) -> EvalResult {
     expect_range_args("set-frame-size-and-position-pixelwise", &args, 5, 6)?;
     expect_frame_live_or_nil(&args[0])?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(mouse-position-in-root-frame)` — stub, returns nil.
 pub(crate) fn builtin_mouse_position_in_root_frame(args: Vec<Value>) -> EvalResult {
     expect_args("mouse-position-in-root-frame", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_fringe_bitmaps_at_pos(args: Vec<Value>) -> EvalResult {
@@ -1326,29 +1327,29 @@ pub(crate) fn builtin_fringe_bitmaps_at_pos(args: Vec<Value>) -> EvalResult {
         }
     }
     if let Some(window) = args.get(1) {
-        if !window.is_nil() && !matches!(window, Value::Window(_)) {
+        if !window.is_nil() && !matches!(window, Value::make_window(_)) {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("window-live-p"), *window],
             ));
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_gap_position(args: Vec<Value>) -> EvalResult {
     expect_args("gap-position", &args, 0)?;
-    Ok(Value::Int(1))
+    Ok(Value::fixnum(1))
 }
 
 pub(crate) fn builtin_gap_size(args: Vec<Value>) -> EvalResult {
     expect_args("gap-size", &args, 0)?;
-    Ok(Value::Int(2001))
+    Ok(Value::fixnum(2001))
 }
 
 pub(crate) fn builtin_garbage_collect_maybe(args: Vec<Value>) -> EvalResult {
     expect_args("garbage-collect-maybe", &args, 1)?;
-    let Value::Int(n) = args[0] else {
+    let Some(n) = args[0].as_fixnum() else {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("wholenump"), args[0]],
@@ -1357,16 +1358,16 @@ pub(crate) fn builtin_garbage_collect_maybe(args: Vec<Value>) -> EvalResult {
     if n < 0 {
         return Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("wholenump"), Value::Int(n)],
+            vec![Value::symbol("wholenump"), Value::fixnum(n)],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_garbage_collect_heapsize(args: Vec<Value>) -> EvalResult {
     expect_args("garbage-collect-heapsize", &args, 0)?;
     let count = super::value::with_heap(|h| h.allocated_count());
-    Ok(Value::Int(count as i64))
+    Ok(Value::fixnum(count as i64))
 }
 
 pub(crate) fn builtin_get_unicode_property_internal(args: Vec<Value>) -> EvalResult {
@@ -1399,14 +1400,14 @@ pub(crate) fn builtin_gnutls_macs(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_gnutls_errorp(args: Vec<Value>) -> EvalResult {
     expect_args("gnutls-errorp", &args, 1)?;
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 pub(crate) fn builtin_gnutls_error_string(args: Vec<Value>) -> EvalResult {
     expect_args("gnutls-error-string", &args, 1)?;
-    match args[0] {
-        Value::Int(0) => Ok(Value::string("Success.")),
-        Value::Nil => Ok(Value::string("Symbol has no numeric gnutls-code property")),
+    match args[0].kind() {
+        ValueKind::Fixnum(0) => Ok(Value::string("Success.")),
+        ValueKind::Nil => Ok(Value::string("Symbol has no numeric gnutls-code property")),
         _ => Ok(Value::string("Unknown TLS error")),
     }
 }
@@ -1419,7 +1420,7 @@ pub(crate) fn builtin_gnutls_error_fatalp(args: Vec<Value>) -> EvalResult {
             vec![Value::string("Symbol has no numeric gnutls-code property")],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 fn expect_processp(value: &Value) -> Result<(), Flow> {
@@ -1436,7 +1437,7 @@ fn expect_processp(value: &Value) -> Result<(), Flow> {
 pub(crate) fn builtin_gnutls_peer_status_warning_describe(args: Vec<Value>) -> EvalResult {
     expect_args("gnutls-peer-status-warning-describe", &args, 1)?;
     if args[0].is_nil() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     if args[0].as_symbol_name().is_none() {
         return Err(signal(
@@ -1444,24 +1445,24 @@ pub(crate) fn builtin_gnutls_peer_status_warning_describe(args: Vec<Value>) -> E
             vec![Value::symbol("symbolp"), args[0]],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_gnutls_asynchronous_parameters(args: Vec<Value>) -> EvalResult {
     expect_args("gnutls-asynchronous-parameters", &args, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_gnutls_bye(args: Vec<Value>) -> EvalResult {
     expect_args("gnutls-bye", &args, 2)?;
     expect_processp(&args[0])?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_gnutls_deinit(args: Vec<Value>) -> EvalResult {
     expect_args("gnutls-deinit", &args, 1)?;
     expect_processp(&args[0])?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_gnutls_format_certificate(args: Vec<Value>) -> EvalResult {
@@ -1473,7 +1474,7 @@ pub(crate) fn builtin_gnutls_format_certificate(args: Vec<Value>) -> EvalResult 
 pub(crate) fn builtin_gnutls_get_initstage(args: Vec<Value>) -> EvalResult {
     expect_args("gnutls-get-initstage", &args, 1)?;
     expect_processp(&args[0])?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_gnutls_hash_digest(args: Vec<Value>) -> EvalResult {
@@ -1483,7 +1484,7 @@ pub(crate) fn builtin_gnutls_hash_digest(args: Vec<Value>) -> EvalResult {
             "error",
             vec![
                 Value::string("GnuTLS digest-method is invalid or not found"),
-                Value::Nil,
+                Value::NIL,
             ],
         ));
     }
@@ -1504,7 +1505,7 @@ pub(crate) fn builtin_gnutls_hash_mac(args: Vec<Value>) -> EvalResult {
             "error",
             vec![
                 Value::string("GnuTLS MAC-method is invalid or not found"),
-                Value::Nil,
+                Value::NIL,
             ],
         ));
     }
@@ -1522,40 +1523,40 @@ pub(crate) fn builtin_gnutls_hash_mac(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_gnutls_peer_status(args: Vec<Value>) -> EvalResult {
     expect_args("gnutls-peer-status", &args, 1)?;
     expect_processp(&args[0])?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_gnutls_symmetric_decrypt(args: Vec<Value>) -> EvalResult {
     expect_range_args("gnutls-symmetric-decrypt", &args, 4, 5)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_gnutls_symmetric_encrypt(args: Vec<Value>) -> EvalResult {
     expect_range_args("gnutls-symmetric-encrypt", &args, 4, 5)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(super) const FACE_ATTRIBUTES_VECTOR_LEN: usize = 20;
 
 pub(crate) fn builtin_font_get_system_font(args: Vec<Value>) -> EvalResult {
     expect_args("font-get-system-font", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_font_get_system_normal_font(args: Vec<Value>) -> EvalResult {
     expect_args("font-get-system-normal-font", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 fn expect_characterp_from_int(value: &Value) -> Result<char, Flow> {
-    match value {
-        Value::Int(n) if *n >= 0 => char::from_u32(*n as u32).ok_or_else(|| {
+    match value.kind() {
+        ValueKind::Fixnum(n) if n >= 0 => char::from_u32(n as u32).ok_or_else(|| {
             signal(
                 "wrong-type-argument",
                 vec![Value::symbol("characterp"), *value],
             )
         }),
-        Value::Char(c) => Ok(*c),
+        ValueKind::Char(c) => Ok(c),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *other],
@@ -1564,12 +1565,12 @@ fn expect_characterp_from_int(value: &Value) -> Result<char, Flow> {
 }
 
 fn is_font_object(value: &Value) -> bool {
-    match value {
-        Value::Vector(items) => {
+    match value.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(*items).clone());
             matches!(
                 items.first(),
-                Some(Value::Keyword(tag)) if resolve_sym(*tag) == "font-object"
+                Some(ValueKind::Keyword(tag)) if resolve_sym(*tag) == "font-object"
             )
         }
         _ => false,
@@ -1577,10 +1578,10 @@ fn is_font_object(value: &Value) -> bool {
 }
 
 fn is_font_spec(value: &Value) -> bool {
-    match value {
-        Value::Vector(items) => {
+    match value.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(*items).clone());
-            matches!(items.first(), Some(Value::Keyword(tag)) if resolve_sym(*tag) == "font-spec")
+            matches!(items.first(), Some(ValueKind::Keyword(tag)) if resolve_sym(*tag) == "font-spec")
         }
         _ => false,
     }
@@ -1602,9 +1603,9 @@ fn expect_window_live_or_nil_in_state(frames: &FrameManager, value: &Value) -> R
     if value.is_nil() {
         return Ok(());
     }
-    let live = match value {
-        Value::Window(id) => frames.is_live_window_id(WindowId(*id)),
-        Value::Int(id) if *id >= 0 => frames.is_live_window_id(WindowId(*id as u64)),
+    let live = match value.kind() {
+        ValueKind::Veclike(VecLikeType::Window) => frames.is_live_window_id(WindowId(*id)),
+        ValueKind::Fixnum(id) if id >= 0 => frames.is_live_window_id(WindowId(id as u64)),
         _ => false,
     };
     if live {
@@ -1635,7 +1636,7 @@ pub(crate) fn builtin_font_get_glyphs(args: Vec<Value>) -> EvalResult {
     }
     let _ = expect_fixnum(&args[1])?;
     let _ = expect_fixnum(&args[2])?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_font_has_char_p(args: Vec<Value>) -> EvalResult {
@@ -1647,7 +1648,7 @@ pub(crate) fn builtin_font_has_char_p(args: Vec<Value>) -> EvalResult {
         ));
     }
     let _ = expect_characterp_from_int(&args[1])?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_font_match_p(args: Vec<Value>) -> EvalResult {
@@ -1664,19 +1665,19 @@ pub(crate) fn builtin_font_match_p(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("font-spec"), args[1]],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_font_shape_gstring(args: Vec<Value>) -> EvalResult {
     expect_args("font-shape-gstring", &args, 2)?;
-    if !matches!(args[0], Value::Vector(_)) {
+    if !matches!(args[0], Value::Vector(_) /* TODO(tagged): convert Value::Vector to new API */) {
         return Err(signal(
             "error",
             vec![Value::string("Invalid glyph-string: ")],
         ));
     }
     let _ = expect_fixnum(&args[1])?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_font_variation_glyphs(args: Vec<Value>) -> EvalResult {
@@ -1688,7 +1689,7 @@ pub(crate) fn builtin_font_variation_glyphs(args: Vec<Value>) -> EvalResult {
         ));
     }
     let _ = expect_characterp_from_int(&args[1])?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_fontset_font(args: Vec<Value>) -> EvalResult {
@@ -1717,7 +1718,7 @@ pub(crate) fn builtin_fontset_list(args: Vec<Value>) -> EvalResult {
 }
 
 fn expect_window_live_or_nil(value: &Value) -> Result<(), Flow> {
-    if value.is_nil() || matches!(value, Value::Window(_)) {
+    if value.is_nil() || matches!(value, Value::make_window(_)) {
         Ok(())
     } else {
         Err(signal(
@@ -1728,7 +1729,7 @@ fn expect_window_live_or_nil(value: &Value) -> Result<(), Flow> {
 }
 
 pub(super) fn expect_window_valid_or_nil(value: &Value) -> Result<(), Flow> {
-    if value.is_nil() || matches!(value, Value::Window(_)) {
+    if value.is_nil() || matches!(value, Value::make_window(_)) {
         Ok(())
     } else {
         Err(signal(
@@ -1739,7 +1740,7 @@ pub(super) fn expect_window_valid_or_nil(value: &Value) -> Result<(), Flow> {
 }
 
 fn expect_frame_live_or_nil(value: &Value) -> Result<(), Flow> {
-    if value.is_nil() || matches!(value, Value::Frame(_)) {
+    if value.is_nil() || matches!(value, Value::make_frame(_)) {
         Ok(())
     } else {
         Err(signal(
@@ -1754,7 +1755,7 @@ pub(crate) fn builtin_window_bottom_divider_width(args: Vec<Value>) -> EvalResul
     if let Some(window) = args.first() {
         expect_window_live_or_nil(window)?;
     }
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 pub(crate) fn builtin_window_lines_pixel_dimensions(args: Vec<Value>) -> EvalResult {
@@ -1762,7 +1763,7 @@ pub(crate) fn builtin_window_lines_pixel_dimensions(args: Vec<Value>) -> EvalRes
     if let Some(window) = args.first() {
         expect_window_live_or_nil(window)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_window_new_normal(args: Vec<Value>) -> EvalResult {
@@ -1794,7 +1795,7 @@ pub(crate) fn builtin_window_old_body_pixel_height(args: Vec<Value>) -> EvalResu
     if let Some(window) = args.first() {
         expect_window_live_or_nil(window)?;
     }
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 pub(crate) fn builtin_window_old_body_pixel_width(args: Vec<Value>) -> EvalResult {
@@ -1802,7 +1803,7 @@ pub(crate) fn builtin_window_old_body_pixel_width(args: Vec<Value>) -> EvalResul
     if let Some(window) = args.first() {
         expect_window_live_or_nil(window)?;
     }
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 pub(crate) fn builtin_window_old_pixel_height(args: Vec<Value>) -> EvalResult {
@@ -1810,7 +1811,7 @@ pub(crate) fn builtin_window_old_pixel_height(args: Vec<Value>) -> EvalResult {
     if let Some(window) = args.first() {
         expect_window_valid_or_nil(window)?;
     }
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 pub(crate) fn builtin_window_old_pixel_width(args: Vec<Value>) -> EvalResult {
@@ -1818,7 +1819,7 @@ pub(crate) fn builtin_window_old_pixel_width(args: Vec<Value>) -> EvalResult {
     if let Some(window) = args.first() {
         expect_window_valid_or_nil(window)?;
     }
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 pub(crate) fn builtin_window_right_divider_width(args: Vec<Value>) -> EvalResult {
@@ -1826,7 +1827,7 @@ pub(crate) fn builtin_window_right_divider_width(args: Vec<Value>) -> EvalResult
     if let Some(window) = args.first() {
         expect_window_live_or_nil(window)?;
     }
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 pub(crate) fn builtin_window_scroll_bar_height(args: Vec<Value>) -> EvalResult {
@@ -1834,7 +1835,7 @@ pub(crate) fn builtin_window_scroll_bar_height(args: Vec<Value>) -> EvalResult {
     if let Some(window) = args.first() {
         expect_window_live_or_nil(window)?;
     }
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 pub(crate) fn builtin_window_scroll_bar_width(args: Vec<Value>) -> EvalResult {
@@ -1842,7 +1843,7 @@ pub(crate) fn builtin_window_scroll_bar_width(args: Vec<Value>) -> EvalResult {
     if let Some(window) = args.first() {
         expect_window_live_or_nil(window)?;
     }
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 thread_local! {
@@ -1851,10 +1852,10 @@ thread_local! {
 }
 
 fn inotify_watch_descriptor_parts(value: &Value) -> Option<(i64, i64)> {
-    let Value::Cons(cell) = value else {
+    if !value.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
         return None;
     };
-    let pair = read_cons(*cell);
+    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
     let fd = pair.car.as_int()?;
     let wd = pair.cdr.as_int()?;
     Some((fd, wd))
@@ -1896,20 +1897,20 @@ fn inotify_remove_watch(value: &Value) -> bool {
 
 pub(crate) fn builtin_inotify_valid_p(args: Vec<Value>) -> EvalResult {
     expect_args("inotify-valid-p", &args, 1)?;
-    Ok(Value::bool(inotify_watch_is_active(&args[0])))
+    Ok(Value::bool_val(inotify_watch_is_active(&args[0])))
 }
 
 pub(crate) fn builtin_inotify_add_watch(args: Vec<Value>) -> EvalResult {
     expect_args("inotify-add-watch", &args, 3)?;
     let _ = expect_strict_string(&args[0])?;
     let (fd, wd) = inotify_register_watch();
-    Ok(Value::cons(Value::Int(fd), Value::Int(wd)))
+    Ok(Value::cons(Value::fixnum(fd), Value::fixnum(wd)))
 }
 
 pub(crate) fn builtin_inotify_rm_watch(args: Vec<Value>) -> EvalResult {
     expect_args("inotify-rm-watch", &args, 1)?;
     if inotify_remove_watch(&args[0]) {
-        return Ok(Value::True);
+        return Ok(Value::T);
     }
     let mut payload = vec![
         Value::string("Invalid descriptor "),
@@ -1932,7 +1933,7 @@ pub(crate) fn builtin_inotify_rm_watch(args: Vec<Value>) -> EvalResult {
 /// and is dispatched via the eval-backed path in builtins/mod.rs.
 pub(crate) fn builtin_buffer_local_toplevel_value(args: Vec<Value>) -> EvalResult {
     expect_range_args("buffer-local-toplevel-value", &args, 1, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// GNU eval.c:857 — set SYMBOL's toplevel buffer-local value in BUFFER.
@@ -1943,7 +1944,7 @@ pub(crate) fn builtin_set_buffer_local_toplevel_value(args: Vec<Value>) -> EvalR
 
 pub(crate) fn builtin_debugger_trap(args: Vec<Value>) -> EvalResult {
     expect_args("debugger-trap", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_internal_delete_indirect_variable(args: Vec<Value>) -> EvalResult {
@@ -1965,10 +1966,10 @@ pub(crate) fn builtin_internal_decode_string_utf_8(args: Vec<Value>) -> EvalResu
     expect_args("internal-decode-string-utf-8", &args, 7)?;
     // GNU returns nil if STRING is not a string.
     if args[0].as_str().is_none() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     // GNU: CHECK_FIXNUM(count)
-    if !matches!(args[6], Value::Int(_)) {
+    if !matches!(args[6], Value::fixnum(_)) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("fixnump"), args[6]],
@@ -1984,9 +1985,9 @@ pub(crate) fn builtin_internal_decode_string_utf_8(args: Vec<Value>) -> EvalResu
 pub(crate) fn builtin_internal_encode_string_utf_8(args: Vec<Value>) -> EvalResult {
     expect_args("internal-encode-string-utf-8", &args, 7)?;
     if args[0].as_str().is_none() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
-    if !matches!(args[6], Value::Int(_)) {
+    if !matches!(args[6], Value::fixnum(_)) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("fixnump"), args[6]],
@@ -2001,7 +2002,7 @@ pub(crate) fn builtin_internal_encode_string_utf_8(args: Vec<Value>) -> EvalResu
 
 pub(crate) fn builtin_overlay_tree(args: Vec<Value>) -> EvalResult {
     expect_range_args("overlay-tree", &args, 0, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // =========================================================================
@@ -2011,13 +2012,13 @@ pub(crate) fn builtin_overlay_tree(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_thread_buffer_disposition(args: Vec<Value>) -> EvalResult {
     expect_args("thread-buffer-disposition", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_thread_set_buffer_disposition(args: Vec<Value>) -> EvalResult {
     expect_args("thread-set-buffer-disposition", &args, 2)?;
     // Stub: ignore the set
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // =========================================================================
@@ -2026,22 +2027,22 @@ pub(crate) fn builtin_thread_set_buffer_disposition(args: Vec<Value>) -> EvalRes
 
 pub(crate) fn builtin_window_discard_buffer_from_window(args: Vec<Value>) -> EvalResult {
     expect_range_args("window-discard-buffer-from-window", &args, 2, 3)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_window_cursor_info(args: Vec<Value>) -> EvalResult {
     expect_range_args("window-cursor-info", &args, 0, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_combine_windows(args: Vec<Value>) -> EvalResult {
     expect_args("combine-windows", &args, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_uncombine_window(args: Vec<Value>) -> EvalResult {
     expect_args("uncombine-window", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // =========================================================================
@@ -2050,7 +2051,7 @@ pub(crate) fn builtin_uncombine_window(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_frame_windows_min_size(args: Vec<Value>) -> EvalResult {
     expect_args("frame-windows-min-size", &args, 4)?;
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 // =========================================================================
@@ -2059,7 +2060,7 @@ pub(crate) fn builtin_frame_windows_min_size(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_remember_mouse_glyph(args: Vec<Value>) -> EvalResult {
     expect_args("remember-mouse-glyph", &args, 3)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // =========================================================================
@@ -2068,12 +2069,12 @@ pub(crate) fn builtin_remember_mouse_glyph(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_lookup_image(args: Vec<Value>) -> EvalResult {
     expect_args("lookup-image", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_imagemagick_types(args: Vec<Value>) -> EvalResult {
     expect_args("imagemagick-types", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // =========================================================================
@@ -2082,12 +2083,12 @@ pub(crate) fn builtin_imagemagick_types(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_font_drive_otf(args: Vec<Value>) -> EvalResult {
     expect_args("font-drive-otf", &args, 6)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_font_otf_alternates(args: Vec<Value>) -> EvalResult {
     expect_args("font-otf-alternates", &args, 3)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // =========================================================================
@@ -2096,15 +2097,15 @@ pub(crate) fn builtin_font_otf_alternates(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_emacs_repository_get_version(args: Vec<Value>) -> EvalResult {
     expect_args("emacs-repository-get-version", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_emacs_repository_get_branch(args: Vec<Value>) -> EvalResult {
     expect_args("emacs-repository-get-branch", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_emacs_repository_get_dirty(args: Vec<Value>) -> EvalResult {
     expect_args("emacs-repository-get-dirty", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }

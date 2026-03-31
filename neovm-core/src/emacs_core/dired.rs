@@ -24,7 +24,7 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
     if args.len() < min || args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -32,8 +32,8 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 }
 
 fn expect_string(_name: &str, value: &Value) -> Result<String, Flow> {
-    match value {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+    match value.kind() {
+        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -118,8 +118,8 @@ fn read_directory_names(dir: &str) -> Result<Vec<String>, Flow> {
 
 fn parse_wholenump_count(arg: Option<&Value>) -> Result<Option<usize>, Flow> {
     match arg {
-        Some(Value::Int(n)) if *n >= 0 => Ok(Some(*n as usize)),
-        Some(v @ Value::Int(_)) => Err(signal(
+        Some(ValueKind::Fixnum(n)) if *n >= 0 => Ok(Some(*n as usize)),
+        Some(v @ ValueKind::Fixnum(_)) => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("wholenump"), *v],
         )),
@@ -154,10 +154,10 @@ fn time_to_emacs_tuple(secs: i64, nanos: i64) -> Value {
     let psec = (ns % 1_000) * 1_000;
 
     Value::list(vec![
-        Value::Int(high),
-        Value::Int(low),
-        Value::Int(usec),
-        Value::Int(psec),
+        Value::fixnum(high),
+        Value::fixnum(low),
+        Value::fixnum(usec),
+        Value::fixnum(psec),
     ])
 }
 
@@ -252,9 +252,9 @@ fn build_file_attributes(filename: &str, id_format_string: bool) -> Option<Value
             Err(_) => Value::string(""),
         }
     } else if sym_meta.is_dir() {
-        Value::True
+        Value::T
     } else {
-        Value::Nil
+        Value::NIL
     };
 
     // For symlinks, get the target metadata for size etc; fall back to symlink meta.
@@ -268,10 +268,10 @@ fn build_file_attributes(filename: &str, id_format_string: bool) -> Option<Value
     #[cfg(unix)]
     let nlinks = {
         use std::os::unix::fs::MetadataExt;
-        Value::Int(sym_meta.nlink() as i64)
+        Value::fixnum(sym_meta.nlink() as i64)
     };
     #[cfg(not(unix))]
-    let nlinks = Value::Int(1);
+    let nlinks = Value::fixnum(1);
 
     // UID / GID.
     #[cfg(unix)]
@@ -285,14 +285,14 @@ fn build_file_attributes(filename: &str, id_format_string: bool) -> Option<Value
                 Value::string(gid_to_name(gid).unwrap_or_else(|| gid.to_string())),
             )
         } else {
-            (Value::Int(uid as i64), Value::Int(gid as i64))
+            (Value::fixnum(uid as i64), Value::fixnum(gid as i64))
         }
     };
     #[cfg(not(unix))]
     let (uid_val, gid_val) = if id_format_string {
         (Value::string("0"), Value::string("0"))
     } else {
-        (Value::Int(0), Value::Int(0))
+        (Value::fixnum(0), Value::fixnum(0))
     };
 
     // Access time.
@@ -307,7 +307,7 @@ fn build_file_attributes(filename: &str, id_format_string: bool) -> Option<Value
         .ok()
         .and_then(system_time_to_secs_nanos)
         .map(|(secs, nanos)| time_to_emacs_tuple(secs, nanos))
-        .unwrap_or(Value::Nil);
+        .unwrap_or(Value::NIL);
 
     // Modification time.
     #[cfg(unix)]
@@ -321,7 +321,7 @@ fn build_file_attributes(filename: &str, id_format_string: bool) -> Option<Value
         .ok()
         .and_then(system_time_to_secs_nanos)
         .map(|(secs, nanos)| time_to_emacs_tuple(secs, nanos))
-        .unwrap_or(Value::Nil);
+        .unwrap_or(Value::NIL);
 
     // Status change time (ctime on Unix, creation time on other platforms).
     #[cfg(unix)]
@@ -335,10 +335,10 @@ fn build_file_attributes(filename: &str, id_format_string: bool) -> Option<Value
         .ok()
         .and_then(system_time_to_secs_nanos)
         .map(|(secs, nanos)| time_to_emacs_tuple(secs, nanos))
-        .unwrap_or(Value::Nil);
+        .unwrap_or(Value::NIL);
 
     // Size.
-    let size = Value::Int(meta.len() as i64);
+    let size = Value::fixnum(meta.len() as i64);
 
     // Mode string (like "drwxr-xr-x").
     #[cfg(unix)]
@@ -356,27 +356,28 @@ fn build_file_attributes(filename: &str, id_format_string: bool) -> Option<Value
 
     // GID-CHANGEP: Emacs commonly reports t on Unix filesystems.
     #[cfg(unix)]
-    let gid_changep = Value::True;
+    let gid_changep = Value::T;
     #[cfg(not(unix))]
-    let gid_changep = Value::Nil;
+    let gid_changep = Value::NIL;
 
     // Inode.
     #[cfg(unix)]
     let inode = {
         use std::os::unix::fs::MetadataExt;
-        Value::Int(sym_meta.ino() as i64)
+        Value::fixnum(sym_meta.ino() as i64)
     };
     #[cfg(not(unix))]
-    let inode = Value::Int(0);
+    let inode = Value::fixnum(0);
 
     // Device.
     #[cfg(unix)]
     let device = {
         use std::os::unix::fs::MetadataExt;
-        Value::Int(sym_meta.dev() as i64)
+use crate::emacs_core::value::{ValueKind};
+        Value::fixnum(sym_meta.dev() as i64)
     };
     #[cfg(not(unix))]
-    let device = Value::Int(0);
+    let device = Value::fixnum(0);
 
     Some(Value::list(vec![
         file_type,
@@ -477,7 +478,7 @@ fn directory_files_and_attributes_with_dir(args: &[Value], dir: String) -> EvalR
         .is_some_and(|v| v.is_truthy() && v.as_symbol_name().map_or(true, |s| s != "integer"));
     let count = parse_wholenump_count(args.get(5))?;
     if count == Some(0) {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let names = read_directory_names(&dir)?;
@@ -531,7 +532,7 @@ fn directory_files_and_attributes_with_dir(args: &[Value], dir: String) -> EvalR
     let result: Vec<Value> = items
         .into_iter()
         .map(|(display_name, full_path)| {
-            let attrs = build_file_attributes(&full_path, id_format_string).unwrap_or(Value::Nil);
+            let attrs = build_file_attributes(&full_path, id_format_string).unwrap_or(Value::NIL);
             Value::cons(Value::string(display_name), attrs)
         })
         .collect();
@@ -571,7 +572,7 @@ pub(crate) fn builtin_file_name_all_completions(
         &expect_string("file-name-all-completions", &args[1])?,
     );
     if file.contains('/') {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     let ignore_case = get_completion_ignore_case(&eval.obarray);
     // GNU Emacs: file-name-all-completions does NOT filter by
@@ -841,7 +842,7 @@ pub(crate) fn finish_file_name_completion_with_callable_predicate(
 
 fn resolve_file_name_completion(file: &str, completions: Vec<String>, ignore_case: bool) -> Value {
     if completions.is_empty() {
-        return Value::Nil;
+        return Value::NIL;
     }
 
     let filtered = filter_completion_candidates(file, completions);
@@ -860,7 +861,7 @@ fn resolve_file_name_completion(file: &str, completions: Vec<String>, ignore_cas
             comp == file
         };
         if eq {
-            return Value::True;
+            return Value::T;
         }
         return Value::string(comp.clone());
     }
@@ -1020,8 +1021,8 @@ fn is_builtin_path_predicate(name: &str) -> bool {
 }
 
 fn predicate_callable_name(predicate: &Value) -> Option<&str> {
-    match predicate {
-        Value::Symbol(id) | Value::Subr(id) => Some(resolve_sym(*id)),
+    match predicate.kind() {
+        ValueKind::Symbol(id) | ValueKind::Subr(id) => Some(resolve_sym(id)),
         _ => None,
     }
 }
@@ -1036,7 +1037,7 @@ pub(crate) fn builtin_file_attributes(eval: &mut Context, args: Vec<Value>) -> E
     // instead of signaling an error.
     let filename_str = match args[0].as_str() {
         Some(s) => s.to_string(),
-        None if args[0].is_nil() => return Ok(Value::Nil),
+        None if args[0].is_nil() => return Ok(Value::NIL),
         None => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1053,7 +1054,7 @@ pub(crate) fn builtin_file_attributes(eval: &mut Context, args: Vec<Value>) -> E
 
     match build_file_attributes(&filename, id_format_string) {
         Some(attrs) => Ok(attrs),
-        None => Ok(Value::Nil),
+        None => Ok(Value::NIL),
     }
 }
 
@@ -1068,16 +1069,16 @@ pub(crate) fn builtin_file_attributes_lessp(args: Vec<Value>) -> EvalResult {
     let name1 = extract_car_string("file-attributes-lessp", &args[0])?;
     let name2 = extract_car_string("file-attributes-lessp", &args[1])?;
 
-    Ok(Value::bool(name1 < name2))
+    Ok(Value::bool_val(name1 < name2))
 }
 
 /// Extract the car of a cons cell as a string.
 fn extract_car_string(_name: &str, val: &Value) -> Result<String, Flow> {
-    match val {
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);
-            match &pair.car {
-                Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+    match val.kind() {
+        ValueKind::Cons => {
+            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+            match pair.car.kind() {
+                ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
                 other => Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("stringp"), *other],
@@ -1119,7 +1120,7 @@ pub(crate) fn builtin_system_groups(args: Vec<Value>) -> EvalResult {
     expect_range_args("system-groups", &args, 0, 0)?;
     let groups = read_colon_file_names(&system_groups_path());
     if groups.is_empty() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     Ok(Value::list(
         groups.into_iter().map(Value::string).collect::<Vec<_>>(),

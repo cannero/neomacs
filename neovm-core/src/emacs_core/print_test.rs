@@ -7,11 +7,11 @@ use crate::emacs_core::value::{
 
 #[test]
 fn print_basic_values() {
-    assert_eq!(print_value(&Value::Nil), "nil");
-    assert_eq!(print_value(&Value::True), "t");
-    assert_eq!(print_value(&Value::Int(42)), "42");
-    assert_eq!(print_value(&Value::Float(3.14, next_float_id())), "3.14");
-    assert_eq!(print_value(&Value::Float(1.0, next_float_id())), "1.0");
+    assert_eq!(print_value(&Value::NIL), "nil");
+    assert_eq!(print_value(&Value::T), "t");
+    assert_eq!(print_value(&Value::fixnum(42)), "42");
+    assert_eq!(print_value(&Value::make_float(3.14)), "3.14");
+    assert_eq!(print_value(&Value::make_float(1.0)), "1.0");
     assert_eq!(print_value(&Value::symbol("foo")), "foo");
     assert_eq!(print_value(&Value::symbol(".foo")), "\\.foo");
     assert_eq!(print_value(&Value::symbol("")), "##");
@@ -39,27 +39,27 @@ fn print_symbol_escapes_reader_sensitive_chars() {
 
 #[test]
 fn print_uninterned_symbols_follow_gnu_default_print_gensym_nil() {
-    assert_eq!(print_value(&Value::Symbol(intern_uninterned("foo"))), "foo");
+    assert_eq!(print_value(&Value::symbol(intern_uninterned("foo"))), "foo");
     assert_eq!(
-        print_value(&Value::Symbol(intern_uninterned(":foo"))),
+        print_value(&Value::symbol(intern_uninterned(":foo"))),
         ":foo"
     );
-    assert_eq!(print_value(&Value::Symbol(intern_uninterned(""))), "##");
+    assert_eq!(print_value(&Value::symbol(intern_uninterned(""))), "##");
 }
 
 #[test]
 fn print_uninterned_symbols_support_print_gensym_round_trip_syntax() {
     let options = PrintOptions::with_print_gensym(true);
     assert_eq!(
-        print_value_with_options(&Value::Symbol(intern_uninterned("foo")), options),
+        print_value_with_options(&Value::symbol(intern_uninterned("foo")), options),
         "#:foo"
     );
     assert_eq!(
-        print_value_with_options(&Value::Symbol(intern_uninterned(":foo")), options),
+        print_value_with_options(&Value::symbol(intern_uninterned(":foo")), options),
         "#::foo"
     );
     assert_eq!(
-        print_value_with_options(&Value::Symbol(intern_uninterned("")), options),
+        print_value_with_options(&Value::symbol(intern_uninterned("")), options),
         "#:"
     );
 }
@@ -67,12 +67,12 @@ fn print_uninterned_symbols_support_print_gensym_round_trip_syntax() {
 #[test]
 fn print_float_nan_preserves_sign() {
     assert_eq!(
-        print_value(&Value::Float(f64::NAN, next_float_id())),
+        print_value(&Value::make_float(f64::NAN)),
         "0.0e+NaN"
     );
     let neg_nan = f64::from_bits(f64::NAN.to_bits() | (1_u64 << 63));
     assert_eq!(
-        print_value(&Value::Float(neg_nan, next_float_id())),
+        print_value(&Value::make_float(neg_nan)),
         "-0.0e+NaN"
     );
 }
@@ -81,13 +81,13 @@ fn print_float_nan_preserves_sign() {
 fn print_float_nan_payload_tag_round_trip_shape() {
     let tagged = f64::from_bits((0x7ffu64 << 52) | (1u64 << 51) | 1u64);
     assert_eq!(
-        print_value(&Value::Float(tagged, next_float_id())),
+        print_value(&Value::make_float(tagged)),
         "1.0e+NaN"
     );
 
     let neg_tagged = f64::from_bits((1u64 << 63) | (0x7ffu64 << 52) | (1u64 << 51) | 2u64);
     assert_eq!(
-        print_value(&Value::Float(neg_tagged, next_float_id())),
+        print_value(&Value::make_float(neg_tagged)),
         "-2.0e+NaN"
     );
 }
@@ -101,7 +101,7 @@ fn print_string() {
 fn print_empty_char_table_uses_gnu_vector_shape() {
     let table = crate::emacs_core::chartable::make_char_table_with_extra_slots(
         Value::symbol("syntax-table"),
-        Value::Nil,
+        Value::NIL,
         0,
     );
     let rendered = print_value(&table);
@@ -123,7 +123,7 @@ fn print_propertized_string_literal_shape() {
                     Value::list(vec![
                         Value::symbol("+"),
                         Value::symbol("header-line-indent-width"),
-                        Value::Int(0),
+                        Value::fixnum(0),
                     ]),
                 ]),
             ]),
@@ -155,7 +155,7 @@ fn print_string_bytes_preserve_non_utf8_payloads() {
 
 #[test]
 fn print_list() {
-    let lst = Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
+    let lst = Value::list(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
     assert_eq!(print_value(&lst), "(1 2 3)");
 }
 
@@ -213,13 +213,13 @@ fn print_backquote_preserves_nested_unquote_shorthand_only_in_context() {
 
 #[test]
 fn print_dotted_pair() {
-    let pair = Value::cons(Value::Int(1), Value::Int(2));
+    let pair = Value::cons(Value::fixnum(1), Value::fixnum(2));
     assert_eq!(print_value(&pair), "(1 . 2)");
 }
 
 #[test]
 fn print_vector() {
-    let v = Value::vector(vec![Value::Int(1), Value::Int(2)]);
+    let v = Value::vector(vec![Value::fixnum(1), Value::fixnum(2)]);
     assert_eq!(print_value(&v), "[1 2]");
 }
 
@@ -254,7 +254,7 @@ fn print_lexical_closure_uses_gnu_vector_syntax() {
         .into(),
         env: Some(Value::list(vec![Value::cons(
             Value::symbol("x"),
-            Value::Int(42),
+            Value::fixnum(42),
         )])),
         docstring: None,
         doc_form: None,
@@ -270,7 +270,7 @@ fn print_lexical_closure_uses_gnu_vector_syntax() {
 
 #[test]
 fn print_recursive_closure_uses_backreference() {
-    let binding = Value::cons(Value::symbol("f"), Value::Nil);
+    let binding = Value::cons(Value::symbol("f"), Value::NIL);
     let env = Value::list(vec![binding]);
     let closure = Value::make_lambda(LambdaData {
         params: LambdaParams::simple(vec![]),
@@ -304,9 +304,9 @@ fn print_terminal_handle_special_form() {
 
 #[test]
 fn print_frame_handles_use_oracle_style_f_prefix() {
-    let f1 = Value::Frame(crate::window::FRAME_ID_BASE);
-    let f2 = Value::Frame(crate::window::FRAME_ID_BASE + 1);
-    let legacy = Value::Frame(7);
+    let f1 = Value::make_frame(crate::window::FRAME_ID_BASE);
+    let f2 = Value::make_frame(crate::window::FRAME_ID_BASE + 1);
+    let legacy = Value::make_frame(7);
 
     assert_eq!(print_value(&f1), "#<frame F1 0x100000000>");
     assert_eq!(print_value_bytes(&f1), b"#<frame F1 0x100000000>");

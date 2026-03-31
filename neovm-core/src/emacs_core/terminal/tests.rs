@@ -54,7 +54,7 @@ fn terminal_name_returns_string() {
 fn terminal_name_accepts_nil() {
     reset_terminal_thread_locals();
     let mut eval = Context::new();
-    let result = builtin_terminal_name(&mut eval, vec![Value::Nil]).unwrap();
+    let result = builtin_terminal_name(&mut eval, vec![Value::NIL]).unwrap();
     assert_eq!(result, Value::string(TERMINAL_NAME));
 }
 
@@ -66,7 +66,7 @@ fn terminal_list_returns_singleton_list() {
     let items = crate::emacs_core::value::list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 1);
     let live = builtin_terminal_live_p(&mut eval, vec![items[0]]).unwrap();
-    assert_eq!(live, Value::True);
+    assert_eq!(live, Value::T);
 }
 
 #[test]
@@ -74,8 +74,8 @@ fn terminal_live_p_nil_is_live() {
     reset_terminal_thread_locals();
     let mut eval = Context::new();
     assert_eq!(
-        builtin_terminal_live_p(&mut eval, vec![Value::Nil]).unwrap(),
-        Value::True
+        builtin_terminal_live_p(&mut eval, vec![Value::NIL]).unwrap(),
+        Value::T
     );
 }
 
@@ -83,7 +83,7 @@ fn terminal_live_p_nil_is_live() {
 fn terminal_live_p_int_is_not_live() {
     reset_terminal_thread_locals();
     let mut eval = Context::new();
-    let result = builtin_terminal_live_p(&mut eval, vec![Value::Int(42)]).unwrap();
+    let result = builtin_terminal_live_p(&mut eval, vec![Value::fixnum(42)]).unwrap();
     assert!(result.is_nil());
 }
 
@@ -93,14 +93,14 @@ fn terminal_parameter_roundtrip() {
     let mut eval = Context::new();
     let prev = builtin_set_terminal_parameter(
         &mut eval,
-        vec![Value::Nil, Value::symbol("test-param"), Value::Int(99)],
+        vec![Value::NIL, Value::symbol("test-param"), Value::fixnum(99)],
     )
     .unwrap();
     assert!(prev.is_nil());
 
-    let val = builtin_terminal_parameter(&mut eval, vec![Value::Nil, Value::symbol("test-param")])
+    let val = builtin_terminal_parameter(&mut eval, vec![Value::NIL, Value::symbol("test-param")])
         .unwrap();
-    assert_eq!(val, Value::Int(99));
+    assert_eq!(val, Value::fixnum(99));
 }
 
 #[test]
@@ -109,10 +109,10 @@ fn terminal_parameter_defaults() {
     let mut eval = Context::new();
     let normal = builtin_terminal_parameter(
         &mut eval,
-        vec![Value::Nil, Value::symbol("normal-erase-is-backspace")],
+        vec![Value::NIL, Value::symbol("normal-erase-is-backspace")],
     )
     .unwrap();
-    assert_eq!(normal, Value::Int(0));
+    assert_eq!(normal, Value::fixnum(0));
 }
 
 #[test]
@@ -137,15 +137,15 @@ fn tty_runtime_can_report_terminal_type_and_color_capability() {
     );
     assert_eq!(
         builtin_tty_display_color_p(&mut eval, vec![]).unwrap(),
-        Value::True
+        Value::T
     );
     assert_eq!(
         builtin_tty_display_color_cells(&mut eval, vec![]).unwrap(),
-        Value::Int(256)
+        Value::fixnum(256)
     );
     assert_eq!(
         builtin_controlling_tty_p(&mut eval, vec![]).unwrap(),
-        Value::True
+        Value::T
     );
 }
 
@@ -155,7 +155,7 @@ fn tty_display_color_cells_returns_zero() {
     let mut eval = Context::new();
     assert_eq!(
         builtin_tty_display_color_cells(&mut eval, vec![]).unwrap(),
-        Value::Int(0)
+        Value::fixnum(0)
     );
 }
 
@@ -173,7 +173,7 @@ fn tty_top_frame_tracks_selected_frame_when_tty_runtime_is_active() {
 
     assert_eq!(
         builtin_tty_top_frame(&mut eval, vec![]).unwrap(),
-        Value::Frame(frame_id.0)
+        Value::make_frame(frame_id.0)
     );
 }
 
@@ -225,7 +225,7 @@ fn suspend_tty_runs_hook_and_invokes_terminal_host() {
         eval.eval_expr(form).expect("install suspend hook setup");
     }
 
-    assert_eq!(builtin_suspend_tty(&mut eval, vec![]).unwrap(), Value::Nil);
+    assert_eq!(builtin_suspend_tty(&mut eval, vec![]).unwrap(), Value::NIL);
     assert_eq!(log.borrow().as_slice(), &["suspend"]);
     assert_eq!(
         eval.eval_expr(
@@ -261,7 +261,7 @@ fn resume_tty_runs_hook_after_terminal_host_resume() {
         eval.eval_expr(form).expect("install resume hook setup");
     }
 
-    assert_eq!(builtin_resume_tty(&mut eval, vec![]).unwrap(), Value::Nil);
+    assert_eq!(builtin_resume_tty(&mut eval, vec![]).unwrap(), Value::NIL);
     assert_eq!(log.borrow().as_slice(), &["suspend", "resume"]);
     assert_eq!(
         eval.eval_expr(&crate::emacs_core::parse_forms("resume-log").expect("parse resume-log")[0])
@@ -295,8 +295,8 @@ fn delete_terminal_force_marks_terminal_dead_and_clears_terminal_list() {
     let handle = terminal_handle_value();
 
     assert_eq!(
-        builtin_delete_terminal(&mut eval, vec![Value::Nil, Value::True]).unwrap(),
-        Value::Nil
+        builtin_delete_terminal(&mut eval, vec![Value::NIL, Value::T]).unwrap(),
+        Value::NIL
     );
     assert!(
         builtin_terminal_live_p(&mut eval, vec![handle])
@@ -336,8 +336,8 @@ fn delete_terminal_force_runs_hook_and_deletes_frames_on_terminal() {
     }
 
     assert_eq!(
-        builtin_delete_terminal(&mut eval, vec![Value::Nil, Value::True]).unwrap(),
-        Value::Nil
+        builtin_delete_terminal(&mut eval, vec![Value::NIL, Value::T]).unwrap(),
+        Value::NIL
     );
     assert!(
         eval.frame_manager().frame_list().is_empty(),
@@ -389,8 +389,8 @@ fn delete_terminal_force_defers_frame_hooks_until_pending_safe_funcalls_flush() 
     }
 
     assert_eq!(
-        builtin_delete_terminal(&mut eval, vec![terminal, Value::True]).unwrap(),
-        Value::Nil
+        builtin_delete_terminal(&mut eval, vec![terminal, Value::T]).unwrap(),
+        Value::NIL
     );
     assert!(
         eval.frames.get(doomed).is_none(),
@@ -401,7 +401,7 @@ fn delete_terminal_force_defers_frame_hooks_until_pending_safe_funcalls_flush() 
             .expect("hook-log after delete-terminal"),
         Value::list(vec![Value::list(vec![
             Value::symbol("terminal"),
-            Value::True
+            Value::T
         ])])
     );
 
@@ -433,8 +433,8 @@ fn delete_terminal_force_invokes_terminal_host_delete_hook() {
 
     let mut eval = Context::new();
     assert_eq!(
-        builtin_delete_terminal(&mut eval, vec![Value::Nil, Value::True]).unwrap(),
-        Value::Nil
+        builtin_delete_terminal(&mut eval, vec![Value::NIL, Value::T]).unwrap(),
+        Value::NIL
     );
     assert_eq!(log.borrow().as_slice(), &["delete"]);
 }
@@ -473,7 +473,7 @@ fn delete_terminal_noelisp_bypasses_sole_terminal_check_and_defers_hooks() {
 
     assert_eq!(
         delete_terminal_noelisp_owned(&mut eval, TERMINAL_ID).unwrap(),
-        Value::Nil
+        Value::NIL
     );
     assert!(eval.frame_manager().frame_list().is_empty());
     assert!(
@@ -485,7 +485,7 @@ fn delete_terminal_noelisp_bypasses_sole_terminal_check_and_defers_hooks() {
     assert_eq!(
         eval.eval_expr(&crate::emacs_core::parse_forms("hook-log").expect("parse hook-log")[0])
             .expect("hook-log before flush"),
-        Value::Nil
+        Value::NIL
     );
 
     eval.flush_pending_safe_funcalls();
@@ -514,7 +514,7 @@ fn delete_terminal_noelisp_ignores_host_delete_failures() {
     let mut eval = Context::new();
     assert_eq!(
         delete_terminal_noelisp_owned(&mut eval, TERMINAL_ID).unwrap(),
-        Value::Nil
+        Value::NIL
     );
     assert!(
         builtin_terminal_live_p(&mut eval, vec![terminal_handle_value()])
@@ -542,14 +542,14 @@ fn selected_terminal_returns_live_handle() {
     let mut eval = Context::new();
     let handle = builtin_selected_terminal(vec![]).unwrap();
     let live = builtin_terminal_live_p(&mut eval, vec![handle]).unwrap();
-    assert_eq!(live, Value::True);
+    assert_eq!(live, Value::T);
 }
 
 #[test]
 fn frame_terminal_returns_live_handle() {
     reset_terminal_thread_locals();
     let mut eval = Context::new();
-    let handle = builtin_frame_terminal(&mut eval, vec![Value::Nil]).unwrap();
+    let handle = builtin_frame_terminal(&mut eval, vec![Value::NIL]).unwrap();
     let live = builtin_terminal_live_p(&mut eval, vec![handle]).unwrap();
-    assert_eq!(live, Value::True);
+    assert_eq!(live, Value::T);
 }

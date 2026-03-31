@@ -47,7 +47,7 @@ pub(crate) fn builtin_run_hook_query_error_with_timeout(
 ) -> EvalResult {
     expect_args("run-hook-query-error-with-timeout", &args, 1)?;
     let hook_sym = hook_runtime::resolve_hook_symbol(eval, args[0])?;
-    let hook_value = hook_runtime::hook_value_by_id(eval, hook_sym).unwrap_or(Value::Nil);
+    let hook_value = hook_runtime::hook_value_by_id(eval, hook_sym).unwrap_or(Value::NIL);
     hook_runtime::run_hook_query_error_with_timeout(eval, hook_sym, hook_value)
 }
 
@@ -65,7 +65,7 @@ fn expect_optional_live_frame_designator_in_state(
     if value.is_nil() {
         return Ok(());
     }
-    if let Value::Frame(id) = value {
+    if value.is_frame() /* TODO(tagged): `id` was Value::Frame(id), now use accessor */ {
         if frames.get(crate::window::FrameId(*id)).is_some() {
             return Ok(());
         }
@@ -226,7 +226,7 @@ fn run_window_local_hook_values(
     hook_sym: crate::emacs_core::intern::SymId,
 ) -> EvalResult {
     if window_ids.is_empty() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let saved = save_hook_caller_context(eval);
@@ -255,11 +255,11 @@ fn run_window_local_hook_values(
                 eval,
                 hook_sym,
                 local_hook_value,
-                &[Value::Window(window_id.0)],
+                &[Value::make_window(window_id.0)],
                 false,
             )?;
         }
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     })();
     restore_hook_caller_context(eval, saved);
     result
@@ -272,15 +272,15 @@ fn run_window_default_hook_value(
     hook_sym: crate::emacs_core::intern::SymId,
 ) -> EvalResult {
     if !run_hook {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     let global_hook_value = eval
         .obarray
         .default_value_id(hook_sym)
         .copied()
-        .unwrap_or(Value::Nil);
+        .unwrap_or(Value::NIL);
     if global_hook_value.is_nil() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let saved = save_hook_caller_context(eval);
@@ -296,10 +296,10 @@ fn run_window_default_hook_value(
             eval,
             hook_sym,
             global_hook_value,
-            &[Value::Frame(frame_id.0)],
+            &[Value::make_frame(frame_id.0)],
             false,
         )?;
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     })();
     restore_hook_caller_context(eval, saved);
     result
@@ -466,7 +466,7 @@ pub(crate) fn run_redisplay_window_change_hooks(eval: &mut super::eval::Context)
         }
     }
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(super) fn expect_optional_live_window_designator(
@@ -476,7 +476,7 @@ pub(super) fn expect_optional_live_window_designator(
     if value.is_nil() {
         return Ok(());
     }
-    if let Value::Window(id) = value {
+    if value.is_window() /* TODO(tagged): `id` was Value::Window(id), now use accessor */ {
         if eval.frames.is_live_window_id(crate::window::WindowId(*id)) {
             return Ok(());
         }
@@ -554,15 +554,15 @@ pub(super) fn reset_hooks_thread_locals() {
 }
 
 fn window_configuration_parts_from_value(value: &Value) -> Option<(Value, i64)> {
-    let Value::Vector(data) = value else {
+    if !value.is_vector() /* TODO(tagged): `data` was Value::Vector(data), rewrite let-else */ {
         return None;
     };
     let items = with_heap(|h| h.get_vector(*data).clone());
     if items.len() != 3 || items[0].as_symbol_name() != Some(WINDOW_CONFIGURATION_TAG) {
         return None;
     }
-    match (&items[1], &items[2]) {
-        (Value::Frame(_), Value::Int(serial)) => Some((items[1], *serial)),
+    match (items[1].kind(), items[2].kind()) {
+        (ValueKind::Veclike(VecLikeType::Frame), ValueKind::Fixnum(serial)) => Some((items[1], serial)),
         _ => None,
     }
 }
@@ -573,6 +573,7 @@ fn window_configuration_frame_from_value(value: &Value) -> Option<Value> {
 
 fn next_window_configuration_serial() -> i64 {
     use std::sync::atomic::{AtomicU64, Ordering};
+use super::value::{ValueKind, VecLikeType};
     static NEXT_WINDOW_CONFIGURATION_ID: AtomicU64 = AtomicU64::new(1);
     NEXT_WINDOW_CONFIGURATION_ID.fetch_add(1, Ordering::Relaxed) as i64
 }
@@ -581,13 +582,13 @@ fn make_window_configuration_value(frame: Value, serial: i64) -> Value {
     Value::vector(vec![
         Value::symbol(WINDOW_CONFIGURATION_TAG),
         frame,
-        Value::Int(serial),
+        Value::fixnum(serial),
     ])
 }
 
 pub(crate) fn builtin_window_configuration_p(args: Vec<Value>) -> EvalResult {
     expect_args("window-configuration-p", &args, 1)?;
-    Ok(Value::bool(
+    Ok(Value::bool_val(
         window_configuration_frame_from_value(&args[0]).is_some(),
     ))
 }
@@ -616,7 +617,7 @@ pub(crate) fn builtin_window_configuration_equal_p(args: Vec<Value>) -> EvalResu
             vec![Value::symbol("window-configuration-p"), args[1]],
         ));
     }
-    Ok(Value::bool(equal_value(&args[0], &args[1], 0)))
+    Ok(Value::bool_val(equal_value(&args[0], &args[1], 0)))
 }
 
 pub(crate) fn builtin_current_window_configuration(
@@ -636,7 +637,7 @@ pub(crate) fn builtin_current_window_configuration(
         super::window_cmds::selected_frame_impl(&mut eval.frames, &mut eval.buffers, vec![])?
     };
 
-    let Value::Frame(frame_raw_id) = frame else {
+    if !frame.is_frame() /* TODO(tagged): `frame_raw_id` was Value::Frame(frame_raw_id), rewrite let-else */ {
         return Ok(make_window_configuration_value(
             frame,
             next_window_configuration_serial(),
@@ -714,13 +715,13 @@ pub(crate) fn builtin_set_window_configuration(
     eval.redisplay();
     // Run window-configuration-change-hook after restoring configuration.
     let _ = builtin_run_window_configuration_change_hook(eval, vec![]);
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 fn save_selected_window_state_from_value(
     value: &Value,
 ) -> Option<(Value, Value, Option<crate::buffer::BufferId>)> {
-    let Value::Vector(data) = value else {
+    if !value.is_vector() /* TODO(tagged): `data` was Value::Vector(data), rewrite let-else */ {
         return None;
     };
     let items = with_heap(|h| h.get_vector(*data).clone());
@@ -729,8 +730,8 @@ fn save_selected_window_state_from_value(
     }
     let frame = items[1];
     let window = items[2];
-    let buffer_id = match items[3] {
-        Value::Buffer(id) => Some(id),
+    let buffer_id = match items[3].kind() {
+        ValueKind::Veclike(VecLikeType::Buffer) => Some(id),
         _ => None,
     };
     Some((frame, window, buffer_id))
@@ -746,8 +747,8 @@ pub(super) fn builtin_internal_before_save_selected_window(
     let buffer = eval
         .buffers
         .current_buffer()
-        .map(|buffer| Value::Buffer(buffer.id))
-        .unwrap_or(Value::Nil);
+        .map(|buffer| Value::make_buffer(buffer.id))
+        .unwrap_or(Value::NIL);
     Ok(Value::vector(vec![
         Value::symbol(SAVE_SELECTED_WINDOW_STATE_TAG),
         frame,
@@ -768,19 +769,19 @@ pub(super) fn builtin_internal_after_save_selected_window(
             "wrong-type-argument",
             vec![
                 Value::symbol("vectorp"),
-                args.first().cloned().unwrap_or(Value::Nil),
+                args.first().cloned().unwrap_or(Value::NIL),
             ],
         ));
     };
 
-    let _ = super::window_cmds::builtin_select_frame(eval, vec![saved_frame, Value::Nil]);
-    let _ = super::window_cmds::builtin_select_window(eval, vec![saved_window, Value::Nil]);
+    let _ = super::window_cmds::builtin_select_frame(eval, vec![saved_frame, Value::NIL]);
+    let _ = super::window_cmds::builtin_select_window(eval, vec![saved_window, Value::NIL]);
     if let Some(buffer_id) = saved_buffer {
         if eval.buffers.get(buffer_id).is_some() {
             eval.restore_current_buffer_if_live(buffer_id);
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_run_window_configuration_change_hook(
@@ -791,18 +792,18 @@ pub(crate) fn builtin_run_window_configuration_change_hook(
     if let Some(frame) = args.first() {
         expect_optional_live_frame_designator(frame, eval)?;
     }
-    let frame = match args.first().copied().unwrap_or(Value::Nil) {
-        Value::Nil => {
+    let frame = match args.first().copied().unwrap_or(Value::Nil).kind() {
+        ValueKind::Nil => {
             super::window_cmds::selected_frame_impl(&mut eval.frames, &mut eval.buffers, vec![])?
         }
         value => value,
     };
-    let Value::Frame(frame_raw_id) = frame else {
-        return Ok(Value::Nil);
+    if !frame.is_frame() /* TODO(tagged): `frame_raw_id` was Value::Frame(frame_raw_id), rewrite let-else */ {
+        return Ok(Value::NIL);
     };
     let frame_id = crate::window::FrameId(frame_raw_id);
     let Some(frame_state) = eval.frames.get(frame_id) else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
 
     let hook_sym = hook_runtime::hook_symbol_by_name(eval, "window-configuration-change-hook");
@@ -810,7 +811,7 @@ pub(crate) fn builtin_run_window_configuration_change_hook(
         .obarray
         .default_value_id(hook_sym)
         .copied()
-        .unwrap_or(Value::Nil);
+        .unwrap_or(Value::NIL);
     let selected_window = frame_state.selected_window;
     let window_ids = frame_state.window_list();
     let hook_name = crate::emacs_core::intern::resolve_sym(hook_sym);
@@ -842,7 +843,7 @@ pub(crate) fn builtin_run_window_configuration_change_hook(
             select_frame_window_for_hook_context(eval, frame_id, selected_window);
         }
         let _ = hook_runtime::run_hook_value(eval, hook_sym, global_hook_value, &[], false)?;
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     })();
 
     restore_hook_caller_context(eval, saved);
@@ -858,12 +859,12 @@ pub(crate) fn builtin_run_window_scroll_functions(
         expect_optional_live_window_designator(window, eval)?;
     }
 
-    let window_arg = match args.first().copied().unwrap_or(Value::Nil) {
-        Value::Nil => super::window_cmds::builtin_selected_window(eval, vec![])?,
+    let window_arg = match args.first().copied().unwrap_or(Value::Nil).kind() {
+        ValueKind::Nil => super::window_cmds::builtin_selected_window(eval, vec![])?,
         value => value,
     };
-    let Value::Window(window_raw_id) = window_arg else {
-        return Ok(Value::Nil);
+    if !window_arg.is_window() /* TODO(tagged): `window_raw_id` was Value::Window(window_raw_id), rewrite let-else */ {
+        return Ok(Value::NIL);
     };
     let window_id = crate::window::WindowId(window_raw_id);
     let frame_id = eval.frames.find_window_frame_id(window_id).ok_or_else(|| {
@@ -874,7 +875,7 @@ pub(crate) fn builtin_run_window_scroll_functions(
     })?;
     let window_start = super::window_cmds::builtin_window_start(eval, vec![window_arg])?;
     let hook_sym = hook_runtime::hook_symbol_by_name(eval, "window-scroll-functions");
-    let hook_value = hook_runtime::hook_value_by_id(eval, hook_sym).unwrap_or(Value::Nil);
+    let hook_value = hook_runtime::hook_value_by_id(eval, hook_sym).unwrap_or(Value::NIL);
     let saved_buffer_id = eval.buffers.current_buffer_id();
     if let Some(buffer_id) = window_buffer_id_in_state(eval, frame_id, window_id) {
         let _ = eval.switch_current_buffer(buffer_id);
@@ -902,26 +903,26 @@ pub(crate) fn builtin_featurep(eval: &mut super::eval::Context, args: Vec<Value>
         )
     })?;
     if !crate::emacs_core::eval::feature_present_in_state(&eval.obarray, &mut eval.features, name) {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let Some(subfeature) = args.get(1) else {
-        return Ok(Value::True);
+        return Ok(Value::T);
     };
     if subfeature.is_nil() {
-        return Ok(Value::True);
+        return Ok(Value::T);
     }
 
     let subfeatures = eval
         .obarray
         .get_property(name, "subfeatures")
         .cloned()
-        .unwrap_or(Value::Nil);
+        .unwrap_or(Value::NIL);
     let items = list_to_vec(&subfeatures).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("listp"), subfeatures],
         )
     })?;
-    Ok(Value::bool(items.iter().any(|item| item == subfeature)))
+    Ok(Value::bool_val(items.iter().any(|item| item == subfeature)))
 }

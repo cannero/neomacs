@@ -12,7 +12,7 @@
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::string_escape::{storage_byte_to_char, storage_char_len, storage_char_to_byte};
-use super::value::{Value, read_cons, with_heap};
+use super::value::{Value, read_cons, with_heap, ValueKind, VecLikeType};
 #[cfg(unix)]
 use std::ffi::CStr;
 use std::fs;
@@ -25,7 +25,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -36,7 +36,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -47,7 +47,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -55,8 +55,8 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 }
 
 fn expect_string(val: &Value) -> Result<String, Flow> {
-    match val {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+    match val.kind() {
+        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -65,9 +65,9 @@ fn expect_string(val: &Value) -> Result<String, Flow> {
 }
 
 fn expect_int(val: &Value) -> Result<i64, Flow> {
-    match val {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match val.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *other],
@@ -76,20 +76,20 @@ fn expect_int(val: &Value) -> Result<i64, Flow> {
 }
 
 fn symbol_like_name(value: &Value) -> Option<&str> {
-    match value {
-        Value::Nil => Some("nil"),
-        Value::True => Some("t"),
-        Value::Symbol(id) => Some(resolve_sym(*id)),
-        Value::Keyword(id) => Some(resolve_sym(*id)),
+    match value.kind() {
+        ValueKind::Nil => Some("nil"),
+        ValueKind::T => Some("t"),
+        ValueKind::Symbol(id) => Some(resolve_sym(id)),
+        ValueKind::Keyword(id) => Some(resolve_sym(id)),
         _ => None,
     }
 }
 
 fn expect_number_or_marker_f64(value: &Value) -> Result<f64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n as f64),
-        Value::Char(c) => Ok(*c as u32 as f64),
-        Value::Float(f, _) => Ok(*f),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n as f64),
+        ValueKind::Char(c) => Ok(c as u32 as f64),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(*f),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("number-or-marker-p"), *other],
@@ -98,9 +98,9 @@ fn expect_number_or_marker_f64(value: &Value) -> Result<f64, Flow> {
 }
 
 fn list_car_or_signal(value: &Value) -> Result<Value, Flow> {
-    match value {
-        Value::Cons(cell) => Ok(with_heap(|h| h.cons_car(*cell))),
-        Value::Nil => Ok(Value::Nil),
+    match value.kind() {
+        ValueKind::Cons => Ok(with_heap(|h| h.cons_car(*cell))),
+        ValueKind::Nil => Ok(Value::NIL),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("listp"), *other],
@@ -109,8 +109,8 @@ fn list_car_or_signal(value: &Value) -> Result<Value, Flow> {
 }
 
 fn assoc_string_key_name(value: &Value) -> Result<String, Flow> {
-    match value {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+    match value.kind() {
+        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         _ => symbol_like_name(value)
             .map(ToOwned::to_owned)
             .ok_or_else(|| {
@@ -123,8 +123,8 @@ fn assoc_string_key_name(value: &Value) -> Result<String, Flow> {
 }
 
 fn assoc_string_entry_name(value: &Value) -> Option<String> {
-    match value {
-        Value::Str(id) => Some(with_heap(|h| h.get_string(*id).to_owned())),
+    match value.kind() {
+        ValueKind::String => Some(with_heap(|h| h.get_string(*id).to_owned())),
         _ => symbol_like_name(value).map(ToOwned::to_owned),
     }
 }
@@ -140,16 +140,16 @@ fn assoc_string_equal(left: &str, right: &str, fold_case: bool) -> bool {
 }
 
 fn collect_sequence_strict(val: &Value) -> Result<Vec<Value>, Flow> {
-    match val {
-        Value::Nil => Ok(Vec::new()),
-        Value::Cons(_) => {
+    match val.kind() {
+        ValueKind::Nil => Ok(Vec::new()),
+        ValueKind::Cons => {
             let mut result = Vec::new();
             let mut cursor = *val;
             loop {
-                match cursor {
-                    Value::Nil => return Ok(result),
-                    Value::Cons(cell) => {
-                        let pair = read_cons(cell);
+                match cursor.kind() {
+                    ValueKind::Nil => return Ok(result),
+                    ValueKind::Cons => {
+                        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                         result.push(pair.car);
                         cursor = pair.cdr;
                     }
@@ -162,8 +162,8 @@ fn collect_sequence_strict(val: &Value) -> Result<Vec<Value>, Flow> {
                 }
             }
         }
-        Value::Vector(v) | Value::Record(v) => Ok(with_heap(|h| h.get_vector(*v).clone())),
-        Value::Str(id) => {
+        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => Ok(with_heap(|h| h.get_vector(*v).clone())),
+        ValueKind::String => {
             let s = with_heap(|h| h.get_string(*id).to_owned());
             Ok(s.chars().map(|ch| Value::Int(ch as i64)).collect())
         }
@@ -186,10 +186,10 @@ pub(crate) fn remove_list_equal(args: Vec<Value>) -> EvalResult {
     let mut result = Vec::new();
     let mut cursor = *list_val;
     loop {
-        match cursor {
-            Value::Nil => break,
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
+        match cursor.kind() {
+            ValueKind::Nil => break,
+            ValueKind::Cons => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 if !super::value::equal_value(&pair.car, target, 0) {
                     result.push(pair.car);
                 }
@@ -206,10 +206,10 @@ pub(crate) fn builtin_take(args: Vec<Value>) -> EvalResult {
     expect_args("take", &args, 2)?;
     let n = expect_int(&args[0])?;
     if n <= 0 {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     let list = &args[1];
-    if !matches!(list, Value::Nil | Value::Cons(_)) {
+    if !list.is_nil() || list.is_cons() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("listp"), *list],
@@ -219,10 +219,10 @@ pub(crate) fn builtin_take(args: Vec<Value>) -> EvalResult {
     let mut result = Vec::new();
     let mut cursor = *list;
     for _ in 0..(n as usize) {
-        match cursor {
-            Value::Nil => break,
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
+        match cursor.kind() {
+            ValueKind::Nil => break,
+            ValueKind::Cons => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 result.push(pair.car);
                 cursor = pair.cdr;
             }
@@ -255,7 +255,7 @@ pub(crate) fn builtin_string_search(args: Vec<Value>) -> EvalResult {
         if n < 0 || n as usize > char_len {
             return Err(signal(
                 "args-out-of-range",
-                vec![args[2], Value::Int(0), Value::Int(char_len as i64)],
+                vec![args[2], Value::fixnum(0), Value::fixnum(char_len as i64)],
             ));
         }
         n as usize
@@ -273,7 +273,7 @@ pub(crate) fn builtin_string_search(args: Vec<Value>) -> EvalResult {
             let char_pos = storage_byte_to_char(&haystack, abs_byte);
             Ok(Value::Int(char_pos as i64))
         }
-        None => Ok(Value::Nil),
+        None => Ok(Value::NIL),
     }
 }
 
@@ -285,15 +285,15 @@ pub(crate) fn builtin_string_search(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_proper_list_p(args: Vec<Value>) -> EvalResult {
     expect_args("proper-list-p", &args, 1)?;
     match super::value::list_length(&args[0]) {
-        Some(len) => Ok(Value::Int(len as i64)),
-        None => Ok(Value::Nil),
+        Some(len) => Ok(Value::fixnum(len as i64)),
+        None => Ok(Value::NIL),
     }
 }
 
 /// `(subrp OBJ)` -> t if OBJ is a built-in function.
 pub(crate) fn builtin_subrp(args: Vec<Value>) -> EvalResult {
     expect_args("subrp", &args, 1)?;
-    Ok(Value::bool(matches!(&args[0], Value::Subr(_))))
+    Ok(Value::bool_val(matches!(&args[0], Value::subr(_))))
 }
 
 /// `(bare-symbol SYMBOL-OR-SYMBOL-WITH-POS)` -> symbol.
@@ -318,7 +318,7 @@ pub(crate) fn builtin_bare_symbol(args: Vec<Value>) -> EvalResult {
 /// `(bare-symbol-p OBJECT)` -> t if symbol (including keyword/nil/t).
 pub(crate) fn builtin_bare_symbol_p(args: Vec<Value>) -> EvalResult {
     expect_args("bare-symbol-p", &args, 1)?;
-    Ok(Value::bool(symbol_like_name(&args[0]).is_some()))
+    Ok(Value::bool_val(symbol_like_name(&args[0]).is_some()))
 }
 
 /// `(byteorder)` -> `?l` on little-endian, `?B` on big-endian.
@@ -329,7 +329,7 @@ pub(crate) fn builtin_byteorder(args: Vec<Value>) -> EvalResult {
     } else {
         'B'
     };
-    Ok(Value::Int(marker as i64))
+    Ok(Value::fixnum(marker as i64))
 }
 
 /// `(assoc-string KEY ALIST &optional CASE-FOLD)` -> first matching cell.
@@ -341,25 +341,25 @@ pub(crate) fn builtin_assoc_string(args: Vec<Value>) -> EvalResult {
 
     let mut cursor = args[1];
     loop {
-        match cursor {
-            Value::Nil => return Ok(Value::Nil),
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
+        match cursor.kind() {
+            ValueKind::Nil => return Ok(Value::NIL),
+            ValueKind::Cons => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 let entry = pair.car;
                 cursor = pair.cdr;
 
-                let Value::Cons(entry_cell) = entry else {
+                if !entry.is_cons() /* TODO(tagged): `entry_cell` was ValueKind::Cons, rewrite let-else */ {
                     continue;
                 };
-                let entry_pair = read_cons(entry_cell);
+                let entry_pair = read_cons(entry_cell);  // TODO(tagged): replace read_cons with cons accessors
                 let Some(entry_key) = assoc_string_entry_name(&entry_pair.car) else {
                     continue;
                 };
                 if assoc_string_equal(&needle, &entry_key, fold_case) {
-                    return Ok(Value::Cons(entry_cell));
+                    return Ok(ValueKind::Cons);
                 }
             }
-            _ => return Ok(Value::Nil),
+            _ => return Ok(Value::NIL),
         }
     }
 }
@@ -369,7 +369,7 @@ pub(crate) fn builtin_car_less_than_car(args: Vec<Value>) -> EvalResult {
     expect_args("car-less-than-car", &args, 2)?;
     let left = list_car_or_signal(&args[0])?;
     let right = list_car_or_signal(&args[1])?;
-    Ok(Value::bool(
+    Ok(Value::bool_val(
         expect_number_or_marker_f64(&left)? < expect_number_or_marker_f64(&right)?,
     ))
 }
@@ -377,53 +377,53 @@ pub(crate) fn builtin_car_less_than_car(args: Vec<Value>) -> EvalResult {
 /// `(byte-code-function-p OBJ)` -> t if compiled.
 pub(crate) fn builtin_byte_code_function_p(args: Vec<Value>) -> EvalResult {
     expect_args("byte-code-function-p", &args, 1)?;
-    Ok(Value::bool(matches!(&args[0], Value::ByteCode(_))))
+    Ok(Value::bool_val(matches!(&args[0], Value::ByteCode(_) /* TODO(tagged): convert Value::ByteCode to new API */)))
 }
 
 /// `(compiled-function-p OBJ)` -> t if compiled function.
 pub(crate) fn builtin_compiled_function_p(args: Vec<Value>) -> EvalResult {
     expect_args("compiled-function-p", &args, 1)?;
-    Ok(Value::bool(matches!(&args[0], Value::ByteCode(_))))
+    Ok(Value::bool_val(matches!(&args[0], Value::ByteCode(_) /* TODO(tagged): convert Value::ByteCode to new API */)))
 }
 
 /// `(closurep OBJ)` -> t if closure.
 pub(crate) fn builtin_closurep(args: Vec<Value>) -> EvalResult {
     expect_args("closurep", &args, 1)?;
-    Ok(Value::bool(matches!(
+    Ok(Value::bool_val(matches!(
         &args[0],
-        Value::Lambda(_) | Value::ByteCode(_)
+        Value::Lambda(_) /* TODO(tagged): convert Value::Lambda to new API */ | Value::ByteCode(_)
     )))
 }
 
 /// `(natnump OBJ)` -> t if natural number (>= 0).
 pub(crate) fn builtin_natnump(args: Vec<Value>) -> EvalResult {
     expect_args("natnump", &args, 1)?;
-    let is_nat = match &args[0] {
-        Value::Int(n) => *n >= 0,
+    let is_nat = match args[0].kind() {
+        ValueKind::Fixnum(n) => n >= 0,
         _ => false,
     };
-    Ok(Value::bool(is_nat))
+    Ok(Value::bool_val(is_nat))
 }
 
 /// `(wholenump OBJ)` -> t if whole number.
 pub(crate) fn builtin_wholenump(args: Vec<Value>) -> EvalResult {
     expect_args("wholenump", &args, 1)?;
-    let is_whole = match &args[0] {
-        Value::Int(n) => *n >= 0,
+    let is_whole = match args[0].kind() {
+        ValueKind::Fixnum(n) => n >= 0,
         _ => false,
     };
-    Ok(Value::bool(is_whole))
+    Ok(Value::bool_val(is_whole))
 }
 
 /// `(zerop OBJ)` -> t if zero.
 pub(crate) fn builtin_zerop(args: Vec<Value>) -> EvalResult {
     expect_args("zerop", &args, 1)?;
-    let is_zero = match &args[0] {
-        Value::Int(0) => true,
-        Value::Float(f, _) => *f == 0.0,
+    let is_zero = match args[0].kind() {
+        ValueKind::Fixnum(0) => true,
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => *f == 0.0,
         _ => false,
     };
-    Ok(Value::bool(is_zero))
+    Ok(Value::bool_val(is_zero))
 }
 
 // ---------------------------------------------------------------------------
@@ -517,8 +517,8 @@ fn lookup_full_name_by_login(login: &str) -> Option<String> {
 }
 
 fn expect_uid_arg(val: &Value) -> Result<i64, Flow> {
-    match val {
-        Value::Int(uid) if *uid >= 0 => Ok(*uid),
+    match val.kind() {
+        ValueKind::Fixnum(uid) if uid >= 0 => Ok(uid),
         _ => Err(signal(
             "error",
             vec![Value::string(
@@ -541,7 +541,7 @@ pub(crate) fn builtin_user_login_name(args: Vec<Value>) -> EvalResult {
         let uid = expect_uid_arg(uid_arg)?;
         return Ok(match lookup_login_by_uid(uid) {
             Some(name) => Value::string(name),
-            None => Value::Nil,
+            None => Value::NIL,
         });
     }
 
@@ -582,7 +582,7 @@ pub(crate) fn builtin_user_full_name(args: Vec<Value>) -> EvalResult {
         }
 
         return Ok(match target {
-            Value::Int(uid) => {
+            Value::fixnum(uid) => {
                 if *uid < 0 {
                     return Err(signal(
                         "error",
@@ -593,13 +593,13 @@ pub(crate) fn builtin_user_full_name(args: Vec<Value>) -> EvalResult {
                 }
                 lookup_full_name_by_uid(*uid)
                     .map(Value::string)
-                    .unwrap_or(Value::Nil)
+                    .unwrap_or(Value::NIL)
             }
-            Value::Str(id) => {
+            Value::Str(id) /* TODO(tagged): convert Value::Str to new API */ => {
                 let login = with_heap(|h| h.get_string(*id).to_owned());
                 lookup_full_name_by_login(&login)
                     .map(Value::string)
-                    .unwrap_or(Value::Nil)
+                    .unwrap_or(Value::NIL)
             }
             _ => {
                 return Err(signal(
@@ -635,9 +635,9 @@ pub(crate) fn builtin_user_full_name(args: Vec<Value>) -> EvalResult {
 /// NeoVM has no bignums, so all integers are fixnums.
 pub(crate) fn builtin_fixnump(args: Vec<Value>) -> EvalResult {
     expect_args("fixnump", &args, 1)?;
-    Ok(Value::bool(matches!(
+    Ok(Value::bool_val(matches!(
         args[0],
-        Value::Int(_) | Value::Char(_)
+        Value::fixnum(_) | Value::char(_)
     )))
 }
 
@@ -645,7 +645,7 @@ pub(crate) fn builtin_fixnump(args: Vec<Value>) -> EvalResult {
 /// NeoVM has no bignums, so always returns nil.
 pub(crate) fn builtin_bignump(args: Vec<Value>) -> EvalResult {
     expect_args("bignump", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// GNU editfns.c:1283 — returns the host name via `gethostname(2)`,
@@ -666,7 +666,7 @@ pub(crate) fn builtin_system_name(args: Vec<Value>) -> EvalResult {
 pub(crate) fn operating_system_release_value() -> Value {
     operating_system_release()
         .map(Value::string)
-        .unwrap_or(Value::Nil)
+        .unwrap_or(Value::NIL)
 }
 
 pub(crate) fn system_configuration_value() -> Value {
@@ -730,7 +730,7 @@ fn operating_system_release() -> Option<String> {
 pub(crate) fn builtin_emacs_version(args: Vec<Value>) -> EvalResult {
     expect_max_args("emacs-version", &args, 1)?;
     if args.first().is_some_and(|arg| !arg.is_nil()) {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     Ok(Value::string(
         "GNU Emacs 31.0.50 (build 1, x86_64-pc-linux-gnu) [NeoVM 0.1.0 (Neomacs)]\n Copyright (C) 2026 Free Software Foundation, Inc.",
@@ -740,7 +740,7 @@ pub(crate) fn builtin_emacs_version(args: Vec<Value>) -> EvalResult {
 /// `(emacs-pid)` -> integer.
 pub(crate) fn builtin_emacs_pid(args: Vec<Value>) -> EvalResult {
     expect_args("emacs-pid", &args, 0)?;
-    Ok(Value::Int(std::process::id() as i64))
+    Ok(Value::fixnum(std::process::id() as i64))
 }
 
 fn gc_bucket(name: &str, counts: &[i64]) -> Value {
@@ -780,7 +780,7 @@ pub(crate) fn builtin_memory_use_counts(args: Vec<Value>) -> EvalResult {
     expect_args("memory-use-counts", &args, 0)?;
     let counts = Value::memory_use_counts_snapshot();
     Ok(Value::list(
-        counts.iter().map(|count| Value::Int(*count)).collect(),
+        counts.iter().map(|count| Value::fixnum(*count)).collect(),
     ))
 }
 

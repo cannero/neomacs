@@ -1,6 +1,7 @@
 use super::*;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use crate::emacs_core::{format_eval_result, parse_forms};
+use crate::emacs_core::value::{ValueKind};
 
 fn bootstrap_eval(src: &str) -> Vec<String> {
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
@@ -16,7 +17,7 @@ fn bootstrap_eval(src: &str) -> Vec<String> {
 
 #[test]
 fn seq_reverse_list() {
-    let list = Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
+    let list = Value::list(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
     let result = builtin_seq_reverse(vec![list]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items[0].as_int(), Some(3));
@@ -34,36 +35,36 @@ fn seq_reverse_string() {
 fn cl_first_list() {
     let list = Value::list(vec![Value::symbol("a"), Value::symbol("b")]);
     let result = builtin_cl_first(vec![list]).unwrap();
-    assert!(matches!(result, Value::Symbol(id) if resolve_sym(id) == "a"));
+    assert!(result.is_symbol_named("a"));
 }
 
 #[test]
 fn cl_first_nil() {
-    let result = builtin_cl_first(vec![Value::Nil]).unwrap();
+    let result = builtin_cl_first(vec![Value::NIL]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn cl_first_wrong_type() {
-    assert!(builtin_cl_first(vec![Value::Int(1)]).is_err());
+    assert!(builtin_cl_first(vec![Value::fixnum(1)]).is_err());
 }
 
 #[test]
 fn cl_second_list() {
     let list = Value::list(vec![Value::symbol("a"), Value::symbol("b")]);
     let result = builtin_cl_second(vec![list]).unwrap();
-    assert!(matches!(result, Value::Symbol(id) if resolve_sym(id) == "b"));
+    assert!(result.is_symbol_named("b"));
 }
 
 #[test]
 fn cl_second_nil() {
-    let result = builtin_cl_second(vec![Value::Nil]).unwrap();
+    let result = builtin_cl_second(vec![Value::NIL]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn cl_second_wrong_type() {
-    assert!(builtin_cl_second(vec![Value::Int(1)]).is_err());
+    assert!(builtin_cl_second(vec![Value::fixnum(1)]).is_err());
 }
 
 #[test]
@@ -74,18 +75,18 @@ fn cl_third_list() {
         Value::symbol("c"),
     ]);
     let result = builtin_cl_third(vec![list]).unwrap();
-    assert!(matches!(result, Value::Symbol(id) if resolve_sym(id) == "c"));
+    assert!(result.is_symbol_named("c"));
 }
 
 #[test]
 fn cl_third_nil() {
-    let result = builtin_cl_third(vec![Value::Nil]).unwrap();
+    let result = builtin_cl_third(vec![Value::NIL]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn cl_third_wrong_type() {
-    assert!(builtin_cl_third(vec![Value::Int(1)]).is_err());
+    assert!(builtin_cl_third(vec![Value::fixnum(1)]).is_err());
 }
 
 #[test]
@@ -97,18 +98,18 @@ fn cl_fourth_list() {
         Value::symbol("d"),
     ]);
     let result = builtin_cl_fourth(vec![list]).unwrap();
-    assert!(matches!(result, Value::Symbol(id) if resolve_sym(id) == "d"));
+    assert!(result.is_symbol_named("d"));
 }
 
 #[test]
 fn cl_fourth_nil() {
-    let result = builtin_cl_fourth(vec![Value::Nil]).unwrap();
+    let result = builtin_cl_fourth(vec![Value::NIL]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn cl_fourth_wrong_type() {
-    assert!(builtin_cl_fourth(vec![Value::Int(1)]).is_err());
+    assert!(builtin_cl_fourth(vec![Value::fixnum(1)]).is_err());
 }
 
 #[test]
@@ -121,18 +122,18 @@ fn cl_fifth_list() {
         Value::symbol("e"),
     ]);
     let result = builtin_cl_fifth(vec![list]).unwrap();
-    assert!(matches!(result, Value::Symbol(id) if resolve_sym(id) == "e"));
+    assert!(result.is_symbol_named("e"));
 }
 
 #[test]
 fn cl_fifth_nil() {
-    let result = builtin_cl_fifth(vec![Value::Nil]).unwrap();
+    let result = builtin_cl_fifth(vec![Value::NIL]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn cl_fifth_wrong_type() {
-    assert!(builtin_cl_fifth(vec![Value::Int(1)]).is_err());
+    assert!(builtin_cl_fifth(vec![Value::fixnum(1)]).is_err());
 }
 
 #[test]
@@ -146,18 +147,18 @@ fn cl_sixth_list() {
         Value::symbol("f"),
     ]);
     let result = builtin_cl_sixth(vec![list]).unwrap();
-    assert!(matches!(result, Value::Symbol(id) if resolve_sym(id) == "f"));
+    assert!(result.is_symbol_named("f"));
 }
 
 #[test]
 fn cl_sixth_nil() {
-    let result = builtin_cl_sixth(vec![Value::Nil]).unwrap();
+    let result = builtin_cl_sixth(vec![Value::NIL]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn cl_sixth_wrong_type() {
-    assert!(builtin_cl_sixth(vec![Value::Int(1)]).is_err());
+    assert!(builtin_cl_sixth(vec![Value::fixnum(1)]).is_err());
 }
 
 #[test]
@@ -172,18 +173,18 @@ fn cl_seventh_list() {
         Value::symbol("g"),
     ]);
     let result = builtin_cl_seventh(vec![list]).unwrap();
-    assert!(matches!(result, Value::Symbol(id) if resolve_sym(id) == "g"));
+    assert!(result.is_symbol_named("g"));
 }
 
 #[test]
 fn cl_seventh_nil() {
-    let result = builtin_cl_seventh(vec![Value::Nil]).unwrap();
+    let result = builtin_cl_seventh(vec![Value::NIL]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn cl_seventh_wrong_type() {
-    assert!(builtin_cl_seventh(vec![Value::Int(1)]).is_err());
+    assert!(builtin_cl_seventh(vec![Value::fixnum(1)]).is_err());
 }
 
 #[test]
@@ -199,18 +200,18 @@ fn cl_eighth_list() {
         Value::symbol("h"),
     ]);
     let result = builtin_cl_eighth(vec![list]).unwrap();
-    assert!(matches!(result, Value::Symbol(id) if resolve_sym(id) == "h"));
+    assert!(result.is_symbol_named("h"));
 }
 
 #[test]
 fn cl_eighth_nil() {
-    let result = builtin_cl_eighth(vec![Value::Nil]).unwrap();
+    let result = builtin_cl_eighth(vec![Value::NIL]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn cl_eighth_wrong_type() {
-    assert!(builtin_cl_eighth(vec![Value::Int(1)]).is_err());
+    assert!(builtin_cl_eighth(vec![Value::fixnum(1)]).is_err());
 }
 
 #[test]
@@ -227,18 +228,18 @@ fn cl_ninth_list() {
         Value::symbol("i"),
     ]);
     let result = builtin_cl_ninth(vec![list]).unwrap();
-    assert!(matches!(result, Value::Symbol(id) if resolve_sym(id) == "i"));
+    assert!(result.is_symbol_named("i"));
 }
 
 #[test]
 fn cl_ninth_nil() {
-    let result = builtin_cl_ninth(vec![Value::Nil]).unwrap();
+    let result = builtin_cl_ninth(vec![Value::NIL]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn cl_ninth_wrong_type() {
-    assert!(builtin_cl_ninth(vec![Value::Int(1)]).is_err());
+    assert!(builtin_cl_ninth(vec![Value::fixnum(1)]).is_err());
 }
 
 #[test]
@@ -256,18 +257,18 @@ fn cl_tenth_list() {
         Value::symbol("j"),
     ]);
     let result = builtin_cl_tenth(vec![list]).unwrap();
-    assert!(matches!(result, Value::Symbol(id) if resolve_sym(id) == "j"));
+    assert!(result.is_symbol_named("j"));
 }
 
 #[test]
 fn cl_tenth_nil() {
-    let result = builtin_cl_tenth(vec![Value::Nil]).unwrap();
+    let result = builtin_cl_tenth(vec![Value::NIL]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn cl_tenth_wrong_type() {
-    assert!(builtin_cl_tenth(vec![Value::Int(1)]).is_err());
+    assert!(builtin_cl_tenth(vec![Value::fixnum(1)]).is_err());
 }
 
 #[test]
@@ -280,29 +281,29 @@ fn cl_rest_list() {
     let result = builtin_cl_rest(vec![list]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 2);
-    assert!(matches!(&items[0], Value::Symbol(id) if resolve_sym(*id) == "b"));
+    assert!(items[0].is_symbol_named("b"));
 }
 
 #[test]
 fn cl_rest_nil() {
-    let result = builtin_cl_rest(vec![Value::Nil]).unwrap();
+    let result = builtin_cl_rest(vec![Value::NIL]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn cl_rest_wrong_type() {
-    assert!(builtin_cl_rest(vec![Value::Int(1)]).is_err());
+    assert!(builtin_cl_rest(vec![Value::fixnum(1)]).is_err());
 }
 
 #[test]
 fn cl_evenp_true() {
-    let result = builtin_cl_evenp(vec![Value::Int(2)]).unwrap();
+    let result = builtin_cl_evenp(vec![Value::fixnum(2)]).unwrap();
     assert!(result.is_truthy());
 }
 
 #[test]
 fn cl_evenp_false() {
-    let result = builtin_cl_evenp(vec![Value::Int(3)]).unwrap();
+    let result = builtin_cl_evenp(vec![Value::fixnum(3)]).unwrap();
     assert!(result.is_nil());
 }
 
@@ -313,13 +314,13 @@ fn cl_evenp_wrong_type() {
 
 #[test]
 fn cl_oddp_true() {
-    let result = builtin_cl_oddp(vec![Value::Int(3)]).unwrap();
+    let result = builtin_cl_oddp(vec![Value::fixnum(3)]).unwrap();
     assert!(result.is_truthy());
 }
 
 #[test]
 fn cl_oddp_false() {
-    let result = builtin_cl_oddp(vec![Value::Int(2)]).unwrap();
+    let result = builtin_cl_oddp(vec![Value::fixnum(2)]).unwrap();
     assert!(result.is_nil());
 }
 
@@ -330,13 +331,13 @@ fn cl_oddp_wrong_type() {
 
 #[test]
 fn cl_plusp_true() {
-    let result = builtin_cl_plusp(vec![Value::Int(1)]).unwrap();
+    let result = builtin_cl_plusp(vec![Value::fixnum(1)]).unwrap();
     assert!(result.is_truthy());
 }
 
 #[test]
 fn cl_plusp_false() {
-    let result = builtin_cl_plusp(vec![Value::Int(0)]).unwrap();
+    let result = builtin_cl_plusp(vec![Value::fixnum(0)]).unwrap();
     assert!(result.is_nil());
 }
 
@@ -347,13 +348,13 @@ fn cl_plusp_wrong_type() {
 
 #[test]
 fn cl_minusp_true() {
-    let result = builtin_cl_minusp(vec![Value::Int(-1)]).unwrap();
+    let result = builtin_cl_minusp(vec![Value::fixnum(-1)]).unwrap();
     assert!(result.is_truthy());
 }
 
 #[test]
 fn cl_minusp_false() {
-    let result = builtin_cl_minusp(vec![Value::Int(0)]).unwrap();
+    let result = builtin_cl_minusp(vec![Value::fixnum(0)]).unwrap();
     assert!(result.is_nil());
 }
 
@@ -457,7 +458,7 @@ fn cl_coerce_list_to_vector() {
 
 #[test]
 fn cl_coerce_wrong_type_name() {
-    assert!(builtin_cl_coerce(vec![Value::Nil, Value::Int(0)]).is_err());
+    assert!(builtin_cl_coerce(vec![Value::NIL, Value::fixnum(0)]).is_err());
 }
 
 #[test]
@@ -510,8 +511,8 @@ fn cl_remove_wrong_arity() {
 
 #[test]
 fn seq_drop_test() {
-    let list = Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
-    let result = builtin_seq_drop(vec![list, Value::Int(2)]).unwrap();
+    let list = Value::list(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
+    let result = builtin_seq_drop(vec![list, Value::fixnum(2)]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].as_int(), Some(3));
@@ -519,8 +520,8 @@ fn seq_drop_test() {
 
 #[test]
 fn seq_take_test() {
-    let list = Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
-    let result = builtin_seq_take(vec![list, Value::Int(2)]).unwrap();
+    let list = Value::list(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
+    let result = builtin_seq_take(vec![list, Value::fixnum(2)]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 2);
 }
@@ -528,13 +529,13 @@ fn seq_take_test() {
 #[test]
 fn seq_subseq_test() {
     let vec = Value::vector(vec![
-        Value::Int(10),
-        Value::Int(20),
-        Value::Int(30),
-        Value::Int(40),
+        Value::fixnum(10),
+        Value::fixnum(20),
+        Value::fixnum(30),
+        Value::fixnum(40),
     ]);
-    let result = builtin_seq_subseq(vec![vec, Value::Int(1), Value::Int(3)]).unwrap();
-    if let Value::Vector(v) = result {
+    let result = builtin_seq_subseq(vec![vec, Value::fixnum(1), Value::fixnum(3)]).unwrap();
+    if result.is_vector() /* TODO(tagged): `v` was Value::Vector(v), now use accessor */ {
         let v = with_heap(|h| h.get_vector(v).clone());
         assert_eq!(v.len(), 2);
         assert_eq!(v[0].as_int(), Some(20));
@@ -546,8 +547,8 @@ fn seq_subseq_test() {
 
 #[test]
 fn seq_concatenate_test() {
-    let l1 = Value::list(vec![Value::Int(1)]);
-    let l2 = Value::list(vec![Value::Int(2)]);
+    let l1 = Value::list(vec![Value::fixnum(1)]);
+    let l2 = Value::list(vec![Value::fixnum(2)]);
     let result = builtin_seq_concatenate(vec![Value::symbol("list"), l1, l2]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 2);
@@ -556,15 +557,15 @@ fn seq_concatenate_test() {
 #[test]
 fn seq_empty_p_test() {
     assert!(matches!(
-        builtin_seq_empty_p(vec![Value::Nil]).unwrap(),
-        Value::True
+        builtin_seq_empty_p(vec![Value::NIL]).unwrap(),
+        Value::T
     ));
     assert!(matches!(
         builtin_seq_empty_p(vec![Value::string("")]).unwrap(),
-        Value::True
+        Value::T
     ));
     assert!(
-        builtin_seq_empty_p(vec![Value::list(vec![Value::Int(1)])])
+        builtin_seq_empty_p(vec![Value::list(vec![Value::fixnum(1)])])
             .unwrap()
             .is_nil()
     );
@@ -572,7 +573,7 @@ fn seq_empty_p_test() {
 
 #[test]
 fn seq_min_max_test() {
-    let list = Value::list(vec![Value::Int(3), Value::Int(1), Value::Int(2)]);
+    let list = Value::list(vec![Value::fixnum(3), Value::fixnum(1), Value::fixnum(2)]);
     assert_eq!(builtin_seq_min(vec![list]).unwrap().as_int(), Some(1));
     assert_eq!(builtin_seq_max(vec![list]).unwrap().as_int(), Some(3));
 }
@@ -582,17 +583,17 @@ fn seq_min_max_test() {
 #[test]
 fn seq_reduce_with_eval() {
     let mut evaluator = super::super::eval::Context::new();
-    let func = Value::Subr(intern("+"));
-    let seq = Value::list(vec![Value::Int(10), Value::Int(20)]);
-    let result = builtin_seq_reduce(&mut evaluator, vec![func, seq, Value::Int(0)]).unwrap();
+    let func = Value::subr(intern("+"));
+    let seq = Value::list(vec![Value::fixnum(10), Value::fixnum(20)]);
+    let result = builtin_seq_reduce(&mut evaluator, vec![func, seq, Value::fixnum(0)]).unwrap();
     assert_eq!(result.as_int(), Some(30));
 }
 
 #[test]
 fn seq_count_with_eval() {
     let mut evaluator = super::super::eval::Context::new();
-    let func = Value::Subr(intern("numberp"));
-    let seq = Value::list(vec![Value::Int(1), Value::string("a"), Value::Int(2)]);
+    let func = Value::subr(intern("numberp"));
+    let seq = Value::list(vec![Value::fixnum(1), Value::string("a"), Value::fixnum(2)]);
     let result = builtin_seq_count(&mut evaluator, vec![func, seq]).unwrap();
     assert_eq!(result.as_int(), Some(2));
 }
@@ -664,7 +665,7 @@ fn cl_count_some_every_bootstrap() {
 #[test]
 fn cl_notany_with_eval() {
     let mut evaluator = super::super::eval::Context::new();
-    let func = Value::Subr(intern("numberp"));
+    let func = Value::subr(intern("numberp"));
     let seq = Value::list(vec![Value::string("x"), Value::string("y")]);
     let result = builtin_cl_notany(&mut evaluator, vec![func, seq]).unwrap();
     assert!(result.is_truthy());
@@ -673,8 +674,8 @@ fn cl_notany_with_eval() {
 #[test]
 fn cl_notevery_with_eval() {
     let mut evaluator = super::super::eval::Context::new();
-    let func = Value::Subr(intern("numberp"));
-    let seq = Value::list(vec![Value::Int(1), Value::string("x")]);
+    let func = Value::subr(intern("numberp"));
+    let seq = Value::list(vec![Value::fixnum(1), Value::string("x")]);
     let result = builtin_cl_notevery(&mut evaluator, vec![func, seq]).unwrap();
     assert!(result.is_truthy());
 }
@@ -682,8 +683,8 @@ fn cl_notevery_with_eval() {
 #[test]
 fn cl_gensym_default_prefix() {
     let result = builtin_cl_gensym(vec![]).unwrap();
-    match result {
-        Value::Symbol(id) => assert!(resolve_sym(id).starts_with('G')),
+    match result.kind() {
+        ValueKind::Symbol(id) => assert!(resolve_sym(id).starts_with('G')),
         other => panic!("expected symbol, got {other:?}"),
     }
 }
@@ -691,15 +692,15 @@ fn cl_gensym_default_prefix() {
 #[test]
 fn cl_gensym_custom_prefix() {
     let result = builtin_cl_gensym(vec![Value::string("P")]).unwrap();
-    match result {
-        Value::Symbol(id) => assert!(resolve_sym(id).starts_with('P')),
+    match result.kind() {
+        ValueKind::Symbol(id) => assert!(resolve_sym(id).starts_with('P')),
         other => panic!("expected symbol, got {other:?}"),
     }
 }
 
 #[test]
 fn cl_gensym_wrong_type() {
-    assert!(builtin_cl_gensym(vec![Value::Int(1)]).is_err());
+    assert!(builtin_cl_gensym(vec![Value::fixnum(1)]).is_err());
 }
 
 #[test]
@@ -741,18 +742,18 @@ fn cl_find_if_with_eval() {
     let result = builtin_cl_find_if(
         &mut evaluator,
         vec![
-            Value::Subr(intern("numberp")),
-            Value::list(vec![Value::string("x"), Value::Int(2)]),
+            Value::subr(intern("numberp")),
+            Value::list(vec![Value::string("x"), Value::fixnum(2)]),
         ],
     )
     .unwrap();
-    assert_eq!(result, Value::Int(2));
+    assert_eq!(result, Value::fixnum(2));
 }
 
 #[test]
 fn cl_find_if_wrong_arity() {
     let mut evaluator = super::super::eval::Context::new();
-    assert!(builtin_cl_find_if(&mut evaluator, vec![Value::Subr(intern("numberp"))]).is_err());
+    assert!(builtin_cl_find_if(&mut evaluator, vec![Value::subr(intern("numberp"))]).is_err());
 }
 
 #[test]
@@ -781,7 +782,7 @@ fn cl_subsetp_false() {
 
 #[test]
 fn cl_subsetp_wrong_arity() {
-    assert!(builtin_cl_subsetp(vec![Value::Nil]).is_err());
+    assert!(builtin_cl_subsetp(vec![Value::NIL]).is_err());
 }
 
 #[test]
@@ -817,7 +818,7 @@ fn cl_intersection_no_overlap() {
 
 #[test]
 fn cl_intersection_wrong_arity() {
-    assert!(builtin_cl_intersection(vec![Value::Nil]).is_err());
+    assert!(builtin_cl_intersection(vec![Value::NIL]).is_err());
 }
 
 #[test]
@@ -850,7 +851,7 @@ fn cl_set_difference_all_removed() {
 
 #[test]
 fn cl_set_difference_wrong_arity() {
-    assert!(builtin_cl_set_difference(vec![Value::Nil]).is_err());
+    assert!(builtin_cl_set_difference(vec![Value::NIL]).is_err());
 }
 
 #[test]
@@ -872,13 +873,13 @@ fn cl_union_basic() {
 
 #[test]
 fn cl_union_empty_left() {
-    let result = builtin_cl_union(vec![Value::Nil, Value::list(vec![Value::symbol("c")])]).unwrap();
+    let result = builtin_cl_union(vec![Value::NIL, Value::list(vec![Value::symbol("c")])]).unwrap();
     assert_eq!(result, Value::list(vec![Value::symbol("c")]));
 }
 
 #[test]
 fn cl_union_wrong_arity() {
-    assert!(builtin_cl_union(vec![Value::Nil]).is_err());
+    assert!(builtin_cl_union(vec![Value::NIL]).is_err());
 }
 
 #[test]
@@ -907,29 +908,29 @@ fn cl_substitute_basic() {
 
 #[test]
 fn cl_substitute_wrong_arity() {
-    assert!(builtin_cl_substitute(vec![Value::Nil]).is_err());
+    assert!(builtin_cl_substitute(vec![Value::NIL]).is_err());
 }
 
 #[test]
 fn cl_sort_with_eval() {
     let mut evaluator = super::super::eval::Context::new();
-    let seq = Value::list(vec![Value::Int(3), Value::Int(1), Value::Int(2)]);
-    let result = builtin_cl_sort(&mut evaluator, vec![seq, Value::Subr(intern("<"))]).unwrap();
+    let seq = Value::list(vec![Value::fixnum(3), Value::fixnum(1), Value::fixnum(2)]);
+    let result = builtin_cl_sort(&mut evaluator, vec![seq, Value::subr(intern("<"))]).unwrap();
     assert_eq!(
         result,
-        Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
+        Value::list(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)])
     );
 }
 
 #[test]
 fn cl_stable_sort_with_eval() {
     let mut evaluator = super::super::eval::Context::new();
-    let seq = Value::list(vec![Value::Int(3), Value::Int(1), Value::Int(2)]);
+    let seq = Value::list(vec![Value::fixnum(3), Value::fixnum(1), Value::fixnum(2)]);
     let result =
-        builtin_cl_stable_sort(&mut evaluator, vec![seq, Value::Subr(intern("<"))]).unwrap();
+        builtin_cl_stable_sort(&mut evaluator, vec![seq, Value::subr(intern("<"))]).unwrap();
     assert_eq!(
         result,
-        Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
+        Value::list(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)])
     );
 }
 
@@ -939,8 +940,8 @@ fn cl_remove_if_with_eval() {
     let result = builtin_cl_remove_if(
         &mut evaluator,
         vec![
-            Value::Subr(intern("numberp")),
-            Value::list(vec![Value::Int(1), Value::string("x"), Value::Int(2)]),
+            Value::subr(intern("numberp")),
+            Value::list(vec![Value::fixnum(1), Value::string("x"), Value::fixnum(2)]),
         ],
     )
     .unwrap();
@@ -953,12 +954,12 @@ fn cl_remove_if_not_with_eval() {
     let result = builtin_cl_remove_if_not(
         &mut evaluator,
         vec![
-            Value::Subr(intern("numberp")),
-            Value::list(vec![Value::Int(1), Value::string("x"), Value::Int(2)]),
+            Value::subr(intern("numberp")),
+            Value::list(vec![Value::fixnum(1), Value::string("x"), Value::fixnum(2)]),
         ],
     )
     .unwrap();
-    assert_eq!(result, Value::list(vec![Value::Int(1), Value::Int(2)]));
+    assert_eq!(result, Value::list(vec![Value::fixnum(1), Value::fixnum(2)]));
 }
 
 #[test]
@@ -968,14 +969,14 @@ fn cl_map_list_with_eval() {
         &mut evaluator,
         vec![
             Value::symbol("list"),
-            Value::Subr(intern("1+")),
-            Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)]),
+            Value::subr(intern("1+")),
+            Value::list(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]),
         ],
     )
     .unwrap();
     assert_eq!(
         result,
-        Value::list(vec![Value::Int(2), Value::Int(3), Value::Int(4)])
+        Value::list(vec![Value::fixnum(2), Value::fixnum(3), Value::fixnum(4)])
     );
 }
 
@@ -986,7 +987,7 @@ fn cl_map_string_with_eval() {
         &mut evaluator,
         vec![
             Value::symbol("string"),
-            Value::Subr(intern("identity")),
+            Value::subr(intern("identity")),
             Value::string("ab"),
         ],
     )
@@ -1002,8 +1003,8 @@ fn cl_map_unsupported_type() {
             &mut evaluator,
             vec![
                 Value::symbol("hash-table"),
-                Value::Subr(intern("identity")),
-                Value::list(vec![Value::Int(1)]),
+                Value::subr(intern("identity")),
+                Value::list(vec![Value::fixnum(1)]),
             ],
         )
         .is_err()

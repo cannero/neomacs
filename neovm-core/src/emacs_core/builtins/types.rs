@@ -1,4 +1,5 @@
 use super::*;
+use super::value::{ValueKind, VecLikeType};
 
 // ===========================================================================
 // Type predicates
@@ -6,22 +7,22 @@ use super::*;
 
 pub(crate) fn builtin_null(args: Vec<Value>) -> EvalResult {
     expect_args("null", &args, 1)?;
-    Ok(Value::bool(args[0].is_nil()))
+    Ok(Value::bool_val(args[0].is_nil()))
 }
 
 pub(crate) fn builtin_atom(args: Vec<Value>) -> EvalResult {
     expect_args("atom", &args, 1)?;
-    Ok(Value::bool(!args[0].is_cons()))
+    Ok(Value::bool_val(!args[0].is_cons()))
 }
 
 pub(crate) fn builtin_consp(args: Vec<Value>) -> EvalResult {
     expect_args("consp", &args, 1)?;
-    Ok(Value::bool(args[0].is_cons()))
+    Ok(Value::bool_val(args[0].is_cons()))
 }
 
 pub(crate) fn builtin_listp(args: Vec<Value>) -> EvalResult {
     expect_args("listp", &args, 1)?;
-    Ok(Value::bool(args[0].is_list()))
+    Ok(Value::bool_val(args[0].is_list()))
 }
 
 pub(crate) fn builtin_list_of_strings_p(args: Vec<Value>) -> EvalResult {
@@ -29,82 +30,82 @@ pub(crate) fn builtin_list_of_strings_p(args: Vec<Value>) -> EvalResult {
     let mut seen = HashSet::new();
     let mut cursor = args[0];
     loop {
-        match cursor {
-            Value::Nil => return Ok(Value::True),
-            Value::Cons(cell) => {
+        match cursor.kind() {
+            ValueKind::Nil => return Ok(Value::T),
+            ValueKind::Cons => {
                 let ptr = cell.index as usize;
                 if !seen.insert(ptr) {
-                    return Ok(Value::Nil);
+                    return Ok(ValueKind::Nil);
                 }
-                let pair = read_cons(cell);
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 if !pair.car.is_string() {
-                    return Ok(Value::Nil);
+                    return Ok(ValueKind::Nil);
                 }
                 cursor = pair.cdr;
             }
-            _ => return Ok(Value::Nil),
+            _ => return Ok(Value::NIL),
         }
     }
 }
 
 pub(crate) fn builtin_nlistp(args: Vec<Value>) -> EvalResult {
     expect_args("nlistp", &args, 1)?;
-    Ok(Value::bool(!args[0].is_list()))
+    Ok(Value::bool_val(!args[0].is_list()))
 }
 
 pub(crate) fn builtin_symbolp(args: Vec<Value>) -> EvalResult {
     expect_args("symbolp", &args, 1)?;
-    Ok(Value::bool(args[0].is_symbol()))
+    Ok(Value::bool_val(args[0].is_symbol()))
 }
 
 pub(crate) fn builtin_booleanp(args: Vec<Value>) -> EvalResult {
     expect_args("booleanp", &args, 1)?;
-    Ok(Value::bool(matches!(args[0], Value::Nil | Value::True)))
+    Ok(Value::bool_val(matches!(args[0], Value::NIL | Value::T)))
 }
 
 pub(crate) fn builtin_numberp(args: Vec<Value>) -> EvalResult {
     expect_args("numberp", &args, 1)?;
-    Ok(Value::bool(args[0].is_number()))
+    Ok(Value::bool_val(args[0].is_number()))
 }
 
 pub(crate) fn builtin_integerp(args: Vec<Value>) -> EvalResult {
     expect_args("integerp", &args, 1)?;
-    Ok(Value::bool(args[0].is_integer()))
+    Ok(Value::bool_val(args[0].is_integer()))
 }
 
 pub(crate) fn builtin_integer_or_null_p(args: Vec<Value>) -> EvalResult {
     expect_args("integer-or-null-p", &args, 1)?;
-    Ok(Value::bool(args[0].is_nil() || args[0].is_integer()))
+    Ok(Value::bool_val(args[0].is_nil() || args[0].is_integer()))
 }
 
 pub(crate) fn builtin_string_or_null_p(args: Vec<Value>) -> EvalResult {
     expect_args("string-or-null-p", &args, 1)?;
-    Ok(Value::bool(args[0].is_nil() || args[0].is_string()))
+    Ok(Value::bool_val(args[0].is_nil() || args[0].is_string()))
 }
 
 pub(crate) fn builtin_integer_or_marker_p(args: Vec<Value>) -> EvalResult {
     expect_args("integer-or-marker-p", &args, 1)?;
     let is_integer_or_marker =
-        matches!(args[0], Value::Int(_) | Value::Char(_)) || super::marker::is_marker(&args[0]);
-    Ok(Value::bool(is_integer_or_marker))
+        matches!(args[0], Value::fixnum(_) | Value::char(_)) || super::marker::is_marker(&args[0]);
+    Ok(Value::bool_val(is_integer_or_marker))
 }
 
 pub(crate) fn builtin_number_or_marker_p(args: Vec<Value>) -> EvalResult {
     expect_args("number-or-marker-p", &args, 1)?;
     let is_number_or_marker =
-        matches!(args[0], Value::Int(_) | Value::Float(_, _) | Value::Char(_))
+        matches!(args[0], Value::fixnum(_) | Value::make_float(_) /* TODO(tagged): dropped float id `_` */ | Value::char(_))
             || super::marker::is_marker(&args[0]);
-    Ok(Value::bool(is_number_or_marker))
+    Ok(Value::bool_val(is_number_or_marker))
 }
 
 pub(crate) fn builtin_floatp(args: Vec<Value>) -> EvalResult {
     expect_args("floatp", &args, 1)?;
-    Ok(Value::bool(args[0].is_float()))
+    Ok(Value::bool_val(args[0].is_float()))
 }
 
 pub(crate) fn builtin_stringp(args: Vec<Value>) -> EvalResult {
     expect_args("stringp", &args, 1)?;
-    Ok(Value::bool(args[0].is_string()))
+    Ok(Value::bool_val(args[0].is_string()))
 }
 
 pub(crate) fn builtin_vectorp(args: Vec<Value>) -> EvalResult {
@@ -113,12 +114,12 @@ pub(crate) fn builtin_vectorp(args: Vec<Value>) -> EvalResult {
     let is_vec = args[0].is_vector()
         && !super::chartable::is_char_table(&args[0])
         && !super::chartable::is_bool_vector(&args[0]);
-    Ok(Value::bool(is_vec))
+    Ok(Value::bool_val(is_vec))
 }
 
 pub(crate) fn builtin_vector_or_char_table_p(args: Vec<Value>) -> EvalResult {
     expect_args("vector-or-char-table-p", &args, 1)?;
-    Ok(Value::bool(
+    Ok(Value::bool_val(
         args[0].is_vector() || super::chartable::is_char_table(&args[0]),
     ))
 }
@@ -127,24 +128,24 @@ pub(crate) fn builtin_characterp(args: Vec<Value>) -> EvalResult {
     expect_args("characterp", &args, 1)?;
     // Official Emacs: characterp accepts both Char values and integers
     // in the valid Unicode range (0..MAX_CHAR).
-    let is_char = match &args[0] {
-        Value::Char(_) => true,
-        Value::Int(n) => *n >= 0 && *n <= 0x3F_FFFF, // MAX_CHAR in Emacs
+    let is_char = match args[0].kind() {
+        ValueKind::Char(_) => true,
+        ValueKind::Fixnum(n) => n >= 0 && n <= 0x3F_FFFF, // MAX_CHAR in Emacs
         _ => false,
     };
-    Ok(Value::bool(is_char))
+    Ok(Value::bool_val(is_char))
 }
 
 pub(crate) fn builtin_char_uppercase_p(args: Vec<Value>) -> EvalResult {
     expect_args("char-uppercase-p", &args, 1)?;
     let code = expect_character_code(&args[0])?;
-    Ok(Value::bool(downcase_char_code_emacs_compat(code) != code))
+    Ok(Value::bool_val(downcase_char_code_emacs_compat(code) != code))
 }
 
 pub(super) fn is_lambda_form_list(value: &Value) -> bool {
-    match value {
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);
+    match value.kind() {
+        ValueKind::Cons => {
+            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             let name = pair.car.as_symbol_name();
             name == Some("lambda") || name == Some("closure")
         }
@@ -153,9 +154,9 @@ pub(super) fn is_lambda_form_list(value: &Value) -> bool {
 }
 
 fn is_macro_marker_list(value: &Value) -> bool {
-    match value {
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);
+    match value.kind() {
+        ValueKind::Cons => {
+            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             pair.car.as_symbol_name() == Some("macro")
         }
         _ => false,
@@ -163,9 +164,9 @@ fn is_macro_marker_list(value: &Value) -> bool {
 }
 
 fn is_runtime_function_object(value: &Value) -> bool {
-    match value {
-        Value::Lambda(_) | Value::ByteCode(_) => true,
-        Value::Subr(id) => !super::subr_info::is_special_form(resolve_sym(*id)),
+    match value.kind() {
+        ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => true,
+        ValueKind::Subr(id) => !super::subr_info::is_special_form(resolve_sym(id)),
         _ => false,
     }
 }
@@ -175,16 +176,16 @@ fn autoload_type_of(value: &Value) -> Option<super::autoload::AutoloadType> {
         return None;
     }
     let items = list_to_vec(value)?;
-    let type_value = items.get(4).cloned().unwrap_or(Value::Nil);
+    let type_value = items.get(4).cloned().unwrap_or(Value::NIL);
     Some(super::autoload::AutoloadType::from_value(&type_value))
 }
 
 pub(crate) fn builtin_functionp(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("functionp", &args, 1)?;
     let is_function = if let Some(symbol) = match &args[0] {
-        Value::Nil => Some(intern("nil")),
-        Value::True => Some(intern("t")),
-        Value::Symbol(id) | Value::Keyword(id) => Some(*id),
+        Value::NIL => Some(intern("nil")),
+        Value::T => Some(intern("t")),
+        Value::symbol(id) | Value::keyword(id) => Some(*id),
         _ => None,
     } {
         if let Some(function) =
@@ -199,37 +200,37 @@ pub(crate) fn builtin_functionp(eval: &mut super::eval::Context, args: Vec<Value
             false
         }
     } else {
-        match &args[0] {
-            Value::Lambda(_) | Value::Subr(_) | Value::ByteCode(_) => {
+        match args[0].kind() {
+            ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Subr(_) | ValueKind::Veclike(VecLikeType::ByteCode) => {
                 is_runtime_function_object(&args[0])
             }
-            Value::Cons(_) => !is_macro_marker_list(&args[0]) && is_lambda_form_list(&args[0]),
+            ValueKind::Cons => !is_macro_marker_list(&args[0]) && is_lambda_form_list(&args[0]),
             _ => false,
         }
     };
-    Ok(Value::bool(is_function))
+    Ok(Value::bool_val(is_function))
 }
 
 pub(crate) fn builtin_keywordp(args: Vec<Value>) -> EvalResult {
     expect_args("keywordp", &args, 1)?;
-    Ok(Value::bool(args[0].is_keyword()))
+    Ok(Value::bool_val(args[0].is_keyword()))
 }
 
 pub(crate) fn builtin_hash_table_p(args: Vec<Value>) -> EvalResult {
     expect_args("hash-table-p", &args, 1)?;
-    Ok(Value::bool(args[0].is_hash_table()))
+    Ok(Value::bool_val(args[0].is_hash_table()))
 }
 
 pub(crate) fn builtin_type_of(args: Vec<Value>) -> EvalResult {
     expect_args("type-of", &args, 1)?;
     // GNU Emacs `type-of` handles symbol, integer, subr directly,
     // then delegates to `cl-type-of` for everything else.
-    match &args[0] {
-        Value::Nil | Value::True | Value::Symbol(_) | Value::Keyword(_) => {
+    match args[0].kind() {
+        ValueKind::Nil | ValueKind::T | ValueKind::Symbol(_) | ValueKind::Keyword(_) => {
             Ok(Value::symbol("symbol"))
         }
-        Value::Int(_) | Value::Char(_) => Ok(Value::symbol("integer")),
-        Value::Subr(_) => Ok(Value::symbol("subr")),
+        ValueKind::Fixnum(_) | ValueKind::Char(_) => Ok(Value::symbol("integer")),
+        ValueKind::Subr(_) => Ok(Value::symbol("subr")),
         _ => builtin_cl_type_of(args),
     }
 }
@@ -240,17 +241,17 @@ pub(crate) fn builtin_type_of_with_ctx(
     args: Vec<Value>,
 ) -> EvalResult {
     // Check for stale BEFORE dispatching
-    let stale_id = match &args[0] {
-        Value::Vector(id)
-        | Value::Record(id)
-        | Value::Cons(id)
-        | Value::HashTable(id)
-        | Value::Str(id)
-        | Value::Lambda(id)
-        | Value::Macro(id)
-        | Value::ByteCode(id)
-        | Value::Overlay(id)
-        | Value::Marker(id) => {
+    let stale_id = match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Vector)
+        | ValueKind::Veclike(VecLikeType::Record)
+        | ValueKind::Cons
+        | ValueKind::Veclike(VecLikeType::HashTable)
+        | ValueKind::String
+        | ValueKind::Veclike(VecLikeType::Lambda)
+        | ValueKind::Veclike(VecLikeType::Macro)
+        | ValueKind::Veclike(VecLikeType::ByteCode)
+        | ValueKind::Veclike(VecLikeType::Overlay)
+        | ValueKind::Veclike(VecLikeType::Marker) => {
             let is_stale = crate::emacs_core::value::with_heap(|h| {
                 let i = id.index as usize;
                 i < h.generations().len() && h.generations()[i] != id.generation
@@ -260,10 +261,10 @@ pub(crate) fn builtin_type_of_with_ctx(
         _ => None,
     };
     if let Some(id) = stale_id {
-        let variant = match &args[0] {
-            Value::Record(_) => "record",
-            Value::Vector(_) => "vector",
-            Value::Cons(_) => "cons",
+        let variant = match args[0].kind() {
+            ValueKind::Veclike(VecLikeType::Record) => "record",
+            ValueKind::Veclike(VecLikeType::Vector) => "vector",
+            ValueKind::Cons => "cons",
             _ => "heap-obj",
         };
         eprintln!("STALE-DETECT type-of: {} {:?}", variant, id);
@@ -278,32 +279,32 @@ pub(crate) fn builtin_type_of_with_ctx(
 pub(crate) fn builtin_cl_type_of(args: Vec<Value>) -> EvalResult {
     expect_args("cl-type-of", &args, 1)?;
     // Debug: detect stale ObjId BEFORE accessing heap — return safe value
-    let stale = match &args[0] {
-        Value::Vector(id)
-        | Value::Record(id)
-        | Value::Cons(id)
-        | Value::HashTable(id)
-        | Value::Str(id)
-        | Value::Lambda(id)
-        | Value::Macro(id)
-        | Value::ByteCode(id)
-        | Value::Overlay(id)
-        | Value::Marker(id) => crate::emacs_core::value::with_heap(|h| {
+    let stale = match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Vector)
+        | ValueKind::Veclike(VecLikeType::Record)
+        | ValueKind::Cons
+        | ValueKind::Veclike(VecLikeType::HashTable)
+        | ValueKind::String
+        | ValueKind::Veclike(VecLikeType::Lambda)
+        | ValueKind::Veclike(VecLikeType::Macro)
+        | ValueKind::Veclike(VecLikeType::ByteCode)
+        | ValueKind::Veclike(VecLikeType::Overlay)
+        | ValueKind::Veclike(VecLikeType::Marker) => crate::emacs_core::value::with_heap(|h| {
             let i = id.index as usize;
             i < h.generations().len() && h.generations()[i] != id.generation
         }),
         _ => false,
     };
     if stale {
-        let variant = match &args[0] {
-            Value::Vector(_) => "vector",
-            Value::Record(_) => "record",
-            Value::Cons(_) => "cons",
-            Value::HashTable(_) => "hash-table",
-            Value::Str(_) => "string",
-            Value::Lambda(_) => "interpreted-function",
-            Value::Macro(_) => "macro",
-            Value::ByteCode(_) => "byte-code-function",
+        let variant = match args[0].kind() {
+            ValueKind::Veclike(VecLikeType::Vector) => "vector",
+            ValueKind::Veclike(VecLikeType::Record) => "record",
+            ValueKind::Cons => "cons",
+            ValueKind::Veclike(VecLikeType::HashTable) => "hash-table",
+            ValueKind::String => "string",
+            ValueKind::Veclike(VecLikeType::Lambda) => "interpreted-function",
+            ValueKind::Veclike(VecLikeType::Macro) => "macro",
+            ValueKind::Veclike(VecLikeType::ByteCode) => "byte-code-function",
             _ => "unknown",
         };
         eprintln!(
@@ -317,9 +318,9 @@ pub(crate) fn builtin_cl_type_of(args: Vec<Value>) -> EvalResult {
     // return slot 1 of that inner record (the class name symbol).
     // This is how EIEIO objects work: slot 0 is the eieio--class
     // record, and slot 1 of that record is the class name.
-    if let Value::Record(id) = &args[0] {
+    if &args[0].is_record() /* TODO(tagged): `id` was Value::Record(id), now use accessor */ {
         let tag = with_heap(|h| h.get_vector(*id).first().copied());
-        if let Some(Value::Record(tag_id)) = tag {
+        if let Some(Value::Record(tag_id) /* TODO(tagged): convert Value::Record to new API */) = tag {
             let tag_vec = with_heap(|h| h.get_vector(tag_id).clone());
             if tag_vec.len() > 1 {
                 return Ok(tag_vec[1]);
@@ -334,26 +335,26 @@ pub(crate) fn builtin_cl_type_of(args: Vec<Value>) -> EvalResult {
     if chartable::is_bool_vector(&args[0]) {
         return Ok(Value::symbol("bool-vector"));
     }
-    let name = match &args[0] {
-        Value::Nil => "null",
-        Value::True => "boolean",
-        Value::Int(_) | Value::Char(_) => "fixnum",
-        Value::Float(_, _) => "float",
-        Value::Str(_) => "string",
-        Value::Symbol(_) | Value::Keyword(_) => "symbol",
-        Value::Cons(_) => "cons",
-        Value::Vector(_) => "vector",
-        Value::Record(_) => unreachable!(),
-        Value::HashTable(_) => "hash-table",
-        Value::Subr(_) => "primitive-function",
-        Value::Lambda(_) | Value::Macro(_) => "interpreted-function",
-        Value::ByteCode(_) => "byte-code-function",
-        Value::Marker(_) => "marker",
-        Value::Buffer(_) => "buffer",
-        Value::Overlay(_) => "overlay",
-        Value::Window(_) => "window",
-        Value::Frame(_) => "frame",
-        Value::Timer(_) => "timer",
+    let name = match args[0].kind() {
+        ValueKind::Nil => "null",
+        ValueKind::T => "boolean",
+        ValueKind::Fixnum(_) | ValueKind::Char(_) => "fixnum",
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => "float",
+        ValueKind::String => "string",
+        ValueKind::Symbol(_) | ValueKind::Keyword(_) => "symbol",
+        ValueKind::Cons => "cons",
+        ValueKind::Veclike(VecLikeType::Vector) => "vector",
+        ValueKind::Veclike(VecLikeType::Record) => unreachable!(),
+        ValueKind::Veclike(VecLikeType::HashTable) => "hash-table",
+        ValueKind::Subr(_) => "primitive-function",
+        ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => "interpreted-function",
+        ValueKind::Veclike(VecLikeType::ByteCode) => "byte-code-function",
+        ValueKind::Veclike(VecLikeType::Marker) => "marker",
+        ValueKind::Veclike(VecLikeType::Buffer) => "buffer",
+        ValueKind::Veclike(VecLikeType::Overlay) => "overlay",
+        ValueKind::Veclike(VecLikeType::Window) => "window",
+        ValueKind::Veclike(VecLikeType::Frame) => "frame",
+        ValueKind::Veclike(VecLikeType::Timer) => "timer",
     };
     Ok(Value::symbol(name))
 }
@@ -363,7 +364,7 @@ pub(crate) fn builtin_sequencep(args: Vec<Value>) -> EvalResult {
     // GNU: sequences are lists, vectors, strings, bool-vectors, char-tables.
     // Lambdas and records are NOT sequences.
     let is_seq = args[0].is_list() || args[0].is_vector() || args[0].is_string();
-    Ok(Value::bool(is_seq))
+    Ok(Value::bool_val(is_seq))
 }
 
 pub(crate) fn builtin_arrayp(args: Vec<Value>) -> EvalResult {
@@ -371,7 +372,7 @@ pub(crate) fn builtin_arrayp(args: Vec<Value>) -> EvalResult {
     // GNU: arrays are vectors, strings, char-tables, bool-vectors.
     // Records are NOT arrays.
     let is_arr = args[0].is_vector() || args[0].is_string();
-    Ok(Value::bool(is_arr))
+    Ok(Value::bool_val(is_arr))
 }
 
 // ===========================================================================
@@ -380,37 +381,37 @@ pub(crate) fn builtin_arrayp(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_eq(args: Vec<Value>) -> EvalResult {
     expect_args("eq", &args, 2)?;
-    Ok(Value::bool(eq_value(&args[0], &args[1])))
+    Ok(Value::bool_val(eq_value(&args[0], &args[1])))
 }
 
 pub(crate) fn builtin_eql(args: Vec<Value>) -> EvalResult {
     expect_args("eql", &args, 2)?;
-    Ok(Value::bool(eql_value(&args[0], &args[1])))
+    Ok(Value::bool_val(eql_value(&args[0], &args[1])))
 }
 
 pub(crate) fn builtin_equal(args: Vec<Value>) -> EvalResult {
     expect_args("equal", &args, 2)?;
-    Ok(Value::bool(equal_value(&args[0], &args[1], 0)))
+    Ok(Value::bool_val(equal_value(&args[0], &args[1], 0)))
 }
 
 pub(crate) fn builtin_function_equal(args: Vec<Value>) -> EvalResult {
     expect_args("function-equal", &args, 2)?;
-    Ok(Value::bool(eq_value(&args[0], &args[1])))
+    Ok(Value::bool_val(eq_value(&args[0], &args[1])))
 }
 
 pub(crate) fn builtin_module_function_p(args: Vec<Value>) -> EvalResult {
     expect_args("module-function-p", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_user_ptrp(args: Vec<Value>) -> EvalResult {
     expect_args("user-ptrp", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_symbol_with_pos_p(args: Vec<Value>) -> EvalResult {
     expect_args("symbol-with-pos-p", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_symbol_with_pos_pos(args: Vec<Value>) -> EvalResult {
@@ -433,15 +434,15 @@ pub(crate) fn builtin_char_equal(eval: &mut super::eval::Context, args: Vec<Valu
     .map(|v| !v.is_nil())
     .unwrap_or(true);
     if !case_fold {
-        return Ok(Value::bool(left == right));
+        return Ok(Value::bool_val(left == right));
     }
     match (char_equal_folded(left), char_equal_folded(right)) {
-        (Some(a), Some(b)) => Ok(Value::bool(a == b)),
-        _ => Ok(Value::bool(left == right)),
+        (Some(a), Some(b)) => Ok(Value::bool_val(a == b)),
+        _ => Ok(Value::bool_val(left == right)),
     }
 }
 
 pub(crate) fn builtin_not(args: Vec<Value>) -> EvalResult {
     expect_args("not", &args, 1)?;
-    Ok(Value::bool(args[0].is_nil()))
+    Ok(Value::bool_val(args[0].is_nil()))
 }

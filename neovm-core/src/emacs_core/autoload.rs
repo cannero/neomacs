@@ -15,6 +15,7 @@ use super::intern::resolve_sym;
 use super::symbol::Obarray;
 use super::value::*;
 use crate::gc::GcTrace;
+use crate::emacs_core::value::{ValueKind};
 
 // ---------------------------------------------------------------------------
 // Autoload types
@@ -34,7 +35,7 @@ pub enum AutoloadType {
 impl AutoloadType {
     /// Parse a Value into an AutoloadType.
     pub fn from_value(val: &Value) -> Self {
-        if matches!(val, Value::True) {
+        if val.is_t() {
             return Self::Macro;
         }
         match val.as_symbol_name() {
@@ -47,7 +48,7 @@ impl AutoloadType {
     /// Convert back to a symbol Value.
     pub fn to_value(&self) -> Value {
         match self {
-            Self::Function => Value::Nil,
+            Self::Function => Value::NIL,
             Self::Macro => Value::symbol("macro"),
             Self::Keymap => Value::symbol("keymap"),
         }
@@ -261,7 +262,7 @@ pub(crate) fn plan_autoload_do_load_in_state(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("autoload-do-load"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -274,8 +275,8 @@ pub(crate) fn plan_autoload_do_load_in_state(
     let items = list_to_vec(fundef).unwrap_or_default();
     // items[0] = 'autoload, items[1] = file, ...
     let file = if items.len() > 1 {
-        match &items[1] {
-            Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
+        match items[1].kind() {
+            ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
             _ => return Ok(AutoloadDoLoadPlan::Return(*fundef)),
         }
     } else {
@@ -291,11 +292,11 @@ pub(crate) fn plan_autoload_do_load_in_state(
     // MACRO-ONLY check: if the third arg is non-nil, only autoload if the
     // autoload's TYPE field (5th element) is `t` or `macro`.
     // This matches GNU Emacs eval.c:Fautoload_do_load.
-    let macro_only = args.get(2).copied().unwrap_or(Value::Nil);
+    let macro_only = args.get(2).copied().unwrap_or(Value::NIL);
     if !macro_only.is_nil() {
-        let kind = items.get(4).copied().unwrap_or(Value::Nil);
+        let kind = items.get(4).copied().unwrap_or(Value::NIL);
         let is_macro_type =
-            matches!(kind, Value::True) || kind.as_symbol_name().map_or(false, |s| s == "macro");
+            kind.is_t() || kind.as_symbol_name().map_or(false, |s| s == "macro");
         if !is_macro_type {
             return Ok(AutoloadDoLoadPlan::Return(*fundef));
         }
@@ -350,8 +351,8 @@ pub(crate) fn finish_autoload_do_load_in_state(
             // A different autoload (re-registered by eval-after-load
             // callbacks) is fine — the function was redefined.
             if let Some(orig) = original_autoload {
-                let same_identity = match (func, *orig) {
-                    (Value::Cons(a), Value::Cons(b)) => a == b,
+                let same_identity = match (func.kind(), orig.kind()) {
+                    (ValueKind::Cons, ValueKind::Cons) => a == b,
                     _ => false,
                 };
                 if same_identity {
@@ -367,7 +368,7 @@ pub(crate) fn finish_autoload_do_load_in_state(
             return Ok(func);
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_autoload_do_load(
@@ -420,13 +421,13 @@ pub(crate) fn register_autoload_in_state(
     if args.len() < 2 || args.len() > 5 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("autoload"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("autoload"), Value::fixnum(args.len() as i64)],
         ));
     }
 
     let func_val = args[0];
-    let name = match &func_val {
-        Value::Symbol(id) => resolve_sym(*id).to_owned(),
+    let name = match func_val.kind() {
+        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -440,13 +441,13 @@ pub(crate) fn register_autoload_in_state(
     // autoload) function definition, return nil without touching it.
     if let Some(current) = obarray.symbol_function(&name).cloned() {
         if !current.is_nil() && !is_autoload_value(&current) {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
     }
 
     let file_val = args[1];
-    let file = match &file_val {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
+    let file = match file_val.kind() {
+        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -455,16 +456,16 @@ pub(crate) fn register_autoload_in_state(
         }
     };
 
-    let docstring_val = args.get(2).cloned().unwrap_or(Value::Nil);
-    let docstring = match &docstring_val {
-        Value::Str(id) => Some(with_heap(|h| h.get_string(*id).to_owned())),
+    let docstring_val = args.get(2).cloned().unwrap_or(Value::NIL);
+    let docstring = match docstring_val.kind() {
+        ValueKind::String => Some(with_heap(|h| h.get_string(*id).to_owned())),
         _ => None,
     };
 
-    let interactive_val = args.get(3).cloned().unwrap_or(Value::Nil);
-    let interactive = !matches!(interactive_val, Value::Nil);
+    let interactive_val = args.get(3).cloned().unwrap_or(Value::NIL);
+    let interactive = !interactive_val.is_nil();
 
-    let type_val = args.get(4).cloned().unwrap_or(Value::Nil);
+    let type_val = args.get(4).cloned().unwrap_or(Value::NIL);
     let autoload_type = AutoloadType::from_value(&type_val);
 
     let autoload_form = Value::list(vec![
@@ -506,22 +507,22 @@ pub(crate) fn builtin_symbol_file(eval: &mut super::eval::Context, args: Vec<Val
     if args.is_empty() || args.len() > 3 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("symbol-file"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("symbol-file"), Value::fixnum(args.len() as i64)],
         ));
     }
 
     let symbol_name = match args[0].as_symbol_name() {
         Some(name) => name,
-        None => return Ok(Value::Nil),
+        None => return Ok(Value::NIL),
     };
 
-    let function_origin_requested = if args.len() == 1 || matches!(args[1], Value::Nil) {
+    let function_origin_requested = if args.len() == 1 || matches!(args[1], Value::NIL) {
         true
     } else {
         matches!(args[1].as_symbol_name(), Some("defun"))
     };
     if !function_origin_requested {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     if let Some(entry) = eval.autoloads.get_entry(symbol_name) {
@@ -531,14 +532,14 @@ pub(crate) fn builtin_symbol_file(eval: &mut super::eval::Context, args: Vec<Val
     if let Some(fndef) = eval.obarray.symbol_function(symbol_name).cloned() {
         if is_autoload_value(&fndef) {
             if let Some(items) = list_to_vec(&fndef) {
-                if let Some(Value::Str(id)) = items.get(1) {
+                if let Some(Value::Str(id) /* TODO(tagged): convert Value::Str to new API */) = items.get(1) {
                     return Ok(Value::string(with_heap(|h| h.get_string(*id).to_owned())));
                 }
             }
         }
     }
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // ---------------------------------------------------------------------------

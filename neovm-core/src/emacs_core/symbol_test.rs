@@ -13,7 +13,7 @@ fn intern_creates_symbol() {
 fn symbol_value_cell() {
     let mut ob = Obarray::new();
     assert!(!ob.boundp("x"));
-    ob.set_symbol_value("x", Value::Int(42));
+    ob.set_symbol_value("x", Value::fixnum(42));
     assert!(ob.boundp("x"));
     assert_eq!(ob.symbol_value("x").unwrap().as_int(), Some(42));
 }
@@ -23,7 +23,7 @@ fn symbol_function_cell() {
     let mut ob = Obarray::new();
     assert!(!ob.fboundp("f"));
     let start_epoch = ob.function_epoch();
-    ob.set_symbol_function("f", Value::Subr(intern("+")));
+    ob.set_symbol_function("f", Value::subr(intern("+")));
     assert!(ob.fboundp("f"));
     assert!(ob.function_epoch() > start_epoch);
     let after_set_epoch = ob.function_epoch();
@@ -42,7 +42,7 @@ fn fmakunbound_masks_builtin_fallback_name() {
     assert!(ob.symbol_function("car").is_none());
     assert!(ob.function_epoch() > start_epoch);
 
-    ob.set_symbol_function("car", Value::Subr(intern("car")));
+    ob.set_symbol_function("car", Value::subr(intern("car")));
     assert!(!ob.is_function_unbound("car"));
     assert!(ob.fboundp("car"));
 }
@@ -68,11 +68,11 @@ fn special_flag() {
 #[test]
 fn indirect_function_follows_chain() {
     let mut ob = Obarray::new();
-    ob.set_symbol_function("real-fn", Value::Subr(intern("+")));
+    ob.set_symbol_function("real-fn", Value::subr(intern("+")));
     // alias -> real-fn
-    ob.set_symbol_function("alias", Value::Symbol(intern("real-fn")));
+    ob.set_symbol_function("alias", Value::symbol(intern("real-fn")));
     let resolved = ob.indirect_function("alias").unwrap();
-    assert!(matches!(resolved, Value::Subr(ref id) if resolve_sym(*id) == "+"));
+    assert!(matches!(resolved, Value::subr(ref id) if resolve_sym(*id) == "+"));
 }
 
 #[test]
@@ -97,14 +97,14 @@ fn canonical_id_mutators_keep_symbol_globally_interned() {
     let mut ob = Obarray::new();
     let sym = intern("vm-ghost");
 
-    ob.set_symbol_value_id(sym, Value::Int(1));
+    ob.set_symbol_value_id(sym, Value::fixnum(1));
     assert!(ob.intern_soft("vm-ghost").is_some());
     assert!(ob.all_symbols().contains(&"vm-ghost"));
 
-    ob.put_property_id(sym, intern("vm-prop"), Value::Int(2));
-    assert_eq!(ob.get_property("vm-ghost", "vm-prop"), Some(&Value::Int(2)));
+    ob.put_property_id(sym, intern("vm-prop"), Value::fixnum(2));
+    assert_eq!(ob.get_property("vm-ghost", "vm-prop"), Some(&Value::fixnum(2)));
 
-    ob.set_symbol_function_id(sym, Value::Subr(intern("+")));
+    ob.set_symbol_function_id(sym, Value::subr(intern("+")));
     assert!(ob.fboundp("vm-ghost"));
 
     ob.make_special_id(sym);
@@ -121,7 +121,7 @@ fn uninterned_keyword_and_nil_names_are_not_canonical_constants() {
     assert!(!eval.obarray().is_constant_id(kw_id));
 
     eval.obarray_mut()
-        .set_symbol_function_id(nil_id, Value::Subr(intern("+")));
+        .set_symbol_function_id(nil_id, Value::subr(intern("+")));
     assert!(eval.obarray().symbol_function_id(nil_id).is_some());
     assert!(eval.obarray().intern_soft("nil").is_some());
     assert!(eval.obarray().intern_soft(":vm-k").is_none());

@@ -31,7 +31,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -42,7 +42,7 @@ fn expect_args_range(name: &str, args: &[Value], min: usize, max: usize) -> Resu
     if args.len() < min || args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -50,8 +50,8 @@ fn expect_args_range(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 }
 
 fn expect_integer_or_marker(arg: &Value) -> Result<(), Flow> {
-    match arg {
-        Value::Int(_) | Value::Char(_) => Ok(()),
+    match arg.kind() {
+        ValueKind::Fixnum(_) | ValueKind::Char(_) => Ok(()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *other],
@@ -60,8 +60,8 @@ fn expect_integer_or_marker(arg: &Value) -> Result<(), Flow> {
 }
 
 fn expect_fixnum_arg(name: &str, arg: &Value) -> Result<(), Flow> {
-    match arg {
-        Value::Int(_) | Value::Char(_) => Ok(()),
+    match arg.kind() {
+        ValueKind::Fixnum(_) | ValueKind::Char(_) => Ok(()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol(name), *other],
@@ -87,7 +87,7 @@ pub(crate) fn builtin_format_mode_line(args: Vec<Value>) -> EvalResult {
         }
     }
     if let Some(buffer) = args.get(3) {
-        if !buffer.is_nil() && !matches!(buffer, Value::Buffer(_)) {
+        if !buffer.is_nil() && !matches!(buffer, Value::make_buffer(_)) {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("bufferp"), *buffer],
@@ -510,9 +510,9 @@ fn resolve_mode_line_window<'a>(
     // Try explicit window argument first.
     if let Some(windowish) = window_arg {
         if !windowish.is_nil() {
-            let wid = match windowish {
-                Value::Window(id) => Some(crate::window::WindowId(*id)),
-                Value::Int(id) if *id >= 0 => Some(crate::window::WindowId(*id as u64)),
+            let wid = match windowish.kind() {
+                ValueKind::Veclike(VecLikeType::Window) => Some(crate::window::WindowId(*id)),
+                ValueKind::Fixnum(id) if id >= 0 => Some(crate::window::WindowId(id as u64)),
                 _ => None,
             };
             if let Some(wid) = wid {
@@ -645,7 +645,7 @@ impl ModeLineRendered {
         };
         let byte_offset = self.text.len();
         self.text.push_str(text);
-        if let Value::Str(id) = value
+        if let Value::Str(id) /* TODO(tagged): convert Value::Str to new API */ = value
             && let Some(props) = get_string_text_properties_table(*id)
         {
             self.text_props.append_shifted(&props, byte_offset);
@@ -674,7 +674,7 @@ impl ModeLineRendered {
                 .take(end_char - start_char)
                 .collect::<String>(),
         );
-        if let Value::Str(id) = value
+        if let Value::Str(id) /* TODO(tagged): convert Value::Str to new API */ = value
             && let Some(props) = get_string_text_properties_table(*id)
         {
             self.text_props
@@ -780,7 +780,7 @@ impl ModeLineRendered {
             self.apply_default_face(face);
         }
         let value = Value::string(self.text);
-        if let Value::Str(id) = value {
+        if value.is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
             set_string_text_properties_table(id, self.text_props);
         }
         value
@@ -788,8 +788,8 @@ impl ModeLineRendered {
 }
 
 fn resolve_mode_line_face_spec(args: &[Value]) -> ModeLineFaceSpec {
-    let face = args.get(1).copied().unwrap_or(Value::Nil);
-    let no_props = matches!(face, Value::Int(_));
+    let face = args.get(1).copied().unwrap_or(Value::NIL);
+    let no_props = face.is_fixnum();
     let face = if no_props || face.is_nil() || face.is_symbol_named("default") {
         None
     } else {
@@ -867,10 +867,10 @@ fn format_mode_line_recursive(
         return; // Guard against infinite recursion
     }
 
-    match format {
-        Value::Nil => {}
+    match format.kind() {
+        ValueKind::Nil => {}
 
-        Value::Str(_) => append_mode_line_string_in_state(
+        ValueKind::String => append_mode_line_string_in_state(
             &eval.obarray,
             &[],
             &eval.buffers,
@@ -882,7 +882,7 @@ fn format_mode_line_recursive(
             false,
         ),
 
-        Value::Int(n) => {
+        ValueKind::Fixnum(n) => {
             let _ = n;
         }
 
@@ -953,7 +953,7 @@ fn format_mode_line_recursive(
                 return;
             }
 
-            if let Value::Int(lim) = car {
+            if let Some(lim) = car.as_fixnum() {
                 let mut nested = ModeLineRendered::default();
                 format_mode_line_recursive(eval, pctx, &cdr, &mut nested, depth + 1, risky);
                 append_mode_line_rendered_segment(
@@ -1006,14 +1006,14 @@ fn format_mode_line_recursive_in_state(
         return false;
     }
 
-    match format {
-        Value::Nil => {}
+    match format.kind() {
+        ValueKind::Nil => {}
 
-        Value::Str(_) => append_mode_line_string_in_state(
+        ValueKind::String => append_mode_line_string_in_state(
             obarray, dynamic, buffers, processes, 0, pctx, result, format, false,
         ),
 
-        Value::Int(_) => {}
+        ValueKind::Fixnum(_) => {}
 
         _ if format.is_symbol() => {
             if let Some(name) = format.as_symbol_name() {
@@ -1081,7 +1081,7 @@ fn format_mode_line_recursive_in_state(
                 return false;
             }
 
-            if let Value::Int(lim) = car {
+            if let Some(lim) = car.as_fixnum() {
                 let mut nested = ModeLineRendered::default();
                 let needs_eval = format_mode_line_recursive_in_state(
                     obarray,
@@ -1171,14 +1171,14 @@ fn format_mode_line_recursive_in_state_with_eval(
         return Ok(());
     }
 
-    match format {
-        Value::Nil => {}
+    match format.kind() {
+        ValueKind::Nil => {}
 
-        Value::Str(_) => append_mode_line_string_in_state(
+        ValueKind::String => append_mode_line_string_in_state(
             obarray, dynamic, buffers, processes, 0, pctx, result, format, false,
         ),
 
-        Value::Int(_) => {}
+        ValueKind::Fixnum(_) => {}
 
         _ if format.is_symbol() => {
             if let Some(name) = format.as_symbol_name() {
@@ -1263,7 +1263,7 @@ fn format_mode_line_recursive_in_state_with_eval(
                 return Ok(());
             }
 
-            if let Value::Int(lim) = car {
+            if let Some(lim) = car.as_fixnum() {
                 let mut nested = ModeLineRendered::default();
                 format_mode_line_recursive_in_state_with_eval(
                     obarray,
@@ -1352,10 +1352,10 @@ fn format_mode_line_recursive_in_vm_runtime(
         return Ok(());
     }
 
-    match format {
-        Value::Nil => {}
+    match format.kind() {
+        ValueKind::Nil => {}
 
-        Value::Str(_) => append_mode_line_string_in_state(
+        ValueKind::String => append_mode_line_string_in_state(
             &shared.obarray,
             &[],
             &shared.buffers,
@@ -1367,7 +1367,7 @@ fn format_mode_line_recursive_in_vm_runtime(
             false,
         ),
 
-        Value::Int(_) => {}
+        ValueKind::Fixnum(_) => {}
 
         _ if format.is_symbol() => {
             if let Some(name) = format.as_symbol_name() {
@@ -1465,7 +1465,7 @@ fn format_mode_line_recursive_in_vm_runtime(
                 return Ok(());
             }
 
-            if let Value::Int(lim) = car {
+            if let Some(lim) = car.as_fixnum() {
                 let mut nested = ModeLineRendered::default();
                 format_mode_line_recursive_in_vm_runtime(
                     shared,
@@ -1596,7 +1596,7 @@ fn expand_mode_line_percent_in_state(
             index += 1;
         }
 
-        let props_at_percent = if let Value::Str(id) = value {
+        let props_at_percent = if value.is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
             get_string_text_properties_table(*id)
                 .map(|table| table.get_properties(char_to_byte_pos(fmt_str, percent_char_pos)))
                 .unwrap_or_default()
@@ -1874,24 +1874,24 @@ fn expand_mode_line_percent_in_state(
 /// - all other property values are treated as invisible (t).
 pub(crate) fn builtin_invisible_p(args: Vec<Value>) -> EvalResult {
     expect_args("invisible-p", &args, 1)?;
-    match &args[0] {
-        Value::Int(v) => {
-            if *v == 0 {
-                Err(signal("args-out-of-range", vec![Value::Int(*v)]))
-            } else if *v < 0 {
+    match args[0].kind() {
+        ValueKind::Fixnum(v) => {
+            if v == 0 {
+                Err(signal("args-out-of-range", vec![Value::Int(v)]))
+            } else if v < 0 {
                 Ok(Value::symbol("t"))
             } else {
-                Ok(Value::Nil)
+                Ok(ValueKind::Nil)
             }
         }
-        Value::Char(ch) => {
-            if *ch == '\0' {
-                Err(signal("args-out-of-range", vec![Value::Char(*ch)]))
+        ValueKind::Char(ch) => {
+            if ch == '\0' {
+                Err(signal("args-out-of-range", vec![Value::Char(ch)]))
             } else {
-                Ok(Value::Nil)
+                Ok(ValueKind::Nil)
             }
         }
-        Value::Nil => Ok(Value::Nil),
+        ValueKind::Nil => Ok(Value::NIL),
         _ => Ok(Value::symbol("t")),
     }
 }
@@ -1901,7 +1901,7 @@ pub(crate) fn builtin_invisible_p(args: Vec<Value>) -> EvalResult {
 /// Batch-compatible behavior returns 1.
 pub(crate) fn builtin_line_pixel_height(args: Vec<Value>) -> EvalResult {
     expect_args("line-pixel-height", &args, 0)?;
-    Ok(Value::Int(1))
+    Ok(Value::fixnum(1))
 }
 
 /// (window-text-pixel-size &optional WINDOW FROM TO X-LIMIT Y-LIMIT MODE) -> (WIDTH . HEIGHT)
@@ -1930,7 +1930,7 @@ pub(crate) fn builtin_window_text_pixel_size(args: Vec<Value>) -> EvalResult {
         }
     }
 
-    Ok(Value::cons(Value::Int(0), Value::Int(0)))
+    Ok(Value::cons(Value::fixnum(0), Value::fixnum(0)))
 }
 
 /// `(window-text-pixel-size &optional WINDOW FROM TO X-LIMIT Y-LIMIT MODE)` evaluator-backed variant.
@@ -1952,13 +1952,13 @@ pub(crate) fn builtin_window_text_pixel_size_ctx(
     let wid = args
         .first()
         .and_then(|v| match v {
-            Value::Window(id) => Some(crate::window::WindowId(*id)),
+            Value::make_window(id) => Some(crate::window::WindowId(*id)),
             _ => None,
         })
         .or_else(|| frame.map(|f| f.selected_window));
 
     let Some(wid) = wid else {
-        return Ok(Value::cons(Value::Int(0), Value::Int(0)));
+        return Ok(Value::cons(Value::fixnum(0), Value::fixnum(0)));
     };
 
     // Find buffer for this window
@@ -1967,12 +1967,12 @@ pub(crate) fn builtin_window_text_pixel_size_ctx(
         .and_then(|w| w.buffer_id());
 
     let Some(buf_id) = buf_id else {
-        return Ok(Value::cons(Value::Int(0), Value::Int(0)));
+        return Ok(Value::cons(Value::fixnum(0), Value::fixnum(0)));
     };
 
     let buf = eval.buffers.get(buf_id);
     let Some(buf) = buf else {
-        return Ok(Value::cons(Value::Int(0), Value::Int(0)));
+        return Ok(Value::cons(Value::fixnum(0), Value::fixnum(0)));
     };
 
     // Determine FROM/TO range
@@ -2012,7 +2012,7 @@ pub(crate) fn builtin_window_text_pixel_size_ctx(
     let width = (max_cols as f32 * char_w).ceil() as i64;
     let height = (lines as f32 * char_h).ceil() as i64;
 
-    Ok(Value::cons(Value::Int(width), Value::Int(height)))
+    Ok(Value::cons(Value::fixnum(width), Value::fixnum(height)))
 }
 
 /// (pos-visible-in-window-p &optional POS WINDOW PARTIALLY) -> boolean
@@ -2031,11 +2031,11 @@ pub(crate) fn builtin_pos_visible_in_window_p(args: Vec<Value>) -> EvalResult {
     }
     // POS can be nil (point), t (end of buffer), or an integer/marker.
     if let Some(pos) = args.first() {
-        if !pos.is_nil() && !matches!(pos, Value::True) && !pos.is_symbol_named("t") {
+        if !pos.is_nil() && !pos.is_t() && !pos.is_symbol_named("t") {
             expect_integer_or_marker(pos)?;
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(pos-visible-in-window-p &optional POS WINDOW PARTIALLY)` evaluator-backed variant.
@@ -2061,35 +2061,35 @@ fn pos_visible_in_window_p_impl(
         resolve_exact_visible_metrics(frames, buffers, args.get(1), args.first())?
     {
         if !partially {
-            return Ok(Value::True);
+            return Ok(Value::T);
         }
         return Ok(Value::list(vec![
-            Value::Int(metrics.x),
-            Value::Int(metrics.y),
+            Value::fixnum(metrics.x),
+            Value::fixnum(metrics.y),
         ]));
     }
     let Some(ctx) = resolve_live_window_display_context(frames, buffers, args.get(1))? else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     let Some(pos_lisp) = resolve_pos_visible_target_lisp_pos(&ctx, args.first())? else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     let Some(metrics) = approximate_pos_visible_metrics(&ctx, pos_lisp) else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     if !partially && !metrics.fully_visible {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     if !partially {
-        return Ok(Value::True);
+        return Ok(Value::T);
     }
-    let mut out = vec![Value::Int(metrics.x), Value::Int(metrics.y)];
+    let mut out = vec![Value::fixnum(metrics.x), Value::fixnum(metrics.y)];
     if !metrics.fully_visible {
         out.extend([
-            Value::Int(metrics.rtop),
-            Value::Int(metrics.rbot),
-            Value::Int(metrics.row_height),
-            Value::Int(metrics.vpos),
+            Value::fixnum(metrics.rtop),
+            Value::fixnum(metrics.rbot),
+            Value::fixnum(metrics.row_height),
+            Value::fixnum(metrics.vpos),
         ]);
     }
     Ok(Value::list(out))
@@ -2117,7 +2117,7 @@ fn window_line_height_impl(
     if let Some((fid, wid)) = resolve_live_window_identity(frames, args.get(1))? {
         if let Some(frame) = frames.get(fid) {
             if let Some(snapshot) = frame.window_display_snapshot(wid) {
-                let line_spec = args.first().copied().unwrap_or(Value::Nil);
+                let line_spec = args.first().copied().unwrap_or(Value::NIL);
                 let exact_row = if line_spec.is_nil() {
                     resolve_exact_visible_metrics(frames, buffers, args.get(1), None)?
                         .and_then(|(_, metrics)| snapshot.row_metrics(metrics.row))
@@ -2127,9 +2127,9 @@ fn window_line_height_impl(
                 {
                     None
                 } else {
-                    let line_num = match line_spec {
-                        Value::Int(n) => n,
-                        Value::Char(ch) => ch as i64,
+                    let line_num = match line_spec.kind() {
+                        ValueKind::Fixnum(n) => n,
+                        ValueKind::Char(ch) => ch as i64,
                         other => {
                             return Err(signal(
                                 "wrong-type-argument",
@@ -2146,20 +2146,20 @@ fn window_line_height_impl(
                 };
                 if let Some(row) = exact_row {
                     return Ok(Value::list(vec![
-                        Value::Int(row.height),
-                        Value::Int(row.row),
-                        Value::Int(row.y),
-                        Value::Int(0),
+                        Value::fixnum(row.height),
+                        Value::fixnum(row.row),
+                        Value::fixnum(row.y),
+                        Value::fixnum(0),
                     ]));
                 }
             }
         }
     }
     let Some(ctx) = resolve_live_window_display_context(frames, buffers, args.get(1))? else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
 
-    let line_spec = args.first().copied().unwrap_or(Value::Nil);
+    let line_spec = args.first().copied().unwrap_or(Value::NIL);
     let metrics = if line_spec.is_nil() {
         let current_pos = current_window_point_lisp(&ctx);
         approximate_pos_visible_metrics(&ctx, current_pos)
@@ -2178,9 +2178,9 @@ fn window_line_height_impl(
     } else if line_spec.is_symbol_named("header-line") || line_spec.is_symbol_named("tab-line") {
         None
     } else {
-        let line_num = match line_spec {
-            Value::Int(n) => n,
-            Value::Char(ch) => ch as i64,
+        let line_num = match line_spec.kind() {
+            ValueKind::Fixnum(n) => n,
+            ValueKind::Char(ch) => ch as i64,
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -2201,13 +2201,13 @@ fn window_line_height_impl(
     };
 
     let Some(metrics) = metrics else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     Ok(Value::list(vec![
-        Value::Int(metrics.height),
-        Value::Int(metrics.vpos),
-        Value::Int(metrics.ypos),
-        Value::Int(metrics.offbot),
+        Value::fixnum(metrics.height),
+        Value::fixnum(metrics.vpos),
+        Value::fixnum(metrics.ypos),
+        Value::fixnum(metrics.offbot),
     ]))
 }
 
@@ -2217,14 +2217,14 @@ fn window_line_height_impl(
 /// signals `args-out-of-range` in non-window contexts.
 pub(crate) fn builtin_move_point_visually(args: Vec<Value>) -> EvalResult {
     expect_args("move-point-visually", &args, 1)?;
-    match &args[0] {
-        Value::Int(v) => Err(signal(
+    match args[0].kind() {
+        ValueKind::Fixnum(v) => Err(signal(
             "args-out-of-range",
-            vec![Value::Int(*v), Value::Int(*v)],
+            vec![Value::Int(v), Value::Int(v)],
         )),
-        Value::Char(ch) => Err(signal(
+        ValueKind::Char(ch) => Err(signal(
             "args-out-of-range",
-            vec![Value::Char(*ch), Value::Char(*ch)],
+            vec![Value::Char(ch), Value::Char(ch)],
         )),
         other => Err(signal(
             "wrong-type-argument",
@@ -2243,7 +2243,7 @@ pub(crate) fn builtin_lookup_image_map(args: Vec<Value>) -> EvalResult {
         expect_fixnum_arg("fixnump", &args[1])?;
         expect_fixnum_arg("fixnump", &args[2])?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (current-bidi-paragraph-direction &optional BUFFER) -> symbol
@@ -2252,7 +2252,7 @@ pub(crate) fn builtin_lookup_image_map(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_current_bidi_paragraph_direction(args: Vec<Value>) -> EvalResult {
     expect_args_range("current-bidi-paragraph-direction", &args, 0, 1)?;
     if let Some(bufferish) = args.first() {
-        if !bufferish.is_nil() && !matches!(bufferish, Value::Buffer(_)) {
+        if !bufferish.is_nil() && !matches!(bufferish, Value::make_buffer(_)) {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("bufferp"), *bufferish],
@@ -2274,7 +2274,7 @@ pub(crate) fn builtin_bidi_resolved_levels(args: Vec<Value>) -> EvalResult {
             expect_fixnum_arg("fixnump", direction)?;
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(bidi-find-overridden-directionality STRING/START END/START STRING/END
@@ -2290,15 +2290,15 @@ pub(crate) fn builtin_bidi_find_overridden_directionality(args: Vec<Value>) -> E
     if third.is_nil() {
         expect_integer_or_marker(&args[0])?;
         expect_integer_or_marker(&args[1])?;
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
-    if !matches!(third, Value::Str(_)) {
+    if !third.is_string() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *third],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (move-to-window-line ARG) -> integer or nil
@@ -2356,8 +2356,8 @@ pub(crate) fn builtin_move_to_window_line(
     let target_line: usize = if args[0].is_nil() {
         total_body_lines / 2
     } else {
-        let n = match args[0] {
-            Value::Int(v) => v,
+        let n = match args[0].kind() {
+            ValueKind::Fixnum(v) => v,
             _ => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -2414,7 +2414,7 @@ pub(crate) fn builtin_move_to_window_line(
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let _ = eval.buffers.goto_buffer_byte(current_id, byte_pos);
 
-    Ok(Value::Int(target_line as i64))
+    Ok(Value::fixnum(target_line as i64))
 }
 
 /// (tool-bar-height &optional FRAME PIXELWISE) -> integer
@@ -2423,7 +2423,7 @@ pub(crate) fn builtin_move_to_window_line(
 pub(crate) fn builtin_tool_bar_height(args: Vec<Value>) -> EvalResult {
     expect_args_range("tool-bar-height", &args, 0, 2)?;
     // Return 0 (no tool bar)
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 /// `(tool-bar-height &optional FRAME PIXELWISE)` evaluator-backed variant.
@@ -2442,7 +2442,7 @@ pub(crate) fn builtin_tool_bar_height_ctx(
             "framep",
         )?;
     }
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 /// (tab-bar-height &optional FRAME PIXELWISE) -> integer
@@ -2451,7 +2451,7 @@ pub(crate) fn builtin_tool_bar_height_ctx(
 pub(crate) fn builtin_tab_bar_height(args: Vec<Value>) -> EvalResult {
     expect_args_range("tab-bar-height", &args, 0, 2)?;
     // Return 0 (no tab bar)
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 /// `(tab-bar-height &optional FRAME PIXELWISE)` evaluator-backed variant.
@@ -2483,9 +2483,9 @@ pub(crate) fn builtin_tab_bar_height_ctx(
         .unwrap_or(0)
         .max(0);
     if args.get(1).is_some_and(|pixelwise| !pixelwise.is_nil()) {
-        Ok(Value::Int(frame.tab_bar_height as i64))
+        Ok(Value::fixnum(frame.tab_bar_height as i64))
     } else {
-        Ok(Value::Int(lines))
+        Ok(Value::fixnum(lines))
     }
 }
 
@@ -2495,7 +2495,7 @@ pub(crate) fn builtin_tab_bar_height_ctx(
 pub(crate) fn builtin_line_number_display_width(args: Vec<Value>) -> EvalResult {
     expect_args_range("line-number-display-width", &args, 0, 1)?;
     // Return 0 (no line numbers)
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 /// (long-line-optimizations-p) -> boolean
@@ -2504,7 +2504,7 @@ pub(crate) fn builtin_line_number_display_width(args: Vec<Value>) -> EvalResult 
 pub(crate) fn builtin_long_line_optimizations_p(args: Vec<Value>) -> EvalResult {
     expect_args("long-line-optimizations-p", &args, 0)?;
     // Return nil (optimizations not enabled)
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 fn validate_optional_frame_designator(
@@ -2524,13 +2524,13 @@ fn validate_optional_frame_designator_in_state(
     if frameish.is_nil() {
         return Ok(());
     }
-    match frameish {
-        Value::Int(id) if *id >= 0 => {
-            if frames.get(FrameId(*id as u64)).is_some() {
+    match frameish.kind() {
+        ValueKind::Fixnum(id) if id >= 0 => {
+            if frames.get(FrameId(id as u64)).is_some() {
                 return Ok(());
             }
         }
-        Value::Frame(id) => {
+        ValueKind::Veclike(VecLikeType::Frame) => {
             if frames.get(FrameId(*id)).is_some() {
                 return Ok(());
             }
@@ -2562,9 +2562,9 @@ fn validate_optional_window_designator_in_state(
     if windowish.is_nil() {
         return Ok(());
     }
-    let wid = match windowish {
-        Value::Window(id) => Some(WindowId(*id)),
-        Value::Int(id) if *id >= 0 => Some(WindowId(*id as u64)),
+    let wid = match windowish.kind() {
+        ValueKind::Veclike(VecLikeType::Window) => Some(WindowId(*id)),
+        ValueKind::Fixnum(id) if id >= 0 => Some(WindowId(id as u64)),
         _ => None,
     };
     if let Some(wid) = wid {
@@ -2599,7 +2599,7 @@ fn validate_optional_buffer_designator_in_state(
     if bufferish.is_nil() {
         return Ok(());
     }
-    if let Value::Buffer(id) = bufferish {
+    if bufferish.is_buffer() /* TODO(tagged): `id` was Value::Buffer(id), now use accessor */ {
         if buffers.get(*id).is_some() {
             return Ok(());
         }
@@ -2619,9 +2619,9 @@ fn resolve_optional_window_buffer(
         return None;
     }
 
-    let wid = match windowish {
-        Value::Window(id) => Some(WindowId(*id)),
-        Value::Int(id) if *id >= 0 => Some(WindowId(*id as u64)),
+    let wid = match windowish.kind() {
+        ValueKind::Veclike(VecLikeType::Window) => Some(WindowId(*id)),
+        ValueKind::Fixnum(id) if id >= 0 => Some(WindowId(id as u64)),
         _ => None,
     }?;
 
@@ -2646,9 +2646,9 @@ fn resolve_optional_window_buffer_in_state(
         return None;
     }
 
-    let wid = match windowish {
-        Value::Window(id) => Some(WindowId(*id)),
-        Value::Int(id) if *id >= 0 => Some(WindowId(*id as u64)),
+    let wid = match windowish.kind() {
+        ValueKind::Veclike(VecLikeType::Window) => Some(WindowId(*id)),
+        ValueKind::Fixnum(id) if id >= 0 => Some(WindowId(id as u64)),
         _ => None,
     }?;
 
@@ -2670,7 +2670,7 @@ fn resolve_mode_line_buffer(
     buffer: Option<&Value>,
 ) -> Option<BufferId> {
     match buffer {
-        Some(Value::Buffer(id)) => Some(*id),
+        Some(ValueKind::Veclike(VecLikeType::Buffer)) => Some(*id),
         _ => resolve_optional_window_buffer(eval, window),
     }
 }
@@ -2681,7 +2681,7 @@ fn resolve_mode_line_buffer_in_state(
     buffer: Option<&Value>,
 ) -> Option<BufferId> {
     match buffer {
-        Some(Value::Buffer(id)) => Some(*id),
+        Some(ValueKind::Veclike(VecLikeType::Buffer)) => Some(*id),
         _ => resolve_optional_window_buffer_in_state(frames, window),
     }
 }
@@ -2803,9 +2803,9 @@ fn resolve_live_window_identity(
             .selected_frame()
             .map(|frame| (frame.id, frame.selected_window)));
     }
-    let wid = match windowish {
-        Value::Window(id) => WindowId(*id),
-        Value::Int(id) if *id >= 0 => WindowId(*id as u64),
+    let wid = match windowish.kind() {
+        ValueKind::Veclike(VecLikeType::Window) => WindowId(*id),
+        ValueKind::Fixnum(id) if id >= 0 => WindowId(id as u64),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -2829,7 +2829,7 @@ fn resolve_pos_visible_target_lisp_pos(
     pos: Option<&Value>,
 ) -> Result<Option<usize>, Flow> {
     match pos {
-        Some(value) if matches!(value, Value::True) || value.is_symbol_named("t") => {
+        Some(value) if value.is_t() || value.is_symbol_named("t") => {
             Ok(Some(last_visible_row_start_lisp_pos(ctx)))
         }
         Some(value) if !value.is_nil() => {
@@ -2980,16 +2980,16 @@ fn resolve_exact_visible_metrics(
 
 fn make_text_area_position(window_id: WindowId, metrics: ExactVisibleMetrics) -> Value {
     Value::list(vec![
-        Value::Window(window_id.0),
-        Value::Int(metrics.point as i64),
-        Value::cons(Value::Int(metrics.x), Value::Int(metrics.y)),
-        Value::Int(0),
-        Value::Nil,
-        Value::Int(metrics.point as i64),
-        Value::cons(Value::Int(metrics.col), Value::Int(metrics.row)),
-        Value::Nil,
-        Value::cons(Value::Int(0), Value::Int(0)),
-        Value::cons(Value::Int(metrics.width), Value::Int(metrics.height)),
+        Value::make_window(window_id.0),
+        Value::fixnum(metrics.point as i64),
+        Value::cons(Value::fixnum(metrics.x), Value::fixnum(metrics.y)),
+        Value::fixnum(0),
+        Value::NIL,
+        Value::fixnum(metrics.point as i64),
+        Value::cons(Value::fixnum(metrics.col), Value::fixnum(metrics.row)),
+        Value::NIL,
+        Value::cons(Value::fixnum(0), Value::fixnum(0)),
+        Value::cons(Value::fixnum(metrics.width), Value::fixnum(metrics.height)),
     ])
 }
 
@@ -3010,9 +3010,9 @@ fn resolve_posn_at_xy_window(
     if let Some(windowish) = resolve_live_window_identity(frames, Some(frameish))? {
         return Ok(Some((windowish.0, windowish.1, true)));
     }
-    let fid = match frameish {
-        Value::Frame(id) => FrameId(*id),
-        Value::Int(id) if *id >= 0 => FrameId(*id as u64),
+    let fid = match frameish.kind() {
+        ValueKind::Veclike(VecLikeType::Frame) => FrameId(*id),
+        ValueKind::Fixnum(id) if id >= 0 => FrameId(id as u64),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -3040,7 +3040,7 @@ pub(crate) fn builtin_posn_at_point(
         args.first(),
     )?
     else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     Ok(make_text_area_position(window_id, metrics))
 }
@@ -3057,8 +3057,8 @@ fn posn_at_x_y_impl(
 ) -> EvalResult {
     expect_args_range("posn-at-x-y", &args, 2, 4)?;
     let x = match args.first() {
-        Some(Value::Int(v)) => *v,
-        Some(Value::Char(v)) => *v as i64,
+        Some(ValueKind::Fixnum(v)) => *v,
+        Some(ValueKind::Char(v)) => *v as i64,
         Some(other) => {
             return Err(signal(
                 "wrong-type-argument",
@@ -3068,8 +3068,8 @@ fn posn_at_x_y_impl(
         None => unreachable!(),
     };
     let y = match args.get(1) {
-        Some(Value::Int(v)) => *v,
-        Some(Value::Char(v)) => *v as i64,
+        Some(ValueKind::Fixnum(v)) => *v,
+        Some(ValueKind::Char(v)) => *v as i64,
         Some(other) => {
             return Err(signal(
                 "wrong-type-argument",
@@ -3081,16 +3081,16 @@ fn posn_at_x_y_impl(
     let whole = args.get(3).is_some_and(Value::is_truthy);
     let Some((fid, wid, window_relative_input)) = resolve_posn_at_xy_window(frames, args.get(2))?
     else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     let Some(frame) = frames.get(fid) else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     let Some(snapshot) = frame.window_display_snapshot(wid) else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     let Some(window_ref) = frame.find_window(wid) else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
 
     let (query_x, query_y) = if window_relative_input {
@@ -3109,7 +3109,7 @@ fn posn_at_x_y_impl(
     };
 
     let Some(point) = snapshot.point_at_coords(query_x, query_y) else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     Ok(make_text_area_position(
         wid,
@@ -3122,126 +3122,126 @@ fn posn_at_x_y_impl(
 // ---------------------------------------------------------------------------
 
 pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray) {
-    obarray.set_symbol_value("redisplay--inhibit-bidi", Value::True);
-    obarray.set_symbol_value("inhibit-redisplay", Value::Nil);
-    obarray.set_symbol_value("blink-matching-delay", Value::Int(1));
-    obarray.set_symbol_value("blink-matching-paren", Value::True);
-    obarray.set_symbol_value("mouse-autoselect-window", Value::Nil);
-    obarray.set_symbol_value("auto-resize-tab-bars", Value::True);
-    obarray.set_symbol_value("auto-raise-tab-bar-buttons", Value::True);
-    obarray.set_symbol_value("auto-resize-tool-bars", Value::True);
-    obarray.set_symbol_value("auto-raise-tool-bar-buttons", Value::True);
-    obarray.set_symbol_value("tab-bar-truncate", Value::Nil);
+    obarray.set_symbol_value("redisplay--inhibit-bidi", Value::T);
+    obarray.set_symbol_value("inhibit-redisplay", Value::NIL);
+    obarray.set_symbol_value("blink-matching-delay", Value::fixnum(1));
+    obarray.set_symbol_value("blink-matching-paren", Value::T);
+    obarray.set_symbol_value("mouse-autoselect-window", Value::NIL);
+    obarray.set_symbol_value("auto-resize-tab-bars", Value::T);
+    obarray.set_symbol_value("auto-raise-tab-bar-buttons", Value::T);
+    obarray.set_symbol_value("auto-resize-tool-bars", Value::T);
+    obarray.set_symbol_value("auto-raise-tool-bar-buttons", Value::T);
+    obarray.set_symbol_value("tab-bar-truncate", Value::NIL);
     obarray.set_symbol_value("tab-bar-border", Value::symbol("internal-border-width"));
-    obarray.set_symbol_value("tab-bar-button-margin", Value::Int(1));
-    obarray.set_symbol_value("tab-bar-button-relief", Value::Int(1));
+    obarray.set_symbol_value("tab-bar-button-margin", Value::fixnum(1));
+    obarray.set_symbol_value("tab-bar-button-relief", Value::fixnum(1));
     obarray.set_symbol_value("tool-bar-border", Value::symbol("internal-border-width"));
-    obarray.set_symbol_value("tool-bar-button-margin", Value::Int(4));
-    obarray.set_symbol_value("tool-bar-button-relief", Value::Int(1));
-    obarray.set_symbol_value("tool-bar-style", Value::Nil);
-    obarray.set_symbol_value("global-font-lock-mode", Value::Nil);
-    obarray.set_symbol_value("display-line-numbers", Value::Nil);
-    obarray.set_symbol_value("display-line-numbers-type", Value::True);
-    obarray.set_symbol_value("display-line-numbers-width", Value::Nil);
-    obarray.set_symbol_value("display-line-numbers-current-absolute", Value::True);
-    obarray.set_symbol_value("display-line-numbers-widen", Value::Nil);
-    obarray.set_symbol_value("display-fill-column-indicator", Value::Nil);
-    obarray.set_symbol_value("display-fill-column-indicator-column", Value::Nil);
-    obarray.set_symbol_value("display-fill-column-indicator-character", Value::Nil);
-    obarray.set_symbol_value("visible-bell", Value::Nil);
-    obarray.set_symbol_value("no-redraw-on-reenter", Value::Nil);
-    obarray.set_symbol_value("cursor-in-echo-area", Value::Nil);
-    obarray.set_symbol_value("truncate-partial-width-windows", Value::Int(50));
-    obarray.set_symbol_value("mode-line-in-non-selected-windows", Value::True);
-    obarray.set_symbol_value("line-number-display-limit", Value::Nil);
-    obarray.set_symbol_value("highlight-nonselected-windows", Value::Nil);
-    obarray.set_symbol_value("message-truncate-lines", Value::Nil);
-    obarray.set_symbol_value("scroll-step", Value::Int(0));
-    obarray.set_symbol_value("scroll-conservatively", Value::Int(0));
-    obarray.set_symbol_value("scroll-margin", Value::Int(0));
-    obarray.set_symbol_value("hscroll-margin", Value::Int(5));
-    obarray.set_symbol_value("hscroll-step", Value::Int(0));
-    obarray.set_symbol_value("auto-hscroll-mode", Value::True);
+    obarray.set_symbol_value("tool-bar-button-margin", Value::fixnum(4));
+    obarray.set_symbol_value("tool-bar-button-relief", Value::fixnum(1));
+    obarray.set_symbol_value("tool-bar-style", Value::NIL);
+    obarray.set_symbol_value("global-font-lock-mode", Value::NIL);
+    obarray.set_symbol_value("display-line-numbers", Value::NIL);
+    obarray.set_symbol_value("display-line-numbers-type", Value::T);
+    obarray.set_symbol_value("display-line-numbers-width", Value::NIL);
+    obarray.set_symbol_value("display-line-numbers-current-absolute", Value::T);
+    obarray.set_symbol_value("display-line-numbers-widen", Value::NIL);
+    obarray.set_symbol_value("display-fill-column-indicator", Value::NIL);
+    obarray.set_symbol_value("display-fill-column-indicator-column", Value::NIL);
+    obarray.set_symbol_value("display-fill-column-indicator-character", Value::NIL);
+    obarray.set_symbol_value("visible-bell", Value::NIL);
+    obarray.set_symbol_value("no-redraw-on-reenter", Value::NIL);
+    obarray.set_symbol_value("cursor-in-echo-area", Value::NIL);
+    obarray.set_symbol_value("truncate-partial-width-windows", Value::fixnum(50));
+    obarray.set_symbol_value("mode-line-in-non-selected-windows", Value::T);
+    obarray.set_symbol_value("line-number-display-limit", Value::NIL);
+    obarray.set_symbol_value("highlight-nonselected-windows", Value::NIL);
+    obarray.set_symbol_value("message-truncate-lines", Value::NIL);
+    obarray.set_symbol_value("scroll-step", Value::fixnum(0));
+    obarray.set_symbol_value("scroll-conservatively", Value::fixnum(0));
+    obarray.set_symbol_value("scroll-margin", Value::fixnum(0));
+    obarray.set_symbol_value("hscroll-margin", Value::fixnum(5));
+    obarray.set_symbol_value("hscroll-step", Value::fixnum(0));
+    obarray.set_symbol_value("auto-hscroll-mode", Value::T);
     obarray.set_symbol_value("void-text-area-pointer", Value::symbol("arrow"));
-    obarray.set_symbol_value("inhibit-message", Value::Nil);
-    obarray.set_symbol_value("make-cursor-line-fully-visible", Value::True);
-    obarray.set_symbol_value("x-stretch-cursor", Value::Nil);
-    obarray.set_symbol_value("show-trailing-whitespace", Value::Nil);
-    obarray.set_symbol_value("show-paren-context-when-offscreen", Value::Nil);
-    obarray.set_symbol_value("nobreak-char-display", Value::True);
-    obarray.set_symbol_value("overlay-arrow-variable-list", Value::Nil);
+    obarray.set_symbol_value("inhibit-message", Value::NIL);
+    obarray.set_symbol_value("make-cursor-line-fully-visible", Value::T);
+    obarray.set_symbol_value("x-stretch-cursor", Value::NIL);
+    obarray.set_symbol_value("show-trailing-whitespace", Value::NIL);
+    obarray.set_symbol_value("show-paren-context-when-offscreen", Value::NIL);
+    obarray.set_symbol_value("nobreak-char-display", Value::T);
+    obarray.set_symbol_value("overlay-arrow-variable-list", Value::NIL);
     obarray.set_symbol_value("overlay-arrow-string", Value::string("=>"));
-    obarray.set_symbol_value("overlay-arrow-position", Value::Nil);
+    obarray.set_symbol_value("overlay-arrow-position", Value::NIL);
     // Mirror GNU Emacs: set char-table-extra-slots property for all subtypes
     // that need extra slots. Fmake_char_table reads this property to allocate
     // the correct number of extra slots.
     // See: casetab.c:249, category.c:426, character.c:1143, coding.c:11737,
     //      fontset.c:2158-2160, xdisp.c:31594, keymap.c:3346, syntax.c:3659
-    obarray.put_property("case-table", "char-table-extra-slots", Value::Int(3));
-    obarray.put_property("category-table", "char-table-extra-slots", Value::Int(2));
-    obarray.put_property("char-script-table", "char-table-extra-slots", Value::Int(1));
-    obarray.put_property("translation-table", "char-table-extra-slots", Value::Int(2));
-    obarray.put_property("fontset", "char-table-extra-slots", Value::Int(8));
-    obarray.put_property("fontset-info", "char-table-extra-slots", Value::Int(1));
+    obarray.put_property("case-table", "char-table-extra-slots", Value::fixnum(3));
+    obarray.put_property("category-table", "char-table-extra-slots", Value::fixnum(2));
+    obarray.put_property("char-script-table", "char-table-extra-slots", Value::fixnum(1));
+    obarray.put_property("translation-table", "char-table-extra-slots", Value::fixnum(2));
+    obarray.put_property("fontset", "char-table-extra-slots", Value::fixnum(8));
+    obarray.put_property("fontset-info", "char-table-extra-slots", Value::fixnum(1));
     obarray.put_property(
         "glyphless-char-display",
         "char-table-extra-slots",
-        Value::Int(1),
+        Value::fixnum(1),
     );
-    obarray.put_property("keymap", "char-table-extra-slots", Value::Int(0));
-    obarray.put_property("syntax-table", "char-table-extra-slots", Value::Int(0));
+    obarray.put_property("keymap", "char-table-extra-slots", Value::fixnum(0));
+    obarray.put_property("syntax-table", "char-table-extra-slots", Value::fixnum(0));
     obarray.set_symbol_value(
         "char-script-table",
-        make_char_table_with_extra_slots(Value::symbol("char-script-table"), Value::Nil, 1),
+        make_char_table_with_extra_slots(Value::symbol("char-script-table"), Value::NIL, 1),
     );
-    obarray.set_symbol_value("pre-redisplay-function", Value::Nil);
-    obarray.set_symbol_value("pre-redisplay-functions", Value::Nil);
+    obarray.set_symbol_value("pre-redisplay-function", Value::NIL);
+    obarray.set_symbol_value("pre-redisplay-functions", Value::NIL);
 
     // auto-fill-chars: a char-table for characters which invoke auto-filling.
     // Official Emacs (character.c) creates it with sub-type `auto-fill-chars`
     // and sets space and newline to t.
-    let auto_fill = make_char_table_value(Value::symbol("auto-fill-chars"), Value::Nil);
+    let auto_fill = make_char_table_value(Value::symbol("auto-fill-chars"), Value::NIL);
     // Set space and newline entries to t.  We use set-char-table-range
     // via the underlying data: store single-char entries.
     use super::chartable::ct_set_single;
-    ct_set_single(&auto_fill, ' ' as i64, Value::True);
-    ct_set_single(&auto_fill, '\n' as i64, Value::True);
+    ct_set_single(&auto_fill, ' ' as i64, Value::T);
+    ct_set_single(&auto_fill, '\n' as i64, Value::T);
     obarray.set_symbol_value("auto-fill-chars", auto_fill);
 
     // char-width-table: a char-table for character display widths.
     // Official Emacs (character.c) creates it with default 1.
     obarray.set_symbol_value(
         "char-width-table",
-        make_char_table_value(Value::symbol("char-width-table"), Value::Int(1)),
+        make_char_table_value(Value::symbol("char-width-table"), Value::fixnum(1)),
     );
 
     // translation-table-vector: vector recording all translation tables.
     // Official Emacs (character.c) creates a 16-element nil vector.
     obarray.set_symbol_value(
         "translation-table-vector",
-        Value::vector(vec![Value::Nil; 16]),
+        Value::vector(vec![Value::NIL; 16]),
     );
 
     // translation-hash-table-vector: vector of translation hash tables.
     // Official Emacs (ccl.c) initializes to nil.
-    obarray.set_symbol_value("translation-hash-table-vector", Value::Nil);
+    obarray.set_symbol_value("translation-hash-table-vector", Value::NIL);
 
     // printable-chars: a char-table of printable characters.
     // Official Emacs (character.c) creates it with default t.
     obarray.set_symbol_value(
         "printable-chars",
-        make_char_table_value(Value::symbol("printable-chars"), Value::True),
+        make_char_table_value(Value::symbol("printable-chars"), Value::T),
     );
 
     // default-process-coding-system: cons of coding systems for process I/O.
     // Official Emacs (coding.c) initializes to nil.
-    obarray.set_symbol_value("default-process-coding-system", Value::Nil);
+    obarray.set_symbol_value("default-process-coding-system", Value::NIL);
 
     // ambiguous-width-chars: char-table for characters whose width can be 1 or 2.
     // Official Emacs (character.c) creates empty char-table; populated by characters.el.
     obarray.set_symbol_value(
         "ambiguous-width-chars",
-        make_char_table_value(Value::Nil, Value::Nil),
+        make_char_table_value(Value::NIL, Value::NIL),
     );
 
     // text-property-default-nonsticky: alist of properties vs non-stickiness.
@@ -3249,8 +3249,8 @@ pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray)
     obarray.set_symbol_value(
         "text-property-default-nonsticky",
         Value::list(vec![
-            Value::cons(Value::symbol("syntax-table"), Value::True),
-            Value::cons(Value::symbol("display"), Value::True),
+            Value::cons(Value::symbol("syntax-table"), Value::T),
+            Value::cons(Value::symbol("display"), Value::T),
         ]),
     );
 }

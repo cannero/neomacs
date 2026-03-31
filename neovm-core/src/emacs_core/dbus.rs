@@ -6,13 +6,13 @@
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
-use super::value::Value;
+use super::value::{Value, ValueKind};
 
 fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -32,7 +32,7 @@ fn expect_range_args(
     if out_of_range {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -40,8 +40,8 @@ fn expect_range_args(
 }
 
 fn expect_symbolp(value: &Value) -> Result<String, Flow> {
-    match value {
-        Value::Symbol(id) | Value::Keyword(id) => Ok(resolve_sym(*id).to_owned()),
+    match value.kind() {
+        ValueKind::Symbol(id) | ValueKind::Keyword(id) => Ok(resolve_sym(id).to_owned()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), *other],
@@ -50,9 +50,9 @@ fn expect_symbolp(value: &Value) -> Result<String, Flow> {
 }
 
 fn expect_wholenump(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) if *n >= 0 => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) if n >= 0 => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("wholenump"), *other],
@@ -74,7 +74,7 @@ pub(crate) fn builtin_dbus_init_bus(args: Vec<Value>) -> EvalResult {
     expect_range_args("dbus--init-bus", &args, 1, Some(2))?;
     let bus = expect_symbolp(&args[0])?;
     if recognized_bus_name(&bus) {
-        Ok(Value::Int(2))
+        Ok(Value::fixnum(2))
     } else {
         Err(dbus_error("Wrong bus name", Value::symbol(bus)))
     }
@@ -96,9 +96,9 @@ pub(crate) fn builtin_dbus_message_internal(args: Vec<Value>) -> EvalResult {
     expect_range_args("dbus-message-internal", &args, 4, None)?;
     let _bus_id = expect_wholenump(&args[0])?;
 
-    match &args[1] {
-        Value::Symbol(_) | Value::Keyword(_) => Ok(Value::Nil),
-        Value::Str(id) => {
+    match args[1].kind() {
+        ValueKind::Symbol(_) | ValueKind::Keyword(_) => Ok(Value::NIL),
+        ValueKind::String => {
             let dest = crate::emacs_core::value::with_heap(|h| h.get_string(*id).to_owned());
             if !dest.contains(':') {
                 Err(signal(
@@ -108,10 +108,10 @@ pub(crate) fn builtin_dbus_message_internal(args: Vec<Value>) -> EvalResult {
             } else if args.len() == 4 {
                 Err(signal(
                     "wrong-number-of-arguments",
-                    vec![Value::symbol("dbus-message-internal"), Value::Int(4)],
+                    vec![Value::symbol("dbus-message-internal"), ValueKind::Fixnum(4)],
                 ))
             } else {
-                Ok(Value::Nil)
+                Ok(ValueKind::Nil)
             }
         }
         other => Err(signal(

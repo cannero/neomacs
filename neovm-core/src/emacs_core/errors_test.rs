@@ -2,6 +2,7 @@ use super::super::intern::intern;
 use super::*;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
 use crate::emacs_core::{Context, format_eval_result, parse_forms};
+use crate::emacs_core::value::{ValueKind};
 
 fn bootstrap_context() -> Context {
     let mut evaluator = create_bootstrap_evaluator_cached().expect("bootstrap");
@@ -401,7 +402,7 @@ fn define_error_too_many_args() {
 #[test]
 fn builtin_signal_basic() {
     let mut eval = super::super::eval::Context::new();
-    let args = vec![Value::symbol("void-variable"), Value::Nil];
+    let args = vec![Value::symbol("void-variable"), Value::NIL];
     let result = builtin_signal(&mut eval, args);
     assert!(result.is_err());
     match result {
@@ -431,12 +432,12 @@ fn builtin_signal_with_data() {
 #[test]
 fn builtin_signal_atom_preserves_raw_payload() {
     let mut eval = super::super::eval::Context::new();
-    let result = builtin_signal(&mut eval, vec![Value::symbol("error"), Value::Int(1)]);
+    let result = builtin_signal(&mut eval, vec![Value::symbol("error"), Value::fixnum(1)]);
     match result {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
-            assert_eq!(sig.data, vec![Value::Int(1)]);
-            assert_eq!(sig.raw_data, Some(Value::Int(1)));
+            assert_eq!(sig.data, vec![ValueKind::Fixnum(1)]);
+            assert_eq!(sig.raw_data, Some(ValueKind::Fixnum(1)));
         }
         _ => panic!("expected signal"),
     }
@@ -449,7 +450,7 @@ fn condition_case_preserves_raw_signal_binding_shape() {
     let value = eval
         .eval_expr(&forms[0])
         .expect("condition-case should catch signal");
-    assert_eq!(value, Value::cons(Value::symbol("error"), Value::Int(1)));
+    assert_eq!(value, Value::cons(Value::symbol("error"), Value::fixnum(1)));
 }
 
 #[test]
@@ -462,7 +463,7 @@ fn builtin_signal_wrong_arity() {
 #[test]
 fn builtin_signal_non_symbol() {
     let mut eval = super::super::eval::Context::new();
-    let result = builtin_signal(&mut eval, vec![Value::Int(42), Value::Nil]);
+    let result = builtin_signal(&mut eval, vec![Value::fixnum(42), Value::NIL]);
     assert!(result.is_err());
 }
 
@@ -523,9 +524,9 @@ fn builtin_error_message_string_unknown() {
 
     let err_data_payload = Value::list(vec![
         Value::symbol("mystery-error"),
-        Value::Int(1),
-        Value::Int(2),
-        Value::Int(3),
+        Value::fixnum(1),
+        Value::fixnum(2),
+        Value::fixnum(3),
     ]);
     let payload_result = builtin_error_message_string(&mut evaluator, vec![err_data_payload]);
     assert!(payload_result.is_ok());
@@ -571,7 +572,7 @@ fn builtin_error_message_string_error_with_string_and_extra() {
     let err_data = Value::list(vec![
         Value::symbol("error"),
         Value::string("abc"),
-        Value::Int(1),
+        Value::fixnum(1),
     ]);
     let result = builtin_error_message_string(&mut evaluator, vec![err_data]);
     assert!(result.is_ok());
@@ -587,7 +588,7 @@ fn builtin_error_message_string_user_error_variants() {
     let with_string = Value::list(vec![
         Value::symbol("user-error"),
         Value::string("u"),
-        Value::Int(1),
+        Value::fixnum(1),
     ]);
     let with_string_result = builtin_error_message_string(&mut evaluator, vec![with_string]);
     assert!(with_string_result.is_ok());
@@ -644,7 +645,7 @@ fn builtin_error_message_string_peculiar_error_paths() {
     let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
-    let error_single = Value::list(vec![Value::symbol("error"), Value::Int(1)]);
+    let error_single = Value::list(vec![Value::symbol("error"), Value::fixnum(1)]);
     let error_single_result = builtin_error_message_string(&mut evaluator, vec![error_single]);
     assert!(error_single_result.is_ok());
     assert_eq!(
@@ -652,7 +653,7 @@ fn builtin_error_message_string_peculiar_error_paths() {
         Some("peculiar error")
     );
 
-    let error_double = Value::list(vec![Value::symbol("error"), Value::Int(1), Value::Int(2)]);
+    let error_double = Value::list(vec![Value::symbol("error"), Value::fixnum(1), Value::fixnum(2)]);
     let error_double_result = builtin_error_message_string(&mut evaluator, vec![error_double]);
     assert!(error_double_result.is_ok());
     assert_eq!(
@@ -662,9 +663,9 @@ fn builtin_error_message_string_peculiar_error_paths() {
 
     let error_triple = Value::list(vec![
         Value::symbol("error"),
-        Value::Int(1),
-        Value::Int(2),
-        Value::Int(3),
+        Value::fixnum(1),
+        Value::fixnum(2),
+        Value::fixnum(3),
     ]);
     let error_triple_result = builtin_error_message_string(&mut evaluator, vec![error_triple]);
     assert!(error_triple_result.is_ok());
@@ -673,15 +674,15 @@ fn builtin_error_message_string_peculiar_error_paths() {
         Some("peculiar error: 2, 3")
     );
 
-    let file_single = Value::list(vec![Value::symbol("file-error"), Value::Int(1)]);
+    let file_single = Value::list(vec![Value::symbol("file-error"), Value::fixnum(1)]);
     let file_single_result = builtin_error_message_string(&mut evaluator, vec![file_single]);
     assert!(file_single_result.is_ok());
     assert_eq!(file_single_result.unwrap().as_str(), Some("peculiar error"));
 
     let file_double = Value::list(vec![
         Value::symbol("file-error"),
-        Value::Int(1),
-        Value::Int(2),
+        Value::fixnum(1),
+        Value::fixnum(2),
     ]);
     let file_double_result = builtin_error_message_string(&mut evaluator, vec![file_double]);
     assert!(file_double_result.is_ok());
@@ -692,9 +693,9 @@ fn builtin_error_message_string_peculiar_error_paths() {
 
     let file_triple = Value::list(vec![
         Value::symbol("file-error"),
-        Value::Int(1),
-        Value::Int(2),
-        Value::Int(3),
+        Value::fixnum(1),
+        Value::fixnum(2),
+        Value::fixnum(3),
     ]);
     let file_triple_result = builtin_error_message_string(&mut evaluator, vec![file_triple]);
     assert!(file_triple_result.is_ok());
@@ -705,9 +706,9 @@ fn builtin_error_message_string_peculiar_error_paths() {
 
     let file_missing_triple = Value::list(vec![
         Value::symbol("file-missing"),
-        Value::Int(1),
-        Value::Int(2),
-        Value::Int(3),
+        Value::fixnum(1),
+        Value::fixnum(2),
+        Value::fixnum(3),
     ]);
     let file_missing_triple_result =
         builtin_error_message_string(&mut evaluator, vec![file_missing_triple]);
@@ -757,7 +758,7 @@ fn builtin_error_message_string_args_out_of_range_uses_base_message() {
     let err_data = Value::list(vec![
         Value::symbol("args-out-of-range"),
         Value::string("abc"),
-        Value::Int(9),
+        Value::fixnum(9),
     ]);
     let result = builtin_error_message_string(&mut evaluator, vec![err_data]);
     assert!(result.is_ok());
@@ -775,8 +776,8 @@ fn builtin_error_message_string_formats_buffer_handles_with_names() {
     let live_id = evaluator.buffers.create_buffer("*ems-live*");
     let live_err = Value::list(vec![
         Value::symbol("args-out-of-range"),
-        Value::Buffer(live_id),
-        Value::Int(0),
+        Value::make_buffer(live_id),
+        Value::fixnum(0),
     ]);
     let live_result = builtin_error_message_string(&mut evaluator, vec![live_err]);
     assert!(live_result.is_ok());
@@ -789,8 +790,8 @@ fn builtin_error_message_string_formats_buffer_handles_with_names() {
     assert!(evaluator.buffers.kill_buffer(dead_id));
     let dead_err = Value::list(vec![
         Value::symbol("args-out-of-range"),
-        Value::Buffer(dead_id),
-        Value::Int(0),
+        Value::make_buffer(dead_id),
+        Value::fixnum(0),
     ]);
     let dead_result = builtin_error_message_string(&mut evaluator, vec![dead_err]);
     assert!(dead_result.is_ok());
@@ -812,7 +813,7 @@ fn builtin_error_message_string_formats_mutex_and_condvar_handles() {
     let mutex_err = Value::list(vec![
         Value::symbol("args-out-of-range"),
         mutex,
-        Value::Int(0),
+        Value::fixnum(0),
     ]);
     let mutex_result = builtin_error_message_string(&mut evaluator, vec![mutex_err]);
     assert!(mutex_result.is_ok());
@@ -833,7 +834,7 @@ fn builtin_error_message_string_formats_mutex_and_condvar_handles() {
     let condvar_err = Value::list(vec![
         Value::symbol("args-out-of-range"),
         condvar,
-        Value::Int(0),
+        Value::fixnum(0),
     ]);
     let condvar_result = builtin_error_message_string(&mut evaluator, vec![condvar_err]);
     assert!(condvar_result.is_ok());
@@ -856,7 +857,7 @@ fn builtin_error_message_string_formats_thread_handles() {
     let thread_err = Value::list(vec![
         Value::symbol("args-out-of-range"),
         thread,
-        Value::Int(0),
+        Value::fixnum(0),
     ]);
     let thread_result = builtin_error_message_string(&mut evaluator, vec![thread_err]);
     assert!(thread_result.is_ok());
@@ -883,7 +884,7 @@ fn builtin_error_message_string_formats_terminal_handles() {
     let terminal_err = Value::list(vec![
         Value::symbol("args-out-of-range"),
         terminal,
-        Value::Int(0),
+        Value::fixnum(0),
     ]);
     let terminal_result = builtin_error_message_string(&mut evaluator, vec![terminal_err]);
     assert!(terminal_result.is_ok());
@@ -906,7 +907,7 @@ fn builtin_error_message_string_formats_frame_and_window_handles() {
     let frame_err = Value::list(vec![
         Value::symbol("args-out-of-range"),
         frame,
-        Value::Int(0),
+        Value::fixnum(0),
     ]);
     let frame_result = builtin_error_message_string(&mut evaluator, vec![frame_err]);
     assert!(frame_result.is_ok());
@@ -923,7 +924,7 @@ fn builtin_error_message_string_formats_frame_and_window_handles() {
     let window_err = Value::list(vec![
         Value::symbol("args-out-of-range"),
         window,
-        Value::Int(0),
+        Value::fixnum(0),
     ]);
     let window_result = builtin_error_message_string(&mut evaluator, vec![window_err]);
     assert!(window_result.is_ok());
@@ -941,12 +942,12 @@ fn builtin_error_message_string_not_cons() {
     let mut evaluator = super::super::eval::Context::new();
 
     // Non-list input signals wrong-type-argument (listp VALUE).
-    let result = builtin_error_message_string(&mut evaluator, vec![Value::Int(42)]);
+    let result = builtin_error_message_string(&mut evaluator, vec![Value::fixnum(42)]);
     assert!(result.is_err());
     match result {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("listp"), Value::Int(42)]);
+            assert_eq!(sig.data, vec![Value::symbol("listp"), ValueKind::Fixnum(42)]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
@@ -966,12 +967,12 @@ fn builtin_error_message_string_symbol_input_is_wrong_type() {
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
 
-    let result_true = builtin_error_message_string(&mut evaluator, vec![Value::True]);
+    let result_true = builtin_error_message_string(&mut evaluator, vec![Value::T]);
     assert!(result_true.is_err());
     match result_true {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("listp"), Value::True]);
+            assert_eq!(sig.data, vec![Value::symbol("listp"), ValueKind::T]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }

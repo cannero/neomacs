@@ -3,7 +3,7 @@ use crate::emacs_core::Value;
 
 #[test]
 fn op_disasm_constant() {
-    let constants = vec![Value::Int(42)];
+    let constants = vec![Value::fixnum(42)];
     assert_eq!(Op::Constant(0).disasm(&constants), "constant 0 ; 42");
 }
 

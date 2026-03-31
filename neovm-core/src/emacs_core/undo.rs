@@ -16,7 +16,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -27,7 +27,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -38,7 +38,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -46,8 +46,8 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 }
 
 fn expect_int(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *other],
@@ -83,7 +83,7 @@ pub(crate) fn builtin_undo_boundary(
         return Err(signal("error", vec![Value::string("No current buffer")]));
     };
     let _ = ctx.buffers.add_undo_boundary(current_id);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (primitive-undo COUNT LIST) -> remainder of LIST
@@ -121,7 +121,7 @@ pub(crate) fn builtin_primitive_undo(
     // Save and set inhibit-read-only to t during undo.
     let saved_inhibit = ctx.obarray.symbol_value("inhibit-read-only").copied();
     ctx.obarray
-        .set_symbol_value("inhibit-read-only", Value::True);
+        .set_symbol_value("inhibit-read-only", Value::T);
 
     // Mark undo as in-progress so that the buffer edits we make
     // do NOT record new undo entries (they are reverse-operations).
@@ -146,7 +146,7 @@ pub(crate) fn builtin_primitive_undo(
         Some(v) => ctx.obarray.set_symbol_value("inhibit-read-only", v),
         None => ctx
             .obarray
-            .set_symbol_value("inhibit-read-only", Value::Nil),
+            .set_symbol_value("inhibit-read-only", ValueKind::Nil),
     }
 
     result
@@ -182,7 +182,7 @@ fn primitive_undo_inner(
             }
 
             // Integer POS: goto-char
-            if let Value::Int(pos1) = entry {
+            if let Some(pos1) = entry.as_fixnum() {
                 let pos = (pos1 - 1).max(0) as usize;
                 let clamped = ctx
                     .buffers
@@ -201,9 +201,9 @@ fn primitive_undo_inner(
             let car = entry.cons_car();
             let cdr = entry.cons_cdr();
 
-            match (car, cdr) {
+            match (car.kind(), cdr.kind()) {
                 // (BEG . END) both integers — undo an insertion by deleting.
-                (Value::Int(beg1), Value::Int(end1)) => {
+                (ValueKind::Fixnum(beg1), ValueKind::Fixnum(end1)) => {
                     let beg = (beg1 - 1).max(0) as usize;
                     let end = (end1 - 1).max(0) as usize;
                     if let Some(buf) = ctx.buffers.get(buf_id) {
@@ -214,7 +214,7 @@ fn primitive_undo_inner(
                     }
                 }
                 // (TEXT . POS) string + int — undo a deletion by re-inserting.
-                (Value::Str(_), Value::Int(pos1)) => {
+                (ValueKind::String, ValueKind::Fixnum(pos1)) => {
                     let text = car.as_str_owned().unwrap_or_default();
                     let pos = (pos1.abs() - 1).max(0) as usize;
                     if let Some(buf) = ctx.buffers.get(buf_id) {
@@ -230,7 +230,7 @@ fn primitive_undo_inner(
                     }
                 }
                 // (t . MODTIME) — restore buffer-modified state.
-                (Value::True, Value::Int(modtime)) => {
+                (ValueKind::T, ValueKind::Fixnum(modtime)) => {
                     if modtime == 0 {
                         // modtime 0 means mark buffer as unmodified.
                         let _ = ctx.buffers.set_buffer_modified_flag(buf_id, false);
@@ -239,7 +239,7 @@ fn primitive_undo_inner(
                     // for now we just skip those.
                 }
                 // (nil PROP VAL BEG . END) — restore text property.
-                (Value::Nil, _) => {
+                (ValueKind::Nil, _) => {
                     // cdr is (PROP VAL BEG . END)
                     if cdr.is_cons() {
                         let prop = cdr.cons_car();
@@ -250,7 +250,7 @@ fn primitive_undo_inner(
                             if rest2.is_cons() {
                                 let beg_val = rest2.cons_car();
                                 let end_val = rest2.cons_cdr();
-                                if let (Value::Int(b), Value::Int(e)) = (beg_val, end_val) {
+                                if let (ValueKind::Fixnum(b), ValueKind::Fixnum(e)) = (beg_val, end_val) {
                                     let byte_beg = (b - 1).max(0) as usize;
                                     let byte_end = (e - 1).max(0) as usize;
                                     if let Some(prop_name) = prop.as_symbol_name() {
@@ -285,7 +285,7 @@ fn primitive_undo_inner(
                     }
                 }
                 // (MARKER . OFFSET) — adjust marker; skip for now.
-                (Value::Marker(_), Value::Int(_)) => {
+                (ValueKind::Veclike(VecLikeType::Marker), ValueKind::Fixnum(_)) => {
                     // Marker adjustment is rarely critical; skip.
                 }
                 _ => {

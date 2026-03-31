@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::value::{ValueKind};
 
 #[test]
 fn zlib_decompress_region_arity_and_type_validation() {
@@ -6,16 +7,16 @@ fn zlib_decompress_region_arity_and_type_validation() {
     assert!(arity.is_err());
 
     let too_many =
-        builtin_zlib_decompress_region(vec![Value::Int(1), Value::Int(1), Value::Nil, Value::Nil]);
+        builtin_zlib_decompress_region(vec![Value::fixnum(1), Value::fixnum(1), Value::NIL, Value::NIL]);
     assert!(too_many.is_err());
 
-    let bad_type = builtin_zlib_decompress_region(vec![Value::string("x"), Value::Int(1)]);
+    let bad_type = builtin_zlib_decompress_region(vec![Value::string("x"), Value::fixnum(1)]);
     assert!(bad_type.is_err());
 }
 
 #[test]
 fn zlib_decompress_region_signals_unibyte_requirement() {
-    let result = builtin_zlib_decompress_region(vec![Value::Int(1), Value::Int(1)])
+    let result = builtin_zlib_decompress_region(vec![Value::fixnum(1), Value::fixnum(1)])
         .expect_err("must signal error in multibyte buffers");
     match result {
         Flow::Signal(sig) => {
@@ -33,22 +34,22 @@ fn zlib_decompress_region_signals_unibyte_requirement() {
 
 #[test]
 fn libxml_parse_xml_region_arity_and_type_subset() {
-    assert_eq!(builtin_libxml_parse_xml_region(vec![]).unwrap(), Value::Nil);
+    assert_eq!(builtin_libxml_parse_xml_region(vec![]).unwrap(), Value::NIL);
     assert_eq!(
-        builtin_libxml_parse_xml_region(vec![Value::Nil]).unwrap(),
-        Value::Nil
+        builtin_libxml_parse_xml_region(vec![Value::NIL]).unwrap(),
+        Value::NIL
     );
     assert_eq!(
-        builtin_libxml_parse_xml_region(vec![Value::Int(1), Value::Int(1)]).unwrap(),
-        Value::Nil
+        builtin_libxml_parse_xml_region(vec![Value::fixnum(1), Value::fixnum(1)]).unwrap(),
+        Value::NIL
     );
     assert_eq!(
-        builtin_libxml_parse_xml_region(vec![Value::Nil, Value::Int(1)]).unwrap(),
-        Value::Nil
+        builtin_libxml_parse_xml_region(vec![Value::NIL, Value::fixnum(1)]).unwrap(),
+        Value::NIL
     );
 
     let wrong_type =
-        builtin_libxml_parse_xml_region(vec![Value::string("x"), Value::Int(1)]).unwrap_err();
+        builtin_libxml_parse_xml_region(vec![Value::string("x"), Value::fixnum(1)]).unwrap_err();
     match wrong_type {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -60,22 +61,22 @@ fn libxml_parse_xml_region_arity_and_type_subset() {
         other => panic!("unexpected flow: {other:?}"),
     }
     let wrong_base =
-        builtin_libxml_parse_xml_region(vec![Value::Int(1), Value::Int(2), Value::Int(1)])
+        builtin_libxml_parse_xml_region(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(1)])
             .unwrap_err();
     match wrong_base {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
 
     let wrong_arity = builtin_libxml_parse_xml_region(vec![
-        Value::Int(1),
-        Value::Int(1),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::fixnum(1),
+        Value::fixnum(1),
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
     ])
     .unwrap_err();
     match wrong_arity {
@@ -83,7 +84,7 @@ fn libxml_parse_xml_region_arity_and_type_subset() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("libxml-parse-xml-region"), Value::Int(5)]
+                vec![Value::symbol("libxml-parse-xml-region"), ValueKind::Fixnum(5)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -97,32 +98,32 @@ fn libxml_parse_html_region_arity_and_type_subset() {
         html_parse_fallback("libxml-parse-html-region", &[])
     );
     assert_eq!(
-        builtin_libxml_parse_html_region(vec![Value::Nil]).unwrap(),
-        html_parse_fallback("libxml-parse-html-region", &[Value::Nil])
+        builtin_libxml_parse_html_region(vec![Value::NIL]).unwrap(),
+        html_parse_fallback("libxml-parse-html-region", &[Value::NIL])
     );
     assert_eq!(
-        builtin_libxml_parse_html_region(vec![Value::Int(1)]).unwrap(),
-        html_parse_fallback("libxml-parse-html-region", &[Value::Int(1)])
+        builtin_libxml_parse_html_region(vec![Value::fixnum(1)]).unwrap(),
+        html_parse_fallback("libxml-parse-html-region", &[Value::fixnum(1)])
     );
     assert_eq!(
-        builtin_libxml_parse_html_region(vec![Value::Int(1), Value::Nil]).unwrap(),
-        html_parse_fallback("libxml-parse-html-region", &[Value::Int(1), Value::Nil])
+        builtin_libxml_parse_html_region(vec![Value::fixnum(1), Value::NIL]).unwrap(),
+        html_parse_fallback("libxml-parse-html-region", &[Value::fixnum(1), Value::NIL])
     );
     assert_eq!(
-        builtin_libxml_parse_html_region(vec![Value::Nil, Value::Int(1)]).unwrap(),
-        Value::Nil
+        builtin_libxml_parse_html_region(vec![Value::NIL, Value::fixnum(1)]).unwrap(),
+        Value::NIL
     );
     assert_eq!(
-        builtin_libxml_parse_html_region(vec![Value::Int(1), Value::Int(1)]).unwrap(),
-        Value::Nil
+        builtin_libxml_parse_html_region(vec![Value::fixnum(1), Value::fixnum(1)]).unwrap(),
+        Value::NIL
     );
     assert_eq!(
-        builtin_libxml_parse_html_region(vec![Value::Int(1), Value::Int(2)]).unwrap(),
-        html_parse_fallback("libxml-parse-html-region", &[Value::Int(1), Value::Int(2)])
+        builtin_libxml_parse_html_region(vec![Value::fixnum(1), Value::fixnum(2)]).unwrap(),
+        html_parse_fallback("libxml-parse-html-region", &[Value::fixnum(1), Value::fixnum(2)])
     );
 
     let wrong_type =
-        builtin_libxml_parse_html_region(vec![Value::string("x"), Value::Int(1)]).unwrap_err();
+        builtin_libxml_parse_html_region(vec![Value::string("x"), Value::fixnum(1)]).unwrap_err();
     match wrong_type {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -134,22 +135,22 @@ fn libxml_parse_html_region_arity_and_type_subset() {
         other => panic!("unexpected flow: {other:?}"),
     }
     let wrong_base =
-        builtin_libxml_parse_html_region(vec![Value::Int(1), Value::Int(2), Value::Int(1)])
+        builtin_libxml_parse_html_region(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(1)])
             .unwrap_err();
     match wrong_base {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(1)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
 
     let wrong_arity = builtin_libxml_parse_html_region(vec![
-        Value::Int(1),
-        Value::Int(1),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::fixnum(1),
+        Value::fixnum(1),
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
     ])
     .unwrap_err();
     match wrong_arity {
@@ -157,7 +158,7 @@ fn libxml_parse_html_region_arity_and_type_subset() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("libxml-parse-html-region"), Value::Int(5)]
+                vec![Value::symbol("libxml-parse-html-region"), ValueKind::Fixnum(5)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -166,28 +167,28 @@ fn libxml_parse_html_region_arity_and_type_subset() {
 
 #[test]
 fn availability_probes_return_true_and_validate_arity() {
-    assert_eq!(builtin_libxml_available_p(vec![]).unwrap(), Value::True);
-    assert_eq!(builtin_zlib_available_p(vec![]).unwrap(), Value::True);
+    assert_eq!(builtin_libxml_available_p(vec![]).unwrap(), Value::T);
+    assert_eq!(builtin_zlib_available_p(vec![]).unwrap(), Value::T);
 
-    let libxml_arity = builtin_libxml_available_p(vec![Value::Int(1)]).unwrap_err();
+    let libxml_arity = builtin_libxml_available_p(vec![Value::fixnum(1)]).unwrap_err();
     match libxml_arity {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("libxml-available-p"), Value::Int(1)]
+                vec![Value::symbol("libxml-available-p"), ValueKind::Fixnum(1)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    let zlib_arity = builtin_zlib_available_p(vec![Value::Int(1)]).unwrap_err();
+    let zlib_arity = builtin_zlib_available_p(vec![Value::fixnum(1)]).unwrap_err();
     match zlib_arity {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("zlib-available-p"), Value::Int(1)]
+                vec![Value::symbol("zlib-available-p"), ValueKind::Fixnum(1)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),

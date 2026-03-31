@@ -5,6 +5,7 @@ use crate::emacs_core::dispnew::pure::{
 };
 use crate::emacs_core::intern::resolve_sym;
 use crate::emacs_core::terminal::pure::{
+use crate::emacs_core::value::{ValueKind};
     builtin_controlling_tty_p, builtin_frame_terminal, builtin_resume_tty,
     builtin_selected_terminal, builtin_set_terminal_parameter, builtin_suspend_tty,
     builtin_terminal_live_p, builtin_terminal_name, builtin_terminal_parameter,
@@ -19,7 +20,7 @@ fn clear_terminal_parameters() {
 #[test]
 fn x_window_system_active_falls_back_to_window_system_when_initial_is_nil() {
     let mut eval = crate::emacs_core::Context::new();
-    eval.set_variable("initial-window-system", Value::Nil);
+    eval.set_variable("initial-window-system", Value::NIL);
     eval.set_variable("window-system", Value::symbol(gui_window_system_symbol()));
 
     assert!(x_window_system_active(&eval));
@@ -32,20 +33,20 @@ fn terminal_parameter_exposes_oracle_defaults() {
     let mut eval = crate::emacs_core::Context::new();
     let normal = builtin_terminal_parameter(
         &mut eval,
-        vec![Value::Nil, Value::symbol("normal-erase-is-backspace")],
+        vec![Value::NIL, Value::symbol("normal-erase-is-backspace")],
     )
     .unwrap();
-    assert_eq!(normal, Value::Int(0));
+    assert_eq!(normal, Value::fixnum(0));
 
     let keyboard = builtin_terminal_parameter(
         &mut eval,
-        vec![Value::Nil, Value::symbol("keyboard-coding-saved-meta-mode")],
+        vec![Value::NIL, Value::symbol("keyboard-coding-saved-meta-mode")],
     )
     .unwrap();
-    assert_eq!(keyboard, Value::list(vec![Value::True]));
+    assert_eq!(keyboard, Value::list(vec![Value::T]));
 
     let missing =
-        builtin_terminal_parameter(&mut eval, vec![Value::Nil, Value::symbol("neovm-param")])
+        builtin_terminal_parameter(&mut eval, vec![Value::NIL, Value::symbol("neovm-param")])
             .unwrap();
     assert!(missing.is_nil());
 }
@@ -56,15 +57,15 @@ fn terminal_parameter_round_trips() {
     let mut eval = crate::emacs_core::Context::new();
     let set_result = builtin_set_terminal_parameter(
         &mut eval,
-        vec![Value::Nil, Value::symbol("neovm-param"), Value::Int(42)],
+        vec![Value::NIL, Value::symbol("neovm-param"), Value::fixnum(42)],
     )
     .unwrap();
     assert!(set_result.is_nil());
 
     let get_result =
-        builtin_terminal_parameter(&mut eval, vec![Value::Nil, Value::symbol("neovm-param")])
+        builtin_terminal_parameter(&mut eval, vec![Value::NIL, Value::symbol("neovm-param")])
             .unwrap();
-    assert_eq!(get_result, Value::Int(42));
+    assert_eq!(get_result, Value::fixnum(42));
 }
 
 #[test]
@@ -74,24 +75,24 @@ fn set_terminal_parameter_returns_previous_default_values() {
     let previous_normal = builtin_set_terminal_parameter(
         &mut eval,
         vec![
-            Value::Nil,
+            Value::NIL,
             Value::symbol("normal-erase-is-backspace"),
-            Value::Int(9),
+            Value::fixnum(9),
         ],
     )
     .unwrap();
-    assert_eq!(previous_normal, Value::Int(0));
+    assert_eq!(previous_normal, Value::fixnum(0));
 
     let previous_keyboard = builtin_set_terminal_parameter(
         &mut eval,
         vec![
-            Value::Nil,
+            Value::NIL,
             Value::symbol("keyboard-coding-saved-meta-mode"),
-            Value::Nil,
+            Value::NIL,
         ],
     )
     .unwrap();
-    assert_eq!(previous_keyboard, Value::list(vec![Value::True]));
+    assert_eq!(previous_keyboard, Value::list(vec![Value::T]));
 }
 
 #[test]
@@ -100,28 +101,28 @@ fn terminal_parameter_distinct_keys_do_not_alias() {
     let mut eval = crate::emacs_core::Context::new();
     builtin_set_terminal_parameter(
         &mut eval,
-        vec![Value::Nil, Value::symbol("k1"), Value::Int(1)],
+        vec![Value::NIL, Value::symbol("k1"), Value::fixnum(1)],
     )
     .unwrap();
     builtin_set_terminal_parameter(
         &mut eval,
-        vec![Value::Nil, Value::symbol("k2"), Value::Int(2)],
+        vec![Value::NIL, Value::symbol("k2"), Value::fixnum(2)],
     )
     .unwrap();
 
     let first =
-        builtin_terminal_parameter(&mut eval, vec![Value::Nil, Value::symbol("k1")]).unwrap();
+        builtin_terminal_parameter(&mut eval, vec![Value::NIL, Value::symbol("k1")]).unwrap();
     let second =
-        builtin_terminal_parameter(&mut eval, vec![Value::Nil, Value::symbol("k2")]).unwrap();
-    assert_eq!(first, Value::Int(1));
-    assert_eq!(second, Value::Int(2));
+        builtin_terminal_parameter(&mut eval, vec![Value::NIL, Value::symbol("k2")]).unwrap();
+    assert_eq!(first, Value::fixnum(1));
+    assert_eq!(second, Value::fixnum(2));
 }
 
 #[test]
 fn terminal_parameter_rejects_non_symbol_key() {
     clear_terminal_parameters();
     let mut eval = crate::emacs_core::Context::new();
-    let result = builtin_terminal_parameter(&mut eval, vec![Value::Nil, Value::string("k")]);
+    let result = builtin_terminal_parameter(&mut eval, vec![Value::NIL, Value::string("k")]);
     assert!(result.is_err());
 }
 
@@ -131,20 +132,20 @@ fn set_terminal_parameter_ignores_non_symbol_key() {
     let mut eval = crate::emacs_core::Context::new();
     let set_result = builtin_set_terminal_parameter(
         &mut eval,
-        vec![Value::Nil, Value::string("k"), Value::Int(9)],
+        vec![Value::NIL, Value::string("k"), Value::fixnum(9)],
     )
     .unwrap();
     assert!(set_result.is_nil());
 
     let second_result = builtin_set_terminal_parameter(
         &mut eval,
-        vec![Value::Nil, Value::string("k"), Value::Int(1)],
+        vec![Value::NIL, Value::string("k"), Value::fixnum(1)],
     )
     .unwrap();
     assert!(second_result.is_nil());
 
     let get_result =
-        builtin_terminal_parameter(&mut eval, vec![Value::Nil, Value::symbol("k")]).unwrap();
+        builtin_terminal_parameter(&mut eval, vec![Value::NIL, Value::symbol("k")]).unwrap();
     assert!(get_result.is_nil());
 }
 
@@ -153,21 +154,21 @@ fn set_terminal_parameter_returns_previous_for_repeat_non_symbol_key() {
     clear_terminal_parameters();
     let mut eval = crate::emacs_core::Context::new();
     let first =
-        builtin_set_terminal_parameter(&mut eval, vec![Value::Nil, Value::Int(1), Value::Int(9)])
+        builtin_set_terminal_parameter(&mut eval, vec![Value::NIL, Value::fixnum(1), Value::fixnum(9)])
             .unwrap();
     assert!(first.is_nil());
 
     let second =
-        builtin_set_terminal_parameter(&mut eval, vec![Value::Nil, Value::Int(1), Value::Int(1)])
+        builtin_set_terminal_parameter(&mut eval, vec![Value::NIL, Value::fixnum(1), Value::fixnum(1)])
             .unwrap();
-    assert_eq!(second, Value::Int(9));
+    assert_eq!(second, Value::fixnum(9));
 }
 
 #[test]
 fn terminal_parameter_rejects_non_terminal_designator() {
     clear_terminal_parameters();
     let mut eval = crate::emacs_core::Context::new();
-    let result = builtin_terminal_parameter(&mut eval, vec![Value::Int(1), Value::symbol("k")]);
+    let result = builtin_terminal_parameter(&mut eval, vec![Value::fixnum(1), Value::symbol("k")]);
     assert!(result.is_err());
 }
 
@@ -177,54 +178,54 @@ fn terminal_parameters_lists_mutated_symbol_entries() {
     let mut eval = crate::emacs_core::Context::new();
     let _ = builtin_set_terminal_parameter(
         &mut eval,
-        vec![Value::Nil, Value::symbol("k1"), Value::Int(1)],
+        vec![Value::NIL, Value::symbol("k1"), Value::fixnum(1)],
     )
     .unwrap();
     let _ = builtin_set_terminal_parameter(
         &mut eval,
-        vec![Value::Nil, Value::symbol("k2"), Value::Int(2)],
+        vec![Value::NIL, Value::symbol("k2"), Value::fixnum(2)],
     )
     .unwrap();
 
-    let params = builtin_terminal_parameters(&mut eval, vec![Value::Nil]).unwrap();
+    let params = builtin_terminal_parameters(&mut eval, vec![Value::NIL]).unwrap();
     let entries = list_to_vec(&params).expect("parameter alist");
     assert!(entries.len() >= 4);
     assert!(
         entries
             .iter()
-            .any(|entry| matches!(entry, Value::Cons(cell) if {
-                let pair = read_cons(*cell);
-                pair.car == Value::symbol("normal-erase-is-backspace") && pair.cdr == Value::Int(0)
+            .any(|entry| matches!(entry, Value::Cons(cell) /* TODO(tagged): convert Value::Cons to new API */ if {
+                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+                pair.car == Value::symbol("normal-erase-is-backspace") && pair.cdr == Value::fixnum(0)
             }))
     );
     assert!(
         entries
             .iter()
-            .any(|entry| matches!(entry, Value::Cons(cell) if {
-                let pair = read_cons(*cell);
+            .any(|entry| matches!(entry, Value::Cons(cell) /* TODO(tagged): convert Value::Cons to new API */ if {
+                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
                 pair.car == Value::symbol("keyboard-coding-saved-meta-mode")
-                    && pair.cdr == Value::list(vec![Value::True])
+                    && pair.cdr == Value::list(vec![Value::T])
             }))
     );
     assert!(
         entries
             .iter()
-            .any(|entry| matches!(entry, Value::Cons(cell) if {
-                let pair = read_cons(*cell);
-                pair.car == Value::symbol("k1") && pair.cdr == Value::Int(1)
+            .any(|entry| matches!(entry, Value::Cons(cell) /* TODO(tagged): convert Value::Cons to new API */ if {
+                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+                pair.car == Value::symbol("k1") && pair.cdr == Value::fixnum(1)
             }))
     );
     assert!(
         entries
             .iter()
-            .any(|entry| matches!(entry, Value::Cons(cell) if {
-                let pair = read_cons(*cell);
-                pair.car == Value::symbol("k2") && pair.cdr == Value::Int(2)
+            .any(|entry| matches!(entry, Value::Cons(cell) /* TODO(tagged): convert Value::Cons to new API */ if {
+                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+                pair.car == Value::symbol("k2") && pair.cdr == Value::fixnum(2)
             }))
     );
 
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
-    let via_frame = builtin_terminal_parameters(&mut eval, vec![Value::Int(frame_id)])
+    let via_frame = builtin_terminal_parameters(&mut eval, vec![Value::fixnum(frame_id)])
         .expect("eval terminal-parameters");
     let eval_entries = list_to_vec(&via_frame).expect("parameter alist");
     assert!(eval_entries.len() >= 4);
@@ -236,7 +237,7 @@ fn set_terminal_parameter_rejects_non_terminal_designator() {
     let mut eval = crate::emacs_core::Context::new();
     let result = builtin_set_terminal_parameter(
         &mut eval,
-        vec![Value::Int(1), Value::symbol("k"), Value::Int(1)],
+        vec![Value::fixnum(1), Value::symbol("k"), Value::fixnum(1)],
     );
     assert!(result.is_err());
 }
@@ -249,30 +250,30 @@ fn eval_terminal_parameter_accepts_live_frame_designator() {
     builtin_set_terminal_parameter(
         &mut eval,
         vec![
-            Value::Int(frame_id),
+            Value::fixnum(frame_id),
             Value::symbol("neovm-frame-param"),
-            Value::Int(7),
+            Value::fixnum(7),
         ],
     )
     .unwrap();
     let value = builtin_terminal_parameter(
         &mut eval,
-        vec![Value::Int(frame_id), Value::symbol("neovm-frame-param")],
+        vec![Value::fixnum(frame_id), Value::symbol("neovm-frame-param")],
     )
     .unwrap();
-    assert_eq!(value, Value::Int(7));
+    assert_eq!(value, Value::fixnum(7));
 }
 
 #[test]
 fn terminal_live_p_reflects_designator_shape() {
     let mut eval = crate::emacs_core::Context::new();
-    let live_nil = builtin_terminal_live_p(&mut eval, vec![Value::Nil]).unwrap();
+    let live_nil = builtin_terminal_live_p(&mut eval, vec![Value::NIL]).unwrap();
     let live_handle = builtin_terminal_live_p(&mut eval, vec![terminal_handle_value()]).unwrap();
     let live_string =
         builtin_terminal_live_p(&mut eval, vec![Value::string("initial_terminal")]).unwrap();
-    let live_int = builtin_terminal_live_p(&mut eval, vec![Value::Int(1)]).unwrap();
-    assert_eq!(live_nil, Value::True);
-    assert_eq!(live_handle, Value::True);
+    let live_int = builtin_terminal_live_p(&mut eval, vec![Value::fixnum(1)]).unwrap();
+    assert_eq!(live_nil, Value::T);
+    assert_eq!(live_handle, Value::T);
     assert!(live_string.is_nil());
     assert!(live_int.is_nil());
 }
@@ -281,17 +282,17 @@ fn terminal_live_p_reflects_designator_shape() {
 fn eval_terminal_live_p_accepts_live_frame_designator() {
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
-    let live = builtin_terminal_live_p(&mut eval, vec![Value::Int(frame_id)]).unwrap();
-    assert_eq!(live, Value::True);
+    let live = builtin_terminal_live_p(&mut eval, vec![Value::fixnum(frame_id)]).unwrap();
+    assert_eq!(live, Value::T);
 
-    let stale = builtin_terminal_live_p(&mut eval, vec![Value::Int(999_999)]).unwrap();
+    let stale = builtin_terminal_live_p(&mut eval, vec![Value::fixnum(999_999)]).unwrap();
     assert!(stale.is_nil());
 }
 
 #[test]
 fn terminal_name_rejects_invalid_designator() {
     let mut eval = crate::emacs_core::Context::new();
-    let result = builtin_terminal_name(&mut eval, vec![Value::Int(1)]);
+    let result = builtin_terminal_name(&mut eval, vec![Value::fixnum(1)]);
     assert!(result.is_err());
 }
 
@@ -299,7 +300,7 @@ fn terminal_name_rejects_invalid_designator() {
 fn eval_terminal_name_accepts_live_frame_designator() {
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
-    let result = builtin_terminal_name(&mut eval, vec![Value::Int(frame_id)]).unwrap();
+    let result = builtin_terminal_name(&mut eval, vec![Value::fixnum(frame_id)]).unwrap();
     assert_eq!(result, Value::string("initial_terminal"));
 }
 
@@ -313,19 +314,19 @@ fn frame_terminal_rejects_non_frame_designator() {
 #[test]
 fn frame_terminal_accepts_frame_id() {
     let mut eval = crate::emacs_core::Context::new();
-    let result = builtin_frame_terminal(&mut eval, vec![Value::Int(1)]);
+    let result = builtin_frame_terminal(&mut eval, vec![Value::fixnum(1)]);
     assert!(result.is_ok());
     let handle = result.unwrap();
     let live = builtin_terminal_live_p(&mut eval, vec![handle]).unwrap();
-    assert_eq!(live, Value::True);
+    assert_eq!(live, Value::T);
 }
 
 #[test]
 fn frame_terminal_returns_live_terminal_handle() {
     let mut eval = crate::emacs_core::Context::new();
-    let handle = builtin_frame_terminal(&mut eval, vec![Value::Nil]).unwrap();
+    let handle = builtin_frame_terminal(&mut eval, vec![Value::NIL]).unwrap();
     let live = builtin_terminal_live_p(&mut eval, vec![handle]).unwrap();
-    assert_eq!(live, Value::True);
+    assert_eq!(live, Value::T);
 }
 
 #[test]
@@ -333,21 +334,21 @@ fn selected_terminal_returns_live_terminal_handle() {
     let mut eval = crate::emacs_core::Context::new();
     let handle = builtin_selected_terminal(vec![]).unwrap();
     let live = builtin_terminal_live_p(&mut eval, vec![handle]).unwrap();
-    assert_eq!(live, Value::True);
+    assert_eq!(live, Value::T);
 }
 
 #[test]
 fn selected_terminal_arity() {
-    assert!(builtin_selected_terminal(vec![Value::Nil]).is_err());
+    assert!(builtin_selected_terminal(vec![Value::NIL]).is_err());
 }
 
 #[test]
 fn eval_frame_terminal_accepts_live_frame_designator() {
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
-    let handle = builtin_frame_terminal(&mut eval, vec![Value::Int(frame_id)]).unwrap();
+    let handle = builtin_frame_terminal(&mut eval, vec![Value::fixnum(frame_id)]).unwrap();
     let live = builtin_terminal_live_p(&mut eval, vec![handle]).unwrap();
-    assert_eq!(live, Value::True);
+    assert_eq!(live, Value::T);
 }
 
 #[test]
@@ -361,7 +362,7 @@ fn redraw_frame_rejects_non_frame_designator() {
 fn eval_redraw_frame_accepts_live_frame_designator() {
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
-    let result = builtin_redraw_frame(&mut eval, vec![Value::Int(frame_id)]).unwrap();
+    let result = builtin_redraw_frame(&mut eval, vec![Value::fixnum(frame_id)]).unwrap();
     assert!(result.is_nil());
 }
 
@@ -381,7 +382,7 @@ fn frame_edges_string_designator_uses_unquoted_live_frame_error_message() {
 #[test]
 fn eval_frame_edges_numeric_designator_reports_numeric_message() {
     let mut eval = crate::emacs_core::Context::new();
-    let result = builtin_frame_edges(&mut eval, vec![Value::Int(999_999)]);
+    let result = builtin_frame_edges(&mut eval, vec![Value::fixnum(999_999)]);
     match result {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
@@ -415,7 +416,7 @@ fn eval_frame_edges_live_window_designator_includes_buffer_context() {
 
 #[test]
 fn open_termscript_uses_batch_tty_error_payload() {
-    let result = builtin_open_termscript(vec![Value::Nil]);
+    let result = builtin_open_termscript(vec![Value::NIL]);
     match result {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
@@ -431,7 +432,7 @@ fn open_termscript_uses_batch_tty_error_payload() {
 #[test]
 fn send_string_to_terminal_rejects_invalid_terminal_designator() {
     let mut eval = crate::emacs_core::Context::new();
-    let result = builtin_send_string_to_terminal(&mut eval, vec![Value::string(""), Value::Int(1)]);
+    let result = builtin_send_string_to_terminal(&mut eval, vec![Value::string(""), Value::fixnum(1)]);
     assert!(result.is_err());
 }
 
@@ -449,7 +450,7 @@ fn eval_send_string_to_terminal_accepts_live_frame_designator() {
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
     let result =
-        builtin_send_string_to_terminal(&mut eval, vec![Value::string(""), Value::Int(frame_id)])
+        builtin_send_string_to_terminal(&mut eval, vec![Value::string(""), Value::fixnum(frame_id)])
             .unwrap();
     assert!(result.is_nil());
 }
@@ -459,21 +460,21 @@ fn internal_show_cursor_tracks_visibility_state() {
     reset_dispnew_thread_locals();
     let mut eval = crate::emacs_core::Context::new();
     let default_visible = builtin_internal_show_cursor_p(&mut eval, vec![]).unwrap();
-    assert_eq!(default_visible, Value::True);
+    assert_eq!(default_visible, Value::T);
 
-    builtin_internal_show_cursor(&mut eval, vec![Value::Nil, Value::Nil]).unwrap();
+    builtin_internal_show_cursor(&mut eval, vec![Value::NIL, Value::NIL]).unwrap();
     let hidden = builtin_internal_show_cursor_p(&mut eval, vec![]).unwrap();
     assert!(hidden.is_nil());
 
-    builtin_internal_show_cursor(&mut eval, vec![Value::Nil, Value::True]).unwrap();
+    builtin_internal_show_cursor(&mut eval, vec![Value::NIL, Value::T]).unwrap();
     let visible = builtin_internal_show_cursor_p(&mut eval, vec![]).unwrap();
-    assert_eq!(visible, Value::True);
+    assert_eq!(visible, Value::T);
 }
 
 #[test]
 fn internal_show_cursor_rejects_non_window_designator() {
     let mut eval = crate::emacs_core::Context::new();
-    let result = builtin_internal_show_cursor(&mut eval, vec![Value::Int(1), Value::Nil]);
+    let result = builtin_internal_show_cursor(&mut eval, vec![Value::fixnum(1), Value::NIL]);
     assert!(result.is_err());
 }
 
@@ -483,7 +484,7 @@ fn eval_internal_show_cursor_accepts_live_window_designator() {
     let _ = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
     let window =
         crate::emacs_core::window_cmds::builtin_selected_window(&mut eval, vec![]).unwrap();
-    let result = builtin_internal_show_cursor(&mut eval, vec![window, Value::True]).unwrap();
+    let result = builtin_internal_show_cursor(&mut eval, vec![window, Value::T]).unwrap();
     assert!(result.is_nil());
 }
 
@@ -494,7 +495,7 @@ fn eval_internal_show_cursor_p_accepts_live_window_designator() {
     let window =
         crate::emacs_core::window_cmds::builtin_selected_window(&mut eval, vec![]).unwrap();
     let result = builtin_internal_show_cursor_p(&mut eval, vec![window]).unwrap();
-    assert!(matches!(result, Value::True | Value::Nil));
+    assert!(matches!(result, Value::T | Value::NIL));
 }
 
 #[test]
@@ -507,21 +508,21 @@ fn eval_internal_show_cursor_tracks_per_window_state() {
     let other = crate::emacs_core::builtins::dispatch_builtin(
         &mut eval,
         "split-window-internal",
-        vec![Value::Nil, Value::Nil, Value::Nil, Value::Nil],
+        vec![Value::NIL, Value::NIL, Value::NIL, Value::NIL],
     )
     .unwrap()
     .unwrap();
 
     assert_eq!(
         builtin_internal_show_cursor_p(&mut eval, vec![selected]).unwrap(),
-        Value::True
+        Value::T
     );
     assert_eq!(
         builtin_internal_show_cursor_p(&mut eval, vec![other]).unwrap(),
-        Value::True
+        Value::T
     );
 
-    builtin_internal_show_cursor(&mut eval, vec![Value::Nil, Value::Nil]).unwrap();
+    builtin_internal_show_cursor(&mut eval, vec![Value::NIL, Value::NIL]).unwrap();
     assert!(
         builtin_internal_show_cursor_p(&mut eval, vec![selected])
             .unwrap()
@@ -529,7 +530,7 @@ fn eval_internal_show_cursor_tracks_per_window_state() {
     );
     assert_eq!(
         builtin_internal_show_cursor_p(&mut eval, vec![other]).unwrap(),
-        Value::True
+        Value::T
     );
     assert!(
         builtin_internal_show_cursor_p(&mut eval, vec![])
@@ -537,7 +538,7 @@ fn eval_internal_show_cursor_tracks_per_window_state() {
             .is_nil()
     );
 
-    builtin_internal_show_cursor(&mut eval, vec![other, Value::True]).unwrap();
+    builtin_internal_show_cursor(&mut eval, vec![other, Value::T]).unwrap();
     assert!(
         builtin_internal_show_cursor_p(&mut eval, vec![selected])
             .unwrap()
@@ -545,7 +546,7 @@ fn eval_internal_show_cursor_tracks_per_window_state() {
     );
     assert_eq!(
         builtin_internal_show_cursor_p(&mut eval, vec![other]).unwrap(),
-        Value::True
+        Value::T
     );
     assert!(
         builtin_internal_show_cursor_p(&mut eval, vec![])
@@ -557,9 +558,9 @@ fn eval_internal_show_cursor_tracks_per_window_state() {
 #[test]
 fn tty_queries_reject_invalid_terminal_designator() {
     let mut eval = crate::emacs_core::Context::new();
-    let tty_type = builtin_tty_type(&mut eval, vec![Value::Int(1)]);
-    let tty_top_frame = builtin_tty_top_frame(&mut eval, vec![Value::Int(1)]);
-    let controlling = builtin_controlling_tty_p(&mut eval, vec![Value::Int(1)]);
+    let tty_type = builtin_tty_type(&mut eval, vec![Value::fixnum(1)]);
+    let tty_top_frame = builtin_tty_top_frame(&mut eval, vec![Value::fixnum(1)]);
+    let controlling = builtin_controlling_tty_p(&mut eval, vec![Value::fixnum(1)]);
     assert!(tty_type.is_err());
     assert!(tty_top_frame.is_err());
     assert!(controlling.is_err());
@@ -570,17 +571,17 @@ fn eval_tty_queries_accept_live_frame_designator() {
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
     assert!(
-        builtin_tty_type(&mut eval, vec![Value::Int(frame_id)])
+        builtin_tty_type(&mut eval, vec![Value::fixnum(frame_id)])
             .unwrap()
             .is_nil()
     );
     assert!(
-        builtin_tty_top_frame(&mut eval, vec![Value::Int(frame_id)])
+        builtin_tty_top_frame(&mut eval, vec![Value::fixnum(frame_id)])
             .unwrap()
             .is_nil()
     );
     assert!(
-        builtin_controlling_tty_p(&mut eval, vec![Value::Int(frame_id)])
+        builtin_controlling_tty_p(&mut eval, vec![Value::fixnum(frame_id)])
             .unwrap()
             .is_nil()
     );
@@ -589,7 +590,7 @@ fn eval_tty_queries_accept_live_frame_designator() {
 #[test]
 fn suspend_tty_signals_non_text_terminal_error() {
     let mut eval = crate::emacs_core::Context::new();
-    for args in [vec![], vec![Value::Nil], vec![terminal_handle_value()]] {
+    for args in [vec![], vec![Value::NIL], vec![terminal_handle_value()]] {
         let result = builtin_suspend_tty(&mut eval, args);
         match result {
             Err(Flow::Signal(sig)) => {
@@ -610,8 +611,8 @@ fn suspend_tty_signals_non_text_terminal_error() {
 fn eval_suspend_resume_accept_live_frame_and_signal_non_text_terminal_error() {
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
-    let suspend = builtin_suspend_tty(&mut eval, vec![Value::Int(frame_id)]);
-    let resume = builtin_resume_tty(&mut eval, vec![Value::Int(frame_id)]);
+    let suspend = builtin_suspend_tty(&mut eval, vec![Value::fixnum(frame_id)]);
+    let resume = builtin_resume_tty(&mut eval, vec![Value::fixnum(frame_id)]);
     assert!(suspend.is_err());
     assert!(resume.is_err());
 }
@@ -619,7 +620,7 @@ fn eval_suspend_resume_accept_live_frame_and_signal_non_text_terminal_error() {
 #[test]
 fn resume_tty_signals_non_text_terminal_error() {
     let mut eval = crate::emacs_core::Context::new();
-    for args in [vec![], vec![Value::Nil], vec![terminal_handle_value()]] {
+    for args in [vec![], vec![Value::NIL], vec![terminal_handle_value()]] {
         let result = builtin_resume_tty(&mut eval, args);
         match result {
             Err(Flow::Signal(sig)) => {
@@ -639,7 +640,7 @@ fn resume_tty_signals_non_text_terminal_error() {
 #[test]
 fn x_open_connection_requires_string_display_arg() {
     let mut eval = crate::emacs_core::Context::new();
-    let bad = builtin_x_open_connection(&mut eval, vec![Value::Nil]);
+    let bad = builtin_x_open_connection(&mut eval, vec![Value::NIL]);
     assert!(bad.is_err());
 }
 
@@ -648,7 +649,7 @@ fn x_open_connection_eval_accepts_x_host_startup() {
     let mut eval = crate::emacs_core::Context::new();
     eval.set_variable("initial-window-system", Value::symbol("x"));
     assert!(
-        builtin_x_open_connection(&mut eval, vec![Value::Nil])
+        builtin_x_open_connection(&mut eval, vec![Value::NIL])
             .unwrap()
             .is_nil()
     );
@@ -688,8 +689,8 @@ fn x_open_connection_arity_errors() {
         vec![
             Value::string("foo"),
             Value::string("xrm"),
-            Value::t(),
-            Value::Nil,
+            Value::T,
+            Value::NIL,
         ],
     );
     assert!(x_open_none.is_err());
@@ -711,12 +712,12 @@ fn x_open_connection_arity_errors() {
 #[test]
 fn x_close_connection_argument_shape_errors() {
     let mut eval = crate::emacs_core::Context::new();
-    let x_nil = builtin_x_close_connection(&mut eval, vec![Value::Nil]);
-    let x_int = builtin_x_close_connection(&mut eval, vec![Value::Int(1)]);
+    let x_nil = builtin_x_close_connection(&mut eval, vec![Value::NIL]);
+    let x_int = builtin_x_close_connection(&mut eval, vec![Value::fixnum(1)]);
     let x_str = builtin_x_close_connection(&mut eval, vec![Value::string("")]);
     let x_term = builtin_x_close_connection(&mut eval, vec![terminal_handle_value()]);
     let x_close_none = builtin_x_close_connection(&mut eval, vec![]);
-    let x_close_two = builtin_x_close_connection(&mut eval, vec![Value::string("foo"), Value::Nil]);
+    let x_close_two = builtin_x_close_connection(&mut eval, vec![Value::string("foo"), Value::NIL]);
     assert!(x_nil.is_err());
     assert!(x_int.is_err());
     assert!(x_str.is_err());
@@ -751,7 +752,7 @@ fn eval_x_close_connection_live_frame_uses_window_system_error() {
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
 
-    let result = builtin_x_close_connection(&mut eval, vec![Value::Int(frame_id)]);
+    let result = builtin_x_close_connection(&mut eval, vec![Value::fixnum(frame_id)]);
     match result {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
@@ -768,11 +769,11 @@ fn eval_x_close_connection_live_frame_uses_window_system_error() {
 fn x_display_pixel_size_errors_match_batch_shapes() {
     let mut eval = crate::emacs_core::Context::new();
     let width_none = builtin_x_display_pixel_width(&mut eval, vec![]);
-    let width_int = builtin_x_display_pixel_width(&mut eval, vec![Value::Int(1)]);
+    let width_int = builtin_x_display_pixel_width(&mut eval, vec![Value::fixnum(1)]);
     let width_str = builtin_x_display_pixel_width(&mut eval, vec![Value::string("")]);
     let width_term = builtin_x_display_pixel_width(&mut eval, vec![terminal_handle_value()]);
     let height_none = builtin_x_display_pixel_height(&mut eval, vec![]);
-    let height_int = builtin_x_display_pixel_height(&mut eval, vec![Value::Int(1)]);
+    let height_int = builtin_x_display_pixel_height(&mut eval, vec![Value::fixnum(1)]);
     let height_str = builtin_x_display_pixel_height(&mut eval, vec![Value::string("")]);
     let height_term = builtin_x_display_pixel_height(&mut eval, vec![terminal_handle_value()]);
     assert!(width_none.is_err());
@@ -861,7 +862,7 @@ fn x_missing_optional_display_queries_match_batch_no_x_shapes() {
         match eval_query(&mut eval, vec![Value::Int(1)]) {
             Err(Flow::Signal(sig)) => {
                 assert_eq!(sig.symbol_name(), "wrong-type-argument");
-                assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), Value::Int(1)]);
+                assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), ValueKind::Fixnum(1)]);
             }
             other => panic!("expected wrong-type-argument signal, got {other:?}"),
         }
@@ -883,8 +884,8 @@ fn x_missing_optional_display_queries_match_batch_no_x_shapes() {
 fn x_gui_display_queries_accept_nil_and_live_frames_when_x_is_active() {
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
-    let frame = Value::Int(frame_id.0 as i64);
-    eval.set_variable("initial-window-system", Value::Nil);
+    let frame = Value::fixnum(frame_id.0 as i64);
+    eval.set_variable("initial-window-system", Value::NIL);
     eval.set_variable("window-system", Value::symbol(gui_window_system_symbol()));
     eval.frames
         .get_mut(frame_id)
@@ -893,30 +894,30 @@ fn x_gui_display_queries_accept_nil_and_live_frames_when_x_is_active() {
 
     assert_eq!(
         builtin_x_display_grayscale_p(&mut eval, vec![]).unwrap(),
-        Value::True
+        Value::T
     );
     assert_eq!(
         builtin_x_display_grayscale_p(&mut eval, vec![frame]).unwrap(),
-        Value::True
+        Value::T
     );
     assert_eq!(
-        builtin_x_display_color_cells(&mut eval, vec![Value::Nil]).unwrap(),
-        Value::Int(16_777_216)
+        builtin_x_display_color_cells(&mut eval, vec![Value::NIL]).unwrap(),
+        Value::fixnum(16_777_216)
     );
     assert_eq!(
         builtin_x_display_color_cells(&mut eval, vec![frame]).unwrap(),
-        Value::Int(16_777_216)
+        Value::fixnum(16_777_216)
     );
     assert_eq!(
-        builtin_x_display_planes(&mut eval, vec![Value::Nil]).unwrap(),
-        Value::Int(24)
+        builtin_x_display_planes(&mut eval, vec![Value::NIL]).unwrap(),
+        Value::fixnum(24)
     );
     assert_eq!(
         builtin_x_display_planes(&mut eval, vec![frame]).unwrap(),
-        Value::Int(24)
+        Value::fixnum(24)
     );
     assert_eq!(
-        builtin_x_display_visual_class(&mut eval, vec![Value::Nil]).unwrap(),
+        builtin_x_display_visual_class(&mut eval, vec![Value::NIL]).unwrap(),
         Value::symbol("true-color")
     );
     assert_eq!(
@@ -929,51 +930,51 @@ fn x_gui_display_queries_accept_nil_and_live_frames_when_x_is_active() {
 fn display_queries_default_to_selected_frame_window_system_surface() {
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
-    let frame = Value::Int(frame_id.0 as i64);
+    let frame = Value::fixnum(frame_id.0 as i64);
 
     eval.frames
         .get_mut(frame_id)
         .expect("selected frame")
         .set_window_system(Some(Value::symbol(gui_window_system_symbol())));
-    eval.set_variable("initial-window-system", Value::Nil);
-    eval.set_variable("window-system", Value::Nil);
+    eval.set_variable("initial-window-system", Value::NIL);
+    eval.set_variable("window-system", Value::NIL);
 
     assert_eq!(
         builtin_display_graphic_p(&mut eval, vec![]).unwrap(),
-        Value::True
+        Value::T
     );
     assert_eq!(
         builtin_display_color_cells(&mut eval, vec![]).unwrap(),
-        Value::Int(16_777_216)
+        Value::fixnum(16_777_216)
     );
     assert_eq!(
         builtin_display_color_cells(&mut eval, vec![frame]).unwrap(),
-        Value::Int(16_777_216)
+        Value::fixnum(16_777_216)
     );
     assert_eq!(
         crate::emacs_core::builtins::symbols::builtin_xw_display_color_p_ctx(
             &eval,
-            vec![Value::Nil],
+            vec![Value::NIL],
         )
         .unwrap(),
-        Value::True
+        Value::T
     );
     assert_eq!(
         crate::emacs_core::builtins::symbols::builtin_xw_display_color_p_ctx(&eval, vec![frame],)
             .unwrap(),
-        Value::True
+        Value::T
     );
     assert_eq!(
         builtin_display_planes(&mut eval, vec![]).unwrap(),
-        Value::Int(24)
+        Value::fixnum(24)
     );
     assert_eq!(
         builtin_display_visual_class(&mut eval, vec![]).unwrap(),
         Value::symbol("true-color")
     );
     assert_eq!(
-        builtin_x_display_color_cells(&mut eval, vec![Value::Nil]).unwrap(),
-        Value::Int(16_777_216)
+        builtin_x_display_color_cells(&mut eval, vec![Value::NIL]).unwrap(),
+        Value::fixnum(16_777_216)
     );
     assert_eq!(
         builtin_x_display_visual_class(&mut eval, vec![frame]).unwrap(),
@@ -1026,7 +1027,7 @@ fn x_display_set_last_user_time_batch_semantics() {
         other => panic!("expected error signal, got {other:?}"),
     }
 
-    match builtin_x_display_set_last_user_time(&mut eval, vec![Value::Nil, terminal_handle_value()])
+    match builtin_x_display_set_last_user_time(&mut eval, vec![Value::NIL, terminal_handle_value()])
     {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
@@ -1041,7 +1042,7 @@ fn x_display_set_last_user_time_batch_semantics() {
     match builtin_x_display_set_last_user_time(&mut eval, vec![Value::Nil, Value::Int(1)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), ValueKind::Fixnum(1)]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
@@ -1053,7 +1054,7 @@ fn x_display_set_last_user_time_batch_semantics() {
 
     match builtin_x_display_set_last_user_time(
         &mut eval,
-        vec![Value::Nil, Value::Int(1), Value::Nil],
+        vec![Value::NIL, Value::fixnum(1), Value::NIL],
     ) {
         Err(Flow::Signal(sig)) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
         other => panic!("expected wrong-number-of-arguments signal, got {other:?}"),
@@ -1067,11 +1068,11 @@ fn x_display_set_last_user_time_eval_uses_user_time_designator_payloads() {
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
 
     for display in [
-        Value::Nil,
+        Value::NIL,
         Value::string("display"),
-        Value::Int(1),
+        Value::fixnum(1),
         Value::symbol("foo"),
-        Value::Int(frame_id),
+        Value::fixnum(frame_id),
         term,
     ] {
         match builtin_x_display_set_last_user_time(&mut eval, vec![display, Value::string("x")]) {
@@ -1116,21 +1117,21 @@ fn x_selection_queries_and_old_gtk_dialog_batch_semantics() {
             .is_nil()
     );
     assert!(
-        builtin_x_selection_owner_p(vec![Value::symbol("PRIMARY"), Value::Int(1)])
+        builtin_x_selection_owner_p(vec![Value::symbol("PRIMARY"), Value::fixnum(1)])
             .unwrap()
             .is_nil()
     );
     match builtin_x_selection_exists_p(vec![Value::Int(1)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("symbolp"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("symbolp"), ValueKind::Fixnum(1)]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
     match builtin_x_selection_owner_p(vec![Value::Int(1)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("symbolp"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("symbolp"), ValueKind::Fixnum(1)]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
@@ -1147,17 +1148,17 @@ fn x_geometry_fonts_and_resource_batch_semantics() {
     assert_eq!(
         builtin_x_parse_geometry(vec![Value::string("80x24+10+20")]).unwrap(),
         Value::list(vec![
-            Value::cons(Value::symbol("height"), Value::Int(24)),
-            Value::cons(Value::symbol("width"), Value::Int(80)),
-            Value::cons(Value::symbol("top"), Value::Int(20)),
-            Value::cons(Value::symbol("left"), Value::Int(10)),
+            Value::cons(Value::symbol("height"), Value::fixnum(24)),
+            Value::cons(Value::symbol("width"), Value::fixnum(80)),
+            Value::cons(Value::symbol("top"), Value::fixnum(20)),
+            Value::cons(Value::symbol("left"), Value::fixnum(10)),
         ])
     );
     assert_eq!(
         builtin_x_parse_geometry(vec![Value::string("80x24")]).unwrap(),
         Value::list(vec![
-            Value::cons(Value::symbol("height"), Value::Int(24)),
-            Value::cons(Value::symbol("width"), Value::Int(80)),
+            Value::cons(Value::symbol("height"), Value::fixnum(24)),
+            Value::cons(Value::symbol("width"), Value::fixnum(80)),
         ])
     );
     assert!(
@@ -1168,28 +1169,28 @@ fn x_geometry_fonts_and_resource_batch_semantics() {
     match builtin_x_parse_geometry(vec![Value::Int(1)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(1)]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
 
     assert!(builtin_x_family_fonts(vec![]).unwrap().is_nil());
     assert!(
-        builtin_x_family_fonts(vec![Value::string("abc"), Value::Nil])
+        builtin_x_family_fonts(vec![Value::string("abc"), Value::NIL])
             .unwrap()
             .is_nil()
     );
     match builtin_x_family_fonts(vec![Value::Int(1), Value::Int(1)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), ValueKind::Fixnum(1)]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
     match builtin_x_family_fonts(vec![Value::Int(1), Value::Nil]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Fixnum(1)]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
@@ -1229,7 +1230,7 @@ fn x_geometry_fonts_and_resource_batch_semantics() {
 
 #[test]
 fn x_property_and_frame_arg_batch_semantics() {
-    for args in [vec![], vec![Value::Nil], vec![Value::Frame(1)]] {
+    for args in [vec![], vec![Value::NIL], vec![Value::make_frame(1)]] {
         match builtin_x_backspace_delete_keys_p(args) {
             Err(Flow::Signal(sig)) => {
                 assert_eq!(sig.symbol_name(), "error");
@@ -1244,7 +1245,7 @@ fn x_property_and_frame_arg_batch_semantics() {
     match builtin_x_backspace_delete_keys_p(vec![Value::Int(1)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), ValueKind::Fixnum(1)]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
@@ -1262,7 +1263,7 @@ fn x_property_and_frame_arg_batch_semantics() {
     match builtin_x_get_atom_name(vec![Value::symbol("WM_CLASS"), Value::Int(1)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), ValueKind::Fixnum(1)]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
@@ -1280,18 +1281,18 @@ fn x_property_and_frame_arg_batch_semantics() {
     match builtin_x_window_property(vec![Value::string("WM_NAME"), Value::Int(1)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), ValueKind::Fixnum(1)]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
     match builtin_x_window_property(vec![
         Value::string("WM_NAME"),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
     ]) {
         Err(Flow::Signal(sig)) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
         other => panic!("expected wrong-number-of-arguments signal, got {other:?}"),
@@ -1310,15 +1311,15 @@ fn x_property_and_frame_arg_batch_semantics() {
     match builtin_x_window_property_attributes(vec![Value::string("WM_NAME"), Value::Int(1)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), ValueKind::Fixnum(1)]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
     match builtin_x_window_property_attributes(vec![
         Value::string("WM_NAME"),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
     ]) {
         Err(Flow::Signal(sig)) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
         other => panic!("expected wrong-number-of-arguments signal, got {other:?}"),
@@ -1330,12 +1331,12 @@ fn x_coordinate_sync_and_message_batch_semantics() {
     let term = terminal_handle_value();
 
     for args in [
-        vec![Value::Nil],
-        vec![Value::Nil, Value::Nil],
-        vec![Value::Frame(1)],
-        vec![Value::Int(1), Value::Nil],
-        vec![Value::string("x"), Value::Nil],
-        vec![term, Value::Nil],
+        vec![Value::NIL],
+        vec![Value::NIL, Value::NIL],
+        vec![Value::make_frame(1)],
+        vec![Value::fixnum(1), Value::NIL],
+        vec![Value::string("x"), Value::NIL],
+        vec![term, Value::NIL],
     ] {
         match builtin_x_synchronize(args) {
             Err(Flow::Signal(sig)) => {
@@ -1376,7 +1377,7 @@ fn x_coordinate_sync_and_message_batch_semantics() {
     match builtin_x_translate_coordinates(vec![Value::Int(1)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), ValueKind::Fixnum(1)]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
@@ -1402,13 +1403,13 @@ fn x_coordinate_sync_and_message_batch_semantics() {
         other => panic!("expected wrong-number-of-arguments signal, got {other:?}"),
     }
     match builtin_x_translate_coordinates(vec![
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
     ]) {
         Err(Flow::Signal(sig)) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
         other => panic!("expected wrong-number-of-arguments signal, got {other:?}"),
@@ -1437,7 +1438,7 @@ fn x_coordinate_sync_and_message_batch_semantics() {
     match builtin_x_frame_list_z_order(vec![Value::Int(1)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), ValueKind::Fixnum(1)]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
@@ -1464,12 +1465,12 @@ fn x_coordinate_sync_and_message_batch_semantics() {
     }
 
     match builtin_x_send_client_message(vec![
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
     ]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
@@ -1481,12 +1482,12 @@ fn x_coordinate_sync_and_message_batch_semantics() {
         other => panic!("expected error signal, got {other:?}"),
     }
     match builtin_x_send_client_message(vec![
-        Value::Frame(1),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::make_frame(1),
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
     ]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
@@ -1498,26 +1499,26 @@ fn x_coordinate_sync_and_message_batch_semantics() {
         other => panic!("expected error signal, got {other:?}"),
     }
     match builtin_x_send_client_message(vec![
-        Value::Int(1),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::fixnum(1),
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
     ]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), Value::fixnum(1)]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
     match builtin_x_send_client_message(vec![
         Value::string("x"),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
     ]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
@@ -1527,11 +1528,11 @@ fn x_coordinate_sync_and_message_batch_semantics() {
     }
     match builtin_x_send_client_message(vec![
         term,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
     ]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
@@ -1543,11 +1544,11 @@ fn x_coordinate_sync_and_message_batch_semantics() {
         other => panic!("expected error signal, got {other:?}"),
     }
     match builtin_x_send_client_message(vec![
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
     ]) {
         Err(Flow::Signal(sig)) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
         other => panic!("expected wrong-number-of-arguments signal, got {other:?}"),
@@ -1561,30 +1562,30 @@ fn x_popup_dialog_and_menu_batch_semantics() {
     match builtin_x_popup_dialog(vec![Value::Nil, Value::Nil]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("windowp"), Value::Nil]);
+            assert_eq!(sig.data, vec![Value::symbol("windowp"), ValueKind::Nil]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
     match builtin_x_popup_dialog(vec![Value::Frame(1), Value::Nil]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("stringp"), Value::Nil]);
+            assert_eq!(sig.data, vec![Value::symbol("stringp"), ValueKind::Nil]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
     match builtin_x_popup_dialog(vec![Value::Frame(1), Value::list(vec![Value::string("A")])]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("consp"), Value::Nil]);
+            assert_eq!(sig.data, vec![Value::symbol("consp"), ValueKind::Nil]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
     assert!(
         builtin_x_popup_dialog(vec![
-            Value::Frame(1),
+            Value::make_frame(1),
             Value::list(vec![
                 Value::string("Title"),
-                Value::cons(Value::string("Yes"), Value::True),
+                Value::cons(Value::string("Yes"), Value::T),
             ]),
         ])
         .unwrap()
@@ -1592,17 +1593,17 @@ fn x_popup_dialog_and_menu_batch_semantics() {
     );
     assert!(
         builtin_x_popup_dialog(vec![
-            Value::Frame(1),
-            Value::list(vec![Value::string("A"), Value::Int(1)]),
+            Value::make_frame(1),
+            Value::list(vec![Value::string("A"), Value::fixnum(1)]),
         ])
         .unwrap()
         .is_nil()
     );
-    for arg in [Value::string("x"), Value::Int(1), term] {
+    for arg in [Value::string("x"), Value::fixnum(1), term] {
         match builtin_x_popup_dialog(vec![arg, Value::Nil]) {
             Err(Flow::Signal(sig)) => {
                 assert_eq!(sig.symbol_name(), "wrong-type-argument");
-                assert_eq!(sig.data, vec![Value::symbol("windowp"), Value::Nil]);
+                assert_eq!(sig.data, vec![Value::symbol("windowp"), ValueKind::Nil]);
             }
             other => panic!("expected wrong-type-argument signal, got {other:?}"),
         }
@@ -1629,56 +1630,56 @@ fn x_popup_dialog_and_menu_batch_semantics() {
     };
     let basic_menu = Value::list(vec![
         Value::string("A"),
-        Value::cons(Value::string("Yes"), Value::True),
+        Value::cons(Value::string("Yes"), Value::T),
     ]);
 
     assert!(
-        builtin_x_popup_menu(vec![Value::Nil, Value::Nil])
+        builtin_x_popup_menu(vec![Value::NIL, Value::NIL])
             .unwrap()
             .is_nil()
     );
     assert!(
-        builtin_x_popup_menu(vec![Value::Nil, basic_menu])
+        builtin_x_popup_menu(vec![Value::NIL, basic_menu])
             .unwrap()
             .is_nil()
     );
-    for pos in [Value::Frame(1), Value::string("x"), Value::Int(1), term] {
-        assert_wta(builtin_x_popup_menu(vec![pos, Value::Nil]), "listp", pos);
+    for pos in [Value::make_frame(1), Value::string("x"), Value::fixnum(1), term] {
+        assert_wta(builtin_x_popup_menu(vec![pos, Value::NIL]), "listp", pos);
     }
 
     assert_wta(
         builtin_x_popup_menu(vec![
-            Value::list(vec![Value::Int(0), Value::Int(0)]),
-            Value::Nil,
+            Value::list(vec![Value::fixnum(0), Value::fixnum(0)]),
+            Value::NIL,
         ]),
         "listp",
-        Value::Int(0),
+        Value::fixnum(0),
     );
     assert_wta(
         builtin_x_popup_menu(vec![
-            Value::list(vec![Value::Int(0), Value::Int(0)]),
+            Value::list(vec![Value::fixnum(0), Value::fixnum(0)]),
             basic_menu,
         ]),
         "listp",
-        Value::Int(0),
+        Value::fixnum(0),
     );
     assert_wta(
-        builtin_x_popup_menu(vec![Value::list(vec![Value::Nil]), Value::Nil]),
+        builtin_x_popup_menu(vec![Value::list(vec![Value::NIL]), Value::NIL]),
         "stringp",
-        Value::Nil,
+        Value::NIL,
     );
     assert_wta(
-        builtin_x_popup_menu(vec![Value::list(vec![Value::Nil]), basic_menu]),
+        builtin_x_popup_menu(vec![Value::list(vec![Value::NIL]), basic_menu]),
         "consp",
-        Value::True,
+        Value::T,
     );
     assert_wta(
         builtin_x_popup_menu(vec![
             Value::list(vec![Value::symbol("menu-bar")]),
-            Value::Nil,
+            Value::NIL,
         ]),
         "stringp",
-        Value::Nil,
+        Value::NIL,
     );
     assert_wta(
         builtin_x_popup_menu(vec![
@@ -1686,15 +1687,15 @@ fn x_popup_dialog_and_menu_batch_semantics() {
             basic_menu,
         ]),
         "consp",
-        Value::True,
+        Value::T,
     );
     assert_wta(
         builtin_x_popup_menu(vec![
             Value::list(vec![Value::symbol("mouse-1")]),
-            Value::Nil,
+            Value::NIL,
         ]),
         "stringp",
-        Value::Nil,
+        Value::NIL,
     );
     assert_wta(
         builtin_x_popup_menu(vec![
@@ -1702,22 +1703,22 @@ fn x_popup_dialog_and_menu_batch_semantics() {
             basic_menu,
         ]),
         "consp",
-        Value::True,
+        Value::T,
     );
 
     assert_wta(
-        builtin_x_popup_menu(vec![Value::list(vec![Value::Nil, Value::Nil]), Value::Nil]),
+        builtin_x_popup_menu(vec![Value::list(vec![Value::NIL, Value::NIL]), Value::NIL]),
         "stringp",
-        Value::Nil,
+        Value::NIL,
     );
     assert_wta(
-        builtin_x_popup_menu(vec![Value::list(vec![Value::Nil, Value::Nil]), basic_menu]),
+        builtin_x_popup_menu(vec![Value::list(vec![Value::NIL, Value::NIL]), basic_menu]),
         "consp",
-        Value::True,
+        Value::T,
     );
     assert!(
         builtin_x_popup_menu(vec![
-            Value::list(vec![Value::Nil, Value::Nil]),
+            Value::list(vec![Value::NIL, Value::NIL]),
             Value::list(vec![Value::string("A")]),
         ])
         .unwrap()
@@ -1725,42 +1726,42 @@ fn x_popup_dialog_and_menu_batch_semantics() {
     );
     assert_wta(
         builtin_x_popup_menu(vec![
-            Value::list(vec![Value::Nil, Value::Nil]),
-            Value::list(vec![Value::string("A"), Value::Int(1)]),
+            Value::list(vec![Value::NIL, Value::NIL]),
+            Value::list(vec![Value::string("A"), Value::fixnum(1)]),
         ]),
         "listp",
-        Value::Int(1),
+        Value::fixnum(1),
     );
     assert_wta(
         builtin_x_popup_menu(vec![
-            Value::list(vec![Value::Nil, Value::Nil]),
+            Value::list(vec![Value::NIL, Value::NIL]),
             Value::list(vec![
-                Value::Int(1),
-                Value::cons(Value::string("Yes"), Value::True),
+                Value::fixnum(1),
+                Value::cons(Value::string("Yes"), Value::T),
             ]),
         ]),
         "stringp",
-        Value::Int(1),
+        Value::fixnum(1),
     );
     assert_wta(
         builtin_x_popup_menu(vec![
-            Value::list(vec![Value::Nil, Value::Nil]),
-            Value::list(vec![Value::cons(Value::string("A"), Value::True)]),
+            Value::list(vec![Value::NIL, Value::NIL]),
+            Value::list(vec![Value::cons(Value::string("A"), Value::T)]),
         ]),
         "stringp",
-        Value::cons(Value::string("A"), Value::True),
+        Value::cons(Value::string("A"), Value::T),
     );
     assert_wta(
         builtin_x_popup_menu(vec![
-            Value::list(vec![Value::Nil, Value::Nil]),
-            Value::Int(1),
+            Value::list(vec![Value::NIL, Value::NIL]),
+            Value::fixnum(1),
         ]),
         "listp",
-        Value::Int(1),
+        Value::fixnum(1),
     );
     assert_wta(
         builtin_x_popup_menu(vec![
-            Value::list(vec![Value::Nil, Value::Nil]),
+            Value::list(vec![Value::NIL, Value::NIL]),
             Value::string("x"),
         ]),
         "listp",
@@ -1768,29 +1769,29 @@ fn x_popup_dialog_and_menu_batch_semantics() {
     );
     assert_wta(
         builtin_x_popup_menu(vec![
-            Value::list(vec![Value::Nil, Value::Nil]),
-            Value::list(vec![Value::string("A"), Value::Nil]),
+            Value::list(vec![Value::NIL, Value::NIL]),
+            Value::list(vec![Value::string("A"), Value::NIL]),
         ]),
         "stringp",
-        Value::Nil,
+        Value::NIL,
     );
     assert_wta(
         builtin_x_popup_menu(vec![
-            Value::list(vec![Value::Nil, Value::Nil]),
+            Value::list(vec![Value::NIL, Value::NIL]),
             Value::list(vec![
                 Value::string("A"),
                 Value::list(vec![Value::string("Pane")]),
             ]),
         ]),
         "consp",
-        Value::Nil,
+        Value::NIL,
     );
     assert!(
         builtin_x_popup_menu(vec![
-            Value::list(vec![Value::Nil, Value::Nil]),
+            Value::list(vec![Value::NIL, Value::NIL]),
             Value::list(vec![
                 Value::string("A"),
-                Value::list(vec![Value::string("Pane"), Value::Nil]),
+                Value::list(vec![Value::string("Pane"), Value::NIL]),
             ]),
         ])
         .unwrap()
@@ -1798,12 +1799,12 @@ fn x_popup_dialog_and_menu_batch_semantics() {
     );
     assert!(
         builtin_x_popup_menu(vec![
-            Value::list(vec![Value::Nil, Value::Nil]),
+            Value::list(vec![Value::NIL, Value::NIL]),
             Value::list(vec![
                 Value::string("A"),
                 Value::list(vec![
                     Value::string("Pane"),
-                    Value::cons(Value::string("Y"), Value::True),
+                    Value::cons(Value::string("Y"), Value::T),
                 ]),
             ]),
         ])
@@ -1812,75 +1813,75 @@ fn x_popup_dialog_and_menu_batch_semantics() {
     );
     assert_wta(
         builtin_x_popup_menu(vec![
-            Value::list(vec![Value::Nil, Value::Nil]),
+            Value::list(vec![Value::NIL, Value::NIL]),
             Value::list(vec![
                 Value::string("A"),
-                Value::cons(Value::string("Pane"), Value::Int(1)),
+                Value::cons(Value::string("Pane"), Value::fixnum(1)),
             ]),
         ]),
         "consp",
-        Value::Int(1),
+        Value::fixnum(1),
     );
     assert_wta(
         builtin_x_popup_menu(vec![
-            Value::list(vec![Value::Nil, Value::Nil]),
+            Value::list(vec![Value::NIL, Value::NIL]),
             Value::list(vec![
                 Value::string("A"),
-                Value::cons(Value::Int(1), Value::Int(2)),
+                Value::cons(Value::fixnum(1), Value::fixnum(2)),
             ]),
         ]),
         "stringp",
-        Value::Int(1),
+        Value::fixnum(1),
     );
 
     assert_wta(
         builtin_x_popup_menu(vec![
-            Value::list(vec![Value::list(vec![Value::Int(0), Value::Int(0)])]),
-            Value::Nil,
+            Value::list(vec![Value::list(vec![Value::fixnum(0), Value::fixnum(0)])]),
+            Value::NIL,
         ]),
         "windowp",
-        Value::Nil,
+        Value::NIL,
     );
     assert_wta(
         builtin_x_popup_menu(vec![
-            Value::list(vec![Value::list(vec![Value::Int(0), Value::Int(0)])]),
+            Value::list(vec![Value::list(vec![Value::fixnum(0), Value::fixnum(0)])]),
             basic_menu,
         ]),
         "windowp",
-        Value::Nil,
+        Value::NIL,
     );
     assert_wta(
         builtin_x_popup_menu(vec![
             Value::list(vec![
-                Value::list(vec![Value::Int(0), Value::Int(0)]),
-                Value::Int(1),
+                Value::list(vec![Value::fixnum(0), Value::fixnum(0)]),
+                Value::fixnum(1),
             ]),
-            Value::Nil,
+            Value::NIL,
         ]),
         "windowp",
-        Value::Int(1),
+        Value::fixnum(1),
     );
     assert_wta(
         builtin_x_popup_menu(vec![
             Value::list(vec![
-                Value::list(vec![Value::Int(0), Value::Int(0)]),
-                Value::Int(1),
+                Value::list(vec![Value::fixnum(0), Value::fixnum(0)]),
+                Value::fixnum(1),
             ]),
             basic_menu,
         ]),
         "windowp",
-        Value::Int(1),
+        Value::fixnum(1),
     );
     assert_wta(
         builtin_x_popup_menu(vec![
             Value::cons(
-                Value::list(vec![Value::Int(0), Value::Int(0)]),
-                Value::Int(0),
+                Value::list(vec![Value::fixnum(0), Value::fixnum(0)]),
+                Value::fixnum(0),
             ),
-            Value::Nil,
+            Value::NIL,
         ]),
         "listp",
-        Value::Int(0),
+        Value::fixnum(0),
     );
     match builtin_x_popup_menu(vec![]) {
         Err(Flow::Signal(sig)) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
@@ -1899,7 +1900,7 @@ fn x_popup_dialog_and_menu_batch_semantics() {
 #[test]
 fn x_clipboard_input_context_batch_semantics() {
     let term = terminal_handle_value();
-    let frame = Value::Frame(1);
+    let frame = Value::make_frame(1);
 
     let assert_wrong_type = |result: EvalResult, pred: &str, arg: Value| match result {
         Err(Flow::Signal(sig)) => {
@@ -1921,14 +1922,14 @@ fn x_clipboard_input_context_batch_semantics() {
     };
 
     assert!(builtin_x_get_clipboard(vec![]).unwrap().is_nil());
-    assert_wrong_number(builtin_x_get_clipboard(vec![Value::Nil]));
+    assert_wrong_number(builtin_x_get_clipboard(vec![Value::NIL]));
 
     assert_error(
         builtin_x_get_modifier_masks(vec![]),
         "X windows are not in use or not initialized",
     );
     assert_error(
-        builtin_x_get_modifier_masks(vec![Value::Nil]),
+        builtin_x_get_modifier_masks(vec![Value::NIL]),
         "X windows are not in use or not initialized",
     );
     assert_error(
@@ -1936,9 +1937,9 @@ fn x_clipboard_input_context_batch_semantics() {
         "Terminal 0 is not an X display",
     );
     assert_wrong_type(
-        builtin_x_get_modifier_masks(vec![Value::Int(1)]),
+        builtin_x_get_modifier_masks(vec![Value::fixnum(1)]),
         "frame-live-p",
-        Value::Int(1),
+        Value::fixnum(1),
     );
     assert_error(
         builtin_x_get_modifier_masks(vec![Value::string("x")]),
@@ -1948,15 +1949,15 @@ fn x_clipboard_input_context_batch_semantics() {
         builtin_x_get_modifier_masks(vec![frame]),
         "Window system frame should be used",
     );
-    assert_wrong_number(builtin_x_get_modifier_masks(vec![Value::Nil, Value::Nil]));
+    assert_wrong_number(builtin_x_get_modifier_masks(vec![Value::NIL, Value::NIL]));
 
     assert!(builtin_x_hide_tip(vec![]).unwrap().is_nil());
-    assert_wrong_number(builtin_x_hide_tip(vec![Value::Nil]));
+    assert_wrong_number(builtin_x_hide_tip(vec![Value::NIL]));
 
     assert_wrong_type(
-        builtin_x_setup_function_keys(vec![Value::Nil]),
+        builtin_x_setup_function_keys(vec![Value::NIL]),
         "frame-live-p",
-        Value::Nil,
+        Value::NIL,
     );
     assert_wrong_type(
         builtin_x_setup_function_keys(vec![term]),
@@ -1964,9 +1965,9 @@ fn x_clipboard_input_context_batch_semantics() {
         term,
     );
     assert_wrong_type(
-        builtin_x_setup_function_keys(vec![Value::Int(1)]),
+        builtin_x_setup_function_keys(vec![Value::fixnum(1)]),
         "terminal-live-p",
-        Value::Int(1),
+        Value::fixnum(1),
     );
     assert_wrong_type(
         builtin_x_setup_function_keys(vec![Value::string("x")]),
@@ -1975,9 +1976,9 @@ fn x_clipboard_input_context_batch_semantics() {
     );
     assert!(builtin_x_setup_function_keys(vec![frame]).unwrap().is_nil());
     assert_wrong_number(builtin_x_setup_function_keys(vec![]));
-    assert_wrong_number(builtin_x_setup_function_keys(vec![Value::Nil, Value::Nil]));
+    assert_wrong_number(builtin_x_setup_function_keys(vec![Value::NIL, Value::NIL]));
 
-    for arg in [Value::Nil, term, Value::Int(1), Value::string("x"), frame] {
+    for arg in [Value::NIL, term, Value::fixnum(1), Value::string("x"), frame] {
         assert!(
             builtin_x_internal_focus_input_context(vec![arg])
                 .unwrap()
@@ -1986,8 +1987,8 @@ fn x_clipboard_input_context_batch_semantics() {
     }
     assert_wrong_number(builtin_x_internal_focus_input_context(vec![]));
     assert_wrong_number(builtin_x_internal_focus_input_context(vec![
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
     ]));
 
     assert_error(
@@ -1995,7 +1996,7 @@ fn x_clipboard_input_context_batch_semantics() {
         "Window system frame should be used",
     );
     assert_error(
-        builtin_x_wm_set_size_hint(vec![Value::Nil]),
+        builtin_x_wm_set_size_hint(vec![Value::NIL]),
         "Window system frame should be used",
     );
     assert_wrong_type(
@@ -2004,9 +2005,9 @@ fn x_clipboard_input_context_batch_semantics() {
         terminal_handle_value(),
     );
     assert_wrong_type(
-        builtin_x_wm_set_size_hint(vec![Value::Int(1)]),
+        builtin_x_wm_set_size_hint(vec![Value::fixnum(1)]),
         "frame-live-p",
-        Value::Int(1),
+        Value::fixnum(1),
     );
     assert_wrong_type(
         builtin_x_wm_set_size_hint(vec![Value::string("x")]),
@@ -2017,7 +2018,7 @@ fn x_clipboard_input_context_batch_semantics() {
         builtin_x_wm_set_size_hint(vec![frame]),
         "Window system frame should be used",
     );
-    assert_wrong_number(builtin_x_wm_set_size_hint(vec![Value::Nil, Value::Nil]));
+    assert_wrong_number(builtin_x_wm_set_size_hint(vec![Value::NIL, Value::NIL]));
 }
 
 #[test]
@@ -2049,7 +2050,7 @@ fn x_selection_property_tip_batch_semantics() {
     );
     assert_wrong_number(builtin_x_apply_session_resources(
         &mut eval,
-        vec![Value::Nil],
+        vec![Value::NIL],
     ));
 
     assert_error(
@@ -2057,30 +2058,30 @@ fn x_selection_property_tip_batch_semantics() {
         "Window system frame should be used",
     );
     assert_error(
-        builtin_x_change_window_property(vec![Value::string("P"), Value::string("V"), Value::Nil]),
+        builtin_x_change_window_property(vec![Value::string("P"), Value::string("V"), Value::NIL]),
         "Window system frame should be used",
     );
     assert_error(
         builtin_x_change_window_property(vec![
             Value::string("P"),
             Value::string("V"),
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
         ]),
         "Window system frame should be used",
     );
     assert_wrong_number(builtin_x_change_window_property(vec![
         Value::string("P"),
         Value::string("V"),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
     ]));
 
     assert_error(
@@ -2088,95 +2089,95 @@ fn x_selection_property_tip_batch_semantics() {
         "Window system frame should be used",
     );
     assert_error(
-        builtin_x_delete_window_property(vec![Value::string("P"), Value::Nil]),
+        builtin_x_delete_window_property(vec![Value::string("P"), Value::NIL]),
         "Window system frame should be used",
     );
     assert_error(
-        builtin_x_delete_window_property(vec![Value::string("P"), Value::Nil, Value::Nil]),
+        builtin_x_delete_window_property(vec![Value::string("P"), Value::NIL, Value::NIL]),
         "Window system frame should be used",
     );
     assert_wrong_number(builtin_x_delete_window_property(vec![
         Value::string("P"),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
     ]));
 
     assert!(
-        builtin_x_disown_selection_internal(vec![Value::Nil])
+        builtin_x_disown_selection_internal(vec![Value::NIL])
             .unwrap()
             .is_nil()
     );
     assert!(
-        builtin_x_disown_selection_internal(vec![Value::Nil, Value::Nil])
+        builtin_x_disown_selection_internal(vec![Value::NIL, Value::NIL])
             .unwrap()
             .is_nil()
     );
     assert!(
-        builtin_x_disown_selection_internal(vec![Value::Nil, Value::Nil, Value::Nil])
+        builtin_x_disown_selection_internal(vec![Value::NIL, Value::NIL, Value::NIL])
             .unwrap()
             .is_nil()
     );
     assert_wrong_number(builtin_x_disown_selection_internal(vec![]));
     assert_wrong_number(builtin_x_disown_selection_internal(vec![
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
     ]));
 
-    assert_wrong_type(builtin_x_get_local_selection(vec![]), "consp", Value::Nil);
+    assert_wrong_type(builtin_x_get_local_selection(vec![]), "consp", Value::NIL);
     assert_wrong_type(
-        builtin_x_get_local_selection(vec![Value::Nil]),
+        builtin_x_get_local_selection(vec![Value::NIL]),
         "consp",
-        Value::Nil,
+        Value::NIL,
     );
     assert_wrong_type(
-        builtin_x_get_local_selection(vec![Value::Nil, Value::Nil]),
+        builtin_x_get_local_selection(vec![Value::NIL, Value::NIL]),
         "consp",
-        Value::Nil,
+        Value::NIL,
     );
     assert_wrong_number(builtin_x_get_local_selection(vec![
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
     ]));
 
     assert_error(
-        builtin_x_get_selection_internal(vec![Value::Nil, Value::Nil]),
+        builtin_x_get_selection_internal(vec![Value::NIL, Value::NIL]),
         "X selection unavailable for this frame",
     );
     assert_error(
-        builtin_x_get_selection_internal(vec![Value::Nil, Value::Nil, Value::Nil]),
+        builtin_x_get_selection_internal(vec![Value::NIL, Value::NIL, Value::NIL]),
         "X selection unavailable for this frame",
     );
     assert_error(
-        builtin_x_get_selection_internal(vec![Value::Nil, Value::Nil, Value::Nil, Value::Nil]),
+        builtin_x_get_selection_internal(vec![Value::NIL, Value::NIL, Value::NIL, Value::NIL]),
         "X selection unavailable for this frame",
     );
     assert_wrong_number(builtin_x_get_selection_internal(vec![]));
     assert_wrong_number(builtin_x_get_selection_internal(vec![
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
     ]));
 
     assert_error(
-        builtin_x_own_selection_internal(vec![Value::Nil, Value::Nil]),
+        builtin_x_own_selection_internal(vec![Value::NIL, Value::NIL]),
         "X selection unavailable for this frame",
     );
     assert_error(
-        builtin_x_own_selection_internal(vec![Value::Nil, Value::Nil, Value::Nil]),
+        builtin_x_own_selection_internal(vec![Value::NIL, Value::NIL, Value::NIL]),
         "X selection unavailable for this frame",
     );
-    assert_wrong_number(builtin_x_own_selection_internal(vec![Value::Nil]));
+    assert_wrong_number(builtin_x_own_selection_internal(vec![Value::NIL]));
     assert_wrong_number(builtin_x_own_selection_internal(vec![
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
     ]));
 
     assert_error(
@@ -2184,30 +2185,30 @@ fn x_selection_property_tip_batch_semantics() {
         "Window system frame should be used",
     );
     assert_wrong_type(
-        builtin_x_show_tip(vec![Value::Int(1)]),
+        builtin_x_show_tip(vec![Value::fixnum(1)]),
         "stringp",
-        Value::Int(1),
+        Value::fixnum(1),
     );
     assert_error(
         builtin_x_show_tip(vec![
             Value::string("m"),
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
         ]),
         "Window system frame should be used",
     );
     assert_wrong_number(builtin_x_show_tip(vec![]));
     assert_wrong_number(builtin_x_show_tip(vec![
         Value::string("m"),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
     ]));
 }
 
@@ -2227,26 +2228,26 @@ fn gui_selection_batch_semantics() {
 
     assert!(builtin_gui_get_selection(vec![]).unwrap().is_nil());
     assert!(
-        builtin_gui_get_selection(vec![Value::Nil])
+        builtin_gui_get_selection(vec![Value::NIL])
             .unwrap()
             .is_nil()
     );
     assert!(
-        builtin_gui_get_selection(vec![Value::Nil, Value::Nil])
+        builtin_gui_get_selection(vec![Value::NIL, Value::NIL])
             .unwrap()
             .is_nil()
     );
     assert_wrong_number(builtin_gui_get_selection(vec![
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
     ]));
 
     assert_error(
         builtin_gui_get_primary_selection(vec![]),
         "No selection is available",
     );
-    assert_wrong_number(builtin_gui_get_primary_selection(vec![Value::Nil]));
+    assert_wrong_number(builtin_gui_get_primary_selection(vec![Value::NIL]));
 
     assert!(
         builtin_gui_select_text(vec![Value::string("a")])
@@ -2254,27 +2255,27 @@ fn gui_selection_batch_semantics() {
             .is_nil()
     );
     assert!(
-        builtin_gui_select_text(vec![Value::Int(1)])
+        builtin_gui_select_text(vec![Value::fixnum(1)])
             .unwrap()
             .is_nil()
     );
     assert_wrong_number(builtin_gui_select_text(vec![
         Value::string("a"),
-        Value::Nil,
+        Value::NIL,
     ]));
 
     assert!(builtin_gui_selection_value(vec![]).unwrap().is_nil());
-    assert_wrong_number(builtin_gui_selection_value(vec![Value::Nil]));
+    assert_wrong_number(builtin_gui_selection_value(vec![Value::NIL]));
 
     assert!(
-        builtin_gui_set_selection(vec![Value::Nil, Value::Nil])
+        builtin_gui_set_selection(vec![Value::NIL, Value::NIL])
             .unwrap()
             .is_nil()
     );
     assert_wrong_number(builtin_gui_set_selection(vec![
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
     ]));
 }
 
@@ -2320,9 +2321,9 @@ fn x_frame_mouse_and_dnd_batch_semantics() {
 
     for args in [
         vec![],
-        vec![Value::Nil],
-        vec![Value::Frame(1)],
-        vec![Value::Nil, Value::Nil],
+        vec![Value::NIL],
+        vec![Value::make_frame(1)],
+        vec![Value::NIL, Value::NIL],
     ] {
         match builtin_x_export_frames(args) {
             Err(Flow::Signal(sig)) => {
@@ -2335,7 +2336,7 @@ fn x_frame_mouse_and_dnd_batch_semantics() {
             other => panic!("expected error signal, got {other:?}"),
         }
     }
-    for arg in [Value::Int(1), Value::string("x"), term] {
+    for arg in [Value::fixnum(1), Value::string("x"), term] {
         match builtin_x_export_frames(vec![arg]) {
             Err(Flow::Signal(sig)) => {
                 assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -2350,9 +2351,9 @@ fn x_frame_mouse_and_dnd_batch_semantics() {
     }
 
     for args in [
-        vec![Value::Nil],
-        vec![Value::Frame(1)],
-        vec![Value::Nil, Value::Nil],
+        vec![Value::NIL],
+        vec![Value::make_frame(1)],
+        vec![Value::NIL, Value::NIL],
     ] {
         match builtin_x_focus_frame(args) {
             Err(Flow::Signal(sig)) => {
@@ -2365,7 +2366,7 @@ fn x_frame_mouse_and_dnd_batch_semantics() {
             other => panic!("expected error signal, got {other:?}"),
         }
     }
-    for arg in [Value::Int(1), Value::string("x"), term] {
+    for arg in [Value::fixnum(1), Value::string("x"), term] {
         match builtin_x_focus_frame(vec![arg]) {
             Err(Flow::Signal(sig)) => {
                 assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -2380,21 +2381,21 @@ fn x_frame_mouse_and_dnd_batch_semantics() {
     }
 
     assert!(builtin_x_frame_edges(vec![]).unwrap().is_nil());
-    assert!(builtin_x_frame_edges(vec![Value::Nil]).unwrap().is_nil());
+    assert!(builtin_x_frame_edges(vec![Value::NIL]).unwrap().is_nil());
     assert!(
-        builtin_x_frame_edges(vec![Value::Frame(1)])
+        builtin_x_frame_edges(vec![Value::make_frame(1)])
             .unwrap()
             .is_nil()
     );
     assert!(
-        builtin_x_frame_edges(vec![Value::Nil, Value::Nil])
+        builtin_x_frame_edges(vec![Value::NIL, Value::NIL])
             .unwrap()
             .is_nil()
     );
     match builtin_x_frame_edges(vec![Value::Int(1)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), ValueKind::Fixnum(1)]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
@@ -2414,16 +2415,16 @@ fn x_frame_mouse_and_dnd_batch_semantics() {
     }
 
     assert!(builtin_x_frame_geometry(vec![]).unwrap().is_nil());
-    assert!(builtin_x_frame_geometry(vec![Value::Nil]).unwrap().is_nil());
+    assert!(builtin_x_frame_geometry(vec![Value::NIL]).unwrap().is_nil());
     assert!(
-        builtin_x_frame_geometry(vec![Value::Frame(1)])
+        builtin_x_frame_geometry(vec![Value::make_frame(1)])
             .unwrap()
             .is_nil()
     );
     match builtin_x_frame_geometry(vec![Value::Int(1)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::symbol("frame-live-p"), ValueKind::Fixnum(1)]);
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
@@ -2453,12 +2454,12 @@ fn x_frame_mouse_and_dnd_batch_semantics() {
     }
 
     assert!(
-        builtin_x_set_mouse_absolute_pixel_position(vec![Value::Nil, Value::Nil])
+        builtin_x_set_mouse_absolute_pixel_position(vec![Value::NIL, Value::NIL])
             .unwrap()
             .is_nil()
     );
     assert!(
-        builtin_x_set_mouse_absolute_pixel_position(vec![Value::Int(1), Value::Int(2)])
+        builtin_x_set_mouse_absolute_pixel_position(vec![Value::fixnum(1), Value::fixnum(2)])
             .unwrap()
             .is_nil()
     );
@@ -2472,11 +2473,11 @@ fn x_frame_mouse_and_dnd_batch_semantics() {
     }
 
     for args in [
-        vec![Value::Nil],
-        vec![Value::Frame(1)],
-        vec![Value::Int(1)],
+        vec![Value::NIL],
+        vec![Value::make_frame(1)],
+        vec![Value::fixnum(1)],
         vec![terminal_handle_value()],
-        vec![Value::Nil, Value::Nil],
+        vec![Value::NIL, Value::NIL],
     ] {
         match builtin_x_register_dnd_atom(args) {
             Err(Flow::Signal(sig)) => {
@@ -2504,8 +2505,8 @@ fn eval_x_display_queries_accept_live_frame_designator() {
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
 
-    let width = builtin_x_display_pixel_width(&mut eval, vec![Value::Int(frame_id)]);
-    let height = builtin_x_display_pixel_height(&mut eval, vec![Value::Int(frame_id)]);
+    let width = builtin_x_display_pixel_width(&mut eval, vec![Value::fixnum(frame_id)]);
+    let height = builtin_x_display_pixel_height(&mut eval, vec![Value::fixnum(frame_id)]);
     assert!(width.is_err());
     assert!(height.is_err());
 }
@@ -2517,11 +2518,11 @@ fn eval_monitor_attributes_include_bootstrapped_frame() {
     let monitors = list_to_vec(&list).expect("monitor list");
     let attrs = list_to_vec(monitors.first().expect("first monitor")).expect("monitor attrs");
 
-    let mut frames_value = Value::Nil;
+    let mut frames_value = Value::NIL;
     for attr in attrs {
-        if let Value::Cons(cell) = attr {
-            let pair = read_cons(cell);
-            if matches!(&pair.car, Value::Symbol(id) if resolve_sym(*id) == "frames") {
+        if attr.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+            if pair.car.is_symbol_named("frames") {
                 frames_value = pair.cdr;
                 break;
             }
@@ -2530,15 +2531,15 @@ fn eval_monitor_attributes_include_bootstrapped_frame() {
 
     let frames = list_to_vec(&frames_value).expect("frames list");
     assert_eq!(frames.len(), 1);
-    assert!(matches!(frames.first(), Some(Value::Frame(_))));
+    assert!(matches!(frames.first(), Some(Value::make_frame(_))));
     assert!(!frames[0].is_integer());
     assert_eq!(
         crate::emacs_core::window_cmds::builtin_framep(&mut eval, vec![frames[0]]).unwrap(),
-        Value::True
+        Value::T
     );
     assert_eq!(
         crate::emacs_core::window_cmds::builtin_frame_live_p(&mut eval, vec![frames[0]]).unwrap(),
-        Value::True
+        Value::T
     );
 }
 
@@ -2548,11 +2549,11 @@ fn eval_monitor_queries_accept_live_frame_designator() {
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
 
     let list =
-        builtin_display_monitor_attributes_list(&mut eval, vec![Value::Int(frame_id)]).unwrap();
+        builtin_display_monitor_attributes_list(&mut eval, vec![Value::fixnum(frame_id)]).unwrap();
     let monitors = list_to_vec(&list).expect("monitor list");
     assert_eq!(monitors.len(), 1);
 
-    let attrs = builtin_frame_monitor_attributes(&mut eval, vec![Value::Int(frame_id)]).unwrap();
+    let attrs = builtin_frame_monitor_attributes(&mut eval, vec![Value::fixnum(frame_id)]).unwrap();
     let attr_list = list_to_vec(&attrs).expect("monitor attrs");
     assert!(!attr_list.is_empty());
 }
@@ -2564,18 +2565,18 @@ fn eval_monitor_queries_accept_frame_handle_designator() {
     let monitors = list_to_vec(&list).expect("monitor list");
     let attrs = list_to_vec(monitors.first().expect("first monitor")).expect("monitor attrs");
 
-    let mut frame = Value::Nil;
+    let mut frame = Value::NIL;
     for attr in attrs {
-        if let Value::Cons(cell) = attr {
-            let pair = read_cons(cell);
-            if matches!(&pair.car, Value::Symbol(id) if resolve_sym(*id) == "frames") {
+        if attr.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+            if pair.car.is_symbol_named("frames") {
                 let frames = list_to_vec(&pair.cdr).expect("frames list");
                 frame = frames.first().cloned().expect("first frame");
                 break;
             }
         }
     }
-    assert!(matches!(frame, Value::Frame(_)));
+    assert!(matches!(frame, Value::make_frame(_)));
 
     let by_display = builtin_display_monitor_attributes_list(&mut eval, vec![frame]).unwrap();
     let display_list = list_to_vec(&by_display).expect("monitor list");
@@ -2592,59 +2593,59 @@ fn eval_display_queries_accept_live_frame_designator() {
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
 
     assert!(
-        builtin_display_graphic_p(&mut eval, vec![Value::Int(frame_id)])
+        builtin_display_graphic_p(&mut eval, vec![Value::fixnum(frame_id)])
             .unwrap()
             .is_nil()
     );
     assert_eq!(
-        builtin_display_pixel_width(&mut eval, vec![Value::Int(frame_id)]).unwrap(),
-        Value::Int(80)
+        builtin_display_pixel_width(&mut eval, vec![Value::fixnum(frame_id)]).unwrap(),
+        Value::fixnum(80)
     );
     assert_eq!(
-        builtin_display_pixel_height(&mut eval, vec![Value::Int(frame_id)]).unwrap(),
-        Value::Int(25)
+        builtin_display_pixel_height(&mut eval, vec![Value::fixnum(frame_id)]).unwrap(),
+        Value::fixnum(25)
     );
     assert!(
-        builtin_display_mm_width(&mut eval, vec![Value::Int(frame_id)])
+        builtin_display_mm_width(&mut eval, vec![Value::fixnum(frame_id)])
             .unwrap()
             .is_nil()
     );
     assert!(
-        builtin_display_mm_height(&mut eval, vec![Value::Int(frame_id)])
+        builtin_display_mm_height(&mut eval, vec![Value::fixnum(frame_id)])
             .unwrap()
             .is_nil()
     );
     assert_eq!(
-        builtin_display_screens(&mut eval, vec![Value::Int(frame_id)]).unwrap(),
-        Value::Int(1)
+        builtin_display_screens(&mut eval, vec![Value::fixnum(frame_id)]).unwrap(),
+        Value::fixnum(1)
     );
     assert_eq!(
-        builtin_display_color_cells(&mut eval, vec![Value::Int(frame_id)]).unwrap(),
-        Value::Int(0)
+        builtin_display_color_cells(&mut eval, vec![Value::fixnum(frame_id)]).unwrap(),
+        Value::fixnum(0)
     );
     assert_eq!(
-        builtin_display_planes(&mut eval, vec![Value::Int(frame_id)]).unwrap(),
-        Value::Int(3)
+        builtin_display_planes(&mut eval, vec![Value::fixnum(frame_id)]).unwrap(),
+        Value::fixnum(3)
     );
     assert_eq!(
-        builtin_display_visual_class(&mut eval, vec![Value::Int(frame_id)]).unwrap(),
+        builtin_display_visual_class(&mut eval, vec![Value::fixnum(frame_id)]).unwrap(),
         Value::symbol("static-gray")
     );
     assert_eq!(
-        builtin_display_backing_store(&mut eval, vec![Value::Int(frame_id)]).unwrap(),
+        builtin_display_backing_store(&mut eval, vec![Value::fixnum(frame_id)]).unwrap(),
         Value::symbol("not-useful")
     );
     assert_eq!(
-        builtin_display_save_under(&mut eval, vec![Value::Int(frame_id)]).unwrap(),
+        builtin_display_save_under(&mut eval, vec![Value::fixnum(frame_id)]).unwrap(),
         Value::symbol("not-useful")
     );
     assert!(
-        builtin_display_selections_p(&mut eval, vec![Value::Int(frame_id)])
+        builtin_display_selections_p(&mut eval, vec![Value::fixnum(frame_id)])
             .unwrap()
             .is_nil()
     );
     assert!(
-        builtin_display_images_p(&mut eval, vec![Value::Int(frame_id)])
+        builtin_display_images_p(&mut eval, vec![Value::fixnum(frame_id)])
             .unwrap()
             .is_nil()
     );
@@ -2667,7 +2668,7 @@ fn window_system_prefers_selected_frame_then_global_fallback() {
 
     assert_eq!(
         builtin_window_system(&mut eval, vec![]).unwrap(),
-        Value::Nil
+        Value::NIL
     );
     assert!(
         eval.frames.frame_list().is_empty(),
@@ -2696,7 +2697,7 @@ fn window_system_prefers_selected_frame_then_global_fallback() {
         Value::symbol("x")
     );
     assert_eq!(
-        builtin_window_system(&mut eval, vec![Value::Int(frame_id.0 as i64)]).unwrap(),
+        builtin_window_system(&mut eval, vec![Value::fixnum(frame_id.0 as i64)]).unwrap(),
         Value::symbol("x")
     );
 
@@ -2717,7 +2718,7 @@ fn display_graphic_p_uses_global_window_system_without_live_frame() {
 
     assert_eq!(
         builtin_display_graphic_p(&mut eval, vec![]).unwrap(),
-        Value::True
+        Value::T
     );
     assert!(
         eval.frames.frame_list().is_empty(),
@@ -2729,7 +2730,7 @@ fn display_graphic_p_uses_global_window_system_without_live_frame() {
 fn eval_display_queries_reject_invalid_frame_designator() {
     let mut eval = crate::emacs_core::Context::new();
     let _ = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
-    let result = builtin_display_pixel_width(&mut eval, vec![Value::Int(999_999)]);
+    let result = builtin_display_pixel_width(&mut eval, vec![Value::fixnum(999_999)]);
     assert!(result.is_err());
 }
 
@@ -2836,7 +2837,7 @@ fn get_device_terminal_formatter_keeps_integer_literals() {
     assert!(rendered_window.contains("#<window"));
     assert!(rendered_window.contains("*scratch*"));
 
-    let rendered_integer = format_get_device_terminal_arg_eval(&eval, &Value::Int(1));
+    let rendered_integer = format_get_device_terminal_arg_eval(&eval, &Value::fixnum(1));
     assert_eq!(rendered_integer, "1");
 }
 
@@ -2849,7 +2850,7 @@ fn display_images_p_shapes_and_errors() {
             .is_nil()
     );
     assert!(
-        builtin_display_images_p(&mut eval, vec![Value::Nil])
+        builtin_display_images_p(&mut eval, vec![Value::NIL])
             .unwrap()
             .is_nil()
     );
@@ -2880,7 +2881,7 @@ fn display_save_under_and_display_selections_p_shapes_and_errors() {
         Value::symbol("not-useful")
     );
     assert_eq!(
-        builtin_display_save_under(&mut eval, vec![Value::Nil]).unwrap(),
+        builtin_display_save_under(&mut eval, vec![Value::NIL]).unwrap(),
         Value::symbol("not-useful")
     );
     assert!(
@@ -2889,7 +2890,7 @@ fn display_save_under_and_display_selections_p_shapes_and_errors() {
             .is_nil()
     );
     assert!(
-        builtin_display_selections_p(&mut eval, vec![Value::Nil])
+        builtin_display_selections_p(&mut eval, vec![Value::NIL])
             .unwrap()
             .is_nil()
     );
@@ -2939,7 +2940,7 @@ fn display_optional_capability_queries_match_color_shapes() {
         builtin_display_symbol_keys_p,
     ] {
         assert!(query(&mut eval, vec![]).unwrap().is_nil());
-        assert!(query(&mut eval, vec![Value::Nil]).unwrap().is_nil());
+        assert!(query(&mut eval, vec![Value::NIL]).unwrap().is_nil());
         assert!(
             query(&mut eval, vec![terminal_handle_value()])
                 .unwrap()
@@ -2962,22 +2963,22 @@ fn display_optional_capability_queries_match_color_shapes() {
 
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
     assert!(
-        builtin_display_grayscale_p(&mut eval, vec![Value::Int(frame_id)])
+        builtin_display_grayscale_p(&mut eval, vec![Value::fixnum(frame_id)])
             .unwrap()
             .is_nil()
     );
     assert!(
-        builtin_display_mouse_p(&mut eval, vec![Value::Int(frame_id)])
+        builtin_display_mouse_p(&mut eval, vec![Value::fixnum(frame_id)])
             .unwrap()
             .is_nil()
     );
     assert!(
-        builtin_display_popup_menus_p(&mut eval, vec![Value::Int(frame_id)])
+        builtin_display_popup_menus_p(&mut eval, vec![Value::fixnum(frame_id)])
             .unwrap()
             .is_nil()
     );
     assert!(
-        builtin_display_symbol_keys_p(&mut eval, vec![Value::Int(frame_id)])
+        builtin_display_symbol_keys_p(&mut eval, vec![Value::fixnum(frame_id)])
             .unwrap()
             .is_nil()
     );
@@ -2993,12 +2994,12 @@ fn display_supports_face_attributes_p_arity_and_nil_result() {
             .is_nil()
     );
     assert!(
-        builtin_display_supports_face_attributes_p(&mut eval, vec![attrs, Value::Int(999_999)])
+        builtin_display_supports_face_attributes_p(&mut eval, vec![attrs, Value::fixnum(999_999)])
             .unwrap()
             .is_nil()
     );
     assert!(
-        builtin_display_supports_face_attributes_p(&mut eval, vec![Value::Int(1)])
+        builtin_display_supports_face_attributes_p(&mut eval, vec![Value::fixnum(1)])
             .unwrap()
             .is_nil()
     );
@@ -3007,7 +3008,7 @@ fn display_supports_face_attributes_p_arity_and_nil_result() {
         Err(Flow::Signal(sig)) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
         other => panic!("expected wrong-number-of-arguments, got {other:?}"),
     }
-    match builtin_display_supports_face_attributes_p(&mut eval, vec![attrs, Value::Nil, Value::Nil])
+    match builtin_display_supports_face_attributes_p(&mut eval, vec![attrs, Value::NIL, Value::NIL])
     {
         Err(Flow::Signal(sig)) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
         other => panic!("expected wrong-number-of-arguments, got {other:?}"),

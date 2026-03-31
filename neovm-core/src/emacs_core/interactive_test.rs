@@ -7,6 +7,7 @@ use crate::emacs_core::load::{
 use crate::emacs_core::{Context, format_eval_result, parse_forms};
 use std::fs;
 use std::path::PathBuf;
+use super::value::{ValueKind, VecLikeType};
 
 /// Create evaluator with minimal Elisp shims for interactive testing.
 fn eval_with_interactive_shims() -> Context {
@@ -286,10 +287,10 @@ fn gnu_simple_eval_expression_eval() -> Context {
 fn read_first_object(ev: &mut Context, src: &str) -> Value {
     let result = crate::emacs_core::reader::builtin_read_from_string(ev, vec![Value::string(src)])
         .unwrap_or_else(|err| panic!("read-from-string failed for {src:?}: {err:?}"));
-    let Value::Cons(cell) = result else {
+    if !result.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
         panic!("expected cons from read-from-string, got {result:?}");
     };
-    crate::emacs_core::value::read_cons(cell).car
+    crate::emacs_core::value::read_cons(cell).car  // TODO(tagged): replace read_cons with cons accessors
 }
 
 fn gnu_simple_command_execute_with_eval_expression_eval() -> Context {
@@ -527,12 +528,12 @@ fn commandp_true_for_builtin_forward_char() {
 fn commandp_handles_keyboard_macros_and_bytecode_interactive_slots() {
     let mut ev = Context::new();
     let bytecode = crate::emacs_core::builtins::symbols::make_byte_code_from_parts(
-        &Value::Nil,
+        &Value::NIL,
         &Value::string(""),
         &Value::vector(vec![]),
-        &Value::Int(0),
+        &Value::fixnum(0),
         None,
-        Some(&Value::vector(vec![Value::Nil, Value::Nil])),
+        Some(&Value::vector(vec![Value::NIL, Value::NIL])),
     )
     .expect("make-byte-code should build commandp fixture");
 
@@ -542,19 +543,19 @@ fn commandp_handles_keyboard_macros_and_bytecode_interactive_slots() {
             .is_truthy()
     );
     assert!(
-        builtin_commandp_interactive(&mut ev, vec![Value::vector(vec![Value::Int(1)])])
+        builtin_commandp_interactive(&mut ev, vec![Value::vector(vec![Value::fixnum(1)])])
             .expect("vector keyboard macro should be accepted")
             .is_truthy()
     );
     assert!(
-        builtin_commandp_interactive(&mut ev, vec![Value::string("abc"), Value::True])
+        builtin_commandp_interactive(&mut ev, vec![Value::string("abc"), Value::T])
             .expect("FOR-CALL-INTERACTIVELY should reject strings")
             .is_nil()
     );
     assert!(
         builtin_commandp_interactive(
             &mut ev,
-            vec![Value::vector(vec![Value::Int(1)]), Value::True]
+            vec![Value::vector(vec![Value::fixnum(1)]), Value::T]
         )
         .expect("FOR-CALL-INTERACTIVELY should reject vectors")
         .is_nil()
@@ -945,7 +946,7 @@ fn commandp_rejects_overflow_arity() {
     let mut ev = Context::new();
     let result = builtin_commandp_interactive(
         &mut ev,
-        vec![Value::symbol("ignore"), Value::Nil, Value::Nil],
+        vec![Value::symbol("ignore"), Value::NIL, Value::NIL],
     )
     .expect_err("commandp should reject more than two arguments");
     match result {
@@ -965,13 +966,13 @@ fn commandp_resolves_aliases_and_symbol_designators() {
     ev.obarray
         .set_symbol_function(":vm-command-alias-keyword", Value::symbol("forward-char"));
     ev.obarray
-        .set_symbol_function("vm-command-alias", Value::True);
+        .set_symbol_function("vm-command-alias", Value::T);
     ev.obarray.set_symbol_function(
         "vm-command-alias-keyword",
         Value::keyword(":vm-command-alias-keyword"),
     );
 
-    let t_result = builtin_commandp_interactive(&mut ev, vec![Value::True]);
+    let t_result = builtin_commandp_interactive(&mut ev, vec![Value::T]);
     assert!(t_result.unwrap().is_truthy());
     let keyword_result =
         builtin_commandp_interactive(&mut ev, vec![Value::keyword(":vm-command-alias-keyword")]);
@@ -1010,7 +1011,7 @@ fn commandp_true_for_quoted_lambda_with_interactive_form() {
 fn call_interactively_state_resolution_handles_default_and_noarg_cases() {
     let mut ev = Context::new();
     ev.obarray
-        .set_symbol_value("current-prefix-arg", Value::list(vec![Value::Int(4)]));
+        .set_symbol_value("current-prefix-arg", Value::list(vec![Value::fixnum(4)]));
 
     let mut builtin_plan = plan_call_interactively_in_state(
         ev.obarray(),
@@ -1031,7 +1032,7 @@ fn call_interactively_state_resolution_handles_default_and_noarg_cases() {
     )
     .expect("resolve builtin default args")
     .expect("shared-state builtin default path");
-    assert_eq!(builtin_args, vec![Value::Int(4)]);
+    assert_eq!(builtin_args, vec![Value::fixnum(4)]);
 
     let lambda_forms =
         super::super::parser::parse_forms("(lambda () (interactive) 1)").expect("parse lambda");
@@ -1090,7 +1091,7 @@ fn call_interactively_state_resolution_defers_prompting_specs_to_eval() {
 fn call_interactively_state_resolution_handles_simple_string_codes_without_eval() {
     let mut ev = Context::new();
     ev.obarray
-        .set_symbol_value("current-prefix-arg", Value::list(vec![Value::Int(4)]));
+        .set_symbol_value("current-prefix-arg", Value::list(vec![Value::fixnum(4)]));
     let current = ev.buffers.current_buffer_id().expect("current buffer");
     let _ = ev.buffers.replace_buffer_contents(current, "abcd");
     let _ = ev.buffers.goto_buffer_byte(current, 2);
@@ -1119,7 +1120,7 @@ i\")
         ev.obarray(),
         &ev.interactive,
         ev.read_command_keys(),
-        &[lambda, Value::Nil, Value::vector(vec![event])],
+        &[lambda, Value::NIL, Value::vector(vec![event])],
     )
     .expect("plan simple string-code lambda");
     let (_, args) = resolve_call_interactively_target_and_args_in_state(
@@ -1137,15 +1138,15 @@ i\")
     assert_eq!(
         args,
         vec![
-            Value::list(vec![Value::Int(4)]),
-            Value::Int(4),
-            Value::Int(3),
-            Value::Int(2),
-            Value::Int(2),
-            Value::Int(3),
+            Value::list(vec![Value::fixnum(4)]),
+            Value::fixnum(4),
+            Value::fixnum(3),
+            Value::fixnum(2),
+            Value::fixnum(2),
+            Value::fixnum(3),
             event,
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
         ]
     );
 }
@@ -1157,9 +1158,9 @@ fn call_interactively_state_resolution_applies_shift_selection_prefix_in_state()
     let _ = ev.buffers.replace_buffer_contents(current, "abcd");
     let _ = ev.buffers.goto_buffer_byte(current, 2);
     ev.obarray
-        .set_symbol_value("this-command-keys-shift-translated", Value::True);
+        .set_symbol_value("this-command-keys-shift-translated", Value::T);
     ev.obarray
-        .set_symbol_value("shift-select-mode", Value::True);
+        .set_symbol_value("shift-select-mode", Value::T);
 
     let lambda_forms = super::super::parser::parse_forms("(lambda (pt) (interactive \"^d\") pt)")
         .expect("parse lambda");
@@ -1183,11 +1184,11 @@ fn call_interactively_state_resolution_applies_shift_selection_prefix_in_state()
     )
     .expect("resolve shift-selection args")
     .expect("shared-state shift-selection path");
-    assert_eq!(args, vec![Value::Int(3)]);
+    assert_eq!(args, vec![Value::fixnum(3)]);
 
     let buf = ev.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.mark(), Some(2));
-    assert_eq!(buf.get_buffer_local("mark-active"), Some(&Value::True));
+    assert_eq!(buf.get_buffer_local("mark-active"), Some(&Value::T));
 }
 
 #[test]
@@ -1216,7 +1217,7 @@ fn call_interactively_state_resolution_handles_optional_coding_without_prefix() 
     )
     .expect("resolve optional coding args")
     .expect("shared-state optional coding path");
-    assert_eq!(args, vec![Value::Nil]);
+    assert_eq!(args, vec![Value::NIL]);
 }
 
 #[test]
@@ -1239,7 +1240,7 @@ fn interactive_lambda_r_capital_spec_uses_use_region_p_semantics() {
     )
     .expect("resolve inactive R")
     .expect("R should produce args");
-    assert_eq!(args, vec![Value::Nil, Value::Nil]);
+    assert_eq!(args, vec![Value::NIL, Value::NIL]);
 
     let _ = ev.eval_forms(
         &parse_forms("(fset 'use-region-p (lambda () t))").expect("parse use-region-p"),
@@ -1252,7 +1253,7 @@ fn interactive_lambda_r_capital_spec_uses_use_region_p_semantics() {
     )
     .expect("resolve active R")
     .expect("R should produce args");
-    assert_eq!(args, vec![Value::Int(2), Value::Int(3)]);
+    assert_eq!(args, vec![Value::fixnum(2), Value::fixnum(3)]);
 }
 
 // -------------------------------------------------------------------
@@ -1347,7 +1348,7 @@ fn this_command_keys_after_set() {
 fn this_command_keys_vector_empty() {
     let mut ev = Context::new();
     let result = builtin_this_command_keys_vector(&mut ev, vec![]).unwrap();
-    assert!(matches!(result, Value::Vector(_)));
+    assert!(result.is_vector());
 }
 
 #[test]
@@ -1355,10 +1356,10 @@ fn this_command_keys_vector_after_set() {
     let mut ev = Context::new();
     ev.set_this_command_keys_from_string("x").unwrap();
     let result = builtin_this_command_keys_vector(&mut ev, vec![]).unwrap();
-    if let Value::Vector(v) = result {
+    if result.is_vector() /* TODO(tagged): `v` was Value::Vector(v), now use accessor */ {
         let v = with_heap(|h| h.get_vector(v).clone());
         assert_eq!(v.len(), 1);
-        assert_eq!(v[0], Value::Int('x' as i64));
+        assert_eq!(v[0], Value::fixnum('x' as i64));
     } else {
         panic!("expected vector");
     }
@@ -1367,16 +1368,16 @@ fn this_command_keys_vector_after_set() {
 #[test]
 fn this_command_keys_uses_read_command_key_chars() {
     let mut ev = Context::new();
-    ev.set_read_command_keys(vec![Value::Int(97)]);
+    ev.set_read_command_keys(vec![Value::fixnum(97)]);
 
     let text = builtin_this_command_keys(&mut ev, vec![]).unwrap();
     assert_eq!(text.as_str(), Some("a"));
 
     let vec_result = builtin_this_command_keys_vector(&mut ev, vec![]).unwrap();
-    match vec_result {
-        Value::Vector(v) => {
+    match vec_result.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(v).clone());
-            assert_eq!(items.as_slice(), &[Value::Int(97)]);
+            assert_eq!(items.as_slice(), &[ValueKind::Fixnum(97)]);
         }
         other => panic!("expected vector, got {other:?}"),
     }
@@ -1388,11 +1389,11 @@ fn this_command_keys_returns_vector_for_non_char_read_command_keys() {
     ev.set_read_command_keys(vec![Value::list(vec![Value::symbol("mouse-1")])]);
 
     let result = builtin_this_command_keys(&mut ev, vec![]).unwrap();
-    match result {
-        Value::Vector(v) => {
+    match result.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(v).clone());
             assert_eq!(items.len(), 1);
-            assert!(matches!(items[0], Value::Cons(_)));
+            assert!(matches!(items[0], ValueKind::Cons));
         }
         other => panic!("expected vector, got {other:?}"),
     }
@@ -1401,13 +1402,13 @@ fn this_command_keys_returns_vector_for_non_char_read_command_keys() {
 #[test]
 fn this_single_command_keys_prefers_read_command_key_vector() {
     let mut ev = Context::new();
-    ev.set_read_command_keys(vec![Value::Int(97)]);
+    ev.set_read_command_keys(vec![Value::fixnum(97)]);
 
     let result = builtin_this_single_command_keys(&mut ev, vec![]).unwrap();
-    match result {
-        Value::Vector(v) => {
+    match result.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(v).clone());
-            assert_eq!(items.as_slice(), &[Value::Int(97)]);
+            assert_eq!(items.as_slice(), &[ValueKind::Fixnum(97)]);
         }
         other => panic!("expected vector, got {other:?}"),
     }
@@ -1416,11 +1417,11 @@ fn this_single_command_keys_prefers_read_command_key_vector() {
 #[test]
 fn this_single_command_raw_keys_tracks_raw_sequence() {
     let mut ev = Context::new();
-    ev.set_command_key_sequences(vec![Value::Int('b' as i64)], vec![Value::Int('a' as i64)]);
+    ev.set_command_key_sequences(vec![Value::fixnum('b' as i64)], vec![Value::fixnum('a' as i64)]);
 
     let result = builtin_this_single_command_raw_keys(&mut ev, vec![]).unwrap();
-    match result {
-        Value::Vector(v) => {
+    match result.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(v).clone());
             assert_eq!(items.as_slice(), &[Value::Int('a' as i64)]);
         }
@@ -1431,15 +1432,15 @@ fn this_single_command_raw_keys_tracks_raw_sequence() {
 #[test]
 fn clear_this_command_keys_clears_read_key_context() {
     let mut ev = Context::new();
-    ev.set_read_command_keys(vec![Value::Int(97)]);
+    ev.set_read_command_keys(vec![Value::fixnum(97)]);
 
     let result = builtin_clear_this_command_keys(&mut ev, vec![]).unwrap();
     assert!(result.is_nil());
     assert_eq!(ev.read_command_keys(), &[]);
 
     let vec_result = builtin_this_command_keys_vector(&mut ev, vec![]).unwrap();
-    match vec_result {
-        Value::Vector(v) => {
+    match vec_result.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(v).clone());
             assert!(items.is_empty());
         }
@@ -1450,14 +1451,14 @@ fn clear_this_command_keys_clears_read_key_context() {
 #[test]
 fn set_this_command_keys_clears_raw_sequence_history() {
     let mut ev = Context::new();
-    ev.set_command_key_sequences(vec![Value::Int('q' as i64)], vec![Value::Int('z' as i64)]);
+    ev.set_command_key_sequences(vec![Value::fixnum('q' as i64)], vec![Value::fixnum('z' as i64)]);
     ev.set_this_command_keys_from_string("\u{00f8}foo\r")
         .unwrap();
 
     let translated = builtin_this_command_keys_vector(&mut ev, vec![]).unwrap();
     let raw = builtin_this_single_command_raw_keys(&mut ev, vec![]).unwrap();
-    match translated {
-        Value::Vector(v) => {
+    match translated.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(v).clone());
             assert_eq!(items[0], Value::Int(('x' as i64) | ((1u32 << 27) as i64)));
             assert_eq!(items[1], Value::Int('f' as i64));
@@ -1467,8 +1468,8 @@ fn set_this_command_keys_clears_raw_sequence_history() {
         }
         other => panic!("expected vector, got {other:?}"),
     }
-    match raw {
-        Value::Vector(v) => {
+    match raw.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(v).clone());
             assert!(items.is_empty());
         }
@@ -1479,8 +1480,8 @@ fn set_this_command_keys_clears_raw_sequence_history() {
 #[test]
 fn clear_this_command_keys_without_keep_record_clears_recent_input_history() {
     let mut ev = Context::new();
-    ev.record_input_event(Value::Int(97));
-    assert_eq!(ev.recent_input_events(), &[Value::Int(97)]);
+    ev.record_input_event(Value::fixnum(97));
+    assert_eq!(ev.recent_input_events(), &[Value::fixnum(97)]);
 
     let result = builtin_clear_this_command_keys(&mut ev, vec![]).unwrap();
     assert!(result.is_nil());
@@ -1490,10 +1491,10 @@ fn clear_this_command_keys_without_keep_record_clears_recent_input_history() {
 #[test]
 fn clear_this_command_keys_with_nil_keep_record_clears_recent_input_history() {
     let mut ev = Context::new();
-    ev.record_input_event(Value::Int(98));
-    assert_eq!(ev.recent_input_events(), &[Value::Int(98)]);
+    ev.record_input_event(Value::fixnum(98));
+    assert_eq!(ev.recent_input_events(), &[Value::fixnum(98)]);
 
-    let result = builtin_clear_this_command_keys(&mut ev, vec![Value::Nil]).unwrap();
+    let result = builtin_clear_this_command_keys(&mut ev, vec![Value::NIL]).unwrap();
     assert!(result.is_nil());
     assert!(ev.recent_input_events().is_empty());
 }
@@ -1501,24 +1502,24 @@ fn clear_this_command_keys_with_nil_keep_record_clears_recent_input_history() {
 #[test]
 fn clear_this_command_keys_with_keep_record_preserves_recent_input_history() {
     let mut ev = Context::new();
-    ev.record_input_event(Value::Int(99));
-    assert_eq!(ev.recent_input_events(), &[Value::Int(99)]);
+    ev.record_input_event(Value::fixnum(99));
+    assert_eq!(ev.recent_input_events(), &[Value::fixnum(99)]);
 
     let result = builtin_clear_this_command_keys(&mut ev, vec![Value::symbol("t")]).unwrap();
     assert!(result.is_nil());
-    assert_eq!(ev.recent_input_events(), &[Value::Int(99)]);
+    assert_eq!(ev.recent_input_events(), &[Value::fixnum(99)]);
 }
 
 #[test]
 fn clear_this_command_keys_rejects_more_than_one_arg() {
     let mut ev = Context::new();
-    let result = builtin_clear_this_command_keys(&mut ev, vec![Value::Int(1), Value::Int(2)]);
+    let result = builtin_clear_this_command_keys(&mut ev, vec![Value::fixnum(1), Value::fixnum(2)]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig))
             if sig.symbol_name() == "wrong-number-of-arguments"
                 && sig.data
-                    == vec![Value::symbol("clear-this-command-keys"), Value::Int(2)]
+                    == vec![Value::symbol("clear-this-command-keys"), Value::fixnum(2)]
     ));
 }
 
@@ -1532,7 +1533,7 @@ fn key_binding_global() {
     let km = make_list_keymap();
     ev.obarray.set_symbol_value("global-map", km);
     // ctrl-f = char 6
-    let ctrl_f = Value::Int(6);
+    let ctrl_f = Value::fixnum(6);
     crate::emacs_core::keymap::list_keymap_define(km, ctrl_f, Value::symbol("forward-char"));
 
     let result = builtin_key_binding(&mut ev, vec![Value::string("\x06")]).unwrap();
@@ -1663,10 +1664,10 @@ fn key_binding_too_many_args_errors() {
         &mut ev,
         vec![
             Value::string("\x03"),
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
         ],
     );
     assert!(result.is_err());
@@ -1860,7 +1861,7 @@ fn local_key_binding_nil_when_no_local_map() {
 fn local_key_binding_too_many_args_errors() {
     let mut ev = Context::new();
     let result =
-        builtin_local_key_binding(&mut ev, vec![Value::string("\x03"), Value::Nil, Value::Nil]);
+        builtin_local_key_binding(&mut ev, vec![Value::string("\x03"), Value::NIL, Value::NIL]);
     assert!(result.is_err());
 }
 
@@ -1972,7 +1973,7 @@ fn minor_mode_key_binding_too_many_args_errors() {
     let mut ev = Context::new();
     let result = builtin_minor_mode_key_binding(
         &mut ev,
-        vec![Value::string("\x03"), Value::True, Value::symbol("extra")],
+        vec![Value::string("\x03"), Value::T, Value::symbol("extra")],
     );
     assert!(result.is_err());
 }
@@ -2110,7 +2111,7 @@ fn command_execute_rejects_non_vector_keys_argument() {
     let result = ev
         .apply(
             Value::symbol("command-execute"),
-            vec![Value::symbol("ignore"), Value::Nil, Value::string("a")],
+            vec![Value::symbol("ignore"), Value::NIL, Value::string("a")],
         )
         .expect_err("command-execute should reject non-vector keys argument");
     match result {
@@ -2130,8 +2131,8 @@ fn command_execute_accepts_vector_keys_argument() {
             Value::symbol("command-execute"),
             vec![
                 Value::symbol("ignore"),
-                Value::Nil,
-                Value::vector(vec![Value::Int(97)]),
+                Value::NIL,
+                Value::vector(vec![Value::fixnum(97)]),
             ],
         )
         .expect("command-execute should accept vector keys argument");
@@ -2146,8 +2147,8 @@ fn command_execute_does_not_record_keys_argument_in_recent_history() {
             Value::symbol("command-execute"),
             vec![
                 Value::symbol("ignore"),
-                Value::Nil,
-                Value::vector(vec![Value::Int(97), Value::symbol("mouse-1")]),
+                Value::NIL,
+                Value::vector(vec![Value::fixnum(97), Value::symbol("mouse-1")]),
             ],
         )
         .expect("command-execute should accept vector keys argument");
@@ -2171,8 +2172,8 @@ fn command_execute_keys_vector_keeps_this_command_keys_empty_in_batch() {
             Value::symbol("command-execute"),
             vec![
                 Value::symbol("neo-rk-loop-probe"),
-                Value::Nil,
-                Value::vector(vec![Value::Int(97), Value::Int(98)]),
+                Value::NIL,
+                Value::vector(vec![Value::fixnum(97), Value::fixnum(98)]),
             ],
         )
         .expect("command-execute should accept vector keys argument");
@@ -2184,11 +2185,11 @@ fn command_execute_keys_vector_keeps_this_command_keys_empty_in_batch() {
 #[test]
 fn command_execute_rejects_list_keys_argument_without_recording_recent_history() {
     let mut ev = gnu_simple_command_execute_eval();
-    let keys = Value::list(vec![Value::Int(97), Value::Int(98)]);
+    let keys = Value::list(vec![Value::fixnum(97), Value::fixnum(98)]);
     let result = ev
         .apply(
             Value::symbol("command-execute"),
-            vec![Value::symbol("ignore"), Value::Nil, keys],
+            vec![Value::symbol("ignore"), Value::NIL, keys],
         )
         .expect_err("command-execute should reject list keys argument");
     match result {
@@ -2209,10 +2210,10 @@ fn command_execute_rejects_too_many_arguments() {
             Value::symbol("command-execute"),
             vec![
                 Value::symbol("ignore"),
-                Value::Nil,
-                Value::Nil,
-                Value::Nil,
-                Value::Nil,
+                Value::NIL,
+                Value::NIL,
+                Value::NIL,
+                Value::NIL,
             ],
         )
         .expect_err("command-execute should reject too many arguments");
@@ -2283,7 +2284,7 @@ fn call_interactively_rejects_non_vector_keys_argument() {
     let mut ev = Context::new();
     let result = builtin_call_interactively(
         &mut ev,
-        vec![Value::symbol("ignore"), Value::Nil, Value::string("b")],
+        vec![Value::symbol("ignore"), Value::NIL, Value::string("b")],
     )
     .expect_err("call-interactively should reject non-vector keys argument");
     match result {
@@ -2302,8 +2303,8 @@ fn call_interactively_accepts_vector_keys_argument() {
         &mut ev,
         vec![
             Value::symbol("ignore"),
-            Value::Nil,
-            Value::vector(vec![Value::Int(98)]),
+            Value::NIL,
+            Value::vector(vec![Value::fixnum(98)]),
         ],
     )
     .expect("call-interactively should accept vector keys argument");
@@ -2317,8 +2318,8 @@ fn call_interactively_does_not_record_keys_argument_in_recent_history() {
         &mut ev,
         vec![
             Value::symbol("ignore"),
-            Value::Nil,
-            Value::vector(vec![Value::Int(98)]),
+            Value::NIL,
+            Value::vector(vec![Value::fixnum(98)]),
         ],
     )
     .expect("call-interactively should accept vector keys argument");
@@ -2341,7 +2342,7 @@ fn call_interactively_keys_vector_keeps_this_command_keys_empty_in_batch() {
         &mut ev,
         vec![
             Value::symbol("neo-rk-loop-probe"),
-            Value::Nil,
+            Value::NIL,
             Value::vector(vec![Value::symbol("foo")]),
         ],
     )
@@ -2354,9 +2355,9 @@ fn call_interactively_keys_vector_keeps_this_command_keys_empty_in_batch() {
 #[test]
 fn call_interactively_rejects_list_keys_argument_without_recording_recent_history() {
     let mut ev = Context::new();
-    let keys = Value::list(vec![Value::Int(97), Value::Int(98)]);
+    let keys = Value::list(vec![Value::fixnum(97), Value::fixnum(98)]);
     let result =
-        builtin_call_interactively(&mut ev, vec![Value::symbol("ignore"), Value::Nil, keys])
+        builtin_call_interactively(&mut ev, vec![Value::symbol("ignore"), Value::NIL, keys])
             .expect_err("call-interactively should reject list keys argument");
     match result {
         Flow::Signal(sig) => {
@@ -2373,7 +2374,7 @@ fn call_interactively_rejects_too_many_arguments() {
     let mut ev = Context::new();
     let result = builtin_call_interactively(
         &mut ev,
-        vec![Value::symbol("ignore"), Value::Nil, Value::Nil, Value::Nil],
+        vec![Value::symbol("ignore"), Value::NIL, Value::NIL, Value::NIL],
     )
     .expect_err("call-interactively should reject too many arguments");
     match result {
@@ -3298,15 +3299,15 @@ fn interactive_shift_selection_prefix_sets_mark_and_mark_active() {
         buf.goto_char(2);
     }
     ev.obarray
-        .set_symbol_value("this-command-keys-shift-translated", Value::True);
+        .set_symbol_value("this-command-keys-shift-translated", Value::T);
     ev.obarray
-        .set_symbol_value("shift-select-mode", Value::True);
+        .set_symbol_value("shift-select-mode", Value::T);
 
     interactive_apply_shift_selection_prefix(&mut ev);
 
     let buf = ev.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.mark(), Some(2));
-    assert_eq!(buf.get_buffer_local("mark-active"), Some(&Value::True));
+    assert_eq!(buf.get_buffer_local("mark-active"), Some(&Value::T));
 }
 
 #[test]
@@ -3643,11 +3644,11 @@ fn eval_expression_rejects_too_many_args() {
         .apply(
             Value::symbol("eval-expression"),
             vec![
-                Value::Int(1),
-                Value::Nil,
-                Value::Nil,
-                Value::Nil,
-                Value::Nil,
+                Value::fixnum(1),
+                Value::NIL,
+                Value::NIL,
+                Value::NIL,
+                Value::NIL,
             ],
         )
         .expect_err("eval-expression should reject more than four args");
@@ -3655,7 +3656,7 @@ fn eval_expression_rejects_too_many_args() {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(sig.data.len(), 2);
-            assert_eq!(sig.data[1], Value::Int(5));
+            assert_eq!(sig.data[1], ValueKind::Fixnum(5));
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -3670,7 +3671,7 @@ fn eval_expression_apply_executes_form_argument() {
     let result = ev
         .apply(
             Value::symbol("eval-expression"),
-            vec![expr, Value::Nil, Value::Nil, Value::Int(127)],
+            vec![expr, Value::NIL, Value::NIL, Value::fixnum(127)],
         )
         .expect("eval-expression should evaluate message form");
     let rendered = crate::emacs_core::print::print_value(&result);
@@ -3725,21 +3726,21 @@ fn self_insert_command_argument_validation() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("self-insert-command"), Value::Int(0)]
+                vec![Value::symbol("self-insert-command"), ValueKind::Fixnum(0)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
     }
 
     let too_many =
-        builtin_self_insert_command(&mut ev, vec![Value::Int(1), Value::Nil, Value::Nil])
+        builtin_self_insert_command(&mut ev, vec![Value::fixnum(1), Value::NIL, Value::NIL])
             .expect_err("self-insert-command should reject too many args");
     match too_many {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("self-insert-command"), Value::Int(3)]
+                vec![Value::symbol("self-insert-command"), ValueKind::Fixnum(3)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -3755,7 +3756,7 @@ fn self_insert_command_argument_validation() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    let negative = builtin_self_insert_command(&mut ev, vec![Value::Int(-1)])
+    let negative = builtin_self_insert_command(&mut ev, vec![Value::fixnum(-1)])
         .expect_err("self-insert-command should reject negative repetition");
     match negative {
         Flow::Signal(sig) => {
@@ -3886,7 +3887,7 @@ fn execute_extended_command_applies_prefix_arg_for_p_and_p_specs() {
 fn execute_extended_command_no_name_signals_end_of_file() {
     let mut ev = gnu_simple_execute_extended_command_eval();
     let result = ev
-        .apply(Value::symbol("execute-extended-command"), vec![Value::Nil])
+        .apply(Value::symbol("execute-extended-command"), vec![Value::NIL])
         .expect_err("execute-extended-command should signal end-of-file in batch");
     match result {
         Flow::Signal(sig) => {
@@ -3903,7 +3904,7 @@ fn execute_extended_command_rejects_symbol_name_payload() {
     let result = ev
         .apply(
             Value::symbol("execute-extended-command"),
-            vec![Value::Nil, Value::symbol("ignore")],
+            vec![Value::NIL, Value::symbol("ignore")],
         )
         .expect_err("symbol payload should not be accepted as a command name");
     match result {
@@ -3926,7 +3927,7 @@ fn execute_extended_command_rejects_non_command_name() {
     let result = ev
         .apply(
             Value::symbol("execute-extended-command"),
-            vec![Value::Nil, Value::string("car")],
+            vec![Value::NIL, Value::string("car")],
         )
         .expect_err("non-command names should be rejected");
     match result {
@@ -3949,7 +3950,7 @@ fn execute_extended_command_rejects_non_string_name_payload() {
     let result = ev
         .apply(
             Value::symbol("execute-extended-command"),
-            vec![Value::Nil, Value::Int(1)],
+            vec![Value::NIL, Value::fixnum(1)],
         )
         .expect_err("non-string command names should be rejected");
     match result {
@@ -3972,7 +3973,7 @@ fn execute_extended_command_rejects_overflow_arity() {
     let result = ev
         .apply(
             Value::symbol("execute-extended-command"),
-            vec![Value::Nil, Value::Nil, Value::Nil, Value::Nil],
+            vec![Value::NIL, Value::NIL, Value::NIL, Value::NIL],
         )
         .expect_err("execute-extended-command should reject more than three arguments");
     match result {

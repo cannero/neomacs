@@ -1,4 +1,5 @@
 use super::*;
+use super::value::{ValueKind, VecLikeType};
 
 // ===========================================================================
 // String operations
@@ -8,28 +9,28 @@ pub(crate) fn builtin_string_equal(args: Vec<Value>) -> EvalResult {
     expect_args("string-equal", &args, 2)?;
     let a = expect_string_comparison_operand(&args[0])?;
     let b = expect_string_comparison_operand(&args[1])?;
-    Ok(Value::bool(a == b))
+    Ok(Value::bool_val(a == b))
 }
 
 pub(crate) fn builtin_string_lessp(args: Vec<Value>) -> EvalResult {
     expect_args("string-lessp", &args, 2)?;
     let a = expect_string_comparison_operand(&args[0])?;
     let b = expect_string_comparison_operand(&args[1])?;
-    Ok(Value::bool(a < b))
+    Ok(Value::bool_val(a < b))
 }
 
 pub(crate) fn builtin_string_greaterp(args: Vec<Value>) -> EvalResult {
     expect_args("string-greaterp", &args, 2)?;
     let a = expect_string_comparison_operand(&args[0])?;
     let b = expect_string_comparison_operand(&args[1])?;
-    Ok(Value::bool(a > b))
+    Ok(Value::bool_val(a > b))
 }
 
 fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResult {
     expect_min_args(name, args, 1)?;
     expect_max_args(name, args, 3)?;
-    match &args[0] {
-        Value::Str(src_id) => {
+    match args[0].kind() {
+        ValueKind::String => {
             let src_props = if preserve_props {
                 get_string_text_properties_table(*src_id).filter(|table| !table.is_empty())
             } else {
@@ -49,7 +50,7 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                         if idx < 0 || idx > len {
                             return Err(signal(
                                 "args-out-of-range",
-                                vec![args[0], args[1], args.get(2).cloned().unwrap_or(Value::Nil)],
+                                vec![args[0], args[1], args.get(2).cloned().unwrap_or(ValueKind::Nil)],
                             ));
                         }
                         Ok(idx)
@@ -72,8 +73,8 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                             "args-out-of-range",
                             vec![
                                 args[0],
-                                args.get(1).cloned().unwrap_or(Value::Int(0)),
-                                args.get(2).cloned().unwrap_or(Value::Nil),
+                                args.get(1).cloned().unwrap_or(ValueKind::Fixnum(0)),
+                                args.get(2).cloned().unwrap_or(ValueKind::Nil),
                             ],
                         ));
                     }
@@ -101,8 +102,8 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                         "args-out-of-range",
                         vec![
                             args[0],
-                            args.get(1).cloned().unwrap_or(Value::Int(0)),
-                            args.get(2).cloned().unwrap_or(Value::Nil),
+                            args.get(1).cloned().unwrap_or(ValueKind::Fixnum(0)),
+                            args.get(2).cloned().unwrap_or(ValueKind::Nil),
                         ],
                     ));
                 }
@@ -114,8 +115,8 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                         "args-out-of-range",
                         vec![
                             args[0],
-                            args.get(1).cloned().unwrap_or(Value::Int(0)),
-                            args.get(2).cloned().unwrap_or(Value::Nil),
+                            args.get(1).cloned().unwrap_or(ValueKind::Fixnum(0)),
+                            args.get(2).cloned().unwrap_or(ValueKind::Nil),
                         ],
                     )
                 })?;
@@ -133,7 +134,7 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
             let new_val = Value::heap_string(result);
 
             // Preserve text properties from source string
-            if let (true, Value::Str(new_id), Some(sliced)) =
+            if let (true, ValueKind::String, Some(sliced)) =
                 (preserve_props, &new_val, sliced_props)
             {
                 set_string_text_properties_table(*new_id, sliced);
@@ -141,7 +142,7 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
 
             Ok(new_val)
         }
-        Value::Vector(v) | Value::Record(v) if name == "substring" => {
+        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) if name == "substring" => {
             let items = with_heap(|h| h.get_vector(*v).clone());
             let len = items.len() as i64;
             let normalize_index = |value: &Value, default: i64| -> Result<i64, Flow> {
@@ -154,7 +155,7 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                 if idx < 0 || idx > len {
                     return Err(signal(
                         "args-out-of-range",
-                        vec![args[0], args[1], args.get(2).cloned().unwrap_or(Value::Nil)],
+                        vec![args[0], args[1], args.get(2).cloned().unwrap_or(ValueKind::Nil)],
                     ));
                 }
                 Ok(idx)
@@ -174,8 +175,8 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                     "args-out-of-range",
                     vec![
                         args[0],
-                        args.get(1).cloned().unwrap_or(Value::Int(0)),
-                        args.get(2).cloned().unwrap_or(Value::Nil),
+                        args.get(1).cloned().unwrap_or(ValueKind::Fixnum(0)),
+                        args.get(2).cloned().unwrap_or(ValueKind::Nil),
                     ],
                 ));
             }
@@ -209,7 +210,7 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
             if !(0..=0x3FFFFF).contains(&n) {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("characterp"), Value::Int(n)],
+                    vec![Value::symbol("characterp"), Value::fixnum(n)],
                 ));
             }
 
@@ -238,17 +239,17 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
 
             Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("characterp"), Value::Int(n)],
+                vec![Value::symbol("characterp"), Value::fixnum(n)],
             ))
         }
 
         fn push_concat_element(result: &mut String, value: &Value) -> Result<(), Flow> {
-            match value {
-                Value::Char(c) => {
-                    result.push(*c);
+            match value.kind() {
+                ValueKind::Char(c) => {
+                    result.push(c);
                     Ok(())
                 }
-                Value::Int(n) => push_concat_int(result, *n),
+                ValueKind::Fixnum(n) => push_concat_int(result, n),
                 other => Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("characterp"), *other],
@@ -256,7 +257,7 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
             }
         }
 
-        if args.iter().all(|arg| matches!(arg, Value::Str(_))) {
+        if args.iter().all(|arg| arg.is_string()) {
             let has_text_props = args.iter().any(|arg| {
                 matches!(
                     arg,
@@ -270,7 +271,7 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
                     let mut parts = Vec::new();
                     let mut multibyte = false;
                     for arg in &args {
-                        if let Value::Str(id) = arg {
+                        if arg.is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
                             let string = h.get_lisp_string(*id);
                             string.append_parts_to(&mut parts);
                             multibyte |= string.multibyte;
@@ -283,7 +284,7 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
         }
 
         let preallocated_len = args.iter().fold(0usize, |acc, arg| match arg {
-            Value::Str(id) => acc + with_heap(|h| h.get_string(*id).len()),
+            Value::Str(id) /* TODO(tagged): convert Value::Str to new API */ => acc + with_heap(|h| h.get_string(*id).len()),
             _ => acc,
         });
         let mut result = String::with_capacity(preallocated_len);
@@ -291,20 +292,20 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
         let mut string_sources: Vec<(crate::gc::types::ObjId, usize)> = Vec::new();
 
         for arg in &args {
-            match arg {
-                Value::Str(id) => {
+            match arg.kind() {
+                ValueKind::String => {
                     let offset = result.len();
                     with_heap(|h| result.push_str(h.get_string(*id)));
                     string_sources.push((*id, offset));
                 }
-                Value::Nil => {}
-                Value::Cons(_) => {
+                ValueKind::Nil => {}
+                ValueKind::Cons => {
                     let mut cursor = *arg;
                     loop {
-                        match cursor {
-                            Value::Nil => break,
-                            Value::Cons(cell) => {
-                                let pair = read_cons(cell);
+                        match cursor.kind() {
+                            ValueKind::Nil => break,
+                            ValueKind::Cons => {
+                                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                                 push_concat_element(&mut result, &pair.car)?;
                                 cursor = pair.cdr;
                             }
@@ -317,7 +318,7 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
                         }
                     }
                 }
-                Value::Vector(v) => {
+                ValueKind::Veclike(VecLikeType::Vector) => {
                     let items = with_heap(|h| h.get_vector(*v).clone());
                     for item in items.iter() {
                         push_concat_element(&mut result, item)?;
@@ -335,7 +336,7 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
         let new_val = Value::string(&result);
 
         // Preserve text properties from string sources
-        if let Value::Str(new_id) = &new_val {
+        if &new_val.is_string() /* TODO(tagged): `new_id` was Value::Str(new_id), now use accessor */ {
             let mut combined_table = crate::buffer::text_props::TextPropertyTable::new();
             let mut has_props = false;
             for (src_id, offset) in &string_sources {
@@ -366,7 +367,7 @@ pub(crate) fn builtin_string_to_number(args: Vec<Value>) -> EvalResult {
     };
 
     if !(2..=16).contains(&base) {
-        return Err(signal("args-out-of-range", vec![Value::Int(base)]));
+        return Err(signal("args-out-of-range", vec![Value::fixnum(base)]));
     }
 
     let s = s.trim_start_matches(|c: char| c == ' ' || c == '\t');
@@ -398,7 +399,7 @@ pub(crate) fn builtin_string_to_number(args: Vec<Value>) -> EvalResult {
             let is_float = has_trail_int || (has_lead_int && has_e_exp);
             if is_float {
                 if let Ok(f) = token.parse::<f64>() {
-                    return Ok(Value::Float(f, next_float_id()));
+                    return Ok(Value::make_float(f));
                 }
             } else {
                 // Parse integer part only (stop at dot if present)
@@ -408,7 +409,7 @@ pub(crate) fn builtin_string_to_number(args: Vec<Value>) -> EvalResult {
                     token
                 };
                 if let Ok(n) = int_token.parse::<i64>() {
-                    return Ok(Value::Int(n));
+                    return Ok(Value::fixnum(n));
                 }
             }
         }
@@ -437,18 +438,18 @@ pub(crate) fn builtin_string_to_number(args: Vec<Value>) -> EvalResult {
         if pos > digit_start {
             let token = &s[digit_start..pos];
             if let Ok(parsed) = i64::from_str_radix(token, base as u32) {
-                return Ok(Value::Int(if negative { -parsed } else { parsed }));
+                return Ok(Value::fixnum(if negative { -parsed } else { parsed }));
             }
         }
     }
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 pub(crate) fn builtin_number_to_string(args: Vec<Value>) -> EvalResult {
     expect_args("number-to-string", &args, 1)?;
-    match &args[0] {
-        Value::Int(n) => Ok(Value::string(n.to_string())),
-        Value::Float(f, _) => Ok(Value::string(super::print::format_float(*f))),
+    match args[0].kind() {
+        ValueKind::Fixnum(n) => Ok(Value::string(n.to_string())),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(Value::string(super::print::format_float(*f))),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("numberp"), *other],
@@ -458,26 +459,26 @@ pub(crate) fn builtin_number_to_string(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_upcase(args: Vec<Value>) -> EvalResult {
     expect_args("upcase", &args, 1)?;
-    match &args[0] {
-        Value::Str(id) => Ok(Value::string(upcase_string_emacs_compat(&with_heap(|h| {
+    match args[0].kind() {
+        ValueKind::String => Ok(Value::string(upcase_string_emacs_compat(&with_heap(|h| {
             h.get_string(*id).to_owned()
         })))),
-        Value::Char(c) => {
-            let mapped = upcase_char_code_emacs_compat(*c as i64);
+        ValueKind::Char(c) => {
+            let mapped = upcase_char_code_emacs_compat(c as i64);
             if let Some(ch) = u32::try_from(mapped).ok().and_then(char::from_u32) {
-                Ok(Value::Char(ch))
+                Ok(ValueKind::Char(ch))
             } else {
-                Ok(Value::Char(*c))
+                Ok(Value::Char(c))
             }
         }
-        Value::Int(n) => {
-            if *n < 0 {
+        ValueKind::Fixnum(n) => {
+            if n < 0 {
                 Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("char-or-string-p"), Value::Int(*n)],
+                    vec![Value::symbol("char-or-string-p"), Value::Int(n)],
                 ))
             } else {
-                Ok(Value::Int(upcase_char_code_emacs_compat(*n)))
+                Ok(Value::Int(upcase_char_code_emacs_compat(n)))
             }
         }
         other => Err(signal(
@@ -616,26 +617,26 @@ pub(super) fn downcase_char_code_emacs_compat(code: i64) -> i64 {
 
 pub(crate) fn builtin_downcase(args: Vec<Value>) -> EvalResult {
     expect_args("downcase", &args, 1)?;
-    match &args[0] {
-        Value::Str(id) => Ok(Value::string(downcase_string_emacs_compat(&with_heap(
+    match args[0].kind() {
+        ValueKind::String => Ok(Value::string(downcase_string_emacs_compat(&with_heap(
             |h| h.get_string(*id).to_owned(),
         )))),
-        Value::Char(c) => {
-            let mapped = downcase_char_code_emacs_compat(*c as i64);
+        ValueKind::Char(c) => {
+            let mapped = downcase_char_code_emacs_compat(c as i64);
             if let Some(ch) = u32::try_from(mapped).ok().and_then(char::from_u32) {
-                Ok(Value::Char(ch))
+                Ok(ValueKind::Char(ch))
             } else {
-                Ok(Value::Char(*c))
+                Ok(Value::Char(c))
             }
         }
-        Value::Int(n) => {
-            if *n < 0 {
+        ValueKind::Fixnum(n) => {
+            if n < 0 {
                 Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("char-or-string-p"), Value::Int(*n)],
+                    vec![Value::symbol("char-or-string-p"), Value::Int(n)],
                 ))
             } else {
-                Ok(Value::Int(downcase_char_code_emacs_compat(*n)))
+                Ok(Value::Int(downcase_char_code_emacs_compat(n)))
             }
         }
         other => Err(signal(
@@ -718,14 +719,14 @@ fn format_char_argument(n: i64) -> Result<String, Flow> {
     if !(0..=KEY_CHAR_CODE_MASK).contains(&n) {
         return Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("characterp"), Value::Int(n)],
+            vec![Value::symbol("characterp"), Value::fixnum(n)],
         ));
     }
 
     write_char_rendered_text(n).ok_or_else(|| {
         signal(
             "wrong-type-argument",
-            vec![Value::symbol("characterp"), Value::Int(n)],
+            vec![Value::symbol("characterp"), Value::fixnum(n)],
         )
     })
 }
@@ -1023,7 +1024,7 @@ fn do_format(
             return Err(format_not_enough_args_error());
         }
 
-        let formatted = match spec.conversion {
+        let formatted = match spec.conversion.kind() {
             's' => {
                 let s = princ_fn(&args[arg_idx]);
                 arg_idx += 1;
@@ -1035,10 +1036,10 @@ fn do_format(
                 format_string_spec(&s, &spec)
             }
             'd' | 'o' | 'x' | 'X' => {
-                let n = match &args[arg_idx] {
-                    Value::Int(i) => *i,
-                    Value::Char(c) => *c as i64,
-                    Value::Float(f, _) => *f as i64,
+                let n = match args[arg_idx].kind() {
+                    ValueKind::Fixnum(i) => i,
+                    ValueKind::Char(c) => c as i64,
+                    ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => *f as i64,
                     _ => {
                         return Err(format_spec_type_mismatch_error());
                     }
@@ -1109,8 +1110,8 @@ pub(crate) fn builtin_format_message(
 ) -> EvalResult {
     expect_min_args("format-message", &args, 1)?;
     let formatted = builtin_format_wrapper_strict(ctx, args)?;
-    match formatted {
-        Value::Str(id) => {
+    match formatted.kind() {
+        ValueKind::String => {
             let s = super::super::value::with_heap(|h| h.get_string(id).to_owned());
             Ok(Value::string(apply_text_quoting(&s)))
         }
@@ -1130,17 +1131,17 @@ pub(crate) fn builtin_make_string(args: Vec<Value>) -> EvalResult {
     }
     let count = count_raw as usize;
 
-    let ch = match &args[1] {
-        Value::Int(c) => {
-            if *c < 0 {
+    let ch = match args[1].kind() {
+        ValueKind::Fixnum(c) => {
+            if c < 0 {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("characterp"), args[1]],
                 ));
             }
-            *c as u32
+            c as u32
         }
-        Value::Char(c) => *c as u32,
+        ValueKind::Char(c) => c as u32,
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1170,13 +1171,13 @@ pub(crate) fn builtin_make_string(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_string(args: Vec<Value>) -> EvalResult {
     let mut result = String::new();
     for arg in args {
-        match arg {
-            Value::Char(c) => result.push(c),
-            Value::Int(code) => {
+        match arg.kind() {
+            ValueKind::Char(c) => result.push(c),
+            ValueKind::Fixnum(code) => {
                 if code < 0 {
                     return Err(signal(
                         "wrong-type-argument",
-                        vec![Value::symbol("characterp"), Value::Int(code)],
+                        vec![Value::symbol("characterp"), ValueKind::Fixnum(code)],
                     ));
                 }
                 if let Some(ch) = char::from_u32(code as u32) {
@@ -1186,7 +1187,7 @@ pub(crate) fn builtin_string(args: Vec<Value>) -> EvalResult {
                 } else {
                     return Err(signal(
                         "wrong-type-argument",
-                        vec![Value::symbol("characterp"), Value::Int(code)],
+                        vec![Value::symbol("characterp"), ValueKind::Fixnum(code)],
                     ));
                 }
             }
@@ -1205,9 +1206,9 @@ pub(crate) fn builtin_string(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_unibyte_string(args: Vec<Value>) -> EvalResult {
     let mut bytes = Vec::with_capacity(args.len());
     for arg in args {
-        let n = match arg {
-            Value::Int(v) => v,
-            Value::Char(c) => c as i64,
+        let n = match arg.kind() {
+            ValueKind::Fixnum(v) => v,
+            ValueKind::Char(c) => c as i64,
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -1218,7 +1219,7 @@ pub(crate) fn builtin_unibyte_string(args: Vec<Value>) -> EvalResult {
         if !(0..=255).contains(&n) {
             return Err(signal(
                 "args-out-of-range",
-                vec![Value::Int(n), Value::Int(0), Value::Int(255)],
+                vec![Value::fixnum(n), Value::fixnum(0), Value::fixnum(255)],
             ));
         }
         bytes.push(n as u8);
@@ -1241,17 +1242,17 @@ pub(crate) fn builtin_byte_to_string(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_bitmap_spec_p(args: Vec<Value>) -> EvalResult {
     expect_args("bitmap-spec-p", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_clear_face_cache(args: Vec<Value>) -> EvalResult {
     expect_max_args("clear-face-cache", &args, 1)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_clear_buffer_auto_save_failure(args: Vec<Value>) -> EvalResult {
     expect_args("clear-buffer-auto-save-failure", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_string_width(args: Vec<Value>) -> EvalResult {
@@ -1259,22 +1260,22 @@ pub(crate) fn builtin_string_width(args: Vec<Value>) -> EvalResult {
     expect_max_args("string-width", &args, 3)?;
     let s = expect_string(&args[0])?;
     if args.len() <= 1
-        || (args.len() == 2 && args[1] == Value::Nil)
+        || (args.len() == 2 && args[1] == Value::NIL)
         || (args.len() <= 3
-            && (args.len() < 2 || args[1] == Value::Nil || args[1] == Value::Int(0))
-            && (args.len() < 3 || args[2] == Value::Nil))
+            && (args.len() < 2 || args[1] == Value::NIL || args[1] == Value::fixnum(0))
+            && (args.len() < 3 || args[2] == Value::NIL))
     {
         // Fast path: full string width
-        return Ok(Value::Int(storage_string_display_width(&s) as i64));
+        return Ok(Value::fixnum(storage_string_display_width(&s) as i64));
     }
     // Substring range specified — decode units and sum width for [from, to)
     let units = super::super::string_escape::decode_storage_units(&s);
-    let from = if args.len() > 1 && args[1] != Value::Nil {
+    let from = if args.len() > 1 && args[1] != Value::NIL {
         expect_int(&args[1])? as usize
     } else {
         0
     };
-    let to = if args.len() > 2 && args[2] != Value::Nil {
+    let to = if args.len() > 2 && args[2] != Value::NIL {
         expect_int(&args[2])? as usize
     } else {
         units.len()
@@ -1285,5 +1286,5 @@ pub(crate) fn builtin_string_width(args: Vec<Value>) -> EvalResult {
         .take(to.saturating_sub(from))
         .map(|(_, w)| w)
         .sum();
-    Ok(Value::Int(width as i64))
+    Ok(Value::fixnum(width as i64))
 }

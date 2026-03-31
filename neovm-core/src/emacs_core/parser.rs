@@ -968,7 +968,7 @@ impl<'a> Parser<'a> {
             }
             return Ok(Expr::OpaqueValueRef(
                 super::eval::OPAQUE_POOL
-                    .with(|pool| pool.borrow_mut().insert(Value::HashTable(ht_id))),
+                    .with(|pool| pool.borrow_mut().insert(Value::HashTable(ht_id) /* TODO(tagged): convert Value::HashTable to new API */)),
             ));
         }
 
@@ -981,7 +981,7 @@ impl<'a> Parser<'a> {
                 let record_id = with_heap_mut(|h| h.alloc_vector(vals));
                 return Ok(Expr::OpaqueValueRef(
                     super::eval::OPAQUE_POOL
-                        .with(|pool| pool.borrow_mut().insert(Value::Record(record_id))),
+                        .with(|pool| pool.borrow_mut().insert(Value::Record(record_id) /* TODO(tagged): convert Value::Record to new API */)),
                 ));
             }
         }

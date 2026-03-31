@@ -118,7 +118,7 @@ pub use intern::SymId;
 pub use parser::parse_forms;
 pub use print::{print_value, print_value_bytes, print_value_with_buffers};
 pub use symbol::Obarray;
-pub use value::{LambdaData, LambdaParams, Value};
+pub use value::{LambdaData, LambdaParams, Value, ValueKind, VecLikeType};
 
 /// Convenience: parse and evaluate source code.
 pub fn eval_source(input: &str) -> Result<Vec<Result<Value, EvalError>>, ParseError> {

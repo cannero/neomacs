@@ -3,6 +3,7 @@ use crate::emacs_core::builtins::search::{
     builtin_match_data, builtin_set_match_data, builtin_string_match, builtin_string_match_p,
 };
 use crate::emacs_core::search::builtin_replace_regexp_in_string;
+use crate::emacs_core::value::{ValueKind};
 
 fn call_string_match(args: Vec<Value>) -> EvalResult {
     let mut eval = crate::emacs_core::eval::Context::new();
@@ -20,8 +21,8 @@ fn call_replace_regexp_in_string(args: Vec<Value>) -> EvalResult {
 }
 
 fn assert_int(val: Value, expected: i64) {
-    match val {
-        Value::Int(n) => assert_eq!(n, expected),
+    match val.kind() {
+        ValueKind::Fixnum(n) => assert_eq!(n, expected),
         other => panic!("Expected Int({}), got {:?}", expected, other),
     }
 }
@@ -35,8 +36,8 @@ fn assert_true(val: Value) {
 }
 
 fn assert_str(val: Value, expected: &str) {
-    match val {
-        Value::Str(id) => {
+    match val.kind() {
+        ValueKind::String => {
             let s = crate::emacs_core::value::with_heap(|h| h.get_string(id).to_owned());
             assert_eq!(&*s, expected);
         }
@@ -55,7 +56,7 @@ fn string_match_with_start() {
     let result = call_string_match(vec![
         Value::string("world"),
         Value::string("hello world"),
-        Value::Int(6),
+        Value::fixnum(6),
     ]);
     assert_int(result.unwrap(), 6);
 }
@@ -115,7 +116,7 @@ fn regexp_quote_all_specials() {
 #[test]
 fn match_data_nil_without_match_data() {
     let mut eval = crate::emacs_core::eval::Context::new();
-    builtin_set_match_data(&mut eval, vec![Value::Nil]).unwrap();
+    builtin_set_match_data(&mut eval, vec![Value::NIL]).unwrap();
     let result = builtin_match_data(&mut eval, vec![]);
     assert_nil(result.unwrap());
 }
@@ -125,10 +126,10 @@ fn set_match_data_nil_clears_state() {
     let mut eval = crate::emacs_core::eval::Context::new();
     builtin_set_match_data(
         &mut eval,
-        vec![Value::list(vec![Value::Int(1), Value::Int(2)])],
+        vec![Value::list(vec![Value::fixnum(1), Value::fixnum(2)])],
     )
     .unwrap();
-    let result = builtin_set_match_data(&mut eval, vec![Value::Nil]);
+    let result = builtin_set_match_data(&mut eval, vec![Value::NIL]);
     assert_nil(result.unwrap());
     let md = builtin_match_data(&mut eval, vec![]).unwrap();
     assert_nil(md);
@@ -140,12 +141,12 @@ fn set_match_data_round_trip() {
     builtin_set_match_data(
         &mut eval,
         vec![Value::list(vec![
-            Value::Int(1),
-            Value::Int(2),
-            Value::Nil,
-            Value::Nil,
-            Value::Int(5),
-            Value::Int(7),
+            Value::fixnum(1),
+            Value::fixnum(2),
+            Value::NIL,
+            Value::NIL,
+            Value::fixnum(5),
+            Value::fixnum(7),
         ])],
     )
     .unwrap();
@@ -153,12 +154,12 @@ fn set_match_data_round_trip() {
     assert_eq!(
         md,
         Value::list(vec![
-            Value::Int(1),
-            Value::Int(2),
-            Value::Nil,
-            Value::Nil,
-            Value::Int(5),
-            Value::Int(7)
+            Value::fixnum(1),
+            Value::fixnum(2),
+            Value::NIL,
+            Value::NIL,
+            Value::fixnum(5),
+            Value::fixnum(7)
         ])
     );
 }
@@ -166,19 +167,19 @@ fn set_match_data_round_trip() {
 #[test]
 fn string_match_start_nil_and_negative() {
     let with_nil =
-        call_string_match(vec![Value::string("a"), Value::string("ba"), Value::Nil]).unwrap();
+        call_string_match(vec![Value::string("a"), Value::string("ba"), Value::NIL]).unwrap();
     assert_int(with_nil, 1);
 
     let with_negative = call_string_match(vec![
         Value::string("a"),
         Value::string("ba"),
-        Value::Int(-1),
+        Value::fixnum(-1),
     ])
     .unwrap();
     assert_int(with_negative, 1);
 
     let out_of_range =
-        call_string_match(vec![Value::string("a"), Value::string("ba"), Value::Int(3)]);
+        call_string_match(vec![Value::string("a"), Value::string("ba"), Value::fixnum(3)]);
     assert!(out_of_range.is_err());
 }
 
@@ -198,8 +199,8 @@ fn replace_regexp_literal() {
         Value::string("[0-9]+"),
         Value::string("$0"),
         Value::string("abc 123 def"),
-        Value::Nil,  // fixedcase
-        Value::True, // literal
+        Value::NIL,  // fixedcase
+        Value::T, // literal
     ]);
     assert_str(result.unwrap(), "abc $0 def");
 }
@@ -222,10 +223,10 @@ fn replace_regexp_with_start() {
         Value::string("[0-9]+"),
         Value::string("X"),
         Value::string("111 222 333"),
-        Value::Nil,    // fixedcase
-        Value::Nil,    // literal
-        Value::Nil,    // subexp
-        Value::Int(4), // start
+        Value::NIL,    // fixedcase
+        Value::NIL,    // literal
+        Value::NIL,    // subexp
+        Value::fixnum(4), // start
     ]);
     assert_str(result.unwrap(), "X X");
 }
@@ -238,10 +239,10 @@ fn replace_regexp_with_start_no_subexp() {
         Value::string("[0-9]+"),
         Value::string("X"),
         Value::string("111 222 333"),
-        Value::Nil,    // fixedcase
-        Value::Nil,    // literal
-        Value::Nil,    // subexp (default 0)
-        Value::Int(4), // start
+        Value::NIL,    // fixedcase
+        Value::NIL,    // literal
+        Value::NIL,    // subexp (default 0)
+        Value::fixnum(4), // start
     ]);
     assert_str(result.unwrap(), "X X");
 }
@@ -252,10 +253,10 @@ fn replace_regexp_subexp() {
         Value::string("\\([a-z]+\\)-\\([0-9]+\\)"),
         Value::string("N"),
         Value::string("aaa-111 bbb-222"),
-        Value::Nil, // fixedcase
-        Value::Nil, // literal
-        Value::Int(1),
-        Value::Nil, // start
+        Value::NIL, // fixedcase
+        Value::NIL, // literal
+        Value::fixnum(1),
+        Value::NIL, // start
     ]);
     assert_str(result.unwrap(), "N-111 N-222");
 }
@@ -266,10 +267,10 @@ fn replace_regexp_subexp_unmatched_errors() {
         Value::string("\\(a\\)?b"),
         Value::string("N"),
         Value::string("b"),
-        Value::Nil,
-        Value::Nil,
-        Value::Int(1),
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::fixnum(1),
+        Value::NIL,
     ]);
     assert!(result.is_err());
 }
@@ -290,14 +291,14 @@ fn replace_regexp_fixedcase_disables_case_preserve() {
         Value::string("a"),
         Value::string("x"),
         Value::string("A a"),
-        Value::True, // fixedcase
+        Value::T, // fixedcase
     ]);
     assert_str(result.unwrap(), "x x");
 }
 
 #[test]
 fn string_match_wrong_type() {
-    let result = call_string_match(vec![Value::Int(42), Value::string("hello")]);
+    let result = call_string_match(vec![Value::fixnum(42), Value::string("hello")]);
     assert!(result.is_err());
 }
 

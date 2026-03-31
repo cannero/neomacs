@@ -365,7 +365,7 @@ mod tests {
         if let LoadedForm::Eval(expr) = &loaded.forms[0] {
             let mut eval2 = Context::new();
             let result = eval2.eval(expr).unwrap();
-            assert_eq!(result, Value::Int(3));
+            assert_eq!(result, Value::fixnum(3));
         }
     }
 
@@ -389,7 +389,7 @@ mod tests {
         assert!(loaded.lexical_binding);
         assert_eq!(loaded.forms.len(), 1);
         match &loaded.forms[0] {
-            LoadedForm::Constant(v) => assert_eq!(*v, Value::Int(30)),
+            LoadedForm::Constant(v) => assert_eq!(*v, Value::fixnum(30)),
             other => panic!("expected Constant, got Eval"),
         }
     }
@@ -534,7 +534,7 @@ mod tests {
         let loaded = read_neobc(&path, &hash).unwrap();
         assert_eq!(loaded.forms.len(), 1);
         match &loaded.forms[0] {
-            LoadedForm::Constant(v) => assert_eq!(*v, Value::Nil),
+            LoadedForm::Constant(v) => assert_eq!(*v, Value::NIL),
             _ => panic!("expected Constant"),
         }
     }

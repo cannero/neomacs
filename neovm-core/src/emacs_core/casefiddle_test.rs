@@ -18,7 +18,7 @@ fn capitalize_string_mixed() {
 
 #[test]
 fn capitalize_char() {
-    let result = builtin_capitalize(vec![Value::Char('a')]).unwrap();
+    let result = builtin_capitalize(vec![Value::char('a')]).unwrap();
     assert_eq!(result.as_int(), Some('A' as i64));
 }
 
@@ -47,7 +47,7 @@ fn upcase_initials_preserves_rest() {
 
 #[test]
 fn upcase_initials_char() {
-    let result = builtin_upcase_initials(vec![Value::Char('a')]).unwrap();
+    let result = builtin_upcase_initials(vec![Value::char('a')]).unwrap();
     assert_eq!(result.as_int(), Some('A' as i64));
 }
 
@@ -58,14 +58,14 @@ fn upcase_initials_char() {
 #[test]
 fn char_resolve_modifiers_resolves_shift_lowercase() {
     let result =
-        builtin_char_resolve_modifiers(vec![Value::Int(0x2000000 | ('a' as i64))]).unwrap();
+        builtin_char_resolve_modifiers(vec![Value::fixnum(0x2000000 | ('a' as i64))]).unwrap();
     assert_eq!(result.as_int(), Some('A' as i64));
 }
 
 #[test]
 fn char_resolve_modifiers_clears_shift_on_uppercase() {
     let result =
-        builtin_char_resolve_modifiers(vec![Value::Int(0x2000000 | ('A' as i64))]).unwrap();
+        builtin_char_resolve_modifiers(vec![Value::fixnum(0x2000000 | ('A' as i64))]).unwrap();
     assert_eq!(result.as_int(), Some('A' as i64));
 }
 
@@ -93,16 +93,16 @@ fn capitalize_with_punctuation() {
 
 #[test]
 fn capitalize_unicode_edge_semantics() {
-    let int_sharp_s = builtin_capitalize(vec![Value::Int(223)]).unwrap();
+    let int_sharp_s = builtin_capitalize(vec![Value::fixnum(223)]).unwrap();
     assert_eq!(int_sharp_s.as_int(), Some(7838));
 
-    let int_mod_i = builtin_capitalize(vec![Value::Int(7306)]).unwrap();
+    let int_mod_i = builtin_capitalize(vec![Value::fixnum(7306)]).unwrap();
     assert_eq!(int_mod_i.as_int(), Some(7306));
 
-    let int_dz_small = builtin_capitalize(vec![Value::Int(452)]).unwrap();
+    let int_dz_small = builtin_capitalize(vec![Value::fixnum(452)]).unwrap();
     assert_eq!(int_dz_small.as_int(), Some(453));
 
-    let int_georgian_an = builtin_capitalize(vec![Value::Int(4304)]).unwrap();
+    let int_georgian_an = builtin_capitalize(vec![Value::fixnum(4304)]).unwrap();
     assert_eq!(int_georgian_an.as_int(), Some(4304));
 
     let string_sharp_s = builtin_capitalize(vec![Value::string("ß")]).unwrap();
@@ -161,16 +161,16 @@ fn capitalize_unicode_edge_semantics() {
 
 #[test]
 fn upcase_initials_unicode_edge_semantics() {
-    let int_sharp_s = builtin_upcase_initials(vec![Value::Int(223)]).unwrap();
+    let int_sharp_s = builtin_upcase_initials(vec![Value::fixnum(223)]).unwrap();
     assert_eq!(int_sharp_s.as_int(), Some(7838));
 
-    let int_mod_i = builtin_upcase_initials(vec![Value::Int(7306)]).unwrap();
+    let int_mod_i = builtin_upcase_initials(vec![Value::fixnum(7306)]).unwrap();
     assert_eq!(int_mod_i.as_int(), Some(7306));
 
-    let int_dz_small = builtin_upcase_initials(vec![Value::Int(454)]).unwrap();
+    let int_dz_small = builtin_upcase_initials(vec![Value::fixnum(454)]).unwrap();
     assert_eq!(int_dz_small.as_int(), Some(453));
 
-    let int_georgian_an = builtin_upcase_initials(vec![Value::Int(4304)]).unwrap();
+    let int_georgian_an = builtin_upcase_initials(vec![Value::fixnum(4304)]).unwrap();
     assert_eq!(int_georgian_an.as_int(), Some(4304));
 
     let string_sharp_s = builtin_upcase_initials(vec![Value::string("ß")]).unwrap();
@@ -236,7 +236,7 @@ fn eval_upcase_region_noncontiguous_uses_live_mark() {
     ev.buffers.insert_into_buffer(buffer_id, "abc");
     ev.buffers.set_buffer_mark(buffer_id, 1);
 
-    super::builtin_upcase_region(&mut ev, vec![Value::Int(1), Value::Int(3), Value::True])
+    super::builtin_upcase_region(&mut ev, vec![Value::fixnum(1), Value::fixnum(3), Value::T])
         .expect("upcase-region");
 
     let buffer = ev.buffers.get(buffer_id).expect("buffer");
@@ -250,7 +250,7 @@ fn eval_capitalize_word_updates_buffer_text() {
     ev.buffers.insert_into_buffer(buffer_id, "hELLO world");
     ev.buffers.goto_buffer_byte(buffer_id, 0);
 
-    super::builtin_capitalize_word(&mut ev, vec![Value::Int(1)]).expect("capitalize-word");
+    super::builtin_capitalize_word(&mut ev, vec![Value::fixnum(1)]).expect("capitalize-word");
 
     let buffer = ev.buffers.get(buffer_id).expect("buffer");
     assert_eq!(buffer.buffer_string(), "Hello world");

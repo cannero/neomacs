@@ -17,7 +17,7 @@ use super::error::{EvalResult, Flow, signal};
 use super::eval::Context;
 use super::intern::{intern, resolve_sym};
 use super::symbol::Obarray;
-use super::value::{OrderedRuntimeBindingMap, Value, list_to_vec, with_heap};
+use super::value::{OrderedRuntimeBindingMap, Value, list_to_vec, with_heap, ValueKind, VecLikeType};
 
 // ===========================================================================
 // Path operations (pure, no evaluator needed)
@@ -833,7 +833,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -844,7 +844,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -855,7 +855,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -863,11 +863,11 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 }
 
 fn expect_string(value: &Value) -> Result<String, Flow> {
-    match value {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
-        Value::Symbol(id) => Ok(resolve_sym(*id).to_owned()),
-        Value::Nil => Ok("nil".to_string()),
-        Value::True => Ok("t".to_string()),
+    match value.kind() {
+        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
+        ValueKind::Nil => Ok("nil".to_string()),
+        ValueKind::T => Ok("t".to_string()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -876,8 +876,8 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
 }
 
 fn expect_string_strict(value: &Value) -> Result<String, Flow> {
-    match value {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+    match value.kind() {
+        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -886,9 +886,9 @@ fn expect_string_strict(value: &Value) -> Result<String, Flow> {
 }
 
 fn expect_temp_prefix(value: &Value) -> Result<String, Flow> {
-    match value {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
-        Value::Nil | Value::Cons(_) | Value::Vector(_) => Err(signal(
+    match value.kind() {
+        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::Nil | ValueKind::Cons | ValueKind::Veclike(VecLikeType::Vector) => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
         )),
@@ -900,9 +900,9 @@ fn expect_temp_prefix(value: &Value) -> Result<String, Flow> {
 }
 
 fn expect_fixnum(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("fixnump"), *other],
@@ -923,14 +923,14 @@ fn normalize_secs_nanos(mut secs: i64, mut nanos: i64) -> (i64, i64) {
 }
 
 fn parse_timestamp_arg(value: &Value) -> Result<(i64, i64), Flow> {
-    match value {
-        Value::Int(n) => Ok((*n, 0)),
-        Value::Float(f, _) => {
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok((n, 0)),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => {
             let secs = f.floor() as i64;
             let nanos = ((f - f.floor()) * 1_000_000_000.0).round() as i64;
             Ok(normalize_secs_nanos(secs, nanos))
         }
-        Value::Cons(_) => {
+        ValueKind::Cons => {
             let items = list_to_vec(value).ok_or_else(|| {
                 signal("wrong-type-argument", vec![Value::symbol("listp"), *value])
             })?;
@@ -978,9 +978,9 @@ fn validate_file_truename_counter(counter: &Value) -> Result<(), Flow> {
             vec![Value::symbol("listp"), *counter],
         ));
     }
-    if let Value::Cons(cell) = counter {
+    if counter.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
         let first = with_heap(|h| h.cons_car(*cell));
-        if !matches!(first, Value::Int(_) | Value::Float(_, _) | Value::Char(_)) {
+        if !matches!(first, Value::fixnum(_) | Value::make_float(_) /* TODO(tagged): dropped float id `_` */ | Value::char(_)) {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("number-or-marker-p"), first],
@@ -992,7 +992,7 @@ fn validate_file_truename_counter(counter: &Value) -> Result<(), Flow> {
 
 fn temporary_file_directory_for_eval(eval: &Context) -> Option<String> {
     match eval.obarray.symbol_value("temporary-file-directory") {
-        Some(Value::Str(id)) => Some(with_heap(|h| h.get_string(*id).to_owned())),
+        Some(ValueKind::String) => Some(with_heap(|h| h.get_string(*id).to_owned())),
         _ => None,
     }
 }
@@ -1113,15 +1113,15 @@ pub(crate) fn builtin_expand_file_name_impl(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("expand-file-name"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
     let name = expect_string_strict(&args[0])?;
     let default_dir = if let Some(arg) = args.get(1) {
-        match arg {
-            Value::Nil => default_directory_in_state(obarray, dynamic, buffers),
-            Value::Str(id) => Some(with_heap(|h| h.get_string(*id).to_owned())),
+        match arg.kind() {
+            ValueKind::Nil => default_directory_in_state(obarray, dynamic, buffers),
+            ValueKind::String => Some(with_heap(|h| h.get_string(*id).to_owned())),
             _ => Some("/".to_string()),
         }
     } else {
@@ -1151,7 +1151,7 @@ pub(crate) fn builtin_make_temp_name(args: Vec<Value>) -> EvalResult {
 /// (next-read-file-uses-dialog-p) -> nil
 pub(crate) fn builtin_next_read_file_uses_dialog_p(args: Vec<Value>) -> EvalResult {
     expect_args("next-read-file-uses-dialog-p", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (unhandled-file-name-directory FILENAME) -> directory string
@@ -1165,7 +1165,7 @@ pub(crate) fn builtin_unhandled_file_name_directory(args: Vec<Value>) -> EvalRes
 pub(crate) fn builtin_get_truename_buffer(args: Vec<Value>) -> EvalResult {
     expect_args("get-truename-buffer", &args, 1)?;
     let _filename = &args[0];
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// Context-aware variant of `make-temp-file` that honors dynamic
@@ -1177,7 +1177,7 @@ pub(crate) fn builtin_make_temp_file(eval: &mut Context, args: Vec<Value>) -> Ev
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("make-temp-file"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -1185,12 +1185,12 @@ pub(crate) fn builtin_make_temp_file(eval: &mut Context, args: Vec<Value>) -> Ev
     let prefix = expect_temp_prefix(&args[0])?;
     let dir_flag = args.get(1).is_some_and(|value| value.is_truthy());
     let suffix = match args.get(2) {
-        None | Some(Value::Nil) => String::new(),
+        None | Some(ValueKind::Nil) => String::new(),
         Some(value) => expect_string_strict(value)?,
     };
     let text = match args.get(3) {
-        None | Some(Value::Nil) => None,
-        Some(Value::Str(id)) => Some(with_heap(|h| h.get_string(*id).to_owned())),
+        None | Some(ValueKind::Nil) => None,
+        Some(ValueKind::String) => Some(with_heap(|h| h.get_string(*id).to_owned())),
         Some(_) => None,
     };
     let temp_dir = temporary_file_directory_for_eval(eval)
@@ -1210,7 +1210,7 @@ pub(crate) fn builtin_make_nearby_temp_file(eval: &mut Context, args: Vec<Value>
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("make-nearby-temp-file"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -1218,7 +1218,7 @@ pub(crate) fn builtin_make_nearby_temp_file(eval: &mut Context, args: Vec<Value>
     let prefix = expect_temp_prefix(&args[0])?;
     let dir_flag = args.get(1).is_some_and(|value| value.is_truthy());
     let suffix = match args.get(2) {
-        None | Some(Value::Nil) => String::new(),
+        None | Some(ValueKind::Nil) => String::new(),
         Some(value) => expect_string_strict(value)?,
     };
     let fallback_temp_dir = temporary_file_directory_for_eval(eval)
@@ -1244,7 +1244,7 @@ pub(crate) fn builtin_file_truename_impl(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("file-truename"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -1270,7 +1270,7 @@ pub(crate) fn builtin_file_name_directory(args: Vec<Value>) -> EvalResult {
     let filename = expect_string_strict(&args[0])?;
     match file_name_directory(&filename) {
         Some(dir) => Ok(Value::string(dir)),
-        None => Ok(Value::Nil),
+        None => Ok(Value::NIL),
     }
 }
 
@@ -1301,9 +1301,9 @@ pub(crate) fn builtin_file_name_concat(args: Vec<Value>) -> EvalResult {
 
     let mut parts = Vec::new();
     for value in args {
-        match value {
-            Value::Nil => {}
-            Value::Str(id) => {
+        match value.kind() {
+            ValueKind::Nil => {}
+            ValueKind::String => {
                 let s = with_heap(|h| h.get_string(id).to_owned());
                 if !s.is_empty() {
                     parts.push(s);
@@ -1326,14 +1326,14 @@ pub(crate) fn builtin_file_name_concat(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_file_name_absolute_p(args: Vec<Value>) -> EvalResult {
     expect_args("file-name-absolute-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    Ok(Value::bool(file_name_absolute_p(&filename)))
+    Ok(Value::bool_val(file_name_absolute_p(&filename)))
 }
 
 /// (directory-name-p NAME) -> t or nil
 pub(crate) fn builtin_directory_name_p(args: Vec<Value>) -> EvalResult {
     expect_args("directory-name-p", &args, 1)?;
     let name = expect_string_strict(&args[0])?;
-    Ok(Value::bool(directory_name_p(&name)))
+    Ok(Value::bool_val(directory_name_p(&name)))
 }
 
 /// (substitute-in-file-name FILENAME) -> string
@@ -1349,12 +1349,12 @@ pub(crate) fn default_directory_in_state(
     buffers: &crate::buffer::BufferManager,
 ) -> Option<String> {
     if let Some(buf) = buffers.current_buffer()
-        && let Some(Value::Str(id)) = buf.get_buffer_local("default-directory")
+        && let Some(Value::Str(id) /* TODO(tagged): convert Value::Str to new API */) = buf.get_buffer_local("default-directory")
     {
         return Some(with_heap(|h| h.get_string(*id).to_owned()));
     }
     match obarray.symbol_value("default-directory") {
-        Some(Value::Str(id)) => Some(with_heap(|h| h.get_string(*id).to_owned())),
+        Some(ValueKind::String) => Some(with_heap(|h| h.get_string(*id).to_owned())),
         _ => None,
     }
 }
@@ -1510,7 +1510,7 @@ pub(crate) fn builtin_access_file_impl(
         resolve_filename_in_state(obarray, dynamic, buffers, &expect_string_strict(&args[0])?);
     let operation = expect_string_strict(&args[1])?;
     match fs::metadata(&filename) {
-        Ok(_) => Ok(Value::Nil),
+        Ok(_) => Ok(Value::NIL),
         Err(err) => Err(signal_file_action_error(err, &operation, &filename)),
     }
 }
@@ -1530,7 +1530,7 @@ pub(crate) fn builtin_file_exists_p_impl(
     expect_args("file-exists-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
     let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    Ok(Value::bool(file_exists_p(&filename)))
+    Ok(Value::bool_val(file_exists_p(&filename)))
 }
 
 pub(crate) fn builtin_file_exists_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
@@ -1548,7 +1548,7 @@ pub(crate) fn builtin_file_readable_p_impl(
     expect_args("file-readable-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
     let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    Ok(Value::bool(file_readable_p(&filename)))
+    Ok(Value::bool_val(file_readable_p(&filename)))
 }
 
 pub(crate) fn builtin_file_readable_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
@@ -1566,7 +1566,7 @@ pub(crate) fn builtin_file_writable_p_impl(
     expect_args("file-writable-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
     let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    Ok(Value::bool(file_writable_p(&filename)))
+    Ok(Value::bool_val(file_writable_p(&filename)))
 }
 
 pub(crate) fn builtin_file_writable_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
@@ -1584,7 +1584,7 @@ pub(crate) fn builtin_file_accessible_directory_p_impl(
     expect_args("file-accessible-directory-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
     let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    Ok(Value::bool(file_accessible_directory_p(&filename)))
+    Ok(Value::bool_val(file_accessible_directory_p(&filename)))
 }
 
 pub(crate) fn builtin_file_accessible_directory_p(
@@ -1605,7 +1605,7 @@ pub(crate) fn builtin_file_executable_p_impl(
     expect_args("file-executable-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
     let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    Ok(Value::bool(file_executable_p(&filename)))
+    Ok(Value::bool_val(file_executable_p(&filename)))
 }
 
 pub(crate) fn builtin_file_executable_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
@@ -1621,7 +1621,7 @@ pub(crate) fn builtin_file_acl_impl(
     expect_args("file-acl", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
     let _filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// Context-aware variant of `file-acl`.
@@ -1634,7 +1634,7 @@ pub(crate) fn builtin_set_file_acl(args: Vec<Value>) -> EvalResult {
     expect_args("set-file-acl", &args, 2)?;
     let _filename = &args[0];
     let _acl = &args[1];
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// Context-aware variant of `file-locked-p` that resolves relative paths
@@ -1648,7 +1648,7 @@ pub(crate) fn builtin_file_locked_p_impl(
     expect_args("file-locked-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
     let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    Ok(Value::bool(file_locked_p(&filename)))
+    Ok(Value::bool_val(file_locked_p(&filename)))
 }
 
 pub(crate) fn builtin_file_locked_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
@@ -1665,10 +1665,10 @@ pub(crate) fn builtin_file_selinux_context_impl(
     let filename = expect_string_strict(&args[0])?;
     let _filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     Ok(Value::list(vec![
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
     ]))
 }
 
@@ -1682,7 +1682,7 @@ pub(crate) fn builtin_set_file_selinux_context(args: Vec<Value>) -> EvalResult {
     expect_args("set-file-selinux-context", &args, 2)?;
     let _filename = expect_string_strict(&args[0])?;
     let _context = &args[1];
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// Context-aware variant of `file-system-info` that resolves relative paths
@@ -1698,9 +1698,9 @@ pub(crate) fn builtin_file_system_info_impl(
     let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     let (total, free, avail) = file_system_info(&filename)?;
     Ok(Value::list(vec![
-        Value::Int(total),
-        Value::Int(free),
-        Value::Int(avail),
+        Value::fixnum(total),
+        Value::fixnum(free),
+        Value::fixnum(avail),
     ]))
 }
 
@@ -1719,7 +1719,7 @@ pub(crate) fn builtin_file_directory_p_impl(
     expect_args("file-directory-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
     let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    Ok(Value::bool(file_directory_p(&filename)))
+    Ok(Value::bool_val(file_directory_p(&filename)))
 }
 
 pub(crate) fn builtin_file_directory_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
@@ -1737,7 +1737,7 @@ pub(crate) fn builtin_file_regular_p_impl(
     expect_args("file-regular-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
     let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    Ok(Value::bool(file_regular_p(&filename)))
+    Ok(Value::bool_val(file_regular_p(&filename)))
 }
 
 pub(crate) fn builtin_file_regular_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
@@ -1755,7 +1755,7 @@ pub(crate) fn builtin_file_symlink_p_impl(
     expect_args("file-symlink-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
     let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    Ok(Value::bool(file_symlink_p(&filename)))
+    Ok(Value::bool_val(file_symlink_p(&filename)))
 }
 
 pub(crate) fn builtin_file_symlink_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
@@ -1773,7 +1773,7 @@ pub(crate) fn builtin_file_name_case_insensitive_p_impl(
     expect_args("file-name-case-insensitive-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
     let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    Ok(Value::bool(file_name_case_insensitive_p(&filename)))
+    Ok(Value::bool_val(file_name_case_insensitive_p(&filename)))
 }
 
 pub(crate) fn builtin_file_name_case_insensitive_p(
@@ -1796,7 +1796,7 @@ pub(crate) fn builtin_file_newer_than_file_p_impl(
     let file2 = expect_string_strict(&args[1])?;
     let file1 = resolve_filename_in_state(obarray, dynamic, buffers, &file1);
     let file2 = resolve_filename_in_state(obarray, dynamic, buffers, &file2);
-    Ok(Value::bool(file_newer_than_file_p(&file1, &file2)))
+    Ok(Value::bool_val(file_newer_than_file_p(&file1, &file2)))
 }
 
 pub(crate) fn builtin_file_newer_than_file_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
@@ -1813,14 +1813,14 @@ pub(crate) fn builtin_file_modes_impl(
     if args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("file-modes"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("file-modes"), Value::fixnum(args.len() as i64)],
         ));
     }
     let filename = expect_string_strict(&args[0])?;
     let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     match file_modes(&filename) {
-        Some(mode) => Ok(Value::Int(mode as i64)),
-        None => Ok(Value::Nil),
+        Some(mode) => Ok(Value::fixnum(mode as i64)),
+        None => Ok(Value::NIL),
     }
 }
 
@@ -1842,7 +1842,7 @@ pub(crate) fn builtin_set_file_modes_impl(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("set-file-modes"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -1866,7 +1866,7 @@ pub(crate) fn builtin_set_file_modes_impl(
         fs::set_permissions(&filename, perms)
             .map_err(|err| signal_file_action_error(err, "Doing chmod", &filename))?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// Context-aware variant of `set-file-modes` that resolves relative paths
@@ -1887,7 +1887,7 @@ pub(crate) fn builtin_set_file_times_impl(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("set-file-times"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -1900,7 +1900,7 @@ pub(crate) fn builtin_set_file_times_impl(
     };
     let nofollow = args.get(2).is_some_and(|flag| !flag.is_nil());
     set_file_times_compat(&filename, timestamp, nofollow)?;
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 /// Context-aware variant of `set-file-times` that resolves relative paths
@@ -1914,9 +1914,9 @@ fn validate_optional_buffer_arg_in_state(
     arg: Option<&Value>,
 ) -> Result<(), Flow> {
     if let Some(bufferish) = arg {
-        match bufferish {
-            Value::Nil => Ok(()),
-            Value::Buffer(id) => {
+        match bufferish.kind() {
+            ValueKind::Nil => Ok(()),
+            ValueKind::Veclike(VecLikeType::Buffer) => {
                 if buffers.get(*id).is_some() {
                     Ok(())
                 } else {
@@ -1936,16 +1936,16 @@ fn validate_optional_buffer_arg_in_state(
 }
 
 fn validate_set_visited_file_modtime_arg(arg: &Value) -> Result<(), Flow> {
-    match arg {
-        Value::Int(_) | Value::Char(_) => Err(signal(
+    match arg.kind() {
+        ValueKind::Fixnum(_) | ValueKind::Char(_) => Err(signal(
             "args-out-of-range",
-            vec![*arg, Value::Int(-1), Value::Int(0)],
+            vec![*arg, Value::Int(-1), ValueKind::Fixnum(0)],
         )),
-        Value::Str(_) => Err(signal(
+        ValueKind::String => Err(signal(
             "error",
             vec![Value::string("Invalid time specification")],
         )),
-        Value::Float(_, _) | Value::Cons(_) => Ok(()),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ | ValueKind::Cons => Ok(()),
         _ => Err(signal(
             "error",
             vec![Value::string("Invalid time specification")],
@@ -1956,7 +1956,7 @@ fn validate_set_visited_file_modtime_arg(arg: &Value) -> Result<(), Flow> {
 /// (visited-file-modtime) -> 0
 pub(crate) fn builtin_visited_file_modtime(args: Vec<Value>) -> EvalResult {
     expect_args("visited-file-modtime", &args, 0)?;
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 /// (verify-visited-file-modtime &optional BUFFER) -> t
@@ -1978,7 +1978,7 @@ pub(crate) fn builtin_verify_visited_file_modtime_impl(
 ) -> EvalResult {
     expect_max_args("verify-visited-file-modtime", &args, 1)?;
     validate_optional_buffer_arg_in_state(buffers, args.first())?;
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 pub(crate) fn builtin_set_visited_file_modtime_impl(
@@ -1989,7 +1989,7 @@ pub(crate) fn builtin_set_visited_file_modtime_impl(
     if let Some(arg) = args.first() {
         if !arg.is_nil() {
             validate_set_visited_file_modtime_arg(arg)?;
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
     }
 
@@ -1999,11 +1999,11 @@ pub(crate) fn builtin_set_visited_file_modtime_impl(
     if file_name.is_none() {
         return Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("stringp"), Value::Nil],
+            vec![Value::symbol("stringp"), Value::NIL],
         ));
     }
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (set-default-file-modes MODE) -> nil
@@ -2017,7 +2017,7 @@ pub(crate) fn builtin_set_default_file_modes(args: Vec<Value>) -> EvalResult {
         libc::umask(new_mask as libc::mode_t);
     }
     DEFAULT_FILE_MODE_MASK.store(new_mask as u32, Ordering::Relaxed);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (default-file-modes) -> integer
@@ -2025,7 +2025,7 @@ pub(crate) fn builtin_default_file_modes(args: Vec<Value>) -> EvalResult {
     expect_args("default-file-modes", &args, 0)?;
     init_default_file_mode_mask();
     let mask = DEFAULT_FILE_MODE_MASK.load(Ordering::Relaxed) as i64;
-    Ok(Value::Int((!mask) & 0o777))
+    Ok(Value::fixnum((!mask) & 0o777))
 }
 
 /// Context-aware variant of `delete-file` that resolves relative paths
@@ -2035,13 +2035,13 @@ pub(crate) fn builtin_delete_file(eval: &mut Context, args: Vec<Value>) -> EvalR
     if args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("delete-file"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("delete-file"), Value::fixnum(args.len() as i64)],
         ));
     }
     let filename = expect_string_strict(&args[0])?;
     let filename = resolve_filename_for_eval(eval, &filename);
     delete_file_compat(&filename)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// Context-aware variant of `delete-file-internal` that resolves relative
@@ -2056,7 +2056,7 @@ pub(crate) fn builtin_delete_file_internal_impl(
     let filename = expect_string_strict(&args[0])?;
     let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     delete_file_compat(&filename)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_delete_file_internal(eval: &mut Context, args: Vec<Value>) -> EvalResult {
@@ -2076,7 +2076,7 @@ pub(crate) fn builtin_delete_directory_internal_impl(
     let directory = resolve_filename_in_state(obarray, dynamic, buffers, &directory);
     fs::remove_dir(&directory)
         .map_err(|err| signal_file_io_path(err, "Removing directory", &directory))?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_delete_directory_internal(
@@ -2095,7 +2095,7 @@ pub(crate) fn builtin_delete_directory(eval: &mut Context, args: Vec<Value>) -> 
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("delete-directory"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -2108,7 +2108,7 @@ pub(crate) fn builtin_delete_directory(eval: &mut Context, args: Vec<Value>) -> 
         fs::remove_dir(&directory)
     };
     result.map_err(|err| signal_file_io_path(err, "Removing directory", &directory))?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// Context-aware variant of `make-symbolic-link` that resolves relative
@@ -2125,7 +2125,7 @@ pub(crate) fn builtin_make_symbolic_link_impl(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("make-symbolic-link"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -2143,7 +2143,7 @@ pub(crate) fn builtin_make_symbolic_link_impl(
         }
         std::os::unix::fs::symlink(&target, &linkname)
             .map_err(|err| signal_file_io_path(err, "Making symbolic link", &linkname))?;
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     }
 
     #[cfg(not(unix))]
@@ -2174,7 +2174,7 @@ pub(crate) fn builtin_rename_file_impl(
     if args.len() > 3 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("rename-file"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("rename-file"), Value::fixnum(args.len() as i64)],
         ));
     }
     let from =
@@ -2197,7 +2197,7 @@ pub(crate) fn builtin_rename_file_impl(
         }
     }
     rename_file(&from, &to).map_err(|e| signal_file_io_paths(e, "Renaming", &from, &to))?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_rename_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
@@ -2216,7 +2216,7 @@ pub(crate) fn builtin_copy_file_impl(
     if args.len() > 6 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("copy-file"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("copy-file"), Value::fixnum(args.len() as i64)],
         ));
     }
     let from =
@@ -2235,7 +2235,7 @@ pub(crate) fn builtin_copy_file_impl(
         ));
     }
     copy_file(&from, &to).map_err(|e| signal_file_io_paths(e, "Copying", &from, &to))?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_copy_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
@@ -2256,7 +2256,7 @@ pub(crate) fn builtin_add_name_to_file_impl(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("add-name-to-file"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -2271,7 +2271,7 @@ pub(crate) fn builtin_add_name_to_file_impl(
     }
     add_name_to_file(&oldname, &newname)
         .map_err(|err| signal_file_io_paths(err, "Adding new name", &oldname, &newname))?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_add_name_to_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
@@ -2290,7 +2290,7 @@ pub(crate) fn builtin_make_directory_internal_impl(
     let dir = expect_string_strict(&args[0])?;
     let dir = resolve_filename_in_state(obarray, dynamic, buffers, &dir);
     make_directory(&dir, false).map_err(|e| signal_file_io_path(e, "Creating directory", &dir))?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_make_directory_internal(eval: &mut Context, args: Vec<Value>) -> EvalResult {
@@ -2307,7 +2307,7 @@ pub(crate) fn builtin_find_file_name_handler_impl(
     let filename = expect_string_strict(&args[0])?;
     let _filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     let _operation = &args[1];
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// Context-aware variant of `find-file-name-handler`.
@@ -2329,7 +2329,7 @@ pub(crate) fn builtin_directory_files_impl(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("directory-files"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -2347,8 +2347,8 @@ pub(crate) fn builtin_directory_files_impl(
     };
     let nosort = args.get(3).is_some_and(|v| v.is_truthy());
     let count = if let Some(val) = args.get(4) {
-        match val {
-            Value::Int(n) if *n >= 0 => Some(*n as usize),
+        match val.kind() {
+            ValueKind::Fixnum(n) if n >= 0 => Some(n as usize),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -2374,9 +2374,9 @@ pub(crate) fn builtin_directory_files(eval: &mut Context, args: Vec<Value>) -> E
 // ===========================================================================
 
 fn expect_int(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *other],
@@ -2474,7 +2474,7 @@ fn write_region_content_in_state(
     start: &Value,
     end: Option<&Value>,
 ) -> Result<String, Flow> {
-    if let Value::Str(_) = start {
+    if start.is_string() /* TODO(tagged): `_` was Value::Str(_), now use accessor */ {
         return expect_string_strict(start);
     }
 
@@ -2486,7 +2486,7 @@ fn write_region_content_in_state(
         return Ok(buf.buffer_string());
     }
 
-    let end = end.unwrap_or(&Value::Nil);
+    let end = end.unwrap_or(&Value::NIL);
     let start = expect_int(start)?;
     let end = expect_int(end)?;
     let point_min = buf.point_min_char() as i64 + 1;
@@ -2494,7 +2494,7 @@ fn write_region_content_in_state(
     if start < point_min || start > point_max || end < point_min || end > point_max {
         return Err(signal(
             "args-out-of-range",
-            vec![Value::Buffer(buf.id), Value::Int(start), Value::Int(end)],
+            vec![Value::make_buffer(buf.id), Value::fixnum(start), Value::fixnum(end)],
         ));
     }
     let (char_start, char_end) = if start <= end {
@@ -2557,8 +2557,8 @@ fn decode_insert_file_contents(
         Value::symbol(coding),
     ])?;
 
-    match decoded {
-        Value::Str(id) => Ok((
+    match decoded.kind() {
+        ValueKind::String => Ok((
             with_heap(|h| h.get_string(id).to_owned()),
             coding.to_string(),
         )),
@@ -2616,7 +2616,7 @@ pub(crate) fn builtin_insert_file_contents_impl(
             ));
         }
         if crate::emacs_core::editfns::buffer_read_only_active_in_state(obarray, dynamic, buf) {
-            return Err(signal("buffer-read-only", vec![Value::Buffer(current_id)]));
+            return Err(signal("buffer-read-only", vec![Value::make_buffer(current_id)]));
         }
     }
 
@@ -2678,7 +2678,7 @@ pub(crate) fn builtin_insert_file_contents_impl(
     }
 
     Ok((
-        Value::list(vec![Value::string(resolved), Value::Int(char_count)]),
+        Value::list(vec![Value::string(resolved), Value::fixnum(char_count)]),
         used_coding,
     ))
 }
@@ -2693,9 +2693,9 @@ pub(crate) fn builtin_insert_file_contents(
 ) -> EvalResult {
     let coding_system_for_read = match eval.visible_variable_value_or_nil("coding-system-for-read")
     {
-        Value::Nil => None,
-        Value::Symbol(id) => Some(resolve_sym(id).to_owned()),
-        Value::Str(id) => Some(with_heap(|h| h.get_string(id).to_owned())),
+        Value::NIL => None,
+        Value::symbol(id) => Some(resolve_sym(id).to_owned()),
+        Value::Str(id) /* TODO(tagged): convert Value::Str to new API */ => Some(with_heap(|h| h.get_string(id).to_owned())),
         _ => None,
     };
     let source_load_context = eval
@@ -2821,15 +2821,15 @@ fn lookup_backup_directory(obarray: &Obarray, filename: &str) -> Option<String> 
     let alist_val = obarray.symbol_value("backup-directory-alist")?;
     let entries = list_to_vec(alist_val)?;
     for entry in &entries {
-        if let Value::Cons(_) = entry {
+        if entry.is_cons() /* TODO(tagged): `_` was Value::Cons(_), now use accessor */ {
             let car = entry.cons_car();
             let cdr = entry.cons_cdr();
-            let pattern = match &car {
-                Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
+            let pattern = match car.kind() {
+                ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
                 _ => continue,
             };
-            let dir = match &cdr {
-                Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
+            let dir = match cdr.kind() {
+                ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
                 _ => continue,
             };
             // Simple substring match (GNU uses regex, but for now substring is
@@ -2889,7 +2889,7 @@ fn backup_file_before_save(
     if fs::copy(filename, &backup_name).is_ok() {
         // 6. Set buffer-backed-up to t so we don't back up again until next change
         if let Some(buf) = buffers.get_mut(buffer_id) {
-            buf.set_buffer_local("buffer-backed-up", Value::True);
+            buf.set_buffer_local("buffer-backed-up", Value::T);
         }
     }
 }
@@ -2905,15 +2905,15 @@ pub(crate) fn builtin_write_region_impl(
     let filename = expect_string_strict(&args[2])?;
     let resolved = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
     let append_mode = match args.get(3) {
-        Some(value) if matches!(value, Value::Int(_) | Value::Char(_)) => {
+        Some(value) if value.is_fixnum() || value.is_char() => {
             FileWriteMode::Seek(expect_file_offset(value)? as u64)
         }
         Some(value) if value.is_truthy() => FileWriteMode::Append,
         _ => FileWriteMode::Truncate,
     };
     let visit_path = match args.get(4) {
-        Some(Value::True) => Some(resolved.clone()),
-        Some(Value::Str(_)) => Some(resolve_filename_in_state(
+        Some(ValueKind::T) => Some(resolved.clone()),
+        Some(ValueKind::String) => Some(resolve_filename_in_state(
             obarray,
             dynamic,
             buffers,
@@ -2969,7 +2969,7 @@ pub(crate) fn builtin_write_region_impl(
         let _ = buffers.set_buffer_modified_flag(current_id, false);
     }
 
-    Ok((Value::Nil, coding_system))
+    Ok((Value::NIL, coding_system))
 }
 
 /// Resolve the coding system to use for writing.
@@ -3006,13 +3006,13 @@ fn resolve_write_coding_system(
 /// Extract a coding system name from a `Value` (symbol or string).
 /// Returns `None` for nil / unrecognized types.
 fn coding_system_value_to_name(val: &Value) -> Option<String> {
-    match val {
-        Value::Nil => None,
-        Value::Symbol(id) => {
-            let name = resolve_sym(*id).to_owned();
+    match val.kind() {
+        ValueKind::Nil => None,
+        ValueKind::Symbol(id) => {
+            let name = resolve_sym(id).to_owned();
             if name == "nil" { None } else { Some(name) }
         }
-        Value::Str(id) => {
+        ValueKind::String => {
             let name = with_heap(|h| h.get_string(*id).to_owned());
             if name.is_empty() || name == "nil" {
                 None
@@ -3056,7 +3056,7 @@ pub(crate) fn builtin_find_file_noselect(
     for buf_id in eval.buffers.buffer_list() {
         if let Some(buf) = eval.buffers.get(buf_id) {
             if buf.file_name.as_deref() == Some(&abs_path) {
-                return Ok(Value::Buffer(buf_id));
+                return Ok(Value::make_buffer(buf_id));
             }
         }
     }
@@ -3094,7 +3094,7 @@ pub(crate) fn builtin_find_file_noselect(
         let _ = eval.buffers.set_buffer_file_name(buf_id, Some(abs_path));
     }
 
-    Ok(Value::Buffer(buf_id))
+    Ok(Value::make_buffer(buf_id))
 }
 
 // ===========================================================================
@@ -3215,7 +3215,7 @@ pub(crate) fn builtin_do_auto_save(
             // Check buffer-saved-size: if negative, auto-save is disabled for
             // this buffer
             if let Some(saved_size_val) = buf.get_buffer_local("buffer-saved-size") {
-                if let Value::Int(n) = saved_size_val {
+                if let Some(n) = saved_size_val.as_fixnum() {
                     if *n < 0 {
                         continue;
                     }
@@ -3272,7 +3272,7 @@ pub(crate) fn builtin_do_auto_save(
             // Update buffer-saved-size
             let size = content.len() as i64;
             if let Some(buf) = eval.buffers.get_mut(buf_id) {
-                buf.set_buffer_local("buffer-saved-size", Value::Int(size));
+                buf.set_buffer_local("buffer-saved-size", Value::fixnum(size));
             }
             continue;
         };
@@ -3284,12 +3284,12 @@ pub(crate) fn builtin_do_auto_save(
             // Update buffer-saved-size
             let size = content.len() as i64;
             if let Some(buf) = eval.buffers.get_mut(buf_id) {
-                buf.set_buffer_local("buffer-saved-size", Value::Int(size));
+                buf.set_buffer_local("buffer-saved-size", Value::fixnum(size));
             }
         }
     }
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // ===========================================================================
@@ -3298,37 +3298,37 @@ pub(crate) fn builtin_do_auto_save(
 
 pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray) {
     let temporary_file_directory = std::env::temp_dir().to_string_lossy().to_string();
-    obarray.set_symbol_value("file-name-coding-system", Value::Nil);
-    obarray.set_symbol_value("default-file-name-coding-system", Value::Nil);
-    obarray.set_symbol_value("set-auto-coding-for-load", Value::Nil);
-    obarray.set_symbol_value("file-name-handler-alist", Value::Nil);
-    obarray.set_symbol_value("set-auto-coding-function", Value::Nil);
-    obarray.set_symbol_value("after-insert-file-functions", Value::Nil);
-    obarray.set_symbol_value("write-region-annotate-functions", Value::Nil);
-    obarray.set_symbol_value("write-region-post-annotation-function", Value::Nil);
-    obarray.set_symbol_value("write-region-annotations-so-far", Value::Nil);
-    obarray.set_symbol_value("inhibit-file-name-handlers", Value::Nil);
-    obarray.set_symbol_value("inhibit-file-name-operation", Value::Nil);
-    obarray.set_symbol_value("directory-abbrev-alist", Value::Nil);
-    obarray.set_symbol_value("auto-save-list-file-name", Value::Nil);
-    obarray.set_symbol_value("auto-save-list-file-prefix", Value::Nil);
-    obarray.set_symbol_value("auto-save-visited-file-name", Value::Nil);
-    obarray.set_symbol_value("auto-save-include-big-deletions", Value::Nil);
-    obarray.set_symbol_value("small-temporary-file-directory", Value::Nil);
-    obarray.set_symbol_value("write-region-inhibit-fsync", Value::Nil);
-    obarray.set_symbol_value("delete-by-moving-to-trash", Value::Nil);
-    obarray.set_symbol_value("auto-save-file-name-transforms", Value::Nil);
+    obarray.set_symbol_value("file-name-coding-system", Value::NIL);
+    obarray.set_symbol_value("default-file-name-coding-system", Value::NIL);
+    obarray.set_symbol_value("set-auto-coding-for-load", Value::NIL);
+    obarray.set_symbol_value("file-name-handler-alist", Value::NIL);
+    obarray.set_symbol_value("set-auto-coding-function", Value::NIL);
+    obarray.set_symbol_value("after-insert-file-functions", Value::NIL);
+    obarray.set_symbol_value("write-region-annotate-functions", Value::NIL);
+    obarray.set_symbol_value("write-region-post-annotation-function", Value::NIL);
+    obarray.set_symbol_value("write-region-annotations-so-far", Value::NIL);
+    obarray.set_symbol_value("inhibit-file-name-handlers", Value::NIL);
+    obarray.set_symbol_value("inhibit-file-name-operation", Value::NIL);
+    obarray.set_symbol_value("directory-abbrev-alist", Value::NIL);
+    obarray.set_symbol_value("auto-save-list-file-name", Value::NIL);
+    obarray.set_symbol_value("auto-save-list-file-prefix", Value::NIL);
+    obarray.set_symbol_value("auto-save-visited-file-name", Value::NIL);
+    obarray.set_symbol_value("auto-save-include-big-deletions", Value::NIL);
+    obarray.set_symbol_value("small-temporary-file-directory", Value::NIL);
+    obarray.set_symbol_value("write-region-inhibit-fsync", Value::NIL);
+    obarray.set_symbol_value("delete-by-moving-to-trash", Value::NIL);
+    obarray.set_symbol_value("auto-save-file-name-transforms", Value::NIL);
     obarray.set_symbol_value(
         "temporary-file-directory",
         Value::string(temporary_file_directory),
     );
-    obarray.set_symbol_value("create-lockfiles", Value::True);
+    obarray.set_symbol_value("create-lockfiles", Value::T);
 
     // Backup-related variables
-    obarray.set_symbol_value("make-backup-files", Value::True);
-    obarray.set_symbol_value("backup-inhibited", Value::Nil);
-    obarray.set_symbol_value("version-control", Value::Nil);
-    obarray.set_symbol_value("backup-directory-alist", Value::Nil);
+    obarray.set_symbol_value("make-backup-files", Value::T);
+    obarray.set_symbol_value("backup-inhibited", Value::NIL);
+    obarray.set_symbol_value("version-control", Value::NIL);
+    obarray.set_symbol_value("backup-directory-alist", Value::NIL);
     // files.el: defvar for vc-hooks.el and locate-dominating-file
     obarray.set_symbol_value(
         "locate-dominating-stop-dir-regexp",

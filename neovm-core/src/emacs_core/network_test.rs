@@ -223,25 +223,25 @@ fn parse_url_deep_path() {
 
 #[test]
 fn expect_args_correct_count() {
-    let args = vec![Value::Int(1), Value::Int(2)];
+    let args = vec![Value::fixnum(1), Value::fixnum(2)];
     assert!(expect_args("test", &args, 2).is_ok());
 }
 
 #[test]
 fn expect_args_wrong_count() {
-    let args = vec![Value::Int(1)];
+    let args = vec![Value::fixnum(1)];
     assert!(expect_args("test", &args, 2).is_err());
 }
 
 #[test]
 fn expect_min_args_sufficient() {
-    let args = vec![Value::Int(1), Value::Int(2), Value::Int(3)];
+    let args = vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)];
     assert!(expect_min_args("test", &args, 2).is_ok());
 }
 
 #[test]
 fn expect_min_args_insufficient() {
-    let args = vec![Value::Int(1)];
+    let args = vec![Value::fixnum(1)];
     assert!(expect_min_args("test", &args, 3).is_err());
 }
 
@@ -259,29 +259,29 @@ fn expect_string_from_symbol() {
 
 #[test]
 fn expect_string_from_nil() {
-    assert_eq!(expect_string(&Value::Nil).unwrap(), "nil");
+    assert_eq!(expect_string(&Value::NIL).unwrap(), "nil");
 }
 
 #[test]
 fn expect_string_from_true() {
-    assert_eq!(expect_string(&Value::True).unwrap(), "t");
+    assert_eq!(expect_string(&Value::T).unwrap(), "t");
 }
 
 #[test]
 fn expect_string_wrong_type() {
-    let v = Value::Int(42);
+    let v = Value::fixnum(42);
     assert!(expect_string(&v).is_err());
 }
 
 #[test]
 fn expect_int_from_int() {
-    let v = Value::Int(42);
+    let v = Value::fixnum(42);
     assert_eq!(expect_int(&v).unwrap(), 42);
 }
 
 #[test]
 fn expect_int_from_char() {
-    let v = Value::Char('A');
+    let v = Value::char('A');
     assert_eq!(expect_int(&v).unwrap(), 65);
 }
 

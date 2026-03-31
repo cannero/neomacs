@@ -17,7 +17,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -28,7 +28,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -39,7 +39,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -47,8 +47,8 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 }
 
 fn expect_string(value: &Value) -> Result<String, Flow> {
-    match value {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+    match value.kind() {
+        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -57,8 +57,8 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
 }
 
 fn expect_number(value: &Value) -> Result<(), Flow> {
-    match value {
-        Value::Int(_) | Value::Float(_, _) | Value::Char(_) => Ok(()),
+    match value.kind() {
+        ValueKind::Fixnum(_) | ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ | ValueKind::Char(_) => Ok(()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("numberp"), *other],
@@ -90,11 +90,11 @@ pub(crate) fn parse_optional_read_seconds_arg(
 }
 
 fn expect_initial_input_stringish(value: &Value) -> Result<(), Flow> {
-    match value {
-        Value::Nil | Value::Str(_) => Ok(()),
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);
-            if !matches!(pair.car, Value::Str(_)) {
+    match value.kind() {
+        ValueKind::Nil | ValueKind::String => Ok(()),
+        ValueKind::Cons => {
+            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+            if !matches!(pair.car, ValueKind::String) {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("stringp"), pair.car],
@@ -110,17 +110,17 @@ fn expect_initial_input_stringish(value: &Value) -> Result<(), Flow> {
 }
 
 fn expect_completing_read_initial_input(value: &Value) -> Result<(), Flow> {
-    match value {
-        Value::Nil | Value::Str(_) => Ok(()),
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);
-            if !matches!(pair.car, Value::Str(_)) {
+    match value.kind() {
+        ValueKind::Nil | ValueKind::String => Ok(()),
+        ValueKind::Cons => {
+            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+            if !matches!(pair.car, ValueKind::String) {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("stringp"), pair.car],
                 ));
             }
-            if !matches!(pair.cdr, Value::Int(_) | Value::Char(_)) {
+            if !matches!(pair.cdr, ValueKind::Fixnum(_) | ValueKind::Char(_)) {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("number-or-marker-p"), pair.cdr],
@@ -256,7 +256,7 @@ fn signal_invalid_read_syntax_in_buffer(
     let column = prefix.rsplit('\n').next().unwrap_or("").chars().count() as i64;
     signal(
         "invalid-read-syntax",
-        vec![Value::string(message), Value::Int(line), Value::Int(column)],
+        vec![Value::string(message), Value::fixnum(line), Value::fixnum(column)],
     )
 }
 
@@ -293,23 +293,23 @@ pub(crate) fn read_from_string_impl(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("read-from-string"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
 
     let full_string = expect_string(&args[0])?;
 
-    let start_arg = args.get(1).cloned().unwrap_or(Value::Nil);
-    let end_arg = args.get(2).cloned().unwrap_or(Value::Nil);
+    let start_arg = args.get(1).cloned().unwrap_or(Value::NIL);
+    let end_arg = args.get(2).cloned().unwrap_or(Value::NIL);
     let to_index = |value: &Value| -> Result<usize, Flow> {
-        match value {
-            Value::Nil => Ok(0),
-            Value::Int(n) => {
-                let idx = if *n < 0 {
-                    (full_string.len() as i64) + *n
+        match value.kind() {
+            ValueKind::Nil => Ok(0),
+            ValueKind::Fixnum(n) => {
+                let idx = if n < 0 {
+                    (full_string.len() as i64) + n
                 } else {
-                    *n
+                    n
                 };
                 if idx < 0 || idx > full_string.len() as i64 {
                     return Err(signal(
@@ -380,7 +380,7 @@ pub(crate) fn read_from_string_impl(
     };
     let absolute_end = start + end_pos;
 
-    Ok(Value::cons(value, Value::Int(absolute_end as i64)))
+    Ok(Value::cons(value, Value::fixnum(absolute_end as i64)))
 }
 
 fn first_form_byte_code_literal_value(
@@ -496,7 +496,7 @@ fn first_form_hash_table_literal_value(
 
     let table_value =
         Value::hash_table_with_options(test, size, weakness, rehash_size, rehash_threshold);
-    if let Value::HashTable(table_ref) = &table_value {
+    if &table_value.is_hash_table() /* TODO(tagged): `table_ref` was Value::HashTable(table_ref), now use accessor */ {
         with_heap_mut(|h| {
             let table = h.get_hash_table_mut(*table_ref);
             table.test_name = test_name;
@@ -595,20 +595,20 @@ pub fn builtin_read(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>
         ));
     }
 
-    match &args[0] {
-        Value::Str(_) => {
+    match args[0].kind() {
+        ValueKind::String => {
             // Read from string
             let result = read_from_string_impl(&ctx.obarray, args)?;
             // Return just the car (the parsed object)
-            match &result {
-                Value::Cons(cell) => {
-                    let pair = read_cons(*cell);
+            match result.kind() {
+                ValueKind::Cons => {
+                    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
                     Ok(pair.car)
                 }
                 _ => Ok(result),
             }
         }
-        Value::Buffer(id) => {
+        ValueKind::Veclike(VecLikeType::Buffer) => {
             // Read from buffer at point
             let buf_id = *id;
             let (text, pt) = {
@@ -659,15 +659,15 @@ pub fn builtin_read(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>
             let _ = &mut ctx.buffers.goto_buffer_byte(buf_id, new_pt);
             Ok(value)
         }
-        Value::Symbol(id) => Err(signal(
+        ValueKind::Symbol(id) => Err(signal(
             "void-function",
             vec![Value::symbol(resolve_sym(*id))],
         )),
-        Value::True => Err(signal(
+        ValueKind::T => Err(signal(
             "end-of-file",
             vec![Value::string("End of file during parsing")],
         )),
-        Value::Keyword(id) => Err(signal(
+        ValueKind::Keyword(id) => Err(signal(
             "void-function",
             vec![Value::symbol(resolve_sym(*id))],
         )),
@@ -725,7 +725,7 @@ pub(crate) fn finish_read_from_minibuffer_in_eval(
                 .run_hook_if_bound("minibuffer-exit-hook")
             {
                 Ok(value) => Ok(value),
-                Err(Flow::Signal(_)) => Ok(Value::Nil),
+                Err(Flow::Signal(_)) => Ok(Value::NIL),
                 Err(flow) => Err(flow),
             }
         },
@@ -793,13 +793,13 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     let prompt = expect_string(&args[0])?;
     // Extract optional arguments
     let initial_input = args.get(1).and_then(|v| match v {
-        Value::Str(id) => Some(super::value::with_heap(|h| h.get_string(*id).to_owned())),
+        Value::Str(id) /* TODO(tagged): convert Value::Str to new API */ => Some(super::value::with_heap(|h| h.get_string(*id).to_owned())),
         _ => None,
     });
-    let keymap_arg = args.get(2).copied().unwrap_or(Value::Nil);
-    let read_arg = args.get(3).copied().unwrap_or(Value::Nil);
+    let keymap_arg = args.get(2).copied().unwrap_or(Value::NIL);
+    let read_arg = args.get(3).copied().unwrap_or(Value::NIL);
     let history_name = minibuffer_history_name(args.get(4));
-    let default_val = args.get(5).copied().unwrap_or(Value::Nil);
+    let default_val = args.get(5).copied().unwrap_or(Value::NIL);
 
     // Save state
     let saved_buffer_id = buffers.current_buffer().map(|b| b.id);
@@ -853,7 +853,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     let enable_recursive = obarray
         .symbol_value("enable-recursive-minibuffers")
         .copied()
-        .unwrap_or(Value::Nil)
+        .unwrap_or(Value::NIL)
         .is_truthy();
     minibuffers.set_enable_recursive(enable_recursive);
     let state = minibuffers.read_from_minibuffer(
@@ -871,13 +871,13 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
         obarray
             .symbol_value("minibuffer-local-map")
             .copied()
-            .unwrap_or(Value::Nil)
+            .unwrap_or(Value::NIL)
     };
     let _ = buffers.set_current_local_map(minibuf_keymap);
 
     // Set minibuffer-related variables
     obarray.set_symbol_value("minibuffer-prompt", Value::string(prompt));
-    obarray.set_symbol_value("minibuffer-depth", Value::Int(minibuf_depth as i64));
+    obarray.set_symbol_value("minibuffer-depth", Value::fixnum(minibuf_depth as i64));
 
     run_setup_hook()?;
 
@@ -898,7 +898,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
 
     let _ = buffers.switch_current(minibuf_id);
     let exit_hook_result = match run_exit_hook() {
-        Err(Flow::Signal(_)) => Ok(Value::Nil),
+        Err(Flow::Signal(_)) => Ok(Value::NIL),
         other => other,
     };
 
@@ -936,7 +936,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
         *active_minibuffer_window,
         frames.selected_frame().map(|frame| frame.selected_window)
     );
-    obarray.set_symbol_value("minibuffer-depth", Value::Int(minibuffers.depth() as i64));
+    obarray.set_symbol_value("minibuffer-depth", Value::fixnum(minibuffers.depth() as i64));
     exit_hook_result?;
 
     // Handle the recursive edit result
@@ -950,8 +950,8 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
                 let read_result =
                     read_from_string_impl(obarray, vec![Value::string(&result_string)])?;
                 // read-from-string returns (OBJECT . END-POS), extract OBJECT
-                if let Value::Cons(id) = read_result {
-                    let snap = super::value::read_cons(id);
+                if read_result.is_cons() /* TODO(tagged): `id` was ValueKind::Cons, now use accessor */ {
+                    let snap = super::value::read_cons(id);  // TODO(tagged): replace read_cons with cons accessors
                     return Ok(snap.car);
                 }
                 return Ok(read_result);
@@ -969,9 +969,9 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
 }
 
 fn minibuffer_history_name(hist_arg: Option<&Value>) -> Option<String> {
-    match hist_arg.copied().unwrap_or(Value::Nil) {
-        Value::Symbol(id) => Some(resolve_sym(id).to_string()),
-        Value::Cons(id) => read_cons(id).car.as_symbol_name().map(str::to_string),
+    match hist_arg.copied().unwrap_or(Value::Nil).kind() {
+        ValueKind::Symbol(id) => Some(resolve_sym(id).to_string()),
+        ValueKind::Cons => read_cons(id).car.as_symbol_name().map(str::to_string),  // TODO(tagged): replace read_cons with cons accessors
         _ => None,
     }
 }
@@ -1008,15 +1008,15 @@ pub(crate) fn builtin_read_string_in_runtime(
         expect_initial_input_stringish(initial)?;
     }
 
-    let initial = args.get(1).copied().unwrap_or(Value::Nil);
-    let history = args.get(2).copied().unwrap_or(Value::Nil);
-    let default = args.get(3).copied().unwrap_or(Value::Nil);
-    let inherit = args.get(4).copied().unwrap_or(Value::Nil);
+    let initial = args.get(1).copied().unwrap_or(Value::NIL);
+    let history = args.get(2).copied().unwrap_or(Value::NIL);
+    let default = args.get(3).copied().unwrap_or(Value::NIL);
+    let inherit = args.get(4).copied().unwrap_or(Value::NIL);
     let minibuffer_args = [
         prompt,
         initial,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
         history,
         default,
         inherit,
@@ -1031,16 +1031,16 @@ pub(crate) fn finish_read_string_with_minibuffer(
     let prompt = args[0];
 
     // (read-from-minibuffer PROMPT INITIAL nil nil HIST DEFAULT INHERIT-INPUT-METHOD)
-    let initial = args.get(1).copied().unwrap_or(Value::Nil);
-    let history = args.get(2).copied().unwrap_or(Value::Nil);
-    let default = args.get(3).copied().unwrap_or(Value::Nil);
-    let inherit = args.get(4).copied().unwrap_or(Value::Nil);
+    let initial = args.get(1).copied().unwrap_or(Value::NIL);
+    let history = args.get(2).copied().unwrap_or(Value::NIL);
+    let default = args.get(3).copied().unwrap_or(Value::NIL);
+    let inherit = args.get(4).copied().unwrap_or(Value::NIL);
 
     let minibuffer_args = [
         prompt,
         initial,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
         history,
         default,
         inherit,
@@ -1095,20 +1095,20 @@ pub(crate) fn builtin_read_number_in_runtime(
 
 fn read_number_minibuffer_args(args: &[Value]) -> [Value; 6] {
     let prompt = args[0];
-    let default_val = args.get(1).copied().unwrap_or(Value::Nil);
+    let default_val = args.get(1).copied().unwrap_or(Value::NIL);
     [
         prompt,
-        Value::Nil,
-        Value::Nil,
-        Value::True,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::T,
+        Value::NIL,
         default_val,
     ]
 }
 
 fn validate_read_number_result(result: Value) -> EvalResult {
-    match result {
-        Value::Int(_) | Value::Float(..) => Ok(result),
+    match result.kind() {
+        ValueKind::Fixnum(_) | ValueKind::Float(_) => Ok(result),
         _ => Err(signal("error", vec![Value::string("Not a number")])),
     }
 }
@@ -1167,9 +1167,9 @@ pub(crate) fn finish_completing_read_in_eval(
     let minibuffer_args = completing_read_minibuffer_args(eval.obarray(), args);
     let collection = args[1];
     eval.assign("minibuffer-completion-table", collection);
-    let predicate = args.get(2).copied().unwrap_or(Value::Nil);
+    let predicate = args.get(2).copied().unwrap_or(Value::NIL);
     eval.assign("minibuffer-completion-predicate", predicate);
-    let require_match = args.get(3).copied().unwrap_or(Value::Nil);
+    let require_match = args.get(3).copied().unwrap_or(Value::NIL);
     eval.assign(
         "minibuffer-completion-confirm",
         completion_confirm_from_require_match(require_match),
@@ -1177,9 +1177,9 @@ pub(crate) fn finish_completing_read_in_eval(
 
     let result = finish_read_from_minibuffer_in_eval(eval, &minibuffer_args);
 
-    eval.assign("minibuffer-completion-table", Value::Nil);
-    eval.assign("minibuffer-completion-predicate", Value::Nil);
-    eval.assign("minibuffer-completion-confirm", Value::Nil);
+    eval.assign("minibuffer-completion-table", Value::NIL);
+    eval.assign("minibuffer-completion-predicate", Value::NIL);
+    eval.assign("minibuffer-completion-confirm", Value::NIL);
 
     result
 }
@@ -1227,9 +1227,9 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
         custom,
         specpdl,
         intern("minibuffer-completion-predicate"),
-        args.get(2).copied().unwrap_or(Value::Nil),
+        args.get(2).copied().unwrap_or(Value::NIL),
     );
-    let require_match = args.get(3).copied().unwrap_or(Value::Nil);
+    let require_match = args.get(3).copied().unwrap_or(Value::NIL);
     let _ = crate::emacs_core::eval::set_runtime_binding(
         obarray,
         buffers,
@@ -1247,7 +1247,7 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
         custom,
         specpdl,
         intern("minibuffer-completion-table"),
-        Value::Nil,
+        Value::NIL,
     );
     let _ = crate::emacs_core::eval::set_runtime_binding(
         obarray,
@@ -1255,7 +1255,7 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
         custom,
         specpdl,
         intern("minibuffer-completion-predicate"),
-        Value::Nil,
+        Value::NIL,
     );
     let _ = crate::emacs_core::eval::set_runtime_binding(
         obarray,
@@ -1263,7 +1263,7 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
         custom,
         specpdl,
         intern("minibuffer-completion-confirm"),
-        Value::Nil,
+        Value::NIL,
     );
 
     result
@@ -1293,13 +1293,13 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
 
     let prompt = expect_string(&args[0])?;
     let initial_input = args.get(1).and_then(|v| match v {
-        Value::Str(id) => Some(super::value::with_heap(|h| h.get_string(*id).to_owned())),
+        Value::Str(id) /* TODO(tagged): convert Value::Str to new API */ => Some(super::value::with_heap(|h| h.get_string(*id).to_owned())),
         _ => None,
     });
-    let keymap_arg = args.get(2).copied().unwrap_or(Value::Nil);
-    let read_arg = args.get(3).copied().unwrap_or(Value::Nil);
+    let keymap_arg = args.get(2).copied().unwrap_or(Value::NIL);
+    let read_arg = args.get(3).copied().unwrap_or(Value::NIL);
     let history_name = minibuffer_history_name(args.get(4));
-    let default_val = args.get(5).copied().unwrap_or(Value::Nil);
+    let default_val = args.get(5).copied().unwrap_or(Value::NIL);
 
     let saved_buffer_id = shared.buffers.current_buffer().map(|b| b.id);
     let recursive_depth = shared.recursive_command_loop_depth();
@@ -1354,7 +1354,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
         .obarray
         .symbol_value("enable-recursive-minibuffers")
         .copied()
-        .unwrap_or(Value::Nil)
+        .unwrap_or(Value::NIL)
         .is_truthy();
     shared.minibuffers.set_enable_recursive(enable_recursive);
     {
@@ -1374,7 +1374,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
             .obarray
             .symbol_value("minibuffer-local-map")
             .copied()
-            .unwrap_or(Value::Nil)
+            .unwrap_or(Value::NIL)
     };
     let _ = shared.buffers.set_current_local_map(minibuf_keymap);
     shared
@@ -1382,7 +1382,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
         .set_symbol_value("minibuffer-prompt", Value::string(&prompt));
     shared
         .obarray
-        .set_symbol_value("minibuffer-depth", Value::Int(minibuf_depth as i64));
+        .set_symbol_value("minibuffer-depth", Value::fixnum(minibuf_depth as i64));
     shared.run_hook_if_bound("minibuffer-setup-hook")?;
 
     let extra_roots = args.to_vec();
@@ -1404,7 +1404,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
     let _ = shared.buffers.switch_current(minibuf_id);
     let exit_hook_result = match shared.run_hook_if_bound("minibuffer-exit-hook") {
         Ok(value) => Ok(value),
-        Err(Flow::Signal(_)) => Ok(Value::Nil),
+        Err(Flow::Signal(_)) => Ok(Value::NIL),
         Err(flow) => Err(flow),
     };
 
@@ -1446,7 +1446,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
     );
     shared.obarray.set_symbol_value(
         "minibuffer-depth",
-        Value::Int(shared.minibuffers.depth() as i64),
+        Value::fixnum(shared.minibuffers.depth() as i64),
     );
     exit_hook_result?;
 
@@ -1455,8 +1455,8 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
             if !read_arg.is_nil() && !result_string.is_empty() {
                 let read_result =
                     read_from_string_impl(&shared.obarray, vec![Value::string(&result_string)])?;
-                if let Value::Cons(id) = read_result {
-                    let snap = super::value::read_cons(id);
+                if read_result.is_cons() /* TODO(tagged): `id` was ValueKind::Cons, now use accessor */ {
+                    let snap = super::value::read_cons(id);  // TODO(tagged): replace read_cons with cons accessors
                     return Ok(snap.car);
                 }
                 return Ok(read_result);
@@ -1493,9 +1493,9 @@ pub(crate) fn finish_completing_read_in_vm_runtime(
         &shared.custom,
         shared.specpdl.as_slice(),
         intern("minibuffer-completion-predicate"),
-        args.get(2).copied().unwrap_or(Value::Nil),
+        args.get(2).copied().unwrap_or(Value::NIL),
     );
-    let require_match = args.get(3).copied().unwrap_or(Value::Nil);
+    let require_match = args.get(3).copied().unwrap_or(Value::NIL);
     let _ = crate::emacs_core::eval::set_runtime_binding(
         &mut shared.obarray,
         &mut shared.buffers,
@@ -1511,7 +1511,7 @@ pub(crate) fn finish_completing_read_in_vm_runtime(
         &shared.custom,
         shared.specpdl.as_slice(),
         intern("minibuffer-completion-table"),
-        Value::Nil,
+        Value::NIL,
     );
     let _ = crate::emacs_core::eval::set_runtime_binding(
         &mut shared.obarray,
@@ -1519,7 +1519,7 @@ pub(crate) fn finish_completing_read_in_vm_runtime(
         &shared.custom,
         shared.specpdl.as_slice(),
         intern("minibuffer-completion-predicate"),
-        Value::Nil,
+        Value::NIL,
     );
     let _ = crate::emacs_core::eval::set_runtime_binding(
         &mut shared.obarray,
@@ -1527,7 +1527,7 @@ pub(crate) fn finish_completing_read_in_vm_runtime(
         &shared.custom,
         shared.specpdl.as_slice(),
         intern("minibuffer-completion-confirm"),
-        Value::Nil,
+        Value::NIL,
     );
     result
 }
@@ -1547,35 +1547,35 @@ fn completion_confirm_from_require_match(require_match: Value) -> Value {
     {
         require_match
     } else {
-        Value::Nil
+        Value::NIL
     }
 }
 
 pub(crate) fn completing_read_minibuffer_args(obarray: &Obarray, args: &[Value]) -> [Value; 7] {
     let prompt = args[0];
-    let require_match = args.get(3).copied().unwrap_or(Value::Nil);
-    let initial_input = args.get(4).copied().unwrap_or(Value::Nil);
-    let hist = args.get(5).copied().unwrap_or(Value::Nil);
-    let default_val = args.get(6).copied().unwrap_or(Value::Nil);
-    let inherit = args.get(7).copied().unwrap_or(Value::Nil);
+    let require_match = args.get(3).copied().unwrap_or(Value::NIL);
+    let initial_input = args.get(4).copied().unwrap_or(Value::NIL);
+    let hist = args.get(5).copied().unwrap_or(Value::NIL);
+    let default_val = args.get(6).copied().unwrap_or(Value::NIL);
+    let inherit = args.get(7).copied().unwrap_or(Value::NIL);
 
     let keymap = if !require_match.is_nil() {
         obarray
             .symbol_value("minibuffer-local-must-match-map")
             .copied()
-            .unwrap_or(Value::Nil)
+            .unwrap_or(Value::NIL)
     } else {
         obarray
             .symbol_value("minibuffer-local-completion-map")
             .copied()
-            .unwrap_or(Value::Nil)
+            .unwrap_or(Value::NIL)
     };
 
     [
         prompt,
         initial_input,
         keymap,
-        Value::Nil,
+        Value::NIL,
         hist,
         default_val,
         inherit,
@@ -1583,23 +1583,23 @@ pub(crate) fn completing_read_minibuffer_args(obarray: &Obarray, args: &[Value])
 }
 
 fn event_to_int(event: &Value) -> Option<i64> {
-    match event {
-        Value::Int(n) => Some(*n),
-        Value::Char(c) => Some(*c as i64),
+    match event.kind() {
+        ValueKind::Fixnum(n) => Some(n),
+        ValueKind::Char(c) => Some(c as i64),
         _ => None,
     }
 }
 
 fn event_to_char(event: &Value) -> Option<char> {
-    match event {
-        Value::Char(c) => Some(*c),
-        Value::Int(n) if *n >= 0 => char::from_u32(*n as u32),
+    match event.kind() {
+        ValueKind::Char(c) => Some(c),
+        ValueKind::Fixnum(n) if n >= 0 => char::from_u32(n as u32),
         _ => None,
     }
 }
 
 fn expect_optional_prompt_string(args: &[Value]) -> Result<(), Flow> {
-    if args.is_empty() || args[0].is_nil() || matches!(args[0], Value::Str(_)) {
+    if args.is_empty() || args[0].is_nil() || args[0].is_string() {
         return Ok(());
     }
     Err(signal(
@@ -1687,7 +1687,7 @@ pub(crate) fn read_key_sequence_options_from_args(
     args: &[Value],
 ) -> crate::keyboard::ReadKeySequenceOptions {
     crate::keyboard::ReadKeySequenceOptions::new(
-        args.first().copied().unwrap_or(Value::Nil),
+        args.first().copied().unwrap_or(Value::NIL),
         args.get(2).is_some_and(Value::is_truthy),
         args.get(3).is_some_and(Value::is_truthy),
     )
@@ -1732,7 +1732,7 @@ pub(crate) fn builtin_input_pending_p(
 
     let filter_events = ctx.input_pending_p_filters_events();
     if input_pending_now(ctx, filter_events) {
-        return Ok(Value::True);
+        return Ok(Value::T);
     }
 
     if args.first().is_some_and(Value::is_truthy) {
@@ -1743,7 +1743,7 @@ pub(crate) fn builtin_input_pending_p(
         let _ = ctx.stage_next_host_input_event_if_available()?;
     }
 
-    Ok(Value::bool(input_pending_now(ctx, filter_events)))
+    Ok(Value::bool_val(input_pending_now(ctx, filter_events)))
 }
 
 // ---------------------------------------------------------------------------
@@ -1764,9 +1764,9 @@ pub(crate) fn builtin_discard_input(
         &ctx.custom,
         ctx.specpdl.as_slice(),
         intern("unread-command-events"),
-        Value::Nil,
+        Value::NIL,
     );
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // ---------------------------------------------------------------------------
@@ -1781,10 +1781,10 @@ pub(crate) fn builtin_current_input_mode(
     expect_args("current-input-mode", &args, 0)?;
     let (interrupt, flow, meta, quit) = ctx.current_input_mode_tuple();
     Ok(Value::list(vec![
-        Value::bool(interrupt),
-        Value::bool(flow),
-        Value::bool(meta),
-        Value::Int(quit),
+        Value::bool_val(interrupt),
+        Value::bool_val(flow),
+        Value::bool_val(meta),
+        Value::fixnum(quit),
     ]))
 }
 
@@ -1804,7 +1804,7 @@ pub(crate) fn builtin_set_input_mode(
     {
         set_quit_char_in_context(eval, quit)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // ---------------------------------------------------------------------------
@@ -1818,7 +1818,7 @@ pub(crate) fn builtin_set_input_interrupt_mode(
 ) -> EvalResult {
     expect_args("set-input-interrupt-mode", &args, 1)?;
     eval.set_input_mode_interrupt(args[0].is_truthy());
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 fn peek_unread_command_event_in_state(
@@ -1832,7 +1832,7 @@ fn peek_unread_command_event_in_state(
         .find_map(|frame| frame.get(&name_id).copied())
         .or_else(|| obarray.symbol_value("unread-command-events").copied());
     match unread {
-        Some(Value::Cons(cell)) => Some(read_cons(cell).car),
+        Some(ValueKind::Cons) => Some(read_cons(cell).car),  // TODO(tagged): replace read_cons with cons accessors
         _ => None,
     }
 }
@@ -1844,7 +1844,7 @@ pub(crate) fn builtin_read_char_in_runtime(
     if args.len() > 3 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("read-char"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("read-char"), Value::fixnum(args.len() as i64)],
         ));
     }
     expect_optional_prompt_string(args)?;
@@ -1858,7 +1858,7 @@ pub(crate) fn builtin_read_char_in_runtime(
             if runtime.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
                 runtime.set_read_command_keys(vec![event]);
             }
-            return Ok(Some(Value::Int(n)));
+            return Ok(Some(Value::fixnum(n)));
         }
         runtime.replace_unread_command_event_with_singleton(event);
         runtime.record_input_event(event);
@@ -1868,7 +1868,7 @@ pub(crate) fn builtin_read_char_in_runtime(
     if runtime.has_input_receiver() {
         Ok(None)
     } else {
-        Ok(Some(Value::Nil))
+        Ok(Some(Value::NIL))
     }
 }
 
@@ -1909,7 +1909,7 @@ pub(crate) fn builtin_read_key_sequence_vector_in_runtime(
         runtime.record_nonmenu_input_event(event);
         runtime.set_read_command_keys(vec![event]);
         if let Some(n) = event_to_int(&event) {
-            return Ok(Some(Value::vector(vec![Value::Int(n)])));
+            return Ok(Some(Value::vector(vec![Value::fixnum(n)])));
         }
         return Ok(Some(Value::vector(vec![event])));
     }
@@ -1924,7 +1924,7 @@ pub(crate) fn builtin_read_key_sequence_vector_in_runtime(
 pub(crate) fn builtin_set_input_meta_mode(args: Vec<Value>) -> EvalResult {
     expect_min_args("set-input-meta-mode", &args, 1)?;
     expect_max_args("set-input-meta-mode", &args, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(set-output-flow-control FLOW)`
@@ -1933,13 +1933,13 @@ pub(crate) fn builtin_set_input_meta_mode(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_set_output_flow_control(args: Vec<Value>) -> EvalResult {
     expect_min_args("set-output-flow-control", &args, 1)?;
     expect_max_args("set-output-flow-control", &args, 2)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(set-quit-char CHAR)`
 ///
 fn set_quit_char_in_context(eval: &mut super::eval::Context, quit: Value) -> EvalResult {
-    let Value::Int(quit) = quit else {
+    let Some(quit) = quit.as_fixnum() else {
         return Err(signal(
             "error",
             vec![Value::string("QUIT must be an ASCII character")],
@@ -1953,7 +1953,7 @@ fn set_quit_char_in_context(eval: &mut super::eval::Context, quit: Value) -> Eva
     }
 
     eval.set_quit_char(quit);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// GNU-compatible quit-char setter for the current evaluator.
@@ -1974,7 +1974,7 @@ pub(crate) fn builtin_set_quit_char(
 /// Batch-mode compatibility: always returns nil.
 pub(crate) fn builtin_waiting_for_user_input_p(args: Vec<Value>) -> EvalResult {
     expect_args("waiting-for-user-input-p", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_waiting_for_user_input_p_ctx(
@@ -1982,7 +1982,7 @@ pub(crate) fn builtin_waiting_for_user_input_p_ctx(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("waiting-for-user-input-p", &args, 0)?;
-    Ok(Value::bool(eval.waiting_for_user_input()))
+    Ok(Value::bool_val(eval.waiting_for_user_input()))
 }
 
 // ---------------------------------------------------------------------------
@@ -1996,8 +1996,8 @@ pub(crate) fn builtin_waiting_for_user_input_p_ctx(
 /// In batch mode, signals end-of-file.
 pub(crate) fn builtin_y_or_n_p(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("y-or-n-p", &args, 1)?;
-    match &args[0] {
-        Value::Str(_) | Value::Vector(_) | Value::Nil => {}
+    match args[0].kind() {
+        ValueKind::String | ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Nil => {}
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -2009,7 +2009,7 @@ pub(crate) fn builtin_y_or_n_p(eval: &mut super::eval::Context, args: Vec<Value>
     // Interactive mode: read single character
     if eval.input_rx.is_some() {
         // Display prompt in echo area (message)
-        if let Value::Str(id) = &args[0] {
+        if &args[0].is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
             let prompt_str = super::value::with_heap(|h| h.get_string(*id).to_owned());
             let msg = format!("{} (y or n) ", prompt_str);
             eval.assign("minibuffer-message", Value::string(&msg));
@@ -2019,8 +2019,8 @@ pub(crate) fn builtin_y_or_n_p(eval: &mut super::eval::Context, args: Vec<Value>
             if let Some(n) = event_to_int(&event) {
                 let ch = char::from_u32(n as u32).unwrap_or('\0');
                 match ch {
-                    'y' | 'Y' => return Ok(Value::True),
-                    'n' | 'N' => return Ok(Value::Nil),
+                    'y' | 'Y' => return Ok(Value::T),
+                    'n' | 'N' => return Ok(Value::NIL),
                     _ => continue, // Invalid response, try again
                 }
             }
@@ -2061,7 +2061,7 @@ pub(crate) fn finish_yes_or_no_p_with_minibuffer(
     args: &[Value],
     mut read_from_minibuffer: impl FnMut(&[Value]) -> EvalResult,
 ) -> EvalResult {
-    let prompt_str = if let Value::Str(id) = &args[0] {
+    let prompt_str = if &args[0].is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
         super::value::with_heap(|h| h.get_string(*id).to_owned())
     } else {
         String::new()
@@ -2069,11 +2069,11 @@ pub(crate) fn finish_yes_or_no_p_with_minibuffer(
     loop {
         let full_prompt = format!("{} (yes or no) ", prompt_str);
         let result = read_from_minibuffer(&[Value::string(&full_prompt)])?;
-        if let Value::Str(id) = result {
+        if result.is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
             let answer = super::value::with_heap(|h| h.get_string(id).to_owned());
             match answer.trim() {
-                "yes" => return Ok(Value::True),
-                "no" => return Ok(Value::Nil),
+                "yes" => return Ok(Value::T),
+                "no" => return Ok(Value::NIL),
                 _ => continue,
             }
         }
@@ -2096,7 +2096,7 @@ pub(crate) fn builtin_yes_or_no_p_in_runtime(
     args: &[Value],
 ) -> Result<(), Flow> {
     expect_args("yes-or-no-p", args, 1)?;
-    if !matches!(args[0], Value::Str(_)) {
+    if !args[0].is_string() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), args[0]],
@@ -2141,21 +2141,21 @@ pub(crate) fn finish_read_char_interactive_in_runtime(
     if runtime.has_input_receiver() {
         let timeout = parse_optional_read_seconds_arg(args.get(2))?;
         let Some(event) = runtime.read_char_with_timeout(timeout)? else {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         };
         let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
         if let Some(n) = event_to_int(&event) {
             if runtime.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
                 runtime.set_read_command_keys(vec![event]);
             }
-            return Ok(Value::Int(n));
+            return Ok(Value::fixnum(n));
         }
         runtime.replace_unread_command_event_with_singleton(event);
         runtime.record_input_event(event);
         return Err(non_character_input_event_error());
     }
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(read-key &optional PROMPT)`
@@ -2167,7 +2167,7 @@ pub(crate) fn builtin_read_key(eval: &mut super::eval::Context, args: Vec<Value>
     if args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("read-key"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("read-key"), Value::fixnum(args.len() as i64)],
         ));
     }
     expect_optional_prompt_string(&args)?;
@@ -2177,7 +2177,7 @@ pub(crate) fn builtin_read_key(eval: &mut super::eval::Context, args: Vec<Value>
         eval.record_nonmenu_input_event(event);
         eval.set_read_command_keys(vec![event]);
         if let Some(n) = event_to_int(&event) {
-            return Ok(Value::Int(n));
+            return Ok(Value::fixnum(n));
         }
         return Ok(event);
     }
@@ -2188,14 +2188,14 @@ pub(crate) fn builtin_read_key(eval: &mut super::eval::Context, args: Vec<Value>
         eval.record_nonmenu_input_event(event);
         eval.set_read_command_keys(vec![event]);
         if let Some(n) = event_to_int(&event) {
-            return Ok(Value::Int(n));
+            return Ok(Value::fixnum(n));
         }
         return Ok(event);
     }
 
     // 3. Batch mode: no input
     eval.clear_read_command_keys();
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // ---------------------------------------------------------------------------
@@ -2299,7 +2299,7 @@ pub(crate) fn sf_with_output_to_string(
     let temp_id = eval.buffers.create_buffer(&temp_name);
 
     let count = eval.specpdl.len();
-    eval.specbind(intern("standard-output"), Value::Buffer(temp_id));
+    eval.specbind(intern("standard-output"), Value::make_buffer(temp_id));
 
     let body_result = eval.sf_progn(tail);
     let captured = eval

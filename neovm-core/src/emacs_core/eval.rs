@@ -33,7 +33,7 @@ impl OpaqueValuePool {
     }
 
     pub fn get(&self, idx: u32) -> Value {
-        self.values[idx as usize].unwrap_or(Value::Nil)
+        self.values[idx as usize].unwrap_or(Value::NIL)
     }
 
     #[allow(dead_code)]
@@ -311,14 +311,14 @@ fn interpreted_closure_env_entries(lexenv: Value) -> Vec<InterpretedClosureEnvEn
     let mut cursor = lexenv;
     let mut entries = Vec::new();
     loop {
-        match cursor {
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
-                match pair.car {
-                    Value::True => entries.push(InterpretedClosureEnvEntry::TopLevelSentinel),
-                    Value::Symbol(sym) => entries.push(InterpretedClosureEnvEntry::Special(sym)),
-                    Value::Cons(binding) => {
-                        let binding_pair = read_cons(binding);
+        match cursor.kind() {
+            ValueKind::Cons => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+                match pair.car.kind() {
+                    ValueKind::T => entries.push(InterpretedClosureEnvEntry::TopLevelSentinel),
+                    ValueKind::Symbol(sym) => entries.push(InterpretedClosureEnvEntry::Special(sym)),
+                    ValueKind::Cons => {
+                        let binding_pair = read_cons(binding);  // TODO(tagged): replace read_cons with cons accessors
                         if let Some(sym) = binding_symbol_id(binding_pair.car) {
                             entries.push(InterpretedClosureEnvEntry::Binding(sym));
                         }
@@ -333,10 +333,10 @@ fn interpreted_closure_env_entries(lexenv: Value) -> Vec<InterpretedClosureEnvEn
 }
 
 fn binding_symbol_id(value: Value) -> Option<SymId> {
-    match value {
-        Value::Symbol(sym) => Some(sym),
-        Value::True => Some(intern("t")),
-        Value::Nil => Some(intern("nil")),
+    match value.kind() {
+        ValueKind::Symbol(sym) => Some(sym),
+        ValueKind::T => Some(intern("t")),
+        ValueKind::Nil => Some(intern("nil")),
         _ => None,
     }
 }
@@ -364,13 +364,13 @@ fn rebuild_trimmed_interpreted_closure_env(
 ) -> Value {
     let mut entries = Vec::with_capacity(template.len());
     for entry in template {
-        match entry {
-            InterpretedClosureEnvEntry::TopLevelSentinel => entries.push(Value::True),
-            InterpretedClosureEnvEntry::Special(sym) => entries.push(Value::Symbol(*sym)),
+        match entry.kind() {
+            InterpretedClosureEnvEntry::TopLevelSentinel => entries.push(Value::T),
+            InterpretedClosureEnvEntry::Special(sym) => entries.push(Value::symbol(*sym)),
             InterpretedClosureEnvEntry::Binding(sym) => {
                 let cell = lexenv_assq(source_env, *sym)
                     .expect("cached interpreted-closure env binding should exist");
-                entries.push(Value::Cons(cell));
+                entries.push(ValueKind::Cons);
             }
         }
     }
@@ -445,16 +445,16 @@ fn value_from_symbol_id(sym_id: SymId) -> Value {
     let name = resolve_sym(sym_id);
     if lookup_interned(name).is_some_and(|canonical| canonical == sym_id) {
         if name == "nil" {
-            return Value::Nil;
+            return Value::NIL;
         }
         if name == "t" {
-            return Value::True;
+            return Value::T;
         }
         if name.starts_with(':') {
-            return Value::Keyword(sym_id);
+            return Value::keyword(sym_id);
         }
     }
-    Value::Symbol(sym_id)
+    Value::symbol(sym_id)
 }
 
 fn is_runtime_dynamically_special(obarray: &Obarray, sym_id: SymId) -> bool {
@@ -470,7 +470,7 @@ fn symbol_sets_constant_error(sym_id: SymId) -> Option<&'static str> {
 }
 
 pub(crate) fn sync_features_variable_in_state(obarray: &mut Obarray, features: &[SymId]) {
-    let values: Vec<Value> = features.iter().map(|id| Value::Symbol(*id)).collect();
+    let values: Vec<Value> = features.iter().map(|id| Value::symbol(*id)).collect();
     obarray.set_symbol_value("features", Value::list(values));
 }
 
@@ -481,11 +481,11 @@ pub(crate) fn refresh_features_from_variable_in_state(
     let current = obarray
         .symbol_value("features")
         .cloned()
-        .unwrap_or(Value::Nil);
+        .unwrap_or(Value::NIL);
     let mut parsed = Vec::new();
     if let Some(items) = list_to_vec(&current) {
         for item in items {
-            if let Value::Symbol(id) = item {
+            if let Some(id) = item.as_symbol_id() {
                 parsed.push(id);
             }
         }
@@ -531,8 +531,8 @@ pub(crate) fn provide_value_in_state(
     feature: Value,
     subfeatures: Option<Value>,
 ) -> EvalResult {
-    let name = match &feature {
-        Value::Symbol(symbol) => resolve_sym(*symbol).to_owned(),
+    let name = match feature.kind() {
+        ValueKind::Symbol(symbol) => resolve_sym(symbol).to_owned(),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -729,9 +729,9 @@ pub(crate) enum ConditionFrame {
 }
 
 fn condition_value_contains_debug(value: &Value) -> bool {
-    match value {
-        Value::Symbol(id) | Value::Keyword(id) => resolve_sym(*id) == "debug",
-        Value::Cons(_) => {
+    match value.kind() {
+        ValueKind::Symbol(id) | ValueKind::Keyword(id) => resolve_sym(id) == "debug",
+        ValueKind::Cons => {
             list_to_vec(value).is_some_and(|items| items.iter().any(condition_value_contains_debug))
         }
         _ => false,
@@ -755,7 +755,7 @@ fn signal_hook_payload_value(sig: &SignalData) -> Value {
     if let Some(raw) = &sig.raw_data {
         *raw
     } else if sig.data.is_empty() {
-        Value::Nil
+        Value::NIL
     } else {
         Value::list(sig.data.clone())
     }
@@ -998,8 +998,8 @@ pub(crate) fn plan_require_in_state(
     noerror: Option<Value>,
 ) -> Result<RequirePlan, Flow> {
     refresh_features_from_variable_in_state(obarray, features);
-    let sym_id = match feature {
-        Value::Symbol(s) => s,
+    let sym_id = match feature.kind() {
+        ValueKind::Symbol(s) => s,
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1022,8 +1022,8 @@ pub(crate) fn plan_require_in_state(
     }
 
     let filename = match filename {
-        Some(Value::Nil) => name.clone(),
-        Some(Value::Str(id)) => with_heap(|h| h.get_string(id).to_owned()),
+        Some(ValueKind::Nil) => name.clone(),
+        Some(ValueKind::String) => with_heap(|h| h.get_string(id).to_owned()),
         Some(other) => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1039,7 +1039,7 @@ pub(crate) fn plan_require_in_state(
         Some(path) => Ok(RequirePlan::Load { sym_id, name, path }),
         None => {
             if noerror.is_some_and(|value| value.is_truthy()) {
-                return Ok(RequirePlan::Return(Value::Nil));
+                return Ok(RequirePlan::Return(ValueKind::Nil));
             }
             Err(signal(
                 "file-missing",
@@ -1075,7 +1075,7 @@ pub(crate) fn builtin_require_in_vm_runtime(
         &shared.obarray,
         &mut shared.features,
         &shared.require_stack,
-        args.first().copied().unwrap_or(Value::Nil),
+        args.first().copied().unwrap_or(Value::NIL),
         args.get(1).copied(),
         args.get(2).copied(),
     )? {
@@ -1104,7 +1104,7 @@ pub(crate) fn builtin_provide_in_vm_runtime(
     if args.is_empty() || args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("provide"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("provide"), Value::fixnum(args.len() as i64)],
         ));
     }
     let feature = args[0];
@@ -1126,7 +1126,7 @@ pub(crate) fn parse_eval_lexical_arg(arg: Option<Value>) -> Result<(bool, Option
     // GNU eval:
     // - non-nil atom => lexical mode enabled, empty interpreter environment.
     // - cons         => lexical mode enabled with explicit interpreter env.
-    let Value::Cons(_) = arg else {
+    if !arg.is_cons() /* TODO(tagged): `_` was Value::Cons(_), rewrite let-else */ {
         return Ok((true, None));
     };
 
@@ -1159,7 +1159,7 @@ pub(crate) fn begin_eval_with_lexical_arg_in_state(
 ) -> Result<ActiveEvalLexicalArgState, Flow> {
     let (use_lexical, lexenv_value) = parse_eval_lexical_arg(lexical_arg)?;
     let saved_lexical_mode = lexical_binding_in_obarray(obarray);
-    obarray.set_symbol_value("lexical-binding", Value::bool(use_lexical));
+    obarray.set_symbol_value("lexical-binding", Value::bool_val(use_lexical));
     let has_saved_lexenv = if let Some(env) = lexenv_value {
         saved_lexenvs.push(*lexenv);
         *lexenv = env;
@@ -1182,7 +1182,7 @@ pub(crate) fn finish_eval_with_lexical_arg_in_state(
     if state.has_saved_lexenv {
         *lexenv = saved_lexenvs.pop().expect("saved_lexenvs underflow");
     }
-    obarray.set_symbol_value("lexical-binding", Value::bool(state.saved_lexical_mode));
+    obarray.set_symbol_value("lexical-binding", Value::bool_val(state.saved_lexical_mode));
 }
 
 pub(crate) fn builtin_eval_in_vm_runtime(
@@ -1193,7 +1193,7 @@ pub(crate) fn builtin_eval_in_vm_runtime(
     if !(1..=2).contains(&args.len()) {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("eval"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("eval"), Value::fixnum(args.len() as i64)],
         ));
     }
 
@@ -1245,9 +1245,9 @@ fn bind_lexical_value_rooted_in_state(
 /// matching the format GNU Emacs uses in `wrong-number-of-arguments` errors.
 /// `MAX` is the symbol `many` when the function accepts `&rest`.
 fn lambda_arity_cons(params: &LambdaParams) -> Value {
-    let min_val = Value::Int(params.min_arity() as i64);
+    let min_val = Value::fixnum(params.min_arity() as i64);
     let max_val = match params.max_arity() {
-        Some(n) => Value::Int(n as i64),
+        Some(n) => Value::fixnum(n as i64),
         None => Value::symbol("many"),
     };
     Value::cons(min_val, max_val)
@@ -1276,7 +1276,7 @@ fn begin_lambda_call_in_state(
         let arity_val = lambda_arity_cons(params);
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![arity_val, Value::Int(args.len() as i64)],
+            vec![arity_val, Value::fixnum(args.len() as i64)],
         ));
     }
     if let Some(max) = params.max_arity()
@@ -1285,7 +1285,7 @@ fn begin_lambda_call_in_state(
         let arity_val = lambda_arity_cons(params);
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![arity_val, Value::Int(args.len() as i64)],
+            vec![arity_val, Value::fixnum(args.len() as i64)],
         ));
     }
 
@@ -1310,7 +1310,7 @@ fn begin_lambda_call_in_state(
                 bind_lexical_value_rooted_in_state(lexenv, temp_roots, *param, args[arg_idx]);
                 arg_idx += 1;
             } else {
-                bind_lexical_value_rooted_in_state(lexenv, temp_roots, *param, Value::Nil);
+                bind_lexical_value_rooted_in_state(lexenv, temp_roots, *param, Value::NIL);
             }
         }
         if let Some(rest_name) = params.rest {
@@ -1329,7 +1329,7 @@ fn begin_lambda_call_in_state(
                 specbind_in_state(obarray, specpdl, *param, args[arg_idx]);
                 arg_idx += 1;
             } else {
-                specbind_in_state(obarray, specpdl, *param, Value::Nil);
+                specbind_in_state(obarray, specpdl, *param, Value::NIL);
             }
         }
         if let Some(rest_name) = params.rest {
@@ -1346,7 +1346,7 @@ fn begin_lambda_call_in_state(
         let old = obarray
             .symbol_value("lexical-binding")
             .is_some_and(|value| value.is_truthy());
-        obarray.set_symbol_value("lexical-binding", Value::True);
+        obarray.set_symbol_value("lexical-binding", Value::T);
         Some(old)
     } else {
         None
@@ -1369,7 +1369,7 @@ fn finish_lambda_call_in_state(
     state: ActiveLambdaCallState,
 ) {
     if let Some(old_mode) = state.saved_lexical_mode {
-        obarray.set_symbol_value("lexical-binding", Value::bool(old_mode));
+        obarray.set_symbol_value("lexical-binding", Value::bool_val(old_mode));
     }
     if state.has_lexenv {
         let old_lexenv = saved_lexenvs.pop().expect("saved_lexenvs underflow");
@@ -1395,7 +1395,7 @@ fn begin_macro_expansion_scope_in_state(
     let old_dynvars = obarray
         .symbol_value("macroexp--dynvars")
         .cloned()
-        .unwrap_or(Value::Nil);
+        .unwrap_or(Value::NIL);
     temp_roots.push(old_dynvars);
 
     let mut dynvars = old_dynvars;
@@ -1404,7 +1404,7 @@ fn begin_macro_expansion_scope_in_state(
         if name == "t" || name == "nil" {
             continue;
         }
-        dynvars = Value::cons(Value::Symbol(sym), dynvars);
+        dynvars = Value::cons(Value::symbol(sym), dynvars);
     }
     // Collect symbols from the specpdl (replaces dynamic frame iteration).
     for entry in specpdl.iter().rev() {
@@ -1417,10 +1417,10 @@ fn begin_macro_expansion_scope_in_state(
         if name == "t" || name == "nil" {
             continue;
         }
-        dynvars = Value::cons(Value::Symbol(*sym_id), dynvars);
+        dynvars = Value::cons(Value::symbol(*sym_id), dynvars);
     }
 
-    obarray.set_symbol_value("lexical-binding", Value::bool(!lexenv.is_nil()));
+    obarray.set_symbol_value("lexical-binding", Value::bool_val(!lexenv.is_nil()));
     set_runtime_binding(
         obarray,
         buffers,
@@ -1453,7 +1453,7 @@ fn finish_macro_expansion_scope_in_state(
         intern("macroexp--dynvars"),
         state.old_dynvars,
     );
-    obarray.set_symbol_value("lexical-binding", Value::bool(state.old_lexical));
+    obarray.set_symbol_value("lexical-binding", Value::bool_val(state.old_lexical));
     temp_roots.truncate(state.saved_temp_roots_len);
 }
 
@@ -1527,11 +1527,11 @@ impl Context {
         ev.obarray = Obarray::new();
         super::errors::init_standard_errors(&mut ev.obarray);
         ev.obarray
-            .set_symbol_value("most-positive-fixnum", Value::Int(i64::MAX >> 2));
+            .set_symbol_value("most-positive-fixnum", Value::fixnum(i64::MAX >> 2));
         ev.obarray
-            .set_symbol_value("most-negative-fixnum", Value::Int(-(i64::MAX >> 2) - 1));
+            .set_symbol_value("most-negative-fixnum", Value::fixnum(-(i64::MAX >> 2) - 1));
         ev.specpdl.clear();
-        ev.lexenv = Value::Nil;
+        ev.lexenv = Value::NIL;
         ev.features.clear();
         ev.require_stack.clear();
         ev.loads_in_progress.clear();
@@ -1540,7 +1540,7 @@ impl Context {
         ev.processes = ProcessManager::new();
         ev.timers = TimerManager::new();
         ev.watchers = VariableWatcherList::new();
-        ev.current_local_map = Value::Nil;
+        ev.current_local_map = Value::NIL;
         ev.registers = RegisterManager::new();
         ev.bookmarks = BookmarkManager::new();
         ev.abbrevs = AbbrevManager::new();
@@ -1742,14 +1742,14 @@ impl Context {
             .obarray
             .symbol_value("signal-hook-function")
             .copied()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         if hook.is_nil() {
             return Ok(());
         }
 
         self.apply(
             hook,
-            vec![Value::Symbol(sig.symbol), signal_hook_payload_value(sig)],
+            vec![Value::symbol(sig.symbol), signal_hook_payload_value(sig)],
         )
         .map(|_| ())
     }
@@ -1771,7 +1771,7 @@ impl Context {
             symbol: intern("error"),
             data: vec![
                 Value::string("Invalid error symbol"),
-                Value::Symbol(sig.symbol),
+                Value::symbol(sig.symbol),
             ],
             raw_data: None,
             suppress_signal_hook: sig.suppress_signal_hook,
@@ -1813,12 +1813,12 @@ impl Context {
             self.obarray
                 .symbol_value("debug-on-quit")
                 .copied()
-                .unwrap_or(Value::Nil)
+                .unwrap_or(Value::NIL)
         } else {
             self.obarray
                 .symbol_value("debug-on-error")
                 .copied()
-                .unwrap_or(Value::Nil)
+                .unwrap_or(Value::NIL)
         };
         if !wants_debugger(&debug_setting, &conditions) {
             return Ok(());
@@ -1834,7 +1834,7 @@ impl Context {
         self.obarray
             .get_property(sig.symbol_name(), "error-conditions")
             .copied()
-            .unwrap_or_else(|| Value::list(vec![Value::Symbol(sig.symbol)]))
+            .unwrap_or_else(|| Value::list(vec![Value::symbol(sig.symbol)]))
     }
 
     fn skip_debugger(&mut self, sig: &SignalData, conditions: &Value) -> Result<bool, Flow> {
@@ -1842,7 +1842,7 @@ impl Context {
             .obarray
             .symbol_value("debug-ignored-errors")
             .copied()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         let Some(entries) = list_to_vec(&ignored) else {
             return Ok(false);
         };
@@ -1872,7 +1872,7 @@ impl Context {
                         false,
                         &[entry, message],
                     )?,
-                    Value::Int(_)
+                    Value::fixnum(_)
                 ) {
                     return Ok(true);
                 }
@@ -1892,10 +1892,10 @@ impl Context {
             .obarray
             .symbol_value("debugger")
             .copied()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         let specpdl_count = self.specpdl.len();
-        self.specbind(intern("debugger-may-continue"), Value::True);
-        self.specbind(intern("inhibit-debugger"), Value::True);
+        self.specbind(intern("debugger-may-continue"), Value::T);
+        self.specbind(intern("inhibit-debugger"), Value::T);
         let result = self.apply(
             debugger,
             vec![Value::symbol("error"), make_signal_binding_value(sig)],
@@ -1999,24 +1999,24 @@ impl Context {
         // Set up standard global variables
         // Match GNU Emacs: MOST_POSITIVE_FIXNUM = EMACS_INT_MAX >> INTTYPEBITS (>> 2)
         // These are SYMBOL_NOWRITE constants in GNU Emacs (cannot be setq'd).
-        obarray.set_symbol_value("most-positive-fixnum", Value::Int(i64::MAX >> 2));
+        obarray.set_symbol_value("most-positive-fixnum", Value::fixnum(i64::MAX >> 2));
         obarray.set_constant("most-positive-fixnum");
-        obarray.set_symbol_value("most-negative-fixnum", Value::Int(-(i64::MAX >> 2) - 1));
+        obarray.set_symbol_value("most-negative-fixnum", Value::fixnum(-(i64::MAX >> 2) - 1));
         obarray.set_constant("most-negative-fixnum");
         // Mathematical constants (defconst in float-sup.el)
         obarray.set_symbol_value(
             "float-e",
-            Value::Float(std::f64::consts::E, next_float_id()),
+            Value::make_float(std::f64::consts::E),
         );
         obarray.set_symbol_value(
             "float-pi",
-            Value::Float(std::f64::consts::PI, next_float_id()),
+            Value::make_float(std::f64::consts::PI),
         );
-        obarray.set_symbol_value("pi", Value::Float(std::f64::consts::PI, next_float_id()));
+        obarray.set_symbol_value("pi", Value::make_float(std::f64::consts::PI));
         obarray.set_symbol_value("emacs-version", Value::string("31.0.50"));
-        obarray.set_symbol_value("emacs-major-version", Value::Int(31));
-        obarray.set_symbol_value("emacs-minor-version", Value::Int(0));
-        obarray.set_symbol_value("emacs-build-number", Value::Int(1));
+        obarray.set_symbol_value("emacs-major-version", Value::fixnum(31));
+        obarray.set_symbol_value("emacs-minor-version", Value::fixnum(0));
+        obarray.set_symbol_value("emacs-build-number", Value::fixnum(1));
         obarray.set_symbol_value("system-type", Value::symbol("gnu/linux"));
         obarray.set_symbol_value(
             "default-directory",
@@ -2026,11 +2026,11 @@ impl Context {
             "command-line-default-directory",
             Value::string(default_directory),
         );
-        let obarray_object = Value::vector(vec![Value::Nil]);
+        let obarray_object = Value::vector(vec![Value::NIL]);
         obarray.set_symbol_value("obarray", obarray_object);
         obarray.set_symbol_value("neovm--obarray-object", obarray_object);
         obarray.make_special("obarray");
-        obarray.set_symbol_value("standard-input", Value::True);
+        obarray.set_symbol_value("standard-input", Value::T);
         obarray.make_special("standard-input");
         obarray.set_symbol_value(
             "command-line-args",
@@ -2039,10 +2039,10 @@ impl Context {
                 Value::string("--batch"),
             ]),
         );
-        obarray.set_symbol_value("command-line-args-left", Value::Nil);
-        obarray.set_symbol_value("command-line-functions", Value::Nil);
-        obarray.set_symbol_value("command-line-processed", Value::True);
-        obarray.set_symbol_value("command-switch-alist", Value::Nil);
+        obarray.set_symbol_value("command-line-args-left", Value::NIL);
+        obarray.set_symbol_value("command-line-functions", Value::NIL);
+        obarray.set_symbol_value("command-line-processed", Value::T);
+        obarray.set_symbol_value("command-switch-alist", Value::NIL);
         // GNU emacs.c: set from argv[0]. NeoVM uses current exe path.
         let exe_path = std::env::current_exe()
             .ok()
@@ -2059,26 +2059,26 @@ impl Context {
             .unwrap_or_else(|| "./".to_string());
         obarray.set_symbol_value("invocation-name", Value::string(invocation_name));
         obarray.set_symbol_value("invocation-directory", Value::string(invocation_directory));
-        obarray.set_symbol_value("installation-directory", Value::Nil);
-        obarray.set_symbol_value("configure-info-directory", Value::Nil);
+        obarray.set_symbol_value("installation-directory", Value::NIL);
+        obarray.set_symbol_value("configure-info-directory", Value::NIL);
         // GNU keyboard.c: internal--top-level-message for command loop entry
         obarray.set_symbol_value(
             "internal--top-level-message",
             Value::string("Back to top level"),
         );
-        obarray.set_symbol_value("charset-map-path", Value::Nil);
-        obarray.set_symbol_value("doc-directory", Value::Nil);
+        obarray.set_symbol_value("charset-map-path", Value::NIL);
+        obarray.set_symbol_value("doc-directory", Value::NIL);
         // warnings.el defcustom — needed before warnings.el loads
         obarray.set_symbol_value("warning-minimum-log-level", Value::keyword(":warning"));
         obarray.set_symbol_value("warning-minimum-level", Value::keyword(":warning"));
-        obarray.set_symbol_value("process-environment", Value::Nil);
-        obarray.set_symbol_value("initial-environment", Value::Nil);
+        obarray.set_symbol_value("process-environment", Value::NIL);
+        obarray.set_symbol_value("initial-environment", Value::NIL);
         obarray.set_symbol_value("path-separator", Value::string(":"));
-        obarray.set_symbol_value("shared-game-score-directory", Value::Nil);
-        obarray.set_symbol_value("system-messages-locale", Value::Nil);
-        obarray.set_symbol_value("system-time-locale", Value::Nil);
-        obarray.set_symbol_value("before-init-time", Value::Nil);
-        obarray.set_symbol_value("after-init-time", Value::Nil);
+        obarray.set_symbol_value("shared-game-score-directory", Value::NIL);
+        obarray.set_symbol_value("system-messages-locale", Value::NIL);
+        obarray.set_symbol_value("system-time-locale", Value::NIL);
+        obarray.set_symbol_value("before-init-time", Value::NIL);
+        obarray.set_symbol_value("after-init-time", Value::NIL);
         obarray.set_symbol_value(
             "system-configuration",
             super::builtins_extra::system_configuration_value(),
@@ -2099,12 +2099,12 @@ impl Context {
             "operating-system-release",
             super::builtins_extra::operating_system_release_value(),
         );
-        obarray.set_symbol_value("delayed-warnings-list", Value::Nil);
+        obarray.set_symbol_value("delayed-warnings-list", Value::NIL);
         obarray.set_symbol_value(
             "command-line-ns-option-alist",
             Value::list(vec![Value::list(vec![
                 Value::string("-NSOpen"),
-                Value::Int(1),
+                Value::fixnum(1),
                 Value::symbol("ns-handle-nxopen"),
             ])]),
         );
@@ -2112,13 +2112,13 @@ impl Context {
             "command-line-x-option-alist",
             Value::list(vec![Value::list(vec![
                 Value::string("-display"),
-                Value::Int(1),
+                Value::fixnum(1),
                 Value::symbol("x-handle-display"),
             ])]),
         );
-        obarray.set_symbol_value("load-path", Value::Nil);
+        obarray.set_symbol_value("load-path", Value::NIL);
         obarray.make_special("load-path");
-        obarray.set_symbol_value("load-history", Value::Nil);
+        obarray.set_symbol_value("load-history", Value::NIL);
         obarray.set_symbol_value(
             "fontset-alias-alist",
             super::builtins::symbols::fontset_alias_alist_startup_value(),
@@ -2130,7 +2130,7 @@ impl Context {
             Value::list(vec![Value::string(".elc"), Value::string(".el")]),
         );
         obarray.make_special("load-suffixes");
-        obarray.set_symbol_value("module-file-suffix", Value::Nil);
+        obarray.set_symbol_value("module-file-suffix", Value::NIL);
         obarray.make_special("module-file-suffix");
         obarray.set_symbol_value(
             "dynamic-library-suffixes",
@@ -2145,14 +2145,14 @@ impl Context {
         );
         obarray.make_special("load-file-rep-suffixes");
         // file-coding-system-alist: needed by jka-cmpr-hook.el and others.
-        obarray.set_symbol_value("file-coding-system-alist", Value::Nil);
-        obarray.set_symbol_value("features", Value::Nil);
-        obarray.set_symbol_value("lexical-binding", Value::Nil);
-        obarray.set_symbol_value("load-prefer-newer", Value::Nil);
-        obarray.set_symbol_value("load-file-name", Value::Nil);
+        obarray.set_symbol_value("file-coding-system-alist", Value::NIL);
+        obarray.set_symbol_value("features", Value::NIL);
+        obarray.set_symbol_value("lexical-binding", Value::NIL);
+        obarray.set_symbol_value("load-prefer-newer", Value::NIL);
+        obarray.set_symbol_value("load-file-name", Value::NIL);
         obarray.make_special("load-file-name");
-        obarray.set_symbol_value("noninteractive", Value::True);
-        obarray.set_symbol_value("inhibit-quit", Value::Nil);
+        obarray.set_symbol_value("noninteractive", Value::T);
+        obarray.set_symbol_value("inhibit-quit", Value::NIL);
         // GNU Emacs print.c: all print-* variables are DEFVAR_BOOL or
         // DEFVAR_LISP, making them dynamically scoped (special).
         // This is essential so `(let ((print-escape-newlines t)) ...)`
@@ -2173,15 +2173,15 @@ impl Context {
             "print-integers-as-characters",
             "print-unreadable-function",
         ] {
-            obarray.set_symbol_value(name, Value::Nil);
+            obarray.set_symbol_value(name, Value::NIL);
             obarray.make_special(name);
         }
-        obarray.set_symbol_value("print-quoted", Value::True);
-        obarray.set_symbol_value("text-quoting-style", Value::Nil);
+        obarray.set_symbol_value("print-quoted", Value::T);
+        obarray.set_symbol_value("text-quoting-style", Value::NIL);
         // GNU DEFVAR_LISP variables needed by loadup.el and early .el files.
-        obarray.set_symbol_value("char-code-property-alist", Value::Nil);
-        obarray.set_symbol_value("redisplay--inhibit-bidi", Value::Nil);
-        obarray.set_symbol_value("resize-mini-windows", Value::Nil);
+        obarray.set_symbol_value("char-code-property-alist", Value::NIL);
+        obarray.set_symbol_value("redisplay--inhibit-bidi", Value::NIL);
+        obarray.set_symbol_value("resize-mini-windows", Value::NIL);
 
         // GNU C variables checked by cus-start.el during bootstrap.
         // 178 DEFVAR_LISP/DEFVAR_INT/DEFVAR_BOOL variables extracted from
@@ -2254,7 +2254,7 @@ impl Context {
             "x-underline-at-descent-line",
             "x-use-underline-position-properties",
         ] {
-            obarray.set_symbol_value(name, Value::Nil);
+            obarray.set_symbol_value(name, Value::NIL);
         }
         for name in [
             "auto-hscroll-mode",
@@ -2281,36 +2281,36 @@ impl Context {
             "x-gtk-file-dialog-help-text",
             "x-select-enable-clipboard-manager",
         ] {
-            obarray.set_symbol_value(name, Value::True);
+            obarray.set_symbol_value(name, Value::T);
         }
-        obarray.set_symbol_value("auto-save-interval", Value::Int(300));
-        obarray.set_symbol_value("auto-save-timeout", Value::Int(30));
-        obarray.set_symbol_value("display-line-numbers-major-tick", Value::Int(0));
-        obarray.set_symbol_value("display-line-numbers-minor-tick", Value::Int(0));
-        obarray.set_symbol_value("double-click-fuzz", Value::Int(3));
-        obarray.set_symbol_value("double-click-time", Value::Int(500));
-        obarray.set_symbol_value("echo-keystrokes", Value::Int(1));
-        obarray.set_symbol_value("gc-cons-threshold", Value::Int(800000));
-        obarray.set_symbol_value("help-char", Value::Int(8));
-        obarray.set_symbol_value("hourglass-delay", Value::Int(1));
-        obarray.set_symbol_value("hscroll-margin", Value::Int(5));
-        obarray.set_symbol_value("hscroll-step", Value::Int(0));
-        obarray.set_symbol_value("line-number-display-limit-width", Value::Int(200));
-        obarray.set_symbol_value("maximum-scroll-margin", Value::Int(25));
-        obarray.set_symbol_value("message-log-max", Value::Int(1000));
-        obarray.set_symbol_value("meta-prefix-char", Value::Int(27));
-        obarray.set_symbol_value("next-screen-context-lines", Value::Int(2));
-        obarray.set_symbol_value("overline-margin", Value::Int(2));
-        obarray.set_symbol_value("polling-period", Value::Int(2));
-        obarray.set_symbol_value("process-error-pause-time", Value::Int(1));
-        obarray.set_symbol_value("scroll-conservatively", Value::Int(0));
-        obarray.set_symbol_value("scroll-margin", Value::Int(0));
-        obarray.set_symbol_value("scroll-step", Value::Int(0));
-        obarray.set_symbol_value("tool-bar-max-label-size", Value::Int(10));
-        obarray.set_symbol_value("truncate-partial-width-windows", Value::Int(50));
-        obarray.set_symbol_value("underline-minimum-offset", Value::Int(1));
-        obarray.set_symbol_value("undo-limit", Value::Int(160000));
-        obarray.set_symbol_value("undo-strong-limit", Value::Int(240000));
+        obarray.set_symbol_value("auto-save-interval", Value::fixnum(300));
+        obarray.set_symbol_value("auto-save-timeout", Value::fixnum(30));
+        obarray.set_symbol_value("display-line-numbers-major-tick", Value::fixnum(0));
+        obarray.set_symbol_value("display-line-numbers-minor-tick", Value::fixnum(0));
+        obarray.set_symbol_value("double-click-fuzz", Value::fixnum(3));
+        obarray.set_symbol_value("double-click-time", Value::fixnum(500));
+        obarray.set_symbol_value("echo-keystrokes", Value::fixnum(1));
+        obarray.set_symbol_value("gc-cons-threshold", Value::fixnum(800000));
+        obarray.set_symbol_value("help-char", Value::fixnum(8));
+        obarray.set_symbol_value("hourglass-delay", Value::fixnum(1));
+        obarray.set_symbol_value("hscroll-margin", Value::fixnum(5));
+        obarray.set_symbol_value("hscroll-step", Value::fixnum(0));
+        obarray.set_symbol_value("line-number-display-limit-width", Value::fixnum(200));
+        obarray.set_symbol_value("maximum-scroll-margin", Value::fixnum(25));
+        obarray.set_symbol_value("message-log-max", Value::fixnum(1000));
+        obarray.set_symbol_value("meta-prefix-char", Value::fixnum(27));
+        obarray.set_symbol_value("next-screen-context-lines", Value::fixnum(2));
+        obarray.set_symbol_value("overline-margin", Value::fixnum(2));
+        obarray.set_symbol_value("polling-period", Value::fixnum(2));
+        obarray.set_symbol_value("process-error-pause-time", Value::fixnum(1));
+        obarray.set_symbol_value("scroll-conservatively", Value::fixnum(0));
+        obarray.set_symbol_value("scroll-margin", Value::fixnum(0));
+        obarray.set_symbol_value("scroll-step", Value::fixnum(0));
+        obarray.set_symbol_value("tool-bar-max-label-size", Value::fixnum(10));
+        obarray.set_symbol_value("truncate-partial-width-windows", Value::fixnum(50));
+        obarray.set_symbol_value("underline-minimum-offset", Value::fixnum(1));
+        obarray.set_symbol_value("undo-limit", Value::fixnum(160000));
+        obarray.set_symbol_value("undo-strong-limit", Value::fixnum(240000));
         obarray.set_symbol_value("eol-mnemonic-dos", Value::string("\\"));
         obarray.set_symbol_value("eol-mnemonic-mac", Value::string("/"));
         obarray.set_symbol_value("eol-mnemonic-undecided", Value::string(":"));
@@ -2321,31 +2321,31 @@ impl Context {
         );
         obarray.set_symbol_value("yes-or-no-prompt", Value::string("(yes or no) "));
         // Float-valued C variables
-        obarray.set_symbol_value("gc-cons-percentage", Value::Float(0.1, 0));
-        obarray.set_symbol_value("max-mini-window-height", Value::Float(0.25, 0));
-        obarray.set_symbol_value("image-scaling-factor", Value::Float(1.0, 0));
+        obarray.set_symbol_value("gc-cons-percentage", Value::make_float(0.1) /* TODO(tagged): dropped float id `0` */);
+        obarray.set_symbol_value("max-mini-window-height", Value::make_float(0.25) /* TODO(tagged): dropped float id `0` */);
+        obarray.set_symbol_value("image-scaling-factor", Value::make_float(1.0) /* TODO(tagged): dropped float id `0` */);
         // Display engine C variables (xdisp.c)
-        obarray.set_symbol_value("global-mode-string", Value::Nil);
+        obarray.set_symbol_value("global-mode-string", Value::NIL);
         // File loading C variables (lread.c)
-        obarray.set_symbol_value("load-in-progress", Value::Nil);
+        obarray.set_symbol_value("load-in-progress", Value::NIL);
         // Process/daemon C variables (process.c)
-        obarray.set_symbol_value("internal--daemon-sockname", Value::Nil);
+        obarray.set_symbol_value("internal--daemon-sockname", Value::NIL);
         // Byte compiler variables (bytecomp.el defcustom, but referenced
         // at runtime by legacy packages like evil-escape via ad-add-advice)
-        obarray.set_symbol_value("byte-compile-warnings", Value::True);
+        obarray.set_symbol_value("byte-compile-warnings", Value::T);
         // Other missing C variables cus-start.el checks
-        obarray.set_symbol_value("history-length", Value::Int(100));
-        obarray.set_symbol_value("minibuffer-follows-selected-frame", Value::True);
+        obarray.set_symbol_value("history-length", Value::fixnum(100));
+        obarray.set_symbol_value("minibuffer-follows-selected-frame", Value::T);
         obarray.set_symbol_value("recenter-redisplay", Value::symbol("tty"));
         obarray.set_symbol_value("iconify-child-frame", Value::symbol("iconify-top-level"));
-        obarray.set_symbol_value("frame-inhibit-implied-resize", Value::Nil);
-        obarray.set_symbol_value("mark-even-if-inactive", Value::True);
-        obarray.set_symbol_value("read-buffer-function", Value::Nil);
-        obarray.set_symbol_value("minibuffer-prompt-properties", Value::Nil);
-        obarray.set_symbol_value("help-event-list", Value::Nil);
-        obarray.set_symbol_value("debug-ignored-errors", Value::Nil);
-        obarray.set_symbol_value("debug-on-event", Value::Nil);
-        obarray.set_symbol_value("debug-on-signal", Value::Nil);
+        obarray.set_symbol_value("frame-inhibit-implied-resize", Value::NIL);
+        obarray.set_symbol_value("mark-even-if-inactive", Value::T);
+        obarray.set_symbol_value("read-buffer-function", Value::NIL);
+        obarray.set_symbol_value("minibuffer-prompt-properties", Value::NIL);
+        obarray.set_symbol_value("help-event-list", Value::NIL);
+        obarray.set_symbol_value("debug-ignored-errors", Value::NIL);
+        obarray.set_symbol_value("debug-on-event", Value::NIL);
+        obarray.set_symbol_value("debug-on-signal", Value::NIL);
         // Remaining cus-start.el variables (general + platform stubs)
         for name in [
             "imagemagick-render-type",
@@ -2383,7 +2383,7 @@ impl Context {
             "haiku-use-system-tooltips",
             "xwidget-webkit-disable-javascript",
         ] {
-            obarray.set_symbol_value(name, Value::Nil);
+            obarray.set_symbol_value(name, Value::NIL);
         }
 
         // GNU DEFVAR_LISP variables from lread.c that must be bound to nil
@@ -2392,70 +2392,70 @@ impl Context {
         // Keep GNU's exception for `values`: `lread.c` defines it via
         // `DEFVAR_LISP` and then explicitly clears the declared-special bit,
         // so it remains an ordinary variable even under lexical binding.
-        obarray.set_symbol_value("values", Value::Nil);
-        obarray.set_symbol_value("eval-buffer-list", Value::Nil);
+        obarray.set_symbol_value("values", Value::NIL);
+        obarray.set_symbol_value("eval-buffer-list", Value::NIL);
         obarray.make_special("eval-buffer-list");
-        obarray.set_symbol_value("lread--unescaped-character-literals", Value::Nil);
+        obarray.set_symbol_value("lread--unescaped-character-literals", Value::NIL);
         obarray.make_special("lread--unescaped-character-literals");
         obarray.set_symbol_value("load-read-function", Value::symbol("read"));
         obarray.make_special("load-read-function");
-        obarray.set_symbol_value("load-source-file-function", Value::Nil);
+        obarray.set_symbol_value("load-source-file-function", Value::NIL);
         obarray.make_special("load-source-file-function");
-        obarray.set_symbol_value("load-true-file-name", Value::Nil);
+        obarray.set_symbol_value("load-true-file-name", Value::NIL);
         obarray.make_special("load-true-file-name");
-        obarray.set_symbol_value("user-init-file", Value::Nil);
+        obarray.set_symbol_value("user-init-file", Value::NIL);
         obarray.make_special("user-init-file");
-        obarray.set_symbol_value("source-directory", Value::Nil);
+        obarray.set_symbol_value("source-directory", Value::NIL);
         obarray.make_special("source-directory");
-        obarray.set_symbol_value("after-load-alist", Value::Nil);
+        obarray.set_symbol_value("after-load-alist", Value::NIL);
         obarray.make_special("after-load-alist");
-        obarray.set_symbol_value("load-history", Value::Nil);
+        obarray.set_symbol_value("load-history", Value::NIL);
         obarray.make_special("load-history");
-        obarray.set_symbol_value("current-load-list", Value::Nil);
+        obarray.set_symbol_value("current-load-list", Value::NIL);
         obarray.make_special("current-load-list");
-        obarray.set_symbol_value("preloaded-file-list", Value::Nil);
+        obarray.set_symbol_value("preloaded-file-list", Value::NIL);
         obarray.make_special("preloaded-file-list");
-        obarray.set_symbol_value("byte-boolean-vars", Value::Nil);
+        obarray.set_symbol_value("byte-boolean-vars", Value::NIL);
         obarray.make_special("byte-boolean-vars");
         obarray.set_symbol_value(
             "bytecomp-version-regexp",
             Value::string(r#"^;;;.\(in Emacs version\|bytecomp version FSF\)"#),
         );
         obarray.make_special("bytecomp-version-regexp");
-        obarray.set_symbol_value("load-path-filter-function", Value::Nil);
+        obarray.set_symbol_value("load-path-filter-function", Value::NIL);
         obarray.make_special("load-path-filter-function");
-        obarray.set_symbol_value("internal--get-default-lexical-binding-function", Value::Nil);
+        obarray.set_symbol_value("internal--get-default-lexical-binding-function", Value::NIL);
         obarray.make_special("internal--get-default-lexical-binding-function");
-        obarray.set_symbol_value("read-symbol-shorthands", Value::Nil);
+        obarray.set_symbol_value("read-symbol-shorthands", Value::NIL);
         obarray.make_special("read-symbol-shorthands");
-        obarray.set_symbol_value("macroexp--dynvars", Value::Nil);
+        obarray.set_symbol_value("macroexp--dynvars", Value::NIL);
         obarray.make_special("macroexp--dynvars");
         // GNU DEFVAR_LISP variables from eval.c / keyboard.c.
         let quit_flag_symbol = intern("quit-flag");
-        obarray.set_symbol_value_id(quit_flag_symbol, Value::Nil);
+        obarray.set_symbol_value_id(quit_flag_symbol, Value::NIL);
         obarray.make_special_id(quit_flag_symbol);
         let inhibit_quit_symbol = intern("inhibit-quit");
-        obarray.set_symbol_value_id(inhibit_quit_symbol, Value::Nil);
+        obarray.set_symbol_value_id(inhibit_quit_symbol, Value::NIL);
         obarray.make_special_id(inhibit_quit_symbol);
         let throw_on_input_symbol = intern("throw-on-input");
-        obarray.set_symbol_value_id(throw_on_input_symbol, Value::Nil);
+        obarray.set_symbol_value_id(throw_on_input_symbol, Value::NIL);
         obarray.make_special_id(throw_on_input_symbol);
         let kill_emacs_symbol = intern("kill-emacs");
-        obarray.set_symbol_value("inhibit-debugger", Value::Nil);
+        obarray.set_symbol_value("inhibit-debugger", Value::NIL);
         obarray.make_special("inhibit-debugger");
-        obarray.set_symbol_value("debug-on-error", Value::Nil);
+        obarray.set_symbol_value("debug-on-error", Value::NIL);
         obarray.make_special("debug-on-error");
-        obarray.set_symbol_value("debug-on-quit", Value::Nil);
+        obarray.set_symbol_value("debug-on-quit", Value::NIL);
         obarray.make_special("debug-on-quit");
-        obarray.set_symbol_value("debug-on-signal", Value::Nil);
+        obarray.set_symbol_value("debug-on-signal", Value::NIL);
         obarray.make_special("debug-on-signal");
-        obarray.set_symbol_value("debug-ignored-errors", Value::Nil);
+        obarray.set_symbol_value("debug-ignored-errors", Value::NIL);
         obarray.make_special("debug-ignored-errors");
-        obarray.set_symbol_value("debugger-may-continue", Value::Nil);
+        obarray.set_symbol_value("debugger-may-continue", Value::NIL);
         obarray.make_special("debugger-may-continue");
-        obarray.set_symbol_value("internal-when-entered-debugger", Value::Int(-1));
+        obarray.set_symbol_value("internal-when-entered-debugger", Value::fixnum(-1));
         obarray.make_special("internal-when-entered-debugger");
-        obarray.set_symbol_value("signal-hook-function", Value::Nil);
+        obarray.set_symbol_value("signal-hook-function", Value::NIL);
         obarray.make_special("signal-hook-function");
         // GNU `eval.c` defines `internal-interpreter-environment` and then
         // immediately `Funintern`s that symbol, so Lisp-visible lookup sees a
@@ -2464,20 +2464,20 @@ impl Context {
         obarray.intern("internal-interpreter-environment");
         let internal_interpreter_environment_symbol =
             intern_uninterned("internal-interpreter-environment");
-        obarray.set_symbol_value_id(internal_interpreter_environment_symbol, Value::Nil);
+        obarray.set_symbol_value_id(internal_interpreter_environment_symbol, Value::NIL);
         obarray.make_special_id(internal_interpreter_environment_symbol);
-        obarray.set_symbol_value("internal-make-interpreted-closure-function", Value::Nil);
+        obarray.set_symbol_value("internal-make-interpreted-closure-function", Value::NIL);
         obarray.make_special("internal-make-interpreted-closure-function");
         // GNU seeds `debugger` from eval.c before Lisp startup.
         // `eval-expression` relies on it.
         obarray.set_symbol_value("debugger", Value::symbol("debug-early"));
         obarray.make_special("debugger");
-        obarray.set_symbol_value("standard-output", Value::True);
+        obarray.set_symbol_value("standard-output", Value::T);
         // GNU DEFVAR_INT from dispnew.c — used by bytecomp.el
-        obarray.set_symbol_value("baud-rate", Value::Int(38400));
-        obarray.set_symbol_value("search-slow-speed", Value::Int(1200));
+        obarray.set_symbol_value("baud-rate", Value::fixnum(38400));
+        obarray.set_symbol_value("search-slow-speed", Value::fixnum(1200));
         // GNU startup.el sets these based on --debug-init
-        obarray.set_symbol_value("init-file-debug", Value::Nil);
+        obarray.set_symbol_value("init-file-debug", Value::NIL);
         // GNU callproc.c: exec-path is built from PATH env var.
         // exec-directory is the directory containing helper programs.
         let exec_path: Vec<Value> = std::env::var("PATH")
@@ -2496,24 +2496,24 @@ impl Context {
             ),
         );
         obarray.set_symbol_value("exec-suffixes", Value::list(vec![Value::string("")]));
-        obarray.set_symbol_value("buffer-read-only", Value::Nil);
-        obarray.set_symbol_value("left-margin-width", Value::Nil);
-        obarray.set_symbol_value("right-margin-width", Value::Nil);
-        obarray.set_symbol_value("left-fringe-width", Value::Nil);
-        obarray.set_symbol_value("right-fringe-width", Value::Nil);
-        obarray.set_symbol_value("fringes-outside-margins", Value::Nil);
-        obarray.set_symbol_value("scroll-bar-width", Value::Nil);
-        obarray.set_symbol_value("scroll-bar-height", Value::Nil);
-        obarray.set_symbol_value("vertical-scroll-bar", Value::True);
-        obarray.set_symbol_value("horizontal-scroll-bar", Value::True);
-        obarray.set_symbol_value("kill-ring", Value::Nil);
-        obarray.set_symbol_value("kill-ring-yank-pointer", Value::Nil);
-        obarray.set_symbol_value("last-command", Value::Nil);
-        obarray.set_symbol_value("current-fill-column--has-warned", Value::Nil);
-        obarray.set_symbol_value("current-input-method", Value::Nil);
-        obarray.set_symbol_value("current-input-method-title", Value::Nil);
-        obarray.set_symbol_value("current-iso639-language", Value::Nil);
-        obarray.set_symbol_value("current-key-remap-sequence", Value::Nil);
+        obarray.set_symbol_value("buffer-read-only", Value::NIL);
+        obarray.set_symbol_value("left-margin-width", Value::NIL);
+        obarray.set_symbol_value("right-margin-width", Value::NIL);
+        obarray.set_symbol_value("left-fringe-width", Value::NIL);
+        obarray.set_symbol_value("right-fringe-width", Value::NIL);
+        obarray.set_symbol_value("fringes-outside-margins", Value::NIL);
+        obarray.set_symbol_value("scroll-bar-width", Value::NIL);
+        obarray.set_symbol_value("scroll-bar-height", Value::NIL);
+        obarray.set_symbol_value("vertical-scroll-bar", Value::T);
+        obarray.set_symbol_value("horizontal-scroll-bar", Value::T);
+        obarray.set_symbol_value("kill-ring", Value::NIL);
+        obarray.set_symbol_value("kill-ring-yank-pointer", Value::NIL);
+        obarray.set_symbol_value("last-command", Value::NIL);
+        obarray.set_symbol_value("current-fill-column--has-warned", Value::NIL);
+        obarray.set_symbol_value("current-input-method", Value::NIL);
+        obarray.set_symbol_value("current-input-method-title", Value::NIL);
+        obarray.set_symbol_value("current-iso639-language", Value::NIL);
+        obarray.set_symbol_value("current-key-remap-sequence", Value::NIL);
         obarray.set_symbol_value("current-language-environment", Value::string("UTF-8"));
         obarray.set_symbol_value(
             "current-load-list",
@@ -2528,34 +2528,34 @@ impl Context {
             ]),
         );
         obarray.set_symbol_value("current-locale-environment", Value::string("C.UTF-8"));
-        obarray.set_symbol_value("current-minibuffer-command", Value::Nil);
-        obarray.set_symbol_value("current-time-list", Value::True);
-        obarray.set_symbol_value("current-transient-input-method", Value::Nil);
-        obarray.set_symbol_value("real-last-command", Value::Nil);
-        obarray.set_symbol_value("last-repeatable-command", Value::Nil);
-        obarray.set_symbol_value("this-original-command", Value::Nil);
-        obarray.set_symbol_value("prefix-arg", Value::Nil);
-        obarray.set_symbol_value("defining-kbd-macro", Value::Nil);
-        obarray.set_symbol_value("executing-kbd-macro", Value::Nil);
-        obarray.set_symbol_value("executing-kbd-macro-index", Value::Int(0));
-        obarray.set_symbol_value("kbd-macro-termination-hook", Value::Nil);
-        obarray.set_symbol_value("command-history", Value::Nil);
-        obarray.set_symbol_value("extended-command-history", Value::Nil);
-        obarray.set_symbol_value("completion-ignore-case", Value::Nil);
-        obarray.set_symbol_value("read-buffer-completion-ignore-case", Value::Nil);
-        obarray.set_symbol_value("read-file-name-completion-ignore-case", Value::Nil);
-        obarray.set_symbol_value("completion-regexp-list", Value::Nil);
-        obarray.set_symbol_value("completion--all-sorted-completions-location", Value::Nil);
-        obarray.set_symbol_value("completion--capf-misbehave-funs", Value::Nil);
-        obarray.set_symbol_value("completion--capf-safe-funs", Value::Nil);
+        obarray.set_symbol_value("current-minibuffer-command", Value::NIL);
+        obarray.set_symbol_value("current-time-list", Value::T);
+        obarray.set_symbol_value("current-transient-input-method", Value::NIL);
+        obarray.set_symbol_value("real-last-command", Value::NIL);
+        obarray.set_symbol_value("last-repeatable-command", Value::NIL);
+        obarray.set_symbol_value("this-original-command", Value::NIL);
+        obarray.set_symbol_value("prefix-arg", Value::NIL);
+        obarray.set_symbol_value("defining-kbd-macro", Value::NIL);
+        obarray.set_symbol_value("executing-kbd-macro", Value::NIL);
+        obarray.set_symbol_value("executing-kbd-macro-index", Value::fixnum(0));
+        obarray.set_symbol_value("kbd-macro-termination-hook", Value::NIL);
+        obarray.set_symbol_value("command-history", Value::NIL);
+        obarray.set_symbol_value("extended-command-history", Value::NIL);
+        obarray.set_symbol_value("completion-ignore-case", Value::NIL);
+        obarray.set_symbol_value("read-buffer-completion-ignore-case", Value::NIL);
+        obarray.set_symbol_value("read-file-name-completion-ignore-case", Value::NIL);
+        obarray.set_symbol_value("completion-regexp-list", Value::NIL);
+        obarray.set_symbol_value("completion--all-sorted-completions-location", Value::NIL);
+        obarray.set_symbol_value("completion--capf-misbehave-funs", Value::NIL);
+        obarray.set_symbol_value("completion--capf-safe-funs", Value::NIL);
         obarray.set_symbol_value(
             "completion--embedded-envvar-re",
             Value::string(
                 "\\(?:^\\|[^$]\\(?:\\$\\$\\)*\\)\\$\\([[:alnum:]_]*\\|{\\([^}]*\\)\\)\\'",
             ),
         );
-        obarray.set_symbol_value("completion--flex-score-last-md", Value::Nil);
-        obarray.set_symbol_value("completion-all-sorted-completions", Value::Nil);
+        obarray.set_symbol_value("completion--flex-score-last-md", Value::NIL);
+        obarray.set_symbol_value("completion-all-sorted-completions", Value::NIL);
         obarray.set_symbol_value(
             "completion--cycling-threshold-type",
             Value::list(vec![Value::symbol("choice")]),
@@ -2582,7 +2582,7 @@ impl Context {
             "completion-list-mode-abbrev-table",
             Value::symbol("completion-list-mode-abbrev-table"),
         );
-        obarray.set_symbol_value("completion-list-mode-hook", Value::Nil);
+        obarray.set_symbol_value("completion-list-mode-hook", Value::NIL);
         obarray.set_symbol_value(
             "completion-ignored-extensions",
             Value::list(vec![
@@ -2677,13 +2677,13 @@ impl Context {
                 ]),
             ]),
         );
-        obarray.set_symbol_value("completion-category-overrides", Value::Nil);
-        obarray.set_symbol_value("completion-cycle-threshold", Value::Nil);
-        obarray.set_symbol_value("completions-detailed", Value::Nil);
+        obarray.set_symbol_value("completion-category-overrides", Value::NIL);
+        obarray.set_symbol_value("completion-cycle-threshold", Value::NIL);
+        obarray.set_symbol_value("completions-detailed", Value::NIL);
         obarray.set_symbol_value("completions-format", Value::symbol("horizontal"));
-        obarray.set_symbol_value("completions-group", Value::Nil);
+        obarray.set_symbol_value("completions-group", Value::NIL);
         obarray.set_symbol_value("completions-group-format", Value::string("     %s  "));
-        obarray.set_symbol_value("completions-group-sort", Value::Nil);
+        obarray.set_symbol_value("completions-group-sort", Value::NIL);
         obarray.set_symbol_value(
             "completions-header-format",
             Value::string("%s possible completions:\n"),
@@ -2692,96 +2692,96 @@ impl Context {
             "completions-highlight-face",
             Value::symbol("completions-highlight"),
         );
-        obarray.set_symbol_value("completions-max-height", Value::Nil);
+        obarray.set_symbol_value("completions-max-height", Value::NIL);
         obarray.set_symbol_value("completions-sort", Value::symbol("alphabetical"));
-        obarray.set_symbol_value("completion-auto-help", Value::True);
-        obarray.set_symbol_value("completion-auto-deselect", Value::True);
-        obarray.set_symbol_value("completion-auto-select", Value::Nil);
-        obarray.set_symbol_value("completion-auto-wrap", Value::True);
-        obarray.set_symbol_value("completion-base-position", Value::Nil);
-        obarray.set_symbol_value("completion-cycling", Value::Nil);
-        obarray.set_symbol_value("completion-extra-properties", Value::Nil);
-        obarray.set_symbol_value("completion-fail-discreetly", Value::Nil);
-        obarray.set_symbol_value("completion-flex-nospace", Value::Nil);
-        obarray.set_symbol_value("completion-in-region--data", Value::Nil);
+        obarray.set_symbol_value("completion-auto-help", Value::T);
+        obarray.set_symbol_value("completion-auto-deselect", Value::T);
+        obarray.set_symbol_value("completion-auto-select", Value::NIL);
+        obarray.set_symbol_value("completion-auto-wrap", Value::T);
+        obarray.set_symbol_value("completion-base-position", Value::NIL);
+        obarray.set_symbol_value("completion-cycling", Value::NIL);
+        obarray.set_symbol_value("completion-extra-properties", Value::NIL);
+        obarray.set_symbol_value("completion-fail-discreetly", Value::NIL);
+        obarray.set_symbol_value("completion-flex-nospace", Value::NIL);
+        obarray.set_symbol_value("completion-in-region--data", Value::NIL);
         obarray.set_symbol_value(
             "completion-in-region-function",
             Value::symbol("completion--in-region"),
         );
-        obarray.set_symbol_value("completion-in-region-functions", Value::Nil);
-        obarray.set_symbol_value("completion-in-region-mode", Value::Nil);
-        obarray.set_symbol_value("completion-in-region-mode--predicate", Value::Nil);
-        obarray.set_symbol_value("completion-in-region-mode-hook", Value::Nil);
-        obarray.set_symbol_value("completion-in-region-mode-predicate", Value::Nil);
-        obarray.set_symbol_value("completion-show-help", Value::True);
-        obarray.set_symbol_value("completion-show-inline-help", Value::True);
-        obarray.set_symbol_value("completion-lazy-hilit", Value::Nil);
-        obarray.set_symbol_value("completion-lazy-hilit-fn", Value::Nil);
+        obarray.set_symbol_value("completion-in-region-functions", Value::NIL);
+        obarray.set_symbol_value("completion-in-region-mode", Value::NIL);
+        obarray.set_symbol_value("completion-in-region-mode--predicate", Value::NIL);
+        obarray.set_symbol_value("completion-in-region-mode-hook", Value::NIL);
+        obarray.set_symbol_value("completion-in-region-mode-predicate", Value::NIL);
+        obarray.set_symbol_value("completion-show-help", Value::T);
+        obarray.set_symbol_value("completion-show-inline-help", Value::T);
+        obarray.set_symbol_value("completion-lazy-hilit", Value::NIL);
+        obarray.set_symbol_value("completion-lazy-hilit-fn", Value::NIL);
         obarray.set_symbol_value(
             "completion-list-insert-choice-function",
             Value::symbol("completion--replace"),
         );
-        obarray.set_symbol_value("completion-no-auto-exit", Value::Nil);
+        obarray.set_symbol_value("completion-no-auto-exit", Value::NIL);
         obarray.set_symbol_value(
             "completion-pcm--delim-wild-regex",
             Value::string("[-_./:| *]"),
         );
-        obarray.set_symbol_value("completion-pcm--regexp", Value::Nil);
+        obarray.set_symbol_value("completion-pcm--regexp", Value::NIL);
         obarray.set_symbol_value(
             "completion-pcm-complete-word-inserts-delimiters",
-            Value::Nil,
+            Value::NIL,
         );
         obarray.set_symbol_value("completion-pcm-word-delimiters", Value::string("-_./:| "));
-        obarray.set_symbol_value("completion-reference-buffer", Value::Nil);
-        obarray.set_symbol_value("completion-tab-width", Value::Nil);
-        obarray.set_symbol_value("enable-recursive-minibuffers", Value::Nil);
-        obarray.set_symbol_value("history-length", Value::Int(100));
-        obarray.set_symbol_value("history-delete-duplicates", Value::Nil);
-        obarray.set_symbol_value("history-add-new-input", Value::True);
-        obarray.set_symbol_value("read-buffer-function", Value::Nil);
+        obarray.set_symbol_value("completion-reference-buffer", Value::NIL);
+        obarray.set_symbol_value("completion-tab-width", Value::NIL);
+        obarray.set_symbol_value("enable-recursive-minibuffers", Value::NIL);
+        obarray.set_symbol_value("history-length", Value::fixnum(100));
+        obarray.set_symbol_value("history-delete-duplicates", Value::NIL);
+        obarray.set_symbol_value("history-add-new-input", Value::T);
+        obarray.set_symbol_value("read-buffer-function", Value::NIL);
         obarray.set_symbol_value(
             "read-file-name-function",
             Value::symbol("read-file-name-default"),
         );
-        obarray.set_symbol_value("read-expression-history", Value::Nil);
-        obarray.set_symbol_value("read-number-history", Value::Nil);
-        obarray.set_symbol_value("read-char-history", Value::Nil);
+        obarray.set_symbol_value("read-expression-history", Value::NIL);
+        obarray.set_symbol_value("read-number-history", Value::NIL);
+        obarray.set_symbol_value("read-char-history", Value::NIL);
         obarray.set_symbol_value("read-answer-short", Value::symbol("auto"));
-        obarray.set_symbol_value("read-char-by-name-sort", Value::Nil);
-        obarray.set_symbol_value("read-char-choice-use-read-key", Value::Nil);
-        obarray.set_symbol_value("read-circle", Value::True);
+        obarray.set_symbol_value("read-char-by-name-sort", Value::NIL);
+        obarray.set_symbol_value("read-char-choice-use-read-key", Value::NIL);
+        obarray.set_symbol_value("read-circle", Value::T);
         obarray.make_special("read-circle");
-        obarray.set_symbol_value("read-envvar-name-history", Value::Nil);
+        obarray.set_symbol_value("read-envvar-name-history", Value::NIL);
         obarray.set_symbol_value("read-face-name-sample-text", Value::string("SAMPLE"));
-        obarray.set_symbol_value("read-key-delay", Value::Float(0.01, next_float_id()));
+        obarray.set_symbol_value("read-key-delay", Value::make_float(0.01));
         obarray.set_symbol_value(
             "read-answer-map--memoize",
             Value::hash_table(HashTableTest::Equal),
         );
-        obarray.set_symbol_value("read-extended-command-mode", Value::Nil);
-        obarray.set_symbol_value("read-extended-command-mode-hook", Value::Nil);
-        obarray.set_symbol_value("read-extended-command-predicate", Value::Nil);
-        obarray.set_symbol_value("read-hide-char", Value::Nil);
+        obarray.set_symbol_value("read-extended-command-mode", Value::NIL);
+        obarray.set_symbol_value("read-extended-command-mode-hook", Value::NIL);
+        obarray.set_symbol_value("read-extended-command-predicate", Value::NIL);
+        obarray.set_symbol_value("read-hide-char", Value::NIL);
         obarray.set_symbol_value("read-mail-command", Value::symbol("rmail"));
-        obarray.set_symbol_value("read-minibuffer-restore-windows", Value::True);
-        obarray.set_symbol_value("read-only-mode-hook", Value::Nil);
-        obarray.set_symbol_value("read-process-output-max", Value::Int(65536));
-        obarray.set_symbol_value("read-quoted-char-radix", Value::Int(8));
-        obarray.set_symbol_value("read-regexp--case-fold", Value::Nil);
-        obarray.set_symbol_value("read-regexp-defaults-function", Value::Nil);
-        obarray.set_symbol_value("read-symbol-shorthands", Value::Nil);
+        obarray.set_symbol_value("read-minibuffer-restore-windows", Value::T);
+        obarray.set_symbol_value("read-only-mode-hook", Value::NIL);
+        obarray.set_symbol_value("read-process-output-max", Value::fixnum(65536));
+        obarray.set_symbol_value("read-quoted-char-radix", Value::fixnum(8));
+        obarray.set_symbol_value("read-regexp--case-fold", Value::NIL);
+        obarray.set_symbol_value("read-regexp-defaults-function", Value::NIL);
+        obarray.set_symbol_value("read-symbol-shorthands", Value::NIL);
         obarray.set_symbol_value(
             "minibuffer-frame-alist",
             Value::list(vec![
-                Value::cons(Value::symbol("width"), Value::Int(80)),
-                Value::cons(Value::symbol("height"), Value::Int(2)),
+                Value::cons(Value::symbol("width"), Value::fixnum(80)),
+                Value::cons(Value::symbol("height"), Value::fixnum(2)),
             ]),
         );
         obarray.set_symbol_value(
             "minibuffer-inactive-mode-abbrev-table",
             Value::symbol("minibuffer-inactive-mode-abbrev-table"),
         );
-        obarray.set_symbol_value("minibuffer-inactive-mode-hook", Value::Nil);
+        obarray.set_symbol_value("minibuffer-inactive-mode-hook", Value::NIL);
         obarray.set_symbol_value(
             "minibuffer-inactive-mode-syntax-table",
             standard_syntax_table,
@@ -2790,35 +2790,35 @@ impl Context {
             "minibuffer-mode-abbrev-table",
             Value::symbol("minibuffer-mode-abbrev-table"),
         );
-        obarray.set_symbol_value("minibuffer-mode-hook", Value::Nil);
+        obarray.set_symbol_value("minibuffer-mode-hook", Value::NIL);
         obarray.set_symbol_value("minibuffer-local-map", minibuffer_local_map);
         obarray.set_symbol_value("minibuffer-local-filename-syntax", standard_syntax_table);
-        obarray.set_symbol_value("minibuffer-history", Value::Nil);
+        obarray.set_symbol_value("minibuffer-history", Value::NIL);
         obarray.set_symbol_value(
             "minibuffer-history-variable",
             Value::symbol("minibuffer-history"),
         );
-        obarray.set_symbol_value("minibuffer-history-position", Value::Nil);
-        obarray.set_symbol_value("minibuffer-history-isearch-message-overlay", Value::Nil);
-        obarray.set_symbol_value("minibuffer-history-search-history", Value::Nil);
-        obarray.set_symbol_value("minibuffer-history-sexp-flag", Value::Nil);
-        obarray.set_symbol_value("minibuffer-default", Value::Nil);
-        obarray.set_symbol_value("minibuffer-default-add-done", Value::Nil);
+        obarray.set_symbol_value("minibuffer-history-position", Value::NIL);
+        obarray.set_symbol_value("minibuffer-history-isearch-message-overlay", Value::NIL);
+        obarray.set_symbol_value("minibuffer-history-search-history", Value::NIL);
+        obarray.set_symbol_value("minibuffer-history-sexp-flag", Value::NIL);
+        obarray.set_symbol_value("minibuffer-default", Value::NIL);
+        obarray.set_symbol_value("minibuffer-default-add-done", Value::NIL);
         obarray.set_symbol_value(
             "minibuffer-default-add-function",
             Value::symbol("minibuffer-default-add-completions"),
         );
-        obarray.set_symbol_value("minibuffer--original-buffer", Value::Nil);
-        obarray.set_symbol_value("minibuffer--regexp-primed", Value::Nil);
+        obarray.set_symbol_value("minibuffer--original-buffer", Value::NIL);
+        obarray.set_symbol_value("minibuffer--regexp-primed", Value::NIL);
         obarray.set_symbol_value(
             "minibuffer--regexp-prompt-regexp",
             Value::string(
                 "\\(?:Posix search\\|RE search\\|Search for regexp\\|Query replace regexp\\)",
             ),
         );
-        obarray.set_symbol_value("minibuffer--require-match", Value::Nil);
-        obarray.set_symbol_value("minibuffer-auto-raise", Value::Nil);
-        obarray.set_symbol_value("minibuffer-follows-selected-frame", Value::True);
+        obarray.set_symbol_value("minibuffer--require-match", Value::NIL);
+        obarray.set_symbol_value("minibuffer-auto-raise", Value::NIL);
+        obarray.set_symbol_value("minibuffer-follows-selected-frame", Value::T);
         obarray.set_symbol_value(
             "minibuffer-exit-hook",
             Value::list(vec![
@@ -2827,15 +2827,15 @@ impl Context {
                 Value::symbol("minibuffer-restore-windows"),
             ]),
         );
-        obarray.set_symbol_value("minibuffer-completion-table", Value::Nil);
-        obarray.set_symbol_value("minibuffer-completion-predicate", Value::Nil);
-        obarray.set_symbol_value("minibuffer-completion-confirm", Value::Nil);
-        obarray.set_symbol_value("minibuffer-completion-auto-choose", Value::True);
-        obarray.set_symbol_value("minibuffer-completion-base", Value::Nil);
-        obarray.set_symbol_value("minibuffer-help-form", Value::Nil);
-        obarray.set_symbol_value("minibuffer-completing-file-name", Value::Nil);
-        obarray.set_symbol_value("minibuffer-regexp-mode", Value::True);
-        obarray.set_symbol_value("minibuffer-regexp-mode-hook", Value::Nil);
+        obarray.set_symbol_value("minibuffer-completion-table", Value::NIL);
+        obarray.set_symbol_value("minibuffer-completion-predicate", Value::NIL);
+        obarray.set_symbol_value("minibuffer-completion-confirm", Value::NIL);
+        obarray.set_symbol_value("minibuffer-completion-auto-choose", Value::T);
+        obarray.set_symbol_value("minibuffer-completion-base", Value::NIL);
+        obarray.set_symbol_value("minibuffer-help-form", Value::NIL);
+        obarray.set_symbol_value("minibuffer-completing-file-name", Value::NIL);
+        obarray.set_symbol_value("minibuffer-regexp-mode", Value::T);
+        obarray.set_symbol_value("minibuffer-regexp-mode-hook", Value::NIL);
         obarray.set_symbol_value(
             "minibuffer-regexp-prompts",
             Value::list(vec![
@@ -2845,34 +2845,34 @@ impl Context {
                 Value::string("Query replace regexp"),
             ]),
         );
-        obarray.set_symbol_value("minibuffer-message-clear-timeout", Value::Nil);
-        obarray.set_symbol_value("minibuffer-message-overlay", Value::Nil);
-        obarray.set_symbol_value("minibuffer-message-properties", Value::Nil);
-        obarray.set_symbol_value("minibuffer-message-timeout", Value::Int(2));
-        obarray.set_symbol_value("minibuffer-message-timer", Value::Nil);
+        obarray.set_symbol_value("minibuffer-message-clear-timeout", Value::NIL);
+        obarray.set_symbol_value("minibuffer-message-overlay", Value::NIL);
+        obarray.set_symbol_value("minibuffer-message-properties", Value::NIL);
+        obarray.set_symbol_value("minibuffer-message-timeout", Value::fixnum(2));
+        obarray.set_symbol_value("minibuffer-message-timer", Value::NIL);
         obarray.set_symbol_value("minibuffer-lazy-count-format", Value::string("%s "));
-        obarray.set_symbol_value("minibuffer-text-before-history", Value::Nil);
+        obarray.set_symbol_value("minibuffer-text-before-history", Value::NIL);
         obarray.set_symbol_value(
             "minibuffer-prompt-properties",
             Value::list(vec![
                 Value::symbol("read-only"),
-                Value::True,
+                Value::T,
                 Value::symbol("face"),
                 Value::symbol("minibuffer-prompt"),
             ]),
         );
-        obarray.set_symbol_value("minibuffer-allow-text-properties", Value::Nil);
-        obarray.set_symbol_value("minibuffer-scroll-window", Value::Nil);
-        obarray.set_symbol_value("minibuffer-visible-completions", Value::Nil);
-        obarray.set_symbol_value("minibuffer-visible-completions--always-bind", Value::Nil);
-        obarray.set_symbol_value("minibuffer-depth-indicate-mode", Value::Nil);
+        obarray.set_symbol_value("minibuffer-allow-text-properties", Value::NIL);
+        obarray.set_symbol_value("minibuffer-scroll-window", Value::NIL);
+        obarray.set_symbol_value("minibuffer-visible-completions", Value::NIL);
+        obarray.set_symbol_value("minibuffer-visible-completions--always-bind", Value::NIL);
+        obarray.set_symbol_value("minibuffer-depth-indicate-mode", Value::NIL);
         obarray.set_symbol_value(
             "minibuffer-default-prompt-format",
             Value::string(" (default %s)"),
         );
-        obarray.set_symbol_value("minibuffer-beginning-of-buffer-movement", Value::Nil);
-        obarray.set_symbol_value("minibuffer-electric-default-mode", Value::Nil);
-        obarray.set_symbol_value("minibuffer-temporary-goal-position", Value::Nil);
+        obarray.set_symbol_value("minibuffer-beginning-of-buffer-movement", Value::NIL);
+        obarray.set_symbol_value("minibuffer-electric-default-mode", Value::NIL);
+        obarray.set_symbol_value("minibuffer-temporary-goal-position", Value::NIL);
         obarray.set_symbol_value(
             "minibuffer-confirm-exit-commands",
             Value::list(vec![
@@ -2881,9 +2881,9 @@ impl Context {
                 Value::symbol("minibuffer-complete-word"),
             ]),
         );
-        obarray.set_symbol_value("minibuffer-history-case-insensitive-variables", Value::Nil);
-        obarray.set_symbol_value("minibuffer-on-screen-keyboard-displayed", Value::Nil);
-        obarray.set_symbol_value("minibuffer-on-screen-keyboard-timer", Value::Nil);
+        obarray.set_symbol_value("minibuffer-history-case-insensitive-variables", Value::NIL);
+        obarray.set_symbol_value("minibuffer-on-screen-keyboard-displayed", Value::NIL);
+        obarray.set_symbol_value("minibuffer-on-screen-keyboard-timer", Value::NIL);
         obarray.set_symbol_value(
             "minibuffer-setup-hook",
             Value::list(vec![
@@ -2895,38 +2895,38 @@ impl Context {
                 Value::symbol("minibuffer-history-initialize"),
             ]),
         );
-        obarray.set_symbol_value("regexp-search-ring", Value::Nil);
-        obarray.set_symbol_value("regexp-search-ring-max", Value::Int(16));
-        obarray.set_symbol_value("regexp-search-ring-yank-pointer", Value::Nil);
-        obarray.set_symbol_value("search-ring", Value::Nil);
-        obarray.set_symbol_value("search-ring-max", Value::Int(16));
-        obarray.set_symbol_value("search-ring-update", Value::Nil);
-        obarray.set_symbol_value("search-ring-yank-pointer", Value::Nil);
-        obarray.set_symbol_value("last-abbrev", Value::Nil);
-        obarray.set_symbol_value("last-abbrev-location", Value::Int(0));
-        obarray.set_symbol_value("last-abbrev-text", Value::Nil);
-        obarray.set_symbol_value("last-command-event", Value::Nil);
+        obarray.set_symbol_value("regexp-search-ring", Value::NIL);
+        obarray.set_symbol_value("regexp-search-ring-max", Value::fixnum(16));
+        obarray.set_symbol_value("regexp-search-ring-yank-pointer", Value::NIL);
+        obarray.set_symbol_value("search-ring", Value::NIL);
+        obarray.set_symbol_value("search-ring-max", Value::fixnum(16));
+        obarray.set_symbol_value("search-ring-update", Value::NIL);
+        obarray.set_symbol_value("search-ring-yank-pointer", Value::NIL);
+        obarray.set_symbol_value("last-abbrev", Value::NIL);
+        obarray.set_symbol_value("last-abbrev-location", Value::fixnum(0));
+        obarray.set_symbol_value("last-abbrev-text", Value::NIL);
+        obarray.set_symbol_value("last-command-event", Value::NIL);
         // last-event-frame is set by keyboard::pure::register_bootstrap_vars
-        obarray.set_symbol_value("last-event-device", Value::Nil);
-        obarray.set_symbol_value("last-input-event", Value::Nil);
-        obarray.set_symbol_value("last-nonmenu-event", Value::Nil);
-        obarray.set_symbol_value("last-prefix-arg", Value::Nil);
-        obarray.set_symbol_value("last-kbd-macro", Value::Nil);
-        obarray.set_symbol_value("last-code-conversion-error", Value::Nil);
-        obarray.set_symbol_value("last-coding-system-specified", Value::Nil);
+        obarray.set_symbol_value("last-event-device", Value::NIL);
+        obarray.set_symbol_value("last-input-event", Value::NIL);
+        obarray.set_symbol_value("last-nonmenu-event", Value::NIL);
+        obarray.set_symbol_value("last-prefix-arg", Value::NIL);
+        obarray.set_symbol_value("last-kbd-macro", Value::NIL);
+        obarray.set_symbol_value("last-code-conversion-error", Value::NIL);
+        obarray.set_symbol_value("last-coding-system-specified", Value::NIL);
         obarray.set_symbol_value("last-coding-system-used", Value::symbol("undecided-unix"));
-        obarray.set_symbol_value("last-next-selection-coding-system", Value::Nil);
-        obarray.set_symbol_value("command-debug-status", Value::Nil);
+        obarray.set_symbol_value("last-next-selection-coding-system", Value::NIL);
+        obarray.set_symbol_value("command-debug-status", Value::NIL);
         obarray.set_symbol_value(
             "command-error-function",
             Value::symbol("help-command-error-confusable-suggestions"),
         );
-        obarray.set_symbol_value("key-substitution-in-progress", Value::Nil);
-        obarray.set_symbol_value("this-command", Value::Nil);
-        obarray.set_symbol_value("real-this-command", Value::Nil);
-        obarray.set_symbol_value("this-command-keys-shift-translated", Value::Nil);
-        obarray.set_symbol_value("current-prefix-arg", Value::Nil);
-        obarray.set_symbol_value("track-mouse", Value::Nil);
+        obarray.set_symbol_value("key-substitution-in-progress", Value::NIL);
+        obarray.set_symbol_value("this-command", Value::NIL);
+        obarray.set_symbol_value("real-this-command", Value::NIL);
+        obarray.set_symbol_value("this-command-keys-shift-translated", Value::NIL);
+        obarray.set_symbol_value("current-prefix-arg", Value::NIL);
+        obarray.set_symbol_value("track-mouse", Value::NIL);
         obarray.make_special("track-mouse");
         obarray.set_symbol_value(
             "while-no-input-ignore-events",
@@ -2947,28 +2947,28 @@ impl Context {
             ]),
         );
         obarray.make_special("while-no-input-ignore-events");
-        obarray.set_symbol_value("input-pending-p-filter-events", Value::True);
+        obarray.set_symbol_value("input-pending-p-filter-events", Value::T);
         obarray.make_special("input-pending-p-filter-events");
-        obarray.set_symbol_value("deactivate-mark", Value::True);
-        obarray.set_symbol_value("mark-active", Value::Nil);
-        obarray.set_symbol_value("mark-even-if-inactive", Value::True);
-        obarray.set_symbol_value("mark-ring", Value::Nil);
-        obarray.set_symbol_value("mark-ring-max", Value::Int(16));
+        obarray.set_symbol_value("deactivate-mark", Value::T);
+        obarray.set_symbol_value("mark-active", Value::NIL);
+        obarray.set_symbol_value("mark-even-if-inactive", Value::T);
+        obarray.set_symbol_value("mark-ring", Value::NIL);
+        obarray.set_symbol_value("mark-ring-max", Value::fixnum(16));
         // saved-region-selection is set by keyboard::pure::register_bootstrap_vars
-        obarray.set_symbol_value("transient-mark-mode", Value::Nil);
-        obarray.set_symbol_value("transient-mark-mode-hook", Value::Nil);
-        obarray.set_symbol_value("post-select-region-hook", Value::Nil);
-        obarray.set_symbol_value("echo-area-clear-hook", Value::Nil);
-        obarray.set_symbol_value("display-monitors-changed-functions", Value::Nil);
-        obarray.set_symbol_value("delete-terminal-functions", Value::Nil);
-        obarray.set_symbol_value("suspend-tty-functions", Value::Nil);
-        obarray.set_symbol_value("resume-tty-functions", Value::Nil);
-        obarray.set_symbol_value("overriding-local-map", Value::Nil);
+        obarray.set_symbol_value("transient-mark-mode", Value::NIL);
+        obarray.set_symbol_value("transient-mark-mode-hook", Value::NIL);
+        obarray.set_symbol_value("post-select-region-hook", Value::NIL);
+        obarray.set_symbol_value("echo-area-clear-hook", Value::NIL);
+        obarray.set_symbol_value("display-monitors-changed-functions", Value::NIL);
+        obarray.set_symbol_value("delete-terminal-functions", Value::NIL);
+        obarray.set_symbol_value("suspend-tty-functions", Value::NIL);
+        obarray.set_symbol_value("resume-tty-functions", Value::NIL);
+        obarray.set_symbol_value("overriding-local-map", Value::NIL);
         obarray.make_special("overriding-local-map");
-        obarray.set_symbol_value("overriding-local-map-menu-flag", Value::Nil);
+        obarray.set_symbol_value("overriding-local-map-menu-flag", Value::NIL);
         obarray.make_special("overriding-local-map-menu-flag");
-        obarray.set_symbol_value("overriding-plist-environment", Value::Nil);
-        obarray.set_symbol_value("overriding-terminal-local-map", Value::Nil);
+        obarray.set_symbol_value("overriding-plist-environment", Value::NIL);
+        obarray.set_symbol_value("overriding-terminal-local-map", Value::NIL);
         // GNU uses DEFVAR_KBOARD here. NeoVM does not yet split keyboard state
         // per terminal, so model it as a dynamically scoped runtime variable.
         obarray.make_special("overriding-terminal-local-map");
@@ -2992,21 +2992,21 @@ impl Context {
         obarray.make_special("input-decode-map");
         obarray.set_symbol_value("local-function-key-map", local_function_key_map);
         obarray.make_special("local-function-key-map");
-        obarray.set_symbol_value("keyboard-translate-table", Value::Nil);
+        obarray.set_symbol_value("keyboard-translate-table", Value::NIL);
 
         // Core eval variables (stay in eval.rs)
-        obarray.set_symbol_value("purify-flag", Value::Nil);
+        obarray.set_symbol_value("purify-flag", Value::NIL);
         // GNU Emacs defaults to 1600 but only increments lisp_eval_depth in
         // eval_sub() and Ffuncall(). NeoVM increments depth for every
         // sub-expression including primitive calls (get, fboundp, etc.), so
         // the same Elisp code uses ~5x more depth units. Use 10000 to match
         // effective GNU depth capacity.
-        obarray.set_symbol_value("max-lisp-eval-depth", Value::Int(2400));
-        obarray.set_symbol_value("max-specpdl-size", Value::Int(1800));
-        obarray.set_symbol_value("inhibit-load-charset-map", Value::Nil);
+        obarray.set_symbol_value("max-lisp-eval-depth", Value::fixnum(2400));
+        obarray.set_symbol_value("max-specpdl-size", Value::fixnum(1800));
+        obarray.set_symbol_value("inhibit-load-charset-map", Value::NIL);
 
         // Terminal/display variables (C-level DEFVAR in official Emacs)
-        obarray.set_symbol_value("standard-display-table", Value::Nil);
+        obarray.set_symbol_value("standard-display-table", Value::NIL);
         obarray.set_symbol_value(
             "image-load-path",
             Value::list(vec![
@@ -3014,14 +3014,14 @@ impl Context {
                 Value::symbol("data-directory"),
             ]),
         );
-        obarray.set_symbol_value("image-scaling-factor", Value::Float(1.0, next_float_id()));
+        obarray.set_symbol_value("image-scaling-factor", Value::make_float(1.0));
 
         // User init / startup (C DEFVAR in official Emacs)
-        obarray.set_symbol_value("user-init-file", Value::Nil);
+        obarray.set_symbol_value("user-init-file", Value::NIL);
         obarray.set_symbol_value("user-emacs-directory", Value::string("~/.emacs.d/"));
 
         // Frame parameters (C DEFVAR in official Emacs)
-        obarray.set_symbol_value("frame--special-parameters", Value::Nil);
+        obarray.set_symbol_value("frame--special-parameters", Value::NIL);
 
         // Initialize distributed bootstrap variables
         super::alloc::register_bootstrap_vars(&mut obarray);
@@ -3039,25 +3039,25 @@ impl Context {
 
         // ---- end C-level bootstrap variables ----
 
-        obarray.set_symbol_value("unread-input-method-events", Value::Nil);
-        obarray.set_symbol_value("unread-post-input-method-events", Value::Nil);
-        obarray.set_symbol_value("input-method-alist", Value::Nil);
-        obarray.set_symbol_value("input-method-activate-hook", Value::Nil);
-        obarray.set_symbol_value("input-method-after-insert-chunk-hook", Value::Nil);
-        obarray.set_symbol_value("input-method-deactivate-hook", Value::Nil);
-        obarray.set_symbol_value("input-method-exit-on-first-char", Value::Nil);
-        obarray.set_symbol_value("input-method-exit-on-invalid-key", Value::Nil);
+        obarray.set_symbol_value("unread-input-method-events", Value::NIL);
+        obarray.set_symbol_value("unread-post-input-method-events", Value::NIL);
+        obarray.set_symbol_value("input-method-alist", Value::NIL);
+        obarray.set_symbol_value("input-method-activate-hook", Value::NIL);
+        obarray.set_symbol_value("input-method-after-insert-chunk-hook", Value::NIL);
+        obarray.set_symbol_value("input-method-deactivate-hook", Value::NIL);
+        obarray.set_symbol_value("input-method-exit-on-first-char", Value::NIL);
+        obarray.set_symbol_value("input-method-exit-on-invalid-key", Value::NIL);
         obarray.set_symbol_value("input-method-function", Value::symbol("list"));
-        obarray.set_symbol_value("input-method-highlight-flag", Value::True);
-        obarray.set_symbol_value("input-method-history", Value::Nil);
+        obarray.set_symbol_value("input-method-highlight-flag", Value::T);
+        obarray.set_symbol_value("input-method-history", Value::NIL);
         // input-method-previous-message is set by keyboard::pure::register_bootstrap_vars
-        obarray.set_symbol_value("input-method-use-echo-area", Value::Nil);
+        obarray.set_symbol_value("input-method-use-echo-area", Value::NIL);
         obarray.set_symbol_value("input-method-verbose-flag", Value::symbol("default"));
-        obarray.set_symbol_value("unread-command-events", Value::Nil);
+        obarray.set_symbol_value("unread-command-events", Value::NIL);
         // GNU Emacs seeds core startup vars with integer
         // `variable-documentation` offsets in the DOC table.
         for &(name, _) in STARTUP_VARIABLE_DOC_STUBS {
-            obarray.put_property(name, "variable-documentation", Value::Int(0));
+            obarray.put_property(name, "variable-documentation", Value::fixnum(0));
         }
         // Some startup docs are string-valued in GNU Emacs (not integer offsets).
         for &(name, doc) in STARTUP_VARIABLE_DOC_STRING_PROPERTIES {
@@ -3086,7 +3086,7 @@ impl Context {
         // loaded GNU bytecode can capture `nil` for forward/runtime calls into
         // Builtin function cells are set by defsubr() during init_builtins().
         for name in ["mark-marker", "region-beginning", "region-end"] {
-            obarray.set_symbol_function(name, Value::Subr(intern(name)));
+            obarray.set_symbol_function(name, Value::subr(intern(name)));
         }
         // GNU Emacs exposes this helper as a Lisp wrapper, not a primitive.
         obarray.set_symbol_function(
@@ -3107,8 +3107,8 @@ impl Context {
                     Value::symbol("autoload"),
                     Value::string(file),
                     Value::string(doc),
-                    Value::True,
-                    Value::Nil,
+                    Value::T,
+                    Value::NIL,
                 ]),
             );
         };
@@ -3120,8 +3120,8 @@ impl Context {
                     Value::symbol("autoload"),
                     Value::string(file),
                     Value::string(doc),
-                    Value::Nil,
-                    Value::Nil,
+                    Value::NIL,
+                    Value::NIL,
                 ]),
             );
         };
@@ -3156,8 +3156,8 @@ impl Context {
                 Value::symbol("autoload"),
                 Value::string("subr-x"),
                 Value::string("Remove the final newline (if any) from STRING."),
-                Value::Nil,
-                Value::Nil,
+                Value::NIL,
+                Value::NIL,
             ]),
         );
         obarray.set_symbol_function(
@@ -3166,8 +3166,8 @@ impl Context {
                 Value::symbol("autoload"),
                 Value::string("subr-x"),
                 Value::string("Pad STRING to LENGTH using PADDING."),
-                Value::Nil,
-                Value::Nil,
+                Value::NIL,
+                Value::NIL,
             ]),
         );
         obarray.set_symbol_function(
@@ -3178,8 +3178,8 @@ impl Context {
                 Value::string(
                     "Try to word-wrap STRING so that it displays with lines no wider than WIDTH.",
                 ),
-                Value::Nil,
-                Value::Nil,
+                Value::NIL,
+                Value::NIL,
             ]),
         );
         obarray.set_symbol_function(
@@ -3190,15 +3190,15 @@ impl Context {
                 Value::string(
                     "Return a substring of STRING that is (up to) LENGTH characters long.",
                 ),
-                Value::Nil,
-                Value::Nil,
+                Value::NIL,
+                Value::NIL,
             ]),
         );
         // Some startup helpers are Lisp functions that delegate to primitives.
         // Seed lightweight bytecode wrappers so `symbol-function` shape matches GNU Emacs.
         let seed_function_wrapper = |obarray: &mut Obarray, name: &str| {
             let wrapper = format!("neovm--startup-subr-wrapper-{name}");
-            obarray.set_symbol_function(&wrapper, Value::Subr(intern(name)));
+            obarray.set_symbol_function(&wrapper, Value::subr(intern(name)));
 
             let params = LambdaParams {
                 required: vec![],
@@ -3267,7 +3267,7 @@ impl Context {
                 interactive: None,
             }),
         );
-        obarray.set_symbol_value("cl-typep", Value::True);
+        obarray.set_symbol_value("cl-typep", Value::T);
 
         // Mark standard variables as special (dynamically bound)
         for name in &[
@@ -3332,8 +3332,8 @@ impl Context {
         }
         {
             // Core buffer identity
-            defvar_per_buffer!("buffer-file-name", Value::Nil);
-            defvar_per_buffer!("buffer-file-truename", Value::Nil);
+            defvar_per_buffer!("buffer-file-name", Value::NIL);
+            defvar_per_buffer!("buffer-file-truename", Value::NIL);
             // GNU buffer.c:5381 — default-directory defaults to cwd.
             // This sets the GLOBAL default; new buffers inherit it.
             {
@@ -3348,83 +3348,83 @@ impl Context {
                     .unwrap_or_else(|_| "/".to_string());
                 defvar_per_buffer!("default-directory", Value::string(cwd));
             }
-            defvar_per_buffer!("buffer-read-only", Value::Nil);
-            defvar_per_buffer!("buffer-undo-list", Value::Nil);
-            defvar_per_buffer!("buffer-saved-size", Value::Int(0));
-            defvar_per_buffer!("buffer-backed-up", Value::Nil);
-            defvar_per_buffer!("buffer-file-format", Value::Nil);
-            defvar_per_buffer!("buffer-auto-save-file-name", Value::Nil);
-            defvar_per_buffer!("buffer-auto-save-file-format", Value::True);
-            defvar_per_buffer!("buffer-file-coding-system", Value::Nil);
-            defvar_per_buffer!("buffer-display-count", Value::Int(0));
-            defvar_per_buffer!("buffer-display-time", Value::Nil);
+            defvar_per_buffer!("buffer-read-only", Value::NIL);
+            defvar_per_buffer!("buffer-undo-list", Value::NIL);
+            defvar_per_buffer!("buffer-saved-size", Value::fixnum(0));
+            defvar_per_buffer!("buffer-backed-up", Value::NIL);
+            defvar_per_buffer!("buffer-file-format", Value::NIL);
+            defvar_per_buffer!("buffer-auto-save-file-name", Value::NIL);
+            defvar_per_buffer!("buffer-auto-save-file-format", Value::T);
+            defvar_per_buffer!("buffer-file-coding-system", Value::NIL);
+            defvar_per_buffer!("buffer-display-count", Value::fixnum(0));
+            defvar_per_buffer!("buffer-display-time", Value::NIL);
 
             // Modes
             defvar_per_buffer!("major-mode", Value::symbol("fundamental-mode"));
-            defvar_per_buffer!("mode-name", Value::Nil);
+            defvar_per_buffer!("mode-name", Value::NIL);
             defvar_per_buffer!("mode-line-format", Value::string("%-"));
-            defvar_per_buffer!("header-line-format", Value::Nil);
-            defvar_per_buffer!("tab-line-format", Value::Nil);
-            defvar_per_buffer!("local-abbrev-table", Value::Nil);
-            defvar_per_buffer!("local-minor-modes", Value::Nil);
-            defvar_per_buffer!("abbrev-mode", Value::Nil);
-            defvar_per_buffer!("overwrite-mode", Value::Nil);
-            defvar_per_buffer!("auto-fill-function", Value::Nil);
+            defvar_per_buffer!("header-line-format", Value::NIL);
+            defvar_per_buffer!("tab-line-format", Value::NIL);
+            defvar_per_buffer!("local-abbrev-table", Value::NIL);
+            defvar_per_buffer!("local-minor-modes", Value::NIL);
+            defvar_per_buffer!("abbrev-mode", Value::NIL);
+            defvar_per_buffer!("overwrite-mode", Value::NIL);
+            defvar_per_buffer!("auto-fill-function", Value::NIL);
 
             // Search (GNU buffer.c DEFVAR_PER_BUFFER)
-            defvar_per_buffer!("case-fold-search", Value::True);
-            defvar_per_buffer!("indent-tabs-mode", Value::True);
+            defvar_per_buffer!("case-fold-search", Value::T);
+            defvar_per_buffer!("indent-tabs-mode", Value::T);
 
             // Display
-            defvar_per_buffer!("tab-width", Value::Int(8));
-            defvar_per_buffer!("fill-column", Value::Int(70));
-            defvar_per_buffer!("left-margin", Value::Int(0));
-            defvar_per_buffer!("truncate-lines", Value::Nil);
-            defvar_per_buffer!("word-wrap", Value::Nil);
-            defvar_per_buffer!("ctl-arrow", Value::True);
-            defvar_per_buffer!("selective-display", Value::Nil);
-            defvar_per_buffer!("selective-display-ellipses", Value::True);
-            defvar_per_buffer!("enable-multibyte-characters", Value::True);
-            defvar_per_buffer!("buffer-display-table", Value::Nil);
-            defvar_per_buffer!("buffer-invisibility-spec", Value::Nil);
-            defvar_per_buffer!("line-spacing", Value::Nil);
-            defvar_per_buffer!("cache-long-scans", Value::True);
-            defvar_per_buffer!("point-before-scroll", Value::Nil);
+            defvar_per_buffer!("tab-width", Value::fixnum(8));
+            defvar_per_buffer!("fill-column", Value::fixnum(70));
+            defvar_per_buffer!("left-margin", Value::fixnum(0));
+            defvar_per_buffer!("truncate-lines", Value::NIL);
+            defvar_per_buffer!("word-wrap", Value::NIL);
+            defvar_per_buffer!("ctl-arrow", Value::T);
+            defvar_per_buffer!("selective-display", Value::NIL);
+            defvar_per_buffer!("selective-display-ellipses", Value::T);
+            defvar_per_buffer!("enable-multibyte-characters", Value::T);
+            defvar_per_buffer!("buffer-display-table", Value::NIL);
+            defvar_per_buffer!("buffer-invisibility-spec", Value::NIL);
+            defvar_per_buffer!("line-spacing", Value::NIL);
+            defvar_per_buffer!("cache-long-scans", Value::T);
+            defvar_per_buffer!("point-before-scroll", Value::NIL);
 
             // Cursor
-            defvar_per_buffer!("cursor-type", Value::True);
-            defvar_per_buffer!("cursor-in-non-selected-windows", Value::True);
+            defvar_per_buffer!("cursor-type", Value::T);
+            defvar_per_buffer!("cursor-in-non-selected-windows", Value::T);
 
             // Marks
-            defvar_per_buffer!("mark-active", Value::Nil);
+            defvar_per_buffer!("mark-active", Value::NIL);
 
             // Bidi
-            defvar_per_buffer!("bidi-display-reordering", Value::True);
-            defvar_per_buffer!("bidi-paragraph-direction", Value::Nil);
-            defvar_per_buffer!("bidi-paragraph-start-re", Value::Nil);
-            defvar_per_buffer!("bidi-paragraph-separate-re", Value::Nil);
+            defvar_per_buffer!("bidi-display-reordering", Value::T);
+            defvar_per_buffer!("bidi-paragraph-direction", Value::NIL);
+            defvar_per_buffer!("bidi-paragraph-start-re", Value::NIL);
+            defvar_per_buffer!("bidi-paragraph-separate-re", Value::NIL);
 
             // Fringes and margins
-            defvar_per_buffer!("left-fringe-width", Value::Nil);
-            defvar_per_buffer!("right-fringe-width", Value::Nil);
-            defvar_per_buffer!("left-margin-width", Value::Int(0));
-            defvar_per_buffer!("right-margin-width", Value::Int(0));
-            defvar_per_buffer!("fringes-outside-margins", Value::Nil);
-            defvar_per_buffer!("fringe-indicator-alist", Value::Nil);
-            defvar_per_buffer!("fringe-cursor-alist", Value::Nil);
-            defvar_per_buffer!("indicate-empty-lines", Value::Nil);
-            defvar_per_buffer!("indicate-buffer-boundaries", Value::Nil);
+            defvar_per_buffer!("left-fringe-width", Value::NIL);
+            defvar_per_buffer!("right-fringe-width", Value::NIL);
+            defvar_per_buffer!("left-margin-width", Value::fixnum(0));
+            defvar_per_buffer!("right-margin-width", Value::fixnum(0));
+            defvar_per_buffer!("fringes-outside-margins", Value::NIL);
+            defvar_per_buffer!("fringe-indicator-alist", Value::NIL);
+            defvar_per_buffer!("fringe-cursor-alist", Value::NIL);
+            defvar_per_buffer!("indicate-empty-lines", Value::NIL);
+            defvar_per_buffer!("indicate-buffer-boundaries", Value::NIL);
 
             // Scroll bars
-            defvar_per_buffer!("scroll-bar-width", Value::Nil);
-            defvar_per_buffer!("scroll-bar-height", Value::Nil);
-            defvar_per_buffer!("vertical-scroll-bar", Value::True);
-            defvar_per_buffer!("horizontal-scroll-bar", Value::True);
-            defvar_per_buffer!("scroll-up-aggressively", Value::Nil);
-            defvar_per_buffer!("scroll-down-aggressively", Value::Nil);
+            defvar_per_buffer!("scroll-bar-width", Value::NIL);
+            defvar_per_buffer!("scroll-bar-height", Value::NIL);
+            defvar_per_buffer!("vertical-scroll-bar", Value::T);
+            defvar_per_buffer!("horizontal-scroll-bar", Value::T);
+            defvar_per_buffer!("scroll-up-aggressively", Value::NIL);
+            defvar_per_buffer!("scroll-down-aggressively", Value::NIL);
 
             // Other
-            defvar_per_buffer!("text-conversion-style", Value::Nil);
+            defvar_per_buffer!("text-conversion-style", Value::NIL);
         }
 
         let mut command_loop = crate::keyboard::CommandLoop::new();
@@ -3438,7 +3438,7 @@ impl Context {
             heap,
             obarray,
             specpdl: Vec::new(),
-            lexenv: Value::Nil,
+            lexenv: Value::NIL,
             internal_interpreter_environment_symbol,
             quit_flag_symbol,
             inhibit_quit_symbol,
@@ -3454,7 +3454,7 @@ impl Context {
             watchers: VariableWatcherList::new(),
             standard_syntax_table,
             standard_category_table,
-            current_local_map: Value::Nil,
+            current_local_map: Value::NIL,
             registers: RegisterManager::new(),
             bookmarks: BookmarkManager::new(),
             abbrevs: AbbrevManager::new(),
@@ -3556,7 +3556,7 @@ impl Context {
         obarray.intern("internal-interpreter-environment");
         let internal_interpreter_environment_symbol =
             intern_uninterned("internal-interpreter-environment");
-        obarray.set_symbol_value_id(internal_interpreter_environment_symbol, Value::Nil);
+        obarray.set_symbol_value_id(internal_interpreter_environment_symbol, Value::NIL);
         obarray.make_special_id(internal_interpreter_environment_symbol);
         let quit_flag_symbol = intern("quit-flag");
         obarray.make_special_id(quit_flag_symbol);
@@ -3774,7 +3774,7 @@ impl Context {
         // Match data — SearchedString::Heap holds a live ObjId
         if let Some(ref md) = self.match_data {
             if let Some(crate::emacs_core::regex::SearchedString::Heap(id)) = &md.searched_string {
-                roots.push(Value::Str(*id));
+                roots.push(Value::Str(*id) /* TODO(tagged): convert Value::Str to new API */);
             }
         }
 
@@ -3913,7 +3913,7 @@ impl Context {
         // Batch mode: no interactive input, return immediately.
         if self.input_rx.is_none() {
             tracing::info!("recursive_edit_inner: batch mode, returning immediately");
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
 
         if increment_depth {
@@ -3942,7 +3942,7 @@ impl Context {
                     // abort-recursive-edit: throw 'exit t → signal quit
                     Err(super::error::signal("quit", vec![]))
                 } else {
-                    Ok(Value::Nil)
+                    Ok(ValueKind::Nil)
                 }
             }
             Err(flow) => Err(flow),
@@ -3968,7 +3968,7 @@ impl Context {
             let result = if outermost_command_loop {
                 match self.command_loop_top_level_1() {
                     Ok(_) if self.command_loop.running => self.command_loop_2(),
-                    Ok(_) => Ok(Value::Nil),
+                    Ok(_) => Ok(Value::NIL),
                     Err(flow) => Err(flow),
                 }
             } else {
@@ -3993,14 +3993,14 @@ impl Context {
             .obarray
             .symbol_value("top-level")
             .copied()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
 
         eprintln!("command_loop_top_level_1: top-level={}", top_level);
 
         if top_level.is_nil() {
             eprintln!("command_loop_top_level_1: top-level is nil, skipping");
             self.log_startup_state("top-level-nil");
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
 
         eprintln!("command_loop_top_level_1: evaluating top-level form");
@@ -4009,7 +4009,7 @@ impl Context {
             Ok(_) => {
                 eprintln!("command_loop_top_level_1: top-level completed OK");
                 self.log_startup_state("top-level-after");
-                Ok(Value::Nil)
+                Ok(ValueKind::Nil)
             }
             Err(Flow::Signal(sig)) => {
                 eprintln!(
@@ -4053,7 +4053,7 @@ impl Context {
                 );
                 self.log_startup_state("top-level-signal");
                 tracing::warn!("Top-level startup error: {}", error_msg);
-                Ok(Value::Nil)
+                Ok(ValueKind::Nil)
             }
             Err(flow) => Err(flow),
         }
@@ -4163,7 +4163,7 @@ impl Context {
                     tracing::error!("Command loop error: {}", error_msg);
 
                     // Clear prefix arg on error (like GNU Emacs)
-                    self.assign("prefix-arg", Value::Nil);
+                    self.assign("prefix-arg", ValueKind::Nil);
 
                     // Ring the bell for quit signals
                     if sym_name == "quit" {
@@ -4185,28 +4185,28 @@ impl Context {
     fn command_loop_1(&mut self) -> EvalResult {
         loop {
             if !self.command_loop.running {
-                return Ok(Value::Nil);
+                return Ok(Value::NIL);
             }
 
             self.flush_pending_safe_funcalls();
 
             if self.executing_kbd_macro_iteration_complete_for_command_loop() {
-                self.assign("this-command", Value::Nil);
-                return Ok(Value::Nil);
+                self.assign("this-command", Value::NIL);
+                return Ok(Value::NIL);
             }
 
             // Transfer prefix-arg → current-prefix-arg before each command
             // (mirrors keyboard.c command_loop_1 logic).
-            let prefix_arg = self.eval_symbol("prefix-arg").unwrap_or(Value::Nil);
+            let prefix_arg = self.eval_symbol("prefix-arg").unwrap_or(Value::NIL);
             self.assign("current-prefix-arg", prefix_arg);
-            self.assign("prefix-arg", Value::Nil);
+            self.assign("prefix-arg", Value::NIL);
 
             // Read a complete key sequence (may be multi-key, e.g. C-x C-f).
             let (keys, binding) = self.read_key_sequence()?;
 
             if binding.is_nil() {
                 // Undefined key sequence — reset prefix arg
-                self.assign("prefix-arg", Value::Nil);
+                self.assign("prefix-arg", Value::NIL);
                 let desc: Vec<String> = keys.iter().map(|v| format!("{:?}", v)).collect();
                 tracing::debug!("Undefined key sequence: {}", desc.join(" "));
                 continue;
@@ -4270,7 +4270,7 @@ impl Context {
                 && self.command_loop.keyboard.kboard.defining_kbd_macro
                 && self
                     .eval_symbol("prefix-arg")
-                    .unwrap_or(Value::Nil)
+                    .unwrap_or(Value::NIL)
                     .is_nil()
             {
                 self.finalize_kbd_macro_runtime_chars();
@@ -4296,7 +4296,7 @@ impl Context {
         if !saved_running {
             self.command_loop.running = true;
         }
-        self.assign("prefix-arg", Value::Nil);
+        self.assign("prefix-arg", Value::NIL);
         let result = self.command_loop_2();
         if !saved_running && self.command_loop.running {
             self.command_loop.running = false;
@@ -4314,13 +4314,13 @@ impl Context {
     {
         let scope = ExecutingKbdMacroRuntimeScope {
             snapshot: self.snapshot_executing_kbd_macro_runtime(),
-            real_this_command: self.eval_symbol("real-this-command").unwrap_or(Value::Nil),
+            real_this_command: self.eval_symbol("real-this-command").unwrap_or(Value::NIL),
         };
         self.begin_executing_kbd_macro_runtime(macro_events);
         let result = run(self);
         let cleanup = self.finish_executing_kbd_macro_runtime_scope(scope);
         match cleanup {
-            Ok(Value::Nil) => result,
+            Ok(ValueKind::Nil) => result,
             Ok(other) => Ok(other),
             Err(flow) => Err(flow),
         }
@@ -4340,7 +4340,7 @@ impl Context {
     }
 
     fn pending_gnu_timer(timer: Value) -> Option<PendingGnuTimer> {
-        let Value::Vector(timer_id) = timer else {
+        if !timer.is_vector() /* TODO(tagged): `timer_id` was Value::Vector(timer_id), rewrite let-else */ {
             return None;
         };
 
@@ -4372,7 +4372,7 @@ impl Context {
     }
 
     fn pending_gnu_idle_timer(timer: Value) -> Option<PendingGnuTimer> {
-        let Value::Vector(timer_id) = timer else {
+        if !timer.is_vector() /* TODO(tagged): `timer_id` was Value::Vector(timer_id), rewrite let-else */ {
             return None;
         };
 
@@ -4406,9 +4406,9 @@ impl Context {
             Ok(hook_val) if !hook_val.is_nil() => {
                 // (run-hooks 'HOOK)
                 super::builtins::dispatch_builtin(self, "run-hooks", vec![Value::symbol(hook_name)])
-                    .unwrap_or(Ok(Value::Nil))
+                    .unwrap_or(Ok(ValueKind::Nil))
             }
-            _ => Ok(Value::Nil),
+            _ => Ok(Value::NIL),
         }
     }
 
@@ -4435,60 +4435,60 @@ impl Context {
     fn update_active_region_selection_after_command(&mut self) -> EvalResult {
         if self
             .eval_symbol("mark-active")
-            .unwrap_or(Value::Nil)
+            .unwrap_or(Value::NIL)
             .is_nil()
         {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
 
         let transient_mark_mode = self
             .eval_symbol("transient-mark-mode")
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         if transient_mark_mode == Value::symbol("identity") {
-            self.assign("transient-mark-mode", Value::Nil);
+            self.assign("transient-mark-mode", Value::NIL);
         } else if transient_mark_mode == Value::symbol("only") {
             self.assign("transient-mark-mode", Value::symbol("identity"));
         }
 
         if !self
             .eval_symbol("deactivate-mark")
-            .unwrap_or(Value::Nil)
+            .unwrap_or(Value::NIL)
             .is_nil()
         {
             let _ = self.apply(Value::symbol("deactivate-mark"), vec![])?;
-            self.assign("saved-region-selection", Value::Nil);
-            return Ok(Value::Nil);
+            self.assign("saved-region-selection", Value::NIL);
+            return Ok(Value::NIL);
         }
 
         if self
             .apply(Value::symbol("display-selections-p"), vec![])?
             .is_nil()
         {
-            self.assign("saved-region-selection", Value::Nil);
-            return Ok(Value::Nil);
+            self.assign("saved-region-selection", Value::NIL);
+            return Ok(Value::NIL);
         }
 
         if self
             .eval_symbol("select-active-regions")
-            .unwrap_or(Value::Nil)
+            .unwrap_or(Value::NIL)
             .is_nil()
         {
-            self.assign("saved-region-selection", Value::Nil);
-            return Ok(Value::Nil);
+            self.assign("saved-region-selection", Value::NIL);
+            return Ok(Value::NIL);
         }
 
         if self
             .apply(Value::symbol("region-active-p"), vec![])?
             .is_nil()
         {
-            self.assign("saved-region-selection", Value::Nil);
-            return Ok(Value::Nil);
+            self.assign("saved-region-selection", Value::NIL);
+            return Ok(Value::NIL);
         }
 
-        let this_command = self.eval_symbol("this-command").unwrap_or(Value::Nil);
+        let this_command = self.eval_symbol("this-command").unwrap_or(Value::NIL);
         let inhibited_commands = self
             .eval_symbol("selection-inhibit-update-commands")
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         if self
             .apply(
                 Value::symbol("memq"),
@@ -4496,16 +4496,16 @@ impl Context {
             )?
             .is_truthy()
         {
-            self.assign("saved-region-selection", Value::Nil);
-            return Ok(Value::Nil);
+            self.assign("saved-region-selection", Value::NIL);
+            return Ok(Value::NIL);
         }
 
         let region_extract = self
             .eval_symbol("region-extract-function")
             .unwrap_or(Value::symbol("buffer-substring"));
-        let text = self.apply(region_extract, vec![Value::Nil])?;
-        let text_len = match self.apply(Value::symbol("length"), vec![text])? {
-            Value::Int(len) => len,
+        let text = self.apply(region_extract, vec![Value::NIL])?;
+        let text_len = match self.apply(Value::symbol("length"), vec![text])?.kind() {
+            ValueKind::Fixnum(len) => len,
             _ => 0,
         };
         if text_len > 0 {
@@ -4519,9 +4519,9 @@ impl Context {
             "run-hook-with-args",
             vec![Value::symbol("post-select-region-hook"), text],
         )
-        .unwrap_or(Ok(Value::Nil))?;
-        self.assign("saved-region-selection", Value::Nil);
-        Ok(Value::Nil)
+        .unwrap_or(Ok(Value::NIL))?;
+        self.assign("saved-region-selection", Value::NIL);
+        Ok(Value::NIL)
     }
 
     /// Trigger redisplay — calls the layout engine and sends frame to render thread.
@@ -4612,17 +4612,17 @@ impl Context {
             .obarray
             .symbol_value_id(self.quit_flag_symbol)
             .copied()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         self.obarray
-            .set_symbol_value_id(self.quit_flag_symbol, Value::Nil);
+            .set_symbol_value_id(self.quit_flag_symbol, Value::NIL);
 
         let throw_on_input = self
             .obarray
             .symbol_value_id(self.throw_on_input_symbol)
             .copied()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
 
-        if matches!(flag, Value::Symbol(sym) if sym == self.kill_emacs_symbol) {
+        if matches!(flag, Value::symbol(sym) if sym == self.kill_emacs_symbol) {
             self.request_shutdown(0, false);
             return Err(signal("quit", vec![]));
         }
@@ -4630,7 +4630,7 @@ impl Context {
         if !throw_on_input.is_nil() && equal_value(&flag, &throw_on_input, 0) {
             return Err(Flow::Throw {
                 tag: throw_on_input,
-                value: Value::True,
+                value: Value::T,
             });
         }
 
@@ -4644,7 +4644,7 @@ impl Context {
             .obarray
             .symbol_value_id(self.quit_flag_symbol)
             .copied()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         if quit_flag.is_nil() {
             return Ok(());
         }
@@ -4653,7 +4653,7 @@ impl Context {
             .obarray
             .symbol_value_id(self.inhibit_quit_symbol)
             .copied()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         if inhibit_quit.is_truthy() {
             return Ok(());
         }
@@ -4665,7 +4665,7 @@ impl Context {
         self.obarray
             .symbol_value_id(self.quit_flag_symbol)
             .copied()
-            .unwrap_or(Value::Nil)
+            .unwrap_or(Value::NIL)
     }
 
     pub(crate) fn set_quit_flag_value(&mut self, value: Value) {
@@ -4682,12 +4682,12 @@ impl Context {
     }
 
     pub(crate) fn event_is_quit_char(&self, event: &Value) -> bool {
-        matches!(event, Value::Int(code) if *code == self.quit_char)
+        matches!(event, Value::fixnum(code) if *code == self.quit_char)
     }
 
     pub(crate) fn request_quit_from_keyboard_input(&mut self) {
         if self.quit_flag_value().is_nil() {
-            self.set_quit_flag_value(Value::True);
+            self.set_quit_flag_value(Value::T);
         }
     }
 
@@ -4705,19 +4705,19 @@ impl Context {
             .obarray
             .symbol_value_id(self.throw_on_input_symbol)
             .copied()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         if equal_value(&quit_flag, &throw_on_input, 0) {
             return;
         }
 
-        self.set_quit_flag_value(Value::Nil);
+        self.set_quit_flag_value(Value::NIL);
     }
 
     pub(crate) fn input_pending_p_filters_events(&self) -> bool {
         self.obarray
             .symbol_value("input-pending-p-filter-events")
             .copied()
-            .unwrap_or(Value::True)
+            .unwrap_or(Value::T)
             .is_truthy()
     }
 
@@ -4725,7 +4725,7 @@ impl Context {
         self.obarray
             .symbol_value("track-mouse")
             .copied()
-            .unwrap_or(Value::Nil)
+            .unwrap_or(Value::NIL)
             .is_truthy()
     }
 
@@ -4746,7 +4746,7 @@ impl Context {
             .obarray
             .symbol_value("while-no-input-ignore-events")
             .copied()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         super::value::list_to_vec(&ignore_list)
             .into_iter()
             .flatten()
@@ -4774,7 +4774,7 @@ impl Context {
             .obarray
             .symbol_value_id(self.throw_on_input_symbol)
             .copied()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         if throw_on_input.is_nil() {
             return;
         }
@@ -4783,7 +4783,7 @@ impl Context {
             .obarray
             .symbol_value_id(self.quit_flag_symbol)
             .copied()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         if !quit_flag.is_nil() {
             return;
         }
@@ -4810,7 +4810,7 @@ impl Context {
             .obarray
             .symbol_value_id(self.throw_on_input_symbol)
             .copied()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         if throw_on_input.is_nil() {
             return Ok(false);
         }
@@ -4819,7 +4819,7 @@ impl Context {
             .obarray
             .symbol_value_id(self.inhibit_quit_symbol)
             .copied()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         if inhibit_quit.is_truthy() {
             return Ok(false);
         }
@@ -4972,12 +4972,12 @@ impl Context {
             .obarray
             .symbol_value("input-decode-map")
             .copied()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         let local_function_key_map = self
             .obarray
             .symbol_value("local-function-key-map")
             .copied()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         self.command_loop
             .keyboard
             .set_terminal_translation_maps(input_decode_map, local_function_key_map);
@@ -4998,11 +4998,11 @@ impl Context {
     pub(crate) fn pop_unread_command_event(&mut self) -> Option<Value> {
         let current = match self.eval_symbol("unread-command-events") {
             Ok(value) => value,
-            Err(_) => Value::Nil,
+            Err(_) => Value::NIL,
         };
-        match current {
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
+        match current.kind() {
+            ValueKind::Cons => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 let head = pair.car;
                 let tail = pair.cdr;
                 drop(pair);
@@ -5017,11 +5017,11 @@ impl Context {
     pub(crate) fn peek_unread_command_event(&self) -> Option<Value> {
         let current = match self.eval_symbol("unread-command-events") {
             Ok(value) => value,
-            Err(_) => Value::Nil,
+            Err(_) => Value::NIL,
         };
-        match current {
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
+        match current.kind() {
+            ValueKind::Cons => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 Some(pair.car)
             }
             _ => None,
@@ -5033,7 +5033,7 @@ impl Context {
     pub(crate) fn push_unread_command_event(&mut self, event: Value) {
         let current = match self.eval_symbol("unread-command-events") {
             Ok(value) => value,
-            Err(_) => Value::Nil,
+            Err(_) => Value::NIL,
         };
         let new_list = Value::cons(event, current);
         self.assign("unread-command-events", new_list);
@@ -5046,7 +5046,7 @@ impl Context {
     /// Enable or disable lexical binding.
     pub fn set_lexical_binding(&mut self, enabled: bool) {
         self.obarray
-            .set_symbol_value("lexical-binding", Value::bool(enabled));
+            .set_symbol_value("lexical-binding", Value::bool_val(enabled));
     }
 
     /// Reset transient evaluator state at a completed top-level boundary.
@@ -5062,7 +5062,7 @@ impl Context {
         while let Some(saved) = self.saved_lexenvs.pop() {
             self.lexenv = saved;
         }
-        self.lexenv = Value::Nil;
+        self.lexenv = Value::NIL;
         self.temp_roots.clear();
         self.condition_stack.clear();
         self.depth = 0;
@@ -5376,7 +5376,7 @@ impl Context {
         // Sync max_depth from max-lisp-eval-depth variable only when we're
         // near the limit (avoids obarray lookup on every eval call).
         if self.depth > self.max_depth {
-            if let Some(Value::Int(n)) = self.obarray.symbol_value("max-lisp-eval-depth") {
+            if let Some(Value::fixnum(n)) = self.obarray.symbol_value("max-lisp-eval-depth") {
                 let new_max = (*n).max(100) as usize;
                 if new_max != self.max_depth {
                     self.max_depth = new_max;
@@ -5388,7 +5388,7 @@ impl Context {
             self.depth -= 1;
             return Err(signal(
                 "excessive-lisp-nesting",
-                vec![Value::Int(overflow_depth)],
+                vec![Value::fixnum(overflow_depth)],
             ));
         }
         // Use stacker to dynamically grow the call stack when nearing
@@ -5427,18 +5427,18 @@ impl Context {
         }
 
         match expr {
-            Expr::Int(v) => Ok(Value::Int(*v)),
-            Expr::Float(v) => Ok(Value::Float(*v, next_float_id())),
+            Expr::Int(v) => Ok(Value::fixnum(*v)),
+            Expr::Float(v) => Ok(Value::make_float(*v)),
             Expr::ReaderLoadFileName => Ok(self
                 .obarray
                 .symbol_value("load-file-name")
                 .cloned()
-                .unwrap_or(Value::Nil)),
+                .unwrap_or(ValueKind::Nil)),
             Expr::Str(s) => Ok(Value::string(s.clone())),
-            Expr::Char(c) => Ok(Value::Char(*c)),
-            Expr::Keyword(id) => Ok(Value::Keyword(*id)),
-            Expr::Bool(true) => Ok(Value::True),
-            Expr::Bool(false) => Ok(Value::Nil),
+            Expr::Char(c) => Ok(Value::char(*c)),
+            Expr::Keyword(id) => Ok(Value::keyword(*id)),
+            Expr::Bool(true) => Ok(Value::T),
+            Expr::Bool(false) => Ok(Value::NIL),
             Expr::Vector(items) => {
                 // Emacs vector literals are self-evaluating constants; elements
                 // are not evaluated in the current lexical/dynamic environment.
@@ -5473,7 +5473,7 @@ impl Context {
             lookup_interned(symbol).is_some_and(|canonical| canonical == sym_id);
         // Keywords evaluate to themselves
         if symbol_is_canonical && symbol.starts_with(':') {
-            return Ok(Value::Keyword(sym_id));
+            return Ok(Value::keyword(sym_id));
         }
 
         // GNU Emacs eval.c checks the lexenv for the ORIGINAL symbol
@@ -5507,22 +5507,22 @@ impl Context {
         // so for special variables just fall through to obarray lookup below.
 
         if symbol_is_canonical && symbol == "nil" {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
         if symbol_is_canonical && symbol == "t" {
-            return Ok(Value::True);
+            return Ok(Value::T);
         }
 
         let resolved_is_canonical =
             lookup_interned(resolved_name).is_some_and(|canonical| canonical == resolved);
         if resolved_is_canonical && resolved_name == "nil" {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
         if resolved_is_canonical && resolved_name == "t" {
-            return Ok(Value::True);
+            return Ok(Value::T);
         }
         if resolved_is_canonical && resolved_name.starts_with(':') {
-            return Ok(Value::Keyword(resolved));
+            return Ok(Value::keyword(resolved));
         }
 
         // Buffer-local bindings are name-based and must not intercept
@@ -5556,7 +5556,7 @@ impl Context {
         if super::builtins::is_canonical_symbol_id(sym_id) {
             let name = resolve_sym(sym_id);
             let invalid_fn = if super::subr_info::is_special_form(name) {
-                Value::Subr(sym_id)
+                Value::subr(sym_id)
             } else {
                 value_from_symbol_id(sym_id)
             };
@@ -5569,11 +5569,11 @@ impl Context {
         }
 
         if self.obarray.is_function_unbound_id(sym_id) {
-            return Err(signal("void-function", vec![Value::Symbol(sym_id)]));
+            return Err(signal("void-function", vec![Value::symbol(sym_id)]));
         }
 
         let Some(function) = self.obarray.symbol_function_id(sym_id).cloned() else {
-            return Err(signal("void-function", vec![Value::Symbol(sym_id)]));
+            return Err(signal("void-function", vec![Value::symbol(sym_id)]));
         };
 
         // Handle autoloads for non-canonical symbols the same as canonical
@@ -5591,11 +5591,11 @@ impl Context {
 
         let function_is_callable = self.function_value_is_callable(&function);
         let result = self.apply_untraced(function, args);
-        match result {
+        match result.kind() {
             Err(Flow::Signal(sig))
                 if sig.symbol_name() == "invalid-function" && !function_is_callable =>
             {
-                Err(signal("invalid-function", vec![Value::Symbol(sym_id)]))
+                Err(signal("invalid-function", vec![ValueKind::Symbol(sym_id)]))
             }
             other => other,
         }
@@ -5610,7 +5610,7 @@ impl Context {
         if super::builtins::is_canonical_symbol_id(sym_id) {
             let name = resolve_sym(sym_id);
             let invalid_fn = if super::subr_info::is_special_form(name) {
-                Value::Subr(sym_id)
+                Value::subr(sym_id)
             } else {
                 value_from_symbol_id(sym_id)
             };
@@ -5623,11 +5623,11 @@ impl Context {
         }
 
         if self.obarray.is_function_unbound_id(sym_id) {
-            return Err(signal("void-function", vec![Value::Symbol(sym_id)]));
+            return Err(signal("void-function", vec![Value::symbol(sym_id)]));
         }
 
         let Some(function) = self.obarray.symbol_function_id(sym_id).cloned() else {
-            return Err(signal("void-function", vec![Value::Symbol(sym_id)]));
+            return Err(signal("void-function", vec![Value::symbol(sym_id)]));
         };
 
         if super::autoload::is_autoload_value(&function) {
@@ -5642,27 +5642,27 @@ impl Context {
 
         let function_is_callable = self.function_value_is_callable(&function);
         let result = self.apply_untraced(function, args);
-        match result {
+        match result.kind() {
             Err(Flow::Signal(sig))
                 if sig.symbol_name() == "invalid-function" && !function_is_callable =>
             {
-                Err(signal("invalid-function", vec![Value::Symbol(sym_id)]))
+                Err(signal("invalid-function", vec![ValueKind::Symbol(sym_id)]))
             }
             other => other,
         }
     }
 
     pub(crate) fn function_value_is_callable(&self, function: &Value) -> bool {
-        match function {
-            Value::Lambda(_) | Value::ByteCode(_) | Value::Macro(_) => true,
-            Value::Subr(bound_name) => !super::subr_info::is_special_form(resolve_sym(*bound_name)),
-            Value::Cons(_) => {
+        match function.kind() {
+            ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) | ValueKind::Veclike(VecLikeType::Macro) => true,
+            ValueKind::Subr(bound_name) => !super::subr_info::is_special_form(resolve_sym(bound_name)),
+            ValueKind::Cons => {
                 super::autoload::is_autoload_value(function)
                     || function.cons_car().is_symbol_named("lambda")
                     || function.cons_car().is_symbol_named("closure")
                     || function.cons_car().is_symbol_named("macro")
             }
-            Value::Symbol(id) => super::builtins::symbols::resolve_indirect_symbol_by_id(self, *id)
+            ValueKind::Symbol(id) => super::builtins::symbols::resolve_indirect_symbol_by_id(self, id)
                 .is_some_and(|(_, resolved)| self.function_value_is_callable(&resolved)),
             _ => false,
         }
@@ -5670,12 +5670,12 @@ impl Context {
 
     fn function_value_is_advice_wrapper(&self, function: &Value) -> bool {
         let advice_type = Some(Value::symbol("advice"));
-        match function {
-            Value::Lambda(id) | Value::Macro(id) => {
+        match function.kind() {
+            ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => {
                 with_heap(|h| h.get_lambda(*id).doc_form) == advice_type
             }
-            Value::ByteCode(id) => with_heap(|h| h.get_bytecode(*id).doc_form) == advice_type,
-            Value::Symbol(id) => super::builtins::symbols::resolve_indirect_symbol_by_id(self, *id)
+            ValueKind::Veclike(VecLikeType::ByteCode) => with_heap(|h| h.get_bytecode(*id).doc_form) == advice_type,
+            ValueKind::Symbol(id) => super::builtins::symbols::resolve_indirect_symbol_by_id(self, id)
                 .is_some_and(|(_, resolved)| self.function_value_is_advice_wrapper(&resolved)),
             _ => false,
         }
@@ -5685,7 +5685,7 @@ impl Context {
         if self.function_value_is_advice_wrapper(&function)
             && let Some(symbol) = self.advice_wrapper_symbol_alias(&function)
         {
-            return Value::Symbol(symbol);
+            return Value::symbol(symbol);
         }
         function
     }
@@ -5754,7 +5754,7 @@ impl Context {
 
     fn eval_list(&mut self, items: &[Expr]) -> EvalResult {
         let Some((head, tail)) = items.split_first() else {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         };
 
         if let Expr::Symbol(id) = head {
@@ -5765,7 +5765,7 @@ impl Context {
             // shadowing. The current source-compatible path keeps this empty.
             if super::subr_info::is_evaluator_sf_skip_macroexpand(name) {
                 if let Some(func) = self.obarray.symbol_function(name) {
-                    let is_macro = matches!(func, Value::Macro(_))
+                    let is_macro = matches!(func, Value::Macro(_) /* TODO(tagged): convert Value::Macro to new API */)
                         || (func.is_cons() && func.cons_car().is_symbol_named("macro"));
                     if is_macro {
                         if let Some(result) = self.try_special_form(name, tail) {
@@ -5785,9 +5785,9 @@ impl Context {
                 // defalias aliases (e.g. cl-incf -> incf where incf is a
                 // macro).  Only replace `func` when the target is a macro
                 // — non-macro aliases are handled by the apply path below.
-                if let Value::Symbol(alias_id) = func {
+                if let Some(alias_id) = func.as_symbol_id() {
                     if let Some(resolved) = self.obarray.indirect_function(resolve_sym(alias_id)) {
-                        let is_macro = matches!(resolved, Value::Macro(_))
+                        let is_macro = matches!(resolved, Value::Macro(_) /* TODO(tagged): convert Value::Macro to new API */)
                             || (resolved.is_cons() && resolved.cons_car().is_symbol_named("macro"));
                         if is_macro {
                             func = resolved;
@@ -5805,7 +5805,7 @@ impl Context {
                         vec![func, Value::symbol(name), Value::symbol("macro")],
                     )?;
                     if let Some(loaded_macro) = self.obarray.symbol_function_id(sym_id).cloned() {
-                        let is_loaded_macro = matches!(loaded_macro, Value::Macro(_))
+                        let is_loaded_macro = matches!(loaded_macro, Value::Macro(_) /* TODO(tagged): convert Value::Macro to new API */)
                             || (loaded_macro.is_cons()
                                 && loaded_macro.cons_car().is_symbol_named("macro"));
                         if is_loaded_macro {
@@ -5814,7 +5814,7 @@ impl Context {
                     }
                 }
 
-                if let Value::Macro(_) = &func {
+                if &func.is_macro() /* TODO(tagged): `_` was Value::Macro(_), now use accessor */ {
                     let expanded = self.expand_macro(func, tail)?;
                     // OpaqueValueRef entries are rooted by OpaqueValuePool.
                     return self.with_gc_scope(|ctx| {
@@ -5828,7 +5828,7 @@ impl Context {
                 }
                 // Handle cons-cell macros: (macro . fn) — used by byte-run.el's
                 // (defalias 'defmacro (cons 'macro #'(lambda ...)))
-                if let Value::Cons(cons_id) = func {
+                if func.is_cons() /* TODO(tagged): `cons_id` was Value::Cons(cons_id), now use accessor */ {
                     let car = func.cons_car();
                     if car.is_symbol_named("macro") {
                         let cache_key = (
@@ -5894,7 +5894,7 @@ impl Context {
                     }
                 }
 
-                if let Value::Subr(bound_name) = &func {
+                if let Some(bound_name) = &func.as_subr_id() {
                     if resolve_sym(*bound_name) == name && super::subr_info::is_special_form(name) {
                         if let Some(result) = self.try_special_form(name, tail) {
                             return result;
@@ -5907,7 +5907,7 @@ impl Context {
                 if super::autoload::is_autoload_value(&func) {
                     let writeback_args = args.clone();
                     let result =
-                        self.apply_named_callable_by_id(sym_id, args, Value::Subr(sym_id), false);
+                        self.apply_named_callable_by_id(sym_id, args, Value::subr(sym_id), false);
                     scope.close(self);
                     if let Ok(value) = &result {
                         self.maybe_writeback_mutating_first_arg(name, None, &writeback_args, value);
@@ -5916,7 +5916,7 @@ impl Context {
                 }
                 let writeback_args = args.clone();
                 let result =
-                    self.apply_named_callable_by_id(sym_id, args, Value::Subr(sym_id), false);
+                    self.apply_named_callable_by_id(sym_id, args, Value::subr(sym_id), false);
                 scope.close(self);
                 if let Ok(value) = &result {
                     self.maybe_writeback_mutating_first_arg(name, None, &writeback_args, value);
@@ -5936,12 +5936,12 @@ impl Context {
                 }
             }
 
-            match self.resolve_named_call_target_by_id(sym_id) {
+            match self.resolve_named_call_target_by_id(sym_id).kind() {
                 NamedCallTarget::Void => {
                     return Err(signal("void-function", vec![Value::symbol(name)]));
                 }
                 NamedCallTarget::SpecialForm => {
-                    return Err(signal("invalid-function", vec![Value::Subr(sym_id)]));
+                    return Err(signal("invalid-function", vec![ValueKind::Subr(sym_id)]));
                 }
                 _ => {}
             }
@@ -5952,7 +5952,7 @@ impl Context {
             let (args, scope) = self.eval_args(tail)?;
 
             let writeback_args = args.clone();
-            let result = self.apply_named_callable_by_id(sym_id, args, Value::Subr(sym_id), false);
+            let result = self.apply_named_callable_by_id(sym_id, args, Value::subr(sym_id), false);
             scope.close(self);
             if let Ok(value) = &result {
                 self.maybe_writeback_mutating_first_arg(name, None, &writeback_args, value);
@@ -6101,13 +6101,13 @@ impl Context {
             return;
         }
 
-        match value {
-            Value::Cons(cell) => {
+        match value.kind() {
+            ValueKind::Cons => {
                 let key = (cell.index as usize) ^ 0x1;
                 if !visited.insert(key) {
                     return;
                 }
-                let pair = read_cons(*cell);
+                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
                 let mut new_car = pair.car;
                 let mut new_cdr = pair.cdr;
                 Self::replace_alias_refs_in_value(&mut new_car, from, to, visited);
@@ -6117,7 +6117,7 @@ impl Context {
                     h.set_cdr(*cell, new_cdr);
                 });
             }
-            Value::Vector(items) | Value::Record(items) => {
+            ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
                 let key = (items.index as usize) ^ 0x2;
                 if !visited.insert(key) {
                     return;
@@ -6128,18 +6128,18 @@ impl Context {
                 }
                 with_heap_mut(|h| *h.get_vector_mut(*items) = values);
             }
-            Value::HashTable(table) => {
+            ValueKind::Veclike(VecLikeType::HashTable) => {
                 let key = (table.index as usize) ^ 0x4;
                 if !visited.insert(key) {
                     return;
                 }
                 let mut ht = with_heap(|h| h.get_hash_table(*table).clone());
-                let old_ptr = match from {
-                    Value::Str(id) => Some(id.index as usize),
+                let old_ptr = match from.kind() {
+                    ValueKind::String => Some(id.index as usize),
                     _ => None,
                 };
-                let new_ptr = match to {
-                    Value::Str(id) => Some(id.index as usize),
+                let new_ptr = match to.kind() {
+                    ValueKind::String => Some(id.index as usize),
                     _ => None,
                 };
                 if matches!(ht.test, HashTableTest::Eq | HashTableTest::Eql) {
@@ -6206,7 +6206,7 @@ impl Context {
             "save-current-buffer" => super::misc::sf_save_current_buffer(self, tail),
             "save-restriction" => self.sf_save_restriction(tail),
             // ---- GNU Emacs C special form stub (callint.c) ----
-            "interactive" => Ok(Value::Nil),
+            "interactive" => Ok(Value::NIL),
             // ---- Context-internal (not a special form in GNU) ----
             "lambda" => self.eval_lambda(tail),
             // ---- NeoVM-specific ----
@@ -6220,7 +6220,7 @@ impl Context {
         if tail.len() != 1 {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("quote"), Value::Int(tail.len() as i64)],
+                vec![Value::symbol("quote"), Value::fixnum(tail.len() as i64)],
             ));
         }
         Ok(self.quote_to_runtime_value(&tail[0]))
@@ -6230,7 +6230,7 @@ impl Context {
         if tail.len() != 1 {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("function"), Value::Int(tail.len() as i64)],
+                vec![Value::symbol("function"), Value::fixnum(tail.len() as i64)],
             ));
         }
         match &tail[0] {
@@ -6251,7 +6251,7 @@ impl Context {
         if tail.is_empty() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("let"), Value::Int(tail.len() as i64)],
+                vec![Value::symbol("let"), Value::fixnum(tail.len() as i64)],
             ));
         }
 
@@ -6263,7 +6263,7 @@ impl Context {
         // Root binding values during evaluation so GC triggered by later
         // initializers doesn't collect earlier ones.
         let saved_roots = self.temp_roots.len();
-        match &tail[0] {
+        match tail[0] {
             Expr::List(entries) => {
                 for binding in entries {
                     match binding {
@@ -6278,9 +6278,9 @@ impl Context {
                                 && !self.obarray.is_special_id(*id)
                                 && !lexenv_declares_special(self.lexenv, *id)
                             {
-                                lexical_bindings.push((*id, Value::Nil));
+                                lexical_bindings.push((*id, ValueKind::Nil));
                             } else {
-                                dynamic_sym_ids.push((*id, Value::Nil));
+                                dynamic_sym_ids.push((*id, ValueKind::Nil));
                             }
                         }
                         Expr::List(pair) if !pair.is_empty() => {
@@ -6300,7 +6300,7 @@ impl Context {
                                     }
                                 }
                             } else {
-                                Value::Nil
+                                ValueKind::Nil
                             };
                             self.temp_roots.push(value);
                             if let Some(name) = symbol_sets_constant_error(*id) {
@@ -6383,7 +6383,7 @@ impl Context {
         if tail.is_empty() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("let*"), Value::Int(tail.len() as i64)],
+                vec![Value::symbol("let*"), Value::fixnum(tail.len() as i64)],
             ));
         }
 
@@ -6427,9 +6427,9 @@ impl Context {
                             && !self.obarray.is_special_id(*id)
                             && !lexenv_declares_special(self.lexenv, *id)
                         {
-                            self.bind_lexical_value_rooted(*id, Value::Nil);
+                            self.bind_lexical_value_rooted(*id, ValueKind::Nil);
                         } else {
-                            self.specbind(*id, Value::Nil);
+                            self.specbind(*id, ValueKind::Nil);
                         }
                     }
                     Expr::List(pair) if !pair.is_empty() => {
@@ -6442,7 +6442,7 @@ impl Context {
                         let value = if pair.len() > 1 {
                             self.eval(&pair[1])?
                         } else {
-                            Value::Nil
+                            ValueKind::Nil
                         };
                         if let Some(name) = symbol_sets_constant_error(*id) {
                             return Err(signal("setting-constant", vec![Value::symbol(name)]));
@@ -6480,16 +6480,16 @@ impl Context {
 
     fn sf_setq(&mut self, tail: &[Expr]) -> EvalResult {
         if tail.is_empty() {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
         if !tail.len().is_multiple_of(2) {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("setq"), Value::Int(tail.len() as i64)],
+                vec![Value::symbol("setq"), Value::fixnum(tail.len() as i64)],
             ));
         }
 
-        let mut last = Value::Nil;
+        let mut last = Value::NIL;
         let mut i = 0;
         while i < tail.len() {
             let (sym_id, name) = match &tail[i] {
@@ -6528,7 +6528,7 @@ impl Context {
         if tail.len() < 2 {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("if"), Value::Int(tail.len() as i64)],
+                vec![Value::symbol("if"), Value::fixnum(tail.len() as i64)],
             ));
         }
         let cond = self.eval(&tail[0])?;
@@ -6540,11 +6540,11 @@ impl Context {
     }
 
     fn sf_and(&mut self, tail: &[Expr]) -> EvalResult {
-        let mut last = Value::True;
+        let mut last = Value::T;
         for expr in tail {
             last = self.eval(expr)?;
             if last.is_nil() {
-                return Ok(Value::Nil);
+                return Ok(Value::NIL);
             }
         }
         Ok(last)
@@ -6557,7 +6557,7 @@ impl Context {
                 return Ok(val);
             }
         }
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     }
 
     fn sf_cond(&mut self, tail: &[Expr]) -> EvalResult {
@@ -6579,21 +6579,21 @@ impl Context {
                 return self.sf_progn(&items[1..]);
             }
         }
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     }
 
     fn sf_while(&mut self, tail: &[Expr]) -> EvalResult {
         if tail.is_empty() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("while"), Value::Int(tail.len() as i64)],
+                vec![Value::symbol("while"), Value::fixnum(tail.len() as i64)],
             ));
         }
         let mut iters: u64 = 0;
         loop {
             let cond = self.eval(&tail[0])?;
             if cond.is_nil() {
-                return Ok(Value::Nil);
+                return Ok(Value::NIL);
             }
             self.sf_progn(&tail[1..])?;
             iters += 1;
@@ -6609,7 +6609,7 @@ impl Context {
     }
 
     pub(crate) fn sf_progn(&mut self, forms: &[Expr]) -> EvalResult {
-        let mut last = Value::Nil;
+        let mut last = Value::NIL;
         for form in forms {
             last = self.eval(form)?;
         }
@@ -6620,7 +6620,7 @@ impl Context {
         if tail.is_empty() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("prog1"), Value::Int(tail.len() as i64)],
+                vec![Value::symbol("prog1"), Value::fixnum(tail.len() as i64)],
             ));
         }
         let first = self.eval(&tail[0])?;
@@ -6640,7 +6640,7 @@ impl Context {
         if tail.is_empty() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("defvar"), Value::Int(tail.len() as i64)],
+                vec![Value::symbol("defvar"), Value::fixnum(tail.len() as i64)],
             ));
         }
         if tail.len() > 3 {
@@ -6666,7 +6666,7 @@ impl Context {
         {
             // Mirror GNU eval.c: simple `(defvar foo)` inside a lexical scope
             // only declares `foo` dynamically within the current lexical env.
-            self.lexenv = Value::cons(Value::Symbol(*id), self.lexenv);
+            self.lexenv = Value::cons(Value::symbol(*id), self.lexenv);
         }
         Ok(value_from_symbol_id(*id))
     }
@@ -6675,7 +6675,7 @@ impl Context {
         if tail.len() < 2 {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("defconst"), Value::Int(tail.len() as i64)],
+                vec![Value::symbol("defconst"), Value::fixnum(tail.len() as i64)],
             ));
         }
         if tail.len() > 3 {
@@ -6695,7 +6695,7 @@ impl Context {
         super::custom::builtin_set_default(self, vec![Value::symbol(name), value])?;
         self.obarray.make_special(name);
         self.obarray
-            .put_property(name, "risky-local-variable", Value::True);
+            .put_property(name, "risky-local-variable", Value::T);
         Ok(Value::symbol(name))
     }
 
@@ -6719,7 +6719,7 @@ impl Context {
         if tail.is_empty() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("catch"), Value::Int(tail.len() as i64)],
+                vec![Value::symbol("catch"), Value::fixnum(tail.len() as i64)],
             ));
         }
         let tag = self.eval(&tail[0])?;
@@ -6748,7 +6748,7 @@ impl Context {
                 "wrong-number-of-arguments",
                 vec![
                     Value::symbol("unwind-protect"),
-                    Value::Int(tail.len() as i64),
+                    Value::fixnum(tail.len() as i64),
                 ],
             ));
         }
@@ -6789,7 +6789,7 @@ impl Context {
                 "wrong-number-of-arguments",
                 vec![
                     Value::symbol("condition-case"),
-                    Value::Int(tail.len() as i64),
+                    Value::fixnum(tail.len() as i64),
                 ],
             ));
         }
@@ -6868,7 +6868,7 @@ impl Context {
                         if bind_var {
                             self.specbind(var, value);
                         }
-                        let mut result = Value::Nil;
+                        let mut result = ValueKind::Nil;
                         for form in &items[1..] {
                             result = self.eval(form)?;
                         }
@@ -6999,7 +6999,7 @@ impl Context {
             Expr::ReaderLoadFileName => obarray
                 .symbol_value("load-file-name")
                 .cloned()
-                .unwrap_or(Value::Nil),
+                .unwrap_or(ValueKind::Nil),
             Expr::List(items) => {
                 let quoted = items
                     .iter()
@@ -7039,7 +7039,7 @@ impl Context {
                 "wrong-number-of-arguments",
                 vec![
                     Value::symbol("byte-code-literal"),
-                    Value::Int(tail.len() as i64),
+                    Value::fixnum(tail.len() as i64),
                 ],
             ));
         }
@@ -7082,7 +7082,7 @@ impl Context {
         if tail.len() != 3 {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("byte-code"), Value::Int(tail.len() as i64)],
+                vec![Value::symbol("byte-code"), Value::fixnum(tail.len() as i64)],
             ));
         }
         let trace_toplevel_bytecode = std::env::var_os("NEOVM_TRACE_TOPLEVEL_BYTECODE").is_some();
@@ -7116,7 +7116,7 @@ impl Context {
         };
 
         let mut constants: Vec<Value> = match constants_vec {
-            Value::Vector(id) => with_heap(|h| h.get_vector(id).clone()),
+            Value::Vector(id) /* TODO(tagged): convert Value::Vector to new API */ => with_heap(|h| h.get_vector(id).clone()),
             _ => Vec::new(),
         };
 
@@ -7144,8 +7144,8 @@ impl Context {
             );
         }
 
-        let max_stack = match maxdepth {
-            Value::Int(n) => n as u16,
+        let max_stack = match maxdepth.kind() {
+            ValueKind::Fixnum(n) => n as u16,
             _ => 16,
         };
 
@@ -7224,18 +7224,18 @@ impl Context {
             .obarray
             .symbol_value("after-load-alist")
             .cloned()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         if after_load_alist.is_nil() {
             return Ok(());
         }
         // Walk after-load-alist looking for an entry whose car `eq` FEATURE.
         let entry = {
             let mut cursor = after_load_alist;
-            let mut found = Value::Nil;
-            while let Value::Cons(cell) = cursor {
-                let pair = crate::emacs_core::value::read_cons(cell);
-                if let Value::Cons(inner) = pair.car {
-                    let inner_pair = crate::emacs_core::value::read_cons(inner);
+            let mut found = Value::NIL;
+            while cursor.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+                let pair = crate::emacs_core::value::read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+                if pair.car.is_cons() /* TODO(tagged): `inner` was Value::Cons(inner), now use accessor */ {
+                    let inner_pair = crate::emacs_core::value::read_cons(inner);  // TODO(tagged): replace read_cons with cons accessors
                     if inner_pair.car == feature {
                         found = pair.car;
                         break;
@@ -7252,8 +7252,8 @@ impl Context {
         // Call funcall on each callback in the cdr.
         let callbacks = entry.cons_cdr();
         let mut cursor = callbacks;
-        while let Value::Cons(cell) = cursor {
-            let pair = crate::emacs_core::value::read_cons(cell);
+        while cursor.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+            let pair = crate::emacs_core::value::read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
             let callback = pair.car;
             self.apply(callback, vec![])?;
             cursor = pair.cdr;
@@ -7268,12 +7268,12 @@ impl Context {
         filename: Option<Value>,
         noerror: Option<Value>,
     ) -> EvalResult {
-        let feature_name = match &feature {
-            Value::Symbol(sid) => Some(resolve_sym(*sid).to_string()),
+        let feature_name = match feature.kind() {
+            ValueKind::Symbol(sid) => Some(resolve_sym(sid).to_string()),
             _ => None,
         };
         let filename_str = filename.as_ref().and_then(|v| match v {
-            Value::Str(oid) => Some(self.heap.get_string(*oid).to_string()),
+            Value::Str(oid) /* TODO(tagged): convert Value::Str to new API */ => Some(self.heap.get_string(*oid).to_string()),
             _ => None,
         });
         match plan_require_in_state(
@@ -7368,7 +7368,7 @@ impl Context {
         doc_form: Option<Value>,
         iform_value: Value,
     ) -> Option<Value> {
-        let Value::Symbol(hook_sym) = closure_hook else {
+        let Some(hook_sym) = closure_hook.as_symbol_id() else {
             return None;
         };
         if resolve_sym(hook_sym) != "cconv-make-interpreted-closure" {
@@ -7427,7 +7427,7 @@ impl Context {
         iform_value: Value,
         result: &Value,
     ) {
-        let Value::Symbol(hook_sym) = closure_hook else {
+        let Some(hook_sym) = closure_hook.as_symbol_id() else {
             return;
         };
         if resolve_sym(hook_sym) != "cconv-make-interpreted-closure" {
@@ -7446,7 +7446,7 @@ impl Context {
         if !eq_value(&current_fn, &expected_fn) {
             return;
         }
-        let Value::Lambda(id) = result else {
+        if !result.is_lambda() /* TODO(tagged): `id` was Value::Lambda(id), rewrite let-else */ {
             return;
         };
         let lambda_data = self.heap.get_lambda(*id).clone();
@@ -7483,7 +7483,7 @@ impl Context {
         if tail.is_empty() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("lambda"), Value::Int(tail.len() as i64)],
+                vec![Value::symbol("lambda"), Value::fixnum(tail.len() as i64)],
             ));
         }
 
@@ -7536,7 +7536,7 @@ impl Context {
         // separately to make-interpreted-closure / cconv-make-interpreted-closure,
         // NOT left in the body.  cconv-convert (cconv.el:844) strips
         // (interactive ...) from the body and expects it to be in iform.
-        let mut iform_value = Value::Nil;
+        let mut iform_value = Value::NIL;
         if let Some(Expr::List(items)) = tail.get(body_start) {
             if items.first().is_some_and(
                 |head| matches!(head, Expr::Symbol(id) if resolve_sym(*id) == "interactive"),
@@ -7551,23 +7551,23 @@ impl Context {
         // (cl-assert (consp body)) doesn't fail.
         let body_forms: Vec<Value> = tail[body_start..].iter().map(quote_to_value).collect();
         let body_value = if body_forms.is_empty() {
-            Value::list(vec![Value::Nil])
+            Value::list(vec![Value::NIL])
         } else {
             Value::list(body_forms)
         };
-        let env_value = if self.lexical_binding() || self.lexenv != Value::Nil {
-            if self.lexenv == Value::Nil {
-                Value::list(vec![Value::True])
+        let env_value = if self.lexical_binding() || self.lexenv != Value::NIL {
+            if self.lexenv == Value::NIL {
+                Value::list(vec![Value::T])
             } else {
                 self.lexenv
             }
         } else {
-            Value::Nil
+            Value::NIL
         };
         let docstring_value = match (&docstring, doc_form) {
             (Some(s), _) => Value::string(s.clone()),
             (None, Some(form)) => form,
-            (None, None) => Value::Nil,
+            (None, None) => Value::NIL,
         };
 
         let scope = self.open_gc_scope();
@@ -7577,10 +7577,10 @@ impl Context {
         self.push_temp_root(docstring_value);
         self.push_temp_root(iform_value);
 
-        let result = if env_value != Value::Nil {
+        let result = if env_value != Value::NIL {
             let closure_hook =
                 self.visible_variable_value_or_nil("internal-make-interpreted-closure-function");
-            if closure_hook != Value::Nil {
+            if closure_hook != Value::NIL {
                 if let Some(cached) = self.maybe_use_cached_interpreted_closure_filter(
                     closure_hook,
                     &tail[0],
@@ -7774,32 +7774,32 @@ impl Context {
         function: Value,
         args: Vec<Value>,
     ) -> EvalResult {
-        match function {
-            Value::ByteCode(bc) => {
+        match function.kind() {
+            ValueKind::Veclike(VecLikeType::ByteCode) => {
                 self.refresh_features_from_variable();
-                let func_val = Value::ByteCode(bc);
+                let func_val = ValueKind::Veclike(VecLikeType::ByteCode);
                 let bc_data = self.heap.get_bytecode(bc).clone();
                 let mut vm = super::bytecode::Vm::from_context(self);
                 let result = vm.execute_with_func_value(&bc_data, args, func_val);
                 self.sync_features_variable();
                 result
             }
-            Value::Lambda(id) => {
-                let func_val = Value::Lambda(id);
+            ValueKind::Veclike(VecLikeType::Lambda) => {
+                let func_val = ValueKind::Veclike(VecLikeType::Lambda);
                 let lambda_data = self.heap.get_lambda(id).clone();
                 self.apply_lambda(&lambda_data, args, func_val)
             }
-            Value::Macro(id) => {
-                let func_val = Value::Macro(id);
+            ValueKind::Veclike(VecLikeType::Macro) => {
+                let func_val = ValueKind::Veclike(VecLikeType::Macro);
                 let lambda_data = self.heap.get_macro_data(id).clone();
                 self.apply_lambda(&lambda_data, args, func_val)
             }
-            Value::Subr(id) => self.apply_subr_object_by_id(id, args, true),
-            Value::Symbol(id) => self.apply_symbol_callable_untraced(id, args, true),
-            Value::True => self.apply_symbol_callable_untraced(intern("t"), args, true),
-            Value::Keyword(id) => self.apply_symbol_callable_untraced(id, args, true),
-            Value::Nil => Err(signal("void-function", vec![Value::symbol("nil")])),
-            function @ Value::Cons(_) => {
+            ValueKind::Subr(id) => self.apply_subr_object_by_id(id, args, true),
+            ValueKind::Symbol(id) => self.apply_symbol_callable_untraced(id, args, true),
+            ValueKind::T => self.apply_symbol_callable_untraced(intern("t"), args, true),
+            ValueKind::Keyword(id) => self.apply_symbol_callable_untraced(id, args, true),
+            ValueKind::Nil => Err(signal("void-function", vec![Value::symbol("nil")])),
+            function @ ValueKind::Cons => {
                 if super::autoload::is_autoload_value(&function) {
                     Err(signal(
                         "wrong-type-argument",
@@ -7842,12 +7842,12 @@ impl Context {
                     || !self.lexenv.is_nil()
                 {
                     if self.lexenv.is_nil() {
-                        Value::list(vec![Value::True])
+                        Value::list(vec![Value::T])
                     } else {
                         self.lexenv
                     }
                 } else {
-                    Value::Nil
+                    Value::NIL
                 };
                 (env_value, params_value, 2)
             }
@@ -7862,17 +7862,17 @@ impl Context {
             _ => return Err(signal("invalid-function", vec![function])),
         };
 
-        let docstring_value = if matches!(items.get(body_start), Some(Value::Str(_)))
+        let docstring_value = if matches!(items.get(body_start), Some(Value::Str(_) /* TODO(tagged): convert Value::Str to new API */))
             && items.get(body_start + 1).is_some()
         {
             let value = items[body_start];
             body_start += 1;
             value
         } else {
-            Value::Nil
+            Value::NIL
         };
 
-        let mut doc_form_value = Value::Nil;
+        let mut doc_form_value = Value::NIL;
         if let Some(item) = items.get(body_start)
             && let Some(entry) = list_to_vec(item)
             && entry.len() == 2
@@ -7898,7 +7898,7 @@ impl Context {
         }
 
         let body_value = if body_start >= items.len() {
-            Value::Nil
+            Value::NIL
         } else {
             Value::list(items[body_start..].to_vec())
         };
@@ -7907,7 +7907,7 @@ impl Context {
         } else {
             docstring_value
         };
-        let iform_value = Value::Nil;
+        let iform_value = Value::NIL;
 
         let scope = self.open_gc_scope();
         self.push_temp_root(function);
@@ -7921,7 +7921,7 @@ impl Context {
                 .obarray
                 .symbol_value("internal-make-interpreted-closure-function")
                 .cloned()
-                .unwrap_or(Value::Nil);
+                .unwrap_or(Value::NIL);
             if !closure_hook.is_nil() {
                 self.push_temp_root(closure_hook);
                 let result = self.apply(
@@ -7959,7 +7959,7 @@ impl Context {
     ) -> EvalResult {
         let name = resolve_sym(sym_id);
         if super::subr_info::is_special_form(name) {
-            return Err(signal("invalid-function", vec![Value::Subr(sym_id)]));
+            return Err(signal("invalid-function", vec![Value::subr(sym_id)]));
         }
         if super::subr_info::is_evaluator_callable_name(name) {
             return self.apply_evaluator_callable_by_id(sym_id, args);
@@ -7997,12 +7997,12 @@ impl Context {
 
         let name = resolve_sym(sym_id);
         let target = if let Some(func) = self.obarray.symbol_function_id(sym_id).cloned() {
-            match &func {
-                Value::Nil => NamedCallTarget::Void,
+            match func.kind() {
+                ValueKind::Nil => NamedCallTarget::Void,
                 // `(fset 'foo (symbol-function 'foo))` writes `#<subr foo>` into
                 // the function cell. Treat this as a direct builtin/special-form
                 // callable, not an obarray indirection cycle.
-                Value::Subr(bound_name) if resolve_sym(*bound_name) == name => {
+                ValueKind::Subr(bound_name) if resolve_sym(bound_name) == name => {
                     if super::subr_info::is_evaluator_callable_name(name) {
                         NamedCallTarget::ContextCallable
                     } else if super::subr_info::is_special_form(name) {
@@ -8076,7 +8076,7 @@ impl Context {
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
         let frame_args = args.clone();
-        self.with_runtime_backtrace_frame(Value::Symbol(sym_id), &frame_args, |eval| {
+        self.with_runtime_backtrace_frame(Value::symbol(sym_id), &frame_args, |eval| {
             eval.apply_named_callable_by_id_core(
                 sym_id,
                 args,
@@ -8109,7 +8109,7 @@ impl Context {
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
         let name = resolve_sym(sym_id);
-        match self.resolve_named_call_target_by_id(sym_id) {
+        match self.resolve_named_call_target_by_id(sym_id).kind() {
             NamedCallTarget::Obarray(func) => {
                 if super::autoload::is_autoload_value(&func) {
                     return self.apply_named_autoload_callable(
@@ -8120,10 +8120,10 @@ impl Context {
                     );
                 }
                 let function_is_callable = self.function_value_is_callable(&func);
-                let alias_target = match &func {
-                    Value::Symbol(target) => Some(resolve_sym(*target).to_owned()),
-                    Value::Subr(bound_name) if resolve_sym(*bound_name) != name => {
-                        Some(resolve_sym(*bound_name).to_owned())
+                let alias_target = match func.kind() {
+                    ValueKind::Symbol(target) => Some(resolve_sym(target).to_owned()),
+                    ValueKind::Subr(bound_name) if resolve_sym(bound_name) != name => {
+                        Some(resolve_sym(bound_name).to_owned())
                     }
                     _ => None,
                 };
@@ -8173,7 +8173,7 @@ impl Context {
         invalid_fn: Value,
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
-        match self.resolve_named_call_target(name) {
+        match self.resolve_named_call_target(name).kind() {
             NamedCallTarget::Obarray(func) => {
                 if super::autoload::is_autoload_value(&func) {
                     return self.apply_named_autoload_callable(
@@ -8184,10 +8184,10 @@ impl Context {
                     );
                 }
                 let function_is_callable = self.function_value_is_callable(&func);
-                let alias_target = match &func {
-                    Value::Symbol(target) => Some(resolve_sym(*target).to_owned()),
-                    Value::Subr(bound_name) if resolve_sym(*bound_name) != name => {
-                        Some(resolve_sym(*bound_name).to_owned())
+                let alias_target = match func.kind() {
+                    ValueKind::Symbol(target) => Some(resolve_sym(target).to_owned()),
+                    ValueKind::Subr(bound_name) if resolve_sym(bound_name) != name => {
+                        Some(resolve_sym(bound_name).to_owned())
                     }
                     _ => None,
                 };
@@ -8316,7 +8316,7 @@ impl Context {
         macro_val: Value,
         args: &[Expr],
     ) -> Result<Rc<Expr>, Flow> {
-        let Value::Macro(id) = macro_val else {
+        if !macro_val.is_macro() /* TODO(tagged): `id` was Value::Macro(id), rewrite let-else */ {
             return Err(signal("invalid-macro", vec![]));
         };
 
@@ -8357,7 +8357,7 @@ impl Context {
         }
 
         let expanded_value = self.with_macro_expansion_scope(|eval| {
-            eval.apply_lambda(&lambda_data, arg_values, Value::Macro(id))
+            eval.apply_lambda(&lambda_data, arg_values, Value::Macro(id) /* TODO(tagged): convert Value::Macro to new API */)
         })?;
         // Root expansion result during value_to_expr traversal
         self.push_temp_root(expanded_value);
@@ -8414,29 +8414,29 @@ impl Context {
 
     fn macro_expansion_context_key(&self) -> u64 {
         fn value_identity_key(value: Value) -> u64 {
-            match value {
-                Value::Nil => 0,
-                Value::True => 1,
-                Value::Int(n) => ((n as u64).wrapping_mul(0x9E37_79B1)) ^ 0x10,
-                Value::Char(c) => (c as u64) ^ 0x11,
-                Value::Symbol(sym) => ((sym.0 as u64) << 8) ^ 0x20,
-                Value::Keyword(sym) => ((sym.0 as u64) << 8) ^ 0x21,
-                Value::Subr(sym) => ((sym.0 as u64) << 8) ^ 0x22,
-                Value::Float(_, id) => (id as u64) ^ 0x23,
-                Value::Cons(id)
-                | Value::Vector(id)
-                | Value::Record(id)
-                | Value::HashTable(id)
-                | Value::Str(id)
-                | Value::Lambda(id)
-                | Value::Macro(id)
-                | Value::ByteCode(id)
-                | Value::Marker(id)
-                | Value::Overlay(id) => (((id.index as u64) << 32) | id.generation as u64) ^ 0x30,
-                Value::Buffer(id) => (id.0 as u64) ^ 0x41,
-                Value::Frame(id) => id ^ 0x42,
-                Value::Window(id) => id ^ 0x44,
-                Value::Timer(id) => id ^ 0x46,
+            match value.kind() {
+                ValueKind::Nil => 0,
+                ValueKind::T => 1,
+                ValueKind::Fixnum(n) => ((n as u64).wrapping_mul(0x9E37_79B1)) ^ 0x10,
+                ValueKind::Char(c) => (c as u64) ^ 0x11,
+                ValueKind::Symbol(sym) => ((sym.0 as u64) << 8) ^ 0x20,
+                ValueKind::Keyword(sym) => ((sym.0 as u64) << 8) ^ 0x21,
+                ValueKind::Subr(sym) => ((sym.0 as u64) << 8) ^ 0x22,
+                ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => (id as u64) ^ 0x23,
+                ValueKind::Cons
+                | ValueKind::Veclike(VecLikeType::Vector)
+                | ValueKind::Veclike(VecLikeType::Record)
+                | ValueKind::Veclike(VecLikeType::HashTable)
+                | ValueKind::String
+                | ValueKind::Veclike(VecLikeType::Lambda)
+                | ValueKind::Veclike(VecLikeType::Macro)
+                | ValueKind::Veclike(VecLikeType::ByteCode)
+                | ValueKind::Veclike(VecLikeType::Marker)
+                | ValueKind::Veclike(VecLikeType::Overlay) => (((id.index as u64) << 32) | id.generation as u64) ^ 0x30,
+                ValueKind::Veclike(VecLikeType::Buffer) => (id.0 as u64) ^ 0x41,
+                ValueKind::Veclike(VecLikeType::Frame) => id ^ 0x42,
+                ValueKind::Veclike(VecLikeType::Window) => id ^ 0x44,
+                ValueKind::Veclike(VecLikeType::Timer) => id ^ 0x46,
             }
         }
 
@@ -8444,7 +8444,7 @@ impl Context {
             self.obarray()
                 .symbol_value("macroexpand-all-environment")
                 .copied()
-                .unwrap_or(Value::Nil),
+                .unwrap_or(Value::NIL),
         )
     }
 
@@ -8476,14 +8476,14 @@ impl Context {
                 if let Some(buf) = self.buffers.get(buf_id) {
                     if let Some(binding) = buf.get_buffer_local_binding(name) {
                         // Buffer HAS local binding → SPECPDL_LET_LOCAL
-                        let old_val = binding.as_value().unwrap_or(Value::Nil);
+                        let old_val = binding.as_value().unwrap_or(Value::NIL);
                         self.specpdl.push(SpecBinding::LetLocal {
                             sym_id: resolved,
                             old_value: old_val,
                             buffer_id: buf_id,
                         });
                         if self.watchers.has_watchers(name) {
-                            let _ = self.run_variable_watchers(name, &value, &Value::Nil, "let");
+                            let _ = self.run_variable_watchers(name, &value, &Value::NIL, "let");
                         }
                         let _ = self.buffers.set_buffer_local_property(buf_id, name, value);
                         return;
@@ -8499,7 +8499,7 @@ impl Context {
                 old_value: old_default,
             });
             if self.watchers.has_watchers(name) {
-                let _ = self.run_variable_watchers(name, &value, &Value::Nil, "let");
+                let _ = self.run_variable_watchers(name, &value, &Value::NIL, "let");
             }
             self.obarray.set_symbol_value_id(resolved, value);
             return;
@@ -8512,7 +8512,7 @@ impl Context {
             old_value,
         });
         if self.watchers.has_watchers(name) {
-            let _ = self.run_variable_watchers(name, &value, &Value::Nil, "let");
+            let _ = self.run_variable_watchers(name, &value, &Value::NIL, "let");
         }
         self.obarray.set_symbol_value_id(resolved, value);
     }
@@ -8533,13 +8533,13 @@ impl Context {
     pub(crate) fn unbind_to(&mut self, count: usize) {
         while self.specpdl.len() > count {
             let binding = self.specpdl.pop().unwrap();
-            match binding {
+            match binding.kind() {
                 SpecBinding::Let { sym_id, old_value } => {
                     let name = resolve_sym(sym_id);
                     if self.watchers.has_watchers(name) {
-                        let restore_val = old_value.unwrap_or(Value::Nil);
+                        let restore_val = old_value.unwrap_or(ValueKind::Nil);
                         let _ =
-                            self.run_variable_watchers(name, &restore_val, &Value::Nil, "unlet");
+                            self.run_variable_watchers(name, &restore_val, &ValueKind::Nil, "unlet");
                     }
                     match old_value {
                         Some(val) => self.obarray.set_symbol_value_id(sym_id, val),
@@ -8553,7 +8553,7 @@ impl Context {
                 } => {
                     let name = resolve_sym(sym_id);
                     if self.watchers.has_watchers(name) {
-                        let _ = self.run_variable_watchers(name, &old_value, &Value::Nil, "unlet");
+                        let _ = self.run_variable_watchers(name, &old_value, &ValueKind::Nil, "unlet");
                     }
                     // Restore only if the buffer is still live
                     // (GNU: check Flocal_variable_p before restoring)
@@ -8567,9 +8567,9 @@ impl Context {
                     // Restore the default value (GNU: set_default_internal)
                     let name = resolve_sym(sym_id);
                     if self.watchers.has_watchers(name) {
-                        let restore_val = old_value.unwrap_or(Value::Nil);
+                        let restore_val = old_value.unwrap_or(ValueKind::Nil);
                         let _ =
-                            self.run_variable_watchers(name, &restore_val, &Value::Nil, "unlet");
+                            self.run_variable_watchers(name, &restore_val, &ValueKind::Nil, "unlet");
                     }
                     match old_value {
                         Some(val) => self.obarray.set_symbol_value_id(sym_id, val),
@@ -8786,7 +8786,7 @@ impl Context {
             let sym_id = intern(name);
             self.obarray.intern(name);
             self.obarray
-                .set_symbol_function_id(sym_id, Value::Subr(sym_id));
+                .set_symbol_function_id(sym_id, Value::subr(sym_id));
         }
     }
 
@@ -8818,7 +8818,7 @@ impl Context {
         // obarray so that fboundp, symbol-function, etc. find the builtin
         // without needing a separate name registry.
         self.obarray.intern(name);
-        self.obarray.set_symbol_function(name, Value::Subr(sym_id));
+        self.obarray.set_symbol_function(name, Value::subr(sym_id));
     }
 
     /// Look up a builtin in the subr registry and call it directly via
@@ -8830,14 +8830,14 @@ impl Context {
         if (nargs as u16) < subr.min_args {
             return Some(Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol(name), Value::Int(nargs as i64)],
+                vec![Value::symbol(name), Value::fixnum(nargs as i64)],
             )));
         }
         if let Some(max) = subr.max_args {
             if nargs as u16 > max {
                 return Some(Err(signal(
                     "wrong-number-of-arguments",
-                    vec![Value::symbol(name), Value::Int(nargs as i64)],
+                    vec![Value::symbol(name), Value::fixnum(nargs as i64)],
                 )));
             }
         }
@@ -9006,7 +9006,7 @@ impl Context {
             &[],
             sym_id,
         );
-        self.sync_keyboard_runtime_binding_by_id(sym_id, Value::Nil);
+        self.sync_keyboard_runtime_binding_by_id(sym_id, Value::NIL);
     }
 
     fn has_local_binding_by_id(&self, sym_id: SymId) -> bool {
@@ -9028,19 +9028,19 @@ impl Context {
         // specbind writes directly to obarray, so no dynamic stack lookup needed.
         if let Some(buffer) = self.buffers.current_buffer() {
             if let Some(binding) = buffer.get_buffer_local_binding(name) {
-                return binding.as_value().unwrap_or(Value::Nil);
+                return binding.as_value().unwrap_or(Value::NIL);
             }
         }
         if let Some(value) = self.obarray.symbol_value(name).cloned() {
             return value;
         }
         if name == "nil" {
-            return Value::Nil;
+            return Value::NIL;
         }
         if name == "t" {
-            return Value::True;
+            return Value::T;
         }
-        Value::Nil
+        Value::NIL
     }
 
     pub(crate) fn visible_runtime_variable_value_by_id(
@@ -9070,13 +9070,13 @@ impl Context {
         }
 
         if resolved_is_canonical && resolved_name == "nil" {
-            return Some(Value::Nil);
+            return Some(Value::NIL);
         }
         if resolved_is_canonical && resolved_name == "t" {
-            return Some(Value::True);
+            return Some(Value::T);
         }
         if resolved_is_canonical && resolved_name.starts_with(':') {
-            return Some(Value::Keyword(resolved));
+            return Some(Value::keyword(resolved));
         }
 
         None
@@ -9084,7 +9084,7 @@ impl Context {
 
     fn run_unlet_watchers(&mut self, bindings: &[(String, Value, Value)]) -> Result<(), Flow> {
         for (name, _, restored_value) in bindings.iter().rev() {
-            self.run_variable_watchers(name, restored_value, &Value::Nil, "unlet")?;
+            self.run_variable_watchers(name, restored_value, &Value::NIL, "unlet")?;
         }
         Ok(())
     }
@@ -9096,7 +9096,7 @@ impl Context {
         old_value: &Value,
         operation: &str,
     ) -> Result<(), Flow> {
-        self.run_variable_watchers_with_where(name, new_value, old_value, operation, &Value::Nil)
+        self.run_variable_watchers_with_where(name, new_value, old_value, operation, &Value::NIL)
     }
 
     pub(crate) fn run_variable_watchers_with_where(
@@ -9128,8 +9128,8 @@ impl Context {
         let where_value = self
             .assign_by_id_with_locus(intern(name), value)
             .map(Value::Buffer)
-            .unwrap_or(Value::Nil);
-        self.run_variable_watchers_with_where(name, &value, &Value::Nil, operation, &where_value)?;
+            .unwrap_or(Value::NIL);
+        self.run_variable_watchers_with_where(name, &value, &Value::NIL, operation, &where_value)?;
         Ok(value)
     }
 
@@ -9142,9 +9142,9 @@ impl Context {
         let where_value = self
             .assign_by_id_with_locus(sym_id, value)
             .map(Value::Buffer)
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         let name = resolve_sym(sym_id);
-        self.run_variable_watchers_with_where(name, &value, &Value::Nil, operation, &where_value)?;
+        self.run_variable_watchers_with_where(name, &value, &Value::NIL, operation, &where_value)?;
         Ok(value)
     }
 
@@ -9217,7 +9217,7 @@ fn rewrite_wrong_arity_alias_function_object(flow: Flow, alias: &str, target: &s
     match flow {
         Flow::Signal(mut sig) => {
             let target_is_payload = sig.data.first().is_some_and(|value| match value {
-                Value::Subr(id) => resolve_sym(*id) == target || resolve_sym(*id) == alias,
+                ValueKind::Subr(id) => resolve_sym(*id) == target || resolve_sym(*id) == alias,
                 _ => {
                     value.as_symbol_name() == Some(target) || value.as_symbol_name() == Some(alias)
                 }
@@ -9241,17 +9241,17 @@ fn rewrite_wrong_arity_alias_function_object(flow: Flow, alias: &str, target: &s
 /// Convert an Expr AST node to a Value (for quote).
 pub fn quote_to_value(expr: &Expr) -> Value {
     match expr {
-        Expr::Int(v) => Value::Int(*v),
-        Expr::Float(v) => Value::Float(*v, next_float_id()),
+        Expr::Int(v) => Value::fixnum(*v),
+        Expr::Float(v) => Value::make_float(*v),
         Expr::ReaderLoadFileName => Value::symbol("load-file-name"),
         Expr::Str(s) => Value::string(s.clone()),
-        Expr::Char(c) => Value::Char(*c),
-        Expr::Keyword(id) => Value::Keyword(*id),
-        Expr::Bool(true) => Value::True,
-        Expr::Bool(false) => Value::Nil,
-        Expr::Symbol(id) if resolve_sym(*id) == "nil" => Value::Nil,
-        Expr::Symbol(id) if resolve_sym(*id) == "t" => Value::True,
-        Expr::Symbol(id) => Value::Symbol(*id),
+        Expr::Char(c) => Value::char(*c),
+        Expr::Keyword(id) => Value::keyword(*id),
+        Expr::Bool(true) => Value::T,
+        Expr::Bool(false) => Value::NIL,
+        Expr::Symbol(id) if resolve_sym(*id) == "nil" => Value::NIL,
+        Expr::Symbol(id) if resolve_sym(*id) == "t" => Value::T,
+        Expr::Symbol(id) => Value::symbol(*id),
         Expr::List(items) => {
             let quoted = items.iter().map(quote_to_value).collect::<Vec<_>>();
             Value::list(quoted)
@@ -9288,16 +9288,16 @@ fn format_startup_value(value: Option<&Value>) -> String {
 
 /// Convert a Value back to an Expr (for macro expansion).
 pub(crate) fn value_to_expr(value: &Value) -> Expr {
-    match value {
-        Value::Nil => Expr::Symbol(intern("nil")),
-        Value::True => Expr::Symbol(intern("t")),
-        Value::Int(n) => Expr::Int(*n),
-        Value::Float(f, _) => Expr::Float(*f),
-        Value::Symbol(id) => Expr::Symbol(*id),
-        Value::Keyword(id) => Expr::Keyword(*id),
-        Value::Str(id) => Expr::Str(with_heap(|h| h.get_string(*id).to_owned())),
-        Value::Char(c) => Expr::Char(*c),
-        Value::Cons(_) => {
+    match value.kind() {
+        ValueKind::Nil => Expr::Symbol(intern("nil")),
+        ValueKind::T => Expr::Symbol(intern("t")),
+        ValueKind::Fixnum(n) => Expr::Int(n),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Expr::Float(*f),
+        ValueKind::Symbol(id) => Expr::Symbol(id),
+        ValueKind::Keyword(id) => Expr::Keyword(id),
+        ValueKind::String => Expr::Str(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::Char(c) => Expr::Char(c),
+        ValueKind::Cons => {
             if let Some(items) = list_to_vec(value) {
                 Expr::List(items.iter().map(value_to_expr).collect())
             } else {
@@ -9306,8 +9306,8 @@ pub(crate) fn value_to_expr(value: &Value) -> Expr {
                 let mut items = Vec::new();
                 let mut cursor = *value;
                 loop {
-                    match cursor {
-                        Value::Cons(id) => {
+                    match cursor.kind() {
+                        ValueKind::Cons => {
                             items.push(value_to_expr(&with_heap(|h| h.cons_car(id))));
                             cursor = with_heap(|h| h.cons_cdr(id));
                         }
@@ -9318,11 +9318,11 @@ pub(crate) fn value_to_expr(value: &Value) -> Expr {
                 }
             }
         }
-        Value::Vector(v) => {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(*v).clone());
             Expr::Vector(items.iter().map(value_to_expr).collect())
         }
-        Value::Subr(id) => Expr::OpaqueValueRef(
+        ValueKind::Subr(id) => Expr::OpaqueValueRef(
             OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(Value::Subr(*id))),
         ),
         // Lambda, Macro, ByteCode, HashTable, Buffer, etc. — preserve as

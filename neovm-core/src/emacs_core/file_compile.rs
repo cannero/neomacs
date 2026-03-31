@@ -184,7 +184,7 @@ mod tests {
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
         assert_eq!(compiled.len(), 1);
         match &compiled[0] {
-            CompiledForm::Constant(v) => assert_eq!(*v, Value::Int(30)),
+            CompiledForm::Constant(v) => assert_eq!(*v, Value::fixnum(30)),
             other => panic!("expected Constant, got {:?}", other),
         }
     }
@@ -198,7 +198,7 @@ mod tests {
         assert!(matches!(&compiled[0], CompiledForm::Eval(_)));
         // The defvar should have taken effect at compile time.
         let val = eval.obarray().symbol_value("test-fc-var");
-        assert_eq!(val, Some(&Value::Int(42)));
+        assert_eq!(val, Some(&Value::fixnum(42)));
     }
 
     #[test]
@@ -219,7 +219,7 @@ mod tests {
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
         assert_eq!(compiled.len(), 2);
         match &compiled[0] {
-            CompiledForm::Constant(v) => assert_eq!(*v, Value::Int(3)),
+            CompiledForm::Constant(v) => assert_eq!(*v, Value::fixnum(3)),
             other => panic!("expected Constant, got {:?}", other),
         }
         assert!(matches!(&compiled[1], CompiledForm::Eval(_)));
@@ -250,7 +250,7 @@ mod tests {
         assert_eq!(compiled.len(), 3);
         assert!(matches!(&compiled[0], CompiledForm::Eval(_)));
         match &compiled[1] {
-            CompiledForm::Constant(v) => assert_eq!(*v, Value::Int(5)),
+            CompiledForm::Constant(v) => assert_eq!(*v, Value::fixnum(5)),
             other => panic!("expected Constant, got {:?}", other),
         }
         assert!(matches!(&compiled[2], CompiledForm::Eval(_)));

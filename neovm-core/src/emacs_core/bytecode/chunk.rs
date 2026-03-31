@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use super::opcode::Op;
-use crate::emacs_core::value::{LambdaParams, Value};
+use crate::emacs_core::value::{LambdaParams, Value, ValueKind};
 
 /// A compiled bytecode function.
 #[derive(Clone, Debug)]
@@ -54,14 +54,14 @@ impl ByteCodeFunction {
     pub fn add_constant(&mut self, value: Value) -> u16 {
         // Check for existing constant (simple dedup for common types)
         for (i, existing) in self.constants.iter().enumerate() {
-            match (&value, existing) {
-                (Value::Int(a), Value::Int(b)) if a == b => return i as u16,
-                (Value::Symbol(a), Value::Symbol(b)) if a == b => return i as u16,
-                (Value::Symbol(a), Value::Keyword(b)) if a == b => return i as u16,
-                (Value::Keyword(a), Value::Symbol(b)) if a == b => return i as u16,
-                (Value::Nil, Value::Nil) => return i as u16,
-                (Value::True, Value::True) => return i as u16,
-                (Value::Keyword(a), Value::Keyword(b)) if a == b => return i as u16,
+            match (value.kind(), existing.kind()) {
+                (ValueKind::Fixnum(a), ValueKind::Fixnum(b)) if a == b => return i as u16,
+                (ValueKind::Symbol(a), ValueKind::Symbol(b)) if a == b => return i as u16,
+                (ValueKind::Symbol(a), ValueKind::Keyword(b)) if a == b => return i as u16,
+                (ValueKind::Keyword(a), ValueKind::Symbol(b)) if a == b => return i as u16,
+                (ValueKind::Nil, ValueKind::Nil) => return i as u16,
+                (ValueKind::T, ValueKind::T) => return i as u16,
+                (ValueKind::Keyword(a), ValueKind::Keyword(b)) if a == b => return i as u16,
                 _ => {}
             }
         }

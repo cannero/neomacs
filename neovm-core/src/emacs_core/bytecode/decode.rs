@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 use super::opcode::Op;
-use crate::emacs_core::value::Value;
+use crate::emacs_core::value::{Value, ValueKind};
 
 /// Errors that can occur during GNU bytecode decoding.
 #[derive(Debug)]
@@ -568,7 +568,7 @@ fn fetch2(bytecodes: &[u8], pos: &mut usize, byte_offset: usize) -> Result<u16, 
 fn add_or_find_symbol(constants: &mut Vec<Value>, name: &str) -> u16 {
     let sym = Value::symbol(name);
     for (i, c) in constants.iter().enumerate() {
-        if let (Value::Symbol(a), Value::Symbol(b)) = (c, &sym) {
+        if let (Value::symbol(a), Value::symbol(b)) = (c, &sym) {
             if a == b {
                 return i as u16;
             }
@@ -661,14 +661,14 @@ pub fn parse_arglist_descriptor(descriptor: i64) -> LambdaParams {
 /// Parse an arglist value which can be either an integer descriptor
 /// or a list of symbols `(x &optional y &rest z)`.
 pub fn parse_arglist_value(arglist: &Value) -> LambdaParams {
-    match arglist {
-        Value::Int(n) => parse_arglist_descriptor(*n),
-        Value::Nil => LambdaParams {
+    match arglist.kind() {
+        ValueKind::Fixnum(n) => parse_arglist_descriptor(n),
+        ValueKind::Nil => LambdaParams {
             required: Vec::new(),
             optional: Vec::new(),
             rest: None,
         },
-        Value::Cons(_) => {
+        ValueKind::Cons => {
             // Parse list of symbols
             let items = crate::emacs_core::value::list_to_vec(arglist).unwrap_or_default();
             let mut required = Vec::new();
@@ -690,8 +690,8 @@ pub fn parse_arglist_value(arglist: &Value) -> LambdaParams {
                         _ => {}
                     }
                 }
-                let sym_id = match item {
-                    Value::Symbol(id) => *id,
+                let sym_id = match item.kind() {
+                    ValueKind::Symbol(id) => id,
                     _ => intern("_"),
                 };
                 match mode {

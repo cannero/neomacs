@@ -117,7 +117,7 @@ fn rectangle_and_kbd_macro() {
         other => panic!("Expected Rectangle, got {:?}", other),
     }
 
-    let macro_keys = vec![Value::Char('a'), Value::Char('b')];
+    let macro_keys = vec![Value::char('a'), Value::char('b')];
     mgr.set('k', RegisterContent::KbdMacro(macro_keys));
     match mgr.get('k') {
         Some(RegisterContent::KbdMacro(keys)) => assert_eq!(keys.len(), 2),
@@ -132,10 +132,10 @@ fn rectangle_and_kbd_macro() {
 #[test]
 fn test_expect_register() {
     // Char
-    assert_eq!(expect_register(&Value::Char('a')).unwrap(), 'a');
+    assert_eq!(expect_register(&Value::char('a')).unwrap(), 'a');
 
     // Int (ASCII code)
-    assert_eq!(expect_register(&Value::Int(65)).unwrap(), 'A');
+    assert_eq!(expect_register(&Value::fixnum(65)).unwrap(), 'A');
 
     // Single-char string
     assert_eq!(expect_register(&Value::string("z")).unwrap(), 'z');
@@ -144,7 +144,7 @@ fn test_expect_register() {
     assert!(expect_register(&Value::string("ab")).is_err());
 
     // Float is an error
-    assert!(expect_register(&Value::Float(1.0, next_float_id())).is_err());
+    assert!(expect_register(&Value::make_float(1.0)).is_err());
 }
 
 #[test]
@@ -156,18 +156,18 @@ fn test_builtin_copy_and_insert() {
     // copy-to-register
     let result = builtin_copy_to_register(
         &mut eval,
-        vec![Value::Char('a'), Value::string("hello world")],
+        vec![Value::char('a'), Value::string("hello world")],
     );
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 
     // insert-register -> returns the text
-    let result = builtin_insert_register(&mut eval, vec![Value::Char('a')]);
+    let result = builtin_insert_register(&mut eval, vec![Value::char('a')]);
     assert!(result.is_ok());
     assert_eq!(result.unwrap().as_str(), Some("hello world"));
 
     // insert-register on empty register -> error
-    let result = builtin_insert_register(&mut eval, vec![Value::Char('z')]);
+    let result = builtin_insert_register(&mut eval, vec![Value::char('z')]);
     assert!(result.is_err());
 }
 
@@ -178,22 +178,22 @@ fn test_builtin_number_and_increment() {
     let mut eval = Context::new();
 
     // number-to-register
-    let result = builtin_number_to_register(&mut eval, vec![Value::Int(10), Value::Char('n')]);
+    let result = builtin_number_to_register(&mut eval, vec![Value::fixnum(10), Value::char('n')]);
     assert!(result.is_ok());
 
     // get-register -> returns 10
-    let result = builtin_get_register(&mut eval, vec![Value::Char('n')]);
+    let result = builtin_get_register(&mut eval, vec![Value::char('n')]);
     assert!(result.is_ok());
-    assert!(matches!(result.unwrap(), Value::Int(10)));
+    assert!(matches!(result.unwrap(), Value::fixnum(10)));
 
     // increment-register by 5
-    let result = builtin_increment_register(&mut eval, vec![Value::Int(5), Value::Char('n')]);
+    let result = builtin_increment_register(&mut eval, vec![Value::fixnum(5), Value::char('n')]);
     assert!(result.is_ok());
 
     // Now should be 15
-    let result = builtin_get_register(&mut eval, vec![Value::Char('n')]);
+    let result = builtin_get_register(&mut eval, vec![Value::char('n')]);
     assert!(result.is_ok());
-    assert!(matches!(result.unwrap(), Value::Int(15)));
+    assert!(matches!(result.unwrap(), Value::fixnum(15)));
 }
 
 #[test]
@@ -203,12 +203,12 @@ fn test_builtin_increment_empty_register() {
     let mut eval = Context::new();
 
     // Incrementing empty register starts from 0
-    let result = builtin_increment_register(&mut eval, vec![Value::Int(7), Value::Char('e')]);
+    let result = builtin_increment_register(&mut eval, vec![Value::fixnum(7), Value::char('e')]);
     assert!(result.is_ok());
 
-    let result = builtin_get_register(&mut eval, vec![Value::Char('e')]);
+    let result = builtin_get_register(&mut eval, vec![Value::char('e')]);
     assert!(result.is_ok());
-    assert!(matches!(result.unwrap(), Value::Int(7)));
+    assert!(matches!(result.unwrap(), Value::fixnum(7)));
 }
 
 #[test]
@@ -220,19 +220,19 @@ fn test_builtin_set_and_get_register() {
     // Set string
     let result = builtin_set_register(
         &mut eval,
-        vec![Value::Char('s'), Value::string("saved text")],
+        vec![Value::char('s'), Value::string("saved text")],
     );
     assert!(result.is_ok());
 
-    let result = builtin_get_register(&mut eval, vec![Value::Char('s')]);
+    let result = builtin_get_register(&mut eval, vec![Value::char('s')]);
     assert!(result.is_ok());
     assert_eq!(result.unwrap().as_str(), Some("saved text"));
 
     // Set nil clears
-    let result = builtin_set_register(&mut eval, vec![Value::Char('s'), Value::Nil]);
+    let result = builtin_set_register(&mut eval, vec![Value::char('s'), Value::NIL]);
     assert!(result.is_ok());
 
-    let result = builtin_get_register(&mut eval, vec![Value::Char('s')]);
+    let result = builtin_get_register(&mut eval, vec![Value::char('s')]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 }
@@ -244,7 +244,7 @@ fn test_builtin_view_register() {
     let mut eval = Context::new();
 
     // Empty register
-    let result = builtin_view_register(&mut eval, vec![Value::Char('v')]);
+    let result = builtin_view_register(&mut eval, vec![Value::char('v')]);
     assert!(result.is_ok());
     let desc = result.unwrap();
     assert!(desc.as_str().unwrap().contains("empty"));
@@ -252,7 +252,7 @@ fn test_builtin_view_register() {
     // Text register
     eval.registers
         .set('v', RegisterContent::Text("some text".to_string()));
-    let result = builtin_view_register(&mut eval, vec![Value::Char('v')]);
+    let result = builtin_view_register(&mut eval, vec![Value::char('v')]);
     assert!(result.is_ok());
     let desc = result.unwrap();
     assert!(desc.as_str().unwrap().contains("text"));
@@ -260,7 +260,7 @@ fn test_builtin_view_register() {
 
     // Number register
     eval.registers.set('v', RegisterContent::Number(99));
-    let result = builtin_view_register(&mut eval, vec![Value::Char('v')]);
+    let result = builtin_view_register(&mut eval, vec![Value::char('v')]);
     assert!(result.is_ok());
     let desc = result.unwrap();
     assert!(desc.as_str().unwrap().contains("99"));
@@ -273,12 +273,12 @@ fn test_builtin_register_to_string() {
     let mut eval = Context::new();
 
     // Empty register => nil
-    let empty = builtin_register_to_string(&mut eval, vec![Value::Char('r')]).unwrap();
+    let empty = builtin_register_to_string(&mut eval, vec![Value::char('r')]).unwrap();
     assert!(empty.is_nil());
 
     // Text register => string
-    builtin_set_register(&mut eval, vec![Value::Char('r'), Value::string("abc")]).unwrap();
-    let text = builtin_register_to_string(&mut eval, vec![Value::Char('r')]).unwrap();
+    builtin_set_register(&mut eval, vec![Value::char('r'), Value::string("abc")]).unwrap();
+    let text = builtin_register_to_string(&mut eval, vec![Value::char('r')]).unwrap();
     assert_eq!(text.as_str(), Some("abc"));
 }
 
@@ -289,7 +289,7 @@ fn test_wrong_arg_count() {
     let mut eval = Context::new();
 
     // copy-to-register needs at least 2 args
-    let result = builtin_copy_to_register(&mut eval, vec![Value::Char('a')]);
+    let result = builtin_copy_to_register(&mut eval, vec![Value::char('a')]);
     assert!(result.is_err());
 
     // point-to-register needs exactly 1 arg

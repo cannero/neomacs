@@ -5,6 +5,7 @@ use crate::emacs_core::{
 };
 use std::cell::RefCell;
 use std::rc::Rc;
+use super::value::{ValueKind, VecLikeType};
 
 /// Evaluate all forms with a fresh evaluator that has a frame+window set up.
 fn eval_with_frame(src: &str) -> Vec<String> {
@@ -734,45 +735,45 @@ fn gui_window_body_geometry_excludes_fringes_and_margins() {
     }
 
     assert_eq!(
-        super::builtin_set_window_margins(&mut ev, vec![Value::Nil, Value::Int(1), Value::Int(2)])
+        super::builtin_set_window_margins(&mut ev, vec![Value::NIL, Value::fixnum(1), Value::fixnum(2)])
             .expect("set-window-margins"),
-        Value::True
+        Value::T
     );
     assert_eq!(
-        super::builtin_set_window_fringes(&mut ev, vec![Value::Nil, Value::Int(8), Value::Int(12)])
+        super::builtin_set_window_fringes(&mut ev, vec![Value::NIL, Value::fixnum(8), Value::fixnum(12)])
             .expect("set-window-fringes"),
-        Value::True
+        Value::T
     );
     assert_eq!(
-        super::builtin_window_body_width(&mut ev, vec![Value::Nil, Value::True])
+        super::builtin_window_body_width(&mut ev, vec![Value::NIL, Value::T])
             .expect("window-body-width"),
-        Value::Int(756)
+        Value::fixnum(756)
     );
     assert_eq!(
-        super::builtin_window_text_width(&mut ev, vec![Value::Nil, Value::True])
+        super::builtin_window_text_width(&mut ev, vec![Value::NIL, Value::T])
             .expect("window-text-width"),
-        Value::Int(756)
+        Value::fixnum(756)
     );
     assert_eq!(
         super::builtin_window_edges(
             &mut ev,
-            vec![Value::Nil, Value::True, Value::Nil, Value::True]
+            vec![Value::NIL, Value::T, Value::NIL, Value::T]
         )
         .expect("window-edges"),
         Value::list(vec![
-            Value::Int(16),
-            Value::Int(0),
-            Value::Int(772),
-            Value::Int(584),
+            Value::fixnum(16),
+            Value::fixnum(0),
+            Value::fixnum(772),
+            Value::fixnum(584),
         ])
     );
     assert_eq!(
-        super::builtin_window_fringes(&mut ev, vec![Value::Nil]).expect("window-fringes"),
-        Value::list(vec![Value::Int(8), Value::Int(12), Value::Nil, Value::Nil,])
+        super::builtin_window_fringes(&mut ev, vec![Value::NIL]).expect("window-fringes"),
+        Value::list(vec![Value::fixnum(8), Value::fixnum(12), Value::NIL, Value::NIL,])
     );
     assert_eq!(
-        super::builtin_window_margins(&mut ev, vec![Value::Nil]).expect("window-margins"),
-        Value::cons(Value::Int(1), Value::Int(2))
+        super::builtin_window_margins(&mut ev, vec![Value::NIL]).expect("window-margins"),
+        Value::cons(Value::fixnum(1), Value::fixnum(2))
     );
 }
 
@@ -829,22 +830,22 @@ fn gui_set_window_buffer_applies_buffer_local_display_defaults() {
     let buffer_name = " *gui-swb-display*";
     let buffer_id = ev.buffers.create_buffer(buffer_name);
     ev.buffers
-        .set_buffer_local_property(buffer_id, "left-fringe-width", Value::Int(3))
+        .set_buffer_local_property(buffer_id, "left-fringe-width", Value::fixnum(3))
         .expect("left fringe");
     ev.buffers
-        .set_buffer_local_property(buffer_id, "right-fringe-width", Value::Int(5))
+        .set_buffer_local_property(buffer_id, "right-fringe-width", Value::fixnum(5))
         .expect("right fringe");
     ev.buffers
-        .set_buffer_local_property(buffer_id, "fringes-outside-margins", Value::True)
+        .set_buffer_local_property(buffer_id, "fringes-outside-margins", Value::T)
         .expect("outside margins");
     ev.buffers
-        .set_buffer_local_property(buffer_id, "scroll-bar-width", Value::Int(11))
+        .set_buffer_local_property(buffer_id, "scroll-bar-width", Value::fixnum(11))
         .expect("scroll bar width");
     ev.buffers
         .set_buffer_local_property(buffer_id, "vertical-scroll-bar", Value::symbol("left"))
         .expect("vertical scroll bar");
     ev.buffers
-        .set_buffer_local_property(buffer_id, "scroll-bar-height", Value::Int(7))
+        .set_buffer_local_property(buffer_id, "scroll-bar-height", Value::fixnum(7))
         .expect("scroll bar height");
     ev.buffers
         .set_buffer_local_property(buffer_id, "horizontal-scroll-bar", Value::symbol("bottom"))
@@ -2431,20 +2432,20 @@ fn frame_query_builtins_report_pixel_sizes_for_gui_frames() {
     }
 
     assert_eq!(
-        super::builtin_frame_native_width(&mut ev, vec![Value::Frame(fid.0)]).unwrap(),
-        Value::Int(800)
+        super::builtin_frame_native_width(&mut ev, vec![Value::make_frame(fid.0)]).unwrap(),
+        Value::fixnum(800)
     );
     assert_eq!(
-        super::builtin_frame_native_height(&mut ev, vec![Value::Frame(fid.0)]).unwrap(),
-        Value::Int(600)
+        super::builtin_frame_native_height(&mut ev, vec![Value::make_frame(fid.0)]).unwrap(),
+        Value::fixnum(600)
     );
     assert_eq!(
-        super::builtin_frame_text_width(&mut ev, vec![Value::Frame(fid.0)]).unwrap(),
-        Value::Int(800)
+        super::builtin_frame_text_width(&mut ev, vec![Value::make_frame(fid.0)]).unwrap(),
+        Value::fixnum(800)
     );
     assert_eq!(
-        super::builtin_frame_text_height(&mut ev, vec![Value::Frame(fid.0)]).unwrap(),
-        Value::Int(584)
+        super::builtin_frame_text_height(&mut ev, vec![Value::make_frame(fid.0)]).unwrap(),
+        Value::fixnum(584)
     );
 }
 
@@ -2460,12 +2461,12 @@ fn frame_query_builtins_use_internal_window_system_state() {
     }
 
     assert_eq!(
-        super::builtin_frame_native_width(&mut ev, vec![Value::Frame(fid.0)]).unwrap(),
-        Value::Int(800)
+        super::builtin_frame_native_width(&mut ev, vec![Value::make_frame(fid.0)]).unwrap(),
+        Value::fixnum(800)
     );
     assert_eq!(
-        super::builtin_frame_native_height(&mut ev, vec![Value::Frame(fid.0)]).unwrap(),
-        Value::Int(600)
+        super::builtin_frame_native_height(&mut ev, vec![Value::make_frame(fid.0)]).unwrap(),
+        Value::fixnum(600)
     );
 }
 
@@ -2701,25 +2702,25 @@ fn frame_old_selected_window_direct_wrapper_matches_batch_nil_semantics() {
 
     assert_eq!(
         super::builtin_frame_old_selected_window(&mut ev, vec![]).unwrap(),
-        Value::Nil
+        Value::NIL
     );
     assert_eq!(
-        super::builtin_frame_old_selected_window(&mut ev, vec![Value::Nil]).unwrap(),
-        Value::Nil
+        super::builtin_frame_old_selected_window(&mut ev, vec![Value::NIL]).unwrap(),
+        Value::NIL
     );
     assert_eq!(
-        super::builtin_frame_old_selected_window(&mut ev, vec![Value::Frame(fid.0)]).unwrap(),
-        Value::Nil
+        super::builtin_frame_old_selected_window(&mut ev, vec![Value::make_frame(fid.0)]).unwrap(),
+        Value::NIL
     );
 
-    let err = super::builtin_frame_old_selected_window(&mut ev, vec![Value::Int(999999)])
+    let err = super::builtin_frame_old_selected_window(&mut ev, vec![Value::fixnum(999999)])
         .expect_err("invalid frame should signal");
     match err {
         crate::emacs_core::error::Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("frame-live-p"), Value::Int(999999)]
+                vec![Value::symbol("frame-live-p"), ValueKind::Fixnum(999999)]
             );
         }
         other => panic!("expected wrong-type-argument, got {other:?}"),
@@ -2767,22 +2768,22 @@ fn x_create_frame_creates_live_frame_and_preserves_char_geometry_params() {
 
     let params = Value::list(vec![
         Value::cons(Value::symbol("name"), Value::string("GUI")),
-        Value::cons(Value::symbol("width"), Value::Int(80)),
-        Value::cons(Value::symbol("height"), Value::Int(25)),
-        Value::cons(Value::symbol("visibility"), Value::Nil),
+        Value::cons(Value::symbol("width"), Value::fixnum(80)),
+        Value::cons(Value::symbol("height"), Value::fixnum(25)),
+        Value::cons(Value::symbol("visibility"), Value::NIL),
     ]);
     let created = super::builtin_x_create_frame(&mut ev, vec![params]).expect("x-create-frame");
 
-    let created_id = match created {
-        Value::Frame(id) => crate::window::FrameId(id),
+    let created_id = match created.kind() {
+        ValueKind::Veclike(VecLikeType::Frame) => crate::window::FrameId(id),
         other => panic!("expected frame object, got {other:?}"),
     };
     assert_ne!(created_id, fid);
     let frame = ev.frames.get(created_id).expect("created frame");
     assert_eq!(ev.frames.frame_list().len(), 2);
     assert_eq!(frame.name, "GUI");
-    assert_eq!(frame.parameters.get("width"), Some(&Value::Int(80)));
-    assert_eq!(frame.parameters.get("height"), Some(&Value::Int(25)));
+    assert_eq!(frame.parameters.get("width"), Some(&Value::fixnum(80)));
+    assert_eq!(frame.parameters.get("height"), Some(&Value::fixnum(25)));
     assert!(!frame.visible);
     assert_eq!(frame.char_width, 8.0);
     assert_eq!(frame.char_height, 16.0);
@@ -2802,7 +2803,7 @@ fn x_create_frame_creates_opening_frame_and_notifies_host() {
             mini_leaf.set_bounds(crate::window::Rect::new(0.0, 608.0, 960.0, 32.0));
         }
     }
-    ev.set_variable("terminal-frame", Value::Frame(fid.0));
+    ev.set_variable("terminal-frame", Value::make_frame(fid.0));
     let host = RecordingDisplayHost::new();
     let requests = host.realized.clone();
     ev.set_display_host(Box::new(host));
@@ -2810,20 +2811,20 @@ fn x_create_frame_creates_opening_frame_and_notifies_host() {
     let params = Value::list(vec![
         Value::cons(Value::symbol("name"), Value::string("Neomacs")),
         Value::cons(Value::symbol("title"), Value::string("Neomacs")),
-        Value::cons(Value::symbol("width"), Value::Int(80)),
-        Value::cons(Value::symbol("height"), Value::Int(25)),
+        Value::cons(Value::symbol("width"), Value::fixnum(80)),
+        Value::cons(Value::symbol("height"), Value::fixnum(25)),
     ]);
     let created = super::builtin_x_create_frame(&mut ev, vec![params]).expect("x-create-frame");
 
-    let created_id = match created {
-        Value::Frame(id) => crate::window::FrameId(id),
+    let created_id = match created.kind() {
+        ValueKind::Veclike(VecLikeType::Frame) => crate::window::FrameId(id),
         other => panic!("expected frame object, got {other:?}"),
     };
     assert_ne!(created_id, fid);
     assert_eq!(ev.frames.frame_list().len(), 2);
     let frame = ev.frames.get(created_id).expect("created opening frame");
-    assert_eq!(frame.parameters.get("width"), Some(&Value::Int(80)));
-    assert_eq!(frame.parameters.get("height"), Some(&Value::Int(25)));
+    assert_eq!(frame.parameters.get("width"), Some(&Value::fixnum(80)));
+    assert_eq!(frame.parameters.get("height"), Some(&Value::fixnum(25)));
     let requests = requests.borrow();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].frame_id, created_id);
@@ -2849,14 +2850,14 @@ fn x_create_frame_reserves_tab_bar_space_above_root_window() {
 
     let params = Value::list(vec![
         Value::cons(Value::symbol("name"), Value::string("GUI")),
-        Value::cons(Value::symbol("width"), Value::Int(80)),
-        Value::cons(Value::symbol("height"), Value::Int(25)),
-        Value::cons(Value::symbol("tab-bar-lines"), Value::Int(1)),
+        Value::cons(Value::symbol("width"), Value::fixnum(80)),
+        Value::cons(Value::symbol("height"), Value::fixnum(25)),
+        Value::cons(Value::symbol("tab-bar-lines"), Value::fixnum(1)),
     ]);
     let created = super::builtin_x_create_frame(&mut ev, vec![params]).expect("x-create-frame");
 
-    let created_id = match created {
-        Value::Frame(id) => crate::window::FrameId(id),
+    let created_id = match created.kind() {
+        ValueKind::Veclike(VecLikeType::Frame) => crate::window::FrameId(id),
         other => panic!("expected frame object, got {other:?}"),
     };
     let frame = ev.frames.get(created_id).expect("created frame");
@@ -2886,7 +2887,7 @@ fn make_frame_uses_gui_creation_path_when_display_host_is_active() {
             mini_leaf.set_bounds(crate::window::Rect::new(0.0, 600.0, 960.0, 40.0));
         }
     }
-    ev.set_variable("terminal-frame", Value::Frame(fid.0));
+    ev.set_variable("terminal-frame", Value::make_frame(fid.0));
 
     let host = RecordingDisplayHost::new();
     let requests = host.realized.clone();
@@ -2894,13 +2895,13 @@ fn make_frame_uses_gui_creation_path_when_display_host_is_active() {
 
     let params = Value::list(vec![
         Value::cons(Value::symbol("name"), Value::string("GUI")),
-        Value::cons(Value::symbol("width"), Value::Int(80)),
-        Value::cons(Value::symbol("height"), Value::Int(25)),
+        Value::cons(Value::symbol("width"), Value::fixnum(80)),
+        Value::cons(Value::symbol("height"), Value::fixnum(25)),
     ]);
     let created = super::builtin_make_frame(&mut ev, vec![params]).expect("make-frame");
 
-    let created_id = match created {
-        Value::Frame(id) => crate::window::FrameId(id),
+    let created_id = match created.kind() {
+        ValueKind::Veclike(VecLikeType::Frame) => crate::window::FrameId(id),
         other => panic!("expected frame object, got {other:?}"),
     };
     let frame = ev.frames.get(created_id).expect("created opening frame");
@@ -2935,7 +2936,7 @@ fn x_create_frame_syncs_pending_resize_before_adopting_opening_gui_frame() {
             mini_leaf.set_bounds(crate::window::Rect::new(0.0, 600.0, 960.0, 40.0));
         }
     }
-    ev.set_variable("terminal-frame", Value::Frame(fid.0));
+    ev.set_variable("terminal-frame", Value::make_frame(fid.0));
 
     let (tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
@@ -2961,8 +2962,8 @@ fn x_create_frame_syncs_pending_resize_before_adopting_opening_gui_frame() {
     ]);
     let created = super::builtin_x_create_frame(&mut ev, vec![params]).expect("x-create-frame");
 
-    let created_id = match created {
-        Value::Frame(id) => crate::window::FrameId(id),
+    let created_id = match created.kind() {
+        ValueKind::Veclike(VecLikeType::Frame) => crate::window::FrameId(id),
         other => panic!("expected frame object, got {other:?}"),
     };
     let frame = ev.frames.get(created_id).expect("created opening frame");
@@ -2992,7 +2993,7 @@ fn x_create_frame_prefers_display_host_primary_window_size_without_explicit_geom
             mini_leaf.set_bounds(crate::window::Rect::new(0.0, 600.0, 960.0, 40.0));
         }
     }
-    ev.set_variable("terminal-frame", Value::Frame(fid.0));
+    ev.set_variable("terminal-frame", Value::make_frame(fid.0));
 
     let host = RecordingDisplayHost::with_primary_size(1500, 1900);
     let requests = host.realized.clone();
@@ -3004,8 +3005,8 @@ fn x_create_frame_prefers_display_host_primary_window_size_without_explicit_geom
     ]);
     let created = super::builtin_x_create_frame(&mut ev, vec![params]).expect("x-create-frame");
 
-    let created_id = match created {
-        Value::Frame(id) => crate::window::FrameId(id),
+    let created_id = match created.kind() {
+        ValueKind::Veclike(VecLikeType::Frame) => crate::window::FrameId(id),
         other => panic!("expected frame object, got {other:?}"),
     };
     let frame = ev.frames.get(created_id).expect("created opening frame");
@@ -3074,8 +3075,8 @@ fn deleting_last_frame_on_terminal_deletes_terminal_too() {
         crate::emacs_core::terminal::pure::terminal_handle_value_for_id(7).expect("terminal 7");
 
     assert_eq!(
-        super::builtin_delete_frame(&mut ev, vec![Value::Frame(secondary.0)]).unwrap(),
-        Value::Nil
+        super::builtin_delete_frame(&mut ev, vec![Value::make_frame(secondary.0)]).unwrap(),
+        Value::NIL
     );
     assert!(
         crate::emacs_core::terminal::pure::builtin_terminal_live_p(
@@ -3104,7 +3105,7 @@ fn framep_returns_window_system_symbol_for_gui_frames() {
         .parameters
         .insert("window-system".to_string(), Value::symbol("x"));
 
-    let result = super::builtin_framep(&mut ev, vec![Value::Frame(frame_id.0)]).unwrap();
+    let result = super::builtin_framep(&mut ev, vec![Value::make_frame(frame_id.0)]).unwrap();
     assert_eq!(result, Value::symbol("x"));
 }
 
@@ -3130,27 +3131,27 @@ fn frame_live_p_false() {
 fn frame_builtins_accept_frame_handle_values() {
     let mut ev = Context::new();
     let fid = super::ensure_selected_frame_id(&mut ev);
-    let frame = Value::Frame(fid.0);
+    let frame = Value::make_frame(fid.0);
 
     assert_eq!(
         super::builtin_framep(&mut ev, vec![frame]).unwrap(),
-        Value::True
+        Value::T
     );
     assert_eq!(
         super::builtin_frame_live_p(&mut ev, vec![frame]).unwrap(),
-        Value::True
+        Value::T
     );
     assert_eq!(
         super::builtin_frame_visible_p(&mut ev, vec![frame]).unwrap(),
-        Value::True
+        Value::T
     );
     assert_eq!(
         super::builtin_select_frame(&mut ev, vec![frame]).unwrap(),
-        Value::Frame(fid.0)
+        Value::make_frame(fid.0)
     );
     assert_eq!(
         super::builtin_select_frame_set_input_focus(&mut ev, vec![frame]).unwrap(),
-        Value::Nil
+        Value::NIL
     );
 }
 
@@ -3175,28 +3176,28 @@ fn select_frame_switches_active_kboard_to_frame_terminal() {
     let secondary = ev.frames.create_frame_on_terminal("F2", 7, 800, 600, buf);
 
     assert_eq!(
-        super::builtin_select_frame(&mut ev, vec![Value::Frame(secondary.0)])
+        super::builtin_select_frame(&mut ev, vec![Value::make_frame(secondary.0)])
             .expect("select secondary frame"),
-        Value::Frame(secondary.0)
+        Value::make_frame(secondary.0)
     );
     assert_eq!(ev.command_loop.keyboard.active_terminal_id(), 7);
-    assert_eq!(ev.command_loop.keyboard.input_decode_map(), Value::Nil);
+    assert_eq!(ev.command_loop.keyboard.input_decode_map(), Value::NIL);
 
     ev.command_loop
         .keyboard
         .set_input_decode_map(Value::symbol("secondary-map"));
 
     assert_eq!(
-        super::builtin_select_frame(&mut ev, vec![Value::Frame(primary.0)])
+        super::builtin_select_frame(&mut ev, vec![Value::make_frame(primary.0)])
             .expect("reselect primary frame"),
-        Value::Frame(primary.0)
+        Value::make_frame(primary.0)
     );
     assert_eq!(
         ev.command_loop.keyboard.input_decode_map(),
         Value::symbol("primary-map")
     );
 
-    super::builtin_select_frame(&mut ev, vec![Value::Frame(secondary.0)])
+    super::builtin_select_frame(&mut ev, vec![Value::make_frame(secondary.0)])
         .expect("reselect secondary frame");
     assert_eq!(
         ev.command_loop.keyboard.input_decode_map(),
@@ -3262,8 +3263,8 @@ fn modify_frame_parameters_width_height_preserve_pixel_dimensions() {
     let frame = ev.frames.get(fid).expect("frame should exist");
     assert_eq!(frame.width, 800);
     assert_eq!(frame.height, 600);
-    assert_eq!(frame.parameters.get("width"), Some(&Value::Int(80)));
-    assert_eq!(frame.parameters.get("height"), Some(&Value::Int(25)));
+    assert_eq!(frame.parameters.get("width"), Some(&Value::fixnum(80)));
+    assert_eq!(frame.parameters.get("height"), Some(&Value::fixnum(25)));
 }
 
 #[test]
@@ -3320,11 +3321,11 @@ fn set_frame_size_builtins_preserve_pixel_dimensions() {
     let frame = ev.frames.get(fid).expect("frame should exist");
     assert_eq!(frame.width, 800);
     assert_eq!(frame.height, 600);
-    assert_eq!(frame.parameters.get("width"), Some(&Value::Int(100)));
-    assert_eq!(frame.parameters.get("height"), Some(&Value::Int(36)));
+    assert_eq!(frame.parameters.get("width"), Some(&Value::fixnum(100)));
+    assert_eq!(frame.parameters.get("height"), Some(&Value::fixnum(36)));
     assert_eq!(
         frame.parameters.get("neovm--frame-text-lines"),
-        Some(&Value::Int(35))
+        Some(&Value::fixnum(35))
     );
 }
 
@@ -3354,11 +3355,11 @@ fn set_frame_size_builtins_resize_live_gui_frames_and_notify_host() {
     let frame = ev.frames.get(fid).expect("frame should exist");
     assert_eq!(frame.width, 800);
     assert_eq!(frame.height, 576);
-    assert_eq!(frame.parameters.get("width"), Some(&Value::Int(100)));
-    assert_eq!(frame.parameters.get("height"), Some(&Value::Int(36)));
+    assert_eq!(frame.parameters.get("width"), Some(&Value::fixnum(100)));
+    assert_eq!(frame.parameters.get("height"), Some(&Value::fixnum(36)));
     assert_eq!(
         frame.parameters.get("neovm--frame-text-lines"),
-        Some(&Value::Int(35))
+        Some(&Value::fixnum(35))
     );
 
     let requests = resized.borrow();
@@ -3592,7 +3593,7 @@ fn window_end_prefers_last_redisplay_snapshot_when_available() {
     }
 
     let result = super::builtin_window_end(&mut ev, vec![]).expect("window-end");
-    assert_eq!(result, Value::Int(12));
+    assert_eq!(result, Value::fixnum(12));
 }
 
 #[test]
@@ -3616,15 +3617,15 @@ fn window_chrome_height_queries_prefer_last_redisplay_snapshot_when_available() 
 
     assert_eq!(
         super::builtin_window_mode_line_height(&mut ev, vec![]).expect("mode-line height"),
-        Value::Int(35)
+        Value::fixnum(35)
     );
     assert_eq!(
         super::builtin_window_header_line_height(&mut ev, vec![]).expect("header-line height"),
-        Value::Int(35)
+        Value::fixnum(35)
     );
     assert_eq!(
         super::builtin_window_tab_line_height(&mut ev, vec![]).expect("tab-line height"),
-        Value::Int(34)
+        Value::fixnum(34)
     );
 }
 
@@ -3721,7 +3722,7 @@ fn set_window_buffer_matches_window_and_buffer_designator_errors() {
     let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     ev.frames.create_frame("F1", 800, 600, buf);
-    let dead = Value::Buffer(ev.buffers.create_buffer("swb-dead"));
+    let dead = Value::make_buffer(ev.buffers.create_buffer("swb-dead"));
     ev.set_variable("vm-swb-dead", dead);
     let forms = parse_forms(
         "(condition-case err (set-window-buffer nil \"*scratch*\") (error err))

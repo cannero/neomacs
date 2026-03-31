@@ -8,6 +8,7 @@
 
 use super::error::{EvalResult, Flow, signal};
 use super::value::*;
+use crate::emacs_core::value::{ValueKind};
 
 // ---------------------------------------------------------------------------
 // Argument helpers
@@ -17,7 +18,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -28,7 +29,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -39,7 +40,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -68,15 +69,15 @@ fn html_parse_fallback(name: &str, args: &[Value]) -> Value {
     };
     Value::list(vec![
         Value::symbol("html"),
-        Value::Nil,
-        Value::list(vec![Value::symbol("body"), Value::Nil, body]),
+        Value::NIL,
+        Value::list(vec![Value::symbol("body"), Value::NIL, body]),
     ])
 }
 
 fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         v if super::marker::is_marker(v) => super::marker::marker_position_as_int(v),
         other => Err(signal(
             "wrong-type-argument",
@@ -96,7 +97,7 @@ pub(crate) fn builtin_libxml_parse_html_region(args: Vec<Value>) -> EvalResult {
     expect_max_args("libxml-parse-html-region", &args, 4)?;
     if args.len() >= 2 {
         if args.first().is_some_and(Value::is_nil) {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
         let start_pos = expect_integer_or_marker(
             args.first()
@@ -106,7 +107,7 @@ pub(crate) fn builtin_libxml_parse_html_region(args: Vec<Value>) -> EvalResult {
             if !end.is_nil() {
                 let end_pos = expect_integer_or_marker(end)?;
                 if start_pos == end_pos {
-                    return Ok(Value::Nil);
+                    return Ok(Value::NIL);
                 }
             }
         }
@@ -137,21 +138,21 @@ pub(crate) fn builtin_libxml_parse_xml_region(args: Vec<Value>) -> EvalResult {
         expect_optional_string("libxml-parse-xml-region", base_url)?;
     }
     // Stub parser path: we intentionally return nil until libxml parser support lands.
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (libxml-available-p)
 /// Returns t (feature availability probe).
 pub(crate) fn builtin_libxml_available_p(args: Vec<Value>) -> EvalResult {
     expect_args("libxml-available-p", &args, 0)?;
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 /// (zlib-available-p)
 /// Returns t (feature availability probe).
 pub(crate) fn builtin_zlib_available_p(args: Vec<Value>) -> EvalResult {
     expect_args("zlib-available-p", &args, 0)?;
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 /// (zlib-decompress-region START END)

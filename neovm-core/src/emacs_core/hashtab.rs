@@ -32,7 +32,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -43,7 +43,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -54,7 +54,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -63,7 +63,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 
 fn validate_optional_obarray_arg(args: &[Value]) -> Result<(), Flow> {
     if let Some(obarray) = args.get(1) {
-        if !obarray.is_nil() && !matches!(obarray, Value::Vector(_)) {
+        if !obarray.is_nil() && !obarray.is_vector() {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("obarrayp"), *obarray],
@@ -85,19 +85,19 @@ fn is_global_obarray_proxy_in_state(
 /// Convert a `HashKey` back into a `Value`.
 fn hash_key_to_value(key: &HashKey) -> Value {
     match key {
-        HashKey::Nil => Value::Nil,
-        HashKey::True => Value::True,
-        HashKey::Int(n) => Value::Int(*n),
-        HashKey::Float(bits) => Value::Float(f64::from_bits(*bits), next_float_id()),
-        HashKey::FloatEq(bits, id) => Value::Float(f64::from_bits(*bits), *id),
-        HashKey::Symbol(id) => Value::Symbol(*id),
-        HashKey::Keyword(id) => Value::Keyword(*id),
-        HashKey::Str(id) => Value::Str(*id),
-        HashKey::Char(c) => Value::Char(*c),
-        HashKey::Window(id) => Value::Window(*id),
-        HashKey::Frame(id) => Value::Frame(*id),
-        HashKey::Ptr(_) => Value::Nil, // can't reconstruct from pointer
-        HashKey::ObjId(_, _) => Value::Nil, // can't reconstruct from ObjId alone
+        HashKey::Nil => Value::NIL,
+        HashKey::True => Value::T,
+        HashKey::Int(n) => Value::fixnum(*n),
+        HashKey::Float(bits) => Value::make_float(f64::from_bits(*bits)),
+        HashKey::FloatEq(bits, id) => Value::make_float(f64::from_bits(*bits)) /* TODO(tagged): dropped float id `*id` */,
+        HashKey::Symbol(id) => Value::symbol(*id),
+        HashKey::Keyword(id) => Value::keyword(*id),
+        HashKey::Str(id) => Value::Str(*id) /* TODO(tagged): convert Value::Str to new API */,
+        HashKey::Char(c) => Value::char(*c),
+        HashKey::Window(id) => Value::make_window(*id),
+        HashKey::Frame(id) => Value::make_frame(*id),
+        HashKey::Ptr(_) => Value::NIL, // can't reconstruct from pointer
+        HashKey::ObjId(_, _) => Value::NIL, // can't reconstruct from ObjId alone
         HashKey::EqualCons(car, cdr) => Value::cons(hash_key_to_value(car), hash_key_to_value(cdr)),
         HashKey::EqualVec(items) => {
             let vals: Vec<Value> = items.iter().map(hash_key_to_value).collect();
@@ -193,10 +193,10 @@ fn emacs_sxhash_list(value: &Value, depth: usize) -> u64 {
     let mut cursor = *value;
     if depth < SXHASH_MAX_DEPTH {
         for _ in 0..SXHASH_MAX_LEN {
-            let Value::Cons(cell) = cursor else {
+            if !cursor.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
                 break;
             };
-            let pair = read_cons(cell);
+            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
             hash = sxhash_combine(hash, emacs_sxhash_obj_with_fallback(&pair.car, depth + 1));
             cursor = pair.cdr;
         }
@@ -221,15 +221,15 @@ fn emacs_sxhash_obj(value: &Value, depth: usize) -> Option<u64> {
     if depth > SXHASH_MAX_DEPTH {
         return Some(0);
     }
-    match value {
-        Value::Int(n) => Some(*n as u64),
-        Value::Char(c) => Some((*c as u32) as u64),
-        Value::Float(f, _) => Some(f.to_bits()),
-        Value::Str(id) => Some(with_heap(|h| {
+    match value.kind() {
+        ValueKind::Fixnum(n) => Some(n as u64),
+        ValueKind::Char(c) => Some((c as u32) as u64),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Some(f.to_bits()),
+        ValueKind::String => Some(with_heap(|h| {
             emacs_hash_char_array(h.get_string(*id).as_bytes())
         })),
-        Value::Cons(_) => Some(emacs_sxhash_list(value, depth)),
-        Value::Vector(vec) => Some(emacs_sxhash_vector(vec, depth)),
+        ValueKind::Cons => Some(emacs_sxhash_list(value, depth)),
+        ValueKind::Veclike(VecLikeType::Vector) => Some(emacs_sxhash_vector(vec, depth)),
         _ => None,
     }
 }
@@ -272,41 +272,41 @@ fn hash_value_for_equal(value: &Value, hasher: &mut DefaultHasher, depth: usize)
         0_u8.hash(hasher);
         return;
     }
-    match value {
-        Value::Nil => 0_u8.hash(hasher),
-        Value::True => 1_u8.hash(hasher),
-        Value::Int(n) => {
+    match value.kind() {
+        ValueKind::Nil => 0_u8.hash(hasher),
+        ValueKind::T => 1_u8.hash(hasher),
+        ValueKind::Fixnum(n) => {
             // `equal` treats chars and ints with same codepoint as equal.
             2_u8.hash(hasher);
             n.hash(hasher);
         }
-        Value::Char(c) => {
+        ValueKind::Char(c) => {
             2_u8.hash(hasher);
-            (*c as i64).hash(hasher);
+            (c as i64).hash(hasher);
         }
-        Value::Float(f, _) => {
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => {
             3_u8.hash(hasher);
             f.to_bits().hash(hasher);
         }
-        Value::Symbol(id) => {
+        ValueKind::Symbol(id) => {
             4_u8.hash(hasher);
-            resolve_sym(*id).hash(hasher);
+            resolve_sym(id).hash(hasher);
         }
-        Value::Keyword(id) => {
+        ValueKind::Keyword(id) => {
             5_u8.hash(hasher);
-            resolve_sym(*id).hash(hasher);
+            resolve_sym(id).hash(hasher);
         }
-        Value::Str(id) => {
+        ValueKind::String => {
             6_u8.hash(hasher);
             with_heap(|h| h.get_string(*id).hash(hasher));
         }
-        Value::Cons(cons) => {
+        ValueKind::Cons => {
             7_u8.hash(hasher);
-            let pair = read_cons(*cons);
+            let pair = read_cons(*cons);  // TODO(tagged): replace read_cons with cons accessors
             hash_value_for_equal(&pair.car, hasher, depth + 1);
             hash_value_for_equal(&pair.cdr, hasher, depth + 1);
         }
-        Value::Vector(vec) | Value::Record(vec) => {
+        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
             8_u8.hash(hasher);
             let items = with_heap(|h| h.get_vector(*vec).clone());
             items.len().hash(hasher);
@@ -314,48 +314,48 @@ fn hash_value_for_equal(value: &Value, hasher: &mut DefaultHasher, depth: usize)
                 hash_value_for_equal(item, hasher, depth + 1);
             }
         }
-        Value::Window(id) => {
+        ValueKind::Veclike(VecLikeType::Window) => {
             9_u8.hash(hasher);
             id.hash(hasher);
         }
-        Value::Frame(id) => {
+        ValueKind::Veclike(VecLikeType::Frame) => {
             10_u8.hash(hasher);
             id.hash(hasher);
         }
-        Value::Buffer(id) => {
+        ValueKind::Veclike(VecLikeType::Buffer) => {
             11_u8.hash(hasher);
             id.0.hash(hasher);
         }
-        Value::Timer(id) => {
+        ValueKind::Veclike(VecLikeType::Timer) => {
             12_u8.hash(hasher);
             id.hash(hasher);
         }
-        Value::Subr(id) => {
+        ValueKind::Subr(id) => {
             13_u8.hash(hasher);
-            resolve_sym(*id).hash(hasher);
+            resolve_sym(id).hash(hasher);
         }
-        Value::Lambda(id) => {
+        ValueKind::Veclike(VecLikeType::Lambda) => {
             14_u8.hash(hasher);
             id.hash(hasher);
         }
-        Value::Macro(id) => {
+        ValueKind::Veclike(VecLikeType::Macro) => {
             15_u8.hash(hasher);
             id.hash(hasher);
         }
-        Value::HashTable(table) => {
+        ValueKind::Veclike(VecLikeType::HashTable) => {
             16_u8.hash(hasher);
             table.index.hash(hasher);
             table.generation.hash(hasher);
         }
-        Value::ByteCode(id) => {
+        ValueKind::Veclike(VecLikeType::ByteCode) => {
             17_u8.hash(hasher);
             id.hash(hasher);
         }
-        Value::Marker(id) => {
+        ValueKind::Veclike(VecLikeType::Marker) => {
             18_u8.hash(hasher);
             super::marker::marker_equal_hash_key(*id).hash(hasher);
         }
-        Value::Overlay(id) => {
+        ValueKind::Veclike(VecLikeType::Overlay) => {
             19_u8.hash(hasher);
             id.hash(hasher);
         }
@@ -363,12 +363,12 @@ fn hash_value_for_equal(value: &Value, hasher: &mut DefaultHasher, depth: usize)
 }
 
 fn sxhash_emacs_uint_for(value: &Value, test: HashTableTest) -> u64 {
-    match test {
+    match test.kind() {
         HashTableTest::Equal => emacs_sxhash_obj_with_fallback(value, 0),
         HashTableTest::Eq | HashTableTest::Eql => match value {
-            Value::Int(n) => sxhash_eq_fixnum_uint(*n as u64),
-            Value::Char(c) => sxhash_eq_fixnum_uint((*c as u32) as u64),
-            Value::Float(f, _) if matches!(test, HashTableTest::Eql) => f.to_bits(),
+            ValueKind::Fixnum(n) => sxhash_eq_fixnum_uint(n as u64),
+            ValueKind::Char(c) => sxhash_eq_fixnum_uint((c as u32) as u64),
+            ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ if matches!(test, HashTableTest::Eql) => f.to_bits(),
             _ => fallback_sxhash_emacs_uint(value, test),
         },
     }
@@ -461,11 +461,11 @@ fn internal_hash_table_nonempty_buckets(table: &LispHashTable) -> Vec<Vec<(Value
 /// (hash-table-test TABLE) -> symbol
 pub(crate) fn builtin_hash_table_test(args: Vec<Value>) -> EvalResult {
     expect_args("hash-table-test", &args, 1)?;
-    match &args[0] {
-        Value::HashTable(ht) => {
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::HashTable) => {
             let table = with_heap(|h| h.get_hash_table(*ht).clone());
             if let Some(id) = table.test_name {
-                Ok(Value::Symbol(id))
+                Ok(ValueKind::Symbol(id))
             } else {
                 let sym = match table.test {
                     HashTableTest::Eq => "eq",
@@ -485,8 +485,8 @@ pub(crate) fn builtin_hash_table_test(args: Vec<Value>) -> EvalResult {
 /// (hash-table-size TABLE) -> integer
 pub(crate) fn builtin_hash_table_size(args: Vec<Value>) -> EvalResult {
     expect_args("hash-table-size", &args, 1)?;
-    match &args[0] {
-        Value::HashTable(ht) => {
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::HashTable) => {
             let table = with_heap(|h| h.get_hash_table(*ht).clone());
             Ok(Value::Int(table.size))
         }
@@ -500,10 +500,10 @@ pub(crate) fn builtin_hash_table_size(args: Vec<Value>) -> EvalResult {
 /// (hash-table-rehash-size TABLE) -> float
 pub(crate) fn builtin_hash_table_rehash_size(args: Vec<Value>) -> EvalResult {
     expect_args("hash-table-rehash-size", &args, 1)?;
-    match &args[0] {
-        Value::HashTable(ht) => {
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::HashTable) => {
             let table = with_heap(|h| h.get_hash_table(*ht).clone());
-            Ok(Value::Float(table.rehash_size, next_float_id()))
+            Ok(Value::make_float(table.rehash_size))  // TODO(tagged): remove next_float_id()
         }
         other => Err(signal(
             "wrong-type-argument",
@@ -515,10 +515,10 @@ pub(crate) fn builtin_hash_table_rehash_size(args: Vec<Value>) -> EvalResult {
 /// (hash-table-rehash-threshold TABLE) -> float
 pub(crate) fn builtin_hash_table_rehash_threshold(args: Vec<Value>) -> EvalResult {
     expect_args("hash-table-rehash-threshold", &args, 1)?;
-    match &args[0] {
-        Value::HashTable(ht) => {
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::HashTable) => {
             let table = with_heap(|h| h.get_hash_table(*ht).clone());
-            Ok(Value::Float(table.rehash_threshold, next_float_id()))
+            Ok(Value::make_float(table.rehash_threshold))  // TODO(tagged): remove next_float_id()
         }
         other => Err(signal(
             "wrong-type-argument",
@@ -530,11 +530,11 @@ pub(crate) fn builtin_hash_table_rehash_threshold(args: Vec<Value>) -> EvalResul
 /// (hash-table-weakness TABLE) -> nil | symbol
 pub(crate) fn builtin_hash_table_weakness(args: Vec<Value>) -> EvalResult {
     expect_args("hash-table-weakness", &args, 1)?;
-    match &args[0] {
-        Value::HashTable(ht) => {
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::HashTable) => {
             let table = with_heap(|h| h.get_hash_table(*ht).clone());
             Ok(match table.weakness {
-                None => Value::Nil,
+                None => Value::NIL,
                 Some(HashTableWeakness::Key) => Value::symbol("key"),
                 Some(HashTableWeakness::Value) => Value::symbol("value"),
                 Some(HashTableWeakness::KeyOrValue) => Value::symbol("key-or-value"),
@@ -551,11 +551,11 @@ pub(crate) fn builtin_hash_table_weakness(args: Vec<Value>) -> EvalResult {
 /// (copy-hash-table TABLE) -> new hash table with same entries
 pub(crate) fn builtin_copy_hash_table(args: Vec<Value>) -> EvalResult {
     expect_args("copy-hash-table", &args, 1)?;
-    match &args[0] {
-        Value::HashTable(ht) => {
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::HashTable) => {
             let new_table = with_heap(|h| h.get_hash_table(*ht).clone());
             let id = with_heap_mut(|h| h.alloc_hash_table_raw(new_table));
-            Ok(Value::HashTable(id))
+            Ok(ValueKind::Veclike(VecLikeType::HashTable))
         }
         other => Err(signal(
             "wrong-type-argument",
@@ -568,8 +568,8 @@ pub(crate) fn builtin_copy_hash_table(args: Vec<Value>) -> EvalResult {
 #[cfg(test)]
 pub(crate) fn builtin_hash_table_keys(args: Vec<Value>) -> EvalResult {
     expect_args("hash-table-keys", &args, 1)?;
-    match &args[0] {
-        Value::HashTable(ht) => {
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::HashTable) => {
             let table = with_heap(|h| h.get_hash_table(*ht).clone());
             let keys: Vec<Value> = table
                 .insertion_order
@@ -590,8 +590,8 @@ pub(crate) fn builtin_hash_table_keys(args: Vec<Value>) -> EvalResult {
 #[cfg(test)]
 pub(crate) fn builtin_hash_table_values(args: Vec<Value>) -> EvalResult {
     expect_args("hash-table-values", &args, 1)?;
-    match &args[0] {
-        Value::HashTable(ht) => {
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::HashTable) => {
             let table = with_heap(|h| h.get_hash_table(*ht).clone());
             let values: Vec<Value> = table
                 .insertion_order
@@ -610,19 +610,19 @@ pub(crate) fn builtin_hash_table_values(args: Vec<Value>) -> EvalResult {
 /// `(sxhash-eq OBJECT)` -- hash OBJECT according to `eq` semantics.
 pub(crate) fn builtin_sxhash_eq(args: Vec<Value>) -> EvalResult {
     expect_args("sxhash-eq", &args, 1)?;
-    Ok(Value::Int(sxhash_for(&args[0], HashTableTest::Eq)))
+    Ok(Value::fixnum(sxhash_for(&args[0], HashTableTest::Eq)))
 }
 
 /// `(sxhash-eql OBJECT)` -- hash OBJECT according to `eql` semantics.
 pub(crate) fn builtin_sxhash_eql(args: Vec<Value>) -> EvalResult {
     expect_args("sxhash-eql", &args, 1)?;
-    Ok(Value::Int(sxhash_for(&args[0], HashTableTest::Eql)))
+    Ok(Value::fixnum(sxhash_for(&args[0], HashTableTest::Eql)))
 }
 
 /// `(sxhash-equal OBJECT)` -- hash OBJECT according to `equal` semantics.
 pub(crate) fn builtin_sxhash_equal(args: Vec<Value>) -> EvalResult {
     expect_args("sxhash-equal", &args, 1)?;
-    Ok(Value::Int(sxhash_for(&args[0], HashTableTest::Equal)))
+    Ok(Value::fixnum(sxhash_for(&args[0], HashTableTest::Equal)))
 }
 
 /// `(sxhash-equal-including-properties OBJECT)` -- hash OBJECT like
@@ -630,14 +630,14 @@ pub(crate) fn builtin_sxhash_equal(args: Vec<Value>) -> EvalResult {
 /// this matches `sxhash-equal`.
 pub(crate) fn builtin_sxhash_equal_including_properties(args: Vec<Value>) -> EvalResult {
     expect_args("sxhash-equal-including-properties", &args, 1)?;
-    Ok(Value::Int(sxhash_for(&args[0], HashTableTest::Equal)))
+    Ok(Value::fixnum(sxhash_for(&args[0], HashTableTest::Equal)))
 }
 
 /// `(internal--hash-table-index-size TABLE)` -- report hash index width.
 pub(crate) fn builtin_internal_hash_table_index_size(args: Vec<Value>) -> EvalResult {
     expect_args("internal--hash-table-index-size", &args, 1)?;
-    match &args[0] {
-        Value::HashTable(ht) => {
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::HashTable) => {
             let table = with_heap(|h| h.get_hash_table(*ht).clone());
             Ok(Value::Int(
                 internal_hash_table_index_size(&table).min(i64::MAX as usize) as i64,
@@ -653,19 +653,19 @@ pub(crate) fn builtin_internal_hash_table_index_size(args: Vec<Value>) -> EvalRe
 /// `(internal--hash-table-buckets TABLE)` -- return non-empty bucket alists.
 pub(crate) fn builtin_internal_hash_table_buckets(args: Vec<Value>) -> EvalResult {
     expect_args("internal--hash-table-buckets", &args, 1)?;
-    match &args[0] {
-        Value::HashTable(ht) => {
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::HashTable) => {
             let table = with_heap(|h| h.get_hash_table(*ht).clone());
             let buckets = internal_hash_table_nonempty_buckets(&table);
             if buckets.is_empty() {
-                return Ok(Value::Nil);
+                return Ok(ValueKind::Nil);
             }
             let rendered = buckets
                 .into_iter()
                 .map(|bucket| {
                     let alist_items: Vec<Value> = bucket
                         .into_iter()
-                        .map(|(key, hash)| Value::cons(key, Value::Int(hash)))
+                        .map(|(key, hash)| Value::cons(key, ValueKind::Fixnum(hash)))
                         .collect();
                     Value::list(alist_items)
                 })
@@ -683,12 +683,12 @@ pub(crate) fn builtin_internal_hash_table_buckets(args: Vec<Value>) -> EvalResul
 /// alist for non-empty buckets.
 pub(crate) fn builtin_internal_hash_table_histogram(args: Vec<Value>) -> EvalResult {
     expect_args("internal--hash-table-histogram", &args, 1)?;
-    match &args[0] {
-        Value::HashTable(ht) => {
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::HashTable) => {
             let table = with_heap(|h| h.get_hash_table(*ht).clone());
             let buckets = internal_hash_table_nonempty_buckets(&table);
             if buckets.is_empty() {
-                return Ok(Value::Nil);
+                return Ok(ValueKind::Nil);
             }
             let mut histogram: BTreeMap<i64, i64> = BTreeMap::new();
             for bucket in buckets {
@@ -697,7 +697,7 @@ pub(crate) fn builtin_internal_hash_table_histogram(args: Vec<Value>) -> EvalRes
             }
             let entries: Vec<Value> = histogram
                 .into_iter()
-                .map(|(size, count)| Value::cons(Value::Int(size), Value::Int(count)))
+                .map(|(size, count)| Value::cons(ValueKind::Fixnum(size), ValueKind::Fixnum(count)))
                 .collect();
             Ok(Value::list(entries))
         }
@@ -718,7 +718,7 @@ pub(crate) fn builtin_maphash(eval: &mut super::eval::Context, args: Vec<Value>)
     for (key, val) in entries {
         eval.apply(func, vec![key, val])?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (mapatoms FUNCTION &optional OBARRAY) — call FUNCTION with each interned symbol.
@@ -727,7 +727,7 @@ pub(crate) fn builtin_mapatoms(eval: &mut super::eval::Context, args: Vec<Value>
     for sym in symbols {
         eval.apply(func, vec![sym])?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn collect_maphash_entries(
@@ -735,8 +735,8 @@ pub(crate) fn collect_maphash_entries(
 ) -> Result<(Value, Vec<(Value, Value)>), Flow> {
     expect_args("maphash", &args, 2)?;
     let func = args[0];
-    let entries = match &args[1] {
-        Value::HashTable(ht) => {
+    let entries = match args[1].kind() {
+        ValueKind::Veclike(VecLikeType::HashTable) => {
             let table = with_heap(|h| h.get_hash_table(*ht).clone());
             table
                 .insertion_order
@@ -768,7 +768,7 @@ pub(crate) fn collect_mapatoms_symbols(
     validate_optional_obarray_arg(&args)?;
     let func = args[0];
 
-    if let Some(Value::Vector(vec_id)) = args
+    if let Some(Value::Vector(vec_id) /* TODO(tagged): convert Value::Vector to new API */) = args
         .get(1)
         .filter(|v| !v.is_nil() && !is_global_obarray_proxy_in_state(obarray, v))
     {
@@ -777,9 +777,9 @@ pub(crate) fn collect_mapatoms_symbols(
         for slot in &all_slots {
             let mut current = *slot;
             loop {
-                match current {
-                    Value::Nil => break,
-                    Value::Cons(id) => {
+                match current.kind() {
+                    ValueKind::Nil => break,
+                    ValueKind::Cons => {
                         let (car, cdr) = with_heap(|h| (h.cons_car(id), h.cons_cdr(id)));
                         symbols.push(car);
                         current = cdr;
@@ -803,9 +803,9 @@ pub(crate) fn collect_mapatoms_symbols(
 pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("unintern", &args, 2)?;
     validate_optional_obarray_arg(&args)?;
-    let name = match &args[0] {
-        Value::Symbol(id) => resolve_sym(*id).to_owned(),
-        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
+    let name = match args[0].kind() {
+        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
+        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -815,11 +815,11 @@ pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>
     };
 
     // Custom obarray path
-    if let Some(Value::Vector(vec_id)) = args.get(1).filter(|v| !v.is_nil()) {
+    if let Some(Value::Vector(vec_id) /* TODO(tagged): convert Value::Vector to new API */) = args.get(1).filter(|v| !v.is_nil()) {
         let vec_id = *vec_id;
         let vec_len = with_heap(|h| h.get_vector(vec_id).len());
         if vec_len == 0 {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
         let bucket_idx =
             name.bytes()
@@ -832,9 +832,9 @@ pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>
         let mut found = false;
         let mut current = bucket;
         loop {
-            match current {
-                Value::Nil => break,
-                Value::Cons(id) => {
+            match current.kind() {
+                ValueKind::Nil => break,
+                ValueKind::Cons => {
                     let (car, cdr) = with_heap(|h| (h.cons_car(id), h.cons_cdr(id)));
                     if !found {
                         if let Some(sym_name) = car.as_symbol_name() {
@@ -857,18 +857,18 @@ pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>
             let new_bucket = items
                 .into_iter()
                 .rev()
-                .fold(Value::Nil, |acc, sym| Value::cons(sym, acc));
+                .fold(Value::NIL, |acc, sym| Value::cons(sym, acc));
             with_heap_mut(|h| {
                 h.get_vector_mut(vec_id)[bucket_idx] = new_bucket;
             });
-            return Ok(Value::True);
+            return Ok(Value::T);
         }
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     // Global obarray path
     let removed = eval.obarray.unintern(&name);
-    Ok(if removed { Value::True } else { Value::Nil })
+    Ok(if removed { Value::T } else { Value::NIL })
 }
 #[cfg(test)]
 #[path = "hashtab_test.rs"]

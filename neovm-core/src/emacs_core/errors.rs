@@ -23,6 +23,7 @@ use super::expr::Expr;
 use super::intern::resolve_sym;
 use super::symbol::Obarray;
 use super::value::*;
+use crate::emacs_core::value::{ValueKind};
 
 // ---------------------------------------------------------------------------
 // Obarray-based error hierarchy helpers
@@ -136,13 +137,13 @@ pub fn signal_matches_condition_value(
     signal_sym: &str,
     pattern: &Value,
 ) -> bool {
-    match pattern {
-        Value::Symbol(id) | Value::Keyword(id) => {
-            signal_matches_hierarchical(obarray, signal_sym, resolve_sym(*id))
+    match pattern.kind() {
+        ValueKind::Symbol(id) | ValueKind::Keyword(id) => {
+            signal_matches_hierarchical(obarray, signal_sym, resolve_sym(id))
         }
-        Value::True => true,
-        Value::Nil => false,
-        Value::Cons(_) => list_to_vec(pattern).is_some_and(|items| {
+        ValueKind::T => true,
+        ValueKind::Nil => false,
+        ValueKind::Cons => list_to_vec(pattern).is_some_and(|items| {
             items
                 .iter()
                 .any(|item| signal_matches_condition_value(obarray, signal_sym, item))
@@ -381,11 +382,11 @@ fn register_simple(obarray: &mut Obarray, name: &str, message: &str, parents: &[
 /// Extract parent symbol(s) from the PARENT argument of `define-error`.
 /// Accepts either a single symbol or a list of symbols.
 fn extract_parent_symbols(value: &Value) -> Result<Vec<String>, Flow> {
-    match value {
-        Value::Symbol(id) => Ok(vec![resolve_sym(*id).to_owned()]),
-        Value::Nil => Ok(vec!["error".to_string()]),
-        Value::True => Ok(vec!["t".to_string()]),
-        Value::Cons(_) => {
+    match value.kind() {
+        ValueKind::Symbol(id) => Ok(vec![resolve_sym(id).to_owned()]),
+        ValueKind::Nil => Ok(vec!["error".to_string()]),
+        ValueKind::T => Ok(vec!["t".to_string()]),
+        ValueKind::Cons => {
             let items = list_to_vec(value).ok_or_else(|| {
                 signal("wrong-type-argument", vec![Value::symbol("listp"), *value])
             })?;
@@ -419,9 +420,9 @@ fn extract_parent_symbols(value: &Value) -> Result<Vec<String>, Flow> {
 // ---------------------------------------------------------------------------
 
 fn build_signal_flow(symbol_name: &str, data: Value) -> Flow {
-    match data {
-        Value::Nil => signal(symbol_name, vec![]),
-        Value::Cons(_) => match list_to_vec(&data) {
+    match data.kind() {
+        ValueKind::Nil => signal(symbol_name, vec![]),
+        ValueKind::Cons => match list_to_vec(&data) {
             Some(data) => signal(symbol_name, data),
             None => signal_with_data(symbol_name, data),
         },
@@ -430,9 +431,9 @@ fn build_signal_flow(symbol_name: &str, data: Value) -> Flow {
 }
 
 fn build_signal_flow_suppressed(symbol_name: &str, data: Value) -> Flow {
-    match data {
-        Value::Nil => signal_suppressed(symbol_name, vec![]),
-        Value::Cons(_) => match list_to_vec(&data) {
+    match data.kind() {
+        ValueKind::Nil => signal_suppressed(symbol_name, vec![]),
+        ValueKind::Cons => match list_to_vec(&data) {
             Some(data) => signal_suppressed(symbol_name, data),
             None => signal_with_data_suppressed(symbol_name, data),
         },
@@ -441,10 +442,10 @@ fn build_signal_flow_suppressed(symbol_name: &str, data: Value) -> Flow {
 }
 
 fn build_peculiar_signal_flow(eval: &super::eval::Context, error_object: Value) -> Flow {
-    let Value::Cons(cell) = error_object else {
+    if !error_object.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
         unreachable!("peculiar signal error object must be a cons");
     };
-    let pair = read_cons(cell);
+    let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
     let error_symbol = pair.car;
     let data = pair.cdr;
 
@@ -474,7 +475,7 @@ pub(crate) fn builtin_signal(eval: &mut super::eval::Context, args: Vec<Value>) 
     if args.len() != 2 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("signal"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("signal"), Value::fixnum(args.len() as i64)],
         ));
     }
 
@@ -515,7 +516,7 @@ pub(crate) fn builtin_error_message_string(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("error-message-string"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -524,20 +525,20 @@ pub(crate) fn builtin_error_message_string(
 
     // Emacs expects ERROR-DATA to be a list (or nil).
     let (sym_name, data) = match error_data {
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);
+        Value::Cons(cell) /* TODO(tagged): convert Value::Cons to new API */ => {
+            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             let sym = match pair.car.as_symbol_name() {
                 Some(name) => name.to_string(),
                 None => return Ok(Value::string("peculiar error")),
             };
-            let rest = match &pair.cdr {
-                Value::Nil => vec![],
-                Value::Cons(_) => list_to_vec(&pair.cdr).unwrap_or_else(|| vec![pair.cdr]),
+            let rest = match pair.cdr.kind() {
+                ValueKind::Nil => vec![],
+                ValueKind::Cons => list_to_vec(&pair.cdr).unwrap_or_else(|| vec![pair.cdr]),
                 other => vec![*other],
             };
             (sym, rest)
         }
-        Value::Nil => return Ok(Value::string("peculiar error")),
+        Value::NIL => return Ok(Value::string("peculiar error")),
         _ => {
             return Err(signal(
                 "wrong-type-argument",

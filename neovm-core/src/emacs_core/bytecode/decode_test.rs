@@ -20,7 +20,7 @@ fn decode_simple_constant_return() {
     // bytecodes: constant(0) return
     // byte 192 = constant 0, byte 135 = return
     let bytecodes = vec![192, 135];
-    let mut constants = vec![Value::Int(42)];
+    let mut constants = vec![Value::fixnum(42)];
     let ops = decode_gnu_bytecode(&bytecodes, &mut constants).unwrap();
     assert_eq!(ops, vec![Op::Constant(0), Op::Return]);
 }
@@ -50,9 +50,9 @@ fn decode_varref_immediate() {
     let mut constants = vec![
         Value::symbol("x"),
         Value::symbol("y"),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
         Value::symbol("z"),
     ];
     let ops = decode_gnu_bytecode(&bytecodes, &mut constants).unwrap();
@@ -67,7 +67,7 @@ fn decode_goto_jump_patching() {
     // byte 4: 193 → constant(1) [1 byte]
     // byte 5: 135 → return [1 byte]
     let bytecodes = vec![192, 131, 5, 0, 193, 135];
-    let mut constants = vec![Value::Nil, Value::Int(1)];
+    let mut constants = vec![Value::NIL, Value::fixnum(1)];
     let ops = decode_gnu_bytecode(&bytecodes, &mut constants).unwrap();
     // Instructions: [0] constant(0), [1] goto-if-nil(4), [2] constant(1), [3] return
     // Wait, byte 5 maps to instruction index... let me trace:
@@ -109,7 +109,7 @@ fn decode_list_ops() {
 fn decode_constant_range() {
     // byte 192 = constant(0), byte 255 = constant(63)
     let bytecodes = vec![192, 255, 135];
-    let mut constants = (0..64).map(|i| Value::Int(i)).collect();
+    let mut constants = (0..64).map(|i| Value::fixnum(i)).collect();
     let ops = decode_gnu_bytecode(&bytecodes, &mut constants).unwrap();
     assert_eq!(ops, vec![Op::Constant(0), Op::Constant(63), Op::Return]);
 }
@@ -146,13 +146,13 @@ fn decode_discard_n() {
 #[test]
 fn decode_switch_preserves_hash_table_byte_targets() {
     let table = Value::hash_table(HashTableTest::Eq);
-    let Value::HashTable(table_id) = table else {
+    if !table.is_hash_table() /* TODO(tagged): `table_id` was Value::HashTable(table_id), rewrite let-else */ {
         panic!("expected hash table constant");
     };
     crate::emacs_core::value::with_heap_mut(|heap| {
         let ht = heap.get_hash_table_mut(table_id);
         let key = Value::symbol("foo").to_hash_key(&ht.test);
-        ht.data.insert(key.clone(), Value::Int(8));
+        ht.data.insert(key.clone(), Value::fixnum(8));
         ht.key_snapshots.insert(key.clone(), Value::symbol("foo"));
         ht.insertion_order.push(key);
     });
@@ -166,7 +166,7 @@ fn decode_switch_preserves_hash_table_byte_targets() {
     // byte 8: constant target
     // byte 9: return
     let bytecodes = vec![193, 192, 183, 130, 8, 0, 194, 135, 195, 135];
-    let mut constants = vec![table, Value::symbol("foo"), Value::Int(10), Value::Int(20)];
+    let mut constants = vec![table, Value::symbol("foo"), Value::fixnum(10), Value::fixnum(20)];
     let (ops, offset_map) =
         decode_gnu_bytecode_with_offset_map(&bytecodes, &mut constants).unwrap();
 
@@ -192,7 +192,7 @@ fn decode_switch_preserves_hash_table_byte_targets() {
             .copied()
             .expect("switch table target")
     });
-    assert_eq!(raw_target, Value::Int(8));
+    assert_eq!(raw_target, Value::fixnum(8));
     assert_eq!(offset_map.get(&8), Some(&6));
 }
 
@@ -279,7 +279,7 @@ fn parse_arglist_value_from_list() {
 
 #[test]
 fn parse_arglist_value_int() {
-    let params = parse_arglist_value(&Value::Int(1 | (2 << 8)));
+    let params = parse_arglist_value(&Value::fixnum(1 | (2 << 8)));
     assert_eq!(params.required.len(), 1);
     assert_eq!(params.optional.len(), 1);
     assert!(params.rest.is_none());

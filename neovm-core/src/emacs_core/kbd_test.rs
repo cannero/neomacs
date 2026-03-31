@@ -1,13 +1,14 @@
 use super::*;
+use super::value::{ValueKind, VecLikeType};
 
 fn expect_vector_ints(value: Value) -> Vec<i64> {
-    match value {
-        Value::Vector(v) => {
+    match value.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let guard = with_heap(|h| h.get_vector(v).clone());
             guard
                 .iter()
                 .map(|item| match item {
-                    Value::Int(n) => *n,
+                    ValueKind::Fixnum(n) => n,
                     other => panic!("expected int in vector, got {other:?}"),
                 })
                 .collect()
@@ -108,8 +109,8 @@ fn kbd_angle_events_return_symbols() {
     crate::emacs_core::value::set_current_heap(&mut heap);
 
     let result = parse_kbd_string("<f1>").expect("parse should succeed");
-    match result {
-        Value::Vector(v) => {
+    match result.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let guard = with_heap(|h| h.get_vector(v).clone());
             assert_eq!(guard.len(), 1);
             assert_eq!(guard[0], Value::symbol("f1"));
@@ -118,8 +119,8 @@ fn kbd_angle_events_return_symbols() {
     }
 
     let result = parse_kbd_string("C-<f1>").expect("parse should succeed");
-    match result {
-        Value::Vector(v) => {
+    match result.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let guard = with_heap(|h| h.get_vector(v).clone());
             assert_eq!(guard.len(), 1);
             assert_eq!(guard[0], Value::symbol("C-f1"));
@@ -162,7 +163,7 @@ fn key_events_from_designator_accepts_kbd_string_and_vector() {
         }]
     );
 
-    let from_vector = key_events_from_designator(&Value::vector(vec![Value::Int(134_217_848)]))
+    let from_vector = key_events_from_designator(&Value::vector(vec![Value::fixnum(134_217_848)]))
         .expect("decode vector int");
     assert_eq!(from_vector, from_string);
 }
@@ -194,7 +195,7 @@ fn key_events_from_designator_decodes_event_modifier_list() {
     crate::emacs_core::value::set_current_heap(&mut heap);
 
     // (control ??) => Ctrl+?
-    let list = Value::list(vec![Value::symbol("control"), Value::Int('?' as i64)]);
+    let list = Value::list(vec![Value::symbol("control"), Value::fixnum('?' as i64)]);
     let events =
         key_events_from_designator(&Value::vector(vec![list])).expect("decode modifier list");
     assert_eq!(
@@ -214,7 +215,7 @@ fn key_events_from_designator_decodes_event_modifier_list() {
     let list = Value::list(vec![
         Value::symbol("meta"),
         Value::symbol("control"),
-        Value::Int('a' as i64),
+        Value::fixnum('a' as i64),
     ]);
     let events =
         key_events_from_designator(&Value::vector(vec![list])).expect("decode multi-modifier list");
@@ -234,9 +235,9 @@ fn key_events_from_designator_decodes_event_modifier_list() {
 
 #[test]
 fn key_events_from_designator_rejects_non_array_types() {
-    let err = key_events_from_designator(&Value::Int(1)).expect_err("int should fail");
+    let err = key_events_from_designator(&Value::fixnum(1)).expect_err("int should fail");
     match err {
-        KeyDesignatorError::WrongType(v) => assert_eq!(v, Value::Int(1)),
+        KeyDesignatorError::WrongType(v) => assert_eq!(v, Value::fixnum(1)),
         other => panic!("expected WrongType error, got {other:?}"),
     }
 }

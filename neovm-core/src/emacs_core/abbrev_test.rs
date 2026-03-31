@@ -218,21 +218,21 @@ fn test_make_abbrev_table_and_predicate() {
 
     // make-abbrev-table creates an abbrev table
     let table = builtin_make_abbrev_table(&mut eval, vec![]).unwrap();
-    assert!(matches!(table, Value::Vector(_)));
+    assert!(table.is_vector());
 
     // abbrev-table-p returns true for it
     let result = builtin_abbrev_table_p(&mut eval, vec![table]).unwrap();
     assert!(result.is_truthy());
 
     // Non-tables return nil
-    let result = builtin_abbrev_table_p(&mut eval, vec![Value::Nil]).unwrap();
+    let result = builtin_abbrev_table_p(&mut eval, vec![Value::NIL]).unwrap();
     assert!(result.is_nil());
 
-    let result = builtin_abbrev_table_p(&mut eval, vec![Value::Int(42)]).unwrap();
+    let result = builtin_abbrev_table_p(&mut eval, vec![Value::fixnum(42)]).unwrap();
     assert!(result.is_nil());
 
     // A plain vector is not an abbrev table
-    let plain_vec = Value::vector(vec![Value::Int(0); 10]);
+    let plain_vec = Value::vector(vec![Value::fixnum(0); 10]);
     let result = builtin_abbrev_table_p(&mut eval, vec![plain_vec]).unwrap();
     assert!(result.is_nil());
 }
@@ -327,7 +327,7 @@ fn test_define_abbrev_table_and_lookup() {
     let mut eval = Context::new();
 
     // define-abbrev-table creates a named table
-    builtin_define_abbrev_table(&mut eval, vec![Value::symbol("test-table"), Value::Nil]).unwrap();
+    builtin_define_abbrev_table(&mut eval, vec![Value::symbol("test-table"), Value::NIL]).unwrap();
 
     // The symbol value should be an abbrev table
     let table = eval.obarray().symbol_value("test-table").cloned().unwrap();
@@ -340,7 +340,7 @@ fn test_insert_abbrev_table_description_writes_buffer_text() {
     use super::super::eval::Context;
 
     let mut eval = Context::new();
-    builtin_define_abbrev_table(&mut eval, vec![Value::symbol("test-table"), Value::Nil]).unwrap();
+    builtin_define_abbrev_table(&mut eval, vec![Value::symbol("test-table"), Value::NIL]).unwrap();
 
     let table = eval
         .obarray()
@@ -353,8 +353,8 @@ fn test_insert_abbrev_table_description_writes_buffer_text() {
             table,
             Value::string("btw"),
             Value::string("by the way"),
-            Value::Nil,
-            Value::Int(7),
+            Value::NIL,
+            Value::fixnum(7),
         ],
     )
     .unwrap();
@@ -406,7 +406,7 @@ fn test_abbrev_table_properties_are_table_local() {
         &mut eval,
         vec![Value::list(vec![
             Value::keyword(":case-fixed"),
-            Value::True,
+            Value::T,
         ])],
     )
     .unwrap();

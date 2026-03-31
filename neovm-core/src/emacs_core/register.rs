@@ -14,7 +14,7 @@ use std::collections::HashMap;
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
-use super::value::{Value, next_float_id};
+use super::value::{Value, next_float_id, ValueKind};
 use crate::gc::GcTrace;
 
 // ---------------------------------------------------------------------------
@@ -176,7 +176,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -187,7 +187,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -198,7 +198,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -206,11 +206,11 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 }
 
 fn expect_string(value: &Value) -> Result<String, Flow> {
-    match value {
-        Value::Str(_) => Ok(value.as_str().unwrap().to_string()),
-        Value::Symbol(id) => Ok(resolve_sym(*id).to_owned()),
-        Value::Nil => Ok("nil".to_string()),
-        Value::True => Ok("t".to_string()),
+    match value.kind() {
+        ValueKind::String => Ok(value.as_str().unwrap().to_string()),
+        ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
+        ValueKind::Nil => Ok("nil".to_string()),
+        ValueKind::T => Ok("t".to_string()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -219,9 +219,9 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
 }
 
 fn expect_int(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *other],
@@ -233,11 +233,11 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
 /// Accepts a Char directly, or an Int (treated as ASCII code), or a
 /// single-character string.
 fn expect_register(value: &Value) -> Result<char, Flow> {
-    match value {
-        Value::Char(c) => Ok(*c),
-        Value::Int(n) => {
-            if *n >= 0 && *n <= 0x10FFFF {
-                if let Some(c) = char::from_u32(*n as u32) {
+    match value.kind() {
+        ValueKind::Char(c) => Ok(c),
+        ValueKind::Fixnum(n) => {
+            if n >= 0 && n <= 0x10FFFF {
+                if let Some(c) = char::from_u32(n as u32) {
                     return Ok(c);
                 }
             }
@@ -246,7 +246,7 @@ fn expect_register(value: &Value) -> Result<char, Flow> {
                 vec![Value::symbol("characterp"), *value],
             ))
         }
-        Value::Str(_) => {
+        ValueKind::String => {
             let st = value.as_str().unwrap();
             let mut chars = st.chars();
             match (chars.next(), chars.next()) {
@@ -283,7 +283,7 @@ pub(crate) fn builtin_copy_to_register(
     let reg = expect_register(&args[0])?;
     let text = expect_string(&args[1])?;
     eval.registers.set(reg, RegisterContent::Text(text));
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (insert-register REGISTER &optional NOT-KILL) -> nil
@@ -342,7 +342,7 @@ pub(crate) fn builtin_point_to_register(
             point,
         },
     );
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (number-to-register NUMBER REGISTER) -> nil
@@ -354,7 +354,7 @@ pub(crate) fn builtin_number_to_register(
     let num = expect_int(&args[0])?;
     let reg = expect_register(&args[1])?;
     eval.registers.set(reg, RegisterContent::Number(num));
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (increment-register NUMBER REGISTER) -> nil
@@ -372,12 +372,12 @@ pub(crate) fn builtin_increment_register(
     match eval.registers.get(reg).cloned() {
         Some(RegisterContent::Number(n)) => {
             eval.registers.set(reg, RegisterContent::Number(n + inc));
-            Ok(Value::Nil)
+            Ok(ValueKind::Nil)
         }
         Some(RegisterContent::Text(mut s)) => {
             s.push_str(&inc.to_string());
             eval.registers.set(reg, RegisterContent::Text(s));
-            Ok(Value::Nil)
+            Ok(ValueKind::Nil)
         }
         Some(_) => Err(signal(
             "error",
@@ -389,7 +389,7 @@ pub(crate) fn builtin_increment_register(
         None => {
             // Empty register: treat as number starting from 0
             eval.registers.set(reg, RegisterContent::Number(inc));
-            Ok(Value::Nil)
+            Ok(ValueKind::Nil)
         }
     }
 }
@@ -454,7 +454,7 @@ pub(crate) fn builtin_get_register(
     let reg = expect_register(&args[0])?;
     match eval.registers.get(reg) {
         Some(RegisterContent::Text(s)) => Ok(Value::string(s.clone())),
-        Some(RegisterContent::Number(n)) => Ok(Value::Int(*n)),
+        Some(RegisterContent::Number(n)) => Ok(Value::fixnum(*n)),
         Some(RegisterContent::Position { buffer, point }) => Ok(Value::cons(
             Value::string(buffer.clone()),
             Value::Int(*point as i64),
@@ -466,7 +466,7 @@ pub(crate) fn builtin_get_register(
         Some(RegisterContent::File(f)) => Ok(Value::string(f.clone())),
         Some(RegisterContent::FrameConfig(v)) => Ok(*v),
         Some(RegisterContent::KbdMacro(keys)) => Ok(Value::list(keys.clone())),
-        None => Ok(Value::Nil),
+        None => Ok(Value::NIL),
     }
 }
 
@@ -483,7 +483,7 @@ pub(crate) fn builtin_register_to_string(
     match eval.registers.get(reg) {
         Some(RegisterContent::Text(s)) => Ok(Value::string(s.clone())),
         Some(RegisterContent::Rectangle(lines)) => Ok(Value::string(lines.join("\n"))),
-        _ => Ok(Value::Nil),
+        _ => Ok(Value::NIL),
     }
 }
 
@@ -497,17 +497,17 @@ pub(crate) fn builtin_set_register(
 ) -> EvalResult {
     expect_args("set-register", &args, 2)?;
     let reg = expect_register(&args[0])?;
-    let content = match &args[1] {
-        Value::Str(_) => RegisterContent::Text(args[1].as_str().unwrap().to_string()),
-        Value::Int(n) => RegisterContent::Number(*n),
-        Value::Nil => {
+    let content = match args[1].kind() {
+        ValueKind::String => RegisterContent::Text(args[1].as_str().unwrap().to_string()),
+        ValueKind::Fixnum(n) => RegisterContent::Number(n),
+        ValueKind::Nil => {
             eval.registers.clear(reg);
-            return Ok(Value::Nil);
+            return Ok(ValueKind::Nil);
         }
         other => RegisterContent::FrameConfig(*other),
     };
     eval.registers.set(reg, content);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // ===========================================================================

@@ -6,14 +6,14 @@ use std::process::{Command, Stdio};
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
-use super::value::{Value, list_to_vec, with_heap};
+use super::value::{Value, list_to_vec, with_heap, ValueKind, VecLikeType};
 use crate::buffer::BufferManager;
 
 fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ));
     }
     Ok(())
@@ -23,7 +23,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ));
     }
     Ok(())
@@ -67,11 +67,11 @@ fn signal_wrong_type_string(value: Value) -> Flow {
 }
 
 fn is_file_keyword(value: &Value) -> bool {
-    matches!(value, Value::Keyword(k) if { let n = resolve_sym(*k); n == ":file" || n == "file" })
+    value.as_keyword_id().map_or(false, |k| { let n = resolve_sym(k); n == ":file" || n == "file" })
 }
 
 fn parse_file_target(items: &[Value]) -> Result<OutputTarget, Flow> {
-    let file_value = items.get(1).cloned().unwrap_or(Value::Nil);
+    let file_value = items.get(1).cloned().unwrap_or(Value::NIL);
     let file = super::process::expect_string_strict(&file_value)?;
     Ok(OutputTarget::File(file))
 }
@@ -80,11 +80,11 @@ fn parse_real_buffer_destination_in_state(
     buffers: &BufferManager,
     value: &Value,
 ) -> Result<(OutputTarget, bool), Flow> {
-    match value {
-        Value::Int(_) => Ok((OutputTarget::Discard, true)),
-        Value::Nil => Ok((OutputTarget::Discard, false)),
-        Value::True | Value::Str(_) => Ok((OutputTarget::Buffer(*value), false)),
-        Value::Buffer(id) => {
+    match value.kind() {
+        ValueKind::Fixnum(_) => Ok((OutputTarget::Discard, true)),
+        ValueKind::Nil => Ok((OutputTarget::Discard, false)),
+        ValueKind::T | ValueKind::String => Ok((OutputTarget::Buffer(*value), false)),
+        ValueKind::Veclike(VecLikeType::Buffer) => {
             if buffers.get(*id).is_none() {
                 Err(signal(
                     "error",
@@ -94,9 +94,9 @@ fn parse_real_buffer_destination_in_state(
                 Ok((OutputTarget::Buffer(*value), false))
             }
         }
-        Value::Cons(_) => {
+        ValueKind::Cons => {
             let items = list_to_vec(value).ok_or_else(|| signal_wrong_type_string(*value))?;
-            let first = items.first().cloned().unwrap_or(Value::Nil);
+            let first = items.first().cloned().unwrap_or(ValueKind::Nil);
             if is_file_keyword(&first) {
                 Ok((parse_file_target(&items)?, false))
             } else {
@@ -108,10 +108,10 @@ fn parse_real_buffer_destination_in_state(
 }
 
 fn parse_stderr_destination(value: &Value) -> Result<(StderrTarget, Option<String>), Flow> {
-    match value {
-        Value::Nil => Ok((StderrTarget::Discard, None)),
-        Value::True => Ok((StderrTarget::ToStdoutTarget, None)),
-        Value::Str(s) => Ok((
+    match value.kind() {
+        ValueKind::Nil => Ok((StderrTarget::Discard, None)),
+        ValueKind::T => Ok((StderrTarget::ToStdoutTarget, None)),
+        ValueKind::String => Ok((
             StderrTarget::File,
             Some(with_heap(|h| h.get_string(*s).to_owned())),
         )),
@@ -123,10 +123,10 @@ fn parse_call_process_destination(
     buffers: &BufferManager,
     destination: &Value,
 ) -> Result<DestinationSpec, Flow> {
-    if let Value::Cons(_) = destination {
+    if destination.is_cons() /* TODO(tagged): `_` was Value::Cons(_), now use accessor */ {
         let items =
             list_to_vec(destination).ok_or_else(|| signal_wrong_type_string(*destination))?;
-        let first = items.first().cloned().unwrap_or(Value::Nil);
+        let first = items.first().cloned().unwrap_or(Value::NIL);
         if is_file_keyword(&first) {
             let stdout = parse_file_target(&items)?;
             return Ok(DestinationSpec {
@@ -136,7 +136,7 @@ fn parse_call_process_destination(
                 no_wait: false,
             });
         }
-        let second = items.get(1).cloned().unwrap_or(Value::Nil);
+        let second = items.get(1).cloned().unwrap_or(Value::NIL);
         let (stdout, no_wait) = parse_real_buffer_destination_in_state(buffers, &first)?;
         let (stderr, stderr_file) = parse_stderr_destination(&second)?;
         return Ok(DestinationSpec {
@@ -148,8 +148,8 @@ fn parse_call_process_destination(
     }
 
     let (stdout, no_wait) = parse_real_buffer_destination_in_state(buffers, destination)?;
-    let stderr = match destination {
-        Value::Nil | Value::Int(_) => StderrTarget::Discard,
+    let stderr = match destination.kind() {
+        ValueKind::Nil | ValueKind::Fixnum(_) => StderrTarget::Discard,
         _ => StderrTarget::ToStdoutTarget,
     };
     Ok(DestinationSpec {
@@ -173,8 +173,8 @@ fn insert_process_output_in_state(
     destination: &Value,
     output: &str,
 ) -> Result<(), Flow> {
-    match destination {
-        Value::Str(name) => {
+    match destination.kind() {
+        ValueKind::String => {
             let name_str = with_heap(|h| h.get_string(*name).to_owned());
             let id = buffers
                 .find_buffer_by_name(&name_str)
@@ -187,7 +187,7 @@ fn insert_process_output_in_state(
             })?;
             Ok(())
         }
-        Value::Buffer(id) => {
+        ValueKind::Veclike(VecLikeType::Buffer) => {
             buffers
                 .insert_into_buffer(*id, output)
                 .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
@@ -313,7 +313,7 @@ fn run_process_command_in_state(
         std::thread::spawn(move || {
             let _ = child.wait();
         });
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let mut command = Command::new(program);
@@ -328,7 +328,7 @@ fn run_process_command_in_state(
 
     let exit_code = output.status.code().unwrap_or(-1);
     route_captured_output_in_state(buffers, &destination_spec, &output.stdout, &output.stderr)?;
-    Ok(Value::Int(exit_code as i64))
+    Ok(Value::fixnum(exit_code as i64))
 }
 
 fn run_process_capture_output(program: &str, cmd_args: &[String]) -> Result<(i32, Vec<u8>), Flow> {
@@ -400,7 +400,7 @@ fn builtin_call_process_impl(buffers: &mut BufferManager, args: Vec<Value>) -> E
     expect_min_args("call-process", &args, 1)?;
     let program = super::process::expect_string_strict(&args[0])?;
     let infile = parse_optional_infile(&args, 1)?;
-    let destination = args.get(2).unwrap_or(&Value::Nil);
+    let destination = args.get(2).unwrap_or(&Value::NIL);
     let cmd_args = if args.len() > 4 {
         super::process::parse_string_args_strict(&args[4..])?
     } else {
@@ -417,7 +417,7 @@ fn builtin_call_process_region_impl(buffers: &mut BufferManager, args: Vec<Value
     let destination = if args.len() > 4 {
         &args[4]
     } else {
-        &Value::Nil
+        &Value::NIL
     };
     let destination_spec = parse_call_process_destination(buffers, destination)?;
 
@@ -427,8 +427,8 @@ fn builtin_call_process_region_impl(buffers: &mut BufferManager, args: Vec<Value
         Vec::new()
     };
 
-    let region_text = match &args[0] {
-        Value::Nil => {
+    let region_text = match args[0].kind() {
+        ValueKind::Nil => {
             let (text, maybe_delete_range) = {
                 let buf = buffers
                     .current_buffer()
@@ -448,7 +448,7 @@ fn builtin_call_process_region_impl(buffers: &mut BufferManager, args: Vec<Value
             }
             text
         }
-        Value::Str(s) => {
+        ValueKind::String => {
             if delete {
                 return Err(signal(
                     "wrong-type-argument",
@@ -522,7 +522,7 @@ fn builtin_call_process_region_impl(buffers: &mut BufferManager, args: Vec<Value
             let _ = child.wait();
         });
 
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let mut child = Command::new(&program)
@@ -545,14 +545,14 @@ fn builtin_call_process_region_impl(buffers: &mut BufferManager, args: Vec<Value
 
     let exit_code = output.status.code().unwrap_or(-1);
     route_captured_output_in_state(buffers, &destination_spec, &output.stdout, &output.stderr)?;
-    Ok(Value::Int(exit_code as i64))
+    Ok(Value::fixnum(exit_code as i64))
 }
 
 pub(crate) fn builtin_call_process(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let destination = args.get(2).copied().unwrap_or(Value::Nil);
+    let destination = args.get(2).copied().unwrap_or(Value::NIL);
     let display = args.get(3).is_some_and(Value::is_truthy);
     let result = builtin_call_process_impl(&mut eval.buffers, args)?;
     maybe_redisplay_sync_output(eval, &destination, display)?;
@@ -566,7 +566,7 @@ pub(crate) fn builtin_call_process_shell_command(
     expect_min_args("call-process-shell-command", &args, 1)?;
     let command = super::process::sequence_value_to_env_string(&args[0])?;
     let infile = parse_optional_infile(&args, 1)?;
-    let destination = args.get(2).copied().unwrap_or(Value::Nil);
+    let destination = args.get(2).copied().unwrap_or(Value::NIL);
     let display = args.get(3).is_some_and(Value::is_truthy);
     let cmd_args = if args.len() > 4 {
         parse_sequence_args(&args[4..])?
@@ -588,7 +588,7 @@ pub(crate) fn builtin_process_file(
     expect_min_args("process-file", &args, 1)?;
     let program = super::process::expect_string_strict(&args[0])?;
     let infile = parse_optional_infile(&args, 1)?;
-    let destination = args.get(2).copied().unwrap_or(Value::Nil);
+    let destination = args.get(2).copied().unwrap_or(Value::NIL);
     let display = args.get(3).is_some_and(Value::is_truthy);
     let cmd_args = if args.len() > 4 {
         super::process::parse_string_args_strict(&args[4..])?
@@ -608,7 +608,7 @@ pub(crate) fn builtin_process_file_shell_command(
     expect_min_args("process-file-shell-command", &args, 1)?;
     let command = super::process::sequence_value_to_env_string(&args[0])?;
     let infile = parse_optional_infile(&args, 1)?;
-    let destination = args.get(2).copied().unwrap_or(Value::Nil);
+    let destination = args.get(2).copied().unwrap_or(Value::NIL);
     let display = args.get(3).is_some_and(Value::is_truthy);
     let cmd_args = if args.len() > 4 {
         parse_sequence_args(&args[4..])?
@@ -660,7 +660,7 @@ pub(crate) fn builtin_process_lines_handling_status(
     let lines = parse_output_lines(&stdout);
 
     if !status_handler.is_nil() {
-        let _ = eval.apply(status_handler, vec![Value::Int(status as i64)])?;
+        let _ = eval.apply(status_handler, vec![Value::fixnum(status as i64)])?;
     } else if status != 0 {
         return Err(signal_process_lines_status_error(&program, status));
     }
@@ -673,7 +673,7 @@ pub(crate) fn builtin_call_process_region(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("call-process-region", &args, 3)?;
-    let destination = args.get(4).copied().unwrap_or(Value::Nil);
+    let destination = args.get(4).copied().unwrap_or(Value::NIL);
     let display = args.get(5).is_some_and(Value::is_truthy);
     let result = builtin_call_process_region_impl(&mut eval.buffers, args)?;
     maybe_redisplay_sync_output(eval, &destination, display)?;
@@ -686,7 +686,7 @@ fn parse_output_lines(stdout: &[u8]) -> Value {
         text.pop();
     }
     if text.is_empty() {
-        Value::Nil
+        Value::NIL
     } else {
         Value::list(text.split('\n').map(Value::string).collect())
     }

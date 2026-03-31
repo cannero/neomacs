@@ -30,7 +30,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -54,8 +54,8 @@ struct SerializeOpts {
 impl Default for SerializeOpts {
     fn default() -> Self {
         Self {
-            null_object: Value::Nil,
-            false_object: Value::Keyword(intern(":false")),
+            null_object: Value::NIL,
+            false_object: Value::keyword(intern(":false")),
         }
     }
 }
@@ -78,8 +78,8 @@ impl Default for ParseOpts {
         Self {
             object_type: ObjectType::HashTable,
             array_type: ArrayType::Vector,
-            null_object: Value::Keyword(intern(":null")),
-            false_object: Value::Keyword(intern(":false")),
+            null_object: Value::keyword(intern(":null")),
+            false_object: Value::keyword(intern(":false")),
         }
     }
 }
@@ -114,14 +114,14 @@ fn parse_parse_kwargs(args: &[Value], start_index: usize) -> Result<ParseOpts, F
         let key = &rest[i];
         let value = &rest[i + 1];
         match key {
-            Value::Keyword(k) if resolve_sym(*k) == ":object-type" => match value {
-                Value::Symbol(id) if resolve_sym(*id) == "hash-table" => {
+            ValueKind::Keyword(k) if resolve_sym(*k) == ":object-type" => match value {
+                ValueKind::Symbol(id) if resolve_sym(*id) == "hash-table" => {
                     opts.object_type = ObjectType::HashTable
                 }
-                Value::Symbol(id) if resolve_sym(*id) == "alist" => {
+                ValueKind::Symbol(id) if resolve_sym(*id) == "alist" => {
                     opts.object_type = ObjectType::Alist
                 }
-                Value::Symbol(id) if resolve_sym(*id) == "plist" => {
+                ValueKind::Symbol(id) if resolve_sym(*id) == "plist" => {
                     opts.object_type = ObjectType::Plist
                 }
                 _ => {
@@ -134,11 +134,11 @@ fn parse_parse_kwargs(args: &[Value], start_index: usize) -> Result<ParseOpts, F
                     ));
                 }
             },
-            Value::Keyword(k) if resolve_sym(*k) == ":array-type" => match value {
-                Value::Symbol(id) if resolve_sym(*id) == "array" => {
+            ValueKind::Keyword(k) if resolve_sym(*k) == ":array-type" => match value {
+                ValueKind::Symbol(id) if resolve_sym(*id) == "array" => {
                     opts.array_type = ArrayType::Vector
                 }
-                Value::Symbol(id) if resolve_sym(*id) == "list" => {
+                ValueKind::Symbol(id) if resolve_sym(*id) == "list" => {
                     opts.array_type = ArrayType::List
                 }
                 _ => {
@@ -151,10 +151,10 @@ fn parse_parse_kwargs(args: &[Value], start_index: usize) -> Result<ParseOpts, F
                     ));
                 }
             },
-            Value::Keyword(k) if resolve_sym(*k) == ":null-object" => {
+            ValueKind::Keyword(k) if resolve_sym(*k) == ":null-object" => {
                 opts.null_object = *value;
             }
-            Value::Keyword(k) if resolve_sym(*k) == ":false-object" => {
+            ValueKind::Keyword(k) if resolve_sym(*k) == ":false-object" => {
                 opts.false_object = *value;
             }
             _ => {
@@ -190,10 +190,10 @@ fn parse_serialize_kwargs(args: &[Value], start_index: usize) -> Result<Serializ
         let key = &rest[i];
         let value = &rest[i + 1];
         match key {
-            Value::Keyword(k) if resolve_sym(*k) == ":null-object" => {
+            ValueKind::Keyword(k) if resolve_sym(*k) == ":null-object" => {
                 opts.null_object = *value;
             }
-            Value::Keyword(k) if resolve_sym(*k) == ":false-object" => {
+            ValueKind::Keyword(k) if resolve_sym(*k) == ":false-object" => {
                 opts.false_object = *value;
             }
             _ => {
@@ -218,15 +218,15 @@ fn parse_serialize_kwargs(args: &[Value], start_index: usize) -> Result<Serializ
 /// Check if two Values are equivalent for the purpose of matching the
 /// null/false sentinel objects.  Uses structural equality for simple types.
 fn value_matches(a: &Value, b: &Value) -> bool {
-    match (a, b) {
-        (Value::Nil, Value::Nil) => true,
-        (Value::True, Value::True) => true,
-        (Value::Int(x), Value::Int(y)) => x == y,
-        (Value::Float(x, _), Value::Float(y, _)) => x.to_bits() == y.to_bits(),
-        (Value::Symbol(x), Value::Symbol(y)) => x == y,
-        (Value::Keyword(x), Value::Keyword(y)) => x == y,
-        (Value::Str(x), Value::Str(y)) => with_heap(|h| h.get_string(*x) == h.get_string(*y)),
-        (Value::Char(x), Value::Char(y)) => x == y,
+    match (a.kind(), b.kind()) {
+        (ValueKind::Nil, ValueKind::Nil) => true,
+        (ValueKind::T, ValueKind::T) => true,
+        (ValueKind::Fixnum(x), ValueKind::Fixnum(y)) => x == y,
+        (ValueKind::Float /* TODO(tagged): extract float via .xfloat() */, ValueKind::Float /* TODO(tagged): extract float via .xfloat() */) => x.to_bits() == y.to_bits(),
+        (ValueKind::Symbol(x), ValueKind::Symbol(y)) => x == y,
+        (ValueKind::Keyword(x), ValueKind::Keyword(y)) => x == y,
+        (ValueKind::String, ValueKind::String) => with_heap(|h| h.get_string(*x) == h.get_string(*y)),
+        (ValueKind::Char(x), ValueKind::Char(y)) => x == y,
         _ => false,
     }
 }
@@ -252,11 +252,11 @@ fn serialize_to_json(value: &Value, opts: &SerializeOpts, depth: usize) -> Resul
 
     match value {
         // t → true (checked after false sentinel, which is usually :false not t)
-        Value::True => Ok("true".to_string()),
+        ValueKind::T => Ok("true".to_string()),
 
-        Value::Int(n) => Ok(n.to_string()),
+        ValueKind::Fixnum(n) => Ok(n.to_string()),
 
-        Value::Float(f, _) => {
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => {
             if f.is_nan() || f.is_infinite() {
                 return Err(signal(
                     "json-serialize-error",
@@ -274,12 +274,12 @@ fn serialize_to_json(value: &Value, opts: &SerializeOpts, depth: usize) -> Resul
             }
         }
 
-        Value::Str(id) => {
+        ValueKind::String => {
             let s = with_heap(|h| h.get_string(*id).to_owned());
             Ok(json_encode_string(&s))
         }
 
-        Value::Vector(v) => {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(*v).clone());
             let mut parts = Vec::with_capacity(items.len());
             for item in items.iter() {
@@ -288,7 +288,7 @@ fn serialize_to_json(value: &Value, opts: &SerializeOpts, depth: usize) -> Resul
             Ok(format!("[{}]", parts.join(",")))
         }
 
-        Value::HashTable(ht) => {
+        ValueKind::Veclike(VecLikeType::HashTable) => {
             let table = with_heap(|h| h.get_hash_table(*ht).clone());
             let mut parts = Vec::with_capacity(table.data.len());
             for (key, val) in &table.data {
@@ -300,15 +300,15 @@ fn serialize_to_json(value: &Value, opts: &SerializeOpts, depth: usize) -> Resul
         }
 
         // Alist: list of (KEY . VALUE) cons cells → JSON object.
-        Value::Cons(_) => {
+        ValueKind::Cons => {
             let items = list_to_vec(value).ok_or_else(|| {
                 signal("wrong-type-argument", vec![Value::symbol("listp"), *value])
             })?;
             let mut parts = Vec::with_capacity(items.len());
             for item in &items {
-                match item {
-                    Value::Cons(cell) => {
-                        let pair = read_cons(*cell);
+                match item.kind() {
+                    ValueKind::Cons => {
+                        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
                         let key_str = symbol_object_key(&pair.car)?;
                         let val_json = serialize_to_json(&pair.cdr, opts, depth + 1)?;
                         parts.push(format!("{}:{}", json_encode_string(&key_str), val_json));
@@ -329,11 +329,11 @@ fn serialize_to_json(value: &Value, opts: &SerializeOpts, depth: usize) -> Resul
         // :null-object).  Emacs treats nil as JSON null regardless, but we
         // follow the sentinel logic.  Since nil is also an empty list, treat
         // it as an empty JSON object when it wasn't matched as null.
-        Value::Nil => Ok("null".to_string()),
+        ValueKind::Nil => Ok("null".to_string()),
 
         // Keywords that were not matched as false/null sentinels.
-        Value::Keyword(k) if resolve_sym(*k) == ":json-false" => Ok("false".to_string()),
-        Value::Keyword(k)
+        ValueKind::Keyword(k) if resolve_sym(*k) == ":json-false" => Ok("false".to_string()),
+        ValueKind::Keyword(k)
             if {
                 let n = resolve_sym(*k);
                 n == ":null" || n == ":json-null"
@@ -383,9 +383,9 @@ fn hash_key_to_string(key: &HashKey) -> Result<String, Flow> {
 ///
 /// Emacs `json-serialize` expects symbol keys in alists.
 fn symbol_object_key(value: &Value) -> Result<String, Flow> {
-    match value {
-        Value::Symbol(id) => Ok(resolve_sym(*id).to_owned()),
-        Value::Keyword(id) => Ok(resolve_sym(*id).to_owned()),
+    match value.kind() {
+        ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
+        ValueKind::Keyword(id) => Ok(resolve_sym(id).to_owned()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), *other],
@@ -511,7 +511,7 @@ impl<'a> JsonParser<'a> {
     /// Parse `true`.
     fn parse_true(&mut self) -> Result<Value, Flow> {
         self.expect_literal(b"true")?;
-        Ok(Value::True)
+        Ok(Value::T)
     }
 
     /// Parse `false`.
@@ -811,11 +811,11 @@ impl<'a> JsonParser<'a> {
                     vec![Value::string(format!("Invalid float: {}", num_str))],
                 )
             })?;
-            Ok(Value::Float(f, next_float_id()))
+            Ok(Value::make_float(f))
         } else {
             // Try parsing as i64 first; fall back to f64 for very large numbers.
             match num_str.parse::<i64>() {
-                Ok(n) => Ok(Value::Int(n)),
+                Ok(n) => Ok(Value::fixnum(n)),
                 Err(_) => {
                     let f: f64 = num_str.parse().map_err(|_| {
                         signal(
@@ -823,7 +823,7 @@ impl<'a> JsonParser<'a> {
                             vec![Value::string(format!("Invalid number: {}", num_str))],
                         )
                     })?;
-                    Ok(Value::Float(f, next_float_id()))
+                    Ok(Value::make_float(f))  // TODO(tagged): remove next_float_id()
                 }
             }
         }
@@ -888,7 +888,7 @@ impl<'a> JsonParser<'a> {
             return Ok(ht);
         }
 
-        if let Value::HashTable(ref table_arc) = ht {
+        if let Value::HashTable(ref table_arc) /* TODO(tagged): convert Value::HashTable to new API */ = ht {
             loop {
                 self.skip_ws();
                 let key = self.parse_string_raw()?;
@@ -897,8 +897,8 @@ impl<'a> JsonParser<'a> {
 
                 {
                     let key_val = Value::string(key);
-                    let str_id = match key_val {
-                        Value::Str(id) => id,
+                    let str_id = match key_val.kind() {
+                        ValueKind::String => id,
                         _ => unreachable!(),
                     };
                     let hash_key = HashKey::Str(str_id);
@@ -943,7 +943,7 @@ impl<'a> JsonParser<'a> {
 
         if self.peek() == Some(b'}') {
             self.advance();
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
 
         loop {
@@ -983,7 +983,7 @@ impl<'a> JsonParser<'a> {
 
         if self.peek() == Some(b'}') {
             self.advance();
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
 
         loop {
@@ -1046,8 +1046,8 @@ pub(crate) fn builtin_json_serialize(args: Vec<Value>) -> EvalResult {
 /// - `:false-object VALUE` — Lisp value for JSON false (default: :false)
 pub(crate) fn builtin_json_parse_string(args: Vec<Value>) -> EvalResult {
     expect_min_args("json-parse-string", &args, 1)?;
-    let input = match &args[0] {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
+    let input = match args[0].kind() {
+        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1062,7 +1062,7 @@ pub(crate) fn builtin_json_parse_string(args: Vec<Value>) -> EvalResult {
         let p = parser.pos as i64;
         return Err(signal(
             "json-end-of-file",
-            vec![Value::Int(1), Value::Int(p), Value::Int(p)],
+            vec![Value::fixnum(1), Value::fixnum(p), Value::fixnum(p)],
         ));
     }
     let result = parser.parse_value()?;
@@ -1109,7 +1109,7 @@ pub(crate) fn builtin_json_parse_buffer(
         let p = parser.pos as i64;
         return Err(signal(
             "json-end-of-file",
-            vec![Value::Int(1), Value::Int(p), Value::Int(p)],
+            vec![Value::fixnum(1), Value::fixnum(p), Value::fixnum(p)],
         ));
     }
 
@@ -1137,7 +1137,7 @@ pub(crate) fn builtin_json_insert(eval: &mut super::eval::Context, args: Vec<Val
     super::editfns::signal_before_change(eval, insert_pos, insert_pos)?;
     let _ = eval.buffers.insert_into_buffer(current_id, &json);
     super::editfns::signal_after_change(eval, insert_pos, insert_pos + json_len, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // ===========================================================================

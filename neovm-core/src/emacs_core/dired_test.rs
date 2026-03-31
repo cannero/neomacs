@@ -1,5 +1,6 @@
 use super::*;
 use std::io::Write;
+use crate::emacs_core::value::{ValueKind};
 
 /// Test helper: create a fresh eval context for dired tests.
 fn test_eval_ctx() -> super::super::eval::Context {
@@ -50,8 +51,8 @@ fn test_directory_files_and_attributes_basic() {
     // Find our file.
     let mut found = false;
     for item in &items {
-        if let Value::Cons(cell) = item {
-            let pair = read_cons(*cell);
+        if item.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             if pair.car.as_str() == Some("test.txt") {
                 found = true;
                 // cdr should be a list (the attributes).
@@ -73,17 +74,17 @@ fn test_directory_files_and_attributes_order_and_count() {
 
     let unsorted = call_directory_files_and_attributes(vec![
         Value::string(&dir_str),
-        Value::Nil,
-        Value::Nil,
-        Value::True,
+        Value::NIL,
+        Value::NIL,
+        Value::T,
     ])
     .unwrap();
     let unsorted_items = list_to_vec(&unsorted).unwrap();
     let unsorted_names: Vec<String> = unsorted_items
         .iter()
         .map(|pair| {
-            if let Value::Cons(cell) = pair {
-                read_cons(*cell).car.as_str().unwrap().to_string()
+            if pair.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+                read_cons(*cell).car.as_str().unwrap().to_string()  // TODO(tagged): replace read_cons with cons accessors
             } else {
                 panic!("expected cons pair");
             }
@@ -94,19 +95,19 @@ fn test_directory_files_and_attributes_order_and_count() {
 
     let unsorted_limited = call_directory_files_and_attributes(vec![
         Value::string(&dir_str),
-        Value::Nil,
-        Value::Nil,
-        Value::True,
-        Value::Nil,
-        Value::Int(2),
+        Value::NIL,
+        Value::NIL,
+        Value::T,
+        Value::NIL,
+        Value::fixnum(2),
     ])
     .unwrap();
     let unsorted_limited_names: Vec<String> = list_to_vec(&unsorted_limited)
         .unwrap()
         .iter()
         .map(|pair| {
-            if let Value::Cons(cell) = pair {
-                read_cons(*cell).car.as_str().unwrap().to_string()
+            if pair.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+                read_cons(*cell).car.as_str().unwrap().to_string()  // TODO(tagged): replace read_cons with cons accessors
             } else {
                 panic!("expected cons pair");
             }
@@ -117,19 +118,19 @@ fn test_directory_files_and_attributes_order_and_count() {
 
     let sorted_limited = call_directory_files_and_attributes(vec![
         Value::string(&dir_str),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Int(2),
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::fixnum(2),
     ])
     .unwrap();
     let sorted_limited_names: Vec<String> = list_to_vec(&sorted_limited)
         .unwrap()
         .iter()
         .map(|pair| {
-            if let Value::Cons(cell) = pair {
-                read_cons(*cell).car.as_str().unwrap().to_string()
+            if pair.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+                read_cons(*cell).car.as_str().unwrap().to_string()  // TODO(tagged): replace read_cons with cons accessors
             } else {
                 panic!("expected cons pair");
             }
@@ -149,36 +150,36 @@ fn test_directory_files_and_attributes_count_and_id_format() {
 
     let result = call_directory_files_and_attributes(vec![
         Value::string(&dir_str),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Int(-1),
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::fixnum(-1),
     ]);
     assert!(result.is_err());
 
     let result = call_directory_files_and_attributes(vec![
         Value::string(&dir_str),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
         Value::string("x"),
     ]);
     assert!(result.is_err());
 
     let result = call_directory_files_and_attributes(vec![
         Value::string(&dir_str),
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::True,
-        Value::Int(1),
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::T,
+        Value::fixnum(1),
     ])
     .unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 1);
-    let attrs = if let Value::Cons(cell) = &items[0] {
+    let attrs = if &items[0].is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
         with_heap(|h| h.cons_cdr(*cell))
     } else {
         panic!("expected cons pair");
@@ -208,7 +209,7 @@ fn test_directory_files_and_attributes_eval_respects_default_directory() {
         &mut eval,
         vec![
             Value::string("fixtures"),
-            Value::Nil,
+            Value::NIL,
             Value::string("\\.el$"),
         ],
     )
@@ -218,8 +219,8 @@ fn test_directory_files_and_attributes_eval_respects_default_directory() {
         .unwrap()
         .iter()
         .map(|pair| {
-            if let Value::Cons(cell) = pair {
-                read_cons(*cell).car.as_str().unwrap().to_string()
+            if pair.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+                read_cons(*cell).car.as_str().unwrap().to_string()  // TODO(tagged): replace read_cons with cons accessors
             } else {
                 panic!("expected cons pair");
             }
@@ -266,8 +267,8 @@ fn test_file_name_completion_exact() {
     // Exact and unique match returns t.
     assert!(result.is_truthy());
     // In Emacs, exact unique match returns t.
-    match result {
-        Value::True => {} // correct
+    match result.kind() {
+        ValueKind::T => {} // correct
         _ => panic!("Expected t for exact match, got {:?}", result),
     }
 
@@ -363,7 +364,7 @@ fn test_file_name_completion_predicate_with_eval() {
 
     let bad_pred = builtin_file_name_completion(
         &mut eval,
-        vec![Value::string("a"), Value::string(&dir_str), Value::Int(123)],
+        vec![Value::string("a"), Value::string(&dir_str), Value::fixnum(123)],
     );
     assert!(bad_pred.is_err());
 
@@ -516,7 +517,7 @@ fn test_file_attributes_directory() {
     let items = list_to_vec(&result).unwrap();
 
     // TYPE should be t for directory.
-    assert!(matches!(items[0], Value::True));
+    assert!(matches!(items[0], Value::T));
 
     let _ = fs::remove_dir_all(&dir);
 }
@@ -541,7 +542,7 @@ fn test_file_attributes_time_tuple_shape_and_gid_changep() {
     for idx in [4usize, 5usize, 6usize] {
         let tm = list_to_vec(&items[idx]).expect("time tuple must be a list");
         assert_eq!(tm.len(), 4);
-        assert!(tm.iter().all(|v| matches!(v, Value::Int(_))));
+        assert!(tm.iter().all(|v| v.is_fixnum()));
     }
 
     // Emacs commonly reports non-nil here on Unix.
@@ -595,8 +596,8 @@ fn test_file_attributes_eval_respects_default_directory() {
 
 #[test]
 fn test_file_attributes_lessp() {
-    let f1 = Value::cons(Value::string("alpha.txt"), Value::Nil);
-    let f2 = Value::cons(Value::string("beta.txt"), Value::Nil);
+    let f1 = Value::cons(Value::string("alpha.txt"), Value::NIL);
+    let f2 = Value::cons(Value::string("beta.txt"), Value::NIL);
 
     let result = builtin_file_attributes_lessp(vec![f1, f2]).unwrap();
     assert!(result.is_truthy());
@@ -607,8 +608,8 @@ fn test_file_attributes_lessp() {
 
 #[test]
 fn test_file_attributes_lessp_equal() {
-    let f1 = Value::cons(Value::string("same.txt"), Value::Nil);
-    let f2 = Value::cons(Value::string("same.txt"), Value::Nil);
+    let f1 = Value::cons(Value::string("same.txt"), Value::NIL);
+    let f2 = Value::cons(Value::string("same.txt"), Value::NIL);
 
     let result = builtin_file_attributes_lessp(vec![f1, f2]).unwrap();
     assert!(result.is_nil()); // not less than
@@ -740,12 +741,12 @@ fn test_directory_files_and_attributes_wrong_args() {
     assert!(
         call_directory_files_and_attributes(vec![
             Value::string("/tmp"),
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil, // 7th arg
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL, // 7th arg
         ])
         .is_err()
     );
@@ -754,17 +755,17 @@ fn test_directory_files_and_attributes_wrong_args() {
 #[test]
 fn test_file_attributes_wrong_args() {
     assert!(call_file_attributes(vec![]).is_err());
-    assert!(call_file_attributes(vec![Value::string("/tmp"), Value::Nil, Value::Nil,]).is_err());
+    assert!(call_file_attributes(vec![Value::string("/tmp"), Value::NIL, Value::NIL,]).is_err());
 }
 
 #[test]
 fn test_system_users_wrong_args() {
-    assert!(builtin_system_users(vec![Value::Nil]).is_err());
+    assert!(builtin_system_users(vec![Value::NIL]).is_err());
 }
 
 #[test]
 fn test_system_groups_wrong_args() {
-    assert!(builtin_system_groups(vec![Value::Nil]).is_err());
+    assert!(builtin_system_groups(vec![Value::NIL]).is_err());
 }
 
 // -----------------------------------------------------------------------

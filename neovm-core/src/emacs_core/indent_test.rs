@@ -191,14 +191,14 @@ fn eval_column_and_indentation_subset() {
     .expect("parse forms");
 
     let col = ev.eval(&forms[0]).expect("eval current-column");
-    assert_eq!(col, Value::Int(2));
+    assert_eq!(col, Value::fixnum(2));
 
     let indent = ev.eval(&forms[1]).expect("eval current-indentation");
-    assert_eq!(indent, Value::Int(2));
+    assert_eq!(indent, Value::fixnum(2));
 
     let move_result = ev.eval(&forms[2]).expect("eval move-to-column");
     let items = list_to_vec(&move_result).expect("list result");
-    assert_eq!(items, vec![Value::Int(3), Value::Int(8)]);
+    assert_eq!(items, vec![Value::fixnum(3), Value::fixnum(8)]);
 }
 
 #[test]
@@ -236,34 +236,34 @@ fn eval_move_to_column_force_subset() {
 
     let first = ev.eval(&forms[0]).expect("eval first force case");
     let first_items = list_to_vec(&first).expect("first list");
-    assert_eq!(first_items[0], Value::Int(10));
-    assert_eq!(first_items[1], Value::Int(7));
+    assert_eq!(first_items[0], Value::fixnum(10));
+    assert_eq!(first_items[1], Value::fixnum(7));
     assert_eq!(
         list_to_vec(&first_items[2]).expect("first buffer bytes"),
         vec![
-            Value::Int(97),
-            Value::Int(98),
-            Value::Int(99),
-            Value::Int(9),
-            Value::Int(32),
-            Value::Int(32),
+            Value::fixnum(97),
+            Value::fixnum(98),
+            Value::fixnum(99),
+            Value::fixnum(9),
+            Value::fixnum(32),
+            Value::fixnum(32),
         ]
     );
 
     let second = ev.eval(&forms[1]).expect("eval second force case");
     let second_items = list_to_vec(&second).expect("second list");
-    assert_eq!(second_items[0], Value::Int(5));
-    assert_eq!(second_items[1], Value::Int(6));
+    assert_eq!(second_items[0], Value::fixnum(5));
+    assert_eq!(second_items[1], Value::fixnum(6));
     assert_eq!(
         list_to_vec(&second_items[2]).expect("second buffer bytes"),
         vec![
-            Value::Int(97),
-            Value::Int(32),
-            Value::Int(32),
-            Value::Int(32),
-            Value::Int(32),
-            Value::Int(9),
-            Value::Int(98),
+            Value::fixnum(97),
+            Value::fixnum(32),
+            Value::fixnum(32),
+            Value::fixnum(32),
+            Value::fixnum(32),
+            Value::fixnum(9),
+            Value::fixnum(98),
         ]
     );
 }
@@ -331,25 +331,25 @@ fn gnu_indent_region_matches_indent_el() {
     assert_eq!(
         list_to_vec(&first).expect("first byte list"),
         vec![
-            Value::Int(32),
-            Value::Int(32),
-            Value::Int(97),
-            Value::Int(10),
-            Value::Int(32),
-            Value::Int(32),
-            Value::Int(98),
-            Value::Int(10),
-            Value::Int(10),
-            Value::Int(32),
-            Value::Int(32),
-            Value::Int(99),
+            Value::fixnum(32),
+            Value::fixnum(32),
+            Value::fixnum(97),
+            Value::fixnum(10),
+            Value::fixnum(32),
+            Value::fixnum(32),
+            Value::fixnum(98),
+            Value::fixnum(10),
+            Value::fixnum(10),
+            Value::fixnum(32),
+            Value::fixnum(32),
+            Value::fixnum(99),
         ]
     );
 
     let second = ev.eval(&forms[1]).expect("eval indent-region nil column");
     assert_eq!(
         list_to_vec(&second).expect("second byte list"),
-        vec![Value::Int(97), Value::Int(10), Value::Int(98)]
+        vec![Value::fixnum(97), Value::fixnum(10), Value::fixnum(98)]
     );
 
     let third = ev
@@ -357,13 +357,13 @@ fn gnu_indent_region_matches_indent_el() {
         .expect("eval indent-region swapped bounds");
     assert_eq!(
         list_to_vec(&third).expect("third byte list"),
-        vec![Value::Int(97), Value::Int(10), Value::Int(98)]
+        vec![Value::fixnum(97), Value::fixnum(10), Value::fixnum(98)]
     );
 
     let fourth = ev
         .eval(&forms[3])
         .expect("eval indent-region non-numeric column");
-    assert_eq!(fourth, Value::True);
+    assert_eq!(fourth, Value::T);
 }
 
 #[test]
@@ -399,7 +399,7 @@ fn gnu_indent_according_to_mode_matches_indent_el() {
     };
     assert_eq!(
         list_to_vec(&first).expect("first byte list"),
-        vec![Value::Int(97)]
+        vec![Value::fixnum(97)]
     );
 
     let second = match ev.eval(&forms[1]) {
@@ -414,7 +414,7 @@ fn gnu_indent_according_to_mode_matches_indent_el() {
         ),
         Err(err) => panic!("eval indent-according-to-mode point: {err:?}"),
     };
-    assert_eq!(second, Value::Int(2));
+    assert_eq!(second, Value::fixnum(2));
 }
 
 #[test]
@@ -514,15 +514,15 @@ fn reindent_then_newline_and_indent_normalizes_split_whitespace() {
 fn wrong_arg_count_errors() {
     let mut eval = super::super::eval::Context::new();
     // current-indentation takes no args
-    assert!(builtin_current_indentation(&mut eval, vec![Value::Int(1)]).is_err());
+    assert!(builtin_current_indentation(&mut eval, vec![Value::fixnum(1)]).is_err());
     // indent-to requires at least 1 arg
     assert!(builtin_indent_to(&mut eval, vec![]).is_err());
     // indent-to accepts at most 2 args
     assert!(
-        builtin_indent_to(&mut eval, vec![Value::Int(1), Value::Int(2), Value::Int(3)]).is_err()
+        builtin_indent_to(&mut eval, vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]).is_err()
     );
     // current-column takes no args
-    assert!(builtin_current_column(&mut eval, vec![Value::Int(1)]).is_err());
+    assert!(builtin_current_column(&mut eval, vec![Value::fixnum(1)]).is_err());
 }
 
 #[test]

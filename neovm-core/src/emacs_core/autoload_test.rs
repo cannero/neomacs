@@ -108,7 +108,7 @@ fn autoload_manager_multiple_entries() {
 #[test]
 fn autoload_type_from_value() {
     assert_eq!(
-        AutoloadType::from_value(&Value::Nil),
+        AutoloadType::from_value(&Value::NIL),
         AutoloadType::Function
     );
     assert_eq!(
@@ -142,9 +142,9 @@ fn autoload_type_roundtrip() {
 #[test]
 fn after_load_add_and_take() {
     let mut mgr = AutoloadManager::new();
-    mgr.add_after_load("my-file", Value::Int(1));
-    mgr.add_after_load("my-file", Value::Int(2));
-    mgr.add_after_load("other-file", Value::Int(3));
+    mgr.add_after_load("my-file", Value::fixnum(1));
+    mgr.add_after_load("my-file", Value::fixnum(2));
+    mgr.add_after_load("other-file", Value::fixnum(3));
 
     let forms = mgr.take_after_load_forms("my-file");
     assert_eq!(forms.len(), 2);
@@ -203,11 +203,11 @@ fn is_autoload_value_positive() {
 
 #[test]
 fn is_autoload_value_negative() {
-    assert!(!is_autoload_value(&Value::Nil));
-    assert!(!is_autoload_value(&Value::Int(42)));
+    assert!(!is_autoload_value(&Value::NIL));
+    assert!(!is_autoload_value(&Value::fixnum(42)));
     assert!(!is_autoload_value(&Value::list(vec![
         Value::symbol("lambda"),
-        Value::Nil,
+        Value::NIL,
     ])));
 }
 

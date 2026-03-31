@@ -206,7 +206,7 @@ impl TaggedHeap {
         for block in &mut self.cons_blocks {
             if let Some(cell) = block.alloc(car, cdr) {
                 self.allocated_count += 1;
-                return unsafe { TaggedValue::cons(cell) };
+                return unsafe { TaggedValue::from_cons_ptr(cell) };
             }
         }
         // All blocks full — allocate a new block
@@ -214,7 +214,7 @@ impl TaggedHeap {
         let cell = block.alloc(car, cdr).expect("fresh block should have space");
         self.cons_blocks.push(block);
         self.allocated_count += 1;
-        unsafe { TaggedValue::cons(cell) }
+        unsafe { TaggedValue::from_cons_ptr(cell) }
     }
 
     /// Allocate a string object.
@@ -226,7 +226,7 @@ impl TaggedHeap {
         let ptr = Box::into_raw(obj);
         self.link_object(unsafe { &mut (*ptr).header });
         self.allocated_count += 1;
-        unsafe { TaggedValue::string(ptr) }
+        unsafe { TaggedValue::from_string_ptr(ptr) }
     }
 
     /// Allocate a float object.
@@ -238,7 +238,7 @@ impl TaggedHeap {
         let ptr = Box::into_raw(obj);
         self.link_object(unsafe { &mut (*ptr).header });
         self.allocated_count += 1;
-        unsafe { TaggedValue::float(ptr) }
+        unsafe { TaggedValue::from_float_ptr(ptr) }
     }
 
     /// Allocate a vector.
@@ -250,7 +250,7 @@ impl TaggedHeap {
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
-        unsafe { TaggedValue::veclike(ptr as *const VecLikeHeader) }
+        unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
     /// Allocate a hash table.
@@ -265,7 +265,7 @@ impl TaggedHeap {
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
-        unsafe { TaggedValue::veclike(ptr as *const VecLikeHeader) }
+        unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
     /// Allocate a lambda.
@@ -280,7 +280,7 @@ impl TaggedHeap {
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
-        unsafe { TaggedValue::veclike(ptr as *const VecLikeHeader) }
+        unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
     /// Allocate a macro.
@@ -295,7 +295,7 @@ impl TaggedHeap {
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
-        unsafe { TaggedValue::veclike(ptr as *const VecLikeHeader) }
+        unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
     /// Allocate a bytecode function.
@@ -310,7 +310,7 @@ impl TaggedHeap {
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
-        unsafe { TaggedValue::veclike(ptr as *const VecLikeHeader) }
+        unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
     /// Allocate a record.
@@ -322,7 +322,7 @@ impl TaggedHeap {
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
-        unsafe { TaggedValue::veclike(ptr as *const VecLikeHeader) }
+        unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
     /// Allocate an overlay.
@@ -337,7 +337,7 @@ impl TaggedHeap {
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
-        unsafe { TaggedValue::veclike(ptr as *const VecLikeHeader) }
+        unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
     /// Allocate a marker.
@@ -352,7 +352,7 @@ impl TaggedHeap {
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
-        unsafe { TaggedValue::veclike(ptr as *const VecLikeHeader) }
+        unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
     // -----------------------------------------------------------------------

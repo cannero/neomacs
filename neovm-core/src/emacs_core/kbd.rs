@@ -7,6 +7,7 @@
 //! - string return when all events are plain chars, otherwise vector.
 
 use super::{
+use super::value::{ValueKind, VecLikeType};
     intern::resolve_sym,
     keymap::KeyEvent,
     value::{Value, read_cons, with_heap},
@@ -75,8 +76,8 @@ pub(crate) fn parse_kbd_string(desc: &str) -> Result<Value, String> {
     let values = encoded
         .into_iter()
         .map(|event| match event {
-            EncodedEvent::Char(c) => Value::Int(c as i64),
-            EncodedEvent::Int(n) => Value::Int(n),
+            EncodedEvent::Char(c) => Value::fixnum(c as i64),
+            EncodedEvent::Int(n) => Value::fixnum(n),
             EncodedEvent::Symbol(name) => Value::symbol(name),
         })
         .collect();
@@ -86,8 +87,8 @@ pub(crate) fn parse_kbd_string(desc: &str) -> Result<Value, String> {
 pub(crate) fn key_events_from_designator(
     designator: &Value,
 ) -> Result<Vec<KeyEvent>, KeyDesignatorError> {
-    match designator {
-        Value::Str(id) => {
+    match designator.kind() {
+        ValueKind::String => {
             // For strings used as key sequences (define-key, lookup-key, etc.),
             // each character IS a key event — no kbd-style text parsing.
             // This matches official Emacs behavior where "\C-x8" is two events:
@@ -157,7 +158,7 @@ pub(crate) fn key_events_from_designator(
                 })
                 .collect())
         }
-        Value::Vector(_) => {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             decode_encoded_key_events(designator).map_err(KeyDesignatorError::Parse)
         }
         other => Err(KeyDesignatorError::WrongType(*other)),
@@ -165,8 +166,8 @@ pub(crate) fn key_events_from_designator(
 }
 
 fn decode_encoded_key_events(encoded: &Value) -> Result<Vec<KeyEvent>, String> {
-    match encoded {
-        Value::Str(id) => {
+    match encoded.kind() {
+        ValueKind::String => {
             let s = with_heap(|h| h.get_string(*id).to_owned());
             Ok(s.chars()
                 .map(|ch| {
@@ -230,7 +231,7 @@ fn decode_encoded_key_events(encoded: &Value) -> Result<Vec<KeyEvent>, String> {
                 })
                 .collect())
         }
-        Value::Vector(v) => {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(*v).clone());
             items.iter().map(decode_vector_event).collect()
         }
@@ -242,10 +243,10 @@ fn decode_encoded_key_events(encoded: &Value) -> Result<Vec<KeyEvent>, String> {
 }
 
 fn decode_vector_event(item: &Value) -> Result<KeyEvent, String> {
-    match item {
-        Value::Int(n) => decode_int_event(*n),
-        Value::Char(ch) => Ok(KeyEvent::Char {
-            code: *ch,
+    match item.kind() {
+        ValueKind::Fixnum(n) => decode_int_event(n),
+        ValueKind::Char(ch) => Ok(KeyEvent::Char {
+            code: ch,
             ctrl: false,
             meta: false,
             shift: false,
@@ -253,12 +254,12 @@ fn decode_vector_event(item: &Value) -> Result<KeyEvent, String> {
             hyper: false,
             alt: false,
         }),
-        Value::Symbol(id) => decode_symbol_event(resolve_sym(*id)),
-        Value::Nil => decode_symbol_event("nil"),
-        Value::True => decode_symbol_event("t"),
+        ValueKind::Symbol(id) => decode_symbol_event(resolve_sym(id)),
+        ValueKind::Nil => decode_symbol_event("nil"),
+        ValueKind::T => decode_symbol_event("t"),
         // Event modifier list: (MODIFIER... BASE-EVENT)
         // e.g. (control ??) => Ctrl+?, (meta control ?a) => M-C-a
-        Value::Cons(_) => decode_event_modifier_list(item),
+        ValueKind::Cons => decode_event_modifier_list(item),
         other => Err(format!(
             "invalid key vector element type: {}",
             other.type_name()
@@ -275,12 +276,12 @@ fn decode_event_modifier_list(list: &Value) -> Result<KeyEvent, String> {
 
     // Walk the list, collecting modifier symbols
     loop {
-        match cursor {
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
-                match &pair.car {
-                    Value::Symbol(id) => {
-                        let name = resolve_sym(*id);
+        match cursor.kind() {
+            ValueKind::Cons => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+                match pair.car.kind() {
+                    ValueKind::Symbol(id) => {
+                        let name = resolve_sym(id);
                         match name {
                             "control" => mods.ctrl = true,
                             "meta" => mods.meta = true,
@@ -302,14 +303,14 @@ fn decode_event_modifier_list(list: &Value) -> Result<KeyEvent, String> {
                         }
                         cursor = pair.cdr;
                     }
-                    Value::Int(n) => {
+                    ValueKind::Fixnum(n) => {
                         // Base event is a character code
-                        let base = decode_int_event(*n)?;
+                        let base = decode_int_event(n)?;
                         return Ok(apply_mods_to_event(base, mods));
                     }
-                    Value::Char(ch) => {
+                    ValueKind::Char(ch) => {
                         return Ok(KeyEvent::Char {
-                            code: *ch,
+                            code: ch,
                             ctrl: mods.ctrl,
                             meta: mods.meta,
                             shift: mods.shift,
@@ -326,15 +327,15 @@ fn decode_event_modifier_list(list: &Value) -> Result<KeyEvent, String> {
                     }
                 }
             }
-            Value::Nil => {
+            ValueKind::Nil => {
                 return Err("empty event modifier list".to_string());
             }
             // Last element as a dotted pair base event
-            Value::Int(n) => {
+            ValueKind::Fixnum(n) => {
                 let base = decode_int_event(n)?;
                 return Ok(apply_mods_to_event(base, mods));
             }
-            Value::Char(ch) => {
+            ValueKind::Char(ch) => {
                 return Ok(KeyEvent::Char {
                     code: ch,
                     ctrl: mods.ctrl,
@@ -345,7 +346,7 @@ fn decode_event_modifier_list(list: &Value) -> Result<KeyEvent, String> {
                     alt: mods.alt,
                 });
             }
-            Value::Symbol(id) => {
+            ValueKind::Symbol(id) => {
                 return Ok(apply_mods_to_event(
                     decode_symbol_event(resolve_sym(id))?,
                     mods,

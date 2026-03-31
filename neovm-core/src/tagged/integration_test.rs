@@ -144,8 +144,8 @@ fn test_eq_semantics() {
     assert_eq!(a, b); // eq for fixnums
 
     // Symbol eq: same SymId = eq
-    let s1 = TaggedValue::symbol(SymId(5));
-    let s2 = TaggedValue::symbol(SymId(5));
+    let s1 = TaggedValue::from_sym_id(SymId(5));
+    let s2 = TaggedValue::from_sym_id(SymId(5));
     assert_eq!(s1, s2);
 
     // Cons eq: same pointer = eq, different pointer = not eq
@@ -225,9 +225,9 @@ fn test_alist_lookup() {
     let mut heap = TaggedHeap::new();
 
     // Build alist: ((a . 1) (b . 2) (c . 3))
-    let pair_a = heap.alloc_cons(TaggedValue::symbol(SymId(10)), TaggedValue::fixnum(1));
-    let pair_b = heap.alloc_cons(TaggedValue::symbol(SymId(11)), TaggedValue::fixnum(2));
-    let pair_c = heap.alloc_cons(TaggedValue::symbol(SymId(12)), TaggedValue::fixnum(3));
+    let pair_a = heap.alloc_cons(TaggedValue::from_sym_id(SymId(10)), TaggedValue::fixnum(1));
+    let pair_b = heap.alloc_cons(TaggedValue::from_sym_id(SymId(11)), TaggedValue::fixnum(2));
+    let pair_c = heap.alloc_cons(TaggedValue::from_sym_id(SymId(12)), TaggedValue::fixnum(3));
     let alist = make_list(&mut heap, &[pair_a, pair_b, pair_c]);
 
     // assq-like lookup
@@ -243,12 +243,12 @@ fn test_alist_lookup() {
         None
     }
 
-    let target = TaggedValue::symbol(SymId(11));
+    let target = TaggedValue::from_sym_id(SymId(11));
     let found = assq(alist, target).unwrap();
     assert_eq!(found.cons_cdr().as_fixnum(), Some(2));
 
     // Not found
-    let missing = assq(alist, TaggedValue::symbol(SymId(99)));
+    let missing = assq(alist, TaggedValue::from_sym_id(SymId(99)));
     assert!(missing.is_none());
 }
 

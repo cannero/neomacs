@@ -10,7 +10,7 @@
 use std::time::{Duration, Instant};
 
 use super::error::{EvalResult, Flow, signal};
-use super::value::Value;
+use super::value::{Value, ValueKind, VecLikeType};
 use crate::gc::GcTrace;
 
 // ---------------------------------------------------------------------------
@@ -275,7 +275,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -286,7 +286,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -294,10 +294,10 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
 }
 
 fn expect_number(value: &Value) -> Result<f64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n as f64),
-        Value::Float(f, _) => Ok(*f),
-        Value::Char(c) => Ok(*c as u32 as f64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n as f64),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(*f),
+        ValueKind::Char(c) => Ok(c as u32 as f64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("numberp"), *other],
@@ -306,9 +306,9 @@ fn expect_number(value: &Value) -> Result<f64, Flow> {
 }
 
 fn expect_fixnum_like(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("fixnump"), *other],
@@ -391,10 +391,10 @@ fn parse_spaced_run_at_time_delay(tokens: &[&str]) -> Option<f64> {
 }
 
 fn parse_run_at_time_delay(value: &Value) -> Result<f64, Flow> {
-    match value {
-        Value::Nil => Ok(0.0),
-        Value::Int(_) | Value::Float(_, _) | Value::Char(_) => expect_number(value),
-        Value::Str(_) => {
+    match value.kind() {
+        ValueKind::Nil => Ok(0.0),
+        ValueKind::Fixnum(_) | ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ | ValueKind::Char(_) => expect_number(value),
+        ValueKind::String => {
             let s_str = value.as_str().unwrap();
             let spec = s_str.trim();
             if spec.is_empty() {
@@ -437,9 +437,9 @@ fn parse_run_at_time_delay(value: &Value) -> Result<f64, Flow> {
 }
 
 fn parse_idle_timer_delay(value: &Value) -> Result<f64, Flow> {
-    match value {
-        Value::Nil => Ok(0.0),
-        Value::Int(_) | Value::Float(_, _) | Value::Char(_) => expect_number(value),
+    match value.kind() {
+        ValueKind::Nil => Ok(0.0),
+        ValueKind::Fixnum(_) | ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ | ValueKind::Char(_) => expect_number(value),
         _ => Err(signal(
             "error",
             vec![Value::string("Invalid time specification")],
@@ -448,8 +448,8 @@ fn parse_idle_timer_delay(value: &Value) -> Result<f64, Flow> {
 }
 
 fn expect_timer_id(value: &Value) -> Result<TimerId, Flow> {
-    match value {
-        Value::Timer(id) => Ok(*id),
+    match value.kind() {
+        ValueKind::Veclike(VecLikeType::Timer) => Ok(*id),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("timerp"), *other],
@@ -478,7 +478,7 @@ pub(crate) fn builtin_run_at_time(eval: &mut super::eval::Context, args: Vec<Val
     let id = eval
         .timers
         .add_timer(delay, repeat, callback, timer_args, false);
-    Ok(Value::Timer(id))
+    Ok(Value::make_timer(id))
 }
 
 /// (add-timeout SECS REPEAT FUNCTION &optional OBJECT) -> timer
@@ -491,7 +491,7 @@ pub(crate) fn builtin_add_timeout(eval: &mut super::eval::Context, args: Vec<Val
     if args.len() > 4 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("add-timeout"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("add-timeout"), Value::fixnum(args.len() as i64)],
         ));
     }
 
@@ -510,7 +510,7 @@ pub(crate) fn builtin_add_timeout(eval: &mut super::eval::Context, args: Vec<Val
     let id = eval
         .timers
         .add_timer(delay, repeat, callback, timer_args, false);
-    Ok(Value::Timer(id))
+    Ok(Value::make_timer(id))
 }
 
 /// (run-with-timer SECS REPEAT FUNCTION &rest ARGS) -> timer
@@ -543,7 +543,7 @@ pub(crate) fn builtin_run_with_idle_timer(
     let id = eval
         .timers
         .add_timer(delay, repeat, callback, timer_args, true);
-    Ok(Value::Timer(id))
+    Ok(Value::make_timer(id))
 }
 
 /// (cancel-timer TIMER) -> nil
@@ -554,13 +554,13 @@ pub(crate) fn builtin_cancel_timer(
     expect_args("cancel-timer", &args, 1)?;
     let id = expect_timer_id(&args[0])?;
     eval.timers.cancel_timer(id);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (timerp OBJECT) -> t or nil
 pub(crate) fn builtin_timerp(args: Vec<Value>) -> EvalResult {
     expect_args("timerp", &args, 1)?;
-    Ok(Value::bool(matches!(args[0], Value::Timer(_))))
+    Ok(Value::bool_val(matches!(args[0], Value::make_timer(_))))
 }
 
 /// (timer-activate TIMER) -> nil
@@ -574,7 +574,7 @@ pub(crate) fn builtin_timer_activate(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("timer-activate"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -588,8 +588,8 @@ pub(crate) fn builtin_timer_activate(
         }
     }
 
-    let id = match &args[0] {
-        Value::Timer(id) => *id,
+    let id = match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Timer) => *id,
         _ => return Err(signal("error", vec![Value::string("Invalid timer")])),
     };
     if !eval.timers.is_timer(id) {
@@ -602,7 +602,7 @@ pub(crate) fn builtin_timer_activate(
         ));
     }
     eval.timers.timer_activate(id);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (sleep-for SECONDS &optional MILLISECONDS) -> nil
@@ -615,7 +615,7 @@ pub(crate) fn builtin_sleep_for(eval: &mut super::eval::Context, args: Vec<Value
     if args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("sleep-for"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("sleep-for"), Value::fixnum(args.len() as i64)],
         ));
     }
 
@@ -652,7 +652,7 @@ pub(crate) fn builtin_sleep_for(eval: &mut super::eval::Context, args: Vec<Value
         }
     }
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // ===========================================================================

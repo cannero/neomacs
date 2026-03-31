@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::intern::resolve_sym;
 use super::print::print_value;
-use super::value::Value;
+use super::value::{Value, ValueKind, VecLikeType};
 
 // ---------------------------------------------------------------------------
 // Argument validation helpers (local to this module)
@@ -411,8 +411,8 @@ impl HelpFormatter {
     pub fn describe_function(name: &str, value: &Value, doc: Option<&str>) -> String {
         let mut out = String::new();
 
-        let kind = match value {
-            Value::Lambda(_) => {
+        let kind = match value.kind() {
+            ValueKind::Veclike(VecLikeType::Lambda) => {
                 if let Some(lam) = value.get_lambda_data() {
                     if lam.env.is_some() {
                         "a Lisp closure"
@@ -423,30 +423,30 @@ impl HelpFormatter {
                     "a Lisp function"
                 }
             }
-            Value::Subr(_) => "a built-in function",
-            Value::Macro(_) => "a Lisp macro",
-            Value::ByteCode(_) => "a compiled Lisp function",
+            ValueKind::Subr(_) => "a built-in function",
+            ValueKind::Veclike(VecLikeType::Macro) => "a Lisp macro",
+            ValueKind::Veclike(VecLikeType::ByteCode) => "a compiled Lisp function",
             _ => "a Lisp function",
         };
 
         out.push_str(&format!("{} is {}.\n\n", name, kind));
 
         // Signature
-        match value {
-            Value::Lambda(_) | Value::Macro(_) => {
+        match value.kind() {
+            ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => {
                 if let Some(lam) = value.get_lambda_data() {
                     let params = format_param_list(&lam.params);
                     out.push_str(&format!("({}{})\n", name, params));
                 }
             }
-            Value::ByteCode(_) => {
+            ValueKind::Veclike(VecLikeType::ByteCode) => {
                 if let Some(bc) = value.get_bytecode_data() {
                     let params = format_param_list(&bc.params);
                     out.push_str(&format!("({}{})\n", name, params));
                 }
             }
-            Value::Subr(id) => {
-                out.push_str(&format!("({} &rest ARGS)\n", resolve_sym(*id)));
+            ValueKind::Subr(id) => {
+                out.push_str(&format!("({} &rest ARGS)\n", resolve_sym(id)));
             }
             _ => {
                 out.push_str(&format!("({})\n", name));
@@ -454,8 +454,8 @@ impl HelpFormatter {
         }
 
         // Docstring from LambdaData
-        let inline_doc = match value {
-            Value::Lambda(_) | Value::Macro(_) => value
+        let inline_doc = match value.kind() {
+            ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => value
                 .get_lambda_data()
                 .and_then(|lam| lam.docstring.as_deref()),
             _ => None,

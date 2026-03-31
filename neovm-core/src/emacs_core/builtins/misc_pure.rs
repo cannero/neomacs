@@ -11,19 +11,19 @@ pub(crate) fn builtin_identity(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_prefix_numeric_value(args: Vec<Value>) -> EvalResult {
     expect_args("prefix-numeric-value", &args, 1)?;
-    let numeric = match &args[0] {
-        Value::Nil => 1,
-        Value::Symbol(id) if resolve_sym(*id) == "-" => -1,
-        Value::Int(n) => *n,
-        Value::Char(c) => *c as i64,
-        Value::Cons(cell) => read_cons(*cell).car.as_int().unwrap_or(1),
+    let numeric = match args[0].kind() {
+        ValueKind::Nil => 1,
+        ValueKind::Symbol(id) if resolve_sym(id) == "-" => -1,
+        ValueKind::Fixnum(n) => n,
+        ValueKind::Char(c) => c as i64,
+        ValueKind::Cons => read_cons(*cell).car.as_int().unwrap_or(1),  // TODO(tagged): replace read_cons with cons accessors
         _ => 1,
     };
-    Ok(Value::Int(numeric))
+    Ok(Value::fixnum(numeric))
 }
 
 pub(crate) fn builtin_ignore(_args: Vec<Value>) -> EvalResult {
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_message(ctx: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -31,9 +31,9 @@ pub(crate) fn builtin_message(ctx: &mut super::eval::Context, args: Vec<Value>) 
     // GNU Emacs: nil or empty string clears the echo area and returns as-is.
     if args[0].is_nil() {
         ctx.clear_current_message();
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
-    if let Value::Str(id) = &args[0] {
+    if &args[0].is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
         if with_heap(|h| h.get_string(*id).is_empty()) {
             ctx.clear_current_message();
             return Ok(args[0]);
@@ -42,8 +42,8 @@ pub(crate) fn builtin_message(ctx: &mut super::eval::Context, args: Vec<Value>) 
     // GNU Emacs's `message` ALWAYS calls `format-message` on the args,
     // even for a single string argument.  This converts %% -> % and
     // applies text-quoting (curly quotes).
-    let msg = match super::strings::builtin_format_message(ctx, args.clone())? {
-        Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
+    let msg = match super::strings::builtin_format_message(ctx, args.clone())?.kind() {
+        ValueKind::String => with_heap(|h| h.get_string(id).to_owned()),
         _ => String::new(),
     };
     ctx.set_current_message(Some(msg.clone()));
@@ -55,11 +55,11 @@ pub(crate) fn builtin_message(ctx: &mut super::eval::Context, args: Vec<Value>) 
 pub(crate) fn builtin_message_box(ctx: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("message-box", &args, 1)?;
     if args[0].is_nil() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     // GNU Emacs: always calls format-message, even for single-arg.
-    let msg = match super::strings::builtin_format_message(ctx, args.clone())? {
-        Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
+    let msg = match super::strings::builtin_format_message(ctx, args.clone())?.kind() {
+        ValueKind::String => with_heap(|h| h.get_string(id).to_owned()),
         _ => String::new(),
     };
     eprintln!("{}", msg);
@@ -72,11 +72,11 @@ pub(crate) fn builtin_message_or_box(
 ) -> EvalResult {
     expect_min_args("message-or-box", &args, 1)?;
     if args[0].is_nil() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     // GNU Emacs: always calls format-message, even for single-arg.
-    let msg = match super::strings::builtin_format_message(ctx, args.clone())? {
-        Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
+    let msg = match super::strings::builtin_format_message(ctx, args.clone())?.kind() {
+        ValueKind::String => with_heap(|h| h.get_string(id).to_owned()),
         _ => String::new(),
     };
     eprintln!("{}", msg);
@@ -90,13 +90,13 @@ pub(crate) fn builtin_current_message(
     expect_args("current-message", &args, 0)?;
     Ok(match ctx.current_message_text() {
         Some(message) => Value::string(message),
-        None => Value::Nil,
+        None => Value::NIL,
     })
 }
 
 pub(crate) fn builtin_daemonp(args: Vec<Value>) -> EvalResult {
     expect_args("daemonp", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_daemon_initialized(args: Vec<Value>) -> EvalResult {
@@ -111,41 +111,42 @@ pub(crate) fn builtin_daemon_initialized(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_documentation_stringp(args: Vec<Value>) -> EvalResult {
     expect_args("documentation-stringp", &args, 1)?;
-    let is_compiled_ref = match args[0] {
-        Value::Cons(cell) => {
-            let pair = read_cons(cell);
+    let is_compiled_ref = match args[0].kind() {
+        ValueKind::Cons => {
+            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
             pair.car.as_str().is_some() && pair.cdr.as_int().is_some()
         }
         _ => false,
     };
-    Ok(Value::bool(
-        matches!(args[0], Value::Str(_) | Value::Int(_)) || is_compiled_ref,
+    Ok(Value::bool_val(
+        matches!(args[0], Value::Str(_) /* TODO(tagged): convert Value::Str to new API */ | Value::fixnum(_)) || is_compiled_ref,
     ))
 }
 
 pub(crate) fn builtin_flush_standard_output(args: Vec<Value>) -> EvalResult {
     expect_args("flush-standard-output", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_force_mode_line_update(args: Vec<Value>) -> EvalResult {
     expect_max_args("force-mode-line-update", &args, 1)?;
-    Ok(args.first().cloned().unwrap_or(Value::Nil))
+    Ok(args.first().cloned().unwrap_or(Value::NIL))
 }
 
 pub(crate) fn builtin_get_internal_run_time(args: Vec<Value>) -> EvalResult {
     expect_args("get-internal-run-time", &args, 0)?;
     use std::time::{SystemTime, UNIX_EPOCH};
+use crate::emacs_core::value::{ValueKind};
     let dur = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
     let secs = dur.as_secs() as i64;
     let usecs = dur.subsec_micros() as i64;
     Ok(Value::list(vec![
-        Value::Int(secs >> 16),
-        Value::Int(secs & 0xFFFF),
-        Value::Int(usecs),
-        Value::Int(0),
+        Value::fixnum(secs >> 16),
+        Value::fixnum(secs & 0xFFFF),
+        Value::fixnum(usecs),
+        Value::fixnum(0),
     ]))
 }
 
@@ -176,8 +177,8 @@ pub(crate) fn builtin_invocation_name(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_error(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("error", &args, 1)?;
-    let msg = match builtin_format_message(eval, args)? {
-        Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
+    let msg = match builtin_format_message(eval, args)?.kind() {
+        ValueKind::String => with_heap(|h| h.get_string(id).to_owned()),
         _ => "error".to_string(),
     };
     Err(signal("error", vec![Value::string(msg)]))
@@ -185,8 +186,8 @@ pub(crate) fn builtin_error(eval: &mut super::eval::Context, args: Vec<Value>) -
 
 pub(crate) fn builtin_user_error(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("user-error", &args, 1)?;
-    let msg = match builtin_format_message(eval, args)? {
-        Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
+    let msg = match builtin_format_message(eval, args)?.kind() {
+        ValueKind::String => with_heap(|h| h.get_string(id).to_owned()),
         _ => "user-error".to_string(),
     };
     Err(signal("user-error", vec![Value::string(msg)]))
@@ -218,5 +219,5 @@ pub(crate) fn builtin_symbol_name(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_make_symbol(args: Vec<Value>) -> EvalResult {
     expect_args("make-symbol", &args, 1)?;
     let name = expect_string(&args[0])?;
-    Ok(Value::Symbol(intern_uninterned(&name)))
+    Ok(Value::symbol(intern_uninterned(&name)))
 }

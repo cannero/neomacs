@@ -81,7 +81,7 @@ fn substitute_literal_backslash() {
 
 #[test]
 fn substitute_wrong_type() {
-    let result = builtin_substitute_command_keys(vec![Value::Int(42)]);
+    let result = builtin_substitute_command_keys(vec![Value::fixnum(42)]);
     assert!(result.is_err());
 }
 
@@ -127,7 +127,7 @@ fn documentation_property_with_raw() {
         vec![
             Value::symbol("foo"),
             Value::symbol("variable-documentation"),
-            Value::True,
+            Value::T,
         ],
     );
     assert!(result.is_ok());
@@ -139,7 +139,7 @@ fn documentation_property_wrong_type() {
     let mut eval = Context::new();
     let result = builtin_documentation_property(
         &mut eval,
-        vec![Value::Int(42), Value::symbol("variable-documentation")],
+        vec![Value::fixnum(42), Value::symbol("variable-documentation")],
     );
     assert!(result.is_err());
 }
@@ -164,7 +164,7 @@ fn snarf_documentation_returns_nil() {
 
 #[test]
 fn snarf_documentation_wrong_type() {
-    let result = builtin_snarf_documentation(vec![Value::Int(42)]);
+    let result = builtin_snarf_documentation(vec![Value::fixnum(42)]);
     assert!(result.is_err());
 }
 
@@ -354,7 +354,7 @@ fn documentation_substitutes_command_keys_unless_raw() {
     let display = builtin_documentation(&mut evaluator, vec![Value::symbol("doc-raw-fn")]).unwrap();
     let raw = builtin_documentation(
         &mut evaluator,
-        vec![Value::symbol("doc-raw-fn"), Value::True],
+        vec![Value::symbol("doc-raw-fn"), Value::T],
     )
     .unwrap();
 
@@ -377,7 +377,7 @@ fn documentation_subr() {
     let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
-        .set_symbol_function("plus", Value::Subr(intern("+")));
+        .set_symbol_function("plus", Value::subr(intern("+")));
 
     let result = builtin_documentation(&mut evaluator, vec![Value::symbol("plus")]);
     assert!(result.is_ok());
@@ -389,7 +389,7 @@ fn documentation_car_subr_uses_oracle_text_shape() {
     let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
-        .set_symbol_function("car", Value::Subr(intern("car")));
+        .set_symbol_function("car", Value::subr(intern("car")));
 
     let result = builtin_documentation(&mut evaluator, vec![Value::symbol("car")]).unwrap();
     let text = result
@@ -404,7 +404,7 @@ fn documentation_if_special_form_uses_oracle_text_shape() {
     let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
-        .set_symbol_function("if", Value::Subr(intern("if")));
+        .set_symbol_function("if", Value::subr(intern("if")));
 
     let result = builtin_documentation(&mut evaluator, vec![Value::symbol("if")]).unwrap();
     let text = result
@@ -457,7 +457,7 @@ fn documentation_core_subr_stubs_use_oracle_first_line_shapes() {
     for (name, expected_prefix) in probes {
         evaluator
             .obarray
-            .set_symbol_function(name, Value::Subr(intern(name)));
+            .set_symbol_function(name, Value::subr(intern(name)));
         let result = builtin_documentation(&mut evaluator, vec![Value::symbol(name)]).unwrap();
         let text = result
             .as_str()
@@ -491,7 +491,7 @@ fn documentation_prefers_function_documentation_property() {
     let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
-        .set_symbol_function("doc-prop", Value::Int(7));
+        .set_symbol_function("doc-prop", Value::fixnum(7));
     evaluator.obarray.put_property(
         "doc-prop",
         "function-documentation",
@@ -507,10 +507,10 @@ fn documentation_integer_function_documentation_property_returns_nil() {
     let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
-        .set_symbol_function("doc-prop", Value::Int(7));
+        .set_symbol_function("doc-prop", Value::fixnum(7));
     evaluator
         .obarray
-        .put_property("doc-prop", "function-documentation", Value::Int(9));
+        .put_property("doc-prop", "function-documentation", Value::fixnum(9));
 
     let result = builtin_documentation(&mut evaluator, vec![Value::symbol("doc-prop")]);
     assert!(result.unwrap().is_nil());
@@ -521,7 +521,7 @@ fn documentation_list_function_documentation_property_is_evaluated() {
     let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
-        .set_symbol_function("doc-prop", Value::Int(7));
+        .set_symbol_function("doc-prop", Value::fixnum(7));
     evaluator.obarray.put_property(
         "doc-prop",
         "function-documentation",
@@ -537,7 +537,7 @@ fn documentation_symbol_function_documentation_property_is_evaluated() {
     let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
-        .set_symbol_function("doc-prop", Value::Int(7));
+        .set_symbol_function("doc-prop", Value::fixnum(7));
     evaluator
         .obarray
         .put_property("doc-prop", "function-documentation", Value::symbol("t"));
@@ -551,11 +551,11 @@ fn documentation_vector_function_documentation_property_is_evaluated() {
     let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
-        .set_symbol_function("doc-prop", Value::Int(7));
+        .set_symbol_function("doc-prop", Value::fixnum(7));
     evaluator.obarray.put_property(
         "doc-prop",
         "function-documentation",
-        Value::vector(vec![Value::Int(1), Value::Int(2)]),
+        Value::vector(vec![Value::fixnum(1), Value::fixnum(2)]),
     );
 
     let result = builtin_documentation(&mut evaluator, vec![Value::symbol("doc-prop")]);
@@ -567,7 +567,7 @@ fn documentation_unbound_symbol_function_documentation_property_errors() {
     let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
-        .set_symbol_function("doc-prop", Value::Int(7));
+        .set_symbol_function("doc-prop", Value::fixnum(7));
     evaluator.obarray.put_property(
         "doc-prop",
         "function-documentation",
@@ -586,11 +586,11 @@ fn documentation_invalid_form_function_documentation_property_errors() {
     let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
-        .set_symbol_function("doc-prop", Value::Int(7));
+        .set_symbol_function("doc-prop", Value::fixnum(7));
     evaluator.obarray.put_property(
         "doc-prop",
         "function-documentation",
-        Value::list(vec![Value::Int(1), Value::Int(2)]),
+        Value::list(vec![Value::fixnum(1), Value::fixnum(2)]),
     );
 
     let result = builtin_documentation(&mut evaluator, vec![Value::symbol("doc-prop")]);
@@ -631,7 +631,7 @@ fn documentation_quoted_lambda_without_docstring_returns_nil() {
 fn documentation_vector_designator_returns_keyboard_macro_doc() {
     let mut evaluator = super::super::eval::Context::new();
     let result =
-        builtin_documentation(&mut evaluator, vec![Value::vector(vec![Value::Int(1)])]).unwrap();
+        builtin_documentation(&mut evaluator, vec![Value::vector(vec![Value::fixnum(1)])]).unwrap();
     assert_eq!(result.as_str(), Some("Keyboard macro."));
 }
 
@@ -689,7 +689,7 @@ fn documentation_non_symbol_non_function_errors_invalid_function() {
     let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation(
         &mut evaluator,
-        vec![Value::list(vec![Value::Int(1), Value::Int(2)])],
+        vec![Value::list(vec![Value::fixnum(1), Value::fixnum(2)])],
     );
     assert!(result.is_err());
 }
@@ -757,7 +757,7 @@ fn documentation_property_eval_substitutes_command_keys_unless_raw() {
         vec![
             Value::symbol("doc-sym"),
             Value::symbol("variable-documentation"),
-            Value::True,
+            Value::T,
         ],
     )
     .unwrap();
@@ -776,7 +776,7 @@ fn documentation_property_eval_integer_property_returns_nil() {
     let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
-        .put_property("doc-sym", "variable-documentation", Value::Int(7));
+        .put_property("doc-sym", "variable-documentation", Value::fixnum(7));
 
     let result = builtin_documentation_property(
         &mut evaluator,
@@ -791,7 +791,7 @@ fn documentation_property_eval_integer_property_returns_nil() {
 
 #[test]
 fn documentation_stringp_accepts_compiled_file_refs() {
-    let doc_ref = Value::cons(Value::string("/tmp/docref.elc"), Value::Int(17));
+    let doc_ref = Value::cons(Value::string("/tmp/docref.elc"), Value::fixnum(17));
     let result = builtin_documentation_stringp(vec![doc_ref]).unwrap();
     assert!(result.is_truthy());
 }
@@ -815,7 +815,7 @@ fn documentation_property_eval_reads_compiled_doc_ref() {
         "variable-documentation",
         Value::cons(
             Value::string(path.to_string_lossy().into_owned()),
-            Value::Int(5),
+            Value::fixnum(5),
         ),
     );
 
@@ -859,7 +859,7 @@ fn documentation_property_eval_load_path_raw_t_preserves_ascii_quotes() {
         vec![
             Value::symbol("load-path"),
             Value::symbol("variable-documentation"),
-            Value::Nil,
+            Value::NIL,
         ],
     )
     .unwrap();
@@ -868,7 +868,7 @@ fn documentation_property_eval_load_path_raw_t_preserves_ascii_quotes() {
         vec![
             Value::symbol("load-path"),
             Value::symbol("variable-documentation"),
-            Value::True,
+            Value::T,
         ],
     )
     .unwrap();
@@ -892,7 +892,7 @@ fn documentation_property_eval_ctl_x_4_map_raw_matches_display_when_no_markup() 
         vec![
             Value::symbol("ctl-x-4-map"),
             Value::symbol("variable-documentation"),
-            Value::Nil,
+            Value::NIL,
         ],
     )
     .unwrap();
@@ -901,7 +901,7 @@ fn documentation_property_eval_ctl_x_4_map_raw_matches_display_when_no_markup() 
         vec![
             Value::symbol("ctl-x-4-map"),
             Value::symbol("variable-documentation"),
-            Value::True,
+            Value::T,
         ],
     )
     .unwrap();
@@ -1281,7 +1281,7 @@ fn documentation_property_eval_vector_property_is_evaluated() {
     evaluator.obarray.put_property(
         "doc-sym",
         "variable-documentation",
-        Value::vector(vec![Value::Int(1), Value::Int(2)]),
+        Value::vector(vec![Value::fixnum(1), Value::fixnum(2)]),
     );
 
     let result = builtin_documentation_property(
@@ -1323,7 +1323,7 @@ fn documentation_property_eval_invalid_form_property_errors() {
     evaluator.obarray.put_property(
         "doc-sym",
         "variable-documentation",
-        Value::list(vec![Value::Int(1), Value::Int(2)]),
+        Value::list(vec![Value::fixnum(1), Value::fixnum(2)]),
     );
 
     let result = builtin_documentation_property(
@@ -1348,7 +1348,7 @@ fn documentation_property_eval_non_symbol_prop_returns_nil() {
 
     let result = builtin_documentation_property(
         &mut evaluator,
-        vec![Value::symbol("doc-sym"), Value::Int(1)],
+        vec![Value::symbol("doc-sym"), Value::fixnum(1)],
     )
     .unwrap();
     assert!(result.is_nil());
@@ -1359,7 +1359,7 @@ fn documentation_property_eval_non_symbol_target_errors() {
     let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation_property(
         &mut evaluator,
-        vec![Value::Int(1), Value::symbol("variable-documentation")],
+        vec![Value::fixnum(1), Value::symbol("variable-documentation")],
     );
     assert!(result.is_err());
 }

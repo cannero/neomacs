@@ -17,7 +17,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -28,7 +28,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -36,9 +36,9 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 }
 
 fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *other],
@@ -47,11 +47,11 @@ fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
 }
 
 fn expect_string(value: &Value) -> Result<String, Flow> {
-    match value {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
-        Value::Symbol(id) => Ok(resolve_sym(*id).to_owned()),
-        Value::Nil => Ok("nil".to_string()),
-        Value::True => Ok("t".to_string()),
+    match value.kind() {
+        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
+        ValueKind::Nil => Ok("nil".to_string()),
+        ValueKind::T => Ok("t".to_string()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -82,7 +82,7 @@ pub(crate) fn eval_forms_from_source_in_runtime(
         return Err(signal("end-of-file", vec![]));
     }
     if source.is_empty() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     let forms = super::parser::parse_forms(source).map_err(|e| {
         signal(
@@ -93,7 +93,7 @@ pub(crate) fn eval_forms_from_source_in_runtime(
     for form in forms {
         eval_form(&form)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn eval_forms_from_source(eval: &mut super::eval::Context, source: &str) -> EvalResult {
@@ -126,7 +126,7 @@ pub(crate) fn eval_forms_from_source(eval: &mut super::eval::Context, source: &s
             eval.eval(form)?;
         }
         eval.gc_safe_point();
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     })
 }
 
@@ -146,12 +146,12 @@ fn resolve_eval_buffer_id_in_state(
     arg: Option<&Value>,
 ) -> Result<crate::buffer::BufferId, Flow> {
     match arg {
-        None | Some(Value::Nil) => Ok(buffers
+        None | Some(ValueKind::Nil) => Ok(buffers
             .current_buffer()
             .map(|b| b.id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?),
-        Some(Value::Buffer(id)) => Ok(*id),
-        Some(Value::Str(id)) => Ok({
+        Some(ValueKind::Veclike(VecLikeType::Buffer)) => Ok(*id),
+        Some(ValueKind::String) => Ok({
             let name = with_heap(|h| h.get_string(*id).to_owned());
             buffers
                 .find_buffer_by_name(&name)
@@ -172,7 +172,7 @@ fn eval_buffer_filename_in_state(
     arg: Option<&Value>,
 ) -> Result<Option<String>, Flow> {
     match arg {
-        None | Some(Value::Nil) => Ok(buffers
+        None | Some(ValueKind::Nil) => Ok(buffers
             .get(buffer_id)
             .and_then(|buffer| buffer.file_name.clone())),
         Some(value) => Ok(Some(expect_string(value)?)),
@@ -182,18 +182,18 @@ fn eval_buffer_filename_in_state(
 fn record_eval_buffer_load_history(eval: &mut super::eval::Context, filename: &str) {
     let path = Path::new(filename);
     let path_str = path.to_string_lossy().to_string();
-    let entry = Value::cons(Value::string(path_str.clone()), Value::Nil);
+    let entry = Value::cons(Value::string(path_str.clone()), Value::NIL);
     let history = eval
         .obarray()
         .symbol_value("load-history")
         .cloned()
-        .unwrap_or(Value::Nil);
+        .unwrap_or(Value::NIL);
     let filtered_history = Value::list(
         list_to_vec(&history)
             .unwrap_or_default()
             .into_iter()
             .filter(|existing| match existing {
-                Value::Cons(id) => with_heap(|heap| {
+                Value::Cons(id) /* TODO(tagged): convert Value::Cons to new API */ => with_heap(|heap| {
                     heap.cons_car(*id)
                         .as_str()
                         .is_none_or(|loaded| loaded != path_str)
@@ -270,7 +270,7 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
     eval.with_gc_scope_result(|ctx| {
         ctx.root(old_lexenv);
 
-        let buffer_value = Value::Buffer(buffer_id);
+        let buffer_value = Value::make_buffer(buffer_id);
         let prior_eval_buffer_list = ctx.visible_variable_value_or_nil("eval-buffer-list");
         ctx.root(buffer_value);
         ctx.root(prior_eval_buffer_list);
@@ -282,14 +282,14 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
         let standard_output = if args.get(1).is_none_or(Value::is_nil) && !do_allow_print {
             Value::symbol("symbolp")
         } else {
-            args.get(1).copied().unwrap_or(Value::Nil)
+            args.get(1).copied().unwrap_or(Value::NIL)
         };
         ctx.specbind(intern("standard-output"), standard_output);
 
         if let Some(filename) = filename.as_ref() {
             let filename_value = Value::string(filename.clone());
             ctx.root(filename_value);
-            let current_load_list = Value::cons(filename_value, Value::Nil);
+            let current_load_list = Value::cons(filename_value, Value::NIL);
             ctx.root(current_load_list);
             ctx.specbind(intern("current-load-list"), current_load_list);
         }
@@ -327,9 +327,9 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
         };
         ctx.set_lexical_binding(lexical_binding);
         ctx.lexenv = if lexical_binding {
-            Value::list(vec![Value::True])
+            Value::list(vec![Value::T])
         } else {
-            Value::Nil
+            Value::NIL
         };
 
         let result = eval_forms_from_source(ctx, &source);
@@ -354,7 +354,7 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
 pub(crate) fn builtin_eval_region(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let source = eval_region_source_text_in_state(&eval.buffers, &args)?;
     if source.is_empty() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     eval_forms_from_source(eval, &source)
 }
@@ -368,7 +368,7 @@ pub(crate) fn builtin_eval_buffer_in_vm_runtime(
     eval_forms_from_source_in_runtime(&source, |form| {
         shared.with_extra_gc_roots(vm_gc_roots, args, move |eval| eval.eval(form))?;
         shared.gc_safe_point();
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     })
 }
 
@@ -379,26 +379,26 @@ pub(crate) fn builtin_eval_region_in_vm_runtime(
 ) -> EvalResult {
     let source = eval_region_source_text_in_state(&shared.buffers, args)?;
     if source.is_empty() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     eval_forms_from_source_in_runtime(&source, |form| {
         shared.with_extra_gc_roots(vm_gc_roots, args, move |eval| eval.eval(form))?;
         shared.gc_safe_point();
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     })
 }
 
 fn event_to_int(event: &Value) -> Option<i64> {
-    match event {
-        Value::Int(n) => Some(*n),
-        Value::Char(c) => Some(*c as i64),
+    match event.kind() {
+        ValueKind::Fixnum(n) => Some(n),
+        ValueKind::Char(c) => Some(c as i64),
         _ => None,
     }
 }
 
 fn expect_optional_prompt_string(args: &[Value]) -> Result<(), Flow> {
-    if args.is_empty() || args[0].is_nil() || matches!(args[0], Value::Str(_)) {
+    if args.is_empty() || args[0].is_nil() || args[0].is_string() {
         return Ok(());
     }
     Err(signal(
@@ -434,19 +434,19 @@ pub(crate) fn finish_read_event_interactive_in_runtime(
     if runtime.has_input_receiver() {
         let timeout = super::reader::parse_optional_read_seconds_arg(args.get(2))?;
         let Some(event) = runtime.read_char_with_timeout(timeout)? else {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         };
         let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
         if runtime.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
             runtime.set_read_command_keys(vec![event]);
         }
         if let Some(n) = event_to_int(&event) {
-            return Ok(Value::Int(n));
+            return Ok(Value::fixnum(n));
         }
         return Ok(event);
     }
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(read-char-exclusive &optional PROMPT INHERIT-INPUT-METHOD SECONDS)`
@@ -483,19 +483,19 @@ pub(crate) fn finish_read_char_exclusive_interactive_in_runtime(
             let remaining = deadline
                 .map(|deadline| deadline.saturating_duration_since(std::time::Instant::now()));
             let Some(event) = runtime.read_char_with_timeout(remaining)? else {
-                return Ok(Value::Nil);
+                return Ok(Value::NIL);
             };
             let seconds_is_nil_or_omitted = args.get(2).is_none_or(Value::is_nil);
             if let Some(n) = event_to_int(&event) {
                 if runtime.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
                     runtime.set_read_command_keys(vec![event]);
                 }
-                return Ok(Value::Int(n));
+                return Ok(Value::fixnum(n));
             }
         }
     }
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_read_event_in_runtime(
@@ -505,7 +505,7 @@ pub(crate) fn builtin_read_event_in_runtime(
     if args.len() > 3 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("read-event"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("read-event"), Value::fixnum(args.len() as i64)],
         ));
     }
     expect_optional_prompt_string(args)?;
@@ -516,7 +516,7 @@ pub(crate) fn builtin_read_event_in_runtime(
             runtime.set_read_command_keys(vec![event]);
         }
         if let Some(n) = event_to_int(&event) {
-            return Ok(Some(Value::Int(n)));
+            return Ok(Some(Value::fixnum(n)));
         }
         return Ok(Some(event));
     }
@@ -524,7 +524,7 @@ pub(crate) fn builtin_read_event_in_runtime(
     if runtime.has_input_receiver() {
         Ok(None)
     } else {
-        Ok(Some(Value::Nil))
+        Ok(Some(Value::NIL))
     }
 }
 
@@ -537,7 +537,7 @@ pub(crate) fn builtin_read_char_exclusive_in_runtime(
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("read-char-exclusive"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -549,14 +549,14 @@ pub(crate) fn builtin_read_char_exclusive_in_runtime(
             if runtime.read_command_keys().is_empty() && seconds_is_nil_or_omitted {
                 runtime.set_read_command_keys(vec![event]);
             }
-            return Ok(Some(Value::Int(n)));
+            return Ok(Some(Value::fixnum(n)));
         }
     }
 
     if runtime.has_input_receiver() {
         Ok(None)
     } else {
-        Ok(Some(Value::Nil))
+        Ok(Some(Value::NIL))
     }
 }
 
@@ -591,7 +591,7 @@ pub(crate) fn builtin_locate_file(eval: &mut super::eval::Context, args: Vec<Val
     Ok(
         match locate_file_with_path_and_suffixes(eval, &filename, &path, &suffixes, args.get(3))? {
             Some(found) => Value::string(found),
-            None => Value::Nil,
+            None => Value::NIL,
         },
     )
 }
@@ -616,7 +616,7 @@ pub(crate) fn builtin_locate_file_internal(
     Ok(
         match locate_file_with_path_and_suffixes(eval, &filename, &path, &suffixes, args.get(3))? {
             Some(found) => Value::string(found),
-            None => Value::Nil,
+            None => Value::NIL,
         },
     )
 }
@@ -627,7 +627,7 @@ pub(crate) fn builtin_locate_file_internal(
 pub(crate) fn builtin_read_coding_system(args: Vec<Value>) -> EvalResult {
     expect_min_args("read-coding-system", &args, 1)?;
     expect_max_args("read-coding-system", &args, 2)?;
-    if !matches!(args[0], Value::Str(_)) {
+    if !args[0].is_string() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), args[0]],
@@ -648,11 +648,11 @@ pub(crate) fn builtin_read_non_nil_coding_system(args: Vec<Value>) -> EvalResult
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("read-non-nil-coding-system"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
-    if !matches!(args[0], Value::Str(_)) {
+    if !args[0].is_string() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), args[0]],
@@ -676,9 +676,9 @@ fn expect_list(value: &Value) -> Result<Vec<Value>, Flow> {
 fn parse_path_argument(value: &Value) -> Result<Vec<String>, Flow> {
     let mut path = Vec::new();
     for entry in expect_list(value)? {
-        match entry {
-            Value::Nil => path.push(".".to_string()),
-            Value::Str(id) => path.push(with_heap(|h| h.get_string(id).to_owned())),
+        match entry.kind() {
+            ValueKind::Nil => path.push(".".to_string()),
+            ValueKind::String => path.push(with_heap(|h| h.get_string(id).to_owned())),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -693,9 +693,9 @@ fn parse_path_argument(value: &Value) -> Result<Vec<String>, Flow> {
 fn parse_suffixes_argument(value: &Value) -> Result<Vec<String>, Flow> {
     let mut suffixes = Vec::new();
     for entry in expect_list(value)? {
-        match entry {
-            Value::Nil => suffixes.push(String::new()),
-            Value::Str(id) => suffixes.push(with_heap(|h| h.get_string(id).to_owned())),
+        match entry.kind() {
+            ValueKind::Nil => suffixes.push(String::new()),
+            ValueKind::String => suffixes.push(with_heap(|h| h.get_string(id).to_owned())),
             other => {
                 return Err(signal(
                     "wrong-type-argument",

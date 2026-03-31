@@ -82,21 +82,21 @@ fn key_sequence_values_string() {
     let val = Value::string("abc");
     let keys = key_sequence_values(&val).unwrap();
     assert_eq!(keys.len(), 3);
-    assert_eq!(keys[0], Value::Int('a' as i64));
-    assert_eq!(keys[1], Value::Int('b' as i64));
-    assert_eq!(keys[2], Value::Int('c' as i64));
+    assert_eq!(keys[0], Value::fixnum('a' as i64));
+    assert_eq!(keys[1], Value::fixnum('b' as i64));
+    assert_eq!(keys[2], Value::fixnum('c' as i64));
 }
 
 #[test]
 fn key_sequence_values_vector() {
-    let val = Value::vector(vec![Value::Int(1), Value::Int(2)]);
+    let val = Value::vector(vec![Value::fixnum(1), Value::fixnum(2)]);
     let keys = key_sequence_values(&val).unwrap();
-    assert_eq!(keys, vec![Value::Int(1), Value::Int(2)]);
+    assert_eq!(keys, vec![Value::fixnum(1), Value::fixnum(2)]);
 }
 
 #[test]
 fn key_sequence_values_nil() {
-    let keys = key_sequence_values(&Value::Nil).unwrap();
+    let keys = key_sequence_values(&Value::NIL).unwrap();
     assert!(keys.is_empty());
 }
 

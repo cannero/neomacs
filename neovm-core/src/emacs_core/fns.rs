@@ -28,7 +28,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -39,7 +39,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -50,7 +50,7 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
     if args.len() < min || args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -58,8 +58,8 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 }
 
 fn require_string(_name: &str, val: &Value) -> Result<String, Flow> {
-    match val {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+    match val.kind() {
+        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -68,8 +68,8 @@ fn require_string(_name: &str, val: &Value) -> Result<String, Flow> {
 }
 
 fn require_int(val: &Value) -> Result<i64, Flow> {
-    match val {
-        Value::Int(n) => Ok(*n),
+    match val.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *other],
@@ -78,9 +78,9 @@ fn require_int(val: &Value) -> Result<i64, Flow> {
 }
 
 fn require_int_or_marker(val: &Value) -> Result<i64, Flow> {
-    match val {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match val.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         v if super::marker::is_marker(v) => super::marker::marker_position_as_int(v),
         other => Err(signal(
             "wrong-type-argument",
@@ -102,8 +102,8 @@ fn validate_md5_coding_system_arg(args: &[Value]) -> Result<(), Flow> {
     }
 
     let noerror = args.get(4).is_some_and(|v| v.is_truthy());
-    let valid = match coding_system {
-        Value::Symbol(id) => md5_known_coding_system(resolve_sym(*id)),
+    let valid = match coding_system.kind() {
+        ValueKind::Symbol(id) => md5_known_coding_system(resolve_sym(id)),
         _ => false,
     };
 
@@ -269,7 +269,7 @@ pub(crate) fn builtin_base64url_decode_string(args: Vec<Value>) -> EvalResult {
             let decoded = String::from_utf8_lossy(&bytes).into_owned();
             Ok(Value::string(decoded))
         }
-        Err(()) => Ok(Value::Nil),
+        Err(()) => Ok(Value::NIL),
     }
 }
 
@@ -298,7 +298,7 @@ pub(crate) fn normalize_current_buffer_region_bounds_in_manager(
     {
         return Err(signal(
             "args-out-of-range",
-            vec![Value::Buffer(buffer_id), *start_arg, *end_arg],
+            vec![Value::make_buffer(buffer_id), *start_arg, *end_arg],
         ));
     }
 
@@ -397,7 +397,7 @@ pub(crate) fn builtin_base64_encode_region(
     let no_line_break = args.get(2).is_some_and(|v| v.is_truthy());
     let encoded = base64_encode(source.as_bytes(), B64_STD, true, !no_line_break);
     replace_buffer_region(eval, buffer_id, start_byte, end_byte, &encoded)?;
-    Ok(Value::Int(encoded.len() as i64))
+    Ok(Value::fixnum(encoded.len() as i64))
 }
 
 /// (base64url-encode-region START END &optional NO-PAD)
@@ -412,7 +412,7 @@ pub(crate) fn builtin_base64url_encode_region(
     let no_pad = args.get(2).is_some_and(|v| v.is_truthy());
     let encoded = base64_encode(source.as_bytes(), B64_URL, !no_pad, false);
     replace_buffer_region(eval, buffer_id, start_byte, end_byte, &encoded)?;
-    Ok(Value::Int(encoded.len() as i64))
+    Ok(Value::fixnum(encoded.len() as i64))
 }
 
 /// (base64-decode-region START END &optional BASE64URL NOERROR)
@@ -440,7 +440,7 @@ pub(crate) fn builtin_base64_decode_region(
         }
         Err(()) if noerror => {
             replace_buffer_region(eval, buffer_id, start_byte, end_byte, "")?;
-            Ok(Value::Int(0))
+            Ok(ValueKind::Fixnum(0))
         }
         Err(()) => Err(signal("error", vec![Value::string("Invalid base64 data")])),
     }
@@ -457,13 +457,13 @@ pub(crate) fn builtin_md5(eval: &mut super::eval::Context, args: Vec<Value>) -> 
     expect_range_args("md5", &args, 1, 5)?;
     validate_md5_coding_system_arg(&args)?;
     let object = &args[0];
-    match object {
-        Value::Str(_) => Ok(Value::string(md5_hex_for_string(
+    match object.kind() {
+        ValueKind::String => Ok(Value::string(md5_hex_for_string(
             object,
             args.get(1),
             args.get(2),
         )?)),
-        Value::Buffer(id) => Ok(Value::string(md5_hex_for_buffer_in_manager(
+        ValueKind::Veclike(VecLikeType::Buffer) => Ok(Value::string(md5_hex_for_buffer_in_manager(
             &eval.buffers,
             *id,
             args.get(1),
@@ -585,13 +585,13 @@ fn md5_hex_for_string(
     start_raw: Option<&Value>,
     end_raw: Option<&Value>,
 ) -> Result<String, Flow> {
-    let input = match object {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
+    let input = match object.kind() {
+        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
         _ => unreachable!("md5_hex_for_string only accepts string object"),
     };
     let len = storage_char_len(&input) as i64;
-    let start_arg = start_raw.cloned().unwrap_or(Value::Nil);
-    let end_arg = end_raw.cloned().unwrap_or(Value::Nil);
+    let start_arg = start_raw.cloned().unwrap_or(Value::NIL);
+    let end_arg = end_raw.cloned().unwrap_or(Value::NIL);
     let start =
         normalize_secure_hash_index(start_raw, 0, len, object, &start_arg, &end_arg)? as usize;
     let end =
@@ -642,8 +642,8 @@ fn hash_slice_for_buffer_in_manager(
     let point_min = buf.point_min_char() as i64 + 1;
     let point_max = buf.point_max_char() as i64 + 1;
 
-    let start_arg = start_raw.cloned().unwrap_or(Value::Nil);
-    let end_arg = end_raw.cloned().unwrap_or(Value::Nil);
+    let start_arg = start_raw.cloned().unwrap_or(Value::NIL);
+    let end_arg = end_raw.cloned().unwrap_or(Value::NIL);
     let start = normalize_md5_buffer_position(
         start_raw, point_min, point_min, point_max, &start_arg, &end_arg,
     )?;
@@ -673,11 +673,11 @@ fn md5_hex_for_buffer_in_manager(
 }
 
 fn secure_hash_algorithm_name(val: &Value) -> Result<String, Flow> {
-    match val {
-        Value::Symbol(id) => Ok(resolve_sym(*id).to_owned()),
-        Value::Nil => Ok("nil".to_string()),
-        Value::True => Ok("t".to_string()),
-        Value::Keyword(id) => Ok(format!(":{}", resolve_sym(*id))),
+    match val.kind() {
+        ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
+        ValueKind::Nil => Ok("nil".to_string()),
+        ValueKind::T => Ok("t".to_string()),
+        ValueKind::Keyword(id) => Ok(format!(":{}", resolve_sym(id))),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), *other],
@@ -725,13 +725,13 @@ fn hash_slice_for_string(
     start_raw: Option<&Value>,
     end_raw: Option<&Value>,
 ) -> Result<String, Flow> {
-    let input = match object {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
+    let input = match object.kind() {
+        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
         _ => unreachable!("hash_slice_for_string only accepts string object"),
     };
     let len = storage_char_len(&input) as i64;
-    let start_arg = start_raw.cloned().unwrap_or(Value::Nil);
-    let end_arg = end_raw.cloned().unwrap_or(Value::Nil);
+    let start_arg = start_raw.cloned().unwrap_or(Value::NIL);
+    let end_arg = end_raw.cloned().unwrap_or(Value::NIL);
     let start =
         normalize_secure_hash_index(start_raw, 0, len, object, &start_arg, &end_arg)? as usize;
     let end =
@@ -794,9 +794,9 @@ pub(crate) fn builtin_secure_hash(eval: &mut super::eval::Context, args: Vec<Val
     let algo_name = secure_hash_algorithm_name(&args[0])?;
 
     let object = &args[1];
-    let input = match object {
-        Value::Str(_) => hash_slice_for_string(object, args.get(2), args.get(3))?,
-        Value::Buffer(id) => {
+    let input = match object.kind() {
+        ValueKind::String => hash_slice_for_string(object, args.get(2), args.get(3))?,
+        ValueKind::Veclike(VecLikeType::Buffer) => {
             hash_slice_for_buffer_in_manager(&eval.buffers, *id, args.get(2), args.get(3))?
         }
         other => {
@@ -830,9 +830,9 @@ pub(crate) fn builtin_buffer_hash(eval: &mut super::eval::Context, args: Vec<Val
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?
             .id
     } else {
-        match &args[0] {
-            Value::Buffer(id) => *id,
-            Value::Str(id) => {
+        match args[0].kind() {
+            ValueKind::Veclike(VecLikeType::Buffer) => *id,
+            ValueKind::String => {
                 let name = with_heap(|h| h.get_string(*id).to_owned());
                 eval.buffers.find_buffer_by_name(&name).ok_or_else(|| {
                     signal(
@@ -868,7 +868,7 @@ pub(crate) fn builtin_buffer_hash(eval: &mut super::eval::Context, args: Vec<Val
 /// as `equal` for now.
 pub(crate) fn builtin_equal_including_properties(args: Vec<Value>) -> EvalResult {
     expect_args("equal-including-properties", &args, 2)?;
-    Ok(Value::bool(equal_value(&args[0], &args[1], 0)))
+    Ok(Value::bool_val(equal_value(&args[0], &args[1], 0)))
 }
 
 // ---------------------------------------------------------------------------
@@ -895,7 +895,7 @@ pub(crate) fn builtin_widget_get(args: Vec<Value>) -> EvalResult {
             i += 2;
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (widget-put WIDGET PROPERTY VALUE)
@@ -908,25 +908,25 @@ pub(crate) fn builtin_widget_put(args: Vec<Value>) -> EvalResult {
     let value = &args[2];
 
     // Walk the cdr of WIDGET (skip the type cons cell) looking for PROPERTY.
-    if let Value::Cons(first_cell) = widget {
+    if widget.is_cons() /* TODO(tagged): `first_cell` was Value::Cons(first_cell), now use accessor */ {
         let mut cursor = {
-            let cell = read_cons(*first_cell);
+            let cell = read_cons(*first_cell);  // TODO(tagged): replace read_cons with cons accessors
             cell.cdr
         };
         loop {
-            match cursor {
-                Value::Cons(ref cell_arc) => {
+            match cursor.kind() {
+                ValueKind::Cons => {
                     let key = {
-                        let cell = read_cons(*cell_arc);
+                        let cell = read_cons(*cell_arc);  // TODO(tagged): replace read_cons with cons accessors
                         cell.car
                     };
                     if equal_value(&key, property, 0) {
                         // Found it — the next cons cell holds the value
                         let next = {
-                            let cell = read_cons(*cell_arc);
+                            let cell = read_cons(*cell_arc);  // TODO(tagged): replace read_cons with cons accessors
                             cell.cdr
                         };
-                        if let Value::Cons(val_cell_arc) = next {
+                        if next.is_cons() /* TODO(tagged): `val_cell_arc` was ValueKind::Cons, now use accessor */ {
                             with_heap_mut(|h| h.set_car(val_cell_arc, *value));
                             return Ok(*value);
                         }
@@ -934,11 +934,11 @@ pub(crate) fn builtin_widget_put(args: Vec<Value>) -> EvalResult {
                     }
                     // Skip value, move to next key
                     let after_key = {
-                        let cell = read_cons(*cell_arc);
+                        let cell = read_cons(*cell_arc);  // TODO(tagged): replace read_cons with cons accessors
                         cell.cdr
                     };
-                    if let Value::Cons(val_arc) = after_key {
-                        let val_cell = read_cons(val_arc);
+                    if after_key.is_cons() /* TODO(tagged): `val_arc` was ValueKind::Cons, now use accessor */ {
+                        let val_cell = read_cons(val_arc);  // TODO(tagged): replace read_cons with cons accessors
                         cursor = val_cell.cdr;
                     } else {
                         break;
@@ -951,7 +951,7 @@ pub(crate) fn builtin_widget_put(args: Vec<Value>) -> EvalResult {
         // Property not found — append to end of widget plist (after type).
         // Prepend (PROPERTY VALUE ...) to the cdr of the first cons cell.
         let old_cdr = {
-            let cell = read_cons(*first_cell);
+            let cell = read_cons(*first_cell);  // TODO(tagged): replace read_cons with cons accessors
             cell.cdr
         };
         let new_tail = Value::cons(*property, Value::cons(*value, old_cdr));
@@ -973,15 +973,15 @@ pub(crate) fn builtin_widget_apply(
 
     let function = builtin_widget_get(vec![widget, property])?;
     if function.is_nil() {
-        return Err(signal("void-function", vec![Value::Nil]));
+        return Err(signal("void-function", vec![Value::NIL]));
     }
 
     let mut call_args = Vec::with_capacity(args.len().saturating_sub(1));
     call_args.push(widget);
     call_args.extend_from_slice(&args[2..]);
 
-    match function {
-        Value::Symbol(id) => {
+    match function.kind() {
+        ValueKind::Symbol(id) => {
             let name = resolve_sym(id);
             if let Some(result) = eval.dispatch_subr(name, call_args) {
                 result
@@ -989,7 +989,7 @@ pub(crate) fn builtin_widget_apply(
                 Err(signal("void-function", vec![Value::symbol(name)]))
             }
         }
-        Value::Subr(id) => {
+        ValueKind::Subr(id) => {
             let name = resolve_sym(id);
             if let Some(result) = eval.dispatch_subr(name, call_args) {
                 result
@@ -1004,8 +1004,8 @@ pub(crate) fn builtin_widget_apply(
 /// (string-make-multibyte STRING) -- convert unibyte storage bytes to multibyte chars.
 pub(crate) fn builtin_string_make_multibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-make-multibyte", &args, 1)?;
-    match &args[0] {
-        Value::Str(id) => {
+    match args[0].kind() {
+        ValueKind::String => {
             let s = with_heap(|h| h.get_string(*id).to_owned());
             let mut out = String::with_capacity(s.len());
             for ch in s.chars() {
@@ -1036,8 +1036,8 @@ pub(crate) fn builtin_string_make_multibyte(args: Vec<Value>) -> EvalResult {
 /// (string-make-unibyte STRING) -- convert each character code to a single byte.
 pub(crate) fn builtin_string_make_unibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-make-unibyte", &args, 1)?;
-    match &args[0] {
-        Value::Str(id) => {
+    match args[0].kind() {
+        ValueKind::String => {
             let s = with_heap(|h| h.get_string(*id).to_owned());
             let bytes: Vec<u8> = decode_storage_char_codes(&s)
                 .into_iter()
@@ -1072,24 +1072,24 @@ pub(crate) fn builtin_compare_strings(args: Vec<Value>) -> EvalResult {
     let chars1: Vec<char> = s1.chars().collect();
     let chars2: Vec<char> = s2.chars().collect();
 
-    let start1 = match &args[1] {
-        Value::Nil => 0usize,
-        Value::Int(n) => (*n).max(0) as usize, // 0-based index
+    let start1 = match args[1].kind() {
+        ValueKind::Nil => 0usize,
+        ValueKind::Fixnum(n) => (n).max(0) as usize, // 0-based index
         _ => 0,
     };
-    let end1 = match &args[2] {
-        Value::Nil => chars1.len(),
-        Value::Int(n) => (*n as usize).min(chars1.len()),
+    let end1 = match args[2].kind() {
+        ValueKind::Nil => chars1.len(),
+        ValueKind::Fixnum(n) => (n as usize).min(chars1.len()),
         _ => chars1.len(),
     };
-    let start2 = match &args[4] {
-        Value::Nil => 0usize,
-        Value::Int(n) => (*n).max(0) as usize, // 0-based index
+    let start2 = match args[4].kind() {
+        ValueKind::Nil => 0usize,
+        ValueKind::Fixnum(n) => (n).max(0) as usize, // 0-based index
         _ => 0,
     };
-    let end2 = match &args[5] {
-        Value::Nil => chars2.len(),
-        Value::Int(n) => (*n as usize).min(chars2.len()),
+    let end2 = match args[5].kind() {
+        ValueKind::Nil => chars2.len(),
+        ValueKind::Fixnum(n) => (n as usize).min(chars2.len()),
         _ => chars2.len(),
     };
 
@@ -1113,19 +1113,19 @@ pub(crate) fn builtin_compare_strings(args: Vec<Value>) -> EvalResult {
         if c1 != c2 {
             let pos = (i + 1) as i64; // 1-based
             if c1 < c2 {
-                return Ok(Value::Int(-pos));
+                return Ok(Value::fixnum(-pos));
             } else {
-                return Ok(Value::Int(pos));
+                return Ok(Value::fixnum(pos));
             }
         }
     }
 
     if sub1.len() == sub2.len() {
-        Ok(Value::True)
+        Ok(Value::T)
     } else if sub1.len() < sub2.len() {
-        Ok(Value::Int(-((len + 1) as i64)))
+        Ok(Value::fixnum(-((len + 1) as i64)))
     } else {
-        Ok(Value::Int((len + 1) as i64))
+        Ok(Value::fixnum((len + 1) as i64))
     }
 }
 
@@ -1172,18 +1172,18 @@ pub(crate) fn builtin_string_version_lessp(args: Vec<Value>) -> EvalResult {
                 j += 1;
             }
             if n1 != n2 {
-                return Ok(Value::bool(n1 < n2));
+                return Ok(Value::bool_val(n1 < n2));
             }
         } else {
             if c1[i] != c2[j] {
-                return Ok(Value::bool(c1[i] < c2[j]));
+                return Ok(Value::bool_val(c1[i] < c2[j]));
             }
             i += 1;
             j += 1;
         }
     }
 
-    Ok(Value::bool(c1.len() < c2.len()))
+    Ok(Value::bool_val(c1.len() < c2.len()))
 }
 
 /// (string-collate-lessp S1 S2 &optional LOCALE IGNORE-CASE)
@@ -1199,7 +1199,7 @@ pub(crate) fn builtin_string_collate_lessp(args: Vec<Value>) -> EvalResult {
     } else {
         s1 < s2
     };
-    Ok(Value::bool(result))
+    Ok(Value::bool_val(result))
 }
 
 /// (string-collate-equalp S1 S2 &optional LOCALE IGNORE-CASE)
@@ -1215,7 +1215,7 @@ pub(crate) fn builtin_string_collate_equalp(args: Vec<Value>) -> EvalResult {
     } else {
         s1 == s2
     };
-    Ok(Value::bool(result))
+    Ok(Value::bool_val(result))
 }
 
 // ---------------------------------------------------------------------------

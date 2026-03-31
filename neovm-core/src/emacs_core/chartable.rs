@@ -47,10 +47,10 @@ const BV_SIZE: usize = 1; // Value::Int — logical length
 
 /// Return `true` if `v` is a char-table (tagged vector).
 pub fn is_char_table(v: &Value) -> bool {
-    if let Value::Vector(arc) = v {
+    if v.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), now use accessor */ {
         let vec = with_heap(|h| h.get_vector(*arc).clone());
         vec.len() >= CT_EXTRA_START
-            && matches!(&vec[0], Value::Symbol(id) if resolve_sym(*id) == CHAR_TABLE_TAG)
+            && matches!(&vec[0], Value::symbol(id) if resolve_sym(*id) == CHAR_TABLE_TAG)
     } else {
         false
     }
@@ -58,10 +58,10 @@ pub fn is_char_table(v: &Value) -> bool {
 
 /// Return `true` if `v` is a bool-vector (tagged vector).
 pub fn is_bool_vector(v: &Value) -> bool {
-    if let Value::Vector(arc) = v {
+    if v.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), now use accessor */ {
         let vec = with_heap(|h| h.get_vector(*arc).clone());
         vec.len() >= 2
-            && matches!(&vec[0], Value::Symbol(id) if resolve_sym(*id) == BOOL_VECTOR_TAG)
+            && matches!(&vec[0], Value::symbol(id) if resolve_sym(*id) == BOOL_VECTOR_TAG)
     } else {
         false
     }
@@ -69,28 +69,28 @@ pub fn is_bool_vector(v: &Value) -> bool {
 
 /// Return the logical bit length if `v` is a bool-vector.
 pub(crate) fn bool_vector_length(v: &Value) -> Option<i64> {
-    let Value::Vector(arc) = v else {
+    if !v.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), rewrite let-else */ {
         return None;
     };
     let vec = with_heap(|h| h.get_vector(*arc).clone());
-    if vec.len() < 2 || !matches!(&vec[0], Value::Symbol(id) if resolve_sym(*id) == BOOL_VECTOR_TAG)
+    if vec.len() < 2 || !matches!(&vec[0], Value::symbol(id) if resolve_sym(*id) == BOOL_VECTOR_TAG)
     {
         return None;
     }
     Some(match &vec[BV_SIZE] {
-        Value::Int(n) => *n,
+        Value::fixnum(n) => *n,
         _ => 0,
     })
 }
 
 /// Return the logical sequence length if `v` is a char-table.
 pub(crate) fn char_table_length(v: &Value) -> Option<i64> {
-    let Value::Vector(arc) = v else {
+    if !v.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), rewrite let-else */ {
         return None;
     };
     let vec = with_heap(|h| h.get_vector(*arc).clone());
     if vec.len() >= CT_EXTRA_START
-        && matches!(&vec[0], Value::Symbol(id) if resolve_sym(*id) == CHAR_TABLE_TAG)
+        && matches!(&vec[0], Value::symbol(id) if resolve_sym(*id) == CHAR_TABLE_TAG)
     {
         Some(CT_LOGICAL_LENGTH)
     } else {
@@ -107,7 +107,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -119,7 +119,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -131,7 +131,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -145,9 +145,9 @@ fn wrong_type(pred: &str, got: &Value) -> Flow {
 
 /// Extract an integer (Int or Char), signal otherwise.
 fn expect_int(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => Err(wrong_type("integerp", other)),
     }
 }
@@ -155,9 +155,9 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
 /// Extract a non-negative integer (for index-like args), signaling with
 /// `wholenump` on any mismatch.
 fn expect_wholenump(value: &Value) -> Result<i64, Flow> {
-    let n = match value {
-        Value::Int(n) => *n,
-        Value::Char(c) => *c as i64,
+    let n = match value.kind() {
+        ValueKind::Fixnum(n) => n,
+        ValueKind::Char(c) => c as i64,
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -176,8 +176,8 @@ fn expect_wholenump(value: &Value) -> Result<i64, Flow> {
 
 /// Data-pairs region start index for a char-table vector.
 fn ct_data_start(vec: &[Value]) -> usize {
-    let extra_count = match &vec[CT_EXTRA_COUNT] {
-        Value::Int(n) => *n as usize,
+    let extra_count = match vec[CT_EXTRA_COUNT].kind() {
+        ValueKind::Fixnum(n) => n as usize,
         _ => 0,
     };
     CT_EXTRA_START + extra_count
@@ -197,13 +197,13 @@ pub fn make_char_table_with_extra_slots(sub_type: Value, default: Value, n_extra
     let mut vec = vec![
         Value::symbol(CHAR_TABLE_TAG),
         default,              // CT_DEFAULT
-        Value::Nil,           // CT_PARENT
+        Value::NIL,           // CT_PARENT
         sub_type,             // CT_SUBTYPE
-        Value::Int(n_extras), // CT_EXTRA_COUNT
+        Value::fixnum(n_extras), // CT_EXTRA_COUNT
     ];
     // Allocate extra slots initialised to nil.
     for _ in 0..n_extras {
-        vec.push(Value::Nil);
+        vec.push(Value::NIL);
     }
     Value::vector(vec)
 }
@@ -211,7 +211,7 @@ pub fn make_char_table_with_extra_slots(sub_type: Value, default: Value, n_extra
 /// Set a single character entry in a char-table Value (for bootstrap code).
 /// Panics if `table` is not a char-table Vector.
 pub fn ct_set_single(table: &Value, ch: i64, value: Value) {
-    if let Value::Vector(arc) = table {
+    if table.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), now use accessor */ {
         with_heap_mut(|h| {
             let vec = h.get_vector_mut(*arc);
             ct_set_char(vec, ch, value);
@@ -229,7 +229,7 @@ pub(crate) fn builtin_make_char_table(eval: &mut Context, args: Vec<Value>) -> E
     expect_min_args("make-char-table", &args, 1)?;
     expect_max_args("make-char-table", &args, 2)?;
     let sub_type = args[0];
-    let default = if args.len() > 1 { args[1] } else { Value::Nil };
+    let default = if args.len() > 1 { args[1] } else { Value::NIL };
     // Read char-table-extra-slots property from the sub-type symbol,
     // matching GNU Emacs chartab.c:Fmake_char_table.
     let n_extras = if let Some(name) = sub_type.as_symbol_name() {
@@ -248,7 +248,7 @@ pub(crate) fn builtin_make_char_table(eval: &mut Context, args: Vec<Value>) -> E
 /// `(char-table-p OBJ)` -- return t if OBJ is a char-table.
 pub(crate) fn builtin_char_table_p(args: Vec<Value>) -> EvalResult {
     expect_args("char-table-p", &args, 1)?;
-    Ok(Value::bool(is_char_table(&args[0])))
+    Ok(Value::bool_val(is_char_table(&args[0])))
 }
 
 /// `(set-char-table-range CHAR-TABLE RANGE VALUE)` -- set entries.
@@ -264,37 +264,37 @@ pub(crate) fn builtin_set_char_table_range(args: Vec<Value>) -> EvalResult {
     let range = &args[1];
     let value = &args[2];
 
-    let arc = match table {
-        Value::Vector(a) if is_char_table(table) => a,
+    let arc = match table.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) if is_char_table(table) => a,
         _ => return Err(wrong_type("char-table-p", table)),
     };
 
     let mut vec = with_heap(|h| h.get_vector(*arc).clone());
 
-    match range {
+    match range.kind() {
         // nil -> set default
-        Value::Nil => {
+        ValueKind::Nil => {
             vec[CT_DEFAULT] = *value;
         }
         // t -> set all characters, but not the default slot.
-        Value::True => {
+        ValueKind::T => {
             ct_set_range(&mut vec, 0, MAX_CHAR, *value);
         }
         // Single character
-        Value::Int(_) | Value::Char(_) => {
+        ValueKind::Fixnum(_) | ValueKind::Char(_) => {
             let ch = expect_int(range)?;
             ct_set_char(&mut vec, ch, *value);
         }
         // Range cons (MIN . MAX)
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);
+        ValueKind::Cons => {
+            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             let min = expect_int(&pair.car)?;
             let max = expect_int(&pair.cdr)?;
             drop(pair);
             if min > max {
                 return Err(signal(
                     "args-out-of-range",
-                    vec![Value::Int(min), Value::Int(max)],
+                    vec![ValueKind::Fixnum(min), ValueKind::Fixnum(max)],
                 ));
             }
             ct_set_range(&mut vec, min, max, *value);
@@ -314,14 +314,14 @@ pub(crate) fn builtin_set_char_table_range(args: Vec<Value>) -> EvalResult {
 
 /// Set a single character entry in the char-table's data pairs.
 fn ct_set_char(vec: &mut Vec<Value>, ch: i64, value: Value) {
-    vec.push(Value::Int(ch));
+    vec.push(Value::fixnum(ch));
     vec.push(value);
 }
 
 /// Set a range entry in the char-table's data pairs.
 /// The range is stored as a `Cons(min . max)` key.
 fn ct_set_range(vec: &mut Vec<Value>, min: i64, max: i64, value: Value) {
-    vec.push(Value::cons(Value::Int(min), Value::Int(max)));
+    vec.push(Value::cons(Value::fixnum(min), Value::fixnum(max)));
     vec.push(value);
 }
 
@@ -334,17 +334,17 @@ fn ct_get_char(vec: &[Value], ch: i64) -> Option<Value> {
     let mut i = start;
     let mut match_value: Option<Value> = None;
     while i + 1 < vec.len() {
-        match &vec[i] {
-            Value::Int(existing) => {
-                if *existing == ch {
+        match vec[i].kind() {
+            ValueKind::Fixnum(existing) => {
+                if existing == ch {
                     match_value = Some(vec[i + 1]);
                 }
             }
-            Value::Cons(cell) => {
+            ValueKind::Cons => {
                 // Range entry: key is (MIN . MAX)
-                let pair = read_cons(*cell);
-                if let (Value::Int(min), Value::Int(max)) = (&pair.car, &pair.cdr) {
-                    if ch >= *min && ch <= *max {
+                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+                if let (ValueKind::Fixnum(min), ValueKind::Fixnum(max)) = (&pair.car, &pair.cdr) {
+                    if ch >= min && ch <= max {
                         match_value = Some(vec[i + 1]);
                     }
                 }
@@ -370,22 +370,22 @@ pub(crate) fn builtin_char_table_range(args: Vec<Value>) -> EvalResult {
         return Err(wrong_type("char-table-p", table));
     }
 
-    match range {
-        Value::Nil => {
+    match range.kind() {
+        ValueKind::Nil => {
             // Return the default value.
-            let arc = match table {
-                Value::Vector(a) => a,
+            let arc = match table.kind() {
+                ValueKind::Veclike(VecLikeType::Vector) => a,
                 _ => unreachable!(),
             };
             let vec = with_heap(|h| h.get_vector(*arc).clone());
             Ok(vec[CT_DEFAULT])
         }
-        Value::Int(_) | Value::Char(_) => {
+        ValueKind::Fixnum(_) | ValueKind::Char(_) => {
             let ch = expect_int(range)?;
             ct_lookup(table, ch)
         }
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);
+        ValueKind::Cons => {
+            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             let from = expect_int(&pair.car)?;
             let _to = expect_int(&pair.cdr)?;
             let (value, _run_from, _run_to) = ct_lookup_and_range(table, from)?;
@@ -407,8 +407,8 @@ pub(crate) fn builtin_char_table_range(args: Vec<Value>) -> EvalResult {
 /// 2. If the local entry is nil or absent, use the char-table's default value
 /// 3. If default is nil, recursively check the parent char-table
 pub(crate) fn ct_lookup(table: &Value, ch: i64) -> EvalResult {
-    let arc = match table {
-        Value::Vector(a) => a,
+    let arc = match table.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => a,
         _ => return Err(wrong_type("char-table-p", table)),
     };
     let vec = with_heap(|h| h.get_vector(*arc).clone());
@@ -427,7 +427,7 @@ pub(crate) fn ct_lookup(table: &Value, ch: i64) -> EvalResult {
     } else if is_char_table(&parent) {
         ct_lookup(&parent, ch)
     } else {
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     }
 }
 
@@ -440,7 +440,7 @@ fn ct_lookup_and_range(table: &Value, ch: i64) -> Result<(Value, i64, i64), Flow
             return Ok((run.value, run.start, run.end));
         }
     }
-    Ok((Value::Nil, 0, MAX_CHAR))
+    Ok((Value::NIL, 0, MAX_CHAR))
 }
 
 /// GNU `char-table-ref-and-range`-style helper used by subsystems that need
@@ -453,8 +453,8 @@ pub(crate) fn char_table_ref_and_range(table: &Value, ch: i64) -> Result<(Value,
 pub(crate) fn builtin_char_table_parent(args: Vec<Value>) -> EvalResult {
     expect_args("char-table-parent", &args, 1)?;
     let table = &args[0];
-    let arc = match table {
-        Value::Vector(a) if is_char_table(table) => a,
+    let arc = match table.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) if is_char_table(table) => a,
         _ => return Err(wrong_type("char-table-p", table)),
     };
     let vec = with_heap(|h| h.get_vector(*arc).clone());
@@ -467,8 +467,8 @@ pub(crate) fn builtin_char_table_parent(args: Vec<Value>) -> EvalResult {
 /// Parent/default fallback is intentionally not applied here; callers that need
 /// effective values should use `ct_lookup`.
 pub(crate) fn char_table_local_entries(table: &Value) -> Result<Vec<(Value, Value)>, Flow> {
-    let arc = match table {
-        Value::Vector(a) if is_char_table(table) => a,
+    let arc = match table.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) if is_char_table(table) => a,
         _ => return Err(wrong_type("char-table-p", table)),
     };
     let vec = with_heap(|h| h.get_vector(*arc).clone());
@@ -476,8 +476,8 @@ pub(crate) fn char_table_local_entries(table: &Value) -> Result<Vec<(Value, Valu
     let mut out = Vec::new();
     let mut i = start;
     while i + 1 < vec.len() {
-        match vec[i] {
-            Value::Int(_) | Value::Cons(_) => out.push((vec[i], vec[i + 1])),
+        match vec[i].kind() {
+            ValueKind::Fixnum(_) | ValueKind::Cons => out.push((vec[i], vec[i + 1])),
             _ => {}
         }
         i += 2;
@@ -490,8 +490,8 @@ pub(crate) fn builtin_set_char_table_parent(args: Vec<Value>) -> EvalResult {
     expect_args("set-char-table-parent", &args, 2)?;
     let table = &args[0];
     let parent = &args[1];
-    let table_arc = match table {
-        Value::Vector(a) if is_char_table(table) => *a,
+    let table_arc = match table.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) if is_char_table(table) => *a,
         _ => return Err(wrong_type("char-table-p", table)),
     };
 
@@ -503,8 +503,8 @@ pub(crate) fn builtin_set_char_table_parent(args: Vec<Value>) -> EvalResult {
     if !parent.is_nil() {
         let mut cursor = *parent;
         while is_char_table(&cursor) {
-            let cursor_arc = match cursor {
-                Value::Vector(a) => a,
+            let cursor_arc = match cursor.kind() {
+                ValueKind::Veclike(VecLikeType::Vector) => a,
                 _ => unreachable!(),
             };
             if cursor_arc == table_arc {
@@ -536,20 +536,20 @@ pub(crate) fn for_each_char_table_mapping(
     table: &Value,
     mut f: impl FnMut(Value, Value) -> Result<(), Flow>,
 ) -> Result<(), Flow> {
-    match table {
-        Value::Vector(_) if is_char_table(table) => {}
+    match table.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) if is_char_table(table) => {}
         _ => return Err(wrong_type("char-table-p", table)),
     }
 
-    let shared_range = Value::cons(Value::Int(0), Value::Int(MAX_CHAR));
+    let shared_range = Value::cons(Value::fixnum(0), Value::fixnum(MAX_CHAR));
     for run in ct_effective_runs(table) {
-        shared_range.set_car(Value::Int(run.start));
-        shared_range.set_cdr(Value::Int(run.end));
+        shared_range.set_car(Value::fixnum(run.start));
+        shared_range.set_cdr(Value::fixnum(run.end));
         if run.value.is_nil() {
             continue;
         }
         let key = if run.start == run.end {
-            Value::Int(run.start)
+            Value::fixnum(run.start)
         } else {
             shared_range
         };
@@ -566,7 +566,7 @@ pub(crate) fn builtin_map_char_table(eval: &mut Context, args: Vec<Value>) -> Ev
         let _ = eval.apply(func, vec![key, value])?;
         Ok(())
     })?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// Resolve a char-table into non-overlapping effective runs, including nil.
@@ -597,18 +597,18 @@ fn ct_collect_raw_entries(vec: &[Value]) -> Vec<RawEntry> {
     let mut raws = Vec::new();
     let mut i = start;
     while i + 1 < vec.len() {
-        match &vec[i] {
-            Value::Int(ch) => raws.push(RawEntry {
-                start: *ch,
-                end: *ch,
+        match vec[i].kind() {
+            ValueKind::Fixnum(ch) => raws.push(RawEntry {
+                start: ch,
+                end: ch,
                 value: vec[i + 1],
             }),
-            Value::Cons(cell) => {
-                let pair = read_cons(*cell);
-                if let (Value::Int(min), Value::Int(max)) = (&pair.car, &pair.cdr) {
+            ValueKind::Cons => {
+                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+                if let (ValueKind::Fixnum(min), ValueKind::Fixnum(max)) = (&pair.car, &pair.cdr) {
                     raws.push(RawEntry {
-                        start: *min,
-                        end: *max,
+                        start: min,
+                        end: max,
                         value: vec[i + 1],
                     });
                 }
@@ -644,7 +644,7 @@ fn ct_effective_value_at(
     if !default.is_nil() {
         return default;
     }
-    effective_runs_value_at(parent_runs, ch).unwrap_or(Value::Nil)
+    effective_runs_value_at(parent_runs, ch).unwrap_or(Value::NIL)
 }
 
 fn effective_runs_value_at(entries: &[EffectiveRun], ch: i64) -> Option<Value> {
@@ -657,22 +657,22 @@ fn effective_runs_value_at(entries: &[EffectiveRun], ch: i64) -> Option<Value> {
 }
 
 fn ct_effective_runs(table: &Value) -> Vec<EffectiveRun> {
-    let Value::Vector(arc) = table else {
+    if !table.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), rewrite let-else */ {
         return vec![EffectiveRun {
             start: 0,
             end: MAX_CHAR,
-            value: Value::Nil,
+            value: Value::NIL,
         }];
     };
     let vec = with_heap(|h| h.get_vector(*arc).clone());
     let raws = ct_collect_raw_entries(&vec);
     let default = vec[CT_DEFAULT];
-    let parent_runs = match vec[CT_PARENT] {
+    let parent_runs = match vec[CT_PARENT].kind() {
         parent if is_char_table(&parent) => ct_effective_runs(&parent),
         _ => vec![EffectiveRun {
             start: 0,
             end: MAX_CHAR,
-            value: Value::Nil,
+            value: ValueKind::Nil,
         }],
     };
 
@@ -711,7 +711,7 @@ fn ct_effective_runs(table: &Value) -> Vec<EffectiveRun> {
         vec![EffectiveRun {
             start: 0,
             end: MAX_CHAR,
-            value: Value::Nil,
+            value: Value::NIL,
         }]
     } else {
         runs
@@ -720,9 +720,9 @@ fn ct_effective_runs(table: &Value) -> Vec<EffectiveRun> {
 
 fn run_key(start: i64, end: i64) -> Value {
     if start == end {
-        Value::Int(start)
+        Value::fixnum(start)
     } else {
-        Value::cons(Value::Int(start), Value::Int(end))
+        Value::cons(Value::fixnum(start), Value::fixnum(end))
     }
 }
 
@@ -756,13 +756,13 @@ pub(crate) fn char_table_external_slots(table: &Value) -> Option<Vec<Value>> {
         return None;
     }
 
-    let Value::Vector(arc) = table else {
+    if !table.is_vector() /* TODO(tagged): `arc` was Value::Vector(arc), rewrite let-else */ {
         return None;
     };
     let vec = with_heap(|h| h.get_vector(*arc).clone());
     let runs = ct_effective_runs(table);
-    let extra_count = match vec[CT_EXTRA_COUNT] {
-        Value::Int(n) if n >= 0 => n as usize,
+    let extra_count = match vec[CT_EXTRA_COUNT].kind() {
+        ValueKind::Fixnum(n) if n >= 0 => n as usize,
         _ => 0,
     };
 
@@ -770,12 +770,12 @@ pub(crate) fn char_table_external_slots(table: &Value) -> Option<Vec<Value>> {
     slots.push(vec[CT_DEFAULT]);
     slots.push(vec[CT_PARENT]);
     slots.push(vec[CT_SUBTYPE]);
-    slots.push(uniform_run_value(&runs, 0, 127).unwrap_or(Value::Nil));
+    slots.push(uniform_run_value(&runs, 0, 127).unwrap_or(Value::NIL));
 
     for idx in 0..GNU_CHAR_TABLE_CONTENT_BLOCKS {
         let start = idx * GNU_CHAR_TABLE_BLOCK_CHARS;
         let end = (start + GNU_CHAR_TABLE_BLOCK_CHARS - 1).min(MAX_CHAR);
-        slots.push(uniform_run_value(&runs, start, end).unwrap_or(Value::Nil));
+        slots.push(uniform_run_value(&runs, start, end).unwrap_or(Value::NIL));
     }
 
     for extra_idx in 0..extra_count {
@@ -791,13 +791,13 @@ pub(crate) fn builtin_char_table_extra_slot(args: Vec<Value>) -> EvalResult {
     let table = &args[0];
     let n = expect_int(&args[1])?;
 
-    let arc = match table {
-        Value::Vector(a) if is_char_table(table) => a,
+    let arc = match table.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) if is_char_table(table) => a,
         _ => return Err(wrong_type("char-table-p", table)),
     };
     let v = with_heap(|h| h.get_vector(*arc).clone());
-    let extra_count = match &v[CT_EXTRA_COUNT] {
-        Value::Int(c) => *c,
+    let extra_count = match v[CT_EXTRA_COUNT].kind() {
+        ValueKind::Fixnum(c) => c,
         _ => 0,
     };
 
@@ -815,13 +815,13 @@ pub(crate) fn builtin_set_char_table_extra_slot(args: Vec<Value>) -> EvalResult 
     let n = expect_int(&args[1])?;
     let value = &args[2];
 
-    let arc = match table {
-        Value::Vector(a) if is_char_table(table) => a,
+    let arc = match table.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) if is_char_table(table) => a,
         _ => return Err(wrong_type("char-table-p", table)),
     };
     let mut v = with_heap(|h| h.get_vector(*arc).clone());
-    let extra_count = match &v[CT_EXTRA_COUNT] {
-        Value::Int(c) => *c,
+    let extra_count = match v[CT_EXTRA_COUNT].kind() {
+        ValueKind::Fixnum(c) => c,
         _ => 0,
     };
 
@@ -838,8 +838,8 @@ pub(crate) fn builtin_set_char_table_extra_slot(args: Vec<Value>) -> EvalResult 
 pub(crate) fn builtin_char_table_subtype(args: Vec<Value>) -> EvalResult {
     expect_args("char-table-subtype", &args, 1)?;
     let table = &args[0];
-    let arc = match table {
-        Value::Vector(a) if is_char_table(table) => a,
+    let arc = match table.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) if is_char_table(table) => a,
         _ => return Err(wrong_type("char-table-p", table)),
     };
     let vec = with_heap(|h| h.get_vector(*arc).clone());
@@ -859,14 +859,14 @@ pub(crate) fn builtin_make_bool_vector(args: Vec<Value>) -> EvalResult {
         return Err(signal("args-out-of-range", vec![args[0]]));
     }
     let init_val = if args[1].is_truthy() {
-        Value::Int(1)
+        Value::fixnum(1)
     } else {
-        Value::Int(0)
+        Value::fixnum(0)
     };
     let len = length as usize;
     let mut vec = Vec::with_capacity(2 + len);
     vec.push(Value::symbol(BOOL_VECTOR_TAG));
-    vec.push(Value::Int(length));
+    vec.push(Value::fixnum(length));
     for _ in 0..len {
         vec.push(init_val);
     }
@@ -883,13 +883,13 @@ pub(crate) fn builtin_bool_vector(args: Vec<Value>) -> EvalResult {
 /// `(bool-vector-p OBJ)` -- return t if OBJ is a bool-vector.
 pub(crate) fn builtin_bool_vector_p(args: Vec<Value>) -> EvalResult {
     expect_args("bool-vector-p", &args, 1)?;
-    Ok(Value::bool(is_bool_vector(&args[0])))
+    Ok(Value::bool_val(is_bool_vector(&args[0])))
 }
 
 /// Helper: extract a bool-vector's length.
 fn bv_length(vec: &[Value]) -> i64 {
-    match &vec[BV_SIZE] {
-        Value::Int(n) => *n,
+    match vec[BV_SIZE].kind() {
+        ValueKind::Fixnum(n) => n,
         _ => 0,
     }
 }
@@ -900,7 +900,7 @@ fn bv_bits(vec: &[Value]) -> Vec<bool> {
     let mut bits = Vec::with_capacity(len);
     for i in 0..len {
         let v = &vec[2 + i];
-        bits.push(matches!(v, Value::Int(n) if *n != 0));
+        bits.push(matches!(v, Value::fixnum(n) if *n != 0));
     }
     bits
 }
@@ -910,12 +910,12 @@ pub(crate) fn builtin_bool_vector_count_population(args: Vec<Value>) -> EvalResu
     expect_args("bool-vector-count-population", &args, 1)?;
     let (bits, _len) = extract_bv_bits(&args[0])?;
     let count = bits.iter().filter(|&&b| b).count();
-    Ok(Value::Int(count as i64))
+    Ok(Value::fixnum(count as i64))
 }
 
 fn extract_bv_bits(value: &Value) -> Result<(Vec<bool>, i64), Flow> {
-    let arc = match value {
-        Value::Vector(arc) if is_bool_vector(value) => arc,
+    let arc = match value.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) if is_bool_vector(value) => arc,
         _ => return Err(wrong_type("bool-vector-p", value)),
     };
     let vec = with_heap(|h| h.get_vector(*arc).clone());
@@ -929,9 +929,9 @@ fn bv_from_bits(bits: &[bool]) -> Value {
     let len = bits.len();
     let mut vec = Vec::with_capacity(2 + len);
     vec.push(Value::symbol(BOOL_VECTOR_TAG));
-    vec.push(Value::Int(len as i64));
+    vec.push(Value::fixnum(len as i64));
     for &b in bits {
-        vec.push(Value::Int(if b { 1 } else { 0 }));
+        vec.push(Value::fixnum(if b { 1 } else { 0 }));
     }
     Value::vector(vec)
 }
@@ -947,7 +947,7 @@ pub(crate) fn builtin_bool_vector_intersection(args: Vec<Value>) -> EvalResult {
     if len_a != len_b {
         return Err(signal(
             "wrong-length-argument",
-            vec![Value::Int(len_a), Value::Int(len_b)],
+            vec![Value::fixnum(len_a), Value::fixnum(len_b)],
         ));
     }
     let result_bits: Vec<bool> = bits_a
@@ -973,7 +973,7 @@ pub(crate) fn builtin_bool_vector_union(args: Vec<Value>) -> EvalResult {
     if len_a != len_b {
         return Err(signal(
             "wrong-length-argument",
-            vec![Value::Int(len_a), Value::Int(len_b)],
+            vec![Value::fixnum(len_a), Value::fixnum(len_b)],
         ));
     }
     let result_bits: Vec<bool> = bits_a
@@ -999,7 +999,7 @@ pub(crate) fn builtin_bool_vector_exclusive_or(args: Vec<Value>) -> EvalResult {
     if len_a != len_b {
         return Err(signal(
             "wrong-length-argument",
-            vec![Value::Int(len_a), Value::Int(len_b)],
+            vec![Value::fixnum(len_a), Value::fixnum(len_b)],
         ));
     }
     let result_bits: Vec<bool> = bits_a
@@ -1042,7 +1042,7 @@ pub(crate) fn builtin_bool_vector_set_difference(args: Vec<Value>) -> EvalResult
     if len_a != len_b {
         return Err(signal(
             "wrong-length-argument",
-            vec![Value::Int(len_a), Value::Int(len_b)],
+            vec![Value::fixnum(len_a), Value::fixnum(len_b)],
         ));
     }
     let result_bits: Vec<bool> = bits_a
@@ -1068,7 +1068,7 @@ pub(crate) fn builtin_bool_vector_count_consecutive(args: Vec<Value>) -> EvalRes
     if start > len {
         return Err(signal(
             "args-out-of-range",
-            vec![args[0], Value::Int(start)],
+            vec![args[0], Value::fixnum(start)],
         ));
     }
     let mut count = 0usize;
@@ -1078,7 +1078,7 @@ pub(crate) fn builtin_bool_vector_count_consecutive(args: Vec<Value>) -> EvalRes
         }
         count += 1;
     }
-    Ok(Value::Int(count as i64))
+    Ok(Value::fixnum(count as i64))
 }
 
 /// `(bool-vector-subsetp A B)` -- return t if every true bit in A is also true
@@ -1090,11 +1090,11 @@ pub(crate) fn builtin_bool_vector_subsetp(args: Vec<Value>) -> EvalResult {
     if len_a != len_b {
         return Err(signal(
             "wrong-length-argument",
-            vec![Value::Int(len_a), Value::Int(len_b), Value::Int(len_b)],
+            vec![Value::fixnum(len_a), Value::fixnum(len_b), Value::fixnum(len_b)],
         ));
     }
     let is_subset = bits_a.iter().zip(bits_b.iter()).all(|(&a, &b)| !a || b);
-    Ok(Value::bool(is_subset))
+    Ok(Value::bool_val(is_subset))
 }
 
 /// Store bits into an existing bool-vector (for the optional dest argument).
@@ -1103,19 +1103,19 @@ fn store_bv_result_with_expected_lengths(
     bits: &[bool],
     expected_lengths: &[i64],
 ) -> Result<(), Flow> {
-    let arc = match dest {
-        Value::Vector(a) if is_bool_vector(dest) => a,
+    let arc = match dest.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) if is_bool_vector(dest) => a,
         _ => return Err(wrong_type("bool-vector-p", dest)),
     };
     let mut v = with_heap(|h| h.get_vector(*arc).clone());
     let len = bv_length(&v) as usize;
     if len != bits.len() {
         let mut payload: Vec<Value> = expected_lengths.iter().copied().map(Value::Int).collect();
-        payload.push(Value::Int(len as i64));
+        payload.push(Value::fixnum(len as i64));
         return Err(signal("wrong-length-argument", payload));
     }
     for (i, &b) in bits.iter().enumerate() {
-        v[2 + i] = Value::Int(if b { 1 } else { 0 });
+        v[2 + i] = Value::fixnum(if b { 1 } else { 0 });
     }
     with_heap_mut(|h| *h.get_vector_mut(*arc) = v);
     Ok(())

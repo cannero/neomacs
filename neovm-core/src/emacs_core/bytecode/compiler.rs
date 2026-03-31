@@ -6,7 +6,7 @@ use super::chunk::ByteCodeFunction;
 use super::opcode::Op;
 use crate::emacs_core::expr::Expr;
 use crate::emacs_core::intern::{intern, resolve_sym};
-use crate::emacs_core::value::{LambdaParams, Value, next_float_id};
+use crate::emacs_core::value::{LambdaParams, Value, next_float_id, ValueKind};
 
 /// A stack-local variable (function parameter accessed via StackRef).
 struct StackLocal {
@@ -158,7 +158,7 @@ impl Compiler {
             }
             Expr::Float(f) => {
                 if for_value {
-                    let idx = func.add_constant(Value::Float(*f, next_float_id()));
+                    let idx = func.add_constant(Value::make_float(*f));  // TODO(tagged): remove next_float_id()
                     self.emit_tracked(func, Op::Constant(idx));
                 }
             }
@@ -530,7 +530,7 @@ impl Compiler {
         name: &str,
         args: &[Expr],
     ) -> Option<()> {
-        match (name, args.len()) {
+        match (name.kind(), args.len().kind()) {
             // Arithmetic (2 args)
             ("+", 2) => {
                 self.compile_expr(func, &args[0], true);
@@ -575,7 +575,7 @@ impl Compiler {
             // Variadic + and *
             ("+", n) if n != 2 => {
                 if n == 0 {
-                    let idx = func.add_constant(Value::Int(0));
+                    let idx = func.add_constant(ValueKind::Fixnum(0));
                     self.emit_tracked(func, Op::Constant(idx));
                 } else {
                     self.compile_expr(func, &args[0], true);
@@ -588,7 +588,7 @@ impl Compiler {
             }
             ("*", n) if n != 2 => {
                 if n == 0 {
-                    let idx = func.add_constant(Value::Int(1));
+                    let idx = func.add_constant(ValueKind::Fixnum(1));
                     self.emit_tracked(func, Op::Constant(idx));
                 } else {
                     self.compile_expr(func, &args[0], true);
@@ -1870,18 +1870,18 @@ fn is_literal(expr: &Expr) -> bool {
 /// Convert a literal expression to a Value.
 fn literal_to_value(expr: &Expr) -> Value {
     match expr {
-        Expr::Int(n) => Value::Int(*n),
-        Expr::Float(f) => Value::Float(*f, next_float_id()),
+        Expr::Int(n) => Value::fixnum(*n),
+        Expr::Float(f) => Value::make_float(*f),
         Expr::ReaderLoadFileName => Value::symbol("load-file-name"),
         Expr::Str(s) => Value::string(s.clone()),
-        Expr::Char(c) => Value::Char(*c),
-        Expr::Keyword(id) => Value::Keyword(*id),
-        Expr::Bool(true) => Value::True,
-        Expr::Bool(false) => Value::Nil,
-        Expr::Symbol(id) if resolve_sym(*id) == "nil" => Value::Nil,
-        Expr::Symbol(id) if resolve_sym(*id) == "t" => Value::True,
-        Expr::Symbol(id) => Value::Symbol(*id),
-        Expr::List(items) if items.is_empty() => Value::Nil,
+        Expr::Char(c) => Value::char(*c),
+        Expr::Keyword(id) => Value::keyword(*id),
+        Expr::Bool(true) => Value::T,
+        Expr::Bool(false) => Value::NIL,
+        Expr::Symbol(id) if resolve_sym(*id) == "nil" => Value::NIL,
+        Expr::Symbol(id) if resolve_sym(*id) == "t" => Value::T,
+        Expr::Symbol(id) => Value::symbol(*id),
+        Expr::List(items) if items.is_empty() => Value::NIL,
         Expr::List(items) => {
             // For quoted list, recursively convert
             if items.len() == 2 {

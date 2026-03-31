@@ -63,7 +63,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -74,7 +74,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -85,7 +85,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -93,25 +93,25 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 }
 
 fn live_frame_designator_in_state(frames: &FrameManager, value: &Value) -> bool {
-    match value {
-        Value::Int(id) if *id >= 0 => frames.get(FrameId(*id as u64)).is_some(),
-        Value::Frame(id) => frames.get(FrameId(*id)).is_some(),
+    match value.kind() {
+        ValueKind::Fixnum(id) if id >= 0 => frames.get(FrameId(id as u64)).is_some(),
+        ValueKind::Veclike(VecLikeType::Frame) => frames.get(FrameId(*id)).is_some(),
         _ => false,
     }
 }
 
 fn frame_id_from_designator(value: &Value) -> Option<FrameId> {
-    match value {
-        Value::Int(id) if *id >= 0 => Some(FrameId(*id as u64)),
-        Value::Frame(id) => Some(FrameId(*id)),
+    match value.kind() {
+        ValueKind::Fixnum(id) if id >= 0 => Some(FrameId(id as u64)),
+        ValueKind::Veclike(VecLikeType::Frame) => Some(FrameId(*id)),
         _ => None,
     }
 }
 
 fn font_value_text(value: &Value) -> Option<String> {
-    match value {
-        Value::Str(id) => Some(with_heap(|heap| heap.get_string(*id).to_owned())),
-        Value::Symbol(id) | Value::Keyword(id) => Some(resolve_sym(*id).to_owned()),
+    match value.kind() {
+        ValueKind::String => Some(with_heap(|heap| heap.get_string(*id).to_owned())),
+        ValueKind::Symbol(id) | ValueKind::Keyword(id) => Some(resolve_sym(id).to_owned()),
         _ => None,
     }
 }
@@ -132,9 +132,9 @@ fn expect_optional_frame_designator_in_state(
 }
 
 fn frame_device_designator_p(value: &Value) -> bool {
-    match value {
-        Value::Int(id) => *id >= FRAME_ID_BASE as i64,
-        Value::Frame(id) => *id >= FRAME_ID_BASE,
+    match value.kind() {
+        ValueKind::Fixnum(id) => id >= FRAME_ID_BASE as i64,
+        ValueKind::Veclike(VecLikeType::Frame) => *id >= FRAME_ID_BASE,
         _ => false,
     }
 }
@@ -148,10 +148,10 @@ fn live_frame_id_for_face_update(
     frame: Option<&Value>,
 ) -> Result<Option<FrameId>, Flow> {
     match frame {
-        None | Some(Value::Nil) | Some(Value::Int(0)) => {
+        None | Some(ValueKind::Nil) | Some(ValueKind::Fixnum(0)) => {
             Ok(Some(super::window_cmds::ensure_selected_frame_id(eval)))
         }
-        Some(Value::True) => Ok(None),
+        Some(ValueKind::T) => Ok(None),
         Some(value) if live_frame_designator_in_state(&eval.frames, value) => Ok(Some(
             frame_id_from_designator(value)
                 .expect("live frame designator should decode to frame id"),
@@ -269,10 +269,10 @@ const FONT_ENTITY_TAG: &str = "font-entity";
 const FONT_OBJECT_TAG: &str = "font-object";
 
 fn is_tagged_font_vector(val: &Value, tag: &str) -> bool {
-    match val {
-        Value::Vector(v) => {
+    match val.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let elems = with_heap(|h| h.get_vector(*v).clone());
-            matches!(&elems.first(), Some(Value::Keyword(k)) if resolve_sym(*k) == tag)
+            matches!(&elems.first(), Some(ValueKind::Keyword(k)) if resolve_sym(*k) == tag)
         }
         _ => false,
     }
@@ -311,7 +311,7 @@ fn font_vector_get(vec_elems: &[Value], prop: &Value) -> Value {
         }
         i += 2;
     }
-    Value::Nil
+    Value::NIL
 }
 
 /// Get a property from a tagged font vector while accepting both `family` and `:family`
@@ -321,9 +321,9 @@ fn font_vector_get_flexible(vec_elems: &[Value], prop: &str) -> Option<Value> {
     let mut i = 1;
     while i + 1 < vec_elems.len() {
         let key = &vec_elems[i];
-        let key_text = match key {
-            Value::Keyword(k) => resolve_sym(*k),
-            Value::Symbol(k) => resolve_sym(*k),
+        let key_text = match key.kind() {
+            ValueKind::Keyword(k) => resolve_sym(k),
+            ValueKind::Symbol(k) => resolve_sym(k),
             _ => {
                 i += 2;
                 continue;
@@ -339,23 +339,23 @@ fn font_vector_get_flexible(vec_elems: &[Value], prop: &str) -> Option<Value> {
 }
 
 fn font_spec_field_to_string(value: &Value) -> String {
-    match value {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
-        Value::Symbol(id) | Value::Keyword(id) => resolve_sym(*id).to_owned(),
+    match value.kind() {
+        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+        ValueKind::Symbol(id) | ValueKind::Keyword(id) => resolve_sym(id).to_owned(),
         _ => "*".to_string(),
     }
 }
 
 fn xlfd_size_field(size_val: &Value) -> Option<String> {
-    match size_val {
-        Value::Int(size) => {
-            if *size > 0 {
+    match size_val.kind() {
+        ValueKind::Fixnum(size) => {
+            if size > 0 {
                 Some(format!("{}-*", size))
             } else {
                 Some("*-*".to_string())
             }
         }
-        Value::Float(size, _) => {
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => {
             let scaled = size * 10.0;
             if scaled.is_finite() {
                 Some(format!("*-{}", scaled.round() as i64))
@@ -377,7 +377,7 @@ fn fold_xlfd_wildcards(mut name: String) -> String {
 fn normalize_registry_field(value: &Option<Value>) -> String {
     match value {
         None => "*-*".to_string(),
-        Some(Value::Str(id)) => {
+        Some(ValueKind::String) => {
             let s = with_heap(|h| h.get_string(*id).to_owned());
             if !s.contains('-') {
                 format!("{}-*", s)
@@ -385,7 +385,7 @@ fn normalize_registry_field(value: &Option<Value>) -> String {
                 s
             }
         }
-        Some(Value::Symbol(id)) | Some(Value::Keyword(id)) => {
+        Some(ValueKind::Symbol(id)) | Some(ValueKind::Keyword(id)) => {
             let s = resolve_sym(*id);
             if !s.contains('-') {
                 format!("{}-*", s)
@@ -398,16 +398,16 @@ fn normalize_registry_field(value: &Option<Value>) -> String {
 }
 
 fn sanitize_style_field(value: &Value) -> String {
-    match value {
-        Value::Symbol(id) => resolve_sym(*id)
+    match value.kind() {
+        ValueKind::Symbol(id) => resolve_sym(id)
             .chars()
             .filter(|ch| *ch != '-' && *ch != '?' && *ch != ',' && *ch != '"')
             .collect(),
-        Value::Keyword(id) => resolve_sym(*id)
+        ValueKind::Keyword(id) => resolve_sym(id)
             .chars()
             .filter(|ch| *ch != '-' && *ch != '?' && *ch != ',' && *ch != '"')
             .collect(),
-        Value::Str(id) => {
+        ValueKind::String => {
             let s = with_heap(|h| h.get_string(*id).to_owned());
             s.chars()
                 .filter(|ch| *ch != '-' && *ch != '?' && *ch != ',' && *ch != '"')
@@ -420,7 +420,7 @@ fn sanitize_style_field(value: &Value) -> String {
 fn spacing_field(value: Option<&Value>) -> String {
     match value {
         None => "*".to_string(),
-        Some(Value::Int(spacing)) => {
+        Some(ValueKind::Fixnum(spacing)) => {
             let value = *spacing;
             if value <= 0 {
                 "p".to_string()
@@ -438,9 +438,9 @@ fn spacing_field(value: Option<&Value>) -> String {
 
 fn avg_width_field(value: Option<&Value>) -> String {
     match value {
-        Some(Value::Int(n)) => n.to_string(),
-        Some(Value::Str(id)) => with_heap(|h| h.get_string(*id).to_owned()),
-        Some(Value::Symbol(id)) | Some(Value::Keyword(id)) => resolve_sym(*id).to_owned(),
+        Some(ValueKind::Fixnum(n)) => n.to_string(),
+        Some(ValueKind::String) => with_heap(|h| h.get_string(*id).to_owned()),
+        Some(ValueKind::Symbol(id)) | Some(ValueKind::Keyword(id)) => resolve_sym(*id).to_owned(),
         _ => "*".to_string(),
     }
 }
@@ -454,7 +454,7 @@ fn xlfd_pixel_field(size: Option<&Value>) -> String {
 
 fn xlfd_resolution_field(dpi: Option<&Value>) -> String {
     match dpi {
-        Some(Value::Int(size)) => format!("{}-{}", size, size),
+        Some(ValueKind::Fixnum(size)) => format!("{}-{}", size, size),
         _ => "*-*".to_string(),
     }
 }
@@ -540,7 +540,7 @@ pub(crate) fn builtin_fontp(args: Vec<Value>) -> EvalResult {
     expect_max_args("fontp", &args, 2)?;
     expect_min_args("fontp", &args, 1)?;
     let object = &args[0];
-    let extra_type = args.get(1).copied().unwrap_or(Value::Nil);
+    let extra_type = args.get(1).copied().unwrap_or(Value::NIL);
     let value = if extra_type.is_nil() {
         is_font(object)
     } else if extra_type.is_symbol_named("font-spec") {
@@ -555,7 +555,7 @@ pub(crate) fn builtin_fontp(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("font-extra-type"), extra_type],
         ));
     };
-    Ok(Value::bool(value))
+    Ok(Value::bool_val(value))
 }
 
 /// `(font-spec &rest ARGS)` -- create a font spec from keyword args.
@@ -565,18 +565,18 @@ pub(crate) fn builtin_fontp(args: Vec<Value>) -> EvalResult {
 /// Returns a vector `[:font-spec :family "Monospace" :weight normal :size 12]`.
 pub(crate) fn builtin_font_spec(args: Vec<Value>) -> EvalResult {
     let mut elems: Vec<Value> = Vec::with_capacity(1 + args.len());
-    elems.push(Value::Keyword(intern(FONT_SPEC_TAG)));
+    elems.push(Value::keyword(intern(FONT_SPEC_TAG)));
 
     for pair_index in (0..args.len()).step_by(2) {
         let key = &args[pair_index];
         let value = args.get(pair_index + 1);
 
         let Some(value) = value else {
-            if matches!(key, Value::Keyword(_) | Value::Symbol(_) | Value::Nil) {
-                let key_name = match key {
-                    Value::Keyword(k) => format!(":{}", resolve_sym(*k)),
-                    Value::Symbol(id) => resolve_sym(*id).to_owned(),
-                    Value::Nil => "nil".to_string(),
+            if key.is_keyword() || key.is_symbol() || key.is_nil() {
+                let key_name = match key.kind() {
+                    ValueKind::Keyword(k) => format!(":{}", resolve_sym(k)),
+                    ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
+                    ValueKind::Nil => "nil".to_string(),
                     _ => "nil".to_string(),
                 };
                 return Err(signal(
@@ -590,7 +590,7 @@ pub(crate) fn builtin_font_spec(args: Vec<Value>) -> EvalResult {
             ));
         };
 
-        if matches!(key, Value::Nil) {
+        if key.is_nil() {
             return Err(signal(
                 "error",
                 vec![
@@ -600,7 +600,7 @@ pub(crate) fn builtin_font_spec(args: Vec<Value>) -> EvalResult {
             ));
         }
 
-        if !matches!(key, Value::Keyword(_) | Value::Symbol(_)) {
+        if !(key.is_keyword() || key.is_symbol()) {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("symbolp"), *key],
@@ -623,26 +623,26 @@ pub(crate) fn builtin_font_get(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("font"), args[0]],
         ));
     }
-    if !matches!(&args[1], Value::Keyword(_) | Value::Symbol(_)) {
+    if !(args[1].is_keyword() || args[1].is_symbol()) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), args[1]],
         ));
     }
 
-    match &args[0] {
-        Value::Vector(v) => {
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let elems = with_heap(|h| h.get_vector(*v).clone());
             let exact = font_vector_get(&elems, &args[1]);
             if !exact.is_nil() {
                 return Ok(exact);
             }
 
-            if let Value::Keyword(id) = args[1] {
-                return Ok(font_vector_get_flexible(&elems, resolve_sym(id)).unwrap_or(Value::Nil));
+            if let Some(id) = args[1].as_keyword_id() {
+                return Ok(font_vector_get_flexible(&elems, resolve_sym(id)).unwrap_or(ValueKind::Nil));
             }
 
-            Ok(Value::Nil)
+            Ok(ValueKind::Nil)
         }
         _ => unreachable!("font check above guarantees vector"),
     }
@@ -657,8 +657,8 @@ pub(crate) fn builtin_font_put(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("font-spec"), args[0]],
         ));
     }
-    match &args[0] {
-        Value::Vector(v) => {
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             with_heap_mut(|h| {
                 let elems = h.get_vector_mut(*v);
                 font_spec_put(elems, &args[1], &args[2]);
@@ -682,22 +682,22 @@ pub(crate) fn builtin_list_fonts(eval: &mut super::eval::Context, args: Vec<Valu
         ));
     }
     expect_optional_frame_designator_in_state(&eval.frames, args.get(1))?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 fn font_weight_from_value(value: Value) -> Option<FontWeight> {
-    match value {
-        Value::Int(weight) if (0..=u16::MAX as i64).contains(&weight) => {
+    match value.kind() {
+        ValueKind::Fixnum(weight) if (0..=u16::MAX as i64).contains(&weight) => {
             Some(FontWeight(weight as u16))
         }
-        Value::Symbol(id) | Value::Keyword(id) => FontWeight::from_symbol(resolve_sym(id)),
+        ValueKind::Symbol(id) | ValueKind::Keyword(id) => FontWeight::from_symbol(resolve_sym(id)),
         _ => None,
     }
 }
 
 fn font_slant_from_value(value: Value) -> Option<FontSlant> {
-    match value {
-        Value::Symbol(id) | Value::Keyword(id) => FontSlant::from_symbol(resolve_sym(id)),
+    match value.kind() {
+        ValueKind::Symbol(id) | ValueKind::Keyword(id) => FontSlant::from_symbol(resolve_sym(id)),
         _ => None,
     }
 }
@@ -707,7 +707,7 @@ fn find_font_frame_id(
     frame: Option<&Value>,
 ) -> Result<FrameId, Flow> {
     match frame {
-        None | Some(Value::Nil) => Ok(super::window_cmds::ensure_selected_frame_id(eval)),
+        None | Some(ValueKind::Nil) => Ok(super::window_cmds::ensure_selected_frame_id(eval)),
         Some(value) if live_frame_designator_in_state(&eval.frames, value) => {
             frame_id_from_designator(value).ok_or_else(|| {
                 signal(
@@ -728,7 +728,7 @@ fn font_spec_resolve_request(
     font_spec: &Value,
     frame: Option<&Value>,
 ) -> Result<super::eval::FontSpecResolveRequest, Flow> {
-    let Value::Vector(id) = font_spec else {
+    if !font_spec.is_vector() /* TODO(tagged): `id` was Value::Vector(id), rewrite let-else */ {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("font-spec"), *font_spec],
@@ -769,13 +769,13 @@ pub(crate) fn builtin_find_font(eval: &mut super::eval::Context, args: Vec<Value
 
     let request = font_spec_resolve_request(eval, &args[0], args.get(1))?;
     let Some(host) = eval.display_host.as_mut() else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     let matched = host
         .resolve_font_for_spec(request)
         .map_err(|err| signal("error", vec![Value::string(err)]))?;
     let Some(matched) = matched else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     Ok(build_font_entity_for_spec_match(&matched))
 }
@@ -784,7 +784,7 @@ pub(crate) fn builtin_find_font(eval: &mut super::eval::Context, args: Vec<Value
 pub(crate) fn builtin_clear_font_cache(args: Vec<Value>) -> EvalResult {
     expect_max_args("clear-font-cache", &args, 0)?;
     clear_font_cache_state();
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// Context-aware variant of `font-family-list`.
@@ -796,7 +796,7 @@ pub(crate) fn builtin_font_family_list(
 ) -> EvalResult {
     expect_max_args("font-family-list", &args, 1)?;
     expect_optional_frame_designator_in_state(&eval.frames, args.first())?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(font-xlfd-name FONT &optional FOLD-WILDCARDS)` -- render font-spec fields
@@ -811,11 +811,11 @@ pub(crate) fn builtin_font_xlfd_name(args: Vec<Value>) -> EvalResult {
         ));
     }
 
-    let fields = match &args[0] {
-        Value::Vector(v) => {
+    let fields = match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let elems = with_heap(|h| h.get_vector(*v).clone());
             if is_font_object(&args[0])
-                && let Some(Value::Str(id)) = font_vector_get_flexible(&elems, "name")
+                && let Some(ValueKind::String) = font_vector_get_flexible(&elems, "name")
             {
                 let font_name = with_heap(|h| h.get_string(id).to_owned());
                 if font_name.starts_with('-') {
@@ -906,7 +906,7 @@ pub(crate) fn builtin_close_font(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("font-object"), args[0]],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 #[derive(Clone, Debug)]
@@ -916,9 +916,9 @@ enum FaceLayer {
 }
 
 fn window_id_from_designator(value: &Value) -> Option<WindowId> {
-    match value {
-        Value::Window(id) => Some(WindowId(*id)),
-        Value::Int(n) if *n >= 0 => Some(WindowId(*n as u64)),
+    match value.kind() {
+        ValueKind::Veclike(VecLikeType::Window) => Some(WindowId(*id)),
+        ValueKind::Fixnum(n) if n >= 0 => Some(WindowId(n as u64)),
         _ => None,
     }
 }
@@ -928,7 +928,7 @@ fn resolve_live_window_for_font_at(
     value: Option<&Value>,
 ) -> Result<(FrameId, WindowId), Flow> {
     match value {
-        None | Some(Value::Nil) => {
+        None | Some(ValueKind::Nil) => {
             let frame_id = super::window_cmds::ensure_selected_frame_id(eval);
             let frame = eval
                 .frames
@@ -955,20 +955,20 @@ fn resolve_live_window_for_font_at(
 }
 
 fn resolve_face_layers_from_value(value: &Value) -> Vec<FaceLayer> {
-    match value {
-        Value::Nil => Vec::new(),
-        Value::Symbol(_) | Value::Keyword(_) => value
+    match value.kind() {
+        ValueKind::Nil => Vec::new(),
+        ValueKind::Symbol(_) | ValueKind::Keyword(_) => value
             .as_symbol_name()
             .filter(|name| *name != "nil")
             .map(|name| vec![FaceLayer::Named(vec![name.to_string()])])
             .unwrap_or_default(),
-        Value::Cons(_) => {
+        ValueKind::Cons => {
             let Some(items) = list_to_vec(value) else {
                 return Vec::new();
             };
             if items
                 .first()
-                .is_some_and(|item| matches!(item, Value::Keyword(_)))
+                .is_some_and(|item| item.is_keyword())
             {
                 vec![FaceLayer::Inline(RuntimeFace::from_plist(
                     "--font-at--",
@@ -1003,7 +1003,7 @@ fn face_remapping_for_buffer(eval: &super::eval::Context, buffer: &Buffer) -> Fa
         .get_buffer_local("face-remapping-alist")
         .copied()
         .or_else(|| eval.obarray().symbol_value("face-remapping-alist").copied())
-        .unwrap_or(Value::Nil);
+        .unwrap_or(Value::NIL);
 
     if value.is_nil() {
         FaceRemapping::new()
@@ -1021,7 +1021,7 @@ fn face_remapping_for_current_buffer(eval: &super::eval::Context) -> FaceRemappi
             .obarray()
             .symbol_value("face-remapping-alist")
             .copied()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         if value.is_nil() {
             FaceRemapping::new()
         } else {
@@ -1126,8 +1126,8 @@ fn resolved_face_at_string_byte(
 
 fn face_height_to_font_value(height: &FaceHeight) -> Value {
     match height {
-        FaceHeight::Absolute(n) => Value::Int(*n as i64),
-        FaceHeight::Relative(f) => Value::Float(*f, next_float_id()),
+        FaceHeight::Absolute(n) => Value::fixnum(*n as i64),
+        FaceHeight::Relative(f) => Value::make_float(*f),
     }
 }
 
@@ -1199,12 +1199,12 @@ fn build_font_object(face: &RuntimeFace) -> Value {
     }
 
     let font_object = Value::vector(elems);
-    let xlfd = builtin_font_xlfd_name(vec![font_object]).unwrap_or_else(|_| Value::Nil);
-    if let Value::Vector(id) = font_object {
+    let xlfd = builtin_font_xlfd_name(vec![font_object]).unwrap_or_else(|_| Value::NIL);
+    if font_object.is_vector() /* TODO(tagged): `id` was Value::Vector(id), now use accessor */ {
         with_heap_mut(|heap| {
             let items = heap.get_vector_mut(id);
             items.push(Value::keyword("name"));
-            items.push(if xlfd.is_nil() { Value::Nil } else { xlfd });
+            items.push(if xlfd.is_nil() { Value::NIL } else { xlfd });
         });
     }
     font_object
@@ -1232,7 +1232,7 @@ fn build_font_entity_for_spec_match(matched: &super::eval::ResolvedFontSpecMatch
         push_field("width", Value::symbol(font_width_symbol(width)));
     }
     if let Some(spacing) = matched.spacing {
-        push_field("spacing", Value::Int(spacing as i64));
+        push_field("spacing", Value::fixnum(spacing as i64));
     }
     if let Some(postscript_name) = &matched.postscript_name {
         push_field("postscript-name", Value::string(postscript_name.clone()));
@@ -1255,21 +1255,21 @@ fn build_font_object_for_match(
 }
 
 fn font_name_value(font_like: &Value) -> Option<Value> {
-    match font_like {
-        Value::Str(_) => Some(*font_like),
-        Value::Vector(id) if is_font(font_like) => {
+    match font_like.kind() {
+        ValueKind::String => Some(*font_like),
+        ValueKind::Veclike(VecLikeType::Vector) if is_font(font_like) => {
             let elems = with_heap(|h| h.get_vector(*id).clone());
             if let Some(value) = font_vector_get_flexible(&elems, "name") {
                 return match value {
-                    Value::Str(_) => Some(value),
-                    Value::Symbol(sym) | Value::Keyword(sym) => {
+                    ValueKind::String => Some(value),
+                    ValueKind::Symbol(sym) | ValueKind::Keyword(sym) => {
                         Some(Value::string(resolve_sym(sym).to_owned()))
                     }
                     _ => None,
                 };
             }
-            match builtin_font_xlfd_name(vec![*font_like]) {
-                Ok(Value::Str(_)) => builtin_font_xlfd_name(vec![*font_like]).ok(),
+            match builtin_font_xlfd_name(vec![*font_like]).kind() {
+                Ok(ValueKind::String) => builtin_font_xlfd_name(vec![*font_like]).ok(),
                 _ => None,
             }
         }
@@ -1284,8 +1284,8 @@ fn font_value_matches_frame_font_parameter(
     let Some(frame_font) = frame.parameters.get("font") else {
         return false;
     };
-    match (frame_font, requested) {
-        (Value::Str(expected), Value::Str(actual)) => {
+    match (frame_font.kind(), requested.kind()) {
+        (ValueKind::String, ValueKind::String) => {
             with_heap(|heap| heap.get_string(*expected) == heap.get_string(*actual))
         }
         _ => false,
@@ -1317,7 +1317,7 @@ fn resolved_live_frame_font_value(
 }
 
 fn public_live_frame_font_value(font_value: Value) -> Value {
-    let Value::Vector(id) = font_value else {
+    if !font_value.is_vector() /* TODO(tagged): `id` was Value::Vector(id), rewrite let-else */ {
         return font_value;
     };
     if !is_font(&font_value) {
@@ -1339,9 +1339,9 @@ fn public_live_frame_font_value(font_value: Value) -> Value {
             break;
         }
 
-        let keep = !matches!(&elems[idx], Value::Keyword(sym) | Value::Symbol(sym) if {
-            resolve_sym(*sym).trim_start_matches(':') == "height"
-        });
+        let keep = !elems[idx].as_symbol_id().or_else(|| elems[idx].as_keyword_id()).map_or(false, |id_| {
+        resolve_sym(id_).trim_start_matches(':') == "height"
+    });
         if keep {
             filtered.push(elems[idx]);
             filtered.push(elems[idx + 1]);
@@ -1389,18 +1389,18 @@ fn font_info_vector_for_runtime_font(font_like: &Value, frame: &crate::window::F
     Value::vector(vec![
         opened_name,
         full_name,
-        Value::Int(size),
-        Value::Int(height),
-        Value::Int(0),
-        Value::Int(0),
-        Value::Int(default_ascent),
-        Value::Int(max_width),
-        Value::Int(ascent),
-        Value::Int(descent),
-        Value::Int(space_width),
-        Value::Int(average_width),
-        Value::Nil,
-        Value::Nil,
+        Value::fixnum(size),
+        Value::fixnum(height),
+        Value::fixnum(0),
+        Value::fixnum(0),
+        Value::fixnum(default_ascent),
+        Value::fixnum(max_width),
+        Value::fixnum(ascent),
+        Value::fixnum(descent),
+        Value::fixnum(space_width),
+        Value::fixnum(average_width),
+        Value::NIL,
+        Value::NIL,
     ])
 }
 
@@ -1438,15 +1438,15 @@ pub(crate) fn builtin_font_at(eval: &mut super::eval::Context, args: Vec<Value>)
 
     if let Some(string_value) = args.get(2) {
         if !string_value.is_nil() {
-            let Value::Str(str_id) = *string_value else {
+            if !*string_value.is_string() /* TODO(tagged): `str_id` was Value::Str(str_id), rewrite let-else */ {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("stringp"), *string_value],
                 ));
             };
-            let pos = match args[0] {
-                Value::Int(n) => n,
-                Value::Char(c) => c as i64,
+            let pos = match args[0].kind() {
+                ValueKind::Fixnum(n) => n,
+                ValueKind::Char(c) => c as i64,
                 other => {
                     return Err(signal(
                         "wrong-type-argument",
@@ -1459,7 +1459,7 @@ pub(crate) fn builtin_font_at(eval: &mut super::eval::Context, args: Vec<Value>)
             if !(0 <= pos && pos < char_len) {
                 return Err(signal(
                     "args-out-of-range",
-                    vec![Value::string(string), Value::Int(pos)],
+                    vec![Value::string(string), Value::fixnum(pos)],
                 ));
             }
             let bytepos = string_elisp_pos_to_byte(&string, pos);
@@ -1467,7 +1467,7 @@ pub(crate) fn builtin_font_at(eval: &mut super::eval::Context, args: Vec<Value>)
             let character = string.chars().nth(pos as usize).ok_or_else(|| {
                 signal(
                     "args-out-of-range",
-                    vec![Value::string(string), Value::Int(pos)],
+                    vec![Value::string(string), Value::fixnum(pos)],
                 )
             })?;
             if let Some(matched) = resolve_font_match(eval, frame_id, character, &face) {
@@ -1501,7 +1501,7 @@ pub(crate) fn builtin_font_at(eval: &mut super::eval::Context, args: Vec<Value>)
     if !(beg <= pos && pos < end) {
         return Err(signal(
             "args-out-of-range",
-            vec![args[0], Value::Int(beg), Value::Int(end)],
+            vec![args[0], Value::fixnum(beg), Value::fixnum(end)],
         ));
     }
 
@@ -1510,7 +1510,7 @@ pub(crate) fn builtin_font_at(eval: &mut super::eval::Context, args: Vec<Value>)
     let character = buffer.text.char_at(bytepos).ok_or_else(|| {
         signal(
             "args-out-of-range",
-            vec![args[0], Value::Int(beg), Value::Int(end)],
+            vec![args[0], Value::fixnum(beg), Value::fixnum(end)],
         )
     })?;
     if let Some(matched) = resolve_font_match(eval, frame_id, character, &face) {
@@ -1893,7 +1893,7 @@ fn merge_defaults_overrides_into_selected(face_name: &str) {
                 .entry(face_name.to_string())
                 .or_default();
             for (attr, value) in attrs {
-                if matches!(&value, Value::Symbol(id) if resolve_sym(*id) == "unspecified" || resolve_sym(*id) == "relative") {
+                if (value.is_symbol_named("unspecified") || value.is_symbol_named("relative")) {
                     continue;
                 }
                 selected.insert(attr, value);
@@ -1903,10 +1903,10 @@ fn merge_defaults_overrides_into_selected(face_name: &str) {
 }
 
 fn symbol_name_for_face_value(face: &Value) -> Option<String> {
-    match face {
-        Value::Nil => Some("nil".to_string()),
-        Value::True => Some("t".to_string()),
-        Value::Symbol(id) => Some(resolve_sym(*id).to_owned()),
+    match face.kind() {
+        ValueKind::Nil => Some("nil".to_string()),
+        ValueKind::T => Some("t".to_string()),
+        ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
         _ => None,
     }
 }
@@ -1917,8 +1917,8 @@ fn require_symbol_face_name(face: &Value) -> Result<String, Flow> {
 }
 
 fn known_face_name(face: &Value) -> Option<String> {
-    let name = match face {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
+    let name = match face.kind() {
+        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
         _ => symbol_name_for_face_value(face)?,
     };
     if KNOWN_FACES.contains(&name.as_str()) || is_created_lisp_face(&name) {
@@ -1940,8 +1940,8 @@ fn resolve_copy_source_face_symbol(face: &Value) -> Result<String, Flow> {
 }
 
 fn resolve_face_name_for_domain(face: &Value, defaults_frame: bool) -> Result<String, Flow> {
-    match face {
-        Value::Str(id) => {
+    match face.kind() {
+        ValueKind::String => {
             let name = with_heap(|h| h.get_string(*id).to_owned());
             if face_exists_for_domain(&name, defaults_frame) {
                 Err(signal(
@@ -1955,7 +1955,7 @@ fn resolve_face_name_for_domain(face: &Value, defaults_frame: bool) -> Result<St
                 ))
             }
         }
-        Value::Nil | Value::True | Value::Symbol(_) => {
+        ValueKind::Nil | ValueKind::T | ValueKind::Symbol(_) => {
             let name = symbol_name_for_face_value(face).expect("symbol-like");
             if face_exists_for_domain(&name, defaults_frame) {
                 Ok(name)
@@ -1970,8 +1970,8 @@ fn resolve_face_name_for_domain(face: &Value, defaults_frame: bool) -> Result<St
 }
 
 fn resolve_face_name_for_merge(face: &Value) -> Result<String, Flow> {
-    match face {
-        Value::Str(id) => {
+    match face.kind() {
+        ValueKind::String => {
             let name = with_heap(|h| h.get_string(*id).to_owned());
             if face_exists_for_domain(&name, true) {
                 Ok(name)
@@ -1982,7 +1982,7 @@ fn resolve_face_name_for_merge(face: &Value) -> Result<String, Flow> {
                 ))
             }
         }
-        Value::Nil | Value::True | Value::Symbol(_) => {
+        ValueKind::Nil | ValueKind::T | ValueKind::Symbol(_) => {
             let name = symbol_name_for_face_value(face).expect("symbol-like");
             if face_exists_for_domain(&name, true) {
                 Ok(name)
@@ -2015,17 +2015,17 @@ fn make_lisp_face_vector_for_domain(face_name: &str, defaults_frame: bool) -> Va
 }
 
 fn normalize_face_attribute_name(attr: &Value) -> Result<String, Flow> {
-    let name = match attr {
-        Value::Symbol(id) => resolve_sym(*id).to_owned(),
-        Value::Keyword(id) => {
-            let s = resolve_sym(*id);
+    let name = match attr.kind() {
+        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
+        ValueKind::Keyword(id) => {
+            let s = resolve_sym(id);
             if s.starts_with(':') {
                 s.to_owned()
             } else {
                 format!(":{s}")
             }
         }
-        Value::Nil | Value::True => attr.as_symbol_name().unwrap_or_default().to_string(),
+        ValueKind::Nil | ValueKind::T => attr.as_symbol_name().unwrap_or_default().to_string(),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -2050,17 +2050,17 @@ fn normalize_face_attribute_name(attr: &Value) -> Result<String, Flow> {
 }
 
 fn normalize_set_face_attribute_name(attr: &Value) -> Result<String, Flow> {
-    let name = match attr {
-        Value::Symbol(id) => resolve_sym(*id).to_owned(),
-        Value::Keyword(id) => {
-            let s = resolve_sym(*id);
+    let name = match attr.kind() {
+        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
+        ValueKind::Keyword(id) => {
+            let s = resolve_sym(id);
             if s.starts_with(':') {
                 s.to_owned()
             } else {
                 format!(":{s}")
             }
         }
-        Value::Nil | Value::True => attr.as_symbol_name().unwrap_or_default().to_string(),
+        ValueKind::Nil | ValueKind::T => attr.as_symbol_name().unwrap_or_default().to_string(),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -2089,10 +2089,10 @@ fn normalize_set_face_attribute_name(attr: &Value) -> Result<String, Flow> {
 fn default_face_attribute_value(attr: &str) -> Value {
     match attr {
         ":family" | ":foundry" => Value::string("default"),
-        ":height" => Value::Int(1),
+        ":height" => Value::fixnum(1),
         ":weight" | ":slant" | ":width" => Value::symbol("normal"),
         ":underline" | ":overline" | ":strike-through" | ":box" | ":inverse-video" | ":stipple"
-        | ":inherit" | ":extend" | ":fontset" => Value::Nil,
+        | ":inherit" | ":extend" | ":fontset" => Value::NIL,
         ":foreground" => Value::string("unspecified-fg"),
         ":background" => Value::string("unspecified-bg"),
         ":distant-foreground" | ":font" => Value::symbol("unspecified"),
@@ -2101,14 +2101,14 @@ fn default_face_attribute_value(attr: &str) -> Value {
 }
 
 fn is_reset_like_face_attr_value(value: &Value) -> bool {
-    matches!(value, Value::Symbol(id) if {
+    matches!(value, Value::symbol(id) if {
         let s = resolve_sym(*id);
         s == "unspecified" || s == ":ignore-defface" || s == "reset"
     })
 }
 
 fn derived_face_attrs_from_font_value(value: &Value) -> Vec<(String, Value)> {
-    let Value::Vector(id) = value else {
+    if !value.is_vector() /* TODO(tagged): `id` was Value::Vector(id), rewrite let-else */ {
         return Vec::new();
     };
     if !is_font(value) {
@@ -2162,10 +2162,10 @@ fn lisp_face_attribute_base_value(face: &str, attr: &str, defaults_frame: bool) 
     match (face, attr) {
         ("bold", ":weight") => Value::symbol("bold"),
         ("italic", ":slant") => Value::symbol("italic"),
-        ("underline", ":underline") => Value::True,
-        ("highlight", ":inverse-video") => Value::True,
-        ("region", ":inverse-video") => Value::True,
-        ("mode-line", ":inverse-video") => Value::True,
+        ("underline", ":underline") => Value::T,
+        ("highlight", ":inverse-video") => Value::T,
+        ("region", ":inverse-video") => Value::T,
+        ("mode-line", ":inverse-video") => Value::T,
         ("mode-line-highlight", ":inherit") => Value::symbol("highlight"),
         ("mode-line-emphasis", ":weight") => Value::symbol("bold"),
         ("mode-line-buffer-id", ":weight") => Value::symbol("bold"),
@@ -2193,8 +2193,8 @@ fn lisp_face_attribute_value(face: &str, attr: &str, defaults_frame: bool) -> Va
 }
 
 fn resolve_known_face_name_for_compare(face: &Value, defaults_frame: bool) -> Result<String, Flow> {
-    match face {
-        Value::Str(id) => {
+    match face.kind() {
+        ValueKind::String => {
             let name = with_heap(|h| h.get_string(*id).to_owned());
             if face_exists_for_domain(&name, defaults_frame) {
                 Ok(name)
@@ -2210,18 +2210,18 @@ fn resolve_known_face_name_for_compare(face: &Value, defaults_frame: bool) -> Re
 }
 
 fn face_attr_value_name(attr: &Value) -> Result<String, Flow> {
-    match attr {
-        Value::Keyword(id) => {
-            let s = resolve_sym(*id);
+    match attr.kind() {
+        ValueKind::Keyword(id) => {
+            let s = resolve_sym(id);
             if s.starts_with(':') {
                 Ok(s.to_owned())
             } else {
                 Ok(format!(":{s}"))
             }
         }
-        Value::Symbol(id) => Ok(resolve_sym(*id).to_owned()),
-        Value::Nil => Ok("nil".to_string()),
-        Value::True => Ok("t".to_string()),
+        ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
+        ValueKind::Nil => Ok("nil".to_string()),
+        ValueKind::T => Ok("t".to_string()),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), *attr],
@@ -2233,7 +2233,7 @@ fn frame_defaults_flag(frame: Option<&Value>) -> Result<bool, Flow> {
     match frame {
         None => Ok(false),
         Some(v) if v.is_nil() => Ok(false),
-        Some(Value::True) => Ok(true),
+        Some(ValueKind::T) => Ok(true),
         Some(v) if frame_device_designator_p(v) => Ok(false),
         Some(v) => Err(signal(
             "wrong-type-argument",
@@ -2246,10 +2246,10 @@ fn proper_list_to_vec_or_listp_error(value: &Value) -> Result<Vec<Value>, Flow> 
     let mut out = Vec::new();
     let mut cursor = *value;
     loop {
-        match cursor {
-            Value::Nil => return Ok(out),
-            Value::Cons(cell) => {
-                let cell = read_cons(cell);
+        match cursor.kind() {
+            ValueKind::Nil => return Ok(out),
+            ValueKind::Cons => {
+                let cell = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 out.push(cell.car);
                 cursor = cell.cdr;
             }
@@ -2264,8 +2264,8 @@ fn proper_list_to_vec_or_listp_error(value: &Value) -> Result<Vec<Value>, Flow> 
 }
 
 fn check_non_empty_string(value: &Value, empty_message: &str) -> Result<(), Flow> {
-    match value {
-        Value::Str(id) => {
+    match value.kind() {
+        ValueKind::String => {
             if with_heap(|h| h.get_string(*id).is_empty()) {
                 Err(signal("error", vec![Value::string(empty_message), *value]))
             } else {
@@ -2280,10 +2280,10 @@ fn check_non_empty_string(value: &Value, empty_message: &str) -> Result<(), Flow
 }
 
 fn symbol_name_or_type_error(value: &Value) -> Result<String, Flow> {
-    match value {
-        Value::Nil => Ok("nil".to_string()),
-        Value::True => Ok("t".to_string()),
-        Value::Symbol(id) => Ok(resolve_sym(*id).to_owned()),
+    match value.kind() {
+        ValueKind::Nil => Ok("nil".to_string()),
+        ValueKind::T => Ok("t".to_string()),
+        ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), *value],
@@ -2307,9 +2307,9 @@ fn normalize_face_attr_for_set(
     match attr {
         ":family" | ":foundry" => {
             if !is_reset_like {
-                match &normalized {
-                    Value::Str(id) if !with_heap(|h| h.get_string(*id).is_empty()) => {}
-                    Value::Str(_) => {
+                match normalized.kind() {
+                    ValueKind::String if !with_heap(|h| h.get_string(*id).is_empty()) => {}
+                    ValueKind::String => {
                         let msg = if attr == ":family" {
                             "Invalid face family"
                         } else {
@@ -2329,8 +2329,8 @@ fn normalize_face_attr_for_set(
         ":height" => {
             if !is_reset_like {
                 if face_name == "default" {
-                    match &normalized {
-                        Value::Int(n) if *n > 0 => {}
+                    match normalized.kind() {
+                        ValueKind::Fixnum(n) if n > 0 => {}
                         _ => {
                             return Err(signal(
                                 "error",
@@ -2342,9 +2342,9 @@ fn normalize_face_attr_for_set(
                         }
                     }
                 } else {
-                    match &normalized {
-                        Value::Int(n) if *n > 0 => {}
-                        Value::Float(f, _) if *f > 0.0 => {}
+                    match normalized.kind() {
+                        ValueKind::Fixnum(n) if n > 0 => {}
+                        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ if *f > 0.0 => {}
                         _ => {
                             return Err(signal(
                                 "error",
@@ -2437,9 +2437,9 @@ fn normalize_face_attr_for_set(
             }
         }
         ":inherit" => {
-            let valid = match &normalized {
-                Value::Nil | Value::True | Value::Symbol(_) => true,
-                Value::Cons(_) => list_to_vec(&normalized)
+            let valid = match normalized.kind() {
+                ValueKind::Nil | ValueKind::T | ValueKind::Symbol(_) => true,
+                ValueKind::Cons => list_to_vec(&normalized)
                     .map(|vals| vals.iter().all(Value::is_symbol))
                     .unwrap_or(false),
                 _ => false,
@@ -2499,7 +2499,7 @@ pub(crate) fn builtin_internal_lisp_face_p(args: Vec<Value>) -> EvalResult {
             Ok(make_lisp_face_vector())
         }
     } else {
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     }
 }
 
@@ -2538,7 +2538,7 @@ pub(crate) fn builtin_internal_copy_lisp_face(
     expect_args("internal-copy-lisp-face", &args, 4)?;
     let _ = require_symbol_face_name(&args[0])?;
     let to_name = require_symbol_face_name(&args[1])?;
-    let copy_defaults_domain = matches!(args[2], Value::True);
+    let copy_defaults_domain = matches!(args[2], Value::T);
     if !copy_defaults_domain && !frame_device_designator_p(&args[2]) {
         return Err(signal(
             "wrong-type-argument",
@@ -2607,9 +2607,9 @@ pub(crate) fn builtin_internal_set_lisp_face_attribute(
     };
 
     match args.get(3) {
-        None | Some(Value::Nil) => apply_set(false)?,
-        Some(Value::True) => apply_set(true)?,
-        Some(Value::Int(0)) => {
+        None | Some(ValueKind::Nil) => apply_set(false)?,
+        Some(ValueKind::T) => apply_set(true)?,
+        Some(ValueKind::Fixnum(0)) => {
             apply_set(true)?;
             apply_set(false)?;
         }
@@ -2703,8 +2703,8 @@ fn lisp_value_to_face_attr(attr_name: &str, value: Value) -> Option<crate::face:
             Some(FaceAttrValue::Width(FontWidth::from_symbol(name)?))
         }
         ":height" => match value {
-            Value::Int(n) => Some(FaceAttrValue::Height(FaceHeight::Absolute(n as i32))),
-            Value::Float(f, _) => Some(FaceAttrValue::Height(FaceHeight::Relative(f))),
+            ValueKind::Fixnum(n) => Some(FaceAttrValue::Height(FaceHeight::Absolute(n as i32))),
+            ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Some(FaceAttrValue::Height(FaceHeight::Relative(f))),
             _ => None,
         },
         ":family" | ":foundry" => {
@@ -2715,7 +2715,7 @@ fn lisp_value_to_face_attr(attr_name: &str, value: Value) -> Option<crate::face:
             if value.is_nil() {
                 return Some(FaceAttrValue::Unspecified);
             }
-            if matches!(value, Value::True) {
+            if value.is_t() {
                 return Some(FaceAttrValue::Bool(true));
             }
             if let Some(s) = value.as_str() {
@@ -2751,7 +2751,7 @@ fn lisp_value_to_face_attr(attr_name: &str, value: Value) -> Option<crate::face:
                             }
                         }
                         ":position" => {
-                            if let Value::Int(n) = val {
+                            if let Some(n) = val.as_fixnum() {
                                 position = Some(*n as i32);
                             }
                         }
@@ -2771,7 +2771,7 @@ fn lisp_value_to_face_attr(attr_name: &str, value: Value) -> Option<crate::face:
             if value.is_nil() {
                 return Some(FaceAttrValue::Bool(false));
             }
-            if matches!(value, Value::True) {
+            if value.is_t() {
                 return Some(FaceAttrValue::Bool(true));
             }
             if let Some(s) = value.as_str() {
@@ -2784,14 +2784,14 @@ fn lisp_value_to_face_attr(attr_name: &str, value: Value) -> Option<crate::face:
             if value.is_nil() {
                 return Some(FaceAttrValue::Unspecified);
             }
-            if matches!(value, Value::True) {
+            if value.is_t() {
                 return Some(FaceAttrValue::Box(BoxBorder {
                     color: None,
                     width: 1,
                     style: BoxStyle::Flat,
                 }));
             }
-            if let Value::Int(n) = value {
+            if let Some(n) = value.as_fixnum() {
                 return Some(FaceAttrValue::Box(BoxBorder {
                     color: None,
                     width: n as i32,
@@ -2820,7 +2820,7 @@ fn lisp_value_to_face_attr(attr_name: &str, value: Value) -> Option<crate::face:
                     let val = &plist[i + 1];
                     match key {
                         ":line-width" => {
-                            if let Value::Int(n) = val {
+                            if let Some(n) = val.as_fixnum() {
                                 border.width = *n as i32;
                             }
                         }
@@ -2947,8 +2947,8 @@ pub(crate) fn runtime_face_attribute_value(face: &RuntimeFace, attr_name: &str) 
             .map(|value| Value::string(value.clone()))
             .unwrap_or_else(|| Value::symbol("unspecified")),
         ":height" => match face.height {
-            Some(FaceHeight::Absolute(n)) => Value::Int(n as i64),
-            Some(FaceHeight::Relative(f)) => Value::Float(f, next_float_id()),
+            Some(FaceHeight::Absolute(n)) => Value::fixnum(n as i64),
+            Some(FaceHeight::Relative(f)) => Value::make_float(f),
             None => Value::symbol("unspecified"),
         },
         ":weight" => face
@@ -2970,7 +2970,7 @@ pub(crate) fn runtime_face_attribute_value(face: &RuntimeFace, attr_name: &str) 
                     && underline.position.is_none()
                     && underline.style == UnderlineStyle::Line =>
             {
-                Value::True
+                ValueKind::T
             }
             Some(underline) => {
                 let mut plist = Vec::new();
@@ -2995,12 +2995,12 @@ pub(crate) fn runtime_face_attribute_value(face: &RuntimeFace, attr_name: &str) 
         },
         ":overline" => match (face.overline, face.overline_color) {
             (Some(true), Some(color)) => runtime_color_to_lisp_value(&color),
-            (Some(value), None) => Value::bool(value),
+            (Some(value), None) => Value::bool_val(value),
             _ => Value::symbol("unspecified"),
         },
         ":strike-through" => match (face.strike_through, face.strike_through_color) {
             (Some(true), Some(color)) => runtime_color_to_lisp_value(&color),
-            (Some(value), None) => Value::bool(value),
+            (Some(value), None) => Value::bool_val(value),
             _ => Value::symbol("unspecified"),
         },
         ":box" => match &face.box_border {
@@ -3044,7 +3044,7 @@ pub(crate) fn runtime_face_attribute_value(face: &RuntimeFace, attr_name: &str) 
         ":stipple" | ":font" | ":fontset" => Value::symbol("unspecified"),
         ":inherit" => {
             if face.inherit.is_empty() {
-                Value::Nil
+                ValueKind::Nil
             } else if face.inherit.len() == 1 {
                 Value::symbol(face.inherit[0].as_str())
             } else {
@@ -3084,7 +3084,7 @@ pub(crate) fn builtin_internal_get_lisp_face_attribute(
     let defaults_frame = if let Some(frame) = args.get(2) {
         if frame.is_nil() {
             false
-        } else if matches!(frame, Value::True) {
+        } else if frame.is_t() {
             true
         } else if frame_device_designator_p(frame) {
             false
@@ -3106,7 +3106,7 @@ pub(crate) fn builtin_internal_get_lisp_face_attribute(
     }
 
     let frame_id = match args.get(2) {
-        None | Some(Value::Nil) => Some(super::window_cmds::ensure_selected_frame_id(eval)),
+        None | Some(ValueKind::Nil) => Some(super::window_cmds::ensure_selected_frame_id(eval)),
         Some(frame) if frame_device_designator_p(frame) => frame_id_from_designator(frame),
         _ => None,
     };
@@ -3126,15 +3126,12 @@ pub(crate) fn builtin_internal_get_lisp_face_attribute(
     }
 
     let lisp_value = lisp_face_attribute_value(&face_name, &attr_name, false);
-    let lisp_value_unspecified = matches!(
-        &lisp_value,
-        Value::Symbol(id) if resolve_sym(*id) == "unspecified"
+    let lisp_value_unspecified = lisp_value.is_symbol_named("unspecified") || matches!(
+        (&*attr_name, &lisp_value),
+        (":foreground", Value::Str(id) /* TODO(tagged): convert Value::Str to new API */) if with_heap(|h| h.get_string(*id) == "unspecified-fg")
     ) || matches!(
         (&*attr_name, &lisp_value),
-        (":foreground", Value::Str(id)) if with_heap(|h| h.get_string(*id) == "unspecified-fg")
-    ) || matches!(
-        (&*attr_name, &lisp_value),
-        (":background", Value::Str(id)) if with_heap(|h| h.get_string(*id) == "unspecified-bg")
+        (":background", Value::Str(id) /* TODO(tagged): convert Value::Str to new API */) if with_heap(|h| h.get_string(*id) == "unspecified-bg")
     );
     if !lisp_value_unspecified {
         return Ok(lisp_value);
@@ -3153,9 +3150,9 @@ pub(crate) fn builtin_internal_lisp_face_attribute_values(args: Vec<Value>) -> E
     expect_args("internal-lisp-face-attribute-values", &args, 1)?;
     let attr_name = face_attr_value_name(&args[0])?;
     if DISCRETE_BOOLEAN_FACE_ATTRIBUTES.contains(&attr_name.as_str()) {
-        Ok(Value::list(vec![Value::True, Value::Nil]))
+        Ok(Value::list(vec![Value::T, Value::NIL]))
     } else {
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     }
 }
 
@@ -3172,10 +3169,10 @@ pub(crate) fn builtin_internal_lisp_face_equal_p(args: Vec<Value>) -> EvalResult
         let v1 = lisp_face_attribute_value(&face1, attr, defaults_frame);
         let v2 = lisp_face_attribute_value(&face2, attr, defaults_frame);
         if v1 != v2 {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
     }
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 /// `(internal-lisp-face-empty-p FACE &optional FRAME)` -- return t if FACE has
@@ -3187,11 +3184,11 @@ pub(crate) fn builtin_internal_lisp_face_empty_p(args: Vec<Value>) -> EvalResult
     let face = resolve_known_face_name_for_compare(&args[0], defaults_frame)?;
     for attr in VALID_FACE_ATTRIBUTES {
         let v = lisp_face_attribute_value(&face, attr, defaults_frame);
-        if !matches!(v, Value::Symbol(id) if resolve_sym(id) == "unspecified") {
-            return Ok(Value::Nil);
+        if !v.is_symbol_named("unspecified") {
+            return Ok(Value::NIL);
         }
     }
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 pub(crate) fn builtin_internal_merge_in_global_face(
@@ -3234,34 +3231,34 @@ pub(crate) fn builtin_internal_merge_in_global_face(
     if let Some(frame_id) = live_frame_id_for_face_update(eval, args.get(1))? {
         mirror_runtime_face_into_frame(eval, frame_id, &face_name);
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(face-attribute-relative-p ATTRIBUTE VALUE)` -- return t if VALUE is the
 /// value is a relative form for ATTRIBUTE.
 pub(crate) fn builtin_face_attribute_relative_p(args: Vec<Value>) -> EvalResult {
     expect_args("face-attribute-relative-p", &args, 2)?;
-    let value_is_relative_reset = matches!(&args[1], Value::Symbol(id) | Value::Keyword(id) if {
-        matches!(resolve_sym(*id), "unspecified" | ":ignore-defface" | "ignore-defface")
+    let value_is_relative_reset = args[1].as_symbol_id().or_else(|| args[1].as_keyword_id()).map_or(false, |id_| {
+        matches!(resolve_sym(id_), "unspecified" | ":ignore-defface" | "ignore-defface")
     });
     if value_is_relative_reset {
-        return Ok(Value::True);
+        return Ok(Value::T);
     }
 
-    let height_attr = match &args[0] {
-        Value::Keyword(id) | Value::Symbol(id) => {
-            let n = resolve_sym(*id);
+    let height_attr = match args[0].kind() {
+        ValueKind::Keyword(id) | ValueKind::Symbol(id) => {
+            let n = resolve_sym(id);
             n == "height" || n == ":height"
         }
         _ => false,
     };
     if !height_attr {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
-    Ok(Value::bool(!matches!(
+    Ok(Value::bool_val(!matches!(
         &args[1],
-        Value::Int(_) | Value::Char(_)
+        Value::fixnum(_) | Value::char(_)
     )))
 }
 
@@ -3269,29 +3266,29 @@ pub(crate) fn builtin_face_attribute_relative_p(args: Vec<Value>) -> EvalResult 
 /// is the symbol `unspecified`, in which case return VALUE2.
 pub(crate) fn builtin_merge_face_attribute(args: Vec<Value>) -> EvalResult {
     expect_args("merge-face-attribute", &args, 3)?;
-    let value1_is_relative_reset = matches!(&args[1], Value::Symbol(id) | Value::Keyword(id) if {
-        matches!(resolve_sym(*id), "unspecified" | ":ignore-defface" | "ignore-defface")
+    let value1_is_relative_reset = args[1].as_symbol_id().or_else(|| args[1].as_keyword_id()).map_or(false, |id_| {
+        matches!(resolve_sym(id_), "unspecified" | ":ignore-defface" | "ignore-defface")
     });
     if value1_is_relative_reset {
         return Ok(args[2]);
     }
 
-    let height_attr = matches!(&args[0], Value::Keyword(id) | Value::Symbol(id) if {
-        matches!(resolve_sym(*id), "height" | ":height")
+    let height_attr = args[0].as_symbol_id().or_else(|| args[0].as_keyword_id()).map_or(false, |id_| {
+        matches!(resolve_sym(id_), "height" | ":height")
     });
     if height_attr {
         return Ok(match (&args[1], &args[2]) {
-            (Value::Int(_), _) | (Value::Char(_), _) => args[1],
-            (Value::Float(scale, _), Value::Int(height)) => {
-                Value::Int((*scale * *height as f64) as i64)
+            (Value::fixnum(_), _) | (Value::char(_), _) => args[1],
+            (Value::make_float(scale) /* TODO(tagged): dropped float id `_` */, Value::fixnum(height)) => {
+                Value::fixnum((*scale * *height as f64) as i64)
             }
-            (Value::Float(scale, _), Value::Char(height)) => {
-                Value::Int((*scale * *height as u32 as f64) as i64)
+            (Value::make_float(scale) /* TODO(tagged): dropped float id `_` */, Value::char(height)) => {
+                Value::fixnum((*scale * *height as u32 as f64) as i64)
             }
-            (Value::Float(scale, _), Value::Float(other_scale, _)) => {
-                Value::Float(*scale * *other_scale, next_float_id())
+            (Value::make_float(scale) /* TODO(tagged): dropped float id `_` */, Value::make_float(other_scale) /* TODO(tagged): dropped float id `_` */) => {
+                Value::make_float(*scale * *other_scale)
             }
-            (Value::Float(_, _), _) => args[1],
+            (Value::make_float(_) /* TODO(tagged): dropped float id `_` */, _) => args[1],
             _ => args[1],
         });
     }
@@ -3311,8 +3308,8 @@ pub(crate) fn builtin_face_list(args: Vec<Value>) -> EvalResult {
 }
 
 fn expect_color_string(value: &Value) -> Result<String, Flow> {
-    match value {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+    match value.kind() {
+        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -3322,7 +3319,7 @@ fn expect_color_string(value: &Value) -> Result<String, Flow> {
 
 fn expect_optional_color_frame_arg(args: &[Value], idx: usize) -> Result<(), Flow> {
     if let Some(frame) = args.get(idx) {
-        if !frame.is_nil() && !matches!(frame, Value::Frame(_)) {
+        if !frame.is_nil() && !matches!(frame, Value::make_frame(_)) {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("framep"), *frame],
@@ -3337,7 +3334,7 @@ fn selected_or_designated_live_frame_id(
     frame: Option<&Value>,
 ) -> Result<FrameId, Flow> {
     match frame {
-        None | Some(Value::Nil) => frames
+        None | Some(ValueKind::Nil) => frames
             .selected_frame()
             .map(|frame| frame.id)
             .ok_or_else(|| signal("error", vec![Value::string("No selected frame")])),
@@ -3380,9 +3377,9 @@ pub(crate) fn builtin_color_defined_p(args: Vec<Value>) -> EvalResult {
     expect_min_args("color-defined-p", &args, 1)?;
     expect_max_args("color-defined-p", &args, 2)?;
     expect_optional_color_device_arg(&args, 1)?;
-    match &args[0] {
-        Value::Str(_) => Ok(Value::bool(!builtin_color_values(vec![args[0]])?.is_nil())),
-        _ => Ok(Value::Nil),
+    match args[0].kind() {
+        ValueKind::String => Ok(Value::bool_val(!builtin_color_values(vec![args[0]])?.is_nil())),
+        _ => Ok(Value::NIL),
     }
 }
 
@@ -3394,10 +3391,10 @@ pub(crate) fn builtin_xw_color_defined_p_ctx(
     expect_max_args("xw-color-defined-p", &args, 2)?;
     expect_optional_color_frame_arg(&args, 1)?;
     if graphic_color_target_frame_id(ctx, args.get(1))?.is_none() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
-    let color_name = match &args[0] {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
+    let color_name = match args[0].kind() {
+        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -3405,7 +3402,7 @@ pub(crate) fn builtin_xw_color_defined_p_ctx(
             ));
         }
     };
-    Ok(Value::bool(parse_color_16bit_any(&color_name).is_some()))
+    Ok(Value::bool_val(parse_color_16bit_any(&color_name).is_some()))
 }
 
 /// `(color-values COLOR &optional FRAME)` -- resolve COLOR and return a
@@ -3417,9 +3414,9 @@ pub(crate) fn builtin_color_values(args: Vec<Value>) -> EvalResult {
     expect_min_args("color-values", &args, 1)?;
     expect_max_args("color-values", &args, 2)?;
     expect_optional_color_device_arg(&args, 1)?;
-    let color_name = match &args[0] {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
-        _ => return Ok(Value::Nil),
+    let color_name = match args[0].kind() {
+        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
+        _ => return Ok(Value::NIL),
     };
     let lower = color_name.trim().to_lowercase();
     let resolved = if let Some(hex) = lower.strip_prefix('#') {
@@ -3428,12 +3425,12 @@ pub(crate) fn builtin_color_values(args: Vec<Value>) -> EvalResult {
         parse_named_color_16bit(&lower)
     };
     let Some((r, g, b)) = resolved.map(approximate_tty_color) else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     Ok(Value::list(vec![
-        Value::Int(r),
-        Value::Int(g),
-        Value::Int(b),
+        Value::fixnum(r),
+        Value::fixnum(g),
+        Value::fixnum(b),
     ]))
 }
 
@@ -3445,10 +3442,10 @@ pub(crate) fn builtin_xw_color_values_ctx(
     expect_max_args("xw-color-values", &args, 2)?;
     expect_optional_color_frame_arg(&args, 1)?;
     if graphic_color_target_frame_id(ctx, args.get(1))?.is_none() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
-    let color_name = match &args[0] {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
+    let color_name = match args[0].kind() {
+        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -3457,12 +3454,12 @@ pub(crate) fn builtin_xw_color_values_ctx(
         }
     };
     let Some((r, g, b)) = parse_color_16bit_any(&color_name) else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     Ok(Value::list(vec![
-        Value::Int(r),
-        Value::Int(g),
-        Value::Int(b),
+        Value::fixnum(r),
+        Value::fixnum(g),
+        Value::fixnum(b),
     ]))
 }
 
@@ -3473,15 +3470,15 @@ pub(crate) fn builtin_color_values_from_color_spec(args: Vec<Value>) -> EvalResu
     let color_spec = expect_color_string(&args[0])?;
     let lower = color_spec.trim().to_lowercase();
     let Some(hex) = lower.strip_prefix('#') else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     let Some((r, g, b)) = parse_hex_color_16bit(hex) else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     Ok(Value::list(vec![
-        Value::Int(r),
-        Value::Int(g),
-        Value::Int(b),
+        Value::fixnum(r),
+        Value::fixnum(g),
+        Value::fixnum(b),
     ]))
 }
 
@@ -3493,9 +3490,9 @@ pub(crate) fn builtin_color_gray_p(args: Vec<Value>) -> EvalResult {
     let color = expect_color_string(&args[0])?;
     expect_optional_color_frame_arg(&args, 1)?;
     let Some((r, g, b)) = parse_color_16bit_any(&color) else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
-    Ok(Value::bool(r == g && g == b))
+    Ok(Value::bool_val(r == g && g == b))
 }
 
 /// `(color-supported-p COLOR &optional FRAME BACKGROUND-P)` -- t if COLOR
@@ -3506,12 +3503,12 @@ pub(crate) fn builtin_color_supported_p(args: Vec<Value>) -> EvalResult {
     let color = expect_color_string(&args[0])?;
     expect_optional_color_frame_arg(&args, 1)?;
     let _ = args.get(2);
-    Ok(Value::bool(parse_color_16bit_any(&color).is_some()))
+    Ok(Value::bool_val(parse_color_16bit_any(&color).is_some()))
 }
 
 fn expect_optional_color_distance_frame_arg(args: &[Value], idx: usize) -> Result<(), Flow> {
     if let Some(frame) = args.get(idx) {
-        if !frame.is_nil() && !matches!(frame, Value::Frame(_)) {
+        if !frame.is_nil() && !matches!(frame, Value::make_frame(_)) {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("frame-live-p"), *frame],
@@ -3526,7 +3523,7 @@ fn invalid_color_error(value: &Value) -> Flow {
 }
 
 fn parse_color_distance_input(value: &Value) -> Result<(i64, i64, i64), Flow> {
-    let Value::Str(color_id) = value else {
+    if !value.is_string() /* TODO(tagged): `color_id` was Value::Str(color_id), rewrite let-else */ {
         return Err(invalid_color_error(value));
     };
     let color = with_heap(|h| h.get_string(*color_id).to_owned());
@@ -3560,7 +3557,7 @@ pub(crate) fn builtin_color_distance(args: Vec<Value>) -> EvalResult {
     expect_optional_color_distance_frame_arg(&args, 2)?;
     let lhs = parse_color_distance_input(&args[0])?;
     let rhs = parse_color_distance_input(&args[1])?;
-    Ok(Value::Int(color_distance_metric(lhs, rhs)))
+    Ok(Value::fixnum(color_distance_metric(lhs, rhs)))
 }
 
 fn parse_hex_color_16bit(hex: &str) -> Option<(i64, i64, i64)> {
@@ -3647,8 +3644,8 @@ fn invalid_get_device_terminal_error(value: &Value) -> Flow {
 }
 
 fn color_device_designator_p(value: &Value) -> bool {
-    match value {
-        Value::Nil => true,
+    match value.kind() {
+        ValueKind::Nil => true,
         other => frame_device_designator_p(other),
     }
 }
@@ -3677,7 +3674,7 @@ pub(crate) fn builtin_defined_colors(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_face_id(args: Vec<Value>) -> EvalResult {
     expect_min_args("face-id", &args, 1)?;
     expect_max_args("face-id", &args, 2)?;
-    if matches!(&args[0], Value::Str(_)) {
+    if args[0].is_string() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), args[0]],
@@ -3686,12 +3683,12 @@ pub(crate) fn builtin_face_id(args: Vec<Value>) -> EvalResult {
 
     if let Some(name) = symbol_name_for_face_value(&args[0]) {
         if let Some(id) = face_id_for_name(&name) {
-            return Ok(Value::Int(id));
+            return Ok(Value::fixnum(id));
         }
         if is_created_lisp_face(&name) {
             ensure_dynamic_face_id(&name);
             if let Some(id) = face_id_for_name(&name) {
-                return Ok(Value::Int(id));
+                return Ok(Value::fixnum(id));
             }
         }
     }
@@ -3706,7 +3703,7 @@ pub(crate) fn builtin_face_font(eval: &mut super::eval::Context, args: Vec<Value
     expect_min_args("face-font", &args, 1)?;
     expect_max_args("face-font", &args, 3)?;
 
-    let defaults_frame = matches!(args.get(1), Some(Value::True));
+    let defaults_frame = matches!(args.get(1), Some(Value::T));
     if defaults_frame {
         let face_name = resolve_face_name_for_domain(&args[0], true)?;
         let mut styles = Vec::new();
@@ -3721,14 +3718,14 @@ pub(crate) fn builtin_face_font(eval: &mut super::eval::Context, args: Vec<Value
             styles.push(Value::symbol("italic"));
         }
         return if styles.is_empty() {
-            Ok(Value::Nil)
+            Ok(Value::NIL)
         } else {
             Ok(Value::list(styles))
         };
     }
 
     let frame_id = match args.get(1) {
-        None | Some(Value::Nil) => super::window_cmds::ensure_selected_frame_id(eval),
+        None | Some(ValueKind::Nil) => super::window_cmds::ensure_selected_frame_id(eval),
         Some(frame) if live_frame_designator_in_state(&eval.frames, frame) => {
             frame_id_from_designator(frame)
                 .expect("live frame designator should decode to frame id")
@@ -3746,10 +3743,10 @@ pub(crate) fn builtin_face_font(eval: &mut super::eval::Context, args: Vec<Value
         .ok_or_else(|| signal("error", vec![Value::string("No selected frame")]))?;
     if frame.window_system.is_none() {
         return match &args[0] {
-            Value::Str(id) => {
+            Value::Str(id) /* TODO(tagged): convert Value::Str to new API */ => {
                 let name = with_heap(|h| h.get_string(*id).to_owned());
                 if KNOWN_FACES.contains(&name.as_str()) {
-                    Ok(Value::Nil)
+                    Ok(Value::NIL)
                 } else {
                     let payload = if name.is_empty() {
                         Value::symbol("")
@@ -3762,11 +3759,11 @@ pub(crate) fn builtin_face_font(eval: &mut super::eval::Context, args: Vec<Value
                     ))
                 }
             }
-            Value::Nil => Err(signal("error", vec![Value::string("Invalid face")])),
-            Value::True | Value::Symbol(_) => {
+            Value::NIL => Err(signal("error", vec![Value::string("Invalid face")])),
+            Value::T | Value::symbol(_) => {
                 if let Some(name) = symbol_name_for_face_value(&args[0]) {
                     if KNOWN_FACES.contains(&name.as_str()) {
-                        return Ok(Value::Nil);
+                        return Ok(Value::NIL);
                     }
                 }
                 Err(signal(
@@ -3790,9 +3787,9 @@ pub(crate) fn builtin_face_font(eval: &mut super::eval::Context, args: Vec<Value
             .resolve_with_remapping(&face_name, &remapping)
     };
     if let Some(character) = args.get(2).filter(|value| !value.is_nil()) {
-        let ch = match character {
-            Value::Char(ch) => *ch,
-            Value::Int(code) => char::from_u32(*code as u32).ok_or_else(|| {
+        let ch = match character.kind() {
+            ValueKind::Char(ch) => ch,
+            ValueKind::Fixnum(code) => char::from_u32(code as u32).ok_or_else(|| {
                 signal(
                     "wrong-type-argument",
                     vec![Value::symbol("characterp"), *character],
@@ -3808,12 +3805,12 @@ pub(crate) fn builtin_face_font(eval: &mut super::eval::Context, args: Vec<Value
         if let Some(matched) = resolve_font_match(eval, frame_id, ch, &face) {
             return Ok(
                 font_name_value(&build_font_object_for_match(&face, &matched))
-                    .unwrap_or(Value::Nil),
+                    .unwrap_or(Value::NIL),
             );
         }
     }
 
-    Ok(font_name_value(&build_font_object(&face)).unwrap_or(Value::Nil))
+    Ok(font_name_value(&build_font_object(&face)).unwrap_or(Value::NIL))
 }
 
 pub(crate) fn builtin_font_info(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -3821,7 +3818,7 @@ pub(crate) fn builtin_font_info(eval: &mut super::eval::Context, args: Vec<Value
     expect_max_args("font-info", &args, 2)?;
 
     let frame_id = match args.get(1) {
-        None | Some(Value::Nil) => super::window_cmds::ensure_selected_frame_id(eval),
+        None | Some(ValueKind::Nil) => super::window_cmds::ensure_selected_frame_id(eval),
         Some(frame) if live_frame_designator_in_state(&eval.frames, frame) => {
             frame_id_from_designator(frame)
                 .expect("live frame designator should decode to frame id")
@@ -3838,11 +3835,11 @@ pub(crate) fn builtin_font_info(eval: &mut super::eval::Context, args: Vec<Value
         .get(frame_id)
         .ok_or_else(|| signal("error", vec![Value::string("No selected frame")]))?;
     if frame.window_system.is_none() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
-    match &args[0] {
-        Value::Str(_) => Ok(font_info_vector_for_runtime_font(&args[0], frame)),
+    match args[0].kind() {
+        ValueKind::String => Ok(font_info_vector_for_runtime_font(&args[0], frame)),
         value if is_font(value) => Ok(font_info_vector_for_runtime_font(value, frame)),
         other => Err(signal(
             "wrong-type-argument",
@@ -3864,14 +3861,14 @@ pub(crate) fn builtin_internal_face_x_get_resource(args: Vec<Value>) -> EvalResu
             ));
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(internal-set-font-selection-order ORDER)` -- validate order list shape and return nil.
 pub(crate) fn builtin_internal_set_font_selection_order(args: Vec<Value>) -> EvalResult {
     expect_args("internal-set-font-selection-order", &args, 1)?;
     let order = &args[0];
-    if !order.is_nil() && !matches!(order, Value::Cons(_)) {
+    if !order.is_nil() && !order.is_cons() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("listp"), *order],
@@ -3883,7 +3880,7 @@ pub(crate) fn builtin_internal_set_font_selection_order(args: Vec<Value>) -> Eva
         if values.len() == valid_keywords.len() {
             let mut seen = HashSet::new();
             values.iter().all(|value| {
-                if let Value::Keyword(id) = value {
+                if let Some(id) = value.as_keyword_id() {
                     let s = resolve_sym(*id);
                     let key = if s.starts_with(':') {
                         s.to_owned()
@@ -3903,7 +3900,7 @@ pub(crate) fn builtin_internal_set_font_selection_order(args: Vec<Value>) -> Eva
     };
 
     if valid {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     if let Some(values) = list_to_vec(order) {
@@ -3936,8 +3933,8 @@ pub(crate) fn builtin_internal_set_alternative_font_family_alist(args: Vec<Value
         let mut converted = Vec::with_capacity(members.len());
         let mut names = Vec::with_capacity(members.len());
         for member in members {
-            match member {
-                Value::Str(id) => {
+            match member.kind() {
+                ValueKind::String => {
                     let name = with_heap(|h| h.get_string(id).to_owned());
                     converted.push(Value::symbol(name.clone()));
                     names.push(name);
@@ -3983,8 +3980,8 @@ pub(crate) fn builtin_internal_set_alternative_font_registry_alist(args: Vec<Val
 /// Lines starting with `!` or `#` are comments and are skipped.
 pub(crate) fn builtin_x_load_color_file(args: Vec<Value>) -> EvalResult {
     expect_args("x-load-color-file", &args, 1)?;
-    let filename = match &args[0] {
-        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
+    let filename = match args[0].kind() {
+        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -3997,10 +3994,10 @@ pub(crate) fn builtin_x_load_color_file(args: Vec<Value>) -> EvalResult {
     let expanded = super::fileio::expand_file_name(&filename, None);
     let contents = match std::fs::read_to_string(&expanded) {
         Ok(s) => s,
-        Err(_) => return Ok(Value::Nil),
+        Err(_) => return Ok(Value::NIL),
     };
 
-    let mut result = Value::Nil;
+    let mut result = Value::NIL;
     // Build alist in reverse order, then reverse (or build in correct order
     // by collecting into vec and reversing).
     let mut entries: Vec<Value> = Vec::new();
@@ -4069,8 +4066,8 @@ pub(crate) fn builtin_x_load_color_file(args: Vec<Value>) -> EvalResult {
         let color_entry = Value::cons(
             Value::string(name_part),
             Value::cons(
-                Value::Int(r16),
-                Value::cons(Value::Int(g16), Value::cons(Value::Int(b16), Value::Nil)),
+                Value::fixnum(r16),
+                Value::cons(Value::fixnum(g16), Value::cons(Value::fixnum(b16), Value::NIL)),
             ),
         );
         entries.push(color_entry);

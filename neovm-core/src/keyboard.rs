@@ -12,7 +12,7 @@
 
 use crate::emacs_core::keyboard::pure::KEY_CHAR_META;
 use crate::emacs_core::string_escape::decode_storage_char_codes;
-use crate::emacs_core::value::Value;
+use crate::emacs_core::value::{Value, ValueKind, VecLikeType};
 use std::collections::{HashMap, VecDeque};
 
 // ---------------------------------------------------------------------------
@@ -422,7 +422,7 @@ impl ReadKeySequenceOptions {
 impl Default for ReadKeySequenceOptions {
     fn default() -> Self {
         Self {
-            prompt: Value::Nil,
+            prompt: Value::NIL,
             dont_downcase_last: false,
             can_return_switch_frame: false,
         }
@@ -691,11 +691,11 @@ impl PrefixArg {
     /// Convert to Lisp value for `current-prefix-arg`.
     pub fn to_value(&self) -> Value {
         match self {
-            PrefixArg::None => Value::Nil,
-            PrefixArg::Numeric(n) => Value::Int(*n),
+            PrefixArg::None => Value::NIL,
+            PrefixArg::Numeric(n) => Value::fixnum(*n),
             PrefixArg::Raw(n) => {
                 let val = 4i64.pow(*n as u32);
-                Value::list(vec![Value::Int(val)])
+                Value::list(vec![ValueKind::Fixnum(val)])
             }
         }
     }
@@ -782,8 +782,8 @@ impl KBoard {
             command_keys: Vec::new(),
             raw_command_keys: Vec::new(),
             recent_input_events: Vec::new(),
-            input_decode_map: Value::Nil,
-            local_function_key_map: Value::Nil,
+            input_decode_map: Value::NIL,
+            local_function_key_map: Value::NIL,
             defining_kbd_macro: false,
             appending_kbd_macro: false,
             kbd_macro_events: Vec::new(),
@@ -1729,7 +1729,7 @@ fn sync_opening_gui_frame_size_from_host_in_keyboard_runtime(
 fn pending_gnu_timer_in_keyboard_runtime(
     timer: Value,
 ) -> Option<crate::emacs_core::eval::PendingGnuTimer> {
-    let Value::Vector(timer_id) = timer else {
+    if !timer.is_vector() /* TODO(tagged): `timer_id` was Value::Vector(timer_id), rewrite let-else */ {
         return None;
     };
 
@@ -1760,7 +1760,7 @@ fn pending_gnu_timer_in_keyboard_runtime(
 fn pending_gnu_idle_timer_in_keyboard_runtime(
     timer: Value,
 ) -> Option<crate::emacs_core::eval::PendingGnuTimer> {
-    let Value::Vector(timer_id) = timer else {
+    if !timer.is_vector() /* TODO(tagged): `timer_id` was Value::Vector(timer_id), rewrite let-else */ {
         return None;
     };
 
@@ -1826,9 +1826,9 @@ impl crate::emacs_core::eval::Context {
     }
 
     fn has_switch_frame_event_kind(event: &Value) -> bool {
-        match event {
-            Value::Cons(cell) => {
-                let pair = crate::emacs_core::value::read_cons(*cell);
+        match event.kind() {
+            ValueKind::Cons => {
+                let pair = crate::emacs_core::value::read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
                 matches!(
                     pair.car.as_symbol_name(),
                     Some("switch-frame") | Some("select-window")
@@ -1842,11 +1842,11 @@ impl crate::emacs_core::eval::Context {
         if emacs_frame_id == 0 {
             self.frames
                 .selected_frame()
-                .map(|frame| Value::Frame(frame.id.0))
+                .map(|frame| Value::make_frame(frame.id.0))
         } else {
             let fid = crate::window::FrameId(emacs_frame_id);
             self.frames.get(fid)?;
-            Some(Value::Frame(emacs_frame_id))
+            Some(Value::make_frame(emacs_frame_id))
         }
     }
 
@@ -1879,7 +1879,7 @@ impl crate::emacs_core::eval::Context {
             if frame.find_window(window_id).is_some() {
                 return Some(Value::list(vec![
                     Value::symbol("select-window"),
-                    Value::list(vec![Value::Window(window_id.0)]),
+                    Value::list(vec![Value::make_window(window_id.0)]),
                 ]));
             }
         }
@@ -1891,7 +1891,7 @@ impl crate::emacs_core::eval::Context {
             self.command_loop.keyboard.input_decode_map(),
             self.command_loop.keyboard.local_function_key_map(),
             self.eval_symbol("key-translation-map")
-                .unwrap_or(Value::Nil),
+                .unwrap_or(Value::NIL),
         ]
     }
 
@@ -1903,7 +1903,7 @@ impl crate::emacs_core::eval::Context {
             &[*event],
             true,
         );
-        if binding.is_nil() || matches!(binding, Value::Int(_)) {
+        if binding.is_nil() || binding.is_fixnum() {
             None
         } else {
             Some(binding)
@@ -1925,7 +1925,7 @@ impl crate::emacs_core::eval::Context {
         let keys = Value::vector(vec![event]);
         self.apply(
             Value::symbol("command-execute"),
-            vec![binding, Value::Nil, keys, Value::True],
+            vec![binding, Value::NIL, keys, Value::T],
         )?;
         Ok(true)
     }
@@ -2158,9 +2158,9 @@ impl crate::emacs_core::eval::Context {
         self.assign(
             "this-command-keys-shift-translated",
             if shift_translated {
-                Value::True
+                Value::T
             } else {
-                Value::Nil
+                Value::NIL
             },
         );
     }
@@ -2406,7 +2406,7 @@ impl crate::emacs_core::eval::Context {
 
         self.sync_keyboard_terminal_owner();
         self.command_loop.reset_key_sequence();
-        self.assign("this-command-keys-shift-translated", Value::Nil);
+        self.assign("this-command-keys-shift-translated", Value::NIL);
         let mut shift_translation: Option<KeySequenceShiftTranslation> = None;
         let mut delayed_selection_event: Option<Value> = None;
         let mut saved_current_buffer: Option<crate::buffer::BufferId> = None;
@@ -2856,7 +2856,7 @@ impl crate::emacs_core::eval::Context {
             if let Some(event) = self.command_loop.keyboard.next_executing_kbd_macro_event() {
                 self.assign(
                     "executing-kbd-macro-index",
-                    Value::Int(self.command_loop.keyboard.kboard.kbd_macro_index as i64),
+                    Value::fixnum(self.command_loop.keyboard.kboard.kbd_macro_index as i64),
                 );
                 return Ok(Some(event));
             }
@@ -2908,7 +2908,7 @@ impl crate::emacs_core::eval::Context {
                         return Err(crate::emacs_core::error::signal("quit", vec![]));
                     }
                     tracing::debug!("read_char: no input_rx (batch mode), returning Nil");
-                    return Ok(Some(Value::Nil));
+                    return Ok(Some(ValueKind::Nil));
                 }
             };
 
@@ -2955,7 +2955,7 @@ impl crate::emacs_core::eval::Context {
     }
 
     pub(crate) fn read_char(&mut self) -> Result<Value, crate::emacs_core::error::Flow> {
-        Ok(self.read_char_with_timeout(None)?.unwrap_or(Value::Nil))
+        Ok(self.read_char_with_timeout(None)?.unwrap_or(Value::NIL))
     }
 
     fn resolve_input_frame_id(&self, emacs_frame_id: u64) -> Option<crate::window::FrameId> {
@@ -3015,30 +3015,30 @@ impl crate::emacs_core::eval::Context {
             &self.obarray,
             &self.buffers,
             vec![
-                Value::Int(point.buffer_pos as i64),
+                Value::fixnum(point.buffer_pos as i64),
                 Value::symbol("help-echo"),
-                Value::Buffer(buffer_id),
+                Value::make_buffer(buffer_id),
             ],
         )
         .ok()?;
-        let Value::Cons(cell) = pair else {
+        if !pair.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
             return None;
         };
-        let pair = crate::emacs_core::value::read_cons(cell);
+        let pair = crate::emacs_core::value::read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
         if pair.car.is_nil() {
             return None;
         }
         let object = if pair.cdr.is_nil() {
-            Value::Buffer(buffer_id)
+            Value::make_buffer(buffer_id)
         } else {
             pair.cdr
         };
         Some(Self::make_help_echo_event(
-            Value::Frame(frame_id.0),
+            Value::make_frame(frame_id.0),
             pair.car,
-            Value::Window(window_id.0),
+            Value::make_window(window_id.0),
             object,
-            Value::Int(point.buffer_pos as i64),
+            Value::fixnum(point.buffer_pos as i64),
         ))
     }
 
@@ -3070,10 +3070,10 @@ impl crate::emacs_core::eval::Context {
                         .keyboard
                         .unread_event(Self::make_help_echo_event(
                             Value::Frame(fid.0),
-                            Value::Nil,
-                            Value::Nil,
-                            Value::Nil,
-                            Value::Int(0),
+                            ValueKind::Nil,
+                            ValueKind::Nil,
+                            ValueKind::Nil,
+                            ValueKind::Fixnum(0),
                         ));
                 }
                 self.command_loop.keyboard.kboard.last_help_echo_event = None;
@@ -3139,7 +3139,7 @@ impl crate::emacs_core::eval::Context {
             .obarray
             .symbol_value("show-help-function")
             .copied()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         if self.function_value_is_callable(&show_help_function) {
             let _ = self.funcall_general(show_help_function, vec![help])?;
         } else if let Some(message) = help.as_str() {
@@ -3184,7 +3184,7 @@ impl crate::emacs_core::eval::Context {
             &self.obarray,
             &self.buffers,
             vec![
-                Value::Int(1),
+                Value::fixnum(1),
                 Value::symbol("help-echo-inhibit-substitution"),
                 help,
             ],
@@ -3246,8 +3246,8 @@ impl crate::emacs_core::eval::Context {
     ) -> Option<crate::buffer::BufferId> {
         let position = Self::key_sequence_lookup_position(events)?;
         let slots = crate::emacs_core::value::list_to_vec(&position)?;
-        let window_id = match *slots.first()? {
-            Value::Window(id) => crate::window::WindowId(id),
+        let window_id = match *slots.first()?.kind() {
+            ValueKind::Veclike(VecLikeType::Window) => crate::window::WindowId(id),
             _ => return None,
         };
 
@@ -3269,10 +3269,10 @@ impl crate::emacs_core::eval::Context {
     fn event_position_area(position: &Value) -> Option<Value> {
         let slots = crate::emacs_core::value::list_to_vec(position)?;
         let area_or_pos = *slots.get(1)?;
-        match area_or_pos {
-            Value::Symbol(_) => Some(area_or_pos),
-            Value::Cons(cell) => {
-                let head = crate::emacs_core::value::read_cons(cell).car;
+        match area_or_pos.kind() {
+            ValueKind::Symbol(_) => Some(area_or_pos),
+            ValueKind::Cons => {
+                let head = crate::emacs_core::value::read_cons(cell).car;  // TODO(tagged): replace read_cons with cons accessors
                 head.as_symbol_name().map(|_| head)
             }
             _ => None,
@@ -3352,9 +3352,9 @@ impl crate::emacs_core::eval::Context {
     }
 
     fn mouse_event_symbol_name(event: &Value) -> Option<String> {
-        match event {
-            Value::Symbol(_) => event.as_symbol_name().map(str::to_owned),
-            Value::Cons(_) => {
+        match event.kind() {
+            ValueKind::Symbol(_) => event.as_symbol_name().map(str::to_owned),
+            ValueKind::Cons => {
                 let slots = crate::emacs_core::value::list_to_vec(event)?;
                 slots.first()?.as_symbol_name().map(str::to_owned)
             }
@@ -3363,9 +3363,9 @@ impl crate::emacs_core::eval::Context {
     }
 
     fn rewrite_mouse_event_symbol(event: Value, symbol_name: &str) -> Option<Value> {
-        match event {
-            Value::Symbol(_) => Some(Value::symbol(symbol_name)),
-            Value::Cons(_) => {
+        match event.kind() {
+            ValueKind::Symbol(_) => Some(Value::symbol(symbol_name)),
+            ValueKind::Cons => {
                 let mut slots = crate::emacs_core::value::list_to_vec(&event)?;
                 let head = slots.first_mut()?;
                 if head.as_symbol_name().is_none() {
@@ -3488,28 +3488,28 @@ impl crate::emacs_core::eval::Context {
     fn mouse_posn_descriptor_value(desc: MousePosnDescriptor) -> Value {
         let area_or_pos = match desc.area {
             Some(area) => Value::symbol(area),
-            None => desc.metrics.point.map(Value::Int).unwrap_or(Value::Nil),
+            None => desc.metrics.point.map(Value::Int).unwrap_or(Value::NIL),
         };
-        let pos = desc.metrics.point.map(Value::Int).unwrap_or(Value::Nil);
+        let pos = desc.metrics.point.map(Value::Int).unwrap_or(Value::NIL);
         let col_row = match (desc.metrics.col, desc.metrics.row) {
-            (Some(col), Some(row)) => Value::cons(Value::Int(col), Value::Int(row)),
-            _ => Value::Nil,
+            (Some(col), Some(row)) => Value::cons(Value::fixnum(col), Value::fixnum(row)),
+            _ => Value::NIL,
         };
         let width_height = match (desc.metrics.width, desc.metrics.height) {
-            (Some(width), Some(height)) => Value::cons(Value::Int(width), Value::Int(height)),
-            _ => Value::Nil,
+            (Some(width), Some(height)) => Value::cons(Value::fixnum(width), Value::fixnum(height)),
+            _ => Value::NIL,
         };
 
         Value::list(vec![
             desc.window_or_frame,
             area_or_pos,
-            Value::cons(Value::Int(desc.x), Value::Int(desc.y)),
-            Value::Int(0),
-            Value::Nil,
+            Value::cons(Value::fixnum(desc.x), Value::fixnum(desc.y)),
+            Value::fixnum(0),
+            Value::NIL,
             pos,
             col_row,
-            Value::Nil,
-            Value::cons(Value::Int(0), Value::Int(0)),
+            Value::NIL,
+            Value::cons(Value::fixnum(0), Value::fixnum(0)),
             width_height,
         ])
     }
@@ -3543,7 +3543,7 @@ impl crate::emacs_core::eval::Context {
             eval.frames.get(crate::window::FrameId(frame_id))
         }) else {
             return Self::mouse_posn_descriptor_value(MousePosnDescriptor {
-                window_or_frame: Value::Nil,
+                window_or_frame: Value::NIL,
                 area: None,
                 x: x.round() as i64,
                 y: y.round() as i64,
@@ -3566,7 +3566,7 @@ impl crate::emacs_core::eval::Context {
 
         if menu_bar_height > 0 && frame_y < menu_bar_height {
             return Self::mouse_posn_descriptor_value(MousePosnDescriptor {
-                window_or_frame: Value::Frame(frame.id.0),
+                window_or_frame: Value::make_frame(frame.id.0),
                 area: Some("menu-bar"),
                 x: frame_x,
                 y: frame_y,
@@ -3581,7 +3581,7 @@ impl crate::emacs_core::eval::Context {
         }
         if tool_bar_height > 0 && frame_y < menu_bar_height + tool_bar_height {
             return Self::mouse_posn_descriptor_value(MousePosnDescriptor {
-                window_or_frame: Value::Frame(frame.id.0),
+                window_or_frame: Value::make_frame(frame.id.0),
                 area: Some("tool-bar"),
                 x: frame_x,
                 y: frame_y - menu_bar_height,
@@ -3596,7 +3596,7 @@ impl crate::emacs_core::eval::Context {
         }
         if tab_bar_height > 0 && frame_y < menu_bar_height + tool_bar_height + tab_bar_height {
             return Self::mouse_posn_descriptor_value(MousePosnDescriptor {
-                window_or_frame: Value::Frame(frame.id.0),
+                window_or_frame: Value::make_frame(frame.id.0),
                 area: Some("tab-bar"),
                 x: frame_x,
                 y: frame_y - menu_bar_height - tool_bar_height,
@@ -3612,7 +3612,7 @@ impl crate::emacs_core::eval::Context {
 
         let Some(window_id) = Self::mouse_window_at(frame, x, y) else {
             return Self::mouse_posn_descriptor_value(MousePosnDescriptor {
-                window_or_frame: Value::Frame(frame.id.0),
+                window_or_frame: Value::make_frame(frame.id.0),
                 area: None,
                 x: frame_x,
                 y: frame_y.min(frame_height.saturating_sub(1)),
@@ -3627,7 +3627,7 @@ impl crate::emacs_core::eval::Context {
         };
         let Some(window) = frame.find_window(window_id) else {
             return Self::mouse_posn_descriptor_value(MousePosnDescriptor {
-                window_or_frame: Value::Frame(frame.id.0),
+                window_or_frame: Value::make_frame(frame.id.0),
                 area: None,
                 x: frame_x,
                 y: frame_y,
@@ -3661,7 +3661,7 @@ impl crate::emacs_core::eval::Context {
 
             if tab_line_bottom > 0 && window_y < tab_line_bottom {
                 return Self::mouse_posn_descriptor_value(MousePosnDescriptor {
-                    window_or_frame: Value::Window(window_id.0),
+                    window_or_frame: Value::make_window(window_id.0),
                     area: Some("tab-line"),
                     x: window_x,
                     y: window_y,
@@ -3670,7 +3670,7 @@ impl crate::emacs_core::eval::Context {
             }
             if snapshot.header_line_height > 0 && window_y < header_line_bottom {
                 return Self::mouse_posn_descriptor_value(MousePosnDescriptor {
-                    window_or_frame: Value::Window(window_id.0),
+                    window_or_frame: Value::make_window(window_id.0),
                     area: Some("header-line"),
                     x: window_x,
                     y: window_y,
@@ -3679,7 +3679,7 @@ impl crate::emacs_core::eval::Context {
             }
             if snapshot.mode_line_height > 0 && window_y >= mode_line_top {
                 return Self::mouse_posn_descriptor_value(MousePosnDescriptor {
-                    window_or_frame: Value::Window(window_id.0),
+                    window_or_frame: Value::make_window(window_id.0),
                     area: Some("mode-line"),
                     x: window_x,
                     y: window_y,
@@ -3690,7 +3690,7 @@ impl crate::emacs_core::eval::Context {
             let text_area_x = window_x - snapshot.text_area_left_offset;
             if let Some(point) = snapshot.point_at_coords(text_area_x, window_y) {
                 return Self::mouse_posn_descriptor_value(MousePosnDescriptor {
-                    window_or_frame: Value::Window(window_id.0),
+                    window_or_frame: Value::make_window(window_id.0),
                     area: None,
                     x: text_area_x,
                     y: window_y,
@@ -3706,7 +3706,7 @@ impl crate::emacs_core::eval::Context {
 
             if text_area_x < 0 {
                 return Self::mouse_posn_descriptor_value(MousePosnDescriptor {
-                    window_or_frame: Value::Window(window_id.0),
+                    window_or_frame: Value::make_window(window_id.0),
                     area: Some("left-margin"),
                     x: window_x,
                     y: window_y,
@@ -3716,7 +3716,7 @@ impl crate::emacs_core::eval::Context {
         }
 
         Self::mouse_posn_descriptor_value(MousePosnDescriptor {
-            window_or_frame: Value::Window(window_id.0),
+            window_or_frame: Value::make_window(window_id.0),
             area: None,
             x: window_x,
             y: window_y,
@@ -3751,15 +3751,15 @@ impl crate::emacs_core::eval::Context {
 
     pub(crate) fn current_idle_time_value(&self) -> Value {
         let Some(idle_duration) = self.current_idle_duration() else {
-            return Value::Nil;
+            return Value::NIL;
         };
         let secs = idle_duration.as_secs() as i64;
         let usecs = idle_duration.subsec_micros() as i64;
         Value::list(vec![
-            Value::Int((secs >> 16) & 0xFFFF_FFFF),
-            Value::Int(secs & 0xFFFF),
-            Value::Int(usecs),
-            Value::Int(0),
+            Value::fixnum((secs >> 16) & 0xFFFF_FFFF),
+            Value::fixnum(secs & 0xFFFF),
+            Value::fixnum(usecs),
+            Value::fixnum(0),
         ])
     }
 
@@ -3975,17 +3975,17 @@ impl crate::emacs_core::eval::Context {
                 if self.command_loop.keyboard.kboard.appending_kbd_macro {
                     Value::symbol("append")
                 } else {
-                    Value::True
+                    Value::T
                 }
             } else {
-                Value::Nil
+                Value::NIL
             },
         );
         let last_kbd_macro = self
             .command_loop
             .last_kbd_macro()
             .map(|events| Value::vector(events.to_vec()))
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         self.assign("last-kbd-macro", last_kbd_macro);
         let executing_kbd_macro = self
             .command_loop
@@ -3994,11 +3994,11 @@ impl crate::emacs_core::eval::Context {
             .executing_kbd_macro
             .as_ref()
             .map(|events| Value::vector(events.clone()))
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         self.assign("executing-kbd-macro", executing_kbd_macro);
         self.assign(
             "executing-kbd-macro-index",
-            Value::Int(self.command_loop.keyboard.kboard.kbd_macro_index as i64),
+            Value::fixnum(self.command_loop.keyboard.kboard.kbd_macro_index as i64),
         );
     }
 
@@ -4110,9 +4110,9 @@ impl crate::emacs_core::eval::Context {
         let mut translated = Vec::with_capacity(keys.chars().count());
         for (idx, code) in decode_storage_char_codes(keys).into_iter().enumerate() {
             let event = if idx == 0 && code == 248 {
-                Value::Int(('x' as i64) | KEY_CHAR_META)
+                Value::fixnum(('x' as i64) | KEY_CHAR_META)
             } else {
-                Value::Int(i64::from(code))
+                Value::fixnum(i64::from(code))
             };
             translated.push(event);
         }
@@ -4210,14 +4210,14 @@ pub fn parse_interactive_spec(spec: &str) -> Vec<InteractiveCode> {
 }
 
 fn key_sequence_translation_events(translation: Value) -> Option<Vec<Value>> {
-    if translation.is_nil() || matches!(translation, Value::Int(_)) {
+    if translation.is_nil() || translation.is_fixnum() {
         return None;
     }
     if crate::emacs_core::keymap::is_list_keymap(&translation) {
         return None;
     }
 
-    if let Value::Vector(id) = translation {
+    if translation.is_vector() /* TODO(tagged): `id` was Value::Vector(id), now use accessor */ {
         return Some(crate::emacs_core::value::with_heap(|h| {
             let len = h.vector_len(id);
             (0..len).map(|i| h.vector_ref(id, i)).collect()
@@ -4225,7 +4225,7 @@ fn key_sequence_translation_events(translation: Value) -> Option<Vec<Value>> {
     }
 
     if let Some(s) = translation.as_str() {
-        return Some(s.chars().map(|ch| Value::Int(ch as i64)).collect());
+        return Some(s.chars().map(|ch| Value::fixnum(ch as i64)).collect());
     }
 
     Some(vec![translation])
@@ -4313,9 +4313,9 @@ mod tests {
         cl.enqueue_event(InputEvent::key_press(KeyEvent::char('b')));
 
         let e = cl.read_key_event().unwrap();
-        assert_eq!(e, Value::Int('a' as i64));
+        assert_eq!(e, Value::fixnum('a' as i64));
         let e = cl.read_key_event().unwrap();
-        assert_eq!(e, Value::Int('b' as i64));
+        assert_eq!(e, Value::fixnum('b' as i64));
         assert!(cl.read_key_event().is_none());
     }
 
@@ -4326,9 +4326,9 @@ mod tests {
         cl.unread_key(KeyEvent::char('z'));
 
         let e = cl.read_key_event().unwrap();
-        assert_eq!(e, Value::Int('z' as i64)); // unread first
+        assert_eq!(e, Value::fixnum('z' as i64)); // unread first
         let e = cl.read_key_event().unwrap();
-        assert_eq!(e, Value::Int('a' as i64)); // then queue
+        assert_eq!(e, Value::fixnum('a' as i64)); // then queue
     }
 
     #[test]
@@ -4337,15 +4337,15 @@ mod tests {
         ensure_keyboard_test_terminal(7);
         let mut runtime = KeyboardRuntime::new();
         runtime.set_input_decode_map(Value::symbol("primary-map"));
-        runtime.unread_event(Value::Int(1));
+        runtime.unread_event(Value::fixnum(1));
 
         runtime.select_terminal(7);
         assert_eq!(runtime.active_terminal_id(), 7);
-        assert_eq!(runtime.input_decode_map(), Value::Nil);
+        assert_eq!(runtime.input_decode_map(), Value::NIL);
         assert!(runtime.kboard.unread_events.is_empty());
 
         runtime.set_input_decode_map(Value::symbol("secondary-map"));
-        runtime.unread_event(Value::Int(2));
+        runtime.unread_event(Value::fixnum(2));
 
         runtime.select_terminal(crate::emacs_core::terminal::pure::TERMINAL_ID);
         assert_eq!(
@@ -4355,7 +4355,7 @@ mod tests {
         );
         assert_eq!(
             runtime.kboard.unread_events.pop_front(),
-            Some(Value::Int(1)),
+            Some(Value::fixnum(1)),
             "unread events should be terminal-local"
         );
 
@@ -4363,7 +4363,7 @@ mod tests {
         assert_eq!(runtime.input_decode_map(), Value::symbol("secondary-map"));
         assert_eq!(
             runtime.kboard.unread_events.pop_front(),
-            Some(Value::Int(2))
+            Some(Value::fixnum(2))
         );
     }
 
@@ -4373,22 +4373,22 @@ mod tests {
         ensure_keyboard_test_terminal(7);
         ensure_keyboard_test_terminal(9);
         let mut runtime = KeyboardRuntime::new();
-        runtime.unread_event(Value::Int(1));
+        runtime.unread_event(Value::fixnum(1));
         runtime.select_terminal(7);
-        runtime.unread_event(Value::Int(2));
+        runtime.unread_event(Value::fixnum(2));
         runtime.select_terminal(9);
-        runtime.unread_event(Value::Int(3));
+        runtime.unread_event(Value::fixnum(3));
         runtime.select_terminal(crate::emacs_core::terminal::pure::TERMINAL_ID);
 
-        assert_eq!(runtime.read_key_event(), Some(Value::Int(1)));
+        assert_eq!(runtime.read_key_event(), Some(Value::fixnum(1)));
         assert_eq!(
             runtime.read_key_event(),
-            Some(Value::Int(3)),
+            Some(Value::fixnum(3)),
             "after the active kboard drains, parked terminal input should be read in GNU terminal-list order"
         );
         assert_eq!(
             runtime.read_key_event(),
-            Some(Value::Int(2)),
+            Some(Value::fixnum(2)),
             "older parked terminal input should be read after newer terminals"
         );
         assert_eq!(runtime.active_terminal_id(), 7);
@@ -4400,7 +4400,7 @@ mod tests {
         ensure_keyboard_test_terminal(9);
         let mut runtime = KeyboardRuntime::new();
         runtime.select_terminal(9);
-        runtime.unread_event(Value::Int(99));
+        runtime.unread_event(Value::fixnum(99));
         runtime.select_terminal(crate::emacs_core::terminal::pure::TERMINAL_ID);
 
         assert!(
@@ -4428,9 +4428,9 @@ mod tests {
         // Replay.
         cl.begin_executing_kbd_macro(recorded);
         let e1 = cl.read_key_event().unwrap();
-        assert_eq!(e1, Value::Int('h' as i64));
+        assert_eq!(e1, Value::fixnum('h' as i64));
         let e2 = cl.read_key_event().unwrap();
-        assert_eq!(e2, Value::Int('i' as i64));
+        assert_eq!(e2, Value::fixnum('i' as i64));
     }
 
     #[test]
@@ -4606,11 +4606,11 @@ mod tests {
 
     #[test]
     fn prefix_arg_to_value() {
-        assert_eq!(PrefixArg::None.to_value(), Value::Nil);
-        assert_eq!(PrefixArg::Numeric(3).to_value(), Value::Int(3));
+        assert_eq!(PrefixArg::None.to_value(), Value::NIL);
+        assert_eq!(PrefixArg::Numeric(3).to_value(), Value::fixnum(3));
         // Raw(1) = C-u once = (4)
         let raw1 = PrefixArg::Raw(1).to_value();
-        assert!(matches!(raw1, Value::Cons(_)));
+        assert!(raw1.is_cons());
     }
 
     #[test]
@@ -4631,31 +4631,31 @@ mod tests {
     #[test]
     fn read_key_sequence_state_tracks_raw_and_translated_events() {
         let mut state = ReadKeySequenceState::new();
-        state.push_input_event(Value::Int('A' as i64));
-        state.push_input_event(Value::Int('B' as i64));
-        state.replace_translated_events(vec![Value::Int('a' as i64)]);
+        state.push_input_event(Value::fixnum('A' as i64));
+        state.push_input_event(Value::fixnum('B' as i64));
+        state.replace_translated_events(vec![Value::fixnum('a' as i64)]);
 
         let (translated, raw) = state.snapshot();
-        assert_eq!(translated, vec![Value::Int('a' as i64)]);
-        assert_eq!(raw, vec![Value::Int('A' as i64), Value::Int('B' as i64)]);
+        assert_eq!(translated, vec![Value::fixnum('a' as i64)]);
+        assert_eq!(raw, vec![Value::fixnum('A' as i64), Value::fixnum('B' as i64)]);
     }
 
     #[test]
     fn key_sequence_translation_events_normalizes_vector_string_and_scalar() {
-        let vector = Value::vector(vec![Value::Int('x' as i64), Value::Int('y' as i64)]);
+        let vector = Value::vector(vec![Value::fixnum('x' as i64), Value::fixnum('y' as i64)]);
         assert_eq!(
             key_sequence_translation_events(vector),
-            Some(vec![Value::Int('x' as i64), Value::Int('y' as i64)])
+            Some(vec![Value::fixnum('x' as i64), Value::fixnum('y' as i64)])
         );
         assert_eq!(
             key_sequence_translation_events(Value::string("ab")),
-            Some(vec![Value::Int('a' as i64), Value::Int('b' as i64)])
+            Some(vec![Value::fixnum('a' as i64), Value::fixnum('b' as i64)])
         );
         assert_eq!(
             key_sequence_translation_events(Value::symbol("f1")),
             Some(vec![Value::symbol("f1")])
         );
-        assert_eq!(key_sequence_translation_events(Value::Nil), None);
+        assert_eq!(key_sequence_translation_events(Value::NIL), None);
     }
 
     #[test]

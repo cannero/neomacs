@@ -17,24 +17,24 @@ fn objid_copy_eq_hash() {
 
 #[test]
 fn trace_values_cons() {
-    let car = Value::Int(1);
-    let cdr = Value::Int(2);
+    let car = Value::fixnum(1);
+    let cdr = Value::fixnum(2);
     let obj = HeapObject::Cons { car, cdr };
     let traced = obj.trace_values();
     assert_eq!(traced.len(), 2);
-    assert_eq!(traced[0], Value::Int(1));
-    assert_eq!(traced[1], Value::Int(2));
+    assert_eq!(traced[0], Value::fixnum(1));
+    assert_eq!(traced[1], Value::fixnum(2));
 }
 
 #[test]
 fn trace_values_vector() {
-    let items = vec![Value::Int(10), Value::Int(20), Value::Int(30)];
+    let items = vec![Value::fixnum(10), Value::fixnum(20), Value::fixnum(30)];
     let obj = HeapObject::Vector(items);
     let traced = obj.trace_values();
     assert_eq!(traced.len(), 3);
-    assert_eq!(traced[0], Value::Int(10));
-    assert_eq!(traced[1], Value::Int(20));
-    assert_eq!(traced[2], Value::Int(30));
+    assert_eq!(traced[0], Value::fixnum(10));
+    assert_eq!(traced[1], Value::fixnum(20));
+    assert_eq!(traced[2], Value::fixnum(30));
 }
 
 #[test]
@@ -44,12 +44,12 @@ fn trace_values_hash_table() {
     // Insert a key/value pair via the data map directly
     use crate::emacs_core::value::HashKey;
     let key = HashKey::Int(1);
-    ht.data.insert(key.clone(), Value::Int(42));
+    ht.data.insert(key.clone(), Value::fixnum(42));
     ht.insertion_order.push(key);
     let obj = HeapObject::HashTable(ht);
     let traced = obj.trace_values();
     // At minimum the data value should be traced
-    assert!(traced.contains(&Value::Int(42)));
+    assert!(traced.contains(&Value::fixnum(42)));
 }
 
 #[test]

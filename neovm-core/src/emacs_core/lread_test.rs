@@ -17,11 +17,11 @@ fn eval_buffer_evaluates_current_buffer_forms() {
     assert!(result.is_nil());
     assert_eq!(
         ev.obarray.symbol_value("lread-eb-a").cloned(),
-        Some(Value::Int(11))
+        Some(Value::fixnum(11))
     );
     assert_eq!(
         ev.obarray.symbol_value("lread-eb-b").cloned(),
-        Some(Value::Int(12))
+        Some(Value::fixnum(12))
     );
 }
 
@@ -79,7 +79,7 @@ fn eval_buffer_uses_source_text_without_switching_current() {
     let caller = ev.buffers.create_buffer("*lread-eval-buffer-caller*");
     ev.buffers.set_current(caller);
 
-    let result = builtin_eval_buffer(&mut ev, vec![Value::Buffer(target)]).unwrap();
+    let result = builtin_eval_buffer(&mut ev, vec![Value::make_buffer(target)]).unwrap();
     assert!(result.is_nil());
     assert_eq!(
         ev.obarray.symbol_value("lread-eb-current-name").cloned(),
@@ -98,30 +98,30 @@ fn eval_buffer_reports_designator_and_arity_errors() {
             if sig.symbol_name() == "error" && sig.data == vec![Value::string("No such buffer")]
     ));
 
-    let bad_type = builtin_eval_buffer(&mut ev, vec![Value::Int(1)]);
+    let bad_type = builtin_eval_buffer(&mut ev, vec![Value::fixnum(1)]);
     assert!(matches!(
         bad_type,
         Err(Flow::Signal(sig))
             if sig.symbol_name() == "wrong-type-argument"
-                && sig.data == vec![Value::symbol("stringp"), Value::Int(1)]
+                && sig.data == vec![Value::symbol("stringp"), Value::fixnum(1)]
     ));
 
     let arity = builtin_eval_buffer(
         &mut ev,
         vec![
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
         ],
     );
     assert!(matches!(
         arity,
         Err(Flow::Signal(sig))
             if sig.symbol_name() == "wrong-number-of-arguments"
-                && sig.data == vec![Value::symbol("eval-buffer"), Value::Int(6)]
+                && sig.data == vec![Value::symbol("eval-buffer"), Value::fixnum(6)]
     ));
 }
 
@@ -134,18 +134,18 @@ fn eval_region_evaluates_forms_in_range() {
     }
     let end = {
         let buf = ev.buffers.current_buffer().expect("current buffer");
-        Value::Int(buf.text.char_count() as i64 + 1)
+        Value::fixnum(buf.text.char_count() as i64 + 1)
     };
 
-    let result = builtin_eval_region(&mut ev, vec![Value::Int(1), end]).unwrap();
+    let result = builtin_eval_region(&mut ev, vec![Value::fixnum(1), end]).unwrap();
     assert!(result.is_nil());
     assert_eq!(
         ev.obarray.symbol_value("lread-er-a").cloned(),
-        Some(Value::Int(1))
+        Some(Value::fixnum(1))
     );
     assert_eq!(
         ev.obarray.symbol_value("lread-er-b").cloned(),
-        Some(Value::Int(3))
+        Some(Value::fixnum(3))
     );
 }
 
@@ -156,13 +156,13 @@ fn eval_region_nil_or_reversed_bounds_are_noop() {
         let buf = ev.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("(setq lread-er-noop 9)");
     }
-    ev.obarray.set_symbol_value("lread-er-noop", Value::Int(0));
+    ev.obarray.set_symbol_value("lread-er-noop", Value::fixnum(0));
 
-    let nil_bounds = builtin_eval_region(&mut ev, vec![Value::Nil, Value::Nil]).unwrap();
+    let nil_bounds = builtin_eval_region(&mut ev, vec![Value::NIL, Value::NIL]).unwrap();
     assert!(nil_bounds.is_nil());
     assert_eq!(
         ev.obarray.symbol_value("lread-er-noop").cloned(),
-        Some(Value::Int(0))
+        Some(Value::fixnum(0))
     );
 
     let point_max = {
@@ -170,11 +170,11 @@ fn eval_region_nil_or_reversed_bounds_are_noop() {
         buf.text.char_count() as i64 + 1
     };
     let reversed =
-        builtin_eval_region(&mut ev, vec![Value::Int(point_max), Value::Int(1)]).unwrap();
+        builtin_eval_region(&mut ev, vec![Value::fixnum(point_max), Value::fixnum(1)]).unwrap();
     assert!(reversed.is_nil());
     assert_eq!(
         ev.obarray.symbol_value("lread-er-noop").cloned(),
-        Some(Value::Int(0))
+        Some(Value::fixnum(0))
     );
 }
 
@@ -190,7 +190,7 @@ fn eval_region_reports_type_range_and_arity_errors() {
         buf.text.char_count() as i64 + 1
     };
 
-    let bad_start = builtin_eval_region(&mut ev, vec![Value::string("1"), Value::Int(point_max)]);
+    let bad_start = builtin_eval_region(&mut ev, vec![Value::string("1"), Value::fixnum(point_max)]);
     assert!(matches!(
         bad_start,
         Err(Flow::Signal(sig))
@@ -199,7 +199,7 @@ fn eval_region_reports_type_range_and_arity_errors() {
                     == vec![Value::symbol("integer-or-marker-p"), Value::string("1")]
     ));
 
-    let bad_end = builtin_eval_region(&mut ev, vec![Value::Int(1), Value::string("2")]);
+    let bad_end = builtin_eval_region(&mut ev, vec![Value::fixnum(1), Value::string("2")]);
     assert!(matches!(
         bad_end,
         Err(Flow::Signal(sig))
@@ -208,12 +208,12 @@ fn eval_region_reports_type_range_and_arity_errors() {
                     == vec![Value::symbol("integer-or-marker-p"), Value::string("2")]
     ));
 
-    let range = builtin_eval_region(&mut ev, vec![Value::Int(1), Value::Int(999)]);
+    let range = builtin_eval_region(&mut ev, vec![Value::fixnum(1), Value::fixnum(999)]);
     assert!(matches!(
         range,
         Err(Flow::Signal(sig))
             if sig.symbol_name() == "args-out-of-range"
-                && sig.data == vec![Value::Int(1), Value::Int(999)]
+                && sig.data == vec![Value::fixnum(1), Value::fixnum(999)]
     ));
 
     let arity_low = builtin_eval_region(&mut ev, vec![]);
@@ -221,24 +221,24 @@ fn eval_region_reports_type_range_and_arity_errors() {
         arity_low,
         Err(Flow::Signal(sig))
             if sig.symbol_name() == "wrong-number-of-arguments"
-                && sig.data == vec![Value::symbol("eval-region"), Value::Int(0)]
+                && sig.data == vec![Value::symbol("eval-region"), Value::fixnum(0)]
     ));
 
     let arity_high = builtin_eval_region(
         &mut ev,
         vec![
-            Value::Int(1),
-            Value::Int(point_max),
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
+            Value::fixnum(1),
+            Value::fixnum(point_max),
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
         ],
     );
     assert!(matches!(
         arity_high,
         Err(Flow::Signal(sig))
             if sig.symbol_name() == "wrong-number-of-arguments"
-                && sig.data == vec![Value::symbol("eval-region"), Value::Int(5)]
+                && sig.data == vec![Value::symbol("eval-region"), Value::fixnum(5)]
     ));
 }
 
@@ -252,9 +252,9 @@ fn eval_region_keeps_point_stable_without_side_effects() {
     }
     let end = {
         let buf = ev.buffers.current_buffer().expect("current buffer");
-        Value::Int(buf.text.char_count() as i64 + 1)
+        Value::fixnum(buf.text.char_count() as i64 + 1)
     };
-    let result = builtin_eval_region(&mut ev, vec![Value::Int(1), end]).unwrap();
+    let result = builtin_eval_region(&mut ev, vec![Value::fixnum(1), end]).unwrap();
     assert!(result.is_nil());
     let point = ev
         .buffers
@@ -274,9 +274,9 @@ fn eval_region_accepts_shebang_reader_prefix() {
     }
     let end = {
         let buf = ev.buffers.current_buffer().expect("current buffer");
-        Value::Int(buf.text.char_count() as i64 + 1)
+        Value::fixnum(buf.text.char_count() as i64 + 1)
     };
-    let result = builtin_eval_region(&mut ev, vec![Value::Int(1), end]).unwrap();
+    let result = builtin_eval_region(&mut ev, vec![Value::fixnum(1), end]).unwrap();
     assert!(result.is_nil());
     assert_eq!(
         ev.obarray.symbol_value("lread-er-shebang").cloned(),
@@ -293,9 +293,9 @@ fn eval_region_single_line_shebang_signals_end_of_file() {
     }
     let end = {
         let buf = ev.buffers.current_buffer().expect("current buffer");
-        Value::Int(buf.text.char_count() as i64 + 1)
+        Value::fixnum(buf.text.char_count() as i64 + 1)
     };
-    let result = builtin_eval_region(&mut ev, vec![Value::Int(1), end]);
+    let result = builtin_eval_region(&mut ev, vec![Value::fixnum(1), end]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "end-of-file" && sig.data.is_empty()
@@ -311,9 +311,9 @@ fn eval_region_preserves_utf8_bom_reader_error_shape() {
     }
     let end = {
         let buf = ev.buffers.current_buffer().expect("current buffer");
-        Value::Int(buf.text.char_count() as i64 + 1)
+        Value::fixnum(buf.text.char_count() as i64 + 1)
     };
-    let result = builtin_eval_region(&mut ev, vec![Value::Int(1), end]);
+    let result = builtin_eval_region(&mut ev, vec![Value::fixnum(1), end]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "void-variable" && sig.data.len() == 1
@@ -330,7 +330,7 @@ fn read_event_returns_nil() {
 #[test]
 fn read_event_rejects_non_string_prompt() {
     let mut ev = Context::new();
-    let result = builtin_read_event(&mut ev, vec![Value::Int(123)]);
+    let result = builtin_read_event(&mut ev, vec![Value::fixnum(123)]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-type-argument"
@@ -341,40 +341,40 @@ fn read_event_rejects_non_string_prompt() {
 fn read_event_consumes_unread_command_event() {
     let mut ev = Context::new();
     ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
+        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
     let result = builtin_read_event(&mut ev, vec![]).unwrap();
     assert_eq!(result.as_int(), Some(97));
-    assert_eq!(ev.recent_input_events(), &[Value::Int(97)]);
+    assert_eq!(ev.recent_input_events(), &[Value::fixnum(97)]);
 }
 
 #[test]
 fn read_event_sets_command_keys_when_empty() {
     let mut ev = Context::new();
     ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
+        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
     let _ = builtin_read_event(&mut ev, vec![]).unwrap();
-    assert_eq!(ev.read_command_keys(), &[Value::Int(97)]);
+    assert_eq!(ev.read_command_keys(), &[Value::fixnum(97)]);
 }
 
 #[test]
 fn read_event_preserves_existing_command_keys_context() {
     let mut ev = Context::new();
-    ev.set_read_command_keys(vec![Value::Int(97)]);
+    ev.set_read_command_keys(vec![Value::fixnum(97)]);
     ev.obarray.set_symbol_value(
         "unread-command-events",
         Value::list(vec![Value::list(vec![Value::symbol("mouse-1")])]),
     );
     let result = builtin_read_event(&mut ev, vec![]).unwrap();
-    assert!(matches!(result, Value::Cons(_)));
-    assert_eq!(ev.read_command_keys(), &[Value::Int(97)]);
+    assert!(result.is_cons());
+    assert_eq!(ev.read_command_keys(), &[Value::fixnum(97)]);
 }
 
 #[test]
 fn read_event_with_seconds_does_not_set_command_keys_when_empty() {
     let mut ev = Context::new();
     ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
-    let _ = builtin_read_event(&mut ev, vec![Value::Nil, Value::Nil, Value::Int(0)]).unwrap();
+        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    let _ = builtin_read_event(&mut ev, vec![Value::NIL, Value::NIL, Value::fixnum(0)]).unwrap();
     assert_eq!(ev.read_command_keys(), &[]);
 }
 
@@ -382,8 +382,8 @@ fn read_event_with_seconds_does_not_set_command_keys_when_empty() {
 fn read_event_with_positive_seconds_does_not_set_command_keys_when_empty() {
     let mut ev = Context::new();
     ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
-    let _ = builtin_read_event(&mut ev, vec![Value::Nil, Value::Nil, Value::Int(1)]).unwrap();
+        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    let _ = builtin_read_event(&mut ev, vec![Value::NIL, Value::NIL, Value::fixnum(1)]).unwrap();
     assert_eq!(ev.read_command_keys(), &[]);
 }
 
@@ -391,10 +391,10 @@ fn read_event_with_positive_seconds_does_not_set_command_keys_when_empty() {
 fn read_event_with_float_seconds_does_not_set_command_keys_when_empty() {
     let mut ev = Context::new();
     ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
+        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
     let _ = builtin_read_event(
         &mut ev,
-        vec![Value::Nil, Value::Nil, Value::Float(0.25, next_float_id())],
+        vec![Value::NIL, Value::NIL, Value::make_float(0.25)],
     )
     .unwrap();
     assert_eq!(ev.read_command_keys(), &[]);
@@ -409,7 +409,7 @@ fn read_event_with_interactive_timeout_returns_nil() {
     let start = std::time::Instant::now();
     let result = builtin_read_event(
         &mut ev,
-        vec![Value::Nil, Value::Nil, Value::Float(0.01, next_float_id())],
+        vec![Value::NIL, Value::NIL, Value::make_float(0.01)],
     )
     .unwrap();
     drop(tx);
@@ -421,24 +421,24 @@ fn read_event_with_interactive_timeout_returns_nil() {
 #[test]
 fn read_event_with_non_nil_seconds_preserves_existing_command_keys_context() {
     let mut ev = Context::new();
-    ev.set_read_command_keys(vec![Value::Int(97)]);
+    ev.set_read_command_keys(vec![Value::fixnum(97)]);
     ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(98)]));
+        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(98)]));
     let _ = builtin_read_event(
         &mut ev,
-        vec![Value::Nil, Value::Nil, Value::Float(0.25, next_float_id())],
+        vec![Value::NIL, Value::NIL, Value::make_float(0.25)],
     )
     .unwrap();
-    assert_eq!(ev.read_command_keys(), &[Value::Int(97)]);
+    assert_eq!(ev.read_command_keys(), &[Value::fixnum(97)]);
 }
 
 #[test]
 fn read_event_with_nil_seconds_sets_command_keys_when_empty() {
     let mut ev = Context::new();
     ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
-    let _ = builtin_read_event(&mut ev, vec![Value::Nil, Value::Nil, Value::Nil]).unwrap();
-    assert_eq!(ev.read_command_keys(), &[Value::Int(97)]);
+        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    let _ = builtin_read_event(&mut ev, vec![Value::NIL, Value::NIL, Value::NIL]).unwrap();
+    assert_eq!(ev.read_command_keys(), &[Value::fixnum(97)]);
 }
 
 #[test]
@@ -446,13 +446,13 @@ fn read_event_consumes_non_character_event_and_preserves_tail() {
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
-        Value::list(vec![Value::symbol("foo"), Value::Int(97)]),
+        Value::list(vec![Value::symbol("foo"), Value::fixnum(97)]),
     );
     let result = builtin_read_event(&mut ev, vec![]).unwrap();
     assert_eq!(result, Value::symbol("foo"));
     assert_eq!(
         ev.obarray.symbol_value("unread-command-events"),
-        Some(&Value::list(vec![Value::Int(97)]))
+        Some(&Value::list(vec![Value::fixnum(97)]))
     );
 }
 
@@ -460,12 +460,12 @@ fn read_event_consumes_non_character_event_and_preserves_tail() {
 fn read_event_consumes_character_event() {
     let mut ev = Context::new();
     ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::Char('a')]));
+        .set_symbol_value("unread-command-events", Value::list(vec![Value::char('a')]));
     let result = builtin_read_event(&mut ev, vec![]).unwrap();
     assert_eq!(result.as_int(), Some(97));
     assert_eq!(
         ev.obarray.symbol_value("unread-command-events"),
-        Some(&Value::Nil)
+        Some(&Value::NIL)
     );
 }
 
@@ -474,13 +474,13 @@ fn read_event_preserves_trailing_events_after_non_character() {
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
-        Value::list(vec![Value::symbol("foo"), Value::Char('a')]),
+        Value::list(vec![Value::symbol("foo"), Value::char('a')]),
     );
     let result = builtin_read_event(&mut ev, vec![]).unwrap();
     assert_eq!(result, Value::symbol("foo"));
     assert_eq!(
         ev.obarray.symbol_value("unread-command-events"),
-        Some(&Value::list(vec![Value::Char('a')]))
+        Some(&Value::list(vec![Value::char('a')]))
     );
 }
 
@@ -491,9 +491,9 @@ fn read_event_rejects_more_than_three_args() {
         &mut ev,
         vec![
             Value::string("key: "),
-            Value::Nil,
-            Value::Int(0),
-            Value::Nil,
+            Value::NIL,
+            Value::fixnum(0),
+            Value::NIL,
         ],
     );
     assert!(matches!(
@@ -512,7 +512,7 @@ fn read_char_exclusive_returns_nil() {
 #[test]
 fn read_char_exclusive_rejects_non_string_prompt() {
     let mut ev = Context::new();
-    let result = builtin_read_char_exclusive(&mut ev, vec![Value::Int(123)]);
+    let result = builtin_read_char_exclusive(&mut ev, vec![Value::fixnum(123)]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-type-argument"
@@ -523,19 +523,19 @@ fn read_char_exclusive_rejects_non_string_prompt() {
 fn read_char_exclusive_consumes_unread_command_event() {
     let mut ev = Context::new();
     ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
+        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
     let result = builtin_read_char_exclusive(&mut ev, vec![]).unwrap();
     assert_eq!(result.as_int(), Some(97));
-    assert_eq!(ev.read_command_keys(), &[Value::Int(97)]);
+    assert_eq!(ev.read_command_keys(), &[Value::fixnum(97)]);
 }
 
 #[test]
 fn read_char_exclusive_with_seconds_does_not_set_command_keys_when_empty() {
     let mut ev = Context::new();
     ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
+        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
     let result =
-        builtin_read_char_exclusive(&mut ev, vec![Value::Nil, Value::Nil, Value::Int(0)]).unwrap();
+        builtin_read_char_exclusive(&mut ev, vec![Value::NIL, Value::NIL, Value::fixnum(0)]).unwrap();
     assert_eq!(result.as_int(), Some(97));
     assert_eq!(ev.read_command_keys(), &[]);
 }
@@ -544,23 +544,23 @@ fn read_char_exclusive_with_seconds_does_not_set_command_keys_when_empty() {
 fn read_char_exclusive_with_nil_seconds_sets_command_keys_when_empty() {
     let mut ev = Context::new();
     ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(97)]));
+        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
     let result =
-        builtin_read_char_exclusive(&mut ev, vec![Value::Nil, Value::Nil, Value::Nil]).unwrap();
+        builtin_read_char_exclusive(&mut ev, vec![Value::NIL, Value::NIL, Value::NIL]).unwrap();
     assert_eq!(result.as_int(), Some(97));
-    assert_eq!(ev.read_command_keys(), &[Value::Int(97)]);
+    assert_eq!(ev.read_command_keys(), &[Value::fixnum(97)]);
 }
 
 #[test]
 fn read_char_exclusive_preserves_existing_command_keys_context() {
     let mut ev = Context::new();
-    ev.set_read_command_keys(vec![Value::Int(97)]);
+    ev.set_read_command_keys(vec![Value::fixnum(97)]);
     ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::Int(98)]));
+        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(98)]));
     let result =
-        builtin_read_char_exclusive(&mut ev, vec![Value::Nil, Value::Nil, Value::Int(0)]).unwrap();
+        builtin_read_char_exclusive(&mut ev, vec![Value::NIL, Value::NIL, Value::fixnum(0)]).unwrap();
     assert_eq!(result.as_int(), Some(98));
-    assert_eq!(ev.read_command_keys(), &[Value::Int(97)]);
+    assert_eq!(ev.read_command_keys(), &[Value::fixnum(97)]);
 }
 
 #[test]
@@ -570,9 +570,9 @@ fn read_char_exclusive_rejects_more_than_three_args() {
         &mut ev,
         vec![
             Value::string("key: "),
-            Value::Nil,
-            Value::Int(0),
-            Value::Nil,
+            Value::NIL,
+            Value::fixnum(0),
+            Value::NIL,
         ],
     );
     assert!(matches!(
@@ -586,13 +586,13 @@ fn read_char_exclusive_skips_non_character_events() {
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
-        Value::list(vec![Value::symbol("foo"), Value::Int(97)]),
+        Value::list(vec![Value::symbol("foo"), Value::fixnum(97)]),
     );
     let result = builtin_read_char_exclusive(&mut ev, vec![]).unwrap();
     assert_eq!(result.as_int(), Some(97));
     assert_eq!(
         ev.recent_input_events(),
-        &[Value::symbol("foo"), Value::Int(97)]
+        &[Value::symbol("foo"), Value::fixnum(97)]
     );
 }
 
@@ -601,14 +601,14 @@ fn read_char_exclusive_skips_non_character_and_empty_tail() {
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
-        Value::list(vec![Value::symbol("foo"), Value::Int(97)]),
+        Value::list(vec![Value::symbol("foo"), Value::fixnum(97)]),
     );
     let result =
-        builtin_read_char_exclusive(&mut ev, vec![Value::Nil, Value::Nil, Value::Int(0)]).unwrap();
+        builtin_read_char_exclusive(&mut ev, vec![Value::NIL, Value::NIL, Value::fixnum(0)]).unwrap();
     assert_eq!(result.as_int(), Some(97));
     assert_eq!(
         ev.obarray.symbol_value("unread-command-events"),
-        Some(&Value::Nil),
+        Some(&Value::NIL),
     );
 }
 
@@ -617,14 +617,14 @@ fn read_char_exclusive_skips_non_character_and_leaves_tail() {
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
-        Value::list(vec![Value::symbol("foo"), Value::Int(97), Value::Int(98)]),
+        Value::list(vec![Value::symbol("foo"), Value::fixnum(97), Value::fixnum(98)]),
     );
     let result =
-        builtin_read_char_exclusive(&mut ev, vec![Value::Nil, Value::Nil, Value::Int(0)]).unwrap();
+        builtin_read_char_exclusive(&mut ev, vec![Value::NIL, Value::NIL, Value::fixnum(0)]).unwrap();
     assert_eq!(result.as_int(), Some(97));
     assert_eq!(
         ev.obarray.symbol_value("unread-command-events"),
-        Some(&Value::list(vec![Value::Int(98)])),
+        Some(&Value::list(vec![Value::fixnum(98)])),
     );
 }
 
@@ -641,7 +641,7 @@ fn get_load_suffixes_returns_list() {
 
 #[test]
 fn get_load_suffixes_rejects_over_arity() {
-    let result = builtin_get_load_suffixes(vec![Value::Nil]);
+    let result = builtin_get_load_suffixes(vec![Value::NIL]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
@@ -832,7 +832,7 @@ fn locate_file_internal_treats_tilde_prefixed_names_as_absolute_like_gnu() {
         vec![
             Value::string(&tilde_name),
             Value::list(vec![Value::string("./")]),
-            Value::Nil,
+            Value::NIL,
             Value::symbol("file-directory-p"),
         ],
     )
@@ -856,8 +856,8 @@ fn locate_file_rejects_over_arity() {
             Value::string("probe"),
             Value::list(vec![Value::string(".")]),
             Value::list(vec![Value::string(".el")]),
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
         ],
     );
     assert!(matches!(
@@ -875,8 +875,8 @@ fn locate_file_internal_rejects_over_arity() {
             Value::string("probe"),
             Value::list(vec![Value::string(".")]),
             Value::list(vec![Value::string(".el")]),
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
         ],
     );
     assert!(matches!(
@@ -898,20 +898,20 @@ fn read_coding_system_signals_batch_eof() {
 
 #[test]
 fn read_coding_system_validates_prompt_type_and_arity() {
-    let bad_prompt = builtin_read_coding_system(vec![Value::Int(1)]);
+    let bad_prompt = builtin_read_coding_system(vec![Value::fixnum(1)]);
     assert!(matches!(
         bad_prompt,
         Err(Flow::Signal(sig))
             if sig.symbol_name() == "wrong-type-argument"
-                && sig.data == vec![Value::symbol("stringp"), Value::Int(1)]
+                && sig.data == vec![Value::symbol("stringp"), Value::fixnum(1)]
     ));
 
-    let arity = builtin_read_coding_system(vec![Value::string(""), Value::Nil, Value::Nil]);
+    let arity = builtin_read_coding_system(vec![Value::string(""), Value::NIL, Value::NIL]);
     assert!(matches!(
         arity,
         Err(Flow::Signal(sig))
             if sig.symbol_name() == "wrong-number-of-arguments"
-                && sig.data == vec![Value::symbol("read-coding-system"), Value::Int(3)]
+                && sig.data == vec![Value::symbol("read-coding-system"), Value::fixnum(3)]
     ));
 }
 
@@ -928,20 +928,20 @@ fn read_non_nil_coding_system_signals_batch_eof() {
 
 #[test]
 fn read_non_nil_coding_system_validates_prompt_type_and_arity() {
-    let bad_prompt = builtin_read_non_nil_coding_system(vec![Value::Int(1)]);
+    let bad_prompt = builtin_read_non_nil_coding_system(vec![Value::fixnum(1)]);
     assert!(matches!(
         bad_prompt,
         Err(Flow::Signal(sig))
             if sig.symbol_name() == "wrong-type-argument"
-                && sig.data == vec![Value::symbol("stringp"), Value::Int(1)]
+                && sig.data == vec![Value::symbol("stringp"), Value::fixnum(1)]
     ));
 
-    let arity = builtin_read_non_nil_coding_system(vec![Value::string(""), Value::Nil]);
+    let arity = builtin_read_non_nil_coding_system(vec![Value::string(""), Value::NIL]);
     assert!(matches!(
         arity,
         Err(Flow::Signal(sig))
             if sig.symbol_name() == "wrong-number-of-arguments"
                 && sig.data
-                    == vec![Value::symbol("read-non-nil-coding-system"), Value::Int(2)]
+                    == vec![Value::symbol("read-non-nil-coding-system"), Value::fixnum(2)]
     ));
 }

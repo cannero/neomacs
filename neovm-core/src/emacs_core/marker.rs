@@ -36,7 +36,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -47,7 +47,7 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
     if args.len() < min || args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -61,7 +61,7 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 const MARK_MARKER_ID: u64 = i64::MAX as u64;
 
 pub(crate) fn is_marker(v: &Value) -> bool {
-    matches!(v, Value::Marker(_))
+    matches!(v, Value::Marker(_) /* TODO(tagged): convert Value::Marker to new API */)
 }
 
 pub(crate) fn make_marker_value(
@@ -114,7 +114,7 @@ pub(crate) fn make_registered_buffer_marker(
 }
 
 pub(crate) fn marker_logical_fields(v: &Value) -> Option<(Option<BufferId>, Option<i64>, bool)> {
-    let Value::Marker(id) = v else {
+    if !v.is_marker() /* TODO(tagged): `id` was Value::Marker(id), rewrite let-else */ {
         return None;
     };
     let marker = with_heap(|heap| heap.get_marker(*id).clone());
@@ -132,7 +132,7 @@ pub(crate) fn marker_equal_hash_key(id: crate::gc::ObjId) -> HashKey {
 }
 
 fn marker_id_value(v: &Value) -> Option<u64> {
-    let Value::Marker(id) = v else {
+    if !v.is_marker() /* TODO(tagged): `id` was Value::Marker(id), rewrite let-else */ {
         return None;
     };
     with_heap(|heap| heap.get_marker(*id).marker_id)
@@ -143,7 +143,7 @@ fn is_mark_marker(v: &Value) -> bool {
 }
 
 fn set_marker_id(v: &Value, mid: u64) {
-    if let Value::Marker(id) = v {
+    if v.is_marker() /* TODO(tagged): `id` was Value::Marker(id), now use accessor */ {
         with_heap_mut(|heap| {
             heap.get_marker_mut(*id).marker_id = Some(mid);
         });
@@ -164,12 +164,12 @@ fn expect_marker(_name: &str, v: &Value) -> Result<(), Flow> {
 }
 
 fn marker_position_value(v: &Value) -> Value {
-    let Value::Marker(id) = v else {
-        return Value::Nil;
+    if !v.is_marker() /* TODO(tagged): `id` was Value::Marker(id), rewrite let-else */ {
+        return Value::NIL;
     };
     with_heap(|heap| match heap.get_marker(*id).position {
-        Some(position) => Value::Int(position),
-        None => Value::Nil,
+        Some(position) => Value::fixnum(position),
+        None => Value::NIL,
     })
 }
 
@@ -179,8 +179,8 @@ fn marker_position_value(v: &Value) -> Value {
 /// contexts that require a concrete marker location.
 pub(crate) fn marker_position_as_int(v: &Value) -> Result<i64, Flow> {
     expect_marker("marker-position", v)?;
-    match marker_position_value(v) {
-        Value::Int(n) => Ok(n),
+    match marker_position_value(v).kind() {
+        ValueKind::Fixnum(n) => Ok(n),
         _ => Err(signal(
             "error",
             vec![Value::string("Marker does not point anywhere")],
@@ -228,24 +228,24 @@ pub(crate) fn marker_position_as_int_eval(
 }
 
 fn marker_buffer_value(v: &Value) -> Value {
-    let Value::Marker(id) = v else {
-        return Value::Nil;
+    if !v.is_marker() /* TODO(tagged): `id` was Value::Marker(id), rewrite let-else */ {
+        return Value::NIL;
     };
     with_heap(|heap| match heap.get_marker(*id).buffer {
-        Some(buffer_id) => Value::Buffer(buffer_id),
-        None => Value::Nil,
+        Some(buffer_id) => Value::make_buffer(buffer_id),
+        None => Value::NIL,
     })
 }
 
 fn marker_insertion_type_value(v: &Value) -> Value {
-    let Value::Marker(id) = v else {
-        return Value::Nil;
+    if !v.is_marker() /* TODO(tagged): `id` was Value::Marker(id), rewrite let-else */ {
+        return Value::NIL;
     };
-    with_heap(|heap| Value::bool(heap.get_marker(*id).insertion_type))
+    with_heap(|heap| Value::bool_val(heap.get_marker(*id).insertion_type))
 }
 
 fn marker_buffer_id(v: &Value) -> Option<BufferId> {
-    let Value::Marker(id) = v else {
+    if !v.is_marker() /* TODO(tagged): `id` was Value::Marker(id), rewrite let-else */ {
         return None;
     };
     with_heap(|heap| heap.get_marker(*id).buffer)
@@ -267,7 +267,7 @@ fn marker_targets_current_mark(marker: &Value) -> bool {
 /// (markerp OBJECT) -> t if OBJECT is a marker, nil otherwise
 pub(crate) fn builtin_markerp(args: Vec<Value>) -> EvalResult {
     expect_args("markerp", &args, 1)?;
-    Ok(Value::bool(is_marker(&args[0])))
+    Ok(Value::bool_val(is_marker(&args[0])))
 }
 
 /// Eval-dependent marker-position that reads adjusted positions from the buffer.
@@ -290,7 +290,7 @@ pub(crate) fn builtin_marker_position_in_buffers(
             && let Some(buf) = buffers.get(buf_id)
             && let Some(marker_entry) = buf.marker_entry(mid)
         {
-            return Ok(Value::Int(marker_entry.char_pos as i64 + 1));
+            return Ok(Value::fixnum(marker_entry.char_pos as i64 + 1));
         }
     }
 
@@ -308,9 +308,9 @@ pub(crate) fn builtin_marker_buffer(
     if let Some(buffer_id) = marker_buffer_id(&args[0])
         && eval.buffers.get(buffer_id).is_some()
     {
-        return Ok(Value::Buffer(buffer_id));
+        return Ok(Value::make_buffer(buffer_id));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// Buffer-aware marker-buffer for the VM fast dispatch path.
@@ -324,9 +324,9 @@ pub(crate) fn builtin_marker_buffer_in_buffers(
     if let Some(buffer_id) = marker_buffer_id(&args[0])
         && buffers.get(buffer_id).is_some()
     {
-        return Ok(Value::Buffer(buffer_id));
+        return Ok(Value::make_buffer(buffer_id));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (marker-insertion-type MARKER) -> t or nil
@@ -352,7 +352,7 @@ pub(crate) fn builtin_set_marker_insertion_type_in_buffers(
     expect_args("set-marker-insertion-type", &args, 2)?;
     expect_marker("set-marker-insertion-type", &args[0])?;
     let new_type = args[1].is_truthy();
-    if let Value::Marker(id) = &args[0] {
+    if &args[0].is_marker() /* TODO(tagged): `id` was Value::Marker(id), now use accessor */ {
         with_heap_mut(|heap| {
             heap.get_marker_mut(*id).insertion_type = new_type;
         });
@@ -392,7 +392,7 @@ pub(crate) fn builtin_copy_marker_in_buffers(
         false
     };
 
-    match &args[0] {
+    match args[0].kind() {
         v if is_marker(v) => {
             let buffer_id = marker_buffer_id(v);
 
@@ -406,8 +406,8 @@ pub(crate) fn builtin_copy_marker_in_buffers(
                     .and_then(|buf| buf.marker_entry(mid))
                     .map(|marker| marker.char_pos as i64 + 1)
             } else {
-                match marker_position_value(v) {
-                    Value::Int(n) => Some(n),
+                match marker_position_value(v).kind() {
+                    ValueKind::Fixnum(n) => Some(n),
                     _ => None,
                 }
             };
@@ -416,13 +416,13 @@ pub(crate) fn builtin_copy_marker_in_buffers(
             register_marker_in_buffers(buffers, &marker, buffer_id, position);
             Ok(marker)
         }
-        Value::Int(n) => {
+        ValueKind::Fixnum(n) => {
             let buffer_id = buffers.current_buffer().map(|b| b.id);
             let marker = make_marker_value(buffer_id, Some(*n), insertion_type);
             register_marker_in_buffers(buffers, &marker, buffer_id, Some(*n));
             Ok(marker)
         }
-        Value::Nil => Ok(make_marker_value(None, None, insertion_type)),
+        ValueKind::Nil => Ok(make_marker_value(None, None, insertion_type)),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *other],
@@ -453,12 +453,12 @@ pub(crate) fn builtin_set_marker_in_buffers(
     let targets_current_mark = marker_targets_current_mark(&args[0]);
 
     let buffer_id: Option<BufferId> = if args.len() > 2 && args[2].is_truthy() {
-        match &args[2] {
-            Value::Str(sid) => {
+        match args[2].kind() {
+            ValueKind::String => {
                 let name = with_heap(|h| h.get_string(*sid).to_owned());
                 buffers.find_buffer_by_name(&name)
             }
-            Value::Buffer(id) => Some(*id),
+            ValueKind::Veclike(VecLikeType::Buffer) => Some(*id),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -472,9 +472,9 @@ pub(crate) fn builtin_set_marker_in_buffers(
     };
 
     // Resolve position
-    let position: Option<i64> = match &args[1] {
-        Value::Nil => None,
-        Value::Int(n) => Some(*n),
+    let position: Option<i64> = match args[1].kind() {
+        ValueKind::Nil => None,
+        ValueKind::Fixnum(n) => Some(n),
         v if is_marker(v) => marker_position_as_int_with_buffers(buffers, v).ok(),
         other => {
             return Err(signal(
@@ -503,7 +503,7 @@ pub(crate) fn builtin_set_marker_in_buffers(
 
     register_marker_in_buffers(buffers, &args[0], buffer_id, position);
 
-    if let Value::Marker(id) = &args[0] {
+    if &args[0].is_marker() /* TODO(tagged): `id` was Value::Marker(id), now use accessor */ {
         with_heap_mut(|heap| {
             let marker = heap.get_marker_mut(*id);
             marker.buffer = buffer_id;

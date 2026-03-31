@@ -3,7 +3,7 @@ pub(crate) fn builtin_apply(eval: &mut super::eval::Context, args: Vec<Value>) -
     if args.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("apply"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("apply"), Value::fixnum(args.len() as i64)],
         ));
     }
     if args.len() == 1 {
@@ -17,15 +17,15 @@ pub(crate) fn builtin_apply(eval: &mut super::eval::Context, args: Vec<Value>) -
     let mut call_args: Vec<Value> = args[1..args.len() - 1].to_vec();
 
     // Last argument must be a list, which gets spread
-    match last {
-        Value::Nil => {}
-        Value::Cons(_) => {
+    match last.kind() {
+        ValueKind::Nil => {}
+        ValueKind::Cons => {
             let mut cursor = *last;
             loop {
-                match cursor {
-                    Value::Nil => break,
-                    Value::Cons(cell) => {
-                        let pair = read_cons(cell);
+                match cursor.kind() {
+                    ValueKind::Nil => break,
+                    ValueKind::Cons => {
+                        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                         call_args.push(pair.car);
                         cursor = pair.cdr;
                     }
@@ -87,15 +87,15 @@ pub(crate) fn for_each_sequence_element<F>(seq: &Value, mut f: F) -> Result<(), 
 where
     F: FnMut(Value) -> Result<(), Flow>,
 {
-    match seq {
-        Value::Nil => Ok(()),
-        Value::Cons(_) => {
+    match seq.kind() {
+        ValueKind::Nil => Ok(()),
+        ValueKind::Cons => {
             let mut cursor = *seq;
             loop {
-                match cursor {
-                    Value::Nil => break,
-                    Value::Cons(cell) => {
-                        let pair = read_cons(cell);
+                match cursor.kind() {
+                    ValueKind::Nil => break,
+                    ValueKind::Cons => {
+                        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                         let item = pair.car;
                         cursor = pair.cdr;
                         drop(pair);
@@ -111,25 +111,25 @@ where
             }
             Ok(())
         }
-        Value::Vector(v) | Value::Record(v) => {
+        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
             for item in with_heap(|h| h.get_vector(*v).clone()).into_iter() {
                 f(item)?;
             }
             Ok(())
         }
-        Value::Lambda(_) => {
+        ValueKind::Veclike(VecLikeType::Lambda) => {
             for item in super::cons_list::lambda_to_closure_vector(seq).into_iter() {
                 f(item)?;
             }
             Ok(())
         }
-        Value::ByteCode(_) => {
+        ValueKind::Veclike(VecLikeType::ByteCode) => {
             for item in super::cons_list::bytecode_to_closure_vector(seq).into_iter() {
                 f(item)?;
             }
             Ok(())
         }
-        Value::Str(id) => {
+        ValueKind::String => {
             let s = with_heap(|h| h.get_string(*id).to_owned());
             for cp in decode_storage_char_codes(&s) {
                 f(Value::Int(cp as i64))?;
@@ -147,7 +147,7 @@ pub(crate) fn builtin_mapcar(eval: &mut super::eval::Context, args: Vec<Value>) 
     if args.len() != 2 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("mapcar"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("mapcar"), Value::fixnum(args.len() as i64)],
         ));
     }
     let func = args[0];
@@ -160,10 +160,10 @@ pub(crate) fn builtin_mapcar(eval: &mut super::eval::Context, args: Vec<Value>) 
         let map_result: Result<(), Flow> = if seq.is_cons() || seq.is_nil() {
             let mut cursor = seq;
             loop {
-                match cursor {
-                    Value::Nil => break Ok(()),
-                    Value::Cons(cell) => {
-                        let pair = read_cons(cell);
+                match cursor.kind() {
+                    ValueKind::Nil => break Ok(()),
+                    ValueKind::Cons => {
+                        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                         let item = pair.car;
                         cursor = pair.cdr;
                         drop(pair);
@@ -197,7 +197,7 @@ pub(crate) fn builtin_mapc(eval: &mut super::eval::Context, args: Vec<Value>) ->
     if args.len() != 2 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("mapc"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("mapc"), Value::fixnum(args.len() as i64)],
         ));
     }
     let func = args[0];
@@ -211,10 +211,10 @@ pub(crate) fn builtin_mapc(eval: &mut super::eval::Context, args: Vec<Value>) ->
         let result: Result<(), Flow> = if seq.is_cons() || seq.is_nil() {
             let mut cursor = seq;
             loop {
-                match cursor {
-                    Value::Nil => break Ok(()),
-                    Value::Cons(cell) => {
-                        let pair = read_cons(cell);
+                match cursor.kind() {
+                    ValueKind::Nil => break Ok(()),
+                    ValueKind::Cons => {
+                        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                         let item = pair.car;
                         cursor = pair.cdr;
                         drop(pair);
@@ -279,7 +279,7 @@ pub(crate) fn builtin_mapcan(eval: &mut super::eval::Context, args: Vec<Value>) 
     if args.len() != 2 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("mapcan"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("mapcan"), Value::fixnum(args.len() as i64)],
         ));
     }
     let func = args[0];
@@ -324,14 +324,14 @@ pub(crate) fn parse_sort_options(args: &[Value]) -> Result<SortOptions, Flow> {
     if args.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("sort"), Value::Int(0)],
+            vec![Value::symbol("sort"), Value::fixnum(0)],
         ));
     }
 
     // Emacs 30 sort: (sort SEQ &key :key :lessp :reverse :in-place)
     // Old form: (sort SEQ PRED) — still supported, always in-place.
-    let mut key_fn = Value::Nil;
-    let mut lessp_fn = Value::Nil;
+    let mut key_fn = Value::NIL;
+    let mut lessp_fn = Value::NIL;
     let mut reverse = false;
     let mut in_place = false;
 
@@ -380,10 +380,10 @@ pub(crate) fn parse_sort_options(args: &[Value]) -> Result<SortOptions, Flow> {
     }
 
     if matches!(key_fn.as_symbol_name(), Some("identity")) {
-        key_fn = Value::Nil;
+        key_fn = Value::NIL;
     }
     if matches!(lessp_fn.as_symbol_name(), Some("value<")) {
-        lessp_fn = Value::Nil;
+        lessp_fn = Value::NIL;
     }
 
     Ok(SortOptions {
@@ -402,16 +402,16 @@ pub(crate) fn builtin_sort(eval: &mut super::eval::Context, args: Vec<Value>) ->
         in_place,
     } = parse_sort_options(&args)?;
 
-    match &args[0] {
-        Value::Nil => Ok(Value::Nil),
-        Value::Cons(_) => {
+    match args[0].kind() {
+        ValueKind::Nil => Ok(Value::NIL),
+        ValueKind::Cons => {
             let mut cons_cells = Vec::new();
             let mut values = Vec::new();
             let mut cursor = args[0];
             loop {
-                match cursor {
-                    Value::Nil => break,
-                    Value::Cons(cell) => {
+                match cursor.kind() {
+                    ValueKind::Nil => break,
+                    ValueKind::Cons => {
                         values.push(with_heap(|h| h.cons_car(cell)));
                         cons_cells.push(cell);
                         cursor = with_heap(|h| h.cons_cdr(cell));
@@ -444,7 +444,7 @@ pub(crate) fn builtin_sort(eval: &mut super::eval::Context, args: Vec<Value>) ->
                 Ok(Value::list(std::mem::take(&mut sorted_values)))
             }
         }
-        Value::Vector(v) | Value::Record(v) => {
+        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
             let values = with_heap(|h| h.get_vector(*v).clone());
             let sorted_values = eval.with_gc_scope(|ctx| {
                 ctx.root(args[0]);
@@ -461,11 +461,11 @@ pub(crate) fn builtin_sort(eval: &mut super::eval::Context, args: Vec<Value>) ->
                 with_heap_mut(|h| *h.get_vector_mut(*v) = sorted_values);
                 Ok(args[0])
             } else {
-                match args[0] {
-                    Value::Vector(_) => Ok(Value::vector(sorted_values)),
-                    Value::Record(_) => {
+                match args[0].kind() {
+                    ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::vector(sorted_values)),
+                    ValueKind::Veclike(VecLikeType::Record) => {
                         let id = with_heap_mut(|h| h.alloc_vector(sorted_values));
-                        Ok(Value::Record(id))
+                        Ok(ValueKind::Veclike(VecLikeType::Record))
                     }
                     _ => unreachable!(),
                 }
@@ -492,6 +492,7 @@ pub(crate) fn stable_sort_values_with(
     reverse: bool,
 ) -> Result<Vec<Value>, Flow> {
     use std::cmp::Ordering;
+use super::value::{ValueKind, VecLikeType};
 
     if values.len() < 2 {
         return Ok(values.to_vec());
@@ -502,7 +503,7 @@ pub(crate) fn stable_sort_values_with(
         .copied()
         .map(|value| SortItem {
             value,
-            key: Value::Nil,
+            key: Value::NIL,
         })
         .collect();
 

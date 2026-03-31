@@ -6,7 +6,7 @@ use super::expr::Expr;
 use super::expr::print_expr;
 use super::intern::{intern, resolve_sym};
 use super::keymap::{is_list_keymap, list_keymap_lookup_one};
-use super::value::{HashKey, Value, list_to_vec, with_heap, with_heap_mut};
+use super::value::{HashKey, Value, list_to_vec, with_heap, with_heap_mut, ValueKind};
 use std::fs;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
@@ -143,22 +143,22 @@ pub(crate) fn decode_emacs_utf8(bytes: &[u8]) -> String {
 
 /// Format a Value for human-readable error messages, resolving SymIds and ObjIds.
 fn format_value_for_error(v: &Value) -> String {
-    match v {
-        Value::Symbol(sid) => super::intern::resolve_sym(*sid).to_string(),
-        Value::Keyword(sid) => super::intern::resolve_sym(*sid).to_string(),
-        Value::Str(id) => {
+    match v.kind() {
+        ValueKind::Symbol(sid) => super::intern::resolve_sym(sid).to_string(),
+        ValueKind::Keyword(sid) => super::intern::resolve_sym(sid).to_string(),
+        ValueKind::String => {
             super::value::with_heap(|h: &crate::gc::LispHeap| format!("\"{}\"", h.get_string(*id)))
         }
-        Value::Int(n) => format!("{}", n),
-        Value::Char(c) => format!("?{}", c),
-        Value::Nil => "nil".to_string(),
-        Value::True => "t".to_string(),
-        Value::Cons(id) => super::value::with_heap(|h: &crate::gc::LispHeap| {
+        ValueKind::Fixnum(n) => format!("{}", n),
+        ValueKind::Char(c) => format!("?{}", c),
+        ValueKind::Nil => "nil".to_string(),
+        ValueKind::T => "t".to_string(),
+        ValueKind::Cons => super::value::with_heap(|h: &crate::gc::LispHeap| {
             let car = h.cons_car(*id);
             let cdr = h.cons_cdr(*id);
             let car_s = format_value_for_error(&car);
             let cdr_s = format_value_for_error(&cdr);
-            if cdr == Value::Nil {
+            if cdr == ValueKind::Nil {
                 format!("({})", car_s)
             } else {
                 format!("({} . {})", car_s, cdr_s)
@@ -214,7 +214,7 @@ fn generated_defalias(eval: &mut super::eval::Context, args: &[Expr]) -> Result<
     if !(2..=3).contains(&args.len()) {
         return Err(EvalError::Signal {
             symbol: intern("wrong-number-of-arguments"),
-            data: vec![Value::symbol("defalias"), Value::Int(args.len() as i64)],
+            data: vec![Value::symbol("defalias"), Value::fixnum(args.len() as i64)],
             raw_data: None,
         });
     }
@@ -248,7 +248,7 @@ fn try_eval_generated_loaddefs_form(
     // run through the already-loaded GNU Lisp runtime instead.
     match resolve_sym(*id) {
         "progn" => {
-            let mut last = Value::Nil;
+            let mut last = ValueKind::Nil;
             for expr in tail {
                 last = eval_generated_loaddefs_form(eval, expr)?;
             }
@@ -429,12 +429,12 @@ pub fn get_load_path(obarray: &super::symbol::Obarray) -> Vec<String> {
     let val = obarray
         .symbol_value("load-path")
         .cloned()
-        .unwrap_or(Value::Nil);
+        .unwrap_or(Value::NIL);
     super::value::list_to_vec(&val)
         .unwrap_or_default()
         .into_iter()
         .filter_map(|v| match v {
-            Value::Nil => Some(default_directory.to_string()),
+            Value::NIL => Some(default_directory.to_string()),
             _ => v.as_str().map(|s| s.to_string()),
         })
         .collect()
@@ -452,8 +452,8 @@ pub(crate) fn plan_load_in_state(
     nosuffix: Option<Value>,
     must_suffix: Option<Value>,
 ) -> Result<LoadPlan, Flow> {
-    let file = match file {
-        Value::Str(id) => with_heap(|h| h.get_string(id).to_owned()),
+    let file = match file.kind() {
+        ValueKind::String => with_heap(|h| h.get_string(id).to_owned()),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -475,7 +475,7 @@ pub(crate) fn plan_load_in_state(
         Some(path) => Ok(LoadPlan::Load { path }),
         None => {
             if noerror {
-                Ok(LoadPlan::Return(Value::Nil))
+                Ok(LoadPlan::Return(Value::NIL))
             } else {
                 Err(signal(
                     "file-missing",
@@ -494,7 +494,7 @@ pub(crate) fn builtin_load_in_vm_runtime(
     if args.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("load"), Value::Int(0)],
+            vec![Value::symbol("load"), Value::fixnum(0)],
         ));
     }
 
@@ -715,7 +715,7 @@ pub(crate) fn get_eager_macroexpand_fn(eval: &super::eval::Context) -> Option<Va
     // When it starts with `skip`, eager expansion is suppressed (mirrors
     // the check in `internal-macroexpand-for-load` in macroexp.el).
     if let Some(val) = eval.obarray().symbol_value("macroexp--pending-eager-loads") {
-        if let Value::Cons(id) = val {
+        if val.is_cons() /* TODO(tagged): `id` was Value::Cons(id), now use accessor */ {
             if eval.heap.cons_car(*id).is_symbol_named("skip") {
                 return None;
             }
@@ -762,7 +762,7 @@ pub(crate) fn eager_expand_eval(
     let val = eval.with_gc_scope(|ctx| {
         ctx.root(form_value);
         ctx.root(macroexpand_fn);
-        ctx.apply(macroexpand_fn, vec![form_value, Value::Nil]).ok()
+        ctx.apply(macroexpand_fn, vec![form_value, Value::NIL]).ok()
     });
     let val = match val {
         Some(v) => v,
@@ -778,15 +778,15 @@ pub(crate) fn eager_expand_eval(
     // Step 2: if result is (progn ...), recurse into subforms.
     // Root `val` during iteration: the recursive `eager_expand_eval`
     // call triggers evaluation + GC, which could free val's cons cells.
-    if let Value::Cons(id) = val {
+    if val.is_cons() /* TODO(tagged): `id` was Value::Cons(id), now use accessor */ {
         let car = eval.heap.cons_car(id);
         let cdr = eval.heap.cons_cdr(id);
         if car.is_symbol_named("progn") {
             return eval.with_gc_scope(|ctx| {
                 ctx.root(val);
-                let mut result = Value::Nil;
+                let mut result = Value::NIL;
                 let mut tail = cdr;
-                while let Value::Cons(sub_id) = tail {
+                while tail.is_cons() /* TODO(tagged): `sub_id` was Value::Cons(sub_id), now use accessor */ {
                     let sub_form = ctx.heap.cons_car(sub_id);
                     tail = ctx.heap.cons_cdr(sub_id);
                     result = eager_expand_eval(ctx, sub_form, macroexpand_fn)?;
@@ -859,7 +859,7 @@ where
 
         if lexical_binding {
             ctx.set_lexical_binding(true);
-            ctx.lexenv = Value::list(vec![Value::True]);
+            ctx.lexenv = Value::list(vec![Value::T]);
         }
 
         ctx.set_variable(
@@ -874,7 +874,7 @@ where
         if let Some(old) = old_load_file {
             ctx.set_variable("load-file-name", old);
         } else {
-            ctx.set_variable("load-file-name", Value::Nil);
+            ctx.set_variable("load-file-name", Value::NIL);
         }
 
         result
@@ -1021,8 +1021,8 @@ pub fn load_file_with_flags(
         .obarray()
         .symbol_value("load-in-progress")
         .cloned()
-        .unwrap_or(Value::Nil);
-    eval.set_variable("load-in-progress", Value::True);
+        .unwrap_or(Value::NIL);
+    eval.set_variable("load-in-progress", Value::T);
 
     let result = stacker::maybe_grow(256 * 1024, 32 * 1024 * 1024, || {
         load_file_body(eval, path, noerror, nomessage)
@@ -1054,8 +1054,8 @@ fn load_file_body(
                 vec![
                     full_name,
                     hist_file_name,
-                    Value::bool(noerror),
-                    Value::bool(nomessage),
+                    Value::bool_val(noerror),
+                    Value::bool_val(nomessage),
                 ],
             )
             .map_err(crate::emacs_core::error::map_flow);
@@ -1116,7 +1116,7 @@ fn load_file_body(
                         eval.gc_safe_point();
                     }
                     record_load_history(eval, path);
-                    Ok(Value::True)
+                    Ok(Value::T)
                 });
             }
         }
@@ -1143,7 +1143,7 @@ fn load_file_body(
                     eval.gc_safe_point();
                 }
                 record_load_history(eval, path);
-                return Ok(Value::True);
+                return Ok(Value::T);
             }
         }
 
@@ -1193,7 +1193,7 @@ fn load_file_body(
                 eval.eval_expr(&reified)
             })?;
             record_load_history(eval, path);
-            return Ok(Value::True);
+            return Ok(Value::T);
         }
 
         // --- .el path: parse forms, macroexpand+eval each form, record history ---
@@ -1211,7 +1211,7 @@ fn load_file_body(
         record_load_history(eval, path);
 
         // Emacs `load` returns non-nil on success (typically `t`).
-        Ok(Value::True)
+        Ok(Value::T)
     })
 }
 
@@ -1268,18 +1268,18 @@ fn elc_has_lexical_binding(raw_bytes: &[u8]) -> bool {
 fn record_load_history(eval: &mut super::eval::Context, path: &Path) {
     let path_str = path.to_string_lossy().to_string();
     tracing::info!("record_load_history: {}", path_str);
-    let entry = Value::cons(Value::string(path_str.clone()), Value::Nil);
+    let entry = Value::cons(Value::string(path_str.clone()), Value::NIL);
     let history = eval
         .obarray()
         .symbol_value("load-history")
         .cloned()
-        .unwrap_or(Value::Nil);
+        .unwrap_or(Value::NIL);
     let filtered_history = Value::list(
         list_to_vec(&history)
             .unwrap_or_default()
             .into_iter()
             .filter(|existing| match existing {
-                Value::Cons(id) => with_heap(|heap| {
+                Value::Cons(id) /* TODO(tagged): convert Value::Cons to new API */ => with_heap(|heap| {
                     heap.cons_car(*id)
                         .as_str()
                         .is_none_or(|loaded| loaded != path_str)
@@ -1299,7 +1299,7 @@ fn record_load_history(eval: &mut super::eval::Context, path: &Path) {
         .is_some_and(|f| !f.is_nil());
     if is_fboundp {
         let abs_path = Value::string(path_str.clone());
-        if let Err(e) = eval.apply(Value::Symbol(dale_id), vec![abs_path]) {
+        if let Err(e) = eval.apply(Value::symbol(dale_id), vec![abs_path]) {
             let err_msg = match &e {
                 super::error::Flow::Signal(sig) => {
                     let sym = super::intern::resolve_sym(sig.symbol);
@@ -1320,9 +1320,9 @@ fn record_load_history(eval: &mut super::eval::Context, path: &Path) {
 
 /// Register bootstrap variables owned by the file-loading subsystem.
 pub fn register_bootstrap_vars(obarray: &mut super::symbol::Obarray) {
-    obarray.set_symbol_value("after-load-alist", Value::Nil);
+    obarray.set_symbol_value("after-load-alist", Value::NIL);
     obarray.make_special("after-load-alist");
-    obarray.set_symbol_value("macroexp--dynvars", Value::Nil);
+    obarray.set_symbol_value("macroexp--dynvars", Value::NIL);
     obarray.make_special("macroexp--dynvars");
 }
 
@@ -1532,37 +1532,37 @@ fn ensure_startup_compat_variables(eval: &mut super::eval::Context, project_root
         ("doc-directory", Value::string(etc_dir)),
         ("source-directory", Value::string(source_dir.clone())),
         ("installation-directory", Value::string(source_dir)),
-        ("exec-directory", Value::Nil),
-        ("configure-info-directory", Value::Nil),
-        ("charset-map-path", Value::Nil),
+        ("exec-directory", Value::NIL),
+        ("configure-info-directory", Value::NIL),
+        ("charset-map-path", Value::NIL),
         ("initial-environment", process_environment.clone()),
         ("process-environment", process_environment),
         ("path-separator", Value::string(path_separator)),
-        ("file-name-coding-system", Value::Nil),
-        ("default-file-name-coding-system", Value::Nil),
-        ("set-auto-coding-function", Value::Nil),
-        ("after-insert-file-functions", Value::Nil),
-        ("write-region-annotate-functions", Value::Nil),
-        ("write-region-post-annotation-function", Value::Nil),
-        ("write-region-annotations-so-far", Value::Nil),
-        ("inhibit-file-name-handlers", Value::Nil),
-        ("inhibit-file-name-operation", Value::Nil),
+        ("file-name-coding-system", Value::NIL),
+        ("default-file-name-coding-system", Value::NIL),
+        ("set-auto-coding-function", Value::NIL),
+        ("after-insert-file-functions", Value::NIL),
+        ("write-region-annotate-functions", Value::NIL),
+        ("write-region-post-annotation-function", Value::NIL),
+        ("write-region-annotations-so-far", Value::NIL),
+        ("inhibit-file-name-handlers", Value::NIL),
+        ("inhibit-file-name-operation", Value::NIL),
         (
             "temporary-file-directory",
             Value::string(temporary_file_directory),
         ),
-        ("create-lockfiles", Value::True),
-        ("auto-save-list-file-name", Value::Nil),
-        ("auto-save-list-file-prefix", Value::Nil),
-        ("auto-save-visited-file-name", Value::Nil),
-        ("auto-save-include-big-deletions", Value::Nil),
-        ("shared-game-score-directory", Value::Nil),
-        ("invocation-name", Value::Nil),
-        ("invocation-directory", Value::Nil),
-        ("system-messages-locale", Value::Nil),
-        ("system-time-locale", Value::Nil),
-        ("before-init-time", Value::Nil),
-        ("after-init-time", Value::Nil),
+        ("create-lockfiles", Value::T),
+        ("auto-save-list-file-name", Value::NIL),
+        ("auto-save-list-file-prefix", Value::NIL),
+        ("auto-save-visited-file-name", Value::NIL),
+        ("auto-save-include-big-deletions", Value::NIL),
+        ("shared-game-score-directory", Value::NIL),
+        ("invocation-name", Value::NIL),
+        ("invocation-directory", Value::NIL),
+        ("system-messages-locale", Value::NIL),
+        ("system-time-locale", Value::NIL),
+        ("before-init-time", Value::NIL),
+        ("after-init-time", Value::NIL),
         ("system-configuration", system_configuration),
         ("system-configuration-options", system_configuration_options),
         (
@@ -1574,15 +1574,15 @@ fn ensure_startup_compat_variables(eval: &mut super::eval::Context, project_root
         ("user-login-name", user_login_name),
         ("user-real-login-name", user_real_login_name),
         ("operating-system-release", operating_system_release),
-        ("delayed-warnings-list", Value::Nil),
-        ("default-text-properties", Value::Nil),
-        ("char-property-alias-alist", Value::Nil),
-        ("inhibit-point-motion-hooks", Value::True),
+        ("delayed-warnings-list", Value::NIL),
+        ("default-text-properties", Value::NIL),
+        ("char-property-alias-alist", Value::NIL),
+        ("inhibit-point-motion-hooks", Value::T),
         (
             "text-property-default-nonsticky",
             Value::list(vec![
-                Value::cons(Value::symbol("syntax-table"), Value::True),
-                Value::cons(Value::symbol("display"), Value::True),
+                Value::cons(Value::symbol("syntax-table"), Value::T),
+                Value::cons(Value::symbol("display"), Value::T),
             ]),
         ),
     ];
@@ -1617,15 +1617,15 @@ fn expr_quoted_symbol_name(expr: &Expr) -> Option<String> {
 
 fn expr_runtime_value(expr: &Expr) -> Option<Value> {
     match expr {
-        Expr::Int(v) => Some(Value::Int(*v)),
+        Expr::Int(v) => Some(Value::fixnum(*v)),
         Expr::Symbol(id) => match resolve_sym(*id) {
-            "nil" => Some(Value::Nil),
-            "t" => Some(Value::True),
+            "nil" => Some(Value::NIL),
+            "t" => Some(Value::T),
             name => Some(Value::symbol(name)),
         },
         Expr::Keyword(id) => Some(Value::symbol(resolve_sym(*id))),
         Expr::Str(s) => Some(Value::string(s.clone())),
-        Expr::Char(c) => Some(Value::Char(*c)),
+        Expr::Char(c) => Some(Value::char(*c)),
         Expr::List(_) => expr_quoted_symbol_name(expr).map(|name| Value::symbol(&name)),
         _ => None,
     }
@@ -1888,11 +1888,11 @@ fn loaded_source_paths(eval: &mut super::eval::Context) -> Vec<PathBuf> {
             .obarray()
             .symbol_value("load-history")
             .cloned()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
         let mut paths = std::collections::BTreeSet::new();
 
         for entry in list_to_vec(&history).unwrap_or_default() {
-            let Value::Cons(id) = entry else {
+            if !entry.is_cons() /* TODO(tagged): `id` was Value::Cons(id), rewrite let-else */ {
                 continue;
             };
             let Some(path) = with_heap(|heap| heap.cons_car(id).as_str().map(ToOwned::to_owned))
@@ -2052,7 +2052,7 @@ fn normalize_bootstrap_runtime_surface(
     // GNU's dumped runtime starts `gensym-counter` at 0.  Source bootstrap
     // expands many macros while loading core Lisp, so NeoVM must explicitly
     // drop that transient expansion count from the runtime surface.
-    eval.set_variable("gensym-counter", Value::Int(0));
+    eval.set_variable("gensym-counter", Value::fixnum(0));
     strip_runtime_icons_surface(eval);
 
     for (name, prop) in compile_only_state
@@ -2064,7 +2064,7 @@ fn normalize_bootstrap_runtime_surface(
     {
         let _ = super::builtins::builtin_put(
             eval,
-            vec![Value::symbol(name), Value::symbol(prop), Value::Nil],
+            vec![Value::symbol(name), Value::symbol(prop), Value::NIL],
         );
     }
 
@@ -2076,7 +2076,7 @@ fn normalize_bootstrap_runtime_surface(
             vec![
                 Value::symbol(name),
                 Value::symbol("autoload-macro"),
-                Value::Nil,
+                Value::NIL,
             ],
         );
     }
@@ -2088,7 +2088,7 @@ fn normalize_bootstrap_runtime_surface(
             vec![
                 Value::symbol(name),
                 Value::symbol("autoload-macro"),
-                Value::Nil,
+                Value::NIL,
             ],
         );
     }
@@ -2105,7 +2105,7 @@ fn normalize_bootstrap_runtime_surface(
                 vec![
                     Value::symbol(&entry.name),
                     Value::symbol("autoload-macro"),
-                    Value::Nil,
+                    Value::NIL,
                 ],
             );
         }
@@ -2160,7 +2160,7 @@ fn strip_runtime_icons_surface(eval: &mut super::eval::Context) {
             vec![
                 Value::symbol(name),
                 Value::symbol("autoload-macro"),
-                Value::Nil,
+                Value::NIL,
             ],
         );
     }
@@ -2325,8 +2325,8 @@ fn runtime_global_prefix_links_need_repair(eval: &super::eval::Context) -> bool 
         return true;
     };
 
-    let esc = list_keymap_lookup_one(&global, &Value::Int(27));
-    let ctl_x = list_keymap_lookup_one(&global, &Value::Int(24));
+    let esc = list_keymap_lookup_one(&global, &Value::fixnum(27));
+    let ctl_x = list_keymap_lookup_one(&global, &Value::fixnum(24));
     esc.as_symbol_name() != Some("ESC-prefix") || ctl_x.as_symbol_name() != Some("Control-X-prefix")
 }
 
@@ -2489,7 +2489,7 @@ pub fn apply_runtime_startup_state(eval: &mut super::eval::Context) -> Result<()
         .symbol_value("internal-make-interpreted-closure-function")
         .cloned()
         .and_then(|value| match value {
-            Value::Symbol(sym) if resolve_sym(sym) == "cconv-make-interpreted-closure" => eval
+            Value::symbol(sym) if resolve_sym(sym) == "cconv-make-interpreted-closure" => eval
                 .obarray()
                 .symbol_function("cconv-make-interpreted-closure")
                 .cloned(),
@@ -2511,13 +2511,13 @@ fn install_bootstrap_x_window_system_vars(
         Value::keyword(":test"),
         Value::symbol("eql"),
         Value::keyword(":size"),
-        Value::Int(900),
+        Value::fixnum(900),
     ])
     .map_err(map_flow)?;
     eval.set_variable("x-keysym-table", keysym_table);
-    eval.set_variable("x-selection-timeout", Value::Int(0));
-    eval.set_variable("x-session-id", Value::Nil);
-    eval.set_variable("x-session-previous-id", Value::Nil);
+    eval.set_variable("x-selection-timeout", Value::fixnum(0));
+    eval.set_variable("x-session-id", Value::NIL);
+    eval.set_variable("x-session-previous-id", Value::NIL);
     for name in [
         "x-ctrl-keysym",
         "x-alt-keysym",
@@ -2525,7 +2525,7 @@ fn install_bootstrap_x_window_system_vars(
         "x-meta-keysym",
         "x-super-keysym",
     ] {
-        eval.set_variable(name, Value::Nil);
+        eval.set_variable(name, Value::NIL);
     }
     Ok(())
 }
@@ -2598,17 +2598,17 @@ pub fn create_bootstrap_evaluator_with_features(
         // loadup.el line 60: (null dump-mode) triggers load-path setup.
         // Setting to nil skips the dump section (line 604) entirely —
         // NeoVM handles pdump in Rust after loadup.el returns.
-        eval.set_variable("dump-mode", Value::Nil);
-        eval.set_variable("purify-flag", Value::Nil);
+        eval.set_variable("dump-mode", Value::NIL);
+        eval.set_variable("purify-flag", Value::NIL);
         // NeoVM counts depth more aggressively than GNU (see eval.rs comment).
-        eval.set_variable("max-lisp-eval-depth", Value::Int(2400));
-        eval.set_variable("inhibit-load-charset-map", Value::True);
+        eval.set_variable("max-lisp-eval-depth", Value::fixnum(2400));
+        eval.set_variable("inhibit-load-charset-map", Value::T);
         // Override Elisp function-get with Rust builtin to avoid deep
         // eval depth consumption. The Elisp version from subr.el uses
         // get/fboundp/symbol-function which each increment depth in NeoVM
         // (but not in GNU's C implementations).
         eval.obarray
-            .set_symbol_function("function-get", Value::Subr(intern("function-get")));
+            .set_symbol_function("function-get", Value::subr(intern("function-get")));
         // data-directory: directory of machine-independent data files (etc/)
         let etc_dir = project_root.join("etc");
         eval.set_variable(
@@ -2633,8 +2633,8 @@ pub fn create_bootstrap_evaluator_with_features(
             .map(|s| Value::string(s.to_string()))
             .collect();
         eval.set_variable("exec-path", Value::list(path_dirs));
-        eval.set_variable("exec-suffixes", Value::Nil);
-        eval.set_variable("exec-directory", Value::Nil);
+        eval.set_variable("exec-suffixes", Value::NIL);
+        eval.set_variable("exec-directory", Value::NIL);
 
         // shell-file-name: GNU callproc.c:2041 — $SHELL or /bin/sh
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());

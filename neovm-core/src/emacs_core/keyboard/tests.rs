@@ -7,21 +7,21 @@ use crate::emacs_core::value::Value;
 
 #[test]
 fn describe_int_key_succeeds() {
-    let value = Value::Int(97);
+    let value = Value::fixnum(97);
     assert_eq!(describe_single_key_value(&value, false).unwrap(), "a");
 }
 
 #[test]
 fn key_sequence_values_accept_string_and_list() {
     let string = Value::string("abc");
-    let list: Value = crate::emacs_core::value::Value::list(vec![Value::Int(97), Value::Int(98)]);
+    let list: Value = crate::emacs_core::value::Value::list(vec![Value::fixnum(97), Value::fixnum(98)]);
     assert_eq!(
         key_sequence_values(&string).unwrap(),
-        vec![Value::Int(97), Value::Int(98), Value::Int(99)]
+        vec![Value::fixnum(97), Value::fixnum(98), Value::fixnum(99)]
     );
     assert_eq!(
         key_sequence_values(&list).unwrap(),
-        vec![Value::Int(97), Value::Int(98)]
+        vec![Value::fixnum(97), Value::fixnum(98)]
     );
 }
 

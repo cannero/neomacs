@@ -10,7 +10,7 @@
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::minibuffer::MinibufferManager;
-use super::value::{Value, list_to_vec, next_float_id, read_cons, with_heap};
+use super::value::{Value, list_to_vec, next_float_id, read_cons, with_heap, ValueKind, VecLikeType};
 use crate::buffer::{BufferId, BufferManager};
 use crate::window::{
     FrameId, FrameManager, Rect, SplitDirection, Window, WindowBufferDisplayDefaults, WindowId,
@@ -46,7 +46,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -58,7 +58,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -70,7 +70,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -79,9 +79,9 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 
 /// Extract an integer from a Value.
 fn expect_int(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *other],
@@ -91,10 +91,10 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
 
 /// Extract a numeric value from a Value.
 fn expect_number(value: &Value) -> Result<f64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n as f64),
-        Value::Float(n, _) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64 as f64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n as f64),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(*n),
+        ValueKind::Char(c) => Ok(c as i64 as f64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("numberp"), *other],
@@ -109,16 +109,16 @@ enum IntegerOrMarkerArg {
 }
 
 fn parse_integer_or_marker_arg(value: &Value) -> Result<IntegerOrMarkerArg, Flow> {
-    match value {
-        Value::Int(n) => Ok(IntegerOrMarkerArg::Int(*n)),
-        Value::Char(c) => Ok(IntegerOrMarkerArg::Int(*c as i64)),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(IntegerOrMarkerArg::Int(n)),
+        ValueKind::Char(c) => Ok(IntegerOrMarkerArg::Int(c as i64)),
         v if super::marker::is_marker(v) => {
-            let position = match v {
-                Value::Vector(vec) => {
+            let position = match v.kind() {
+                ValueKind::Veclike(VecLikeType::Vector) => {
                     let elems = with_heap(|h| h.get_vector(*vec).clone());
-                    match elems.get(2) {
-                        Some(Value::Int(n)) => Some(*n),
-                        Some(Value::Char(c)) => Some(*c as i64),
+                    match elems.get(2).kind() {
+                        Some(ValueKind::Fixnum(n)) => Some(n),
+                        Some(ValueKind::Char(c)) => Some(c as i64),
                         _ => None,
                     }
                 }
@@ -137,10 +137,10 @@ fn parse_integer_or_marker_arg(value: &Value) -> Result<IntegerOrMarkerArg, Flow
 }
 
 fn expect_number_or_marker_count(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
-        Value::Float(n, _) => Ok(n.floor() as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(n.floor() as i64),
         marker if super::marker::is_marker(marker) => match parse_integer_or_marker_arg(marker)? {
             IntegerOrMarkerArg::Marker {
                 position: Some(pos),
@@ -193,9 +193,9 @@ fn clamped_window_position_in_state(
 
 /// Extract a fixnum-like integer from a Value.
 fn expect_fixnum(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("fixnump"), *other],
@@ -205,10 +205,10 @@ fn expect_fixnum(value: &Value) -> Result<i64, Flow> {
 
 /// Extract a number-or-marker argument as f64.
 fn expect_number_or_marker(value: &Value) -> Result<f64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n as f64),
-        Value::Char(c) => Ok(*c as i64 as f64),
-        Value::Float(f, _) => Ok(*f),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n as f64),
+        ValueKind::Char(c) => Ok(c as i64 as f64),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(*f),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("number-or-marker-p"), *other],
@@ -219,23 +219,23 @@ fn expect_number_or_marker(value: &Value) -> Result<f64, Flow> {
 /// Parse a window margin argument (`nil` or non-negative integer).
 fn expect_margin_width(value: &Value) -> Result<usize, Flow> {
     const MAX_MARGIN: i64 = 2_147_483_647;
-    match value {
-        Value::Nil => Ok(0),
-        Value::Int(n) => {
-            if *n < 0 || *n > MAX_MARGIN {
+    match value.kind() {
+        ValueKind::Nil => Ok(0),
+        ValueKind::Fixnum(n) => {
+            if n < 0 || n > MAX_MARGIN {
                 return Err(signal(
                     "args-out-of-range",
-                    vec![Value::Int(*n), Value::Int(0), Value::Int(MAX_MARGIN)],
+                    vec![Value::Int(n), ValueKind::Fixnum(0), ValueKind::Fixnum(MAX_MARGIN)],
                 ));
             }
-            Ok(*n as usize)
+            Ok(n as usize)
         }
-        Value::Char(c) => {
-            let n = *c as i64;
+        ValueKind::Char(c) => {
+            let n = c as i64;
             if n > MAX_MARGIN {
                 return Err(signal(
                     "args-out-of-range",
-                    vec![Value::Int(n), Value::Int(0), Value::Int(MAX_MARGIN)],
+                    vec![ValueKind::Fixnum(n), ValueKind::Fixnum(0), ValueKind::Fixnum(MAX_MARGIN)],
                 ));
             }
             Ok(n as usize)
@@ -255,7 +255,7 @@ fn buffer_margin_width(
     let value = buffers
         .get(buffer_id)
         .and_then(|buffer| buffer.buffer_local_value(name))
-        .unwrap_or(Value::Nil);
+        .unwrap_or(Value::NIL);
     expect_margin_width(&value)
 }
 
@@ -263,7 +263,7 @@ fn buffer_local_value(buffers: &BufferManager, buffer_id: BufferId, name: &str) 
     buffers
         .get(buffer_id)
         .and_then(|buffer| buffer.buffer_local_value(name))
-        .unwrap_or(Value::Nil)
+        .unwrap_or(Value::NIL)
 }
 
 fn buffer_local_optional_dimension(
@@ -278,7 +278,7 @@ fn buffer_local_optional_dimension(
         Ok(Some(i32::try_from(expect_int(&value)?).map_err(|_| {
             signal(
                 "args-out-of-range",
-                vec![value, Value::Int(0), Value::Int(i64::from(i32::MAX))],
+                vec![value, Value::fixnum(0), Value::fixnum(i64::from(i32::MAX))],
             )
         })?))
     }
@@ -286,16 +286,16 @@ fn buffer_local_optional_dimension(
 
 fn valid_vertical_scroll_bar_type(value: Value) -> bool {
     value.is_nil()
-        || value == Value::True
+        || value == Value::T
         || matches!(value.as_symbol_name(), Some("left" | "right"))
 }
 
 fn valid_horizontal_scroll_bar_type(value: Value) -> bool {
-    value.is_nil() || value == Value::True || matches!(value.as_symbol_name(), Some("bottom"))
+    value.is_nil() || value == Value::T || matches!(value.as_symbol_name(), Some("bottom"))
 }
 
 fn window_value(wid: WindowId) -> Value {
-    Value::Window(wid.0)
+    Value::make_window(wid.0)
 }
 
 fn resolve_window_frame_id_for_pred(
@@ -310,9 +310,9 @@ fn resolve_window_frame_id_for_pred(
 }
 
 fn window_id_from_designator(value: &Value) -> Option<WindowId> {
-    match value {
-        Value::Window(id) => Some(WindowId(*id)),
-        Value::Int(n) if *n >= 0 => Some(WindowId(*n as u64)),
+    match value.kind() {
+        ValueKind::Veclike(VecLikeType::Window) => Some(WindowId(*id)),
+        ValueKind::Fixnum(n) if n >= 0 => Some(WindowId(n as u64)),
         _ => None,
     }
 }
@@ -336,7 +336,7 @@ fn resolve_window_id_with_pred_in_state(
     pred: &str,
 ) -> Result<(FrameId, WindowId), Flow> {
     match arg {
-        None | Some(Value::Nil) => {
+        None | Some(ValueKind::Nil) => {
             let frame_id = ensure_selected_frame_id_in_state(frames, buffers);
             let frame = frames
                 .get(frame_id)
@@ -396,7 +396,7 @@ fn resolve_window_object_id_with_pred_in_state(
     pred: &str,
 ) -> Result<WindowId, Flow> {
     match arg {
-        None | Some(Value::Nil) => {
+        None | Some(ValueKind::Nil) => {
             let (_fid, wid) = resolve_window_id_with_pred_in_state(frames, buffers, None, pred)?;
             Ok(wid)
         }
@@ -436,7 +436,7 @@ fn resolve_window_id_or_error_in_state(
     arg: Option<&Value>,
 ) -> Result<(FrameId, WindowId), Flow> {
     match arg {
-        None | Some(Value::Nil) => resolve_window_id_in_state(frames, buffers, arg),
+        None | Some(ValueKind::Nil) => resolve_window_id_in_state(frames, buffers, arg),
         Some(value) => {
             let Some(wid) = window_id_from_designator(value) else {
                 // GNU window.c: CHECK_VALID_WINDOW signals wrong-type-argument
@@ -460,7 +460,7 @@ fn resolve_window_id_or_error_in_state(
 
 fn format_window_designator_for_error(eval: &super::eval::Context, value: &Value) -> String {
     if let Some(wid) = window_id_from_designator(value) {
-        if eval.frames.is_window_object_id(wid) || matches!(value, Value::Window(_)) {
+        if eval.frames.is_window_object_id(wid) || matches!(value, Value::make_window(_)) {
             return format!("#<window {}>", wid.0);
         }
     }
@@ -477,7 +477,7 @@ fn resolve_window_id_or_window_error(
 
 fn format_window_designator_for_error_in_state(frames: &FrameManager, value: &Value) -> String {
     if let Some(wid) = window_id_from_designator(value) {
-        if frames.is_window_object_id(wid) || matches!(value, Value::Window(_)) {
+        if frames.is_window_object_id(wid) || matches!(value, Value::make_window(_)) {
             return format!("#<window {}>", wid.0);
         }
     }
@@ -491,7 +491,7 @@ fn resolve_window_id_or_window_error_in_state(
     live_only: bool,
 ) -> Result<(FrameId, WindowId), Flow> {
     match arg {
-        None | Some(Value::Nil) => {
+        None | Some(ValueKind::Nil) => {
             resolve_window_id_with_pred_in_state(frames, buffers, arg, "window-live-p")
         }
         Some(val) => {
@@ -547,8 +547,8 @@ pub(crate) fn resolve_frame_id_in_state(
     predicate: &str,
 ) -> Result<FrameId, Flow> {
     match arg {
-        None | Some(Value::Nil) => Ok(ensure_selected_frame_id_in_state(frames, buffers)),
-        Some(Value::Int(n)) => {
+        None | Some(ValueKind::Nil) => Ok(ensure_selected_frame_id_in_state(frames, buffers)),
+        Some(ValueKind::Fixnum(n)) => {
             let fid = FrameId(*n as u64);
             if frames.get(fid).is_some() {
                 Ok(fid)
@@ -559,7 +559,7 @@ pub(crate) fn resolve_frame_id_in_state(
                 ))
             }
         }
-        Some(Value::Frame(id)) => {
+        Some(ValueKind::Veclike(VecLikeType::Frame)) => {
             let fid = FrameId(*id);
             if frames.get(fid).is_some() {
                 Ok(fid)
@@ -595,8 +595,8 @@ fn resolve_frame_or_window_frame_id_in_state(
     predicate: &str,
 ) -> Result<FrameId, Flow> {
     match arg {
-        None | Some(Value::Nil) => Ok(ensure_selected_frame_id_in_state(frames, buffers)),
-        Some(Value::Frame(id)) => {
+        None | Some(ValueKind::Nil) => Ok(ensure_selected_frame_id_in_state(frames, buffers)),
+        Some(ValueKind::Veclike(VecLikeType::Frame)) => {
             let fid = FrameId(*id);
             if frames.get(fid).is_some() {
                 Ok(fid)
@@ -607,7 +607,7 @@ fn resolve_frame_or_window_frame_id_in_state(
                 ))
             }
         }
-        Some(Value::Int(n)) => {
+        Some(ValueKind::Fixnum(n)) => {
             let fid = FrameId(*n as u64);
             if frames.get(fid).is_some() {
                 return Ok(fid);
@@ -621,7 +621,7 @@ fn resolve_frame_or_window_frame_id_in_state(
                 vec![Value::symbol(predicate), Value::Int(*n)],
             ))
         }
-        Some(Value::Window(id)) => {
+        Some(ValueKind::Veclike(VecLikeType::Window)) => {
             let wid = WindowId(*id);
             if let Some(fid) = frames.find_valid_window_frame_id(wid) {
                 return Ok(fid);
@@ -715,10 +715,10 @@ fn ensure_selected_frame_id_in_state_with_policy(
         frame.char_width = 1.0;
         frame.char_height = 1.0;
         frame.font_pixel_size = 1.0;
-        frame.parameters.insert("width".to_string(), Value::Int(80));
+        frame.parameters.insert("width".to_string(), Value::fixnum(80));
         frame
             .parameters
-            .insert("height".to_string(), Value::Int(25));
+            .insert("height".to_string(), Value::fixnum(25));
         // The root window covers the 24-line text area (not the minibuffer).
         frame
             .root_window
@@ -1040,7 +1040,7 @@ pub(crate) fn builtin_frame_old_selected_window(
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("frame-old-selected-window", &args, 1)?;
     let _ = resolve_frame_id_in_state(frames, buffers, args.first(), "frame-live-p")?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 /// `(set-frame-selected-window FRAME WINDOW &optional NORECORD)` -> WINDOW.
 pub(crate) fn builtin_set_frame_selected_window(
@@ -1146,7 +1146,7 @@ pub(crate) fn builtin_minibuffer_window(
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     match frame.minibuffer_window {
         Some(wid) => Ok(window_value(wid)),
-        None => Ok(Value::Nil),
+        None => Ok(Value::NIL),
     }
 }
 /// `(window-minibuffer-p &optional WINDOW)` -> t when WINDOW is minibuffer.
@@ -1161,7 +1161,7 @@ pub(crate) fn builtin_window_minibuffer_p(
     let is_minibuffer = frames
         .get(fid)
         .is_some_and(|frame| frame.minibuffer_window == Some(wid));
-    Ok(Value::bool(is_minibuffer))
+    Ok(Value::bool_val(is_minibuffer))
 }
 
 /// `(minibuffer-selected-window)` -> selected window active at minibuffer entry.
@@ -1173,7 +1173,7 @@ pub(crate) fn builtin_minibuffer_selected_window(
     Ok(eval
         .minibuffer_selected_window
         .map(window_value)
-        .unwrap_or(Value::Nil))
+        .unwrap_or(Value::NIL))
 }
 
 /// `(active-minibuffer-window)` -> nil in batch.
@@ -1186,7 +1186,7 @@ pub(crate) fn builtin_active_minibuffer_window(
         return Ok(window_value(wid));
     }
     let Some(state) = eval.minibuffers.current() else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
 
     for frame_id in eval.frames.frame_list() {
@@ -1201,7 +1201,7 @@ pub(crate) fn builtin_active_minibuffer_window(
         }
     }
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 /// `(window-frame &optional WINDOW)` -> frame of WINDOW.
 pub(crate) fn builtin_window_frame(
@@ -1212,7 +1212,7 @@ pub(crate) fn builtin_window_frame(
     expect_max_args("window-frame", &args, 1)?;
     let (fid, _wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
-    Ok(Value::Frame(fid.0))
+    Ok(Value::make_frame(fid.0))
 }
 /// `(window-buffer &optional WINDOW)` -> buffer object.
 pub(crate) fn builtin_window_buffer(
@@ -1224,13 +1224,13 @@ pub(crate) fn builtin_window_buffer(
     let resolve_buffer = |frames: &FrameManager, fid: FrameId, wid: WindowId| -> EvalResult {
         let w = get_leaf(frames, fid, wid)?;
         match w.buffer_id() {
-            Some(bid) => Ok(Value::Buffer(bid)),
-            None => Ok(Value::Nil),
+            Some(bid) => Ok(Value::make_buffer(bid)),
+            None => Ok(Value::NIL),
         }
     };
 
     match args.first() {
-        None | Some(Value::Nil) => {
+        None | Some(ValueKind::Nil) => {
             let (fid, wid) =
                 resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "windowp")?;
             resolve_buffer(frames, fid, wid)
@@ -1246,7 +1246,7 @@ pub(crate) fn builtin_window_buffer(
                 return resolve_buffer(frames, fid, wid);
             }
             if frames.is_window_object_id(wid) {
-                return Ok(Value::Nil);
+                return Ok(ValueKind::Nil);
             }
             Err(signal(
                 "wrong-type-argument",
@@ -1317,7 +1317,7 @@ pub(crate) fn builtin_window_parameter(
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
     let wid =
         resolve_window_object_id_with_pred_in_state(frames, buffers, args.first(), "windowp")?;
-    Ok(frames.window_parameter(wid, &args[1]).unwrap_or(Value::Nil))
+    Ok(frames.window_parameter(wid, &args[1]).unwrap_or(Value::NIL))
 }
 /// `(set-window-parameter WINDOW PARAMETER VALUE)` -> VALUE.
 pub(crate) fn builtin_set_window_parameter(
@@ -1358,7 +1358,7 @@ pub(crate) fn builtin_window_parent(
     let Some(frame) = frames.get(fid) else {
         return Err(signal("error", vec![Value::string("Frame not found")]));
     };
-    Ok(window_parent_id(frame, wid).map_or(Value::Nil, window_value))
+    Ok(window_parent_id(frame, wid).map_or(Value::NIL, window_value))
 }
 /// `(window-top-child &optional WINDOW)` -> top child for vertical combinations.
 pub(crate) fn builtin_window_top_child(
@@ -1375,7 +1375,7 @@ pub(crate) fn builtin_window_top_child(
     };
     Ok(
         window_first_child_id(frame, wid, SplitDirection::Vertical)
-            .map_or(Value::Nil, window_value),
+            .map_or(Value::NIL, window_value),
     )
 }
 /// `(window-left-child &optional WINDOW)` -> left child for horizontal combinations.
@@ -1393,7 +1393,7 @@ pub(crate) fn builtin_window_left_child(
     };
     Ok(
         window_first_child_id(frame, wid, SplitDirection::Horizontal)
-            .map_or(Value::Nil, window_value),
+            .map_or(Value::NIL, window_value),
     )
 }
 /// `(window-next-sibling &optional WINDOW)` -> next sibling or nil.
@@ -1409,7 +1409,7 @@ pub(crate) fn builtin_window_next_sibling(
     let Some(frame) = frames.get(fid) else {
         return Err(signal("error", vec![Value::string("Frame not found")]));
     };
-    Ok(window_next_sibling_id(frame, wid).map_or(Value::Nil, window_value))
+    Ok(window_next_sibling_id(frame, wid).map_or(Value::NIL, window_value))
 }
 /// `(window-prev-sibling &optional WINDOW)` -> previous sibling or nil.
 pub(crate) fn builtin_window_prev_sibling(
@@ -1424,7 +1424,7 @@ pub(crate) fn builtin_window_prev_sibling(
     let Some(frame) = frames.get(fid) else {
         return Err(signal("error", vec![Value::string("Frame not found")]));
     };
-    Ok(window_prev_sibling_id(frame, wid).map_or(Value::Nil, window_value))
+    Ok(window_prev_sibling_id(frame, wid).map_or(Value::NIL, window_value))
 }
 /// `(window-normal-size &optional WINDOW HORIZONTAL)` -> proportional size.
 pub(crate) fn builtin_window_normal_size(
@@ -1444,7 +1444,7 @@ pub(crate) fn builtin_window_normal_size(
         .find_window(wid)
         .ok_or_else(|| signal("error", vec![Value::string("Window not found")]))?;
     let Some(parent_id) = window_parent_id(frame, wid) else {
-        return Ok(Value::Float(1.0, next_float_id()));
+        return Ok(Value::make_float(1.0));
     };
     let parent = frame
         .find_window(parent_id)
@@ -1467,7 +1467,7 @@ pub(crate) fn builtin_window_normal_size(
         Window::Leaf { .. } => 1.0,
     };
 
-    Ok(Value::Float(ratio as f64, next_float_id()))
+    Ok(Value::make_float(ratio as f64))
 }
 /// `(window-start &optional WINDOW)` -> integer position.
 pub(crate) fn builtin_window_start(
@@ -1480,8 +1480,8 @@ pub(crate) fn builtin_window_start(
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let w = get_leaf(frames, fid, wid)?;
     match w {
-        Window::Leaf { window_start, .. } => Ok(Value::Int(*window_start as i64)),
-        _ => Ok(Value::Int(0)),
+        Window::Leaf { window_start, .. } => Ok(Value::fixnum(*window_start as i64)),
+        _ => Ok(Value::fixnum(0)),
     }
 }
 /// `(window-group-start &optional WINDOW)` -> integer position.
@@ -1499,12 +1499,12 @@ pub(crate) fn builtin_window_group_start(
         .get(fid)
         .is_some_and(|frame| frame.minibuffer_window == Some(wid))
     {
-        return Ok(Value::Int(1));
+        return Ok(Value::fixnum(1));
     }
     let w = get_leaf(frames, fid, wid)?;
     match w {
-        Window::Leaf { window_start, .. } => Ok(Value::Int(*window_start as i64)),
-        _ => Ok(Value::Int(1)),
+        Window::Leaf { window_start, .. } => Ok(Value::fixnum(*window_start as i64)),
+        _ => Ok(Value::fixnum(1)),
     }
 }
 fn estimated_window_end_from_body_lines(
@@ -1553,7 +1553,7 @@ pub(crate) fn builtin_window_end(eval: &mut super::eval::Context, args: Vec<Valu
     let (fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let w = get_leaf(frames, fid, wid)?;
-    match w {
+    match w.kind() {
         Window::Leaf {
             window_start,
             window_end_pos,
@@ -1590,7 +1590,7 @@ pub(crate) fn builtin_window_end(eval: &mut super::eval::Context, args: Vec<Valu
                 *buffer_id,
             ) as i64))
         }
-        _ => Ok(Value::Int(0)),
+        _ => Ok(Value::fixnum(0)),
     }
 }
 /// `(window-point &optional WINDOW)` -> integer position.
@@ -1603,7 +1603,7 @@ pub(crate) fn builtin_window_point(
     let (fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let w = get_leaf(frames, fid, wid)?;
-    match w {
+    match w.kind() {
         Window::Leaf {
             buffer_id, point, ..
         } => {
@@ -1617,7 +1617,7 @@ pub(crate) fn builtin_window_point(
             }
             Ok(Value::Int(*point as i64))
         }
-        _ => Ok(Value::Int(0)),
+        _ => Ok(Value::fixnum(0)),
     }
 }
 /// `(set-window-start WINDOW POS &optional NOFORCE)` -> POS.
@@ -1635,7 +1635,7 @@ pub(crate) fn builtin_set_window_start(
         let is_minibuffer = frames
             .get(fid)
             .is_some_and(|frame| frame.minibuffer_window == Some(wid));
-        match pos {
+        match pos.kind() {
             IntegerOrMarkerArg::Int(pos) => {
                 if !is_minibuffer {
                     if let Some(clamped) =
@@ -1649,7 +1649,7 @@ pub(crate) fn builtin_set_window_start(
                         }
                     }
                 }
-                Value::Int(pos)
+                ValueKind::Fixnum(pos)
             }
             IntegerOrMarkerArg::Marker { raw, position } => {
                 if !is_minibuffer {
@@ -1688,7 +1688,7 @@ pub(crate) fn builtin_set_window_group_start(
     let is_minibuffer = frames
         .get(fid)
         .is_some_and(|frame| frame.minibuffer_window == Some(wid));
-    match pos {
+    match pos.kind() {
         IntegerOrMarkerArg::Int(pos) => {
             if !is_minibuffer {
                 if let Some(clamped) =
@@ -1702,7 +1702,7 @@ pub(crate) fn builtin_set_window_group_start(
                     }
                 }
             }
-            Ok(Value::Int(pos))
+            Ok(ValueKind::Fixnum(pos))
         }
         IntegerOrMarkerArg::Marker { raw, position } => {
             if !is_minibuffer {
@@ -1741,7 +1741,7 @@ pub(crate) fn builtin_set_window_point(
     let is_minibuffer = frames
         .get(fid)
         .is_some_and(|frame| frame.minibuffer_window == Some(wid));
-    match pos {
+    match pos.kind() {
         IntegerOrMarkerArg::Int(pos) => {
             if !is_minibuffer {
                 if let Some(clamped) =
@@ -1770,7 +1770,7 @@ pub(crate) fn builtin_set_window_point(
                     }
                 }
             }
-            Ok(Value::Int(pos))
+            Ok(ValueKind::Fixnum(pos))
         }
         IntegerOrMarkerArg::Marker { raw, position } => {
             if is_minibuffer {
@@ -1807,7 +1807,7 @@ pub(crate) fn builtin_set_window_point(
                 }
                 Ok(Value::Int(clamped as i64))
             } else {
-                Ok(Value::Int(1))
+                Ok(ValueKind::Fixnum(1))
             }
         }
     }
@@ -1824,7 +1824,7 @@ pub(crate) fn builtin_window_height(
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
     let w = get_window(frames, fid, wid)?;
     let ch = frames.get(fid).map(|f| f.char_height).unwrap_or(16.0);
-    Ok(Value::Int(window_height_lines(w, ch)))
+    Ok(Value::fixnum(window_height_lines(w, ch)))
 }
 /// `(window-width &optional WINDOW)` -> integer (columns).
 pub(crate) fn builtin_window_width(
@@ -1838,7 +1838,7 @@ pub(crate) fn builtin_window_width(
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let w = get_window(frames, fid, wid)?;
     let cw = frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
-    Ok(Value::Int(window_width_cols(w, cw)))
+    Ok(Value::fixnum(window_width_cols(w, cw)))
 }
 /// `(window-use-time &optional WINDOW)` -> integer.
 pub(crate) fn builtin_window_use_time(
@@ -1850,7 +1850,7 @@ pub(crate) fn builtin_window_use_time(
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
     let (_fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
-    Ok(Value::Int(frames.window_use_time(wid)))
+    Ok(Value::fixnum(frames.window_use_time(wid)))
 }
 /// `(window-bump-use-time &optional WINDOW)` -> integer or nil.
 pub(crate) fn builtin_window_bump_use_time(
@@ -1865,8 +1865,8 @@ pub(crate) fn builtin_window_bump_use_time(
         .map(|frame| frame.selected_window)
         .ok_or_else(|| signal("error", vec![Value::string("No selected frame")]))?;
     let target_wid = match args.first() {
-        None | Some(Value::Nil) => selected_wid,
-        Some(Value::Window(id)) => {
+        None | Some(ValueKind::Nil) => selected_wid,
+        Some(ValueKind::Veclike(VecLikeType::Window)) => {
             let wid = WindowId(*id);
             if frames.find_window_frame_id(wid).is_none() {
                 return Err(signal(
@@ -1885,8 +1885,8 @@ pub(crate) fn builtin_window_bump_use_time(
     };
     Ok(
         match frames.bump_window_use_time(selected_wid, target_wid) {
-            Some(use_time) => Value::Int(use_time),
-            None => Value::Nil,
+            Some(use_time) => Value::fixnum(use_time),
+            None => Value::NIL,
         },
     )
 }
@@ -1902,8 +1902,8 @@ pub(crate) fn builtin_window_old_point(
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let w = get_leaf(frames, fid, wid)?;
     match w {
-        Window::Leaf { old_point, .. } => Ok(Value::Int((*old_point).max(1) as i64)),
-        _ => Ok(Value::Int(1)),
+        Window::Leaf { old_point, .. } => Ok(Value::fixnum((*old_point).max(1) as i64)),
+        _ => Ok(Value::fixnum(1)),
     }
 }
 /// `(window-old-buffer &optional WINDOW)` -> nil in batch.
@@ -1916,7 +1916,7 @@ pub(crate) fn builtin_window_old_buffer(
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
     let (_fid, _wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 /// `(window-prev-buffers &optional WINDOW)` -> previous buffer list or nil.
 pub(crate) fn builtin_window_prev_buffers(
@@ -1980,15 +1980,15 @@ pub(crate) fn builtin_window_discard_buffer_from_window(
     expect_min_args("window-discard-buffer-from-window", &args, 2)?;
     expect_max_args("window-discard-buffer-from-window", &args, 3)?;
     let buffer_id = match args.first() {
-        Some(Value::Buffer(id)) if buffers.get(*id).is_some() => *id,
+        Some(ValueKind::Veclike(VecLikeType::Buffer)) if buffers.get(*id).is_some() => *id,
         _ => {
             return Err(signal("error", vec![Value::string("Not a live buffer")]));
         }
     };
     let (_fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.get(1), "window-live-p")?;
-    discard_buffers_from_window_history(frames, wid, &[Value::Buffer(buffer_id)])?;
-    Ok(Value::Nil)
+    discard_buffers_from_window_history(frames, wid, &[Value::make_buffer(buffer_id)])?;
+    Ok(Value::NIL)
 }
 
 /// `(window-left-column &optional WINDOW)` -> integer.
@@ -2008,7 +2008,7 @@ pub(crate) fn builtin_window_left_column(
     } else {
         0
     };
-    Ok(Value::Int(left))
+    Ok(Value::fixnum(left))
 }
 /// `(window-top-line &optional WINDOW)` -> integer.
 pub(crate) fn builtin_window_top_line(
@@ -2027,7 +2027,7 @@ pub(crate) fn builtin_window_top_line(
     } else {
         0
     };
-    Ok(Value::Int(top))
+    Ok(Value::fixnum(top))
 }
 /// `(window-pixel-left &optional WINDOW)` -> integer.
 ///
@@ -2049,7 +2049,7 @@ pub(crate) fn builtin_window_pixel_left(
     } else {
         0
     };
-    Ok(Value::Int(left))
+    Ok(Value::fixnum(left))
 }
 /// `(window-pixel-top &optional WINDOW)` -> integer.
 ///
@@ -2071,7 +2071,7 @@ pub(crate) fn builtin_window_pixel_top(
     } else {
         0
     };
-    Ok(Value::Int(top))
+    Ok(Value::fixnum(top))
 }
 /// `(window-hscroll &optional WINDOW)` -> integer.
 pub(crate) fn builtin_window_hscroll(
@@ -2085,8 +2085,8 @@ pub(crate) fn builtin_window_hscroll(
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let w = get_leaf(frames, fid, wid)?;
     match w {
-        Window::Leaf { hscroll, .. } => Ok(Value::Int(*hscroll as i64)),
-        _ => Ok(Value::Int(0)),
+        Window::Leaf { hscroll, .. } => Ok(Value::fixnum(*hscroll as i64)),
+        _ => Ok(Value::fixnum(0)),
     }
 }
 /// `(set-window-hscroll WINDOW NCOLS)` -> integer.
@@ -2105,24 +2105,24 @@ pub(crate) fn builtin_set_window_hscroll(
     {
         *hscroll = cols;
     }
-    Ok(Value::Int(cols as i64))
+    Ok(Value::fixnum(cols as i64))
 }
 
 fn scroll_prefix_value(value: &Value) -> i64 {
-    match value {
-        Value::Int(n) => *n,
-        Value::Float(f, _) => *f as i64,
-        Value::Char(c) => *c as i64,
-        Value::Symbol(id) if resolve_sym(*id) == "-" => -1,
-        Value::Cons(cell) => {
+    match value.kind() {
+        ValueKind::Fixnum(n) => n,
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => *f as i64,
+        ValueKind::Char(c) => c as i64,
+        ValueKind::Symbol(id) if resolve_sym(id) == "-" => -1,
+        ValueKind::Cons => {
             let car = {
-                let pair = read_cons(*cell);
+                let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
                 pair.car
             };
-            match car {
-                Value::Int(n) => n,
-                Value::Float(f, _) => f as i64,
-                Value::Char(c) => c as i64,
+            match car.kind() {
+                ValueKind::Fixnum(n) => n,
+                ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => f as i64,
+                ValueKind::Char(c) => c as i64,
                 _ => 1,
             }
         }
@@ -2163,7 +2163,7 @@ pub(crate) fn builtin_scroll_left(eval: &mut super::eval::Context, args: Vec<Val
         })
         .unwrap_or(0);
     let delta = match args.first() {
-        None | Some(Value::Nil) => default_scroll_columns_in_state(frames, fid, wid),
+        None | Some(ValueKind::Nil) => default_scroll_columns_in_state(frames, fid, wid),
         Some(value) => scroll_prefix_value(value),
     };
     let mut next = base as i128 + delta as i128;
@@ -2177,7 +2177,7 @@ pub(crate) fn builtin_scroll_left(eval: &mut super::eval::Context, args: Vec<Val
     {
         *hscroll = next as usize;
     }
-    Ok(Value::Int(next))
+    Ok(Value::fixnum(next))
 }
 /// `(scroll-right &optional SET-MINIMUM ARG)` -> new horizontal scroll amount.
 pub(crate) fn builtin_scroll_right(
@@ -2197,7 +2197,7 @@ pub(crate) fn builtin_scroll_right(
         })
         .unwrap_or(0);
     let delta = match args.first() {
-        None | Some(Value::Nil) => default_scroll_columns_in_state(frames, fid, wid),
+        None | Some(ValueKind::Nil) => default_scroll_columns_in_state(frames, fid, wid),
         Some(value) => scroll_prefix_value(value),
     };
     let mut next = base as i128 - delta as i128;
@@ -2211,7 +2211,7 @@ pub(crate) fn builtin_scroll_right(
     {
         *hscroll = next as usize;
     }
-    Ok(Value::Int(next))
+    Ok(Value::fixnum(next))
 }
 /// `(window-vscroll &optional WINDOW PIXELWISE)` -> number.
 ///
@@ -2229,7 +2229,7 @@ pub(crate) fn builtin_window_vscroll(
     let pixelwise = args.get(1).is_some_and(Value::is_truthy);
     Ok(frames
         .window_vscroll(wid, pixelwise)
-        .unwrap_or(Value::Int(0)))
+        .unwrap_or(Value::fixnum(0)))
 }
 /// `(set-window-vscroll WINDOW VSCROLL &optional PIXELWISE PRESERVE)` -> number.
 pub(crate) fn builtin_set_window_vscroll(
@@ -2246,7 +2246,7 @@ pub(crate) fn builtin_set_window_vscroll(
     let preserve = args.get(3).is_some_and(Value::is_truthy);
     Ok(frames
         .set_window_vscroll(wid, next_vscroll, pixelwise, preserve)
-        .unwrap_or(Value::Int(0)))
+        .unwrap_or(Value::fixnum(0)))
 }
 /// `(set-window-margins WINDOW LEFT-WIDTH &optional RIGHT-WIDTH)` -> changed-p.
 pub(crate) fn builtin_set_window_margins(
@@ -2272,10 +2272,10 @@ pub(crate) fn builtin_set_window_margins(
         let next = (left, right);
         if *margins != next {
             *margins = next;
-            return Ok(Value::True);
+            return Ok(Value::T);
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 /// `(window-margins &optional WINDOW)` -> margins pair or nil.
 pub(crate) fn builtin_window_margins(
@@ -2293,14 +2293,14 @@ pub(crate) fn builtin_window_margins(
         _ => (0, 0),
     };
     let left_v = if left == 0 {
-        Value::Nil
+        Value::NIL
     } else {
-        Value::Int(left as i64)
+        Value::fixnum(left as i64)
     };
     let right_v = if right == 0 {
-        Value::Nil
+        Value::NIL
     } else {
-        Value::Int(right as i64)
+        Value::fixnum(right as i64)
     };
     Ok(Value::cons(left_v, right_v))
 }
@@ -2317,10 +2317,10 @@ pub(crate) fn builtin_window_fringes(
     let (left, right, outside, persistent) =
         frames.window_fringes(wid).unwrap_or((0, 0, false, false));
     Ok(Value::list(vec![
-        Value::Int(left),
-        Value::Int(right),
-        if outside { Value::True } else { Value::Nil },
-        if persistent { Value::True } else { Value::Nil },
+        Value::fixnum(left),
+        Value::fixnum(right),
+        if outside { Value::T } else { Value::NIL },
+        if persistent { Value::T } else { Value::NIL },
     ]))
 }
 /// `(set-window-fringes WINDOW LEFT &optional RIGHT OUTSIDE-MARGINS PERSISTENT)` -> nil.
@@ -2337,7 +2337,7 @@ pub(crate) fn builtin_set_window_fringes(
         .get(fid)
         .is_none_or(|frame| frame.effective_window_system().is_none())
     {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     let left = if args[1].is_nil() {
         None
@@ -2345,7 +2345,7 @@ pub(crate) fn builtin_set_window_fringes(
         Some(i32::try_from(expect_int(&args[1])?).map_err(|_| {
             signal(
                 "args-out-of-range",
-                vec![args[1], Value::Int(0), Value::Int(i64::from(i32::MAX))],
+                vec![args[1], Value::fixnum(0), Value::fixnum(i64::from(i32::MAX))],
             )
         })?)
     };
@@ -2356,7 +2356,7 @@ pub(crate) fn builtin_set_window_fringes(
             Some(i32::try_from(expect_int(arg)?).map_err(|_| {
                 signal(
                     "args-out-of-range",
-                    vec![*arg, Value::Int(0), Value::Int(i64::from(i32::MAX))],
+                    vec![*arg, Value::fixnum(0), Value::fixnum(i64::from(i32::MAX))],
                 )
             })?)
         }
@@ -2371,9 +2371,9 @@ pub(crate) fn builtin_set_window_fringes(
             args.get(3).is_some_and(|value| value.is_truthy()),
             args.get(4).is_some_and(|value| value.is_truthy()),
         ) {
-            Value::True
+            Value::T
         } else {
-            Value::Nil
+            Value::NIL
         },
     )
 }
@@ -2389,22 +2389,22 @@ pub(crate) fn builtin_window_scroll_bars(
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let (width, columns, vertical_type, height, lines, horizontal_type, persistent) =
         frames.window_scroll_bars(wid).unwrap_or((
-            Value::Nil,
+            Value::NIL,
             0,
-            Value::True,
-            Value::Nil,
+            Value::T,
+            Value::NIL,
             0,
-            Value::True,
+            Value::T,
             false,
         ));
     Ok(Value::list(vec![
         width,
-        Value::Int(columns),
+        Value::fixnum(columns),
         vertical_type,
         height,
-        Value::Int(lines),
+        Value::fixnum(lines),
         horizontal_type,
-        if persistent { Value::True } else { Value::Nil },
+        if persistent { Value::T } else { Value::NIL },
     ]))
 }
 /// `(set-window-scroll-bars WINDOW &optional WIDTH VERTICAL-TYPE HEIGHT HORIZONTAL-TYPE)` -> nil.
@@ -2421,7 +2421,7 @@ pub(crate) fn builtin_set_window_scroll_bars(
         .get(fid)
         .is_none_or(|frame| frame.effective_window_system().is_none())
     {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     let width = if let Some(arg) = args.get(1) {
         if arg.is_nil() {
@@ -2430,16 +2430,16 @@ pub(crate) fn builtin_set_window_scroll_bars(
             Some(i32::try_from(expect_int(arg)?).map_err(|_| {
                 signal(
                     "args-out-of-range",
-                    vec![*arg, Value::Int(0), Value::Int(i64::from(i32::MAX))],
+                    vec![*arg, Value::fixnum(0), Value::fixnum(i64::from(i32::MAX))],
                 )
             })?)
         }
     } else {
         None
     };
-    let vertical_type = args.get(2).copied().unwrap_or(Value::True);
+    let vertical_type = args.get(2).copied().unwrap_or(Value::T);
     if !(vertical_type.is_nil()
-        || vertical_type == Value::True
+        || vertical_type == Value::T
         || matches!(vertical_type.as_symbol_name(), Some("left" | "right")))
     {
         return Err(signal(
@@ -2454,16 +2454,16 @@ pub(crate) fn builtin_set_window_scroll_bars(
             Some(i32::try_from(expect_int(arg)?).map_err(|_| {
                 signal(
                     "args-out-of-range",
-                    vec![*arg, Value::Int(0), Value::Int(i64::from(i32::MAX))],
+                    vec![*arg, Value::fixnum(0), Value::fixnum(i64::from(i32::MAX))],
                 )
             })?)
         }
     } else {
         None
     };
-    let horizontal_type = args.get(4).copied().unwrap_or(Value::True);
+    let horizontal_type = args.get(4).copied().unwrap_or(Value::T);
     if !(horizontal_type.is_nil()
-        || horizontal_type == Value::True
+        || horizontal_type == Value::T
         || matches!(horizontal_type.as_symbol_name(), Some("bottom")))
     {
         return Err(signal(
@@ -2480,9 +2480,9 @@ pub(crate) fn builtin_set_window_scroll_bars(
             horizontal_type,
             args.get(5).is_some_and(|value| value.is_truthy()),
         ) {
-            Value::True
+            Value::T
         } else {
-            Value::Nil
+            Value::NIL
         },
     )
 }
@@ -2497,7 +2497,7 @@ pub(crate) fn builtin_window_scroll_bar_width(
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
     let (_fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
-    Ok(Value::Int(frames.window_scroll_bar_area_width(wid)))
+    Ok(Value::fixnum(frames.window_scroll_bar_area_width(wid)))
 }
 
 /// `(window-scroll-bar-height &optional WINDOW)` -> integer.
@@ -2510,7 +2510,7 @@ pub(crate) fn builtin_window_scroll_bar_height(
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
     let (_fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
-    Ok(Value::Int(frames.window_scroll_bar_area_height(wid)))
+    Ok(Value::fixnum(frames.window_scroll_bar_area_height(wid)))
 }
 /// `(window-mode-line-height &optional WINDOW)` -> integer.
 pub(crate) fn builtin_window_mode_line_height(
@@ -2533,7 +2533,7 @@ pub(crate) fn builtin_window_mode_line_height(
             1
         },
     );
-    Ok(Value::Int(height))
+    Ok(Value::fixnum(height))
 }
 /// `(window-header-line-height &optional WINDOW)` -> integer.
 pub(crate) fn builtin_window_header_line_height(
@@ -2545,7 +2545,7 @@ pub(crate) fn builtin_window_header_line_height(
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
     let (fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
-    Ok(Value::Int(window_chrome_height_in_state(
+    Ok(Value::fixnum(window_chrome_height_in_state(
         frames,
         fid,
         wid,
@@ -2563,7 +2563,7 @@ pub(crate) fn builtin_window_tab_line_height(
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
     let (fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
-    Ok(Value::Int(window_chrome_height_in_state(
+    Ok(Value::fixnum(window_chrome_height_in_state(
         frames,
         fid,
         wid,
@@ -2611,7 +2611,7 @@ pub(crate) fn builtin_window_pixel_height(
     let (fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
     let w = get_window(frames, fid, wid)?;
-    Ok(Value::Int(window_height_pixels(w)))
+    Ok(Value::fixnum(window_height_pixels(w)))
 }
 /// `(window-pixel-width &optional WINDOW)` -> integer.
 ///
@@ -2627,7 +2627,7 @@ pub(crate) fn builtin_window_pixel_width(
     let (fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
     let w = get_window(frames, fid, wid)?;
-    Ok(Value::Int(window_width_pixels(w)))
+    Ok(Value::fixnum(window_width_pixels(w)))
 }
 /// `(window-body-height &optional WINDOW PIXELWISE)` -> integer.
 ///
@@ -2664,10 +2664,10 @@ fn window_body_height_impl(
                 .unwrap_or(0);
             total.saturating_sub(mode_line_height)
         };
-        Ok(Value::Int(body))
+        Ok(Value::fixnum(body))
     } else {
         let body_lines = window_body_height_lines(frames, fid, wid, w);
-        Ok(Value::Int(body_lines))
+        Ok(Value::fixnum(body_lines))
     }
 }
 /// `(window-body-width &optional WINDOW PIXELWISE)` -> integer.
@@ -2687,13 +2687,13 @@ pub(crate) fn builtin_window_body_width(
     let w = get_leaf(frames, fid, wid)?;
     let pixelwise = args.get(1).is_some_and(Value::is_truthy);
     if pixelwise {
-        Ok(Value::Int(window_body_width_pixels(frames, fid, w)))
+        Ok(Value::fixnum(window_body_width_pixels(frames, fid, w)))
     } else {
         let cw = frames
             .get(fid)
             .map(|f| f.char_width.max(1.0))
             .unwrap_or(8.0);
-        Ok(Value::Int(
+        Ok(Value::fixnum(
             (window_body_width_pixels(frames, fid, w) as f32 / cw).floor() as i64,
         ))
     }
@@ -2722,9 +2722,9 @@ pub(crate) fn builtin_window_text_height(
                 .unwrap_or(0);
             total.saturating_sub(mode_line_height)
         };
-        Ok(Value::Int(body))
+        Ok(Value::fixnum(body))
     } else {
-        Ok(Value::Int(window_body_height_lines(frames, fid, wid, w)))
+        Ok(Value::fixnum(window_body_height_lines(frames, fid, wid, w)))
     }
 }
 /// `(window-text-width &optional WINDOW PIXELWISE)` -> integer.
@@ -2741,13 +2741,13 @@ pub(crate) fn builtin_window_text_width(
     let w = get_leaf(frames, fid, wid)?;
     let pixelwise = args.get(1).is_some_and(Value::is_truthy);
     if pixelwise {
-        Ok(Value::Int(window_body_width_pixels(frames, fid, w)))
+        Ok(Value::fixnum(window_body_width_pixels(frames, fid, w)))
     } else {
         let cw = frames
             .get(fid)
             .map(|f| f.char_width.max(1.0))
             .unwrap_or(8.0);
-        Ok(Value::Int(
+        Ok(Value::fixnum(
             (window_body_width_pixels(frames, fid, w) as f32 / cw).floor() as i64,
         ))
     }
@@ -2783,10 +2783,10 @@ pub(crate) fn builtin_window_edges(
             window_edges_pixels(w)
         };
         return Ok(Value::list(vec![
-            Value::Int(left),
-            Value::Int(top),
-            Value::Int(right),
-            Value::Int(bottom),
+            Value::fixnum(left),
+            Value::fixnum(top),
+            Value::fixnum(right),
+            Value::fixnum(bottom),
         ]));
     }
 
@@ -2796,10 +2796,10 @@ pub(crate) fn builtin_window_edges(
         window_edges_cols_lines(w, frame.char_width, frame.char_height)
     };
     Ok(Value::list(vec![
-        Value::Int(left),
-        Value::Int(top),
-        Value::Int(right),
-        Value::Int(bottom),
+        Value::fixnum(left),
+        Value::fixnum(top),
+        Value::fixnum(right),
+        Value::fixnum(bottom),
     ]))
 }
 /// `(window-pixel-edges &optional WINDOW)` -> (LEFT TOP RIGHT BOTTOM) in pixels.
@@ -2811,14 +2811,14 @@ pub(crate) fn builtin_window_pixel_edges(
     let (fid, wid) = resolve_window_id(eval, args.first())?;
     let w = eval.frames.get(fid).and_then(|f| f.find_window(wid));
     let Some(w) = w else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     let (left, top, right, bottom) = window_edges_pixels(w);
     Ok(Value::list(vec![
-        Value::Int(left),
-        Value::Int(top),
-        Value::Int(right),
-        Value::Int(bottom),
+        Value::fixnum(left),
+        Value::fixnum(top),
+        Value::fixnum(right),
+        Value::fixnum(bottom),
     ]))
 }
 
@@ -2832,14 +2832,14 @@ pub(crate) fn builtin_window_inside_pixel_edges(
     let (fid, wid) = resolve_window_id(eval, args.first())?;
     let w = eval.frames.get(fid).and_then(|f| f.find_window(wid));
     let Some(w) = w else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     let (left, top, right, bottom) = window_body_edges_pixels(&eval.frames, fid, wid, w);
     Ok(Value::list(vec![
-        Value::Int(left),
-        Value::Int(top),
-        Value::Int(right),
-        Value::Int(bottom),
+        Value::fixnum(left),
+        Value::fixnum(top),
+        Value::fixnum(right),
+        Value::fixnum(bottom),
     ]))
 }
 
@@ -2873,7 +2873,7 @@ pub(crate) fn window_total_height_impl(
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
     let w = get_window(frames, fid, wid)?;
     let ch = frames.get(fid).map(|f| f.char_height).unwrap_or(16.0);
-    Ok(Value::Int(window_height_lines(w, ch)))
+    Ok(Value::fixnum(window_height_lines(w, ch)))
 }
 /// `(window-total-width &optional WINDOW ROUND)` -> integer.
 ///
@@ -2896,7 +2896,7 @@ pub(crate) fn window_total_width_impl(
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
     let w = get_window(frames, fid, wid)?;
     let cw = frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
-    Ok(Value::Int(window_width_cols(w, cw)))
+    Ok(Value::fixnum(window_width_cols(w, cw)))
 }
 /// `(window-list &optional FRAME MINIBUF ALL-FRAMES)` -> list of window objects.
 pub(crate) fn builtin_window_list(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -2905,7 +2905,7 @@ pub(crate) fn builtin_window_list(eval: &mut super::eval::Context, args: Vec<Val
     let selected_fid = ensure_selected_frame_id_in_state(frames, buffers);
     // GNU Emacs validates ALL-FRAMES before FRAME mismatch checks.
     let all_frames_fid = match args.get(2) {
-        None | Some(Value::Nil) => None,
+        None | Some(ValueKind::Nil) => None,
         Some(arg) => {
             let Some(wid) = window_id_from_designator(arg) else {
                 return Err(signal(
@@ -2929,8 +2929,8 @@ pub(crate) fn builtin_window_list(eval: &mut super::eval::Context, args: Vec<Val
         }
     };
     let mut fid = match args.first() {
-        None | Some(Value::Nil) => selected_fid,
-        Some(Value::Int(n)) => {
+        None | Some(Value::NIL) => selected_fid,
+        Some(Value::fixnum(n)) => {
             let fid = FrameId(*n as u64);
             if frames.get(fid).is_some() {
                 fid
@@ -2941,7 +2941,7 @@ pub(crate) fn builtin_window_list(eval: &mut super::eval::Context, args: Vec<Val
                 ));
             }
         }
-        Some(Value::Frame(id)) => {
+        Some(Value::make_frame(id)) => {
             let fid = FrameId(*id);
             if frames.get(fid).is_some() {
                 fid
@@ -2962,7 +2962,7 @@ pub(crate) fn builtin_window_list(eval: &mut super::eval::Context, args: Vec<Val
     if let Some(all_frames_fid) = all_frames_fid {
         fid = all_frames_fid;
     }
-    let include_minibuffer = matches!(args.get(1), Some(Value::True));
+    let include_minibuffer = matches!(args.get(1), Some(Value::T));
     let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
@@ -2983,10 +2983,10 @@ pub(crate) fn builtin_window_list_1(
     expect_max_args("window-list-1", &args, 3)?;
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
     let (fid, start_wid) = match args.first() {
-        None | Some(Value::Nil) => {
+        None | Some(Value::NIL) => {
             resolve_window_id_with_pred_in_state(frames, buffers, None, "window-live-p")?
         }
-        Some(Value::Window(id)) => {
+        Some(Value::make_window(id)) => {
             let wid = WindowId(*id);
             if let Some(fid) = frames.find_window_frame_id(wid) {
                 (fid, wid)
@@ -3009,27 +3009,27 @@ pub(crate) fn builtin_window_list_1(
     // frames; 'visible and 0 => visible/iconified frames (we only model
     // visibility); a frame object => that frame; anything else => WINDOW's frame.
     let mut frame_ids: Vec<FrameId> = match args.get(2) {
-        None | Some(Value::Nil) => vec![fid],
-        Some(Value::True) => {
+        None | Some(Value::NIL) => vec![fid],
+        Some(Value::T) => {
             let mut ids = frames.frame_list();
             ids.sort_by_key(|f| f.0);
             ids
         }
-        Some(Value::Symbol(sym)) if resolve_sym(*sym) == "visible" => {
+        Some(Value::symbol(sym)) if resolve_sym(*sym) == "visible" => {
             let mut ids = frames.frame_list();
             ids.sort_by_key(|f| f.0);
             ids.into_iter()
                 .filter(|frame_id| frames.get(*frame_id).is_some_and(|frame| frame.visible))
                 .collect()
         }
-        Some(Value::Int(0)) => {
+        Some(Value::fixnum(0)) => {
             let mut ids = frames.frame_list();
             ids.sort_by_key(|f| f.0);
             ids.into_iter()
                 .filter(|frame_id| frames.get(*frame_id).is_some_and(|frame| frame.visible))
                 .collect()
         }
-        Some(Value::Frame(frame_raw_id)) => {
+        Some(Value::make_frame(frame_raw_id)) => {
             let frame_id = FrameId(*frame_raw_id);
             if frames.get(frame_id).is_none() {
                 return Err(signal(
@@ -3049,7 +3049,7 @@ pub(crate) fn builtin_window_list_1(
         frame_ids.rotate_left(start_pos);
     }
 
-    let include_minibuffer = matches!(args.get(1), Some(Value::True));
+    let include_minibuffer = matches!(args.get(1), Some(Value::T));
     let mut seen_window_ids: HashSet<u64> = HashSet::new();
     let mut windows: Vec<Value> = Vec::new();
 
@@ -3094,17 +3094,17 @@ pub(crate) fn builtin_get_buffer_window(
 ) -> EvalResult {
     expect_max_args("get-buffer-window", &args, 2)?;
     let target = match args.first() {
-        None | Some(Value::Nil) => return Ok(Value::Nil),
-        Some(Value::Str(_)) => {
+        None | Some(ValueKind::Nil) => return Ok(Value::NIL),
+        Some(ValueKind::String) => {
             let name_s = args[0].as_str().unwrap();
             match eval.buffers.find_buffer_by_name(name_s) {
                 Some(id) => id,
-                None => return Ok(Value::Nil),
+                None => return Ok(Value::NIL),
             }
         }
-        Some(Value::Buffer(id)) => {
+        Some(ValueKind::Veclike(VecLikeType::Buffer)) => {
             if eval.buffers.get(*id).is_none() {
-                return Ok(Value::Nil);
+                return Ok(ValueKind::Nil);
             }
             *id
         }
@@ -3131,7 +3131,7 @@ pub(crate) fn builtin_get_buffer_window(
         }
     }
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 /// `(window-dedicated-p &optional WINDOW)` -> t or nil.
 pub(crate) fn builtin_window_dedicated_p(
@@ -3144,8 +3144,8 @@ pub(crate) fn builtin_window_dedicated_p(
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let w = get_leaf(frames, fid, wid)?;
     match w {
-        Window::Leaf { dedicated, .. } => Ok(Value::bool(*dedicated)),
-        _ => Ok(Value::Nil),
+        Window::Leaf { dedicated, .. } => Ok(Value::bool_val(*dedicated)),
+        _ => Ok(Value::NIL),
     }
 }
 /// `(set-window-dedicated-p WINDOW FLAG)` -> FLAG.
@@ -3163,7 +3163,7 @@ pub(crate) fn builtin_set_window_dedicated_p(
             *dedicated = flag;
         }
     }
-    Ok(Value::bool(flag))
+    Ok(Value::bool_val(flag))
 }
 /// `(windowp OBJ)` -> t if OBJ is a window object/designator that exists.
 pub(crate) fn builtin_windowp(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -3171,9 +3171,9 @@ pub(crate) fn builtin_windowp(eval: &mut super::eval::Context, args: Vec<Value>)
     expect_args("windowp", &args, 1)?;
     let wid = match window_id_from_designator(&args[0]) {
         Some(wid) => wid,
-        None => return Ok(Value::Nil),
+        None => return Ok(Value::NIL),
     };
-    Ok(Value::bool(frames.is_window_object_id(wid)))
+    Ok(Value::bool_val(frames.is_window_object_id(wid)))
 }
 /// `(window-valid-p OBJ)` -> t if OBJ is a live window.
 pub(crate) fn builtin_window_valid_p(
@@ -3184,9 +3184,9 @@ pub(crate) fn builtin_window_valid_p(
     expect_args("window-valid-p", &args, 1)?;
     let wid = match window_id_from_designator(&args[0]) {
         Some(wid) => wid,
-        None => return Ok(Value::Nil),
+        None => return Ok(Value::NIL),
     };
-    Ok(Value::bool(frames.is_valid_window_id(wid)))
+    Ok(Value::bool_val(frames.is_valid_window_id(wid)))
 }
 /// `(window-live-p OBJ)` -> t if OBJ is a live leaf window.
 pub(crate) fn builtin_window_live_p(
@@ -3197,9 +3197,9 @@ pub(crate) fn builtin_window_live_p(
     expect_args("window-live-p", &args, 1)?;
     let wid = match window_id_from_designator(&args[0]) {
         Some(wid) => wid,
-        None => return Ok(Value::Nil),
+        None => return Ok(Value::NIL),
     };
-    Ok(Value::bool(frames.is_live_window_id(wid)))
+    Ok(Value::bool_val(frames.is_live_window_id(wid)))
 }
 /// `(window-at X Y &optional FRAME)` -> window object or nil.
 pub(crate) fn builtin_window_at(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -3215,7 +3215,7 @@ pub(crate) fn builtin_window_at(eval: &mut super::eval::Context, args: Vec<Value
     let total_cols = frame_total_cols(frame) as f64;
     let total_lines = frame_total_lines(frame) as f64;
     if x < 0.0 || y < 0.0 || x >= total_cols || y >= total_lines {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let px = (x * frame.char_width as f64) as f32;
@@ -3232,7 +3232,7 @@ pub(crate) fn builtin_window_at(eval: &mut super::eval::Context, args: Vec<Value
         }
     }
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // ===========================================================================
@@ -3258,8 +3258,8 @@ pub(crate) fn split_window_internal_impl_in_state(
     let (fid, wid) = resolve_window_id_or_error_in_state(frames, buffers, Some(&window))?;
 
     // Determine split direction from SIDE argument.
-    let direction = match side {
-        Value::Symbol(id) if resolve_sym(id) == "right" || resolve_sym(id) == "left" => {
+    let direction = match side.kind() {
+        ValueKind::Symbol(id) if resolve_sym(id) == "right" || resolve_sym(id) == "left" => {
             SplitDirection::Horizontal
         }
         _ => SplitDirection::Vertical,
@@ -3267,8 +3267,8 @@ pub(crate) fn split_window_internal_impl_in_state(
 
     // Parse SIZE: positive means new window gets SIZE units, negative means
     // old window keeps |SIZE| units, nil/0 means 50/50.
-    let size_opt: Option<i64> = match &size {
-        Value::Int(n) if *n != 0 => Some(*n),
+    let size_opt: Option<i64> = match size.kind() {
+        ValueKind::Fixnum(n) if n != 0 => Some(n),
         _ => None,
     };
 
@@ -3308,7 +3308,7 @@ pub(crate) fn builtin_delete_window(
     note_selected_window_buffer_in_state(&mut eval.frames, &mut eval.buffers, fid);
     // Run window-configuration-change-hook after successful deletion.
     let _ = builtin_run_window_configuration_change_hook(eval, vec![]);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 /// `(delete-other-windows &optional WINDOW)` -> nil.
 ///
@@ -3344,7 +3344,7 @@ pub(crate) fn builtin_delete_other_windows(
     note_selected_window_buffer_in_state(&mut eval.frames, &mut eval.buffers, fid);
     // Run window-configuration-change-hook after successful deletion.
     let _ = builtin_run_window_configuration_change_hook(eval, vec![]);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 /// `(delete-window-internal WINDOW)` -> nil.
 ///
@@ -3362,7 +3362,7 @@ pub(crate) fn builtin_delete_window_internal(
         resolve_window_object_id_with_pred_in_state(frames, buffers, args.first(), "windowp")?;
     if !frames.is_valid_window_id(wid) {
         // GNU Emacs treats deleting an already deleted window object as a no-op.
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let fid = frames
@@ -3385,7 +3385,7 @@ pub(crate) fn builtin_delete_window_internal(
     }
 
     if frames.delete_window(fid, wid) {
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     } else {
         Err(signal("error", vec![Value::string("Deletion failed")]))
     }
@@ -3421,7 +3421,7 @@ pub(crate) fn builtin_delete_other_windows_internal(
     if let Some(buffer_id) = selected_buffer {
         buffers.switch_current(buffer_id);
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 fn remember_selected_window_point_in_state(
     frames: &mut FrameManager,
@@ -3508,13 +3508,13 @@ fn note_selected_window_buffer_in_state(
 fn record_buffer_display_in_state(buffers: &mut BufferManager, buffer_id: BufferId) -> EvalResult {
     let display_time = super::timefns::builtin_current_time(vec![])?;
     let Some(buffer) = buffers.get_mut(buffer_id) else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
-    if let Some(Value::Int(count)) = buffer.buffer_local_value("buffer-display-count") {
-        buffer.set_buffer_local("buffer-display-count", Value::Int(count.saturating_add(1)));
+    if let Some(Value::fixnum(count)) = buffer.buffer_local_value("buffer-display-count") {
+        buffer.set_buffer_local("buffer-display-count", Value::fixnum(count.saturating_add(1)));
     }
     buffer.set_buffer_local("buffer-display-time", display_time);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 fn window_displays_buffer(frames: &FrameManager, window_id: WindowId, buffer_id: BufferId) -> bool {
@@ -3587,14 +3587,14 @@ pub(crate) fn builtin_other_window(
         let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
         let _ = ensure_selected_frame_id_in_state(frames, buffers);
         let Some(fid) = frames.selected_frame().map(|f| f.id) else {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         };
         let Some(frame) = frames.get(fid) else {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         };
         let list = frame.window_list();
         if list.is_empty() {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
         let cur = frame.selected_window;
         let cur_idx = list.iter().position(|w| *w == cur).unwrap_or(0);
@@ -3618,7 +3618,7 @@ pub(crate) fn builtin_other_window(
     if run_buffer_list_hook {
         super::builtins::run_buffer_list_update_hook(eval)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 /// `(other-window-for-scrolling)` -> window object used for scrolling.
 pub(crate) fn builtin_other_window_for_scrolling(
@@ -3655,7 +3655,7 @@ pub(crate) fn builtin_next_window(eval: &mut super::eval::Context, args: Vec<Val
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     let list = frame.window_list();
     if list.is_empty() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     let idx = list.iter().position(|w| *w == wid).unwrap_or(0);
     let next = (idx + 1) % list.len();
@@ -3674,7 +3674,7 @@ pub(crate) fn builtin_previous_window(
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     let list = frame.window_list();
     if list.is_empty() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     let idx = list.iter().position(|w| *w == wid).unwrap_or(0);
     let prev = if idx == 0 { list.len() - 1 } else { idx - 1 };
@@ -3691,8 +3691,8 @@ pub(crate) fn builtin_set_window_buffer(
         let (frames, buffers, minibuffers) =
             (&mut eval.frames, &mut eval.buffers, &eval.minibuffers);
         let (fid, wid) = resolve_window_id_in_state(frames, buffers, args.first())?;
-        let buf_id = match &args[1] {
-            Value::Buffer(id) => {
+        let buf_id = match args[1].kind() {
+            ValueKind::Veclike(VecLikeType::Buffer) => {
                 if buffers.get(*id).is_none() {
                     return Err(signal(
                         "error",
@@ -3701,14 +3701,14 @@ pub(crate) fn builtin_set_window_buffer(
                 }
                 *id
             }
-            Value::Str(_) => {
+            ValueKind::String => {
                 let name_s = args[1].as_str().unwrap();
-                match buffers.find_buffer_by_name(name_s) {
+                match buffers.find_buffer_by_name(name_s).kind() {
                     Some(id) => id,
                     None => {
                         return Err(signal(
                             "wrong-type-argument",
-                            vec![Value::symbol("bufferp"), Value::Nil],
+                            vec![Value::symbol("bufferp"), ValueKind::Nil],
                         ));
                     }
                 }
@@ -3813,8 +3813,8 @@ pub(crate) fn builtin_set_window_buffer(
                 buffer.last_selected_window = None;
             }
             if old_buffer_id != buf_id {
-                let old_buffer_value = Value::Buffer(old_buffer_id);
-                let new_buffer_value = Value::Buffer(buf_id);
+                let old_buffer_value = Value::make_buffer(old_buffer_id);
+                let new_buffer_value = Value::make_buffer(buf_id);
                 let old_window_start_pos = old_window_start.max(1) as i64;
                 let old_point_pos = old_point.max(1) as i64;
                 let history_entry = Value::list(vec![
@@ -3834,7 +3834,7 @@ pub(crate) fn builtin_set_window_buffer(
                     frames.window_prev_buffers(wid),
                     &[old_buffer_value, new_buffer_value],
                 )?;
-                frames.set_window_next_buffers(wid, Value::Nil);
+                frames.set_window_next_buffers(wid, Value::NIL);
                 if should_record_window_history_buffer(
                     frames,
                     minibuffers,
@@ -3851,7 +3851,7 @@ pub(crate) fn builtin_set_window_buffer(
                     frames.set_window_prev_buffers(wid, Value::list(filtered_prev));
                 }
             } else {
-                discard_buffers_from_window_history(frames, wid, &[Value::Buffer(buf_id)])?;
+                discard_buffers_from_window_history(frames, wid, &[Value::make_buffer(buf_id)])?;
             }
         }
 
@@ -3895,7 +3895,7 @@ pub(crate) fn builtin_set_window_buffer(
     if run_buffer_list_hook {
         super::builtins::run_buffer_list_update_hook(eval)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(switch-to-buffer BUFFER-OR-NAME &optional NORECORD FORCE-SAME-WINDOW)` -> buffer.
@@ -3907,8 +3907,8 @@ pub(crate) fn builtin_switch_to_buffer(
     expect_max_args("switch-to-buffer", &args, 3)?;
     let record_selection = args.get(1).is_none_or(Value::is_nil);
     let (buf_id, run_buffer_list_hook) = {
-        let buf_id = match &args[0] {
-            Value::Buffer(id) => {
+        let buf_id = match args[0].kind() {
+            ValueKind::Veclike(VecLikeType::Buffer) => {
                 if eval.buffers.get(*id).is_none() {
                     return Err(signal(
                         "error",
@@ -3917,7 +3917,7 @@ pub(crate) fn builtin_switch_to_buffer(
                 }
                 *id
             }
-            Value::Str(_) => {
+            ValueKind::String => {
                 let name_s = args[0].as_str().unwrap();
                 match eval.buffers.find_buffer_by_name(name_s) {
                     Some(id) => id,
@@ -3959,7 +3959,7 @@ pub(crate) fn builtin_switch_to_buffer(
     if run_buffer_list_hook {
         super::builtins::run_buffer_list_update_hook(eval)?;
     }
-    Ok(Value::Buffer(buf_id))
+    Ok(Value::make_buffer(buf_id))
 }
 
 /// `(display-buffer BUFFER-OR-NAME &optional ACTION FRAME)` -> window object or nil.
@@ -3980,14 +3980,14 @@ pub(crate) fn builtin_display_buffer(
 ) -> EvalResult {
     expect_min_args("display-buffer", &args, 1)?;
     expect_max_args("display-buffer", &args, 3)?;
-    let buf_id = match &args[0] {
-        Value::Buffer(id) => {
+    let buf_id = match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Buffer) => {
             if eval.buffers.get(*id).is_none() {
                 return Err(signal("error", vec![Value::string("Invalid buffer")]));
             }
             *id
         }
-        Value::Str(_) => {
+        ValueKind::String => {
             let name_s = args[0].as_str().unwrap();
             match eval.buffers.find_buffer_by_name(name_s) {
                 Some(id) => id,
@@ -4010,7 +4010,7 @@ pub(crate) fn builtin_display_buffer(
         .ok_or_else(|| signal("error", vec![Value::string("No selected window")]))?;
 
     // Collect the ACTION argument to check for specific display functions.
-    let action = args.get(1).copied().unwrap_or(Value::Nil);
+    let action = args.get(1).copied().unwrap_or(Value::NIL);
 
     // Helper: check whether a particular display-function symbol appears in
     // the ACTION value.  ACTION can be:
@@ -4022,9 +4022,9 @@ pub(crate) fn builtin_display_buffer(
             return false;
         }
         // ACTION is a cons cell; the car is a function or a list of functions.
-        let car = match action {
-            Value::Cons(id) => {
-                let snap = read_cons(id);
+        let car = match action.kind() {
+            ValueKind::Cons => {
+                let snap = read_cons(id);  // TODO(tagged): replace read_cons with cons accessors
                 snap.car
             }
             _ => return false,
@@ -4037,8 +4037,8 @@ pub(crate) fn builtin_display_buffer(
         }
         // ... or a list of symbols.
         let mut cursor = car;
-        while let Value::Cons(id) = cursor {
-            let snap = read_cons(id);
+        while cursor.is_cons() /* TODO(tagged): `id` was Value::Cons(id), now use accessor */ {
+            let snap = read_cons(id);  // TODO(tagged): replace read_cons with cons accessors
             if let Some(sym_name) = snap.car.as_symbol_name() {
                 if sym_name == name {
                     return true;
@@ -4125,14 +4125,14 @@ pub(crate) fn builtin_pop_to_buffer(
 ) -> EvalResult {
     expect_min_args("pop-to-buffer", &args, 1)?;
     expect_max_args("pop-to-buffer", &args, 3)?;
-    let buf_id = match &args[0] {
-        Value::Buffer(id) => {
+    let buf_id = match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Buffer) => {
             if eval.buffers.get(*id).is_none() {
                 return Err(signal("error", vec![Value::string("Invalid buffer")]));
             }
             *id
         }
-        Value::Str(_) => {
+        ValueKind::String => {
             let name_s = args[0].as_str().unwrap();
             match eval.buffers.find_buffer_by_name(name_s) {
                 Some(id) => id,
@@ -4161,7 +4161,7 @@ pub(crate) fn builtin_pop_to_buffer(
         w.set_buffer(buf_id);
     }
     eval.switch_current_buffer(buf_id)?;
-    Ok(Value::Buffer(buf_id))
+    Ok(Value::make_buffer(buf_id))
 }
 
 const MIN_FRAME_COLS: i64 = 10;
@@ -4213,7 +4213,7 @@ fn check_frame_pixels(value: &Value, pixelwise: bool, item_size: f32) -> Result<
     if size <= 0 {
         return Err(signal(
             "args-out-of-range",
-            vec![*value, Value::Int(1), Value::Int(i64::from(i32::MAX))],
+            vec![*value, Value::fixnum(1), Value::fixnum(i64::from(i32::MAX))],
         ));
     }
     let unit = if pixelwise {
@@ -4224,13 +4224,13 @@ fn check_frame_pixels(value: &Value, pixelwise: bool, item_size: f32) -> Result<
     let pixels = size.checked_mul(unit).ok_or_else(|| {
         signal(
             "args-out-of-range",
-            vec![*value, Value::Int(1), Value::Int(i64::from(i32::MAX))],
+            vec![*value, Value::fixnum(1), Value::fixnum(i64::from(i32::MAX))],
         )
     })?;
     if pixels <= 0 || pixels > u32::MAX as i64 {
         return Err(signal(
             "args-out-of-range",
-            vec![*value, Value::Int(1), Value::Int(i64::from(i32::MAX))],
+            vec![*value, Value::fixnum(1), Value::fixnum(i64::from(i32::MAX))],
         ));
     }
     Ok(pixels as u32)
@@ -4263,13 +4263,13 @@ fn set_frame_text_size(frame: &mut crate::window::Frame, cols: i64, text_lines: 
 
     frame
         .parameters
-        .insert("width".to_string(), Value::Int(cols));
+        .insert("width".to_string(), Value::fixnum(cols));
     frame
         .parameters
-        .insert("height".to_string(), Value::Int(total_lines));
+        .insert("height".to_string(), Value::fixnum(total_lines));
     frame
         .parameters
-        .insert(FRAME_TEXT_LINES_PARAM.to_string(), Value::Int(text_lines));
+        .insert(FRAME_TEXT_LINES_PARAM.to_string(), Value::fixnum(text_lines));
 }
 
 fn resize_live_gui_frame(
@@ -4322,7 +4322,7 @@ fn resize_live_gui_frame(
             frame.resize_pixelwise(total_width_px, total_height_px);
             frame
                 .parameters
-                .insert(FRAME_TEXT_LINES_PARAM.to_string(), Value::Int(text_lines));
+                .insert(FRAME_TEXT_LINES_PARAM.to_string(), Value::fixnum(text_lines));
         }
     }
 
@@ -4407,8 +4407,8 @@ fn scroll_lines_in_state(
     if let Some(v) = arg {
         if !v.is_nil() {
             // Explicit line count.
-            let n = match v {
-                Value::Int(n) => *n,
+            let n = match v.kind() {
+                ValueKind::Fixnum(n) => n,
                 _ => 1,
             };
             return n * direction;
@@ -4418,14 +4418,14 @@ fn scroll_lines_in_state(
     let wh = window_body_height_impl(frames, buffers, vec![])
         .ok()
         .and_then(|v| match v {
-            Value::Int(n) => Some(n),
+            Value::fixnum(n) => Some(n),
             _ => None,
         })
         .unwrap_or(24);
     let ctx = obarray
         .symbol_value("next-screen-context-lines")
         .and_then(|v| match v {
-            Value::Int(n) => Some(*n),
+            Value::fixnum(n) => Some(*n),
             _ => None,
         })
         .unwrap_or(2);
@@ -4487,10 +4487,10 @@ fn scroll_by_lines_in_state(
         Window::Leaf {
             buffer_id, point, ..
         } => (*buffer_id, *point as i64),
-        _ => return Ok(Value::Nil),
+        _ => return Ok(Value::NIL),
     };
     let Some(buf) = buffers.get(buffer_id) else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     let text = buf.text.to_string();
     let pt = buf.lisp_pos_to_byte(window_point).clamp(buf.begv, buf.zv);
@@ -4545,7 +4545,7 @@ fn scroll_by_lines_in_state(
         *point = point_lisp;
         *window_start = point_lisp;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(recenter-top-bottom &optional ARG)` — delegates to recenter.
@@ -4569,14 +4569,14 @@ pub(crate) fn builtin_recenter(eval: &mut super::eval::Context, args: Vec<Value>
         let wh = window_body_height_impl(frames, buffers, vec![])
             .ok()
             .and_then(|v| match v {
-                Value::Int(n) => Some(n),
+                Value::fixnum(n) => Some(n),
                 _ => None,
             })
             .unwrap_or(24);
 
         // Determine target line from top of window where point should appear.
         let target_line = match args.first() {
-            Some(Value::Int(n)) => {
+            Some(ValueKind::Fixnum(n)) => {
                 if *n >= 0 {
                     *n
                 } else {
@@ -4595,10 +4595,10 @@ pub(crate) fn builtin_recenter(eval: &mut super::eval::Context, args: Vec<Value>
             Window::Leaf {
                 buffer_id, point, ..
             } => (*buffer_id, *point as i64),
-            _ => return Ok(Value::Nil),
+            _ => return Ok(Value::NIL),
         };
         let Some(buf) = buffers.get(buffer_id) else {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         };
         let text = buf.text.to_string();
         let pt = buf.lisp_pos_to_byte(window_point).clamp(buf.begv, buf.zv);
@@ -4636,7 +4636,7 @@ pub(crate) fn builtin_recenter(eval: &mut super::eval::Context, args: Vec<Value>
 
     // Run window-scroll-functions hook after recenter
     let _ = builtin_run_window_scroll_functions(eval, vec![]);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 /// `(iconify-frame &optional FRAME)` -> nil.
 pub(crate) fn builtin_iconify_frame(
@@ -4650,7 +4650,7 @@ pub(crate) fn builtin_iconify_frame(
         .get_mut(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     frame.visible = false;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 /// `(make-frame-visible &optional FRAME)` -> frame.
 pub(crate) fn builtin_make_frame_visible(
@@ -4664,7 +4664,7 @@ pub(crate) fn builtin_make_frame_visible(
         .get_mut(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     frame.visible = true;
-    Ok(Value::Frame(frame.id.0))
+    Ok(Value::make_frame(frame.id.0))
 }
 
 // ===========================================================================
@@ -4685,7 +4685,7 @@ pub(crate) fn selected_frame_impl(
 ) -> EvalResult {
     expect_args("selected-frame", &args, 0)?;
     let fid = ensure_selected_frame_id_in_state(frames, buffers);
-    Ok(Value::Frame(fid.0))
+    Ok(Value::make_frame(fid.0))
 }
 /// `(select-frame FRAME &optional NORECORD)` -> frame.
 pub(crate) fn builtin_select_frame(
@@ -4695,18 +4695,18 @@ pub(crate) fn builtin_select_frame(
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_min_args("select-frame", &args, 1)?;
     expect_max_args("select-frame", &args, 2)?;
-    let fid = match &args[0] {
-        Value::Int(n) => {
-            let fid = FrameId(*n as u64);
+    let fid = match args[0].kind() {
+        ValueKind::Fixnum(n) => {
+            let fid = FrameId(n as u64);
             if frames.get(fid).is_none() {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("frame-live-p"), Value::Int(*n)],
+                    vec![Value::symbol("frame-live-p"), Value::Int(n)],
                 ));
             }
             fid
         }
-        Value::Frame(id) => {
+        ValueKind::Veclike(VecLikeType::Frame) => {
             let fid = FrameId(*id);
             if frames.get(fid).is_none() {
                 return Err(signal(
@@ -4739,7 +4739,7 @@ pub(crate) fn builtin_select_frame(
     }
     sync_selected_window_buffer_in_state(frames, buffers, fid);
     eval.sync_keyboard_terminal_owner();
-    Ok(Value::Frame(fid.0))
+    Ok(Value::make_frame(fid.0))
 }
 /// `(select-frame-set-input-focus FRAME &optional NORECORD)` -> nil.
 pub(crate) fn builtin_select_frame_set_input_focus(
@@ -4749,18 +4749,18 @@ pub(crate) fn builtin_select_frame_set_input_focus(
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_min_args("select-frame-set-input-focus", &args, 1)?;
     expect_max_args("select-frame-set-input-focus", &args, 2)?;
-    let fid = match &args[0] {
-        Value::Int(n) => {
-            let fid = FrameId(*n as u64);
+    let fid = match args[0].kind() {
+        ValueKind::Fixnum(n) => {
+            let fid = FrameId(n as u64);
             if frames.get(fid).is_none() {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("frame-live-p"), Value::Int(*n)],
+                    vec![Value::symbol("frame-live-p"), Value::Int(n)],
                 ));
             }
             fid
         }
-        Value::Frame(id) => {
+        ValueKind::Veclike(VecLikeType::Frame) => {
             let fid = FrameId(*id);
             if frames.get(fid).is_none() {
                 return Err(signal(
@@ -4793,7 +4793,7 @@ pub(crate) fn builtin_select_frame_set_input_focus(
     }
     sync_selected_window_buffer_in_state(frames, buffers, fid);
     eval.sync_keyboard_terminal_owner();
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 /// `(frame-list)` -> list of frame objects.
 pub(crate) fn builtin_frame_list(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -4803,7 +4803,7 @@ pub(crate) fn builtin_frame_list(eval: &mut super::eval::Context, args: Vec<Valu
     let ids: Vec<Value> = frames
         .frame_list()
         .into_iter()
-        .map(|fid| Value::Frame(fid.0))
+        .map(|fid| Value::make_frame(fid.0))
         .collect();
     Ok(Value::list(ids))
 }
@@ -4820,7 +4820,7 @@ pub(crate) fn builtin_visible_frame_list(
     let visible = frame_ids
         .into_iter()
         .filter(|fid| frames.get(*fid).is_some_and(|frame| frame.visible))
-        .map(|fid| Value::Frame(fid.0))
+        .map(|fid| Value::make_frame(fid.0))
         .collect::<Vec<_>>();
     Ok(Value::list(visible))
 }
@@ -4835,7 +4835,7 @@ pub(crate) fn builtin_frame_char_height(
     expect_max_args("frame-char-height", &args, 1)?;
     let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?;
     let ch = frames.get(fid).map(|f| f.char_height as i64).unwrap_or(16);
-    Ok(Value::Int(ch))
+    Ok(Value::fixnum(ch))
 }
 /// `(frame-char-width &optional FRAME)` -> integer.
 ///
@@ -4848,7 +4848,7 @@ pub(crate) fn builtin_frame_char_width(
     expect_max_args("frame-char-width", &args, 1)?;
     let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?;
     let cw = frames.get(fid).map(|f| f.char_width as i64).unwrap_or(8);
-    Ok(Value::Int(cw))
+    Ok(Value::fixnum(cw))
 }
 /// `(frame-native-height &optional FRAME)` -> integer.
 pub(crate) fn builtin_frame_native_height(
@@ -4862,7 +4862,7 @@ pub(crate) fn builtin_frame_native_height(
     let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
-    Ok(Value::Int(if frame_uses_window_system_pixels(frame) {
+    Ok(Value::fixnum(if frame_uses_window_system_pixels(frame) {
         frame.height as i64
     } else {
         frame_total_lines(frame)
@@ -4896,7 +4896,7 @@ pub(crate) fn builtin_frame_native_width(
             frame.parameters.get("window-system").copied()
         );
     }
-    Ok(Value::Int(if uses_window_system_pixels {
+    Ok(Value::fixnum(if uses_window_system_pixels {
         frame.width as i64
     } else {
         frame_total_cols(frame)
@@ -4913,7 +4913,7 @@ pub(crate) fn builtin_frame_text_cols(
     let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
-    Ok(Value::Int(frame_total_cols(frame)))
+    Ok(Value::fixnum(frame_total_cols(frame)))
 }
 /// `(frame-text-lines &optional FRAME)` -> integer.
 pub(crate) fn builtin_frame_text_lines(
@@ -4926,7 +4926,7 @@ pub(crate) fn builtin_frame_text_lines(
     let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
-    Ok(Value::Int(if frame_uses_window_system_pixels(frame) {
+    Ok(Value::fixnum(if frame_uses_window_system_pixels(frame) {
         let char_height = frame.char_height.max(1.0);
         ((frame_text_height_pixels(frame) as f32) / char_height)
             .floor()
@@ -4948,7 +4948,7 @@ pub(crate) fn builtin_frame_text_width(
     let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
-    Ok(Value::Int(if frame_uses_window_system_pixels(frame) {
+    Ok(Value::fixnum(if frame_uses_window_system_pixels(frame) {
         frame_text_width_pixels(frame) as i64
     } else {
         frame_text_cols(frame)
@@ -4967,7 +4967,7 @@ pub(crate) fn builtin_frame_text_height(
     let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
-    Ok(Value::Int(if frame_uses_window_system_pixels(frame) {
+    Ok(Value::fixnum(if frame_uses_window_system_pixels(frame) {
         frame_text_height_pixels(frame) as i64
     } else {
         frame_text_lines(frame)
@@ -4984,7 +4984,7 @@ pub(crate) fn builtin_frame_total_cols(
     let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
-    Ok(Value::Int(frame_total_cols(frame)))
+    Ok(Value::fixnum(frame_total_cols(frame)))
 }
 /// `(frame-total-lines &optional FRAME)` -> integer.
 pub(crate) fn builtin_frame_total_lines(
@@ -4997,7 +4997,7 @@ pub(crate) fn builtin_frame_total_lines(
     let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
-    Ok(Value::Int(frame_total_lines(frame)))
+    Ok(Value::fixnum(frame_total_lines(frame)))
 }
 /// `(frame-position &optional FRAME)` -> (X . Y).
 pub(crate) fn builtin_frame_position(
@@ -5007,7 +5007,7 @@ pub(crate) fn builtin_frame_position(
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("frame-position", &args, 1)?;
     let _ = resolve_frame_id_in_state(frames, buffers, args.first(), "frame-live-p")?;
-    Ok(Value::cons(Value::Int(0), Value::Int(0)))
+    Ok(Value::cons(Value::fixnum(0), Value::fixnum(0)))
 }
 /// `(set-frame-height FRAME HEIGHT &optional PRETEND PIXELWISE)` -> nil.
 pub(crate) fn builtin_set_frame_height(
@@ -5062,7 +5062,7 @@ pub(crate) fn builtin_set_frame_height(
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
         set_frame_text_size(frame, cols, text_lines);
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 /// `(set-frame-width FRAME WIDTH &optional PRETEND PIXELWISE)` -> nil.
 pub(crate) fn builtin_set_frame_width(
@@ -5117,7 +5117,7 @@ pub(crate) fn builtin_set_frame_width(
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
         set_frame_text_size(frame, cols, text_lines);
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 /// `(set-frame-size FRAME WIDTH HEIGHT &optional PIXELWISE)` -> nil.
 pub(crate) fn builtin_set_frame_size(
@@ -5184,7 +5184,7 @@ pub(crate) fn builtin_set_frame_size(
         );
         set_frame_text_size(frame, cols, text_lines);
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 /// `(set-frame-position FRAME X Y)` -> t.
 pub(crate) fn builtin_set_frame_position(
@@ -5196,7 +5196,7 @@ pub(crate) fn builtin_set_frame_position(
     let _ = resolve_frame_id_in_state(frames, buffers, Some(&args[0]), "frame-live-p")?;
     let _ = expect_int(&args[1])?;
     let _ = expect_int(&args[2])?;
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 /// `(make-frame &optional PARAMETERS)` -> frame id.
@@ -5256,10 +5256,10 @@ fn resolve_make_frame_backend_request(
     let mut requested_terminal = false;
 
     for item in items {
-        let Value::Cons(cell) = item else {
+        if !item.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
             continue;
         };
-        let pair = read_cons(cell);
+        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
         let Some(key) = pair.car.as_symbol_name() else {
             continue;
         };
@@ -5305,7 +5305,7 @@ pub(crate) fn make_frame_with_state(
                 vec![Value::string("GUI frame creation requires a display host")],
             ));
         }
-        let gui_args = vec![args.first().copied().unwrap_or(Value::Nil)];
+        let gui_args = vec![args.first().copied().unwrap_or(Value::NIL)];
         return x_create_frame_impl(frames, buffers, display_host, gui_args);
     }
     make_frame_plain(frames, buffers, args)
@@ -5325,9 +5325,9 @@ fn make_frame_plain(
     if let Some(params) = args.first() {
         if let Some(items) = super::value::list_to_vec(params) {
             for item in &items {
-                if let Value::Cons(cell) = item {
-                    let pair = read_cons(*cell);
-                    if let Value::Symbol(key) = &pair.car {
+                if item.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+                    let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+                    if let Some(key) = &pair.car.as_symbol_id() {
                         match resolve_sym(*key) {
                             "width" => {
                                 if let Some(n) = pair.cdr.as_int() {
@@ -5365,7 +5365,7 @@ fn make_frame_plain(
         height,
         name
     );
-    Ok(Value::Frame(fid.0))
+    Ok(Value::make_frame(fid.0))
 }
 
 #[derive(Default)]
@@ -5404,10 +5404,10 @@ fn parse_gui_frame_params(value: Option<&Value>) -> ParsedGuiFrameParams {
         return parsed;
     };
     for item in items {
-        let Value::Cons(cell) = item else {
+        if !item.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
             continue;
         };
-        let pair = read_cons(cell);
+        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
         let Some(key) = pair.car.as_symbol_name() else {
             continue;
         };
@@ -5621,7 +5621,7 @@ pub(crate) fn x_create_frame_impl(
         }
         buffers.switch_current(current_buffer_id);
     }
-    Ok(Value::Frame(fid.0))
+    Ok(Value::make_frame(fid.0))
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DeleteFrameMode {
@@ -5672,14 +5672,14 @@ pub(crate) fn delete_frame_owned(
     mode: DeleteFrameMode,
 ) -> EvalResult {
     if eval.frames.get(fid).is_none() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     let terminal_id = eval
         .frames
         .get(fid)
         .map(|frame| frame.terminal_id)
         .unwrap_or(crate::emacs_core::terminal::pure::TERMINAL_ID);
-    let frame_value = Value::Frame(fid.0);
+    let frame_value = Value::make_frame(fid.0);
     if mode.runs_hooks_immediately() {
         let delete_hook =
             crate::emacs_core::hook_runtime::hook_symbol_by_name(eval, "delete-frame-functions");
@@ -5692,7 +5692,7 @@ pub(crate) fn delete_frame_owned(
         eval.queue_pending_safe_hook("delete-frame-functions", &[frame_value]);
     }
     if eval.frames.get(fid).is_none() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     let force_non_nil = mode.force_non_nil();
     if !mode.bypasses_only_frame_check() && !other_frames_in_state(eval, fid, force_non_nil) {
@@ -5741,7 +5741,7 @@ pub(crate) fn delete_frame_owned(
     } else {
         eval.queue_pending_safe_hook("after-delete-frame-functions", &[frame_value]);
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(delete-frame &optional FRAME FORCE)` -> nil.
@@ -5754,7 +5754,7 @@ pub(crate) fn builtin_delete_frame(
         let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
         resolve_frame_id_in_state(frames, buffers, args.first(), "framep")?
     };
-    let force_non_nil = args.get(1).copied().unwrap_or(Value::Nil).is_truthy();
+    let force_non_nil = args.get(1).copied().unwrap_or(Value::NIL).is_truthy();
     delete_frame_owned(eval, fid, DeleteFrameMode::Public { force_non_nil })
 }
 
@@ -5764,7 +5764,7 @@ pub(crate) fn builtin_frame_window_state_change(
 ) -> EvalResult {
     expect_max_args("frame-window-state-change", &args, 1)?;
     let fid = resolve_frame_id(eval, args.first(), "frame-live-p")?;
-    Ok(Value::bool(
+    Ok(Value::bool_val(
         eval.frames
             .get(fid)
             .is_some_and(|frame| frame.window_state_change),
@@ -5777,18 +5777,18 @@ pub(crate) fn builtin_set_frame_window_state_change(
 ) -> EvalResult {
     expect_max_args("set-frame-window-state-change", &args, 2)?;
     let fid = resolve_frame_id(eval, args.first(), "frame-live-p")?;
-    let state = args.get(1).copied().unwrap_or(Value::Nil).is_truthy();
+    let state = args.get(1).copied().unwrap_or(Value::NIL).is_truthy();
     let frame = eval.frames.get_mut(fid).ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![
                 Value::symbol("frame-live-p"),
-                args.first().copied().unwrap_or(Value::Nil),
+                args.first().copied().unwrap_or(Value::NIL),
             ],
         )
     })?;
     frame.window_state_change = state;
-    Ok(Value::bool(state))
+    Ok(Value::bool_val(state))
 }
 
 /// `(frame-parameter FRAME PARAMETER)` -> value or nil.
@@ -5799,9 +5799,9 @@ pub(crate) fn builtin_frame_parameter(
     expect_min_args("frame-parameter", &args, 2)?;
     expect_max_args("frame-parameter", &args, 2)?;
     let fid = resolve_frame_id(eval, Some(&args[0]), "framep")?;
-    let param_name = match &args[1] {
-        Value::Symbol(id) => resolve_sym(*id).to_owned(),
-        _ => return Ok(Value::Nil),
+    let param_name = match args[1].kind() {
+        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
+        _ => return Ok(Value::NIL),
     };
     let frame = eval
         .frames
@@ -5831,9 +5831,9 @@ pub(crate) fn builtin_frame_parameter(
         }
         "visibility" => {
             return Ok(if frame.visible {
-                Value::True
+                ValueKind::T
             } else {
-                Value::Nil
+                ValueKind::Nil
             });
         }
         _ => {}
@@ -5843,7 +5843,7 @@ pub(crate) fn builtin_frame_parameter(
         .parameters
         .get(&param_name)
         .cloned()
-        .unwrap_or(Value::Nil))
+        .unwrap_or(Value::NIL))
 }
 /// `(frame-parameters &optional FRAME)` -> alist.
 pub(crate) fn builtin_frame_parameters(
@@ -5870,17 +5870,17 @@ pub(crate) fn builtin_frame_parameters(
         .parameters
         .get("width")
         .cloned()
-        .unwrap_or(Value::Int(frame.columns() as i64));
+        .unwrap_or(Value::fixnum(frame.columns() as i64));
     let height = frame
         .parameters
         .get("height")
         .cloned()
-        .unwrap_or(Value::Int(frame.lines() as i64));
+        .unwrap_or(Value::fixnum(frame.lines() as i64));
     pairs.push(Value::cons(Value::symbol("width"), width));
     pairs.push(Value::cons(Value::symbol("height"), height));
     pairs.push(Value::cons(
         Value::symbol("visibility"),
-        Value::bool(frame.visible),
+        Value::bool_val(frame.visible),
     ));
     // User parameters.
     for (k, v) in &frame.parameters {
@@ -5908,9 +5908,9 @@ pub(crate) fn builtin_modify_frame_parameters(
     }
 
     for item in items.into_iter().rev() {
-        if let Value::Cons(cell) = &item {
-            let pair = read_cons(*cell);
-            if let Value::Symbol(key) = &pair.car {
+        if &item.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), now use accessor */ {
+            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+            if let Some(key) = &pair.car.as_symbol_id() {
                 let key_name = resolve_sym(*key).to_owned();
                 match key_name.as_str() {
                     "name" => {
@@ -5930,14 +5930,14 @@ pub(crate) fn builtin_modify_frame_parameters(
                     "width" => {
                         if let Some(n) = pair.cdr.as_int() {
                             if let Some(frame) = eval.frames.get_mut(fid) {
-                                frame.parameters.insert("width".to_string(), Value::Int(n));
+                                frame.parameters.insert("width".to_string(), ValueKind::Fixnum(n));
                             }
                         }
                     }
                     "height" => {
                         if let Some(n) = pair.cdr.as_int() {
                             if let Some(frame) = eval.frames.get_mut(fid) {
-                                frame.parameters.insert("height".to_string(), Value::Int(n));
+                                frame.parameters.insert("height".to_string(), ValueKind::Fixnum(n));
                             }
                         }
                     }
@@ -5963,7 +5963,7 @@ pub(crate) fn builtin_modify_frame_parameters(
     if let Some(frame) = eval.frames.get_mut(fid) {
         frame.sync_tab_bar_height_from_parameters();
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 /// `(frame-visible-p FRAME)` -> t or nil.
 pub(crate) fn builtin_frame_visible_p(
@@ -5973,8 +5973,8 @@ pub(crate) fn builtin_frame_visible_p(
     let frames = &eval.frames;
     expect_args("frame-visible-p", &args, 1)?;
     let fid = match args.first() {
-        Some(Value::Int(n)) => FrameId(*n as u64),
-        Some(Value::Frame(id)) => FrameId(*id),
+        Some(ValueKind::Fixnum(n)) => FrameId(*n as u64),
+        Some(ValueKind::Veclike(VecLikeType::Frame)) => FrameId(*id),
         Some(other) => {
             return Err(signal(
                 "wrong-type-argument",
@@ -5989,25 +5989,25 @@ pub(crate) fn builtin_frame_visible_p(
             vec![Value::symbol("frame-live-p"), args[0]],
         )
     })?;
-    Ok(Value::bool(frame.visible))
+    Ok(Value::bool_val(frame.visible))
 }
 
 /// `(framep OBJ)` -> t if OBJ is a frame object or frame id that exists.
 pub(crate) fn builtin_framep(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("framep", &args, 1)?;
-    let id = match &args[0] {
-        Value::Frame(id) => *id,
-        Value::Int(n) => *n as u64,
-        _ => return Ok(Value::Nil),
+    let id = match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Frame) => *id,
+        ValueKind::Fixnum(n) => n as u64,
+        _ => return Ok(Value::NIL),
     };
     let Some(frame) = eval.frames.get(FrameId(id)) else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     Ok(frame
         .parameters
         .get("window-system")
         .copied()
-        .unwrap_or(Value::True))
+        .unwrap_or(Value::T))
 }
 /// `(frame-live-p OBJ)` -> t if OBJ is a live frame object or frame id.
 pub(crate) fn builtin_frame_live_p(
@@ -6016,12 +6016,12 @@ pub(crate) fn builtin_frame_live_p(
 ) -> EvalResult {
     let frames = &eval.frames;
     expect_args("frame-live-p", &args, 1)?;
-    let id = match &args[0] {
-        Value::Frame(id) => *id,
-        Value::Int(n) => *n as u64,
-        _ => return Ok(Value::Nil),
+    let id = match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Frame) => *id,
+        ValueKind::Fixnum(n) => n as u64,
+        _ => return Ok(Value::NIL),
     };
-    Ok(Value::bool(frames.get(FrameId(id)).is_some()))
+    Ok(Value::bool_val(frames.get(FrameId(id)).is_some()))
 }
 
 // ===========================================================================
@@ -6034,49 +6034,49 @@ pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray)
     // window.c:9483 — DEFVAR_LISP
     obarray.set_symbol_value(
         "window-persistent-parameters",
-        Value::list(vec![Value::cons(Value::symbol("clone-of"), Value::True)]),
+        Value::list(vec![Value::cons(Value::symbol("clone-of"), Value::T)]),
     );
     obarray.set_symbol_value("recenter-redisplay", Value::symbol("tty"));
-    obarray.set_symbol_value("window-combination-resize", Value::Nil);
-    obarray.set_symbol_value("window-combination-limit", Value::Nil);
-    obarray.set_symbol_value("delete-frame-functions", Value::Nil);
-    obarray.set_symbol_value("after-delete-frame-functions", Value::Nil);
-    obarray.set_symbol_value("window-buffer-change-functions", Value::Nil);
-    obarray.set_symbol_value("window-size-change-functions", Value::Nil);
-    obarray.set_symbol_value("window-selection-change-functions", Value::Nil);
-    obarray.set_symbol_value("window-state-change-functions", Value::Nil);
-    obarray.set_symbol_value("window-state-change-hook", Value::Nil);
-    obarray.set_symbol_value("window-sides-vertical", Value::Nil);
-    obarray.set_symbol_value("window-sides-slots", Value::Nil);
-    obarray.set_symbol_value("window-resize-pixelwise", Value::Nil);
-    obarray.set_symbol_value("fit-window-to-buffer-horizontally", Value::Nil);
-    obarray.set_symbol_value("fit-frame-to-buffer", Value::Nil);
+    obarray.set_symbol_value("window-combination-resize", Value::NIL);
+    obarray.set_symbol_value("window-combination-limit", Value::NIL);
+    obarray.set_symbol_value("delete-frame-functions", Value::NIL);
+    obarray.set_symbol_value("after-delete-frame-functions", Value::NIL);
+    obarray.set_symbol_value("window-buffer-change-functions", Value::NIL);
+    obarray.set_symbol_value("window-size-change-functions", Value::NIL);
+    obarray.set_symbol_value("window-selection-change-functions", Value::NIL);
+    obarray.set_symbol_value("window-state-change-functions", Value::NIL);
+    obarray.set_symbol_value("window-state-change-hook", Value::NIL);
+    obarray.set_symbol_value("window-sides-vertical", Value::NIL);
+    obarray.set_symbol_value("window-sides-slots", Value::NIL);
+    obarray.set_symbol_value("window-resize-pixelwise", Value::NIL);
+    obarray.set_symbol_value("fit-window-to-buffer-horizontally", Value::NIL);
+    obarray.set_symbol_value("fit-frame-to-buffer", Value::NIL);
     obarray.set_symbol_value(
         "fit-frame-to-buffer-margins",
         Value::list(vec![
-            Value::Int(0),
-            Value::Int(0),
-            Value::Int(0),
-            Value::Int(0),
+            Value::fixnum(0),
+            Value::fixnum(0),
+            Value::fixnum(0),
+            Value::fixnum(0),
         ]),
     );
-    obarray.set_symbol_value("fit-frame-to-buffer-sizes", Value::Nil);
-    obarray.set_symbol_value("window-min-height", Value::Int(4));
-    obarray.set_symbol_value("window-min-width", Value::Int(10));
-    obarray.set_symbol_value("window-safe-min-height", Value::Int(1));
-    obarray.set_symbol_value("window-safe-min-width", Value::Int(2));
-    obarray.set_symbol_value("scroll-preserve-screen-position", Value::Nil);
-    obarray.set_symbol_value("window-point-insertion-type", Value::Nil);
-    obarray.set_symbol_value("next-screen-context-lines", Value::Int(2));
-    obarray.set_symbol_value("fast-but-imprecise-scrolling", Value::Nil);
-    obarray.set_symbol_value("scroll-error-top-bottom", Value::Nil);
+    obarray.set_symbol_value("fit-frame-to-buffer-sizes", Value::NIL);
+    obarray.set_symbol_value("window-min-height", Value::fixnum(4));
+    obarray.set_symbol_value("window-min-width", Value::fixnum(10));
+    obarray.set_symbol_value("window-safe-min-height", Value::fixnum(1));
+    obarray.set_symbol_value("window-safe-min-width", Value::fixnum(2));
+    obarray.set_symbol_value("scroll-preserve-screen-position", Value::NIL);
+    obarray.set_symbol_value("window-point-insertion-type", Value::NIL);
+    obarray.set_symbol_value("next-screen-context-lines", Value::fixnum(2));
+    obarray.set_symbol_value("fast-but-imprecise-scrolling", Value::NIL);
+    obarray.set_symbol_value("scroll-error-top-bottom", Value::NIL);
     obarray.set_symbol_value(
         "temp-buffer-max-height",
-        Value::Float(1.0 / 3.0, next_float_id()), // (/ (frame-height) 3) approximation
+        Value::make_float(1.0 / 3.0), // (/ (frame-height) 3) approximation
     );
-    obarray.set_symbol_value("temp-buffer-max-width", Value::Nil);
+    obarray.set_symbol_value("temp-buffer-max-width", Value::NIL);
     obarray.set_symbol_value("even-window-sizes", Value::symbol("width-only"));
-    obarray.set_symbol_value("auto-window-vscroll", Value::True);
+    obarray.set_symbol_value("auto-window-vscroll", Value::T);
 }
 /// `(window-combination-limit WINDOW)` -> nil or t.
 ///
@@ -6093,8 +6093,8 @@ pub(crate) fn builtin_window_combination_limit(
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
     let w = get_window(frames, fid, wid)?;
     match w.combination_limit() {
-        Some(true) => Ok(Value::True),
-        Some(false) => Ok(Value::Nil),
+        Some(true) => Ok(Value::T),
+        Some(false) => Ok(Value::NIL),
         None => Err(signal(
             "error",
             vec![Value::string(
@@ -6159,7 +6159,7 @@ pub(crate) fn builtin_window_resize_apply(
 
     // Validate: root's new_pixel must match the frame dimension.
     if !crate::window::window_resize_check(&frame.root_window, horflag, &new_pixel_map) {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     // Check root's new_pixel matches frame size.
@@ -6178,7 +6178,7 @@ pub(crate) fn builtin_window_resize_apply(
         frame.root_window.bounds().height as i64
     };
     if root_new != frame_dim {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     // Apply.
@@ -6194,7 +6194,7 @@ pub(crate) fn builtin_window_resize_apply(
     // Recalculate minibuffer position after tree resize.
     frame.recalculate_minibuffer_bounds();
 
-    Ok(Value::True)
+    Ok(Value::T)
 }
 /// `(window-resize-apply-total &optional FRAME HORIZONTAL)` -> t.
 ///
@@ -6249,7 +6249,7 @@ pub(crate) fn builtin_window_resize_apply_total(
     // Ensure root + minibuffer fit in frame after total resize.
     frame.recalculate_minibuffer_bounds();
 
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 // ===========================================================================
@@ -6318,7 +6318,7 @@ pub(crate) fn builtin_balance_windows(
 
     balance_subtree(&mut frame.root_window);
     frame.recalculate_minibuffer_bounds();
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // ===========================================================================
@@ -6372,7 +6372,7 @@ fn resize_selected_window(
     name: &str,
 ) -> EvalResult {
     if delta == 0 {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let fid = ensure_selected_frame_id(eval);
@@ -6497,7 +6497,7 @@ fn resize_selected_window(
     }
 
     frame.recalculate_minibuffer_bounds();
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // ===========================================================================
@@ -6519,8 +6519,8 @@ pub(crate) fn builtin_window_tree(eval: &mut super::eval::Context, args: Vec<Val
         .ok_or_else(|| signal("error", vec![Value::string("No frame")]))?;
 
     fn window_tree_to_value(window: &Window) -> Value {
-        match window {
-            Window::Leaf { id, .. } => Value::Window(id.0),
+        match window.kind() {
+            Window::Leaf { id, .. } => Value::make_window(id.0),
             Window::Internal {
                 direction,
                 children,
@@ -6528,9 +6528,9 @@ pub(crate) fn builtin_window_tree(eval: &mut super::eval::Context, args: Vec<Val
                 ..
             } => {
                 let horizontal_p = if *direction == SplitDirection::Horizontal {
-                    Value::True
+                    ValueKind::T
                 } else {
-                    Value::Nil
+                    ValueKind::Nil
                 };
                 // Edges: top left right bottom (in pixel coordinates)
                 let top = Value::Int(bounds.y as i64);
@@ -6551,8 +6551,8 @@ pub(crate) fn builtin_window_tree(eval: &mut super::eval::Context, args: Vec<Val
     // GNU returns (TREE . MINI-WINDOW)
     let mini = frame
         .minibuffer_window
-        .map(|wid| Value::Window(wid.0))
-        .unwrap_or(Value::Nil);
+        .map(|wid| Value::make_window(wid.0))
+        .unwrap_or(Value::NIL);
     Ok(Value::cons(tree, mini))
 }
 
@@ -6581,13 +6581,13 @@ pub(crate) fn builtin_fit_window_to_buffer(
             Window::Leaf {
                 buffer_id, bounds, ..
             } => (*buffer_id, bounds.clone()),
-            _ => return Ok(Value::Nil),
+            _ => return Ok(Value::NIL),
         }
     };
 
     let buf = match eval.buffers.get(buf_id) {
         Some(b) => b,
-        None => return Ok(Value::Nil),
+        None => return Ok(Value::NIL),
     };
 
     // Count lines in the buffer.
@@ -6597,7 +6597,7 @@ pub(crate) fn builtin_fit_window_to_buffer(
     // Parse optional height limits.
     let parse_opt_int = |idx: usize| -> Option<usize> {
         args.get(idx).and_then(|v| match v {
-            Value::Int(n) if *n > 0 => Some(*n as usize),
+            Value::fixnum(n) if *n > 0 => Some(*n as usize),
             _ => None,
         })
     };
@@ -6629,7 +6629,7 @@ pub(crate) fn builtin_fit_window_to_buffer(
         }
     }
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // ===========================================================================

@@ -6,6 +6,7 @@
 
 use super::error::{EvalResult, Flow, signal};
 use super::value::*;
+use crate::emacs_core::value::{ValueKind};
 
 // ---------------------------------------------------------------------------
 // Argument helpers
@@ -15,7 +16,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -24,10 +25,10 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
 
 /// Extract a numeric argument as `f64` with `numberp` contract semantics.
 fn extract_number(val: &Value) -> Result<f64, Flow> {
-    match val {
-        Value::Int(n) => Ok(*n as f64),
-        Value::Char(c) => Ok(*c as u32 as f64),
-        Value::Float(f, _) => Ok(*f),
+    match val.kind() {
+        ValueKind::Fixnum(n) => Ok(n as f64),
+        ValueKind::Char(c) => Ok(c as u32 as f64),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(*f),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("numberp"), *other],
@@ -37,8 +38,8 @@ fn extract_number(val: &Value) -> Result<f64, Flow> {
 
 /// Extract a float argument with `floatp` contract semantics.
 fn extract_float(val: &Value) -> Result<f64, Flow> {
-    match val {
-        Value::Float(f, _) => Ok(*f),
+    match val.kind() {
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(*f),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("floatp"), *other],
@@ -48,9 +49,9 @@ fn extract_float(val: &Value) -> Result<f64, Flow> {
 
 /// Extract a fixnum argument with `fixnump` contract semantics.
 fn extract_fixnum(val: &Value) -> Result<i64, Flow> {
-    match val {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match val.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("fixnump"), *other],
@@ -67,7 +68,7 @@ pub(crate) fn builtin_copysign(args: Vec<Value>) -> EvalResult {
     expect_args("copysign", &args, 2)?;
     let x1 = extract_float(&args[0])?;
     let x2 = extract_float(&args[1])?;
-    Ok(Value::Float(x1.copysign(x2), next_float_id()))
+    Ok(Value::make_float(x1.copysign(x2)))
 }
 
 /// (frexp X) -- return (SIGNIFICAND . EXPONENT) cons cell
@@ -79,13 +80,13 @@ pub(crate) fn builtin_frexp(args: Vec<Value>) -> EvalResult {
     let x = extract_number(&args[0])?;
 
     if x == 0.0 {
-        return Ok(Value::cons(Value::Float(x, next_float_id()), Value::Int(0)));
+        return Ok(Value::cons(Value::make_float(x), Value::fixnum(0)));
     }
     if x.is_nan() {
-        return Ok(Value::cons(Value::Float(x, next_float_id()), Value::Int(0)));
+        return Ok(Value::cons(Value::make_float(x), Value::fixnum(0)));
     }
     if x.is_infinite() {
-        return Ok(Value::cons(Value::Float(x, next_float_id()), Value::Int(0)));
+        return Ok(Value::cons(Value::make_float(x), Value::fixnum(0)));
     }
 
     // Rust doesn't have frexp in std, so we implement it manually.
@@ -105,8 +106,8 @@ pub(crate) fn builtin_frexp(args: Vec<Value>) -> EvalResult {
         let frac_bits = (sign << 63) | (0x3FE << 52) | nmant;
         let frac = f64::from_bits(frac_bits);
         return Ok(Value::cons(
-            Value::Float(frac, next_float_id()),
-            Value::Int(exp),
+            Value::make_float(frac),
+            Value::fixnum(exp),
         ));
     }
 
@@ -114,8 +115,8 @@ pub(crate) fn builtin_frexp(args: Vec<Value>) -> EvalResult {
     let frac_bits = (sign << 63) | (0x3FE << 52) | mantissa_bits;
     let frac = f64::from_bits(frac_bits);
     Ok(Value::cons(
-        Value::Float(frac, next_float_id()),
-        Value::Int(exp),
+        Value::make_float(frac),
+        Value::fixnum(exp),
     ))
 }
 
@@ -145,7 +146,7 @@ pub(crate) fn builtin_ldexp(args: Vec<Value>) -> EvalResult {
         0.0
     };
 
-    Ok(Value::Float(result, next_float_id()))
+    Ok(Value::make_float(result))
 }
 
 /// (logb X) -- integer part of base-2 logarithm of |X|
@@ -158,20 +159,20 @@ pub(crate) fn builtin_logb(args: Vec<Value>) -> EvalResult {
 
     if x == 0.0 {
         // Emacs returns -infinity as a float for logb(0)
-        return Ok(Value::Float(f64::NEG_INFINITY, next_float_id()));
+        return Ok(Value::make_float(f64::NEG_INFINITY));
     }
     if x.is_infinite() {
-        return Ok(Value::Float(f64::INFINITY, next_float_id()));
+        return Ok(Value::make_float(f64::INFINITY));
     }
     if x.is_nan() {
-        return Ok(Value::Float(x, next_float_id()));
+        return Ok(Value::make_float(x));
     }
 
     // logb returns floor(log2(|x|)) as an integer, which is the exponent
     // from frexp minus 1 (since frexp normalizes to [0.5, 1.0)).
     let abs_x = x.abs();
     let result = abs_x.log2().floor() as i64;
-    Ok(Value::Int(result))
+    Ok(Value::fixnum(result))
 }
 
 // ---------------------------------------------------------------------------
@@ -182,28 +183,28 @@ pub(crate) fn builtin_logb(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_fceiling(args: Vec<Value>) -> EvalResult {
     expect_args("fceiling", &args, 1)?;
     let x = extract_float(&args[0])?;
-    Ok(Value::Float(x.ceil(), next_float_id()))
+    Ok(Value::make_float(x.ceil()))
 }
 
 /// (ffloor X) -- largest integer not greater than X, as a float
 pub(crate) fn builtin_ffloor(args: Vec<Value>) -> EvalResult {
     expect_args("ffloor", &args, 1)?;
     let x = extract_float(&args[0])?;
-    Ok(Value::Float(x.floor(), next_float_id()))
+    Ok(Value::make_float(x.floor()))
 }
 
 /// (fround X) -- nearest integer to X, as a float (banker's rounding)
 pub(crate) fn builtin_fround(args: Vec<Value>) -> EvalResult {
     expect_args("fround", &args, 1)?;
     let x = extract_float(&args[0])?;
-    Ok(Value::Float(x.round_ties_even(), next_float_id()))
+    Ok(Value::make_float(x.round_ties_even()))
 }
 
 /// (ftruncate X) -- round X toward zero, as a float
 pub(crate) fn builtin_ftruncate(args: Vec<Value>) -> EvalResult {
     expect_args("ftruncate", &args, 1)?;
     let x = extract_float(&args[0])?;
-    Ok(Value::Float(x.trunc(), next_float_id()))
+    Ok(Value::make_float(x.trunc()))
 }
 
 // ---------------------------------------------------------------------------

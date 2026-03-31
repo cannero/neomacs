@@ -7,7 +7,7 @@ use crate::emacs_core::{
 #[test]
 fn list_prints_buffers_with_names_in_eval_context() -> Result<(), EvalError> {
     let mut eval = Context::new();
-    let stale = Value::Buffer(eval.buffers.create_buffer("stale-win-buf"));
+    let stale = Value::make_buffer(eval.buffers.create_buffer("stale-win-buf"));
     eval.set_variable("vm-stale-win-buf", stale);
     let forms = parse_forms(
         "(let ((b vm-stale-win-buf)
@@ -21,7 +21,7 @@ fn list_prints_buffers_with_names_in_eval_context() -> Result<(), EvalError> {
         data: vec![Value::string(err.to_string())],
         raw_data: None,
     })?;
-    let mut value = Value::Nil;
+    let mut value = Value::NIL;
     for form in &forms {
         value = eval.eval_expr(form).expect("evaluation should succeed");
     }
@@ -211,7 +211,7 @@ fn signal_creates_signal_data() {
     use super::{Flow, signal};
     let flow = signal(
         "wrong-type-argument",
-        vec![Value::symbol("stringp"), Value::Int(42)],
+        vec![Value::symbol("stringp"), Value::fixnum(42)],
     );
     match flow {
         Flow::Signal(sig) => {
@@ -226,7 +226,7 @@ fn signal_creates_signal_data() {
 #[test]
 fn signal_with_data_preserves_raw() {
     use super::{Flow, signal_with_data};
-    let dotted = Value::cons(Value::symbol("foo"), Value::Int(1));
+    let dotted = Value::cons(Value::symbol("foo"), Value::fixnum(1));
     let flow = signal_with_data("error", dotted);
     match flow {
         Flow::Signal(sig) => {
@@ -241,11 +241,11 @@ fn signal_with_data_preserves_raw() {
 fn make_signal_binding_value_preserves_raw_payload_shape() {
     use super::{Flow, make_signal_binding_value, signal_with_data};
 
-    let flow = signal_with_data("error", Value::Int(1));
+    let flow = signal_with_data("error", Value::fixnum(1));
     let Flow::Signal(sig) = flow else { panic!() };
     assert_eq!(
         make_signal_binding_value(&sig),
-        Value::cons(Value::symbol("error"), Value::Int(1))
+        Value::cons(Value::symbol("error"), Value::fixnum(1))
     );
 }
 
@@ -253,7 +253,7 @@ fn make_signal_binding_value_preserves_raw_payload_shape() {
 fn format_eval_result_preserves_raw_signal_payload_shape() {
     use super::{format_eval_result, map_flow, signal_with_data};
 
-    let result = Err(map_flow(signal_with_data("error", Value::Int(1))));
+    let result = Err(map_flow(signal_with_data("error", Value::fixnum(1))));
     assert_eq!(format_eval_result(&result), "ERR (error 1)");
 }
 

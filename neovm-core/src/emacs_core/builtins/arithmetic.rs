@@ -18,43 +18,40 @@ pub(crate) fn builtin_add(eval: &mut super::super::eval::Context, args: Vec<Valu
         for a in &args {
             sum += expect_number_or_marker_f64_eval(eval, a)?;
         }
-        Ok(Value::Float(sum, next_float_id()))
+        Ok(Value::make_float(sum))
     } else {
         let mut sum = 0i64;
         for a in &args {
             sum = sum.wrapping_add(expect_integer_or_marker_after_number_check_eval(eval, a)?);
         }
-        Ok(Value::Int(sum))
+        Ok(Value::fixnum(sum))
     }
 }
 
 /// Eval-aware `-` that reads live marker positions from buffers.
 pub(crate) fn builtin_sub(eval: &mut super::super::eval::Context, args: Vec<Value>) -> EvalResult {
     if args.is_empty() {
-        return Ok(Value::Int(0));
+        return Ok(Value::fixnum(0));
     }
     if args.len() == 1 {
         if has_float(&args) {
-            return Ok(Value::Float(
-                -expect_number_or_marker_f64_eval(eval, &args[0])?,
-                next_float_id(),
-            ));
+            return Ok(Value::make_float(-expect_number_or_marker_f64_eval(eval, &args[0])?));
         }
         let n = expect_integer_or_marker_after_number_check_eval(eval, &args[0])?;
-        return Ok(Value::Int(n.wrapping_neg()));
+        return Ok(Value::fixnum(n.wrapping_neg()));
     }
     if has_float(&args) {
         let mut acc = expect_number_or_marker_f64_eval(eval, &args[0])?;
         for a in &args[1..] {
             acc -= expect_number_or_marker_f64_eval(eval, a)?;
         }
-        Ok(Value::Float(acc, next_float_id()))
+        Ok(Value::make_float(acc))
     } else {
         let mut acc = expect_integer_or_marker_after_number_check_eval(eval, &args[0])?;
         for a in &args[1..] {
             acc = acc.wrapping_sub(expect_integer_or_marker_after_number_check_eval(eval, a)?);
         }
-        Ok(Value::Int(acc))
+        Ok(Value::fixnum(acc))
     }
 }
 
@@ -64,14 +61,14 @@ pub(crate) fn builtin_mul(args: Vec<Value>) -> EvalResult {
         for a in &args {
             prod *= expect_number_or_marker_f64(a)?;
         }
-        Ok(Value::Float(prod, next_float_id()))
+        Ok(Value::make_float(prod))
     } else {
         // Official Emacs uses wrapping arithmetic for integer * (no overflow error).
         let mut prod = 1i64;
         for a in &args {
             prod = prod.wrapping_mul(expect_integer_or_marker_after_number_check(a)?);
         }
-        Ok(Value::Int(prod))
+        Ok(Value::fixnum(prod))
     }
 }
 
@@ -82,13 +79,13 @@ pub(crate) fn builtin_div(args: Vec<Value>) -> EvalResult {
         if has_float(&args) {
             let d = expect_number_or_marker_f64(&args[0])?;
             let result = 1.0 / d;
-            return Ok(Value::Float(result, next_float_id()));
+            return Ok(Value::make_float(result));
         } else {
             let d = expect_integer_or_marker_after_number_check(&args[0])?;
             if d == 0 {
                 return Err(signal("arith-error", vec![]));
             }
-            return Ok(Value::Int(1i64.checked_div(d).unwrap_or(0)));
+            return Ok(Value::fixnum(1i64.checked_div(d).unwrap_or(0)));
         }
     }
     if has_float(&args) {
@@ -101,7 +98,7 @@ pub(crate) fn builtin_div(args: Vec<Value>) -> EvalResult {
                 acc = f64::from_bits(f64::NAN.to_bits() | (1_u64 << 63));
             }
         }
-        Ok(Value::Float(acc, next_float_id()))
+        Ok(Value::make_float(acc))
     } else {
         let mut acc = expect_integer_or_marker_after_number_check(&args[0])?;
         for a in &args[1..] {
@@ -113,7 +110,7 @@ pub(crate) fn builtin_div(args: Vec<Value>) -> EvalResult {
                 .checked_div(d)
                 .ok_or_else(|| signal("overflow-error", vec![]))?;
         }
-        Ok(Value::Int(acc))
+        Ok(Value::fixnum(acc))
     }
 }
 
@@ -124,14 +121,14 @@ pub(crate) fn builtin_percent(args: Vec<Value>) -> EvalResult {
     if b == 0 {
         return Err(signal("arith-error", vec![]));
     }
-    Ok(Value::Int(a % b))
+    Ok(Value::fixnum(a % b))
 }
 
 pub(crate) fn builtin_mod(args: Vec<Value>) -> EvalResult {
     expect_args("mod", &args, 2)?;
     let a_raw = expect_number_or_marker(&args[0])?;
     let b_raw = expect_number_or_marker(&args[1])?;
-    match (a_raw, b_raw) {
+    match (a_raw.kind(), b_raw.kind()) {
         (NumberOrMarker::Int(a), NumberOrMarker::Int(b)) => {
             if b == 0 {
                 return Err(signal("arith-error", vec![]));
@@ -143,7 +140,7 @@ pub(crate) fn builtin_mod(args: Vec<Value>) -> EvalResult {
             } else {
                 r
             };
-            Ok(Value::Int(r))
+            Ok(ValueKind::Fixnum(r))
         }
         (a, b) => {
             let a = match a {
@@ -164,19 +161,19 @@ pub(crate) fn builtin_mod(args: Vec<Value>) -> EvalResult {
                 // Emacs prints negative-NaN for floating mod-by-zero payloads.
                 r = f64::from_bits(f64::NAN.to_bits() | (1_u64 << 63));
             }
-            Ok(Value::Float(r, next_float_id()))
+            Ok(Value::make_float(r))  // TODO(tagged): remove next_float_id()
         }
     }
 }
 
 pub(crate) fn builtin_add1(args: Vec<Value>) -> EvalResult {
     expect_args("1+", &args, 1)?;
-    match &args[0] {
+    match args[0].kind() {
         // Official Emacs uses wrapping arithmetic for 1+ (no overflow error).
-        Value::Int(n) => Ok(Value::Int(n.wrapping_add(1))),
-        Value::Float(f, _) => Ok(Value::Float(f + 1.0, next_float_id())),
-        Value::Char(c) => Ok(Value::Int(*c as i64 + 1)),
-        other if super::marker::is_marker(other) => Ok(Value::Int(
+        ValueKind::Fixnum(n) => Ok(Value::fixnum(n.wrapping_add(1))),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(Value::make_float(f + 1.0)),
+        ValueKind::Char(c) => Ok(Value::fixnum(c as i64 + 1)),
+        other if super::marker::is_marker(other) => Ok(Value::fixnum(
             super::marker::marker_position_as_int(other)?.wrapping_add(1),
         )),
         other => Err(signal(
@@ -188,12 +185,12 @@ pub(crate) fn builtin_add1(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_sub1(args: Vec<Value>) -> EvalResult {
     expect_args("1-", &args, 1)?;
-    match &args[0] {
+    match args[0].kind() {
         // Official Emacs uses wrapping arithmetic for 1- (no overflow error).
-        Value::Int(n) => Ok(Value::Int(n.wrapping_sub(1))),
-        Value::Float(f, _) => Ok(Value::Float(f - 1.0, next_float_id())),
-        Value::Char(c) => Ok(Value::Int(*c as i64 - 1)),
-        other if super::marker::is_marker(other) => Ok(Value::Int(
+        ValueKind::Fixnum(n) => Ok(Value::fixnum(n.wrapping_sub(1))),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(Value::make_float(f - 1.0)),
+        ValueKind::Char(c) => Ok(Value::fixnum(c as i64 - 1)),
+        other if super::marker::is_marker(other) => Ok(Value::fixnum(
             super::marker::marker_position_as_int(other)?.wrapping_sub(1),
         )),
         other => Err(signal(
@@ -214,10 +211,10 @@ pub(crate) fn builtin_max(eval: &mut super::eval::Context, args: Vec<Value>) -> 
             best_value = *a;
         }
     }
-    match best_value {
-        Value::Int(_) | Value::Float(_, _) => Ok(best_value),
-        Value::Char(c) => Ok(Value::Int(c as i64)),
-        other if super::marker::is_marker(&other) => Ok(Value::Int(
+    match best_value.kind() {
+        ValueKind::Fixnum(_) | ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(best_value),
+        ValueKind::Char(c) => Ok(Value::fixnum(c as i64)),
+        other if super::marker::is_marker(&other) => Ok(Value::fixnum(
             super::marker::marker_position_as_int_eval(eval, &other)?,
         )),
         _ => unreachable!("max winner must be numeric"),
@@ -235,10 +232,10 @@ pub(crate) fn builtin_min(eval: &mut super::eval::Context, args: Vec<Value>) -> 
             best_value = *a;
         }
     }
-    match best_value {
-        Value::Int(_) | Value::Float(_, _) => Ok(best_value),
-        Value::Char(c) => Ok(Value::Int(c as i64)),
-        other if super::marker::is_marker(&other) => Ok(Value::Int(
+    match best_value.kind() {
+        ValueKind::Fixnum(_) | ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(best_value),
+        ValueKind::Char(c) => Ok(Value::fixnum(c as i64)),
+        other if super::marker::is_marker(&other) => Ok(Value::fixnum(
             super::marker::marker_position_as_int_eval(eval, &other)?,
         )),
         _ => unreachable!("min winner must be numeric"),
@@ -247,12 +244,12 @@ pub(crate) fn builtin_min(eval: &mut super::eval::Context, args: Vec<Value>) -> 
 
 pub(crate) fn builtin_abs(args: Vec<Value>) -> EvalResult {
     expect_args("abs", &args, 1)?;
-    match &args[0] {
-        Value::Int(n) => Ok(Value::Int(
+    match args[0].kind() {
+        ValueKind::Fixnum(n) => Ok(Value::fixnum(
             n.checked_abs()
                 .ok_or_else(|| signal("overflow-error", vec![]))?,
         )),
-        Value::Float(f, _) => Ok(Value::Float(f.abs(), next_float_id())),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(Value::make_float(f.abs())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("numberp"), *other],
@@ -269,7 +266,7 @@ pub(crate) fn builtin_logand(args: Vec<Value>) -> EvalResult {
     for a in &args {
         acc &= expect_integer_or_marker_after_number_check(a)?;
     }
-    Ok(Value::Int(acc))
+    Ok(Value::fixnum(acc))
 }
 
 pub(crate) fn builtin_logior(args: Vec<Value>) -> EvalResult {
@@ -277,7 +274,7 @@ pub(crate) fn builtin_logior(args: Vec<Value>) -> EvalResult {
     for a in &args {
         acc |= expect_integer_or_marker_after_number_check(a)?;
     }
-    Ok(Value::Int(acc))
+    Ok(Value::fixnum(acc))
 }
 
 pub(crate) fn builtin_logxor(args: Vec<Value>) -> EvalResult {
@@ -285,12 +282,12 @@ pub(crate) fn builtin_logxor(args: Vec<Value>) -> EvalResult {
     for a in &args {
         acc ^= expect_integer_or_marker_after_number_check(a)?;
     }
-    Ok(Value::Int(acc))
+    Ok(Value::fixnum(acc))
 }
 
 pub(crate) fn builtin_lognot(args: Vec<Value>) -> EvalResult {
     expect_args("lognot", &args, 1)?;
-    Ok(Value::Int(!expect_int(&args[0])?))
+    Ok(Value::fixnum(!expect_int(&args[0])?))
 }
 
 pub(crate) fn builtin_ash(args: Vec<Value>) -> EvalResult {
@@ -299,10 +296,10 @@ pub(crate) fn builtin_ash(args: Vec<Value>) -> EvalResult {
     let count = expect_int(&args[1])?;
     if count >= 0 {
         let shift = u32::try_from(count).unwrap_or(u32::MAX);
-        Ok(Value::Int(n.checked_shl(shift).unwrap_or(0)))
+        Ok(Value::fixnum(n.checked_shl(shift).unwrap_or(0)))
     } else {
         let shift = count.unsigned_abs().min(63) as u32;
-        Ok(Value::Int(n >> shift))
+        Ok(Value::fixnum(n >> shift))
     }
 }
 
@@ -318,10 +315,10 @@ pub(crate) fn builtin_num_eq(
     let first = expect_number_or_marker_f64_eval(eval, &args[0])?;
     for a in &args[1..] {
         if expect_number_or_marker_f64_eval(eval, a)? != first {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
     }
-    Ok(Value::t())
+    Ok(Value::T)
 }
 
 pub(crate) fn builtin_num_lt(
@@ -333,10 +330,10 @@ pub(crate) fn builtin_num_lt(
         if !(expect_number_or_marker_f64_eval(eval, &pair[0])?
             < expect_number_or_marker_f64_eval(eval, &pair[1])?)
         {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
     }
-    Ok(Value::t())
+    Ok(Value::T)
 }
 
 pub(crate) fn builtin_num_le(
@@ -348,10 +345,10 @@ pub(crate) fn builtin_num_le(
         if !(expect_number_or_marker_f64_eval(eval, &pair[0])?
             <= expect_number_or_marker_f64_eval(eval, &pair[1])?)
         {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
     }
-    Ok(Value::t())
+    Ok(Value::T)
 }
 
 pub(crate) fn builtin_num_gt(
@@ -363,10 +360,10 @@ pub(crate) fn builtin_num_gt(
         if !(expect_number_or_marker_f64_eval(eval, &pair[0])?
             > expect_number_or_marker_f64_eval(eval, &pair[1])?)
         {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
     }
-    Ok(Value::t())
+    Ok(Value::T)
 }
 
 pub(crate) fn builtin_num_ge(
@@ -378,10 +375,10 @@ pub(crate) fn builtin_num_ge(
         if !(expect_number_or_marker_f64_eval(eval, &pair[0])?
             >= expect_number_or_marker_f64_eval(eval, &pair[1])?)
         {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
     }
-    Ok(Value::t())
+    Ok(Value::T)
 }
 
 pub(crate) fn builtin_num_ne(
@@ -391,7 +388,7 @@ pub(crate) fn builtin_num_ne(
     expect_args("/=", &args, 2)?;
     let a = expect_number_or_marker_f64_eval(eval, &args[0])?;
     let b = expect_number_or_marker_f64_eval(eval, &args[1])?;
-    Ok(Value::bool(a != b))
+    Ok(Value::bool_val(a != b))
 }
 
 // ===========================================================================
@@ -400,9 +397,9 @@ pub(crate) fn builtin_num_ne(
 
 pub(crate) fn builtin_float(args: Vec<Value>) -> EvalResult {
     expect_args("float", &args, 1)?;
-    match &args[0] {
-        Value::Int(n) => Ok(Value::Float(*n as f64, next_float_id())),
-        Value::Float(f, id) => Ok(Value::Float(*f, *id)),
+    match args[0].kind() {
+        ValueKind::Fixnum(n) => Ok(Value::make_float(n as f64)),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(Value::make_float(*f) /* TODO(tagged): dropped float id `*id` */),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("numberp"), *other],
@@ -412,9 +409,9 @@ pub(crate) fn builtin_float(args: Vec<Value>) -> EvalResult {
 
 /// Helper: extract a number as f64, signaling wrong-type-argument if not numeric.
 fn value_to_f64(_name: &str, v: &Value) -> Result<f64, Flow> {
-    match v {
-        Value::Int(n) => Ok(*n as f64),
-        Value::Float(f, _) => Ok(*f),
+    match v.kind() {
+        ValueKind::Fixnum(n) => Ok(n as f64),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(*f),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("numberp"), *other],
@@ -433,9 +430,9 @@ fn rounding_with_divisor(
 ) -> EvalResult {
     expect_range_args(name, args, 1, 2)?;
     if args.len() == 1 {
-        match &args[0] {
-            Value::Int(n) => return Ok(Value::Int(*n)),
-            Value::Float(f, _) => return Ok(Value::Int(round_fn(*f) as i64)),
+        match args[0].kind() {
+            ValueKind::Fixnum(n) => return Ok(Value::fixnum(n)),
+            ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => return Ok(Value::fixnum(round_fn(*f) as i64)),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -450,11 +447,11 @@ fn rounding_with_divisor(
         return Err(signal("arith-error", vec![]));
     }
     // If both are integers and division is exact, use integer path
-    if let (Value::Int(a), Value::Int(d)) = (&args[0], &args[1]) {
-        return Ok(Value::Int(int_div(*a, *d)));
+    if let (Value::fixnum(a), Value::fixnum(d)) = (&args[0], &args[1]) {
+        return Ok(Value::fixnum(int_div(*a, *d)));
     }
     let dividend = value_to_f64(name, &args[0])?;
-    Ok(Value::Int(round_fn(dividend / divisor) as i64))
+    Ok(Value::fixnum(round_fn(dividend / divisor) as i64))
 }
 
 pub(crate) fn builtin_truncate(args: Vec<Value>) -> EvalResult {
@@ -530,50 +527,32 @@ pub(crate) fn builtin_round(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_sqrt(args: Vec<Value>) -> EvalResult {
     expect_args("sqrt", &args, 1)?;
-    Ok(Value::Float(
-        expect_number(&args[0])?.sqrt(),
-        next_float_id(),
-    ))
+    Ok(Value::make_float(expect_number(&args[0])?.sqrt()))
 }
 
 pub(crate) fn builtin_sin(args: Vec<Value>) -> EvalResult {
     expect_args("sin", &args, 1)?;
-    Ok(Value::Float(
-        expect_number(&args[0])?.sin(),
-        next_float_id(),
-    ))
+    Ok(Value::make_float(expect_number(&args[0])?.sin()))
 }
 
 pub(crate) fn builtin_cos(args: Vec<Value>) -> EvalResult {
     expect_args("cos", &args, 1)?;
-    Ok(Value::Float(
-        expect_number(&args[0])?.cos(),
-        next_float_id(),
-    ))
+    Ok(Value::make_float(expect_number(&args[0])?.cos()))
 }
 
 pub(crate) fn builtin_tan(args: Vec<Value>) -> EvalResult {
     expect_args("tan", &args, 1)?;
-    Ok(Value::Float(
-        expect_number(&args[0])?.tan(),
-        next_float_id(),
-    ))
+    Ok(Value::make_float(expect_number(&args[0])?.tan()))
 }
 
 pub(crate) fn builtin_asin(args: Vec<Value>) -> EvalResult {
     expect_args("asin", &args, 1)?;
-    Ok(Value::Float(
-        expect_number(&args[0])?.asin(),
-        next_float_id(),
-    ))
+    Ok(Value::make_float(expect_number(&args[0])?.asin()))
 }
 
 pub(crate) fn builtin_acos(args: Vec<Value>) -> EvalResult {
     expect_args("acos", &args, 1)?;
-    Ok(Value::Float(
-        expect_number(&args[0])?.acos(),
-        next_float_id(),
-    ))
+    Ok(Value::make_float(expect_number(&args[0])?.acos()))
 }
 
 pub(crate) fn builtin_atan(args: Vec<Value>) -> EvalResult {
@@ -581,21 +560,15 @@ pub(crate) fn builtin_atan(args: Vec<Value>) -> EvalResult {
     if args.len() == 2 {
         let y = expect_number(&args[0])?;
         let x = expect_number(&args[1])?;
-        Ok(Value::Float(y.atan2(x), next_float_id()))
+        Ok(Value::make_float(y.atan2(x)))
     } else {
-        Ok(Value::Float(
-            expect_number(&args[0])?.atan(),
-            next_float_id(),
-        ))
+        Ok(Value::make_float(expect_number(&args[0])?.atan()))
     }
 }
 
 pub(crate) fn builtin_exp(args: Vec<Value>) -> EvalResult {
     expect_args("exp", &args, 1)?;
-    Ok(Value::Float(
-        expect_number(&args[0])?.exp(),
-        next_float_id(),
-    ))
+    Ok(Value::make_float(expect_number(&args[0])?.exp()))
 }
 
 pub(crate) fn builtin_log(args: Vec<Value>) -> EvalResult {
@@ -603,9 +576,9 @@ pub(crate) fn builtin_log(args: Vec<Value>) -> EvalResult {
     let val = expect_number(&args[0])?;
     if args.len() == 2 {
         let base = expect_number(&args[1])?;
-        Ok(Value::Float(val.ln() / base.ln(), next_float_id()))
+        Ok(Value::make_float(val.ln() / base.ln()))
     } else {
-        Ok(Value::Float(val.ln(), next_float_id()))
+        Ok(Value::make_float(val.ln()))
     }
 }
 
@@ -614,17 +587,14 @@ pub(crate) fn builtin_expt(args: Vec<Value>) -> EvalResult {
     if has_float(&args) {
         let base = expect_number(&args[0])?;
         let exp = expect_number(&args[1])?;
-        Ok(Value::Float(base.powf(exp), next_float_id()))
+        Ok(Value::make_float(base.powf(exp)))
     } else {
         let base = expect_number(&args[0])? as i64;
         let exp = expect_number(&args[1])? as i64;
         if exp < 0 {
-            Ok(Value::Float(
-                (base as f64).powf(exp as f64),
-                next_float_id(),
-            ))
+            Ok(Value::make_float((base as f64).powf(exp as f64)))
         } else {
-            Ok(Value::Int(base.wrapping_pow(exp as u32)))
+            Ok(Value::fixnum(base.wrapping_pow(exp as u32)))
         }
     }
 }
@@ -633,23 +603,23 @@ pub(crate) fn builtin_random(args: Vec<Value>) -> EvalResult {
     expect_max_args("random", &args, 1)?;
 
     if let Some(limit) = args.first() {
-        match limit {
-            Value::True => emacs_init_random(),
-            Value::Str(id) => {
+        match limit.kind() {
+            ValueKind::T => emacs_init_random(),
+            ValueKind::String => {
                 let bytes = with_heap(|h| h.get_string(*id).as_bytes().to_vec());
                 emacs_seed_random(&bytes);
             }
-            Value::Int(lim) => {
-                if *lim <= 0 {
+            ValueKind::Fixnum(lim) => {
+                if lim <= 0 {
                     return Err(signal("args-out-of-range", vec![*limit]));
                 }
-                return Ok(Value::Int(emacs_get_random_fixnum(*lim)));
+                return Ok(Value::Int(emacs_get_random_fixnum(lim)));
             }
             _ => {}
         }
     }
 
-    Ok(Value::Int(emacs_get_random()))
+    Ok(Value::fixnum(emacs_get_random()))
 }
 
 #[cfg(unix)]
@@ -754,6 +724,7 @@ fn emacs_get_random_fixnum(limit: i64) -> i64 {
 #[cfg(not(unix))]
 fn emacs_seed_random(seed: &[u8]) {
     use std::cell::Cell;
+use crate::emacs_core::value::{ValueKind};
     thread_local! {
         static STATE: Cell<u64> = const { Cell::new(0x12345678_9abcdef0) };
     }
@@ -776,8 +747,8 @@ fn emacs_init_random() {
 
 pub(crate) fn builtin_isnan(args: Vec<Value>) -> EvalResult {
     expect_args("isnan", &args, 1)?;
-    match &args[0] {
-        Value::Float(f, _) => Ok(Value::bool(f.is_nan())),
+    match args[0].kind() {
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */ => Ok(Value::bool_val(f.is_nan())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("floatp"), *other],

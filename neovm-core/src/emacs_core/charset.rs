@@ -613,7 +613,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -624,7 +624,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -635,7 +635,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -643,9 +643,9 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 }
 
 fn expect_int_or_marker(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *other],
@@ -654,8 +654,8 @@ fn expect_int_or_marker(value: &Value) -> Result<i64, Flow> {
 }
 
 fn require_known_charset(value: &Value) -> Result<String, Flow> {
-    let name = match value {
-        Value::Symbol(id) => resolve_sym(*id).to_owned(),
+    let name = match value.kind() {
+        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -675,9 +675,9 @@ fn require_known_charset(value: &Value) -> Result<String, Flow> {
 }
 
 fn decode_char_codepoint_arg(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) if *n >= 0 => Ok(*n),
-        Value::Float(f, _)
+    match value.kind() {
+        ValueKind::Fixnum(n) if n >= 0 => Ok(n),
+        ValueKind::Float /* TODO(tagged): extract float via .xfloat() */
             if f.is_finite() && *f >= 0.0 && f.fract() == 0.0 && *f <= i64::MAX as f64 =>
         {
             Ok(*f as i64)
@@ -692,8 +692,8 @@ fn decode_char_codepoint_arg(value: &Value) -> Result<i64, Flow> {
 }
 
 fn expect_wholenump(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) if *n >= 0 => Ok(*n),
+    match value.kind() {
+        ValueKind::Fixnum(n) if n >= 0 => Ok(n),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("wholenump"), *other],
@@ -702,8 +702,8 @@ fn expect_wholenump(value: &Value) -> Result<i64, Flow> {
 }
 
 fn expect_fixnump(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("fixnump"), *other],
@@ -712,9 +712,9 @@ fn expect_fixnump(value: &Value) -> Result<i64, Flow> {
 }
 
 fn encode_char_input(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Char(c) => Ok(*c as i64),
-        Value::Int(n) if (0..=0x3FFFFF).contains(n) => Ok(*n),
+    match value.kind() {
+        ValueKind::Char(c) => Ok(c as i64),
+        ValueKind::Fixnum(n) if (0..=0x3FFFFF).contains(n) => Ok(n),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *other],
@@ -723,9 +723,9 @@ fn encode_char_input(value: &Value) -> Result<i64, Flow> {
 }
 
 fn charset_value_text(value: &Value) -> Option<String> {
-    match value {
-        Value::Str(id) => Some(with_heap(|heap| heap.get_string(*id).to_owned())),
-        Value::Symbol(id) | Value::Keyword(id) => Some(resolve_sym(*id).to_string()),
+    match value.kind() {
+        ValueKind::String => Some(with_heap(|heap| heap.get_string(*id).to_owned())),
+        ValueKind::Symbol(id) | ValueKind::Keyword(id) => Some(resolve_sym(id).to_string()),
         _ => None,
     }
 }
@@ -752,9 +752,9 @@ fn parse_superset_spec(value: &Value) -> Option<Vec<(String, i64)>> {
     let members = items
         .into_iter()
         .map(|item| match item {
-            Value::Symbol(id) | Value::Keyword(id) => Some((resolve_sym(id).to_string(), 0)),
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
+            Value::symbol(id) | Value::keyword(id) => Some((resolve_sym(id).to_string(), 0)),
+            Value::Cons(cell) /* TODO(tagged): convert Value::Cons to new API */ => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 let name = pair.car.as_symbol_name()?.to_string();
                 Some((name, int_or_zero(&pair.cdr)))
             }
@@ -772,12 +772,12 @@ fn parse_superset_spec(value: &Value) -> Option<Vec<(String, i64)>> {
 /// `(charsetp OBJECT)` -- return t if OBJECT names a known charset.
 pub(crate) fn builtin_charsetp(args: Vec<Value>) -> EvalResult {
     expect_args("charsetp", &args, 1)?;
-    let name = match &args[0] {
-        Value::Symbol(id) => resolve_sym(*id).to_owned(),
-        _ => return Ok(Value::Nil),
+    let name = match args[0].kind() {
+        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
+        _ => return Ok(Value::NIL),
     };
     let found = CHARSET_REGISTRY.with(|slot| slot.borrow().contains(&name));
-    Ok(Value::bool(found))
+    Ok(Value::bool_val(found))
 }
 
 /// `(charset-list)` -- return charset symbols in priority order.
@@ -814,7 +814,7 @@ pub(crate) fn builtin_charset_priority_list(args: Vec<Value>) -> EvalResult {
             if let Some(first) = priority.first() {
                 Ok(Value::list(vec![Value::symbol(first.clone())]))
             } else {
-                Ok(Value::Nil)
+                Ok(Value::NIL)
             }
         } else {
             let syms: Vec<Value> = priority.iter().map(|s| Value::symbol(s.clone())).collect();
@@ -829,8 +829,8 @@ pub(crate) fn builtin_set_charset_priority(args: Vec<Value>) -> EvalResult {
 
     let mut requested = Vec::with_capacity(args.len());
     for arg in &args {
-        let name = match arg {
-            Value::Symbol(id) => resolve_sym(*id).to_owned(),
+        let name = match arg.kind() {
+            ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
             _ => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -848,7 +848,7 @@ pub(crate) fn builtin_set_charset_priority(args: Vec<Value>) -> EvalResult {
         requested.push(name);
     }
     CHARSET_REGISTRY.with(|slot| slot.borrow_mut().set_priority(&requested));
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(char-charset CH &optional RESTRICTION)` -- return charset for character.
@@ -895,9 +895,9 @@ pub(crate) fn builtin_charset_plist(args: Vec<Value>) -> EvalResult {
 /// `(charset-id-internal &optional CHARSET)` -- return internal charset id.
 pub(crate) fn builtin_charset_id_internal(args: Vec<Value>) -> EvalResult {
     expect_max_args("charset-id-internal", &args, 1)?;
-    let arg = args.first().cloned().unwrap_or(Value::Nil);
-    let name = match &arg {
-        Value::Symbol(id) => resolve_sym(*id),
+    let arg = args.first().cloned().unwrap_or(Value::NIL);
+    let name = match arg.kind() {
+        ValueKind::Symbol(id) => resolve_sym(id),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -909,7 +909,7 @@ pub(crate) fn builtin_charset_id_internal(args: Vec<Value>) -> EvalResult {
     CHARSET_REGISTRY.with(|slot| {
         let reg = slot.borrow();
         if let Some(id) = reg.id(name) {
-            Ok(Value::Int(id))
+            Ok(Value::fixnum(id))
         } else {
             Err(signal(
                 "wrong-type-argument",
@@ -921,30 +921,30 @@ pub(crate) fn builtin_charset_id_internal(args: Vec<Value>) -> EvalResult {
 
 /// Extract an integer from a Value, or return 0 for nil.
 fn int_or_zero(val: &Value) -> i64 {
-    match val {
-        Value::Int(n) => *n,
-        Value::Char(c) => *c as i64,
+    match val.kind() {
+        ValueKind::Fixnum(n) => n,
+        ValueKind::Char(c) => c as i64,
         _ => 0,
     }
 }
 
 /// Extract an optional integer from a Value (nil → None).
 fn opt_int(val: &Value) -> Option<i64> {
-    match val {
-        Value::Int(n) => Some(*n),
-        Value::Char(c) => Some(*c as i64),
-        Value::Nil => None,
+    match val.kind() {
+        ValueKind::Fixnum(n) => Some(n),
+        ValueKind::Char(c) => Some(c as i64),
+        ValueKind::Nil => None,
         _ => None,
     }
 }
 
 /// Decode a code point argument that may be a plain int or a cons (HI . LO).
 fn decode_code_arg(val: &Value) -> i64 {
-    match val {
-        Value::Int(n) => *n,
-        Value::Char(c) => *c as i64,
-        Value::Cons(id) => {
-            let pair = read_cons(*id);
+    match val.kind() {
+        ValueKind::Fixnum(n) => n,
+        ValueKind::Char(c) => c as i64,
+        ValueKind::Cons => {
+            let pair = read_cons(*id);  // TODO(tagged): replace read_cons with cons accessors
             let hi = int_or_zero(&pair.car);
             let lo = int_or_zero(&pair.cdr);
             (hi << 16) | lo
@@ -1005,8 +1005,8 @@ pub(crate) fn builtin_define_charset_internal(args: Vec<Value>) -> EvalResult {
     expect_args("define-charset-internal", &args, 17)?;
 
     // arg[0]: name (symbol)
-    let name = match &args[0] {
-        Value::Symbol(id) => resolve_sym(*id).to_owned(),
+    let name = match args[0].kind() {
+        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1017,12 +1017,12 @@ pub(crate) fn builtin_define_charset_internal(args: Vec<Value>) -> EvalResult {
 
     // arg[1]: dimension (vector or integer — the define-charset macro passes
     //         a vector of the form [dim ...], but we also accept a plain int)
-    let dimension = match &args[1] {
-        Value::Int(n) => *n,
-        Value::Vector(id) => {
+    let dimension = match args[1].kind() {
+        ValueKind::Fixnum(n) => n,
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let vec = with_heap(|h| h.get_vector(*id).clone());
             if vec.is_empty() {
-                return Err(signal("args-out-of-range", vec![args[1], Value::Int(0)]));
+                return Err(signal("args-out-of-range", vec![args[1], ValueKind::Fixnum(0)]));
             }
             int_or_zero(&vec[0])
         }
@@ -1035,8 +1035,8 @@ pub(crate) fn builtin_define_charset_internal(args: Vec<Value>) -> EvalResult {
     };
 
     // arg[2]: code-space (vector of 8 integers — byte ranges per dimension)
-    let code_space = match &args[2] {
-        Value::Vector(id) => {
+    let code_space = match args[2].kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let vec = with_heap(|h| h.get_vector(*id).clone());
             if vec.len() < 2 {
                 return Err(signal(
@@ -1124,10 +1124,10 @@ pub(crate) fn builtin_define_charset_internal(args: Vec<Value>) -> EvalResult {
 
     // arg[15]: unify-map
     // arg[16]: plist
-    let unify_map = match &args[15] {
-        Value::Nil => None,
-        Value::Str(id) => Some(with_heap(|heap| heap.get_string(*id).to_owned())),
-        Value::Symbol(id) | Value::Keyword(id) => Some(resolve_sym(*id).to_string()),
+    let unify_map = match args[15].kind() {
+        ValueKind::Nil => None,
+        ValueKind::String => Some(with_heap(|heap| heap.get_string(*id).to_owned())),
+        ValueKind::Symbol(id) | ValueKind::Keyword(id) => Some(resolve_sym(id).to_string()),
         _ => None,
     };
     let plist = parse_plist(&args[16]);
@@ -1162,7 +1162,7 @@ pub(crate) fn builtin_define_charset_internal(args: Vec<Value>) -> EvalResult {
         reg.register(info);
     });
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// Context-aware variant of `(find-charset-region BEG END &optional TABLE)`.
@@ -1188,7 +1188,7 @@ pub(crate) fn builtin_find_charset_region(
     if beg < point_min || beg > point_max || end < point_min || end > point_max {
         return Err(signal(
             "args-out-of-range",
-            vec![Value::Int(beg), Value::Int(end)],
+            vec![Value::fixnum(beg), Value::fixnum(end)],
         ));
     }
 
@@ -1218,28 +1218,28 @@ pub(crate) fn builtin_find_charset_region(
 pub(crate) fn builtin_encode_big5_char(args: Vec<Value>) -> EvalResult {
     expect_args("encode-big5-char", &args, 1)?;
     let ch = encode_char_input(&args[0])?;
-    Ok(Value::Int(ch))
+    Ok(Value::fixnum(ch))
 }
 
 /// `(decode-big5-char CODE)` -- decode BIG5 code to Emacs character code.
 pub(crate) fn builtin_decode_big5_char(args: Vec<Value>) -> EvalResult {
     expect_args("decode-big5-char", &args, 1)?;
     let code = expect_wholenump(&args[0])?;
-    Ok(Value::Int(code))
+    Ok(Value::fixnum(code))
 }
 
 /// `(encode-sjis-char CH)` -- encode character CH in Shift-JIS space.
 pub(crate) fn builtin_encode_sjis_char(args: Vec<Value>) -> EvalResult {
     expect_args("encode-sjis-char", &args, 1)?;
     let ch = encode_char_input(&args[0])?;
-    Ok(Value::Int(ch))
+    Ok(Value::fixnum(ch))
 }
 
 /// `(decode-sjis-char CODE)` -- decode Shift-JIS code to Emacs character code.
 pub(crate) fn builtin_decode_sjis_char(args: Vec<Value>) -> EvalResult {
     expect_args("decode-sjis-char", &args, 1)?;
     let code = expect_wholenump(&args[0])?;
-    Ok(Value::Int(code))
+    Ok(Value::fixnum(code))
 }
 
 /// `(get-unused-iso-final-char DIMENSION CHARS)` -- return an available ISO
@@ -1271,7 +1271,7 @@ pub(crate) fn builtin_get_unused_iso_final_char(args: Vec<Value>) -> EvalResult 
         (2, 96) | (3, 94) | (3, 96) => 48,
         _ => 48,
     };
-    Ok(Value::Int(final_char))
+    Ok(Value::fixnum(final_char))
 }
 
 /// `(declare-equiv-charset DIMENSION CHARS CH CHARSET)` -- declare an
@@ -1298,18 +1298,18 @@ pub(crate) fn builtin_declare_equiv_charset(args: Vec<Value>) -> EvalResult {
             ))],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(define-charset-alias ALIAS CHARSET)` -- add ALIAS for CHARSET.
 pub(crate) fn builtin_define_charset_alias(args: Vec<Value>) -> EvalResult {
     expect_args("define-charset-alias", &args, 2)?;
     let target = require_known_charset(&args[1])?;
-    if let Value::Symbol(id) = &args[0] {
+    if let Some(id) = &args[0].as_symbol_id() {
         let alias = resolve_sym(*id);
         CHARSET_REGISTRY.with(|slot| slot.borrow_mut().define_alias(alias, &target));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// `(find-charset-string STR &optional TABLE)` -- returns a list of charsets
@@ -1327,7 +1327,7 @@ pub(crate) fn builtin_find_charset_string(args: Vec<Value>) -> EvalResult {
 
     let charsets = classify_string_charsets(s_ref);
     if charsets.is_empty() {
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     } else {
         Ok(Value::list(
             charsets.into_iter().map(Value::symbol).collect::<Vec<_>>(),
@@ -1346,7 +1346,7 @@ pub(crate) fn builtin_decode_char(args: Vec<Value>) -> EvalResult {
 
     let decoded = CHARSET_REGISTRY.with(|slot| slot.borrow().decode_char(&name, code_point));
 
-    Ok(decoded.map_or(Value::Nil, Value::Int))
+    Ok(decoded.map_or(Value::NIL, Value::Int))
 }
 
 /// `(encode-char CH CHARSET)` -- encode CH in CHARSET space.
@@ -1360,7 +1360,7 @@ pub(crate) fn builtin_encode_char(args: Vec<Value>) -> EvalResult {
 
     let encoded = CHARSET_REGISTRY.with(|slot| slot.borrow().encode_char(&name, ch));
 
-    Ok(encoded.map_or(Value::Nil, Value::Int))
+    Ok(encoded.map_or(Value::NIL, Value::Int))
 }
 
 /// `(clear-charset-maps)` -- clear charset-related caches and return nil.
@@ -1369,7 +1369,7 @@ pub(crate) fn builtin_clear_charset_maps(args: Vec<Value>) -> EvalResult {
     if let Ok(mut cache) = charset_map_cache().write() {
         cache.clear();
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// Context-aware variant of `(charset-after &optional POS)`.
@@ -1392,7 +1392,7 @@ pub(crate) fn builtin_charset_after(
         let point_min = buf.point_min_char() as i64 + 1;
         let point_max = buf.point_max_char() as i64 + 1;
         if pos < point_min || pos > point_max {
-            return Ok(Value::Nil);
+            return Ok(Value::NIL);
         }
         buf.text.char_to_byte((pos - 1).max(0) as usize)
     } else {
@@ -1401,11 +1401,11 @@ pub(crate) fn builtin_charset_after(
 
     let point_max_byte = buf.point_max();
     if target_byte >= point_max_byte {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let Some(ch) = buf.char_after(target_byte) else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     let cp = ch as u32;
     let charset = if (RAW_BYTE_SENTINEL_MIN..=RAW_BYTE_SENTINEL_MAX).contains(&cp) {

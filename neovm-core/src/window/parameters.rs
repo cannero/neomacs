@@ -3,7 +3,7 @@ use crate::emacs_core::value::{Value, eq_value};
 
 fn alist_from_parameters(parameters: &[(Value, Value)]) -> Value {
     if parameters.is_empty() {
-        Value::Nil
+        Value::NIL
     } else {
         Value::list(
             parameters
@@ -70,6 +70,6 @@ impl FrameManager {
     pub fn window_parameters_alist(&self, window_id: WindowId) -> Value {
         self.live_window_parameters(window_id)
             .map(alist_from_parameters)
-            .unwrap_or(Value::Nil)
+            .unwrap_or(Value::NIL)
     }
 }

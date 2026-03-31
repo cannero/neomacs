@@ -1,6 +1,7 @@
 use super::super::eval::Context;
 use super::*;
 use crate::emacs_core::builtins::{
+use crate::emacs_core::value::{ValueKind};
     builtin_current_buffer, builtin_get_pos_property, builtin_make_indirect_buffer,
 };
 
@@ -24,8 +25,8 @@ fn put_and_get_text_property() {
     let result = builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(6),
+            Value::fixnum(1),
+            Value::fixnum(6),
             Value::symbol("face"),
             Value::symbol("bold"),
         ],
@@ -33,9 +34,9 @@ fn put_and_get_text_property() {
     assert!(result.is_ok());
 
     // Get at position 3 (1-based, 'l')
-    let result = builtin_get_text_property(&mut eval, vec![Value::Int(3), Value::symbol("face")]);
+    let result = builtin_get_text_property(&mut eval, vec![Value::fixnum(3), Value::symbol("face")]);
     match result {
-        Ok(Value::Symbol(id)) => assert_eq!(resolve_sym(id), "bold"),
+        Ok(ValueKind::Symbol(id)) => assert_eq!(resolve_sym(id), "bold"),
         other => panic!("Expected Symbol(bold), got {:?}", other),
     }
 }
@@ -43,8 +44,8 @@ fn put_and_get_text_property() {
 #[test]
 fn get_text_property_returns_nil_when_absent() {
     let mut eval = eval_with_text("hello");
-    let result = builtin_get_text_property(&mut eval, vec![Value::Int(1), Value::symbol("face")]);
-    assert!(matches!(result, Ok(Value::Nil)));
+    let result = builtin_get_text_property(&mut eval, vec![Value::fixnum(1), Value::symbol("face")]);
+    assert!(matches!(result, Ok(Value::NIL)));
 }
 
 #[test]
@@ -53,8 +54,8 @@ fn put_text_property_outside_range() {
     builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(3),
+            Value::fixnum(1),
+            Value::fixnum(3),
             Value::symbol("face"),
             Value::symbol("bold"),
         ],
@@ -62,8 +63,8 @@ fn put_text_property_outside_range() {
     .unwrap();
 
     // Position 4 is outside the propertized range.
-    let result = builtin_get_text_property(&mut eval, vec![Value::Int(4), Value::symbol("face")]);
-    assert!(matches!(result, Ok(Value::Nil)));
+    let result = builtin_get_text_property(&mut eval, vec![Value::fixnum(4), Value::symbol("face")]);
+    assert!(matches!(result, Ok(Value::NIL)));
 }
 
 #[test]
@@ -77,8 +78,8 @@ fn indirect_buffers_share_text_property_updates() {
     builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(6),
+            Value::fixnum(1),
+            Value::fixnum(6),
             Value::symbol("face"),
             Value::symbol("bold"),
             base,
@@ -88,24 +89,24 @@ fn indirect_buffers_share_text_property_updates() {
 
     let via_indirect = builtin_get_text_property(
         &mut eval,
-        vec![Value::Int(3), Value::symbol("face"), indirect],
+        vec![Value::fixnum(3), Value::symbol("face"), indirect],
     )
     .unwrap();
-    assert!(matches!(via_indirect, Value::Symbol(id) if resolve_sym(id) == "bold"));
+    assert!(via_indirect.is_symbol_named("bold"));
 
     builtin_remove_text_properties(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(6),
-            Value::list(vec![Value::symbol("face"), Value::Nil]),
+            Value::fixnum(1),
+            Value::fixnum(6),
+            Value::list(vec![Value::symbol("face"), Value::NIL]),
             indirect,
         ],
     )
     .unwrap();
 
     let via_base =
-        builtin_get_text_property(&mut eval, vec![Value::Int(3), Value::symbol("face"), base])
+        builtin_get_text_property(&mut eval, vec![Value::fixnum(3), Value::symbol("face"), base])
             .unwrap();
     assert!(via_base.is_nil());
 }
@@ -120,8 +121,8 @@ fn get_char_property_delegates() {
     builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(2),
-            Value::Int(5),
+            Value::fixnum(2),
+            Value::fixnum(5),
             Value::symbol("help-echo"),
             Value::string("tooltip"),
         ],
@@ -129,8 +130,8 @@ fn get_char_property_delegates() {
     .unwrap();
 
     let result =
-        builtin_get_char_property(&mut eval, vec![Value::Int(3), Value::symbol("help-echo")]);
-    assert!(matches!(result, Ok(Value::Str(_))));
+        builtin_get_char_property(&mut eval, vec![Value::fixnum(3), Value::symbol("help-echo")]);
+    assert!(matches!(result, Ok(Value::Str(_) /* TODO(tagged): convert Value::Str to new API */)));
 }
 
 #[test]
@@ -138,31 +139,31 @@ fn get_char_property_and_overlay_shape() {
     let mut eval = eval_with_text("abcd");
     let result = builtin_get_char_property_and_overlay(
         &mut eval,
-        vec![Value::Int(2), Value::symbol("missing")],
+        vec![Value::fixnum(2), Value::symbol("missing")],
     )
     .unwrap();
     let pair = list_to_vec(&result).unwrap();
-    assert_eq!(pair, vec![Value::Nil]);
+    assert_eq!(pair, vec![Value::NIL]);
 
-    let ov = builtin_make_overlay(&mut eval, vec![Value::Int(2), Value::Int(4)]).unwrap();
+    let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(2), Value::fixnum(4)]).unwrap();
     builtin_overlay_put(
         &mut eval,
         vec![ov, Value::symbol("foo"), Value::symbol("bar")],
     )
     .unwrap();
     let result =
-        builtin_get_char_property_and_overlay(&mut eval, vec![Value::Int(3), Value::symbol("foo")])
+        builtin_get_char_property_and_overlay(&mut eval, vec![Value::fixnum(3), Value::symbol("foo")])
             .unwrap();
-    let Value::Cons(cell) = result else {
+    if !result.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
         panic!("expected cons");
     };
     let (value, overlay) = {
-        let pair = read_cons(cell);
+        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
         (pair.car, pair.cdr)
     };
-    assert!(matches!(value, Value::Symbol(id) if resolve_sym(id) == "bar"));
+    assert!(value.is_symbol_named("bar"));
     let overlayp = builtin_overlayp(&mut eval, vec![overlay]).unwrap();
-    assert!(matches!(overlayp, Value::True));
+    assert!(overlayp.is_t());
 }
 
 #[test]
@@ -171,8 +172,8 @@ fn get_char_property_prefers_highest_priority_overlay() {
     builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(2),
-            Value::Int(3),
+            Value::fixnum(2),
+            Value::fixnum(3),
             Value::symbol("face"),
             Value::symbol("text"),
         ],
@@ -182,22 +183,22 @@ fn get_char_property_prefers_highest_priority_overlay() {
     let low = builtin_make_overlay(
         &mut eval,
         vec![
-            Value::Int(2),
-            Value::Int(4),
-            Value::Nil,
-            Value::True,
-            Value::Nil,
+            Value::fixnum(2),
+            Value::fixnum(4),
+            Value::NIL,
+            Value::T,
+            Value::NIL,
         ],
     )
     .unwrap();
     let high = builtin_make_overlay(
         &mut eval,
         vec![
-            Value::Int(2),
-            Value::Int(4),
-            Value::Nil,
-            Value::True,
-            Value::Nil,
+            Value::fixnum(2),
+            Value::fixnum(4),
+            Value::NIL,
+            Value::T,
+            Value::NIL,
         ],
     )
     .unwrap();
@@ -209,7 +210,7 @@ fn get_char_property_prefers_highest_priority_overlay() {
     .unwrap();
     builtin_overlay_put(
         &mut eval,
-        vec![low, Value::symbol("priority"), Value::Int(1)],
+        vec![low, Value::symbol("priority"), Value::fixnum(1)],
     )
     .unwrap();
     builtin_overlay_put(
@@ -222,24 +223,24 @@ fn get_char_property_prefers_highest_priority_overlay() {
         vec![
             high,
             Value::symbol("priority"),
-            Value::cons(Value::Int(10), Value::Int(0)),
+            Value::cons(Value::fixnum(10), Value::fixnum(0)),
         ],
     )
     .unwrap();
 
     let char_prop =
-        builtin_get_char_property(&mut eval, vec![Value::Int(2), Value::symbol("face")]).unwrap();
+        builtin_get_char_property(&mut eval, vec![Value::fixnum(2), Value::symbol("face")]).unwrap();
     assert_eq!(char_prop.as_symbol_name(), Some("high"));
 
     let pair = builtin_get_char_property_and_overlay(
         &mut eval,
-        vec![Value::Int(2), Value::symbol("face")],
+        vec![Value::fixnum(2), Value::symbol("face")],
     )
     .unwrap();
-    let Value::Cons(cell) = pair else {
+    if !pair.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
         panic!("expected cons");
     };
-    let pair = read_cons(cell);
+    let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
     assert_eq!(pair.car.as_symbol_name(), Some("high"));
     assert_eq!(pair.cdr, high);
 }
@@ -251,8 +252,8 @@ fn get_pos_property_respects_overlay_advance_and_text_stickiness() {
     builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(2),
+            Value::fixnum(1),
+            Value::fixnum(2),
             Value::symbol("carry"),
             Value::symbol("before"),
         ],
@@ -261,8 +262,8 @@ fn get_pos_property_respects_overlay_advance_and_text_stickiness() {
     builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(2),
+            Value::fixnum(1),
+            Value::fixnum(2),
             Value::symbol("rear-nonsticky"),
             Value::list(vec![Value::symbol("carry")]),
         ],
@@ -271,8 +272,8 @@ fn get_pos_property_respects_overlay_advance_and_text_stickiness() {
     builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(2),
-            Value::Int(3),
+            Value::fixnum(2),
+            Value::fixnum(3),
             Value::symbol("carry"),
             Value::symbol("after"),
         ],
@@ -281,8 +282,8 @@ fn get_pos_property_respects_overlay_advance_and_text_stickiness() {
     builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(2),
-            Value::Int(3),
+            Value::fixnum(2),
+            Value::fixnum(3),
             Value::symbol("front-sticky"),
             Value::list(vec![Value::symbol("carry")]),
         ],
@@ -291,8 +292,8 @@ fn get_pos_property_respects_overlay_advance_and_text_stickiness() {
     builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(2),
-            Value::Int(3),
+            Value::fixnum(2),
+            Value::fixnum(3),
             Value::symbol("face"),
             Value::symbol("text"),
         ],
@@ -302,22 +303,22 @@ fn get_pos_property_respects_overlay_advance_and_text_stickiness() {
     let low = builtin_make_overlay(
         &mut eval,
         vec![
-            Value::Int(2),
-            Value::Int(4),
-            Value::Nil,
-            Value::True,
-            Value::Nil,
+            Value::fixnum(2),
+            Value::fixnum(4),
+            Value::NIL,
+            Value::T,
+            Value::NIL,
         ],
     )
     .unwrap();
     let high = builtin_make_overlay(
         &mut eval,
         vec![
-            Value::Int(2),
-            Value::Int(4),
-            Value::Nil,
-            Value::True,
-            Value::Nil,
+            Value::fixnum(2),
+            Value::fixnum(4),
+            Value::NIL,
+            Value::T,
+            Value::NIL,
         ],
     )
     .unwrap();
@@ -328,7 +329,7 @@ fn get_pos_property_respects_overlay_advance_and_text_stickiness() {
     .unwrap();
     builtin_overlay_put(
         &mut eval,
-        vec![low, Value::symbol("priority"), Value::Int(1)],
+        vec![low, Value::symbol("priority"), Value::fixnum(1)],
     )
     .unwrap();
     builtin_overlay_put(
@@ -338,20 +339,20 @@ fn get_pos_property_respects_overlay_advance_and_text_stickiness() {
     .unwrap();
     builtin_overlay_put(
         &mut eval,
-        vec![high, Value::symbol("priority"), Value::Int(10)],
+        vec![high, Value::symbol("priority"), Value::fixnum(10)],
     )
     .unwrap();
 
     let start_face =
-        builtin_get_pos_property(&mut eval, vec![Value::Int(2), Value::symbol("face")]).unwrap();
+        builtin_get_pos_property(&mut eval, vec![Value::fixnum(2), Value::symbol("face")]).unwrap();
     assert!(start_face.is_nil());
 
     let carry =
-        builtin_get_pos_property(&mut eval, vec![Value::Int(2), Value::symbol("carry")]).unwrap();
+        builtin_get_pos_property(&mut eval, vec![Value::fixnum(2), Value::symbol("carry")]).unwrap();
     assert_eq!(carry.as_symbol_name(), Some("after"));
 
     let inside_face =
-        builtin_get_pos_property(&mut eval, vec![Value::Int(3), Value::symbol("face")]).unwrap();
+        builtin_get_pos_property(&mut eval, vec![Value::fixnum(3), Value::symbol("face")]).unwrap();
     assert_eq!(inside_face.as_symbol_name(), Some("high"));
 }
 
@@ -362,8 +363,8 @@ fn get_pos_property_on_string_delegates_to_text_property() {
     builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(2),
-            Value::Int(4),
+            Value::fixnum(2),
+            Value::fixnum(4),
             Value::symbol("face"),
             Value::symbol("bold"),
             string,
@@ -373,7 +374,7 @@ fn get_pos_property_on_string_delegates_to_text_property() {
 
     let result = builtin_get_pos_property(
         &mut eval,
-        vec![Value::Int(3), Value::symbol("face"), string],
+        vec![Value::fixnum(3), Value::symbol("face"), string],
     )
     .unwrap();
     assert_eq!(result.as_symbol_name(), Some("bold"));
@@ -385,8 +386,8 @@ fn get_display_property_queries_display_only() {
     builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(2),
-            Value::Int(4),
+            Value::fixnum(2),
+            Value::fixnum(4),
             Value::symbol("p"),
             Value::symbol("v"),
         ],
@@ -395,8 +396,8 @@ fn get_display_property_queries_display_only() {
     builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(2),
-            Value::Int(4),
+            Value::fixnum(2),
+            Value::fixnum(4),
             Value::symbol("display"),
             Value::symbol("dv"),
         ],
@@ -404,7 +405,7 @@ fn get_display_property_queries_display_only() {
     .unwrap();
     let non_display = builtin_get_display_property(
         &mut eval,
-        vec![Value::Int(2), Value::symbol("p"), Value::Nil, Value::Nil],
+        vec![Value::fixnum(2), Value::symbol("p"), Value::NIL, Value::NIL],
     )
     .unwrap();
     assert!(non_display.is_nil());
@@ -412,14 +413,14 @@ fn get_display_property_queries_display_only() {
     let display = builtin_get_display_property(
         &mut eval,
         vec![
-            Value::Int(2),
+            Value::fixnum(2),
             Value::symbol("display"),
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
         ],
     )
     .unwrap();
-    assert!(matches!(display, Value::Symbol(id) if resolve_sym(id) == "dv"));
+    assert!(display.is_symbol_named("dv"));
 }
 
 // -----------------------------------------------------------------------
@@ -435,24 +436,24 @@ fn add_text_properties_multiple() {
         Value::symbol("mouse-face"),
         Value::symbol("highlight"),
     ]);
-    let result = builtin_add_text_properties(&mut eval, vec![Value::Int(1), Value::Int(6), props]);
+    let result = builtin_add_text_properties(&mut eval, vec![Value::fixnum(1), Value::fixnum(6), props]);
     assert!(result.is_ok());
 
     let face =
-        builtin_get_text_property(&mut eval, vec![Value::Int(2), Value::symbol("face")]).unwrap();
-    assert!(matches!(face, Value::Symbol(id) if resolve_sym(id) == "bold"));
+        builtin_get_text_property(&mut eval, vec![Value::fixnum(2), Value::symbol("face")]).unwrap();
+    assert!(face.is_symbol_named("bold"));
 
     let mouse =
-        builtin_get_text_property(&mut eval, vec![Value::Int(2), Value::symbol("mouse-face")])
+        builtin_get_text_property(&mut eval, vec![Value::fixnum(2), Value::symbol("mouse-face")])
             .unwrap();
-    assert!(matches!(mouse, Value::Symbol(id) if resolve_sym(id) == "highlight"));
+    assert!(mouse.is_symbol_named("highlight"));
 }
 
 #[test]
 fn add_text_properties_odd_plist_signals_error() {
     let mut eval = eval_with_text("hello");
     let props = Value::list(vec![Value::symbol("face")]);
-    let result = builtin_add_text_properties(&mut eval, vec![Value::Int(1), Value::Int(3), props]);
+    let result = builtin_add_text_properties(&mut eval, vec![Value::fixnum(1), Value::fixnum(3), props]);
     assert!(result.is_err());
 }
 
@@ -461,19 +462,19 @@ fn add_face_text_property_basic_and_merge_order() {
     let mut eval = eval_with_text("abc");
     builtin_add_face_text_property(
         &mut eval,
-        vec![Value::Int(1), Value::Int(3), Value::symbol("bold")],
+        vec![Value::fixnum(1), Value::fixnum(3), Value::symbol("bold")],
     )
     .unwrap();
     let face =
-        builtin_get_text_property(&mut eval, vec![Value::Int(2), Value::symbol("face")]).unwrap();
+        builtin_get_text_property(&mut eval, vec![Value::fixnum(2), Value::symbol("face")]).unwrap();
     assert_eq!(face, Value::symbol("bold"));
 
     let mut eval = eval_with_text("abc");
     builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(2),
+            Value::fixnum(1),
+            Value::fixnum(2),
             Value::symbol("face"),
             Value::symbol("italic"),
         ],
@@ -482,15 +483,15 @@ fn add_face_text_property_basic_and_merge_order() {
     builtin_add_face_text_property(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(2),
+            Value::fixnum(1),
+            Value::fixnum(2),
             Value::symbol("bold"),
-            Value::True,
+            Value::T,
         ],
     )
     .unwrap();
     let appended =
-        builtin_get_text_property(&mut eval, vec![Value::Int(1), Value::symbol("face")]).unwrap();
+        builtin_get_text_property(&mut eval, vec![Value::fixnum(1), Value::symbol("face")]).unwrap();
     assert_eq!(
         appended,
         Value::list(vec![Value::symbol("italic"), Value::symbol("bold")])
@@ -500,8 +501,8 @@ fn add_face_text_property_basic_and_merge_order() {
     builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(2),
+            Value::fixnum(1),
+            Value::fixnum(2),
             Value::symbol("face"),
             Value::symbol("italic"),
         ],
@@ -510,15 +511,15 @@ fn add_face_text_property_basic_and_merge_order() {
     builtin_add_face_text_property(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(2),
+            Value::fixnum(1),
+            Value::fixnum(2),
             Value::symbol("bold"),
-            Value::Nil,
+            Value::NIL,
         ],
     )
     .unwrap();
     let prepended =
-        builtin_get_text_property(&mut eval, vec![Value::Int(1), Value::symbol("face")]).unwrap();
+        builtin_get_text_property(&mut eval, vec![Value::fixnum(1), Value::symbol("face")]).unwrap();
     assert_eq!(
         prepended,
         Value::list(vec![Value::symbol("bold"), Value::symbol("italic")])
@@ -531,7 +532,7 @@ fn add_face_text_property_argument_contracts() {
 
     let begin_err = builtin_add_face_text_property(
         &mut eval,
-        vec![Value::string("1"), Value::Int(2), Value::symbol("bold")],
+        vec![Value::string("1"), Value::fixnum(2), Value::symbol("bold")],
     )
     .unwrap_err();
     match begin_err {
@@ -548,11 +549,11 @@ fn add_face_text_property_argument_contracts() {
     let object_err = builtin_add_face_text_property(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(2),
+            Value::fixnum(1),
+            Value::fixnum(2),
             Value::symbol("bold"),
-            Value::Nil,
-            Value::True,
+            Value::NIL,
+            Value::T,
         ],
     )
     .unwrap_err();
@@ -561,7 +562,7 @@ fn add_face_text_property_argument_contracts() {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("buffer-or-string-p"), Value::True]
+                vec![Value::symbol("buffer-or-string-p"), ValueKind::T]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -570,10 +571,10 @@ fn add_face_text_property_argument_contracts() {
     let string_obj = builtin_add_face_text_property(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(2),
+            Value::fixnum(1),
+            Value::fixnum(2),
             Value::symbol("bold"),
-            Value::Nil,
+            Value::NIL,
             Value::string("abc"),
         ],
     )
@@ -591,19 +592,19 @@ fn remove_text_properties_basic() {
     builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(6),
+            Value::fixnum(1),
+            Value::fixnum(6),
             Value::symbol("face"),
             Value::symbol("bold"),
         ],
     )
     .unwrap();
 
-    let props = Value::list(vec![Value::symbol("face"), Value::Nil]);
-    builtin_remove_text_properties(&mut eval, vec![Value::Int(1), Value::Int(6), props]).unwrap();
+    let props = Value::list(vec![Value::symbol("face"), Value::NIL]);
+    builtin_remove_text_properties(&mut eval, vec![Value::fixnum(1), Value::fixnum(6), props]).unwrap();
 
-    let result = builtin_get_text_property(&mut eval, vec![Value::Int(3), Value::symbol("face")]);
-    assert!(matches!(result, Ok(Value::Nil)));
+    let result = builtin_get_text_property(&mut eval, vec![Value::fixnum(3), Value::symbol("face")]);
+    assert!(matches!(result, Ok(Value::NIL)));
 }
 
 #[test]
@@ -612,8 +613,8 @@ fn set_text_properties_replaces_existing_values() {
     builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(2),
-            Value::Int(4),
+            Value::fixnum(2),
+            Value::fixnum(4),
             Value::symbol("p"),
             Value::symbol("v"),
         ],
@@ -623,17 +624,17 @@ fn set_text_properties_replaces_existing_values() {
     let result = builtin_set_text_properties(
         &mut eval,
         vec![
-            Value::Int(2),
-            Value::Int(4),
+            Value::fixnum(2),
+            Value::fixnum(4),
             Value::list(vec![Value::symbol("q"), Value::symbol("z")]),
         ],
     )
     .unwrap();
-    assert!(matches!(result, Value::True));
+    assert!(result.is_t());
 
-    let q = builtin_get_text_property(&mut eval, vec![Value::Int(2), Value::symbol("q")]).unwrap();
-    let p = builtin_get_text_property(&mut eval, vec![Value::Int(2), Value::symbol("p")]).unwrap();
-    assert!(matches!(q, Value::Symbol(id) if resolve_sym(id) == "z"));
+    let q = builtin_get_text_property(&mut eval, vec![Value::fixnum(2), Value::symbol("q")]).unwrap();
+    let p = builtin_get_text_property(&mut eval, vec![Value::fixnum(2), Value::symbol("p")]).unwrap();
+    assert!(q.is_symbol_named("z"));
     assert!(p.is_nil());
 }
 
@@ -643,8 +644,8 @@ fn remove_list_of_text_properties_returns_t_only_when_changed() {
     builtin_set_text_properties(
         &mut eval,
         vec![
-            Value::Int(2),
-            Value::Int(4),
+            Value::fixnum(2),
+            Value::fixnum(4),
             Value::list(vec![Value::symbol("q"), Value::symbol("z")]),
         ],
     )
@@ -653,8 +654,8 @@ fn remove_list_of_text_properties_returns_t_only_when_changed() {
     let first = builtin_remove_list_of_text_properties(
         &mut eval,
         vec![
-            Value::Int(2),
-            Value::Int(4),
+            Value::fixnum(2),
+            Value::fixnum(4),
             Value::list(vec![Value::symbol("q")]),
         ],
     )
@@ -662,13 +663,13 @@ fn remove_list_of_text_properties_returns_t_only_when_changed() {
     let second = builtin_remove_list_of_text_properties(
         &mut eval,
         vec![
-            Value::Int(2),
-            Value::Int(4),
+            Value::fixnum(2),
+            Value::fixnum(4),
             Value::list(vec![Value::symbol("q")]),
         ],
     )
     .unwrap();
-    assert!(matches!(first, Value::True));
+    assert!(first.is_t());
     assert!(second.is_nil());
 }
 
@@ -682,15 +683,15 @@ fn text_properties_at_returns_plist() {
     builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(6),
+            Value::fixnum(1),
+            Value::fixnum(6),
             Value::symbol("face"),
             Value::symbol("bold"),
         ],
     )
     .unwrap();
 
-    let result = builtin_text_properties_at(&mut eval, vec![Value::Int(2)]).unwrap();
+    let result = builtin_text_properties_at(&mut eval, vec![Value::fixnum(2)]).unwrap();
     // Should be a plist with at least 'face 'bold.
     let items = list_to_vec(&result).unwrap();
     assert!(items.len() >= 2);
@@ -699,7 +700,7 @@ fn text_properties_at_returns_plist() {
 #[test]
 fn text_properties_at_empty_returns_nil() {
     let mut eval = eval_with_text("hello");
-    let result = builtin_text_properties_at(&mut eval, vec![Value::Int(1)]).unwrap();
+    let result = builtin_text_properties_at(&mut eval, vec![Value::fixnum(1)]).unwrap();
     // Empty plist is nil.
     assert!(result.is_nil());
 }
@@ -714,8 +715,8 @@ fn next_property_change_basic() {
     builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(6),
+            Value::fixnum(1),
+            Value::fixnum(6),
             Value::symbol("face"),
             Value::symbol("bold"),
         ],
@@ -723,8 +724,8 @@ fn next_property_change_basic() {
     .unwrap();
 
     // From position 1, next change should be at position 6.
-    let result = builtin_next_property_change(&mut eval, vec![Value::Int(1)]).unwrap();
-    assert!(matches!(result, Value::Int(6)));
+    let result = builtin_next_property_change(&mut eval, vec![Value::fixnum(1)]).unwrap();
+    assert!(matches!(result, Value::fixnum(6)));
 }
 
 #[test]
@@ -733,8 +734,8 @@ fn next_property_change_with_limit() {
     builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(6),
+            Value::fixnum(1),
+            Value::fixnum(6),
             Value::symbol("face"),
             Value::symbol("bold"),
         ],
@@ -743,16 +744,16 @@ fn next_property_change_with_limit() {
 
     // Limit at 4 — the actual change is at 6, so should return 4.
     let result =
-        builtin_next_property_change(&mut eval, vec![Value::Int(1), Value::Nil, Value::Int(4)])
+        builtin_next_property_change(&mut eval, vec![Value::fixnum(1), Value::NIL, Value::fixnum(4)])
             .unwrap();
-    assert!(matches!(result, Value::Int(4)));
+    assert!(matches!(result, Value::fixnum(4)));
 }
 
 #[test]
 fn next_property_change_no_change() {
     let mut eval = eval_with_text("hello");
-    let result = builtin_next_property_change(&mut eval, vec![Value::Int(1)]).unwrap();
-    assert!(matches!(result, Value::Nil));
+    let result = builtin_next_property_change(&mut eval, vec![Value::fixnum(1)]).unwrap();
+    assert!(result.is_nil());
 }
 
 // -----------------------------------------------------------------------
@@ -765,8 +766,8 @@ fn next_single_property_change_basic() {
     builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(6),
+            Value::fixnum(1),
+            Value::fixnum(6),
             Value::symbol("face"),
             Value::symbol("bold"),
         ],
@@ -774,18 +775,18 @@ fn next_single_property_change_basic() {
     .unwrap();
 
     let result =
-        builtin_next_single_property_change(&mut eval, vec![Value::Int(1), Value::symbol("face")])
+        builtin_next_single_property_change(&mut eval, vec![Value::fixnum(1), Value::symbol("face")])
             .unwrap();
-    assert!(matches!(result, Value::Int(6)));
+    assert!(matches!(result, Value::fixnum(6)));
 }
 
 #[test]
 fn next_single_property_change_nil_when_none() {
     let mut eval = eval_with_text("hello");
     let result =
-        builtin_next_single_property_change(&mut eval, vec![Value::Int(1), Value::symbol("face")])
+        builtin_next_single_property_change(&mut eval, vec![Value::fixnum(1), Value::symbol("face")])
             .unwrap();
-    assert!(matches!(result, Value::Nil));
+    assert!(result.is_nil());
 }
 
 // -----------------------------------------------------------------------
@@ -798,8 +799,8 @@ fn previous_single_property_change_basic() {
     builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(6),
+            Value::fixnum(1),
+            Value::fixnum(6),
             Value::symbol("face"),
             Value::symbol("bold"),
         ],
@@ -809,10 +810,10 @@ fn previous_single_property_change_basic() {
     // From position 8 (past the propertized region), looking backward for 'face change.
     let result = builtin_previous_single_property_change(
         &mut eval,
-        vec![Value::Int(8), Value::symbol("face")],
+        vec![Value::fixnum(8), Value::symbol("face")],
     )
     .unwrap();
-    assert!(matches!(result, Value::Int(6)));
+    assert!(matches!(result, Value::fixnum(6)));
 }
 
 #[test]
@@ -821,8 +822,8 @@ fn previous_single_property_change_from_interval_end_boundary() {
     builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(2),
-            Value::Int(4),
+            Value::fixnum(2),
+            Value::fixnum(4),
             Value::symbol("p"),
             Value::symbol("v"),
         ],
@@ -830,9 +831,9 @@ fn previous_single_property_change_from_interval_end_boundary() {
     .unwrap();
 
     let result =
-        builtin_previous_single_property_change(&mut eval, vec![Value::Int(4), Value::symbol("p")])
+        builtin_previous_single_property_change(&mut eval, vec![Value::fixnum(4), Value::symbol("p")])
             .unwrap();
-    assert!(matches!(result, Value::Int(2)));
+    assert!(matches!(result, Value::fixnum(2)));
 }
 
 // -----------------------------------------------------------------------
@@ -845,8 +846,8 @@ fn text_property_any_found() {
     builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(3),
-            Value::Int(6),
+            Value::fixnum(3),
+            Value::fixnum(6),
             Value::symbol("face"),
             Value::symbol("bold"),
         ],
@@ -856,15 +857,15 @@ fn text_property_any_found() {
     let result = builtin_text_property_any(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(10),
+            Value::fixnum(1),
+            Value::fixnum(10),
             Value::symbol("face"),
             Value::symbol("bold"),
         ],
     )
     .unwrap();
     // Should find it at position 3.
-    assert!(matches!(result, Value::Int(3)));
+    assert!(matches!(result, Value::fixnum(3)));
 }
 
 #[test]
@@ -873,14 +874,14 @@ fn text_property_any_not_found() {
     let result = builtin_text_property_any(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(6),
+            Value::fixnum(1),
+            Value::fixnum(6),
             Value::symbol("face"),
             Value::symbol("bold"),
         ],
     )
     .unwrap();
-    assert!(matches!(result, Value::Nil));
+    assert!(result.is_nil());
 }
 
 #[test]
@@ -902,7 +903,7 @@ fn text_property_any_uses_live_marker_end_after_insertions() {
         .last()
         .expect("one form")
         .expect("evaluation succeeds");
-    assert_eq!(result, Value::Int(4));
+    assert_eq!(result, Value::fixnum(4));
 }
 
 #[test]
@@ -911,8 +912,8 @@ fn text_property_not_all_reports_first_mismatch() {
     builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(2),
-            Value::Int(4),
+            Value::fixnum(2),
+            Value::fixnum(4),
             Value::symbol("p"),
             Value::symbol("v"),
         ],
@@ -922,8 +923,8 @@ fn text_property_not_all_reports_first_mismatch() {
     let mismatch = builtin_text_property_not_all(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(5),
+            Value::fixnum(1),
+            Value::fixnum(5),
             Value::symbol("p"),
             Value::symbol("v"),
         ],
@@ -932,14 +933,14 @@ fn text_property_not_all_reports_first_mismatch() {
     let no_mismatch = builtin_text_property_not_all(
         &mut eval,
         vec![
-            Value::Int(2),
-            Value::Int(4),
+            Value::fixnum(2),
+            Value::fixnum(4),
             Value::symbol("p"),
             Value::symbol("v"),
         ],
     )
     .unwrap();
-    assert!(matches!(mismatch, Value::Int(1)));
+    assert!(matches!(mismatch, Value::fixnum(1)));
     assert!(no_mismatch.is_nil());
 }
 
@@ -950,9 +951,9 @@ fn text_property_not_all_reports_first_mismatch() {
 #[test]
 fn make_and_delete_overlay() {
     let mut eval = eval_with_text("hello world");
-    let ov = builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(6)]).unwrap();
+    let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
 
-    assert!(matches!(ov, Value::Overlay(_)));
+    assert!(matches!(ov, Value::Overlay(_) /* TODO(tagged): convert Value::Overlay to new API */));
 
     // Delete it.
     let result = builtin_delete_overlay(&mut eval, vec![ov]);
@@ -966,7 +967,7 @@ fn make_and_delete_overlay() {
 #[test]
 fn overlay_put_and_get() {
     let mut eval = eval_with_text("hello");
-    let ov = builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(6)]).unwrap();
+    let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
 
     builtin_overlay_put(
         &mut eval,
@@ -975,13 +976,13 @@ fn overlay_put_and_get() {
     .unwrap();
 
     let result = builtin_overlay_get(&mut eval, vec![ov, Value::symbol("face")]).unwrap();
-    assert!(matches!(result, Value::Symbol(id) if resolve_sym(id) == "bold"));
+    assert!(result.is_symbol_named("bold"));
 }
 
 #[test]
 fn deleted_overlay_preserves_plist_and_identity() {
     let mut eval = eval_with_text("hello");
-    let ov = builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(3)]).unwrap();
+    let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(3)]).unwrap();
 
     builtin_overlay_put(
         &mut eval,
@@ -991,7 +992,7 @@ fn deleted_overlay_preserves_plist_and_identity() {
     builtin_delete_overlay(&mut eval, vec![ov]).unwrap();
 
     let overlayp = builtin_overlayp(&mut eval, vec![ov]).unwrap();
-    assert!(matches!(overlayp, Value::True));
+    assert!(overlayp.is_t());
 
     let face = builtin_overlay_get(&mut eval, vec![ov, Value::symbol("face")]).unwrap();
     assert_eq!(face.as_symbol_name(), Some("bold"));
@@ -1013,10 +1014,10 @@ fn deleted_overlay_preserves_plist_and_identity() {
 #[test]
 fn overlay_get_absent_property() {
     let mut eval = eval_with_text("hello");
-    let ov = builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(6)]).unwrap();
+    let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
 
     let result = builtin_overlay_get(&mut eval, vec![ov, Value::symbol("missing")]).unwrap();
-    assert!(matches!(result, Value::Nil));
+    assert!(result.is_nil());
 }
 
 // -----------------------------------------------------------------------
@@ -1026,17 +1027,17 @@ fn overlay_get_absent_property() {
 #[test]
 fn overlayp_true() {
     let mut eval = eval_with_text("hello");
-    let ov = builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(6)]).unwrap();
+    let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
 
     let result = builtin_overlayp(&mut eval, vec![ov]).unwrap();
-    assert!(matches!(result, Value::True));
+    assert!(result.is_t());
 }
 
 #[test]
 fn overlayp_false() {
     let mut eval = Context::new();
-    let result = builtin_overlayp(&mut eval, vec![Value::Int(42)]).unwrap();
-    assert!(matches!(result, Value::Nil));
+    let result = builtin_overlayp(&mut eval, vec![Value::fixnum(42)]).unwrap();
+    assert!(result.is_nil());
 }
 
 // -----------------------------------------------------------------------
@@ -1046,9 +1047,9 @@ fn overlayp_false() {
 #[test]
 fn overlays_at_finds_overlay() {
     let mut eval = eval_with_text("hello world");
-    let _ov = builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(6)]).unwrap();
+    let _ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
 
-    let result = builtin_overlays_at(&mut eval, vec![Value::Int(3)]).unwrap();
+    let result = builtin_overlays_at(&mut eval, vec![Value::fixnum(3)]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 1);
 }
@@ -1056,9 +1057,9 @@ fn overlays_at_finds_overlay() {
 #[test]
 fn overlays_at_outside() {
     let mut eval = eval_with_text("hello world");
-    let _ov = builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(3)]).unwrap();
+    let _ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(3)]).unwrap();
 
-    let result = builtin_overlays_at(&mut eval, vec![Value::Int(5)]).unwrap();
+    let result = builtin_overlays_at(&mut eval, vec![Value::fixnum(5)]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 0);
 }
@@ -1066,22 +1067,22 @@ fn overlays_at_outside() {
 #[test]
 fn overlays_at_sorted_returns_highest_priority_first() {
     let mut eval = eval_with_text("hello world");
-    let low = builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(6)]).unwrap();
-    let high = builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(6)]).unwrap();
-    let nil_priority = builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(6)]).unwrap();
+    let low = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
+    let high = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
+    let nil_priority = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
 
     builtin_overlay_put(
         &mut eval,
-        vec![low, Value::symbol("priority"), Value::Int(1)],
+        vec![low, Value::symbol("priority"), Value::fixnum(1)],
     )
     .unwrap();
     builtin_overlay_put(
         &mut eval,
-        vec![high, Value::symbol("priority"), Value::Int(10)],
+        vec![high, Value::symbol("priority"), Value::fixnum(10)],
     )
     .unwrap();
 
-    let result = builtin_overlays_at(&mut eval, vec![Value::Int(3), Value::True]).unwrap();
+    let result = builtin_overlays_at(&mut eval, vec![Value::fixnum(3), Value::T]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items, vec![high, low, nil_priority]);
 }
@@ -1089,10 +1090,10 @@ fn overlays_at_sorted_returns_highest_priority_first() {
 #[test]
 fn overlays_in_basic() {
     let mut eval = eval_with_text("hello world");
-    builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(6)]).unwrap();
-    builtin_make_overlay(&mut eval, vec![Value::Int(4), Value::Int(10)]).unwrap();
+    builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
+    builtin_make_overlay(&mut eval, vec![Value::fixnum(4), Value::fixnum(10)]).unwrap();
 
-    let result = builtin_overlays_in(&mut eval, vec![Value::Int(1), Value::Int(12)]).unwrap();
+    let result = builtin_overlays_in(&mut eval, vec![Value::fixnum(1), Value::fixnum(12)]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 2);
 }
@@ -1100,20 +1101,20 @@ fn overlays_in_basic() {
 #[test]
 fn next_previous_overlay_change_boundaries() {
     let mut eval = eval_with_text("abcd");
-    let no_overlay_next = builtin_next_overlay_change(&mut eval, vec![Value::Int(1)]).unwrap();
-    let no_overlay_prev = builtin_previous_overlay_change(&mut eval, vec![Value::Int(4)]).unwrap();
-    assert!(matches!(no_overlay_next, Value::Int(5)));
-    assert!(matches!(no_overlay_prev, Value::Int(1)));
+    let no_overlay_next = builtin_next_overlay_change(&mut eval, vec![Value::fixnum(1)]).unwrap();
+    let no_overlay_prev = builtin_previous_overlay_change(&mut eval, vec![Value::fixnum(4)]).unwrap();
+    assert!(matches!(no_overlay_next, Value::fixnum(5)));
+    assert!(matches!(no_overlay_prev, Value::fixnum(1)));
 
-    builtin_make_overlay(&mut eval, vec![Value::Int(2), Value::Int(4)]).unwrap();
-    let next_from_1 = builtin_next_overlay_change(&mut eval, vec![Value::Int(1)]).unwrap();
-    let next_from_2 = builtin_next_overlay_change(&mut eval, vec![Value::Int(2)]).unwrap();
-    let prev_from_4 = builtin_previous_overlay_change(&mut eval, vec![Value::Int(4)]).unwrap();
-    let prev_from_2 = builtin_previous_overlay_change(&mut eval, vec![Value::Int(2)]).unwrap();
-    assert!(matches!(next_from_1, Value::Int(2)));
-    assert!(matches!(next_from_2, Value::Int(4)));
-    assert!(matches!(prev_from_4, Value::Int(2)));
-    assert!(matches!(prev_from_2, Value::Int(1)));
+    builtin_make_overlay(&mut eval, vec![Value::fixnum(2), Value::fixnum(4)]).unwrap();
+    let next_from_1 = builtin_next_overlay_change(&mut eval, vec![Value::fixnum(1)]).unwrap();
+    let next_from_2 = builtin_next_overlay_change(&mut eval, vec![Value::fixnum(2)]).unwrap();
+    let prev_from_4 = builtin_previous_overlay_change(&mut eval, vec![Value::fixnum(4)]).unwrap();
+    let prev_from_2 = builtin_previous_overlay_change(&mut eval, vec![Value::fixnum(2)]).unwrap();
+    assert!(matches!(next_from_1, Value::fixnum(2)));
+    assert!(matches!(next_from_2, Value::fixnum(4)));
+    assert!(matches!(prev_from_4, Value::fixnum(2)));
+    assert!(matches!(prev_from_2, Value::fixnum(1)));
 }
 
 // -----------------------------------------------------------------------
@@ -1123,14 +1124,14 @@ fn next_previous_overlay_change_boundaries() {
 #[test]
 fn move_overlay_changes_range() {
     let mut eval = eval_with_text("hello world");
-    let ov = builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(6)]).unwrap();
+    let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
 
-    builtin_move_overlay(&mut eval, vec![ov, Value::Int(3), Value::Int(8)]).unwrap();
+    builtin_move_overlay(&mut eval, vec![ov, Value::fixnum(3), Value::fixnum(8)]).unwrap();
 
     let start = builtin_overlay_start(&mut eval, vec![ov]).unwrap();
     let end = builtin_overlay_end(&mut eval, vec![ov]).unwrap();
-    assert!(matches!(start, Value::Int(3)));
-    assert!(matches!(end, Value::Int(8)));
+    assert!(matches!(start, Value::fixnum(3)));
+    assert!(matches!(end, Value::fixnum(8)));
 }
 
 // -----------------------------------------------------------------------
@@ -1140,12 +1141,12 @@ fn move_overlay_changes_range() {
 #[test]
 fn overlay_start_and_end() {
     let mut eval = eval_with_text("hello world");
-    let ov = builtin_make_overlay(&mut eval, vec![Value::Int(2), Value::Int(8)]).unwrap();
+    let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(2), Value::fixnum(8)]).unwrap();
 
     let start = builtin_overlay_start(&mut eval, vec![ov]).unwrap();
     let end = builtin_overlay_end(&mut eval, vec![ov]).unwrap();
-    assert!(matches!(start, Value::Int(2)));
-    assert!(matches!(end, Value::Int(8)));
+    assert!(matches!(start, Value::fixnum(2)));
+    assert!(matches!(end, Value::fixnum(8)));
 }
 
 // -----------------------------------------------------------------------
@@ -1155,10 +1156,10 @@ fn overlay_start_and_end() {
 #[test]
 fn overlay_buffer_returns_buffer() {
     let mut eval = eval_with_text("hello");
-    let ov = builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(3)]).unwrap();
+    let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(3)]).unwrap();
 
     let result = builtin_overlay_buffer(&mut eval, vec![ov]).unwrap();
-    assert!(matches!(result, Value::Buffer(_)));
+    assert!(matches!(result, Value::make_buffer(_)));
 }
 
 // -----------------------------------------------------------------------
@@ -1168,7 +1169,7 @@ fn overlay_buffer_returns_buffer() {
 #[test]
 fn overlay_properties_returns_plist() {
     let mut eval = eval_with_text("hello");
-    let ov = builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(6)]).unwrap();
+    let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
 
     builtin_overlay_put(
         &mut eval,
@@ -1177,7 +1178,7 @@ fn overlay_properties_returns_plist() {
     .unwrap();
     builtin_overlay_put(
         &mut eval,
-        vec![ov, Value::symbol("priority"), Value::Int(10)],
+        vec![ov, Value::symbol("priority"), Value::fixnum(10)],
     )
     .unwrap();
 
@@ -1189,7 +1190,7 @@ fn overlay_properties_returns_plist() {
 #[test]
 fn overlay_properties_empty() {
     let mut eval = eval_with_text("hello");
-    let ov = builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(3)]).unwrap();
+    let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(3)]).unwrap();
 
     let result = builtin_overlay_properties(&mut eval, vec![ov]).unwrap();
     // Empty plist is nil.
@@ -1203,12 +1204,12 @@ fn overlay_properties_empty() {
 #[test]
 fn remove_overlays_all() {
     let mut eval = eval_with_text("hello world");
-    builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(6)]).unwrap();
-    builtin_make_overlay(&mut eval, vec![Value::Int(3), Value::Int(10)]).unwrap();
+    builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
+    builtin_make_overlay(&mut eval, vec![Value::fixnum(3), Value::fixnum(10)]).unwrap();
 
     builtin_remove_overlays(&mut eval, vec![]).unwrap();
 
-    let result = builtin_overlays_in(&mut eval, vec![Value::Int(1), Value::Int(12)]).unwrap();
+    let result = builtin_overlays_in(&mut eval, vec![Value::fixnum(1), Value::fixnum(12)]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 0);
 }
@@ -1216,8 +1217,8 @@ fn remove_overlays_all() {
 #[test]
 fn remove_overlays_by_property() {
     let mut eval = eval_with_text("hello world");
-    let ov1 = builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(6)]).unwrap();
-    let ov2 = builtin_make_overlay(&mut eval, vec![Value::Int(3), Value::Int(10)]).unwrap();
+    let ov1 = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
+    let ov2 = builtin_make_overlay(&mut eval, vec![Value::fixnum(3), Value::fixnum(10)]).unwrap();
 
     builtin_overlay_put(
         &mut eval,
@@ -1234,15 +1235,15 @@ fn remove_overlays_by_property() {
     builtin_remove_overlays(
         &mut eval,
         vec![
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
             Value::symbol("face"),
             Value::symbol("bold"),
         ],
     )
     .unwrap();
 
-    let result = builtin_overlays_in(&mut eval, vec![Value::Int(1), Value::Int(12)]).unwrap();
+    let result = builtin_overlays_in(&mut eval, vec![Value::fixnum(1), Value::fixnum(12)]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 1); // only the italic one remains
 }
@@ -1254,7 +1255,7 @@ fn remove_overlays_by_property() {
 #[test]
 fn put_text_property_wrong_args() {
     let mut eval = eval_with_text("hello");
-    let result = builtin_put_text_property(&mut eval, vec![Value::Int(1), Value::Int(3)]);
+    let result = builtin_put_text_property(&mut eval, vec![Value::fixnum(1), Value::fixnum(3)]);
     assert!(result.is_err());
 }
 
@@ -1264,12 +1265,12 @@ fn put_text_property_rejects_too_many_args() {
     let result = builtin_put_text_property(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(2),
+            Value::fixnum(1),
+            Value::fixnum(2),
             Value::symbol("face"),
             Value::symbol("bold"),
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
         ],
     );
     assert!(result.is_err());
@@ -1287,7 +1288,7 @@ fn get_text_property_rejects_too_many_args() {
     let mut eval = eval_with_text("hello");
     let result = builtin_get_text_property(
         &mut eval,
-        vec![Value::Int(1), Value::symbol("face"), Value::Nil, Value::Nil],
+        vec![Value::fixnum(1), Value::symbol("face"), Value::NIL, Value::NIL],
     );
     assert!(result.is_err());
 }
@@ -1297,7 +1298,7 @@ fn get_char_property_rejects_too_many_args() {
     let mut eval = eval_with_text("hello");
     let result = builtin_get_char_property(
         &mut eval,
-        vec![Value::Int(1), Value::symbol("face"), Value::Nil, Value::Nil],
+        vec![Value::fixnum(1), Value::symbol("face"), Value::NIL, Value::NIL],
     );
     assert!(result.is_err());
 }
@@ -1307,7 +1308,7 @@ fn get_char_property_and_overlay_rejects_too_many_args() {
     let mut eval = eval_with_text("hello");
     let result = builtin_get_char_property_and_overlay(
         &mut eval,
-        vec![Value::Int(1), Value::symbol("face"), Value::Nil, Value::Nil],
+        vec![Value::fixnum(1), Value::symbol("face"), Value::NIL, Value::NIL],
     );
     assert!(result.is_err());
 }
@@ -1318,11 +1319,11 @@ fn get_display_property_rejects_too_many_args() {
     let result = builtin_get_display_property(
         &mut eval,
         vec![
-            Value::Int(1),
+            Value::fixnum(1),
             Value::symbol("face"),
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
         ],
     );
     assert!(result.is_err());
@@ -1331,14 +1332,14 @@ fn get_display_property_rejects_too_many_args() {
 #[test]
 fn overlay_put_wrong_args() {
     let mut eval = eval_with_text("hello");
-    let result = builtin_overlay_put(&mut eval, vec![Value::Int(42), Value::symbol("face")]);
+    let result = builtin_overlay_put(&mut eval, vec![Value::fixnum(42), Value::symbol("face")]);
     assert!(result.is_err());
 }
 
 #[test]
 fn text_properties_at_rejects_too_many_args() {
     let mut eval = eval_with_text("hello");
-    let result = builtin_text_properties_at(&mut eval, vec![Value::Int(1), Value::Nil, Value::Nil]);
+    let result = builtin_text_properties_at(&mut eval, vec![Value::fixnum(1), Value::NIL, Value::NIL]);
     assert!(result.is_err());
 }
 
@@ -1348,12 +1349,12 @@ fn text_property_any_rejects_too_many_args() {
     let result = builtin_text_property_any(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(2),
+            Value::fixnum(1),
+            Value::fixnum(2),
             Value::symbol("face"),
             Value::symbol("bold"),
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
         ],
     );
     assert!(result.is_err());
@@ -1365,12 +1366,12 @@ fn text_property_not_all_rejects_too_many_args() {
     let result = builtin_text_property_not_all(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(2),
+            Value::fixnum(1),
+            Value::fixnum(2),
             Value::symbol("face"),
             Value::symbol("bold"),
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
         ],
     );
     assert!(result.is_err());
@@ -1382,11 +1383,11 @@ fn set_text_properties_rejects_too_many_args() {
     let result = builtin_set_text_properties(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(2),
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
+            Value::fixnum(1),
+            Value::fixnum(2),
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
         ],
     );
     assert!(result.is_err());
@@ -1398,11 +1399,11 @@ fn remove_list_of_text_properties_rejects_too_many_args() {
     let result = builtin_remove_list_of_text_properties(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(2),
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
+            Value::fixnum(1),
+            Value::fixnum(2),
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
         ],
     );
     assert!(result.is_err());
@@ -1413,7 +1414,7 @@ fn remove_overlays_rejects_too_many_args() {
     let mut eval = eval_with_text("hello");
     let result = builtin_remove_overlays(
         &mut eval,
-        vec![Value::Nil, Value::Nil, Value::Nil, Value::Nil, Value::Nil],
+        vec![Value::NIL, Value::NIL, Value::NIL, Value::NIL, Value::NIL],
     );
     assert!(result.is_err());
 }
@@ -1421,7 +1422,7 @@ fn remove_overlays_rejects_too_many_args() {
 #[test]
 fn make_overlay_wrong_args() {
     let mut eval = eval_with_text("hello");
-    let result = builtin_make_overlay(&mut eval, vec![Value::Int(1)]);
+    let result = builtin_make_overlay(&mut eval, vec![Value::fixnum(1)]);
     assert!(result.is_err());
 }
 
@@ -1431,12 +1432,12 @@ fn make_overlay_rejects_too_many_args() {
     let result = builtin_make_overlay(
         &mut eval,
         vec![
-            Value::Int(1),
-            Value::Int(2),
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
+            Value::fixnum(1),
+            Value::fixnum(2),
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
         ],
     );
     assert!(result.is_err());
@@ -1445,7 +1446,7 @@ fn make_overlay_rejects_too_many_args() {
 #[test]
 fn overlays_at_rejects_too_many_args() {
     let mut eval = eval_with_text("hello");
-    let result = builtin_overlays_at(&mut eval, vec![Value::Int(1), Value::Nil, Value::Nil]);
+    let result = builtin_overlays_at(&mut eval, vec![Value::fixnum(1), Value::NIL, Value::NIL]);
     assert!(result.is_err());
 }
 
@@ -1459,7 +1460,7 @@ fn next_overlay_change_wrong_args() {
 #[test]
 fn previous_overlay_change_rejects_too_many_args() {
     let mut eval = eval_with_text("hello");
-    let result = builtin_previous_overlay_change(&mut eval, vec![Value::Int(1), Value::Nil]);
+    let result = builtin_previous_overlay_change(&mut eval, vec![Value::fixnum(1), Value::NIL]);
     assert!(result.is_err());
 }
 
@@ -1468,7 +1469,7 @@ fn next_property_change_rejects_too_many_args() {
     let mut eval = eval_with_text("hello");
     let result = builtin_next_property_change(
         &mut eval,
-        vec![Value::Int(1), Value::Nil, Value::Nil, Value::Nil],
+        vec![Value::fixnum(1), Value::NIL, Value::NIL, Value::NIL],
     );
     assert!(result.is_err());
 }
@@ -1479,11 +1480,11 @@ fn next_single_property_change_rejects_too_many_args() {
     let result = builtin_next_single_property_change(
         &mut eval,
         vec![
-            Value::Int(1),
+            Value::fixnum(1),
             Value::symbol("face"),
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
         ],
     );
     assert!(result.is_err());
@@ -1495,11 +1496,11 @@ fn previous_single_property_change_rejects_too_many_args() {
     let result = builtin_previous_single_property_change(
         &mut eval,
         vec![
-            Value::Int(1),
+            Value::fixnum(1),
             Value::symbol("face"),
-            Value::Nil,
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
         ],
     );
     assert!(result.is_err());
@@ -1511,11 +1512,11 @@ fn move_overlay_rejects_too_many_args() {
     let result = builtin_move_overlay(
         &mut eval,
         vec![
-            Value::Nil,
-            Value::Int(1),
-            Value::Int(2),
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::fixnum(1),
+            Value::fixnum(2),
+            Value::NIL,
+            Value::NIL,
         ],
     );
     assert!(result.is_err());
@@ -1532,18 +1533,18 @@ fn overlay_front_advance() {
     let ov = builtin_make_overlay(
         &mut eval,
         vec![
-            Value::Int(3),
-            Value::Int(8),
-            Value::Nil,  // buffer
-            Value::True, // front-advance
-            Value::Nil,  // rear-advance
+            Value::fixnum(3),
+            Value::fixnum(8),
+            Value::NIL,  // buffer
+            Value::T, // front-advance
+            Value::NIL,  // rear-advance
         ],
     )
     .unwrap();
 
     // Verify overlay was created.
     let start = builtin_overlay_start(&mut eval, vec![ov]).unwrap();
-    assert!(matches!(start, Value::Int(3)));
+    assert!(matches!(start, Value::fixnum(3)));
 }
 
 #[test]
@@ -1552,17 +1553,17 @@ fn overlay_rear_advance() {
     let ov = builtin_make_overlay(
         &mut eval,
         vec![
-            Value::Int(3),
-            Value::Int(8),
-            Value::Nil,
-            Value::Nil,
-            Value::True, // rear-advance
+            Value::fixnum(3),
+            Value::fixnum(8),
+            Value::NIL,
+            Value::NIL,
+            Value::T, // rear-advance
         ],
     )
     .unwrap();
 
     let end = builtin_overlay_end(&mut eval, vec![ov]).unwrap();
-    assert!(matches!(end, Value::Int(8)));
+    assert!(matches!(end, Value::fixnum(8)));
 }
 
 // -----------------------------------------------------------------------
@@ -1573,21 +1574,21 @@ fn overlay_rear_advance() {
 fn text_property_on_empty_buffer() {
     let mut eval = Context::new();
     // Scratch buffer is empty.
-    let result = builtin_get_text_property(&mut eval, vec![Value::Int(1), Value::symbol("face")]);
-    assert!(matches!(result, Ok(Value::Nil)));
+    let result = builtin_get_text_property(&mut eval, vec![Value::fixnum(1), Value::symbol("face")]);
+    assert!(matches!(result, Ok(Value::NIL)));
 }
 
 #[test]
 fn overlays_at_empty_buffer() {
     let mut eval = Context::new();
-    let result = builtin_overlays_at(&mut eval, vec![Value::Int(1)]).unwrap();
+    let result = builtin_overlays_at(&mut eval, vec![Value::fixnum(1)]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn delete_overlay_twice_is_ok() {
     let mut eval = eval_with_text("hello");
-    let ov = builtin_make_overlay(&mut eval, vec![Value::Int(1), Value::Int(3)]).unwrap();
+    let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(3)]).unwrap();
 
     builtin_delete_overlay(&mut eval, vec![ov]).unwrap();
     // Second delete should not crash.

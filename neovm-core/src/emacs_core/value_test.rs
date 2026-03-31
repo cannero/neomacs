@@ -14,12 +14,12 @@ fn with_test_heap<R>(f: impl FnOnce() -> R) -> R {
 #[test]
 fn value_constructors() {
     with_test_heap(|| {
-        assert!(Value::Nil.is_nil());
-        assert!(Value::t().is_truthy());
-        assert!(Value::Int(42).is_integer());
-        assert!(Value::Float(3.14, next_float_id()).is_float());
+        assert!(Value::NIL.is_nil());
+        assert!(Value::T.is_truthy());
+        assert!(Value::fixnum(42).is_integer());
+        assert!(Value::make_float(3.14).is_float());
         assert!(Value::string("hello").is_string());
-        assert!(Value::Char('a').is_char());
+        assert!(Value::char('a').is_char());
         assert!(Value::symbol("foo").is_symbol());
         assert!(Value::keyword(":bar").is_keyword());
     });
@@ -28,7 +28,7 @@ fn value_constructors() {
 #[test]
 fn list_round_trip() {
     with_test_heap(|| {
-        let lst = Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
+        let lst = Value::list(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
         let vec = list_to_vec(&lst).unwrap();
         assert_eq!(vec.len(), 3);
     });
@@ -37,11 +37,11 @@ fn list_round_trip() {
 #[test]
 fn eq_identity() {
     with_test_heap(|| {
-        assert!(eq_value(&Value::Nil, &Value::Nil));
-        assert!(eq_value(&Value::Int(42), &Value::Int(42)));
-        assert!(!eq_value(&Value::Int(1), &Value::Int(2)));
-        assert!(eq_value(&Value::Char('a'), &Value::Int(97)));
-        assert!(eq_value(&Value::Int(97), &Value::Char('a')));
+        assert!(eq_value(&Value::NIL, &Value::NIL));
+        assert!(eq_value(&Value::fixnum(42), &Value::fixnum(42)));
+        assert!(!eq_value(&Value::fixnum(1), &Value::fixnum(2)));
+        assert!(eq_value(&Value::char('a'), &Value::fixnum(97)));
+        assert!(eq_value(&Value::fixnum(97), &Value::char('a')));
         assert!(eq_value(&Value::symbol("foo"), &Value::symbol("foo")));
     });
 }
@@ -53,7 +53,7 @@ fn keyword_identity_is_consistent_across_constructors() {
         let keyword_from_keyword_ctor = Value::keyword(":kw");
 
         // Value::symbol(":kw") auto-detects the colon and produces Keyword variant
-        assert!(matches!(keyword_from_symbol_ctor, Value::Keyword(_)));
+        assert!(keyword_from_symbol_ctor.is_keyword());
         assert!(eq_value(
             &keyword_from_symbol_ctor,
             &keyword_from_keyword_ctor
@@ -62,7 +62,7 @@ fn keyword_identity_is_consistent_across_constructors() {
         // Direct Value::Symbol(intern(":kw")) bypasses auto-detection and produces
         // a Symbol variant. In GNU Emacs, :kw and kw are different symbols —
         // Symbol and Keyword variants must NOT be eq.
-        let legacy_symbol_variant = Value::Symbol(intern(":kw"));
+        let legacy_symbol_variant = Value::symbol(intern(":kw"));
         assert!(!eq_value(&keyword_from_symbol_ctor, &legacy_symbol_variant));
         assert!(!equal_value(
             &keyword_from_symbol_ctor,
@@ -81,8 +81,8 @@ fn keyword_identity_is_consistent_across_constructors() {
 #[test]
 fn equal_structural() {
     with_test_heap(|| {
-        let a = Value::list(vec![Value::Int(1), Value::Int(2)]);
-        let b = Value::list(vec![Value::Int(1), Value::Int(2)]);
+        let a = Value::list(vec![Value::fixnum(1), Value::fixnum(2)]);
+        let b = Value::list(vec![Value::fixnum(1), Value::fixnum(2)]);
         assert!(equal_value(&a, &b, 0));
         assert!(!eq_value(&a, &b));
     });
@@ -114,9 +114,9 @@ fn marker_equal_ignores_internal_tracking_id() {
 #[test]
 fn closure_equal_is_structural() {
     with_test_heap(|| {
-        let env_a = Value::list(vec![Value::cons(Value::symbol("n"), Value::Int(5))]);
-        let env_b = Value::list(vec![Value::cons(Value::symbol("n"), Value::Int(5))]);
-        let env_c = Value::list(vec![Value::cons(Value::symbol("n"), Value::Int(10))]);
+        let env_a = Value::list(vec![Value::cons(Value::symbol("n"), Value::fixnum(5))]);
+        let env_b = Value::list(vec![Value::cons(Value::symbol("n"), Value::fixnum(5))]);
+        let env_c = Value::list(vec![Value::cons(Value::symbol("n"), Value::fixnum(10))]);
 
         let make = |env| {
             Value::make_lambda(LambdaData {
@@ -152,7 +152,7 @@ fn closure_equal_is_structural() {
 fn recursive_closure_equal_and_hash_are_structural() {
     with_test_heap(|| {
         let make_recursive = || {
-            let binding = Value::cons(Value::symbol("f"), Value::Nil);
+            let binding = Value::cons(Value::symbol("f"), Value::NIL);
             let env = Value::list(vec![binding]);
             let closure = Value::make_lambda(LambdaData {
                 params: LambdaParams::simple(vec![]),
@@ -181,8 +181,8 @@ fn recursive_closure_equal_and_hash_are_structural() {
 #[test]
 fn hash_key_char_int_equivalence() {
     for test in [HashTableTest::Eq, HashTableTest::Eql, HashTableTest::Equal] {
-        let char_key = Value::Char('a').to_hash_key(&test);
-        let int_key = Value::Int(97).to_hash_key(&test);
+        let char_key = Value::char('a').to_hash_key(&test);
+        let int_key = Value::fixnum(97).to_hash_key(&test);
         assert_eq!(char_key, int_key);
     }
 }
@@ -209,18 +209,18 @@ fn lambda_params_arity() {
 #[test]
 fn cons_accessors() {
     with_test_heap(|| {
-        let c = Value::cons(Value::Int(1), Value::Int(2));
-        assert_eq!(c.cons_car(), Value::Int(1));
-        assert_eq!(c.cons_cdr(), Value::Int(2));
-        c.set_car(Value::Int(10));
-        assert_eq!(c.cons_car(), Value::Int(10));
+        let c = Value::cons(Value::fixnum(1), Value::fixnum(2));
+        assert_eq!(c.cons_car(), Value::fixnum(1));
+        assert_eq!(c.cons_cdr(), Value::fixnum(2));
+        c.set_car(Value::fixnum(10));
+        assert_eq!(c.cons_car(), Value::fixnum(10));
     });
 }
 
 #[test]
 fn value_is_copy_and_16_bytes() {
     // Value is Copy — this assignment would fail to compile if not.
-    let a = Value::Int(42);
+    let a = Value::fixnum(42);
     let b = a; // copy, not move
     let _ = a; // still usable after copy
     let _ = b;
@@ -235,35 +235,36 @@ fn value_is_copy_and_16_bytes() {
 #[test]
 fn float_equality() {
     use super::equal_value;
+use super::value::{ValueKind, VecLikeType};
     with_test_heap(|| {
         // 1.0 == 1.0
         assert!(equal_value(
-            &Value::Float(1.0, next_float_id()),
-            &Value::Float(1.0, next_float_id()),
+            &Value::make_float(1.0),
+            &Value::make_float(1.0),
             0
         ));
         // Emacs equal: NaN == NaN (bitwise comparison via to_bits)
         assert!(equal_value(
-            &Value::Float(f64::NAN, next_float_id()),
-            &Value::Float(f64::NAN, next_float_id()),
+            &Value::make_float(f64::NAN),
+            &Value::make_float(f64::NAN),
             0
         ));
         // Inf == Inf
         assert!(equal_value(
-            &Value::Float(f64::INFINITY, next_float_id()),
-            &Value::Float(f64::INFINITY, next_float_id()),
+            &Value::make_float(f64::INFINITY),
+            &Value::make_float(f64::INFINITY),
             0
         ));
         // Different values are not equal
         assert!(!equal_value(
-            &Value::Float(1.0, next_float_id()),
-            &Value::Float(2.0, next_float_id()),
+            &Value::make_float(1.0),
+            &Value::make_float(2.0),
             0
         ));
         // Int and Float are not equal under equal_value
         assert!(!equal_value(
-            &Value::Int(1),
-            &Value::Float(1.0, next_float_id()),
+            &Value::fixnum(1),
+            &Value::make_float(1.0),
             0
         ));
     });
@@ -272,28 +273,28 @@ fn float_equality() {
 #[test]
 fn vector_operations() {
     with_test_heap(|| {
-        let v = Value::vector(vec![Value::Int(10), Value::Int(20), Value::Int(30)]);
+        let v = Value::vector(vec![Value::fixnum(10), Value::fixnum(20), Value::fixnum(30)]);
         assert!(v.is_vector());
         let items = super::with_heap(|h| {
-            let id = match v {
-                Value::Vector(id) => id,
+            let id = match v.kind() {
+                ValueKind::Veclike(VecLikeType::Vector) => id,
                 _ => panic!(),
             };
             h.get_vector(id).clone()
         });
         assert_eq!(items.len(), 3);
-        assert_eq!(items[0], Value::Int(10));
-        assert_eq!(items[1], Value::Int(20));
-        assert_eq!(items[2], Value::Int(30));
+        assert_eq!(items[0], Value::fixnum(10));
+        assert_eq!(items[1], Value::fixnum(20));
+        assert_eq!(items[2], Value::fixnum(30));
     });
 }
 
 #[test]
 fn list_length_proper() {
     with_test_heap(|| {
-        let list = Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
+        let list = Value::list(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
         assert_eq!(super::list_length(&list), Some(3));
-        assert_eq!(super::list_length(&Value::Nil), Some(0));
+        assert_eq!(super::list_length(&Value::NIL), Some(0));
     });
 }
 
@@ -301,50 +302,50 @@ fn list_length_proper() {
 fn list_length_dotted() {
     with_test_heap(|| {
         // (1 . 2) — improper list
-        let dotted = Value::cons(Value::Int(1), Value::Int(2));
+        let dotted = Value::cons(Value::fixnum(1), Value::fixnum(2));
         assert_eq!(super::list_length(&dotted), None);
     });
 }
 
 #[test]
 fn as_int_as_float() {
-    assert_eq!(Value::Int(42).as_int(), Some(42));
-    assert_eq!(Value::Float(3.14, next_float_id()).as_int(), None);
-    assert_eq!(Value::Float(3.14, next_float_id()).as_float(), Some(3.14));
-    assert_eq!(Value::Int(42).as_float(), None);
+    assert_eq!(Value::fixnum(42).as_int(), Some(42));
+    assert_eq!(Value::make_float(3.14).as_int(), None);
+    assert_eq!(Value::make_float(3.14).as_float(), Some(3.14));
+    assert_eq!(Value::fixnum(42).as_float(), None);
     // as_number_f64 coerces both
-    assert_eq!(Value::Int(7).as_number_f64(), Some(7.0));
+    assert_eq!(Value::fixnum(7).as_number_f64(), Some(7.0));
     assert_eq!(
-        Value::Float(2.5, next_float_id()).as_number_f64(),
+        Value::make_float(2.5).as_number_f64(),
         Some(2.5)
     );
-    assert_eq!(Value::Nil.as_number_f64(), None);
+    assert_eq!(Value::NIL.as_number_f64(), None);
 }
 
 #[test]
 fn type_predicates() {
     with_test_heap(|| {
-        assert!(Value::Int(1).is_integer());
-        assert!(Value::Int(1).is_number());
-        assert!(!Value::Int(1).is_float());
+        assert!(Value::fixnum(1).is_integer());
+        assert!(Value::fixnum(1).is_number());
+        assert!(!Value::fixnum(1).is_float());
 
-        assert!(Value::Float(1.0, next_float_id()).is_float());
-        assert!(Value::Float(1.0, next_float_id()).is_number());
-        assert!(!Value::Float(1.0, next_float_id()).is_integer());
+        assert!(Value::make_float(1.0).is_float());
+        assert!(Value::make_float(1.0).is_number());
+        assert!(!Value::make_float(1.0).is_integer());
 
         assert!(Value::string("hi").is_string());
         assert!(!Value::string("hi").is_integer());
 
-        let c = Value::cons(Value::Int(1), Value::Nil);
+        let c = Value::cons(Value::fixnum(1), Value::NIL);
         assert!(c.is_cons());
         assert!(c.is_list());
 
-        assert!(Value::Nil.is_list());
-        assert!(!Value::Nil.is_cons());
+        assert!(Value::NIL.is_list());
+        assert!(!Value::NIL.is_cons());
 
         assert!(Value::vector(vec![]).is_vector());
         assert!(Value::symbol("foo").is_symbol());
         assert!(Value::keyword("bar").is_keyword());
-        assert!(Value::Char('x').is_char());
+        assert!(Value::char('x').is_char());
     });
 }

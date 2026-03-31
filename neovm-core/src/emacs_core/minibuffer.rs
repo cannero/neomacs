@@ -15,7 +15,7 @@ use super::hashtab::hash_key_to_visible_value;
 use super::intern::resolve_sym;
 use super::reader::KeyboardInputRuntime;
 use super::symbol::Obarray;
-use super::value::{Value, read_cons, with_heap};
+use super::value::{Value, read_cons, with_heap, ValueKind, VecLikeType};
 
 // ---------------------------------------------------------------------------
 // Argument helpers (local copies, same pattern as builtins.rs / builtins_extra.rs)
@@ -25,7 +25,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -36,7 +36,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -47,7 +47,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -58,7 +58,7 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
     if args.len() < min || args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -66,8 +66,8 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 }
 
 fn expect_string(val: &Value) -> Result<String, Flow> {
-    match val {
-        Value::Str(id) => Ok(with_heap(|h| h.get_string(*id).to_owned())),
+    match val.kind() {
+        ValueKind::String => Ok(with_heap(|h| h.get_string(*id).to_owned())),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *other],
@@ -76,25 +76,25 @@ fn expect_string(val: &Value) -> Result<String, Flow> {
 }
 
 fn first_default_value(default: Value) -> Value {
-    match default {
-        Value::Cons(cell) => read_cons(cell).car,
+    match default.kind() {
+        ValueKind::Cons => read_cons(cell).car,  // TODO(tagged): replace read_cons with cons accessors
         other => other,
     }
 }
 
 fn normalize_symbol_reader_default(default: Value) -> Value {
-    match first_default_value(default) {
-        Value::Symbol(id) => Value::string(resolve_sym(id)),
+    match first_default_value(default).kind() {
+        ValueKind::Symbol(id) => Value::string(resolve_sym(id)),
         other => other,
     }
 }
 
 fn normalize_buffer_reader_default(buffers: &BufferManager, default: Value) -> Value {
-    match first_default_value(default) {
-        Value::Buffer(id) => buffers
+    match first_default_value(default).kind() {
+        ValueKind::Veclike(VecLikeType::Buffer) => buffers
             .get(id)
             .map(|buffer| Value::string(&buffer.name))
-            .unwrap_or(Value::Buffer(id)),
+            .unwrap_or(ValueKind::Veclike(VecLikeType::Buffer)),
         other => other,
     }
 }
@@ -225,7 +225,7 @@ impl MinibufferState {
             content: initial,
             cursor_pos,
             completion_table: None,
-            require_match: Value::Nil,
+            require_match: Value::NIL,
             default_value: None,
             active: true,
             depth,
@@ -475,7 +475,7 @@ impl MinibufferManager {
     /// Read the effective `history-length` from the obarray, defaulting to 100.
     pub fn history_length_from_obarray(obarray: &Obarray) -> usize {
         match obarray.symbol_value("history-length") {
-            Some(Value::Int(n)) if *n > 0 => *n as usize,
+            Some(ValueKind::Fixnum(n)) if *n > 0 => *n as usize,
             _ => 100,
         }
     }
@@ -655,19 +655,19 @@ fn validate_file_name_reader_args(name: &str, args: &[Value], max: usize) -> Res
 
 fn file_name_reader_minibuffer_args(args: &[Value]) -> [Value; 6] {
     let prompt = args[0];
-    let initial = args.get(4).copied().unwrap_or(Value::Nil);
-    let default = args.get(2).copied().unwrap_or(Value::Nil);
+    let initial = args.get(4).copied().unwrap_or(Value::NIL);
+    let default = args.get(2).copied().unwrap_or(Value::NIL);
     let effective_initial = if initial.is_nil() {
-        args.get(1).copied().unwrap_or(Value::Nil)
+        args.get(1).copied().unwrap_or(Value::NIL)
     } else {
         initial
     };
     [
         prompt,
         effective_initial,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
         default,
     ]
 }
@@ -786,9 +786,9 @@ pub(crate) fn builtin_read_buffer_in_runtime(
 pub(crate) fn read_buffer_completing_args(buffers: &BufferManager, args: &[Value]) -> [Value; 7] {
     let prompt = args[0];
     let default =
-        normalize_buffer_reader_default(buffers, args.get(1).copied().unwrap_or(Value::Nil));
-    let require_match = args.get(2).copied().unwrap_or(Value::Nil);
-    let predicate = args.get(3).copied().unwrap_or(Value::Nil);
+        normalize_buffer_reader_default(buffers, args.get(1).copied().unwrap_or(Value::NIL));
+    let require_match = args.get(2).copied().unwrap_or(Value::NIL);
+    let predicate = args.get(3).copied().unwrap_or(Value::NIL);
 
     let buf_ids = buffers.buffer_list();
     let buffer_names: Vec<Value> = buf_ids
@@ -803,8 +803,8 @@ pub(crate) fn read_buffer_completing_args(buffers: &BufferManager, args: &[Value
         collection,
         predicate,
         require_match,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
         default,
     ]
 }
@@ -846,19 +846,19 @@ pub(crate) fn builtin_read_command_in_runtime(
 
 fn symbol_reader_minibuffer_args(args: &[Value]) -> [Value; 6] {
     let prompt = args[0];
-    let default = normalize_symbol_reader_default(args.get(1).copied().unwrap_or(Value::Nil));
+    let default = normalize_symbol_reader_default(args.get(1).copied().unwrap_or(Value::NIL));
     [
         prompt,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
         default,
     ]
 }
 
 fn intern_symbol_reader_result(result: Value) -> Value {
-    if let Value::Str(id) = result {
+    if result.is_string() /* TODO(tagged): `id` was Value::Str(id), now use accessor */ {
         let name = super::value::with_heap(|h| h.get_string(id).to_owned());
         return Value::symbol(&name);
     }
@@ -958,7 +958,7 @@ pub(crate) fn finish_read_variable_in_vm_runtime(
 /// Stub: returns nil (no active minibuffer in non-interactive mode).
 pub(crate) fn builtin_minibuffer_prompt(args: Vec<Value>) -> EvalResult {
     expect_args("minibuffer-prompt", &args, 0)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_minibuffer_prompt_ctx(
@@ -970,7 +970,7 @@ pub(crate) fn builtin_minibuffer_prompt_ctx(
         .minibuffers
         .current()
         .map(|state| Value::string(&state.prompt))
-        .unwrap_or(Value::Nil))
+        .unwrap_or(Value::NIL))
 }
 
 pub(crate) fn builtin_minibuffer_prompt_end_ctx(
@@ -980,20 +980,20 @@ pub(crate) fn builtin_minibuffer_prompt_end_ctx(
     expect_args("minibuffer-prompt-end", &args, 0)?;
 
     let Some(buffer) = eval.buffers.current_buffer() else {
-        return Ok(Value::Int(1));
+        return Ok(Value::fixnum(1));
     };
     let point_min = buffer.point_min_char() as i64 + 1;
 
     let Some(state) = eval.minibuffers.current() else {
-        return Ok(Value::Int(point_min));
+        return Ok(Value::fixnum(point_min));
     };
     if state.buffer_id != buffer.id {
-        return Ok(Value::Int(point_min));
+        return Ok(Value::fixnum(point_min));
     }
 
     let prompt_end_byte = state.prompt_end.min(buffer.text.len());
     let prompt_end_char = buffer.text.byte_to_char(prompt_end_byte) as i64 + 1;
-    Ok(Value::Int(prompt_end_char.max(point_min)))
+    Ok(Value::fixnum(prompt_end_char.max(point_min)))
 }
 
 /// `(minibuffer-contents)` — returns the current minibuffer contents.
@@ -1027,7 +1027,7 @@ pub(crate) fn builtin_minibuffer_contents_no_properties_ctx(
 /// Stub: returns 0.
 pub(crate) fn builtin_minibuffer_depth(args: Vec<Value>) -> EvalResult {
     expect_args("minibuffer-depth", &args, 0)?;
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 pub(crate) fn builtin_minibuffer_depth_ctx(
@@ -1035,7 +1035,7 @@ pub(crate) fn builtin_minibuffer_depth_ctx(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("minibuffer-depth", &args, 0)?;
-    Ok(Value::Int(eval.minibuffers.depth() as i64))
+    Ok(Value::fixnum(eval.minibuffers.depth() as i64))
 }
 
 /// `(minibufferp &optional BUFFER)` — returns t if BUFFER is a minibuffer.
@@ -1044,7 +1044,7 @@ pub(crate) fn builtin_minibuffer_depth_ctx(
 /// arg shape, and returns nil (no active minibuffer).
 pub(crate) fn builtin_minibufferp(args: Vec<Value>) -> EvalResult {
     validate_minibufferp_args(&args)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_minibufferp_ctx(
@@ -1054,7 +1054,7 @@ pub(crate) fn builtin_minibufferp_ctx(
     validate_minibufferp_args(&args)?;
     let live_only = args.get(1).is_some_and(Value::is_truthy);
     let Some(buffer_id) = resolve_minibuffer_buffer_arg(&eval.buffers, args.first())? else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     let is_live = eval.minibuffers.has_buffer(buffer_id);
     let is_minibuffer = is_live
@@ -1062,7 +1062,7 @@ pub(crate) fn builtin_minibufferp_ctx(
             .buffers
             .get(buffer_id)
             .is_some_and(|buffer| is_minibuffer_buffer_name(&buffer.name));
-    Ok(Value::bool(if live_only { is_live } else { is_minibuffer }))
+    Ok(Value::bool_val(if live_only { is_live } else { is_minibuffer }))
 }
 
 pub(crate) fn builtin_minibuffer_innermost_command_loop_p_ctx(
@@ -1071,7 +1071,7 @@ pub(crate) fn builtin_minibuffer_innermost_command_loop_p_ctx(
 ) -> EvalResult {
     expect_range_args("minibuffer-innermost-command-loop-p", &args, 0, 1)?;
     let Some(buffer_id) = resolve_minibuffer_buffer_arg(&eval.buffers, args.first())? else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     let recursive_depth = eval.command_loop.recursive_depth;
     let command_loop_depth = eval
@@ -1080,7 +1080,7 @@ pub(crate) fn builtin_minibuffer_innermost_command_loop_p_ctx(
         .iter()
         .find(|state| state.buffer_id == buffer_id)
         .map(|state| state.command_loop_depth);
-    Ok(Value::bool(
+    Ok(Value::bool_val(
         command_loop_depth.is_some_and(|depth| depth == recursive_depth),
     ))
 }
@@ -1091,9 +1091,9 @@ pub(crate) fn builtin_innermost_minibuffer_p_ctx(
 ) -> EvalResult {
     expect_range_args("innermost-minibuffer-p", &args, 0, 1)?;
     let Some(buffer_id) = resolve_minibuffer_buffer_arg(&eval.buffers, args.first())? else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
-    Ok(Value::bool(
+    Ok(Value::bool_val(
         eval.minibuffers
             .current()
             .is_some_and(|state| state.buffer_id == buffer_id),
@@ -1104,12 +1104,12 @@ fn validate_minibufferp_args(args: &[Value]) -> Result<(), Flow> {
     if args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("minibufferp"), Value::Int(args.len() as i64)],
+            vec![Value::symbol("minibufferp"), Value::fixnum(args.len() as i64)],
         ));
     }
     if let Some(bufferish) = args.first() {
-        match bufferish {
-            Value::Nil | Value::Str(_) | Value::Buffer(_) => {}
+        match bufferish.kind() {
+            ValueKind::Nil | ValueKind::String | ValueKind::Veclike(VecLikeType::Buffer) => {}
             _ => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -1140,7 +1140,7 @@ pub(crate) fn builtin_top_level(args: Vec<Value>) -> EvalResult {
     expect_args("top-level", &args, 0)?;
     Err(Flow::Throw {
         tag: Value::symbol("top-level"),
-        value: Value::Nil,
+        value: Value::NIL,
     })
 }
 
@@ -1162,7 +1162,7 @@ pub(crate) fn builtin_exit_recursive_edit(
     }
     Err(Flow::Throw {
         tag: Value::symbol("exit"),
-        value: Value::Nil,
+        value: Value::NIL,
     })
 }
 
@@ -1174,7 +1174,7 @@ pub(crate) fn builtin_exit_minibuffer(args: Vec<Value>) -> EvalResult {
     expect_args("exit-minibuffer", &args, 0)?;
     Err(Flow::Throw {
         tag: Value::symbol("exit"),
-        value: Value::Nil,
+        value: Value::NIL,
     })
 }
 
@@ -1201,7 +1201,7 @@ pub(crate) fn builtin_abort_minibuffers_ctx(
     }
     Err(Flow::Throw {
         tag: Value::symbol("exit"),
-        value: Value::True,
+        value: Value::T,
     })
 }
 
@@ -1222,9 +1222,9 @@ fn resolve_minibuffer_buffer_arg(
     bufferish: Option<&Value>,
 ) -> Result<Option<BufferId>, Flow> {
     match bufferish {
-        None | Some(Value::Nil) => Ok(buffers.current_buffer_id()),
-        Some(Value::Buffer(id)) => Ok(Some(*id)),
-        Some(Value::Str(_)) => Ok(bufferish
+        None | Some(ValueKind::Nil) => Ok(buffers.current_buffer_id()),
+        Some(ValueKind::Veclike(VecLikeType::Buffer)) => Ok(Some(*id)),
+        Some(ValueKind::String) => Ok(bufferish
             .and_then(Value::as_str)
             .and_then(|name| buffers.find_buffer_by_name(name))),
         Some(other) => Err(signal(
@@ -1256,7 +1256,7 @@ pub(crate) fn builtin_abort_recursive_edit(
     }
     Err(Flow::Throw {
         tag: Value::symbol("exit"),
-        value: Value::True,
+        value: Value::T,
     })
 }
 
@@ -1272,9 +1272,9 @@ pub(crate) fn builtin_abort_recursive_edit(
 /// - Vector of strings
 /// - nil → empty
 fn value_to_string_list(val: &Value) -> Vec<String> {
-    match val {
-        Value::Nil => Vec::new(),
-        Value::Cons(_) => {
+    match val.kind() {
+        ValueKind::Nil => Vec::new(),
+        ValueKind::Cons => {
             let items = match super::value::list_to_vec(val) {
                 Some(v) => v,
                 None => return Vec::new(),
@@ -1282,14 +1282,14 @@ fn value_to_string_list(val: &Value) -> Vec<String> {
             items
                 .iter()
                 .filter_map(|item| match item {
-                    Value::Str(id) => Some(with_heap(|h| h.get_string(*id).to_owned())),
-                    Value::Symbol(id) => Some(resolve_sym(*id).to_owned()),
+                    ValueKind::String => Some(with_heap(|h| h.get_string(*id).to_owned())),
+                    ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
                     // Alist entry: (STRING . _)
-                    Value::Cons(cell) => {
-                        let pair = read_cons(*cell);
-                        match &pair.car {
-                            Value::Str(id) => Some(with_heap(|h| h.get_string(*id).to_owned())),
-                            Value::Symbol(id) => Some(resolve_sym(*id).to_owned()),
+                    ValueKind::Cons => {
+                        let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+                        match pair.car.kind() {
+                            ValueKind::String => Some(with_heap(|h| h.get_string(*id).to_owned())),
+                            ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
                             _ => None,
                         }
                     }
@@ -1297,12 +1297,12 @@ fn value_to_string_list(val: &Value) -> Vec<String> {
                 })
                 .collect()
         }
-        Value::Vector(v) => {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let vec = with_heap(|h| h.get_vector(*v).clone());
             vec.iter()
                 .filter_map(|item| match item {
-                    Value::Str(id) => Some(with_heap(|h| h.get_string(*id).to_owned())),
-                    Value::Symbol(id) => Some(resolve_sym(*id).to_owned()),
+                    ValueKind::String => Some(with_heap(|h| h.get_string(*id).to_owned())),
+                    ValueKind::Symbol(id) => Some(resolve_sym(*id).to_owned()),
                     _ => None,
                 })
                 .collect()
@@ -1319,11 +1319,11 @@ pub(crate) struct CompletionCandidate {
 }
 
 fn completion_string_from_value(value: &Value) -> Option<String> {
-    match value {
-        Value::Str(id) => Some(with_heap(|h| h.get_string(*id).to_owned())),
-        Value::Symbol(id) | Value::Keyword(id) => Some(resolve_sym(*id).to_owned()),
-        Value::Nil => Some("nil".to_owned()),
-        Value::True => Some("t".to_owned()),
+    match value.kind() {
+        ValueKind::String => Some(with_heap(|h| h.get_string(*id).to_owned())),
+        ValueKind::Symbol(id) | ValueKind::Keyword(id) => Some(resolve_sym(id).to_owned()),
+        ValueKind::Nil => Some("nil".to_owned()),
+        ValueKind::T => Some("t".to_owned()),
         _ => None,
     }
 }
@@ -1336,8 +1336,8 @@ fn completion_candidates_from_list_value(collection: &Value) -> Vec<CompletionCa
     items
         .into_iter()
         .filter_map(|item| {
-            let key = match item {
-                Value::Cons(cell) => read_cons(cell).car,
+            let key = match item.kind() {
+                ValueKind::Cons => read_cons(cell).car,  // TODO(tagged): replace read_cons with cons accessors
                 other => other,
             };
             completion_string_from_value(&key).map(|completion| CompletionCandidate {
@@ -1350,7 +1350,7 @@ fn completion_candidates_from_list_value(collection: &Value) -> Vec<CompletionCa
 }
 
 fn completion_candidates_from_vector_value(collection: &Value) -> Vec<CompletionCandidate> {
-    let Value::Vector(id) = collection else {
+    if !collection.is_vector() /* TODO(tagged): `id` was Value::Vector(id), rewrite let-else */ {
         return Vec::new();
     };
     let items = with_heap(|h| h.get_vector(*id).clone());
@@ -1398,12 +1398,12 @@ pub(crate) fn completion_candidates_from_collection_in_state(
 ) -> Result<Option<Vec<CompletionCandidate>>, Flow> {
     let obarray = &ctx.obarray;
     Ok(match collection {
-        Value::Nil | Value::Cons(_) => Some(completion_candidates_from_list_value(collection)),
-        Value::HashTable(table_id) => Some(completion_candidates_from_hash_table(*table_id)),
-        Value::Vector(_) if is_global_obarray_proxy_in_state(obarray, collection) => {
+        Value::NIL | Value::Cons(_) /* TODO(tagged): convert Value::Cons to new API */ => Some(completion_candidates_from_list_value(collection)),
+        Value::HashTable(table_id) /* TODO(tagged): convert Value::HashTable to new API */ => Some(completion_candidates_from_hash_table(*table_id)),
+        Value::Vector(_) /* TODO(tagged): convert Value::Vector to new API */ if is_global_obarray_proxy_in_state(obarray, collection) => {
             Some(completion_candidates_from_global_obarray_in_state(obarray))
         }
-        Value::Vector(vec_id) => {
+        Value::Vector(vec_id) /* TODO(tagged): convert Value::Vector to new API */ => {
             super::builtins::symbols::expect_obarray_vector_id(collection)?;
             Some(completion_candidates_from_custom_obarray(*vec_id))
         }
@@ -1443,11 +1443,11 @@ pub(crate) fn builtin_try_completion_with_candidates(
     expect_min_args("try-completion", args, 2)?;
     expect_max_args("try-completion", args, 3)?;
     let string = expect_string(&args[0])?;
-    let predicate = args.get(2).copied().unwrap_or(Value::Nil);
+    let predicate = args.get(2).copied().unwrap_or(Value::NIL);
     let collection = args[1];
 
     let Some(candidates) = candidates else {
-        return apply(collection, vec![args[0], predicate, Value::Nil]);
+        return apply(collection, vec![args[0], predicate, Value::NIL]);
     };
 
     let mut matches = Vec::new();
@@ -1464,14 +1464,14 @@ pub(crate) fn builtin_try_completion_with_candidates(
     }
 
     if matches.is_empty() {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     if matches.len() == 1 && matches[0] == string {
-        return Ok(Value::True);
+        return Ok(Value::T);
     }
     match compute_common_prefix(&matches) {
         Some(prefix) => Ok(Value::string(prefix)),
-        None => Ok(Value::Nil),
+        None => Ok(Value::NIL),
     }
 }
 
@@ -1485,11 +1485,11 @@ pub(crate) fn builtin_all_completions_with_candidates(
     expect_min_args("all-completions", args, 2)?;
     expect_max_args("all-completions", args, 4)?;
     let string = expect_string(&args[0])?;
-    let predicate = args.get(2).copied().unwrap_or(Value::Nil);
+    let predicate = args.get(2).copied().unwrap_or(Value::NIL);
     let collection = args[1];
 
     let Some(candidates) = candidates else {
-        return apply(collection, vec![args[0], predicate, Value::True]);
+        return apply(collection, vec![args[0], predicate, Value::T]);
     };
 
     let mut matches = Vec::new();
@@ -1517,7 +1517,7 @@ pub(crate) fn builtin_test_completion_with_candidates(
     expect_min_args("test-completion", args, 2)?;
     expect_max_args("test-completion", args, 3)?;
     let string = expect_string(&args[0])?;
-    let predicate = args.get(2).copied().unwrap_or(Value::Nil);
+    let predicate = args.get(2).copied().unwrap_or(Value::NIL);
     let collection = args[1];
 
     let Some(candidates) = candidates else {
@@ -1543,10 +1543,10 @@ pub(crate) fn builtin_test_completion_with_candidates(
             continue;
         }
         if completion_predicate_matches_with(predicate, candidate, &mut apply)? {
-            return Ok(Value::True);
+            return Ok(Value::T);
         }
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 fn completion_candidates_from_custom_obarray(vec_id: crate::gc::ObjId) -> Vec<CompletionCandidate> {
@@ -1555,10 +1555,10 @@ fn completion_candidates_from_custom_obarray(vec_id: crate::gc::ObjId) -> Vec<Co
     for slot in slots {
         let mut current = slot;
         loop {
-            match current {
-                Value::Nil => break,
-                Value::Cons(cell) => {
-                    let pair = read_cons(cell);
+            match current.kind() {
+                ValueKind::Nil => break,
+                ValueKind::Cons => {
+                    let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                     if let Some(completion) = completion_string_from_value(&pair.car) {
                         candidates.push(CompletionCandidate {
                             completion,
@@ -1630,7 +1630,7 @@ fn completion_regexp_list(obarray: &Obarray) -> Vec<String> {
     items
         .iter()
         .filter_map(|item| match item {
-            Value::Str(id) => Some(with_heap(|h| h.get_string(*id).to_owned())),
+            Value::Str(id) /* TODO(tagged): convert Value::Str to new API */ => Some(with_heap(|h| h.get_string(*id).to_owned())),
             _ => None,
         })
         .collect()

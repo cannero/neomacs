@@ -1,6 +1,7 @@
 use super::*;
 use crate::emacs_core::eval::Context;
 use crate::emacs_core::{print, string_escape};
+use super::value::{ValueKind, VecLikeType};
 
 /// Test helper: create a minimal eval context for widget-apply tests.
 fn test_eval_ctx() -> crate::emacs_core::eval::Context {
@@ -18,41 +19,41 @@ macro_rules! call_fns_builtin {
 
 #[test]
 fn base64_encode_empty() {
-    let r = builtin_base64_encode_string(vec![Value::string(""), Value::True]).unwrap();
+    let r = builtin_base64_encode_string(vec![Value::string(""), Value::T]).unwrap();
     assert_eq!(r.as_str(), Some(""));
 }
 
 #[test]
 fn base64_encode_hello() {
-    let r = builtin_base64_encode_string(vec![Value::string("Hello"), Value::True]).unwrap();
+    let r = builtin_base64_encode_string(vec![Value::string("Hello"), Value::T]).unwrap();
     assert_eq!(r.as_str(), Some("SGVsbG8="));
 }
 
 #[test]
 fn base64_encode_padding_1() {
     // "a" -> "YQ=="
-    let r = builtin_base64_encode_string(vec![Value::string("a"), Value::True]).unwrap();
+    let r = builtin_base64_encode_string(vec![Value::string("a"), Value::T]).unwrap();
     assert_eq!(r.as_str(), Some("YQ=="));
 }
 
 #[test]
 fn base64_encode_padding_2() {
     // "ab" -> "YWI="
-    let r = builtin_base64_encode_string(vec![Value::string("ab"), Value::True]).unwrap();
+    let r = builtin_base64_encode_string(vec![Value::string("ab"), Value::T]).unwrap();
     assert_eq!(r.as_str(), Some("YWI="));
 }
 
 #[test]
 fn base64_encode_no_padding_3() {
     // "abc" -> "YWJj" (no padding needed)
-    let r = builtin_base64_encode_string(vec![Value::string("abc"), Value::True]).unwrap();
+    let r = builtin_base64_encode_string(vec![Value::string("abc"), Value::T]).unwrap();
     assert_eq!(r.as_str(), Some("YWJj"));
 }
 
 #[test]
 fn base64_roundtrip() {
     let original = "The quick brown fox jumps over the lazy dog";
-    let encoded = builtin_base64_encode_string(vec![Value::string(original), Value::True]).unwrap();
+    let encoded = builtin_base64_encode_string(vec![Value::string(original), Value::T]).unwrap();
     let decoded = builtin_base64_decode_string(vec![encoded]).unwrap();
     assert_eq!(decoded.as_str(), Some(original));
 }
@@ -68,7 +69,7 @@ fn base64_decode_invalid() {
 
 #[test]
 fn base64url_encode_no_pad() {
-    let r = builtin_base64url_encode_string(vec![Value::string("a"), Value::True]).unwrap();
+    let r = builtin_base64url_encode_string(vec![Value::string("a"), Value::T]).unwrap();
     // URL-safe, no padding
     assert_eq!(r.as_str(), Some("YQ"));
 }
@@ -83,8 +84,8 @@ fn base64url_encode_with_pad() {
 fn base64url_roundtrip() {
     let original = "Hello+World/Foo";
     let encoded =
-        builtin_base64url_encode_string(vec![Value::string(original), Value::True]).unwrap();
-    let decoded = builtin_base64_decode_string(vec![encoded, Value::True]).unwrap();
+        builtin_base64url_encode_string(vec![Value::string(original), Value::T]).unwrap();
+    let decoded = builtin_base64_decode_string(vec![encoded, Value::T]).unwrap();
     assert_eq!(decoded.as_str(), Some(original));
 }
 
@@ -110,8 +111,8 @@ fn base64url_uses_dash_underscore() {
     // Instead, directly encode bytes [0xFF] which in std is "/w==" and url is "_w==".
     // Since our strings are UTF-8, we use a string with codepoint U+00FF (latin small y with diaeresis).
     let input = "\u{00FF}"; // UTF-8: [0xC3, 0xBF]
-    let std_enc = builtin_base64_encode_string(vec![Value::string(input), Value::True]).unwrap();
-    let url_enc = builtin_base64url_encode_string(vec![Value::string(input), Value::True]).unwrap();
+    let std_enc = builtin_base64_encode_string(vec![Value::string(input), Value::T]).unwrap();
+    let url_enc = builtin_base64url_encode_string(vec![Value::string(input), Value::T]).unwrap();
     // Standard and URL should differ if the encoding contains + or /
     // For [0xC3, 0xBF]: std = "w78=" which has no + or /... let's just
     // verify neither + nor / appear in url encoding.
@@ -139,9 +140,9 @@ fn base64_region_eval_encode_decode_roundtrip() {
         buf.insert("Hi");
     }
 
-    let encoded = builtin_base64_encode_region(&mut eval, vec![Value::Int(1), Value::Int(3)])
+    let encoded = builtin_base64_encode_region(&mut eval, vec![Value::fixnum(1), Value::fixnum(3)])
         .expect("encode region should succeed");
-    assert_eq!(encoded, Value::Int(4));
+    assert_eq!(encoded, Value::fixnum(4));
     let encoded_text = eval
         .buffers
         .current_buffer()
@@ -149,9 +150,9 @@ fn base64_region_eval_encode_decode_roundtrip() {
         .buffer_string();
     assert_eq!(encoded_text, "SGk=");
 
-    let decoded = builtin_base64_decode_region(&mut eval, vec![Value::Int(1), Value::Int(5)])
+    let decoded = builtin_base64_decode_region(&mut eval, vec![Value::fixnum(1), Value::fixnum(5)])
         .expect("decode region should succeed");
-    assert_eq!(decoded, Value::Int(2));
+    assert_eq!(decoded, Value::fixnum(2));
     let decoded_text = eval
         .buffers
         .current_buffer()
@@ -170,9 +171,9 @@ fn base64_region_eval_swapped_bounds_and_url_encoding() {
     }
 
     let encoded =
-        builtin_base64url_encode_region(&mut eval, vec![Value::Int(3), Value::Int(1), Value::True])
+        builtin_base64url_encode_region(&mut eval, vec![Value::fixnum(3), Value::fixnum(1), Value::T])
             .expect("url encode region should succeed");
-    assert_eq!(encoded, Value::Int(3));
+    assert_eq!(encoded, Value::fixnum(3));
     let encoded_text = eval
         .buffers
         .current_buffer()
@@ -192,10 +193,10 @@ fn base64_decode_region_noerror_semantics() {
 
     let ignored = builtin_base64_decode_region(
         &mut eval,
-        vec![Value::Int(1), Value::Int(3), Value::Nil, Value::True],
+        vec![Value::fixnum(1), Value::fixnum(3), Value::NIL, Value::T],
     )
     .expect("noerror decode should succeed");
-    assert_eq!(ignored, Value::Int(0));
+    assert_eq!(ignored, Value::fixnum(0));
     let emptied = eval
         .buffers
         .current_buffer()
@@ -207,7 +208,7 @@ fn base64_decode_region_noerror_semantics() {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("%%");
     }
-    let strict = builtin_base64_decode_region(&mut eval, vec![Value::Int(1), Value::Int(3)]);
+    let strict = builtin_base64_decode_region(&mut eval, vec![Value::fixnum(1), Value::fixnum(3)]);
     match strict {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
@@ -234,7 +235,7 @@ fn base64_region_eval_error_shapes() {
 
     let type_error = builtin_base64_encode_region(
         &mut eval,
-        vec![Value::symbol("x"), Value::Int(2), Value::True],
+        vec![Value::symbol("x"), Value::fixnum(2), Value::T],
     );
     match type_error {
         Err(Flow::Signal(sig)) => {
@@ -247,14 +248,14 @@ fn base64_region_eval_error_shapes() {
         other => panic!("expected wrong-type-argument, got {other:?}"),
     }
 
-    let range_error = builtin_base64_encode_region(&mut eval, vec![Value::Int(0), Value::Int(2)]);
+    let range_error = builtin_base64_encode_region(&mut eval, vec![Value::fixnum(0), Value::fixnum(2)]);
     match range_error {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
             assert_eq!(sig.data.len(), 3);
-            assert!(matches!(sig.data[0], Value::Buffer(_)));
-            assert_eq!(sig.data[1], Value::Int(0));
-            assert_eq!(sig.data[2], Value::Int(2));
+            assert!(matches!(sig.data[0], ValueKind::Veclike(VecLikeType::Buffer)));
+            assert_eq!(sig.data[1], ValueKind::Fixnum(0));
+            assert_eq!(sig.data[2], ValueKind::Fixnum(2));
         }
         other => panic!("expected args-out-of-range, got {other:?}"),
     }
@@ -295,13 +296,13 @@ fn md5_fox() {
 fn md5_string_range_errors() {
     match call_fns_builtin!(
         builtin_md5,
-        vec![Value::string("abc"), Value::Int(2), Value::Int(1)]
+        vec![Value::string("abc"), Value::fixnum(2), Value::fixnum(1)]
     ) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
             assert_eq!(
                 sig.data,
-                vec![Value::string("abc"), Value::Int(2), Value::Int(1)]
+                vec![Value::string("abc"), Value::fixnum(2), Value::fixnum(1)]
             );
         }
         other => panic!("expected args-out-of-range signal, got {other:?}"),
@@ -312,7 +313,7 @@ fn md5_string_range_errors() {
 fn md5_string_index_type_error() {
     match call_fns_builtin!(
         builtin_md5,
-        vec![Value::string("abc"), Value::True, Value::Int(1)]
+        vec![Value::string("abc"), Value::T, Value::fixnum(1)]
     ) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -343,8 +344,8 @@ fn md5_unknown_coding_system_errors() {
         builtin_md5,
         vec![
             Value::string("abc"),
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
             Value::symbol("no-such"),
         ]
     ) {
@@ -362,10 +363,10 @@ fn md5_unknown_coding_system_ignored_with_noerror() {
         builtin_md5,
         vec![
             Value::string("abc"),
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
             Value::symbol("no-such"),
-            Value::True,
+            Value::T,
         ]
     )
     .unwrap();
@@ -378,8 +379,8 @@ fn md5_accepts_iso_8859_15_alias() {
         builtin_md5,
         vec![
             Value::string("abc"),
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
             Value::symbol("iso-8859-15"),
         ]
     )
@@ -393,8 +394,8 @@ fn md5_accepts_iso_8859_9_alias() {
         builtin_md5,
         vec![
             Value::string("abc"),
-            Value::Nil,
-            Value::Nil,
+            Value::NIL,
+            Value::NIL,
             Value::symbol("iso-8859-9"),
         ]
     )
@@ -406,11 +407,11 @@ fn md5_accepts_iso_8859_9_alias() {
 fn md5_non_symbol_coding_system_errors() {
     match call_fns_builtin!(
         builtin_md5,
-        vec![Value::string("abc"), Value::Nil, Value::Nil, Value::Int(1),]
+        vec![Value::string("abc"), Value::NIL, Value::NIL, Value::fixnum(1),]
     ) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "coding-system-error");
-            assert_eq!(sig.data, vec![Value::Int(1)]);
+            assert_eq!(sig.data, vec![Value::fixnum(1)]);
         }
         other => panic!("expected coding-system-error signal, got {other:?}"),
     }
@@ -426,12 +427,12 @@ fn md5_eval_buffer_core_semantics() {
     }
     let id = eval.buffers.current_buffer().expect("current buffer").id;
 
-    let full = builtin_md5(&mut eval, vec![Value::Buffer(id)]).unwrap();
+    let full = builtin_md5(&mut eval, vec![Value::make_buffer(id)]).unwrap();
     assert_eq!(full.as_str(), Some("900150983cd24fb0d6963f7d28e17f72"));
 
     let swapped = builtin_md5(
         &mut eval,
-        vec![Value::Buffer(id), Value::Int(4), Value::Int(3)],
+        vec![Value::make_buffer(id), Value::fixnum(4), Value::fixnum(3)],
     )
     .unwrap();
     assert_eq!(swapped.as_str(), Some("4a8a08f09d37b73795649038408b5f33"));
@@ -450,7 +451,7 @@ fn md5_eval_buffer_range_errors() {
     match builtin_md5(&mut eval, vec![Value::Buffer(id), Value::Int(5)]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![Value::Int(5), Value::Nil]);
+            assert_eq!(sig.data, vec![ValueKind::Fixnum(5), ValueKind::Nil]);
         }
         other => panic!("expected args-out-of-range signal, got {other:?}"),
     }
@@ -463,7 +464,7 @@ fn md5_eval_buffer_index_type_error() {
 
     match builtin_md5(
         &mut eval,
-        vec![Value::Buffer(id), Value::True, Value::Int(3)],
+        vec![Value::make_buffer(id), Value::T, Value::fixnum(3)],
     ) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -536,9 +537,9 @@ fn secure_hash_binary_string_uses_unibyte_storage() {
         vec![
             Value::symbol("sha1"),
             Value::string("abc"),
-            Value::Nil,
-            Value::Nil,
-            Value::True,
+            Value::NIL,
+            Value::NIL,
+            Value::T,
         ]
     )
     .unwrap();
@@ -564,8 +565,8 @@ fn secure_hash_subrange_semantics() {
         vec![
             Value::symbol("sha256"),
             Value::string("abcdef"),
-            Value::Int(1),
-            Value::Int(4),
+            Value::fixnum(1),
+            Value::fixnum(4),
         ]
     )
     .unwrap();
@@ -596,7 +597,7 @@ fn secure_hash_invalid_algorithm_errors() {
 fn secure_hash_invalid_algorithm_type_errors() {
     match call_fns_builtin!(
         builtin_secure_hash,
-        vec![Value::Int(1), Value::string("abc")]
+        vec![Value::fixnum(1), Value::string("abc")]
     ) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -610,7 +611,7 @@ fn secure_hash_invalid_algorithm_type_errors() {
 fn secure_hash_invalid_object_errors() {
     match call_fns_builtin!(
         builtin_secure_hash,
-        vec![Value::symbol("sha256"), Value::Int(123)]
+        vec![Value::symbol("sha256"), Value::fixnum(123)]
     ) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
@@ -618,7 +619,7 @@ fn secure_hash_invalid_object_errors() {
                 sig.data.first().and_then(|v| v.as_str()),
                 Some("Invalid object argument")
             );
-            assert_eq!(sig.data.get(1), Some(&Value::Int(123)));
+            assert_eq!(sig.data.get(1), Some(&Value::fixnum(123)));
         }
         other => panic!("expected error signal, got {other:?}"),
     }
@@ -633,7 +634,7 @@ fn secure_hash_eval_buffer_sha1() {
         buf.insert("abc");
     }
     let id = eval.buffers.current_buffer().expect("current buffer").id;
-    let r = builtin_secure_hash(&mut eval, vec![Value::symbol("sha1"), Value::Buffer(id)]).unwrap();
+    let r = builtin_secure_hash(&mut eval, vec![Value::symbol("sha1"), Value::make_buffer(id)]).unwrap();
     assert_eq!(r.as_str(), Some("a9993e364706816aba3e25717850c26c9cd0d89d"));
 }
 
@@ -649,11 +650,11 @@ fn secure_hash_eval_buffer_range_errors() {
 
     match builtin_secure_hash(
         &mut eval,
-        vec![Value::symbol("sha1"), Value::Buffer(id), Value::Int(5)],
+        vec![Value::symbol("sha1"), Value::make_buffer(id), Value::fixnum(5)],
     ) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![Value::Int(5), Value::Nil]);
+            assert_eq!(sig.data, vec![Value::fixnum(5), Value::NIL]);
         }
         other => panic!("expected args-out-of-range signal, got {other:?}"),
     }
@@ -668,9 +669,9 @@ fn secure_hash_eval_buffer_index_type_error() {
         &mut eval,
         vec![
             Value::symbol("sha1"),
-            Value::Buffer(id),
-            Value::True,
-            Value::Int(3),
+            Value::make_buffer(id),
+            Value::T,
+            Value::fixnum(3),
         ],
     ) {
         Err(Flow::Signal(sig)) => {
@@ -698,9 +699,9 @@ fn secure_hash_eval_buffer_marker_range() {
         &mut eval,
         vec![
             Value::symbol("sha1"),
-            Value::Buffer(id),
+            Value::make_buffer(id),
             marker,
-            Value::Int(4),
+            Value::fixnum(4),
         ],
     )
     .unwrap();
@@ -818,25 +819,25 @@ fn string_make_unibyte_truncates_unicode_char_code() {
 fn compare_strings_equal() {
     let r = builtin_compare_strings(vec![
         Value::string("hello"),
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
         Value::string("hello"),
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
     ])
     .unwrap();
-    assert!(matches!(r, Value::True));
+    assert!(r.is_t());
 }
 
 #[test]
 fn compare_strings_less() {
     let r = builtin_compare_strings(vec![
         Value::string("abc"),
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
         Value::string("abd"),
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
     ])
     .unwrap();
     // First diff at position 3, "c" < "d" so negative
@@ -847,11 +848,11 @@ fn compare_strings_less() {
 fn compare_strings_greater() {
     let r = builtin_compare_strings(vec![
         Value::string("abd"),
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
         Value::string("abc"),
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
     ])
     .unwrap();
     assert_eq!(r.as_int(), Some(3));
@@ -861,15 +862,15 @@ fn compare_strings_greater() {
 fn compare_strings_ignore_case() {
     let r = builtin_compare_strings(vec![
         Value::string("Hello"),
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
         Value::string("hello"),
-        Value::Nil,
-        Value::Nil,
-        Value::True, // IGNORE-CASE
+        Value::NIL,
+        Value::NIL,
+        Value::T, // IGNORE-CASE
     ])
     .unwrap();
-    assert!(matches!(r, Value::True));
+    assert!(r.is_t());
 }
 
 #[test]
@@ -877,25 +878,25 @@ fn compare_strings_subrange() {
     // Compare "hel" from "hello" (chars 1-3) with "hel" from "help" (chars 1-3)
     let r = builtin_compare_strings(vec![
         Value::string("hello"),
-        Value::Int(1),
-        Value::Int(3),
+        Value::fixnum(1),
+        Value::fixnum(3),
         Value::string("help"),
-        Value::Int(1),
-        Value::Int(3),
+        Value::fixnum(1),
+        Value::fixnum(3),
     ])
     .unwrap();
-    assert!(matches!(r, Value::True));
+    assert!(r.is_t());
 }
 
 #[test]
 fn compare_strings_length_diff() {
     let r = builtin_compare_strings(vec![
         Value::string("ab"),
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
         Value::string("abc"),
-        Value::Nil,
-        Value::Nil,
+        Value::NIL,
+        Value::NIL,
     ])
     .unwrap();
     // "ab" shorter — negative
@@ -947,8 +948,8 @@ fn collate_lessp_ignore_case() {
     let r = builtin_string_collate_lessp(vec![
         Value::string("ABC"),
         Value::string("abd"),
-        Value::Nil,  // locale
-        Value::True, // ignore-case
+        Value::NIL,  // locale
+        Value::T, // ignore-case
     ])
     .unwrap();
     assert!(r.is_truthy());
@@ -968,8 +969,8 @@ fn collate_equalp_ignore_case() {
     let r = builtin_string_collate_equalp(vec![
         Value::string("ABC"),
         Value::string("abc"),
-        Value::Nil,
-        Value::True,
+        Value::NIL,
+        Value::T,
     ])
     .unwrap();
     assert!(r.is_truthy());
@@ -992,10 +993,10 @@ fn widget_get_found() {
         Value::keyword("tag"),
         Value::string("OK"),
         Value::keyword("value"),
-        Value::Int(42),
+        Value::fixnum(42),
     ]);
     let r = builtin_widget_get(vec![widget, Value::keyword("value")]).unwrap();
-    assert!(matches!(r, Value::Int(42)));
+    assert!(matches!(r, Value::fixnum(42)));
 }
 
 #[test]
@@ -1014,14 +1015,14 @@ fn widget_put_existing() {
     let widget = Value::list(vec![
         Value::symbol("button"),
         Value::keyword("value"),
-        Value::Int(1),
+        Value::fixnum(1),
     ]);
-    let r = builtin_widget_put(vec![widget, Value::keyword("value"), Value::Int(99)]).unwrap();
-    assert!(matches!(r, Value::Int(99)));
+    let r = builtin_widget_put(vec![widget, Value::keyword("value"), Value::fixnum(99)]).unwrap();
+    assert!(matches!(r, Value::fixnum(99)));
 
     // Verify it was modified
     let got = builtin_widget_get(vec![widget, Value::keyword("value")]).unwrap();
-    assert!(matches!(got, Value::Int(99)));
+    assert!(matches!(got, Value::fixnum(99)));
 }
 
 #[test]
@@ -1044,7 +1045,7 @@ fn widget_apply_missing_property_signals_void_function_nil() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "void-function");
-            assert_eq!(sig.data, vec![Value::Nil]);
+            assert_eq!(sig.data, vec![ValueKind::Nil]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -1075,12 +1076,12 @@ fn widget_apply_passes_rest_arguments() {
         vec![
             widget,
             Value::keyword("action"),
-            Value::Int(1),
-            Value::Int(2),
+            Value::fixnum(1),
+            Value::fixnum(2),
         ],
     )
     .unwrap();
-    assert_eq!(r, Value::list(vec![widget, Value::Int(1), Value::Int(2)]));
+    assert_eq!(r, Value::list(vec![widget, Value::fixnum(1), Value::fixnum(2)]));
 }
 
 #[test]
@@ -1088,7 +1089,7 @@ fn widget_apply_non_callable_property_signals_invalid_function() {
     let widget = Value::list(vec![
         Value::symbol("button"),
         Value::keyword("action"),
-        Value::Int(7),
+        Value::fixnum(7),
     ]);
     let mut ctx = test_eval_ctx();
     let err = builtin_widget_apply(&mut ctx, vec![widget, Value::keyword("action")])
@@ -1096,7 +1097,7 @@ fn widget_apply_non_callable_property_signals_invalid_function() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "invalid-function");
-            assert_eq!(sig.data, vec![Value::Int(7)]);
+            assert_eq!(sig.data, vec![ValueKind::Fixnum(7)]);
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -1114,7 +1115,7 @@ fn base64_encode_line_break() {
 
     // No line break variant
     let encoded_no_lb =
-        builtin_base64_encode_string(vec![Value::string(long), Value::True]).unwrap();
+        builtin_base64_encode_string(vec![Value::string(long), Value::T]).unwrap();
     let s2 = encoded_no_lb.as_str().unwrap();
     assert!(!s2.contains('\n'));
 }

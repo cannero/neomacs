@@ -9,7 +9,7 @@
 //! - A `special` flag (for dynamic binding in lexical scope)
 
 use super::intern::{SymId, intern, lookup_interned, resolve_sym};
-use super::value::Value;
+use super::value::{Value, ValueKind};
 use crate::gc::GcTrace;
 use std::collections::{HashMap, HashSet};
 
@@ -100,16 +100,16 @@ impl Obarray {
         let name = resolve_sym(id);
         if Self::is_canonical_symbol_id(id) {
             if name == "nil" {
-                return Value::Nil;
+                return Value::NIL;
             }
             if name == "t" {
-                return Value::True;
+                return Value::T;
             }
             if name.starts_with(':') {
-                return Value::Keyword(id);
+                return Value::keyword(id);
             }
         }
-        Value::Symbol(id)
+        Value::symbol(id)
     }
 
     pub fn new() -> Self {
@@ -123,7 +123,7 @@ impl Obarray {
         // Pre-intern fundamental symbols
         let t_id = intern("t");
         let mut t_sym = SymbolData::new(t_id);
-        t_sym.value = SymbolValue::Plain(Some(Value::True));
+        t_sym.value = SymbolValue::Plain(Some(Value::T));
         t_sym.constant = true;
         t_sym.special = true;
         ob.symbols.insert(t_id, t_sym);
@@ -131,7 +131,7 @@ impl Obarray {
 
         let nil_id = intern("nil");
         let mut nil_sym = SymbolData::new(nil_id);
-        nil_sym.value = SymbolValue::Plain(Some(Value::Nil));
+        nil_sym.value = SymbolValue::Plain(Some(Value::NIL));
         nil_sym.constant = true;
         nil_sym.special = true;
         ob.symbols.insert(nil_id, nil_sym);
@@ -285,10 +285,10 @@ impl Obarray {
     /// and uninterned symbols (unlike `symbol_function(name)` which
     /// re-interns the name and would miss uninterned symbol function cells).
     pub fn symbol_function_of_value(&self, value: &Value) -> Option<&Value> {
-        match value {
-            Value::Symbol(id) | Value::Keyword(id) => self.symbol_function_id(*id),
-            Value::Nil => self.symbol_function("nil"),
-            Value::True => self.symbol_function("t"),
+        match value.kind() {
+            ValueKind::Symbol(id) | ValueKind::Keyword(id) => self.symbol_function_id(id),
+            ValueKind::Nil => self.symbol_function("nil"),
+            ValueKind::T => self.symbol_function("t"),
             _ => None,
         }
     }
@@ -448,7 +448,7 @@ impl Obarray {
                 }
                 Value::list(items)
             }
-            _ => Value::Nil,
+            _ => Value::NIL,
         }
     }
 
@@ -580,9 +580,9 @@ impl Obarray {
                 return None; // Circular alias chain
             }
             let func = self.symbols.get(&current_id)?.function.as_ref()?;
-            match func {
-                Value::Symbol(id) => {
-                    current_id = *id;
+            match func.kind() {
+                ValueKind::Symbol(id) => {
+                    current_id = id;
                     depth += 1;
                 }
                 _ => return Some(*func),

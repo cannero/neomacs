@@ -12,20 +12,20 @@ fn make_category_table_matches_gnu_shape() {
     assert!(builtin_category_table_p(vec![table]).unwrap().is_truthy());
 
     let default =
-        super::super::chartable::builtin_char_table_range(vec![table, Value::Nil]).unwrap();
+        super::super::chartable::builtin_char_table_range(vec![table, Value::NIL]).unwrap();
     assert!(
         super::super::chartable::builtin_bool_vector_p(vec![default])
             .unwrap()
             .is_truthy()
     );
     let docs =
-        super::super::chartable::builtin_char_table_extra_slot(vec![table, Value::Int(0)]).unwrap();
-    let Value::Vector(docs_arc) = docs else {
+        super::super::chartable::builtin_char_table_extra_slot(vec![table, Value::fixnum(0)]).unwrap();
+    if !docs.is_vector() /* TODO(tagged): `docs_arc` was Value::Vector(docs_arc), rewrite let-else */ {
         panic!("expected docstring vector");
     };
     assert_eq!(with_heap(|h| h.get_vector(docs_arc).len()), 95);
     assert!(
-        super::super::chartable::builtin_char_table_extra_slot(vec![table, Value::Int(1)])
+        super::super::chartable::builtin_char_table_extra_slot(vec![table, Value::fixnum(1)])
             .unwrap()
             .is_nil()
     );
@@ -37,29 +37,29 @@ fn copy_category_table_deep_copies_docstrings_and_sets() {
     let table = builtin_make_category_table(vec![]).unwrap();
     builtin_define_category(
         &mut eval,
-        vec![Value::Char('!'), Value::string("bang"), table],
+        vec![Value::char('!'), Value::string("bang"), table],
     )
     .unwrap();
-    builtin_modify_category_entry(&mut eval, vec![Value::Char('A'), Value::Char('!'), table])
+    builtin_modify_category_entry(&mut eval, vec![Value::char('A'), Value::char('!'), table])
         .unwrap();
 
     let copy = builtin_copy_category_table(vec![table]).unwrap();
     builtin_define_category(
         &mut eval,
-        vec![Value::Char('"'), Value::string("quote"), copy],
+        vec![Value::char('"'), Value::string("quote"), copy],
     )
     .unwrap();
-    builtin_modify_category_entry(&mut eval, vec![Value::Char('B'), Value::Char('!'), copy])
+    builtin_modify_category_entry(&mut eval, vec![Value::char('B'), Value::char('!'), copy])
         .unwrap();
 
     assert!(
-        builtin_category_docstring(&mut eval, vec![Value::Char('"'), table])
+        builtin_category_docstring(&mut eval, vec![Value::char('"'), table])
             .unwrap()
             .is_nil()
     );
     assert_eq!(
         builtin_category_set_mnemonics(vec![
-            super::super::chartable::builtin_char_table_range(vec![table, Value::Char('B')])
+            super::super::chartable::builtin_char_table_range(vec![table, Value::char('B')])
                 .unwrap(),
         ])
         .unwrap(),
@@ -67,7 +67,7 @@ fn copy_category_table_deep_copies_docstrings_and_sets() {
     );
     assert_eq!(
         builtin_category_set_mnemonics(vec![
-            super::super::chartable::builtin_char_table_range(vec![copy, Value::Char('B')])
+            super::super::chartable::builtin_char_table_range(vec![copy, Value::char('B')])
                 .unwrap(),
         ])
         .unwrap(),
@@ -75,10 +75,10 @@ fn copy_category_table_deep_copies_docstrings_and_sets() {
     );
 
     let table_docs =
-        super::super::chartable::builtin_char_table_extra_slot(vec![table, Value::Int(0)]).unwrap();
+        super::super::chartable::builtin_char_table_extra_slot(vec![table, Value::fixnum(0)]).unwrap();
     let copy_docs =
-        super::super::chartable::builtin_char_table_extra_slot(vec![copy, Value::Int(0)]).unwrap();
-    let (Value::Vector(table_docs_arc), Value::Vector(copy_docs_arc)) = (table_docs, copy_docs)
+        super::super::chartable::builtin_char_table_extra_slot(vec![copy, Value::fixnum(0)]).unwrap();
+    let (Value::Vector(table_docs_arc) /* TODO(tagged): convert Value::Vector to new API */, Value::Vector(copy_docs_arc) /* TODO(tagged): convert Value::Vector to new API */) = (table_docs, copy_docs)
     else {
         panic!("expected category docstring vectors");
     };
@@ -91,12 +91,12 @@ fn define_category_redefinition_matches_gnu_error() {
     let table = builtin_make_category_table(vec![]).unwrap();
     builtin_define_category(
         &mut eval,
-        vec![Value::Char('a'), Value::string("one"), table],
+        vec![Value::char('a'), Value::string("one"), table],
     )
     .unwrap();
     let err = builtin_define_category(
         &mut eval,
-        vec![Value::Char('a'), Value::string("two"), table],
+        vec![Value::char('a'), Value::string("two"), table],
     )
     .unwrap_err();
     match err {
@@ -117,16 +117,16 @@ fn get_unused_category_scans_ascii_graphics() {
     let table = builtin_make_category_table(vec![]).unwrap();
     assert_eq!(
         builtin_get_unused_category(&mut eval, vec![table]).unwrap(),
-        Value::Char(' ')
+        Value::char(' ')
     );
     builtin_define_category(
         &mut eval,
-        vec![Value::Char(' '), Value::string("space"), table],
+        vec![Value::char(' '), Value::string("space"), table],
     )
     .unwrap();
     assert_eq!(
         builtin_get_unused_category(&mut eval, vec![table]).unwrap(),
-        Value::Char('!')
+        Value::char('!')
     );
 }
 
@@ -134,7 +134,7 @@ fn get_unused_category_scans_ascii_graphics() {
 fn set_category_table_nil_returns_current_table() {
     let mut eval = fresh_eval();
     let current = builtin_category_table(&mut eval, vec![]).unwrap();
-    let out = builtin_set_category_table(&mut eval, vec![Value::Nil]).unwrap();
+    let out = builtin_set_category_table(&mut eval, vec![Value::NIL]).unwrap();
     assert_eq!(current, out);
 }
 
@@ -144,21 +144,21 @@ fn modify_category_entry_honors_optional_table_argument() {
     let table = builtin_make_category_table(vec![]).unwrap();
     builtin_define_category(
         &mut eval,
-        vec![Value::Char('!'), Value::string("bang"), table],
+        vec![Value::char('!'), Value::string("bang"), table],
     )
     .unwrap();
     builtin_modify_category_entry(
         &mut eval,
         vec![
-            Value::cons(Value::Int('A' as i64), Value::Int('C' as i64)),
-            Value::Char('!'),
+            Value::cons(Value::fixnum('A' as i64), Value::fixnum('C' as i64)),
+            Value::char('!'),
             table,
         ],
     )
     .unwrap();
 
     for ch in ['A', 'B', 'C'] {
-        let set = super::super::chartable::builtin_char_table_range(vec![table, Value::Char(ch)])
+        let set = super::super::chartable::builtin_char_table_range(vec![table, Value::char(ch)])
             .unwrap();
         assert_eq!(
             builtin_category_set_mnemonics(vec![set]).unwrap(),
@@ -167,7 +167,7 @@ fn modify_category_entry_honors_optional_table_argument() {
     }
     let current = builtin_category_table(&mut eval, vec![]).unwrap();
     let current_set =
-        super::super::chartable::builtin_char_table_range(vec![current, Value::Char('A')]).unwrap();
+        super::super::chartable::builtin_char_table_range(vec![current, Value::char('A')]).unwrap();
     assert_eq!(
         builtin_category_set_mnemonics(vec![current_set]).unwrap(),
         Value::string("")

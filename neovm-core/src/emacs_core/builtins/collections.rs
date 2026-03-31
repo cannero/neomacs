@@ -1,4 +1,5 @@
 use super::*;
+use super::value::{ValueKind, VecLikeType};
 
 // ===========================================================================
 // Vector operations
@@ -17,20 +18,20 @@ pub(crate) fn builtin_vector(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_aref(args: Vec<Value>) -> EvalResult {
     expect_args("aref", &args, 2)?;
     let idx_fixnum = expect_fixnum(&args[1])?;
-    match &args[0] {
-        Value::Vector(_) if super::chartable::is_char_table(&args[0]) => {
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Vector) if super::chartable::is_char_table(&args[0]) => {
             let ch = expect_char_table_index(&args[1])?;
-            super::chartable::builtin_char_table_range(vec![args[0], Value::Int(ch)])
+            super::chartable::builtin_char_table_range(vec![args[0], ValueKind::Fixnum(ch)])
         }
-        Value::Vector(v) | Value::Record(v) => {
+        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
             let idx = idx_fixnum as usize;
             with_heap(|h| {
                 let items = h.get_vector(*v);
                 let is_bool_vector = items.len() >= 2
-                    && matches!(&items[0], Value::Symbol(id) if resolve_sym(*id) == "--bool-vector--");
+                    && matches!(&items[0], ValueKind::Symbol(id) if resolve_sym(*id) == "--bool-vector--");
                 if is_bool_vector {
-                    let len = match items.get(1) {
-                        Some(Value::Int(n)) if *n >= 0 => *n as usize,
+                    let len = match items.get(1).kind() {
+                        Some(ValueKind::Fixnum(n)) if n >= 0 => n as usize,
                         _ => {
                             return Err(signal(
                                 "wrong-type-argument",
@@ -45,12 +46,12 @@ pub(crate) fn builtin_aref(args: Vec<Value>) -> EvalResult {
                         .get(idx + 2)
                         .copied()
                         .ok_or_else(|| signal("args-out-of-range", vec![args[0], args[1]]))?;
-                    let truthy = match bit {
-                        Value::Int(n) => n != 0,
-                        Value::Nil => false,
+                    let truthy = match bit.kind() {
+                        ValueKind::Fixnum(n) => n != 0,
+                        ValueKind::Nil => false,
                         other => other.is_truthy(),
                     };
-                    return Ok(Value::bool(truthy));
+                    return Ok(Value::bool_val(truthy));
                 }
                 items
                     .get(idx)
@@ -58,7 +59,7 @@ pub(crate) fn builtin_aref(args: Vec<Value>) -> EvalResult {
                     .ok_or_else(|| signal("args-out-of-range", vec![args[0], args[1]]))
             })
         }
-        Value::Str(id) => {
+        ValueKind::String => {
             let idx = idx_fixnum as usize;
             let s = with_heap(|h| h.get_string(*id).to_owned());
             let codes = decode_storage_char_codes(&s);
@@ -70,7 +71,7 @@ pub(crate) fn builtin_aref(args: Vec<Value>) -> EvalResult {
         // In official Emacs, closures support aref for oclosure slot access.
         // The closure vector layout is:
         //   [0]=ARGS  [1]=BODY  [2]=ENV  [3]=nil  [4]=DOCSTRING  [5]=IFORM
-        Value::Lambda(_) => {
+        ValueKind::Veclike(VecLikeType::Lambda) => {
             let idx = idx_fixnum as usize;
             let vec = lambda_to_closure_vector(&args[0]);
             vec.get(idx)
@@ -78,7 +79,7 @@ pub(crate) fn builtin_aref(args: Vec<Value>) -> EvalResult {
                 .ok_or_else(|| signal("args-out-of-range", vec![args[0], args[1]]))
         }
         // ByteCode closures: [0]=ARGLIST [1]=CODE [2]=ENV/CONSTANTS [3]=DEPTH [4]=DOC
-        Value::ByteCode(_) => {
+        ValueKind::Veclike(VecLikeType::ByteCode) => {
             let idx = idx_fixnum as usize;
             let vec = bytecode_to_closure_vector(&args[0]);
             vec.get(idx)
@@ -97,7 +98,7 @@ pub(crate) fn aset_string_replacement(
     index: &Value,
     new_element: &Value,
 ) -> Result<Value, Flow> {
-    let Value::Str(original) = array else {
+    if !array.is_string() /* TODO(tagged): `original` was Value::Str(original), rewrite let-else */ {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *array],
@@ -142,20 +143,20 @@ pub(crate) fn aset_string_replacement(
 
 pub(crate) fn builtin_aset(args: Vec<Value>) -> EvalResult {
     expect_args("aset", &args, 3)?;
-    match &args[0] {
-        Value::Vector(_) if super::chartable::is_char_table(&args[0]) => {
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Vector) if super::chartable::is_char_table(&args[0]) => {
             let ch = expect_char_table_index(&args[1])?;
-            super::chartable::builtin_set_char_table_range(vec![args[0], Value::Int(ch), args[2]])
+            super::chartable::builtin_set_char_table_range(vec![args[0], ValueKind::Fixnum(ch), args[2]])
         }
-        Value::Vector(v) | Value::Record(v) => {
+        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
             let idx = expect_fixnum(&args[1])? as usize;
             let (is_bool_vector, vec_len, bool_len) = with_heap(|h| {
                 let items = h.get_vector(*v);
                 let bv = items.len() >= 2
-                    && matches!(&items[0], Value::Symbol(id) if resolve_sym(*id) == "--bool-vector--");
+                    && matches!(&items[0], ValueKind::Symbol(id) if resolve_sym(*id) == "--bool-vector--");
                 let bl = if bv {
-                    match items.get(1) {
-                        Some(Value::Int(n)) if *n >= 0 => Some(*n as usize),
+                    match items.get(1).kind() {
+                        Some(ValueKind::Fixnum(n)) if n >= 0 => Some(n as usize),
                         _ => None,
                     }
                 } else {
@@ -190,7 +191,7 @@ pub(crate) fn builtin_aset(args: Vec<Value>) -> EvalResult {
             with_heap_mut(|h| h.get_vector_mut(*v)[idx] = args[2]);
             Ok(args[2])
         }
-        Value::Str(_) => {
+        ValueKind::String => {
             let _updated = aset_string_replacement(&args[0], &args[1], &args[2])?;
             Ok(args[2])
         }
@@ -205,10 +206,10 @@ pub(crate) fn builtin_vconcat(args: Vec<Value>) -> EvalResult {
     fn extend_from_proper_list(out: &mut Vec<Value>, list: &Value) -> Result<(), Flow> {
         let mut cursor = *list;
         loop {
-            match cursor {
-                Value::Nil => return Ok(()),
-                Value::Cons(cell) => {
-                    let pair = read_cons(cell);
+            match cursor.kind() {
+                ValueKind::Nil => return Ok(()),
+                ValueKind::Cons => {
+                    let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                     out.push(pair.car);
                     cursor = pair.cdr;
                 }
@@ -224,11 +225,11 @@ pub(crate) fn builtin_vconcat(args: Vec<Value>) -> EvalResult {
 
     let mut result = Vec::new();
     for arg in &args {
-        match arg {
-            Value::Vector(v) | Value::Record(v) => {
+        match arg.kind() {
+            ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
                 result.extend(with_heap(|h| h.get_vector(*v).clone()).into_iter())
             }
-            Value::Str(id) => {
+            ValueKind::String => {
                 let s = with_heap(|h| h.get_string(*id).to_owned());
                 result.extend(
                     decode_storage_char_codes(&s)
@@ -236,10 +237,10 @@ pub(crate) fn builtin_vconcat(args: Vec<Value>) -> EvalResult {
                         .map(|cp| Value::Int(cp as i64)),
                 );
             }
-            Value::Nil => {}
-            Value::Cons(_) => extend_from_proper_list(&mut result, arg)?,
-            Value::Lambda(_) => result.extend(lambda_to_closure_vector(arg).into_iter()),
-            Value::ByteCode(_) => result.extend(bytecode_to_closure_vector(arg).into_iter()),
+            ValueKind::Nil => {}
+            ValueKind::Cons => extend_from_proper_list(&mut result, arg)?,
+            ValueKind::Veclike(VecLikeType::Lambda) => result.extend(lambda_to_closure_vector(arg).into_iter()),
+            ValueKind::Veclike(VecLikeType::ByteCode) => result.extend(bytecode_to_closure_vector(arg).into_iter()),
             _ => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -354,7 +355,7 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
 
     let mut i = 0;
     while i < args.len() {
-        let Value::Keyword(option) = &args[i] else {
+        let Some(option) = &args[i].as_keyword_id() else {
             return Err(invalid_hash_table_argument_list(args[i]));
         };
 
@@ -367,8 +368,8 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
                     return Err(invalid_hash_table_argument_list(args[i]));
                 };
                 seen_test = true;
-                match value {
-                    Value::Nil => {
+                match value.kind() {
+                    ValueKind::Nil => {
                         return Err(signal(
                             "error",
                             vec![Value::string("Invalid hash table test")],
@@ -410,8 +411,8 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
                 };
                 seen_size = true;
                 size = match value {
-                    Value::Nil => 0,
-                    Value::Int(n) if *n >= 0 => *n,
+                    ValueKind::Nil => 0,
+                    ValueKind::Fixnum(n) if *n >= 0 => *n,
                     _ => {
                         return Err(signal(
                             "error",
@@ -430,8 +431,8 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
                 };
                 seen_weakness = true;
                 weakness = match value {
-                    Value::Nil => None,
-                    Value::True => Some(HashTableWeakness::KeyAndValue),
+                    ValueKind::Nil => None,
+                    ValueKind::T => Some(HashTableWeakness::KeyAndValue),
                     _ => {
                         let Some(name) = value.as_symbol_name() else {
                             return Err(signal(
@@ -464,7 +465,7 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
                     i += 1;
                 } else if matches!(
                     &args[i + 1],
-                    Value::Keyword(option) if matches!(
+                    ValueKind::Keyword(option) if matches!(
                         resolve_sym(*option),
                         ":test" | ":size" | ":weakness" | ":rehash-size" | ":rehash-threshold"
                     )
@@ -484,7 +485,7 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
                     i += 1;
                 } else if matches!(
                     &args[i + 1],
-                    Value::Keyword(option) if matches!(
+                    ValueKind::Keyword(option) if matches!(
                         resolve_sym(*option),
                         ":test" | ":size" | ":weakness" | ":rehash-size" | ":rehash-threshold"
                     )
@@ -499,7 +500,7 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
         }
     }
     let table = Value::hash_table_with_options(test, size, weakness, 1.5, 0.8125);
-    if let Value::HashTable(table_ref) = &table {
+    if &table.is_hash_table() /* TODO(tagged): `table_ref` was Value::HashTable(table_ref), now use accessor */ {
         with_heap_mut(|h| h.get_hash_table_mut(*table_ref).test_name = test_name);
     }
     Ok(table)
@@ -507,9 +508,9 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_gethash(args: Vec<Value>) -> EvalResult {
     expect_min_args("gethash", &args, 2)?;
-    let default = if args.len() > 2 { args[2] } else { Value::Nil };
-    match &args[1] {
-        Value::HashTable(ht) => {
+    let default = if args.len() > 2 { args[2] } else { Value::NIL };
+    match args[1].kind() {
+        ValueKind::Veclike(VecLikeType::HashTable) => {
             let ht = with_heap(|h| h.get_hash_table(*ht).clone());
             let key = args[0].to_hash_key(&ht.test);
             Ok(ht.data.get(&key).cloned().unwrap_or(default))
@@ -523,8 +524,8 @@ pub(crate) fn builtin_gethash(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_puthash(args: Vec<Value>) -> EvalResult {
     expect_args("puthash", &args, 3)?;
-    match &args[2] {
-        Value::HashTable(ht_id) => {
+    match args[2].kind() {
+        ValueKind::Veclike(VecLikeType::HashTable) => {
             let test = with_heap(|h| h.get_hash_table(*ht_id).test.clone());
             let key = args[0].to_hash_key(&test);
             with_heap_mut(|h| {
@@ -548,8 +549,8 @@ pub(crate) fn builtin_puthash(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_remhash(args: Vec<Value>) -> EvalResult {
     expect_args("remhash", &args, 2)?;
-    match &args[1] {
-        Value::HashTable(ht_id) => {
+    match args[1].kind() {
+        ValueKind::Veclike(VecLikeType::HashTable) => {
             let test = with_heap(|h| h.get_hash_table(*ht_id).test.clone());
             let key = args[0].to_hash_key(&test);
             with_heap_mut(|h| {
@@ -558,7 +559,7 @@ pub(crate) fn builtin_remhash(args: Vec<Value>) -> EvalResult {
                 ht.key_snapshots.remove(&key);
                 ht.insertion_order.retain(|k| k != &key);
             });
-            Ok(Value::Nil)
+            Ok(ValueKind::Nil)
         }
         _ => Err(signal(
             "wrong-type-argument",
@@ -569,15 +570,15 @@ pub(crate) fn builtin_remhash(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_clrhash(args: Vec<Value>) -> EvalResult {
     expect_args("clrhash", &args, 1)?;
-    match &args[0] {
-        Value::HashTable(ht_id) => {
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::HashTable) => {
             with_heap_mut(|h| {
                 let ht = h.get_hash_table_mut(*ht_id);
                 ht.data.clear();
                 ht.key_snapshots.clear();
                 ht.insertion_order.clear();
             });
-            Ok(Value::Nil)
+            Ok(ValueKind::Nil)
         }
         _ => Err(signal(
             "wrong-type-argument",
@@ -588,8 +589,8 @@ pub(crate) fn builtin_clrhash(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_hash_table_count(args: Vec<Value>) -> EvalResult {
     expect_args("hash-table-count", &args, 1)?;
-    match &args[0] {
-        Value::HashTable(ht) => Ok(Value::Int(
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::HashTable) => Ok(Value::fixnum(
             with_heap(|h| h.get_hash_table(*ht).data.len()) as i64
         )),
         _ => Err(signal(
@@ -601,18 +602,18 @@ pub(crate) fn builtin_hash_table_count(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_char_to_string(args: Vec<Value>) -> EvalResult {
     expect_args("char-to-string", &args, 1)?;
-    match &args[0] {
-        Value::Char(c) => Ok(Value::string(c.to_string())),
-        Value::Int(n) => {
-            if *n < 0 {
+    match args[0].kind() {
+        ValueKind::Char(c) => Ok(Value::string(c.to_string())),
+        ValueKind::Fixnum(n) => {
+            if n < 0 {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("characterp"), args[0]],
                 ));
             }
-            if let Some(c) = char::from_u32(*n as u32) {
+            if let Some(c) = char::from_u32(n as u32) {
                 Ok(Value::string(c.to_string()))
-            } else if let Some(encoded) = encode_nonunicode_char_for_storage(*n as u32) {
+            } else if let Some(encoded) = encode_nonunicode_char_for_storage(n as u32) {
                 Ok(Value::string(encoded))
             } else {
                 Err(signal(
@@ -635,7 +636,7 @@ pub(crate) fn builtin_string_to_char(args: Vec<Value>) -> EvalResult {
         .into_iter()
         .next()
         .unwrap_or(0);
-    Ok(Value::Int(first as i64))
+    Ok(Value::fixnum(first as i64))
 }
 
 // ===========================================================================
@@ -648,27 +649,27 @@ pub(crate) fn builtin_plist_get(args: Vec<Value>) -> EvalResult {
     // Optional 3rd arg PREDICATE is accepted but ignored (we always use `eq`).
     let mut cursor = args[0];
     loop {
-        match cursor {
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
+        match cursor.kind() {
+            ValueKind::Cons => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 if eq_value(&pair.car, &args[1]) {
                     // Next element is the value
-                    match &pair.cdr {
-                        Value::Cons(val_cell) => {
+                    match pair.cdr.kind() {
+                        ValueKind::Cons => {
                             return Ok(with_heap(|h| h.cons_car(*val_cell)));
                         }
-                        _ => return Ok(Value::Nil),
+                        _ => return Ok(Value::NIL),
                     }
                 }
                 // Skip the value entry
-                match &pair.cdr {
-                    Value::Cons(val_cell) => {
+                match pair.cdr.kind() {
+                    ValueKind::Cons => {
                         cursor = with_heap(|h| h.cons_cdr(*val_cell));
                     }
-                    _ => return Ok(Value::Nil),
+                    _ => return Ok(Value::NIL),
                 }
             }
-            _ => return Ok(Value::Nil),
+            _ => return Ok(Value::NIL),
         }
     }
 }
@@ -689,15 +690,15 @@ pub(crate) fn builtin_plist_put(args: Vec<Value>) -> EvalResult {
     let mut last_value_cell = None;
 
     loop {
-        match cursor {
-            Value::Cons(key_cell) => {
+        match cursor.kind() {
+            ValueKind::Cons => {
                 let (entry_key, entry_rest) = {
-                    let pair = read_cons(key_cell);
+                    let pair = read_cons(key_cell);  // TODO(tagged): replace read_cons with cons accessors
                     (pair.car, pair.cdr)
                 };
 
-                match entry_rest {
-                    Value::Cons(value_cell) => {
+                match entry_rest.kind() {
+                    ValueKind::Cons => {
                         if eq_value(&entry_key, &key) {
                             with_heap_mut(|h| h.set_car(value_cell, new_val));
                             return Ok(plist);
@@ -713,9 +714,9 @@ pub(crate) fn builtin_plist_put(args: Vec<Value>) -> EvalResult {
                     }
                 }
             }
-            Value::Nil => {
+            ValueKind::Nil => {
                 if let Some(value_cell) = last_value_cell {
-                    let new_tail = Value::cons(key, Value::cons(new_val, Value::Nil));
+                    let new_tail = Value::cons(key, Value::cons(new_val, ValueKind::Nil));
                     with_heap_mut(|h| h.set_cdr(value_cell, new_tail));
                     return Ok(plist);
                 }
@@ -757,10 +758,10 @@ pub(crate) fn builtin_plist_member(
 
         let mut cursor = plist;
         loop {
-            match cursor {
-                Value::Cons(key_cell) => {
+            match cursor.kind() {
+                ValueKind::Cons => {
                     let (entry_key, entry_rest) = {
-                        let pair = read_cons(key_cell);
+                        let pair = read_cons(key_cell);  // TODO(tagged): replace read_cons with cons accessors
                         (pair.car, pair.cdr)
                     };
 
@@ -770,11 +771,11 @@ pub(crate) fn builtin_plist_member(
                         eq_value(&entry_key, &prop)
                     };
                     if matches {
-                        return Ok(Value::Cons(key_cell));
+                        return Ok(ValueKind::Cons);
                     }
 
-                    match entry_rest {
-                        Value::Cons(value_cell) => {
+                    match entry_rest.kind() {
+                        ValueKind::Cons => {
                             cursor = with_heap(|h| h.cons_cdr(value_cell));
                         }
                         _ => {
@@ -785,7 +786,7 @@ pub(crate) fn builtin_plist_member(
                         }
                     }
                 }
-                Value::Nil => return Ok(Value::Nil),
+                ValueKind::Nil => return Ok(Value::NIL),
                 _ => {
                     return Err(signal(
                         "wrong-type-argument",
@@ -810,19 +811,19 @@ pub(crate) fn plist_member_eq(args: Vec<Value>) -> EvalResult {
 
     let mut cursor = plist;
     loop {
-        match cursor {
-            Value::Cons(key_cell) => {
+        match cursor.kind() {
+            ValueKind::Cons => {
                 let (entry_key, entry_rest) = {
-                    let pair = read_cons(key_cell);
+                    let pair = read_cons(key_cell);  // TODO(tagged): replace read_cons with cons accessors
                     (pair.car, pair.cdr)
                 };
 
                 if eq_value(&entry_key, &prop) {
-                    return Ok(Value::Cons(key_cell));
+                    return Ok(ValueKind::Cons);
                 }
 
-                match entry_rest {
-                    Value::Cons(value_cell) => {
+                match entry_rest.kind() {
+                    ValueKind::Cons => {
                         cursor = with_heap(|h| h.cons_cdr(value_cell));
                     }
                     _ => {
@@ -833,7 +834,7 @@ pub(crate) fn plist_member_eq(args: Vec<Value>) -> EvalResult {
                     }
                 }
             }
-            Value::Nil => return Ok(Value::Nil),
+            ValueKind::Nil => return Ok(Value::NIL),
             _ => {
                 return Err(signal(
                     "wrong-type-argument",

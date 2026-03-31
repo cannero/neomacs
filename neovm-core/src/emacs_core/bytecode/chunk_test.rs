@@ -3,8 +3,8 @@ use super::*;
 #[test]
 fn constant_dedup() {
     let mut func = ByteCodeFunction::new(LambdaParams::simple(vec![]));
-    let i1 = func.add_constant(Value::Int(42));
-    let i2 = func.add_constant(Value::Int(42));
+    let i1 = func.add_constant(Value::fixnum(42));
+    let i2 = func.add_constant(Value::fixnum(42));
     assert_eq!(i1, i2);
     assert_eq!(func.constants.len(), 1);
 }
@@ -34,7 +34,7 @@ fn patch_jump() {
 #[test]
 fn disassemble_output() {
     let mut func = ByteCodeFunction::new(LambdaParams::simple(vec![]));
-    func.add_constant(Value::Int(42));
+    func.add_constant(Value::fixnum(42));
     func.emit(Op::Constant(0));
     func.emit(Op::Return);
     let dis = func.disassemble();

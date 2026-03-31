@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::emacs_core::symbol::Obarray;
-use crate::emacs_core::value::{RuntimeBindingValue, Value};
+use crate::emacs_core::value::{RuntimeBindingValue, Value, ValueKind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BufferLocalStorageKind {
@@ -241,25 +241,25 @@ fn default_directory_value() -> Value {
 
 fn always_local_default_binding(name: &str) -> Option<RuntimeBindingValue> {
     let value = match name {
-        "buffer-file-name" => Value::Nil,
-        "buffer-file-truename" => Value::Nil,
+        "buffer-file-name" => Value::NIL,
+        "buffer-file-truename" => Value::NIL,
         "default-directory" => default_directory_value(),
-        "buffer-read-only" => Value::Nil,
-        "buffer-undo-list" => Value::Nil,
-        "buffer-saved-size" => Value::Int(0),
-        "buffer-backed-up" => Value::Nil,
-        "buffer-file-format" => Value::Nil,
-        "buffer-auto-save-file-name" => Value::Nil,
-        "buffer-auto-save-file-format" => Value::True,
+        "buffer-read-only" => Value::NIL,
+        "buffer-undo-list" => Value::NIL,
+        "buffer-saved-size" => Value::fixnum(0),
+        "buffer-backed-up" => Value::NIL,
+        "buffer-file-format" => Value::NIL,
+        "buffer-auto-save-file-name" => Value::NIL,
+        "buffer-auto-save-file-format" => Value::T,
         "major-mode" => Value::symbol("fundamental-mode"),
-        "local-minor-modes" => Value::Nil,
+        "local-minor-modes" => Value::NIL,
         "mode-name" => Value::string("Fundamental"),
-        "mark-active" => Value::Nil,
-        "point-before-scroll" => Value::Nil,
-        "buffer-display-count" => Value::Int(0),
-        "buffer-display-time" => Value::Nil,
-        "enable-multibyte-characters" => Value::True,
-        "buffer-invisibility-spec" => Value::True,
+        "mark-active" => Value::NIL,
+        "point-before-scroll" => Value::NIL,
+        "buffer-display-count" => Value::fixnum(0),
+        "buffer-display-time" => Value::NIL,
+        "enable-multibyte-characters" => Value::T,
+        "buffer-invisibility-spec" => Value::T,
         _ => return None,
     };
     Some(RuntimeBindingValue::Bound(value))
@@ -325,7 +325,7 @@ impl BufferLocals {
             always_local_bindings,
             slot_bindings: HashMap::new(),
             lisp_bindings: Vec::new(),
-            local_map: Value::Nil,
+            local_map: Value::NIL,
         }
     }
 
@@ -402,7 +402,7 @@ impl BufferLocals {
                 })
                 .collect();
         }
-        self.local_map = Value::Nil;
+        self.local_map = Value::NIL;
     }
 
     pub fn set_raw_binding(&mut self, name: &str, binding: RuntimeBindingValue) {
@@ -554,8 +554,8 @@ fn preserve_partial_permanent_local_hook_binding(
 
             let mut preserved = Vec::new();
             let mut cursor = value;
-            while let Value::Cons(cell) = cursor {
-                let pair = crate::emacs_core::value::read_cons(cell);
+            while cursor.is_cons() /* TODO(tagged): `cell` was ValueKind::Cons, now use accessor */ {
+                let pair = crate::emacs_core::value::read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 let elt = pair.car;
                 if elt.is_symbol_named("t")
                     || elt.as_symbol_name().is_some_and(|name| {

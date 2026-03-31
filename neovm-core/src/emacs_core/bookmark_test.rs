@@ -278,11 +278,11 @@ fn test_builtin_bookmark_jump_permissive_designators() {
     let mut eval = Context::new();
 
     // nil designator is a dedicated error in GNU Emacs.
-    let nil_result = builtin_bookmark_jump(&mut eval, vec![Value::Nil]);
+    let nil_result = builtin_bookmark_jump(&mut eval, vec![Value::NIL]);
     assert!(nil_result.is_err());
 
     // Non-string designators are tolerated and return nil.
-    let int_result = builtin_bookmark_jump(&mut eval, vec![Value::Int(1)]);
+    let int_result = builtin_bookmark_jump(&mut eval, vec![Value::fixnum(1)]);
     assert!(int_result.unwrap().is_nil());
 
     let list_result =
@@ -291,7 +291,7 @@ fn test_builtin_bookmark_jump_permissive_designators() {
 
     // Optional second argument is accepted.
     let missing_with_flag =
-        builtin_bookmark_jump(&mut eval, vec![Value::string("missing"), Value::True]);
+        builtin_bookmark_jump(&mut eval, vec![Value::string("missing"), Value::T]);
     assert!(missing_with_flag.is_err());
 }
 
@@ -317,12 +317,12 @@ fn test_builtin_bookmark_delete() {
     assert!(result.unwrap().is_nil());
 
     // Non-string payloads are accepted and return nil.
-    let result = builtin_bookmark_delete(&mut eval, vec![Value::Int(1)]);
+    let result = builtin_bookmark_delete(&mut eval, vec![Value::fixnum(1)]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 
     // Optional second argument is accepted.
-    let result = builtin_bookmark_delete(&mut eval, vec![Value::Int(1), Value::True]);
+    let result = builtin_bookmark_delete(&mut eval, vec![Value::fixnum(1), Value::T]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 }
@@ -361,7 +361,7 @@ fn test_builtin_bookmark_rename_permissive_designators() {
     assert!(one_arg.is_err());
 
     // Non-cons old payloads signal wrong-type in this compatibility path.
-    let ints = builtin_bookmark_rename(&mut eval, vec![Value::Int(1), Value::Int(2)]);
+    let ints = builtin_bookmark_rename(&mut eval, vec![Value::fixnum(1), Value::fixnum(2)]);
     assert!(ints.is_err());
 
     // Cons/list old payloads with non-string NEW are tolerated and return nil.
@@ -503,7 +503,7 @@ fn test_builtin_bookmark_save_load() {
     // Save to an explicit file path.
     let result = builtin_bookmark_save(
         &mut eval,
-        vec![Value::Nil, Value::string(save_file.to_string())],
+        vec![Value::NIL, Value::string(save_file.to_string())],
     );
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
@@ -530,8 +530,8 @@ fn test_builtin_bookmark_save_load() {
         &mut eval,
         vec![
             Value::string(save_file.to_string()),
-            Value::Nil,
-            Value::True,
+            Value::NIL,
+            Value::T,
         ],
     );
     assert!(result.is_ok());
@@ -549,7 +549,7 @@ fn test_wrong_arg_count() {
     assert!(result.is_err());
     let result = builtin_bookmark_set(
         &mut eval,
-        vec![Value::string("name"), Value::Nil, Value::Nil],
+        vec![Value::string("name"), Value::NIL, Value::NIL],
     );
     assert!(result.is_err());
 

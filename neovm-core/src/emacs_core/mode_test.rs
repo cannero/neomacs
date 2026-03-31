@@ -459,7 +459,7 @@ fn register_custom_variable() {
     let mut reg = ModeRegistry::new();
     reg.register_custom_variable(CustomVariable {
         name: "indent-tabs-mode".to_string(),
-        default_value: Value::True,
+        default_value: Value::T,
         doc: Some("Use tabs for indentation.".to_string()),
         type_: CustomType::Boolean,
         group: None,
@@ -485,7 +485,7 @@ fn custom_variable_in_group() {
 
     reg.register_custom_variable(CustomVariable {
         name: "fill-column".to_string(),
-        default_value: Value::Int(70),
+        default_value: Value::fixnum(70),
         doc: None,
         type_: CustomType::Integer,
         group: Some("editing".to_string()),
@@ -674,7 +674,7 @@ fn custom_type_nested_list() {
     let mut reg = ModeRegistry::new();
     reg.register_custom_variable(CustomVariable {
         name: "my-list".to_string(),
-        default_value: Value::Nil,
+        default_value: Value::NIL,
         doc: None,
         type_: CustomType::List(Box::new(CustomType::String)),
         group: None,

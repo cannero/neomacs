@@ -17,24 +17,24 @@ fn add_and_notify_watcher() {
 
     let calls = wl.notify_watchers(
         "my-var",
-        &Value::Int(42),
-        &Value::Int(0),
+        &Value::fixnum(42),
+        &Value::fixnum(0),
         "set",
-        &Value::Nil,
+        &Value::NIL,
     );
     assert_eq!(calls.len(), 1);
 
     let (callback, args) = &calls[0];
-    assert!(matches!(callback, Value::Symbol(id) if resolve_sym(*id) == "my-watcher"));
+    assert!(callback.is_symbol_named("my-watcher"));
     assert_eq!(args.len(), 4);
     // arg 0: symbol name
-    assert!(matches!(&args[0], Value::Symbol(id) if resolve_sym(*id) == "my-var"));
+    assert!(args[0].is_symbol_named("my-var"));
     // arg 1: new value
-    assert!(matches!(&args[1], Value::Int(42)));
+    assert!(matches!(&args[1], Value::fixnum(42)));
     // arg 2: operation
-    assert!(matches!(&args[2], Value::Symbol(id) if resolve_sym(*id) == "set"));
+    assert!(args[2].is_symbol_named("set"));
     // arg 3: where (nil)
-    assert!(matches!(&args[3], Value::Nil));
+    assert!(matches!(&args[3], Value::NIL));
 }
 
 #[test]
@@ -45,9 +45,9 @@ fn remove_watcher() {
     assert!(wl.has_watchers("my-var"));
 
     wl.remove_watcher("my-var", &Value::symbol("watcher1"));
-    let calls = wl.notify_watchers("my-var", &Value::Int(1), &Value::Int(0), "set", &Value::Nil);
+    let calls = wl.notify_watchers("my-var", &Value::fixnum(1), &Value::fixnum(0), "set", &Value::NIL);
     assert_eq!(calls.len(), 1);
-    assert!(matches!(&calls[0].0, Value::Symbol(id) if resolve_sym(*id) == "watcher2"));
+    assert!(calls[0].0.is_symbol_named("watcher2"));
 }
 
 #[test]
@@ -65,7 +65,7 @@ fn no_duplicate_watchers() {
     wl.add_watcher("my-var", Value::symbol("w"));
     wl.add_watcher("my-var", Value::symbol("w"));
 
-    let calls = wl.notify_watchers("my-var", &Value::Int(1), &Value::Int(0), "set", &Value::Nil);
+    let calls = wl.notify_watchers("my-var", &Value::fixnum(1), &Value::fixnum(0), "set", &Value::NIL);
     assert_eq!(calls.len(), 1);
 }
 
@@ -115,7 +115,7 @@ fn no_duplicate_equivalent_lambda_watchers() {
 #[test]
 fn notify_no_watchers_returns_empty() {
     let wl = VariableWatcherList::new();
-    let calls = wl.notify_watchers("no-var", &Value::Int(1), &Value::Int(0), "set", &Value::Nil);
+    let calls = wl.notify_watchers("no-var", &Value::fixnum(1), &Value::fixnum(0), "set", &Value::NIL);
     assert!(calls.is_empty());
 }
 
@@ -126,7 +126,7 @@ fn multiple_watchers_all_notified() {
     wl.add_watcher("v", Value::symbol("w2"));
     wl.add_watcher("v", Value::symbol("w3"));
 
-    let calls = wl.notify_watchers("v", &Value::Int(99), &Value::Int(0), "set", &Value::Nil);
+    let calls = wl.notify_watchers("v", &Value::fixnum(99), &Value::fixnum(0), "set", &Value::NIL);
     assert_eq!(calls.len(), 3);
 }
 
@@ -175,7 +175,7 @@ fn builtin_get_variable_watchers_tracks_runtime_registry() {
         vec![Value::symbol("watch-b")]
     );
 
-    let wrong_type = builtin_get_variable_watchers(&mut eval, vec![Value::Int(1)]).unwrap_err();
+    let wrong_type = builtin_get_variable_watchers(&mut eval, vec![Value::fixnum(1)]).unwrap_err();
     match wrong_type {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
         other => panic!("expected signal, got {other:?}"),

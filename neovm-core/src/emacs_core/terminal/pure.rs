@@ -6,6 +6,7 @@
 use crate::emacs_core::error::{EvalResult, Flow, signal};
 use crate::emacs_core::value::*;
 use std::cell::RefCell;
+use super::value::{ValueKind, VecLikeType};
 
 // ---------------------------------------------------------------------------
 // Thread-local terminal state
@@ -375,7 +376,7 @@ pub(crate) fn collect_terminal_gc_roots(roots: &mut Vec<Value>) {
 fn terminal_handle_for_id(id: u64) -> Value {
     Value::vector(vec![
         Value::symbol("--neovm-terminal--"),
-        Value::Int(id as i64),
+        Value::fixnum(id as i64),
     ])
 }
 
@@ -445,8 +446,8 @@ fn decode_terminal_id_eval(eval: &crate::emacs_core::eval::Context, value: &Valu
     if let Some(id) = live_terminal_id_by_handle(value) {
         return Some(id);
     }
-    match value {
-        Value::Frame(fid) => eval
+    match value.kind() {
+        ValueKind::Veclike(VecLikeType::Frame) => eval
             .frames
             .get(crate::window::FrameId(*fid as u64))
             .and_then(|frame| {
@@ -483,8 +484,8 @@ pub(crate) fn terminal_designator_in_state_p(
                 .is_some_and(|terminal| terminal.is_live())
         });
     }
-    match value {
-        Value::Frame(fid) => frames.get(crate::window::FrameId(*fid as u64)).is_some(),
+    match value.kind() {
+        ValueKind::Veclike(VecLikeType::Frame) => frames.get(crate::window::FrameId(*fid as u64)).is_some(),
         _ => false,
     }
 }
@@ -534,18 +535,18 @@ pub(crate) fn expect_terminal_designator_in_state(
 
 fn terminal_parameter_default_value(key: &Value) -> Option<Value> {
     match key.as_symbol_name() {
-        Some("normal-erase-is-backspace") => Some(Value::Int(0)),
-        Some("keyboard-coding-saved-meta-mode") => Some(Value::list(vec![Value::True])),
+        Some("normal-erase-is-backspace") => Some(Value::fixnum(0)),
+        Some("keyboard-coding-saved-meta-mode") => Some(Value::list(vec![Value::T])),
         _ => None,
     }
 }
 
 fn terminal_parameter_default_entries() -> Vec<(Value, Value)> {
     vec![
-        (Value::symbol("normal-erase-is-backspace"), Value::Int(0)),
+        (Value::symbol("normal-erase-is-backspace"), Value::fixnum(0)),
         (
             Value::symbol("keyboard-coding-saved-meta-mode"),
-            Value::list(vec![Value::True]),
+            Value::list(vec![Value::T]),
         ),
     ]
 }
@@ -561,7 +562,7 @@ fn lookup_terminal_parameter_value(params: &[(Value, Value)], key: &Value) -> Va
             }
         })
         .or_else(|| terminal_parameter_default_value(key))
-        .unwrap_or(Value::Nil)
+        .unwrap_or(Value::NIL)
 }
 
 fn terminal_parameters_with_defaults(params: &[(Value, Value)]) -> Vec<(Value, Value)> {
@@ -580,8 +581,8 @@ fn terminal_parameters_with_defaults(params: &[(Value, Value)]) -> Vec<(Value, V
 }
 
 fn expect_symbol_key(value: &Value) -> Result<Value, Flow> {
-    match value {
-        Value::Nil | Value::True | Value::Symbol(_) | Value::Keyword(_) => Ok(*value),
+    match value.kind() {
+        ValueKind::Nil | ValueKind::T | ValueKind::Symbol(_) | ValueKind::Keyword(_) => Ok(*value),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), *other],
@@ -615,7 +616,7 @@ fn update_terminal_param(id: u64, key: Value, value: Value) -> Value {
     TERMINAL_MANAGER.with(|slot| {
         let mut manager = slot.borrow_mut();
         let Some(terminal) = manager.get_mut(id) else {
-            return Value::Nil;
+            return Value::NIL;
         };
         if let Some((_, stored_value)) = terminal
             .params
@@ -626,7 +627,7 @@ fn update_terminal_param(id: u64, key: Value, value: Value) -> Value {
             *stored_value = value;
             return previous;
         }
-        let previous = terminal_parameter_default_value(&key).unwrap_or(Value::Nil);
+        let previous = terminal_parameter_default_value(&key).unwrap_or(Value::NIL);
         terminal.params.push((key, value));
         previous
     })
@@ -683,7 +684,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -694,7 +695,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -705,7 +706,7 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
     if args.len() < min || args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -724,7 +725,7 @@ pub(crate) fn builtin_terminal_name(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("terminal-name", &args, 1)?;
-    let designator = args.first().copied().unwrap_or(Value::Nil);
+    let designator = args.first().copied().unwrap_or(Value::NIL);
     let Some(terminal_id) = decode_terminal_id_eval(eval, &designator) else {
         return Err(signal(
             "wrong-type-argument",
@@ -767,8 +768,8 @@ pub(crate) fn builtin_frame_terminal(
         if frame.is_nil() {
             selected_terminal_id(eval)
         } else {
-            match frame {
-                Value::Frame(fid) => eval
+            match frame.kind() {
+                ValueKind::Veclike(VecLikeType::Frame) => eval
                     .frames
                     .get(crate::window::FrameId(*fid as u64))
                     .map(|frame| frame.terminal_id),
@@ -779,7 +780,7 @@ pub(crate) fn builtin_frame_terminal(
         selected_terminal_id(eval)
     };
     let Some(terminal_id) = terminal_id else {
-        let bad = args.first().copied().unwrap_or(Value::Nil);
+        let bad = args.first().copied().unwrap_or(Value::NIL);
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("frame-live-p"), bad],
@@ -799,18 +800,18 @@ pub(crate) fn builtin_terminal_live_p(
 ) -> EvalResult {
     expect_range_args("terminal-live-p", &args, 1, 1)?;
     let Some(terminal_id) = decode_terminal_id_eval(eval, &args[0]) else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
     let runtime = terminal_runtime_for_id(terminal_id);
     // Return the window system type so framep-on-display works correctly.
     if runtime.controlling_tty || runtime.tty_type.is_some() {
-        Ok(Value::True)
+        Ok(Value::T)
     } else if crate::emacs_core::display::x_window_system_active(eval) {
         Ok(Value::symbol(
             crate::emacs_core::display::gui_window_system_symbol(),
         ))
     } else {
-        Ok(Value::True)
+        Ok(Value::T)
     }
 }
 
@@ -843,7 +844,7 @@ pub(crate) fn builtin_terminal_parameters(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("terminal-parameters", &args, 1)?;
-    let designator = args.first().copied().unwrap_or(Value::Nil);
+    let designator = args.first().copied().unwrap_or(Value::NIL);
     let Some(terminal_id) = decode_terminal_id_eval(eval, &designator) else {
         return Err(signal(
             "wrong-type-argument",
@@ -868,8 +869,8 @@ pub(crate) fn builtin_set_terminal_parameter(
             vec![Value::symbol("terminal-live-p"), args[0]],
         ));
     };
-    if matches!(args[1], Value::Str(_)) {
-        return Ok(Value::Nil);
+    if args[1].is_string() {
+        return Ok(Value::NIL);
     }
     let key = args[1];
     Ok(update_terminal_param(terminal_id, key, args[2]))
@@ -885,7 +886,7 @@ pub(crate) fn builtin_tty_type(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("tty-type", &args, 1)?;
-    let designator = args.first().copied().unwrap_or(Value::Nil);
+    let designator = args.first().copied().unwrap_or(Value::NIL);
     let Some(terminal_id) = decode_terminal_id_eval(eval, &designator) else {
         return Err(signal(
             "wrong-type-argument",
@@ -895,7 +896,7 @@ pub(crate) fn builtin_tty_type(
     Ok(terminal_runtime_for_id(terminal_id)
         .tty_type
         .map(Value::string)
-        .unwrap_or(Value::Nil))
+        .unwrap_or(Value::NIL))
 }
 
 /// (tty-top-frame &optional TERMINAL) -> nil
@@ -904,7 +905,7 @@ pub(crate) fn builtin_tty_top_frame(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("tty-top-frame", &args, 1)?;
-    let designator = args.first().copied().unwrap_or(Value::Nil);
+    let designator = args.first().copied().unwrap_or(Value::NIL);
     let Some(terminal_id) = decode_terminal_id_eval(eval, &designator) else {
         return Err(signal(
             "wrong-type-argument",
@@ -913,7 +914,7 @@ pub(crate) fn builtin_tty_top_frame(
     };
     let runtime = terminal_runtime_for_id(terminal_id);
     if !runtime.active {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
     let top = eval
         .frames
@@ -923,9 +924,9 @@ pub(crate) fn builtin_tty_top_frame(
             eval.frames
                 .get(frame_id)
                 .filter(|frame| frame.terminal_id == terminal_id)
-                .map(|frame| Value::Frame(frame.id.0))
+                .map(|frame| Value::make_frame(frame.id.0))
         })
-        .unwrap_or(Value::Nil);
+        .unwrap_or(Value::NIL);
     Ok(top)
 }
 
@@ -935,14 +936,14 @@ pub(crate) fn builtin_tty_display_color_p(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("tty-display-color-p", &args, 1)?;
-    let designator = args.first().copied().unwrap_or(Value::Nil);
+    let designator = args.first().copied().unwrap_or(Value::NIL);
     let Some(terminal_id) = decode_terminal_id_eval(eval, &designator) else {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("terminal-live-p"), designator],
         ));
     };
-    Ok(Value::bool(
+    Ok(Value::bool_val(
         terminal_runtime_for_id(terminal_id).supports_color(),
     ))
 }
@@ -953,14 +954,14 @@ pub(crate) fn builtin_tty_display_color_cells(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("tty-display-color-cells", &args, 1)?;
-    let designator = args.first().copied().unwrap_or(Value::Nil);
+    let designator = args.first().copied().unwrap_or(Value::NIL);
     let Some(terminal_id) = decode_terminal_id_eval(eval, &designator) else {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("terminal-live-p"), designator],
         ));
     };
-    Ok(Value::Int(terminal_runtime_for_id(terminal_id).color_cells))
+    Ok(Value::fixnum(terminal_runtime_for_id(terminal_id).color_cells))
 }
 
 /// (tty-no-underline &optional TERMINAL) -> nil
@@ -977,7 +978,7 @@ pub(crate) fn builtin_tty_no_underline(
             vec![Value::symbol("terminal-live-p"), *terminal],
         ));
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (controlling-tty-p &optional TERMINAL) -> nil
@@ -986,14 +987,14 @@ pub(crate) fn builtin_controlling_tty_p(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("controlling-tty-p", &args, 1)?;
-    let designator = args.first().copied().unwrap_or(Value::Nil);
+    let designator = args.first().copied().unwrap_or(Value::NIL);
     let Some(terminal_id) = decode_terminal_id_eval(eval, &designator) else {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("terminal-live-p"), designator],
         ));
     };
-    Ok(Value::bool(
+    Ok(Value::bool_val(
         terminal_runtime_for_id(terminal_id).controlling_tty,
     ))
 }
@@ -1004,7 +1005,7 @@ pub(crate) fn builtin_suspend_tty(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("suspend-tty", &args, 1)?;
-    let designator = args.first().copied().unwrap_or(Value::Nil);
+    let designator = args.first().copied().unwrap_or(Value::NIL);
     let Some(terminal_id) = decode_terminal_id_eval(eval, &designator) else {
         return Err(signal(
             "wrong-type-argument",
@@ -1022,7 +1023,7 @@ pub(crate) fn builtin_suspend_tty(
     }
 
     if runtime.suspended {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     let terminal = terminal_handle_value_for_id(terminal_id).unwrap_or_else(terminal_handle_value);
@@ -1036,7 +1037,7 @@ pub(crate) fn builtin_suspend_tty(
             terminal.runtime.suspended = true;
         }
     });
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (resume-tty &optional TTY) -> error in GUI/non-text terminal context.
@@ -1045,7 +1046,7 @@ pub(crate) fn builtin_resume_tty(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("resume-tty", &args, 1)?;
-    let designator = args.first().copied().unwrap_or(Value::Nil);
+    let designator = args.first().copied().unwrap_or(Value::NIL);
     let Some(terminal_id) = decode_terminal_id_eval(eval, &designator) else {
         return Err(signal(
             "wrong-type-argument",
@@ -1063,7 +1064,7 @@ pub(crate) fn builtin_resume_tty(
     }
 
     if !runtime.suspended {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     with_terminal_host_for_id(terminal_id, |host| host.resume_tty())?;
@@ -1077,7 +1078,7 @@ pub(crate) fn builtin_resume_tty(
     let hook_sym =
         crate::emacs_core::hook_runtime::hook_symbol_by_name(eval, "resume-tty-functions");
     let _ = crate::emacs_core::hook_runtime::run_named_hook(eval, hook_sym, &[terminal])?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // ---------------------------------------------------------------------------
@@ -1155,7 +1156,7 @@ pub(crate) fn delete_terminal_owned(
         }
     }
     eval.sync_keyboard_terminal_owner();
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn delete_terminal_noelisp_owned(
@@ -1171,11 +1172,11 @@ pub(crate) fn builtin_delete_terminal(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_range_args("delete-terminal", &args, 0, 2)?;
-    let designator = args.first().copied().unwrap_or(Value::Nil);
+    let designator = args.first().copied().unwrap_or(Value::NIL);
     let Some(terminal_id) = decode_terminal_id_eval(eval, &designator) else {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     };
-    let force_non_nil = args.get(1).copied().unwrap_or(Value::Nil).is_truthy();
+    let force_non_nil = args.get(1).copied().unwrap_or(Value::NIL).is_truthy();
     delete_terminal_owned(
         eval,
         terminal_id,
@@ -1186,7 +1187,7 @@ pub(crate) fn builtin_delete_terminal(
 /// (make-terminal-frame PARMS) -> error (no TTY support)
 pub(crate) fn builtin_make_terminal_frame(args: Vec<Value>) -> EvalResult {
     expect_args("make-terminal-frame", &args, 1)?;
-    if !args[0].is_nil() && !matches!(args[0], Value::Cons(_)) {
+    if !args[0].is_nil() && !matches!(args[0], Value::Cons(_) /* TODO(tagged): convert Value::Cons to new API */) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("listp"), args[0]],

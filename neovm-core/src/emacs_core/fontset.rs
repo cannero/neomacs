@@ -545,14 +545,14 @@ pub(crate) fn fontset_alias_alist_startup_value() -> Value {
     registry()
         .read()
         .map(|slot| slot.alias_alist_value())
-        .unwrap_or(Value::Nil)
+        .unwrap_or(Value::NIL)
 }
 
 pub(crate) fn fontset_list_value() -> Value {
     registry()
         .read()
         .map(|slot| slot.list_value())
-        .unwrap_or(Value::Nil)
+        .unwrap_or(Value::NIL)
 }
 
 pub(crate) fn normalize_fontset_name(name: &str) -> String {
@@ -626,15 +626,15 @@ pub(crate) fn query_fontset_registry(pattern: &str, regexpp: bool) -> Option<Str
 }
 
 pub(crate) fn resolve_fontset_name_arg(value: &Value) -> Result<String, Flow> {
-    match value {
-        Value::Nil | Value::True => Ok(DEFAULT_FONTSET_NAME.to_string()),
-        Value::Str(id) => {
+    match value.kind() {
+        ValueKind::Nil | ValueKind::T => Ok(DEFAULT_FONTSET_NAME.to_string()),
+        ValueKind::String => {
             let requested =
                 normalize_fontset_name(&with_heap(|heap| heap.get_string(*id).to_owned()));
             Ok(query_fontset_registry(&requested, false).unwrap_or(requested))
         }
-        Value::Symbol(id) | Value::Keyword(id) => {
-            let requested = normalize_fontset_name(resolve_sym(*id));
+        ValueKind::Symbol(id) | ValueKind::Keyword(id) => {
+            let requested = normalize_fontset_name(resolve_sym(id));
             Ok(query_fontset_registry(&requested, false).unwrap_or(requested))
         }
         other => Err(signal(
@@ -662,10 +662,10 @@ pub(crate) fn fontset_font(name: &Value, ch: char, all: bool) -> Result<Value, F
     let mut patterns = Vec::new();
     for entry in entries {
         match entry {
-            FontSpecEntry::ExplicitNone => return Ok(Value::Nil),
+            FontSpecEntry::ExplicitNone => return Ok(Value::NIL),
             FontSpecEntry::Font(spec) => {
-                let family = spec.family.map(Value::string).unwrap_or(Value::Nil);
-                let registry = spec.registry.map(Value::string).unwrap_or(Value::Nil);
+                let family = spec.family.map(Value::string).unwrap_or(ValueKind::Nil);
+                let registry = spec.registry.map(Value::string).unwrap_or(ValueKind::Nil);
                 let pattern = Value::cons(family, registry);
                 if !all {
                     return Ok(pattern);
@@ -678,7 +678,7 @@ pub(crate) fn fontset_font(name: &Value, ch: char, all: bool) -> Result<Value, F
     if all {
         Ok(Value::list(patterns))
     } else {
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     }
 }
 
@@ -743,10 +743,10 @@ pub(crate) fn set_fontset_font(
 ) -> Result<Value, Flow> {
     let fontset_name = resolve_fontset_name_arg(fontset)?;
     let add_mode = match add {
-        Some(Value::Symbol(id)) | Some(Value::Keyword(id)) if resolve_sym(*id) == "append" => {
+        Some(ValueKind::Symbol(id)) | Some(ValueKind::Keyword(id)) if resolve_sym(*id) == "append" => {
             FontsetAddMode::Append
         }
-        Some(Value::Symbol(id)) | Some(Value::Keyword(id)) if resolve_sym(*id) == "prepend" => {
+        Some(ValueKind::Symbol(id)) | Some(ValueKind::Keyword(id)) if resolve_sym(*id) == "prepend" => {
             FontsetAddMode::Prepend
         }
         _ => FontsetAddMode::Overwrite,
@@ -764,17 +764,17 @@ pub(crate) fn set_fontset_font(
     for target in targets {
         slot.update_target(&canonical, target, entry.clone(), add_mode);
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 fn parse_font_spec_entry(
     value: &Value,
     font_encoding_alist: Option<&Value>,
 ) -> Result<FontSpecEntry, Flow> {
-    match value {
-        Value::Nil => Ok(FontSpecEntry::ExplicitNone),
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);
+    match value.kind() {
+        ValueKind::Nil => Ok(FontSpecEntry::ExplicitNone),
+        ValueKind::Cons => {
+            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             let mut spec = StoredFontSpec {
                 family: value_text(&pair.car),
                 registry: value_text(&pair.cdr).map(|registry| registry.to_ascii_lowercase()),
@@ -787,13 +787,13 @@ fn parse_font_spec_entry(
             spec.repertory = resolve_font_repertory(&spec, font_encoding_alist);
             Ok(FontSpecEntry::Font(spec))
         }
-        Value::Str(id) => {
+        ValueKind::String => {
             let mut spec =
                 parse_font_name_string(&with_heap(|heap| heap.get_string(*id).to_owned()));
             spec.repertory = resolve_font_repertory(&spec, font_encoding_alist);
             Ok(FontSpecEntry::Font(spec))
         }
-        Value::Vector(vec_id) => {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|heap| heap.get_vector(*vec_id).clone());
             let mut spec = parse_font_vector(&items);
             spec.repertory = resolve_font_repertory(&spec, font_encoding_alist);
@@ -902,10 +902,10 @@ fn resolve_font_repertory(
 
 fn lookup_font_encoding(font_encoding_alist: &Value, font_name: &str) -> Option<Value> {
     for entry in list_to_vec(font_encoding_alist) {
-        let Value::Cons(cell) = entry else {
+        if !entry.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
             continue;
         };
-        let pair = read_cons(cell);
+        let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
         let Some(pattern) = value_text(&pair.car) else {
             continue;
         };
@@ -929,20 +929,20 @@ fn lookup_font_encoding(font_encoding_alist: &Value, font_name: &str) -> Option<
 }
 
 fn font_encoding_repertory(value: &Value) -> Option<FontRepertory> {
-    match value {
-        Value::Symbol(id) | Value::Keyword(id) => {
-            let name = resolve_sym(*id);
+    match value.kind() {
+        ValueKind::Symbol(id) | ValueKind::Keyword(id) => {
+            let name = resolve_sym(id);
             charset_exists(name).then(|| FontRepertory::Charset(name.to_string()))
         }
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);
+        ValueKind::Cons => {
+            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             if pair.cdr.is_nil() {
                 None
             } else {
                 font_encoding_repertory(&pair.cdr)
             }
         }
-        Value::Vector(_) if is_char_table(value) => {
+        ValueKind::Veclike(VecLikeType::Vector) if is_char_table(value) => {
             let mut ranges = Vec::new();
             for_each_non_nil_char_table_run(value, |key, _| {
                 if let Some((from, to)) = value_to_range(&key) {
@@ -961,10 +961,10 @@ fn expand_target(
     charset_script_alist: Option<&Value>,
     enforce_ascii_rules: bool,
 ) -> Result<Vec<FontsetTarget>, Flow> {
-    match target {
-        Value::Nil => Ok(vec![FontsetTarget::Fallback]),
-        Value::Char(ch) => {
-            let code = *ch as u32;
+    match target.kind() {
+        ValueKind::Nil => Ok(vec![FontsetTarget::Fallback]),
+        ValueKind::Char(ch) => {
+            let code = ch as u32;
             if enforce_ascii_rules && code < 0x80 {
                 return Err(signal(
                     "error",
@@ -973,8 +973,8 @@ fn expand_target(
             }
             Ok(vec![FontsetTarget::Range(code, code)])
         }
-        Value::Int(code) if (0..=0x3F_FFFF).contains(code) => {
-            let code = *code as u32;
+        ValueKind::Fixnum(code) if (0..=0x3F_FFFF).contains(code) => {
+            let code = code as u32;
             if enforce_ascii_rules && code < 0x80 {
                 return Err(signal(
                     "error",
@@ -983,12 +983,12 @@ fn expand_target(
             }
             Ok(vec![FontsetTarget::Range(code, code)])
         }
-        Value::Int(_) => Err(signal(
+        ValueKind::Fixnum(_) => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *target],
         )),
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);
+        ValueKind::Cons => {
+            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             let from = expect_target_char(&pair.car)?;
             let to = expect_target_char(&pair.cdr)?;
             if from > to {
@@ -1002,8 +1002,8 @@ fn expand_target(
             }
             Ok(vec![FontsetTarget::Range(from, to)])
         }
-        Value::Symbol(id) | Value::Keyword(id) => {
-            let symbol_name = resolve_sym(*id).to_string();
+        ValueKind::Symbol(id) | ValueKind::Keyword(id) => {
+            let symbol_name = resolve_sym(id).to_string();
             let targets = expand_script_symbol(&symbol_name, char_script_table)
                 .or_else(|| {
                     charset_target_ranges(&symbol_name).map(|ranges| {
@@ -1060,12 +1060,12 @@ fn lookup_charset_script(alist: &Value, charset_name: &str) -> Option<String> {
     let target = Value::symbol(charset_name);
     let mut cursor = *alist;
     loop {
-        match cursor {
-            Value::Nil => return None,
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
-                if let Value::Cons(entry_cell) = pair.car {
-                    let entry = read_cons(entry_cell);
+        match cursor.kind() {
+            ValueKind::Nil => return None,
+            ValueKind::Cons => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
+                if pair.car.is_cons() /* TODO(tagged): `entry_cell` was ValueKind::Cons, now use accessor */ {
+                    let entry = read_cons(entry_cell);  // TODO(tagged): replace read_cons with cons accessors
                     if entry.car == target {
                         return value_text(&entry.cdr);
                     }
@@ -1078,11 +1078,11 @@ fn lookup_charset_script(alist: &Value, charset_name: &str) -> Option<String> {
 }
 
 fn value_to_range(value: &Value) -> Option<(u32, u32)> {
-    match value {
-        Value::Char(ch) => Some((*ch as u32, *ch as u32)),
-        Value::Int(code) if (0..=0x3F_FFFF).contains(code) => Some((*code as u32, *code as u32)),
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);
+    match value.kind() {
+        ValueKind::Char(ch) => Some((ch as u32, ch as u32)),
+        ValueKind::Fixnum(code) if (0..=0x3F_FFFF).contains(code) => Some((code as u32, code as u32)),
+        ValueKind::Cons => {
+            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
             let from = expect_target_char(&pair.car).ok()?;
             let to = expect_target_char(&pair.cdr).ok()?;
             Some((from.min(to), from.max(to)))
@@ -1092,9 +1092,9 @@ fn value_to_range(value: &Value) -> Option<(u32, u32)> {
 }
 
 fn expect_target_char(value: &Value) -> Result<u32, Flow> {
-    match value {
-        Value::Char(ch) => Ok(*ch as u32),
-        Value::Int(code) if (0..=0x3F_FFFF).contains(code) => Ok(*code as u32),
+    match value.kind() {
+        ValueKind::Char(ch) => Ok(ch as u32),
+        ValueKind::Fixnum(code) if (0..=0x3F_FFFF).contains(code) => Ok(code as u32),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *value],
@@ -1106,10 +1106,10 @@ fn list_to_vec(value: &Value) -> Vec<Value> {
     let mut cursor = *value;
     let mut items = Vec::new();
     loop {
-        match cursor {
-            Value::Nil => return items,
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
+        match cursor.kind() {
+            ValueKind::Nil => return items,
+            ValueKind::Cons => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 items.push(pair.car);
                 cursor = pair.cdr;
             }
@@ -1122,9 +1122,9 @@ fn list_to_vec(value: &Value) -> Vec<Value> {
 }
 
 fn value_text(value: &Value) -> Option<String> {
-    match value {
-        Value::Str(id) => Some(with_heap(|heap| heap.get_string(*id).to_owned())),
-        Value::Symbol(id) | Value::Keyword(id) => Some(resolve_sym(*id).to_string()),
+    match value.kind() {
+        ValueKind::String => Some(with_heap(|heap| heap.get_string(*id).to_owned())),
+        ValueKind::Symbol(id) | ValueKind::Keyword(id) => Some(resolve_sym(id).to_string()),
         _ => None,
     }
 }
@@ -1133,8 +1133,8 @@ fn font_vector_get_flexible(items: &[Value], prop: &str) -> Option<Value> {
     let prop_norm = prop.trim_start_matches(':');
     let mut index = 1usize;
     while index + 1 < items.len() {
-        let key_norm = match items[index] {
-            Value::Keyword(id) | Value::Symbol(id) => resolve_sym(id).trim_start_matches(':'),
+        let key_norm = match items[index].kind() {
+            ValueKind::Keyword(id) | ValueKind::Symbol(id) => resolve_sym(id).trim_start_matches(':'),
             _ => {
                 index += 2;
                 continue;
@@ -1279,23 +1279,23 @@ mod tests {
     fn repertory_subset_charset_filters_non_matching_entries() {
         reset_charset_registry();
 
-        let mut parent_args = vec![Value::Nil; 17];
+        let mut parent_args = vec![Value::NIL; 17];
         parent_args[0] = Value::symbol("latin-iso8859-2-test");
-        parent_args[1] = Value::Int(1);
-        parent_args[2] = Value::vector(vec![Value::Int(0), Value::Int(255)]);
-        parent_args[8] = Value::True;
+        parent_args[1] = Value::fixnum(1);
+        parent_args[2] = Value::vector(vec![Value::fixnum(0), Value::fixnum(255)]);
+        parent_args[8] = Value::T;
         parent_args[12] = Value::string("8859-2");
         builtin_define_charset_internal(parent_args).unwrap();
 
-        let mut subset_args = vec![Value::Nil; 17];
+        let mut subset_args = vec![Value::NIL; 17];
         subset_args[0] = Value::symbol("iso-8859-2-test");
-        subset_args[1] = Value::Int(1);
-        subset_args[2] = Value::vector(vec![Value::Int(32), Value::Int(127)]);
+        subset_args[1] = Value::fixnum(1);
+        subset_args[2] = Value::vector(vec![Value::fixnum(32), Value::fixnum(127)]);
         subset_args[13] = Value::list(vec![
             Value::symbol("latin-iso8859-2-test"),
-            Value::Int(160),
-            Value::Int(255),
-            Value::Int(-128),
+            Value::fixnum(160),
+            Value::fixnum(255),
+            Value::fixnum(-128),
         ]);
         builtin_define_charset_internal(subset_args).unwrap();
 
@@ -1343,23 +1343,23 @@ mod tests {
     fn repertory_target_ranges_support_subset_charsets() {
         reset_charset_registry();
 
-        let mut parent_args = vec![Value::Nil; 17];
+        let mut parent_args = vec![Value::NIL; 17];
         parent_args[0] = Value::symbol("latin-iso8859-2-test");
-        parent_args[1] = Value::Int(1);
-        parent_args[2] = Value::vector(vec![Value::Int(0), Value::Int(255)]);
-        parent_args[8] = Value::True;
+        parent_args[1] = Value::fixnum(1);
+        parent_args[2] = Value::vector(vec![Value::fixnum(0), Value::fixnum(255)]);
+        parent_args[8] = Value::T;
         parent_args[12] = Value::string("8859-2");
         builtin_define_charset_internal(parent_args).unwrap();
 
-        let mut subset_args = vec![Value::Nil; 17];
+        let mut subset_args = vec![Value::NIL; 17];
         subset_args[0] = Value::symbol("iso-8859-2-test");
-        subset_args[1] = Value::Int(1);
-        subset_args[2] = Value::vector(vec![Value::Int(32), Value::Int(127)]);
+        subset_args[1] = Value::fixnum(1);
+        subset_args[2] = Value::vector(vec![Value::fixnum(32), Value::fixnum(127)]);
         subset_args[13] = Value::list(vec![
             Value::symbol("latin-iso8859-2-test"),
-            Value::Int(160),
-            Value::Int(255),
-            Value::Int(-128),
+            Value::fixnum(160),
+            Value::fixnum(255),
+            Value::fixnum(-128),
         ]);
         builtin_define_charset_internal(subset_args).unwrap();
 

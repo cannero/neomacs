@@ -25,7 +25,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -36,7 +36,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -47,7 +47,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -58,7 +58,7 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
     if args.len() < min || args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -66,10 +66,10 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 }
 
 fn expect_frame_designator(_name: &str, value: &Value) -> Result<(), Flow> {
-    match value {
-        Value::Nil => Ok(()),
-        Value::Int(id) if *id >= 0 && (*id as u64) >= FRAME_ID_BASE => Ok(()),
-        Value::Frame(id) if *id >= FRAME_ID_BASE => Ok(()),
+    match value.kind() {
+        ValueKind::Nil => Ok(()),
+        ValueKind::Fixnum(id) if id >= 0 && (id as u64) >= FRAME_ID_BASE => Ok(()),
+        ValueKind::Veclike(VecLikeType::Frame) if *id >= FRAME_ID_BASE => Ok(()),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("frame-live-p"), *value],
@@ -78,9 +78,9 @@ fn expect_frame_designator(_name: &str, value: &Value) -> Result<(), Flow> {
 }
 
 fn normalized_keyword_name(value: &Value) -> Option<&str> {
-    match value {
-        Value::Keyword(id) => {
-            let s = resolve_sym(*id);
+    match value.kind() {
+        ValueKind::Keyword(id) => {
+            let s = resolve_sym(id);
             Some(s.strip_prefix(':').unwrap_or(s))
         }
         _ => None,
@@ -97,27 +97,27 @@ fn normalized_keyword_name(value: &Value) -> Option<&str> {
 fn plist_get(plist: &Value, key: &Value) -> Value {
     let mut cursor = *plist;
     loop {
-        match cursor {
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);
+        match cursor.kind() {
+            ValueKind::Cons => {
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 if eq_value(&pair.car, key) {
                     // Next element is the value.
-                    match &pair.cdr {
-                        Value::Cons(val_cell) => {
+                    match pair.cdr.kind() {
+                        ValueKind::Cons => {
                             return with_heap(|h| h.cons_car(*val_cell));
                         }
-                        _ => return Value::Nil,
+                        _ => return Value::NIL,
                     }
                 }
                 // Skip the value entry.
-                match &pair.cdr {
-                    Value::Cons(val_cell) => {
+                match pair.cdr.kind() {
+                    ValueKind::Cons => {
                         cursor = with_heap(|h| h.cons_cdr(*val_cell));
                     }
-                    _ => return Value::Nil,
+                    _ => return Value::NIL,
                 }
             }
-            _ => return Value::Nil,
+            _ => return Value::NIL,
         }
     }
 }
@@ -217,10 +217,10 @@ fn is_image_spec(value: &Value) -> bool {
 fn image_spec_plist(spec: &Value) -> Value {
     let items = match list_to_vec(spec) {
         Some(v) => v,
-        None => return Value::Nil,
+        None => return Value::NIL,
     };
     if items.is_empty() {
-        return Value::Nil;
+        return Value::NIL;
     }
     if let Some(name) = items[0].as_symbol_name() {
         if name == "image" {
@@ -251,7 +251,7 @@ pub(crate) fn builtin_image_type_available_p(args: Vec<Value>) -> EvalResult {
             ));
         }
     };
-    Ok(Value::bool(is_supported_image_type(&type_name)))
+    Ok(Value::bool_val(is_supported_image_type(&type_name)))
 }
 
 /// (create-image FILE-OR-DATA &optional TYPE DATA-P &rest PROPS) -> image descriptor
@@ -295,7 +295,7 @@ pub(crate) fn builtin_create_image(args: Vec<Value>) -> EvalResult {
         };
         match inferred {
             Some(name) => Value::symbol(name),
-            None => Value::Nil,
+            None => Value::NIL,
         }
     };
 
@@ -387,7 +387,7 @@ pub(crate) fn builtin_put_image(args: Vec<Value>) -> EvalResult {
     }
 
     // Validate POINT is integer-or-marker in batch.
-    if !matches!(&args[1], Value::Int(_) | Value::Char(_)) {
+    if !matches!(&args[1], Value::fixnum(_) | Value::char(_)) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), args[1]],
@@ -410,7 +410,7 @@ pub(crate) fn builtin_put_image(args: Vec<Value>) -> EvalResult {
     }
 
     // Batch compatibility: return a truthy placeholder for inserted overlay.
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 /// (insert-image IMAGE &optional STRING AREA SLICE) -> nil
@@ -444,7 +444,7 @@ pub(crate) fn builtin_insert_image(args: Vec<Value>) -> EvalResult {
         }
     }
 
-    Ok(Value::True)
+    Ok(Value::T)
 }
 
 /// (remove-images START END &optional BUFFER) -> nil
@@ -456,13 +456,13 @@ pub(crate) fn builtin_remove_images(args: Vec<Value>) -> EvalResult {
     expect_max_args("remove-images", &args, 3)?;
 
     // Validate START and END are integer-or-marker in batch.
-    if !matches!(&args[0], Value::Int(_) | Value::Char(_)) {
+    if !matches!(&args[0], Value::fixnum(_) | Value::char(_)) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), args[0]],
         ));
     }
-    if !matches!(&args[1], Value::Int(_) | Value::Char(_)) {
+    if !matches!(&args[1], Value::fixnum(_) | Value::char(_)) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), args[1]],
@@ -470,7 +470,7 @@ pub(crate) fn builtin_remove_images(args: Vec<Value>) -> EvalResult {
     }
 
     // Stub: no-op.
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (image-flush SPEC &optional FRAME) -> nil
@@ -492,8 +492,8 @@ pub(crate) fn builtin_image_flush(args: Vec<Value>) -> EvalResult {
     }
 
     if let Some(frame) = args.get(1) {
-        if matches!(frame, Value::True) {
-            return Ok(Value::Nil);
+        if frame.is_t() {
+            return Ok(Value::NIL);
         }
         if !frame.is_nil() {
             expect_frame_designator("image-flush", frame)?;
@@ -517,7 +517,7 @@ pub(crate) fn builtin_clear_image_cache(args: Vec<Value>) -> EvalResult {
             "wrong-number-of-arguments",
             vec![
                 Value::symbol("clear-image-cache"),
-                Value::Int(args.len() as i64),
+                Value::fixnum(args.len() as i64),
             ],
         ));
     }
@@ -547,7 +547,7 @@ pub(crate) fn builtin_clear_image_cache(args: Vec<Value>) -> EvalResult {
         ));
     }
 
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (image-cache-size) -> integer
@@ -555,7 +555,7 @@ pub(crate) fn builtin_clear_image_cache(args: Vec<Value>) -> EvalResult {
 /// NeoVM currently has no persistent image cache, so this is always 0.
 pub(crate) fn builtin_image_cache_size(args: Vec<Value>) -> EvalResult {
     expect_args("image-cache-size", &args, 0)?;
-    Ok(Value::Int(0))
+    Ok(Value::fixnum(0))
 }
 
 /// (image-metadata SPEC &optional FRAME) -> metadata object or nil
@@ -566,7 +566,7 @@ pub(crate) fn builtin_image_metadata(args: Vec<Value>) -> EvalResult {
     expect_range_args("image-metadata", &args, 1, 2)?;
 
     if !is_image_spec(&args[0]) {
-        return Ok(Value::Nil);
+        return Ok(Value::NIL);
     }
 
     if let Some(frame) = args.get(1) {
@@ -582,7 +582,7 @@ pub(crate) fn builtin_image_metadata(args: Vec<Value>) -> EvalResult {
 /// (imagep OBJECT) -> t if OBJECT looks like an image descriptor.
 pub(crate) fn builtin_imagep(args: Vec<Value>) -> EvalResult {
     expect_args("imagep", &args, 1)?;
-    Ok(Value::bool(is_image_spec(&args[0])))
+    Ok(Value::bool_val(is_image_spec(&args[0])))
 }
 
 /// (image-type SOURCE &optional TYPE DATA-P) -> symbol
@@ -597,8 +597,8 @@ pub(crate) fn builtin_image_type(args: Vec<Value>) -> EvalResult {
     expect_max_args("image-type", &args, 3)?;
 
     let source = &args[0];
-    let explicit_type = args.get(1).cloned().unwrap_or(Value::Nil);
-    let data_p = args.get(2).cloned().unwrap_or(Value::Nil);
+    let explicit_type = args.get(1).cloned().unwrap_or(Value::NIL);
+    let data_p = args.get(2).cloned().unwrap_or(Value::NIL);
 
     if source.as_str().is_none() {
         let rendered = super::print::print_value(source);
@@ -656,7 +656,7 @@ pub(crate) fn builtin_image_transforms_p(args: Vec<Value>) -> EvalResult {
     if let Some(frame_or_display) = args.first() {
         expect_frame_designator("image-transforms-p", frame_or_display)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // ---------------------------------------------------------------------------

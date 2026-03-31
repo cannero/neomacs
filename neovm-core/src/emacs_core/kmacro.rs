@@ -27,7 +27,7 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -38,7 +38,7 @@ fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -49,7 +49,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
     if args.len() > max {
         Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::Int(args.len() as i64)],
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
         ))
     } else {
         Ok(())
@@ -57,9 +57,9 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 }
 
 fn expect_int(value: &Value) -> Result<i64, Flow> {
-    match value {
-        Value::Int(n) => Ok(*n),
-        Value::Char(c) => Ok(*c as i64),
+    match value.kind() {
+        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *other],
@@ -68,12 +68,12 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
 }
 
 fn prefix_numeric_value(value: &Value) -> i64 {
-    match value {
-        Value::Nil => 1,
-        Value::Symbol(id) if resolve_sym(*id) == "-" => -1,
-        Value::Int(n) => *n,
-        Value::Char(c) => *c as i64,
-        Value::Cons(cell) => read_cons(*cell).car.as_int().unwrap_or(1),
+    match value.kind() {
+        ValueKind::Nil => 1,
+        ValueKind::Symbol(id) if resolve_sym(id) == "-" => -1,
+        ValueKind::Fixnum(n) => n,
+        ValueKind::Char(c) => c as i64,
+        ValueKind::Cons => read_cons(*cell).car.as_int().unwrap_or(1),  // TODO(tagged): replace read_cons with cons accessors
         _ => 1,
     }
 }
@@ -166,7 +166,7 @@ pub(crate) fn builtin_defining_kbd_macro(
     let append = args[0].is_truthy();
     let no_exec = args.get(1).is_some_and(Value::is_truthy);
     start_kbd_macro_impl(eval, append, no_exec)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 fn last_kbd_macro_or_array_error(eval: &super::eval::Context) -> Result<Vec<Value>, Flow> {
@@ -176,7 +176,7 @@ fn last_kbd_macro_or_array_error(eval: &super::eval::Context) -> Result<Vec<Valu
         .ok_or_else(|| {
             signal(
                 "wrong-type-argument",
-                vec![Value::symbol("arrayp"), Value::Nil],
+                vec![Value::symbol("arrayp"), Value::NIL],
             )
         })
 }
@@ -217,7 +217,7 @@ fn execute_kbd_macro_events_with_runtime_state(
             }
         }
 
-        Ok(Value::Nil)
+        Ok(Value::NIL)
     })
 }
 
@@ -235,11 +235,11 @@ fn start_kbd_macro_impl(
     if let Some(ref initial_events) = initial_events
         && !no_exec
     {
-        execute_kbd_macro_events_with_runtime_state(eval, initial_events, 1, Value::Nil)?;
+        execute_kbd_macro_events_with_runtime_state(eval, initial_events, 1, Value::NIL)?;
     }
 
     eval.start_kbd_macro_runtime(initial_events.as_deref(), append)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 pub(crate) fn plan_call_last_kbd_macro(
@@ -248,7 +248,7 @@ pub(crate) fn plan_call_last_kbd_macro(
 ) -> Result<(Vec<Value>, i64, Value), Flow> {
     expect_max_args("call-last-kbd-macro", args, 2)?;
     let repeat = args.first().map_or(1i64, prefix_numeric_value);
-    let loopfunc = args.get(1).copied().unwrap_or(Value::Nil);
+    let loopfunc = args.get(1).copied().unwrap_or(Value::NIL);
 
     let macro_keys = last_kbd_macro
         .map(|events| events.to_vec())
@@ -269,7 +269,7 @@ pub(crate) fn plan_execute_kbd_macro(
     expect_min_args("execute-kbd-macro", args, 1)?;
     expect_max_args("execute-kbd-macro", args, 3)?;
     let count = args.get(1).map_or(1, prefix_numeric_value);
-    let loopfunc = args.get(2).copied().unwrap_or(Value::Nil);
+    let loopfunc = args.get(2).copied().unwrap_or(Value::NIL);
     Ok((resolve_macro_events(eval, &args[0])?, count, loopfunc))
 }
 
@@ -287,7 +287,7 @@ pub(crate) fn builtin_start_kbd_macro(
     let append = args.first().is_some_and(|v| v.is_truthy());
     let no_exec = args.get(1).is_some_and(Value::is_truthy);
     start_kbd_macro_impl(eval, append, no_exec)?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (end-kbd-macro &optional REPEAT LOOPFUNC) -> nil
@@ -303,14 +303,14 @@ pub(crate) fn builtin_end_kbd_macro(
     } else {
         1
     };
-    let loopfunc = args.get(1).copied().unwrap_or(Value::Nil);
+    let loopfunc = args.get(1).copied().unwrap_or(Value::NIL);
     let recorded = eval.end_kbd_macro_runtime()?;
     if repeat == 0 {
         execute_kbd_macro_events_with_runtime_state(eval, &recorded, repeat, loopfunc)?;
     } else if repeat > 1 {
         execute_kbd_macro_events_with_runtime_state(eval, &recorded, repeat - 1, loopfunc)?;
     }
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (call-last-kbd-macro &optional REPEAT LOOPFUNC) -> nil
@@ -331,7 +331,7 @@ pub(crate) fn builtin_call_last_kbd_macro(
 
     let (macro_keys, repeat, loopfunc) =
         plan_call_last_kbd_macro(eval.command_loop.last_kbd_macro(), &args)?;
-    let previous_last_command = eval.eval_symbol("last-command").unwrap_or(Value::Nil);
+    let previous_last_command = eval.eval_symbol("last-command").unwrap_or(Value::NIL);
     let macro_value = Value::vector(macro_keys.clone());
     eval.assign("this-command", previous_last_command);
     eval.assign("real-this-command", macro_value);
@@ -365,9 +365,9 @@ fn name_last_kbd_macro_impl(
 ) -> EvalResult {
     expect_args(call_name, &args, 1)?;
 
-    let name = match &args[0] {
-        Value::Symbol(id) => resolve_sym(*id).to_owned(),
-        Value::Str(id) => with_heap(|h| h.get_string(*id).to_owned()),
+    let name = match args[0].kind() {
+        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
+        ValueKind::String => with_heap(|h| h.get_string(*id).to_owned()),
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -387,7 +387,7 @@ fn name_last_kbd_macro_impl(
     };
 
     eval.obarray.set_symbol_function(&name, macro_val);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (name-last-kbd-macro SYMBOL) -> nil
@@ -417,7 +417,7 @@ pub(crate) fn builtin_defining_kbd_macro_p(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("defining-kbd-macro-p", &args, 0)?;
-    Ok(Value::bool(
+    Ok(Value::bool_val(
         eval.command_loop.keyboard.kboard.defining_kbd_macro,
     ))
 }
@@ -428,7 +428,7 @@ pub(crate) fn builtin_executing_kbd_macro_p(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("executing-kbd-macro-p", &args, 0)?;
-    Ok(Value::bool(
+    Ok(Value::bool_val(
         eval.command_loop
             .keyboard
             .kboard
@@ -445,7 +445,7 @@ pub(crate) fn builtin_last_kbd_macro(
     expect_args("last-kbd-macro", &args, 0)?;
     match eval.command_loop.last_kbd_macro() {
         Some(keys) => Ok(Value::vector(keys.to_vec())),
-        None => Ok(Value::Nil),
+        None => Ok(Value::NIL),
     }
 }
 
@@ -454,9 +454,9 @@ pub(crate) fn builtin_last_kbd_macro(
 /// Compatibility subset: accepts vector and string macro encodings.
 pub(crate) fn builtin_kmacro_p(args: Vec<Value>) -> EvalResult {
     expect_args("kmacro-p", &args, 1)?;
-    Ok(Value::bool(matches!(
+    Ok(Value::bool_val(matches!(
         args[0],
-        Value::Vector(_) | Value::Str(_)
+        Value::Vector(_) /* TODO(tagged): convert Value::Vector to new API */ | Value::Str(_)
     )))
 }
 
@@ -468,7 +468,7 @@ pub(crate) fn builtin_kmacro_set_counter(
     expect_min_args("kmacro-set-counter", &args, 1)?;
     expect_max_args("kmacro-set-counter", &args, 2)?;
     eval.kmacro.counter = expect_int(&args[0])?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (kmacro-add-counter DELTA) -> nil
@@ -478,7 +478,7 @@ pub(crate) fn builtin_kmacro_add_counter(
 ) -> EvalResult {
     expect_args("kmacro-add-counter", &args, 1)?;
     eval.kmacro.counter += expect_int(&args[0])?;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (kmacro-set-format FORMAT) -> nil
@@ -487,8 +487,8 @@ pub(crate) fn builtin_kmacro_set_format(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("kmacro-set-format", &args, 1)?;
-    let format = match &args[0] {
-        Value::Str(id) => {
+    let format = match args[0].kind() {
+        ValueKind::String => {
             let s = crate::emacs_core::value::with_heap(|h| h.get_string(*id).to_owned());
             if s.is_empty() { "%d".to_string() } else { s }
         }
@@ -500,7 +500,7 @@ pub(crate) fn builtin_kmacro_set_format(
         }
     };
     eval.kmacro.counter_format = format;
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 /// (store-kbd-macro-event EVENT) -> nil
@@ -513,7 +513,7 @@ pub(crate) fn builtin_store_kbd_macro_event(
 ) -> EvalResult {
     expect_args("store-kbd-macro-event", &args, 1)?;
     eval.store_kbd_macro_runtime_event(args[0]);
-    Ok(Value::Nil)
+    Ok(Value::NIL)
 }
 
 // ===========================================================================
@@ -526,9 +526,9 @@ fn indirect_macro_function(eval: &super::eval::Context, value: &Value) -> Value 
 
     loop {
         let Some(symbol_id) = (match current {
-            Value::Symbol(id) | Value::Keyword(id) => Some(id),
-            Value::True => Some(super::intern::intern("t")),
-            Value::Nil => None,
+            Value::symbol(id) | Value::keyword(id) => Some(id),
+            Value::T => Some(super::intern::intern("t")),
+            Value::NIL => None,
             _ => None,
         }) else {
             return current;
@@ -542,19 +542,19 @@ fn indirect_macro_function(eval: &super::eval::Context, value: &Value) -> Value 
             .obarray()
             .symbol_function_id(symbol_id)
             .copied()
-            .unwrap_or(Value::Nil);
+            .unwrap_or(Value::NIL);
     }
 }
 
 /// Resolve a macro value the GNU `execute-kbd-macro` way:
 /// follow symbol function indirections, then require a final string or vector.
 fn resolve_macro_events(eval: &super::eval::Context, value: &Value) -> Result<Vec<Value>, Flow> {
-    match indirect_macro_function(eval, value) {
-        Value::Vector(v) => {
+    match indirect_macro_function(eval, value).kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let items = with_heap(|h| h.get_vector(v).clone());
             Ok(items.clone())
         }
-        Value::Str(id) => {
+        ValueKind::String => {
             // Each character in the string becomes a Char event.
             let s = with_heap(|h| h.get_string(id).to_owned());
             Ok(s.chars().map(Value::Char).collect())

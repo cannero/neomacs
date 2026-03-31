@@ -13,7 +13,7 @@ use super::shared::SharedUndoState;
 use super::text_props::TextPropertyTable;
 use super::undo;
 use crate::emacs_core::syntax::SyntaxTable;
-use crate::emacs_core::value::{RuntimeBindingValue, Value, with_heap_mut};
+use crate::emacs_core::value::{RuntimeBindingValue, Value, with_heap_mut, ValueKind};
 use crate::gc::GcTrace;
 use crate::gc::ObjId;
 use crate::window::WindowId;
@@ -797,10 +797,10 @@ impl Buffer {
             if self.autosave_modified_tick == self.modified_tick {
                 Value::symbol("autosaved")
             } else {
-                Value::True
+                Value::T
             }
         } else {
-            Value::Nil
+            Value::NIL
         }
     }
 
@@ -847,15 +847,15 @@ impl Buffer {
     pub fn set_buffer_local(&mut self, name: &str, value: Value) {
         if name == "buffer-file-name" {
             self.file_name = match &value {
-                Value::Str(_) => value.as_str_owned(),
-                Value::Nil => None,
+                Value::Str(_) /* TODO(tagged): convert Value::Str to new API */ => value.as_str_owned(),
+                Value::NIL => None,
                 _ => self.file_name.take(),
             };
         }
         if name == "buffer-auto-save-file-name" {
             self.auto_save_file_name = match &value {
-                Value::Str(_) => value.as_str_owned(),
-                Value::Nil => None,
+                Value::Str(_) /* TODO(tagged): convert Value::Str to new API */ => value.as_str_owned(),
+                Value::NIL => None,
                 _ => self.auto_save_file_name.take(),
             };
         }
@@ -877,7 +877,7 @@ impl Buffer {
             self.auto_save_file_name = None;
         }
         if name == "buffer-undo-list" {
-            self.undo_state.set_list(Value::Nil);
+            self.undo_state.set_list(Value::NIL);
             self.undo_state.set_recorded_first_change(false);
         }
         self.locals.set_raw_binding(name, RuntimeBindingValue::Void);
@@ -913,17 +913,17 @@ impl Buffer {
         if name == "buffer-file-name" {
             return Some(match &self.file_name {
                 Some(file_name) => RuntimeBindingValue::Bound(Value::string(file_name)),
-                None => RuntimeBindingValue::Bound(Value::Nil),
+                None => RuntimeBindingValue::Bound(Value::NIL),
             });
         }
         if name == "buffer-auto-save-file-name" {
             return Some(match &self.auto_save_file_name {
                 Some(file_name) => RuntimeBindingValue::Bound(Value::string(file_name)),
-                None => RuntimeBindingValue::Bound(Value::Nil),
+                None => RuntimeBindingValue::Bound(Value::NIL),
             });
         }
         if name == "enable-multibyte-characters" {
-            return Some(RuntimeBindingValue::Bound(Value::bool(self.multibyte)));
+            return Some(RuntimeBindingValue::Bound(Value::bool_val(self.multibyte)));
         }
         self.locals.raw_binding(name)
     }
@@ -1050,7 +1050,7 @@ impl BufferManager {
         // GNU buffer.c:667 — buffers whose names start with a space have
         // undo recording disabled by default.
         if name.starts_with(' ') {
-            buf.set_buffer_local("buffer-undo-list", crate::emacs_core::value::Value::True);
+            buf.set_buffer_local("buffer-undo-list", crate::emacs_core::value::Value::T);
         }
         self.buffers.insert(id, buf);
         id
@@ -1843,7 +1843,7 @@ impl BufferManager {
             let old_val = buf
                 .text
                 .text_props_get_property(start, name)
-                .unwrap_or(Value::Nil);
+                .unwrap_or(Value::NIL);
             let mut ul = buf.get_undo_list();
             undo::undo_list_record_property_change(
                 &mut ul,
@@ -1883,7 +1883,7 @@ impl BufferManager {
             let old_val = buf
                 .text
                 .text_props_get_property(start, name)
-                .unwrap_or(Value::Nil);
+                .unwrap_or(Value::NIL);
             // Only record if property actually exists.
             if !old_val.is_nil() {
                 let mut ul = buf.get_undo_list();
@@ -1919,9 +1919,9 @@ impl BufferManager {
         buf.set_buffer_local(
             "enable-multibyte-characters",
             if flag {
-                crate::emacs_core::value::Value::True
+                crate::emacs_core::value::Value::T
             } else {
-                crate::emacs_core::value::Value::Nil
+                crate::emacs_core::value::Value::NIL
             },
         );
         Some(())
@@ -1969,10 +1969,10 @@ impl BufferManager {
             }
             None => {
                 buf.locals
-                    .set_raw_binding("buffer-file-name", RuntimeBindingValue::Bound(Value::Nil));
+                    .set_raw_binding("buffer-file-name", RuntimeBindingValue::Bound(ValueKind::Nil));
                 buf.locals.set_raw_binding(
                     "buffer-file-truename",
-                    RuntimeBindingValue::Bound(Value::Nil),
+                    RuntimeBindingValue::Bound(ValueKind::Nil),
                 );
             }
         }
@@ -2013,7 +2013,7 @@ impl BufferManager {
     pub fn current_local_map(&self) -> Value {
         self.current
             .and_then(|id| self.buffer_local_map(id))
-            .unwrap_or(Value::Nil)
+            .unwrap_or(Value::NIL)
     }
 
     pub fn set_buffer_local_map(&mut self, id: BufferId, keymap: Value) -> Option<()> {
@@ -2195,12 +2195,12 @@ impl BufferManager {
         let root_id = self.shared_text_root_id(id)?;
         {
             let buf = self.buffers.get_mut(&id)?;
-            match value {
-                Value::True => {
-                    buf.set_buffer_local("buffer-undo-list", Value::True);
+            match value.kind() {
+                ValueKind::T => {
+                    buf.set_buffer_local("buffer-undo-list", ValueKind::T);
                 }
-                Value::Nil => {
-                    buf.set_buffer_local("buffer-undo-list", Value::Nil);
+                ValueKind::Nil => {
+                    buf.set_buffer_local("buffer-undo-list", ValueKind::Nil);
                     buf.undo_state.set_recorded_first_change(false);
                 }
                 other => {
@@ -2259,7 +2259,7 @@ impl BufferManager {
         for group in groups {
             applied_any = true;
             for entry in group {
-                if let Value::Int(pt1) = entry {
+                if let Some(pt1) = entry.as_fixnum() {
                     // Cursor position (1-indexed)
                     let pos = (pt1 - 1).max(0) as usize;
                     let clamped = self
@@ -2270,8 +2270,8 @@ impl BufferManager {
                 } else if entry.is_cons() {
                     let car = entry.cons_car();
                     let cdr = entry.cons_cdr();
-                    match (car, cdr) {
-                        (Value::Int(beg1), Value::Int(end1)) => {
+                    match (car.kind(), cdr.kind()) {
+                        (ValueKind::Fixnum(beg1), ValueKind::Fixnum(end1)) => {
                             // Insert record: (BEG . END) — to undo, delete [beg, end)
                             let beg = (beg1 - 1).max(0) as usize;
                             let end = (end1 - 1).max(0) as usize;
@@ -2281,7 +2281,7 @@ impl BufferManager {
                                 .map(|buffer| end.min(buffer.text.len()))?;
                             self.delete_buffer_region(id, beg.min(clamped_end), clamped_end)?;
                         }
-                        (Value::Str(_), Value::Int(pos1)) => {
+                        (ValueKind::String, ValueKind::Fixnum(pos1)) => {
                             // Delete record: (TEXT . POS) — to undo, re-insert text
                             let text = car.as_str_owned().unwrap_or_default();
                             let pos = (pos1.abs() - 1).max(0) as usize;
@@ -2292,7 +2292,7 @@ impl BufferManager {
                             self.goto_buffer_byte(id, clamped)?;
                             self.insert_into_buffer(id, &text)?;
                         }
-                        (Value::True, Value::Int(_)) => {
+                        (ValueKind::T, ValueKind::Fixnum(_)) => {
                             // First-change sentinel (t . MODTIME) — skip
                         }
                         _ => {
@@ -2591,7 +2591,7 @@ mod tests {
             !matches!(
                 mgr.get(indirect_id)
                     .and_then(|buf| buf.buffer_local_value("buffer-undo-list")),
-                Some(Value::Nil) | None
+                Some(Value::NIL) | None
             ),
             "indirect buffer should observe the base buffer's undo history"
         );
@@ -3031,19 +3031,19 @@ mod tests {
         let mut buf = Buffer::new(BufferId(1), "test".into());
         assert!(buf.get_buffer_local("tab-width").is_none());
 
-        buf.set_buffer_local("tab-width", Value::Int(4));
+        buf.set_buffer_local("tab-width", Value::fixnum(4));
         let val = buf.get_buffer_local("tab-width").unwrap();
-        assert!(matches!(val, Value::Int(4)));
+        assert!(matches!(val, Value::fixnum(4)));
 
-        buf.set_buffer_local("tab-width", Value::Int(8));
+        buf.set_buffer_local("tab-width", Value::fixnum(8));
         let val = buf.get_buffer_local("tab-width").unwrap();
-        assert!(matches!(val, Value::Int(8)));
+        assert!(matches!(val, Value::fixnum(8)));
     }
 
     #[test]
     fn buffer_local_multiple_vars() {
         let mut buf = Buffer::new(BufferId(1), "test".into());
-        buf.set_buffer_local("fill-column", Value::Int(80));
+        buf.set_buffer_local("fill-column", Value::fixnum(80));
         buf.set_buffer_local("major-mode", Value::symbol("text-mode"));
 
         assert!(buf.get_buffer_local("fill-column").is_some());
@@ -3063,30 +3063,30 @@ mod tests {
             buf.buffer_local_value("mode-name"),
             Some(Value::string("Fundamental"))
         );
-        assert_eq!(buf.buffer_local_value("buffer-file-name"), Some(Value::Nil));
+        assert_eq!(buf.buffer_local_value("buffer-file-name"), Some(Value::NIL));
         assert_eq!(
             buf.buffer_local_value("buffer-auto-save-file-name"),
-            Some(Value::Nil)
+            Some(Value::NIL)
         );
         assert_eq!(
             buf.buffer_local_value("buffer-display-count"),
-            Some(Value::Int(0))
+            Some(Value::fixnum(0))
         );
         assert_eq!(
             buf.buffer_local_value("buffer-display-time"),
-            Some(Value::Nil)
+            Some(Value::NIL)
         );
         assert_eq!(
             buf.buffer_local_value("buffer-invisibility-spec"),
-            Some(Value::True)
+            Some(Value::T)
         );
-        assert_eq!(buf.buffer_local_value("buffer-undo-list"), Some(Value::Nil));
+        assert_eq!(buf.buffer_local_value("buffer-undo-list"), Some(Value::NIL));
     }
 
     #[test]
     fn buffer_file_name_variable_tracks_slot_backed_state() {
         let mut buf = Buffer::new(BufferId(1), "test".into());
-        assert_eq!(buf.buffer_local_value("buffer-file-name"), Some(Value::Nil));
+        assert_eq!(buf.buffer_local_value("buffer-file-name"), Some(Value::NIL));
 
         buf.set_buffer_local("buffer-file-name", Value::string("/tmp/demo.txt"));
         assert_eq!(buf.file_name.as_deref(), Some("/tmp/demo.txt"));
@@ -3095,9 +3095,9 @@ mod tests {
             Some(Value::string("/tmp/demo.txt"))
         );
 
-        buf.set_buffer_local("buffer-file-name", Value::Nil);
+        buf.set_buffer_local("buffer-file-name", Value::NIL);
         assert_eq!(buf.file_name, None);
-        assert_eq!(buf.buffer_local_value("buffer-file-name"), Some(Value::Nil));
+        assert_eq!(buf.buffer_local_value("buffer-file-name"), Some(Value::NIL));
     }
 
     #[test]
@@ -3105,7 +3105,7 @@ mod tests {
         let mut buf = Buffer::new(BufferId(1), "test".into());
         assert_eq!(
             buf.buffer_local_value("buffer-auto-save-file-name"),
-            Some(Value::Nil)
+            Some(Value::NIL)
         );
 
         buf.set_buffer_local(
@@ -3118,11 +3118,11 @@ mod tests {
             Some(Value::string("/tmp/#demo.txt#"))
         );
 
-        buf.set_buffer_local("buffer-auto-save-file-name", Value::Nil);
+        buf.set_buffer_local("buffer-auto-save-file-name", Value::NIL);
         assert_eq!(buf.auto_save_file_name, None);
         assert_eq!(
             buf.buffer_local_value("buffer-auto-save-file-name"),
-            Some(Value::Nil)
+            Some(Value::NIL)
         );
     }
 
@@ -3143,13 +3143,13 @@ mod tests {
     #[test]
     fn modified_state_tracks_autosaved_semantics() {
         let mut buf = Buffer::new(BufferId(1), "test".into());
-        assert_eq!(buf.modified_state_value(), Value::Nil);
+        assert_eq!(buf.modified_state_value(), Value::NIL);
         assert!(!buf.recent_auto_save_p());
         assert_eq!(buf.modified_tick, 1);
         assert_eq!(buf.chars_modified_tick, 1);
 
-        assert_eq!(buf.restore_modified_state(Value::True), Value::True);
-        assert_eq!(buf.modified_state_value(), Value::True);
+        assert_eq!(buf.restore_modified_state(Value::T), Value::T);
+        assert_eq!(buf.modified_state_value(), Value::T);
         assert_eq!(buf.modified_tick, 2);
         assert_eq!(buf.chars_modified_tick, 1);
         assert!(!buf.recent_auto_save_p());
@@ -3163,8 +3163,8 @@ mod tests {
         assert_eq!(buf.chars_modified_tick, 1);
         assert!(buf.recent_auto_save_p());
 
-        assert_eq!(buf.restore_modified_state(Value::Nil), Value::Nil);
-        assert_eq!(buf.modified_state_value(), Value::Nil);
+        assert_eq!(buf.restore_modified_state(Value::NIL), Value::NIL);
+        assert_eq!(buf.modified_state_value(), Value::NIL);
         assert_eq!(buf.modified_tick, 2);
         assert_eq!(buf.chars_modified_tick, 1);
         assert!(!buf.recent_auto_save_p());
@@ -3183,25 +3183,25 @@ mod tests {
         buf.set_modified(false);
         assert_eq!(buf.modified_tick, 4);
         assert_eq!(buf.chars_modified_tick, 4);
-        assert_eq!(buf.modified_state_value(), Value::Nil);
+        assert_eq!(buf.modified_state_value(), Value::NIL);
 
         buf.delete_region(0, 6);
         assert_eq!(buf.modified_tick, 7);
         assert_eq!(buf.chars_modified_tick, 7);
-        assert_eq!(buf.modified_state_value(), Value::True);
+        assert_eq!(buf.modified_state_value(), Value::T);
     }
 
     #[test]
     fn chars_modified_tick_rejoins_modiff_after_non_char_modification() {
         let mut buf = Buffer::new(BufferId(1), "test".into());
-        assert_eq!(buf.restore_modified_state(Value::True), Value::True);
+        assert_eq!(buf.restore_modified_state(Value::T), Value::T);
         assert_eq!(buf.modified_tick, 2);
         assert_eq!(buf.chars_modified_tick, 1);
 
         buf.insert("x");
         assert_eq!(buf.modified_tick, 3);
         assert_eq!(buf.chars_modified_tick, 3);
-        assert_eq!(buf.modified_state_value(), Value::True);
+        assert_eq!(buf.modified_state_value(), Value::T);
     }
 
     // -----------------------------------------------------------------------
@@ -3254,12 +3254,12 @@ mod tests {
         mgr.get_mut(indirect_id)
             .expect("indirect buffer")
             .locals
-            .set_raw_binding("buffer-undo-list", RuntimeBindingValue::Bound(Value::Nil));
+            .set_raw_binding("buffer-undo-list", RuntimeBindingValue::Bound(Value::NIL));
         assert_eq!(
             mgr.get(indirect_id)
                 .expect("indirect buffer")
                 .get_buffer_local("buffer-undo-list"),
-            Some(&Value::Nil)
+            Some(&Value::NIL)
         );
 
         assert!(mgr.switch_current(indirect_id));

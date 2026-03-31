@@ -20,9 +20,9 @@ fn frame_line_height(frame: &Frame) -> i64 {
 fn canon_y_from_pixel_y(frame: &Frame, y: i64) -> Value {
     let unit = frame_line_height(frame).max(1);
     if y % unit != 0 {
-        Value::Float(y as f64 / unit as f64, next_float_id())
+        Value::make_float(y as f64 / unit as f64)
     } else {
-        Value::Int(y / unit)
+        Value::fixnum(y / unit)
     }
 }
 
@@ -53,7 +53,7 @@ fn frame_vertical_scroll_bar_side(frame: &Frame) -> Option<Value> {
             if frame.effective_window_system().is_some() {
                 Value::symbol("right")
             } else {
-                Value::Nil
+                Value::NIL
             }
         });
     match symbol_name(&raw) {
@@ -70,7 +70,7 @@ fn frame_has_horizontal_scroll_bar(frame: &Frame) -> bool {
         .parameters
         .get("horizontal-scroll-bars")
         .copied()
-        .unwrap_or(Value::Nil);
+        .unwrap_or(Value::NIL);
     matches!(symbol_name(&raw), Some("bottom")) || raw.is_truthy()
 }
 
@@ -221,11 +221,11 @@ impl FrameManager {
             return None;
         };
         if frame.effective_window_system().is_none() {
-            return Some(Value::Int(0));
+            return Some(Value::fixnum(0));
         }
         let pixels = -i64::from(*vscroll);
         Some(if pixelwise {
-            Value::Int(pixels)
+            Value::fixnum(pixels)
         } else {
             canon_y_from_pixel_y(frame, pixels)
         })
@@ -249,7 +249,7 @@ impl FrameManager {
             .get(frame_id)
             .is_none_or(|frame| frame.effective_window_system().is_none())
         {
-            return Some(Value::Int(0));
+            return Some(Value::fixnum(0));
         }
 
         let next_pixels = if pixelwise {
@@ -273,14 +273,14 @@ impl FrameManager {
 
         let frame = self.get(frame_id)?;
         if frame.effective_window_system().is_none() {
-            return Some(Value::Int(0));
+            return Some(Value::fixnum(0));
         }
         let Window::Leaf { vscroll, .. } = frame.find_window(window_id)? else {
             return None;
         };
         let pixels = -i64::from(*vscroll);
         Some(if pixelwise {
-            Value::Int(pixels)
+            Value::fixnum(pixels)
         } else {
             canon_y_from_pixel_y(frame, pixels)
         })
@@ -290,7 +290,7 @@ impl FrameManager {
     pub fn window_display_table(&self, window_id: WindowId) -> Value {
         self.window_display_state(window_id)
             .map(|(_, display, _)| display.display_table)
-            .unwrap_or(Value::Nil)
+            .unwrap_or(Value::NIL)
     }
 
     /// Set window display table object for WINDOW-ID.
@@ -311,7 +311,7 @@ impl FrameManager {
     pub fn window_cursor_type(&self, window_id: WindowId) -> Value {
         self.window_display_state(window_id)
             .map(|(_, display, _)| display.cursor_type)
-            .unwrap_or(Value::True)
+            .unwrap_or(Value::T)
     }
 
     /// Set window cursor-type object for WINDOW-ID.
@@ -388,16 +388,16 @@ impl FrameManager {
         let (frame, display, is_minibuffer) = self.window_display_state(window_id)?;
         Some((
             if display.scroll_bar_width >= 0 {
-                Value::Int(i64::from(display.scroll_bar_width))
+                Value::fixnum(i64::from(display.scroll_bar_width))
             } else {
-                Value::Nil
+                Value::NIL
             },
             vertical_scroll_bar_cols(frame, display),
             display.vertical_scroll_bar_type,
             if display.scroll_bar_height >= 0 {
-                Value::Int(i64::from(display.scroll_bar_height))
+                Value::fixnum(i64::from(display.scroll_bar_height))
             } else {
-                Value::Nil
+                Value::NIL
             },
             horizontal_scroll_bar_lines(frame, display, is_minibuffer),
             display.horizontal_scroll_bar_type,
@@ -457,13 +457,13 @@ impl FrameManager {
         }
         let mut next_vertical_type = vertical_type;
         if width == Some(0) {
-            next_vertical_type = Value::Nil;
+            next_vertical_type = Value::NIL;
         }
         let mut next_horizontal_type = horizontal_type;
         if height == Some(0)
             || (is_minibuffer && !matches!(symbol_name(&next_horizontal_type), Some("bottom")))
         {
-            next_horizontal_type = Value::Nil;
+            next_horizontal_type = Value::NIL;
         }
         if let Some(display) = self
             .get_mut(frame_id)

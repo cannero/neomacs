@@ -5,7 +5,7 @@ use std::fmt::{self, Display, Formatter};
 
 use super::intern::{SymId, intern, resolve_sym};
 use super::print::PrintOptions;
-use super::value::{Value, read_cons, with_heap};
+use super::value::{Value, read_cons, with_heap, ValueKind, VecLikeType};
 use crate::emacs_core::eval::ResumeTarget;
 use crate::window::WindowId;
 
@@ -146,20 +146,20 @@ pub(crate) fn signal_matches(pattern: &super::expr::Expr, symbol: &str) -> bool 
 /// Build the binding value for condition-case variable: (symbol . data)
 pub(crate) fn make_signal_binding_value(sig: &SignalData) -> Value {
     if let Some(raw) = &sig.raw_data {
-        return Value::cons(Value::Symbol(sig.symbol), *raw);
+        return Value::cons(Value::symbol(sig.symbol), *raw);
     }
     let mut values = Vec::with_capacity(sig.data.len() + 1);
-    values.push(Value::Symbol(sig.symbol));
+    values.push(Value::symbol(sig.symbol));
     values.extend(sig.data.clone());
     Value::list(values)
 }
 
 /// Reconstruct a signal flow from a condition-case/thread error binding form.
 pub(crate) fn signal_from_binding_value(value: Value) -> Option<Flow> {
-    let Value::Cons(cell) = value else {
+    if !value.is_cons() /* TODO(tagged): `cell` was Value::Cons(cell), rewrite let-else */ {
         return None;
     };
-    let pair = read_cons(cell);
+    let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
     let symbol = pair.car;
     let tail = pair.cdr;
     let symbol_name = symbol.as_symbol_name()?;
@@ -215,7 +215,7 @@ fn format_opaque_handle_in_state(
         return Some(handle);
     }
     if super::marker::is_marker(value) {
-        let Value::Marker(marker_id) = value else {
+        if !value.is_marker() /* TODO(tagged): `marker_id` was Value::Marker(marker_id), rewrite let-else */ {
             unreachable!("marker predicate accepted a non-marker value");
         };
         let marker = with_heap(|heap| heap.get_marker(*marker_id).clone());
@@ -234,7 +234,7 @@ fn format_opaque_handle_in_state(
         out.push('>');
         return Some(out);
     }
-    if let Value::Overlay(id) = value {
+    if value.is_overlay() /* TODO(tagged): `id` was Value::Overlay(id), now use accessor */ {
         let overlay = with_heap(|heap| heap.get_overlay(*id).clone());
         if let Some(buffer_id) = overlay.buffer
             && let Some(buffer) = buffers.get(buffer_id)
@@ -248,7 +248,7 @@ fn format_opaque_handle_in_state(
         }
         return Some("#<overlay in no buffer>".to_string());
     }
-    if let Value::Window(id) = value {
+    if value.is_window() /* TODO(tagged): `id` was Value::Window(id), now use accessor */ {
         return Some(format_window_handle_in_state(buffers, frames, *id));
     }
     if let Some(id) = threads.thread_id_from_handle(value) {
@@ -260,7 +260,7 @@ fn format_opaque_handle_in_state(
     if let Some(id) = threads.condition_variable_id_from_handle(value) {
         return Some(format!("#<condvar {id}>"));
     }
-    if let Value::Buffer(id) = value {
+    if value.is_buffer() /* TODO(tagged): `id` was Value::Buffer(id), now use accessor */ {
         if let Some(buf) = buffers.get(*id) {
             return Some(format!("#<buffer {}>", buf.name));
         }
@@ -306,11 +306,11 @@ pub(crate) fn print_options_from_state(obarray: &super::symbol::Obarray) -> Prin
         .symbol_value("print-escape-newlines")
         .is_some_and(Value::is_truthy);
     let print_level = match obarray.symbol_value("print-level") {
-        Some(Value::Int(n)) if *n >= 0 => Some(*n),
+        Some(ValueKind::Fixnum(n)) if *n >= 0 => Some(*n),
         _ => None,
     };
     let print_length = match obarray.symbol_value("print-length") {
-        Some(Value::Int(n)) if *n >= 0 => Some(*n),
+        Some(ValueKind::Fixnum(n)) if *n >= 0 => Some(*n),
         _ => None,
     };
     let print_escape_nonascii = obarray
@@ -361,8 +361,8 @@ fn format_value_in_state(
     if options.print_circle || options.print_level.is_some() || options.print_length.is_some() {
         return super::print::print_value_stateful(value, options);
     }
-    match value {
-        super::value::Value::Cons(_) | super::value::Value::Vector(_) => {
+    match value.kind() {
+        ValueKind::Cons | ValueKind::Veclike(VecLikeType::Vector) => {
             format_value_in_state_slow(obarray, buffers, frames, threads, value, options)
         }
         _ => super::print::print_value_with_options(value, options),
@@ -377,8 +377,8 @@ fn format_value_in_state_slow(
     value: &Value,
     options: PrintOptions,
 ) -> String {
-    match value {
-        Value::Cons(_) => {
+    match value.kind() {
+        ValueKind::Cons => {
             if let Some(shorthand) =
                 format_list_shorthand_in_state(obarray, buffers, frames, threads, value, options)
             {
@@ -389,7 +389,7 @@ fn format_value_in_state_slow(
             out.push(')');
             out
         }
-        Value::Vector(vec) => {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             let mut out = String::from("[");
             let items = with_heap(|h| h.get_vector(*vec).clone());
             for (idx, item) in items.iter().enumerate() {
@@ -420,8 +420,8 @@ fn format_list_shorthand_in_state(
         return None;
     }
 
-    let head = match &items[0] {
-        Value::Symbol(id) => resolve_sym(*id),
+    let head = match items[0].kind() {
+        ValueKind::Symbol(id) => resolve_sym(id),
         _ => return None,
     };
 
@@ -468,19 +468,19 @@ fn format_cons_in_state(
     let mut cursor = *value;
     let mut first = true;
     loop {
-        match cursor {
-            Value::Cons(cell) => {
+        match cursor.kind() {
+            ValueKind::Cons => {
                 if !first {
                     out.push(' ');
                 }
-                let pair = read_cons(cell);
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 out.push_str(&format_value_in_state(
                     obarray, buffers, frames, threads, &pair.car, options,
                 ));
                 cursor = pair.cdr;
                 first = false;
             }
-            Value::Nil => return,
+            ValueKind::Nil => return,
             other => {
                 if !first {
                     out.push_str(" . ");
@@ -530,11 +530,11 @@ fn format_value_bytes_in_state_with_options(
     if options.print_circle || options.print_level.is_some() || options.print_length.is_some() {
         return super::print::print_value_stateful(value, options).into_bytes();
     }
-    match value {
-        Value::Cons(_) => {
+    match value.kind() {
+        ValueKind::Cons => {
             format_cons_bytes_in_state(obarray, buffers, frames, threads, value, options)
         }
-        Value::Vector(_) => {
+        ValueKind::Veclike(VecLikeType::Vector) => {
             format_vector_bytes_in_state(obarray, buffers, frames, threads, value, options)
         }
         _ => super::print::print_value_bytes_with_options(value, options),
@@ -576,7 +576,7 @@ fn format_vector_bytes_in_state(
     }
     let mut out = Vec::new();
     out.push(b'[');
-    let Value::Vector(items) = value else {
+    if !value.is_vector() /* TODO(tagged): `items` was Value::Vector(items), rewrite let-else */ {
         return out;
     };
     let values = with_heap(|h| h.get_vector(*items).clone());
@@ -605,8 +605,8 @@ fn format_list_shorthand_bytes_in_state(
         return None;
     }
 
-    let head = match &items[0] {
-        Value::Symbol(id) => resolve_sym(*id),
+    let head = match items[0].kind() {
+        ValueKind::Symbol(id) => resolve_sym(id),
         _ => return None,
     };
 
@@ -655,8 +655,8 @@ fn quote_payload(value: &Value) -> Option<Value> {
     if items.len() != 2 {
         return None;
     }
-    match &items[0] {
-        Value::Symbol(id) if resolve_sym(*id) == "quote" => Some(items[1]),
+    match items[0].kind() {
+        ValueKind::Symbol(id) if resolve_sym(id) == "quote" => Some(items[1]),
         _ => None,
     }
 }
@@ -673,19 +673,19 @@ fn append_cons_bytes_in_state(
     let mut cursor = *value;
     let mut first = true;
     loop {
-        match cursor {
-            Value::Cons(cell) => {
+        match cursor.kind() {
+            ValueKind::Cons => {
                 if !first {
                     out.push(b' ');
                 }
-                let pair = read_cons(cell);
+                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
                 out.extend(format_value_bytes_in_state_with_options(
                     obarray, buffers, frames, threads, &pair.car, options,
                 ));
                 cursor = pair.cdr;
                 first = false;
             }
-            Value::Nil => return,
+            ValueKind::Nil => return,
             other => {
                 if !first {
                     out.extend_from_slice(b" . ");
