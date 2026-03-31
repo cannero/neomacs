@@ -9,7 +9,7 @@
 use super::{
     intern::resolve_sym,
     keymap::KeyEvent,
-    value::{Value, ValueKind, VecLikeType, read_cons, with_heap},
+    value::{Value, ValueKind, VecLikeType},
 };
 
 const CHAR_META: i64 = 0x8000000;

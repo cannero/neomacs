@@ -9,7 +9,7 @@ use crate::emacs_core::string_escape::{
     bytes_to_unibyte_storage_string, decode_storage_char_codes, encode_nonunicode_char_for_storage,
     storage_byte_len,
 };
-use crate::emacs_core::value::{StringTextPropertyRun, Value, with_heap, ValueKind};
+use crate::emacs_core::value::{StringTextPropertyRun, Value, ValueKind};
 
 const MAX_CHAR_CODE: i64 = 0x3F_FFFF;
 const RAW_BYTE_SENTINEL_BASE: u32 = 0xE000;

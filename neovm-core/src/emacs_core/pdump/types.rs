@@ -431,7 +431,7 @@ pub struct DumpMarker {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpOverlayList {
-    pub overlays: Vec<DumpObjId>,
+    pub overlays: Vec<DumpOverlay>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]

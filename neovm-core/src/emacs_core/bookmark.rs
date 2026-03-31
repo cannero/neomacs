@@ -20,7 +20,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
-use super::value::{Value, read_cons, with_heap, ValueKind};
+use super::value::{Value, ValueKind};
 
 // ---------------------------------------------------------------------------
 // Bookmark types

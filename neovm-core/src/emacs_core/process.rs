@@ -37,7 +37,7 @@ use super::error::{EvalResult, Flow, signal};
 use super::intern::{intern, resolve_sym};
 use super::threads::ThreadManager;
 use super::value::{
-    StringTextPropertyRun, Value, ValueKind, VecLikeType, list_to_vec, next_float_id, read_cons, with_heap,
+    StringTextPropertyRun, Value, ValueKind, VecLikeType, list_to_vec, next_float_id,
 };
 use crate::buffer::BufferManager;
 use crate::gc::GcTrace;

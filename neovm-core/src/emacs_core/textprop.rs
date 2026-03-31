@@ -312,13 +312,14 @@ pub(crate) fn lookup_buffer_text_property(
 fn lookup_overlay_property(
     obarray: &Obarray,
     buffers: &BufferManager,
-    overlay: crate::gc::ObjId,
+    overlay_val: Value,
     prop: &str,
 ) -> Value {
+    let plist = overlay_val.as_overlay_data().map_or(Value::NIL, |d| d.plist);
     lookup_char_property_from_direct(
         obarray,
         buffers,
-        |name| with_heap(|h| plist_get_named_value(h.get_overlay(overlay).plist, name)),
+        |name| plist_get_named_value(plist, name),
         prop,
         false,
     )
@@ -393,20 +394,18 @@ fn current_buffer_id_in_buffers(buffers: &BufferManager) -> Result<BufferId, Flo
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))
 }
 
-fn expect_overlay(value: &Value) -> Result<crate::gc::ObjId, Flow> {
+fn expect_overlay(value: &Value) -> Result<Value, Flow> {
     if !value.is_overlay() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("overlayp"), *value],
         ));
     }
-    lookup_overlay_obj_id(value).ok_or_else(|| {
-        signal("error", vec![Value::string("Overlay has no associated ObjId")])
-    })
+    Ok(*value)
 }
 
-fn resolve_overlay_buffer_id(overlay: crate::gc::ObjId) -> Option<BufferId> {
-    with_heap(|h| h.get_overlay(overlay).buffer)
+fn resolve_overlay_buffer_id(overlay_val: Value) -> Option<BufferId> {
+    overlay_val.as_overlay_data().and_then(|d| d.buffer)
 }
 
 fn ensure_marker_points_into_buffer(
@@ -580,7 +579,7 @@ pub(crate) fn buffer_overlay_property_at_byte_pos(
     buf: &crate::buffer::buffer::Buffer,
     byte_pos: usize,
     prop: &str,
-) -> Option<(Value, crate::gc::ObjId)> {
+) -> Option<(Value, Value)> {
     let mut overlays = buf.overlays.overlays_at(byte_pos);
     buf.overlays
         .sort_overlay_ids_by_priority_desc(&mut overlays);
@@ -597,7 +596,7 @@ pub(crate) fn buffer_overlay_property_for_inserted_char_at_byte_pos(
     buf: &crate::buffer::buffer::Buffer,
     byte_pos: usize,
     prop: &str,
-) -> Option<(Value, crate::gc::ObjId)> {
+) -> Option<(Value, Value)> {
     let overlay_id = buf
         .overlays
         .highest_priority_overlay_for_inserted_char(byte_pos, prop)?;
@@ -1471,10 +1470,10 @@ pub(crate) fn builtin_get_char_property_and_overlay_in_state(
 
     if let Some(buf) = buffers.get(buf_id) {
         let byte_pos = elisp_pos_to_byte(buf, pos);
-        if let Some((value, ov_id)) =
+        if let Some((value, ov_val)) =
             buffer_overlay_property_at_byte_pos(obarray, buffers, buf, byte_pos, &prop)
         {
-            return Ok(Value::cons(value, overlay_id_to_value(ov_id)));
+            return Ok(Value::cons(value, ov_val));
         }
     }
 
@@ -1595,18 +1594,16 @@ pub(crate) fn builtin_make_overlay_in_buffers(
 
     let byte_beg = elisp_pos_to_byte(buf, beg);
     let byte_end = elisp_pos_to_byte(buf, end);
-    let overlay = with_heap_mut(|h| {
-        h.alloc_overlay(crate::gc::types::OverlayData {
-            plist: Value::NIL,
-            buffer: Some(buf_id),
-            start: byte_beg,
-            end: byte_end,
-            front_advance,
-            rear_advance,
-        })
+    let overlay = Value::make_overlay(crate::gc::types::OverlayData {
+        plist: Value::NIL,
+        buffer: Some(buf_id),
+        start: byte_beg,
+        end: byte_end,
+        front_advance,
+        rear_advance,
     });
     buf.overlays.insert_overlay(overlay);
-    Ok(overlay_id_to_value(overlay))
+    Ok(overlay)
 }
 
 /// (delete-overlay OVERLAY)
@@ -1648,12 +1645,12 @@ pub(crate) fn builtin_overlay_put_in_buffers(
             .overlays
             .overlay_put(overlay, args[1], val)
     } else {
-        with_heap_mut(|h| {
-            let object = h.get_overlay_mut(overlay);
+        {
+            let object = overlay.as_overlay_data_mut().unwrap();
             let (plist, changed) = plist_put_eq(object.plist, args[1], val);
             object.plist = plist;
             changed
-        })
+        }
     };
     if let Some(buf_id) = resolve_overlay_buffer_id(overlay) {
         if changed {
@@ -1685,10 +1682,10 @@ pub(crate) fn builtin_overlay_get_in_buffers(
 ) -> EvalResult {
     expect_args("overlay-get", &args, 2)?;
     let overlay = expect_overlay(&args[0])?;
-    if let Some(val) =
-        with_heap(|h| crate::buffer::overlay::plist_get_eq(h.get_overlay(overlay).plist, &args[1]))
-    {
-        return Ok(val);
+    if let Some(data) = overlay.as_overlay_data() {
+        if let Some(val) = crate::buffer::overlay::plist_get_eq(data.plist, &args[1]) {
+            return Ok(val);
+        }
     }
     Ok(Value::NIL)
 }
@@ -1728,8 +1725,7 @@ pub(crate) fn builtin_overlays_at_in_buffers(
     if args.get(1).is_some_and(|value| value.is_truthy()) {
         buf.overlays.sort_overlay_ids_by_priority_desc(&mut ids);
     }
-    let overlays: Vec<Value> = ids.into_iter().map(overlay_id_to_value).collect();
-    Ok(Value::list(overlays))
+    Ok(Value::list(ids))
 }
 
 /// (overlays-in BEG END)
@@ -1754,8 +1750,7 @@ pub(crate) fn builtin_overlays_in_in_buffers(
     let ids = buf
         .overlays
         .overlays_in_region(byte_beg, byte_end, buf.point_max_byte());
-    let overlays: Vec<Value> = ids.into_iter().map(overlay_id_to_value).collect();
-    Ok(Value::list(overlays))
+    Ok(Value::list(ids))
 }
 
 /// (move-overlay OVERLAY BEG END &optional BUFFER)
@@ -1815,12 +1810,12 @@ pub(crate) fn builtin_move_overlay_in_buffers(
             .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
         let byte_beg = elisp_pos_to_byte(new_buf, beg);
         let byte_end = elisp_pos_to_byte(new_buf, end);
-        with_heap_mut(|h| {
-            let object = h.get_overlay_mut(overlay);
+        {
+            let object = overlay.as_overlay_data_mut().unwrap();
             object.buffer = Some(new_buf_id);
             object.start = byte_beg;
             object.end = byte_end;
-        });
+        }
         new_buf.overlays.insert_overlay(overlay);
         Ok(args[0])
     }
@@ -1913,7 +1908,7 @@ pub(crate) fn builtin_overlay_properties_in_buffers(
 ) -> EvalResult {
     expect_args("overlay-properties", &args, 1)?;
     let overlay = expect_overlay(&args[0])?;
-    builtin_copy_sequence(vec![with_heap(|h| h.get_overlay(overlay).plist)])
+    builtin_copy_sequence(vec![overlay.as_overlay_data().map_or(Value::NIL, |d| d.plist)])
 }
 
 /// (remove-overlays &optional BEG END NAME VAL)

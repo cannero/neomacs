@@ -12,7 +12,7 @@ use std::collections::VecDeque;
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::intern;
-use super::value::{Value, with_heap, ValueKind};
+use super::value::{Value, ValueKind};
 use crate::buffer::Buffer;
 
 // ---------------------------------------------------------------------------

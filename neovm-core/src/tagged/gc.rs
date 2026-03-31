@@ -196,6 +196,10 @@ pub struct TaggedHeap {
 
     /// Stack bottom for conservative stack scanning.
     stack_bottom: *const u8,
+
+    /// Tracking list of all allocated marker objects for bulk operations
+    /// like clearing markers when buffers are killed.
+    marker_ptrs: Vec<*mut MarkerObj>,
 }
 
 impl TaggedHeap {
@@ -207,6 +211,7 @@ impl TaggedHeap {
             gc_threshold: 8192,
             gray_queue: Vec::new(),
             stack_bottom: std::ptr::null(),
+            marker_ptrs: Vec::new(),
         }
     }
 
@@ -372,9 +377,29 @@ impl TaggedHeap {
             data,
         });
         let ptr = Box::into_raw(obj);
+        self.marker_ptrs.push(ptr);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
         unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
+    }
+
+    // -----------------------------------------------------------------------
+    // Marker operations
+    // -----------------------------------------------------------------------
+
+    /// Clear buffer association for all markers belonging to any of the
+    /// killed buffers.
+    pub fn clear_markers_for_buffers(
+        &mut self,
+        killed: &std::collections::HashSet<crate::buffer::BufferId>,
+    ) {
+        for ptr in &self.marker_ptrs {
+            let marker = unsafe { &mut (**ptr).data };
+            if marker.buffer.is_some_and(|b| killed.contains(&b)) {
+                marker.buffer = None;
+                marker.position = None;
+            }
+        }
     }
 
     // -----------------------------------------------------------------------

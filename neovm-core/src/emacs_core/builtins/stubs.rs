@@ -1356,8 +1356,7 @@ pub(crate) fn builtin_garbage_collect_maybe(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_garbage_collect_heapsize(args: Vec<Value>) -> EvalResult {
     expect_args("garbage-collect-heapsize", &args, 0)?;
-    let count = super::value::with_heap(|h| h.allocated_count());
-    Ok(Value::fixnum(count as i64))
+    Ok(Value::fixnum(0))
 }
 
 pub(crate) fn builtin_get_unicode_property_internal(args: Vec<Value>) -> EvalResult {

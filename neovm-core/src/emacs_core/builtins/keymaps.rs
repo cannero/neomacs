@@ -38,8 +38,6 @@ fn ensure_global_keymap(eval: &mut super::eval::Context) -> Value {
 /// codes (preserving all modifier bits including Alt and Hyper).  For strings,
 /// each character is treated as a raw key event.
 pub(crate) fn expect_key_events(value: &Value) -> Result<Vec<Value>, Flow> {
-    use super::value::with_heap;
-
     match value.kind() {
         // Vectors: use elements directly — integers are already emacs event codes,
         // symbols are already event symbols.
@@ -117,8 +115,7 @@ pub(super) fn builtin_accessible_keymaps(
 }
 
 pub(crate) fn builtin_accessible_keymaps_impl(obarray: &Obarray, args: &[Value]) -> EvalResult {
-    use super::value::with_heap;
-use crate::emacs_core::value::{ValueKind, VecLikeType};
+    use crate::emacs_core::value::{ValueKind, VecLikeType};
 
     expect_min_args("accessible-keymaps", &args, 1)?;
     expect_max_args("accessible-keymaps", &args, 2)?;

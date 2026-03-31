@@ -6,7 +6,7 @@ use super::expr::Expr;
 use super::expr::print_expr;
 use super::intern::{intern, resolve_sym};
 use super::keymap::{is_list_keymap, list_keymap_lookup_one};
-use super::value::{HashKey, Value, list_to_vec, with_heap, with_heap_mut, ValueKind};
+use super::value::{HashKey, Value, list_to_vec, ValueKind};
 use std::fs;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;

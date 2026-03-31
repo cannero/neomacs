@@ -8,7 +8,7 @@
 //! - The **minibuffer window** is a special single-line window at the bottom.
 
 use crate::buffer::BufferId;
-use crate::emacs_core::value::{HashTableTest, Value, with_heap_mut};
+use crate::emacs_core::value::{HashTableTest, Value};
 use crate::face::Face as RuntimeFace;
 use crate::gc::GcTrace;
 use std::collections::{HashMap, HashSet};

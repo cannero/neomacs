@@ -13,9 +13,9 @@ use super::shared::SharedUndoState;
 use super::text_props::TextPropertyTable;
 use super::undo;
 use crate::emacs_core::syntax::SyntaxTable;
-use crate::emacs_core::value::{RuntimeBindingValue, Value, with_heap_mut, ValueKind};
+use crate::emacs_core::value::{RuntimeBindingValue, Value, ValueKind};
+use crate::tagged::gc::with_tagged_heap;
 use crate::gc::GcTrace;
-use crate::gc::ObjId;
 use crate::window::WindowId;
 
 // ---------------------------------------------------------------------------
@@ -1281,7 +1281,7 @@ impl BufferManager {
             self.replace_labeled_restrictions(*killed_id, None);
         }
 
-        with_heap_mut(|heap| heap.clear_markers_for_buffers(&killed_set));
+        with_tagged_heap(|heap| heap.clear_markers_for_buffers(&killed_set));
         if kill_root {
             self.buffers.get(&id)?.text.clear_markers();
         } else {
@@ -1752,7 +1752,7 @@ impl BufferManager {
         Some(())
     }
 
-    pub fn delete_buffer_overlay(&mut self, id: BufferId, overlay_id: ObjId) -> Option<()> {
+    pub fn delete_buffer_overlay(&mut self, id: BufferId, overlay_id: Value) -> Option<()> {
         self.buffers
             .get_mut(&id)?
             .overlays
@@ -1763,7 +1763,7 @@ impl BufferManager {
     pub fn put_buffer_overlay_property(
         &mut self,
         id: BufferId,
-        overlay_id: ObjId,
+        overlay_id: Value,
         name: Value,
         value: Value,
     ) -> Option<()> {

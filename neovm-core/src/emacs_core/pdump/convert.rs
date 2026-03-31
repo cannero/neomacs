@@ -512,7 +512,12 @@ fn dump_marker_object(marker: &crate::gc::types::MarkerData) -> DumpMarker {
 
 fn dump_overlay_list(ol: &OverlayList) -> DumpOverlayList {
     DumpOverlayList {
-        overlays: ol.dump_overlays().into_iter().map(dump_obj_id).collect(),
+        overlays: ol
+            .dump_overlays()
+            .iter()
+            .filter_map(|v| v.as_overlay_data())
+            .map(|data| dump_overlay(data))
+            .collect(),
     }
 }
 
@@ -1930,7 +1935,22 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
             _ => None,
         },
         locals,
-        overlays: OverlayList::from_dump(db.overlays.overlays.iter().map(load_obj_id).collect()),
+        overlays: OverlayList::from_dump(
+            db.overlays
+                .overlays
+                .iter()
+                .map(|d| {
+                    Value::make_overlay(crate::gc::types::OverlayData {
+                        plist: load_value(&d.plist),
+                        buffer: d.buffer.map(|id| BufferId(id.0)),
+                        start: d.start,
+                        end: d.end,
+                        front_advance: d.front_advance,
+                        rear_advance: d.rear_advance,
+                    })
+                })
+                .collect(),
+        ),
         syntax_table: load_syntax_table(&db.syntax_table),
         undo_state: SharedUndoState::from_parts(undo_list, false, false),
     }

@@ -17,7 +17,7 @@ use super::error::{EvalResult, Flow, signal};
 use super::eval::Context;
 use super::intern::{intern, resolve_sym};
 use super::symbol::Obarray;
-use super::value::{OrderedRuntimeBindingMap, Value, list_to_vec, with_heap, ValueKind, VecLikeType};
+use super::value::{OrderedRuntimeBindingMap, Value, list_to_vec, ValueKind, VecLikeType};
 
 // ===========================================================================
 // Path operations (pure, no evaluator needed)

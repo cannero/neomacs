@@ -73,7 +73,7 @@ const IMM_PAYLOAD_SHIFT: u32 = 8; // payload starts at bit 8 for immediates
 ///
 /// This is `Copy`, `Eq`, `Hash` — can be freely duplicated and compared.
 /// Heap access is via direct pointer dereference (no ObjId indirection).
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct TaggedValue(pub(crate) usize);
 

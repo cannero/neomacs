@@ -11,7 +11,6 @@ use crate::emacs_core::casefiddle::apply_replace_match_case;
 use crate::emacs_core::regex_emacs::{
     self, BufferSyntaxLookup, CompiledPattern, DefaultSyntaxLookup, MatchRegisters, SyntaxLookup,
 };
-use crate::emacs_core::value::with_heap;
 
 pub(crate) const REPLACE_MATCH_SUBEXP_MISSING: &str = "replace-match subexpression does not exist";
 const SEARCH_PATTERN_CACHE_SIZE: usize = 20;

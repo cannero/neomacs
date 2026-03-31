@@ -1293,6 +1293,16 @@ impl TaggedValue {
         }
     }
 
+    /// Get mutable overlay data.
+    pub fn as_overlay_data_mut(self) -> Option<&'static mut crate::gc::types::OverlayData> {
+        if self.is_overlay() {
+            let ptr = self.as_veclike_ptr().unwrap() as *mut OverlayObj;
+            Some(unsafe { &mut (*ptr).data })
+        } else {
+            None
+        }
+    }
+
     /// Get vector elements.
     pub fn as_vector_data(self) -> Option<&'static Vec<Value>> {
         if self.is_vector() {

@@ -8,7 +8,7 @@
 use crate::emacs_core::error::{EvalResult, signal};
 use crate::emacs_core::intern::resolve_sym;
 use crate::emacs_core::symbol::Obarray;
-use crate::emacs_core::value::{HashKey, HashTableTest, Value, list_to_vec, with_heap_mut, ValueKind};
+use crate::emacs_core::value::{HashKey, HashTableTest, Value, list_to_vec, ValueKind};
 use crate::face::Face as RuntimeFace;
 
 const FACE_ATTRIBUTES_VECTOR_LEN: usize = 20;
@@ -229,8 +229,6 @@ fn upsert_frame_face_hash_entry(table: Value, key: Value, value: Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::emacs_core::value::with_heap;
-
     #[test]
     fn register_bootstrap_vars_matches_gnu_defaults() {
         let mut obarray = Obarray::new();

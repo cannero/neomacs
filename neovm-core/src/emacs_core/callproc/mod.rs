@@ -6,7 +6,7 @@ use std::process::{Command, Stdio};
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
-use super::value::{Value, list_to_vec, with_heap, ValueKind, VecLikeType};
+use super::value::{Value, list_to_vec, ValueKind, VecLikeType};
 use crate::buffer::BufferManager;
 
 fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {

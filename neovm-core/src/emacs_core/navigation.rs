@@ -6,7 +6,7 @@
 use super::error::{EvalResult, Flow, signal};
 use super::intern::intern;
 use super::textprop::lookup_buffer_text_property;
-use super::value::{Value, lexenv_lookup, read_cons, with_heap, ValueKind};
+use super::value::{Value, lexenv_lookup, ValueKind};
 use crate::buffer::BufferManager;
 
 // ---------------------------------------------------------------------------

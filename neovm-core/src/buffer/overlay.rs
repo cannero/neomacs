@@ -10,17 +10,17 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Bound::{Excluded, Unbounded};
 
-use crate::emacs_core::value::{Value, eq_value, read_cons, with_heap, with_heap_mut, ValueKind};
+use crate::emacs_core::value::{Value, eq_value, ValueKind};
 use crate::gc::GcTrace;
-use crate::gc::types::{ObjId, OverlayData};
+use crate::gc::types::OverlayData;
 
 pub type Overlay = OverlayData;
 
 #[derive(Clone)]
 pub struct OverlayList {
-    overlays: BTreeSet<ObjId>,
-    by_start: BTreeMap<usize, BTreeSet<ObjId>>,
-    by_end: BTreeMap<usize, BTreeSet<ObjId>>,
+    overlays: BTreeSet<Value>,
+    by_start: BTreeMap<usize, BTreeSet<Value>>,
+    by_end: BTreeMap<usize, BTreeSet<Value>>,
 }
 
 impl OverlayList {
@@ -32,14 +32,16 @@ impl OverlayList {
         }
     }
 
-    pub fn insert_overlay(&mut self, overlay: ObjId) {
-        let data = with_heap(|h| h.get_overlay(overlay).clone());
+    pub fn insert_overlay(&mut self, overlay: Value) {
+        let data = overlay.as_overlay_data().unwrap();
+        let start = data.start;
+        let end = data.end;
         self.overlays.insert(overlay);
-        Self::insert_index_entry(&mut self.by_start, data.start, overlay);
-        Self::insert_index_entry(&mut self.by_end, data.end, overlay);
+        Self::insert_index_entry(&mut self.by_start, start, overlay);
+        Self::insert_index_entry(&mut self.by_end, end, overlay);
     }
 
-    pub fn detach_overlay(&mut self, overlay: ObjId) -> bool {
+    pub fn detach_overlay(&mut self, overlay: Value) -> bool {
         if !self.overlays.remove(&overlay) {
             return false;
         }
@@ -50,72 +52,66 @@ impl OverlayList {
         true
     }
 
-    pub fn delete_overlay(&mut self, overlay: ObjId) -> bool {
+    pub fn delete_overlay(&mut self, overlay: Value) -> bool {
         if !self.detach_overlay(overlay) {
             return false;
         }
-        with_heap_mut(|h| {
-            let object = h.get_overlay_mut(overlay);
-            object.buffer = None;
-        });
+        if let Some(data) = overlay.as_overlay_data_mut() {
+            data.buffer = None;
+        }
         true
     }
 
-    pub fn overlay_put(&mut self, overlay: ObjId, prop: Value, value: Value) -> bool {
-        let changed = with_heap_mut(|h| {
-            let object = h.get_overlay_mut(overlay);
-            let (plist, changed) = plist_put_eq(object.plist, prop, value);
-            object.plist = plist;
-            changed
-        });
+    pub fn overlay_put(&mut self, overlay: Value, prop: Value, value: Value) -> bool {
+        let data = overlay.as_overlay_data_mut().unwrap();
+        let (plist, changed) = plist_put_eq(data.plist, prop, value);
+        data.plist = plist;
         changed
     }
 
-    pub fn overlay_get(&self, overlay: ObjId, prop: &Value) -> Option<Value> {
-        with_heap(|h| plist_get_eq(h.get_overlay(overlay).plist, prop))
+    pub fn overlay_get(&self, overlay: Value, prop: &Value) -> Option<Value> {
+        plist_get_eq(overlay.as_overlay_data().unwrap().plist, prop)
     }
 
-    pub fn overlay_get_named(&self, overlay: ObjId, prop_name: &str) -> Option<Value> {
+    pub fn overlay_get_named(&self, overlay: Value, prop_name: &str) -> Option<Value> {
         overlay_property_named(overlay, prop_name)
     }
 
-    pub fn overlay_plist(&self, overlay: ObjId) -> Option<Value> {
+    pub fn overlay_plist(&self, overlay: Value) -> Option<Value> {
         if self.overlays.contains(&overlay) || overlay_live_buffer(overlay).is_none() {
-            return Some(with_heap(|h| h.get_overlay(overlay).plist));
+            return Some(overlay.as_overlay_data().unwrap().plist);
         }
         None
     }
 
-    pub fn overlay_start(&self, overlay: ObjId) -> Option<usize> {
+    pub fn overlay_start(&self, overlay: Value) -> Option<usize> {
         if overlay_live_buffer(overlay).is_none() {
             return None;
         }
         overlay_range(overlay).map(|(start, _)| start)
     }
 
-    pub fn overlay_end(&self, overlay: ObjId) -> Option<usize> {
+    pub fn overlay_end(&self, overlay: Value) -> Option<usize> {
         if overlay_live_buffer(overlay).is_none() {
             return None;
         }
         overlay_range(overlay).map(|(_, end)| end)
     }
 
-    pub fn move_overlay(&mut self, overlay: ObjId, start: usize, end: usize) {
+    pub fn move_overlay(&mut self, overlay: Value, start: usize, end: usize) {
         let Some((old_start, old_end)) = overlay_range(overlay) else {
             return;
         };
-        with_heap_mut(|h| {
-            let object = h.get_overlay_mut(overlay);
-            object.start = start;
-            object.end = end;
-        });
+        let data = overlay.as_overlay_data_mut().unwrap();
+        data.start = start;
+        data.end = end;
         Self::remove_index_entry(&mut self.by_start, old_start, overlay);
         Self::remove_index_entry(&mut self.by_end, old_end, overlay);
         Self::insert_index_entry(&mut self.by_start, start, overlay);
         Self::insert_index_entry(&mut self.by_end, end, overlay);
     }
 
-    pub fn overlays_at(&self, pos: usize) -> Vec<ObjId> {
+    pub fn overlays_at(&self, pos: usize) -> Vec<Value> {
         let mut overlays = Vec::new();
         for (_, ids) in self.by_start.range(..=pos) {
             for overlay in ids {
@@ -127,7 +123,7 @@ impl OverlayList {
         overlays
     }
 
-    pub fn overlays_in(&self, start: usize, end: usize) -> Vec<ObjId> {
+    pub fn overlays_in(&self, start: usize, end: usize) -> Vec<Value> {
         self.overlays_in_region(start, end, end)
     }
 
@@ -136,7 +132,7 @@ impl OverlayList {
         start: usize,
         end: usize,
         accessible_end: usize,
-    ) -> Vec<ObjId> {
+    ) -> Vec<Value> {
         let mut overlays = Vec::new();
         for (_, ids) in self.by_start.range(..=end) {
             for overlay in ids {
@@ -148,7 +144,7 @@ impl OverlayList {
         overlays
     }
 
-    pub fn highest_priority_overlay_at(&self, pos: usize, property: &str) -> Option<ObjId> {
+    pub fn highest_priority_overlay_at(&self, pos: usize, property: &str) -> Option<Value> {
         self.best_overlay_for(property, |overlay| overlay_covers_pos(overlay, pos))
     }
 
@@ -156,19 +152,22 @@ impl OverlayList {
         &self,
         pos: usize,
         property: &str,
-    ) -> Option<ObjId> {
+    ) -> Option<Value> {
         self.best_overlay_for(property, |overlay| {
-            let Some(snapshot) = overlay_snapshot(overlay) else {
+            let Some(data) = overlay.as_overlay_data() else {
                 return false;
             };
-            !(snapshot.start == pos && snapshot.front_advance)
-                && !(snapshot.end == pos && !snapshot.rear_advance)
-                && snapshot.start <= pos
-                && pos <= snapshot.end
+            if data.buffer.is_none() {
+                return false;
+            }
+            !(data.start == pos && data.front_advance)
+                && !(data.end == pos && !data.rear_advance)
+                && data.start <= pos
+                && pos <= data.end
         })
     }
 
-    pub fn sort_overlay_ids_by_priority_desc(&self, overlay_ids: &mut [ObjId]) {
+    pub fn sort_overlay_ids_by_priority_desc(&self, overlay_ids: &mut [Value]) {
         overlay_ids.sort_by(|left, right| compare_overlay_precedence(*right, *left));
     }
 
@@ -176,35 +175,33 @@ impl OverlayList {
         if len == 0 {
             return;
         }
-        let live: Vec<ObjId> = self.overlays.iter().copied().collect();
-        with_heap_mut(|h| {
-            for overlay in &live {
-                let object = h.get_overlay_mut(*overlay);
-                let start = object.start;
-                let end = object.end;
-                let empty = start == end;
+        let live: Vec<Value> = self.overlays.iter().copied().collect();
+        for overlay in &live {
+            let object = overlay.as_overlay_data_mut().unwrap();
+            let start = object.start;
+            let end = object.end;
+            let empty = start == end;
 
-                if before_markers {
-                    if start >= pos {
-                        object.start += len;
-                    }
-                    if end >= pos {
-                        object.end += len;
-                    }
-                    continue;
-                }
-
-                if start > pos
-                    || (start == pos && object.front_advance && (!empty || object.rear_advance))
-                {
+            if before_markers {
+                if start >= pos {
                     object.start += len;
                 }
-
-                if end > pos || (end == pos && object.rear_advance) {
+                if end >= pos {
                     object.end += len;
                 }
+                continue;
             }
-        });
+
+            if start > pos
+                || (start == pos && object.front_advance && (!empty || object.rear_advance))
+            {
+                object.start += len;
+            }
+
+            if end > pos || (end == pos && object.rear_advance) {
+                object.end += len;
+            }
+        }
         self.rebuild_indexes();
     }
 
@@ -213,32 +210,30 @@ impl OverlayList {
             return;
         }
         let len = end - start;
-        let live: Vec<ObjId> = self.overlays.iter().copied().collect();
+        let live: Vec<Value> = self.overlays.iter().copied().collect();
         let mut evaporated = Vec::new();
-        with_heap_mut(|h| {
-            for overlay in &live {
-                let object = h.get_overlay_mut(*overlay);
-                if object.start >= end {
-                    object.start -= len;
-                } else if object.start > start {
-                    object.start = start;
-                }
-
-                if object.end >= end {
-                    object.end -= len;
-                } else if object.end > start {
-                    object.end = start;
-                }
-
-                if object.start == object.end
-                    && plist_get_eq(object.plist, &Value::symbol("evaporate"))
-                        .is_some_and(|v| v.is_truthy())
-                {
-                    object.buffer = None;
-                    evaporated.push(*overlay);
-                }
+        for overlay in &live {
+            let object = overlay.as_overlay_data_mut().unwrap();
+            if object.start >= end {
+                object.start -= len;
+            } else if object.start > start {
+                object.start = start;
             }
-        });
+
+            if object.end >= end {
+                object.end -= len;
+            } else if object.end > start {
+                object.end = start;
+            }
+
+            if object.start == object.end
+                && plist_get_eq(object.plist, &Value::symbol("evaporate"))
+                    .is_some_and(|v| v.is_truthy())
+            {
+                object.buffer = None;
+                evaporated.push(*overlay);
+            }
+        }
 
         for overlay in evaporated {
             self.overlays.remove(&overlay);
@@ -246,22 +241,18 @@ impl OverlayList {
         self.rebuild_indexes();
     }
 
-    pub fn set_front_advance(&mut self, overlay: ObjId, advance: bool) {
-        with_heap_mut(|h| {
-            h.get_overlay_mut(overlay).front_advance = advance;
-        });
+    pub fn set_front_advance(&mut self, overlay: Value, advance: bool) {
+        overlay.as_overlay_data_mut().unwrap().front_advance = advance;
     }
 
-    pub fn set_rear_advance(&mut self, overlay: ObjId, advance: bool) {
-        with_heap_mut(|h| {
-            h.get_overlay_mut(overlay).rear_advance = advance;
-        });
+    pub fn set_rear_advance(&mut self, overlay: Value, advance: bool) {
+        overlay.as_overlay_data_mut().unwrap().rear_advance = advance;
     }
 
-    pub fn get(&self, overlay: ObjId) -> Option<Overlay> {
+    pub fn get(&self, overlay: Value) -> Option<Overlay> {
         self.overlays
             .contains(&overlay)
-            .then(|| with_heap(|h| h.get_overlay(overlay).clone()))
+            .then(|| overlay.as_overlay_data().unwrap().clone())
     }
 
     pub fn len(&self) -> usize {
@@ -310,11 +301,11 @@ impl OverlayList {
         }
     }
 
-    pub(crate) fn dump_overlays(&self) -> Vec<ObjId> {
+    pub(crate) fn dump_overlays(&self) -> Vec<Value> {
         self.overlays.iter().copied().collect()
     }
 
-    pub(crate) fn from_dump(overlays: Vec<ObjId>) -> Self {
+    pub(crate) fn from_dump(overlays: Vec<Value>) -> Self {
         let mut list = Self::new();
         for overlay in overlays {
             if overlay_live_buffer(overlay).is_some() {
@@ -324,11 +315,11 @@ impl OverlayList {
         list
     }
 
-    fn best_overlay_for<F>(&self, property: &str, predicate: F) -> Option<ObjId>
+    fn best_overlay_for<F>(&self, property: &str, predicate: F) -> Option<Value>
     where
-        F: Fn(ObjId) -> bool,
+        F: Fn(Value) -> bool,
     {
-        let mut best: Option<ObjId> = None;
+        let mut best: Option<Value> = None;
         for overlay in &self.overlays {
             if !predicate(*overlay) {
                 continue;
@@ -353,17 +344,17 @@ impl OverlayList {
     }
 
     fn insert_index_entry(
-        index: &mut BTreeMap<usize, BTreeSet<ObjId>>,
+        index: &mut BTreeMap<usize, BTreeSet<Value>>,
         boundary: usize,
-        overlay: ObjId,
+        overlay: Value,
     ) {
         index.entry(boundary).or_default().insert(overlay);
     }
 
     fn remove_index_entry(
-        index: &mut BTreeMap<usize, BTreeSet<ObjId>>,
+        index: &mut BTreeMap<usize, BTreeSet<Value>>,
         boundary: usize,
-        overlay: ObjId,
+        overlay: Value,
     ) {
         if let Some(ids) = index.get_mut(&boundary) {
             ids.remove(&overlay);
@@ -376,7 +367,7 @@ impl OverlayList {
     fn rebuild_indexes(&mut self) {
         self.by_start.clear();
         self.by_end.clear();
-        let live: Vec<ObjId> = self.overlays.iter().copied().collect();
+        let live: Vec<Value> = self.overlays.iter().copied().collect();
         for overlay in live {
             if overlay_live_buffer(overlay).is_none() {
                 self.overlays.remove(&overlay);
@@ -390,62 +381,64 @@ impl OverlayList {
     }
 }
 
-fn overlay_snapshot(overlay: ObjId) -> Option<Overlay> {
-    let snapshot = with_heap(|h| h.get_overlay(overlay).clone());
-    snapshot.buffer.map(|_| snapshot)
+fn overlay_live_buffer(overlay: Value) -> Option<crate::buffer::BufferId> {
+    overlay.as_overlay_data().and_then(|d| d.buffer)
 }
 
-fn overlay_live_buffer(overlay: ObjId) -> Option<crate::buffer::BufferId> {
-    with_heap(|h| h.get_overlay(overlay).buffer)
+fn overlay_range(overlay: Value) -> Option<(usize, usize)> {
+    let data = overlay.as_overlay_data()?;
+    data.buffer.map(|_| (data.start, data.end))
 }
 
-fn overlay_range(overlay: ObjId) -> Option<(usize, usize)> {
-    overlay_snapshot(overlay).map(|overlay| (overlay.start, overlay.end))
-}
-
-fn overlay_covers_pos(overlay: ObjId, pos: usize) -> bool {
-    let Some(snapshot) = overlay_snapshot(overlay) else {
+fn overlay_covers_pos(overlay: Value, pos: usize) -> bool {
+    let Some(data) = overlay.as_overlay_data() else {
         return false;
     };
-    snapshot.start <= pos && pos < snapshot.end
+    if data.buffer.is_none() {
+        return false;
+    }
+    data.start <= pos && pos < data.end
 }
 
 fn overlay_overlaps_region(
-    overlay: ObjId,
+    overlay: Value,
     start: usize,
     end: usize,
     accessible_end: usize,
 ) -> bool {
-    let Some(snapshot) = overlay_snapshot(overlay) else {
+    let Some(data) = overlay.as_overlay_data() else {
         return false;
     };
-    if snapshot.start == snapshot.end {
-        return snapshot.start == start
-            || (start < snapshot.start && snapshot.start < end)
-            || (snapshot.start == end && end == accessible_end);
+    if data.buffer.is_none() {
+        return false;
+    }
+    if data.start == data.end {
+        return data.start == start
+            || (start < data.start && data.start < end)
+            || (data.start == end && end == accessible_end);
     }
     if start == end {
-        return snapshot.start <= start && start < snapshot.end;
+        return data.start <= start && start < data.end;
     }
-    snapshot.start < end && snapshot.end > start
+    data.start < end && data.end > start
 }
 
-fn overlay_property_named(overlay: ObjId, prop_name: &str) -> Option<Value> {
-    with_heap(|h| {
-        let plist = h.get_overlay(overlay).plist;
-        plist_get_named(plist, prop_name)
-    })
+fn overlay_property_named(overlay: Value, prop_name: &str) -> Option<Value> {
+    let plist = overlay.as_overlay_data()?.plist;
+    plist_get_named(plist, prop_name)
 }
 
-fn compare_overlay_precedence(left: ObjId, right: ObjId) -> Ordering {
-    let Some(left_overlay) = overlay_snapshot(left) else {
+fn compare_overlay_precedence(left: Value, right: Value) -> Ordering {
+    let left_data = left.as_overlay_data();
+    let right_data = right.as_overlay_data();
+    let Some(left_overlay) = left_data.filter(|d| d.buffer.is_some()) else {
         return Ordering::Less;
     };
-    let Some(right_overlay) = overlay_snapshot(right) else {
+    let Some(right_overlay) = right_data.filter(|d| d.buffer.is_some()) else {
         return Ordering::Greater;
     };
-    let (left_priority, left_subpriority) = overlay_priority(&left_overlay);
-    let (right_priority, right_subpriority) = overlay_priority(&right_overlay);
+    let (left_priority, left_subpriority) = overlay_priority(left_overlay);
+    let (right_priority, right_subpriority) = overlay_priority(right_overlay);
 
     if left_priority != right_priority {
         return left_priority.cmp(&right_priority);
@@ -565,7 +558,7 @@ impl Default for OverlayList {
 impl GcTrace for OverlayList {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
         for overlay in &self.overlays {
-            roots.push(crate::emacs_core::value::overlay_id_to_value(*overlay));
+            roots.push(*overlay);
         }
     }
 }
@@ -574,18 +567,15 @@ impl GcTrace for OverlayList {
 mod tests {
     use super::*;
     use crate::buffer::BufferId;
-    use crate::emacs_core::value::with_heap_mut;
 
-    fn alloc_overlay(start: usize, end: usize) -> ObjId {
-        with_heap_mut(|h| {
-            h.alloc_overlay(OverlayData {
-                plist: Value::NIL,
-                buffer: Some(BufferId(1)),
-                start,
-                end,
-                front_advance: false,
-                rear_advance: false,
-            })
+    fn alloc_overlay(start: usize, end: usize) -> Value {
+        Value::make_overlay(OverlayData {
+            plist: Value::NIL,
+            buffer: Some(BufferId(1)),
+            start,
+            end,
+            front_advance: false,
+            rear_advance: false,
         })
     }
 

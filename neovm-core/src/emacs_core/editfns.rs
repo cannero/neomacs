@@ -339,9 +339,8 @@ fn collect_overlay_modification_hooks(
     let mut result = Vec::new();
     for ov_id in overlay_ids {
         if let Some(hooks_val) = buf.overlays.overlay_get_named(ov_id, "modification-hooks") {
-            let ov_val = overlay_id_to_value(ov_id);
             for func in value_list_iter(hooks_val) {
-                result.push((func, ov_val));
+                result.push((func, ov_id));
             }
         }
     }
@@ -378,9 +377,8 @@ fn run_overlay_after_change_hooks(
                     .overlays
                     .overlay_get_named(*ov_id, "insert-in-front-hooks")
                 {
-                    let ov_val = overlay_id_to_value(*ov_id);
                     for func in value_list_iter(hook_val) {
-                        hooks.push((func, ov_val, "front"));
+                        hooks.push((func, *ov_id, "front"));
                     }
                 }
             }
@@ -398,9 +396,8 @@ fn run_overlay_after_change_hooks(
                     .overlays
                     .overlay_get_named(*ov_id, "insert-behind-hooks")
                 {
-                    let ov_val = overlay_id_to_value(*ov_id);
                     for func in value_list_iter(hook_val) {
-                        hooks.push((func, ov_val, "behind"));
+                        hooks.push((func, *ov_id, "behind"));
                     }
                 }
             }
@@ -410,9 +407,8 @@ fn run_overlay_after_change_hooks(
         let mod_overlays = buf.overlays.overlays_in(beg, search_end);
         for ov_id in &mod_overlays {
             if let Some(hook_val) = buf.overlays.overlay_get_named(*ov_id, "modification-hooks") {
-                let ov_val = overlay_id_to_value(*ov_id);
                 for func in value_list_iter(hook_val) {
-                    hooks.push((func, ov_val, "mod"));
+                    hooks.push((func, *ov_id, "mod"));
                 }
             }
         }
