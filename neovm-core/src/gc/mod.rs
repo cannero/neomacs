@@ -12,9 +12,11 @@
 //! - **Generation counters**: Catch use-after-collected bugs at runtime (stale ObjId panics).
 
 pub mod heap;
+pub mod objects;
 pub mod types;
 
 pub use heap::LispHeap;
+pub use objects::*;
 pub use types::{HeapObject, ObjId};
 
 use crate::emacs_core::value::Value;
