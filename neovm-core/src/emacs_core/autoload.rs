@@ -347,7 +347,7 @@ pub(crate) fn finish_autoload_do_load_in_state(
             // loading, signal "Autoloading file failed to define function".
             // GNU Emacs eval.c: if (!NILP (Fequal (fun, fundef)))
             // Only error if the function cell is STILL the SAME autoload
-            // form (by identity, not by content, to avoid stale ObjId).
+            // form (by identity, not by content, to avoid stale reference).
             // A different autoload (re-registered by eval-after-load
             // callbacks) is fine — the function was redefined.
             if let Some(orig) = original_autoload {

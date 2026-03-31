@@ -27,7 +27,6 @@ pub(super) use super::string_escape::{
     storage_string_display_width, storage_substring,
 };
 pub(super) use super::value::*;
-pub(super) use crate::gc::ObjId;
 pub(super) use ::regex::Regex;
 pub(super) use std::cell::RefCell;
 pub(super) use std::collections::{HashMap, HashSet};

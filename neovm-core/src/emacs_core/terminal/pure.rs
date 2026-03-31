@@ -350,7 +350,7 @@ pub(crate) fn reset_terminal_thread_locals() {
     TERMINAL_MANAGER.with(|slot| *slot.borrow_mut() = TerminalManager::new());
 }
 
-/// Reset only the terminal handle (stale ObjId safety on heap reset).
+/// Reset only the terminal handle (stale reference safety on heap reset).
 /// Does NOT reset terminal params or runtime config.
 pub(crate) fn reset_terminal_handle() {
     TERMINAL_MANAGER.with(|slot| slot.borrow_mut().reset_handles());

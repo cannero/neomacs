@@ -1,15 +1,8 @@
 //! Garbage Collector for the NeoVM Elisp runtime.
 //!
-//! # Architecture
-//!
-//! Arena-based mark-and-sweep collector:
-//!
-//! - **LispHeap**: Arena that owns all cycle-forming objects (cons, vector, hash-table).
-//! - **ObjId**: Lightweight 8-byte handle (index + generation) replacing `Arc<Mutex<T>>`.
-//! - **Thread-local access**: The evaluator sets a thread-local pointer before evaluation;
-//!   `Value` constructors and accessors use it transparently.
-//! - **Mark-and-sweep**: Iterative worklist marking from root set, sweep frees unmarked objects.
-//! - **Generation counters**: Catch use-after-collected bugs at runtime (stale ObjId panics).
+//! The primary GC is now the tagged pointer system in `crate::tagged::gc`.
+//! The old LispHeap/ObjId system in `heap.rs`/`types.rs` is retained for
+//! pdump compatibility but is no longer used at runtime.
 
 pub mod heap;
 pub mod objects;

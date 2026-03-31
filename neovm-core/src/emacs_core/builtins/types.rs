@@ -238,13 +238,13 @@ pub(crate) fn builtin_type_of(args: Vec<Value>) -> EvalResult {
     }
 }
 
-/// Context-aware type-of that dumps Lisp backtrace on stale ObjId.
+/// Context-aware type-of that dumps Lisp backtrace on stale reference.
 pub(crate) fn builtin_type_of_with_ctx(
     ctx: &mut super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    // Stale ObjId detection is not applicable with tagged pointers —
-    // the old generation-based check relied on ObjId indirection which
+    // Stale tagged pointer detection is not applicable with tagged pointers —
+    // the old generation-based check relied on tagged pointer indirection which
     // no longer exists.  Just delegate directly.
     let _ = ctx; // suppress unused warning
     builtin_type_of(args)
@@ -252,7 +252,7 @@ pub(crate) fn builtin_type_of_with_ctx(
 
 pub(crate) fn builtin_cl_type_of(args: Vec<Value>) -> EvalResult {
     expect_args("cl-type-of", &args, 1)?;
-    // Stale ObjId detection is not applicable with tagged pointers.
+    // Stale tagged pointer detection is not applicable with tagged pointers.
     // Records: return the type tag (slot 0).
     // GNU data.c:269-277: if slot 0 is itself a record with len > 1,
     // return slot 1 of that inner record (the class name symbol).

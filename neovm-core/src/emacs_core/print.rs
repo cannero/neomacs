@@ -88,7 +88,7 @@ impl PrintOptions {
 // ---------------------------------------------------------------------------
 
 /// State for the print-circle two-pass algorithm.
-/// Keys are object identity values (ObjId index+generation or SymId).
+/// Keys are object identity values (SymId).
 pub struct PrintCircleState {
     /// Maps object identity -> label status:
     /// 0 = seen once (removed after pass 1)

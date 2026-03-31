@@ -17,7 +17,7 @@ pub(crate) fn builtin_cons(args: Vec<Value>) -> EvalResult {
 //   (closure ENV PARAMS [DOCSTRING] BODY...)   — lexical closure
 //   (lambda PARAMS [DOCSTRING] BODY...)        — dynamic lambda
 //
-// NeoVM uses Value::Lambda(ObjId) internally.  The helpers below let all
+// NeoVM uses Value::Lambda(tagged pointer) internally.  The helpers below let all
 // list / sequence operations treat Lambda values as if they were cons lists,
 // which is required for cl-generic, oclosure, nadvice and many other packages.
 // ---------------------------------------------------------------------------

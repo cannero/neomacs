@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 /// GC-rooted constant pool for Values embedded in Expr trees.
 /// Replaces Expr::OpaqueValue(Value) with Expr::OpaqueValueRef(u32).
-/// Values in this pool are always traced by GC — no stale ObjIds.
+/// Values in this pool are always traced by GC — no stale references.
 pub(crate) struct OpaqueValuePool {
     values: Vec<Option<Value>>,
     free_list: Vec<u32>,
@@ -96,7 +96,6 @@ use super::value::*;
 use crate::buffer::{BufferManager, InsertionType};
 use crate::face::{Face as RuntimeFace, FaceTable, FontSlant, FontWeight, FontWidth};
 use crate::gc::GcTrace;
-use crate::gc::ObjId;
 use crate::window::FrameManager;
 
 const EVAL_STACK_RED_ZONE: usize = 256 * 1024;
@@ -945,7 +944,7 @@ pub struct Context {
     pub(crate) source_literal_cache: HashMap<*const Expr, Value>,
     /// Cache for macro expansion results.
     ///
-    /// Key: `(macro_heap_id, args_slice_ptr)` — the macro's ObjId plus the
+    /// Key: `(macro_heap_id, args_slice_ptr)` — the macro's tagged pointer plus the
     /// pointer to the args `&[Expr]` slice.
     ///
     /// Value: `(Rc<Expr>, u64)` — the expanded Expr tree plus a content
@@ -1906,14 +1905,14 @@ impl Context {
         let mut tagged_heap = Box::new(crate::tagged::gc::TaggedHeap::new());
         crate::tagged::gc::set_tagged_heap(&mut tagged_heap);
 
-        // Clear any caches that hold heap-allocated Values (ObjIds) from a
+        // Clear any caches that hold heap-allocated Values (tagged pointers) from a
         // previous heap. Critical for test isolation when multiple Contexts
         // are created sequentially on the same thread.
         if reset_thread_locals {
             super::syntax::reset_syntax_thread_locals();
             super::casetab::reset_casetab_thread_locals();
             super::category::reset_category_thread_locals();
-            // Only reset the terminal handle (stale ObjId), not
+            // Only reset the terminal handle (stale reference), not
             // the full terminal runtime/params which may be pre-
             // configured by tests before Context creation.
             super::terminal::pure::reset_terminal_handle();
