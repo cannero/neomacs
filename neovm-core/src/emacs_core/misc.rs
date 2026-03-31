@@ -11,7 +11,6 @@ use super::expr::Expr;
 use super::intern::resolve_sym;
 use super::string_escape::{bytes_to_unibyte_storage_string, encode_nonunicode_char_for_storage};
 use super::value::*;
-use crate::emacs_core::value::{ValueKind};
 
 const RAW_BYTE_SENTINEL_BASE: u32 = 0xE000;
 const RAW_BYTE_SENTINEL_MIN: u32 = 0xE080;
@@ -61,7 +60,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 fn expect_wholenump(val: &Value) -> Result<i64, Flow> {
     match val.kind() {
         ValueKind::Fixnum(n) if n >= 0 => Ok(n),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("wholenump"), *val],
         )),
@@ -71,7 +70,7 @@ fn expect_wholenump(val: &Value) -> Result<i64, Flow> {
 fn expect_string(val: &Value) -> Result<String, Flow> {
     match val.kind() {
         ValueKind::String => Ok(val.as_str().unwrap().to_owned()),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *val],
         )),
@@ -87,7 +86,7 @@ fn expect_char(val: &Value) -> Result<char, Flow> {
                 vec![Value::symbol("characterp"), *val],
             )
         }),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *val],
         )),
@@ -98,7 +97,7 @@ fn expect_character_code(val: &Value) -> Result<i64, Flow> {
     match val.kind() {
         ValueKind::Char(c) => Ok(c as i64),
         ValueKind::Fixnum(n) if (0..=MAX_EMACS_CHAR).contains(&n) => Ok(n),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *val],
         )),
@@ -161,14 +160,14 @@ pub(crate) fn builtin_copy_alist(args: Vec<Value>) -> EvalResult {
                 // If the element is a cons, copy it; otherwise keep as-is
                 let entry = match pair_car.kind() {
                     ValueKind::Cons => {
-                        let inner_pair_car = cursor.cons_car();
-                        let inner_pair_cdr = cursor.cons_cdr();
+                        let inner_pair_car = pair_car.cons_car();
+                        let inner_pair_cdr = pair_car.cons_cdr();
                         Value::cons(inner_pair_car, inner_pair_cdr)
                     }
-                    other => *cursor,
+                    _ => pair_car,
                 };
                 result.push(entry);
-                cursor = pair.cdr;
+                cursor = pair_cdr;
             }
             _ => {
                 return Err(signal(
@@ -194,9 +193,8 @@ pub(crate) fn builtin_rassoc(args: Vec<Value>) -> EvalResult {
             ValueKind::Cons => {
                 let pair_car = cursor.cons_car();
                 let pair_cdr = cursor.cons_cdr();
-                if &pair_car.is_cons() {
-                    let inner_pair_car = cursor.cons_car();
-                    let inner_pair_cdr = cursor.cons_cdr();
+                if pair_car.is_cons() {
+                    let inner_pair_cdr = pair_car.cons_cdr();
                     if equal_value(&inner_pair_cdr, key, 0) {
                         return Ok(pair_car);
                     }
@@ -225,9 +223,8 @@ pub(crate) fn builtin_rassq(args: Vec<Value>) -> EvalResult {
             ValueKind::Cons => {
                 let pair_car = cursor.cons_car();
                 let pair_cdr = cursor.cons_cdr();
-                if &pair_car.is_cons() {
-                    let inner_pair_car = cursor.cons_car();
-                    let inner_pair_cdr = cursor.cons_cdr();
+                if pair_car.is_cons() {
+                    let inner_pair_cdr = pair_car.cons_cdr();
                     if eq_value(&inner_pair_cdr, key) {
                         return Ok(pair_car);
                     }
@@ -291,10 +288,8 @@ pub(crate) fn builtin_safe_length(args: Vec<Value>) -> EvalResult {
         }
 
         // Brent's: check if hare caught up to tortoise
-        if let (Value::Cons(a), Value::Cons(b)) = (&hare, &tortoise) {
-            if a == b {
-                return Ok(Value::fixnum(length));
-            }
+        if hare.is_cons() && tortoise.is_cons() && eq_value(&hare, &tortoise) {
+            return Ok(Value::fixnum(length));
         }
 
         // Teleport tortoise: when step count reaches power, move
@@ -331,7 +326,7 @@ pub(crate) fn builtin_subst_char_in_string(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_string_to_multibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-to-multibyte", &args, 1)?;
     if args[0].is_string() {
-        if with_heap(|h| h.string_is_multibyte(id)) {
+        if args[0].string_is_multibyte() {
             return Ok(args[0]);
         }
     }
@@ -345,7 +340,7 @@ pub(crate) fn builtin_string_to_multibyte(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_string_to_unibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-to-unibyte", &args, 1)?;
     if args[0].is_string() {
-        if !with_heap(|h| h.string_is_multibyte(id)) {
+        if !args[0].string_is_multibyte() {
             return Ok(args[0]);
         }
     }
@@ -384,7 +379,7 @@ pub(crate) fn builtin_string_to_unibyte(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_string_as_unibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-as-unibyte", &args, 1)?;
     if args[0].is_string() {
-        if !with_heap(|h| h.string_is_multibyte(id)) {
+        if !args[0].string_is_multibyte() {
             return Ok(args[0]);
         }
     }
@@ -420,7 +415,7 @@ pub(crate) fn builtin_string_as_unibyte(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_string_as_multibyte(args: Vec<Value>) -> EvalResult {
     expect_args("string-as-multibyte", &args, 1)?;
     if args[0].is_string() {
-        if with_heap(|h| h.string_is_multibyte(id)) {
+        if args[0].string_is_multibyte() {
             return Ok(args[0]);
         }
     }
@@ -521,7 +516,7 @@ pub(crate) fn builtin_backtrace_frame(
         return Ok(Value::NIL);
     }
 
-    match nframes.kind() {
+    match nframes {
         0 => {
             let mut frame = vec![Value::T, Value::symbol("backtrace-frame"), Value::fixnum(nframes)];
             if args.len() > 1 {
@@ -531,8 +526,8 @@ pub(crate) fn builtin_backtrace_frame(
         }
         1 => {
             let mut call = vec![Value::symbol("backtrace-frame"), Value::fixnum(nframes)];
-            if args.len() > nframes {
-                call.push(args[nframes]);
+            if args.len() > nframes as usize {
+                call.push(args[nframes as usize]);
             }
             Ok(Value::list(vec![
                 Value::T,
@@ -644,7 +639,7 @@ fn runtime_backtrace_indirect_function(
             .or(Some(function))
         }
         ValueKind::Nil => None,
-        other => Some(function),
+        _ => Some(function),
     }
 }
 

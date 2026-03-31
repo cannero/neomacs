@@ -5,7 +5,7 @@ use std::fmt::{self, Display, Formatter};
 
 use super::intern::{SymId, intern, resolve_sym};
 use super::print::PrintOptions;
-use super::value::{Value, read_cons, with_heap, ValueKind, VecLikeType};
+use super::value::{Value, ValueKind, VecLikeType};
 use crate::emacs_core::eval::ResumeTarget;
 use crate::window::WindowId;
 
@@ -216,27 +216,24 @@ fn format_opaque_handle_in_state(
         return Some(handle);
     }
     if super::marker::is_marker(value) {
-        if !value.is_marker() {
-            unreachable!("marker predicate accepted a non-marker value");
-        };
-        let marker = with_heap(|heap| heap.get_marker(*marker_id).clone());
-        let mut out = String::from("#<marker ");
-        if marker.insertion_type {
-            out.push_str("(moves after insertion) ");
+        if let Some(marker) = value.as_marker_data() {
+            let mut out = String::from("#<marker ");
+            if marker.insertion_type {
+                out.push_str("(moves after insertion) ");
+            }
+            if let Some(buffer_id) = marker.buffer
+                && let Some(buffer) = buffers.get(buffer_id)
+                && let Some(pos) = marker.position
+            {
+                out.push_str(&format!("at {pos} in {}", buffer.name));
+            } else {
+                out.push_str("in no buffer");
+            }
+            out.push('>');
+            return Some(out);
         }
-        if let Some(buffer_id) = marker.buffer
-            && let Some(buffer) = buffers.get(buffer_id)
-            && let Some(pos) = marker.position
-        {
-            out.push_str(&format!("at {pos} in {}", buffer.name));
-        } else {
-            out.push_str("in no buffer");
-        }
-        out.push('>');
-        return Some(out);
     }
-    if value.is_overlay() {
-        let overlay = with_heap(|heap| heap.get_overlay(*id).clone());
+    if let Some(overlay) = value.as_overlay_data() {
         if let Some(buffer_id) = overlay.buffer
             && let Some(buffer) = buffers.get(buffer_id)
         {
@@ -249,8 +246,8 @@ fn format_opaque_handle_in_state(
         }
         return Some("#<overlay in no buffer>".to_string());
     }
-    if value.is_window() {
-        return Some(format_window_handle_in_state(buffers, frames, *id));
+    if let Some(id) = value.as_window_id() {
+        return Some(format_window_handle_in_state(buffers, frames, id));
     }
     if let Some(id) = threads.thread_id_from_handle(value) {
         return Some(format!("#<thread {id}>"));
@@ -261,11 +258,11 @@ fn format_opaque_handle_in_state(
     if let Some(id) = threads.condition_variable_id_from_handle(value) {
         return Some(format!("#<condvar {id}>"));
     }
-    if value.is_buffer() {
-        if let Some(buf) = buffers.get(*id) {
+    if let Some(buf_id) = value.as_buffer_id() {
+        if let Some(buf) = buffers.get(buf_id) {
             return Some(format!("#<buffer {}>", buf.name));
         }
-        if buffers.dead_buffer_last_name(*id).is_some() {
+        if buffers.dead_buffer_last_name(buf_id).is_some() {
             return Some("#<killed buffer>".to_string());
         }
     }
@@ -306,14 +303,14 @@ pub(crate) fn print_options_from_state(obarray: &super::symbol::Obarray) -> Prin
     let print_escape_newlines = obarray
         .symbol_value("print-escape-newlines")
         .is_some_and(|v| v.is_truthy());
-    let print_level = match obarray.symbol_value("print-level") {
-        Some(ValueKind::Fixnum(n)) if *n >= 0 => Some(*n),
-        _ => None,
-    };
-    let print_length = match obarray.symbol_value("print-length") {
-        Some(ValueKind::Fixnum(n)) if *n >= 0 => Some(*n),
-        _ => None,
-    };
+    let print_level = obarray
+        .symbol_value("print-level")
+        .and_then(|v| v.as_fixnum())
+        .filter(|&n| n >= 0);
+    let print_length = obarray
+        .symbol_value("print-length")
+        .and_then(|v| v.as_fixnum())
+        .filter(|&n| n >= 0);
     let print_escape_nonascii = obarray
         .symbol_value("print-escape-nonascii")
         .is_some_and(|v| v.is_truthy());
@@ -483,7 +480,7 @@ fn format_cons_in_state(
                 first = false;
             }
             ValueKind::Nil => return,
-            other => {
+            _ => {
                 if !first {
                     out.push_str(" . ");
                 }
@@ -578,10 +575,10 @@ fn format_vector_bytes_in_state(
     }
     let mut out = Vec::new();
     out.push(b'[');
-    if !value.is_vector() {
+    let Some(values) = value.as_vector_data() else {
+        out.push(b']');
         return out;
     };
-    let values = with_heap(|h| h.get_vector(*items).clone());
     for (idx, item) in values.iter().enumerate() {
         if idx > 0 {
             out.push(b' ');
@@ -689,7 +686,7 @@ fn append_cons_bytes_in_state(
                 first = false;
             }
             ValueKind::Nil => return,
-            other => {
+            _ => {
                 if !first {
                     out.extend_from_slice(b" . ");
                 }

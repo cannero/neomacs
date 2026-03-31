@@ -926,6 +926,7 @@ fn parse_timestamp_arg(value: &Value) -> Result<(i64, i64), Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok((n, 0)),
         ValueKind::Float => {
+            let f = value.as_float().unwrap();
             let secs = f.floor() as i64;
             let nanos = ((f - f.floor()) * 1_000_000_000.0).round() as i64;
             Ok(normalize_secs_nanos(secs, nanos))
@@ -979,7 +980,7 @@ fn validate_file_truename_counter(counter: &Value) -> Result<(), Flow> {
         ));
     }
     if counter.is_cons() {
-        let first = with_heap(|h| h.cons_car(*cell));
+        let first = counter.cons_car();
         if !(first.is_fixnum() || first.is_float() || first.as_char().is_some()) {
             return Err(signal(
                 "wrong-type-argument",
@@ -991,10 +992,8 @@ fn validate_file_truename_counter(counter: &Value) -> Result<(), Flow> {
 }
 
 fn temporary_file_directory_for_eval(eval: &Context) -> Option<String> {
-    match eval.obarray.symbol_value("temporary-file-directory") {
-        Some(ValueKind::String) => Some(with_heap(|h| h.get_string(*id).to_owned())),
-        _ => None,
-    }
+    let val = eval.obarray.symbol_value("temporary-file-directory")?;
+    val.as_str().map(|s| s.to_owned())
 }
 
 fn make_temp_file_impl(
@@ -1185,12 +1184,14 @@ pub(crate) fn builtin_make_temp_file(eval: &mut Context, args: Vec<Value>) -> Ev
     let prefix = expect_temp_prefix(&args[0])?;
     let dir_flag = args.get(1).is_some_and(|value| value.is_truthy());
     let suffix = match args.get(2) {
-        None | Some(ValueKind::Nil) => String::new(),
+        None => String::new(),
+        Some(v) if v.is_nil() => String::new(),
         Some(value) => expect_string_strict(value)?,
     };
     let text = match args.get(3) {
-        None | Some(ValueKind::Nil) => None,
-        Some(ValueKind::String) => Some(with_heap(|h| h.get_string(*id).to_owned())),
+        None => None,
+        Some(v) if v.is_nil() => None,
+        Some(v) if v.is_string() => Some(v.as_str().unwrap().to_owned()),
         Some(_) => None,
     };
     let temp_dir = temporary_file_directory_for_eval(eval)
@@ -1218,7 +1219,8 @@ pub(crate) fn builtin_make_nearby_temp_file(eval: &mut Context, args: Vec<Value>
     let prefix = expect_temp_prefix(&args[0])?;
     let dir_flag = args.get(1).is_some_and(|value| value.is_truthy());
     let suffix = match args.get(2) {
-        None | Some(ValueKind::Nil) => String::new(),
+        None => String::new(),
+        Some(v) if v.is_nil() => String::new(),
         Some(value) => expect_string_strict(value)?,
     };
     let fallback_temp_dir = temporary_file_directory_for_eval(eval)
@@ -1348,13 +1350,15 @@ pub(crate) fn default_directory_in_state(
     _dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,
 ) -> Option<String> {
-    if let Some(buf) = buffers.current_buffer()
-        && let Some(ValueKind::String) = buf.get_buffer_local("default-directory")
-    {
-        return Some(with_heap(|h| h.get_string(*id).to_owned()));
+    if let Some(buf) = buffers.current_buffer() {
+        if let Some(val) = buf.get_buffer_local("default-directory") {
+            if let Some(s) = val.as_str() {
+                return Some(s.to_owned());
+            }
+        }
     }
     match obarray.symbol_value("default-directory") {
-        Some(ValueKind::String) => Some(with_heap(|h| h.get_string(*id).to_owned())),
+        Some(val) if val.is_string() => Some(val.as_str().unwrap().to_owned()),
         _ => None,
     }
 }
@@ -1917,8 +1921,15 @@ fn validate_optional_buffer_arg_in_state(
         match bufferish.kind() {
             ValueKind::Nil => Ok(()),
             ValueKind::Veclike(VecLikeType::Buffer) => {
-                if buffers.get(*id).is_some() {
-                    Ok(())
+                if let Some(buf_id) = bufferish.as_buffer_id() {
+                    if buffers.get(buf_id).is_some() {
+                        Ok(())
+                    } else {
+                        Err(signal(
+                            "wrong-type-argument",
+                            vec![Value::symbol("bufferp"), *bufferish],
+                        ))
+                    }
                 } else {
                     Err(signal(
                         "wrong-type-argument",
@@ -2691,11 +2702,11 @@ pub(crate) fn builtin_insert_file_contents(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let coding_system_for_read = match eval.visible_variable_value_or_nil("coding-system-for-read")
-    {
-        Value::NIL => None,
-        Value::symbol(id) => Some(resolve_sym(id).to_owned()),
-        ValueKind::String => Some(with_heap(|h| h.get_string(id).to_owned())),
+    let coding_val = eval.visible_variable_value_or_nil("coding-system-for-read");
+    let coding_system_for_read = match coding_val.kind() {
+        ValueKind::Nil => None,
+        ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
+        ValueKind::String => Some(coding_val.as_str().unwrap().to_owned()),
         _ => None,
     };
     let source_load_context = eval
@@ -2912,12 +2923,12 @@ pub(crate) fn builtin_write_region_impl(
         _ => FileWriteMode::Truncate,
     };
     let visit_path = match args.get(4) {
-        Some(ValueKind::T) => Some(resolved.clone()),
-        Some(ValueKind::String) => Some(resolve_filename_in_state(
+        Some(v) if v.is_t() => Some(resolved.clone()),
+        Some(v) if v.is_string() => Some(resolve_filename_in_state(
             obarray,
             dynamic,
             buffers,
-            &expect_string_strict(args.get(4).expect("checked above"))?,
+            &expect_string_strict(v)?,
         )),
         _ => None,
     };
@@ -3216,7 +3227,7 @@ pub(crate) fn builtin_do_auto_save(
             // this buffer
             if let Some(saved_size_val) = buf.get_buffer_local("buffer-saved-size") {
                 if let Some(n) = saved_size_val.as_fixnum() {
-                    if *n < 0 {
+                    if n < 0 {
                         continue;
                     }
                 }

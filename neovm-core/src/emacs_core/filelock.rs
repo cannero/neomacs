@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use super::error::{EvalResult, Flow, signal};
 use super::fileio::resolve_filename_for_eval;
-use super::value::{Value, with_heap, ValueKind};
+use super::value::{Value, ValueKind};
 use crate::buffer::BufferId;
 
 fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
@@ -37,8 +37,8 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 
 fn expect_string_arg(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::String => Ok(with_heap(|heap| heap.get_string(*id).to_owned())),
-        other => Err(signal(
+        ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
+        _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
         )),
@@ -137,8 +137,8 @@ fn make_lock_file_name(
 ) -> Result<Option<String>, Flow> {
     let file = Value::string(filename);
     match eval.apply(Value::symbol("make-lock-file-name"), vec![file]) {
-        Ok(ValueKind::Nil) => Ok(None),
-        Ok(ValueKind::String) => Ok(Some(with_heap(|heap| heap.get_string(id).to_owned()))),
+        Ok(v) if v.is_nil() => Ok(None),
+        Ok(v) if v.is_string() => Ok(Some(v.as_str().unwrap().to_owned())),
         Ok(other) => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), other],
@@ -278,7 +278,7 @@ fn current_buffer_file_lock_target(
     let file_name = buffer.buffer_local_value("buffer-file-name")?;
     let file_truename = buffer.buffer_local_value("buffer-file-truename")?;
     match (file_name.kind(), file_truename.kind()) {
-        (ValueKind::String, ValueKind::String) => Some(with_heap(|heap| heap.get_string(id).to_owned())),
+        (ValueKind::String, ValueKind::String) => Some(file_truename.as_str().unwrap().to_owned()),
         _ => None,
     }
 }
@@ -356,7 +356,7 @@ pub(crate) fn builtin_lock_buffer(eval: &mut super::eval::Context, args: Vec<Val
         current
             .buffer_local_value("buffer-file-truename")
             .and_then(|value| match value.kind() {
-                ValueKind::String => Some(with_heap(|heap| heap.get_string(id).to_owned())),
+                ValueKind::String => Some(value.as_str().unwrap().to_owned()),
                 _ => None,
             })
             .map(|filename| resolve_filename_for_eval(eval, &filename))
@@ -381,9 +381,10 @@ pub(crate) fn builtin_unlock_buffer(
         return Ok(Value::NIL);
     };
     if current.modified_state_value().is_truthy()
-        && let Some(ValueKind::String) = current.buffer_local_value("buffer-file-truename")
+        && let Some(truename) = current.buffer_local_value("buffer-file-truename")
+        && truename.is_string()
     {
-        let filename = with_heap(|heap| heap.get_string(id).to_owned());
+        let filename = truename.as_str().unwrap().to_owned();
         let filename = resolve_filename_for_eval(eval, &filename);
         let _ = unlock_file_resolved(eval, &filename)?;
     }

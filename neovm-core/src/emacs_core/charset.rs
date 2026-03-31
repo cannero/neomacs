@@ -646,7 +646,7 @@ fn expect_int_or_marker(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
         ValueKind::Char(c) => Ok(c as i64),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *value],
         )),
@@ -656,7 +656,7 @@ fn expect_int_or_marker(value: &Value) -> Result<i64, Flow> {
 fn require_known_charset(value: &Value) -> Result<String, Flow> {
     let name = match value.kind() {
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
-        other => {
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("charsetp"), *value],
@@ -677,10 +677,18 @@ fn require_known_charset(value: &Value) -> Result<String, Flow> {
 fn decode_char_codepoint_arg(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) if n >= 0 => Ok(n),
-        ValueKind::Float
-            if f.is_finite() && *f >= 0.0 && f.fract() == 0.0 && *f <= i64::MAX as f64 =>
-        {
-            Ok(*f as i64)
+        ValueKind::Float => {
+            let f = value.as_float().unwrap();
+            if f.is_finite() && f >= 0.0 && f.fract() == 0.0 && f <= i64::MAX as f64 {
+                Ok(f as i64)
+            } else {
+                Err(signal(
+                    "error",
+                    vec![Value::string(
+                        "Not an in-range integer, integral float, or cons of integers",
+                    )],
+                ))
+            }
         }
         _ => Err(signal(
             "error",
@@ -694,7 +702,7 @@ fn decode_char_codepoint_arg(value: &Value) -> Result<i64, Flow> {
 fn expect_wholenump(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) if n >= 0 => Ok(n),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("wholenump"), *value],
         )),
@@ -704,7 +712,7 @@ fn expect_wholenump(value: &Value) -> Result<i64, Flow> {
 fn expect_fixnump(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("fixnump"), *value],
         )),
@@ -715,7 +723,7 @@ fn encode_char_input(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Char(c) => Ok(c as i64),
         ValueKind::Fixnum(n) if (0..=0x3FFFFF).contains(&n) => Ok(n),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *value],
         )),
@@ -724,7 +732,7 @@ fn encode_char_input(value: &Value) -> Result<i64, Flow> {
 
 fn charset_value_text(value: &Value) -> Option<String> {
     match value.kind() {
-        ValueKind::String => Some(with_heap(|heap| heap.get_string(*id).to_owned())),
+        ValueKind::String => Some(value.as_str().unwrap().to_owned()),
         ValueKind::Symbol(id) | ValueKind::Keyword(id) => Some(resolve_sym(id).to_string()),
         _ => None,
     }
@@ -751,12 +759,15 @@ fn parse_superset_spec(value: &Value) -> Option<Vec<(String, i64)>> {
     let items = list_to_vec(value)?;
     let members = items
         .into_iter()
-        .map(|item| match item {
-            Value::symbol(id) | Value::keyword(id) => Some((resolve_sym(id).to_string(), 0)),
-            Value::Cons(cell) => {
-                let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-                let name = pair.car.as_symbol_name()?.to_string();
-                Some((name, int_or_zero(&pair.cdr)))
+        .map(|item| match item.kind() {
+            ValueKind::Symbol(id) | ValueKind::Keyword(id) => {
+                Some((resolve_sym(id).to_string(), 0))
+            }
+            ValueKind::Cons => {
+                let car = item.cons_car();
+                let cdr = item.cons_cdr();
+                let name = car.as_symbol_name()?.to_string();
+                Some((name, int_or_zero(&cdr)))
             }
             _ => None,
         })
@@ -1008,7 +1019,7 @@ pub(crate) fn builtin_define_charset_internal(args: Vec<Value>) -> EvalResult {
     // arg[0]: name (symbol)
     let name = match args[0].kind() {
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
-        other => {
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("symbolp"), args[0]],
@@ -1127,7 +1138,7 @@ pub(crate) fn builtin_define_charset_internal(args: Vec<Value>) -> EvalResult {
     // arg[16]: plist
     let unify_map = match args[15].kind() {
         ValueKind::Nil => None,
-        ValueKind::String => Some(with_heap(|heap| heap.get_string(*id).to_owned())),
+        ValueKind::String => Some(args[15].as_str().unwrap().to_owned()),
         ValueKind::Symbol(id) | ValueKind::Keyword(id) => Some(resolve_sym(id).to_string()),
         _ => None,
     };
@@ -1347,7 +1358,7 @@ pub(crate) fn builtin_decode_char(args: Vec<Value>) -> EvalResult {
 
     let decoded = CHARSET_REGISTRY.with(|slot| slot.borrow().decode_char(&name, code_point));
 
-    Ok(decoded.map_or(Value::NIL, Value::Int))
+    Ok(decoded.map_or(Value::NIL, Value::fixnum))
 }
 
 /// `(encode-char CH CHARSET)` -- encode CH in CHARSET space.
@@ -1361,7 +1372,7 @@ pub(crate) fn builtin_encode_char(args: Vec<Value>) -> EvalResult {
 
     let encoded = CHARSET_REGISTRY.with(|slot| slot.borrow().encode_char(&name, ch));
 
-    Ok(encoded.map_or(Value::NIL, Value::Int))
+    Ok(encoded.map_or(Value::NIL, Value::fixnum))
 }
 
 /// `(clear-charset-maps)` -- clear charset-related caches and return nil.

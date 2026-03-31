@@ -147,15 +147,15 @@ fn format_value_for_error(v: &Value) -> String {
         ValueKind::Symbol(sid) => super::intern::resolve_sym(sid).to_string(),
         ValueKind::Keyword(sid) => super::intern::resolve_sym(sid).to_string(),
         ValueKind::String => {
-            super::value::with_heap(|h: &crate::gc::LispHeap| format!("\"{}\"", h.get_string(*id)))
+            format!("\"{}\"", v.as_str().unwrap_or(""))
         }
         ValueKind::Fixnum(n) => format!("{}", n),
         ValueKind::Char(c) => format!("?{}", c),
         ValueKind::Nil => "nil".to_string(),
         ValueKind::T => "t".to_string(),
-        ValueKind::Cons => super::value::with_heap(|h: &crate::gc::LispHeap| {
-            let car = h.cons_car(*id);
-            let cdr = h.cons_cdr(*id);
+        ValueKind::Cons => {
+            let car = v.cons_car();
+            let cdr = v.cons_cdr();
             let car_s = format_value_for_error(&car);
             let cdr_s = format_value_for_error(&cdr);
             if cdr == Value::NIL {
@@ -163,7 +163,7 @@ fn format_value_for_error(v: &Value) -> String {
             } else {
                 format!("({} . {})", car_s, cdr_s)
             }
-        }),
+        }
         other => format!("{:?}", v),
     }
 }
@@ -182,7 +182,7 @@ fn format_eval_error_in_state(eval: &super::eval::Context, err: &EvalError) -> S
             } else {
                 crate::emacs_core::error::print_value_in_state(eval, &Value::list(data.clone()))
             };
-            format!("({} {})", resolve_sym(symbol), payload)
+            format!("({} {})", resolve_sym(*symbol), payload)
         }
         EvalError::UncaughtThrow { tag, value } => format!(
             "(throw {} {})",
@@ -246,7 +246,7 @@ fn try_eval_generated_loaddefs_form(
     // Keep this table limited to core primitive replay.  GNU Lisp-owned
     // helpers from loaddefs (e.g. custom/obsolete metadata helpers) should
     // run through the already-loaded GNU Lisp runtime instead.
-    match resolve_sym(id) {
+    match resolve_sym(*id) {
         "progn" => {
             let mut last = Value::NIL;
             for expr in tail {
@@ -716,7 +716,7 @@ pub(crate) fn get_eager_macroexpand_fn(eval: &super::eval::Context) -> Option<Va
     // the check in `internal-macroexpand-for-load` in macroexp.el).
     if let Some(val) = eval.obarray().symbol_value("macroexp--pending-eager-loads") {
         if val.is_cons() {
-            if eval.heap.cons_car(*id).is_symbol_named("skip") {
+            if val.cons_car().is_symbol_named("skip") {
                 return None;
             }
         }
@@ -779,16 +779,16 @@ pub(crate) fn eager_expand_eval(
     // Root `val` during iteration: the recursive `eager_expand_eval`
     // call triggers evaluation + GC, which could free val's cons cells.
     if val.is_cons() {
-        let car = eval.heap.cons_car(id);
-        let cdr = eval.heap.cons_cdr(id);
+        let car = val.cons_car();
+        let cdr = val.cons_cdr();
         if car.is_symbol_named("progn") {
             return eval.with_gc_scope(|ctx| {
                 ctx.root(val);
                 let mut result = Value::NIL;
                 let mut tail = cdr;
                 while tail.is_cons() {
-                    let sub_form = ctx.heap.cons_car(sub_id);
-                    tail = ctx.heap.cons_cdr(sub_id);
+                    let sub_form = tail.cons_car();
+                    tail = tail.cons_cdr();
                     result = eager_expand_eval(ctx, sub_form, macroexpand_fn)?;
                 }
                 Ok(result)
@@ -929,7 +929,7 @@ where
                     data,
                     raw_data,
                 } => {
-                    let sym_name = super::intern::resolve_sym(symbol);
+                    let sym_name = super::intern::resolve_sym(*symbol);
                     let payload = if let Some(raw) = raw_data {
                         format_value_for_error(raw)
                     } else if data.is_empty() {
@@ -1278,13 +1278,14 @@ fn record_load_history(eval: &mut super::eval::Context, path: &Path) {
         list_to_vec(&history)
             .unwrap_or_default()
             .into_iter()
-            .filter(|existing| match existing {
-                Value::Cons(id) => with_heap(|heap| {
-                    heap.cons_car(*id)
+            .filter(|existing| {
+                if existing.is_cons() {
+                    existing.cons_car()
                         .as_str()
                         .is_none_or(|loaded| loaded != path_str)
-                }),
-                _ => true,
+                } else {
+                    true
+                }
             })
             .collect(),
     );
@@ -1596,7 +1597,7 @@ fn ensure_startup_compat_variables(eval: &mut super::eval::Context, project_root
 
 fn expr_symbol_name(expr: &Expr) -> Option<String> {
     match expr {
-        Expr::Symbol(id) => Some(resolve_sym(id).to_owned()),
+        Expr::Symbol(id) => Some(resolve_sym(*id).to_owned()),
         Expr::List(_) => expr_quoted_symbol_name(expr),
         _ => None,
     }
@@ -1604,10 +1605,10 @@ fn expr_symbol_name(expr: &Expr) -> Option<String> {
 
 fn expr_quoted_symbol_name(expr: &Expr) -> Option<String> {
     match expr {
-        Expr::Symbol(id) => Some(resolve_sym(id).to_owned()),
+        Expr::Symbol(id) => Some(resolve_sym(*id).to_owned()),
         Expr::List(items) if items.len() == 2 => match (&items[0], &items[1]) {
-            (Expr::Symbol(head), Expr::Symbol(id)) if resolve_sym(head) == "quote" => {
-                Some(resolve_sym(id).to_owned())
+            (Expr::Symbol(head), Expr::Symbol(id)) if resolve_sym(*head) == "quote" => {
+                Some(resolve_sym(*id).to_owned())
             }
             _ => None,
         },
@@ -1618,12 +1619,12 @@ fn expr_quoted_symbol_name(expr: &Expr) -> Option<String> {
 fn expr_runtime_value(expr: &Expr) -> Option<Value> {
     match expr {
         Expr::Int(v) => Some(Value::fixnum(*v)),
-        Expr::Symbol(id) => match resolve_sym(id) {
+        Expr::Symbol(id) => match resolve_sym(*id) {
             "nil" => Some(Value::NIL),
             "t" => Some(Value::T),
             name => Some(Value::symbol(name)),
         },
-        Expr::Keyword(id) => Some(Value::symbol(resolve_sym(id))),
+        Expr::Keyword(id) => Some(Value::symbol(resolve_sym(*id))),
         Expr::Str(s) => Some(Value::string(s.clone())),
         Expr::Char(c) => Some(Value::char(*c)),
         Expr::List(_) => expr_quoted_symbol_name(expr).map(|name| Value::symbol(&name)),
@@ -1663,7 +1664,7 @@ fn collect_source_surface(expr: &Expr, state: &mut SourceFileSurfaceState) {
         return;
     };
 
-    match resolve_sym(head_id) {
+    match resolve_sym(*head_id) {
         "progn" | "eval-and-compile" => {
             for item in items.iter().skip(1) {
                 collect_source_surface(item, state);
@@ -1759,7 +1760,7 @@ fn collect_loaddefs_autoload_args(
     let Some(Expr::Symbol(head_id)) = items.first() else {
         return;
     };
-    if resolve_sym(head_id) != "autoload" {
+    if resolve_sym(*head_id) != "autoload" {
         return;
     }
 
@@ -1802,7 +1803,7 @@ fn collect_loaddefs_property_forms(
     let Some(Expr::Symbol(head_id)) = items.first() else {
         return;
     };
-    let head = resolve_sym(head_id);
+    let head = resolve_sym(*head_id);
     if head != "function-put" && head != "put" {
         return;
     }
@@ -1895,7 +1896,7 @@ fn loaded_source_paths(eval: &mut super::eval::Context) -> Vec<PathBuf> {
             if !entry.is_cons() {
                 continue;
             };
-            let Some(path) = with_heap(|heap| heap.cons_car(id).as_str().map(ToOwned::to_owned))
+            let Some(path) = entry.cons_car().as_str().map(ToOwned::to_owned)
             else {
                 continue;
             };
@@ -1989,7 +1990,7 @@ pub(crate) fn apply_ldefs_boot_autoloads_for_names(
         let Some(Expr::Symbol(head_id)) = items.first() else {
             continue;
         };
-        if resolve_sym(head_id) == "autoload"
+        if resolve_sym(*head_id) == "autoload"
             && let Some(name) = items.get(1).and_then(expr_quoted_symbol_name)
             && wanted.contains(&name)
         {
@@ -2004,7 +2005,7 @@ pub(crate) fn apply_ldefs_boot_autoloads_for_names(
         let Some(Expr::Symbol(head_id)) = items.first() else {
             continue;
         };
-        let head = resolve_sym(head_id);
+        let head = resolve_sym(*head_id);
         if head != "function-put" && head != "put" {
             continue;
         }
@@ -2364,13 +2365,13 @@ fn repair_runtime_global_prefix_links(
             let Some(Expr::Symbol(head_id)) = items.first() else {
                 continue;
             };
-            if resolve_sym(head_id) != "define-key" {
+            if resolve_sym(*head_id) != "define-key" {
                 continue;
             }
             let Some(Expr::Symbol(map_id)) = items.get(1) else {
                 continue;
             };
-            if resolve_sym(map_id) != "global-map" {
+            if resolve_sym(*map_id) != "global-map" {
                 continue;
             }
             eval.eval_expr(form)?;
@@ -2488,12 +2489,14 @@ pub fn apply_runtime_startup_state(eval: &mut super::eval::Context) -> Result<()
         .obarray()
         .symbol_value("internal-make-interpreted-closure-function")
         .cloned()
-        .and_then(|value| match value {
-            Value::symbol(sym) if resolve_sym(sym) == "cconv-make-interpreted-closure" => eval
-                .obarray()
-                .symbol_function("cconv-make-interpreted-closure")
-                .cloned(),
-            _ => None,
+        .and_then(|value| {
+            if value.is_symbol_named("cconv-make-interpreted-closure") {
+                eval.obarray()
+                    .symbol_function("cconv-make-interpreted-closure")
+                    .cloned()
+            } else {
+                None
+            }
         });
     eval.set_interpreted_closure_filter_fn(filter_fn);
     for feature in TRANSIENT_RUNTIME_FEATURES {
@@ -2687,7 +2690,7 @@ pub fn create_bootstrap_evaluator_with_features(
                     // Check for our special exit signal from kill-emacs
                     match &e {
                         EvalError::Signal { symbol, .. }
-                            if resolve_sym(symbol) == "kill-emacs" =>
+                            if resolve_sym(*symbol) == "kill-emacs" =>
                         {
                             tracing::info!("loadup.el completed (kill-emacs after dump)");
                         }

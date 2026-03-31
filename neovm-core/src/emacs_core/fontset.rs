@@ -630,14 +630,14 @@ pub(crate) fn resolve_fontset_name_arg(value: &Value) -> Result<String, Flow> {
         ValueKind::Nil | ValueKind::T => Ok(DEFAULT_FONTSET_NAME.to_string()),
         ValueKind::String => {
             let requested =
-                normalize_fontset_name(&with_heap(|heap| heap.get_string(*id).to_owned()));
+                normalize_fontset_name(value.as_str().unwrap());
             Ok(query_fontset_registry(&requested, false).unwrap_or(requested))
         }
         ValueKind::Symbol(id) | ValueKind::Keyword(id) => {
             let requested = normalize_fontset_name(resolve_sym(id));
             Ok(query_fontset_registry(&requested, false).unwrap_or(requested))
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
         )),
@@ -743,12 +743,10 @@ pub(crate) fn set_fontset_font(
 ) -> Result<Value, Flow> {
     let fontset_name = resolve_fontset_name_arg(fontset)?;
     let add_mode = match add {
-        Some(ValueKind::Symbol(id)) | Some(ValueKind::Keyword(id)) if resolve_sym(id) == "append" => {
-            FontsetAddMode::Append
-        }
-        Some(ValueKind::Symbol(id)) | Some(ValueKind::Keyword(id)) if resolve_sym(id) == "prepend" => {
-            FontsetAddMode::Prepend
-        }
+        Some(v) if v.is_symbol_named("append") => FontsetAddMode::Append,
+        Some(v) if v.as_symbol_name().is_some_and(|n| n == ":append") => FontsetAddMode::Append,
+        Some(v) if v.is_symbol_named("prepend") => FontsetAddMode::Prepend,
+        Some(v) if v.as_symbol_name().is_some_and(|n| n == ":prepend") => FontsetAddMode::Prepend,
         _ => FontsetAddMode::Overwrite,
     };
     let entry = parse_font_spec_entry(font_spec, font_encoding_alist)?;
@@ -790,17 +788,17 @@ fn parse_font_spec_entry(
         }
         ValueKind::String => {
             let mut spec =
-                parse_font_name_string(&with_heap(|heap| heap.get_string(*id).to_owned()));
+                parse_font_name_string(value.as_str().unwrap());
             spec.repertory = resolve_font_repertory(&spec, font_encoding_alist);
             Ok(FontSpecEntry::Font(spec))
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = with_heap(|heap| heap.get_vector(*vec_id).clone());
+            let items = value.as_vector_data().unwrap().clone();
             let mut spec = parse_font_vector(&items);
             spec.repertory = resolve_font_repertory(&spec, font_encoding_alist);
             Ok(FontSpecEntry::Font(spec))
         }
-        other => Err(signal(
+        _ => Err(signal(
             "font",
             vec![Value::string("Invalid font-spec"), *value],
         )),
@@ -1131,7 +1129,7 @@ fn list_to_vec(value: &Value) -> Vec<Value> {
 
 fn value_text(value: &Value) -> Option<String> {
     match value.kind() {
-        ValueKind::String => Some(with_heap(|heap| heap.get_string(*id).to_owned())),
+        ValueKind::String => Some(value.as_str().unwrap().to_owned()),
         ValueKind::Symbol(id) | ValueKind::Keyword(id) => Some(resolve_sym(id).to_string()),
         _ => None,
     }

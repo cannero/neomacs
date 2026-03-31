@@ -2,7 +2,7 @@ use crate::emacs_core::{
     error::{Flow, signal},
     intern::resolve_sym,
     string_escape::{bytes_to_unibyte_storage_string, encode_nonunicode_char_for_storage},
-    value::{Value, list_to_vec, with_heap},
+    value::{Value, ValueKind, VecLikeType, list_to_vec, with_heap},
 };
 
 pub(crate) const KEY_CHAR_META: i64 = 0x8000000;

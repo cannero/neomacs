@@ -12,7 +12,7 @@ use std::cell::RefCell;
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
-use super::value::{RuntimeBindingValue, Value, read_cons, with_heap, with_heap_mut, ValueKind, VecLikeType};
+use super::value::{RuntimeBindingValue, Value, ValueKind, VecLikeType};
 
 thread_local! {
     static STANDARD_CATEGORY_TABLE_OBJECT: RefCell<Option<Value>> = const { RefCell::new(None) };
@@ -84,7 +84,7 @@ fn extract_char_opt(value: &Value, fn_name: &str) -> Result<Option<char>, Flow> 
         ValueKind::Fixnum(n) => {
             if let Some(c) = char::from_u32(n as u32) {
                 Ok(Some(c))
-            } else if (0..=0x3F_FFFF).contains(n) {
+            } else if (0..=0x3F_FFFF).contains(&n) {
                 Ok(None)
             } else {
                 Err(signal(
@@ -96,7 +96,7 @@ fn extract_char_opt(value: &Value, fn_name: &str) -> Result<Option<char>, Flow> 
                 ))
             }
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *value],
         )),
@@ -126,7 +126,7 @@ fn extract_char_code(value: &Value, fn_name: &str) -> Result<i64, Flow> {
                 fn_name, n
             ))],
         )),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *value],
         )),
@@ -140,7 +140,7 @@ fn make_empty_category_set() -> EvalResult {
 fn clone_vector_value(value: &Value) -> EvalResult {
     match value.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::vector(value.as_vector_data().unwrap().clone())),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("vectorp"), *value],
         )),
@@ -191,7 +191,7 @@ pub(crate) fn ensure_standard_category_table_object() -> EvalResult {
 fn clone_char_table_object(value: &Value) -> EvalResult {
     match value.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::vector(value.as_vector_data().unwrap().clone())),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("category-table-p"), *value],
         )),
@@ -276,13 +276,11 @@ fn set_category_docstring_in_table(
             vec![Value::symbol("vectorp"), docs],
         ));
     };
-    with_heap_mut(|h| {
-        let vec = h.get_vector_mut(arc);
-        let idx = category_doc_index(category);
-        if idx < vec.len() {
-            vec[idx] = docstring;
-        }
-    });
+    let vec = docs.as_vector_data_mut().unwrap();
+    let idx = category_doc_index(category);
+    if idx < vec.len() {
+        vec[idx] = docstring;
+    }
     Ok(())
 }
 
@@ -312,7 +310,8 @@ fn check_category_table_in_buffers(
     table: Option<Value>,
 ) -> Result<Value, Flow> {
     match table {
-        None | Some(ValueKind::Nil) => current_buffer_category_table_in_buffers(buffers),
+        None => current_buffer_category_table_in_buffers(buffers),
+        Some(t) if t.is_nil() => current_buffer_category_table_in_buffers(buffers),
         Some(table) => {
             if !is_category_table_value(&table)? {
                 return Err(signal(
@@ -350,7 +349,7 @@ fn category_set_contains(category_set: &Value, category: char) -> Result<bool, F
             vec![Value::symbol("categorysetp"), *category_set],
         ));
     };
-    let vec = with_heap(|h| h.get_vector(*arc).clone());
+    let vec = category_set.as_vector_data().unwrap();
     let bit_idx = 2 + (category as usize);
     Ok(vec.get(bit_idx).and_then(|v| v.as_fixnum()).map_or(false, |n| n != 0))
 }
@@ -366,13 +365,11 @@ fn set_category_set_member(
             vec![Value::symbol("categorysetp"), *category_set],
         ));
     };
-    with_heap_mut(|h| {
-        let vec = h.get_vector_mut(*arc);
-        let bit_idx = 2 + (category as usize);
-        if bit_idx < vec.len() {
-            vec[bit_idx] = Value::fixnum(if present { 1 } else { 0 });
-        }
-    });
+    let vec = category_set.as_vector_data_mut().unwrap();
+    let bit_idx = 2 + (category as usize);
+    if bit_idx < vec.len() {
+        vec[bit_idx] = Value::fixnum(if present { 1 } else { 0 });
+    }
     Ok(())
 }
 
@@ -390,7 +387,8 @@ pub(crate) fn builtin_copy_category_table(args: Vec<Value>) -> EvalResult {
     expect_max_args("copy-category-table", &args, 1)?;
 
     let source = match args.first() {
-        None | Some(ValueKind::Nil) => ensure_standard_category_table_object()?,
+        None => ensure_standard_category_table_object()?,
+        Some(t) if t.is_nil() => ensure_standard_category_table_object()?,
         Some(table) => {
             if !is_category_table_value(table)? {
                 return Err(signal(
@@ -410,7 +408,7 @@ pub(crate) fn builtin_make_category_set(args: Vec<Value>) -> EvalResult {
 
     let categories = match args[0].kind() {
         ValueKind::String => args[0].as_str().unwrap().to_owned(),
-        other => {
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("stringp"), args[0]],
@@ -442,10 +440,10 @@ pub(crate) fn builtin_category_set_mnemonics(args: Vec<Value>) -> EvalResult {
         ));
     };
 
-    let bits = with_heap(|h| h.get_vector(*bits_arc).clone());
+    let bits = args[0].as_vector_data().unwrap();
     let valid_shape = bits.len() >= 130
         && bits[0].is_symbol_named("--bool-vector--")
-        && &bits[1].is_fixnum();
+        && bits[1].is_fixnum();
     if !valid_shape {
         return Err(signal(
             "wrong-type-argument",
@@ -456,8 +454,9 @@ pub(crate) fn builtin_category_set_mnemonics(args: Vec<Value>) -> EvalResult {
     let mut out = String::new();
     for idx in CATEGORY_MIN as usize..=CATEGORY_MAX as usize {
         let is_set = match bits.get(2 + idx) {
-            Some(ValueKind::Nil) => false,
-            Some(ValueKind::Fixnum(0)) | None => false,
+            None => false,
+            Some(v) if v.is_nil() => false,
+            Some(v) if v.as_fixnum() == Some(0) => false,
             _ => true,
         };
         if is_set {
@@ -495,16 +494,17 @@ pub(crate) fn builtin_modify_category_entry(
     }
     let reset = args.get(3).is_some_and(|v| v.is_truthy());
 
-    let (start, end) = match &args[0] {
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
+    let (start, end) = match args[0].kind() {
+        ValueKind::Cons => {
+            let car = args[0].cons_car();
+            let cdr = args[0].cons_cdr();
             (
-                extract_char_code(&pair.car, "modify-category-entry")?,
-                extract_char_code(&pair.cdr, "modify-category-entry")?,
+                extract_char_code(&car, "modify-category-entry")?,
+                extract_char_code(&cdr, "modify-category-entry")?,
             )
         }
-        value => {
-            let ch = extract_char_code(value, "modify-category-entry")?;
+        _ => {
+            let ch = extract_char_code(&args[0], "modify-category-entry")?;
             (ch, ch)
         }
     };
@@ -552,7 +552,7 @@ pub(crate) fn builtin_define_category(
     }
     let docstring = match args[1].kind() {
         ValueKind::String => Value::string(args[1].as_str().unwrap().to_owned()),
-        other => {
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("stringp"), args[1]],

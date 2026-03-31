@@ -1,5 +1,5 @@
 use super::*;
-use crate::emacs_core::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType, set_string_text_properties_table_for_value, get_string_text_properties_table_for_value};
 
 // ===========================================================================
 // String operations
@@ -32,12 +32,12 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
     match args[0].kind() {
         ValueKind::String => {
             let src_props = if preserve_props {
-                get_string_text_properties_table(*src_id).filter(|table| !table.is_empty())
+                get_string_text_properties_table_for_value(args[0]).filter(|table| !table.is_empty())
             } else {
                 None
             };
-            let (result, sliced_props) = with_heap(|h| {
-                let src = h.get_lisp_string(*src_id);
+            let src = args[0].as_lisp_string().unwrap();
+            let (result, sliced_props) = {
                 let s = src.as_str();
                 let normalize_index =
                     |value: &Value, default: i64, len: i64| -> Result<i64, Flow> {
@@ -130,14 +130,14 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                     None
                 };
                 Ok::<_, Flow>((result, sliced_props))
-            })?;
+            }?;
             let new_val = Value::heap_string(result);
 
             // Preserve text properties from source string
-            if let (true, ValueKind::String, Some(sliced)) =
-                (preserve_props, &new_val, sliced_props)
-            {
-                set_string_text_properties_table(*new_id, sliced);
+            if preserve_props && new_val.is_string() {
+                if let Some(sliced) = sliced_props {
+                    set_string_text_properties_table_for_value(new_val, sliced);
+                }
             }
 
             Ok(new_val)
@@ -259,26 +259,19 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
 
         if args.iter().all(|arg| arg.is_string()) {
             let has_text_props = args.iter().any(|arg| {
-                matches!(
-                    arg,
-                    Value::Str(id)
-                        if get_string_text_properties_table(*id)
-                            .is_some_and(|table| !table.is_empty())
-                )
+                get_string_text_properties_table_for_value(*arg)
+                    .is_some_and(|table| !table.is_empty())
             });
             if !has_text_props {
-                let result = with_heap(|h| {
-                    let mut parts = Vec::new();
-                    let mut multibyte = false;
-                    for arg in &args {
-                        if arg.is_string() {
-                            let string = h.get_lisp_string(*id);
-                            string.append_parts_to(&mut parts);
-                            multibyte |= string.multibyte;
-                        }
+                let mut parts = Vec::new();
+                let mut multibyte = false;
+                for arg in &args {
+                    if let Some(string) = arg.as_lisp_string() {
+                        string.append_parts_to(&mut parts);
+                        multibyte |= string.multibyte;
                     }
-                    crate::gc::types::LispString::from_parts(parts, multibyte)
-                });
+                }
+                let result = crate::gc::types::LispString::from_parts(parts, multibyte);
                 return Ok(Value::heap_string(result));
             }
         }
@@ -289,14 +282,14 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
         });
         let mut result = String::with_capacity(preallocated_len);
         // Track string sources with their byte offsets for property preservation
-        let mut string_sources: Vec<(crate::gc::types::ObjId, usize)> = Vec::new();
+        let mut string_sources: Vec<(Value, usize)> = Vec::new();
 
         for arg in &args {
             match arg.kind() {
                 ValueKind::String => {
                     let offset = result.len();
-                    with_heap(|h| result.push_str(h.get_string(*id)));
-                    string_sources.push((*id, offset));
+                    result.push_str(arg.as_str().unwrap());
+                    string_sources.push((*arg, offset));
                 }
                 ValueKind::Nil => {}
                 ValueKind::Cons => {
@@ -340,8 +333,8 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
         if new_val.is_string() {
             let mut combined_table = crate::buffer::text_props::TextPropertyTable::new();
             let mut has_props = false;
-            for (src_id, offset) in &string_sources {
-                if let Some(src_table) = get_string_text_properties_table(*src_id) {
+            for (src_val, offset) in &string_sources {
+                if let Some(src_table) = get_string_text_properties_table_for_value(*src_val) {
                     if !src_table.is_empty() {
                         combined_table.append_shifted(&src_table, *offset);
                         has_props = true;
@@ -349,7 +342,7 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
                 }
             }
             if has_props {
-                set_string_text_properties_table(*new_id, combined_table);
+                set_string_text_properties_table_for_value(new_val, combined_table);
             }
         }
 
@@ -450,8 +443,8 @@ pub(crate) fn builtin_number_to_string(args: Vec<Value>) -> EvalResult {
     expect_args("number-to-string", &args, 1)?;
     match args[0].kind() {
         ValueKind::Fixnum(n) => Ok(Value::string(n.to_string())),
-        ValueKind::Float => Ok(Value::string(super::print::format_float(*f))),
-        other => Err(signal(
+        ValueKind::Float => Ok(Value::string(super::print::format_float(args[0].xfloat()))),
+        _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("numberp"), args[0]],
         )),
@@ -461,13 +454,11 @@ pub(crate) fn builtin_number_to_string(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_upcase(args: Vec<Value>) -> EvalResult {
     expect_args("upcase", &args, 1)?;
     match args[0].kind() {
-        ValueKind::String => Ok(Value::string(upcase_string_emacs_compat(&with_heap(|h| {
-            h.get_string(*id).to_owned()
-        })))),
+        ValueKind::String => Ok(Value::string(upcase_string_emacs_compat(args[0].as_str().unwrap()))),
         ValueKind::Char(c) => {
             let mapped = upcase_char_code_emacs_compat(c as i64);
             if let Some(ch) = u32::try_from(mapped).ok().and_then(char::from_u32) {
-                Ok(ValueKind::Char(ch))
+                Ok(Value::char(ch))
             } else {
                 Ok(Value::char(c))
             }
@@ -482,7 +473,7 @@ pub(crate) fn builtin_upcase(args: Vec<Value>) -> EvalResult {
                 Ok(Value::fixnum(upcase_char_code_emacs_compat(n)))
             }
         }
-        other => Err(signal(
+        _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("char-or-string-p"), args[0]],
         )),
@@ -619,13 +610,11 @@ pub(super) fn downcase_char_code_emacs_compat(code: i64) -> i64 {
 pub(crate) fn builtin_downcase(args: Vec<Value>) -> EvalResult {
     expect_args("downcase", &args, 1)?;
     match args[0].kind() {
-        ValueKind::String => Ok(Value::string(downcase_string_emacs_compat(&with_heap(
-            |h| h.get_string(*id).to_owned(),
-        )))),
+        ValueKind::String => Ok(Value::string(downcase_string_emacs_compat(args[0].as_str().unwrap()))),
         ValueKind::Char(c) => {
             let mapped = downcase_char_code_emacs_compat(c as i64);
             if let Some(ch) = u32::try_from(mapped).ok().and_then(char::from_u32) {
-                Ok(ValueKind::Char(ch))
+                Ok(Value::char(ch))
             } else {
                 Ok(Value::char(c))
             }
@@ -640,7 +629,7 @@ pub(crate) fn builtin_downcase(args: Vec<Value>) -> EvalResult {
                 Ok(Value::fixnum(downcase_char_code_emacs_compat(n)))
             }
         }
-        other => Err(signal(
+        _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("char-or-string-p"), args[0]],
         )),
@@ -1025,7 +1014,7 @@ fn do_format(
             return Err(format_not_enough_args_error());
         }
 
-        let formatted = match spec.conversion.kind() {
+        let formatted = match spec.conversion {
             's' => {
                 let s = princ_fn(&args[arg_idx]);
                 arg_idx += 1;
@@ -1040,7 +1029,7 @@ fn do_format(
                 let n = match args[arg_idx].kind() {
                     ValueKind::Fixnum(i) => i,
                     ValueKind::Char(c) => c as i64,
-                    ValueKind::Float => *f as i64,
+                    ValueKind::Float => args[arg_idx].xfloat() as i64,
                     _ => {
                         return Err(format_spec_type_mismatch_error());
                     }
@@ -1113,10 +1102,10 @@ pub(crate) fn builtin_format_message(
     let formatted = builtin_format_wrapper_strict(ctx, args)?;
     match formatted.kind() {
         ValueKind::String => {
-            let s = super::super::value::formatted.as_str().unwrap().to_owned();
-            Ok(Value::string(apply_text_quoting(&s)))
+            let s = formatted.as_str().unwrap();
+            Ok(Value::string(apply_text_quoting(s)))
         }
-        other => Ok(formatted),
+        _other => Ok(formatted),
     }
 }
 

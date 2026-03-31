@@ -12,7 +12,7 @@
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::string_escape::{storage_byte_to_char, storage_char_len, storage_char_to_byte};
-use super::value::{Value, read_cons, with_heap, ValueKind, VecLikeType};
+use super::value::{Value, ValueKind, VecLikeType};
 #[cfg(unix)]
 use std::ffi::CStr;
 use std::fs;
@@ -89,7 +89,7 @@ fn expect_number_or_marker_f64(value: &Value) -> Result<f64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
         ValueKind::Char(c) => Ok(c as u32 as f64),
-        ValueKind::Float => Ok(*f),
+        ValueKind::Float => Ok(value.xfloat()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("number-or-marker-p"), *value],
@@ -211,7 +211,7 @@ pub(crate) fn builtin_take(args: Vec<Value>) -> EvalResult {
         return Ok(Value::NIL);
     }
     let list = &args[1];
-    if !list.is_nil() || list.is_cons() {
+    if !list.is_nil() && !list.is_cons() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("listp"), *list],
@@ -361,7 +361,7 @@ pub(crate) fn builtin_assoc_string(args: Vec<Value>) -> EvalResult {
                     continue;
                 };
                 if assoc_string_equal(&needle, &entry_key, fold_case) {
-                    return Ok(ValueKind::Cons);
+                    return Ok(entry);
                 }
             }
             _ => return Ok(Value::NIL),
@@ -382,13 +382,13 @@ pub(crate) fn builtin_car_less_than_car(args: Vec<Value>) -> EvalResult {
 /// `(byte-code-function-p OBJ)` -> t if compiled.
 pub(crate) fn builtin_byte_code_function_p(args: Vec<Value>) -> EvalResult {
     expect_args("byte-code-function-p", &args, 1)?;
-    Ok(Value::bool_val(matches!(&args[0], ValueKind::Veclike(VecLikeType::ByteCode))))
+    Ok(Value::bool_val(args[0].is_bytecode()))
 }
 
 /// `(compiled-function-p OBJ)` -> t if compiled function.
 pub(crate) fn builtin_compiled_function_p(args: Vec<Value>) -> EvalResult {
     expect_args("compiled-function-p", &args, 1)?;
-    Ok(Value::bool_val(matches!(&args[0], ValueKind::Veclike(VecLikeType::ByteCode))))
+    Ok(Value::bool_val(args[0].is_bytecode()))
 }
 
 /// `(closurep OBJ)` -> t if closure.
@@ -422,7 +422,7 @@ pub(crate) fn builtin_zerop(args: Vec<Value>) -> EvalResult {
     expect_args("zerop", &args, 1)?;
     let is_zero = match args[0].kind() {
         ValueKind::Fixnum(0) => true,
-        ValueKind::Float => *f == 0.0,
+        ValueKind::Float => args[0].xfloat() == 0.0,
         _ => false,
     };
     Ok(Value::bool_val(is_zero))
@@ -583,9 +583,9 @@ pub(crate) fn builtin_user_full_name(args: Vec<Value>) -> EvalResult {
             return Ok(Value::string(fallback));
         }
 
-        return Ok(match target {
-            Value::fixnum(uid) => {
-                if *uid < 0 {
+        return Ok(match target.kind() {
+            ValueKind::Fixnum(uid) => {
+                if uid < 0 {
                     return Err(signal(
                         "error",
                         vec![Value::string(
@@ -593,12 +593,12 @@ pub(crate) fn builtin_user_full_name(args: Vec<Value>) -> EvalResult {
                         )],
                     ));
                 }
-                lookup_full_name_by_uid(*uid)
+                lookup_full_name_by_uid(uid)
                     .map(Value::string)
                     .unwrap_or(Value::NIL)
             }
             ValueKind::String => {
-                let login = with_heap(|h| h.get_string(*id).to_owned());
+                let login = target.as_str().unwrap().to_owned();
                 lookup_full_name_by_login(&login)
                     .map(Value::string)
                     .unwrap_or(Value::NIL)
@@ -745,7 +745,7 @@ pub(crate) fn builtin_emacs_pid(args: Vec<Value>) -> EvalResult {
 fn gc_bucket(name: &str, counts: &[i64]) -> Value {
     let mut items = Vec::with_capacity(counts.len() + 1);
     items.push(Value::symbol(name));
-    items.extend(counts.iter().copied().map(Value::Int));
+    items.extend(counts.iter().copied().map(Value::fixnum));
     Value::list(items)
 }
 
