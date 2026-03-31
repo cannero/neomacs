@@ -7,7 +7,7 @@ use super::*;
 use crate::buffer::{BufferId, BufferManager};
 use crate::emacs_core::filelock;
 use crate::window::FrameManager;
-use crate::emacs_core::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType, set_string_text_properties_table_for_value, get_string_text_properties_table_for_value};
 
 #[derive(Clone, Copy)]
 pub(crate) struct MakeIndirectBufferPlan {
@@ -18,8 +18,8 @@ pub(crate) struct MakeIndirectBufferPlan {
 
 pub(super) fn expect_buffer_id(value: &Value) -> Result<BufferId, Flow> {
     match value.kind() {
-        ValueKind::Veclike(VecLikeType::Buffer) => Ok(*id),
-        other => Err(signal(
+        ValueKind::Veclike(VecLikeType::Buffer) => Ok(value.as_buffer_id().unwrap()),
+        _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("bufferp"), *value],
         )),
@@ -74,10 +74,10 @@ pub(crate) fn expect_integer_or_marker_in_buffers(
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
         ValueKind::Char(c) => Ok(c as i64),
-        other if crate::emacs_core::marker::is_marker(other) => {
-            crate::emacs_core::marker::marker_position_as_int_with_buffers(buffers, other)
+        _other if value.is_marker() => {
+            crate::emacs_core::marker::marker_position_as_int_with_buffers(buffers, value)
         }
-        other => Err(signal(
+        _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *value],
         )),
@@ -132,6 +132,7 @@ pub(crate) fn prepare_make_indirect_buffer_in_manager(
 
     let base_id = match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Buffer) => {
+            let id = args[0].as_buffer_id().unwrap();
             if buffers.get(id).is_none() {
                 return Err(signal(
                     "error",
@@ -149,7 +150,7 @@ pub(crate) fn prepare_make_indirect_buffer_in_manager(
                 )
             })?
         }
-        other => {
+        _other => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("stringp"), args[0]],
@@ -216,12 +217,12 @@ pub(crate) fn builtin_get_buffer(eval: &mut super::eval::Context, args: Vec<Valu
         ValueKind::String => {
             let s = args[0].as_str().unwrap().to_owned();
             if let Some(buf_id) = buffers.find_buffer_by_name(&s) {
-                Ok(ValueKind::Veclike(VecLikeType::Buffer))
+                Ok(Value::make_buffer(buf_id))
             } else {
                 Ok(Value::NIL)
             }
         }
-        other => Err(signal(
+        _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), args[0]],
         )),
@@ -306,7 +307,10 @@ pub(crate) fn builtin_buffer_live_p(
     let buffers = &eval.buffers;
     expect_args("buffer-live-p", &args, 1)?;
     match args[0].kind() {
-        ValueKind::Veclike(VecLikeType::Buffer) => Ok(Value::bool_val(buffers.get(*id).is_some())),
+        ValueKind::Veclike(VecLikeType::Buffer) => {
+            let id = args[0].as_buffer_id().unwrap();
+            Ok(Value::bool_val(buffers.get(id).is_some()))
+        }
         _ => Ok(Value::NIL),
     }
 }
@@ -345,34 +349,41 @@ pub(crate) fn builtin_get_file_buffer(
 pub(crate) fn builtin_kill_buffer(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_max_args("kill-buffer", &args, 1)?;
     let id = match args.first() {
-        None | Some(ValueKind::Nil) => match eval.buffers.current_buffer() {
+        None => match eval.buffers.current_buffer() {
             Some(buf) => buf.id,
             None => return Ok(Value::NIL),
         },
-        Some(ValueKind::Veclike(VecLikeType::Buffer)) => {
-            if eval.buffers.get(*id).is_none() {
-                return Ok(Value::NIL);
+        Some(arg) => match arg.kind() {
+            ValueKind::Nil => match eval.buffers.current_buffer() {
+                Some(buf) => buf.id,
+                None => return Ok(Value::NIL),
+            },
+            ValueKind::Veclike(VecLikeType::Buffer) => {
+                let bid = arg.as_buffer_id().unwrap();
+                if eval.buffers.get(bid).is_none() {
+                    return Ok(Value::NIL);
+                }
+                bid
             }
-            *id
-        }
-        Some(ValueKind::String) => {
-            let name = with_heap(|h| h.get_string(*name_id).to_owned());
-            match eval.buffers.find_buffer_by_name(&name) {
-                Some(id) => id,
-                None => {
-                    return Err(signal(
-                        "error",
-                        vec![Value::string(format!("No buffer named {name}"))],
-                    ));
+            ValueKind::String => {
+                let name = arg.as_str().unwrap().to_owned();
+                match eval.buffers.find_buffer_by_name(&name) {
+                    Some(id) => id,
+                    None => {
+                        return Err(signal(
+                            "error",
+                            vec![Value::string(format!("No buffer named {name}"))],
+                        ));
+                    }
                 }
             }
-        }
-        Some(other) => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
-            ));
-        }
+            _other => {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("stringp"), *arg],
+                ));
+            }
+        },
     };
 
     let saved_current = eval.buffers.current_buffer_id();
@@ -431,11 +442,12 @@ pub(crate) fn builtin_kill_buffer(eval: &mut super::eval::Context, args: Vec<Val
         .collect::<std::collections::HashSet<_>>();
     let current_will_die = current_before.is_some_and(|current| killed_set.contains(&current));
     let replacement = if current_will_die {
-        match other_buffer_impl(
+        let other = other_buffer_impl(
             &mut eval.buffers,
             vec![Value::make_buffer(current_before.expect("current buffer"))],
-        )? {
-            Value::make_buffer(next) if next != id => Some(next),
+        )?;
+        match other.as_buffer_id() {
+            Some(next) if next != id => Some(next),
             _ => None,
         }
     } else {
@@ -483,13 +495,14 @@ pub(crate) fn builtin_set_buffer(eval: &mut super::eval::Context, args: Vec<Valu
     expect_args("set-buffer", &args, 1)?;
     let id = match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Buffer) => {
-            if eval.buffers.get(*id).is_none() {
+            let bid = args[0].as_buffer_id().unwrap();
+            if eval.buffers.get(bid).is_none() {
                 return Err(signal(
                     "error",
                     vec![Value::string("Selecting deleted buffer")],
                 ));
             }
-            *id
+            bid
         }
         ValueKind::String => {
             let s = args[0].as_str().unwrap().to_owned();
@@ -497,7 +510,7 @@ pub(crate) fn builtin_set_buffer(eval: &mut super::eval::Context, args: Vec<Valu
                 signal("error", vec![Value::string(format!("No buffer named {s}"))])
             })?
         }
-        other => {
+        _other => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("stringp"), args[0]],
@@ -578,7 +591,7 @@ pub(crate) fn builtin_buffer_base_buffer(
     Ok(buffers
         .get(target)
         .and_then(|buf| buf.base_buffer)
-        .map(Value::Buffer)
+        .map(Value::make_buffer)
         .unwrap_or(Value::NIL))
 }
 
@@ -652,7 +665,7 @@ pub(crate) fn builtin_buffer_substring(
         if result.is_string() {
             let sliced = buf.text.text_props_slice(byte_lo, byte_hi);
             if !sliced.is_empty() {
-                set_string_text_properties_table(*new_id, sliced);
+                set_string_text_properties_table_for_value(result, sliced);
             }
         }
     }
@@ -671,12 +684,10 @@ pub(crate) fn builtin_buffer_string(
     let byte_start = buf.point_min();
     let byte_end = buf.point_max();
     let result = Value::string(buf.buffer_string());
-    if !buf.text.text_props_is_empty()
-        && let ValueKind::String = &result
-    {
+    if !buf.text.text_props_is_empty() && result.is_string() {
         let sliced = buf.text.text_props_slice(byte_start, byte_end);
         if !sliced.is_empty() {
-            set_string_text_properties_table(*new_id, sliced);
+            set_string_text_properties_table_for_value(result, sliced);
         }
     }
     Ok(result)
@@ -693,8 +704,9 @@ fn resolve_buffer_designator_allow_nil_current(
             .map(|buf| Some(buf.id))
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")])),
         ValueKind::Veclike(VecLikeType::Buffer) => {
-            if eval.buffers.get(*id).is_some() {
-                Ok(Some(*id))
+            let id = arg.as_buffer_id().unwrap();
+            if eval.buffers.get(id).is_some() {
+                Ok(Some(id))
             } else {
                 Err(signal(
                     "error",
@@ -714,7 +726,7 @@ fn resolve_buffer_designator_allow_nil_current(
                     )
                 })
         }
-        other => Err(signal(
+        _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *arg],
         )),
@@ -788,8 +800,9 @@ pub(crate) fn resolve_buffer_designator_allow_nil_current_in_manager(
             .map(|buf| Some(buf.id))
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")])),
         ValueKind::Veclike(VecLikeType::Buffer) => {
-            if buffers.get(*id).is_some() {
-                Ok(Some(*id))
+            let id = arg.as_buffer_id().unwrap();
+            if buffers.get(id).is_some() {
+                Ok(Some(id))
             } else {
                 Err(signal(
                     "error",
@@ -806,7 +819,7 @@ pub(crate) fn resolve_buffer_designator_allow_nil_current_in_manager(
                 )
             })
         }
-        other => Err(signal(
+        _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *arg],
         )),
@@ -873,12 +886,10 @@ fn checked_buffer_substring_for_char_region_in_manager(
     let from_byte = buf.lisp_pos_to_accessible_byte(from);
     let to_byte = buf.lisp_pos_to_accessible_byte(to);
     let result = Value::string(buf.buffer_substring(from_byte, to_byte));
-    if !buf.text.text_props_is_empty()
-        && let ValueKind::String = &result
-    {
+    if !buf.text.text_props_is_empty() && result.is_string() {
         let sliced = buf.text.text_props_slice(from_byte, to_byte);
         if !sliced.is_empty() {
-            set_string_text_properties_table(*new_id, sliced);
+            set_string_text_properties_table_for_value(result, sliced);
         }
     }
     Ok(result)
@@ -980,13 +991,14 @@ fn replace_region_source_value_in_state(
     match source.kind() {
         ValueKind::String => Ok(*source),
         ValueKind::Veclike(VecLikeType::Buffer) => {
-            if *id == current_id {
+            let id = source.as_buffer_id().unwrap();
+            if id == current_id {
                 return Err(signal(
                     "error",
                     vec![Value::string("Cannot replace a buffer with itself")],
                 ));
             }
-            let Some(buf) = buffers.get(*id) else {
+            let Some(buf) = buffers.get(id) else {
                 return Err(signal(
                     "error",
                     vec![Value::string("Selecting deleted buffer")],
@@ -994,7 +1006,7 @@ fn replace_region_source_value_in_state(
             };
             checked_buffer_substring_for_char_region_in_manager(
                 buffers,
-                Some(*id),
+                Some(id),
                 buf.point_min_char() as i64 + 1,
                 buf.point_max_char() as i64 + 1,
                 Value::fixnum(buf.point_min_char() as i64 + 1),
@@ -1027,7 +1039,7 @@ fn replace_region_source_value_in_state(
                 items[2],
             )
         }
-        other => Err(signal(
+        _other => Err(signal(
             "wrong-type-argument",
             vec![replace_region_contents_type_predicate(), *source],
         )),
@@ -1156,7 +1168,7 @@ pub(crate) fn builtin_ntake(args: Vec<Value>) -> EvalResult {
                 match next.kind() {
                     ValueKind::Cons => cursor = next,
                     ValueKind::Nil => return Ok(head),
-                    other => {
+                    _other => {
                         return Err(signal(
                             "wrong-type-argument",
                             vec![Value::symbol("listp"), next],
@@ -1165,7 +1177,7 @@ pub(crate) fn builtin_ntake(args: Vec<Value>) -> EvalResult {
                 }
             }
             ValueKind::Nil => return Ok(head),
-            other => {
+            _other => {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("listp"), cursor],
@@ -1180,7 +1192,7 @@ pub(crate) fn builtin_ntake(args: Vec<Value>) -> EvalResult {
             Ok(head)
         }
         ValueKind::Nil => Ok(head),
-        other => Err(signal(
+        _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("listp"), cursor],
         )),
@@ -1582,9 +1594,9 @@ pub(crate) fn builtin_compute_motion(
         .get_buffer_local("tab-width")
         .copied()
         .or_else(|| obarray.symbol_value("tab-width").copied())
-        .and_then(|value| match value {
-            Value::fixnum(n) if n > 0 => Some(n as usize),
-            Value::char(c) if (c as u32) > 0 => Some(c as usize),
+        .and_then(|value| match value.kind() {
+            ValueKind::Fixnum(n) if n > 0 => Some(n as usize),
+            ValueKind::Char(c) if (c as u32) > 0 => Some(c as usize),
             _ => None,
         })
         .unwrap_or(8);
@@ -1671,22 +1683,23 @@ pub(crate) fn builtin_compute_motion(
 fn extract_cons_ints(val: Value) -> Result<(i64, i64), Flow> {
     match val.kind() {
         ValueKind::Cons => {
-            let pair = super::value::read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-            let a = match pair.car.kind() {
+            let car = val.cons_car();
+            let cdr = val.cons_cdr();
+            let a = match car.kind() {
                 ValueKind::Fixnum(n) => n,
                 _ => {
                     return Err(signal(
                         "wrong-type-argument",
-                        vec![Value::symbol("integerp"), pair.car],
+                        vec![Value::symbol("integerp"), car],
                     ));
                 }
             };
-            let b = match pair.cdr.kind() {
+            let b = match cdr.kind() {
                 ValueKind::Fixnum(n) => n,
                 _ => {
                     return Err(signal(
                         "wrong-type-argument",
-                        vec![Value::symbol("integerp"), pair.cdr],
+                        vec![Value::symbol("integerp"), cdr],
                     ));
                 }
             };
@@ -1707,37 +1720,35 @@ pub(crate) fn builtin_coordinates_in_window_p(
     let buffers = &mut eval.buffers;
     expect_args("coordinates-in-window-p", &args, 2)?;
 
-    let (x, y) = match &args[0] {
-        Value::Cons(cell) => {
-            let pair = read_cons(*cell);  // TODO(tagged): replace read_cons with cons accessors
-            let x = match pair.car.kind() {
-                ValueKind::Fixnum(n) => n as f64,
-                ValueKind::Float => *f,
-                other => {
-                    return Err(signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("numberp"), pair.car],
-                    ));
-                }
-            };
-            let y = match pair.cdr.kind() {
-                ValueKind::Fixnum(n) => n as f64,
-                ValueKind::Float => *f,
-                other => {
-                    return Err(signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("numberp"), pair.cdr],
-                    ));
-                }
-            };
-            (x, y)
-        }
-        other => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("consp"), *other],
-            ));
-        }
+    let (x, y) = if args[0].is_cons() {
+        let car = args[0].cons_car();
+        let cdr = args[0].cons_cdr();
+        let x = match car.kind() {
+            ValueKind::Fixnum(n) => n as f64,
+            ValueKind::Float => car.xfloat(),
+            _other => {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("numberp"), car],
+                ));
+            }
+        };
+        let y = match cdr.kind() {
+            ValueKind::Fixnum(n) => n as f64,
+            ValueKind::Float => cdr.xfloat(),
+            _other => {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("numberp"), cdr],
+                ));
+            }
+        };
+        (x, y)
+    } else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("consp"), args[0]],
+        ));
     };
 
     let window_arg = args[1];
@@ -1952,7 +1963,8 @@ fn resolve_field_position_in_buffers(
     let point_min = buf.point_min_char() as i64 + 1;
     let point_max = buf.point_max_char() as i64 + 1;
     let pos = match position_value {
-        None | Some(ValueKind::Nil) => buf.text.byte_to_char(buf.pt) as i64 + 1,
+        None => buf.text.byte_to_char(buf.pt) as i64 + 1,
+        Some(value) if value.is_nil() => buf.text.byte_to_char(buf.pt) as i64 + 1,
         Some(value) => expect_integer_or_marker_in_buffers(buffers, value)?,
     };
     if pos < point_min || pos > point_max {
@@ -1973,7 +1985,7 @@ fn field_property_after_char_in_buffers(
     )?;
     match value.kind() {
         ValueKind::Cons => Ok(value.cons_car()),
-        other => Err(signal("error", vec![value])),
+        _other => Err(signal("error", vec![value])),
     }
 }
 
@@ -2191,15 +2203,12 @@ pub(crate) fn builtin_clear_string(args: Vec<Value>) -> EvalResult {
     expect_args("clear-string", &args, 1)?;
     let _ = expect_strict_string(&args[0])?;
     if args[0].is_string() {
-        with_heap_mut(|h| {
-            let s = h.get_string_mut(*id);
-            let len = s.len();
-            s.clear();
+        if let Some(lisp_str) = args[0].as_lisp_string_mut() {
+            let len = lisp_str.as_str().chars().count();
             // Fill with len null bytes (same as GNU Emacs memset 0)
-            for _ in 0..len {
-                s.push('\0');
-            }
-        });
+            let nulls = "\0".repeat(len);
+            *lisp_str = crate::gc::types::LispString::new(nulls, lisp_str.multibyte);
+        }
     }
     Ok(Value::NIL)
 }
@@ -2271,14 +2280,14 @@ fn collect_insert_pieces(args: &[Value]) -> Result<Vec<InsertPiece>, Flow> {
         match arg.kind() {
             ValueKind::String => pieces.push(InsertPiece {
                 text: arg.as_str().unwrap().to_owned(),
-                text_props: get_string_text_properties_table(*id),
+                text_props: get_string_text_properties_table_for_value(*arg),
             }),
             ValueKind::Char(c) => pieces.push(InsertPiece {
                 text: c.to_string(),
                 text_props: None,
             }),
             ValueKind::Fixnum(n) => {
-                if !(0..=KEY_CHAR_CODE_MASK).contains(n) {
+                if !(0..=KEY_CHAR_CODE_MASK).contains(&n) {
                     return Err(signal(
                         "wrong-type-argument",
                         vec![Value::symbol("char-or-string-p"), Value::fixnum(n)],
@@ -2301,7 +2310,7 @@ fn collect_insert_pieces(args: &[Value]) -> Result<Vec<InsertPiece>, Flow> {
                     ));
                 }
             }
-            other => {
+            _other => {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("char-or-string-p"), *arg],
@@ -2446,7 +2455,7 @@ pub(super) fn insert_char_code_from_value(value: &Value) -> Result<i64, Flow> {
             vec![Value::symbol("characterp"), *value],
         )),
         ValueKind::Fixnum(n) => Ok(n),
-        other => Err(signal(
+        _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *value],
         )),
@@ -2457,7 +2466,8 @@ pub(crate) fn builtin_insert_char(eval: &mut super::eval::Context, args: Vec<Val
     expect_range_args("insert-char", &args, 1, 3)?;
     let char_code = insert_char_code_from_value(&args[0])?;
     let count = match args.get(1) {
-        None | Some(ValueKind::Nil) => 1,
+        None => 1,
+        Some(value) if value.is_nil() => 1,
         Some(value) => expect_fixnum(value)?,
     };
 
@@ -2669,10 +2679,11 @@ pub(crate) fn builtin_buffer_enable_undo(
     } else {
         match args[0].kind() {
             ValueKind::Veclike(VecLikeType::Buffer) => {
-                if eval.buffers.get(*id).is_none() {
+                let bid = args[0].as_buffer_id().unwrap();
+                if eval.buffers.get(bid).is_none() {
                     return Ok(Value::NIL);
                 }
-                *id
+                bid
             }
             ValueKind::String => {
                 let name = args[0].as_str().unwrap().to_owned();
@@ -2683,7 +2694,7 @@ pub(crate) fn builtin_buffer_enable_undo(
                     )
                 })?
             }
-            other => {
+            _other => {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("stringp"), args[0]],
@@ -2719,17 +2730,18 @@ pub(crate) fn builtin_buffer_disable_undo(
     } else {
         match args[0].kind() {
             ValueKind::Veclike(VecLikeType::Buffer) => {
-                if eval.buffers.get(*id).is_none() {
+                let bid = args[0].as_buffer_id().unwrap();
+                if eval.buffers.get(bid).is_none() {
                     return Err(signal(
                         "error",
                         vec![Value::string("Selecting deleted buffer")],
                     ));
                 }
-                *id
+                bid
             }
             ValueKind::String => {
                 let name = args[0].as_str().unwrap().to_owned();
-                match eval.buffers.find_buffer_by_name(&name).kind() {
+                match eval.buffers.find_buffer_by_name(&name) {
                     Some(id) => id,
                     None => {
                         return Err(signal(
@@ -2739,7 +2751,7 @@ pub(crate) fn builtin_buffer_disable_undo(
                     }
                 }
             }
-            other => {
+            _other => {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("stringp"), args[0]],
@@ -2956,7 +2968,7 @@ pub(crate) fn builtin_set_buffer_auto_saved(
 pub(crate) fn builtin_buffer_list(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_max_args("buffer-list", &args, 1)?;
     let ids = eval.buffers.buffer_list();
-    let vals: Vec<Value> = ids.into_iter().map(Value::Buffer).collect();
+    let vals: Vec<Value> = ids.into_iter().map(Value::make_buffer).collect();
     Ok(Value::list(vals))
 }
 
@@ -2964,10 +2976,14 @@ fn other_buffer_designator(
     buffers: &crate::buffer::BufferManager,
     value: Option<&Value>,
 ) -> Option<crate::buffer::BufferId> {
-    match value {
-        Some(ValueKind::Veclike(VecLikeType::Buffer)) if buffers.get(*id).is_some() => Some(*id),
-        Some(ValueKind::String) => {
-            let name = with_heap(|h| h.get_string(*name_id).to_owned());
+    let v = value?;
+    match v.kind() {
+        ValueKind::Veclike(VecLikeType::Buffer) => {
+            let id = v.as_buffer_id().unwrap();
+            if buffers.get(id).is_some() { Some(id) } else { None }
+        }
+        ValueKind::String => {
+            let name = v.as_str().unwrap().to_owned();
             buffers.find_buffer_by_name(&name)
         }
         _ => None,

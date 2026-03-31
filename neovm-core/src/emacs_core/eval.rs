@@ -319,15 +319,14 @@ fn interpreted_closure_env_entries(lexenv: Value) -> Vec<InterpretedClosureEnvEn
                     ValueKind::T => entries.push(InterpretedClosureEnvEntry::TopLevelSentinel),
                     ValueKind::Symbol(sym) => entries.push(InterpretedClosureEnvEntry::Special(sym)),
                     ValueKind::Cons => {
-                        let binding_pair_car = cursor.cons_car();
-                        let binding_pair_cdr = cursor.cons_cdr();
-                        if let Some(sym) = binding_symbol_id(binding_pair_car) {
+                        let inner_car = pair_car.cons_car();
+                        if let Some(sym) = binding_symbol_id(inner_car) {
                             entries.push(InterpretedClosureEnvEntry::Binding(sym));
                         }
                     }
                     _ => {}
                 }
-                cursor = pair.cdr;
+                cursor = pair_cdr;
             }
             _ => return entries,
         }
@@ -366,13 +365,13 @@ fn rebuild_trimmed_interpreted_closure_env(
 ) -> Value {
     let mut entries = Vec::with_capacity(template.len());
     for entry in template {
-        match entry.kind() {
+        match entry {
             InterpretedClosureEnvEntry::TopLevelSentinel => entries.push(Value::T),
             InterpretedClosureEnvEntry::Special(sym) => entries.push(Value::symbol(*sym)),
             InterpretedClosureEnvEntry::Binding(sym) => {
                 let cell = lexenv_assq(source_env, *sym)
                     .expect("cached interpreted-closure env binding should exist");
-                entries.push(ValueKind::Cons);
+                entries.push(cell);
             }
         }
     }
@@ -453,7 +452,7 @@ fn value_from_symbol_id(sym_id: SymId) -> Value {
             return Value::T;
         }
         if name.starts_with(':') {
-            return Value::keyword(sym_id);
+            return Value::from_kw_id(sym_id);
         }
     }
     Value::symbol(sym_id)
@@ -958,7 +957,7 @@ pub struct Context {
     /// lambda body, making `tail.as_ptr()` match a stale entry whose
     /// args are completely different.  The fingerprint catches this.
     pub(crate) macro_expansion_cache:
-        HashMap<(crate::gc::types::ObjId, usize, u64), Rc<MacroExpansionCacheEntry>>,
+        HashMap<(usize, usize, u64), Rc<MacroExpansionCacheEntry>>,
     /// Diagnostic counters for macro expansion cache.
     pub(crate) macro_cache_hits: u64,
     pub(crate) macro_cache_misses: u64,
@@ -1024,8 +1023,8 @@ pub(crate) fn plan_require_in_state(
     }
 
     let filename = match filename {
-        Some(ValueKind::Nil) => name.clone(),
-        Some(ValueKind::String) => with_heap(|h| h.get_string(id).to_owned()),
+        Some(v) if v.is_nil() => name.clone(),
+        Some(v) if v.is_string() => v.as_str().unwrap().to_owned(),
         Some(other) => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1869,13 +1868,10 @@ impl Context {
                     rendered
                 };
 
-                if matches!(
-                    builtins::search::builtin_string_match_p_with_case_fold(
-                        false,
-                        &[entry, message],
-                    )?,
-                    Value::fixnum(_)
-                ) {
+                if builtins::search::builtin_string_match_p_with_case_fold(
+                    false,
+                    &[entry, message],
+                )?.as_fixnum().is_some() {
                     return Ok(true);
                 }
                 continue;
@@ -3773,10 +3769,10 @@ impl Context {
         self.frames.trace_roots(&mut roots);
         self.coding_systems.trace_roots(&mut roots);
 
-        // Match data — SearchedString::Heap holds a live ObjId
+        // Match data — SearchedString::Heap holds a live string Value
         if let Some(ref md) = self.match_data {
-            if let Some(crate::emacs_core::regex::SearchedString::Heap(id)) = &md.searched_string {
-                roots.push(Value::Str(*id));
+            if let Some(crate::emacs_core::regex::SearchedString::Heap(val)) = &md.searched_string {
+                roots.push(*val);
             }
         }
 
@@ -4322,7 +4318,7 @@ impl Context {
         let result = run(self);
         let cleanup = self.finish_executing_kbd_macro_runtime_scope(scope);
         match cleanup {
-            Ok(ValueKind::Nil) => result,
+            Ok(v) if v.is_nil() => result,
             Ok(other) => Ok(other),
             Err(flow) => Err(flow),
         }
@@ -4346,7 +4342,7 @@ impl Context {
             return None;
         };
 
-        let slots = with_heap(|heap| heap.get_vector(timer_id).clone());
+        let slots = timer.as_vector_data()?.clone();
         if !(9..=10).contains(&slots.len()) {
             return None;
         }
@@ -4378,7 +4374,7 @@ impl Context {
             return None;
         };
 
-        let slots = with_heap(|heap| heap.get_vector(timer_id).clone());
+        let slots = timer.as_vector_data()?.clone();
         if !(9..=10).contains(&slots.len()) {
             return None;
         }
@@ -5004,11 +5000,8 @@ impl Context {
         };
         match current.kind() {
             ValueKind::Cons => {
-                let pair_car = current.cons_car();
-                let pair_cdr = current.cons_cdr();
-                let head = pair_car;
-                let tail = pair_cdr;
-                drop(pair);
+                let head = current.cons_car();
+                let tail = current.cons_cdr();
                 self.assign("unread-command-events", tail);
                 self.record_input_event(head);
                 Some(head)
@@ -5024,9 +5017,7 @@ impl Context {
         };
         match current.kind() {
             ValueKind::Cons => {
-                let pair_car = current.cons_car();
-                let pair_cdr = current.cons_cdr();
-                Some(pair_car)
+                Some(current.cons_car())
             }
             _ => None,
         }
@@ -5380,10 +5371,12 @@ impl Context {
         // Sync max_depth from max-lisp-eval-depth variable only when we're
         // near the limit (avoids obarray lookup on every eval call).
         if self.depth > self.max_depth {
-            if let Some(Value::fixnum(n)) = self.obarray.symbol_value("max-lisp-eval-depth") {
-                let new_max = (*n).max(100) as usize;
-                if new_max != self.max_depth {
-                    self.max_depth = new_max;
+            if let Some(v) = self.obarray.symbol_value("max-lisp-eval-depth") {
+                if let Some(n) = v.as_fixnum() {
+                    let new_max = n.max(100) as usize;
+                    if new_max != self.max_depth {
+                        self.max_depth = new_max;
+                    }
                 }
             }
         }
@@ -5440,7 +5433,7 @@ impl Context {
                 .unwrap_or(Value::NIL)),
             Expr::Str(s) => Ok(Value::string(s.clone())),
             Expr::Char(c) => Ok(Value::char(*c)),
-            Expr::Keyword(id) => Ok(Value::keyword(*id)),
+            Expr::Keyword(id) => Ok(Value::from_kw_id(*id)),
             Expr::Bool(true) => Ok(Value::T),
             Expr::Bool(false) => Ok(Value::NIL),
             Expr::Vector(items) => {
@@ -5477,7 +5470,7 @@ impl Context {
             lookup_interned(symbol).is_some_and(|canonical| canonical == sym_id);
         // Keywords evaluate to themselves
         if symbol_is_canonical && symbol.starts_with(':') {
-            return Ok(Value::keyword(sym_id));
+            return Ok(Value::from_kw_id(sym_id));
         }
 
         // GNU Emacs eval.c checks the lexenv for the ORIGINAL symbol
@@ -5526,7 +5519,7 @@ impl Context {
             return Ok(Value::T);
         }
         if resolved_is_canonical && resolved_name.starts_with(':') {
-            return Ok(Value::keyword(resolved));
+            return Ok(Value::from_kw_id(resolved));
         }
 
         // Buffer-local bindings are name-based and must not intercept
@@ -5595,13 +5588,13 @@ impl Context {
 
         let function_is_callable = self.function_value_is_callable(&function);
         let result = self.apply_untraced(function, args);
-        match result.kind() {
+        match &result {
             Err(Flow::Signal(sig))
                 if sig.symbol_name() == "invalid-function" && !function_is_callable =>
             {
-                Err(signal("invalid-function", vec![ValueKind::Symbol(sym_id)]))
+                Err(signal("invalid-function", vec![Value::symbol(sym_id)]))
             }
-            other => result,
+            _ => result,
         }
     }
 
@@ -5646,13 +5639,13 @@ impl Context {
 
         let function_is_callable = self.function_value_is_callable(&function);
         let result = self.apply_untraced(function, args);
-        match result.kind() {
+        match &result {
             Err(Flow::Signal(sig))
                 if sig.symbol_name() == "invalid-function" && !function_is_callable =>
             {
-                Err(signal("invalid-function", vec![ValueKind::Symbol(sym_id)]))
+                Err(signal("invalid-function", vec![Value::symbol(sym_id)]))
             }
-            other => result,
+            _ => result,
         }
     }
 
@@ -5676,9 +5669,11 @@ impl Context {
         let advice_type = Some(Value::symbol("advice"));
         match function.kind() {
             ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => {
-                with_heap(|h| h.get_lambda(*id).doc_form) == advice_type
+                function.get_lambda_data().map(|d| d.doc_form).flatten() == advice_type
             }
-            ValueKind::Veclike(VecLikeType::ByteCode) => with_heap(|h| h.get_bytecode(*id).doc_form) == advice_type,
+            ValueKind::Veclike(VecLikeType::ByteCode) => {
+                function.get_bytecode_data().map(|d| d.doc_form).flatten() == advice_type
+            }
             ValueKind::Symbol(id) => super::builtins::symbols::resolve_indirect_symbol_by_id(self, id)
                 .is_some_and(|(_, resolved)| self.function_value_is_advice_wrapper(&resolved)),
             _ => false,
@@ -5769,7 +5764,7 @@ impl Context {
             // shadowing. The current source-compatible path keeps this empty.
             if super::subr_info::is_evaluator_sf_skip_macroexpand(name) {
                 if let Some(func) = self.obarray.symbol_function(name) {
-                    let is_macro = matches!(func, ValueKind::Veclike(VecLikeType::Macro))
+                    let is_macro = func.is_macro()
                         || (func.is_cons() && func.cons_car().is_symbol_named("macro"));
                     if is_macro {
                         if let Some(result) = self.try_special_form(name, tail) {
@@ -5791,7 +5786,7 @@ impl Context {
                 // — non-macro aliases are handled by the apply path below.
                 if let Some(alias_id) = func.as_symbol_id() {
                     if let Some(resolved) = self.obarray.indirect_function(resolve_sym(alias_id)) {
-                        let is_macro = matches!(resolved, ValueKind::Veclike(VecLikeType::Macro))
+                        let is_macro = resolved.is_macro()
                             || (resolved.is_cons() && resolved.cons_car().is_symbol_named("macro"));
                         if is_macro {
                             func = resolved;
@@ -5809,7 +5804,7 @@ impl Context {
                         vec![func, Value::symbol(name), Value::symbol("macro")],
                     )?;
                     if let Some(loaded_macro) = self.obarray.symbol_function_id(sym_id).cloned() {
-                        let is_loaded_macro = matches!(loaded_macro, ValueKind::Veclike(VecLikeType::Macro))
+                        let is_loaded_macro = loaded_macro.is_macro()
                             || (loaded_macro.is_cons()
                                 && loaded_macro.cons_car().is_symbol_named("macro"));
                         if is_loaded_macro {
@@ -5818,7 +5813,7 @@ impl Context {
                     }
                 }
 
-                if &func.is_macro() {
+                if func.is_macro() {
                     let expanded = self.expand_macro(func, tail)?;
                     // OpaqueValueRef entries are rooted by OpaqueValuePool.
                     return self.with_gc_scope(|ctx| {
@@ -5836,7 +5831,7 @@ impl Context {
                     let car = func.cons_car();
                     if car.is_symbol_named("macro") {
                         let cache_key = (
-                            cons_id,
+                            func.bits(),
                             tail.as_ptr() as usize,
                             self.macro_expansion_context_key(),
                         );
@@ -5898,7 +5893,7 @@ impl Context {
                     }
                 }
 
-                if let Some(bound_name) = &func.as_subr_id() {
+                if let Some(bound_name) = func.as_subr_id() {
                     if resolve_sym(bound_name) == name && super::subr_info::is_special_form(name) {
                         if let Some(result) = self.try_special_form(name, tail) {
                             return result;
@@ -5940,12 +5935,12 @@ impl Context {
                 }
             }
 
-            match self.resolve_named_call_target_by_id(sym_id).kind() {
+            match self.resolve_named_call_target_by_id(sym_id) {
                 NamedCallTarget::Void => {
                     return Err(signal("void-function", vec![Value::symbol(name)]));
                 }
                 NamedCallTarget::SpecialForm => {
-                    return Err(signal("invalid-function", vec![ValueKind::Subr(sym_id)]));
+                    return Err(signal("invalid-function", vec![Value::subr(sym_id)]));
                 }
                 _ => {}
             }
@@ -6107,23 +6102,19 @@ impl Context {
 
         match value.kind() {
             ValueKind::Cons => {
-                let key = (cell.index as usize) ^ 0x1;
+                let key = value.bits() ^ 0x1;
                 if !visited.insert(key) {
                     return;
                 }
-                let pair_car = value.cons_car();
-                let pair_cdr = value.cons_cdr();
-                let mut new_car = pair_car;
-                let mut new_cdr = pair_cdr;
+                let mut new_car = value.cons_car();
+                let mut new_cdr = value.cons_cdr();
                 Self::replace_alias_refs_in_value(&mut new_car, from, to, visited);
                 Self::replace_alias_refs_in_value(&mut new_cdr, from, to, visited);
-                with_heap_mut(|h| {
-                    h.set_car(*cell, new_car);
-                    h.set_cdr(*cell, new_cdr);
-                });
+                value.set_car(new_car);
+                value.set_cdr(new_cdr);
             }
             ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
-                let key = (items.index as usize) ^ 0x2;
+                let key = value.bits() ^ 0x2;
                 if !visited.insert(key) {
                     return;
                 }
@@ -6131,22 +6122,16 @@ impl Context {
                 for item in values.iter_mut() {
                     Self::replace_alias_refs_in_value(item, from, to, visited);
                 }
-                with_heap_mut(|h| *h.get_vector_mut(*items) = values);
+                *value.as_vector_data_mut().unwrap() = values;
             }
             ValueKind::Veclike(VecLikeType::HashTable) => {
-                let key = (table.index as usize) ^ 0x4;
+                let key = value.bits() ^ 0x4;
                 if !visited.insert(key) {
                     return;
                 }
                 let mut ht = value.as_hash_table().unwrap().clone();
-                let old_ptr = match from.kind() {
-                    ValueKind::String => Some(id.index as usize),
-                    _ => None,
-                };
-                let new_ptr = match to.kind() {
-                    ValueKind::String => Some(id.index as usize),
-                    _ => None,
-                };
+                let old_ptr = if from.is_string() { Some(from.bits()) } else { None };
+                let new_ptr = if to.is_string() { Some(to.bits()) } else { None };
                 if matches!(ht.test, HashTableTest::Eq | HashTableTest::Eql) {
                     if let (Some(old_ptr), Some(new_ptr)) = (old_ptr, new_ptr) {
                         if let Some(existing) = ht.data.remove(&HashKey::Ptr(old_ptr)) {
@@ -6165,7 +6150,7 @@ impl Context {
                 for item in ht.data.values_mut() {
                     Self::replace_alias_refs_in_value(item, from, to, visited);
                 }
-                with_heap_mut(|h| *h.get_hash_table_mut(*table) = ht);
+                *value.as_hash_table_mut().unwrap() = ht;
             }
             _ => {}
         }
@@ -7241,8 +7226,7 @@ impl Context {
                 let pair_car = cursor.cons_car();
                 let pair_cdr = cursor.cons_cdr();
                 if pair_car.is_cons() {
-                    let inner_pair_car = pair.car.cons_car();
-                    let inner_pair_cdr = pair.car.cons_cdr();
+                    let inner_pair_car = pair_car.cons_car();
                     if inner_pair_car == feature {
                         found = pair_car;
                         break;
@@ -7280,10 +7264,7 @@ impl Context {
             ValueKind::Symbol(sid) => Some(resolve_sym(sid).to_string()),
             _ => None,
         };
-        let filename_str = filename.as_ref().and_then(|v| match v.kind() {
-            ValueKind::String => Some(self.heap.get_string(*oid).to_string()),
-            _ => None,
-        });
+        let filename_str = filename.as_ref().and_then(|v| v.as_str().map(|s| s.to_string()));
         match plan_require_in_state(
             &self.obarray,
             &mut self.features,
@@ -7457,7 +7438,10 @@ impl Context {
         if !result.is_lambda() {
             return;
         };
-        let lambda_data = self.heap.get_lambda(*id).clone();
+        let Some(lambda_data_ref) = result.get_lambda_data() else {
+            return;
+        };
+        let lambda_data = lambda_data_ref.clone();
         let Some(trimmed_env) = lambda_data.env else {
             return;
         };
@@ -7785,29 +7769,26 @@ impl Context {
         match function.kind() {
             ValueKind::Veclike(VecLikeType::ByteCode) => {
                 self.refresh_features_from_variable();
-                let func_val = ValueKind::Veclike(VecLikeType::ByteCode);
-                let bc_data = self.heap.get_bytecode(bc).clone();
+                let bc_data = function.get_bytecode_data().unwrap().clone();
                 let mut vm = super::bytecode::Vm::from_context(self);
-                let result = vm.execute_with_func_value(&bc_data, args, func_val);
+                let result = vm.execute_with_func_value(&bc_data, args, function);
                 self.sync_features_variable();
                 result
             }
             ValueKind::Veclike(VecLikeType::Lambda) => {
-                let func_val = ValueKind::Veclike(VecLikeType::Lambda);
-                let lambda_data = self.heap.get_lambda(id).clone();
-                self.apply_lambda(&lambda_data, args, func_val)
+                let lambda_data = function.get_lambda_data().unwrap().clone();
+                self.apply_lambda(&lambda_data, args, function)
             }
             ValueKind::Veclike(VecLikeType::Macro) => {
-                let func_val = ValueKind::Veclike(VecLikeType::Macro);
-                let lambda_data = self.heap.get_macro_data(id).clone();
-                self.apply_lambda(&lambda_data, args, func_val)
+                let lambda_data = function.get_lambda_data().unwrap().clone();
+                self.apply_lambda(&lambda_data, args, function)
             }
             ValueKind::Subr(id) => self.apply_subr_object_by_id(id, args, true),
             ValueKind::Symbol(id) => self.apply_symbol_callable_untraced(id, args, true),
             ValueKind::T => self.apply_symbol_callable_untraced(intern("t"), args, true),
             ValueKind::Keyword(id) => self.apply_symbol_callable_untraced(id, args, true),
             ValueKind::Nil => Err(signal("void-function", vec![Value::symbol("nil")])),
-            function @ ValueKind::Cons => {
+            ValueKind::Cons => {
                 if super::autoload::is_autoload_value(&function) {
                     Err(signal(
                         "wrong-type-argument",
@@ -7824,7 +7805,7 @@ impl Context {
                     Err(signal("invalid-function", vec![function]))
                 }
             }
-            other => Err(signal("invalid-function", vec![function])),
+            _ => Err(signal("invalid-function", vec![function])),
         }
     }
 
@@ -7870,7 +7851,7 @@ impl Context {
             _ => return Err(signal("invalid-function", vec![function])),
         };
 
-        let docstring_value = if matches!(items.get(body_start), Some(ValueKind::String))
+        let docstring_value = if items.get(body_start).is_some_and(|v| v.is_string())
             && items.get(body_start + 1).is_some()
         {
             let value = items[body_start];
@@ -8117,7 +8098,7 @@ impl Context {
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
         let name = resolve_sym(sym_id);
-        match self.resolve_named_call_target_by_id(sym_id).kind() {
+        match self.resolve_named_call_target_by_id(sym_id) {
             NamedCallTarget::Obarray(func) => {
                 if super::autoload::is_autoload_value(&func) {
                     return self.apply_named_autoload_callable(
@@ -8141,7 +8122,7 @@ impl Context {
                     {
                         Err(signal("invalid-function", vec![Value::symbol(name)]))
                     }
-                    other => self.resolve_named_call_target_by_id(sym_id),
+                    other => other,
                 };
                 if let Some(target) = alias_target {
                     if rewrite_builtin_wrong_arity {
@@ -8181,7 +8162,7 @@ impl Context {
         invalid_fn: Value,
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
-        match self.resolve_named_call_target(name).kind() {
+        match self.resolve_named_call_target(name) {
             NamedCallTarget::Obarray(func) => {
                 if super::autoload::is_autoload_value(&func) {
                     return self.apply_named_autoload_callable(
@@ -8205,7 +8186,7 @@ impl Context {
                     {
                         Err(signal("invalid-function", vec![Value::symbol(name)]))
                     }
-                    other => self.resolve_named_call_target(name),
+                    other => other,
                 };
                 if let Some(target) = alias_target {
                     if rewrite_builtin_wrong_arity {
@@ -8279,7 +8260,7 @@ impl Context {
                 if args.len() != 2 {
                     return Err(signal(
                         "wrong-number-of-arguments",
-                        vec![Value::Subr(intern("throw")), Value::fixnum(args.len() as i64)],
+                        vec![Value::subr(intern("throw")), Value::fixnum(args.len() as i64)],
                     ));
                 }
                 let tag = args[0];
@@ -8332,7 +8313,7 @@ impl Context {
         // pointer from Rc<Vec<Expr>> body) → same expansion.
         // Fingerprint validation detects ABA from reused addresses.
         let cache_key = (
-            id,
+            macro_val.bits(),
             args.as_ptr() as usize,
             self.macro_expansion_context_key(),
         );
@@ -8349,7 +8330,7 @@ impl Context {
 
         let expand_start = std::time::Instant::now();
         // Clone the macro data before calling self.apply_lambda
-        let lambda_data = self.heap.get_macro_data(id).clone();
+        let lambda_data = macro_val.get_lambda_data().unwrap().clone();
 
         // Root arg values during macro expansion to survive GC.
         // Use cached source-literal materialization so that the same Expr
@@ -8365,7 +8346,7 @@ impl Context {
         }
 
         let expanded_value = self.with_macro_expansion_scope(|eval| {
-            eval.apply_lambda(&lambda_data, arg_values, Value::Macro(id))
+            eval.apply_lambda(&lambda_data, arg_values, macro_val)
         })?;
         // Root expansion result during value_to_expr traversal
         self.push_temp_root(expanded_value);
@@ -8386,7 +8367,8 @@ impl Context {
         if !self.macro_cache_disabled {
             if expand_elapsed.as_millis() > 50 {
                 tracing::warn!(
-                    "macro_cache MISS id={id:?} ptr={:#x} took {expand_elapsed:.2?}",
+                    "macro_cache MISS macro={:#x} ptr={:#x} took {expand_elapsed:.2?}",
+                    macro_val.bits(),
                     args.as_ptr() as usize
                 );
             }
@@ -8430,21 +8412,7 @@ impl Context {
                 ValueKind::Symbol(sym) => ((sym.0 as u64) << 8) ^ 0x20,
                 ValueKind::Keyword(sym) => ((sym.0 as u64) << 8) ^ 0x21,
                 ValueKind::Subr(sym) => ((sym.0 as u64) << 8) ^ 0x22,
-                ValueKind::Float => (id as u64) ^ 0x23,
-                ValueKind::Cons
-                | ValueKind::Veclike(VecLikeType::Vector)
-                | ValueKind::Veclike(VecLikeType::Record)
-                | ValueKind::Veclike(VecLikeType::HashTable)
-                | ValueKind::String
-                | ValueKind::Veclike(VecLikeType::Lambda)
-                | ValueKind::Veclike(VecLikeType::Macro)
-                | ValueKind::Veclike(VecLikeType::ByteCode)
-                | ValueKind::Veclike(VecLikeType::Marker)
-                | ValueKind::Veclike(VecLikeType::Overlay) => (((id.index as u64) << 32) | id.generation as u64) ^ 0x30,
-                ValueKind::Veclike(VecLikeType::Buffer) => (id.0 as u64) ^ 0x41,
-                ValueKind::Veclike(VecLikeType::Frame) => id ^ 0x42,
-                ValueKind::Veclike(VecLikeType::Window) => id ^ 0x44,
-                ValueKind::Veclike(VecLikeType::Timer) => id ^ 0x46,
+                _ => (value.bits() as u64) ^ 0x30,
             }
         }
 
@@ -8541,7 +8509,7 @@ impl Context {
     pub(crate) fn unbind_to(&mut self, count: usize) {
         while self.specpdl.len() > count {
             let binding = self.specpdl.pop().unwrap();
-            match binding.kind() {
+            match binding {
                 SpecBinding::Let { sym_id, old_value } => {
                     let name = resolve_sym(sym_id);
                     if self.watchers.has_watchers(name) {
@@ -9084,7 +9052,7 @@ impl Context {
             return Some(Value::T);
         }
         if resolved_is_canonical && resolved_name.starts_with(':') {
-            return Some(Value::keyword(resolved));
+            return Some(Value::from_kw_id(resolved));
         }
 
         None
@@ -9135,7 +9103,7 @@ impl Context {
     ) -> EvalResult {
         let where_value = self
             .assign_by_id_with_locus(intern(name), value)
-            .map(Value::Buffer)
+            .map(Value::make_buffer)
             .unwrap_or(Value::NIL);
         self.run_variable_watchers_with_where(name, &value, &Value::NIL, operation, &where_value)?;
         Ok(value)
@@ -9149,7 +9117,7 @@ impl Context {
     ) -> EvalResult {
         let where_value = self
             .assign_by_id_with_locus(sym_id, value)
-            .map(Value::Buffer)
+            .map(Value::make_buffer)
             .unwrap_or(Value::NIL);
         let name = resolve_sym(sym_id);
         self.run_variable_watchers_with_where(name, &value, &Value::NIL, operation, &where_value)?;
@@ -9213,7 +9181,7 @@ fn rewrite_wrong_arity_function_object(flow: Flow, name: &str) -> Flow {
                 && !sig.data.is_empty()
                 && sig.data[0].as_symbol_name() == Some(name)
             {
-                sig.data[0] = Value::Subr(intern(name));
+                sig.data[0] = Value::subr(intern(name));
             }
             Flow::Signal(sig)
         }
@@ -9254,7 +9222,7 @@ pub fn quote_to_value(expr: &Expr) -> Value {
         Expr::ReaderLoadFileName => Value::symbol("load-file-name"),
         Expr::Str(s) => Value::string(s.clone()),
         Expr::Char(c) => Value::char(*c),
-        Expr::Keyword(id) => Value::keyword(*id),
+        Expr::Keyword(id) => Value::from_kw_id(*id),
         Expr::Bool(true) => Value::T,
         Expr::Bool(false) => Value::NIL,
         Expr::Symbol(id) if resolve_sym(id) == "nil" => Value::NIL,
@@ -9300,7 +9268,7 @@ pub(crate) fn value_to_expr(value: &Value) -> Expr {
         ValueKind::Nil => Expr::Symbol(intern("nil")),
         ValueKind::T => Expr::Symbol(intern("t")),
         ValueKind::Fixnum(n) => Expr::Int(n),
-        ValueKind::Float => Expr::Float(*f),
+        ValueKind::Float => Expr::Float(value.as_float().unwrap()),
         ValueKind::Symbol(id) => Expr::Symbol(id),
         ValueKind::Keyword(id) => Expr::Keyword(id),
         ValueKind::String => Expr::Str(value.as_str().unwrap().to_owned()),
@@ -9331,7 +9299,7 @@ pub(crate) fn value_to_expr(value: &Value) -> Expr {
             Expr::Vector(items.iter().map(value_to_expr).collect())
         }
         ValueKind::Subr(id) => Expr::OpaqueValueRef(
-            OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(Value::Subr(*id))),
+            OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(Value::subr(id))),
         ),
         // Lambda, Macro, ByteCode, HashTable, Buffer, etc. — preserve as
         // opaque values so they survive the Value→Expr→Value round-trip

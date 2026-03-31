@@ -33,10 +33,10 @@ fn value_from_symbol_id(id: SymId) -> Value {
             return Value::T;
         }
         if name.starts_with(':') {
-            return Value::keyword(id);
+            return Value::from_kw_id(id);
         }
     }
-    Value::symbol(id)
+    Value::from_sym_id(id)
 }
 
 pub(crate) trait MacroexpandRuntime {
@@ -92,7 +92,7 @@ pub(crate) fn constant_set_outcome_in_obarray(
     }
 
     let name = resolve_sym(symbol);
-    if name.starts_with(':') && eq_value(&Value::keyword(symbol), &new_value) {
+    if name.starts_with(':') && eq_value(&Value::from_kw_id(symbol), &new_value) {
         return Some(Ok(new_value));
     }
 
@@ -125,7 +125,7 @@ pub(crate) fn resolve_variable_alias_id_in_obarray(
         if !seen.insert(current) {
             return Err(signal(
                 "cyclic-variable-indirection",
-                vec![Value::symbol(symbol)],
+                vec![Value::from_sym_id(symbol)],
             ));
         }
         // Primary: check SymbolValue::Alias variant.
@@ -230,7 +230,7 @@ pub(crate) fn visible_symbol_plist_snapshot_in_obarray(obarray: &Obarray, symbol
 
     let mut items = Vec::new();
     for (key, value) in &sym.plist {
-        if is_internal_symbol_plist_property(resolve_sym(key)) {
+        if is_internal_symbol_plist_property(resolve_sym(*key)) {
             continue;
         }
         items.push(value_from_symbol_id(*key));
@@ -253,11 +253,8 @@ fn sync_visible_symbol_plist_entries(
         match cursor.kind() {
             ValueKind::Nil => return,
             ValueKind::Cons => {
-                let pair_car = cursor.cons_car();
-                let pair_cdr = cursor.cons_cdr();
-                let key = pair_car;
-                let rest = pair_cdr;
-                drop(pair);
+                let key = cursor.cons_car();
+                let rest = cursor.cons_cdr();
 
                 let Some(key_id) = symbol_id(&key) else {
                     return;
@@ -266,11 +263,8 @@ fn sync_visible_symbol_plist_entries(
                     return;
                 };
 
-                let value_pair_car = rest.cons_car();
-                let value_pair_cdr = rest.cons_cdr();
-                let value = value_pair_car;
-                cursor = value_pair_cdr;
-                drop(value_pair);
+                let value = rest.cons_car();
+                cursor = rest.cons_cdr();
 
                 if is_internal_symbol_plist_property(resolve_sym(key_id)) {
                     continue;
@@ -313,18 +307,13 @@ pub(crate) fn plist_lookup_value(plist: &Value, prop: &Value) -> Option<Value> {
         match cursor.kind() {
             ValueKind::Nil => return None,
             ValueKind::Cons => {
-                let pair_car = cursor.cons_car();
-                let pair_cdr = cursor.cons_cdr();
-                let key = pair_car;
-                let rest = pair_cdr;
-                drop(pair);
+                let key = cursor.cons_car();
+                let rest = cursor.cons_cdr();
                 if !rest.is_cons() {
                     return None;
                 };
-                let value_pair_car = rest.cons_car();
-                let value_pair_cdr = rest.cons_cdr();
-                let value = value_pair_car;
-                let next = value_pair_cdr;
+                let value = rest.cons_car();
+                let next = rest.cons_cdr();
                 if eq_value(&key, prop) {
                     return Some(value);
                 }
@@ -396,7 +385,7 @@ pub(crate) fn builtin_default_toplevel_value(
     ) {
         Some(value) => Ok(value),
         None if is_canonical_symbol_id(resolved) && resolved_name.starts_with(':') => {
-            Ok(Value::keyword(resolved))
+            Ok(Value::from_kw_id(resolved))
         }
         None => Err(signal("void-variable", vec![args[0]])),
     }
@@ -721,12 +710,12 @@ fn dispatch_symbol_func_arity_override_in_obarray(
     function: &Value,
 ) -> Option<Value> {
     // Only applies to builtin functions (those with Subr function cells).
-    if !matches!(obarray.symbol_function(name), Some(Value::subr(_))) {
+    if !obarray.symbol_function(name).is_some_and(|v| v.is_subr()) {
         return None;
     }
 
     if super::autoload::is_autoload_value(function)
-        || (matches!(function, ValueKind::Veclike(VecLikeType::ByteCode))
+        || (function.is_bytecode()
             && has_startup_subr_wrapper_in_obarray(obarray, name))
     {
         return Some(super::subr_info::dispatch_subr_arity_value(name));
@@ -746,7 +735,7 @@ pub(crate) fn builtin_set(eval: &mut super::eval::Context, args: Vec<Value>) -> 
     }
     let where_value = eval
         .set_runtime_binding_by_id(resolved, value)
-        .map(Value::Buffer)
+        .map(Value::make_buffer)
         .unwrap_or(Value::NIL);
     eval.run_variable_watchers_with_where(
         resolve_sym(resolved),
@@ -845,7 +834,7 @@ pub(crate) fn builtin_defvar_1(eval: &mut super::eval::Context, args: Vec<Value>
         builtin_set_default_toplevel_value(eval, vec![args[0], args[1]])?;
     }
 
-    Ok(Value::symbol(symbol))
+    Ok(Value::from_sym_id(symbol))
 }
 
 pub(crate) fn builtin_defconst_1(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -866,7 +855,7 @@ pub(crate) fn builtin_defconst_1(eval: &mut super::eval::Context, args: Vec<Valu
     eval.obarray_mut()
         .put_property_id(resolved, intern("risky-local-variable"), Value::T);
 
-    Ok(Value::symbol(symbol))
+    Ok(Value::from_sym_id(symbol))
 }
 
 pub(crate) fn builtin_fmakunbound(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -1086,18 +1075,15 @@ fn macroexpand_environment_binding_by_id(env: &Value, target: SymId) -> Option<V
         match cursor.kind() {
             ValueKind::Nil => return None,
             ValueKind::Cons => {
-                let pair_car = cursor.cons_car();
-                let pair_cdr = cursor.cons_cdr();
-                let entry = pair_car;
-                cursor = pair_cdr;
-                drop(pair);
+                let entry = cursor.cons_car();
+                cursor = cursor.cons_cdr();
                 if !entry.is_cons() {
                     continue;
                 };
-                let entry_pair_car = entry.cons_car();
-                let entry_pair_cdr = entry.cons_cdr();
-                if matches!(symbol_id(&entry_pair_car), Some(id) if id == target) {
-                    return Some(entry_pair_cdr);
+                let entry_car = entry.cons_car();
+                let entry_cdr = entry.cons_cdr();
+                if matches!(symbol_id(&entry_car), Some(id) if id == target) {
+                    return Some(entry_cdr);
                 }
             }
             _ => return None,
@@ -1157,7 +1143,7 @@ fn macroexpand_once_with_environment<R: MacroexpandRuntime>(
             // Check for Value::Macro (native macros) AND cons-cell macros
             // `(macro . fn)` — matches real Emacs eval.c which checks
             // `EQ (XCAR (def), Qmacro)`.
-            let is_macro = matches!(global, ValueKind::Veclike(VecLikeType::Macro))
+            let is_macro = matches!(global.kind(), ValueKind::Veclike(VecLikeType::Macro))
                 || (global.is_cons() && global.cons_car().is_symbol_named("macro"));
             if is_macro {
                 function = Some(if global.is_cons() {

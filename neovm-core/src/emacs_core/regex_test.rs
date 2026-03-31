@@ -5,7 +5,7 @@ use crate::gc::types::LispString;
 
 fn extract_heap_match_string(md: &MatchData, group: usize) -> Option<String> {
     let searched = match md.searched_string.as_ref()? {
-        SearchedString::Heap(id) => SearchedString::Heap(*id),
+        SearchedString::Heap(val) => SearchedString::Heap(*val),
         SearchedString::Owned(text) => SearchedString::Owned(text.clone()),
     };
     let (start, end) = md.groups.get(group).and_then(|group| *group)?;
@@ -464,12 +464,12 @@ fn heap_match_string_on_lisp_slice_mirrors_gnu_bracket_closing() {
     let mut md = None;
     let source = LispString::new("x = 42;".to_string(), false);
     let slice = source.slice(2, source.byte_len()).expect("slice");
-    let slice_id = with_heap_mut(|heap| heap.alloc_lisp_string(slice.clone()));
-    let stored_slice = with_heap(|heap| heap.get_lisp_string(slice_id).clone());
+    let slice_val = crate::emacs_core::value::Value::string(slice.to_str());
+    let stored_slice = slice_val.as_lisp_string().unwrap().clone();
     let result = string_match_full_with_case_fold_source_lisp(
         "\\`[-+*/=<>!&|(){}\\[\\];,.]",
         &stored_slice,
-        SearchedString::Heap(slice_id),
+        SearchedString::Heap(slice_val),
         0,
         true,
         &mut md,
@@ -498,8 +498,8 @@ fn heap_tokenizer_loop_mirrors_gnu_single_char_operator_behavior() {
     let mut tokens = Vec::new();
     while pos < code.byte_len() {
         let rest = code.slice(pos, code.byte_len()).expect("rest slice");
-        let rest_id = with_heap_mut(|heap| heap.alloc_lisp_string(rest.clone()));
-        let stored_rest = with_heap(|heap| heap.get_lisp_string(rest_id).clone());
+        let rest_val = crate::emacs_core::value::Value::string(rest.to_str());
+        let stored_rest = rest_val.as_lisp_string().unwrap().clone();
         let mut matched = false;
 
         for (pattern, mut kind) in patterns {
@@ -511,7 +511,7 @@ fn heap_tokenizer_loop_mirrors_gnu_single_char_operator_behavior() {
             if let Ok(Some(_)) = string_match_full_with_case_fold_source_lisp(
                 pattern,
                 &stored_rest,
-                SearchedString::Heap(rest_id),
+                SearchedString::Heap(rest_val),
                 0,
                 true,
                 &mut md,

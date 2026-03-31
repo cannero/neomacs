@@ -75,14 +75,14 @@ pub struct MatchData {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SearchedString {
-    Heap(crate::gc::types::ObjId),
+    Heap(super::value::Value),
     Owned(String),
 }
 
 impl SearchedString {
     pub(crate) fn with_str<R>(&self, f: impl FnOnce(&str) -> R) -> R {
         match self {
-            Self::Heap(id) => with_heap(|heap| f(heap.get_string(*id))),
+            Self::Heap(val) => f(val.as_str().unwrap_or("")),
             Self::Owned(text) => f(text),
         }
     }

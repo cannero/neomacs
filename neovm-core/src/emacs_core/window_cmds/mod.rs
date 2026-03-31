@@ -10,7 +10,7 @@
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::minibuffer::MinibufferManager;
-use super::value::{Value, list_to_vec, next_float_id, read_cons, with_heap, ValueKind, VecLikeType};
+use super::value::{Value, list_to_vec, ValueKind, VecLikeType};
 use crate::buffer::{BufferId, BufferManager};
 use crate::window::{
     FrameId, FrameManager, Rect, SplitDirection, Window, WindowBufferDisplayDefaults, WindowId,
@@ -93,9 +93,9 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
 fn expect_number(value: &Value) -> Result<f64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
-        ValueKind::Float => Ok(*n),
+        ValueKind::Float => Ok(value.xfloat()),
         ValueKind::Char(c) => Ok(c as i64 as f64),
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("numberp"), *value],
         )),
@@ -112,24 +112,22 @@ fn parse_integer_or_marker_arg(value: &Value) -> Result<IntegerOrMarkerArg, Flow
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(IntegerOrMarkerArg::Int(n)),
         ValueKind::Char(c) => Ok(IntegerOrMarkerArg::Int(c as i64)),
-        v if super::marker::is_marker(v) => {
-            let position = match v.kind() {
-                ValueKind::Veclike(VecLikeType::Vector) => {
-                    let elems = v.as_vector_data().unwrap().clone();
-                    match elems.get(2).kind() {
-                        Some(ValueKind::Fixnum(n)) => Some(n),
-                        Some(ValueKind::Char(c)) => Some(c as i64),
-                        _ => None,
-                    }
+        _ if value.is_marker() => {
+            let position = if let Some(elems) = value.as_vector_data() {
+                match elems.get(2).map(|v| v.kind()) {
+                    Some(ValueKind::Fixnum(n)) => Some(n),
+                    Some(ValueKind::Char(c)) => Some(c as i64),
+                    _ => None,
                 }
-                _ => None,
+            } else {
+                None
             };
             Ok(IntegerOrMarkerArg::Marker {
                 raw: *value,
                 position,
             })
         }
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *value],
         )),
@@ -140,8 +138,8 @@ fn expect_number_or_marker_count(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
         ValueKind::Char(c) => Ok(c as i64),
-        ValueKind::Float => Ok(n.floor() as i64),
-        marker if super::marker::is_marker(marker) => match parse_integer_or_marker_arg(marker)? {
+        ValueKind::Float => Ok(value.xfloat().floor() as i64),
+        _ if value.is_marker() => match parse_integer_or_marker_arg(value)? {
             IntegerOrMarkerArg::Marker {
                 position: Some(pos),
                 ..
@@ -152,7 +150,7 @@ fn expect_number_or_marker_count(value: &Value) -> Result<i64, Flow> {
             )),
             IntegerOrMarkerArg::Int(pos) => Ok(pos),
         },
-        other => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("number-or-marker-p"), *value],
         )),
@@ -208,8 +206,8 @@ fn expect_number_or_marker(value: &Value) -> Result<f64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
         ValueKind::Char(c) => Ok(c as i64 as f64),
-        ValueKind::Float => Ok(*f),
-        other => Err(signal(
+        ValueKind::Float => Ok(value.xfloat()),
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("number-or-marker-p"), *value],
         )),
@@ -311,7 +309,7 @@ fn resolve_window_frame_id_for_pred(
 
 fn window_id_from_designator(value: &Value) -> Option<WindowId> {
     match value.kind() {
-        ValueKind::Veclike(VecLikeType::Window) => Some(WindowId(*id)),
+        ValueKind::Veclike(VecLikeType::Window) => Some(WindowId(value.as_window_id().unwrap())),
         ValueKind::Fixnum(n) if n >= 0 => Some(WindowId(n as u64)),
         _ => None,
     }
@@ -335,30 +333,27 @@ fn resolve_window_id_with_pred_in_state(
     arg: Option<&Value>,
     pred: &str,
 ) -> Result<(FrameId, WindowId), Flow> {
-    match arg {
-        None | Some(ValueKind::Nil) => {
-            let frame_id = ensure_selected_frame_id_in_state(frames, buffers);
-            let frame = frames
-                .get(frame_id)
-                .ok_or_else(|| signal("error", vec![Value::string("No selected frame")]))?;
-            Ok((frame_id, frame.selected_window))
-        }
-        Some(val) => {
-            let Some(wid) = window_id_from_designator(val) else {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol(pred), *val],
-                ));
-            };
-            if let Some(frame_id) = resolve_window_frame_id_for_pred(frames, wid, pred) {
-                Ok((frame_id, wid))
-            } else {
-                Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol(pred), *val],
-                ))
-            }
-        }
+    if arg.is_none_or(|v| v.is_nil()) {
+        let frame_id = ensure_selected_frame_id_in_state(frames, buffers);
+        let frame = frames
+            .get(frame_id)
+            .ok_or_else(|| signal("error", vec![Value::string("No selected frame")]))?;
+        return Ok((frame_id, frame.selected_window));
+    }
+    let val = arg.unwrap(); // None case handled above
+    let Some(wid) = window_id_from_designator(val) else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol(pred), *val],
+        ));
+    };
+    if let Some(frame_id) = resolve_window_frame_id_for_pred(frames, wid, pred) {
+        Ok((frame_id, wid))
+    } else {
+        Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol(pred), *val],
+        ))
     }
 }
 
@@ -395,27 +390,24 @@ fn resolve_window_object_id_with_pred_in_state(
     arg: Option<&Value>,
     pred: &str,
 ) -> Result<WindowId, Flow> {
-    match arg {
-        None | Some(ValueKind::Nil) => {
-            let (_fid, wid) = resolve_window_id_with_pred_in_state(frames, buffers, None, pred)?;
-            Ok(wid)
-        }
-        Some(val) => {
-            let Some(wid) = window_id_from_designator(val) else {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol(pred), *val],
-                ));
-            };
-            if frames.is_window_object_id(wid) {
-                Ok(wid)
-            } else {
-                Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol(pred), *val],
-                ))
-            }
-        }
+    if arg.is_none_or(|v| v.is_nil()) {
+        let (_fid, wid) = resolve_window_id_with_pred_in_state(frames, buffers, None, pred)?;
+        return Ok(wid);
+    }
+    let val = arg.unwrap();
+    let Some(wid) = window_id_from_designator(val) else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol(pred), *val],
+        ));
+    };
+    if frames.is_window_object_id(wid) {
+        Ok(wid)
+    } else {
+        Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol(pred), *val],
+        ))
     }
 }
 
@@ -435,26 +427,25 @@ fn resolve_window_id_or_error_in_state(
     buffers: &mut BufferManager,
     arg: Option<&Value>,
 ) -> Result<(FrameId, WindowId), Flow> {
-    match arg {
-        None | Some(ValueKind::Nil) => resolve_window_id_in_state(frames, buffers, arg),
-        Some(value) => {
-            let Some(wid) = window_id_from_designator(value) else {
-                // GNU window.c: CHECK_VALID_WINDOW signals wrong-type-argument
-                // with window-valid-p (or windowp for non-window types).
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("windowp"), *value],
-                ));
-            };
-            if let Some(fid) = frames.find_window_frame_id(wid) {
-                Ok((fid, wid))
-            } else {
-                Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("window-valid-p"), *value],
-                ))
-            }
-        }
+    if arg.is_none_or(|v| v.is_nil()) {
+        return resolve_window_id_in_state(frames, buffers, arg);
+    }
+    let value = arg.unwrap();
+    let Some(wid) = window_id_from_designator(value) else {
+        // GNU window.c: CHECK_VALID_WINDOW signals wrong-type-argument
+        // with window-valid-p (or windowp for non-window types).
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("windowp"), *value],
+        ));
+    };
+    if let Some(fid) = frames.find_window_frame_id(wid) {
+        Ok((fid, wid))
+    } else {
+        Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("window-valid-p"), *value],
+        ))
     }
 }
 
@@ -490,41 +481,38 @@ fn resolve_window_id_or_window_error_in_state(
     arg: Option<&Value>,
     live_only: bool,
 ) -> Result<(FrameId, WindowId), Flow> {
-    match arg {
-        None | Some(ValueKind::Nil) => {
-            resolve_window_id_with_pred_in_state(frames, buffers, arg, "window-live-p")
-        }
-        Some(val) => {
-            let Some(wid) = window_id_from_designator(val) else {
-                let window_kind = if live_only { "live" } else { "valid" };
-                return Err(signal(
-                    "error",
-                    vec![Value::string(format!(
-                        "{} is not a {} window",
-                        format_window_designator_for_error_in_state(frames, val),
-                        window_kind
-                    ))],
-                ));
-            };
-            let frame_id = if live_only {
-                frames.find_window_frame_id(wid)
-            } else {
-                frames.find_valid_window_frame_id(wid)
-            };
-            if let Some(fid) = frame_id {
-                Ok((fid, wid))
-            } else {
-                let window_kind = if live_only { "live" } else { "valid" };
-                Err(signal(
-                    "error",
-                    vec![Value::string(format!(
-                        "{} is not a {} window",
-                        format_window_designator_for_error_in_state(frames, val),
-                        window_kind
-                    ))],
-                ))
-            }
-        }
+    if arg.is_none_or(|v| v.is_nil()) {
+        return resolve_window_id_with_pred_in_state(frames, buffers, arg, "window-live-p");
+    }
+    let val = arg.unwrap();
+    let Some(wid) = window_id_from_designator(val) else {
+        let window_kind = if live_only { "live" } else { "valid" };
+        return Err(signal(
+            "error",
+            vec![Value::string(format!(
+                "{} is not a {} window",
+                format_window_designator_for_error_in_state(frames, val),
+                window_kind
+            ))],
+        ));
+    };
+    let frame_id = if live_only {
+        frames.find_window_frame_id(wid)
+    } else {
+        frames.find_valid_window_frame_id(wid)
+    };
+    if let Some(fid) = frame_id {
+        Ok((fid, wid))
+    } else {
+        let window_kind = if live_only { "live" } else { "valid" };
+        Err(signal(
+            "error",
+            vec![Value::string(format!(
+                "{} is not a {} window",
+                format_window_designator_for_error_in_state(frames, val),
+                window_kind
+            ))],
+        ))
     }
 }
 
@@ -546,33 +534,37 @@ pub(crate) fn resolve_frame_id_in_state(
     arg: Option<&Value>,
     predicate: &str,
 ) -> Result<FrameId, Flow> {
-    match arg {
-        None | Some(ValueKind::Nil) => Ok(ensure_selected_frame_id_in_state(frames, buffers)),
-        Some(ValueKind::Fixnum(n)) => {
-            let fid = FrameId(*n as u64);
+    if arg.is_none_or(|v| v.is_nil()) {
+        return Ok(ensure_selected_frame_id_in_state(frames, buffers));
+    }
+    let val = arg.unwrap();
+    match val.kind() {
+        ValueKind::Fixnum(n) => {
+            let fid = FrameId(n as u64);
             if frames.get(fid).is_some() {
                 Ok(fid)
             } else {
                 Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol(predicate), Value::fixnum(*n)],
+                    vec![Value::symbol(predicate), Value::fixnum(n)],
                 ))
             }
         }
-        Some(ValueKind::Veclike(VecLikeType::Frame)) => {
-            let fid = FrameId(*id);
+        ValueKind::Veclike(VecLikeType::Frame) => {
+            let raw_id = val.as_frame_id().unwrap();
+            let fid = FrameId(raw_id);
             if frames.get(fid).is_some() {
                 Ok(fid)
             } else {
                 Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol(predicate), Value::Frame(*id)],
+                    vec![Value::symbol(predicate), Value::make_frame(raw_id)],
                 ))
             }
         }
-        Some(other) => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol(predicate), *other],
+            vec![Value::symbol(predicate), *val],
         )),
     }
 }
@@ -594,46 +586,51 @@ fn resolve_frame_or_window_frame_id_in_state(
     arg: Option<&Value>,
     predicate: &str,
 ) -> Result<FrameId, Flow> {
-    match arg {
-        None | Some(ValueKind::Nil) => Ok(ensure_selected_frame_id_in_state(frames, buffers)),
-        Some(ValueKind::Veclike(VecLikeType::Frame)) => {
-            let fid = FrameId(*id);
+    if arg.is_none_or(|v| v.is_nil()) {
+        return Ok(ensure_selected_frame_id_in_state(frames, buffers));
+    }
+    let val = arg.unwrap();
+    match val.kind() {
+        ValueKind::Veclike(VecLikeType::Frame) => {
+            let raw_id = val.as_frame_id().unwrap();
+            let fid = FrameId(raw_id);
             if frames.get(fid).is_some() {
                 Ok(fid)
             } else {
                 Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol(predicate), Value::Frame(*id)],
+                    vec![Value::symbol(predicate), Value::make_frame(raw_id)],
                 ))
             }
         }
-        Some(ValueKind::Fixnum(n)) => {
-            let fid = FrameId(*n as u64);
+        ValueKind::Fixnum(n) => {
+            let fid = FrameId(n as u64);
             if frames.get(fid).is_some() {
                 return Ok(fid);
             }
-            let wid = WindowId(*n as u64);
+            let wid = WindowId(n as u64);
             if let Some(fid) = frames.find_valid_window_frame_id(wid) {
                 return Ok(fid);
             }
             Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol(predicate), Value::fixnum(*n)],
+                vec![Value::symbol(predicate), Value::fixnum(n)],
             ))
         }
-        Some(ValueKind::Veclike(VecLikeType::Window)) => {
-            let wid = WindowId(*id);
+        ValueKind::Veclike(VecLikeType::Window) => {
+            let raw_id = val.as_window_id().unwrap();
+            let wid = WindowId(raw_id);
             if let Some(fid) = frames.find_valid_window_frame_id(wid) {
                 return Ok(fid);
             }
             Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol(predicate), Value::Window(*id)],
+                vec![Value::symbol(predicate), Value::make_window(raw_id)],
             ))
         }
-        Some(other) => Err(signal(
+        _ => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol(predicate), *other],
+            vec![Value::symbol(predicate), *val],
         )),
     }
 }
@@ -1229,31 +1226,28 @@ pub(crate) fn builtin_window_buffer(
         }
     };
 
-    match args.first() {
-        None | Some(ValueKind::Nil) => {
-            let (fid, wid) =
-                resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "windowp")?;
-            resolve_buffer(frames, fid, wid)
-        }
-        Some(val) => {
-            let Some(wid) = window_id_from_designator(val) else {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("windowp"), *val],
-                ));
-            };
-            if let Some(fid) = frames.find_window_frame_id(wid) {
-                return resolve_buffer(frames, fid, wid);
-            }
-            if frames.is_window_object_id(wid) {
-                return Ok(Value::NIL);
-            }
-            Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("windowp"), *val],
-            ))
-        }
+    if args.first().is_none_or(|v| v.is_nil()) {
+        let (fid, wid) =
+            resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "windowp")?;
+        return resolve_buffer(frames, fid, wid);
     }
+    let val = args.first().unwrap();
+    let Some(wid) = window_id_from_designator(val) else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("windowp"), *val],
+        ));
+    };
+    if let Some(fid) = frames.find_window_frame_id(wid) {
+        return resolve_buffer(frames, fid, wid);
+    }
+    if frames.is_window_object_id(wid) {
+        return Ok(Value::NIL);
+    }
+    Err(signal(
+        "wrong-type-argument",
+        vec![Value::symbol("windowp"), *val],
+    ))
 }
 /// `(window-display-table &optional WINDOW)` -> display table or nil.
 pub(crate) fn builtin_window_display_table(
@@ -1553,7 +1547,7 @@ pub(crate) fn builtin_window_end(eval: &mut super::eval::Context, args: Vec<Valu
     let (fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let w = get_leaf(frames, fid, wid)?;
-    match w.kind() {
+    match w {
         Window::Leaf {
             window_start,
             window_end_pos,
@@ -1603,7 +1597,7 @@ pub(crate) fn builtin_window_point(
     let (fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
     let w = get_leaf(frames, fid, wid)?;
-    match w.kind() {
+    match w {
         Window::Leaf {
             buffer_id, point, ..
         } => {
@@ -1635,7 +1629,7 @@ pub(crate) fn builtin_set_window_start(
         let is_minibuffer = frames
             .get(fid)
             .is_some_and(|frame| frame.minibuffer_window == Some(wid));
-        match pos.kind() {
+        match pos {
             IntegerOrMarkerArg::Int(pos) => {
                 if !is_minibuffer {
                     if let Some(clamped) =
@@ -1649,7 +1643,7 @@ pub(crate) fn builtin_set_window_start(
                         }
                     }
                 }
-                ValueKind::Fixnum(pos)
+                Value::fixnum(pos)
             }
             IntegerOrMarkerArg::Marker { raw, position } => {
                 if !is_minibuffer {
@@ -1688,7 +1682,7 @@ pub(crate) fn builtin_set_window_group_start(
     let is_minibuffer = frames
         .get(fid)
         .is_some_and(|frame| frame.minibuffer_window == Some(wid));
-    match pos.kind() {
+    match pos {
         IntegerOrMarkerArg::Int(pos) => {
             if !is_minibuffer {
                 if let Some(clamped) =
@@ -1741,7 +1735,7 @@ pub(crate) fn builtin_set_window_point(
     let is_minibuffer = frames
         .get(fid)
         .is_some_and(|frame| frame.minibuffer_window == Some(wid));
-    match pos.kind() {
+    match pos {
         IntegerOrMarkerArg::Int(pos) => {
             if !is_minibuffer {
                 if let Some(clamped) =
@@ -1864,23 +1858,28 @@ pub(crate) fn builtin_window_bump_use_time(
         .get(selected_fid)
         .map(|frame| frame.selected_window)
         .ok_or_else(|| signal("error", vec![Value::string("No selected frame")]))?;
-    let target_wid = match args.first() {
-        None | Some(ValueKind::Nil) => selected_wid,
-        Some(ValueKind::Veclike(VecLikeType::Window)) => {
-            let wid = WindowId(*id);
-            if frames.find_window_frame_id(wid).is_none() {
+    let target_wid = if args.first().is_none_or(|v| v.is_nil()) {
+        selected_wid
+    } else {
+        let val = args.first().unwrap();
+        match val.kind() {
+            ValueKind::Veclike(VecLikeType::Window) => {
+                let raw_id = val.as_window_id().unwrap();
+                let wid = WindowId(raw_id);
+                if frames.find_window_frame_id(wid).is_none() {
+                    return Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("window-live-p"), Value::make_window(raw_id)],
+                    ));
+                }
+                wid
+            }
+            _ => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("window-live-p"), Value::Window(*id)],
+                    vec![Value::symbol("window-live-p"), *val],
                 ));
             }
-            wid
-        }
-        Some(other) => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("window-live-p"), *other],
-            ));
         }
     };
     Ok(
@@ -1979,8 +1978,8 @@ pub(crate) fn builtin_window_discard_buffer_from_window(
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_min_args("window-discard-buffer-from-window", &args, 2)?;
     expect_max_args("window-discard-buffer-from-window", &args, 3)?;
-    let buffer_id = match args.first() {
-        Some(ValueKind::Veclike(VecLikeType::Buffer)) if buffers.get(*id).is_some() => *id,
+    let buffer_id = match args.first().and_then(|v| v.as_buffer_id()) {
+        Some(bid) if buffers.get(bid).is_some() => bid,
         _ => {
             return Err(signal("error", vec![Value::string("Not a live buffer")]));
         }
@@ -2111,18 +2110,14 @@ pub(crate) fn builtin_set_window_hscroll(
 fn scroll_prefix_value(value: &Value) -> i64 {
     match value.kind() {
         ValueKind::Fixnum(n) => n,
-        ValueKind::Float => *f as i64,
+        ValueKind::Float => value.xfloat() as i64,
         ValueKind::Char(c) => c as i64,
         ValueKind::Symbol(id) if resolve_sym(id) == "-" => -1,
         ValueKind::Cons => {
-            let car = {
-                let pair_car = value.cons_car();
-                let pair_cdr = value.cons_cdr();
-                pair_car
-            };
+            let car = value.cons_car();
             match car.kind() {
                 ValueKind::Fixnum(n) => n,
-                ValueKind::Float => f as i64,
+                ValueKind::Float => car.xfloat() as i64,
                 ValueKind::Char(c) => c as i64,
                 _ => 1,
             }
@@ -2163,9 +2158,10 @@ pub(crate) fn builtin_scroll_left(eval: &mut super::eval::Context, args: Vec<Val
             _ => None,
         })
         .unwrap_or(0);
-    let delta = match args.first() {
-        None | Some(ValueKind::Nil) => default_scroll_columns_in_state(frames, fid, wid),
-        Some(value) => scroll_prefix_value(value),
+    let delta = if args.first().is_none_or(|v| v.is_nil()) {
+        default_scroll_columns_in_state(frames, fid, wid)
+    } else {
+        scroll_prefix_value(args.first().unwrap())
     };
     let mut next = base as i128 + delta as i128;
     if next < 0 {
@@ -2197,9 +2193,10 @@ pub(crate) fn builtin_scroll_right(
             _ => None,
         })
         .unwrap_or(0);
-    let delta = match args.first() {
-        None | Some(ValueKind::Nil) => default_scroll_columns_in_state(frames, fid, wid),
-        Some(value) => scroll_prefix_value(value),
+    let delta = if args.first().is_none_or(|v| v.is_nil()) {
+        default_scroll_columns_in_state(frames, fid, wid)
+    } else {
+        scroll_prefix_value(args.first().unwrap())
     };
     let mut next = base as i128 - delta as i128;
     if next < 0 {
@@ -2905,65 +2902,70 @@ pub(crate) fn builtin_window_list(eval: &mut super::eval::Context, args: Vec<Val
     expect_max_args("window-list", &args, 3)?;
     let selected_fid = ensure_selected_frame_id_in_state(frames, buffers);
     // GNU Emacs validates ALL-FRAMES before FRAME mismatch checks.
-    let all_frames_fid = match args.get(2) {
-        None | Some(ValueKind::Nil) => None,
-        Some(arg) => {
-            let Some(wid) = window_id_from_designator(arg) else {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("windowp"), *arg],
-                ));
-            };
-            if let Some(fid) = frames.find_window_frame_id(wid) {
-                Some(fid)
-            } else if frames.is_window_object_id(wid) {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("window-live-p"), *arg],
-                ));
-            } else {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("windowp"), *arg],
-                ));
-            }
+    let all_frames_fid = if args.get(2).is_none_or(|v| v.is_nil()) {
+        None
+    } else {
+        let arg = args.get(2).unwrap();
+        let Some(wid) = window_id_from_designator(arg) else {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("windowp"), *arg],
+            ));
+        };
+        if let Some(fid) = frames.find_window_frame_id(wid) {
+            Some(fid)
+        } else if frames.is_window_object_id(wid) {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("window-live-p"), *arg],
+            ));
+        } else {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("windowp"), *arg],
+            ));
         }
     };
-    let mut fid = match args.first() {
-        None | Some(Value::NIL) => selected_fid,
-        Some(Value::fixnum(n)) => {
-            let fid = FrameId(*n as u64);
-            if frames.get(fid).is_some() {
-                fid
-            } else {
+    let mut fid = if args.first().is_none_or(|v| v.is_nil()) {
+        selected_fid
+    } else {
+        let val = args.first().unwrap();
+        match val.kind() {
+            ValueKind::Fixnum(n) => {
+                let fid = FrameId(n as u64);
+                if frames.get(fid).is_some() {
+                    fid
+                } else {
+                    return Err(signal(
+                        "error",
+                        vec![Value::string("Window is on a different frame")],
+                    ));
+                }
+            }
+            ValueKind::Veclike(VecLikeType::Frame) => {
+                let raw_id = val.as_frame_id().unwrap();
+                let fid = FrameId(raw_id);
+                if frames.get(fid).is_some() {
+                    fid
+                } else {
+                    return Err(signal(
+                        "error",
+                        vec![Value::string("Window is on a different frame")],
+                    ));
+                }
+            }
+            _ => {
                 return Err(signal(
                     "error",
                     vec![Value::string("Window is on a different frame")],
                 ));
             }
-        }
-        Some(Value::make_frame(id)) => {
-            let fid = FrameId(*id);
-            if frames.get(fid).is_some() {
-                fid
-            } else {
-                return Err(signal(
-                    "error",
-                    vec![Value::string("Window is on a different frame")],
-                ));
-            }
-        }
-        Some(_) => {
-            return Err(signal(
-                "error",
-                vec![Value::string("Window is on a different frame")],
-            ));
         }
     };
     if let Some(all_frames_fid) = all_frames_fid {
         fid = all_frames_fid;
     }
-    let include_minibuffer = matches!(args.get(1), Some(Value::T));
+    let include_minibuffer = args.get(1).is_some_and(|v| *v == Value::T);
     let frame = frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
@@ -2983,12 +2985,12 @@ pub(crate) fn builtin_window_list_1(
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("window-list-1", &args, 3)?;
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
-    let (fid, start_wid) = match args.first() {
-        None | Some(Value::NIL) => {
-            resolve_window_id_with_pred_in_state(frames, buffers, None, "window-live-p")?
-        }
-        Some(Value::make_window(id)) => {
-            let wid = WindowId(*id);
+    let (fid, start_wid) = if args.first().is_none_or(|v| v.is_nil()) {
+        resolve_window_id_with_pred_in_state(frames, buffers, None, "window-live-p")?
+    } else {
+        let val = args.first().unwrap();
+        if let Some(raw_id) = val.as_window_id() {
+            let wid = WindowId(raw_id);
             if let Some(fid) = frames.find_window_frame_id(wid) {
                 (fid, wid)
             } else {
@@ -2997,11 +2999,10 @@ pub(crate) fn builtin_window_list_1(
                     vec![Value::symbol("window-live-p"), args[0]],
                 ));
             }
-        }
-        Some(other) => {
+        } else {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("window-live-p"), *other],
+                vec![Value::symbol("window-live-p"), *val],
             ));
         }
     };
@@ -3009,29 +3010,28 @@ pub(crate) fn builtin_window_list_1(
     // ALL-FRAMES matches GNU Emacs: nil/default => WINDOW's frame; t => all
     // frames; 'visible and 0 => visible/iconified frames (we only model
     // visibility); a frame object => that frame; anything else => WINDOW's frame.
-    let mut frame_ids: Vec<FrameId> = match args.get(2) {
-        None | Some(Value::NIL) => vec![fid],
-        Some(Value::T) => {
+    let mut frame_ids: Vec<FrameId> = if args.get(2).is_none_or(|v| v.is_nil()) {
+        vec![fid]
+    } else {
+        let af = args.get(2).unwrap();
+        if *af == Value::T {
             let mut ids = frames.frame_list();
             ids.sort_by_key(|f| f.0);
             ids
-        }
-        Some(Value::symbol(sym)) if resolve_sym(sym) == "visible" => {
+        } else if af.as_symbol_name() == Some("visible") {
             let mut ids = frames.frame_list();
             ids.sort_by_key(|f| f.0);
             ids.into_iter()
                 .filter(|frame_id| frames.get(*frame_id).is_some_and(|frame| frame.visible))
                 .collect()
-        }
-        Some(Value::fixnum(0)) => {
+        } else if af.as_fixnum() == Some(0) {
             let mut ids = frames.frame_list();
             ids.sort_by_key(|f| f.0);
             ids.into_iter()
                 .filter(|frame_id| frames.get(*frame_id).is_some_and(|frame| frame.visible))
                 .collect()
-        }
-        Some(Value::make_frame(frame_raw_id)) => {
-            let frame_id = FrameId(*frame_raw_id);
+        } else if let Some(raw_id) = af.as_frame_id() {
+            let frame_id = FrameId(raw_id);
             if frames.get(frame_id).is_none() {
                 return Err(signal(
                     "wrong-type-argument",
@@ -3039,8 +3039,9 @@ pub(crate) fn builtin_window_list_1(
                 ));
             }
             vec![frame_id]
+        } else {
+            vec![fid]
         }
-        Some(_) => vec![fid],
     };
     if frame_ids.is_empty() {
         frame_ids.push(fid);
@@ -3050,7 +3051,7 @@ pub(crate) fn builtin_window_list_1(
         frame_ids.rotate_left(start_pos);
     }
 
-    let include_minibuffer = matches!(args.get(1), Some(Value::T));
+    let include_minibuffer = args.get(1).is_some_and(|v| *v == Value::T);
     let mut seen_window_ids: HashSet<u64> = HashSet::new();
     let mut windows: Vec<Value> = Vec::new();
 
@@ -3094,25 +3095,29 @@ pub(crate) fn builtin_get_buffer_window(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("get-buffer-window", &args, 2)?;
-    let target = match args.first() {
-        None | Some(ValueKind::Nil) => return Ok(Value::NIL),
-        Some(ValueKind::String) => {
-            let name_s = args[0].as_str().unwrap();
+    if args.first().is_none_or(|v| v.is_nil()) {
+        return Ok(Value::NIL);
+    }
+    let val = args.first().unwrap();
+    let target = match val.kind() {
+        ValueKind::String => {
+            let name_s = val.as_str().unwrap();
             match eval.buffers.find_buffer_by_name(name_s) {
                 Some(id) => id,
                 None => return Ok(Value::NIL),
             }
         }
-        Some(ValueKind::Veclike(VecLikeType::Buffer)) => {
-            if eval.buffers.get(*id).is_none() {
+        ValueKind::Veclike(VecLikeType::Buffer) => {
+            let bid = val.as_buffer_id().unwrap();
+            if eval.buffers.get(bid).is_none() {
                 return Ok(Value::NIL);
             }
-            *id
+            bid
         }
-        Some(other) => {
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("stringp"), *other],
+                vec![Value::symbol("stringp"), *val],
             ));
         }
     };
@@ -3511,7 +3516,7 @@ fn record_buffer_display_in_state(buffers: &mut BufferManager, buffer_id: Buffer
     let Some(buffer) = buffers.get_mut(buffer_id) else {
         return Ok(Value::NIL);
     };
-    if let Some(Value::fixnum(count)) = buffer.buffer_local_value("buffer-display-count") {
+    if let Some(count) = buffer.buffer_local_value("buffer-display-count").and_then(|v| v.as_fixnum()) {
         buffer.set_buffer_local("buffer-display-count", Value::fixnum(count.saturating_add(1)));
     }
     buffer.set_buffer_local("buffer-display-time", display_time);
@@ -3694,17 +3699,18 @@ pub(crate) fn builtin_set_window_buffer(
         let (fid, wid) = resolve_window_id_in_state(frames, buffers, args.first())?;
         let buf_id = match args[1].kind() {
             ValueKind::Veclike(VecLikeType::Buffer) => {
-                if buffers.get(*id).is_none() {
+                let bid = args[1].as_buffer_id().unwrap();
+                if buffers.get(bid).is_none() {
                     return Err(signal(
                         "error",
                         vec![Value::string("Attempt to display deleted buffer")],
                     ));
                 }
-                *id
+                bid
             }
             ValueKind::String => {
                 let name_s = args[1].as_str().unwrap();
-                match buffers.find_buffer_by_name(name_s).kind() {
+                match buffers.find_buffer_by_name(name_s) {
                     Some(id) => id,
                     None => {
                         return Err(signal(
@@ -3714,7 +3720,7 @@ pub(crate) fn builtin_set_window_buffer(
                     }
                 }
             }
-            other => {
+            _ => {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("stringp"), args[1]],
@@ -3910,13 +3916,14 @@ pub(crate) fn builtin_switch_to_buffer(
     let (buf_id, run_buffer_list_hook) = {
         let buf_id = match args[0].kind() {
             ValueKind::Veclike(VecLikeType::Buffer) => {
-                if eval.buffers.get(*id).is_none() {
+                let bid = args[0].as_buffer_id().unwrap();
+                if eval.buffers.get(bid).is_none() {
                     return Err(signal(
                         "error",
                         vec![Value::string("Attempt to display deleted buffer")],
                     ));
                 }
-                *id
+                bid
             }
             ValueKind::String => {
                 let name_s = args[0].as_str().unwrap();
@@ -3925,7 +3932,7 @@ pub(crate) fn builtin_switch_to_buffer(
                     None => eval.buffers.create_buffer(name_s),
                 }
             }
-            other => {
+            _ => {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("stringp"), args[0]],
@@ -3983,10 +3990,11 @@ pub(crate) fn builtin_display_buffer(
     expect_max_args("display-buffer", &args, 3)?;
     let buf_id = match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Buffer) => {
-            if eval.buffers.get(*id).is_none() {
+            let bid = args[0].as_buffer_id().unwrap();
+            if eval.buffers.get(bid).is_none() {
                 return Err(signal("error", vec![Value::string("Invalid buffer")]));
             }
-            *id
+            bid
         }
         ValueKind::String => {
             let name_s = args[0].as_str().unwrap();
@@ -3995,7 +4003,7 @@ pub(crate) fn builtin_display_buffer(
                 None => return Err(signal("error", vec![Value::string("Invalid buffer")])),
             }
         }
-        other => {
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("stringp"), args[0]],
@@ -4130,10 +4138,11 @@ pub(crate) fn builtin_pop_to_buffer(
     expect_max_args("pop-to-buffer", &args, 3)?;
     let buf_id = match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Buffer) => {
-            if eval.buffers.get(*id).is_none() {
+            let bid = args[0].as_buffer_id().unwrap();
+            if eval.buffers.get(bid).is_none() {
                 return Err(signal("error", vec![Value::string("Invalid buffer")]));
             }
-            *id
+            bid
         }
         ValueKind::String => {
             let name_s = args[0].as_str().unwrap();
@@ -4142,7 +4151,7 @@ pub(crate) fn builtin_pop_to_buffer(
                 None => eval.buffers.create_buffer(name_s),
             }
         }
-        other => {
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("stringp"), args[0]],
@@ -4420,17 +4429,11 @@ fn scroll_lines_in_state(
     // nil or absent: full window minus context lines.
     let wh = window_body_height_impl(frames, buffers, vec![])
         .ok()
-        .and_then(|v| match v {
-            Value::fixnum(n) => Some(n),
-            _ => None,
-        })
+        .and_then(|v| v.as_fixnum())
         .unwrap_or(24);
     let ctx = obarray
         .symbol_value("next-screen-context-lines")
-        .and_then(|v| match v {
-            Value::fixnum(n) => Some(*n),
-            _ => None,
-        })
+        .and_then(|v| v.as_fixnum())
         .unwrap_or(2);
     (wh - ctx).max(1) * direction
 }
@@ -4571,23 +4574,20 @@ pub(crate) fn builtin_recenter(eval: &mut super::eval::Context, args: Vec<Value>
 
         let wh = window_body_height_impl(frames, buffers, vec![])
             .ok()
-            .and_then(|v| match v {
-                Value::fixnum(n) => Some(n),
-                _ => None,
-            })
+            .and_then(|v| v.as_fixnum())
             .unwrap_or(24);
 
         // Determine target line from top of window where point should appear.
-        let target_line = match args.first() {
-            Some(ValueKind::Fixnum(n)) => {
-                if *n >= 0 {
-                    *n
+        let target_line = match args.first().and_then(|v| v.as_fixnum()) {
+            Some(n) => {
+                if n >= 0 {
+                    n
                 } else {
                     // Negative: count from bottom.
-                    (wh + *n).max(0)
+                    (wh + n).max(0)
                 }
             }
-            Some(v) if !v.is_nil() => wh / 2, // non-integer truthy = center
+            None if args.first().is_some_and(|v| !v.is_nil()) => wh / 2, // non-integer truthy = center
             _ => wh / 2,                      // nil or absent = center
         };
 
@@ -4710,16 +4710,17 @@ pub(crate) fn builtin_select_frame(
             fid
         }
         ValueKind::Veclike(VecLikeType::Frame) => {
-            let fid = FrameId(*id);
+            let raw_id = args[0].as_frame_id().unwrap();
+            let fid = FrameId(raw_id);
             if frames.get(fid).is_none() {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("frame-live-p"), Value::Frame(*id)],
+                    vec![Value::symbol("frame-live-p"), Value::make_frame(raw_id)],
                 ));
             }
             fid
         }
-        other => {
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("frame-live-p"), args[0]],
@@ -4764,16 +4765,17 @@ pub(crate) fn builtin_select_frame_set_input_focus(
             fid
         }
         ValueKind::Veclike(VecLikeType::Frame) => {
-            let fid = FrameId(*id);
+            let raw_id = args[0].as_frame_id().unwrap();
+            let fid = FrameId(raw_id);
             if frames.get(fid).is_none() {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("frame-live-p"), Value::Frame(*id)],
+                    vec![Value::symbol("frame-live-p"), Value::make_frame(raw_id)],
                 ));
             }
             fid
         }
-        other => {
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("frame-live-p"), args[0]],
@@ -5979,16 +5981,16 @@ pub(crate) fn builtin_frame_visible_p(
 ) -> EvalResult {
     let frames = &eval.frames;
     expect_args("frame-visible-p", &args, 1)?;
-    let fid = match args.first() {
-        Some(ValueKind::Fixnum(n)) => FrameId(*n as u64),
-        Some(ValueKind::Veclike(VecLikeType::Frame)) => FrameId(*id),
-        Some(other) => {
+    let val = args.first().unwrap(); // expect_args enforced
+    let fid = match val.kind() {
+        ValueKind::Fixnum(n) => FrameId(n as u64),
+        ValueKind::Veclike(VecLikeType::Frame) => FrameId(val.as_frame_id().unwrap()),
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("frame-live-p"), *other],
+                vec![Value::symbol("frame-live-p"), *val],
             ));
         }
-        None => unreachable!("expect_args enforced"),
     };
     let frame = frames.get(fid).ok_or_else(|| {
         signal(
@@ -6003,7 +6005,7 @@ pub(crate) fn builtin_frame_visible_p(
 pub(crate) fn builtin_framep(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("framep", &args, 1)?;
     let id = match args[0].kind() {
-        ValueKind::Veclike(VecLikeType::Frame) => *id,
+        ValueKind::Veclike(VecLikeType::Frame) => args[0].as_frame_id().unwrap(),
         ValueKind::Fixnum(n) => n as u64,
         _ => return Ok(Value::NIL),
     };
@@ -6024,7 +6026,7 @@ pub(crate) fn builtin_frame_live_p(
     let frames = &eval.frames;
     expect_args("frame-live-p", &args, 1)?;
     let id = match args[0].kind() {
-        ValueKind::Veclike(VecLikeType::Frame) => *id,
+        ValueKind::Veclike(VecLikeType::Frame) => args[0].as_frame_id().unwrap(),
         ValueKind::Fixnum(n) => n as u64,
         _ => return Ok(Value::NIL),
     };
@@ -6526,7 +6528,7 @@ pub(crate) fn builtin_window_tree(eval: &mut super::eval::Context, args: Vec<Val
         .ok_or_else(|| signal("error", vec![Value::string("No frame")]))?;
 
     fn window_tree_to_value(window: &Window) -> Value {
-        match window.kind() {
+        match window {
             Window::Leaf { id, .. } => Value::make_window(id.0),
             Window::Internal {
                 direction,
@@ -6603,10 +6605,10 @@ pub(crate) fn builtin_fit_window_to_buffer(
 
     // Parse optional height limits.
     let parse_opt_int = |idx: usize| -> Option<usize> {
-        args.get(idx).and_then(|v| match v {
-            Value::fixnum(n) if *n > 0 => Some(*n as usize),
-            _ => None,
-        })
+        args.get(idx)
+            .and_then(|v| v.as_fixnum())
+            .filter(|&n| n > 0)
+            .map(|n| n as usize)
     };
     let max_height = parse_opt_int(1);
     let min_height = parse_opt_int(2);

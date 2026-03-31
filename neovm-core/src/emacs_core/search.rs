@@ -418,7 +418,7 @@ pub(crate) fn builtin_replace_regexp_in_string(
     let mut cursor = start;
     let prefix_chars = s[..start].chars().count();
     let searched_string = match args[2].kind() {
-        ValueKind::String => super::regex::SearchedString::Heap(id),
+        ValueKind::String => super::regex::SearchedString::Heap(args[2]),
         _ => super::regex::SearchedString::Owned(s.clone()),
     };
 

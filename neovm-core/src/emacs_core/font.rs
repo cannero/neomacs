@@ -95,7 +95,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 fn live_frame_designator_in_state(frames: &FrameManager, value: &Value) -> bool {
     match value.kind() {
         ValueKind::Fixnum(id) if id >= 0 => frames.get(FrameId(id as u64)).is_some(),
-        ValueKind::Veclike(VecLikeType::Frame) => frames.get(FrameId(*id)).is_some(),
+        ValueKind::Veclike(VecLikeType::Frame) => frames.get(FrameId(value.as_frame_id().unwrap())).is_some(),
         _ => false,
     }
 }
@@ -103,14 +103,14 @@ fn live_frame_designator_in_state(frames: &FrameManager, value: &Value) -> bool 
 fn frame_id_from_designator(value: &Value) -> Option<FrameId> {
     match value.kind() {
         ValueKind::Fixnum(id) if id >= 0 => Some(FrameId(id as u64)),
-        ValueKind::Veclike(VecLikeType::Frame) => Some(FrameId(*id)),
+        ValueKind::Veclike(VecLikeType::Frame) => Some(FrameId(value.as_frame_id().unwrap())),
         _ => None,
     }
 }
 
 fn font_value_text(value: &Value) -> Option<String> {
     match value.kind() {
-        ValueKind::String => Some(with_heap(|heap| heap.get_string(*id).to_owned())),
+        ValueKind::String => Some(value.as_str().unwrap().to_owned()),
         ValueKind::Symbol(id) | ValueKind::Keyword(id) => Some(resolve_sym(id).to_owned()),
         _ => None,
     }
@@ -134,7 +134,7 @@ fn expect_optional_frame_designator_in_state(
 fn frame_device_designator_p(value: &Value) -> bool {
     match value.kind() {
         ValueKind::Fixnum(id) => id >= FRAME_ID_BASE as i64,
-        ValueKind::Veclike(VecLikeType::Frame) => *id >= FRAME_ID_BASE,
+        ValueKind::Veclike(VecLikeType::Frame) => value.as_frame_id().unwrap() >= FRAME_ID_BASE,
         _ => false,
     }
 }
@@ -148,10 +148,13 @@ fn live_frame_id_for_face_update(
     frame: Option<&Value>,
 ) -> Result<Option<FrameId>, Flow> {
     match frame {
-        None | Some(ValueKind::Nil) | Some(ValueKind::Fixnum(0)) => {
+        None => {
             Ok(Some(super::window_cmds::ensure_selected_frame_id(eval)))
         }
-        Some(ValueKind::T) => Ok(None),
+        Some(v) if v.is_nil() || v.as_fixnum() == Some(0) => {
+            Ok(Some(super::window_cmds::ensure_selected_frame_id(eval)))
+        }
+        Some(v) if v.is_t() => Ok(None),
         Some(value) if live_frame_designator_in_state(&eval.frames, value) => Ok(Some(
             frame_id_from_designator(value)
                 .expect("live frame designator should decode to frame id"),
@@ -215,7 +218,7 @@ pub(crate) fn update_face_from_frame_parameter(
                 .copied()
                 && !function.is_nil()
             {
-                let _ = eval.apply(function, vec![Value::Frame(frame_id.0)])?;
+                let _ = eval.apply(function, vec![Value::make_frame(frame_id.0)])?;
             }
             set_runtime_face_color_from_frame_parameter(
                 eval,
@@ -272,7 +275,7 @@ fn is_tagged_font_vector(val: &Value, tag: &str) -> bool {
     match val.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let elems = val.as_vector_data().unwrap().clone();
-            matches!(&elems.first(), Some(ValueKind::Keyword(k)) if resolve_sym(k) == tag)
+            elems.first().and_then(|v| v.as_keyword_id()).map_or(false, |k| resolve_sym(k) == tag)
         }
         _ => false,
     }
@@ -356,7 +359,8 @@ fn xlfd_size_field(size_val: &Value) -> Option<String> {
             }
         }
         ValueKind::Float => {
-            let scaled = size * 10.0;
+            let f = size_val.xfloat();
+            let scaled = f * 10.0;
             if scaled.is_finite() {
                 Some(format!("*-{}", scaled.round() as i64))
             } else {
@@ -377,23 +381,25 @@ fn fold_xlfd_wildcards(mut name: String) -> String {
 fn normalize_registry_field(value: &Option<Value>) -> String {
     match value {
         None => "*-*".to_string(),
-        Some(ValueKind::String) => {
-            let s = with_heap(|h| h.get_string(*id).to_owned());
-            if !s.contains('-') {
-                format!("{}-*", s)
-            } else {
-                s
+        Some(v) => match v.kind() {
+            ValueKind::String => {
+                let s = v.as_str().unwrap().to_owned();
+                if !s.contains('-') {
+                    format!("{}-*", s)
+                } else {
+                    s
+                }
             }
-        }
-        Some(ValueKind::Symbol(id)) | Some(ValueKind::Keyword(id)) => {
-            let s = resolve_sym(id);
-            if !s.contains('-') {
-                format!("{}-*", s)
-            } else {
-                s.to_owned()
+            ValueKind::Symbol(id) | ValueKind::Keyword(id) => {
+                let s = resolve_sym(id);
+                if !s.contains('-') {
+                    format!("{}-*", s)
+                } else {
+                    s.to_owned()
+                }
             }
-        }
-        _ => "*-*".to_string(),
+            _ => "*-*".to_string(),
+        },
     }
 }
 
@@ -420,28 +426,31 @@ fn sanitize_style_field(value: &Value) -> String {
 fn spacing_field(value: Option<&Value>) -> String {
     match value {
         None => "*".to_string(),
-        Some(ValueKind::Fixnum(spacing)) => {
-            let value = *spacing;
-            if value <= 0 {
+        Some(v) if v.is_fixnum() => {
+            let spacing = v.as_fixnum().unwrap();
+            if spacing <= 0 {
                 "p".to_string()
-            } else if value <= 1 {
+            } else if spacing <= 1 {
                 "d".to_string()
-            } else if value <= 2 {
+            } else if spacing <= 2 {
                 "m".to_string()
             } else {
                 "c".to_string()
             }
         }
-        Some(value) => sanitize_style_field(value),
+        Some(v) => sanitize_style_field(v),
     }
 }
 
 fn avg_width_field(value: Option<&Value>) -> String {
     match value {
-        Some(ValueKind::Fixnum(n)) => n.to_string(),
-        Some(ValueKind::String) => with_heap(|h| h.get_string(*id).to_owned()),
-        Some(ValueKind::Symbol(id)) | Some(ValueKind::Keyword(id)) => resolve_sym(id).to_owned(),
-        _ => "*".to_string(),
+        Some(v) => match v.kind() {
+            ValueKind::Fixnum(n) => n.to_string(),
+            ValueKind::String => v.as_str().unwrap().to_owned(),
+            ValueKind::Symbol(id) | ValueKind::Keyword(id) => resolve_sym(id).to_owned(),
+            _ => "*".to_string(),
+        },
+        None => "*".to_string(),
     }
 }
 
@@ -454,7 +463,10 @@ fn xlfd_pixel_field(size: Option<&Value>) -> String {
 
 fn xlfd_resolution_field(dpi: Option<&Value>) -> String {
     match dpi {
-        Some(ValueKind::Fixnum(size)) => format!("{}-{}", size, size),
+        Some(v) if v.is_fixnum() => {
+            let size = v.as_fixnum().unwrap();
+            format!("{}-{}", size, size)
+        }
         _ => "*-*".to_string(),
     }
 }
@@ -659,10 +671,8 @@ pub(crate) fn builtin_font_put(args: Vec<Value>) -> EvalResult {
     }
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            with_heap_mut(|h| {
-                let elems = h.get_vector_mut(*v);
-                font_spec_put(elems, &args[1], &args[2]);
-            });
+            let elems = args[0].as_vector_data_mut().unwrap();
+            font_spec_put(elems, &args[1], &args[2]);
             Ok(args[2])
         }
         _ => unreachable!("font-spec check above guarantees vector"),
@@ -707,7 +717,8 @@ fn find_font_frame_id(
     frame: Option<&Value>,
 ) -> Result<FrameId, Flow> {
     match frame {
-        None | Some(ValueKind::Nil) => Ok(super::window_cmds::ensure_selected_frame_id(eval)),
+        None => Ok(super::window_cmds::ensure_selected_frame_id(eval)),
+        Some(v) if v.is_nil() => Ok(super::window_cmds::ensure_selected_frame_id(eval)),
         Some(value) if live_frame_designator_in_state(&eval.frames, value) => {
             frame_id_from_designator(value).ok_or_else(|| {
                 signal(
@@ -735,7 +746,7 @@ fn font_spec_resolve_request(
         ));
     };
 
-    let elems = with_heap(|heap| heap.get_vector(*id).clone());
+    let elems = font_spec.as_vector_data().unwrap().clone();
     let family =
         font_vector_get_flexible(&elems, "family").and_then(|value| font_value_text(&value));
     let registry =
@@ -815,9 +826,9 @@ pub(crate) fn builtin_font_xlfd_name(args: Vec<Value>) -> EvalResult {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let elems = args[0].as_vector_data().unwrap().clone();
             if is_font_object(&args[0])
-                && let Some(ValueKind::String) = font_vector_get_flexible(&elems, "name")
+                && font_vector_get_flexible(&elems, "name").map_or(false, |v| v.is_string())
             {
-                let font_name = args[0].as_str().unwrap().to_owned();
+                let font_name = font_vector_get_flexible(&elems, "name").unwrap().as_str().unwrap().to_owned();
                 if font_name.starts_with('-') {
                     return Ok(Value::string(
                         if args.get(1).is_some_and(|v| v.is_truthy()) {
@@ -917,7 +928,7 @@ enum FaceLayer {
 
 fn window_id_from_designator(value: &Value) -> Option<WindowId> {
     match value.kind() {
-        ValueKind::Veclike(VecLikeType::Window) => Some(WindowId(*id)),
+        ValueKind::Veclike(VecLikeType::Window) => Some(WindowId(value.as_window_id().unwrap())),
         ValueKind::Fixnum(n) if n >= 0 => Some(WindowId(n as u64)),
         _ => None,
     }
@@ -928,7 +939,15 @@ fn resolve_live_window_for_font_at(
     value: Option<&Value>,
 ) -> Result<(FrameId, WindowId), Flow> {
     match value {
-        None | Some(ValueKind::Nil) => {
+        None => {
+            let frame_id = super::window_cmds::ensure_selected_frame_id(eval);
+            let frame = eval
+                .frames
+                .get(frame_id)
+                .ok_or_else(|| signal("error", vec![Value::string("No selected frame")]))?;
+            Ok((frame_id, frame.selected_window))
+        }
+        Some(v) if v.is_nil() => {
             let frame_id = super::window_cmds::ensure_selected_frame_id(eval);
             let frame = eval
                 .frames
@@ -1106,11 +1125,11 @@ fn resolved_face_at_buffer_byte(
 
 fn resolved_face_at_string_byte(
     eval: &super::eval::Context,
-    str_id: crate::gc::types::ObjId,
+    str_value: Value,
     bytepos: usize,
 ) -> RuntimeFace {
     let mut layers = Vec::new();
-    if let Some(table) = get_string_text_properties_table(str_id) {
+    if let Some(table) = get_string_text_properties_table_for_value(str_value) {
         if let Some(value) = table.get_property(bytepos, "face") {
             layers.extend(resolve_face_layers_from_value(value));
         }
@@ -1201,11 +1220,9 @@ fn build_font_object(face: &RuntimeFace) -> Value {
     let font_object = Value::vector(elems);
     let xlfd = builtin_font_xlfd_name(vec![font_object]).unwrap_or_else(|_| Value::NIL);
     if font_object.is_vector() {
-        with_heap_mut(|heap| {
-            let items = heap.get_vector_mut(id);
-            items.push(Value::keyword("name"));
-            items.push(if xlfd.is_nil() { Value::NIL } else { xlfd });
-        });
+        let items = font_object.as_vector_data_mut().unwrap();
+        items.push(Value::keyword("name"));
+        items.push(if xlfd.is_nil() { Value::NIL } else { xlfd });
     }
     font_object
 }
@@ -1268,8 +1285,8 @@ fn font_name_value(font_like: &Value) -> Option<Value> {
                     _ => None,
                 };
             }
-            match builtin_font_xlfd_name(vec![*font_like]).kind() {
-                Ok(ValueKind::String) => builtin_font_xlfd_name(vec![*font_like]).ok(),
+            match builtin_font_xlfd_name(vec![*font_like]) {
+                Ok(v) if v.is_string() => Some(v),
                 _ => None,
             }
         }
@@ -1286,7 +1303,7 @@ fn font_value_matches_frame_font_parameter(
     };
     match (frame_font.kind(), requested.kind()) {
         (ValueKind::String, ValueKind::String) => {
-            with_heap(|heap| heap.get_string(*expected) == heap.get_string(*actual))
+            frame_font.as_str().unwrap() == requested.as_str().unwrap()
         }
         _ => false,
     }
@@ -1324,7 +1341,7 @@ fn public_live_frame_font_value(font_value: Value) -> Value {
         return font_value;
     }
 
-    let elems = with_heap(|heap| heap.get_vector(id).clone());
+    let elems = font_value.as_vector_data().unwrap().clone();
     let mut filtered = Vec::with_capacity(elems.len());
     let mut idx = 0;
     while idx < elems.len() {
@@ -1438,7 +1455,7 @@ pub(crate) fn builtin_font_at(eval: &mut super::eval::Context, args: Vec<Value>)
 
     if let Some(string_value) = args.get(2) {
         if !string_value.is_nil() {
-            if !*string_value.is_string() {
+            if !string_value.is_string() {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("stringp"), *string_value],
@@ -1447,14 +1464,14 @@ pub(crate) fn builtin_font_at(eval: &mut super::eval::Context, args: Vec<Value>)
             let pos = match args[0].kind() {
                 ValueKind::Fixnum(n) => n,
                 ValueKind::Char(c) => c as i64,
-                other => {
+                _other => {
                     return Err(signal(
                         "wrong-type-argument",
                         vec![Value::symbol("fixnump"), args[0]],
                     ));
                 }
             };
-            let string = with_heap(|heap| heap.get_string(str_id).to_owned());
+            let string = string_value.as_str().unwrap().to_owned();
             let char_len = string.chars().count() as i64;
             if !(0 <= pos && pos < char_len) {
                 return Err(signal(
@@ -1463,7 +1480,7 @@ pub(crate) fn builtin_font_at(eval: &mut super::eval::Context, args: Vec<Value>)
                 ));
             }
             let bytepos = string_elisp_pos_to_byte(&string, pos);
-            let face = resolved_face_at_string_byte(eval, str_id, bytepos);
+            let face = resolved_face_at_string_byte(eval, *string_value, bytepos);
             let character = string.chars().nth(pos as usize).ok_or_else(|| {
                 signal(
                     "args-out-of-range",
@@ -2115,7 +2132,7 @@ fn derived_face_attrs_from_font_value(value: &Value) -> Vec<(String, Value)> {
         return Vec::new();
     }
 
-    let elems = with_heap(|h| h.get_vector(*id).clone());
+    let elems = value.as_vector_data().unwrap().clone();
     let mut derived = Vec::new();
 
     for (field, attr) in [
@@ -2233,7 +2250,7 @@ fn frame_defaults_flag(frame: Option<&Value>) -> Result<bool, Flow> {
     match frame {
         None => Ok(false),
         Some(v) if v.is_nil() => Ok(false),
-        Some(ValueKind::T) => Ok(true),
+        Some(v) if v.is_t() => Ok(true),
         Some(v) if frame_device_designator_p(v) => Ok(false),
         Some(v) => Err(signal(
             "wrong-type-argument",
@@ -2254,7 +2271,7 @@ fn proper_list_to_vec_or_listp_error(value: &Value) -> Result<Vec<Value>, Flow> 
                 out.push(cell_car);
                 cursor = cell_cdr;
             }
-            other => {
+            _other => {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("listp"), cursor],
@@ -2345,7 +2362,7 @@ fn normalize_face_attr_for_set(
                 } else {
                     match normalized.kind() {
                         ValueKind::Fixnum(n) if n > 0 => {}
-                        ValueKind::Float if *f > 0.0 => {}
+                        ValueKind::Float if normalized.xfloat() > 0.0 => {}
                         _ => {
                             return Err(signal(
                                 "error",
@@ -2608,9 +2625,10 @@ pub(crate) fn builtin_internal_set_lisp_face_attribute(
     };
 
     match args.get(3) {
-        None | Some(ValueKind::Nil) => apply_set(false)?,
-        Some(ValueKind::T) => apply_set(true)?,
-        Some(ValueKind::Fixnum(0)) => {
+        None => apply_set(false)?,
+        Some(v) if v.is_nil() => apply_set(false)?,
+        Some(v) if v.is_t() => apply_set(true)?,
+        Some(v) if v.as_fixnum() == Some(0) => {
             apply_set(true)?;
             apply_set(false)?;
         }
@@ -2705,7 +2723,7 @@ fn lisp_value_to_face_attr(attr_name: &str, value: Value) -> Option<crate::face:
         }
         ":height" => match value.kind() {
             ValueKind::Fixnum(n) => Some(FaceAttrValue::Height(FaceHeight::Absolute(n as i32))),
-            ValueKind::Float => Some(FaceAttrValue::Height(FaceHeight::Relative(f))),
+            ValueKind::Float => Some(FaceAttrValue::Height(FaceHeight::Relative(value.xfloat()))),
             _ => None,
         },
         ":family" | ":foundry" => {
@@ -2753,7 +2771,7 @@ fn lisp_value_to_face_attr(attr_name: &str, value: Value) -> Option<crate::face:
                         }
                         ":position" => {
                             if let Some(n) = val.as_fixnum() {
-                                position = Some(*n as i32);
+                                position = Some(n as i32);
                             }
                         }
                         _ => {}
@@ -2822,7 +2840,7 @@ fn lisp_value_to_face_attr(attr_name: &str, value: Value) -> Option<crate::face:
                     match key {
                         ":line-width" => {
                             if let Some(n) = val.as_fixnum() {
-                                border.width = *n as i32;
+                                border.width = n as i32;
                             }
                         }
                         ":color" => {
@@ -3107,7 +3125,8 @@ pub(crate) fn builtin_internal_get_lisp_face_attribute(
     }
 
     let frame_id = match args.get(2) {
-        None | Some(ValueKind::Nil) => Some(super::window_cmds::ensure_selected_frame_id(eval)),
+        None => Some(super::window_cmds::ensure_selected_frame_id(eval)),
+        Some(v) if v.is_nil() => Some(super::window_cmds::ensure_selected_frame_id(eval)),
         Some(frame) if frame_device_designator_p(frame) => frame_id_from_designator(frame),
         _ => None,
     };
@@ -3127,13 +3146,9 @@ pub(crate) fn builtin_internal_get_lisp_face_attribute(
     }
 
     let lisp_value = lisp_face_attribute_value(&face_name, &attr_name, false);
-    let lisp_value_unspecified = lisp_value.is_symbol_named("unspecified") || matches!(
-        (&*attr_name, &lisp_value),
-        (":foreground", ValueKind::String) if with_heap(|h| h.get_string(*id) == "unspecified-fg")
-    ) || matches!(
-        (&*attr_name, &lisp_value),
-        (":background", ValueKind::String) if with_heap(|h| h.get_string(*id) == "unspecified-bg")
-    );
+    let lisp_value_unspecified = lisp_value.is_symbol_named("unspecified")
+        || (attr_name == ":foreground" && lisp_value.as_str() == Some("unspecified-fg"))
+        || (attr_name == ":background" && lisp_value.as_str() == Some("unspecified-bg"));
     if !lisp_value_unspecified {
         return Ok(lisp_value);
     }
@@ -3275,18 +3290,22 @@ pub(crate) fn builtin_merge_face_attribute(args: Vec<Value>) -> EvalResult {
         matches!(resolve_sym(id_), "height" | ":height")
     });
     if height_attr {
-        return Ok(match (&args[1], &args[2]) {
-            (Value::fixnum(_), _) | (Value::char(_), _) => args[1],
-            (Value::make_float(scale), Value::fixnum(height)) => {
-                Value::fixnum((*scale * *height as f64) as i64)
+        return Ok(match (args[1].kind(), args[2].kind()) {
+            (ValueKind::Fixnum(_), _) | (ValueKind::Char(_), _) => args[1],
+            (ValueKind::Float, ValueKind::Fixnum(height)) => {
+                let scale = args[1].xfloat();
+                Value::fixnum((scale * height as f64) as i64)
             }
-            (Value::make_float(scale), Value::char(height)) => {
-                Value::fixnum((*scale * *height as u32 as f64) as i64)
+            (ValueKind::Float, ValueKind::Char(height)) => {
+                let scale = args[1].xfloat();
+                Value::fixnum((scale * height as u32 as f64) as i64)
             }
-            (Value::make_float(scale), Value::make_float(other_scale)) => {
-                Value::make_float(*scale * *other_scale)
+            (ValueKind::Float, ValueKind::Float) => {
+                let scale = args[1].xfloat();
+                let other_scale = args[2].xfloat();
+                Value::make_float(scale * other_scale)
             }
-            (Value::make_float(_), _) => args[1],
+            (ValueKind::Float, _) => args[1],
             _ => args[1],
         });
     }
@@ -3308,7 +3327,7 @@ pub(crate) fn builtin_face_list(args: Vec<Value>) -> EvalResult {
 fn expect_color_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
         ValueKind::String => Ok(value.as_str().unwrap().to_owned()),
-        other => Err(signal(
+        _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],
         )),
@@ -3332,7 +3351,11 @@ fn selected_or_designated_live_frame_id(
     frame: Option<&Value>,
 ) -> Result<FrameId, Flow> {
     match frame {
-        None | Some(ValueKind::Nil) => frames
+        None => frames
+            .selected_frame()
+            .map(|frame| frame.id)
+            .ok_or_else(|| signal("error", vec![Value::string("No selected frame")])),
+        Some(v) if v.is_nil() => frames
             .selected_frame()
             .map(|frame| frame.id)
             .ok_or_else(|| signal("error", vec![Value::string("No selected frame")])),
@@ -3524,7 +3547,7 @@ fn parse_color_distance_input(value: &Value) -> Result<(i64, i64, i64), Flow> {
     if !value.is_string() {
         return Err(invalid_color_error(value));
     };
-    let color = with_heap(|h| h.get_string(*color_id).to_owned());
+    let color = value.as_str().unwrap().to_owned();
     let Some(rgb) = parse_color_16bit_any(&color).map(approximate_tty_color) else {
         return Err(invalid_color_error(value));
     };
@@ -3644,7 +3667,7 @@ fn invalid_get_device_terminal_error(value: &Value) -> Flow {
 fn color_device_designator_p(value: &Value) -> bool {
     match value.kind() {
         ValueKind::Nil => true,
-        other => frame_device_designator_p(value),
+        _ => frame_device_designator_p(value),
     }
 }
 
@@ -3701,7 +3724,7 @@ pub(crate) fn builtin_face_font(eval: &mut super::eval::Context, args: Vec<Value
     expect_min_args("face-font", &args, 1)?;
     expect_max_args("face-font", &args, 3)?;
 
-    let defaults_frame = matches!(args.get(1), Some(Value::T));
+    let defaults_frame = args.get(1).map_or(false, |v| v.is_t());
     if defaults_frame {
         let face_name = resolve_face_name_for_domain(&args[0], true)?;
         let mut styles = Vec::new();
@@ -3723,7 +3746,8 @@ pub(crate) fn builtin_face_font(eval: &mut super::eval::Context, args: Vec<Value
     }
 
     let frame_id = match args.get(1) {
-        None | Some(ValueKind::Nil) => super::window_cmds::ensure_selected_frame_id(eval),
+        None => super::window_cmds::ensure_selected_frame_id(eval),
+        Some(v) if v.is_nil() => super::window_cmds::ensure_selected_frame_id(eval),
         Some(frame) if live_frame_designator_in_state(&eval.frames, frame) => {
             frame_id_from_designator(frame)
                 .expect("live frame designator should decode to frame id")
@@ -3816,7 +3840,8 @@ pub(crate) fn builtin_font_info(eval: &mut super::eval::Context, args: Vec<Value
     expect_max_args("font-info", &args, 2)?;
 
     let frame_id = match args.get(1) {
-        None | Some(ValueKind::Nil) => super::window_cmds::ensure_selected_frame_id(eval),
+        None => super::window_cmds::ensure_selected_frame_id(eval),
+        Some(v) if v.is_nil() => super::window_cmds::ensure_selected_frame_id(eval),
         Some(frame) if live_frame_designator_in_state(&eval.frames, frame) => {
             frame_id_from_designator(frame)
                 .expect("live frame designator should decode to frame id")
@@ -3836,13 +3861,13 @@ pub(crate) fn builtin_font_info(eval: &mut super::eval::Context, args: Vec<Value
         return Ok(Value::NIL);
     }
 
-    match args[0].kind() {
-        ValueKind::String => Ok(font_info_vector_for_runtime_font(&args[0], frame)),
-        value if is_font(value) => Ok(font_info_vector_for_runtime_font(value, frame)),
-        other => Err(signal(
+    if args[0].is_string() || is_font(&args[0]) {
+        Ok(font_info_vector_for_runtime_font(&args[0], frame))
+    } else {
+        Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), args[0]],
-        )),
+        ))
     }
 }
 
@@ -3937,7 +3962,7 @@ pub(crate) fn builtin_internal_set_alternative_font_family_alist(args: Vec<Value
                     converted.push(Value::symbol(name.clone()));
                     names.push(name);
                 }
-                other => {
+                _other => {
                     return Err(signal(
                         "wrong-type-argument",
                         vec![Value::symbol("stringp"), member],
@@ -3980,7 +4005,7 @@ pub(crate) fn builtin_x_load_color_file(args: Vec<Value>) -> EvalResult {
     expect_args("x-load-color-file", &args, 1)?;
     let filename = match args[0].kind() {
         ValueKind::String => args[0].as_str().unwrap().to_owned(),
-        other => {
+        _other => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("stringp"), args[0]],

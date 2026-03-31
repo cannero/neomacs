@@ -22,7 +22,7 @@ use super::keyboard::pure::{
 };
 use super::symbol::Obarray;
 use super::value::{
-    OrderedRuntimeBindingMap, Value, list_to_vec, read_cons, with_heap, with_heap_mut,
+    OrderedRuntimeBindingMap, Value, ValueKind, VecLikeType, list_to_vec,
 };
 
 // ---------------------------------------------------------------------------
@@ -387,9 +387,7 @@ pub fn make_sparse_list_keymap() -> Value {
 pub fn is_list_keymap(v: &Value) -> bool {
     match v.kind() {
         ValueKind::Cons => {
-            let pair_car = v.cons_car();
-            let pair_cdr = v.cons_cdr();
-            pair_car.as_symbol_name() == Some("keymap")
+            v.cons_car().as_symbol_name() == Some("keymap")
         }
         _ => false,
     }
@@ -580,11 +578,9 @@ fn get_keyelt(binding: Value) -> Value {
         if pair_car.is_symbol_named("menu-item") {
             // (menu-item NAME DEFN . PROPS) — extract DEFN (third element)
             if pair_cdr.is_cons() {
-                let p1_car = pair.cdr.cons_car();
-                let p1_cdr = pair.cdr.cons_cdr();
+                let p1_cdr = pair_cdr.cons_cdr();
                 if p1_cdr.is_cons() {
-                    let p2_car = p1.cdr.cons_car();
-                    let p2_cdr = p1.cdr.cons_cdr();
+                    let p2_car = p1_cdr.cons_car();
                     return p2_car;
                 }
             }
@@ -652,18 +648,19 @@ fn lookup_in_keymap_level(keymap: &Value, event: &Value, t_ok: bool) -> Option<V
         if entries > 100_000 {
             break;
         }
-        let entry = read_cons(entry_cell);  // TODO(tagged): replace read_cons with cons accessors
+        let entry_car = cursor.cons_car();
+        let entry_cdr = cursor.cons_cdr();
 
         // Char-table: only look up characters WITHOUT modifier bits.
         // GNU keymap.c:441-450: nil in char-table means unbound;
         // Qt means explicitly nil binding.
-        if is_char_table(&entry.car) {
+        if is_char_table(&entry_car) {
             if let Some(code) = event.as_fixnum() {
-                if (*code & KEY_CHAR_MOD_MASK) == 0 {
-                    let base = *code & KEY_CHAR_CODE_MASK;
+                if (code & KEY_CHAR_MOD_MASK) == 0 {
+                    let base = code & KEY_CHAR_CODE_MASK;
                     if base >= 0 && base <= 0x3FFFFF {
                         let result =
-                            builtin_char_table_range(vec![entry.car, *event]).unwrap_or(Value::NIL);
+                            builtin_char_table_range(vec![entry_car, *event]).unwrap_or(Value::NIL);
                         if !result.is_nil() {
                             // Qt in char-table means explicitly nil binding
                             // (shadows parent), matching GNU keymap.c:455-459
@@ -678,17 +675,17 @@ fn lookup_in_keymap_level(keymap: &Value, event: &Value, t_ok: bool) -> Option<V
                     }
                 }
             }
-            cursor = entry.cdr;
+            cursor = entry_cdr;
             continue;
         }
 
         // Vector element in keymap spine: maps char codes 0..len to
         // bindings by index. Matches GNU keymap.c:431-434.
-        if entry.car.is_vector() {
-            if let Some(code) = *event.as_fixnum() {
+        if entry_car.is_vector() {
+            if let Some(code) = event.as_fixnum() {
                 if code >= 0 {
                     let idx = code as usize;
-                    let items = entry.car.as_vector_data().unwrap().clone();
+                    let items = entry_car.as_vector_data().unwrap();
                     if idx < items.len() {
                         let val = items[idx];
                         if !val.is_nil() {
@@ -697,14 +694,14 @@ fn lookup_in_keymap_level(keymap: &Value, event: &Value, t_ok: bool) -> Option<V
                     }
                 }
             }
-            cursor = entry.cdr;
+            cursor = entry_cdr;
             continue;
         }
 
         // Alist entry: (EVENT . DEF)
-        if entry.car.is_cons() {
-            let binding_car = entry.car.cons_car();
-            let binding_cdr = entry.car.cons_cdr();
+        if entry_car.is_cons() {
+            let binding_car = entry_car.cons_car();
+            let binding_cdr = entry_car.cons_cdr();
             if events_match(&binding_car, event) {
                 return Some(get_keyelt(binding_cdr));
             }
@@ -716,7 +713,7 @@ fn lookup_in_keymap_level(keymap: &Value, event: &Value, t_ok: bool) -> Option<V
             }
         }
 
-        cursor = entry.cdr;
+        cursor = entry_cdr;
     }
 
     // If no specific binding found but we have a t default binding, use it.
@@ -739,8 +736,7 @@ fn get_keymap_tail_parent(keymap: &Value) -> Value {
         if is_list_keymap(&cursor) {
             return cursor;
         }
-        let entry = read_cons(entry_cell);  // TODO(tagged): replace read_cons with cons accessors
-        cursor = entry.cdr;
+        cursor = cursor.cons_cdr();
     }
     Value::NIL
 }
@@ -826,9 +822,10 @@ fn compose_keymaps(child: &Value, parent: &Value) -> Value {
             // Don't include child's existing parent; we'll set a new one
             break;
         }
-        let entry = read_cons(entry_cell);  // TODO(tagged): replace read_cons with cons accessors
-        elements.push(entry.car);
-        cursor = entry.cdr;
+        let entry_car = cursor.cons_car();
+        let entry_cdr = cursor.cons_cdr();
+        elements.push(entry_car);
+        cursor = entry_cdr;
     }
 
     // Build: (keymap entries... . parent)
@@ -841,9 +838,12 @@ fn compose_keymaps(child: &Value, parent: &Value) -> Value {
 
 /// Check if two event values match for keymap lookup purposes.
 fn events_match(a: &Value, b: &Value) -> bool {
-    let normalize = |value: &Value| match value {
-        Value::Cons(cell) => read_cons(*cell).car,
-        _ => *value,
+    let normalize = |value: &Value| {
+        if value.is_cons() {
+            value.cons_car()
+        } else {
+            *value
+        }
     };
     let a = normalize(a);
     let b = normalize(b);
@@ -862,9 +862,12 @@ pub(crate) fn expand_meta_prefix_char_events_in_obarray(
     obarray: &Obarray,
     events: &[Value],
 ) -> Option<Vec<Value>> {
-    let meta_prefix = match obarray.symbol_value("meta-prefix-char").copied() {
-        Some(ValueKind::Fixnum(code)) => code,
-        _ => return None,
+    let meta_prefix = match obarray
+        .symbol_value("meta-prefix-char")
+        .and_then(|v| v.as_fixnum())
+    {
+        Some(code) => code,
+        None => return None,
     };
 
     let mut changed = false;
@@ -994,18 +997,19 @@ fn store_in_keymap(keymap: Value, event: Value, def: Value, remove: bool) {
     // Scan the keymap for existing bindings, tracking insertion point.
     // GNU keymap.c: insertion_point starts at keymap; if a char-table or
     // vector is found, insertion_point is updated to point after it.
-    let mut insertion_point = Value::Cons(root_cell);
+    let mut insertion_point = keymap;
     let mut cursor = root_cdr;
     while cursor.is_cons() {
         if is_list_keymap(&cursor) {
             // Hit a parent keymap boundary — stop scanning
             break;
         }
-        let entry = read_cons(entry_cell);  // TODO(tagged): replace read_cons with cons accessors
+        let entry_car = cursor.cons_car();
+        let entry_cdr = cursor.cons_cdr();
 
         // Char-table: handle plain character events (no modifier bits).
         // GNU keymap.c:805-829
-        if is_char_table(&entry.car) {
+        if is_char_table(&entry_car) {
             if let Some(code) = event.as_fixnum() {
                 let mods = code & KEY_CHAR_MOD_MASK;
                 if mods == 0 {
@@ -1021,47 +1025,44 @@ fn store_in_keymap(keymap: Value, event: Value, def: Value, remove: bool) {
                         } else {
                             def
                         };
-                        let _ = builtin_set_char_table_range(vec![entry.car, event, store_val]);
+                        let _ = builtin_set_char_table_range(vec![entry_car, event, store_val]);
                         return;
                     }
                 }
             }
-            insertion_point = Value::Cons(entry_cell);
-            cursor = entry.cdr;
+            insertion_point = cursor;
+            cursor = entry_cdr;
             continue;
         }
 
         // Vector element: check for matching index.
         // GNU keymap.c:783-803
-        if entry.car.is_vector() {
+        if entry_car.is_vector() {
             if let Some(code) = event.as_fixnum() {
                 let idx = code as usize;
-                let len = with_heap(|h| h.get_vector(vec_id).len());
-                if idx < len {
-                    with_heap_mut(|h| {
-                        h.get_vector_mut(vec_id)[idx] = def;
-                    });
+                let vec_data = entry_car.as_vector_data_mut().unwrap();
+                if idx < vec_data.len() {
+                    vec_data[idx] = def;
                     return;
                 }
             }
-            insertion_point = Value::Cons(entry_cell);
-            cursor = entry.cdr;
+            insertion_point = cursor;
+            cursor = entry_cdr;
             continue;
         }
 
         // Alist entry: (EVENT . DEF) — check for existing binding to update in-place.
         // GNU keymap.c:842-849
-        if entry.car.is_cons() {
-            let binding_car = entry.car.cons_car();
-            let binding_cdr = entry.car.cons_cdr();
+        if entry_car.is_cons() {
+            let binding_car = entry_car.cons_car();
             if events_match(&binding_car, &event) {
                 if remove {
                     // Remove the entry: splice it out of the list.
                     // Set insertion_point's cdr to skip this entry.
-                    insertion_point.set_cdr(entry.cdr);
+                    insertion_point.set_cdr(entry_cdr);
                 } else {
                     // Update in-place: set the cdr of the binding cons.
-                    Value::Cons(binding_cell).set_cdr(def);
+                    entry_car.set_cdr(def);
                 }
                 return;
             }
@@ -1069,12 +1070,12 @@ fn store_in_keymap(keymap: Value, event: Value, def: Value, remove: bool) {
 
         // Check for 'keymap symbol in spine (start of inherited keymap)
         // GNU keymap.c:871-876
-        if entry.car.is_symbol_named("keymap") {
+        if entry_car.is_symbol_named("keymap") {
             break;
         }
 
-        insertion_point = Value::Cons(entry_cell);
-        cursor = entry.cdr;
+        insertion_point = cursor;
+        cursor = entry_cdr;
     }
 
     // No existing binding found. Append new entry after insertion_point.
@@ -1106,11 +1107,11 @@ pub fn list_keymap_parent(keymap: &Value) -> Value {
         if is_list_keymap(&cursor) {
             return cursor;
         }
-        let entry = read_cons(entry_cell);  // TODO(tagged): replace read_cons with cons accessors
-        if entry.cdr.is_nil() {
+        let entry_cdr = cursor.cons_cdr();
+        if entry_cdr.is_nil() {
             return Value::NIL;
         }
-        cursor = entry.cdr;
+        cursor = entry_cdr;
     }
     Value::NIL
 }
@@ -1127,7 +1128,7 @@ pub fn list_keymap_set_parent(keymap: Value, parent: Value) {
     }
 
     // Find the last cons cell in the keymap list
-    let mut prev_cell_value = Value::Cons(root_cell);
+    let mut prev_cell_value = keymap;
     let mut cursor = root_cdr;
     loop {
         if is_list_keymap(&cursor) || cursor.is_nil() {
@@ -1136,15 +1137,14 @@ pub fn list_keymap_set_parent(keymap: Value, parent: Value) {
         }
         match cursor.kind() {
             ValueKind::Cons => {
-                let entry_car = cursor.cons_car();
                 let entry_cdr = cursor.cons_cdr();
                 // If cdr is a keymap (existing parent) or nil, we replace it
                 if is_list_keymap(&entry_cdr) || entry_cdr.is_nil() {
-                    ValueKind::Cons.set_cdr(parent);
+                    cursor.set_cdr(parent);
                     return;
                 }
-                prev_cell_value = ValueKind::Cons;
-                cursor = entry.cdr;
+                prev_cell_value = cursor;
+                cursor = entry_cdr;
             }
             _ => {
                 // cursor is either nil or an existing parent keymap
@@ -1160,10 +1160,7 @@ pub fn list_keymap_set_parent(keymap: Value, parent: Value) {
 pub fn list_keymap_inherits_from(keymap: &Value, target: &Value) -> bool {
     let mut current = *keymap;
     while is_list_keymap(&current) {
-        let same_keymap = match (current.kind(), target.kind()) {
-            (ValueKind::Cons, ValueKind::Cons) => current_id == target_id,
-            _ => current == *target,
-        };
+        let same_keymap = current == *target;
         if same_keymap {
             return true;
         }
@@ -1419,7 +1416,7 @@ fn active_map_position(
     };
 
     if position.is_window() {
-        let window_id = crate::window::WindowId(*id);
+        let window_id = crate::window::WindowId(position.as_window_id().unwrap());
         for frame_id in frames.frame_list() {
             let Some(frame) = frames.get(frame_id) else {
                 continue;
@@ -1446,7 +1443,7 @@ fn active_map_position(
     }
 
     if position.is_fixnum() || position.is_char()
-        || crate::emacs_core::marker::is_marker(position)
+        || position.is_marker()
     {
         let char_pos = expect_integer_or_marker_in_buffers(buffers, position)?;
         let point_min = buffer.point_min_char() as i64 + 1;
@@ -1473,9 +1470,9 @@ fn active_map_position(
         return Ok(Some(default_position));
     }
 
-    let window_id = match slots[0].kind() {
-        ValueKind::Veclike(VecLikeType::Window) => crate::window::WindowId(id),
-        _ => return Ok(Some(default_position)),
+    let window_id = match slots[0].as_window_id() {
+        Some(id) => crate::window::WindowId(id),
+        None => return Ok(Some(default_position)),
     };
     let char_pos = slots[5].as_int().or_else(|| slots[1].as_int());
 
@@ -1712,9 +1709,9 @@ pub(crate) struct ActiveKeyBindingResolution {
 }
 
 pub(crate) fn is_plain_printable_emacs_event(event: &Value) -> bool {
-    let Some(ch) = (match event {
-        Value::fixnum(code) if (*code & KEY_CHAR_MOD_MASK) == 0 => char::from_u32(*code as u32),
-        Value::char(ch) => Some(*ch),
+    let Some(ch) = (match event.kind() {
+        ValueKind::Fixnum(code) if (code & KEY_CHAR_MOD_MASK) == 0 => char::from_u32(code as u32),
+        ValueKind::Char(ch) => Some(ch),
         _ => None,
     }) else {
         return false;
@@ -1988,9 +1985,10 @@ pub(crate) fn command_remapping_lookup_in_lisp_keymap(
         return None;
     }
 
-    let mut cursor = match keymap {
-        Value::Cons(cell) => read_cons(*cell).cdr,
-        _ => Value::NIL,
+    let mut cursor = if keymap.is_cons() {
+        keymap.cons_cdr()
+    } else {
+        Value::NIL
     };
 
     while cursor.is_cons() {
@@ -2001,10 +1999,8 @@ pub(crate) fn command_remapping_lookup_in_lisp_keymap(
             break;
         }
 
-        let (car, cdr) = {
-            let pair = read_cons(cell);  // TODO(tagged): replace read_cons with cons accessors
-            (pair_car, pair_cdr)
-        };
+        let car = cursor.cons_car();
+        let cdr = cursor.cons_cdr();
         if let Some(remap) = command_remapping_lookup_in_lisp_remap_entry(&car, command_name) {
             return Some(remap);
         }
@@ -2067,12 +2063,15 @@ pub(crate) fn command_remapping_lookup_in_keymaps(
 }
 
 pub(crate) fn command_remapping_command_name(command: &Value) -> Option<String> {
-    Some(match command {
-        Value::NIL => "nil".to_string(),
-        Value::T => "t".to_string(),
-        Value::symbol(id) => resolve_sym(id).to_owned(),
-        _ => return None,
-    })
+    if command.is_nil() {
+        Some("nil".to_string())
+    } else if *command == Value::T {
+        Some("t".to_string())
+    } else if let Some(name) = command.as_symbol_name() {
+        Some(name.to_owned())
+    } else {
+        None
+    }
 }
 
 pub(crate) fn key_binding_apply_remap_in_active_maps(
@@ -2099,7 +2098,7 @@ pub(crate) fn key_binding_apply_remap_in_active_maps(
 /// `MAKE_CTRL_CHAR` normalization: C-a=1, C-b=2, ..., C-z=26,
 /// C-@=0, C-[=27, C-\=28, C-]=29, C-^=30, C-_=31.
 pub fn key_event_to_emacs_event(event: &KeyEvent) -> Value {
-    match event.kind() {
+    match event {
         KeyEvent::Char {
             code,
             ctrl,
@@ -2160,7 +2159,7 @@ pub fn key_event_to_emacs_event(event: &KeyEvent) -> Value {
             if *alt {
                 bits |= KEY_CHAR_ALT;
             }
-            ValueKind::Fixnum(bits)
+            Value::fixnum(bits)
         }
         KeyEvent::Function {
             name,
@@ -2514,7 +2513,6 @@ pub fn list_keymap_define_seq_in_obarray_ex(
 /// angle brackets (e.g., `<f1>`), characters use their standard description.
 fn describe_event_sequence(events: &[Value]) -> String {
     use super::keyboard::pure::describe_single_key_value;
-use crate::emacs_core::value::{ValueKind, VecLikeType};
     events
         .iter()
         .map(|e| {
@@ -2567,26 +2565,27 @@ fn list_keymap_copy_impl(keymap: &Value, depth: usize) -> Value {
             tail_parent = cursor;
             break;
         }
-        let entry = read_cons(entry_cell);  // TODO(tagged): replace read_cons with cons accessors
+        let entry_car = cursor.cons_car();
+        let entry_cdr = cursor.cons_cdr();
 
-        if is_char_table(&entry.car) {
+        if is_char_table(&entry_car) {
             // Deep-copy char-table: clone the vector, then recursively copy
             // any keymap entries within it.
-            elements.push(copy_char_table_for_keymap(&entry.car, depth));
-        } else if is_list_keymap(&entry.car) {
+            elements.push(copy_char_table_for_keymap(&entry_car, depth));
+        } else if is_list_keymap(&entry_car) {
             // Nested keymap element — recursively copy
-            elements.push(list_keymap_copy_impl(&entry.car, depth + 1));
-        } else if entry.car.is_cons() {
+            elements.push(list_keymap_copy_impl(&entry_car, depth + 1));
+        } else if entry_car.is_cons() {
             // Alist entry (EVENT . DEF) — copy the cons, recurse if DEF is a keymap
-            let binding_car = entry.car.cons_car();
-            let binding_cdr = entry.car.cons_cdr();
+            let binding_car = entry_car.cons_car();
+            let binding_cdr = entry_car.cons_cdr();
             let copied_def = copy_keymap_item(&binding_cdr, depth);
             elements.push(Value::cons(binding_car, copied_def));
         } else {
-            elements.push(entry.car);
+            elements.push(entry_car);
         }
 
-        cursor = entry.cdr;
+        cursor = entry_cdr;
     }
 
     // Build the new list
@@ -2614,7 +2613,7 @@ fn copy_char_table_for_keymap(ct: &Value, depth: usize) -> Value {
     if !ct.is_vector() {
         return *ct;
     };
-    let old_vec = with_heap(|h| h.get_vector(*arc).clone());
+    let old_vec = ct.as_vector_data().unwrap();
     let mut new_vec = old_vec.clone();
 
     // Walk the data pairs and recursively copy any keymap values.
@@ -2622,10 +2621,10 @@ fn copy_char_table_for_keymap(ct: &Value, depth: usize) -> Value {
     // Data pairs start after extra slots (CT_EXTRA_START + n_extras),
     // stored as consecutive (char-code, value) pairs.
     let ct_extra_start = 5; // matches chartable.rs CT_EXTRA_START
-    let n_extras = match new_vec.get(4) {
-        Some(ValueKind::Fixnum(n)) => *n as usize,
-        _ => 0,
-    };
+    let n_extras = new_vec
+        .get(4)
+        .and_then(|v| v.as_fixnum())
+        .unwrap_or(0) as usize;
     let data_start = ct_extra_start + n_extras;
     let mut i = data_start;
     while i + 1 < new_vec.len() {
@@ -2673,11 +2672,12 @@ pub fn list_keymap_accessible(
         if is_list_keymap(&cursor) {
             break;
         }
-        let entry = read_cons(entry_cell);  // TODO(tagged): replace read_cons with cons accessors
+        let entry_car = cursor.cons_car();
+        let entry_cdr = cursor.cons_cdr();
 
-        if entry.car.is_cons() {
-            let binding_car = entry.car.cons_car();
-            let binding_cdr = entry.car.cons_cdr();
+        if entry_car.is_cons() {
+            let binding_car = entry_car.cons_car();
+            let binding_cdr = entry_car.cons_cdr();
             if is_list_keymap(&binding_cdr) {
                 prefix.push(binding_car);
                 list_keymap_accessible(&binding_cdr, prefix, out, seen);
@@ -2685,10 +2685,10 @@ pub fn list_keymap_accessible(
             }
         }
 
-        if is_list_keymap(&entry.cdr) {
+        if is_list_keymap(&entry_cdr) {
             break; // parent keymap, don't descend
         }
-        cursor = entry.cdr;
+        cursor = entry_cdr;
     }
 
     seen.pop();
@@ -2697,7 +2697,7 @@ pub fn list_keymap_accessible(
 /// Check if two keymap values are the same object (by cons cell identity).
 fn keymap_value_eq(a: &Value, b: &Value) -> bool {
     match (a.kind(), b.kind()) {
-        (ValueKind::Cons, ValueKind::Cons) => x == y,
+        (ValueKind::Cons, ValueKind::Cons) => *a == *b,
         _ => false,
     }
 }
@@ -2722,22 +2722,23 @@ where
         if is_list_keymap(&cursor) {
             break;
         }
-        let entry = read_cons(entry_cell);  // TODO(tagged): replace read_cons with cons accessors
+        let entry_car = cursor.cons_car();
+        let entry_cdr = cursor.cons_cdr();
 
-        if super::chartable::is_char_table(&entry.car) {
-            super::chartable::for_each_non_nil_char_table_run(&entry.car, &mut f);
+        if super::chartable::is_char_table(&entry_car) {
+            super::chartable::for_each_non_nil_char_table_run(&entry_car, &mut f);
         }
 
-        if entry.car.is_cons() {
-            let binding_car = entry.car.cons_car();
-            let binding_cdr = entry.car.cons_cdr();
+        if entry_car.is_cons() {
+            let binding_car = entry_car.cons_car();
+            let binding_cdr = entry_car.cons_cdr();
             f(binding_car, binding_cdr);
         }
 
-        if is_list_keymap(&entry.cdr) {
+        if is_list_keymap(&entry_cdr) {
             break;
         }
-        cursor = entry.cdr;
+        cursor = entry_cdr;
     }
 }
 
