@@ -4,6 +4,7 @@ pub mod encoding;
 pub mod face;
 pub mod gc;
 pub mod keyboard;
+pub mod tagged;
 pub mod window;
 
 pub const CORE_BACKEND: &str = "rust";
