@@ -21,7 +21,9 @@ use super::keyboard::pure::{
     KEY_CHAR_MOD_MASK, KEY_CHAR_SHIFT, KEY_CHAR_SUPER,
 };
 use super::symbol::Obarray;
-use super::value::{OrderedRuntimeBindingMap, Value, ValueKind, VecLikeType, list_to_vec};
+use super::value::{
+    OrderedRuntimeBindingMap, Value, ValueKind, VecLikeType, eq_value, list_to_vec,
+};
 
 // ---------------------------------------------------------------------------
 // Key events
@@ -1156,8 +1158,10 @@ pub fn list_keymap_set_parent(keymap: Value, parent: Value) {
 pub fn list_keymap_inherits_from(keymap: &Value, target: &Value) -> bool {
     let mut current = *keymap;
     while is_list_keymap(&current) {
-        let same_keymap = current == *target;
-        if same_keymap {
+        // Use pointer identity (eq), not structural equality (equal),
+        // to detect cycles. Two keymaps with the same content are NOT
+        // the same keymap.
+        if eq_value(&current, target) {
             return true;
         }
         current = list_keymap_parent(&current);
