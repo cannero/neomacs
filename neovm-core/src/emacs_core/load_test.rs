@@ -6424,3 +6424,27 @@ fn bootstrap_cl_generic_generalizers_t() {
         "(cl-generic-generalizers t) should succeed, got: {rendered}"
     );
 }
+
+#[test]
+fn bootstrap_macroexpand_all_pcase() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = partial_bootstrap_eval_until("emacs-lisp/cl-generic", true);
+    // Test macroexpand-all with a pcase form
+    let forms = parse_forms(
+        r#"
+        (macroexpand-all '(pcase x (1 "one") (2 "two") (_ "other")))
+    "#,
+    )
+    .expect("parse");
+    let result = eval.eval_forms(&forms);
+    let rendered = result
+        .iter()
+        .map(format_eval_result)
+        .collect::<Vec<_>>()
+        .join(" ");
+    tracing::info!("macroexpand-all pcase => {rendered}");
+    assert!(
+        rendered.starts_with("OK"),
+        "macroexpand-all pcase failed: {rendered}"
+    );
+}
