@@ -6553,7 +6553,6 @@ fn bootstrap_macroexpand1_vs_all_pcase() {
         .collect::<Vec<_>>()
         .join(" ");
     tracing::error!("macroexpand1 vs all => {rendered}");
-    // Both should succeed (using error! so it shows even on PASS)
     assert!(
         rendered.starts_with("OK"),
         "macroexpand comparison failed: {rendered}"
