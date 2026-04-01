@@ -1126,12 +1126,8 @@ fn macroexpand_once_with_environment<R: MacroexpandRuntime>(
     let mut env_bound = false;
     let mut function = None;
     if let Some(env) = environment {
-        if !env.is_list() {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("listp"), *env],
-            ));
-        }
+        // GNU Emacs does NOT validate the env — Fassq just walks cons cells
+        // until nil. A non-list env (like `t`) simply means "no match found".
         if let Some(binding) = macroexpand_environment_binding_by_id(env, head_id) {
             env_bound = true;
             if !binding.is_nil() {

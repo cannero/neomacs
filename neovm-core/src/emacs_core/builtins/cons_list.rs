@@ -208,10 +208,15 @@ fn car_value(value: &Value) -> Result<Value, Flow> {
                 Ok(Value::symbol("lambda"))
             }
         }
-        _ => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("listp"), *value],
-        )),
+        _ => {
+            if value.is_t() {
+                tracing::error!("car called on t — likely closure env or alist issue");
+            }
+            Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("listp"), *value],
+            ))
+        }
     }
 }
 
