@@ -6460,3 +6460,37 @@ fn bootstrap_macroexpand_all_pcase() {
         "macroexpand-all pcase backquote failed: {rendered2}"
     );
 }
+
+#[test]
+fn bootstrap_pcase_complex_and_pred_guard() {
+    crate::test_utils::init_test_tracing();
+    // Load enough to have pcase (stop before cl-preloaded to avoid cl-macs failure)
+    let mut eval = partial_bootstrap_eval_until("emacs-lisp/cl-preloaded", true);
+    // Test the exact pcase pattern that cl-typep uses
+    let forms = parse_forms(
+        r#"
+(progn
+  (put 'integer 'test-prop t)
+  (let ((test-fn (lambda (val)
+                   (pcase val
+                     ((and type (pred symbolp))
+                      (if (get type 'test-prop) (list 'found type) 'no-prop))
+                     (_ 'default)))))
+    (list
+     (funcall test-fn 'integer)
+     (funcall test-fn 42))))
+"#,
+    )
+    .expect("parse");
+    let result = eval.eval_forms(&forms);
+    let rendered = result
+        .iter()
+        .map(format_eval_result)
+        .collect::<Vec<_>>()
+        .join(" ");
+    tracing::info!("pcase and+pred+guard => {rendered}");
+    assert!(
+        rendered.starts_with("OK"),
+        "pcase and+pred+guard failed: {rendered}"
+    );
+}
