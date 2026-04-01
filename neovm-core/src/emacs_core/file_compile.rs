@@ -170,6 +170,7 @@ mod tests {
 
     #[test]
     fn test_compile_simple_form() {
+        crate::test_utils::init_test_tracing();
         let mut eval = Context::new();
         let forms = parse_forms("(+ 1 2)").unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
@@ -179,6 +180,7 @@ mod tests {
 
     #[test]
     fn test_compile_eval_when_compile() {
+        crate::test_utils::init_test_tracing();
         let mut eval = Context::new();
         let forms = parse_forms("(eval-when-compile (+ 10 20))").unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
@@ -191,6 +193,7 @@ mod tests {
 
     #[test]
     fn test_compile_eval_and_compile() {
+        crate::test_utils::init_test_tracing();
         let mut eval = Context::new();
         let forms = parse_forms("(eval-and-compile (defvar test-fc-var 42))").unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
@@ -203,6 +206,7 @@ mod tests {
 
     #[test]
     fn test_compile_progn_flattens() {
+        crate::test_utils::init_test_tracing();
         let mut eval = Context::new();
         let forms = parse_forms("(progn (+ 1 2) (+ 3 4))").unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
@@ -214,6 +218,7 @@ mod tests {
 
     #[test]
     fn test_compile_progn_with_eval_when_compile() {
+        crate::test_utils::init_test_tracing();
         let mut eval = Context::new();
         let forms = parse_forms("(progn (eval-when-compile (+ 1 2)) (+ 3 4))").unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
@@ -227,6 +232,7 @@ mod tests {
 
     #[test]
     fn test_compile_defun_side_effect() {
+        crate::test_utils::init_test_tracing();
         let mut eval = Context::new();
         // defun is no longer a special form; use defalias instead
         let forms = parse_forms("(defalias 'test-fc-fn #'(lambda () 99))").unwrap();
@@ -239,6 +245,7 @@ mod tests {
 
     #[test]
     fn test_compile_multiple_forms() {
+        crate::test_utils::init_test_tracing();
         let mut eval = Context::new();
         let forms = parse_forms(
             "(defvar test-fc-a 1)\n\
@@ -258,6 +265,7 @@ mod tests {
 
     #[test]
     fn test_compile_empty_forms() {
+        crate::test_utils::init_test_tracing();
         let mut eval = Context::new();
         let compiled = compile_file_forms(&mut eval, &[]).unwrap();
         assert!(compiled.is_empty());
@@ -265,6 +273,7 @@ mod tests {
 
     #[test]
     fn test_compile_el_to_neobc_creates_file() {
+        crate::test_utils::init_test_tracing();
         use crate::emacs_core::file_compile_format::read_neobc;
 
         let dir = tempfile::tempdir().unwrap();
@@ -289,6 +298,7 @@ mod tests {
 
     #[test]
     fn test_compile_el_to_neobc_lexical_binding() {
+        crate::test_utils::init_test_tracing();
         use crate::emacs_core::file_compile_format::read_neobc;
 
         let dir = tempfile::tempdir().unwrap();
@@ -306,6 +316,7 @@ mod tests {
 
     #[test]
     fn test_compile_el_to_neobc_restores_lexical_binding() {
+        crate::test_utils::init_test_tracing();
         let dir = tempfile::tempdir().unwrap();
         let el_path = dir.path().join("restore.el");
         let source = ";; -*- lexical-binding: t -*-\n(+ 1 2)\n";
@@ -319,6 +330,7 @@ mod tests {
 
     #[test]
     fn test_compile_el_to_neobc_nonexistent_file() {
+        crate::test_utils::init_test_tracing();
         let mut eval = Context::new();
         let result = compile_el_to_neobc(&mut eval, Path::new("/nonexistent/foo.el"));
         assert!(result.is_err());

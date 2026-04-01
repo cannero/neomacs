@@ -7,6 +7,7 @@ use crate::emacs_core::value::ValueKind;
 
 #[test]
 fn registry_has_standard_charsets() {
+    crate::test_utils::init_test_tracing();
     let reg = CharsetRegistry::new();
     assert!(reg.contains("ascii"));
     assert!(reg.contains("unicode"));
@@ -19,6 +20,7 @@ fn registry_has_standard_charsets() {
 
 #[test]
 fn registry_names_returns_all() {
+    crate::test_utils::init_test_tracing();
     let reg = CharsetRegistry::new();
     let names = reg.names();
     assert_eq!(names.len(), 8);
@@ -28,6 +30,7 @@ fn registry_names_returns_all() {
 
 #[test]
 fn registry_priority_list() {
+    crate::test_utils::init_test_tracing();
     let reg = CharsetRegistry::new();
     let prio = reg.priority_list();
     assert!(!prio.is_empty());
@@ -37,6 +40,7 @@ fn registry_priority_list() {
 
 #[test]
 fn registry_plist_returns_empty_for_standard() {
+    crate::test_utils::init_test_tracing();
     let reg = CharsetRegistry::new();
     let plist = reg.plist("ascii").unwrap();
     assert!(plist.is_empty());
@@ -44,6 +48,7 @@ fn registry_plist_returns_empty_for_standard() {
 
 #[test]
 fn registry_plist_none_for_unknown() {
+    crate::test_utils::init_test_tracing();
     let reg = CharsetRegistry::new();
     assert!(reg.plist("nonexistent").is_none());
 }
@@ -54,36 +59,42 @@ fn registry_plist_none_for_unknown() {
 
 #[test]
 fn charsetp_known() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_charsetp(vec![Value::symbol("ascii")]).unwrap();
     assert!(r.is_t());
 }
 
 #[test]
 fn charsetp_unknown() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_charsetp(vec![Value::symbol("nonexistent")]).unwrap();
     assert!(r.is_nil());
 }
 
 #[test]
 fn charsetp_string_arg() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_charsetp(vec![Value::string("unicode")]).unwrap();
     assert!(r.is_nil());
 }
 
 #[test]
 fn charsetp_non_symbol() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_charsetp(vec![Value::fixnum(42)]).unwrap();
     assert!(r.is_nil());
 }
 
 #[test]
 fn charsetp_wrong_arg_count() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_charsetp(vec![]).is_err());
     assert!(builtin_charsetp(vec![Value::NIL, Value::NIL]).is_err());
 }
 
 #[test]
 fn charset_list_returns_priority_order() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_charset_list(vec![]).unwrap();
     let items = list_to_vec(&r).unwrap();
     assert!(items[0].is_symbol_named("unicode"));
@@ -92,6 +103,7 @@ fn charset_list_returns_priority_order() {
 
 #[test]
 fn unibyte_charset_returns_eight_bit() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_unibyte_charset(vec![]).unwrap();
     assert!(r.is_symbol_named("eight-bit"));
 }
@@ -102,6 +114,7 @@ fn unibyte_charset_returns_eight_bit() {
 
 #[test]
 fn charset_priority_list_full() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_charset_priority_list(vec![]).unwrap();
     let items = list_to_vec(&r).unwrap();
     assert!(!items.is_empty());
@@ -111,6 +124,7 @@ fn charset_priority_list_full() {
 
 #[test]
 fn charset_priority_list_highestp() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_charset_priority_list(vec![Value::T]).unwrap();
     let items = list_to_vec(&r).unwrap();
     assert_eq!(items.len(), 1);
@@ -119,6 +133,7 @@ fn charset_priority_list_highestp() {
 
 #[test]
 fn charset_priority_list_highestp_nil() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_charset_priority_list(vec![Value::NIL]).unwrap();
     let items = list_to_vec(&r).unwrap();
     assert!(items.len() > 1);
@@ -130,6 +145,7 @@ fn charset_priority_list_highestp_nil() {
 
 #[test]
 fn registry_set_priority_reorders_and_dedups() {
+    crate::test_utils::init_test_tracing();
     let mut reg = CharsetRegistry::new();
     reg.set_priority(&[
         "ascii".to_string(),
@@ -142,11 +158,13 @@ fn registry_set_priority_reorders_and_dedups() {
 
 #[test]
 fn set_charset_priority_requires_at_least_one_arg() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_set_charset_priority(vec![]).is_err());
 }
 
 #[test]
 fn set_charset_priority_rejects_unknown_charset() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_set_charset_priority(vec![Value::symbol("vm-no-such-charset")]);
     match r {
         Err(Flow::Signal(sig)) => {
@@ -169,29 +187,34 @@ fn set_charset_priority_rejects_unknown_charset() {
 
 #[test]
 fn char_charset_int() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_char_charset(vec![Value::fixnum(65)]).unwrap();
     assert!(r.is_symbol_named("ascii"));
 }
 
 #[test]
 fn char_charset_char() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_char_charset(vec![Value::char('A')]).unwrap();
     assert!(r.is_symbol_named("ascii"));
 }
 
 #[test]
 fn char_charset_with_restriction() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_char_charset(vec![Value::fixnum(65), Value::NIL]).unwrap();
     assert!(r.is_symbol_named("ascii"));
 }
 
 #[test]
 fn char_charset_wrong_type() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_char_charset(vec![Value::string("not a char")]).is_err());
 }
 
 #[test]
 fn char_charset_wrong_arg_count() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_char_charset(vec![]).is_err());
     assert!(builtin_char_charset(vec![Value::fixnum(65), Value::NIL, Value::NIL]).is_err());
 }
@@ -202,6 +225,7 @@ fn char_charset_wrong_arg_count() {
 
 #[test]
 fn charset_plist_known() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_charset_plist(vec![Value::symbol("ascii")]).unwrap();
     // Standard charsets have empty plists.
     assert!(r.is_nil());
@@ -209,6 +233,7 @@ fn charset_plist_known() {
 
 #[test]
 fn charset_plist_unknown() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_charset_plist(vec![Value::symbol("nonexistent")]);
     match r {
         Err(Flow::Signal(sig)) => {
@@ -224,6 +249,7 @@ fn charset_plist_unknown() {
 
 #[test]
 fn charset_plist_wrong_arg_count() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_charset_plist(vec![]).is_err());
 }
 
@@ -233,6 +259,7 @@ fn charset_plist_wrong_arg_count() {
 
 #[test]
 fn charset_id_internal_requires_charset() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_charset_id_internal(vec![]);
     match r {
         Err(Flow::Signal(sig)) => {
@@ -245,18 +272,21 @@ fn charset_id_internal_requires_charset() {
 
 #[test]
 fn charset_id_internal_with_ascii() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_charset_id_internal(vec![Value::symbol("ascii")]).unwrap();
     assert!(r.is_fixnum());
 }
 
 #[test]
 fn charset_id_internal_with_unicode() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_charset_id_internal(vec![Value::symbol("unicode")]).unwrap();
     assert!(r.is_fixnum());
 }
 
 #[test]
 fn charset_id_internal_unknown_is_type_error() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_charset_id_internal(vec![Value::symbol("vm-no-such")]);
     match r {
         Err(Flow::Signal(sig)) => {
@@ -272,6 +302,7 @@ fn charset_id_internal_unknown_is_type_error() {
 
 #[test]
 fn charset_id_internal_wrong_arg_count() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_charset_id_internal(vec![Value::NIL, Value::NIL]).is_err());
 }
 
@@ -281,6 +312,7 @@ fn charset_id_internal_wrong_arg_count() {
 
 #[test]
 fn define_charset_internal_requires_exact_arity() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_define_charset_internal(vec![]).is_err());
     assert!(builtin_define_charset_internal(vec![Value::NIL; 16]).is_err());
     assert!(builtin_define_charset_internal(vec![Value::NIL; 18]).is_err());
@@ -288,6 +320,7 @@ fn define_charset_internal_requires_exact_arity() {
 
 #[test]
 fn define_charset_internal_validates_name_arg() {
+    crate::test_utils::init_test_tracing();
     // arg[0] must be a symbol
     let err = builtin_define_charset_internal(vec![Value::NIL; 17]).unwrap_err();
     match err {
@@ -301,6 +334,7 @@ fn define_charset_internal_validates_name_arg() {
 
 #[test]
 fn define_charset_internal_registers_charset() {
+    crate::test_utils::init_test_tracing();
     let mut args = vec![Value::NIL; 17];
     args[0] = Value::symbol("test-charset-xyz");
     args[1] = Value::fixnum(1); // dimension
@@ -314,6 +348,7 @@ fn define_charset_internal_registers_charset() {
 
 #[test]
 fn define_charset_internal_short_code_space_signals_error() {
+    crate::test_utils::init_test_tracing();
     let mut args = vec![Value::NIL; 17];
     args[0] = Value::symbol("test-short-cs");
     args[1] = Value::fixnum(1); // dimension
@@ -329,6 +364,7 @@ fn define_charset_internal_short_code_space_signals_error() {
 
 #[test]
 fn charset_contains_char_supports_map_and_subset_charsets() {
+    crate::test_utils::init_test_tracing();
     reset_charset_registry();
 
     let mut parent_args = vec![Value::NIL; 17];
@@ -371,6 +407,7 @@ fn charset_contains_char_supports_map_and_subset_charsets() {
 
 #[test]
 fn charset_target_ranges_support_map_charsets() {
+    crate::test_utils::init_test_tracing();
     reset_charset_registry();
 
     let mut args = vec![Value::NIL; 17];
@@ -391,6 +428,7 @@ fn charset_target_ranges_support_map_charsets() {
 
 #[test]
 fn charset_superset_supports_offsets_membership_and_ranges() {
+    crate::test_utils::init_test_tracing();
     reset_charset_registry();
 
     let mut thai_args = vec![Value::NIL; 17];
@@ -467,6 +505,7 @@ fn charset_superset_supports_offsets_membership_and_ranges() {
 
 #[test]
 fn find_charset_region_ascii_default() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     {
         let buf = eval
@@ -484,6 +523,7 @@ fn find_charset_region_ascii_default() {
 
 #[test]
 fn find_charset_region_with_table() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     {
         let buf = eval
@@ -503,6 +543,7 @@ fn find_charset_region_with_table() {
 
 #[test]
 fn find_charset_region_wrong_arg_count() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     assert!(builtin_find_charset_region(&mut eval, vec![Value::fixnum(1)]).is_err());
     assert!(
@@ -516,6 +557,7 @@ fn find_charset_region_wrong_arg_count() {
 
 #[test]
 fn find_charset_region_eval_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     {
         let buf = eval
@@ -547,6 +589,7 @@ fn find_charset_region_eval_semantics() {
 
 #[test]
 fn find_charset_region_eval_out_of_range_errors() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     {
         let buf = eval
@@ -569,6 +612,7 @@ fn find_charset_region_eval_out_of_range_errors() {
 
 #[test]
 fn find_charset_string_ascii() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_find_charset_string(vec![Value::string("hello")]).unwrap();
     let items = list_to_vec(&r).unwrap();
     assert_eq!(items.len(), 1);
@@ -577,12 +621,14 @@ fn find_charset_string_ascii() {
 
 #[test]
 fn find_charset_string_empty_is_nil() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_find_charset_string(vec![Value::string("")]).unwrap();
     assert!(r.is_nil());
 }
 
 #[test]
 fn find_charset_string_bmp() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_find_charset_string(vec![Value::string("é")]).unwrap();
     let items = list_to_vec(&r).unwrap();
     assert_eq!(items.len(), 1);
@@ -591,6 +637,7 @@ fn find_charset_string_bmp() {
 
 #[test]
 fn find_charset_string_unicode_supplementary() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_find_charset_string(vec![Value::string("😀")]).unwrap();
     let items = list_to_vec(&r).unwrap();
     assert_eq!(items.len(), 1);
@@ -599,6 +646,7 @@ fn find_charset_string_unicode_supplementary() {
 
 #[test]
 fn find_charset_string_mixed_order_matches_oracle() {
+    crate::test_utils::init_test_tracing();
     let mut s = String::from("a😀é");
     s.push(char::from_u32(0xE3FF).expect("valid unibyte sentinel"));
     let r = builtin_find_charset_string(vec![Value::string(s)]).unwrap();
@@ -612,6 +660,7 @@ fn find_charset_string_mixed_order_matches_oracle() {
 
 #[test]
 fn find_charset_string_unibyte_ascii_and_eight_bit() {
+    crate::test_utils::init_test_tracing();
     let mut s = String::new();
     s.push(char::from_u32(0xE341).expect("valid unibyte ascii sentinel"));
     s.push(char::from_u32(0xE3FF).expect("valid unibyte 255 sentinel"));
@@ -624,6 +673,7 @@ fn find_charset_string_unibyte_ascii_and_eight_bit() {
 
 #[test]
 fn find_charset_string_with_table() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_find_charset_string(vec![Value::string("hello"), Value::NIL]).unwrap();
     let items = list_to_vec(&r).unwrap();
     assert_eq!(items.len(), 1);
@@ -631,6 +681,7 @@ fn find_charset_string_with_table() {
 
 #[test]
 fn find_charset_string_wrong_type() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_find_charset_string(vec![Value::fixnum(1)]);
     match r {
         Err(Flow::Signal(sig)) => {
@@ -643,6 +694,7 @@ fn find_charset_string_wrong_type() {
 
 #[test]
 fn find_charset_string_wrong_arg_count() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_find_charset_string(vec![]).is_err());
     assert!(
         builtin_find_charset_string(vec![Value::string("a"), Value::NIL, Value::NIL,]).is_err()
@@ -655,30 +707,35 @@ fn find_charset_string_wrong_arg_count() {
 
 #[test]
 fn decode_char_ascii() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_decode_char(vec![Value::symbol("ascii"), Value::fixnum(65)]).unwrap();
     assert!(r.is_fixnum());
 }
 
 #[test]
 fn decode_char_unicode() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_decode_char(vec![Value::symbol("unicode"), Value::fixnum(0x1F600)]).unwrap();
     assert!(r.is_fixnum());
 }
 
 #[test]
 fn decode_char_eight_bit_maps_to_raw_byte_range() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_decode_char(vec![Value::symbol("eight-bit"), Value::fixnum(255)]).unwrap();
     assert!(r.is_fixnum());
 }
 
 #[test]
 fn decode_char_invalid_code_point() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_decode_char(vec![Value::symbol("unicode"), Value::fixnum(0xD800)]).unwrap();
     assert!(r.is_fixnum());
 }
 
 #[test]
 fn decode_char_negative() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_decode_char(vec![Value::symbol("unicode"), Value::fixnum(-1)]);
     match r {
         Err(Flow::Signal(sig)) => {
@@ -696,12 +753,14 @@ fn decode_char_negative() {
 
 #[test]
 fn decode_char_out_of_range() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_decode_char(vec![Value::symbol("unicode"), Value::fixnum(0x110000)]).unwrap();
     assert!(r.is_nil());
 }
 
 #[test]
 fn decode_char_unknown_charset() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_decode_char(vec![Value::symbol("nonexistent"), Value::fixnum(65)]);
     match r {
         Err(Flow::Signal(sig)) => {
@@ -717,6 +776,7 @@ fn decode_char_unknown_charset() {
 
 #[test]
 fn decode_char_wrong_type() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_decode_char(vec![Value::symbol("ascii"), Value::string("not an int")]);
     match r {
         Err(Flow::Signal(sig)) => {
@@ -734,6 +794,7 @@ fn decode_char_wrong_type() {
 
 #[test]
 fn decode_char_wrong_arg_count() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_decode_char(vec![Value::symbol("ascii")]).is_err());
     assert!(
         builtin_decode_char(vec![Value::symbol("ascii"), Value::fixnum(65), Value::NIL]).is_err()
@@ -746,30 +807,35 @@ fn decode_char_wrong_arg_count() {
 
 #[test]
 fn encode_char_basic() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_encode_char(vec![Value::fixnum(65), Value::symbol("ascii")]).unwrap();
     assert!(r.is_fixnum());
 }
 
 #[test]
 fn encode_char_unicode() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_encode_char(vec![Value::fixnum(0x1F600), Value::symbol("unicode")]).unwrap();
     assert!(r.is_fixnum());
 }
 
 #[test]
 fn encode_char_eight_bit_raw_byte_maps_back_to_byte() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_encode_char(vec![Value::fixnum(0x3FFFFF), Value::symbol("eight-bit")]).unwrap();
     assert!(r.is_fixnum());
 }
 
 #[test]
 fn encode_char_with_char_value() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_encode_char(vec![Value::char('Z'), Value::symbol("unicode")]).unwrap();
     assert!(r.is_fixnum());
 }
 
 #[test]
 fn encode_char_unknown_charset() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_encode_char(vec![Value::fixnum(65), Value::symbol("nonexistent")]);
     match r {
         Err(Flow::Signal(sig)) => {
@@ -785,6 +851,7 @@ fn encode_char_unknown_charset() {
 
 #[test]
 fn encode_char_wrong_type() {
+    crate::test_utils::init_test_tracing();
     assert!(
         builtin_encode_char(vec![Value::string("not a char"), Value::symbol("ascii")]).is_err()
     );
@@ -792,11 +859,13 @@ fn encode_char_wrong_type() {
 
 #[test]
 fn encode_char_wrong_arg_count() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_encode_char(vec![Value::fixnum(65)]).is_err());
 }
 
 #[test]
 fn encode_decode_big5_sjis_basic_identity() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         builtin_encode_big5_char(vec![Value::fixnum(65)]).expect("encode-big5-char"),
         Value::fixnum(65)
@@ -817,6 +886,7 @@ fn encode_decode_big5_sjis_basic_identity() {
 
 #[test]
 fn get_unused_iso_final_char_known_values() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         builtin_get_unused_iso_final_char(vec![Value::fixnum(1), Value::fixnum(94)]).expect("1/94"),
         Value::fixnum(54)
@@ -841,6 +911,7 @@ fn get_unused_iso_final_char_known_values() {
 
 #[test]
 fn get_unused_iso_final_char_validates_dimension_and_chars() {
+    crate::test_utils::init_test_tracing();
     let bad_dimension =
         builtin_get_unused_iso_final_char(vec![Value::fixnum(0), Value::fixnum(94)])
             .expect_err("dimension 0 should error");
@@ -853,6 +924,7 @@ fn get_unused_iso_final_char_validates_dimension_and_chars() {
 
 #[test]
 fn declare_equiv_charset_validates_and_accepts_valid_tuple() {
+    crate::test_utils::init_test_tracing();
     assert!(
         builtin_declare_equiv_charset(vec![
             Value::fixnum(1),
@@ -894,6 +966,7 @@ fn declare_equiv_charset_validates_and_accepts_valid_tuple() {
 
 #[test]
 fn define_charset_alias_adds_symbol_alias_only() {
+    crate::test_utils::init_test_tracing();
     assert!(
         builtin_define_charset_alias(vec![
             Value::symbol("latin-1"),
@@ -921,12 +994,14 @@ fn define_charset_alias_adds_symbol_alias_only() {
 
 #[test]
 fn clear_charset_maps_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_clear_charset_maps(vec![]).unwrap();
     assert!(r.is_nil());
 }
 
 #[test]
 fn clear_charset_maps_wrong_arg_count() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_clear_charset_maps(vec![Value::NIL]).is_err());
 }
 
@@ -936,6 +1011,7 @@ fn clear_charset_maps_wrong_arg_count() {
 
 #[test]
 fn charset_after_default_returns_unicode() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     {
         let buf = eval
@@ -951,6 +1027,7 @@ fn charset_after_default_returns_unicode() {
 
 #[test]
 fn charset_after_with_pos() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     {
         let buf = eval
@@ -965,12 +1042,14 @@ fn charset_after_with_pos() {
 
 #[test]
 fn charset_after_wrong_arg_count() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     assert!(builtin_charset_after(&mut eval, vec![Value::fixnum(1), Value::fixnum(2)]).is_err());
 }
 
 #[test]
 fn charset_after_eval_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     {
         let buf = eval
@@ -1023,6 +1102,7 @@ fn charset_after_eval_semantics() {
 
 #[test]
 fn decode_encode_round_trip() {
+    crate::test_utils::init_test_tracing();
     // decode-char then encode-char should give the same code-point.
     let code = 0x00E9_i64; // e-acute
     let decoded = builtin_decode_char(vec![Value::symbol("unicode"), Value::fixnum(code)]).unwrap();
@@ -1033,6 +1113,7 @@ fn decode_encode_round_trip() {
 
 #[test]
 fn charsetp_all_standard() {
+    crate::test_utils::init_test_tracing();
     for name in &[
         "ascii",
         "unicode",

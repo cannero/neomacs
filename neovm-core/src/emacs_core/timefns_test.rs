@@ -32,6 +32,7 @@ fn bootstrap_eval(src: &str) -> Vec<String> {
 
 #[test]
 fn time_micros_roundtrip_to_list() {
+    crate::test_utils::init_test_tracing();
     let tm = TimeMicros {
         secs: 1_700_000_000,
         usecs: 123_456,
@@ -51,6 +52,7 @@ fn time_micros_roundtrip_to_list() {
 
 #[test]
 fn time_micros_to_float() {
+    crate::test_utils::init_test_tracing();
     let tm = TimeMicros {
         secs: 1000,
         usecs: 500_000,
@@ -62,6 +64,7 @@ fn time_micros_to_float() {
 
 #[test]
 fn time_micros_add() {
+    crate::test_utils::init_test_tracing();
     let a = TimeMicros {
         secs: 10,
         usecs: 800_000,
@@ -79,6 +82,7 @@ fn time_micros_add() {
 
 #[test]
 fn time_micros_sub() {
+    crate::test_utils::init_test_tracing();
     let a = TimeMicros {
         secs: 10,
         usecs: 200_000,
@@ -96,6 +100,7 @@ fn time_micros_sub() {
 
 #[test]
 fn time_micros_less_than() {
+    crate::test_utils::init_test_tracing();
     let a = TimeMicros {
         secs: 10,
         usecs: 0,
@@ -113,6 +118,7 @@ fn time_micros_less_than() {
 
 #[test]
 fn time_micros_equal() {
+    crate::test_utils::init_test_tracing();
     let a = TimeMicros {
         secs: 42,
         usecs: 123,
@@ -138,6 +144,7 @@ fn time_micros_equal() {
 
 #[test]
 fn parse_time_nil() {
+    crate::test_utils::init_test_tracing();
     let tm = parse_time(&Value::NIL).unwrap();
     // Just check it returns something reasonable (recent epoch).
     assert!(tm.secs > 1_000_000_000);
@@ -145,6 +152,7 @@ fn parse_time_nil() {
 
 #[test]
 fn parse_time_integer() {
+    crate::test_utils::init_test_tracing();
     let tm = parse_time(&Value::fixnum(1_700_000_000)).unwrap();
     assert_eq!(tm.secs, 1_700_000_000);
     assert_eq!(tm.usecs, 0);
@@ -152,6 +160,7 @@ fn parse_time_integer() {
 
 #[test]
 fn parse_time_float() {
+    crate::test_utils::init_test_tracing();
     let tm = parse_time(&Value::make_float(1000.5)).unwrap();
     assert_eq!(tm.secs, 1000);
     assert_eq!(tm.usecs, 500_000);
@@ -159,6 +168,7 @@ fn parse_time_float() {
 
 #[test]
 fn parse_time_list_two() {
+    crate::test_utils::init_test_tracing();
     // (HIGH LOW) format: 25939 * 65536 + 34304 = 1700000000
     let high = 1_700_000_000i64 >> 16;
     let low = 1_700_000_000i64 & 0xFFFF;
@@ -170,6 +180,7 @@ fn parse_time_list_two() {
 
 #[test]
 fn parse_time_list_four() {
+    crate::test_utils::init_test_tracing();
     let high = 1_700_000_000i64 >> 16;
     let low = 1_700_000_000i64 & 0xFFFF;
     let list = Value::list(vec![
@@ -185,6 +196,7 @@ fn parse_time_list_four() {
 
 #[test]
 fn parse_time_bad_type() {
+    crate::test_utils::init_test_tracing();
     let result = parse_time(&Value::string("not a time"));
     assert!(result.is_err());
 }
@@ -195,6 +207,7 @@ fn parse_time_bad_type() {
 
 #[test]
 fn leap_years() {
+    crate::test_utils::init_test_tracing();
     assert!(is_leap_year(2000));
     assert!(!is_leap_year(1900));
     assert!(is_leap_year(2024));
@@ -204,6 +217,7 @@ fn leap_years() {
 
 #[test]
 fn decode_epoch_zero() {
+    crate::test_utils::init_test_tracing();
     let dt = decode_epoch_secs(0);
     assert_eq!(dt.year, 1970);
     assert_eq!(dt.month, 1);
@@ -216,6 +230,7 @@ fn decode_epoch_zero() {
 
 #[test]
 fn decode_known_date() {
+    crate::test_utils::init_test_tracing();
     // 2024-01-15 12:30:45 UTC -> epoch = 1705318245
     let epoch = encode_to_epoch_secs(45, 30, 12, 15, 1, 2024);
     let dt = decode_epoch_secs(epoch);
@@ -229,6 +244,7 @@ fn decode_known_date() {
 
 #[test]
 fn encode_decode_roundtrip() {
+    crate::test_utils::init_test_tracing();
     let epoch = encode_to_epoch_secs(30, 15, 10, 25, 6, 2023);
     let dt = decode_epoch_secs(epoch);
     assert_eq!(dt.sec, 30);
@@ -241,6 +257,7 @@ fn encode_decode_roundtrip() {
 
 #[test]
 fn encode_decode_roundtrip_leap_day() {
+    crate::test_utils::init_test_tracing();
     let epoch = encode_to_epoch_secs(0, 0, 0, 29, 2, 2024);
     let dt = decode_epoch_secs(epoch);
     assert_eq!(dt.day, 29);
@@ -250,6 +267,7 @@ fn encode_decode_roundtrip_leap_day() {
 
 #[test]
 fn decode_y2k() {
+    crate::test_utils::init_test_tracing();
     // 2000-01-01 00:00:00 UTC = 946684800
     let dt = decode_epoch_secs(946_684_800);
     assert_eq!(dt.year, 2000);
@@ -267,6 +285,7 @@ fn decode_y2k() {
 
 #[test]
 fn builtin_current_time_returns_four_element_list() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_current_time(vec![]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 4);
@@ -283,12 +302,14 @@ fn builtin_current_time_returns_four_element_list() {
 
 #[test]
 fn builtin_current_time_wrong_arity() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_current_time(vec![Value::fixnum(1)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn builtin_float_time_no_args() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_float_time(vec![]).unwrap();
     match result.kind() {
         ValueKind::Float => {
@@ -301,6 +322,7 @@ fn builtin_float_time_no_args() {
 
 #[test]
 fn builtin_float_time_from_list() {
+    crate::test_utils::init_test_tracing();
     let high = 1_700_000_000i64 >> 16;
     let low = 1_700_000_000i64 & 0xFFFF;
     let list = Value::list(vec![
@@ -321,6 +343,7 @@ fn builtin_float_time_from_list() {
 
 #[test]
 fn builtin_float_time_from_integer() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_float_time(vec![Value::fixnum(42)]).unwrap();
     match result.kind() {
         ValueKind::Float => {
@@ -333,6 +356,7 @@ fn builtin_float_time_from_integer() {
 
 #[test]
 fn builtin_time_add_basic() {
+    crate::test_utils::init_test_tracing();
     let a = Value::fixnum(100);
     let b = Value::fixnum(200);
     let result = builtin_time_add(vec![a, b]).unwrap();
@@ -344,6 +368,7 @@ fn builtin_time_add_basic() {
 
 #[test]
 fn builtin_time_subtract_basic() {
+    crate::test_utils::init_test_tracing();
     let a = Value::fixnum(300);
     let b = Value::fixnum(100);
     let result = builtin_time_subtract(vec![a, b]).unwrap();
@@ -355,30 +380,35 @@ fn builtin_time_subtract_basic() {
 
 #[test]
 fn builtin_time_less_p_true() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_time_less_p(vec![Value::fixnum(1), Value::fixnum(2)]).unwrap();
     assert!(result.is_truthy());
 }
 
 #[test]
 fn builtin_time_less_p_false() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_time_less_p(vec![Value::fixnum(2), Value::fixnum(1)]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn builtin_time_equal_p_true() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_time_equal_p(vec![Value::fixnum(42), Value::fixnum(42)]).unwrap();
     assert!(result.is_truthy());
 }
 
 #[test]
 fn builtin_time_equal_p_false() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_time_equal_p(vec![Value::fixnum(42), Value::fixnum(43)]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn builtin_current_time_string_known_time() {
+    crate::test_utils::init_test_tracing();
     // 2024-01-15 12:30:45 UTC
     let epoch = encode_to_epoch_secs(45, 30, 12, 15, 1, 2024);
     let result = builtin_current_time_string(vec![Value::fixnum(epoch)]).unwrap();
@@ -391,12 +421,14 @@ fn builtin_current_time_string_known_time() {
 
 #[test]
 fn builtin_current_time_string_no_args() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_current_time_string(vec![]).unwrap();
     assert!(result.is_string());
 }
 
 #[test]
 fn builtin_current_time_zone_default() {
+    crate::test_utils::init_test_tracing();
     let _guard = tz_test_lock();
     reset_tz_rule();
     let result = builtin_current_time_zone(vec![]).unwrap();
@@ -408,6 +440,7 @@ fn builtin_current_time_zone_default() {
 
 #[test]
 fn builtin_encode_time_known() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_encode_time(vec![
         Value::fixnum(0),
         Value::fixnum(0),
@@ -426,6 +459,7 @@ fn builtin_encode_time_known() {
 
 #[test]
 fn builtin_encode_time_y2k() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_encode_time(vec![
         Value::fixnum(0),
         Value::fixnum(0),
@@ -444,12 +478,14 @@ fn builtin_encode_time_y2k() {
 
 #[test]
 fn builtin_encode_time_wrong_arity() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_encode_time(vec![]);
     assert!(result.is_err());
 }
 
 #[test]
 fn builtin_encode_time_decoded_time_list() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_encode_time(vec![Value::list(vec![
         Value::fixnum(0),
         Value::fixnum(0),
@@ -470,6 +506,7 @@ fn builtin_encode_time_decoded_time_list() {
 
 #[test]
 fn builtin_encode_time_honors_zone_offset() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_encode_time(vec![Value::list(vec![
         Value::fixnum(0),
         Value::fixnum(0),
@@ -490,6 +527,7 @@ fn builtin_encode_time_honors_zone_offset() {
 
 #[test]
 fn builtin_decode_time_epoch_zero() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_decode_time(vec![Value::fixnum(0)]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 9);
@@ -506,6 +544,7 @@ fn builtin_decode_time_epoch_zero() {
 
 #[test]
 fn builtin_decode_time_no_args() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_decode_time(vec![]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 9);
@@ -513,6 +552,7 @@ fn builtin_decode_time_no_args() {
 
 #[test]
 fn builtin_encode_decode_roundtrip() {
+    crate::test_utils::init_test_tracing();
     // Encode a specific time.
     let encoded = builtin_encode_time(vec![
         Value::fixnum(30),
@@ -538,6 +578,7 @@ fn builtin_encode_decode_roundtrip() {
 
 #[test]
 fn builtin_time_convert_to_list() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_time_convert(vec![Value::fixnum(1000)]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 4);
@@ -548,12 +589,14 @@ fn builtin_time_convert_to_list() {
 
 #[test]
 fn builtin_time_convert_to_integer() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_time_convert(vec![Value::fixnum(1000), Value::symbol("integer")]).unwrap();
     assert_eq!(result.as_int(), Some(1000));
 }
 
 #[test]
 fn builtin_time_convert_to_float() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_time_convert(vec![Value::fixnum(1000), Value::symbol("float")]).unwrap();
     match result.kind() {
         ValueKind::Float => {
@@ -566,6 +609,7 @@ fn builtin_time_convert_to_float() {
 
 #[test]
 fn builtin_time_convert_with_t() {
+    crate::test_utils::init_test_tracing();
     // Emacs 29+: (time-convert 42 t) returns (TICKS . HZ) cons
     let result = builtin_time_convert(vec![Value::fixnum(42), Value::T]).unwrap();
     match result.kind() {
@@ -581,6 +625,7 @@ fn builtin_time_convert_with_t() {
 
 #[test]
 fn builtin_set_time_zone_rule_t() {
+    crate::test_utils::init_test_tracing();
     let _guard = tz_test_lock();
     reset_tz_rule();
 
@@ -596,6 +641,7 @@ fn builtin_set_time_zone_rule_t() {
 
 #[test]
 fn builtin_set_time_zone_rule_fixed_offsets() {
+    crate::test_utils::init_test_tracing();
     let _guard = tz_test_lock();
     reset_tz_rule();
 
@@ -624,6 +670,7 @@ fn builtin_set_time_zone_rule_fixed_offsets() {
 
 #[test]
 fn builtin_set_time_zone_rule_string_specs() {
+    crate::test_utils::init_test_tracing();
     let _guard = tz_test_lock();
     reset_tz_rule();
 
@@ -645,6 +692,7 @@ fn builtin_set_time_zone_rule_string_specs() {
 
 #[test]
 fn builtin_set_time_zone_rule_invalid_spec() {
+    crate::test_utils::init_test_tracing();
     let _guard = tz_test_lock();
     reset_tz_rule();
 
@@ -663,6 +711,7 @@ fn builtin_set_time_zone_rule_invalid_spec() {
 
 #[test]
 fn builtin_current_time_zone_with_zone_arg() {
+    crate::test_utils::init_test_tracing();
     let _guard = tz_test_lock();
     reset_tz_rule();
 
@@ -693,6 +742,7 @@ fn builtin_current_time_zone_with_zone_arg() {
 
 #[test]
 fn safe_date_to_time_bootstrap_matches_gnu_elisp() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (safe-date-to-time "1970-01-01 00:00:00 +0000")
@@ -717,6 +767,7 @@ fn safe_date_to_time_bootstrap_matches_gnu_elisp() {
 
 #[test]
 fn time_add_with_usec_overflow() {
+    crate::test_utils::init_test_tracing();
     let a = Value::list(vec![
         Value::fixnum(0),
         Value::fixnum(10),
@@ -740,6 +791,7 @@ fn time_add_with_usec_overflow() {
 
 #[test]
 fn time_subtract_with_usec_borrow() {
+    crate::test_utils::init_test_tracing();
     let a = Value::list(vec![
         Value::fixnum(0),
         Value::fixnum(10),
@@ -763,6 +815,7 @@ fn time_subtract_with_usec_borrow() {
 
 #[test]
 fn float_time_nil_arg() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_float_time(vec![Value::NIL]).unwrap();
     match result.kind() {
         ValueKind::Float => {
@@ -775,6 +828,7 @@ fn float_time_nil_arg() {
 
 #[test]
 fn time_operations_with_mixed_formats() {
+    crate::test_utils::init_test_tracing();
     // Add an integer to a list-format time.
     let a = Value::fixnum(100);
     let b = Value::list(vec![
@@ -794,6 +848,7 @@ fn time_operations_with_mixed_formats() {
 
 #[test]
 fn current_time_string_epoch() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_current_time_string(vec![Value::fixnum(0)]).unwrap();
     let s = result.as_str().unwrap();
     // 1970-01-01 00:00:00 UTC, Thursday

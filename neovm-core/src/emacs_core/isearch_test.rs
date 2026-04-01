@@ -6,6 +6,7 @@ use super::*;
 
 #[test]
 fn history_push_and_get() {
+    crate::test_utils::init_test_tracing();
     let mut h = SearchHistory::new();
     h.push("hello".to_string(), false);
     h.push("world".to_string(), false);
@@ -16,6 +17,7 @@ fn history_push_and_get() {
 
 #[test]
 fn history_push_deduplicates() {
+    crate::test_utils::init_test_tracing();
     let mut h = SearchHistory::new();
     h.push("aaa".to_string(), false);
     h.push("bbb".to_string(), false);
@@ -27,6 +29,7 @@ fn history_push_deduplicates() {
 
 #[test]
 fn history_separate_rings() {
+    crate::test_utils::init_test_tracing();
     let mut h = SearchHistory::new();
     h.push("literal".to_string(), false);
     h.push("re.*gex".to_string(), true);
@@ -38,6 +41,7 @@ fn history_separate_rings() {
 
 #[test]
 fn history_max_length() {
+    crate::test_utils::init_test_tracing();
     let mut h = SearchHistory::new();
     for i in 0..150 {
         h.push(format!("item{}", i), false);
@@ -49,6 +53,7 @@ fn history_max_length() {
 
 #[test]
 fn history_strings_accessor() {
+    crate::test_utils::init_test_tracing();
     let mut h = SearchHistory::new();
     h.push("a".to_string(), false);
     h.push("b".to_string(), false);
@@ -64,6 +69,7 @@ fn history_strings_accessor() {
 
 #[test]
 fn isearch_begin_end_lifecycle() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     assert!(!mgr.is_active());
 
@@ -82,6 +88,7 @@ fn isearch_begin_end_lifecycle() {
 
 #[test]
 fn isearch_abort_restores_origin() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     mgr.begin_search(SearchDirection::Forward, false, 100);
     mgr.add_char('x');
@@ -92,6 +99,7 @@ fn isearch_abort_restores_origin() {
 
 #[test]
 fn isearch_end_saves_to_history() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     mgr.begin_search(SearchDirection::Forward, false, 0);
     mgr.add_char('f');
@@ -103,6 +111,7 @@ fn isearch_end_saves_to_history() {
 
 #[test]
 fn isearch_end_empty_string_not_saved() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     mgr.begin_search(SearchDirection::Forward, false, 0);
     mgr.end_search(true);
@@ -115,6 +124,7 @@ fn isearch_end_empty_string_not_saved() {
 
 #[test]
 fn isearch_add_delete_char() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     mgr.begin_search(SearchDirection::Forward, false, 0);
     mgr.add_char('a');
@@ -127,6 +137,7 @@ fn isearch_add_delete_char() {
 
 #[test]
 fn isearch_set_string() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     mgr.begin_search(SearchDirection::Forward, false, 0);
     mgr.set_string("hello world".to_string());
@@ -135,6 +146,7 @@ fn isearch_set_string() {
 
 #[test]
 fn isearch_toggle_regexp() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     mgr.begin_search(SearchDirection::Forward, false, 0);
     assert!(!mgr.state().unwrap().regexp);
@@ -146,6 +158,7 @@ fn isearch_toggle_regexp() {
 
 #[test]
 fn isearch_toggle_case_fold() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     mgr.begin_search(SearchDirection::Forward, false, 0);
     assert!(mgr.state().unwrap().case_fold.is_none());
@@ -159,6 +172,7 @@ fn isearch_toggle_case_fold() {
 
 #[test]
 fn isearch_reverse_direction() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     mgr.begin_search(SearchDirection::Forward, false, 0);
     assert!(matches!(
@@ -178,6 +192,7 @@ fn isearch_reverse_direction() {
 
 #[test]
 fn isearch_forward_search_update_finds_match() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     let text = "hello world hello";
     mgr.begin_search(SearchDirection::Forward, false, 0);
@@ -189,6 +204,7 @@ fn isearch_forward_search_update_finds_match() {
 
 #[test]
 fn isearch_forward_search_update_no_match() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     let text = "hello world";
     mgr.begin_search(SearchDirection::Forward, false, 0);
@@ -200,6 +216,7 @@ fn isearch_forward_search_update_no_match() {
 
 #[test]
 fn isearch_forward_search_next_advances() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     let text = "aaa bbb aaa bbb";
     mgr.begin_search(SearchDirection::Forward, false, 0);
@@ -220,6 +237,7 @@ fn isearch_forward_search_next_advances() {
 
 #[test]
 fn isearch_backward_search_update() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     let text = "aaa bbb aaa";
     mgr.begin_search(SearchDirection::Backward, false, text.len());
@@ -231,6 +249,7 @@ fn isearch_backward_search_update() {
 
 #[test]
 fn isearch_backward_search_next() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     let text = "aaa bbb aaa";
     mgr.begin_search(SearchDirection::Backward, false, text.len());
@@ -250,6 +269,7 @@ fn isearch_backward_search_next() {
 
 #[test]
 fn isearch_forward_wraps() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     let text = "aaa bbb ccc";
     // Start near the end so "aaa" is behind us
@@ -264,6 +284,7 @@ fn isearch_forward_wraps() {
 
 #[test]
 fn isearch_backward_wraps() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     let text = "aaa bbb ccc";
     // Start at the beginning so "ccc" is ahead of us
@@ -281,26 +302,31 @@ fn isearch_backward_wraps() {
 
 #[test]
 fn case_fold_auto_lowercase_folds() {
+    crate::test_utils::init_test_tracing();
     assert!(resolve_case_fold(None, "hello"));
 }
 
 #[test]
 fn case_fold_auto_uppercase_exact() {
+    crate::test_utils::init_test_tracing();
     assert!(!resolve_case_fold(None, "Hello"));
 }
 
 #[test]
 fn case_fold_override_true() {
+    crate::test_utils::init_test_tracing();
     assert!(resolve_case_fold(Some(true), "Hello"));
 }
 
 #[test]
 fn case_fold_override_false() {
+    crate::test_utils::init_test_tracing();
     assert!(!resolve_case_fold(Some(false), "hello"));
 }
 
 #[test]
 fn isearch_case_fold_auto() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     let text = "Hello World hello world";
     mgr.begin_search(SearchDirection::Forward, false, 0);
@@ -313,6 +339,7 @@ fn isearch_case_fold_auto() {
 
 #[test]
 fn isearch_case_fold_auto_uppercase_exact() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     let text = "hello world Hello World";
     mgr.begin_search(SearchDirection::Forward, false, 0);
@@ -328,6 +355,7 @@ fn isearch_case_fold_auto_uppercase_exact() {
 
 #[test]
 fn isearch_regexp_forward() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     let text = "foo 123 bar 456";
     mgr.begin_search(SearchDirection::Forward, true, 0);
@@ -338,6 +366,7 @@ fn isearch_regexp_forward() {
 
 #[test]
 fn isearch_regexp_backward() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     let text = "foo 123 bar 456";
     mgr.begin_search(SearchDirection::Backward, true, text.len());
@@ -352,6 +381,7 @@ fn isearch_regexp_backward() {
 
 #[test]
 fn compute_lazy_matches_literal() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     let text = "aa bb aa cc aa";
     mgr.begin_search(SearchDirection::Forward, false, 0);
@@ -366,6 +396,7 @@ fn compute_lazy_matches_literal() {
 
 #[test]
 fn compute_lazy_matches_regexp() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     let text = "abc 123 def 456 ghi";
     mgr.begin_search(SearchDirection::Forward, true, 0);
@@ -379,6 +410,7 @@ fn compute_lazy_matches_regexp() {
 
 #[test]
 fn compute_lazy_matches_visible_region() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     let text = "aaa bbb aaa ccc aaa";
     mgr.begin_search(SearchDirection::Forward, false, 0);
@@ -392,6 +424,7 @@ fn compute_lazy_matches_visible_region() {
 
 #[test]
 fn compute_lazy_matches_empty_string() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     let text = "hello world";
     mgr.begin_search(SearchDirection::Forward, false, 0);
@@ -406,6 +439,7 @@ fn compute_lazy_matches_empty_string() {
 
 #[test]
 fn isearch_history_navigation() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
 
     // Populate history
@@ -435,6 +469,7 @@ fn isearch_history_navigation() {
 
 #[test]
 fn isearch_yank_word() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     let text = "hello world";
     mgr.begin_search(SearchDirection::Forward, false, 0);
@@ -444,6 +479,7 @@ fn isearch_yank_word() {
 
 #[test]
 fn isearch_yank_nonword_char() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     let text = " hello";
     mgr.begin_search(SearchDirection::Forward, false, 0);
@@ -454,6 +490,7 @@ fn isearch_yank_nonword_char() {
 
 #[test]
 fn isearch_yank_at_end() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     let text = "hi";
     mgr.begin_search(SearchDirection::Forward, false, 0);
@@ -468,6 +505,7 @@ fn isearch_yank_at_end() {
 
 #[test]
 fn isearch_prompt_basic() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     mgr.begin_search(SearchDirection::Forward, false, 0);
     mgr.set_string("test".to_string());
@@ -479,6 +517,7 @@ fn isearch_prompt_basic() {
 
 #[test]
 fn isearch_prompt_regexp_backward_failing() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = IsearchManager::new();
     mgr.begin_search(SearchDirection::Backward, true, 0);
     mgr.set_string("pat".to_string());
@@ -496,6 +535,7 @@ fn isearch_prompt_regexp_backward_failing() {
 
 #[test]
 fn query_replace_begin_end() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     assert!(!mgr.is_active());
     mgr.begin("foo".to_string(), "bar".to_string(), false);
@@ -514,6 +554,7 @@ fn query_replace_begin_end() {
 
 #[test]
 fn query_replace_begin_in_region() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     mgr.begin_in_region("x".to_string(), "y".to_string(), false, 10, 50);
     let state = mgr.state().unwrap();
@@ -527,6 +568,7 @@ fn query_replace_begin_in_region() {
 
 #[test]
 fn query_replace_find_next_basic() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     let text = "foo bar foo baz foo";
     mgr.begin("foo".to_string(), "qux".to_string(), false);
@@ -546,6 +588,7 @@ fn query_replace_find_next_basic() {
 
 #[test]
 fn query_replace_find_next_in_region() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     let text = "foo bar foo baz foo";
     mgr.begin_in_region("foo".to_string(), "qux".to_string(), false, 4, 15);
@@ -560,6 +603,7 @@ fn query_replace_find_next_in_region() {
 
 #[test]
 fn query_replace_find_next_regexp() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     let text = "abc 123 def 456";
     mgr.begin("[0-9]+".to_string(), "NUM".to_string(), true);
@@ -577,6 +621,7 @@ fn query_replace_find_next_regexp() {
 
 #[test]
 fn query_replace_respond_yes() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     let text = "foo bar";
     mgr.begin("foo".to_string(), "baz".to_string(), false);
@@ -596,6 +641,7 @@ fn query_replace_respond_yes() {
 
 #[test]
 fn query_replace_respond_no() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     let text = "foo bar";
     mgr.begin("foo".to_string(), "baz".to_string(), false);
@@ -608,6 +654,7 @@ fn query_replace_respond_no() {
 
 #[test]
 fn query_replace_respond_quit() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     let text = "foo bar foo";
     mgr.begin("foo".to_string(), "baz".to_string(), false);
@@ -628,6 +675,7 @@ fn query_replace_respond_quit() {
 
 #[test]
 fn query_replace_respond_delete() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     let text = "foo bar";
     mgr.begin("foo".to_string(), "baz".to_string(), false);
@@ -646,6 +694,7 @@ fn query_replace_respond_delete() {
 
 #[test]
 fn query_replace_respond_help() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     mgr.begin("foo".to_string(), "bar".to_string(), false);
 
@@ -661,6 +710,7 @@ fn query_replace_respond_help() {
 
 #[test]
 fn query_replace_respond_edit() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     mgr.begin("foo".to_string(), "bar".to_string(), false);
     let action = mgr.respond(QueryReplaceResponse::Edit);
@@ -673,6 +723,7 @@ fn query_replace_respond_edit() {
 
 #[test]
 fn query_replace_undo() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     let text = "foo bar foo";
     mgr.begin("foo".to_string(), "baz".to_string(), false);
@@ -691,6 +742,7 @@ fn query_replace_undo() {
 
 #[test]
 fn query_replace_undo_empty_stack() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     mgr.begin("foo".to_string(), "bar".to_string(), false);
     assert!(mgr.undo_last().is_none());
@@ -702,6 +754,7 @@ fn query_replace_undo_empty_stack() {
 
 #[test]
 fn query_replace_compute_replacement_lower() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     mgr.begin("foo".to_string(), "bar".to_string(), false);
     assert_eq!(mgr.compute_replacement("foo"), "bar");
@@ -709,6 +762,7 @@ fn query_replace_compute_replacement_lower() {
 
 #[test]
 fn query_replace_compute_replacement_upper() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     mgr.begin("foo".to_string(), "bar".to_string(), false);
     assert_eq!(mgr.compute_replacement("FOO"), "BAR");
@@ -716,6 +770,7 @@ fn query_replace_compute_replacement_upper() {
 
 #[test]
 fn query_replace_compute_replacement_capitalized() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     mgr.begin("foo".to_string(), "bar".to_string(), false);
     assert_eq!(mgr.compute_replacement("Foo"), "Bar");
@@ -727,6 +782,7 @@ fn query_replace_compute_replacement_capitalized() {
 
 #[test]
 fn query_replace_prompt() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     mgr.begin("old".to_string(), "new".to_string(), false);
     let prompt = mgr.prompt();
@@ -738,6 +794,7 @@ fn query_replace_prompt() {
 
 #[test]
 fn query_replace_prompt_regexp() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = QueryReplaceManager::new();
     mgr.begin("[0-9]+".to_string(), "NUM".to_string(), true);
     let prompt = mgr.prompt();
@@ -750,37 +807,44 @@ fn query_replace_prompt_regexp() {
 
 #[test]
 fn preserve_case_all_lower() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(preserve_case("bar", "foo"), "bar");
 }
 
 #[test]
 fn preserve_case_all_upper() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(preserve_case("bar", "FOO"), "BAR");
 }
 
 #[test]
 fn preserve_case_capitalized() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(preserve_case("bar", "Foo"), "Bar");
 }
 
 #[test]
 fn preserve_case_mixed() {
+    crate::test_utils::init_test_tracing();
     // Mixed case like "fOo" doesn't match any pattern, return as-is
     assert_eq!(preserve_case("bar", "fOo"), "bar");
 }
 
 #[test]
 fn preserve_case_empty_matched() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(preserve_case("bar", ""), "bar");
 }
 
 #[test]
 fn preserve_case_empty_replacement() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(preserve_case("", "FOO"), "");
 }
 
 #[test]
 fn preserve_case_non_alpha_upper() {
+    crate::test_utils::init_test_tracing();
     // "123" has no alphabetic chars, so all_upper && has_alpha is false
     assert_eq!(preserve_case("bar", "123"), "bar");
 }
@@ -791,6 +855,7 @@ fn preserve_case_non_alpha_upper() {
 
 #[test]
 fn find_match_literal_forward() {
+    crate::test_utils::init_test_tracing();
     let text = "hello world hello";
     let result = find_match(text, "hello", 0, true, false, false);
     assert_eq!(result, Some((0, 5)));
@@ -798,6 +863,7 @@ fn find_match_literal_forward() {
 
 #[test]
 fn find_match_literal_forward_from_offset() {
+    crate::test_utils::init_test_tracing();
     let text = "hello world hello";
     let result = find_match(text, "hello", 1, true, false, false);
     assert_eq!(result, Some((12, 17)));
@@ -805,6 +871,7 @@ fn find_match_literal_forward_from_offset() {
 
 #[test]
 fn find_match_literal_backward() {
+    crate::test_utils::init_test_tracing();
     let text = "hello world hello";
     let result = find_match(text, "hello", text.len(), false, false, false);
     assert_eq!(result, Some((12, 17)));
@@ -812,6 +879,7 @@ fn find_match_literal_backward() {
 
 #[test]
 fn find_match_literal_backward_from_middle() {
+    crate::test_utils::init_test_tracing();
     let text = "hello world hello";
     let result = find_match(text, "hello", 10, false, false, false);
     assert_eq!(result, Some((0, 5)));
@@ -819,6 +887,7 @@ fn find_match_literal_backward_from_middle() {
 
 #[test]
 fn find_match_case_fold() {
+    crate::test_utils::init_test_tracing();
     let text = "Hello World";
     let result = find_match(text, "hello", 0, true, false, true);
     assert_eq!(result, Some((0, 5)));
@@ -826,6 +895,7 @@ fn find_match_case_fold() {
 
 #[test]
 fn find_match_case_sensitive() {
+    crate::test_utils::init_test_tracing();
     let text = "Hello World";
     let result = find_match(text, "hello", 0, true, false, false);
     assert!(result.is_none());
@@ -833,6 +903,7 @@ fn find_match_case_sensitive() {
 
 #[test]
 fn find_match_regexp_forward() {
+    crate::test_utils::init_test_tracing();
     let text = "foo 123 bar";
     let result = find_match(text, "[0-9]+", 0, true, true, false);
     assert_eq!(result, Some((4, 7)));
@@ -840,6 +911,7 @@ fn find_match_regexp_forward() {
 
 #[test]
 fn find_match_regexp_backward() {
+    crate::test_utils::init_test_tracing();
     let text = "foo 123 bar 456";
     let result = find_match(text, "[0-9]+", text.len(), false, true, false);
     assert_eq!(result, Some((12, 15)));
@@ -847,18 +919,21 @@ fn find_match_regexp_backward() {
 
 #[test]
 fn find_match_empty_pattern() {
+    crate::test_utils::init_test_tracing();
     let text = "hello";
     assert!(find_match(text, "", 0, true, false, false).is_none());
 }
 
 #[test]
 fn find_match_no_match() {
+    crate::test_utils::init_test_tracing();
     let text = "hello world";
     assert!(find_match(text, "zzz", 0, true, false, false).is_none());
 }
 
 #[test]
 fn find_match_at_boundary() {
+    crate::test_utils::init_test_tracing();
     let text = "abcdef";
     let result = find_match(text, "def", 3, true, false, false);
     assert_eq!(result, Some((3, 6)));
@@ -866,6 +941,7 @@ fn find_match_at_boundary() {
 
 #[test]
 fn delimited_match_rejects_embedded_word() {
+    crate::test_utils::init_test_tracing();
     let text = "foo1 1foo foo";
     assert!(!is_delimited_match(text, 0, 3));
     assert!(!is_delimited_match(text, 5, 8));
@@ -874,6 +950,7 @@ fn delimited_match_rejects_embedded_word() {
 
 #[test]
 fn delimited_match_treats_underscore_as_delimiter() {
+    crate::test_utils::init_test_tracing();
     let text = "foo_foo";
     assert!(is_delimited_match(text, 0, 3));
     assert!(is_delimited_match(text, 4, 7));
@@ -885,6 +962,7 @@ fn delimited_match_treats_underscore_as_delimiter() {
 
 #[test]
 fn builtin_isearch_forward_signals_batch_buffer_error() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_isearch_forward(vec![]);
     assert!(matches!(
         result,
@@ -896,6 +974,7 @@ fn builtin_isearch_forward_signals_batch_buffer_error() {
 
 #[test]
 fn builtin_isearch_backward_signals_batch_buffer_error() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_isearch_backward(vec![]);
     assert!(matches!(
         result,
@@ -907,6 +986,7 @@ fn builtin_isearch_backward_signals_batch_buffer_error() {
 
 #[test]
 fn builtin_isearch_forward_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_isearch_forward(vec![Value::NIL, Value::NIL, Value::NIL]);
     assert!(matches!(
         result,
@@ -917,6 +997,7 @@ fn builtin_isearch_forward_rejects_too_many_args() {
 
 #[test]
 fn builtin_isearch_backward_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_isearch_backward(vec![Value::NIL, Value::NIL, Value::NIL]);
     assert!(matches!(
         result,

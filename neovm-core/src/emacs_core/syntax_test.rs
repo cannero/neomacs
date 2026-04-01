@@ -18,6 +18,7 @@ fn buf_with_text(text: &str) -> Buffer {
 
 #[test]
 fn syntax_class_roundtrip() {
+    crate::test_utils::init_test_tracing();
     let classes = [
         (' ', SyntaxClass::Whitespace),
         ('w', SyntaxClass::Word),
@@ -43,6 +44,7 @@ fn syntax_class_roundtrip() {
 
 #[test]
 fn syntax_class_dash_is_whitespace() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(SyntaxClass::from_char('-'), Some(SyntaxClass::Whitespace));
 }
 
@@ -52,6 +54,7 @@ fn syntax_class_dash_is_whitespace() {
 
 #[test]
 fn string_to_syntax_whitespace() {
+    crate::test_utils::init_test_tracing();
     let entry = string_to_syntax(" ").unwrap();
     assert_eq!(entry.class, SyntaxClass::Whitespace);
     assert_eq!(entry.matching_char, None);
@@ -60,12 +63,14 @@ fn string_to_syntax_whitespace() {
 
 #[test]
 fn string_to_syntax_word() {
+    crate::test_utils::init_test_tracing();
     let entry = string_to_syntax("w").unwrap();
     assert_eq!(entry.class, SyntaxClass::Word);
 }
 
 #[test]
 fn string_to_syntax_open_paren() {
+    crate::test_utils::init_test_tracing();
     let entry = string_to_syntax("()").unwrap();
     assert_eq!(entry.class, SyntaxClass::Open);
     assert_eq!(entry.matching_char, Some(')'));
@@ -73,6 +78,7 @@ fn string_to_syntax_open_paren() {
 
 #[test]
 fn string_to_syntax_close_paren() {
+    crate::test_utils::init_test_tracing();
     let entry = string_to_syntax(")(").unwrap();
     assert_eq!(entry.class, SyntaxClass::Close);
     assert_eq!(entry.matching_char, Some('('));
@@ -80,12 +86,14 @@ fn string_to_syntax_close_paren() {
 
 #[test]
 fn string_to_syntax_string_delim() {
+    crate::test_utils::init_test_tracing();
     let entry = string_to_syntax("\"").unwrap();
     assert_eq!(entry.class, SyntaxClass::StringDelim);
 }
 
 #[test]
 fn string_to_syntax_prefix_class() {
+    crate::test_utils::init_test_tracing();
     let entry = string_to_syntax("'").unwrap();
     assert_eq!(entry.class, SyntaxClass::Quote);
     let value = syntax_entry_to_value(&entry);
@@ -100,12 +108,14 @@ fn string_to_syntax_prefix_class() {
 
 #[test]
 fn builtin_string_to_syntax_at_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let out = builtin_string_to_syntax(vec![Value::string("@")]).unwrap();
     assert_eq!(out, Value::NIL);
 }
 
 #[test]
 fn string_to_syntax_with_flags() {
+    crate::test_utils::init_test_tracing();
     let entry = string_to_syntax(". 12").unwrap();
     assert_eq!(entry.class, SyntaxClass::Punctuation);
     assert_eq!(entry.matching_char, None);
@@ -115,18 +125,21 @@ fn string_to_syntax_with_flags() {
 
 #[test]
 fn string_to_syntax_comment_style_b() {
+    crate::test_utils::init_test_tracing();
     let entry = string_to_syntax(". 12b").unwrap();
     assert!(entry.flags.contains(SyntaxFlags::COMMENT_STYLE_B));
 }
 
 #[test]
 fn string_to_syntax_comment_style_c() {
+    crate::test_utils::init_test_tracing();
     let entry = string_to_syntax(". c").unwrap();
     assert!(entry.flags.contains(SyntaxFlags::COMMENT_STYLE_C));
 }
 
 #[test]
 fn string_to_syntax_prefix_flag() {
+    crate::test_utils::init_test_tracing();
     let entry = string_to_syntax(". p").unwrap();
     assert_eq!(entry.class, SyntaxClass::Punctuation);
     assert!(entry.flags.contains(SyntaxFlags::PREFIX));
@@ -134,11 +147,13 @@ fn string_to_syntax_prefix_flag() {
 
 #[test]
 fn string_to_syntax_empty_errors() {
+    crate::test_utils::init_test_tracing();
     assert!(string_to_syntax("").is_err());
 }
 
 #[test]
 fn string_to_syntax_invalid_class() {
+    crate::test_utils::init_test_tracing();
     assert!(string_to_syntax("Z").is_err());
 }
 
@@ -148,6 +163,7 @@ fn string_to_syntax_invalid_class() {
 
 #[test]
 fn standard_table_word_chars() {
+    crate::test_utils::init_test_tracing();
     let table = SyntaxTable::new_standard();
     assert_eq!(table.char_syntax('a'), SyntaxClass::Word);
     assert_eq!(table.char_syntax('Z'), SyntaxClass::Word);
@@ -158,6 +174,7 @@ fn standard_table_word_chars() {
 
 #[test]
 fn standard_table_whitespace() {
+    crate::test_utils::init_test_tracing();
     let table = SyntaxTable::new_standard();
     assert_eq!(table.char_syntax(' '), SyntaxClass::Whitespace);
     assert_eq!(table.char_syntax('\t'), SyntaxClass::Whitespace);
@@ -166,6 +183,7 @@ fn standard_table_whitespace() {
 
 #[test]
 fn standard_table_parens() {
+    crate::test_utils::init_test_tracing();
     let table = SyntaxTable::new_standard();
     assert_eq!(table.char_syntax('('), SyntaxClass::Open);
     assert_eq!(table.char_syntax(')'), SyntaxClass::Close);
@@ -175,18 +193,21 @@ fn standard_table_parens() {
 
 #[test]
 fn standard_table_string_delim() {
+    crate::test_utils::init_test_tracing();
     let table = SyntaxTable::new_standard();
     assert_eq!(table.char_syntax('"'), SyntaxClass::StringDelim);
 }
 
 #[test]
 fn standard_table_escape() {
+    crate::test_utils::init_test_tracing();
     let table = SyntaxTable::new_standard();
     assert_eq!(table.char_syntax('\\'), SyntaxClass::Escape);
 }
 
 #[test]
 fn standard_table_punctuation() {
+    crate::test_utils::init_test_tracing();
     let table = SyntaxTable::new_standard();
     assert_eq!(table.char_syntax('\u{0001}'), SyntaxClass::Punctuation);
     assert_eq!(table.char_syntax('\u{007f}'), SyntaxClass::Punctuation);
@@ -197,6 +218,7 @@ fn standard_table_punctuation() {
 
 #[test]
 fn standard_table_symbol_constituents() {
+    crate::test_utils::init_test_tracing();
     let table = SyntaxTable::new_standard();
     assert_eq!(table.char_syntax('_'), SyntaxClass::Symbol);
     assert_eq!(table.char_syntax('-'), SyntaxClass::Symbol);
@@ -207,6 +229,7 @@ fn standard_table_symbol_constituents() {
 
 #[test]
 fn modify_syntax_entry_overrides() {
+    crate::test_utils::init_test_tracing();
     let mut table = SyntaxTable::new_standard();
     assert_eq!(table.char_syntax('+'), SyntaxClass::Symbol);
     table.modify_syntax_entry('+', SyntaxEntry::simple(SyntaxClass::Word));
@@ -215,6 +238,7 @@ fn modify_syntax_entry_overrides() {
 
 #[test]
 fn inherited_table_falls_back() {
+    crate::test_utils::init_test_tracing();
     let table = SyntaxTable::make_syntax_table();
     // Should inherit from standard.
     assert_eq!(table.char_syntax('a'), SyntaxClass::Word);
@@ -223,6 +247,7 @@ fn inherited_table_falls_back() {
 
 #[test]
 fn inherited_table_override() {
+    crate::test_utils::init_test_tracing();
     let mut table = SyntaxTable::make_syntax_table();
     table.modify_syntax_entry('a', SyntaxEntry::simple(SyntaxClass::Punctuation));
     assert_eq!(table.char_syntax('a'), SyntaxClass::Punctuation);
@@ -232,6 +257,7 @@ fn inherited_table_override() {
 
 #[test]
 fn copy_syntax_table_is_independent() {
+    crate::test_utils::init_test_tracing();
     let original = SyntaxTable::new_standard();
     let mut copy = original.copy_syntax_table();
     copy.modify_syntax_entry('a', SyntaxEntry::simple(SyntaxClass::Punctuation));
@@ -241,6 +267,7 @@ fn copy_syntax_table_is_independent() {
 
 #[test]
 fn non_ascii_defaults_to_word() {
+    crate::test_utils::init_test_tracing();
     let table = SyntaxTable::new_standard();
     // A random Unicode character not in the table.
     assert_eq!(table.char_syntax('\u{1F600}'), SyntaxClass::Word);
@@ -252,6 +279,7 @@ fn non_ascii_defaults_to_word() {
 
 #[test]
 fn forward_word_basic() {
+    crate::test_utils::init_test_tracing();
     let mut buf = buf_with_text("hello world");
     buf.goto_byte(0);
     let table = SyntaxTable::new_standard();
@@ -262,6 +290,7 @@ fn forward_word_basic() {
 
 #[test]
 fn forward_word_two() {
+    crate::test_utils::init_test_tracing();
     let mut buf = buf_with_text("hello world");
     buf.goto_byte(0);
     let table = SyntaxTable::new_standard();
@@ -272,6 +301,7 @@ fn forward_word_two() {
 
 #[test]
 fn forward_word_from_middle() {
+    crate::test_utils::init_test_tracing();
     let mut buf = buf_with_text("hello world");
     buf.goto_byte(3); // inside "hello"
     let table = SyntaxTable::new_standard();
@@ -281,6 +311,7 @@ fn forward_word_from_middle() {
 
 #[test]
 fn backward_word_basic() {
+    crate::test_utils::init_test_tracing();
     let mut buf = buf_with_text("hello world");
     buf.goto_byte(11); // end of text
     let table = SyntaxTable::new_standard();
@@ -290,6 +321,7 @@ fn backward_word_basic() {
 
 #[test]
 fn backward_word_two() {
+    crate::test_utils::init_test_tracing();
     let mut buf = buf_with_text("hello world");
     buf.goto_byte(11);
     let table = SyntaxTable::new_standard();
@@ -299,6 +331,7 @@ fn backward_word_two() {
 
 #[test]
 fn forward_word_negative_goes_backward() {
+    crate::test_utils::init_test_tracing();
     let mut buf = buf_with_text("hello world");
     buf.goto_byte(11);
     let table = SyntaxTable::new_standard();
@@ -312,6 +345,7 @@ fn forward_word_negative_goes_backward() {
 
 #[test]
 fn skip_syntax_forward_word() {
+    crate::test_utils::init_test_tracing();
     let mut buf = buf_with_text("hello world");
     buf.goto_byte(0);
     let table = SyntaxTable::new_standard();
@@ -321,6 +355,7 @@ fn skip_syntax_forward_word() {
 
 #[test]
 fn skip_syntax_forward_whitespace_and_word() {
+    crate::test_utils::init_test_tracing();
     let mut buf = buf_with_text("  hello");
     buf.goto_byte(0);
     let table = SyntaxTable::new_standard();
@@ -330,6 +365,7 @@ fn skip_syntax_forward_whitespace_and_word() {
 
 #[test]
 fn skip_syntax_backward_word() {
+    crate::test_utils::init_test_tracing();
     let mut buf = buf_with_text("hello world");
     buf.goto_byte(11);
     let table = SyntaxTable::new_standard();
@@ -339,6 +375,7 @@ fn skip_syntax_backward_word() {
 
 #[test]
 fn skip_syntax_forward_with_limit() {
+    crate::test_utils::init_test_tracing();
     let mut buf = buf_with_text("helloworld");
     buf.goto_byte(0);
     let table = SyntaxTable::new_standard();
@@ -348,6 +385,7 @@ fn skip_syntax_forward_with_limit() {
 
 #[test]
 fn builtin_skip_syntax_forward_limit_uses_char_positions_for_multibyte_text() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -371,6 +409,7 @@ fn builtin_skip_syntax_forward_limit_uses_char_positions_for_multibyte_text() {
 
 #[test]
 fn builtin_skip_syntax_forward_limit_stays_absolute_under_narrowing() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -399,6 +438,7 @@ fn builtin_skip_syntax_forward_limit_stays_absolute_under_narrowing() {
 
 #[test]
 fn scan_sexps_forward_parens() {
+    crate::test_utils::init_test_tracing();
     let buf = buf_with_text("(hello world)");
     let table = SyntaxTable::new_standard();
     let pos = scan_sexps(&buf, &table, 0, 1).unwrap();
@@ -407,6 +447,7 @@ fn scan_sexps_forward_parens() {
 
 #[test]
 fn scan_sexps_forward_nested() {
+    crate::test_utils::init_test_tracing();
     let buf = buf_with_text("(a (b c) d)");
     let table = SyntaxTable::new_standard();
     let pos = scan_sexps(&buf, &table, 0, 1).unwrap();
@@ -415,6 +456,7 @@ fn scan_sexps_forward_nested() {
 
 #[test]
 fn scan_sexps_forward_word() {
+    crate::test_utils::init_test_tracing();
     let buf = buf_with_text("hello world");
     let table = SyntaxTable::new_standard();
     let pos = scan_sexps(&buf, &table, 0, 1).unwrap();
@@ -423,6 +465,7 @@ fn scan_sexps_forward_word() {
 
 #[test]
 fn scan_sexps_forward_string() {
+    crate::test_utils::init_test_tracing();
     let buf = buf_with_text("\"hello\" world");
     let table = SyntaxTable::new_standard();
     let pos = scan_sexps(&buf, &table, 0, 1).unwrap();
@@ -431,6 +474,7 @@ fn scan_sexps_forward_string() {
 
 #[test]
 fn scan_sexps_backward_parens() {
+    crate::test_utils::init_test_tracing();
     let buf = buf_with_text("(hello world)");
     let table = SyntaxTable::new_standard();
     // Start after closing paren.
@@ -440,6 +484,7 @@ fn scan_sexps_backward_parens() {
 
 #[test]
 fn scan_sexps_forward_unbalanced() {
+    crate::test_utils::init_test_tracing();
     let buf = buf_with_text("(hello");
     let table = SyntaxTable::new_standard();
     assert!(scan_sexps(&buf, &table, 0, 1).is_err());
@@ -447,6 +492,7 @@ fn scan_sexps_forward_unbalanced() {
 
 #[test]
 fn scan_sexps_backward_unbalanced() {
+    crate::test_utils::init_test_tracing();
     let buf = buf_with_text("hello)");
     let table = SyntaxTable::new_standard();
     assert!(scan_sexps(&buf, &table, 6, -1).is_err());
@@ -454,6 +500,7 @@ fn scan_sexps_backward_unbalanced() {
 
 #[test]
 fn scan_sexps_zero_count() {
+    crate::test_utils::init_test_tracing();
     let buf = buf_with_text("(hello)");
     let table = SyntaxTable::new_standard();
     let pos = scan_sexps(&buf, &table, 3, 0).unwrap();
@@ -462,6 +509,7 @@ fn scan_sexps_zero_count() {
 
 #[test]
 fn scan_sexps_forward_brackets() {
+    crate::test_utils::init_test_tracing();
     let buf = buf_with_text("[a b c]");
     let table = SyntaxTable::new_standard();
     let pos = scan_sexps(&buf, &table, 0, 1).unwrap();
@@ -470,6 +518,7 @@ fn scan_sexps_forward_brackets() {
 
 #[test]
 fn scan_sexps_string_with_escape() {
+    crate::test_utils::init_test_tracing();
     let buf = buf_with_text("\"he\\\"llo\" world");
     let table = SyntaxTable::new_standard();
     let pos = scan_sexps(&buf, &table, 0, 1).unwrap();
@@ -482,6 +531,7 @@ fn scan_sexps_string_with_escape() {
 
 #[test]
 fn syntax_entry_to_value_simple() {
+    crate::test_utils::init_test_tracing();
     let entry = SyntaxEntry::simple(SyntaxClass::Word);
     let val = syntax_entry_to_value(&entry);
     // Should be (2 . nil) since Word code = 2
@@ -497,6 +547,7 @@ fn syntax_entry_to_value_simple() {
 
 #[test]
 fn syntax_entry_to_value_with_match() {
+    crate::test_utils::init_test_tracing();
     let entry = SyntaxEntry::with_match(SyntaxClass::Open, ')');
     let val = syntax_entry_to_value(&entry);
     if val.is_cons() {
@@ -511,6 +562,7 @@ fn syntax_entry_to_value_with_match() {
 
 #[test]
 fn syntax_entry_to_value_with_flags() {
+    crate::test_utils::init_test_tracing();
     let entry = SyntaxEntry {
         class: SyntaxClass::Punctuation,
         matching_char: None,
@@ -529,6 +581,7 @@ fn syntax_entry_to_value_with_flags() {
 
 #[test]
 fn make_syntax_table_returns_syntax_char_table() {
+    crate::test_utils::init_test_tracing();
     let table = builtin_make_syntax_table(vec![]).unwrap();
     let is_ct = crate::emacs_core::chartable::builtin_char_table_p(vec![table]).unwrap();
     assert_eq!(is_ct, Value::T);
@@ -538,6 +591,7 @@ fn make_syntax_table_returns_syntax_char_table() {
 
 #[test]
 fn make_syntax_table_parent_must_be_char_table() {
+    crate::test_utils::init_test_tracing();
     match builtin_make_syntax_table(vec![Value::fixnum(1)]) {
         Err(crate::emacs_core::error::Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -549,6 +603,7 @@ fn make_syntax_table_parent_must_be_char_table() {
 
 #[test]
 fn standard_syntax_table_returns_char_table() {
+    crate::test_utils::init_test_tracing();
     let table = builtin_standard_syntax_table(vec![]).unwrap();
     let is_ct = crate::emacs_core::chartable::builtin_char_table_p(vec![table]).unwrap();
     assert_eq!(is_ct, Value::T);
@@ -558,6 +613,7 @@ fn standard_syntax_table_returns_char_table() {
 
 #[test]
 fn copy_syntax_table_returns_fresh_syntax_table() {
+    crate::test_utils::init_test_tracing();
     let source = builtin_make_syntax_table(vec![]).unwrap();
     let copied = builtin_copy_syntax_table(vec![source]).unwrap();
 
@@ -576,6 +632,7 @@ fn copy_syntax_table_returns_fresh_syntax_table() {
 
 #[test]
 fn copy_syntax_table_validates_arity_and_type() {
+    crate::test_utils::init_test_tracing();
     match builtin_copy_syntax_table(vec![Value::fixnum(1)]) {
         Err(crate::emacs_core::error::Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -595,6 +652,7 @@ fn copy_syntax_table_validates_arity_and_type() {
 
 #[test]
 fn syntax_class_to_char_basics_and_errors() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         builtin_syntax_class_to_char(vec![Value::fixnum(0)]).unwrap(),
         Value::char(' ')
@@ -623,6 +681,7 @@ fn syntax_class_to_char_basics_and_errors() {
 
 #[test]
 fn matching_paren_basics_and_errors() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     assert_eq!(
         builtin_matching_paren(&mut eval, vec![Value::fixnum('(' as i64)]).unwrap(),
@@ -656,6 +715,7 @@ fn matching_paren_basics_and_errors() {
 
 #[test]
 fn syntax_table_eval_returns_char_table() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let table = builtin_syntax_table(&mut eval, vec![]).unwrap();
     let is_ct = crate::emacs_core::chartable::builtin_char_table_p(vec![table]).unwrap();
@@ -666,6 +726,7 @@ fn syntax_table_eval_returns_char_table() {
 
 #[test]
 fn syntax_table_p_recognizes_syntax_tables() {
+    crate::test_utils::init_test_tracing();
     let syntax_table = builtin_make_syntax_table(vec![]).unwrap();
     let is_syntax = builtin_syntax_table_p(vec![syntax_table]).unwrap();
     assert_eq!(is_syntax, Value::T);
@@ -681,6 +742,7 @@ fn syntax_table_p_recognizes_syntax_tables() {
 
 #[test]
 fn set_syntax_table_validates_and_returns_table() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let table = builtin_make_syntax_table(vec![]).unwrap();
     let out = builtin_set_syntax_table(&mut eval, vec![table]).unwrap();
@@ -697,6 +759,7 @@ fn set_syntax_table_validates_and_returns_table() {
 
 #[test]
 fn syntax_table_and_standard_default_to_same_object() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let current = builtin_syntax_table(&mut eval, vec![]).unwrap();
     let standard = builtin_standard_syntax_table(vec![]).unwrap();
@@ -710,6 +773,7 @@ fn syntax_table_and_standard_default_to_same_object() {
 
 #[test]
 fn set_syntax_table_updates_current_buffer_only() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let custom = builtin_make_syntax_table(vec![]).unwrap();
     builtin_modify_syntax_entry(
@@ -754,6 +818,7 @@ fn set_syntax_table_updates_current_buffer_only() {
 
 #[test]
 fn forward_comment_skips_whitespace_and_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -775,6 +840,7 @@ fn forward_comment_skips_whitespace_and_returns_nil() {
 
 #[test]
 fn forward_comment_validates_arity_and_type() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     match builtin_forward_comment(&mut eval, vec![]) {
@@ -812,6 +878,7 @@ fn forward_comment_validates_arity_and_type() {
 ///   (forward-comment -3) => t, point=6   (before ";; c1")
 #[test]
 fn forward_comment_backward_single_line_comments() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -896,6 +963,7 @@ fn forward_comment_backward_single_line_comments() {
 /// But GNU does `inc_both` at the leave label, so point = 5.
 #[test]
 fn forward_comment_backward_stops_at_non_comment() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -942,6 +1010,7 @@ fn forward_comment_backward_stops_at_non_comment() {
 
 #[test]
 fn backward_prefix_chars_default_is_noop() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -963,6 +1032,7 @@ fn backward_prefix_chars_default_is_noop() {
 
 #[test]
 fn backward_prefix_chars_moves_over_prefix_flag_chars() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -986,6 +1056,7 @@ fn backward_prefix_chars_moves_over_prefix_flag_chars() {
 
 #[test]
 fn backward_prefix_chars_validates_arity() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     match builtin_backward_prefix_chars(&mut eval, vec![Value::fixnum(1)]) {
         Err(crate::emacs_core::error::Flow::Signal(sig)) => {
@@ -1001,6 +1072,7 @@ fn backward_prefix_chars_validates_arity() {
 
 #[test]
 fn modify_syntax_entry_at_descriptor_inherits_parent_or_default() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     builtin_modify_syntax_entry(
         &mut eval,
@@ -1014,6 +1086,7 @@ fn modify_syntax_entry_at_descriptor_inherits_parent_or_default() {
 
 #[test]
 fn syntax_ppss_flush_cache_contract() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     assert_eq!(
@@ -1051,6 +1124,7 @@ fn syntax_ppss_flush_cache_contract() {
 
 #[test]
 fn scan_lists_basic_and_backward_nil() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -1075,6 +1149,7 @@ fn scan_lists_basic_and_backward_nil() {
 
 #[test]
 fn syntax_after_returns_descriptor_and_nil_out_of_range() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -1100,6 +1175,7 @@ fn syntax_after_returns_descriptor_and_nil_out_of_range() {
 
 #[test]
 fn scan_sexps_basic_and_backward_nil() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -1117,6 +1193,7 @@ fn scan_sexps_basic_and_backward_nil() {
 
 #[test]
 fn parse_partial_sexp_baseline_shapes() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -1169,6 +1246,7 @@ fn parse_partial_sexp_baseline_shapes() {
 
 #[test]
 fn syntax_ppss_baseline_shape() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -1197,6 +1275,7 @@ fn syntax_ppss_baseline_shape() {
 
 #[test]
 fn parse_partial_sexp_enters_single_char_line_comment_state() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -1230,6 +1309,7 @@ fn parse_partial_sexp_enters_single_char_line_comment_state() {
 
 #[test]
 fn syntax_ppss_reports_string_state_and_start_position() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -1258,6 +1338,7 @@ fn syntax_ppss_reports_string_state_and_start_position() {
 
 #[test]
 fn parse_partial_sexp_commentstop_syntax_table_moves_point_across_comment() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");

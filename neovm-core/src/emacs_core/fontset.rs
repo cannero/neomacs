@@ -1175,6 +1175,7 @@ mod tests {
 
     #[test]
     fn overlapping_ranges_follow_char_table_semantics() {
+        crate::test_utils::init_test_tracing();
         let mut data = FontsetData::default();
         data.update_target(
             FontsetTarget::Range(0x80, 0x10FFFF),
@@ -1195,6 +1196,7 @@ mod tests {
 
     #[test]
     fn partial_overlap_append_splits_ranges() {
+        crate::test_utils::init_test_tracing();
         let mut data = FontsetData::default();
         data.update_target(
             FontsetTarget::Range(0x1000, 0x1005),
@@ -1223,6 +1225,7 @@ mod tests {
 
     #[test]
     fn fallback_entries_append_after_specific_entries() {
+        crate::test_utils::init_test_tracing();
         let mut data = FontsetData::default();
         data.update_target(
             FontsetTarget::Range(0x4E00, 0x9FFF),
@@ -1243,6 +1246,7 @@ mod tests {
 
     #[test]
     fn repertory_charset_filters_non_matching_entries() {
+        crate::test_utils::init_test_tracing();
         let mut data = FontsetData::default();
         data.update_target(
             FontsetTarget::Range(0x80, 0x10FFFF),
@@ -1285,6 +1289,7 @@ mod tests {
 
     #[test]
     fn repertory_subset_charset_filters_non_matching_entries() {
+        crate::test_utils::init_test_tracing();
         reset_charset_registry();
 
         let mut parent_args = vec![Value::NIL; 17];
@@ -1349,6 +1354,7 @@ mod tests {
 
     #[test]
     fn repertory_target_ranges_support_subset_charsets() {
+        crate::test_utils::init_test_tracing();
         reset_charset_registry();
 
         let mut parent_args = vec![Value::NIL; 17];

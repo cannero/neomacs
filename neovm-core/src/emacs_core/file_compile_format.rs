@@ -335,6 +335,7 @@ mod tests {
 
     #[test]
     fn test_source_sha256() {
+        crate::test_utils::init_test_tracing();
         let hash = source_sha256("hello world");
         // Known SHA-256 of "hello world".
         assert_eq!(
@@ -345,6 +346,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip_simple_eval_form() {
+        crate::test_utils::init_test_tracing();
         let mut eval = Context::new();
         let forms = parse_forms("(+ 1 2)").unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
@@ -371,6 +373,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip_eval_when_compile() {
+        crate::test_utils::init_test_tracing();
         let mut eval = Context::new();
         let src = "(eval-when-compile (+ 10 20))";
         let forms = parse_forms(src).unwrap();
@@ -396,6 +399,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip_mixed_forms() {
+        crate::test_utils::init_test_tracing();
         let mut eval = Context::new();
         let src = "(defvar fc-fmt-a 1)\n(eval-when-compile (+ 2 3))\n(defvar fc-fmt-b 10)";
         let forms = parse_forms(src).unwrap();
@@ -418,6 +422,7 @@ mod tests {
 
     #[test]
     fn test_hash_mismatch_rejected() {
+        crate::test_utils::init_test_tracing();
         let mut eval = Context::new();
         let forms = parse_forms("(+ 1 2)").unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
@@ -435,6 +440,7 @@ mod tests {
 
     #[test]
     fn test_hash_skip_with_empty_string() {
+        crate::test_utils::init_test_tracing();
         let mut eval = Context::new();
         let forms = parse_forms("(+ 1 2)").unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
@@ -453,6 +459,7 @@ mod tests {
 
     #[test]
     fn test_bad_magic_rejected() {
+        crate::test_utils::init_test_tracing();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.neobc");
         std::fs::write(&path, b"NOT-A-NEOBC-FILE").unwrap();
@@ -463,6 +470,7 @@ mod tests {
 
     #[test]
     fn test_truncated_file_rejected() {
+        crate::test_utils::init_test_tracing();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.neobc");
         // Write magic + a payload length that exceeds the actual data.
@@ -478,6 +486,7 @@ mod tests {
 
     #[test]
     fn test_write_neobc_convenience() {
+        crate::test_utils::init_test_tracing();
         let mut eval = Context::new();
         let forms = parse_forms("(+ 1 2)").unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();
@@ -494,6 +503,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip_string_constant() {
+        crate::test_utils::init_test_tracing();
         let mut eval = Context::new();
         let src = r#"(eval-when-compile "hello")"#;
         let forms = parse_forms(src).unwrap();
@@ -519,6 +529,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip_nil_constant() {
+        crate::test_utils::init_test_tracing();
         let mut eval = Context::new();
         let src = "(eval-when-compile nil)";
         let forms = parse_forms(src).unwrap();
@@ -541,6 +552,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip_lexical_binding_flag() {
+        crate::test_utils::init_test_tracing();
         let mut eval = Context::new();
         let forms = parse_forms("t").unwrap();
         let compiled = compile_file_forms(&mut eval, &forms).unwrap();

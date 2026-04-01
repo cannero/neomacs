@@ -350,6 +350,7 @@ fn gnu_simple_quoted_insert_eval_all(src: &str) -> Vec<String> {
 
 #[test]
 fn interactive_spec_no_args() {
+    crate::test_utils::init_test_tracing();
     let spec = InteractiveSpec::no_args();
     assert!(spec.code.is_empty());
     assert!(spec.prompt.is_none());
@@ -357,12 +358,14 @@ fn interactive_spec_no_args() {
 
 #[test]
 fn interactive_spec_with_code() {
+    crate::test_utils::init_test_tracing();
     let spec = InteractiveSpec::new("p");
     assert_eq!(spec.code, "p");
 }
 
 #[test]
 fn interactive_spec_with_prompt() {
+    crate::test_utils::init_test_tracing();
     let spec = InteractiveSpec::new("sEnter name: ");
     assert_eq!(spec.code, "sEnter name: ");
     assert_eq!(spec.prompt.as_deref(), Some("Enter name: "));
@@ -374,6 +377,7 @@ fn interactive_spec_with_prompt() {
 
 #[test]
 fn registry_register_and_query() {
+    crate::test_utils::init_test_tracing();
     let mut reg = InteractiveRegistry::new();
     reg.register_interactive("forward-char", InteractiveSpec::new("p"));
     assert!(reg.is_interactive("forward-char"));
@@ -382,6 +386,7 @@ fn registry_register_and_query() {
 
 #[test]
 fn registry_get_spec() {
+    crate::test_utils::init_test_tracing();
     let mut reg = InteractiveRegistry::new();
     reg.register_interactive("find-file", InteractiveSpec::new("FFind file: "));
     let spec = reg.get_spec("find-file").unwrap();
@@ -390,6 +395,7 @@ fn registry_get_spec() {
 
 #[test]
 fn registry_interactive_call_stack() {
+    crate::test_utils::init_test_tracing();
     let mut reg = InteractiveRegistry::new();
     assert!(!reg.is_called_interactively());
 
@@ -408,6 +414,7 @@ fn registry_interactive_call_stack() {
 
 #[test]
 fn registry_this_command_keys() {
+    crate::test_utils::init_test_tracing();
     let mut reg = InteractiveRegistry::new();
     assert!(reg.this_command_keys().is_empty());
 
@@ -417,6 +424,7 @@ fn registry_this_command_keys() {
 
 #[test]
 fn registry_default() {
+    crate::test_utils::init_test_tracing();
     let reg = InteractiveRegistry::default();
     assert!(!reg.is_called_interactively());
 }
@@ -427,6 +435,7 @@ fn registry_default() {
 
 #[test]
 fn mode_definition_macros_start_as_gnu_autoloads() {
+    crate::test_utils::init_test_tracing();
     assert!(!crate::emacs_core::subr_info::is_special_form(
         "define-minor-mode"
     ));
@@ -464,6 +473,7 @@ fn mode_definition_macros_start_as_gnu_autoloads() {
 
 #[test]
 fn commandp_non_interactive() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     eval_all_with(&mut ev, r#"(defalias 'my-plain-fn #'(lambda () 42))"#);
     let result = builtin_commandp_interactive(&mut ev, vec![Value::symbol("my-plain-fn")]);
@@ -472,6 +482,7 @@ fn commandp_non_interactive() {
 
 #[test]
 fn commandp_true_for_builtin_ignore() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_commandp_interactive(&mut ev, vec![Value::symbol("ignore")]);
     assert!(result.unwrap().is_truthy());
@@ -479,6 +490,7 @@ fn commandp_true_for_builtin_ignore() {
 
 #[test]
 fn commandp_true_for_execute_extended_command_from_simple_el() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         gnu_simple_execute_extended_command_eval_all(
             r#"(list (commandp 'execute-extended-command)
@@ -490,6 +502,7 @@ fn commandp_true_for_execute_extended_command_from_simple_el() {
 
 #[test]
 fn eval_expression_is_real_lisp_function_after_bootstrap() {
+    crate::test_utils::init_test_tracing();
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let function = ev
@@ -504,6 +517,7 @@ fn eval_expression_is_real_lisp_function_after_bootstrap() {
 
 #[test]
 fn commandp_true_for_defun_with_declare_before_interactive() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_all(
             r#"(progn
@@ -519,6 +533,7 @@ fn commandp_true_for_defun_with_declare_before_interactive() {
 
 #[test]
 fn commandp_true_for_builtin_forward_char() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_commandp_interactive(&mut ev, vec![Value::symbol("forward-char")]);
     assert!(result.unwrap().is_truthy());
@@ -526,6 +541,7 @@ fn commandp_true_for_builtin_forward_char() {
 
 #[test]
 fn commandp_handles_keyboard_macros_and_bytecode_interactive_slots() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let bytecode = crate::emacs_core::builtins::symbols::make_byte_code_from_parts(
         &Value::NIL,
@@ -569,6 +585,7 @@ fn commandp_handles_keyboard_macros_and_bytecode_interactive_slots() {
 
 #[test]
 fn commandp_true_for_builtin_editing_commands() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     for name in [
         "backward-char",
@@ -617,6 +634,7 @@ fn commandp_true_for_builtin_editing_commands() {
 
 #[test]
 fn abbrev_mode_is_real_lisp_function_after_bootstrap() {
+    crate::test_utils::init_test_tracing();
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let function = ev
@@ -631,6 +649,7 @@ fn abbrev_mode_is_real_lisp_function_after_bootstrap() {
 
 #[test]
 fn bookmark_commands_startup_are_autoloaded() {
+    crate::test_utils::init_test_tracing();
     let names = [
         "bookmark-delete",
         "bookmark-jump",
@@ -654,6 +673,7 @@ fn bookmark_commands_startup_are_autoloaded() {
 
 #[test]
 fn rectangle_commands_startup_are_autoloaded() {
+    crate::test_utils::init_test_tracing();
     let names = [
         "clear-rectangle",
         "delete-rectangle",
@@ -677,6 +697,7 @@ fn rectangle_commands_startup_are_autoloaded() {
 
 #[test]
 fn simple_commands_are_real_lisp_functions_after_bootstrap() {
+    crate::test_utils::init_test_tracing();
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     for name in [
@@ -701,6 +722,7 @@ fn simple_commands_are_real_lisp_functions_after_bootstrap() {
 
 #[test]
 fn replace_commands_are_real_lisp_functions_after_bootstrap() {
+    crate::test_utils::init_test_tracing();
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     for name in [
@@ -728,6 +750,7 @@ fn replace_commands_are_real_lisp_functions_after_bootstrap() {
 
 #[test]
 fn subr_key_binding_commands_are_real_lisp_functions_after_bootstrap() {
+    crate::test_utils::init_test_tracing();
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     for name in ["global-set-key", "local-set-key"] {
@@ -747,6 +770,7 @@ fn subr_key_binding_commands_are_real_lisp_functions_after_bootstrap() {
 
 #[test]
 fn env_command_is_real_lisp_function_after_bootstrap() {
+    crate::test_utils::init_test_tracing();
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let function = ev
@@ -761,6 +785,7 @@ fn env_command_is_real_lisp_function_after_bootstrap() {
 
 #[test]
 fn files_command_is_real_lisp_function_after_bootstrap() {
+    crate::test_utils::init_test_tracing();
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let function = ev
@@ -775,6 +800,7 @@ fn files_command_is_real_lisp_function_after_bootstrap() {
 
 #[test]
 fn regexp_search_aliases_are_available_after_bootstrap() {
+    crate::test_utils::init_test_tracing();
     // search-forward-regexp and search-backward-regexp are defalias'd to
     // re-search-forward / re-search-backward in subr.el (not autoloaded).
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
@@ -793,6 +819,7 @@ fn regexp_search_aliases_are_available_after_bootstrap() {
 
 #[test]
 fn upcase_char_startup_is_autoloaded() {
+    crate::test_utils::init_test_tracing();
     let ev = eval_with_ldefs_boot_autoloads(&["upcase-char"]);
     let function = ev
         .obarray
@@ -803,6 +830,7 @@ fn upcase_char_startup_is_autoloaded() {
 
 #[test]
 fn mode_and_mark_commands_are_real_lisp_functions_after_bootstrap() {
+    crate::test_utils::init_test_tracing();
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     for name in ["auto-composition-mode", "set-mark-command"] {
@@ -822,6 +850,7 @@ fn mode_and_mark_commands_are_real_lisp_functions_after_bootstrap() {
 
 #[test]
 fn count_matches_is_real_lisp_function_after_bootstrap() {
+    crate::test_utils::init_test_tracing();
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let function = ev
@@ -836,6 +865,7 @@ fn count_matches_is_real_lisp_function_after_bootstrap() {
 
 #[test]
 fn kmacro_name_last_macro_startup_is_autoloaded() {
+    crate::test_utils::init_test_tracing();
     // kmacro-name-last-macro has a real autoload entry in ldefs-boot.el.
     // name-last-kbd-macro is a defalias to it (not an autoload form), so it
     // is only available after the defalias in ldefs-boot.el is evaluated
@@ -860,6 +890,7 @@ fn kmacro_name_last_macro_startup_is_autoloaded() {
 
 #[test]
 fn remove_hook_is_available_after_bootstrap() {
+    crate::test_utils::init_test_tracing();
     // remove-hook is a defun in subr.el, not autoloaded in GNU Emacs.
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
@@ -875,6 +906,7 @@ fn remove_hook_is_available_after_bootstrap() {
 
 #[test]
 fn commandp_true_for_additional_builtin_commands() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     for name in [
         "base64-decode-region",
@@ -919,6 +951,7 @@ fn commandp_true_for_additional_builtin_commands() {
 
 #[test]
 fn commandp_true_for_loaded_lisp_commands_after_bootstrap() {
+    crate::test_utils::init_test_tracing();
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     for name in [
@@ -936,6 +969,7 @@ fn commandp_true_for_loaded_lisp_commands_after_bootstrap() {
 
 #[test]
 fn commandp_false_for_noninteractive_builtin() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_commandp_interactive(&mut ev, vec![Value::symbol("car")]);
     assert!(result.unwrap().is_nil());
@@ -943,6 +977,7 @@ fn commandp_false_for_noninteractive_builtin() {
 
 #[test]
 fn commandp_rejects_overflow_arity() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_commandp_interactive(
         &mut ev,
@@ -957,6 +992,7 @@ fn commandp_rejects_overflow_arity() {
 
 #[test]
 fn commandp_resolves_aliases_and_symbol_designators() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     // Register forward-char as an interactive command for testing.
     ev.interactive
@@ -986,6 +1022,7 @@ fn commandp_resolves_aliases_and_symbol_designators() {
 
 #[test]
 fn commandp_true_for_lambda_with_interactive_form() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let lambda = eval_all_with(&mut ev, "(lambda () (interactive) 1)");
     let parsed = super::super::parser::parse_forms("(lambda () (interactive) 1)")
@@ -998,6 +1035,7 @@ fn commandp_true_for_lambda_with_interactive_form() {
 
 #[test]
 fn commandp_true_for_quoted_lambda_with_interactive_form() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = super::super::parser::parse_forms("'(lambda () \"doc\" (interactive) 1)")
         .expect("quoted lambda form should parse");
@@ -1008,6 +1046,7 @@ fn commandp_true_for_quoted_lambda_with_interactive_form() {
 
 #[test]
 fn call_interactively_state_resolution_handles_default_and_noarg_cases() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("current-prefix-arg", Value::list(vec![Value::fixnum(4)]));
@@ -1060,6 +1099,7 @@ fn call_interactively_state_resolution_handles_default_and_noarg_cases() {
 
 #[test]
 fn call_interactively_state_resolution_defers_prompting_specs_to_eval() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let lambda_forms =
         super::super::parser::parse_forms("(lambda (x) (interactive \"sPrompt: \") x)")
@@ -1088,6 +1128,7 @@ fn call_interactively_state_resolution_defers_prompting_specs_to_eval() {
 
 #[test]
 fn call_interactively_state_resolution_handles_simple_string_codes_without_eval() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("current-prefix-arg", Value::list(vec![Value::fixnum(4)]));
@@ -1152,6 +1193,7 @@ i\")
 
 #[test]
 fn call_interactively_state_resolution_applies_shift_selection_prefix_in_state() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let current = ev.buffers.current_buffer_id().expect("current buffer");
     let _ = ev.buffers.replace_buffer_contents(current, "abcd");
@@ -1191,6 +1233,7 @@ fn call_interactively_state_resolution_applies_shift_selection_prefix_in_state()
 
 #[test]
 fn call_interactively_state_resolution_handles_optional_coding_without_prefix() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let lambda_forms =
         super::super::parser::parse_forms("(lambda (coding) (interactive \"ZCoding: \") coding)")
@@ -1220,6 +1263,7 @@ fn call_interactively_state_resolution_handles_optional_coding_without_prefix() 
 
 #[test]
 fn interactive_lambda_r_capital_spec_uses_use_region_p_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let current = ev.buffers.current_buffer_id().expect("current buffer");
     let _ = ev.buffers.replace_buffer_contents(current, "abcd");
@@ -1260,6 +1304,7 @@ fn interactive_lambda_r_capital_spec_uses_use_region_p_semantics() {
 
 #[test]
 fn interactive_p_false_by_default() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_interactive_p(&mut ev, vec![]);
     assert!(result.unwrap().is_nil());
@@ -1267,6 +1312,7 @@ fn interactive_p_false_by_default() {
 
 #[test]
 fn interactive_p_nil_when_interactive() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.interactive.push_interactive_call(true);
     let result = builtin_interactive_p(&mut ev, vec![]);
@@ -1276,6 +1322,7 @@ fn interactive_p_nil_when_interactive() {
 
 #[test]
 fn called_interactively_p_false_by_default() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_called_interactively_p(&mut ev, vec![]);
     assert!(result.unwrap().is_nil());
@@ -1283,6 +1330,7 @@ fn called_interactively_p_false_by_default() {
 
 #[test]
 fn called_interactively_p_with_kind() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_called_interactively_p(&mut ev, vec![Value::symbol("any")]);
     assert!(result.unwrap().is_nil());
@@ -1290,6 +1338,7 @@ fn called_interactively_p_with_kind() {
 
 #[test]
 fn called_interactively_p_kind_interactive_is_nil_when_interactive() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.interactive.push_interactive_call(true);
     let result = builtin_called_interactively_p(&mut ev, vec![Value::symbol("interactive")]);
@@ -1299,6 +1348,7 @@ fn called_interactively_p_kind_interactive_is_nil_when_interactive() {
 
 #[test]
 fn called_interactively_p_kind_any_is_t_when_interactive() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.interactive.push_interactive_call(true);
     let result = builtin_called_interactively_p(&mut ev, vec![Value::symbol("any")]);
@@ -1308,6 +1358,7 @@ fn called_interactively_p_kind_any_is_t_when_interactive() {
 
 #[test]
 fn called_interactively_p_unknown_kind_is_t_when_interactive() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.interactive.push_interactive_call(true);
     let result = builtin_called_interactively_p(&mut ev, vec![Value::symbol("foo")]);
@@ -1317,6 +1368,7 @@ fn called_interactively_p_unknown_kind_is_t_when_interactive() {
 
 #[test]
 fn called_interactively_p_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result =
         builtin_called_interactively_p(&mut ev, vec![Value::symbol("any"), Value::symbol("extra")]);
@@ -1329,6 +1381,7 @@ fn called_interactively_p_too_many_args() {
 
 #[test]
 fn this_command_keys_empty() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_this_command_keys(&mut ev, vec![]).unwrap();
     assert_eq!(result.as_str(), Some(""));
@@ -1336,6 +1389,7 @@ fn this_command_keys_empty() {
 
 #[test]
 fn this_command_keys_after_set() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_this_command_keys_from_string("ab").unwrap();
     let result = builtin_this_command_keys(&mut ev, vec![]).unwrap();
@@ -1344,6 +1398,7 @@ fn this_command_keys_after_set() {
 
 #[test]
 fn this_command_keys_vector_empty() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_this_command_keys_vector(&mut ev, vec![]).unwrap();
     assert!(result.is_vector());
@@ -1351,6 +1406,7 @@ fn this_command_keys_vector_empty() {
 
 #[test]
 fn this_command_keys_vector_after_set() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_this_command_keys_from_string("x").unwrap();
     let result = builtin_this_command_keys_vector(&mut ev, vec![]).unwrap();
@@ -1365,6 +1421,7 @@ fn this_command_keys_vector_after_set() {
 
 #[test]
 fn this_command_keys_uses_read_command_key_chars() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_read_command_keys(vec![Value::fixnum(97)]);
 
@@ -1383,6 +1440,7 @@ fn this_command_keys_uses_read_command_key_chars() {
 
 #[test]
 fn this_command_keys_returns_vector_for_non_char_read_command_keys() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_read_command_keys(vec![Value::list(vec![Value::symbol("mouse-1")])]);
 
@@ -1399,6 +1457,7 @@ fn this_command_keys_returns_vector_for_non_char_read_command_keys() {
 
 #[test]
 fn this_single_command_keys_prefers_read_command_key_vector() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_read_command_keys(vec![Value::fixnum(97)]);
 
@@ -1414,6 +1473,7 @@ fn this_single_command_keys_prefers_read_command_key_vector() {
 
 #[test]
 fn this_single_command_raw_keys_tracks_raw_sequence() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_command_key_sequences(
         vec![Value::fixnum('b' as i64)],
@@ -1432,6 +1492,7 @@ fn this_single_command_raw_keys_tracks_raw_sequence() {
 
 #[test]
 fn clear_this_command_keys_clears_read_key_context() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_read_command_keys(vec![Value::fixnum(97)]);
 
@@ -1451,6 +1512,7 @@ fn clear_this_command_keys_clears_read_key_context() {
 
 #[test]
 fn set_this_command_keys_clears_raw_sequence_history() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_command_key_sequences(
         vec![Value::fixnum('q' as i64)],
@@ -1486,6 +1548,7 @@ fn set_this_command_keys_clears_raw_sequence_history() {
 
 #[test]
 fn clear_this_command_keys_without_keep_record_clears_recent_input_history() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.record_input_event(Value::fixnum(97));
     assert_eq!(ev.recent_input_events(), &[Value::fixnum(97)]);
@@ -1497,6 +1560,7 @@ fn clear_this_command_keys_without_keep_record_clears_recent_input_history() {
 
 #[test]
 fn clear_this_command_keys_with_nil_keep_record_clears_recent_input_history() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.record_input_event(Value::fixnum(98));
     assert_eq!(ev.recent_input_events(), &[Value::fixnum(98)]);
@@ -1508,6 +1572,7 @@ fn clear_this_command_keys_with_nil_keep_record_clears_recent_input_history() {
 
 #[test]
 fn clear_this_command_keys_with_keep_record_preserves_recent_input_history() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.record_input_event(Value::fixnum(99));
     assert_eq!(ev.recent_input_events(), &[Value::fixnum(99)]);
@@ -1519,6 +1584,7 @@ fn clear_this_command_keys_with_keep_record_preserves_recent_input_history() {
 
 #[test]
 fn clear_this_command_keys_rejects_more_than_one_arg() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_clear_this_command_keys(&mut ev, vec![Value::fixnum(1), Value::fixnum(2)]);
     assert!(matches!(
@@ -1536,6 +1602,7 @@ fn clear_this_command_keys_rejects_more_than_one_arg() {
 
 #[test]
 fn key_binding_global() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let km = make_list_keymap();
     ev.obarray.set_symbol_value("global-map", km);
@@ -1549,6 +1616,7 @@ fn key_binding_global() {
 
 #[test]
 fn key_binding_prefers_minor_and_emulation_mode_maps() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(let ((g (make-sparse-keymap))
@@ -1587,6 +1655,7 @@ fn key_binding_prefers_minor_and_emulation_mode_maps() {
 
 #[test]
 fn key_binding_ignores_invalid_active_minor_emulation_entries() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(let ((g (make-sparse-keymap))
@@ -1613,6 +1682,7 @@ fn key_binding_ignores_invalid_active_minor_emulation_entries() {
 
 #[test]
 fn key_binding_applies_command_remapping_unless_no_remap() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(let ((g (make-sparse-keymap)))
@@ -1639,6 +1709,7 @@ fn key_binding_applies_command_remapping_unless_no_remap() {
 
 #[test]
 fn key_binding_unbound() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_key_binding(&mut ev, vec![Value::string("\x1a")]).unwrap();
     assert!(result.is_nil());
@@ -1646,6 +1717,7 @@ fn key_binding_unbound() {
 
 #[test]
 fn key_binding_empty_returns_keymap_list() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(r#"(let ((m (key-binding ""))) (and (consp m) (keymapp (car m))))"#),
         "OK t"
@@ -1654,11 +1726,13 @@ fn key_binding_empty_returns_keymap_list() {
 
 #[test]
 fn key_binding_empty_vector_is_nil() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(eval_one(r#"(key-binding [])"#), "OK nil");
 }
 
 #[test]
 fn key_binding_default_plain_char_self_insert() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_key_binding(&mut ev, vec![Value::string("a")]).unwrap();
     assert_eq!(result.as_symbol_name(), Some("self-insert-command"));
@@ -1666,6 +1740,7 @@ fn key_binding_default_plain_char_self_insert() {
 
 #[test]
 fn key_binding_too_many_args_errors() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_key_binding(
         &mut ev,
@@ -1682,6 +1757,7 @@ fn key_binding_too_many_args_errors() {
 
 #[test]
 fn key_binding_integer_position_out_of_range_signals_args_out_of_range() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         bootstrap_eval_one(
             r#"(with-temp-buffer
@@ -1712,6 +1788,7 @@ fn key_binding_integer_position_out_of_range_signals_args_out_of_range() {
 
 #[test]
 fn key_binding_non_position_designators_default_to_point() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         bootstrap_eval_one(
             r#"(with-temp-buffer
@@ -1733,6 +1810,7 @@ fn key_binding_non_position_designators_default_to_point() {
 
 #[test]
 fn current_active_maps_and_key_binding_use_live_window_position_buffer() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(let* ((w1 (selected-window))
@@ -1765,6 +1843,7 @@ fn current_active_maps_and_key_binding_use_live_window_position_buffer() {
 
 #[test]
 fn global_key_binding_bootstrap_matches_subr_el() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         gnu_subr_keymap_eval_all(
             r#"(list (subrp (symbol-function 'global-key-binding))
@@ -1779,6 +1858,7 @@ fn global_key_binding_bootstrap_matches_subr_el() {
 
 #[test]
 fn global_key_binding_bootstrap_wrong_arity_matches_lisp() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         gnu_subr_keymap_eval_all(
             r#"(let ((err (condition-case e
@@ -1792,6 +1872,7 @@ fn global_key_binding_bootstrap_wrong_arity_matches_lisp() {
 
 #[test]
 fn key_binding_and_lookup_key_follow_meta_prefix_char() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(let ((g (make-sparse-keymap))
@@ -1808,6 +1889,7 @@ fn key_binding_and_lookup_key_follow_meta_prefix_char() {
 
 #[test]
 fn key_binding_and_lookup_key_follow_ctl_x_prefix_map() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(let ((g (make-sparse-keymap))
@@ -1827,6 +1909,7 @@ fn key_binding_and_lookup_key_follow_ctl_x_prefix_map() {
 
 #[test]
 fn define_key_sequence_preserves_gnu_prefix_symbol_bindings() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(let ((esc (make-keymap))
@@ -1859,6 +1942,7 @@ fn define_key_sequence_preserves_gnu_prefix_symbol_bindings() {
 
 #[test]
 fn local_key_binding_nil_when_no_local_map() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_local_key_binding(&mut ev, vec![Value::string("\x03")]).unwrap();
     assert!(result.is_nil());
@@ -1866,6 +1950,7 @@ fn local_key_binding_nil_when_no_local_map() {
 
 #[test]
 fn local_key_binding_too_many_args_errors() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result =
         builtin_local_key_binding(&mut ev, vec![Value::string("\x03"), Value::NIL, Value::NIL]);
@@ -1874,6 +1959,7 @@ fn local_key_binding_too_many_args_errors() {
 
 #[test]
 fn minor_mode_key_binding_returns_nil_when_no_modes_are_active() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_minor_mode_key_binding(&mut ev, vec![Value::string("\x03")]).unwrap();
     assert!(result.is_nil());
@@ -1881,6 +1967,7 @@ fn minor_mode_key_binding_returns_nil_when_no_modes_are_active() {
 
 #[test]
 fn minor_mode_key_binding_returns_first_matching_mode_binding() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(let* ((m1 (make-sparse-keymap))
@@ -1899,6 +1986,7 @@ fn minor_mode_key_binding_returns_first_matching_mode_binding() {
 
 #[test]
 fn minor_mode_key_binding_invalid_keymap_id_errors_for_active_mode() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(let ((minor-mode-map-alist '((demo-mode . 999999)))
@@ -1913,6 +2001,7 @@ fn minor_mode_key_binding_invalid_keymap_id_errors_for_active_mode() {
 
 #[test]
 fn minor_mode_key_binding_prefers_emulation_mode_maps() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(let* ((m-minor (make-sparse-keymap))
@@ -1931,6 +2020,7 @@ fn minor_mode_key_binding_prefers_emulation_mode_maps() {
 
 #[test]
 fn minor_mode_key_binding_prefers_overriding_mode_maps() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(let* ((m-over (make-sparse-keymap))
@@ -1948,6 +2038,7 @@ fn minor_mode_key_binding_prefers_overriding_mode_maps() {
 
 #[test]
 fn minor_mode_key_binding_resolves_symbol_emulation_alists() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(let* ((m (make-sparse-keymap)))
@@ -1963,6 +2054,7 @@ fn minor_mode_key_binding_resolves_symbol_emulation_alists() {
 
 #[test]
 fn minor_mode_key_binding_invalid_emulation_keymap_id_errors() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(let ((emulation-mode-map-alists (list (list (cons 'emu-mode 999999))))
@@ -1977,6 +2069,7 @@ fn minor_mode_key_binding_invalid_emulation_keymap_id_errors() {
 
 #[test]
 fn minor_mode_key_binding_too_many_args_errors() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_minor_mode_key_binding(
         &mut ev,
@@ -1991,6 +2084,7 @@ fn minor_mode_key_binding_too_many_args_errors() {
 
 #[test]
 fn describe_key_briefly_is_real_lisp_function_after_bootstrap() {
+    crate::test_utils::init_test_tracing();
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let function = ev
@@ -2002,6 +2096,7 @@ fn describe_key_briefly_is_real_lisp_function_after_bootstrap() {
 
 #[test]
 fn describe_key_briefly_loads_from_gnu_help_el() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(let ((g (make-sparse-keymap)))
              (define-key g (kbd "C-f") #'forward-char)
@@ -2013,6 +2108,7 @@ fn describe_key_briefly_loads_from_gnu_help_el() {
 
 #[test]
 fn describe_key_briefly_loaded_insert_writes_message() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(with-temp-buffer
              (let ((g (make-sparse-keymap)))
@@ -2030,6 +2126,7 @@ fn describe_key_briefly_loaded_insert_writes_message() {
 
 #[test]
 fn describe_key_briefly_loaded_wrong_type_matches_gnu() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(condition-case err
                (describe-key-briefly 1)
@@ -2044,6 +2141,7 @@ fn describe_key_briefly_loaded_wrong_type_matches_gnu() {
 
 #[test]
 fn thingatpt_startup_functions_are_autoloaded() {
+    crate::test_utils::init_test_tracing();
     let ev = eval_with_ldefs_boot_autoloads(&[
         "bounds-of-thing-at-point",
         "thing-at-point",
@@ -2070,6 +2168,7 @@ fn thingatpt_startup_functions_are_autoloaded() {
 
 #[test]
 fn word_at_point_starts_unbound_before_thingatpt_load() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = eval_all_with(
         &mut ev,
@@ -2085,6 +2184,7 @@ fn word_at_point_starts_unbound_before_thingatpt_load() {
 
 #[test]
 fn thingatpt_functions_load_from_gnu_elisp() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "foo bar")
@@ -2103,6 +2203,7 @@ fn thingatpt_functions_load_from_gnu_elisp() {
 
 #[test]
 fn command_execute_builtin_ignore() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_eval();
     let result = ev.apply(
         Value::symbol("command-execute"),
@@ -2114,6 +2215,7 @@ fn command_execute_builtin_ignore() {
 
 #[test]
 fn command_execute_rejects_non_vector_keys_argument() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_eval();
     let result = ev
         .apply(
@@ -2132,6 +2234,7 @@ fn command_execute_rejects_non_vector_keys_argument() {
 
 #[test]
 fn command_execute_accepts_vector_keys_argument() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_eval();
     let result = ev
         .apply(
@@ -2148,6 +2251,7 @@ fn command_execute_accepts_vector_keys_argument() {
 
 #[test]
 fn command_execute_does_not_record_keys_argument_in_recent_history() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_eval();
     let result = ev
         .apply(
@@ -2165,6 +2269,7 @@ fn command_execute_does_not_record_keys_argument_in_recent_history() {
 
 #[test]
 fn command_execute_keys_vector_keeps_this_command_keys_empty_in_batch() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_eval();
     let _ = eval_all_with(
         &mut ev,
@@ -2191,6 +2296,7 @@ fn command_execute_keys_vector_keeps_this_command_keys_empty_in_batch() {
 
 #[test]
 fn command_execute_rejects_list_keys_argument_without_recording_recent_history() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_eval();
     let keys = Value::list(vec![Value::fixnum(97), Value::fixnum(98)]);
     let result = ev
@@ -2211,6 +2317,7 @@ fn command_execute_rejects_list_keys_argument_without_recording_recent_history()
 
 #[test]
 fn command_execute_rejects_too_many_arguments() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_eval();
     let result = ev
         .apply(
@@ -2232,6 +2339,7 @@ fn command_execute_rejects_too_many_arguments() {
 
 #[test]
 fn command_execute_builtin_eval_expression_reads_stdin_in_batch() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_with_eval_expression_eval();
     let result = ev
         .apply(
@@ -2250,6 +2358,7 @@ fn command_execute_builtin_eval_expression_reads_stdin_in_batch() {
 
 #[test]
 fn command_execute_builtin_self_insert_command_is_noop() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_eval();
     let result = ev
         .apply(
@@ -2262,6 +2371,7 @@ fn command_execute_builtin_self_insert_command_is_noop() {
 
 #[test]
 fn command_execute_builtin_delete_char_uses_default_prefix_arg() {
+    crate::test_utils::init_test_tracing();
     let results = gnu_simple_command_execute_eval_all(
         r#"(with-temp-buffer
              (insert "abc")
@@ -2274,6 +2384,7 @@ fn command_execute_builtin_delete_char_uses_default_prefix_arg() {
 
 #[test]
 fn call_interactively_builtin_delete_char_uses_default_prefix_arg() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let results = eval_all_with(
         &mut ev,
@@ -2288,6 +2399,7 @@ fn call_interactively_builtin_delete_char_uses_default_prefix_arg() {
 
 #[test]
 fn call_interactively_rejects_non_vector_keys_argument() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_call_interactively(
         &mut ev,
@@ -2305,6 +2417,7 @@ fn call_interactively_rejects_non_vector_keys_argument() {
 
 #[test]
 fn call_interactively_accepts_vector_keys_argument() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_call_interactively(
         &mut ev,
@@ -2320,6 +2433,7 @@ fn call_interactively_accepts_vector_keys_argument() {
 
 #[test]
 fn call_interactively_does_not_record_keys_argument_in_recent_history() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_call_interactively(
         &mut ev,
@@ -2336,6 +2450,7 @@ fn call_interactively_does_not_record_keys_argument_in_recent_history() {
 
 #[test]
 fn call_interactively_keys_vector_keeps_this_command_keys_empty_in_batch() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let _ = eval_all_with(
         &mut ev,
@@ -2361,6 +2476,7 @@ fn call_interactively_keys_vector_keeps_this_command_keys_empty_in_batch() {
 
 #[test]
 fn call_interactively_rejects_list_keys_argument_without_recording_recent_history() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let keys = Value::list(vec![Value::fixnum(97), Value::fixnum(98)]);
     let result =
@@ -2378,6 +2494,7 @@ fn call_interactively_rejects_list_keys_argument_without_recording_recent_histor
 
 #[test]
 fn call_interactively_rejects_too_many_arguments() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_call_interactively(
         &mut ev,
@@ -2392,6 +2509,7 @@ fn call_interactively_rejects_too_many_arguments() {
 
 #[test]
 fn command_execute_builtin_upcase_word_uses_default_prefix_arg() {
+    crate::test_utils::init_test_tracing();
     let results = gnu_simple_command_execute_eval_all(
         r#"(with-temp-buffer
              (insert "abc def")
@@ -2404,6 +2522,7 @@ fn command_execute_builtin_upcase_word_uses_default_prefix_arg() {
 
 #[test]
 fn call_interactively_builtin_capitalize_word_uses_default_prefix_arg() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let results = eval_all_with(
         &mut ev,
@@ -2418,6 +2537,7 @@ fn call_interactively_builtin_capitalize_word_uses_default_prefix_arg() {
 
 #[test]
 fn command_execute_builtin_transpose_words_uses_default_prefix_arg() {
+    crate::test_utils::init_test_tracing();
     let results = gnu_simple_command_execute_eval_all(
         r#"(with-temp-buffer
              (insert "aa bb")
@@ -2430,6 +2550,7 @@ fn command_execute_builtin_transpose_words_uses_default_prefix_arg() {
 
 #[test]
 fn command_execute_builtin_other_window_uses_default_prefix_arg() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(let ((w1 (selected-window)))
              (split-window)
@@ -2441,6 +2562,7 @@ fn command_execute_builtin_other_window_uses_default_prefix_arg() {
 
 #[test]
 fn call_interactively_builtin_transpose_words_uses_default_prefix_arg() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "aa bb")
@@ -2453,6 +2575,7 @@ fn call_interactively_builtin_transpose_words_uses_default_prefix_arg() {
 
 #[test]
 fn call_interactively_builtin_other_window_uses_default_prefix_arg() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(let ((w1 (selected-window)))
              (split-window)
@@ -2464,6 +2587,7 @@ fn call_interactively_builtin_other_window_uses_default_prefix_arg() {
 
 #[test]
 fn command_execute_builtin_transpose_sexps_uses_default_prefix_arg() {
+    crate::test_utils::init_test_tracing();
     let results = gnu_simple_command_execute_eval_all(
         r#"(with-temp-buffer
              (insert "(aa) (bb)")
@@ -2476,6 +2600,7 @@ fn command_execute_builtin_transpose_sexps_uses_default_prefix_arg() {
 
 #[test]
 fn call_interactively_builtin_transpose_sexps_uses_default_prefix_arg() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "(aa) (bb)")
@@ -2488,6 +2613,7 @@ fn call_interactively_builtin_transpose_sexps_uses_default_prefix_arg() {
 
 #[test]
 fn command_execute_builtin_transpose_sentences_uses_default_prefix_arg() {
+    crate::test_utils::init_test_tracing();
     let results = gnu_simple_command_execute_eval_all(
         r#"(with-temp-buffer
              (insert "One.  Two.")
@@ -2500,6 +2626,7 @@ fn command_execute_builtin_transpose_sentences_uses_default_prefix_arg() {
 
 #[test]
 fn call_interactively_builtin_transpose_sentences_uses_default_prefix_arg() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "One.  Two.")
@@ -2512,6 +2639,7 @@ fn call_interactively_builtin_transpose_sentences_uses_default_prefix_arg() {
 
 #[test]
 fn command_execute_builtin_transpose_paragraphs_swaps_paragraphs() {
+    crate::test_utils::init_test_tracing();
     let results = gnu_simple_command_execute_eval_all(
         r#"(with-temp-buffer
              (insert "A\n\nB")
@@ -2524,6 +2652,7 @@ fn command_execute_builtin_transpose_paragraphs_swaps_paragraphs() {
 
 #[test]
 fn command_execute_builtin_kill_region_uses_marked_region() {
+    crate::test_utils::init_test_tracing();
     let results = gnu_simple_command_execute_eval_all(
         r#"(with-temp-buffer
              (insert "abc")
@@ -2537,6 +2666,7 @@ fn command_execute_builtin_kill_region_uses_marked_region() {
 
 #[test]
 fn call_interactively_builtin_kill_ring_save_uses_marked_region() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "abc")
@@ -2550,6 +2680,7 @@ fn call_interactively_builtin_kill_ring_save_uses_marked_region() {
 
 #[test]
 fn command_execute_builtin_copy_region_as_kill_uses_marked_region() {
+    crate::test_utils::init_test_tracing();
     let results = gnu_simple_command_execute_eval_all(
         r#"(let ((kill-ring nil))
              (with-temp-buffer
@@ -2564,6 +2695,7 @@ fn command_execute_builtin_copy_region_as_kill_uses_marked_region() {
 
 #[test]
 fn call_interactively_builtin_copy_region_as_kill_uses_marked_region() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(let ((kill-ring nil))
              (with-temp-buffer
@@ -2578,6 +2710,7 @@ fn call_interactively_builtin_copy_region_as_kill_uses_marked_region() {
 
 #[test]
 fn call_interactively_builtin_upcase_region_uses_marked_region() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "abc")
@@ -2591,6 +2724,7 @@ fn call_interactively_builtin_upcase_region_uses_marked_region() {
 
 #[test]
 fn call_interactively_builtin_downcase_region_uses_marked_region() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "ABC")
@@ -2604,6 +2738,7 @@ fn call_interactively_builtin_downcase_region_uses_marked_region() {
 
 #[test]
 fn call_interactively_builtin_capitalize_region_uses_marked_region() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "abc")
@@ -2617,6 +2752,7 @@ fn call_interactively_builtin_capitalize_region_uses_marked_region() {
 
 #[test]
 fn command_execute_builtin_upcase_region_signals_args_out_of_range() {
+    crate::test_utils::init_test_tracing();
     let results = gnu_simple_command_execute_eval_all(
         r#"(with-temp-buffer
              (insert "abc")
@@ -2631,6 +2767,7 @@ fn command_execute_builtin_upcase_region_signals_args_out_of_range() {
 
 #[test]
 fn command_execute_builtin_downcase_region_signals_args_out_of_range() {
+    crate::test_utils::init_test_tracing();
     let results = gnu_simple_command_execute_eval_all(
         r#"(with-temp-buffer
              (insert "ABC")
@@ -2645,6 +2782,7 @@ fn command_execute_builtin_downcase_region_signals_args_out_of_range() {
 
 #[test]
 fn command_execute_builtin_capitalize_region_uses_marked_region() {
+    crate::test_utils::init_test_tracing();
     let results = gnu_simple_command_execute_eval_all(
         r#"(with-temp-buffer
              (insert "abc")
@@ -2658,6 +2796,7 @@ fn command_execute_builtin_capitalize_region_uses_marked_region() {
 
 #[test]
 fn command_execute_builtin_capitalize_region_without_mark_signals_error() {
+    crate::test_utils::init_test_tracing();
     let results = gnu_simple_command_execute_eval_all(
         r#"(with-temp-buffer
              (insert "abc")
@@ -2674,6 +2813,7 @@ fn command_execute_builtin_capitalize_region_without_mark_signals_error() {
 
 #[test]
 fn call_interactively_builtin_upcase_initials_region_uses_marked_region() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "abc")
@@ -2687,6 +2827,7 @@ fn call_interactively_builtin_upcase_initials_region_uses_marked_region() {
 
 #[test]
 fn command_execute_builtin_upcase_initials_region_uses_marked_region() {
+    crate::test_utils::init_test_tracing();
     let results = gnu_simple_command_execute_eval_all(
         r#"(with-temp-buffer
              (insert "abc")
@@ -2700,6 +2841,7 @@ fn command_execute_builtin_upcase_initials_region_uses_marked_region() {
 
 #[test]
 fn command_execute_builtin_upcase_initials_region_without_mark_signals_error() {
+    crate::test_utils::init_test_tracing();
     let results = gnu_simple_command_execute_eval_all(
         r#"(with-temp-buffer
              (insert "abc")
@@ -2716,6 +2858,7 @@ fn command_execute_builtin_upcase_initials_region_without_mark_signals_error() {
 
 #[test]
 fn command_execute_builtin_kill_region_without_mark_signals_user_error() {
+    crate::test_utils::init_test_tracing();
     let results = gnu_simple_command_execute_eval_all(
         r#"(with-temp-buffer
              (insert "abc")
@@ -2732,6 +2875,7 @@ fn command_execute_builtin_kill_region_without_mark_signals_user_error() {
 
 #[test]
 fn command_execute_builtin_kill_ring_save_without_mark_signals_error() {
+    crate::test_utils::init_test_tracing();
     let results = gnu_simple_command_execute_eval_all(
         r#"(with-temp-buffer
              (insert "abc")
@@ -2748,6 +2892,7 @@ fn command_execute_builtin_kill_ring_save_without_mark_signals_error() {
 
 #[test]
 fn call_interactively_builtin_kill_ring_save_without_mark_signals_error() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let results = eval_all_with(
         &mut ev,
@@ -2766,6 +2911,7 @@ fn call_interactively_builtin_kill_ring_save_without_mark_signals_error() {
 
 #[test]
 fn command_execute_builtin_copy_region_as_kill_without_mark_signals_error() {
+    crate::test_utils::init_test_tracing();
     let results = gnu_simple_command_execute_eval_all(
         r#"(with-temp-buffer
              (insert "abc")
@@ -2782,6 +2928,7 @@ fn command_execute_builtin_copy_region_as_kill_without_mark_signals_error() {
 
 #[test]
 fn call_interactively_builtin_copy_region_as_kill_without_mark_signals_error() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let results = eval_all_with(
         &mut ev,
@@ -2800,6 +2947,7 @@ fn call_interactively_builtin_copy_region_as_kill_without_mark_signals_error() {
 
 #[test]
 fn find_file_is_owned_by_gnu_files_el() {
+    crate::test_utils::init_test_tracing();
     let results = gnu_files_command_eval_all(
         r#"(list
              (commandp 'find-file)
@@ -2810,6 +2958,7 @@ fn find_file_is_owned_by_gnu_files_el() {
 
 #[test]
 fn save_buffer_is_owned_by_gnu_files_el() {
+    crate::test_utils::init_test_tracing();
     let results = gnu_files_command_eval_all(
         r#"(list
              (commandp 'save-buffer)
@@ -2820,6 +2969,7 @@ fn save_buffer_is_owned_by_gnu_files_el() {
 
 #[test]
 fn command_execute_builtin_set_mark_command_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let result = ev
@@ -2833,6 +2983,7 @@ fn command_execute_builtin_set_mark_command_returns_nil() {
 
 #[test]
 fn bootstrap_command_execute_quoted_insert_uses_simple_el() {
+    crate::test_utils::init_test_tracing();
     let results = gnu_simple_quoted_insert_eval_all(
         r#"(list (commandp 'quoted-insert)
                  (subrp (symbol-function 'quoted-insert))
@@ -2848,6 +2999,7 @@ fn bootstrap_command_execute_quoted_insert_uses_simple_el() {
 
 #[test]
 fn bootstrap_command_execute_universal_argument_sets_prefix_arg() {
+    crate::test_utils::init_test_tracing();
     let results = gnu_simple_universal_argument_eval_all(
         r#"(progn
              (setq prefix-arg nil)
@@ -2861,6 +3013,7 @@ fn bootstrap_command_execute_universal_argument_sets_prefix_arg() {
 
 #[test]
 fn command_execute_calls_function() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_eval();
     eval_all_with(
         &mut ev,
@@ -2884,6 +3037,7 @@ fn command_execute_calls_function() {
 
 #[test]
 fn command_execute_non_command_signals_commandp_error() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_eval();
     let result = ev
         .apply(Value::symbol("command-execute"), vec![Value::symbol("car")])
@@ -2902,6 +3056,7 @@ fn command_execute_non_command_signals_commandp_error() {
 
 #[test]
 fn call_interactively_builtin_ignore() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_call_interactively(&mut ev, vec![Value::symbol("ignore")]).unwrap();
     assert!(result.is_nil());
@@ -2909,6 +3064,7 @@ fn call_interactively_builtin_ignore() {
 
 #[test]
 fn call_interactively_lambda_interactive_p_uses_current_prefix_arg() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let results = eval_all_with(
         &mut ev,
@@ -2921,6 +3077,7 @@ fn call_interactively_lambda_interactive_p_uses_current_prefix_arg() {
 
 #[test]
 fn command_execute_lambda_interactive_p_uses_prefix_arg() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_eval();
     let results = eval_all_with(
         &mut ev,
@@ -2938,6 +3095,7 @@ fn command_execute_lambda_interactive_p_uses_prefix_arg() {
 
 #[test]
 fn call_interactively_lambda_interactive_p_prefers_current_prefix_arg() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let results = eval_all_with(
         &mut ev,
@@ -2951,6 +3109,7 @@ fn call_interactively_lambda_interactive_p_prefers_current_prefix_arg() {
 
 #[test]
 fn interactive_lambda_forms_support_p_p_and_expression_specs() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_eval();
     let results = eval_all_with(
         &mut ev,
@@ -2972,6 +3131,7 @@ fn interactive_lambda_forms_support_p_p_and_expression_specs() {
 
 #[test]
 fn call_interactively_accepts_quoted_lambda_commands() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let results = eval_all_with(
         &mut ev,
@@ -2983,6 +3143,7 @@ fn call_interactively_accepts_quoted_lambda_commands() {
 
 #[test]
 fn interactive_lambda_r_spec_reads_region_for_call_interactively() {
+    crate::test_utils::init_test_tracing();
     // set-mark is defined in simple.el — need bootstrap evaluator.
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
@@ -3011,6 +3172,7 @@ fn interactive_lambda_r_spec_reads_region_for_call_interactively() {
 
 #[test]
 fn interactive_lambda_s_spec_reads_prompt_and_signals_eof_in_batch() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_eval();
     let results = eval_all_with(
         &mut ev,
@@ -3030,6 +3192,7 @@ fn interactive_lambda_s_spec_reads_prompt_and_signals_eof_in_batch() {
 
 #[test]
 fn interactive_lambda_extended_string_codes_cover_point_mark_ignored_and_key_readers() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(list
              (let ((unread-command-events (list 97 98 99)))
@@ -3075,6 +3238,7 @@ K")
 
 #[test]
 fn interactive_lambda_extended_reader_prompt_codes_signal_eof_in_batch() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_eval();
     let results = eval_all_with(
         &mut ev,
@@ -3118,6 +3282,7 @@ fn interactive_lambda_extended_reader_prompt_codes_signal_eof_in_batch() {
 
 #[test]
 fn interactive_lambda_n_and_optional_coding_specs_follow_prefix_and_batch_behavior() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_eval();
     let results = eval_all_with(
         &mut ev,
@@ -3155,6 +3320,7 @@ fn interactive_lambda_n_and_optional_coding_specs_follow_prefix_and_batch_behavi
 
 #[test]
 fn interactive_lambda_m_s_x_x_and_z_specs_signal_eof_in_batch() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_eval();
     let results = eval_all_with(
         &mut ev,
@@ -3198,6 +3364,7 @@ fn interactive_lambda_m_s_x_x_and_z_specs_signal_eof_in_batch() {
 
 #[test]
 fn interactive_lambda_g_e_and_u_specs_follow_batch_behavior() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_eval();
     let results = eval_all_with(
         &mut ev,
@@ -3233,6 +3400,7 @@ fn interactive_lambda_g_e_and_u_specs_follow_batch_behavior() {
 
 #[test]
 fn interactive_lambda_k_k_capital_and_u_specs_match_gnu_batch_mouse_up_event_behavior() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_eval();
     let results = eval_all_with(
         &mut ev,
@@ -3262,6 +3430,7 @@ U") (list keys up)))))"#,
 
 #[test]
 fn interactive_lambda_invalid_control_letter_signals_error() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let results = eval_all_with(
         &mut ev,
@@ -3299,6 +3468,7 @@ fn interactive_lambda_invalid_control_letter_signals_error() {
 
 #[test]
 fn interactive_shift_selection_prefix_sets_mark_and_mark_active() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     {
         let buf = ev.buffers.current_buffer_mut().expect("current buffer");
@@ -3318,6 +3488,7 @@ fn interactive_shift_selection_prefix_sets_mark_and_mark_active() {
 
 #[test]
 fn interactive_lambda_prefix_flags_star_hat_and_at_follow_batch_semantics() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(list
              (with-temp-buffer
@@ -3407,6 +3578,7 @@ fn interactive_lambda_prefix_flags_star_hat_and_at_follow_batch_semantics() {
 
 #[test]
 fn interactive_lambda_e_spec_reads_parameterized_events_from_keys_vector() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_eval();
     let results = eval_all_with(
         &mut ev,
@@ -3441,6 +3613,7 @@ fn interactive_lambda_e_spec_reads_parameterized_events_from_keys_vector() {
 
 #[test]
 fn interactive_at_prefix_selects_mouse_window_from_explicit_command_keys() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_eval();
     let results = eval_all_with(
         &mut ev,
@@ -3501,6 +3674,7 @@ fn interactive_at_prefix_selects_mouse_window_from_explicit_command_keys() {
 
 #[test]
 fn interactive_lambda_e_spec_uses_command_key_context_for_event_dispatch() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_eval();
     let results = eval_all_with(
         &mut ev,
@@ -3532,6 +3706,7 @@ fn interactive_lambda_e_spec_uses_command_key_context_for_event_dispatch() {
 
 #[test]
 fn interactive_lambda_e_spec_does_not_use_unread_queue_without_command_key_context() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_eval();
     let results = eval_all_with(
         &mut ev,
@@ -3573,6 +3748,7 @@ fn interactive_lambda_e_spec_does_not_use_unread_queue_without_command_key_conte
 
 #[test]
 fn interactive_lambda_e_spec_prefers_existing_command_keys_context() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let results = eval_all_with(
         &mut ev,
@@ -3598,6 +3774,7 @@ fn interactive_lambda_e_spec_prefers_existing_command_keys_context() {
 
 #[test]
 fn call_interactively_non_command_signals_commandp_error() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_call_interactively(&mut ev, vec![Value::symbol("car")])
         .expect_err("call-interactively should reject non-command symbols");
@@ -3615,6 +3792,7 @@ fn call_interactively_non_command_signals_commandp_error() {
 
 #[test]
 fn call_interactively_eval_expression_reads_stdin_in_batch() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_eval_expression_eval();
     let result = builtin_call_interactively(&mut ev, vec![Value::symbol("eval-expression")])
         .expect_err("call-interactively eval-expression should signal end-of-file in batch");
@@ -3629,6 +3807,7 @@ fn call_interactively_eval_expression_reads_stdin_in_batch() {
 
 #[test]
 fn bootstrap_read_expression_internal_map_installs_try_read_binding() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(list (lookup-key read-expression-map (kbd "RET"))
                  (lookup-key read--expression-map (kbd "RET"))
@@ -3645,6 +3824,7 @@ fn bootstrap_read_expression_internal_map_installs_try_read_binding() {
 
 #[test]
 fn eval_expression_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_eval_expression_eval();
     let result = ev
         .apply(
@@ -3670,6 +3850,7 @@ fn eval_expression_rejects_too_many_args() {
 
 #[test]
 fn eval_expression_apply_executes_form_argument() {
+    crate::test_utils::init_test_tracing();
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
 
@@ -3695,6 +3876,7 @@ fn eval_expression_apply_executes_form_argument() {
 
 #[test]
 fn call_interactively_eval_expression_executes_read_expression_result() {
+    crate::test_utils::init_test_tracing();
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
 
@@ -3723,6 +3905,7 @@ fn call_interactively_eval_expression_executes_read_expression_result() {
 
 #[test]
 fn self_insert_command_argument_validation() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
 
     let missing = builtin_self_insert_command(&mut ev, vec![])
@@ -3778,6 +3961,7 @@ fn self_insert_command_argument_validation() {
 
 #[test]
 fn self_insert_command_uses_last_command_event_character() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let results = eval_all_with(
         &mut ev,
@@ -3791,6 +3975,7 @@ fn self_insert_command_uses_last_command_event_character() {
 
 #[test]
 fn self_insert_command_non_nil_second_arg_is_noop() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let results = eval_all_with(
         &mut ev,
@@ -3804,6 +3989,7 @@ fn self_insert_command_non_nil_second_arg_is_noop() {
 
 #[test]
 fn command_execute_self_insert_uses_last_command_event_when_available() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_eval();
     let results = eval_all_with(
         &mut ev,
@@ -3817,6 +4003,7 @@ fn command_execute_self_insert_uses_last_command_event_when_available() {
 
 #[test]
 fn keyboard_quit_signals_quit() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(condition-case err
                (command-execute 'keyboard-quit)
@@ -3831,6 +4018,7 @@ fn keyboard_quit_signals_quit() {
 
 #[test]
 fn execute_extended_command_with_command_name() {
+    crate::test_utils::init_test_tracing();
     let results = gnu_simple_execute_extended_command_eval_all(
         r#"(progn
              (defun neo-eec-noargs ()
@@ -3843,6 +4031,7 @@ fn execute_extended_command_with_command_name() {
 
 #[test]
 fn execute_extended_command_returns_nil_and_seeds_current_prefix_arg() {
+    crate::test_utils::init_test_tracing();
     let results = gnu_simple_execute_extended_command_eval_all(
         r#"(progn
              (setq neo-eec-seen-vars :unset)
@@ -3863,6 +4052,7 @@ fn execute_extended_command_returns_nil_and_seeds_current_prefix_arg() {
 
 #[test]
 fn execute_extended_command_applies_prefix_arg_for_p_and_p_specs() {
+    crate::test_utils::init_test_tracing();
     let results = gnu_simple_execute_extended_command_eval_all(
         r#"(progn
              (setq neo-eec-seen-p :unset)
@@ -3891,6 +4081,7 @@ fn execute_extended_command_applies_prefix_arg_for_p_and_p_specs() {
 
 #[test]
 fn execute_extended_command_no_name_signals_end_of_file() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_execute_extended_command_eval();
     let result = ev
         .apply(Value::symbol("execute-extended-command"), vec![Value::NIL])
@@ -3906,6 +4097,7 @@ fn execute_extended_command_no_name_signals_end_of_file() {
 
 #[test]
 fn execute_extended_command_rejects_symbol_name_payload() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_execute_extended_command_eval();
     let result = ev
         .apply(
@@ -3929,6 +4121,7 @@ fn execute_extended_command_rejects_symbol_name_payload() {
 
 #[test]
 fn execute_extended_command_rejects_non_command_name() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_execute_extended_command_eval();
     let result = ev
         .apply(
@@ -3952,6 +4145,7 @@ fn execute_extended_command_rejects_non_command_name() {
 
 #[test]
 fn execute_extended_command_rejects_non_string_name_payload() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_execute_extended_command_eval();
     let result = ev
         .apply(
@@ -3975,6 +4169,7 @@ fn execute_extended_command_rejects_non_string_name_payload() {
 
 #[test]
 fn execute_extended_command_rejects_overflow_arity() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_execute_extended_command_eval();
     let result = ev
         .apply(
@@ -3990,6 +4185,7 @@ fn execute_extended_command_rejects_overflow_arity() {
 
 #[test]
 fn define_key_accepts_optional_remove_arg() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         r#"(let ((m (make-sparse-keymap)))
              (eq (define-key m "a" 'ignore t) 'ignore))"#,
@@ -4003,6 +4199,7 @@ fn define_key_accepts_optional_remove_arg() {
 
 #[test]
 fn where_is_internal_finds_binding_in_explicit_map() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         r#"(let ((m (make-sparse-keymap)))
              (define-key m "a" 'ignore)
@@ -4013,6 +4210,7 @@ fn where_is_internal_finds_binding_in_explicit_map() {
 
 #[test]
 fn where_is_internal_first_only_returns_vector() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         r#"(let ((m (make-sparse-keymap)))
              (define-key m "a" 'ignore)
@@ -4023,6 +4221,7 @@ fn where_is_internal_first_only_returns_vector() {
 
 #[test]
 fn where_is_internal_accepts_list_of_keymaps() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         r#"(let ((m1 (make-sparse-keymap))
                  (m2 (make-sparse-keymap)))
@@ -4037,6 +4236,7 @@ fn where_is_internal_accepts_list_of_keymaps() {
 
 #[test]
 fn where_is_internal_keymap_type_errors() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         r#"(condition-case err
                (where-is-internal 'ignore 'not-a-map)
@@ -4047,12 +4247,14 @@ fn where_is_internal_keymap_type_errors() {
 
 #[test]
 fn where_is_internal_non_definition_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one("(where-is-internal 1)");
     assert_eq!(result, "OK nil");
 }
 
 #[test]
 fn where_is_internal_follows_symbol_function_prefix_maps_like_gnu_help_command() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         r#"(let ((m (make-keymap))
                  (prefix (make-sparse-keymap)))
@@ -4070,6 +4272,7 @@ fn where_is_internal_follows_symbol_function_prefix_maps_like_gnu_help_command()
 
 #[test]
 fn bootstrap_define_keymap_populates_help_style_bindings() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(let ((m (define-keymap
                       "C-a" #'about-emacs
@@ -4090,6 +4293,7 @@ fn bootstrap_define_keymap_populates_help_style_bindings() {
 
 #[test]
 fn bootstrap_defvar_keymap_and_fset_share_populated_keymap_object() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(progn
              (defvar-keymap test-help-map
@@ -4108,6 +4312,7 @@ fn bootstrap_defvar_keymap_and_fset_share_populated_keymap_object() {
 
 #[test]
 fn bootstrap_runtime_help_map_and_help_command_are_populated_like_gnu() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(list (lookup-key help-map [1])
                  (lookup-key help-map [97])
@@ -4126,6 +4331,7 @@ fn bootstrap_runtime_help_map_and_help_command_are_populated_like_gnu() {
 
 #[test]
 fn command_modes_extracts_modes_and_preserves_arity_checks() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(eval_one("(command-modes 'ignore)"), "OK nil");
     assert_eq!(eval_one("(command-modes nil)"), "OK nil");
     assert_eq!(eval_one("(command-modes 0)"), "OK nil");
@@ -4177,6 +4383,7 @@ fn command_modes_extracts_modes_and_preserves_arity_checks() {
 
 #[test]
 fn command_remapping_nil_and_keymap_type_checks() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(eval_one("(command-remapping 'ignore)"), "OK nil");
     assert_eq!(eval_one("(command-remapping 'ignore nil)"), "OK nil");
     assert_eq!(eval_one("(command-remapping 'ignore nil nil)"), "OK nil");
@@ -4272,6 +4479,7 @@ fn command_remapping_nil_and_keymap_type_checks() {
 
 #[test]
 fn command_remapping_integer_position_range_and_ordering_semantics() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(with-temp-buffer
@@ -4346,6 +4554,7 @@ fn command_remapping_integer_position_range_and_ordering_semantics() {
 
 #[test]
 fn command_remapping_resolves_remap_bindings_on_keymap_handles() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(let ((m (make-sparse-keymap)))
@@ -4422,6 +4631,7 @@ fn command_remapping_resolves_remap_bindings_on_keymap_handles() {
 
 #[test]
 fn command_remapping_global_map_remap_binding() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(let ((g (make-sparse-keymap))
@@ -4440,6 +4650,7 @@ fn command_remapping_global_map_remap_binding() {
 
 #[test]
 fn command_remapping_prefers_local_map_when_keymap_omitted_or_nil() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(let ((g (make-sparse-keymap))
@@ -4501,6 +4712,7 @@ fn command_remapping_prefers_local_map_when_keymap_omitted_or_nil() {
 
 #[test]
 fn switch_to_buffer_restores_buffer_local_map_for_key_lookup() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(let* ((b1 (get-buffer-create "*km-a*"))
@@ -4524,6 +4736,7 @@ fn switch_to_buffer_restores_buffer_local_map_for_key_lookup() {
 
 #[test]
 fn command_remapping_checks_minor_mode_maps_before_local_and_global() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(let ((g (make-sparse-keymap))
@@ -4583,6 +4796,7 @@ fn command_remapping_checks_minor_mode_maps_before_local_and_global() {
 
 #[test]
 fn command_remapping_resolves_remap_bindings_on_lisp_keymaps() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             "(command-remapping 'ignore nil '(keymap (remap keymap (ignore . self-insert-command))))"

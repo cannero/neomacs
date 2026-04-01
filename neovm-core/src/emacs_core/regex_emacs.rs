@@ -2960,6 +2960,7 @@ mod tests {
 
     #[test]
     fn test_simple_literal() {
+        crate::test_utils::init_test_tracing();
         let syn = DefaultSyntaxLookup;
         let result = search_pattern("hello", "say hello world", 0, false, &syn, 0);
         assert!(result.is_ok());
@@ -2972,6 +2973,7 @@ mod tests {
 
     #[test]
     fn test_dot_matches_any() {
+        crate::test_utils::init_test_tracing();
         let syn = DefaultSyntaxLookup;
         let result = search_pattern("h.llo", "say hello world", 0, false, &syn, 0);
         assert!(result.is_ok());
@@ -2981,6 +2983,7 @@ mod tests {
 
     #[test]
     fn test_anchors() {
+        crate::test_utils::init_test_tracing();
         let syn = DefaultSyntaxLookup;
         // ^ at beginning
         let r = match_pattern("^hello", "hello world", 0, false, &syn, 0).unwrap();
@@ -2992,6 +2995,7 @@ mod tests {
 
     #[test]
     fn test_groups() {
+        crate::test_utils::init_test_tracing();
         let syn = DefaultSyntaxLookup;
         let result = search_pattern("\\(hel\\)lo", "hello", 0, false, &syn, 0);
         assert!(result.is_ok());
@@ -3003,6 +3007,7 @@ mod tests {
 
     #[test]
     fn test_word_boundary() {
+        crate::test_utils::init_test_tracing();
         let syn = DefaultSyntaxLookup;
         let r = search_pattern("\\bhello\\b", "say hello world", 0, false, &syn, 0);
         assert!(r.is_ok());
@@ -3011,6 +3016,7 @@ mod tests {
 
     #[test]
     fn test_star_repetition() {
+        crate::test_utils::init_test_tracing();
         let syn = DefaultSyntaxLookup;
         let r = search_pattern("hel*o", "heo", 0, false, &syn, 0);
         assert!(r.unwrap().is_some()); // zero l's
@@ -3022,6 +3028,7 @@ mod tests {
 
     #[test]
     fn test_charset() {
+        crate::test_utils::init_test_tracing();
         let syn = DefaultSyntaxLookup;
         let r = search_pattern("[abc]", "xbz", 0, false, &syn, 0);
         assert!(r.unwrap().is_some());
@@ -3031,6 +3038,7 @@ mod tests {
 
     #[test]
     fn test_syntax_word() {
+        crate::test_utils::init_test_tracing();
         let syn = DefaultSyntaxLookup;
         // \sw matches word characters
         let r = search_pattern("\\sw+", "hello world", 0, false, &syn, 0);
@@ -3039,6 +3047,7 @@ mod tests {
 
     #[test]
     fn test_backreference() {
+        crate::test_utils::init_test_tracing();
         let syn = DefaultSyntaxLookup;
         let r = search_pattern("\\(a\\)\\1", "aa", 0, false, &syn, 0);
         assert!(r.unwrap().is_some());
@@ -3048,6 +3057,7 @@ mod tests {
 
     #[test]
     fn test_alternation() {
+        crate::test_utils::init_test_tracing();
         let syn = DefaultSyntaxLookup;
         let r = search_pattern("\\(foo\\|bar\\)", "test bar baz", 0, false, &syn, 0);
         assert!(r.is_ok(), "compile failed: {:?}", r.err());
@@ -3060,6 +3070,7 @@ mod tests {
 
     #[test]
     fn test_char_range() {
+        crate::test_utils::init_test_tracing();
         let syn = DefaultSyntaxLookup;
         let r = search_pattern("[0-9]+", "foo 123 bar", 0, false, &syn, 0);
         assert!(r.is_ok(), "compile failed: {:?}", r.err());
@@ -3070,6 +3081,7 @@ mod tests {
 
     #[test]
     fn test_fastmap_skips_positions() {
+        crate::test_utils::init_test_tracing();
         let syn = DefaultSyntaxLookup;
         // Pattern starts with 'z' — should skip to position where 'z' appears
         let r = search_pattern("zing", "aaaaaaaaaazing", 0, false, &syn, 0);
@@ -3081,6 +3093,7 @@ mod tests {
 
     #[test]
     fn test_fastmap_literal_accurate() {
+        crate::test_utils::init_test_tracing();
         // Verify fastmap is populated and accurate for a simple literal
         let compiled = regex_compile("hello", false, false).unwrap();
         assert!(compiled.fastmap_accurate);
@@ -3091,6 +3104,7 @@ mod tests {
 
     #[test]
     fn test_fastmap_charset() {
+        crate::test_utils::init_test_tracing();
         // Verify fastmap for character class patterns
         let compiled = regex_compile("[abc]", false, false).unwrap();
         assert!(compiled.fastmap_accurate);
@@ -3102,6 +3116,7 @@ mod tests {
 
     #[test]
     fn test_fastmap_case_fold() {
+        crate::test_utils::init_test_tracing();
         // Case-folded pattern should match both cases
         let compiled = regex_compile("Hello", false, true).unwrap();
         assert!(compiled.fastmap_accurate);
@@ -3111,6 +3126,7 @@ mod tests {
 
     #[test]
     fn test_fastmap_alternation() {
+        crate::test_utils::init_test_tracing();
         // Alternation: both branches should appear in fastmap
         let compiled = regex_compile("\\(foo\\|bar\\)", false, false).unwrap();
         assert!(compiled.fastmap_accurate);
@@ -3121,6 +3137,7 @@ mod tests {
 
     #[test]
     fn test_fastmap_dot() {
+        crate::test_utils::init_test_tracing();
         // AnyChar: everything except newline
         let compiled = regex_compile(".", false, false).unwrap();
         assert!(compiled.fastmap_accurate);
@@ -3131,6 +3148,7 @@ mod tests {
 
     #[test]
     fn test_fastmap_anchor_then_literal() {
+        crate::test_utils::init_test_tracing();
         // ^hello — anchor is zero-width, fastmap should see 'h'
         let compiled = regex_compile("^hello", false, false).unwrap();
         assert!(compiled.fastmap_accurate);
@@ -3140,6 +3158,7 @@ mod tests {
 
     #[test]
     fn test_fastmap_charset_not() {
+        crate::test_utils::init_test_tracing();
         // [^abc] should allow everything except a, b, c
         let compiled = regex_compile("[^abc]", false, false).unwrap();
         assert!(compiled.fastmap_accurate);
@@ -3152,6 +3171,7 @@ mod tests {
 
     #[test]
     fn test_multibyte_charset() {
+        crate::test_utils::init_test_tracing();
         let syn = DefaultSyntaxLookup;
         let r = search_pattern("[àáâ]", "hello à world", 0, false, &syn, 0);
         assert!(r.is_ok(), "compile failed: {:?}", r.err());
@@ -3160,6 +3180,7 @@ mod tests {
 
     #[test]
     fn test_multibyte_charset_no_match() {
+        crate::test_utils::init_test_tracing();
         let syn = DefaultSyntaxLookup;
         let r = search_pattern("[àáâ]", "hello world", 0, false, &syn, 0);
         assert!(r.is_ok());
@@ -3171,6 +3192,7 @@ mod tests {
 
     #[test]
     fn test_multibyte_charset_range() {
+        crate::test_utils::init_test_tracing();
         let syn = DefaultSyntaxLookup;
         // Range of accented Latin characters: é (U+00E9) through ü (U+00FC)
         let r = search_pattern("[é-ü]", "hello ö world", 0, false, &syn, 0);
@@ -3180,6 +3202,7 @@ mod tests {
 
     #[test]
     fn test_multibyte_charset_range_no_match() {
+        crate::test_utils::init_test_tracing();
         let syn = DefaultSyntaxLookup;
         // 'a' (U+0061) is outside the range é (U+00E9) through ü (U+00FC)
         let r = search_pattern("[é-ü]", "hello a world", 0, false, &syn, 0);
@@ -3189,6 +3212,7 @@ mod tests {
 
     #[test]
     fn test_multibyte_charset_not() {
+        crate::test_utils::init_test_tracing();
         let syn = DefaultSyntaxLookup;
         // [^à] should match any character that is not à
         let r = search_pattern("[^à]", "à", 0, false, &syn, 0);
@@ -3202,6 +3226,7 @@ mod tests {
 
     #[test]
     fn test_multibyte_charset_mixed() {
+        crate::test_utils::init_test_tracing();
         let syn = DefaultSyntaxLookup;
         // Mix of ASCII and non-ASCII in one charset
         let r = search_pattern("[aéz]", "hello é world", 0, false, &syn, 0);
@@ -3215,6 +3240,7 @@ mod tests {
 
     #[test]
     fn test_multibyte_charset_cjk() {
+        crate::test_utils::init_test_tracing();
         let syn = DefaultSyntaxLookup;
         // CJK characters
         let r = search_pattern("[你好世]", "say 好 to the world", 0, false, &syn, 0);
@@ -3224,6 +3250,7 @@ mod tests {
 
     #[test]
     fn test_multibyte_charset_match_position() {
+        crate::test_utils::init_test_tracing();
         let syn = DefaultSyntaxLookup;
         let r = search_pattern("[àáâ]", "hello á world", 0, false, &syn, 0);
         let (pos, regs) = r.unwrap().unwrap();

@@ -42,6 +42,7 @@ fn create_file(dir: &std::path::Path, name: &str, content: &str) {
 
 #[test]
 fn test_directory_files_and_attributes_basic() {
+    crate::test_utils::init_test_tracing();
     let (dir, dir_str) = make_test_dir("dfa_basic");
     create_file(&dir, "test.txt", "hello");
 
@@ -68,6 +69,7 @@ fn test_directory_files_and_attributes_basic() {
 
 #[test]
 fn test_directory_files_and_attributes_order_and_count() {
+    crate::test_utils::init_test_tracing();
     let (dir, dir_str) = make_test_dir("dfa_count");
     create_file(&dir, "alpha.txt", "");
     create_file(&dir, "beta.txt", "");
@@ -146,6 +148,7 @@ fn test_directory_files_and_attributes_order_and_count() {
 
 #[test]
 fn test_directory_files_and_attributes_count_and_id_format() {
+    crate::test_utils::init_test_tracing();
     let (dir, dir_str) = make_test_dir("dfa_types");
     create_file(&dir, "alpha.txt", "");
 
@@ -194,6 +197,7 @@ fn test_directory_files_and_attributes_count_and_id_format() {
 
 #[test]
 fn test_directory_files_and_attributes_eval_respects_default_directory() {
+    crate::test_utils::init_test_tracing();
     let base = std::env::temp_dir().join("neovm_dfa_eval_builtin");
     let fixture = base.join("fixtures");
     let _ = fs::remove_dir_all(&base);
@@ -238,6 +242,7 @@ fn test_directory_files_and_attributes_eval_respects_default_directory() {
 
 #[test]
 fn test_file_name_completion_basic() {
+    crate::test_utils::init_test_tracing();
     let mut ctx = test_eval_ctx();
     let (dir, dir_str) = make_test_dir("fnc_basic");
     create_file(&dir, "foobar.txt", "");
@@ -256,6 +261,7 @@ fn test_file_name_completion_basic() {
 
 #[test]
 fn test_file_name_completion_exact() {
+    crate::test_utils::init_test_tracing();
     let mut ctx = test_eval_ctx();
     let (dir, dir_str) = make_test_dir("fnc_exact");
     create_file(&dir, "unique.txt", "");
@@ -278,6 +284,7 @@ fn test_file_name_completion_exact() {
 
 #[test]
 fn test_file_name_completion_no_match() {
+    crate::test_utils::init_test_tracing();
     let mut ctx = test_eval_ctx();
     let (dir, dir_str) = make_test_dir("fnc_none");
     create_file(&dir, "hello.txt", "");
@@ -294,6 +301,7 @@ fn test_file_name_completion_no_match() {
 
 #[test]
 fn test_file_name_completion_dot_and_slash_behavior() {
+    crate::test_utils::init_test_tracing();
     let mut ctx = test_eval_ctx();
     let (dir, dir_str) = make_test_dir("fnc_dot_slash");
     create_file(&dir, ".hidden", "");
@@ -333,6 +341,7 @@ fn test_file_name_completion_dot_and_slash_behavior() {
 
 #[test]
 fn test_file_name_completion_predicate_with_eval() {
+    crate::test_utils::init_test_tracing();
     let (dir, dir_str) = make_test_dir("fnc_predicate");
     create_file(&dir, "alpha.txt", "");
     fs::create_dir(dir.join("subdir")).unwrap();
@@ -378,6 +387,7 @@ fn test_file_name_completion_predicate_with_eval() {
 
 #[test]
 fn test_file_name_completion_eval_relative_directory() {
+    crate::test_utils::init_test_tracing();
     let (base, base_str) = make_test_dir("fnc_eval_relative");
     let fixture_dir = base.join("fixtures");
     fs::create_dir(&fixture_dir).unwrap();
@@ -406,6 +416,7 @@ fn test_file_name_completion_eval_relative_directory() {
 
 #[test]
 fn test_file_name_all_completions() {
+    crate::test_utils::init_test_tracing();
     let (dir, dir_str) = make_test_dir("fnac");
     create_file(&dir, "abc.txt", "");
     create_file(&dir, "abd.txt", "");
@@ -424,6 +435,7 @@ fn test_file_name_all_completions() {
 
 #[test]
 fn test_file_name_all_completions_empty() {
+    crate::test_utils::init_test_tracing();
     let (dir, dir_str) = make_test_dir("fnac_empty");
     create_file(&dir, "hello.txt", "");
 
@@ -437,6 +449,7 @@ fn test_file_name_all_completions_empty() {
 
 #[test]
 fn test_file_name_all_completions_special_entries() {
+    crate::test_utils::init_test_tracing();
     let (dir, dir_str) = make_test_dir("fnac_special");
     create_file(&dir, ".hidden", "");
     fs::create_dir(dir.join("subdir")).unwrap();
@@ -464,6 +477,7 @@ fn test_file_name_all_completions_special_entries() {
 
 #[test]
 fn test_file_name_all_completions_eval_relative_directory() {
+    crate::test_utils::init_test_tracing();
     let (base, base_str) = make_test_dir("fnac_eval_relative");
     let fixture_dir = base.join("fixtures");
     fs::create_dir(&fixture_dir).unwrap();
@@ -494,6 +508,7 @@ fn test_file_name_all_completions_eval_relative_directory() {
 
 #[test]
 fn test_file_attributes_regular_file() {
+    crate::test_utils::init_test_tracing();
     let (dir, _dir_str) = make_test_dir("fa_reg");
     let path = dir.join("test.txt");
     let path_str = path.to_string_lossy().to_string();
@@ -513,6 +528,7 @@ fn test_file_attributes_regular_file() {
 
 #[test]
 fn test_file_attributes_directory() {
+    crate::test_utils::init_test_tracing();
     let (dir, _dir_str) = make_test_dir("fa_dir");
     let sub = dir.join("subdir");
     fs::create_dir_all(&sub).unwrap();
@@ -529,12 +545,14 @@ fn test_file_attributes_directory() {
 
 #[test]
 fn test_file_attributes_nonexistent() {
+    crate::test_utils::init_test_tracing();
     let result = call_file_attributes(vec![Value::string("/nonexistent_file_xyz_99999")]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn test_file_attributes_time_tuple_shape_and_gid_changep() {
+    crate::test_utils::init_test_tracing();
     let (dir, _) = make_test_dir("fa_time");
     let path = dir.join("time.txt");
     let path_str = path.to_string_lossy().to_string();
@@ -559,6 +577,7 @@ fn test_file_attributes_time_tuple_shape_and_gid_changep() {
 
 #[test]
 fn test_file_attributes_id_format_string() {
+    crate::test_utils::init_test_tracing();
     let (dir, _) = make_test_dir("fa_idfmt");
     let path = dir.join("idtest.txt");
     let path_str = path.to_string_lossy().to_string();
@@ -577,6 +596,7 @@ fn test_file_attributes_id_format_string() {
 
 #[test]
 fn test_file_attributes_eval_respects_default_directory() {
+    crate::test_utils::init_test_tracing();
     let (dir, dir_str) = make_test_dir("fa_eval");
     create_file(&dir, "alpha.txt", "x");
 
@@ -601,6 +621,7 @@ fn test_file_attributes_eval_respects_default_directory() {
 
 #[test]
 fn test_file_attributes_lessp() {
+    crate::test_utils::init_test_tracing();
     let f1 = Value::cons(Value::string("alpha.txt"), Value::NIL);
     let f2 = Value::cons(Value::string("beta.txt"), Value::NIL);
 
@@ -613,6 +634,7 @@ fn test_file_attributes_lessp() {
 
 #[test]
 fn test_file_attributes_lessp_equal() {
+    crate::test_utils::init_test_tracing();
     let f1 = Value::cons(Value::string("same.txt"), Value::NIL);
     let f2 = Value::cons(Value::string("same.txt"), Value::NIL);
 
@@ -626,6 +648,7 @@ fn test_file_attributes_lessp_equal() {
 
 #[test]
 fn test_system_users() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_system_users(vec![]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert!(!items.is_empty());
@@ -634,6 +657,7 @@ fn test_system_users() {
 
 #[test]
 fn test_system_groups_ignores_override_path() {
+    crate::test_utils::init_test_tracing();
     let baseline = builtin_system_groups(vec![]).unwrap();
     let baseline_names = list_to_vec(&baseline).unwrap();
 
@@ -652,6 +676,7 @@ fn test_system_groups_ignores_override_path() {
 
 #[test]
 fn test_system_groups() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_system_groups(vec![]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert!(!items.is_empty());
@@ -660,6 +685,7 @@ fn test_system_groups() {
 
 #[test]
 fn test_system_users_ignores_override_path() {
+    crate::test_utils::init_test_tracing();
     let baseline = builtin_system_users(vec![]).unwrap();
     let baseline_names = list_to_vec(&baseline).unwrap();
 
@@ -678,6 +704,7 @@ fn test_system_users_ignores_override_path() {
 
 #[test]
 fn test_parse_colon_file_names_reverses_order() {
+    crate::test_utils::init_test_tracing();
     let parsed = parse_colon_file_names(
         "root:x:0:0:root:/root:/bin/sh\nexec:x:1000:1000::/home/exec:/bin/sh\n",
     );
@@ -686,30 +713,35 @@ fn test_parse_colon_file_names_reverses_order() {
 
 #[test]
 fn test_parse_colon_file_names_skips_comments_and_blanks() {
+    crate::test_utils::init_test_tracing();
     let parsed = parse_colon_file_names("\n# comment\nuser1:x:1000\n\nuser2:x:1001\n");
     assert_eq!(parsed, vec!["user2".to_string(), "user1".to_string()]);
 }
 
 #[test]
 fn test_parse_colon_file_names_repels_malformed_entries() {
+    crate::test_utils::init_test_tracing();
     let parsed = parse_colon_file_names("nocolon\n:empty\nvalid:x:1000\n");
     assert_eq!(parsed, vec!["valid".to_string()]);
 }
 
 #[test]
 fn test_parse_colon_file_names_trims_spaces() {
+    crate::test_utils::init_test_tracing();
     let parsed = parse_colon_file_names("  spaced :x:0:0\nnormal:x:0:0\n");
     assert_eq!(parsed, vec!["normal".to_string(), "spaced".to_string()]);
 }
 
 #[test]
 fn test_parse_colon_file_names_handles_crlf_lines() {
+    crate::test_utils::init_test_tracing();
     let parsed = parse_colon_file_names("first:x:0:0\r\nsecond:x:0:0\r\n");
     assert_eq!(parsed, vec!["second".to_string(), "first".to_string()]);
 }
 
 #[test]
 fn test_read_colon_file_names_reads_file() {
+    crate::test_utils::init_test_tracing();
     let dir = std::env::temp_dir();
     let path = dir.join("neovm_dired_users.txt");
     let _ = fs::remove_file(&path);
@@ -727,6 +759,7 @@ fn test_read_colon_file_names_reads_file() {
 
 #[test]
 fn test_read_colon_file_names_missing_file_returns_empty() {
+    crate::test_utils::init_test_tracing();
     let dir = std::env::temp_dir();
     let path = dir.join("neovm_dired_missing.txt");
     let _ = fs::remove_file(&path);
@@ -740,6 +773,7 @@ fn test_read_colon_file_names_missing_file_returns_empty() {
 
 #[test]
 fn test_directory_files_and_attributes_wrong_args() {
+    crate::test_utils::init_test_tracing();
     // No args.
     assert!(call_directory_files_and_attributes(vec![]).is_err());
     // Too many args.
@@ -759,17 +793,20 @@ fn test_directory_files_and_attributes_wrong_args() {
 
 #[test]
 fn test_file_attributes_wrong_args() {
+    crate::test_utils::init_test_tracing();
     assert!(call_file_attributes(vec![]).is_err());
     assert!(call_file_attributes(vec![Value::string("/tmp"), Value::NIL, Value::NIL,]).is_err());
 }
 
 #[test]
 fn test_system_users_wrong_args() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_system_users(vec![Value::NIL]).is_err());
 }
 
 #[test]
 fn test_system_groups_wrong_args() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_system_groups(vec![Value::NIL]).is_err());
 }
 
@@ -779,6 +816,7 @@ fn test_system_groups_wrong_args() {
 
 #[test]
 fn test_time_to_emacs_tuple() {
+    crate::test_utils::init_test_tracing();
     let val = time_to_emacs_tuple(1_234_567_890, 123_456_789);
     let items = list_to_vec(&val).unwrap();
     assert_eq!(items.len(), 4);
@@ -792,6 +830,7 @@ fn test_time_to_emacs_tuple() {
 #[cfg(unix)]
 #[test]
 fn test_format_mode_string() {
+    crate::test_utils::init_test_tracing();
     // Regular file with 0o644.
     let dir = std::env::temp_dir().join("neovm_mode_test");
     let _ = fs::create_dir_all(&dir);

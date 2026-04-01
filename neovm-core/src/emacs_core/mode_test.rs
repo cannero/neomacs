@@ -6,12 +6,14 @@ use super::*;
 
 #[test]
 fn new_registry_has_fundamental_mode() {
+    crate::test_utils::init_test_tracing();
     let reg = ModeRegistry::new();
     assert!(reg.major_modes.contains_key("fundamental-mode"));
 }
 
 #[test]
 fn default_major_mode_is_fundamental() {
+    crate::test_utils::init_test_tracing();
     let reg = ModeRegistry::new();
     assert_eq!(reg.get_major_mode(1), "fundamental-mode");
 }
@@ -22,6 +24,7 @@ fn default_major_mode_is_fundamental() {
 
 #[test]
 fn register_and_set_major_mode() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     reg.register_major_mode(MajorMode {
         name: "rust-mode".to_string(),
@@ -41,6 +44,7 @@ fn register_and_set_major_mode() {
 
 #[test]
 fn set_unknown_major_mode_fails() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     let result = reg.set_major_mode(1, "nonexistent-mode");
     assert!(result.is_err());
@@ -48,6 +52,7 @@ fn set_unknown_major_mode_fails() {
 
 #[test]
 fn set_major_mode_replaces_previous() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     reg.register_major_mode(MajorMode {
         name: "text-mode".to_string(),
@@ -85,6 +90,7 @@ fn set_major_mode_replaces_previous() {
 
 #[test]
 fn register_and_enable_minor_mode() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     reg.register_minor_mode(MinorMode {
         name: "auto-fill-mode".to_string(),
@@ -100,6 +106,7 @@ fn register_and_enable_minor_mode() {
 
 #[test]
 fn enable_unknown_minor_mode_fails() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     let result = reg.enable_minor_mode(1, "nonexistent-mode");
     assert!(result.is_err());
@@ -107,6 +114,7 @@ fn enable_unknown_minor_mode_fails() {
 
 #[test]
 fn disable_minor_mode() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     reg.register_minor_mode(MinorMode {
         name: "flycheck-mode".to_string(),
@@ -125,6 +133,7 @@ fn disable_minor_mode() {
 
 #[test]
 fn toggle_minor_mode() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     reg.register_minor_mode(MinorMode {
         name: "linum-mode".to_string(),
@@ -147,6 +156,7 @@ fn toggle_minor_mode() {
 
 #[test]
 fn toggle_unknown_minor_mode_fails() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     let result = reg.toggle_minor_mode(1, "nonexistent");
     assert!(result.is_err());
@@ -154,6 +164,7 @@ fn toggle_unknown_minor_mode_fails() {
 
 #[test]
 fn active_minor_modes_lists_all() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     reg.register_minor_mode(MinorMode {
         name: "mode-a".to_string(),
@@ -181,6 +192,7 @@ fn active_minor_modes_lists_all() {
 
 #[test]
 fn enable_minor_mode_idempotent() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     reg.register_minor_mode(MinorMode {
         name: "hl-line-mode".to_string(),
@@ -203,6 +215,7 @@ fn enable_minor_mode_idempotent() {
 
 #[test]
 fn global_minor_mode_active_in_all_buffers() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     reg.register_minor_mode(MinorMode {
         name: "global-hl-line-mode".to_string(),
@@ -221,6 +234,7 @@ fn global_minor_mode_active_in_all_buffers() {
 
 #[test]
 fn disable_global_minor_mode() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     reg.register_minor_mode(MinorMode {
         name: "global-mode".to_string(),
@@ -239,6 +253,7 @@ fn disable_global_minor_mode() {
 
 #[test]
 fn global_and_buffer_local_no_duplicates() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     reg.register_minor_mode(MinorMode {
         name: "shared-mode".to_string(),
@@ -262,6 +277,7 @@ fn global_and_buffer_local_no_duplicates() {
 
 #[test]
 fn auto_mode_alist_suffix_match() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     reg.register_major_mode(MajorMode {
         name: "rust-mode".to_string(),
@@ -283,6 +299,7 @@ fn auto_mode_alist_suffix_match() {
 
 #[test]
 fn auto_mode_alist_first_match_wins() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     reg.register_major_mode(MajorMode {
         name: "mode-a".to_string(),
@@ -318,6 +335,7 @@ fn auto_mode_alist_first_match_wins() {
 
 #[test]
 fn mode_line_string_fundamental() {
+    crate::test_utils::init_test_tracing();
     let reg = ModeRegistry::new();
     let s = reg.mode_line_string(1);
     assert_eq!(s, "(Fundamental)");
@@ -325,6 +343,7 @@ fn mode_line_string_fundamental() {
 
 #[test]
 fn mode_line_string_with_minor_modes() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     reg.register_minor_mode(MinorMode {
         name: "auto-fill-mode".to_string(),
@@ -341,6 +360,7 @@ fn mode_line_string_with_minor_modes() {
 
 #[test]
 fn mode_line_format_render() {
+    crate::test_utils::init_test_tracing();
     let reg = ModeRegistry::new();
     let fmt = ModeLineFormat::default_format();
     let rendered = fmt.render(1, &reg, "*scratch*", false, false, 1, 0, 0);
@@ -352,6 +372,7 @@ fn mode_line_format_render() {
 
 #[test]
 fn mode_line_format_modified_and_readonly() {
+    crate::test_utils::init_test_tracing();
     let reg = ModeRegistry::new();
     let fmt = ModeLineFormat::default_format();
 
@@ -371,6 +392,7 @@ fn mode_line_format_modified_and_readonly() {
 
 #[test]
 fn font_lock_keywords_basic() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     reg.register_major_mode(MajorMode {
         name: "lisp-mode".to_string(),
@@ -401,6 +423,7 @@ fn font_lock_keywords_basic() {
 
 #[test]
 fn font_lock_keywords_inherit_from_parent() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
 
     // Parent with font-lock.
@@ -446,6 +469,7 @@ fn font_lock_keywords_inherit_from_parent() {
 
 #[test]
 fn font_lock_keywords_none() {
+    crate::test_utils::init_test_tracing();
     let reg = ModeRegistry::new();
     assert!(reg.font_lock_keywords("fundamental-mode").is_none());
 }
@@ -456,6 +480,7 @@ fn font_lock_keywords_none() {
 
 #[test]
 fn register_custom_variable() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     reg.register_custom_variable(CustomVariable {
         name: "indent-tabs-mode".to_string(),
@@ -475,6 +500,7 @@ fn register_custom_variable() {
 
 #[test]
 fn custom_variable_in_group() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     reg.register_custom_group(CustomGroup {
         name: "editing".to_string(),
@@ -504,6 +530,7 @@ fn custom_variable_in_group() {
 
 #[test]
 fn derived_mode_p_self() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     reg.register_major_mode(MajorMode {
         name: "text-mode".to_string(),
@@ -522,6 +549,7 @@ fn derived_mode_p_self() {
 
 #[test]
 fn derived_mode_p_parent_chain() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     reg.register_major_mode(MajorMode {
         name: "text-mode".to_string(),
@@ -565,6 +593,7 @@ fn derived_mode_p_parent_chain() {
 
 #[test]
 fn derived_mode_p_unrelated() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     reg.register_major_mode(MajorMode {
         name: "text-mode".to_string(),
@@ -599,6 +628,7 @@ fn derived_mode_p_unrelated() {
 
 #[test]
 fn remove_buffer_cleans_up() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     reg.register_minor_mode(MinorMode {
         name: "test-mode".to_string(),
@@ -630,6 +660,7 @@ fn remove_buffer_cleans_up() {
 
 #[test]
 fn font_lock_level_default_is_level3() {
+    crate::test_utils::init_test_tracing();
     let level = FontLockLevel::default();
     assert_eq!(level, FontLockLevel::Level3);
 }
@@ -640,6 +671,7 @@ fn font_lock_level_default_is_level3() {
 
 #[test]
 fn mode_line_format_default_has_elements() {
+    crate::test_utils::init_test_tracing();
     let fmt = ModeLineFormat::default_format();
     assert!(!fmt.elements.is_empty());
 }
@@ -650,6 +682,7 @@ fn mode_line_format_default_has_elements() {
 
 #[test]
 fn custom_type_choice() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     reg.register_custom_variable(CustomVariable {
         name: "my-choice".to_string(),
@@ -671,6 +704,7 @@ fn custom_type_choice() {
 
 #[test]
 fn custom_type_nested_list() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ModeRegistry::new();
     reg.register_custom_variable(CustomVariable {
         name: "my-list".to_string(),

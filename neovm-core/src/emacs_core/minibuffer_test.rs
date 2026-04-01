@@ -5,6 +5,7 @@ use crate::buffer::BufferId;
 
 #[test]
 fn normalize_symbol_reader_default_uses_list_head_and_symbol_name() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         normalize_symbol_reader_default(Value::list(vec![
             Value::symbol("forward-char"),
@@ -20,6 +21,7 @@ fn normalize_symbol_reader_default_uses_list_head_and_symbol_name() {
 
 #[test]
 fn normalize_buffer_reader_default_uses_list_head_and_live_buffer_name() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let buf_id = eval.buffers.create_buffer(" minibuffer-default ");
 
@@ -38,6 +40,7 @@ fn normalize_buffer_reader_default_uses_list_head_and_live_buffer_name() {
 
 #[test]
 fn read_buffer_completing_args_use_live_buffer_names_and_normalized_default() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let buf_id = eval.buffers.create_buffer(" target-buffer ");
     let args = read_buffer_completing_args(
@@ -59,6 +62,7 @@ fn read_buffer_completing_args_use_live_buffer_names_and_normalized_default() {
 
 #[test]
 fn finish_read_command_with_minibuffer_normalizes_default_and_interns_result() {
+    crate::test_utils::init_test_tracing();
     let result = finish_read_command_with_minibuffer(
         &[
             Value::string("Command: "),
@@ -88,6 +92,7 @@ fn finish_read_command_with_minibuffer_normalizes_default_and_interns_result() {
 
 #[test]
 fn finish_read_variable_with_minibuffer_normalizes_default_and_interns_result() {
+    crate::test_utils::init_test_tracing();
     let result = finish_read_variable_with_minibuffer(
         &[Value::string("Variable: "), Value::symbol("fill-column")],
         |minibuffer_args| {
@@ -111,6 +116,7 @@ fn finish_read_variable_with_minibuffer_normalizes_default_and_interns_result() 
 
 #[test]
 fn prefix_match_basic() {
+    crate::test_utils::init_test_tracing();
     let candidates = vec![
         "apple".into(),
         "application".into(),
@@ -126,6 +132,7 @@ fn prefix_match_basic() {
 
 #[test]
 fn prefix_match_case_insensitive() {
+    crate::test_utils::init_test_tracing();
     let candidates = vec!["Apple".into(), "APPLY".into(), "banana".into()];
     let result = prefix_match("app", &candidates);
     assert_eq!(result.len(), 2);
@@ -133,6 +140,7 @@ fn prefix_match_case_insensitive() {
 
 #[test]
 fn prefix_match_empty_input() {
+    crate::test_utils::init_test_tracing();
     let candidates = vec!["a".into(), "b".into(), "c".into()];
     let result = prefix_match("", &candidates);
     assert_eq!(result.len(), 3);
@@ -140,6 +148,7 @@ fn prefix_match_empty_input() {
 
 #[test]
 fn prefix_match_no_matches() {
+    crate::test_utils::init_test_tracing();
     let candidates = vec!["apple".into(), "banana".into()];
     let result = prefix_match("zz", &candidates);
     assert!(result.is_empty());
@@ -147,6 +156,7 @@ fn prefix_match_no_matches() {
 
 #[test]
 fn substring_match_basic() {
+    crate::test_utils::init_test_tracing();
     let candidates = vec![
         "foobar".into(),
         "bazfoo".into(),
@@ -162,6 +172,7 @@ fn substring_match_basic() {
 
 #[test]
 fn flex_match_basic() {
+    crate::test_utils::init_test_tracing();
     let candidates = vec![
         "find-file".into(),
         "flycheck".into(),
@@ -177,6 +188,7 @@ fn flex_match_basic() {
 
 #[test]
 fn flex_match_all_chars_in_order() {
+    crate::test_utils::init_test_tracing();
     let candidates = vec!["abcdef".into(), "axbycz".into(), "zzz".into()];
     let result = flex_match("abc", &candidates);
     assert_eq!(result.len(), 2);
@@ -186,6 +198,7 @@ fn flex_match_all_chars_in_order() {
 
 #[test]
 fn flex_match_case_insensitive() {
+    crate::test_utils::init_test_tracing();
     let candidates = vec!["FindFile".into()];
     let result = flex_match("ff", &candidates);
     assert_eq!(result.len(), 1);
@@ -193,6 +206,7 @@ fn flex_match_case_insensitive() {
 
 #[test]
 fn basic_match_case_sensitive() {
+    crate::test_utils::init_test_tracing();
     let candidates = vec!["Apple".into(), "apple".into(), "application".into()];
     let result = basic_match("app", &candidates);
     assert_eq!(result.len(), 2);
@@ -205,17 +219,20 @@ fn basic_match_case_sensitive() {
 
 #[test]
 fn common_prefix_empty() {
+    crate::test_utils::init_test_tracing();
     assert!(compute_common_prefix(&[]).is_none());
 }
 
 #[test]
 fn common_prefix_single() {
+    crate::test_utils::init_test_tracing();
     let strings = vec!["hello".to_string()];
     assert_eq!(compute_common_prefix(&strings), Some("hello".to_string()));
 }
 
 #[test]
 fn common_prefix_multiple() {
+    crate::test_utils::init_test_tracing();
     let strings = vec![
         "application".to_string(),
         "apple".to_string(),
@@ -226,12 +243,14 @@ fn common_prefix_multiple() {
 
 #[test]
 fn common_prefix_no_overlap() {
+    crate::test_utils::init_test_tracing();
     let strings = vec!["abc".to_string(), "xyz".to_string()];
     assert_eq!(compute_common_prefix(&strings), Some(String::new()));
 }
 
 #[test]
 fn common_prefix_identical() {
+    crate::test_utils::init_test_tracing();
     let strings = vec!["test".to_string(), "test".to_string()];
     assert_eq!(compute_common_prefix(&strings), Some("test".to_string()));
 }
@@ -240,6 +259,7 @@ fn common_prefix_identical() {
 
 #[test]
 fn history_navigation() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = MinibufferManager::new();
     mgr.add_to_history("test-history", "first", 100);
     mgr.add_to_history("test-history", "second", 100);
@@ -275,6 +295,7 @@ fn history_navigation() {
 
 #[test]
 fn history_dedup() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = MinibufferManager::new();
     mgr.add_to_history("h", "same", 100);
     mgr.add_to_history("h", "same", 100);
@@ -291,6 +312,7 @@ fn history_dedup() {
 
 #[test]
 fn recursive_depth() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = MinibufferManager::new();
     assert_eq!(mgr.depth(), 0);
     assert!(!mgr.is_active());
@@ -314,6 +336,7 @@ fn recursive_depth() {
 
 #[test]
 fn recursive_depth_limit() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = MinibufferManager::new();
     mgr.max_depth = 2;
 
@@ -327,6 +350,7 @@ fn recursive_depth_limit() {
 
 #[test]
 fn recursive_disabled() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = MinibufferManager::new();
     mgr.set_enable_recursive(false);
 
@@ -340,6 +364,7 @@ fn recursive_disabled() {
 
 #[test]
 fn enter_exit_lifecycle() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = MinibufferManager::new();
 
     {
@@ -365,6 +390,7 @@ fn enter_exit_lifecycle() {
 
 #[test]
 fn exit_with_default() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = MinibufferManager::new();
     {
         let state = mgr
@@ -379,6 +405,7 @@ fn exit_with_default() {
 
 #[test]
 fn abort_minibuffer_clears_state() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = MinibufferManager::new();
     mgr.read_from_minibuffer(BufferId(1), "Enter: ", None, None)
         .unwrap();
@@ -390,6 +417,7 @@ fn abort_minibuffer_clears_state() {
 
 #[test]
 fn exit_empty_stack() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = MinibufferManager::new();
     assert_eq!(mgr.exit_minibuffer(), None);
 }
@@ -398,6 +426,7 @@ fn exit_empty_stack() {
 
 #[test]
 fn try_complete_with_table() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = MinibufferManager::new();
     {
         let state = mgr
@@ -419,6 +448,7 @@ fn try_complete_with_table() {
 
 #[test]
 fn test_completion_exact_match() {
+    crate::test_utils::init_test_tracing();
     let mgr = MinibufferManager::new();
     let table = CompletionTable::List(vec!["apple".into(), "banana".into(), "cherry".into()]);
     assert!(mgr.test_completion("apple", &table));
@@ -429,6 +459,7 @@ fn test_completion_exact_match() {
 
 #[test]
 fn try_completion_string_result() {
+    crate::test_utils::init_test_tracing();
     let mgr = MinibufferManager::new();
     let table = CompletionTable::List(vec!["application".into(), "apple".into(), "apply".into()]);
     let result = mgr.try_completion_string("app", &table);
@@ -437,6 +468,7 @@ fn try_completion_string_result() {
 
 #[test]
 fn all_completions_empty() {
+    crate::test_utils::init_test_tracing();
     let mgr = MinibufferManager::new();
     let table = CompletionTable::List(vec!["foo".into(), "bar".into()]);
     let result = mgr.all_completions("zzz", &table);
@@ -447,6 +479,7 @@ fn all_completions_empty() {
 
 #[test]
 fn completion_style_substring() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = MinibufferManager::new();
     mgr.set_completion_style(CompletionStyle::Substring);
     let table = CompletionTable::List(vec![
@@ -460,6 +493,7 @@ fn completion_style_substring() {
 
 #[test]
 fn completion_style_flex() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = MinibufferManager::new();
     mgr.set_completion_style(CompletionStyle::Flex);
     let table = CompletionTable::List(vec![
@@ -477,6 +511,7 @@ fn completion_style_flex() {
 
 #[test]
 fn completion_style_basic_case_sensitive() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = MinibufferManager::new();
     mgr.set_completion_style(CompletionStyle::Basic);
     let table = CompletionTable::List(vec!["Apple".into(), "apple".into(), "application".into()]);
@@ -490,6 +525,7 @@ fn completion_style_basic_case_sensitive() {
 
 #[test]
 fn alist_completion() {
+    crate::test_utils::init_test_tracing();
     let mgr = MinibufferManager::new();
     let table = CompletionTable::Alist(vec![
         ("alpha".into(), Value::fixnum(1)),
@@ -502,6 +538,7 @@ fn alist_completion() {
 
 #[test]
 fn builtin_try_completion_unique_exact() {
+    crate::test_utils::init_test_tracing();
     // Exact unique match should return t.
     let mut eval = crate::emacs_core::eval::Context::new();
     let coll = Value::list(vec![Value::string("unique"), Value::string("other")]);
@@ -511,6 +548,7 @@ fn builtin_try_completion_unique_exact() {
 
 #[test]
 fn builtin_try_completion_common_prefix() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let coll = Value::list(vec![Value::string("application"), Value::string("apple")]);
     let result = builtin_try_completion(&mut eval, vec![Value::string("app"), coll]).unwrap();
@@ -519,6 +557,7 @@ fn builtin_try_completion_common_prefix() {
 
 #[test]
 fn builtin_try_completion_no_match() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let coll = Value::list(vec![Value::string("foo"), Value::string("bar")]);
     let result = builtin_try_completion(&mut eval, vec![Value::string("zzz"), coll]).unwrap();
@@ -527,6 +566,7 @@ fn builtin_try_completion_no_match() {
 
 #[test]
 fn builtin_try_completion_rejects_more_than_three_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let coll = Value::list(vec![Value::string("a")]);
     let result = builtin_try_completion(
@@ -541,6 +581,7 @@ fn builtin_try_completion_rejects_more_than_three_args() {
 
 #[test]
 fn builtin_all_completions_returns_list() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let coll = Value::list(vec![
         Value::string("apple"),
@@ -554,6 +595,7 @@ fn builtin_all_completions_returns_list() {
 
 #[test]
 fn builtin_all_completions_rejects_more_than_four_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let coll = Value::list(vec![Value::string("a")]);
     let result = builtin_all_completions(
@@ -568,6 +610,7 @@ fn builtin_all_completions_rejects_more_than_four_args() {
 
 #[test]
 fn builtin_test_completion_match() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let coll = Value::list(vec![Value::string("alpha"), Value::string("beta")]);
     let result = builtin_test_completion(&mut eval, vec![Value::string("alpha"), coll]).unwrap();
@@ -576,6 +619,7 @@ fn builtin_test_completion_match() {
 
 #[test]
 fn builtin_test_completion_no_match() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let coll = Value::list(vec![Value::string("alpha"), Value::string("beta")]);
     let result = builtin_test_completion(&mut eval, vec![Value::string("alp"), coll]).unwrap();
@@ -584,6 +628,7 @@ fn builtin_test_completion_no_match() {
 
 #[test]
 fn builtin_test_completion_rejects_more_than_three_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let coll = Value::list(vec![Value::string("a")]);
     let result = builtin_test_completion(
@@ -598,18 +643,21 @@ fn builtin_test_completion_rejects_more_than_three_args() {
 
 #[test]
 fn builtin_minibuffer_depth_returns_zero() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_minibuffer_depth(vec![]).unwrap();
     assert!(result.is_fixnum());
 }
 
 #[test]
 fn builtin_minibufferp_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_minibufferp(vec![]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn eval_minibuffer_runtime_state_tracks_active_prompt_and_contents() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let minibuf_id = eval.buffers.create_buffer(" *Minibuf-1*");
     {
@@ -654,12 +702,14 @@ fn eval_minibuffer_runtime_state_tracks_active_prompt_and_contents() {
 
 #[test]
 fn builtin_minibufferp_accepts_string_and_second_arg() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_minibufferp(vec![Value::string("x"), Value::NIL]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn builtin_minibufferp_rejects_non_buffer_like_values() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_minibufferp(vec![Value::fixnum(1)]);
     assert!(matches!(
         result,
@@ -669,6 +719,7 @@ fn builtin_minibufferp_rejects_non_buffer_like_values() {
 
 #[test]
 fn builtin_minibufferp_rejects_more_than_two_args() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_minibufferp(vec![Value::NIL, Value::NIL, Value::NIL]);
     assert!(matches!(
         result,
@@ -678,6 +729,7 @@ fn builtin_minibufferp_rejects_more_than_two_args() {
 
 #[test]
 fn builtin_recursive_edit_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let result = builtin_recursive_edit(&mut eval, vec![]).unwrap();
     assert!(result.is_nil());
@@ -685,6 +737,7 @@ fn builtin_recursive_edit_returns_nil() {
 
 #[test]
 fn builtin_recursive_edit_rejects_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let result = builtin_recursive_edit(&mut eval, vec![Value::NIL]);
     assert!(matches!(
@@ -695,6 +748,7 @@ fn builtin_recursive_edit_rejects_args() {
 
 #[test]
 fn builtin_top_level_throws_top_level_tag() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_top_level(vec![]);
     // top-level now throws 'top-level to exit all recursive edits
     // (mirrors GNU Emacs keyboard.c:1187 Ftop_level).
@@ -707,6 +761,7 @@ fn builtin_top_level_throws_top_level_tag() {
 
 #[test]
 fn builtin_top_level_rejects_args() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_top_level(vec![Value::NIL]);
     assert!(matches!(
         result,
@@ -716,6 +771,7 @@ fn builtin_top_level_rejects_args() {
 
 #[test]
 fn builtin_exit_recursive_edit_signals_user_error() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let result = builtin_exit_recursive_edit(&mut eval, vec![]);
     // Not in a recursive edit → user-error
@@ -727,6 +783,7 @@ fn builtin_exit_recursive_edit_signals_user_error() {
 
 #[test]
 fn builtin_exit_recursive_edit_rejects_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let result = builtin_exit_recursive_edit(&mut eval, vec![Value::NIL]);
     assert!(matches!(
@@ -737,6 +794,7 @@ fn builtin_exit_recursive_edit_rejects_args() {
 
 #[test]
 fn builtin_minibuffer_contents_returns_current_buffer_text() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     eval.buffers
         .current_buffer_mut()
@@ -748,6 +806,7 @@ fn builtin_minibuffer_contents_returns_current_buffer_text() {
 
 #[test]
 fn builtin_minibuffer_contents_no_properties_returns_current_buffer_text() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     eval.buffers
         .current_buffer_mut()
@@ -759,6 +818,7 @@ fn builtin_minibuffer_contents_no_properties_returns_current_buffer_text() {
 
 #[test]
 fn builtin_minibuffer_contents_no_properties_rejects_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let result = builtin_minibuffer_contents_no_properties_ctx(&mut eval, vec![Value::NIL]);
     assert!(matches!(
@@ -769,6 +829,7 @@ fn builtin_minibuffer_contents_no_properties_rejects_args() {
 
 #[test]
 fn builtin_exit_minibuffer_throws_exit_tag() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_exit_minibuffer(vec![]);
     assert!(matches!(
         result,
@@ -779,6 +840,7 @@ fn builtin_exit_minibuffer_throws_exit_tag() {
 
 #[test]
 fn builtin_abort_minibuffers_signals_not_in_minibuffer_error() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_abort_minibuffers(vec![]);
     assert!(matches!(
         result,
@@ -790,6 +852,7 @@ fn builtin_abort_minibuffers_signals_not_in_minibuffer_error() {
 
 #[test]
 fn builtin_abort_minibuffers_rejects_args() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_abort_minibuffers(vec![Value::NIL]);
     assert!(matches!(
         result,
@@ -799,6 +862,7 @@ fn builtin_abort_minibuffers_rejects_args() {
 
 #[test]
 fn builtin_abort_recursive_edit_signals_user_error() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let result = builtin_abort_recursive_edit(&mut eval, vec![]);
     // Not in a recursive edit → user-error
@@ -810,6 +874,7 @@ fn builtin_abort_recursive_edit_signals_user_error() {
 
 #[test]
 fn builtin_abort_recursive_edit_rejects_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let result = builtin_abort_recursive_edit(&mut eval, vec![Value::NIL]);
     assert!(matches!(
@@ -820,6 +885,7 @@ fn builtin_abort_recursive_edit_rejects_args() {
 
 #[test]
 fn builtin_read_file_name_signals_end_of_file() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let result = builtin_read_file_name(
         &mut eval,
@@ -841,6 +907,7 @@ fn builtin_read_file_name_signals_end_of_file() {
 
 #[test]
 fn builtin_read_file_name_validates_dir_default_and_initial() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let bad_dir =
         builtin_read_file_name(&mut eval, vec![Value::string("File: "), Value::fixnum(1)]);
@@ -876,6 +943,7 @@ fn builtin_read_file_name_validates_dir_default_and_initial() {
 
 #[test]
 fn builtin_read_file_name_rejects_more_than_six_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let result = builtin_read_file_name(
         &mut eval,
@@ -897,6 +965,7 @@ fn builtin_read_file_name_rejects_more_than_six_args() {
 
 #[test]
 fn builtin_read_buffer_signals_end_of_file() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let result = builtin_read_buffer(
         &mut eval,
@@ -910,6 +979,7 @@ fn builtin_read_buffer_signals_end_of_file() {
 
 #[test]
 fn builtin_read_directory_name_rejects_more_than_five_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let result = builtin_read_directory_name(
         &mut eval,
@@ -930,6 +1000,7 @@ fn builtin_read_directory_name_rejects_more_than_five_args() {
 
 #[test]
 fn builtin_read_directory_name_validates_dir_default_and_initial() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let bad_dir = builtin_read_directory_name(
         &mut eval,
@@ -967,6 +1038,7 @@ fn builtin_read_directory_name_validates_dir_default_and_initial() {
 
 #[test]
 fn builtin_read_buffer_rejects_more_than_four_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let result = builtin_read_buffer(
         &mut eval,
@@ -986,6 +1058,7 @@ fn builtin_read_buffer_rejects_more_than_four_args() {
 
 #[test]
 fn builtin_read_command_rejects_more_than_two_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let result = builtin_read_command(
         &mut eval,
@@ -999,6 +1072,7 @@ fn builtin_read_command_rejects_more_than_two_args() {
 
 #[test]
 fn builtin_read_variable_rejects_more_than_two_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let result = builtin_read_variable(
         &mut eval,
@@ -1014,6 +1088,7 @@ fn builtin_read_variable_rejects_more_than_two_args() {
 
 #[test]
 fn value_to_string_list_from_list() {
+    crate::test_utils::init_test_tracing();
     let list = Value::list(vec![
         Value::string("foo"),
         Value::string("bar"),
@@ -1025,6 +1100,7 @@ fn value_to_string_list_from_list() {
 
 #[test]
 fn value_to_string_list_from_alist() {
+    crate::test_utils::init_test_tracing();
     let alist = Value::list(vec![
         Value::cons(Value::string("key1"), Value::fixnum(1)),
         Value::cons(Value::string("key2"), Value::fixnum(2)),
@@ -1035,12 +1111,14 @@ fn value_to_string_list_from_alist() {
 
 #[test]
 fn value_to_string_list_from_nil() {
+    crate::test_utils::init_test_tracing();
     let result = value_to_string_list(&Value::NIL);
     assert!(result.is_empty());
 }
 
 #[test]
 fn value_to_string_list_from_vector() {
+    crate::test_utils::init_test_tracing();
     let vec = Value::vector(vec![Value::string("a"), Value::string("b")]);
     let result = value_to_string_list(&vec);
     assert_eq!(result, vec!["a", "b"]);

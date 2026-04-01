@@ -194,6 +194,7 @@ impl DisplayHost for RecordingDisplayHost {
 
 #[test]
 fn eval_with_explicit_lexenv_restores_outer_lexenv() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one("(let ((x 41)) (list (eval 'x '((x . 7))) x))"),
         "OK (7 41)"
@@ -226,6 +227,7 @@ fn load_minimal_backquote_runtime(eval: &mut Context) {
 
 #[test]
 fn catch_leaves_shared_condition_stack_balanced() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms("(catch 'tag (throw 'tag 42))").expect("parse");
     let result = ev.eval_expr(&forms[0]);
@@ -236,6 +238,7 @@ fn catch_leaves_shared_condition_stack_balanced() {
 
 #[test]
 fn condition_case_leaves_shared_condition_stack_balanced() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms("(condition-case err (signal 'error 1) (error err))").expect("parse");
     let result = ev.eval_expr(&forms[0]);
@@ -246,6 +249,7 @@ fn condition_case_leaves_shared_condition_stack_balanced() {
 
 #[test]
 fn handler_bind_1_leaves_shared_condition_stack_balanced() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err
@@ -263,6 +267,7 @@ fn handler_bind_1_leaves_shared_condition_stack_balanced() {
 
 #[test]
 fn handler_bind_1_runs_inside_signal_dynamic_extent() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             "(catch 'tag
@@ -280,6 +285,7 @@ fn handler_bind_1_runs_inside_signal_dynamic_extent() {
 
 #[test]
 fn handler_bind_1_mutes_lower_condition_handlers() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             "(condition-case nil
@@ -299,6 +305,7 @@ fn handler_bind_1_mutes_lower_condition_handlers() {
 
 #[test]
 fn handler_bind_1_handlers_do_not_apply_within_handlers() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             "(condition-case nil
@@ -317,6 +324,7 @@ fn handler_bind_1_handlers_do_not_apply_within_handlers() {
 
 #[test]
 fn signal_hook_function_sees_raw_signal_payload_before_condition_case() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
 
     let forms = parse_forms(
@@ -338,6 +346,7 @@ fn signal_hook_function_sees_raw_signal_payload_before_condition_case() {
 
 #[test]
 fn signal_hook_function_runs_before_invalid_error_symbol_canonicalization() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
 
     let forms = parse_forms(
@@ -357,6 +366,7 @@ fn signal_hook_function_runs_before_invalid_error_symbol_canonicalization() {
 
 #[test]
 fn signal_nil_symbol_with_non_list_payload_becomes_plain_error() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one("(condition-case err (signal nil 1) (error err))"),
         "OK (error . 1)"
@@ -365,6 +375,7 @@ fn signal_nil_symbol_with_non_list_payload_becomes_plain_error() {
 
 #[test]
 fn signal_nil_symbol_with_nil_payload_becomes_plain_error() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one("(condition-case err (signal nil nil) (error err))"),
         "OK (error)"
@@ -373,6 +384,7 @@ fn signal_nil_symbol_with_nil_payload_becomes_plain_error() {
 
 #[test]
 fn signal_nil_error_object_uses_embedded_symbol_and_skips_signal_hook() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
 
     let forms = parse_forms(
@@ -394,6 +406,7 @@ fn signal_nil_error_object_uses_embedded_symbol_and_skips_signal_hook() {
 
 #[test]
 fn signal_nil_error_object_with_invalid_symbol_reports_generic_invalid_error() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one("(condition-case err (signal nil '(bogus 1)) (error err))"),
         "OK (error \"Invalid error symbol\")"
@@ -402,6 +415,7 @@ fn signal_nil_error_object_with_invalid_symbol_reports_generic_invalid_error() {
 
 #[test]
 fn evaluator_drop_clears_owned_thread_locals() {
+    crate::test_utils::init_test_tracing();
     {
         let mut ev = Context::new_minimal_vm_harness();
         assert!(std::ptr::eq(
@@ -415,6 +429,7 @@ fn evaluator_drop_clears_owned_thread_locals() {
 
 #[test]
 fn read_char_applies_resize_event_before_returning_next_keypress() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let fid = ev
         .frames
@@ -445,6 +460,7 @@ fn read_char_applies_resize_event_before_returning_next_keypress() {
 
 #[test]
 fn read_char_switches_active_kboard_to_keypress_source_frame_terminal() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     ev.buffers.set_current(buf);
@@ -487,6 +503,7 @@ fn read_char_switches_active_kboard_to_keypress_source_frame_terminal() {
 
 #[test]
 fn read_char_returns_unread_emacs_event_value_without_reencoding() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let meta_x = crate::keyboard::KeyEvent::char_with_mods('x', crate::keyboard::Modifiers::meta())
         .to_emacs_event_value();
@@ -505,6 +522,7 @@ fn read_char_returns_unread_emacs_event_value_without_reencoding() {
 
 #[test]
 fn read_char_returns_macro_playback_event_value_without_reencoding() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let return_event =
         crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return).to_emacs_event_value();
@@ -521,6 +539,7 @@ fn read_char_returns_macro_playback_event_value_without_reencoding() {
 
 #[test]
 fn read_char_prefers_ready_keypress_over_due_timer_callback() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let setup = parse_forms(
         r#"(progn
@@ -564,6 +583,7 @@ fn read_char_prefers_ready_keypress_over_due_timer_callback() {
 
 #[test]
 fn read_char_prefers_ready_keypress_over_process_filter_callback() {
+    crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let mut ev = Context::new();
     let setup = parse_forms(
@@ -623,6 +643,7 @@ fn read_char_prefers_ready_keypress_over_process_filter_callback() {
 
 #[test]
 fn read_char_triggers_redisplay_after_resize_event() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let fid = ev
         .frames
@@ -662,6 +683,7 @@ fn read_char_triggers_redisplay_after_resize_event() {
 
 #[test]
 fn read_char_redisplays_when_resize_arrives_after_pre_block_redisplay() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let fid = ev
         .frames
@@ -711,6 +733,7 @@ fn read_char_redisplays_when_resize_arrives_after_pre_block_redisplay() {
 
 #[test]
 fn read_char_does_not_redisplay_again_when_monitor_change_arrives_after_pre_block_redisplay() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
 
     let redisplay_count = Rc::new(RefCell::new(0usize));
@@ -757,6 +780,7 @@ fn read_char_does_not_redisplay_again_when_monitor_change_arrives_after_pre_bloc
 
 #[test]
 fn redisplay_applies_pending_resize_before_callback() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let fid = ev
         .frames
@@ -791,6 +815,7 @@ fn redisplay_applies_pending_resize_before_callback() {
 
 #[test]
 fn redisplay_syncs_opening_gui_frame_size_from_display_host() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let fid = ev
         .frames
@@ -823,6 +848,7 @@ fn redisplay_syncs_opening_gui_frame_size_from_display_host() {
 
 #[test]
 fn recursive_edit_runs_top_level_before_outer_command_loop_reads_input() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let setup = parse_forms("(setq top-level '(setq neo-top-level-hit t))").expect("parse");
     let _ = ev.eval_forms(&setup);
@@ -849,6 +875,7 @@ fn recursive_edit_runs_top_level_before_outer_command_loop_reads_input() {
 
 #[test]
 fn read_char_requeues_keypress_and_throws_on_input() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let (tx, rx) = crossbeam_channel::unbounded();
     tx.send(crate::keyboard::InputEvent::key_press(
@@ -874,6 +901,7 @@ fn read_char_requeues_keypress_and_throws_on_input() {
 
 #[test]
 fn read_char_window_close_honors_throw_on_input_before_quit() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let (tx, rx) = crossbeam_channel::unbounded();
     tx.send(crate::keyboard::InputEvent::WindowClose { emacs_frame_id: 0 })
@@ -899,6 +927,7 @@ fn read_char_window_close_honors_throw_on_input_before_quit() {
 
 #[test]
 fn read_char_window_close_uses_special_event_map_handler_when_loaded() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let scratch = ev.buffer_manager_mut().create_buffer("*scratch*");
     ev.buffer_manager_mut().set_current(scratch);
@@ -936,6 +965,7 @@ fn read_char_window_close_uses_special_event_map_handler_when_loaded() {
 
 #[test]
 fn read_char_disconnected_input_uses_noelisp_terminal_teardown() {
+    crate::test_utils::init_test_tracing();
     crate::emacs_core::terminal::pure::reset_terminal_thread_locals();
     let mut ev = Context::new();
     let scratch = ev.buffer_manager_mut().create_buffer("*scratch*");
@@ -1011,6 +1041,7 @@ fn read_char_disconnected_input_uses_noelisp_terminal_teardown() {
 
 #[test]
 fn eval_list_form_throws_on_pending_host_input() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let (tx, rx) = crossbeam_channel::unbounded();
     tx.send(crate::keyboard::InputEvent::key_press(
@@ -1036,6 +1067,7 @@ fn eval_list_form_throws_on_pending_host_input() {
 
 #[test]
 fn frame_native_width_syncs_pending_resize_without_read_char() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let fid = ev
         .frames
@@ -1066,6 +1098,7 @@ fn frame_native_width_syncs_pending_resize_without_read_char() {
 
 #[test]
 fn frame_native_width_syncs_pending_resize_behind_focus_event() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let fid = ev
         .frames
@@ -1101,6 +1134,7 @@ fn frame_native_width_syncs_pending_resize_behind_focus_event() {
 
 #[test]
 fn redisplay_applies_resize_already_queued_behind_focus_event() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let fid = ev
         .frames
@@ -1150,6 +1184,7 @@ fn redisplay_applies_resize_already_queued_behind_focus_event() {
 
 #[test]
 fn read_char_preserves_keypress_after_queued_focus_and_resize() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let fid = ev
         .frames
@@ -1185,6 +1220,7 @@ fn read_char_preserves_keypress_after_queued_focus_and_resize() {
 
 #[test]
 fn keyboard_runtime_starts_with_terminal_translation_maps_from_context_bootstrap() {
+    crate::test_utils::init_test_tracing();
     let ev = Context::new();
 
     assert_eq!(
@@ -1201,6 +1237,7 @@ fn keyboard_runtime_starts_with_terminal_translation_maps_from_context_bootstrap
 
 #[test]
 fn assigning_terminal_translation_maps_updates_keyboard_runtime_owner() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let input_decode_map = crate::emacs_core::keymap::make_sparse_list_keymap();
     let local_function_key_map = crate::emacs_core::keymap::make_sparse_list_keymap();
@@ -1220,6 +1257,7 @@ fn assigning_terminal_translation_maps_updates_keyboard_runtime_owner() {
 
 #[test]
 fn read_key_sequence_function_translation_receives_prompt() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
     ev.assign("global-map", global_map);
@@ -1282,6 +1320,7 @@ fn read_key_sequence_function_translation_receives_prompt() {
 
 #[test]
 fn read_key_sequence_continues_through_pending_suffix_translation_prefix() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
     ev.assign("global-map", global_map);
@@ -1333,6 +1372,7 @@ fn read_key_sequence_continues_through_pending_suffix_translation_prefix() {
 
 #[test]
 fn read_key_sequence_shift_translates_uppercase_binding() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
     ev.assign("global-map", global_map);
@@ -1372,6 +1412,7 @@ fn read_key_sequence_shift_translates_uppercase_binding() {
 
 #[test]
 fn read_key_sequence_dont_downcase_last_restores_original_event() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
     ev.assign("global-map", global_map);
@@ -1417,6 +1458,7 @@ fn read_key_sequence_dont_downcase_last_restores_original_event() {
 
 #[test]
 fn read_key_sequence_undefined_shift_translation_restores_original_event() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.assign(
         "global-map",
@@ -1442,6 +1484,7 @@ fn read_key_sequence_undefined_shift_translation_restores_original_event() {
 
 #[test]
 fn read_key_sequence_shift_translates_shifted_function_key() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
     ev.assign("global-map", global_map);
@@ -1483,6 +1526,7 @@ fn read_key_sequence_shift_translates_shifted_function_key() {
 
 #[test]
 fn read_char_returns_lispy_switch_frame_for_focus_event() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     install_minimal_special_event_command_runtime(&mut ev);
     ev.frames
@@ -1512,6 +1556,7 @@ fn read_char_returns_lispy_switch_frame_for_focus_event() {
 
 #[test]
 fn read_key_sequence_defers_switch_frame_until_after_current_key_sequence() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     install_minimal_special_event_command_runtime(&mut ev);
     ev.frames
@@ -1571,6 +1616,7 @@ fn read_key_sequence_defers_switch_frame_until_after_current_key_sequence() {
 
 #[test]
 fn read_key_sequence_can_return_switch_frame_at_sequence_start() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     install_minimal_special_event_command_runtime(&mut ev);
     ev.frames
@@ -1614,6 +1660,7 @@ fn read_key_sequence_can_return_switch_frame_at_sequence_start() {
 
 #[test]
 fn special_event_map_bootstraps_delete_frame_and_focus_handlers() {
+    crate::test_utils::init_test_tracing();
     let ev = Context::new();
     let special_event_map = ev
         .eval_symbol("special-event-map")
@@ -1645,6 +1692,7 @@ fn special_event_map_bootstraps_delete_frame_and_focus_handlers() {
 
 #[test]
 fn read_char_updates_monitor_snapshot_and_runs_display_monitor_hooks() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let setup = parse_forms(
         r#"
@@ -1698,6 +1746,7 @@ fn read_char_updates_monitor_snapshot_and_runs_display_monitor_hooks() {
 
 #[test]
 fn read_char_returns_lispy_select_window_for_transport_event() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.frames
         .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
@@ -1734,6 +1783,7 @@ fn read_char_returns_lispy_select_window_for_transport_event() {
 
 #[test]
 fn read_key_sequence_defers_select_window_until_after_current_key_sequence() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.frames
         .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
@@ -1801,6 +1851,7 @@ fn read_key_sequence_defers_select_window_until_after_current_key_sequence() {
 
 #[test]
 fn read_key_sequence_can_return_select_window_at_sequence_start() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.frames
         .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
@@ -1858,6 +1909,7 @@ fn read_key_sequence_can_return_select_window_at_sequence_start() {
 
 #[test]
 fn read_char_mouse_press_uses_clicked_window_geometry() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.frames
         .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
@@ -1946,6 +1998,7 @@ fn read_char_mouse_press_uses_clicked_window_geometry() {
 
 #[test]
 fn read_key_sequence_uses_clicked_window_local_map_for_mouse_event() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.frames
         .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
@@ -2037,6 +2090,7 @@ fn read_key_sequence_uses_clicked_window_local_map_for_mouse_event() {
 
 #[test]
 fn read_key_sequence_drops_unbound_down_mouse_before_bound_click() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.frames
         .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
@@ -2141,6 +2195,7 @@ fn read_key_sequence_drops_unbound_down_mouse_before_bound_click() {
 
 #[test]
 fn read_key_sequence_drops_unbound_down_mouse_without_losing_keyboard_prefix() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
     ev.assign("global-map", global_map);
@@ -2195,6 +2250,7 @@ fn read_key_sequence_drops_unbound_down_mouse_without_losing_keyboard_prefix() {
 
 #[test]
 fn read_key_sequence_reduces_unbound_triple_mouse_to_bound_click() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
     ev.assign("global-map", global_map);
@@ -2227,6 +2283,7 @@ fn read_key_sequence_reduces_unbound_triple_mouse_to_bound_click() {
 
 #[test]
 fn read_key_sequence_uses_clicked_window_buffer_local_minor_mode_maps() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.frames
         .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
@@ -2331,6 +2388,7 @@ fn read_key_sequence_uses_clicked_window_buffer_local_minor_mode_maps() {
 
 #[test]
 fn read_key_sequence_prefixes_mode_line_mouse_click_for_lookup() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.frames
         .create_frame("F1", 960, 640, crate::buffer::BufferId(1));
@@ -2406,6 +2464,7 @@ fn read_key_sequence_prefixes_mode_line_mouse_click_for_lookup() {
 
 #[test]
 fn clear_current_message_runs_echo_area_clear_hook_once_when_message_present() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let setup = parse_forms(
         r#"
@@ -2439,6 +2498,7 @@ fn clear_current_message_runs_echo_area_clear_hook_once_when_message_present() {
 
 #[test]
 fn update_active_region_selection_after_command_calls_gnu_owned_selection_surface() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
 
     let setup = parse_forms(
@@ -2484,6 +2544,7 @@ fn update_active_region_selection_after_command_calls_gnu_owned_selection_surfac
 
 #[test]
 fn redisplay_preserves_non_resize_input_for_read_char() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let fid = ev
         .frames
@@ -2507,6 +2568,7 @@ fn redisplay_preserves_non_resize_input_for_read_char() {
 
 #[test]
 fn fire_pending_timers_executes_lisp_callbacks() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_variable("vm-timer-fired", Value::NIL);
     let forms = parse_forms(
@@ -2546,6 +2608,7 @@ fn fire_pending_timers_executes_lisp_callbacks() {
 
 #[test]
 fn fire_pending_timers_requests_redisplay_after_callbacks() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_variable("vm-timer-fired", Value::NIL);
 
@@ -2591,6 +2654,7 @@ fn fire_pending_timers_requests_redisplay_after_callbacks() {
 
 #[test]
 fn fire_pending_timers_prefers_more_overdue_ordinary_timer_over_idle_timer() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let setup = parse_forms(
         "(progn
@@ -2640,6 +2704,7 @@ fn fire_pending_timers_prefers_more_overdue_ordinary_timer_over_idle_timer() {
 
 #[test]
 fn fire_pending_timers_prefers_more_overdue_idle_timer_over_ordinary_timer() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let setup = parse_forms(
         "(progn
@@ -2689,6 +2754,7 @@ fn fire_pending_timers_prefers_more_overdue_idle_timer_over_ordinary_timer() {
 
 #[test]
 fn next_input_wait_timeout_accounts_for_gnu_timer_list() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_variable(
         "timer-list",
@@ -2705,6 +2771,7 @@ fn next_input_wait_timeout_accounts_for_gnu_timer_list() {
 
 #[test]
 fn next_input_wait_timeout_chooses_earliest_timer_source() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_variable(
         "timer-list",
@@ -2722,6 +2789,7 @@ fn next_input_wait_timeout_chooses_earliest_timer_source() {
 
 #[test]
 fn next_input_wait_timeout_accounts_for_gnu_idle_timer_list_when_idle() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_variable(
         "timer-idle-list",
@@ -2742,6 +2810,7 @@ fn next_input_wait_timeout_accounts_for_gnu_idle_timer_list_when_idle() {
 
 #[test]
 fn read_char_fires_bootstrapped_gnu_run_with_timer_while_waiting_for_input() {
+    crate::test_utils::init_test_tracing();
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
 
@@ -2778,6 +2847,7 @@ fn read_char_fires_bootstrapped_gnu_run_with_timer_while_waiting_for_input() {
 
 #[test]
 fn read_char_fires_bootstrapped_gnu_run_with_idle_timer_while_waiting_for_input() {
+    crate::test_utils::init_test_tracing();
     eprintln!("idle test: bootstrap");
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     eprintln!("idle test: runtime startup state");
@@ -2834,6 +2904,7 @@ fn read_char_fires_bootstrapped_gnu_run_with_idle_timer_while_waiting_for_input(
 
 #[test]
 fn callable_print_targets_stream_gnu_char_callbacks() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(progn
@@ -2861,6 +2932,7 @@ fn callable_print_targets_stream_gnu_char_callbacks() {
 
 #[test]
 fn marker_print_targets_insert_and_restore_like_gnu() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(let* ((orig (current-buffer))
@@ -2892,6 +2964,7 @@ fn marker_print_targets_insert_and_restore_like_gnu() {
 
 #[test]
 fn basic_arithmetic() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(eval_one("(+ 1 2)"), "OK 3");
     assert_eq!(eval_one("(- 10 3)"), "OK 7");
     assert_eq!(eval_one("(* 4 5)"), "OK 20");
@@ -2903,6 +2976,7 @@ fn basic_arithmetic() {
 
 #[test]
 fn substring_accepts_vectors_like_gnu_emacs() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one("(substring [10 20 30 40 50] 1 4)"),
         "OK [20 30 40]"
@@ -2913,6 +2987,7 @@ fn substring_accepts_vectors_like_gnu_emacs() {
 
 #[test]
 fn substring_then_string_match_mirrors_gnu_bracket_class_closing() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         bootstrap_eval_one(
             r#"(let* ((code "x = 42;")
@@ -2926,6 +3001,7 @@ fn substring_then_string_match_mirrors_gnu_bracket_class_closing() {
 
 #[test]
 fn bootstrap_string_match_posix_upper_class_folds_to_alpha_under_case_fold() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         bootstrap_eval_one(
             r#"(list
@@ -2938,6 +3014,7 @@ fn bootstrap_string_match_posix_upper_class_folds_to_alpha_under_case_fold() {
 
 #[test]
 fn bootstrap_string_match_explicit_numbered_group_preserves_group_slot() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         bootstrap_eval_one(
             r#"(let ((case-fold-search nil))
@@ -2951,6 +3028,7 @@ fn bootstrap_string_match_explicit_numbered_group_preserves_group_slot() {
 
 #[test]
 fn bootstrap_string_match_open_interval_quantifier_matches_gnu_semantics() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         bootstrap_eval_one(
             r#"(list
@@ -2963,6 +3041,7 @@ fn bootstrap_string_match_open_interval_quantifier_matches_gnu_semantics() {
 
 #[test]
 fn bootstrap_string_match_posix_char_class_sequence_matches_gnu_order() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         bootstrap_eval_one(
             r#"(list
@@ -2993,6 +3072,7 @@ fn bootstrap_string_match_posix_char_class_sequence_matches_gnu_order() {
 
 #[test]
 fn void_function_symbol_signals_before_evaluating_arguments_like_gnu_emacs() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"
@@ -3011,6 +3091,7 @@ fn void_function_symbol_signals_before_evaluating_arguments_like_gnu_emacs() {
 
 #[test]
 fn eval_of_generated_lambda_preserves_uninterned_symbol_identity() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"
@@ -3033,6 +3114,7 @@ fn eval_of_generated_lambda_preserves_uninterned_symbol_identity() {
 
 #[test]
 fn save_restriction_restores_labeled_restrictions_and_widen_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     let buffer_id = eval.buffers.create_buffer("eval-labeled-restriction");
     eval.buffers.set_current(buffer_id);
@@ -3059,6 +3141,7 @@ fn save_restriction_restores_labeled_restrictions_and_widen_semantics() {
 
 #[test]
 fn redisplay_restores_current_innermost_labeled_restriction_after_callback_mutation() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     let buffer_id = eval.buffers.create_buffer("redisplay-labeled");
     eval.buffers.set_current(buffer_id);
@@ -3101,6 +3184,7 @@ fn redisplay_restores_current_innermost_labeled_restriction_after_callback_mutat
 
 #[test]
 fn simple_defvar_declares_local_dynamic_scope_in_lexical_environment() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
     ev.lexenv = Value::list(vec![Value::T]);
@@ -3123,6 +3207,7 @@ fn simple_defvar_declares_local_dynamic_scope_in_lexical_environment() {
 
 #[test]
 fn put_get_preserves_closure_captured_uninterned_symbol_identity() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"
@@ -3147,6 +3232,7 @@ fn put_get_preserves_closure_captured_uninterned_symbol_identity() {
 
 #[test]
 fn recent_input_events_are_bounded() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     for i in 0..(RECENT_INPUT_EVENT_LIMIT + 1) {
         ev.record_input_event(Value::fixnum(i as i64));
@@ -3162,6 +3248,7 @@ fn recent_input_events_are_bounded() {
 
 #[test]
 fn eval_and_compile_defines_function() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         r#"
@@ -3189,6 +3276,7 @@ fn eval_and_compile_defines_function() {
 
 #[test]
 fn eval_and_compile_with_backtick_name() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         r#"
@@ -3219,6 +3307,7 @@ fn eval_and_compile_with_backtick_name() {
 
 #[test]
 fn float_arithmetic() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(eval_one("(+ 1.0 2.0)"), "OK 3.0");
     assert_eq!(eval_one("(+ 1 2.0)"), "OK 3.0"); // int promoted to float
     assert_eq!(eval_one("(/ 10.0 3.0)"), "OK 3.3333333333333335");
@@ -3226,6 +3315,7 @@ fn float_arithmetic() {
 
 #[test]
 fn eq_float_corner_cases_match_oracle_shape() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one("(list (eq 1.0 1.0) (let ((x 1.0)) (eq x x)) (eq 0.0 -0.0) (eql 0.0 -0.0))"),
         "OK (nil t nil nil)"
@@ -3234,6 +3324,7 @@ fn eq_float_corner_cases_match_oracle_shape() {
 
 #[test]
 fn intern_keyword_matches_reader_keyword_for_eq_and_memq() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(let* ((k (intern ":beginning"))
@@ -3249,6 +3340,7 @@ fn intern_keyword_matches_reader_keyword_for_eq_and_memq() {
 
 #[test]
 fn setq_keeps_canonical_symbols_in_obarray() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(let ((s 'vm-ghost))
@@ -3265,6 +3357,7 @@ fn setq_keeps_canonical_symbols_in_obarray() {
 
 #[test]
 fn uninterned_nil_function_is_not_treated_as_canonical_nil() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         bootstrap_eval_one(
             r#"(let ((s (make-symbol "nil")))
@@ -3277,6 +3370,7 @@ fn uninterned_nil_function_is_not_treated_as_canonical_nil() {
 
 #[test]
 fn comparisons() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(eval_one("(< 1 2)"), "OK t");
     assert_eq!(eval_one("(> 1 2)"), "OK nil");
     assert_eq!(eval_one("(= 3 3)"), "OK t");
@@ -3287,6 +3381,7 @@ fn comparisons() {
 
 #[test]
 fn type_predicates() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(eval_one("(integerp 42)"), "OK t");
     assert_eq!(eval_one("(floatp 3.14)"), "OK t");
     assert_eq!(eval_one("(stringp \"hello\")"), "OK t");
@@ -3299,6 +3394,7 @@ fn type_predicates() {
 
 #[test]
 fn string_operations() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(r#"(concat "hello" " " "world")"#),
         r#"OK "hello world""#
@@ -3311,6 +3407,7 @@ fn string_operations() {
 
 #[test]
 fn and_or_cond() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(eval_one("(and 1 2 3)"), "OK 3");
     assert_eq!(eval_one("(and 1 nil 3)"), "OK nil");
     assert_eq!(eval_one("(or nil nil 3)"), "OK 3");
@@ -3320,6 +3417,7 @@ fn and_or_cond() {
 
 #[test]
 fn while_loop() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one("(let ((x 0)) (while (< x 5) (setq x (1+ x))) x)"),
         "OK 5"
@@ -3328,12 +3426,14 @@ fn while_loop() {
 
 #[test]
 fn defvar_only_sets_if_unbound() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all("(defvar x 42) x (defvar x 99) x");
     assert_eq!(results, vec!["OK x", "OK 42", "OK x", "OK 42"]);
 }
 
 #[test]
 fn defvar_and_defconst_error_payloads_match_oracle_edges() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(condition-case err (defvar) (error err))
          (condition-case err (defvar 1) (error err))
@@ -3358,12 +3458,14 @@ fn defvar_and_defconst_error_payloads_match_oracle_edges() {
 
 #[test]
 fn setq_local_makes_binding_buffer_local() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one("(with-temp-buffer (set (make-local-variable 'vm-x) 7) vm-x)");
     assert_eq!(result, "OK 7");
 }
 
 #[test]
 fn setq_local_constant_and_type_payloads_match_oracle() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(list
             (condition-case err (set (make-local-variable ':foo) 1) (error err))
@@ -3390,6 +3492,7 @@ fn setq_local_constant_and_type_payloads_match_oracle() {
 
 #[test]
 fn setq_local_follows_variable_alias_resolution() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_one(
         "(progn
            (defvaralias 'vm-setq-local-alias 'vm-setq-local-base)
@@ -3408,6 +3511,7 @@ fn setq_local_follows_variable_alias_resolution() {
 
 #[test]
 fn setq_local_alias_to_constant_preserves_error_payload_and_rhs_skip() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(progn
            (defvaralias 'vm-setq-local-const 'nil)
@@ -3432,6 +3536,7 @@ fn setq_local_alias_to_constant_preserves_error_payload_and_rhs_skip() {
 
 #[test]
 fn setq_local_alias_triggers_single_watcher_callback_on_resolved_target() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(progn
            (setq vm-setq-local-watch-events nil)
@@ -3457,6 +3562,7 @@ fn setq_local_alias_triggers_single_watcher_callback_on_resolved_target() {
 
 #[test]
 fn defmacro_works() {
+    crate::test_utils::init_test_tracing();
     let result = eval_all(
         "(defalias 'my-when (cons 'macro #'(lambda (cond &rest body)
            (list 'if cond (cons 'progn body)))))
@@ -3467,6 +3573,7 @@ fn defmacro_works() {
 
 #[test]
 fn defun_and_defmacro_allow_empty_body() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(defalias 'vm-empty-f #'(lambda nil))
          (vm-empty-f)
@@ -3481,6 +3588,7 @@ fn defun_and_defmacro_allow_empty_body() {
 
 #[test]
 fn defun_and_defmacro_error_payloads_match_oracle_edges() {
+    crate::test_utils::init_test_tracing();
     // defun and defmacro are no longer bare-evaluator special forms;
     // they are Elisp macros loaded from byte-run.el during bootstrap.
     // In a bare evaluator they are void functions.
@@ -3494,6 +3602,7 @@ fn defun_and_defmacro_error_payloads_match_oracle_edges() {
 
 #[test]
 fn optional_and_rest_params() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(defalias 'f #'(lambda (a &optional b &rest c) (list a b c)))
          (f 1)
@@ -3507,6 +3616,7 @@ fn optional_and_rest_params() {
 
 #[test]
 fn when_unless() {
+    crate::test_utils::init_test_tracing();
     // when/unless are no longer bare-evaluator special forms; use if+progn.
     assert_eq!(eval_one("(if t (progn 1 2 3))"), "OK 3");
     assert_eq!(eval_one("(if nil (progn 1 2 3))"), "OK nil");
@@ -3516,6 +3626,7 @@ fn when_unless() {
 
 #[test]
 fn bound_and_true_p_runtime_semantics() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(bootstrap_eval_one("(fboundp 'bound-and-true-p)"), "OK t");
     assert_eq!(bootstrap_eval_one("(macrop 'bound-and-true-p)"), "OK t");
     // After the specbind refactor, let-bindings write to the obarray;
@@ -3548,6 +3659,7 @@ fn bound_and_true_p_runtime_semantics() {
 
 #[test]
 fn hash_table_ops() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(let ((ht (make-hash-table :test 'equal)))
            (puthash \"key\" 42 ht)
@@ -3558,12 +3670,14 @@ fn hash_table_ops() {
 
 #[test]
 fn vector_ops() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(eval_one("(aref [10 20 30] 1)"), "OK 20");
     assert_eq!(eval_one("(length [1 2 3])"), "OK 3");
 }
 
 #[test]
 fn vector_literals_are_self_evaluating_constants() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(eval_one("(aref [f1] 0)"), "OK f1");
     assert_eq!(eval_one("(let ((f1 'shadowed)) (aref [f1] 0))"), "OK f1");
     assert_eq!(eval_one("(aref [(+ 1 2)] 0)"), "OK (+ 1 2)");
@@ -3572,6 +3686,7 @@ fn vector_literals_are_self_evaluating_constants() {
 
 #[test]
 fn sort_keyword_form_returns_stable_copy_by_default() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             "(let* ((xs '((1 . a) (1 . b) (0 . c)))
@@ -3584,6 +3699,7 @@ fn sort_keyword_form_returns_stable_copy_by_default() {
 
 #[test]
 fn sort_legacy_form_remains_in_place() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             "(let* ((xs '((1 . a) (0 . b)))
@@ -3596,6 +3712,7 @@ fn sort_legacy_form_remains_in_place() {
 
 #[test]
 fn format_function() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(r#"(format "hello %s, %d" "world" 42)"#),
         r#"OK "hello world, 42""#
@@ -3604,11 +3721,13 @@ fn format_function() {
 
 #[test]
 fn prog1() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(eval_one("(prog1 1 2 3)"), "OK 1");
 }
 
 #[test]
 fn function_special_form() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(defalias 'add1 #'(lambda (x) (+ x 1)))
          (funcall #'add1 5)",
@@ -3618,6 +3737,7 @@ fn function_special_form() {
 
 #[test]
 fn function_special_form_symbol_and_literal_payloads() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(eval_one("#'car"), "OK car");
     assert_eq!(eval_one("#'definitely-missing"), "OK definitely-missing");
     assert_eq!(
@@ -3629,6 +3749,7 @@ fn function_special_form_symbol_and_literal_payloads() {
 
 #[test]
 fn lambda_captures_docstring_metadata() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms("(lambda nil \"lambda-doc\" nil)").expect("parse");
     let value = ev.eval_expr(&forms[0]).expect("eval");
@@ -3642,6 +3763,7 @@ fn lambda_captures_docstring_metadata() {
 
 #[test]
 fn lambda_single_string_body_is_a_return_value_not_a_docstring() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms("(lambda nil \"ok-1\")").expect("parse");
     let value = ev.eval_expr(&forms[0]).expect("eval");
@@ -3653,6 +3775,7 @@ fn lambda_single_string_body_is_a_return_value_not_a_docstring() {
 
 #[test]
 fn defmacro_captures_docstring_metadata() {
+    crate::test_utils::init_test_tracing();
     // defmacro is no longer a bare-evaluator special form; install a
     // macro with a docstring via defalias + cons 'macro + lambda.
     let mut ev = Context::new();
@@ -3677,6 +3800,7 @@ fn defmacro_captures_docstring_metadata() {
 
 #[test]
 fn function_special_form_wrong_arity_signals() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one("(condition-case err (function) (error (car err)))"),
         "OK wrong-number-of-arguments"
@@ -3689,6 +3813,7 @@ fn function_special_form_wrong_arity_signals() {
 
 #[test]
 fn special_form_arity_payloads_match_oracle_edges() {
+    crate::test_utils::init_test_tracing();
     // when and unless are no longer special forms (now Elisp macros),
     // so they produce void-function errors in a bare evaluator.
     let results = eval_all(
@@ -3735,6 +3860,7 @@ fn special_form_arity_payloads_match_oracle_edges() {
 
 #[test]
 fn let_dotted_binding_list_reports_listp_tail_payload() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one("(condition-case err (let ((x 1) . 2) x) (error err))"),
         "OK (wrong-type-argument listp 2)"
@@ -3747,6 +3873,7 @@ fn let_dotted_binding_list_reports_listp_tail_payload() {
 
 #[test]
 fn let_and_let_star_binding_constants_signal_setting_constant() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(setq vm-let-a 0 vm-let-b 0)
          (condition-case err
@@ -3779,6 +3906,7 @@ fn let_and_let_star_binding_constants_signal_setting_constant() {
 
 #[test]
 fn lambda_parameters_can_shadow_nil_and_t_like_gnu_emacs() {
+    crate::test_utils::init_test_tracing();
     // After the specbind refactor, dynamic variable bindings write
     // directly to the obarray, so `t` and `nil` (constants) cannot be
     // shadowed as lambda parameters.  The lambda body still sees the
@@ -3795,6 +3923,7 @@ fn lambda_parameters_can_shadow_nil_and_t_like_gnu_emacs() {
 
 #[test]
 fn setq_can_assign_shadowing_nil_and_t_parameters_like_gnu_emacs() {
+    crate::test_utils::init_test_tracing();
     // After the specbind refactor, `t` and `nil` are constants and
     // cannot be assigned via setq even inside a lambda shadow.
     let results = eval_all(
@@ -3807,6 +3936,7 @@ fn setq_can_assign_shadowing_nil_and_t_parameters_like_gnu_emacs() {
 
 #[test]
 fn random_accepts_string_seed_and_repeats_sequences_like_gnu_emacs() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(let ((seq1 (progn (random \"vm-random-seed\") (list (random 1000) (random 1000) (random 1000))))
                (seq2 (progn (random \"vm-random-seed\") (list (random 1000) (random 1000) (random 1000)))))
@@ -3819,6 +3949,7 @@ fn random_accepts_string_seed_and_repeats_sequences_like_gnu_emacs() {
 
 #[test]
 fn setq_constants_signal_setting_constant_after_rhs_evaluation() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(setq vm-setq-side 0)
          (condition-case err
@@ -3842,6 +3973,7 @@ fn setq_constants_signal_setting_constant_after_rhs_evaluation() {
 
 #[test]
 fn set_ignores_lexical_bindings_and_updates_dynamic_cell() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
     let forms = parse_forms(
@@ -3857,6 +3989,7 @@ fn set_ignores_lexical_bindings_and_updates_dynamic_cell() {
 
 #[test]
 fn setq_follows_variable_alias_resolution() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(defvaralias 'vm-setq-alias 'vm-setq-base)
          (setq vm-setq-alias 3)
@@ -3867,6 +4000,7 @@ fn setq_follows_variable_alias_resolution() {
 
 #[test]
 fn makunbound_ignores_lexical_bindings_and_unbinds_runtime_cell() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
     let forms = parse_forms(
@@ -3892,6 +4026,7 @@ fn makunbound_ignores_lexical_bindings_and_unbinds_runtime_cell() {
 
 #[test]
 fn makunbound_marks_dynamic_binding_void_without_falling_back_to_global() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(defvar vm-mku-dyn 'global)
          (let ((vm-mku-dyn 'dyn))
@@ -3912,6 +4047,7 @@ fn makunbound_marks_dynamic_binding_void_without_falling_back_to_global() {
 
 #[test]
 fn setq_alias_triggers_single_watcher_callback_on_resolved_target() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(setq vm-setq-watch-events nil)
          (defalias 'vm-setq-watch-rec #'(lambda (symbol newval operation where)
@@ -3928,6 +4064,7 @@ fn setq_alias_triggers_single_watcher_callback_on_resolved_target() {
 
 #[test]
 fn buffer_local_value_follows_alias_and_keyword_semantics() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(progn
            (defvaralias 'vm-blv-alias 'vm-blv-base)
@@ -3964,6 +4101,7 @@ fn buffer_local_value_follows_alias_and_keyword_semantics() {
 
 #[test]
 fn local_variable_if_set_p_follows_alias_and_contract_semantics() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(progn
            (defvaralias 'vm-lvis-alias 'vm-lvis-base)
@@ -3990,6 +4128,7 @@ fn local_variable_if_set_p_follows_alias_and_contract_semantics() {
 
 #[test]
 fn variable_binding_locus_follows_buffer_local_and_alias_semantics() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(let ((locus (condition-case err
                           (progn (with-temp-buffer (set (make-local-variable 'x) 2) (variable-binding-locus 'x)))
@@ -4021,6 +4160,7 @@ fn variable_binding_locus_follows_buffer_local_and_alias_semantics() {
 
 #[test]
 fn value_lt_matches_oracle_type_and_ordering_semantics() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(list
            (value< 1 2)
@@ -4047,6 +4187,7 @@ fn value_lt_matches_oracle_type_and_ordering_semantics() {
 
 #[test]
 fn variable_watchers_report_let_and_unlet_runtime_transitions() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(setq vm-watch-events nil)
          (setq vm-watch-target 9)
@@ -4065,6 +4206,7 @@ fn variable_watchers_report_let_and_unlet_runtime_transitions() {
 
 #[test]
 fn special_form_type_payloads_match_oracle_edges() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(condition-case err (setq x) (error err))
          (condition-case err (setq 1 2) (error err))
@@ -4087,17 +4229,20 @@ fn special_form_type_payloads_match_oracle_edges() {
 
 #[test]
 fn mapcar_works() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(eval_one("(mapcar #'1+ '(1 2 3))"), "OK (2 3 4)");
 }
 
 #[test]
 fn apply_works() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(eval_one("(apply #'+ '(1 2 3))"), "OK 6");
     assert_eq!(eval_one("(apply #'+ 1 2 '(3))"), "OK 6");
 }
 
 #[test]
 fn apply_improper_tail_signals_wrong_type_argument() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             "(condition-case err
@@ -4110,6 +4255,7 @@ fn apply_improper_tail_signals_wrong_type_argument() {
 
 #[test]
 fn funcall_and_apply_nil_signal_void_function() {
+    crate::test_utils::init_test_tracing();
     let funcall_result = eval_one(
         "(condition-case err
              (funcall nil)
@@ -4127,6 +4273,7 @@ fn funcall_and_apply_nil_signal_void_function() {
 
 #[test]
 fn funcall_and_apply_non_callable_symbol_edges() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one("(condition-case err (funcall t) (error (car err)))"),
         "OK void-function"
@@ -4159,6 +4306,7 @@ fn funcall_and_apply_non_callable_symbol_edges() {
 
 #[test]
 fn funcall_throw_is_callable_and_preserves_throw_semantics() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(eval_one("(catch 'tag (funcall 'throw 'tag 42))"), "OK 42");
     assert_eq!(
         eval_one("(condition-case err (funcall 'throw 'tag 42) (error err))"),
@@ -4172,6 +4320,7 @@ fn funcall_throw_is_callable_and_preserves_throw_semantics() {
 
 #[test]
 fn funcall_throw_uses_shared_condition_stack_without_catch_tag_mirror() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let tag = Value::symbol("vm-shared-throw");
     ev.push_condition_frame(ConditionFrame::Catch {
@@ -4195,6 +4344,7 @@ fn funcall_throw_uses_shared_condition_stack_without_catch_tag_mirror() {
 
 #[test]
 fn funcall_named_symbol_propagates_inner_invalid_function_payload() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             "(progn
@@ -4213,6 +4363,7 @@ fn funcall_named_symbol_propagates_inner_invalid_function_payload() {
 
 #[test]
 fn fmakunbound_masks_builtin_special_and_evaluator_callable_fallbacks() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(fmakunbound 'car)
          (fboundp 'car)
@@ -4240,6 +4391,7 @@ fn fmakunbound_masks_builtin_special_and_evaluator_callable_fallbacks() {
 
 #[test]
 fn fset_can_override_special_form_name_for_direct_calls() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(let ((orig (symbol-function 'if)))
            (unwind-protect
@@ -4253,6 +4405,7 @@ fn fset_can_override_special_form_name_for_direct_calls() {
 
 #[test]
 fn fset_restoring_subr_object_keeps_callability() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             "(let ((orig (symbol-function 'car)))
@@ -4274,6 +4427,7 @@ fn fset_restoring_subr_object_keeps_callability() {
 
 #[test]
 fn funcall_subr_object_ignores_symbol_function_rebinding() {
+    crate::test_utils::init_test_tracing();
     // GNU Emacs tree-walking evaluator respects fset: after (fset 'car shadow),
     // calling (car ...) uses the shadow function. Only the bytecode VM
     // bypasses via dedicated opcodes (Bcar).
@@ -4294,6 +4448,7 @@ fn funcall_subr_object_ignores_symbol_function_rebinding() {
 
 #[test]
 fn funcall_autoload_object_signals_wrong_type_argument_symbolp() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             "(condition-case err
@@ -4310,6 +4465,7 @@ fn funcall_autoload_object_signals_wrong_type_argument_symbolp() {
 
 #[test]
 fn apply_autoload_object_signals_wrong_type_argument_symbolp() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             "(condition-case err
@@ -4326,6 +4482,7 @@ fn apply_autoload_object_signals_wrong_type_argument_symbolp() {
 
 #[test]
 fn fset_nil_reports_symbol_payload_for_void_function_calls() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(fset 'vm-fsetnil nil)
          (fboundp 'vm-fsetnil)
@@ -4349,6 +4506,7 @@ fn fset_nil_reports_symbol_payload_for_void_function_calls() {
 
 #[test]
 fn fset_noncallable_reports_symbol_payload_for_invalid_function_calls() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(fset 'vm-fsetint 1)
          (fboundp 'vm-fsetint)
@@ -4368,6 +4526,7 @@ fn fset_noncallable_reports_symbol_payload_for_invalid_function_calls() {
 
 #[test]
 fn fset_t_function_cell_controls_funcall_and_apply_behavior() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             "(let ((orig (symbol-function 't)))
@@ -4395,6 +4554,7 @@ fn fset_t_function_cell_controls_funcall_and_apply_behavior() {
 
 #[test]
 fn fset_keyword_function_cell_controls_funcall_and_apply_behavior() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             "(let ((orig (symbol-function :k)))
@@ -4434,6 +4594,7 @@ fn fset_keyword_function_cell_controls_funcall_and_apply_behavior() {
 
 #[test]
 fn named_call_cache_invalidates_on_function_cell_mutation() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(condition-case err
              (funcall 'vm-cache-target)
@@ -4450,6 +4611,7 @@ fn named_call_cache_invalidates_on_function_cell_mutation() {
 
 #[test]
 fn funcall_builtin_wrong_arity_uses_subr_object_payload() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one("(condition-case err (car) (error (subrp (nth 1 err))))"),
         "OK nil"
@@ -4462,6 +4624,7 @@ fn funcall_builtin_wrong_arity_uses_subr_object_payload() {
 
 #[test]
 fn condition_case_catches_uncaught_throw_as_no_catch() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one("(condition-case err (throw 'tag 42) (error (car err)))"),
         "OK no-catch"
@@ -4480,6 +4643,7 @@ fn condition_case_catches_uncaught_throw_as_no_catch() {
 
 #[test]
 fn nested_condition_case_uses_current_shared_condition_slice() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             "(condition-case outer
@@ -4494,6 +4658,7 @@ fn nested_condition_case_uses_current_shared_condition_slice() {
 
 #[test]
 fn condition_case_suppresses_debugger_without_debug_marker() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             "(let ((debug-on-error t)
@@ -4511,6 +4676,7 @@ fn condition_case_suppresses_debugger_without_debug_marker() {
 
 #[test]
 fn condition_case_debug_marker_calls_debugger_before_handler() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             "(let ((debug-on-error t)
@@ -4528,6 +4694,7 @@ fn condition_case_debug_marker_calls_debugger_before_handler() {
 
 #[test]
 fn debug_on_signal_overrides_condition_case_debugger_suppression() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             "(let ((debug-on-error t)
@@ -4546,6 +4713,7 @@ fn debug_on_signal_overrides_condition_case_debugger_suppression() {
 
 #[test]
 fn debug_ignored_errors_blocks_debugger_even_with_debug_marker() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             "(let ((debug-on-error t)
@@ -4564,6 +4732,7 @@ fn debug_ignored_errors_blocks_debugger_even_with_debug_marker() {
 
 #[test]
 fn backward_compat_core_forms() {
+    crate::test_utils::init_test_tracing();
     // Same tests as original elisp.rs
     let source = r#"
     (+ 1 2)
@@ -4593,6 +4762,7 @@ fn backward_compat_core_forms() {
 
 #[test]
 fn excessive_recursion_detected() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all("(defalias 'inf #'(lambda () (inf)))\n(inf)");
     // Second form should trigger excessive nesting
     assert!(results[1].contains("excessive-lisp-nesting"));
@@ -4600,6 +4770,7 @@ fn excessive_recursion_detected() {
 
 #[test]
 fn excessive_recursion_reports_overflow_depth_like_gnu_emacs() {
+    crate::test_utils::init_test_tracing();
     // After the specbind refactor the recursion depth at overflow changed
     // from 1601 to 2401 because dynamic binding frames no longer count
     // toward the nesting depth.
@@ -4609,6 +4780,7 @@ fn excessive_recursion_reports_overflow_depth_like_gnu_emacs() {
 
 #[test]
 fn lambda_can_call_symbol_function_subr_as_first_class_value() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one("((lambda (orig x y) (funcall orig (+ x 1) y)) (symbol-function '+) 4 7)"),
         "OK 12"
@@ -4623,6 +4795,7 @@ fn lambda_can_call_symbol_function_subr_as_first_class_value() {
 
 #[test]
 fn lexical_binding_closure() {
+    crate::test_utils::init_test_tracing();
     // With lexical binding, closures capture the lexical environment
     let mut ev = Context::new();
     let forms = parse_forms(
@@ -4642,6 +4815,7 @@ fn lexical_binding_closure() {
 
 #[test]
 fn dynamic_binding_closure() {
+    crate::test_utils::init_test_tracing();
     // Without lexical binding (default), closures see dynamic scope
     let mut ev = Context::new();
     let forms = parse_forms(
@@ -4660,6 +4834,7 @@ fn dynamic_binding_closure() {
 
 #[test]
 fn lexical_binding_special_var_stays_dynamic() {
+    crate::test_utils::init_test_tracing();
     // defvar makes a variable special — it stays dynamically scoped
     let mut ev = Context::new();
     let forms = parse_forms(
@@ -4684,6 +4859,7 @@ fn lexical_binding_special_var_stays_dynamic() {
 
 #[test]
 fn defalias_works() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(defalias 'my-add #'(lambda (a b) (+ a b)))
          (defalias 'my-plus 'my-add)
@@ -4694,6 +4870,7 @@ fn defalias_works() {
 
 #[test]
 fn defalias_rejects_self_alias_cycle() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(condition-case err
              (defalias 'vm-da-self 'vm-da-self)
@@ -4704,6 +4881,7 @@ fn defalias_rejects_self_alias_cycle() {
 
 #[test]
 fn defalias_rejects_two_node_alias_cycle() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(defalias 'vm-da-a 'vm-da-b)
          (condition-case err
@@ -4716,6 +4894,7 @@ fn defalias_rejects_two_node_alias_cycle() {
 
 #[test]
 fn defalias_nil_signals_setting_constant() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(condition-case err
              (defalias nil 'car)
@@ -4726,6 +4905,7 @@ fn defalias_nil_signals_setting_constant() {
 
 #[test]
 fn defalias_t_accepts_symbol_cell_updates() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(defalias t 'car)
          (symbol-function t)",
@@ -4736,6 +4916,7 @@ fn defalias_t_accepts_symbol_cell_updates() {
 
 #[test]
 fn defalias_enforces_argument_count() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(condition-case err (defalias) (error err))
          (condition-case err (defalias 'vm-da-too-few) (error err))
@@ -4748,6 +4929,7 @@ fn defalias_enforces_argument_count() {
 
 #[test]
 fn defalias_honors_defalias_fset_function_hook() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(setq vm-da-hook-log nil)
          (put 'vm-da-hooked 'defalias-fset-function
@@ -4765,6 +4947,7 @@ fn defalias_honors_defalias_fset_function_hook() {
 
 #[test]
 fn defalias_stores_function_documentation_property() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(defalias 'vm-da-doc (lambda () 'ok) \"vm doc\")
          (get 'vm-da-doc 'function-documentation)",
@@ -4775,6 +4958,7 @@ fn defalias_stores_function_documentation_property() {
 
 #[test]
 fn fset_inside_lambda_uses_argument_definition() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             "((lambda (sym def)
@@ -4789,6 +4973,7 @@ fn fset_inside_lambda_uses_argument_definition() {
 
 #[test]
 fn compiled_literal_reader_form_is_not_callable() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(condition-case err
              (funcall (car (read-from-string \"#[nil \\\"\\\\300\\\\207\\\" [42] 1]\")))
@@ -4799,6 +4984,7 @@ fn compiled_literal_reader_form_is_not_callable() {
 
 #[test]
 fn provide_require() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms("(provide 'my-feature) (featurep 'my-feature)").expect("parse");
     let results: Vec<String> = ev
@@ -4812,6 +4998,7 @@ fn provide_require() {
 
 #[test]
 fn provide_stores_subfeatures_list() {
+    crate::test_utils::init_test_tracing();
     // GNU provide stores the SUBFEATURES list via (put FEATURE 'subfeatures LIST).
     // featurep with a subfeature arg checks membership in that list.
     let results = eval_all(
@@ -4832,6 +5019,7 @@ fn provide_stores_subfeatures_list() {
 
 #[test]
 fn provide_runs_after_load_alist_callbacks() {
+    crate::test_utils::init_test_tracing();
     // GNU Fprovide runs (mapc #'funcall (cdr (assq feature after-load-alist)))
     // after adding the feature to the features list.
     let results = eval_all(
@@ -4854,6 +5042,7 @@ fn provide_runs_after_load_alist_callbacks() {
 
 #[test]
 fn provide_does_not_refire_after_load_callbacks_on_redundant_provide() {
+    crate::test_utils::init_test_tracing();
     // When provide is called again for an already-provided feature,
     // the after-load-alist callbacks should still fire (GNU behavior:
     // Fprovide always runs the hooks regardless of whether the feature
@@ -4878,6 +5067,7 @@ fn provide_does_not_refire_after_load_callbacks_on_redundant_provide() {
 
 #[test]
 fn default_directory_is_bound_to_directory_path() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(stringp default-directory)
          (file-directory-p default-directory)
@@ -4892,6 +5082,7 @@ fn default_directory_is_bound_to_directory_path() {
 
 #[test]
 fn unread_command_events_is_bound_to_nil_at_startup() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "unread-command-events
          (boundp 'unread-command-events)
@@ -4906,6 +5097,7 @@ fn unread_command_events_is_bound_to_nil_at_startup() {
 
 #[test]
 fn startup_string_variable_docs_are_seeded_at_startup() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(stringp (get 'kill-ring 'variable-documentation))
          (integerp (get 'kill-ring 'variable-documentation))
@@ -5172,6 +5364,7 @@ fn startup_string_variable_docs_are_seeded_at_startup() {
 
 #[test]
 fn startup_variable_documentation_property_counts_match_oracle_snapshot() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(list
           (let ((n 0))
@@ -5192,6 +5385,7 @@ fn startup_variable_documentation_property_counts_match_oracle_snapshot() {
 
 #[test]
 fn startup_variable_documentation_runtime_resolution_counts_match_oracle_snapshot() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(list
           (let ((n 0))
@@ -5216,6 +5410,7 @@ fn startup_variable_documentation_runtime_resolution_counts_match_oracle_snapsho
 
 #[test]
 fn features_variable_controls_featurep_and_require() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(setq features '(vm-existing))
          (featurep 'vm-existing)
@@ -5228,6 +5423,7 @@ fn features_variable_controls_featurep_and_require() {
 
 #[test]
 fn require_accepts_nil_filename_as_feature_name() {
+    crate::test_utils::init_test_tracing();
     let dir = tempfile::tempdir().expect("tempdir");
     std::fs::write(
         dir.path().join("vm-require-nil.el"),
@@ -5254,6 +5450,7 @@ fn require_accepts_nil_filename_as_feature_name() {
 
 #[test]
 fn provide_preserves_features_variable_entries() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(setq features '(vm-existing))
          (provide 'vm-new)
@@ -5266,6 +5463,7 @@ fn provide_preserves_features_variable_entries() {
 
 #[test]
 fn require_recursive_cycle_returns_immediately() {
+    crate::test_utils::init_test_tracing();
     // Official Emacs treats recursive require as a no-op, returning
     // the feature symbol immediately rather than signaling an error.
     // This supports circular dependencies like dired ↔ dired-aux.
@@ -5311,6 +5509,7 @@ fn require_recursive_cycle_returns_immediately() {
 
 #[test]
 fn dotimes_loop() {
+    crate::test_utils::init_test_tracing();
     // dotimes is no longer a special form; use let+while equivalent
     let result = eval_one(
         "(let ((sum 0) (i 0))
@@ -5324,6 +5523,7 @@ fn dotimes_loop() {
 
 #[test]
 fn dolist_loop() {
+    crate::test_utils::init_test_tracing();
     // dolist is no longer a special form; use let+while equivalent
     let result = eval_one(
         "(let ((result nil) (--dl-- '(a b c)))
@@ -5338,18 +5538,21 @@ fn dolist_loop() {
 
 #[test]
 fn ignore_errors_catches_signal() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_one("(ignore-errors (/ 1 0) 42)");
     assert_eq!(result, "OK nil"); // error caught, returns nil
 }
 
 #[test]
 fn math_functions() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(eval_one("(expt 2 10)"), "OK 1024");
     assert_eq!(eval_one("(sqrt 4.0)"), "OK 2.0");
 }
 
 #[test]
 fn hook_system() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         "(defvar my-hook nil)
          (defun hook-fn () 42)
@@ -5365,6 +5568,7 @@ fn hook_system() {
 
 #[test]
 fn hook_system_runtime_value_shapes() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(setq hook-count 0)
          (defalias 'hook-inc #'(lambda () (setq hook-count (1+ hook-count))))
@@ -5396,6 +5600,7 @@ fn hook_system_runtime_value_shapes() {
 
 #[test]
 fn run_hook_with_args_runtime_value_shapes() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(setq hook-log nil)
          (defalias 'hook-log-fn #'(lambda (&rest args) (setq hook-log (cons args hook-log))))
@@ -5427,6 +5632,7 @@ fn run_hook_with_args_runtime_value_shapes() {
 
 #[test]
 fn run_hook_wrapped_stops_on_first_non_nil_wrapper_result() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(let ((seen nil))
            (defalias 'hook-wrap-a #'(lambda () 'a))
@@ -5444,6 +5650,7 @@ fn run_hook_wrapped_stops_on_first_non_nil_wrapper_result() {
 
 #[test]
 fn get_buffer_create_runs_buffer_list_update_hook_when_enabled() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(progn
            (setq hook-log nil)
@@ -5458,6 +5665,7 @@ fn get_buffer_create_runs_buffer_list_update_hook_when_enabled() {
 
 #[test]
 fn get_buffer_create_inhibit_buffer_hooks_suppresses_buffer_and_kill_hooks() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(progn
            (setq hook-log nil)
@@ -5482,6 +5690,7 @@ fn get_buffer_create_inhibit_buffer_hooks_suppresses_buffer_and_kill_hooks() {
 
 #[test]
 fn kill_buffer_runs_query_functions_and_hook_in_target_buffer_context() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(progn
            (setq hook-log nil)
@@ -5511,6 +5720,7 @@ fn kill_buffer_runs_query_functions_and_hook_in_target_buffer_context() {
 
 #[test]
 fn run_window_scroll_functions_uses_scrolled_window_buffer_context() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(progn
            (setq hook-log nil)
@@ -5533,6 +5743,7 @@ fn run_window_scroll_functions_uses_scrolled_window_buffer_context() {
 
 #[test]
 fn point_motion_hooks_follow_gnu_interval_boundary_order() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(progn
            (erase-buffer)
@@ -5567,6 +5778,7 @@ fn point_motion_hooks_follow_gnu_interval_boundary_order() {
 
 #[test]
 fn run_window_configuration_change_hook_uses_window_buffer_context() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let setup = parse_forms(
         "(progn
@@ -5673,6 +5885,7 @@ fn run_window_configuration_change_hook_uses_window_buffer_context() {
 
 #[test]
 fn redisplay_runs_window_change_functions_with_selected_frame_context() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(progn
            (setq hook-log nil)
@@ -5714,6 +5927,7 @@ fn redisplay_runs_window_change_functions_with_selected_frame_context() {
 
 #[test]
 fn set_frame_window_state_change_forces_state_hooks_on_redisplay() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(progn
            (setq hook-log nil)
@@ -5732,6 +5946,7 @@ fn set_frame_window_state_change_forces_state_hooks_on_redisplay() {
 
 #[test]
 fn delete_frame_runs_before_and_after_delete_hooks() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one_with_frame(
         "(progn
            (setq hook-log nil)
@@ -5752,6 +5967,7 @@ fn delete_frame_runs_before_and_after_delete_hooks() {
 
 #[test]
 fn first_change_and_before_change_hooks_run_with_inhibit_bound() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(progn
            (setq hook-log nil)
@@ -5771,6 +5987,7 @@ fn first_change_and_before_change_hooks_run_with_inhibit_bound() {
 
 #[test]
 fn after_change_functions_receive_character_old_len() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(progn
            (erase-buffer)
@@ -5787,6 +6004,7 @@ fn after_change_functions_receive_character_old_len() {
 
 #[test]
 fn before_change_functions_reset_to_nil_on_error() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(progn
            (setq before-change-functions
@@ -5799,6 +6017,7 @@ fn before_change_functions_reset_to_nil_on_error() {
 
 #[test]
 fn symbol_operations() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(defvar x 42)
          (boundp 'x)
@@ -5815,6 +6034,7 @@ fn symbol_operations() {
 
 #[test]
 fn buffer_create_and_switch() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(get-buffer-create \"test-buf\")
          (set-buffer \"test-buf\")
@@ -5829,6 +6049,7 @@ fn buffer_create_and_switch() {
 
 #[test]
 fn buffer_insert_and_point() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(get-buffer-create \"ed\")
          (set-buffer \"ed\")
@@ -5849,6 +6070,7 @@ fn buffer_insert_and_point() {
 
 #[test]
 fn buffer_delete_region() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(get-buffer-create \"del\")
          (set-buffer \"del\")
@@ -5861,6 +6083,7 @@ fn buffer_delete_region() {
 
 #[test]
 fn buffer_delete_and_extract_region_accepts_live_markers_after_insertions() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(with-temp-buffer
            (insert \"abcdef\")
@@ -5876,6 +6099,7 @@ fn buffer_delete_and_extract_region_accepts_live_markers_after_insertions() {
 
 #[test]
 fn buffer_erase() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(get-buffer-create \"era\")
         (set-buffer \"era\")
@@ -5890,6 +6114,7 @@ fn buffer_erase() {
 
 #[test]
 fn buffer_mutation_read_only_shape_matches_gnu() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(list
            (with-temp-buffer
@@ -5919,6 +6144,7 @@ fn buffer_mutation_read_only_shape_matches_gnu() {
 
 #[test]
 fn buffer_mutation_read_only_noop_cases_match_gnu() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(list
            (with-temp-buffer
@@ -5938,6 +6164,7 @@ fn buffer_mutation_read_only_noop_cases_match_gnu() {
 
 #[test]
 fn buffer_narrowing() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(get-buffer-create \"nar\")
          (set-buffer \"nar\")
@@ -5953,6 +6180,7 @@ fn buffer_narrowing() {
 
 #[test]
 fn buffer_narrowing_accepts_live_marker_bounds_after_insertions() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(with-temp-buffer
            (insert \"abcdef\")
@@ -5968,6 +6196,7 @@ fn buffer_narrowing_accepts_live_marker_bounds_after_insertions() {
 
 #[test]
 fn buffer_modified_p() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(get-buffer-create \"mod\")
          (set-buffer \"mod\")
@@ -5984,6 +6213,7 @@ fn buffer_modified_p() {
 
 #[test]
 fn buffer_mark() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         "(get-buffer-create \"mk\")
          (set-buffer \"mk\")
@@ -5996,6 +6226,7 @@ fn buffer_mark() {
 
 #[test]
 fn buffer_with_current_buffer() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(get-buffer-create \"a\")
          (get-buffer-create \"b\")
@@ -6016,6 +6247,7 @@ fn buffer_with_current_buffer() {
 
 #[test]
 fn buffer_save_excursion() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(get-buffer-create \"se\")
          (set-buffer \"se\")
@@ -6033,6 +6265,7 @@ fn buffer_save_excursion() {
 
 #[test]
 fn buffer_save_excursion_tracks_marker_through_edits() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(with-temp-buffer
            (insert \"0123456789\")
@@ -6050,6 +6283,7 @@ fn buffer_save_excursion_tracks_marker_through_edits() {
 
 #[test]
 fn insert_before_markers_advances_before_markers_at_point() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(with-temp-buffer
            (insert \"ab\")
@@ -6063,6 +6297,7 @@ fn insert_before_markers_advances_before_markers_at_point() {
 
 #[test]
 fn insert_read_only_shape_and_noop_cases_match_gnu() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(list
            (with-temp-buffer
@@ -6110,6 +6345,7 @@ fn insert_read_only_shape_and_noop_cases_match_gnu() {
 
 #[test]
 fn lexical_inhibit_read_only_binding_overrides_buffer_read_only() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
     let forms = parse_forms(
@@ -6126,6 +6362,7 @@ fn lexical_inhibit_read_only_binding_overrides_buffer_read_only() {
 
 #[test]
 fn bootstrap_display_warning_does_not_signal_buffer_read_only() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_one(
         "(condition-case err
              (progn
@@ -6138,6 +6375,7 @@ fn bootstrap_display_warning_does_not_signal_buffer_read_only() {
 
 #[test]
 fn insert_char_nil_count_defaults_to_one_with_inherit() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(with-temp-buffer
            (insert \"ab\")
@@ -6151,6 +6389,7 @@ fn insert_char_nil_count_defaults_to_one_with_inherit() {
 
 #[test]
 fn insert_inherit_variants_match_gnu_property_and_marker_semantics() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(list
            (with-temp-buffer
@@ -6180,6 +6419,7 @@ fn insert_inherit_variants_match_gnu_property_and_marker_semantics() {
 
 #[test]
 fn insert_buffer_substring_preserves_source_text_properties() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(let ((src (get-buffer-create "*eval-sub-src*"))
@@ -6205,6 +6445,7 @@ fn insert_buffer_substring_preserves_source_text_properties() {
 
 #[test]
 fn compare_buffer_substrings_respects_case_fold_search() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(let ((left (get-buffer-create "*eval-cmp-left*"))
@@ -6229,6 +6470,7 @@ fn compare_buffer_substrings_respects_case_fold_search() {
 
 #[test]
 fn field_builtins_match_gnu_property_boundary_semantics() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(with-temp-buffer
@@ -6274,6 +6516,7 @@ fn field_builtins_match_gnu_property_boundary_semantics() {
 
 #[test]
 fn constrain_to_field_matches_gnu_boundary_and_capture_semantics() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(with-temp-buffer
@@ -6309,6 +6552,7 @@ fn constrain_to_field_matches_gnu_boundary_and_capture_semantics() {
 
 #[test]
 fn replace_region_contents_preserves_source_properties_and_rejects_self_buffer() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_one(
             r#"(with-temp-buffer
@@ -6344,6 +6588,7 @@ fn replace_region_contents_preserves_source_properties_and_rejects_self_buffer()
 
 #[test]
 fn subst_char_in_region_read_only_shape_and_noop_cases_match_gnu() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(list
            (with-temp-buffer
@@ -6364,6 +6609,7 @@ fn subst_char_in_region_read_only_shape_and_noop_cases_match_gnu() {
 
 #[test]
 fn buffer_undo_list_reflects_recorded_edits() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(with-temp-buffer
            (setq buffer-undo-list nil)
@@ -6386,6 +6632,7 @@ fn buffer_undo_list_reflects_recorded_edits() {
 
 #[test]
 fn char_primitives_respect_narrowing() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(with-temp-buffer
            (insert \"Hello, 世界\")
@@ -6401,6 +6648,7 @@ fn char_primitives_respect_narrowing() {
 
 #[test]
 fn delete_char_respects_narrowing_boundaries() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(with-temp-buffer
            (insert \"abc\")
@@ -6421,6 +6669,7 @@ fn delete_char_respects_narrowing_boundaries() {
 
 #[test]
 fn navigation_predicates_and_line_positions_respect_narrowing() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(with-temp-buffer
            (insert \"wx\nab\ncd\")
@@ -6438,6 +6687,7 @@ fn navigation_predicates_and_line_positions_respect_narrowing() {
 
 #[test]
 fn line_position_optional_argument_matches_gnu_current_rules() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(with-temp-buffer
            (insert \"a\nbb\nccc\")
@@ -6452,6 +6702,7 @@ fn line_position_optional_argument_matches_gnu_current_rules() {
 
 #[test]
 fn save_match_data_restores_after_success_and_error() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         "(set-match-data '(1 2))
          (save-match-data (set-match-data '(3 4)) (match-data))
@@ -6471,6 +6722,7 @@ fn save_match_data_restores_after_success_and_error() {
 
 #[test]
 fn save_mark_and_excursion_restores_mark_and_mark_active() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         "(save-current-buffer
            (let ((b (get-buffer-create \"smx-eval\")))
@@ -6492,6 +6744,7 @@ fn save_mark_and_excursion_restores_mark_and_mark_active() {
 
 #[test]
 fn save_window_excursion_restores_selected_window_on_success_and_error() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         "(let ((w1 (selected-window))
                (w2 (split-window)))
@@ -6520,6 +6773,7 @@ fn save_window_excursion_restores_selected_window_on_success_and_error() {
 
 #[test]
 fn save_window_excursion_restores_window_layout_after_split() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(let ((before (length (window-list))))
            (list
@@ -6537,6 +6791,7 @@ fn save_window_excursion_restores_window_layout_after_split() {
 
 #[test]
 fn save_window_excursion_restores_selected_window_point_and_requests_final_redisplay() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let buffer_id = ev.buffers.create_buffer("*scratch*");
     ev.buffers.set_current(buffer_id);
@@ -6574,6 +6829,7 @@ fn save_window_excursion_restores_selected_window_point_and_requests_final_redis
 
 #[test]
 fn current_window_configuration_saves_selected_window_live_point() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let buffer_id = ev.buffers.create_buffer("*scratch*");
     ev.buffers.set_current(buffer_id);
@@ -6604,6 +6860,7 @@ fn current_window_configuration_saves_selected_window_live_point() {
 
 #[test]
 fn save_selected_window_restores_selected_window_on_success_and_error() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         "(let ((w1 (selected-window))
                (w2 (split-window)))
@@ -6632,6 +6889,7 @@ fn save_selected_window_restores_selected_window_on_success_and_error() {
 
 #[test]
 fn alist_get_comes_from_gnu_subr_runtime() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(let ((foo '((a . 1) (b . 2))))
              (list
@@ -6646,6 +6904,7 @@ fn alist_get_comes_from_gnu_subr_runtime() {
 
 #[test]
 fn with_local_quit_catches_quit_and_sets_quit_flag() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         "(setq quit-flag nil)
          (with-local-quit
@@ -6671,6 +6930,7 @@ fn with_local_quit_catches_quit_and_sets_quit_flag() {
 
 #[test]
 fn while_processes_quit_flag_without_loop_local_gc() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(condition-case err
              (while (progn (setq quit-flag t) t)
@@ -6690,6 +6950,7 @@ fn while_processes_quit_flag_without_loop_local_gc() {
 
 #[test]
 fn throw_on_input_is_special_and_dynamically_bound() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(special-variable-p 'throw-on-input)
          (let ((throw-on-input 'tag))
@@ -6703,6 +6964,7 @@ fn throw_on_input_is_special_and_dynamically_bound() {
 
 #[test]
 fn while_no_input_ignore_events_bootstraps_monitors_changed_like_gnu() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(memq 'monitors-changed while-no-input-ignore-events)
          (special-variable-p 'while-no-input-ignore-events)
@@ -6715,6 +6977,7 @@ fn while_no_input_ignore_events_bootstraps_monitors_changed_like_gnu() {
 
 #[test]
 fn input_pending_p_filters_default_ignored_events_like_gnu() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let fid = ev
         .frames
@@ -6753,6 +7016,7 @@ fn input_pending_p_filters_default_ignored_events_like_gnu() {
 
 #[test]
 fn with_temp_message_accepts_min_arity_and_runs_body() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         "(with-temp-message nil 42)
          (with-temp-message \"tmp\" 7)
@@ -6767,6 +7031,7 @@ fn with_temp_message_accepts_min_arity_and_runs_body() {
 
 #[test]
 fn with_demoted_errors_runtime_semantics() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         "(fboundp 'with-demoted-errors)
          (macrop 'with-demoted-errors)
@@ -6795,6 +7060,7 @@ fn with_demoted_errors_runtime_semantics() {
 
 #[test]
 fn bootstrap_condition_case_unless_debug_calls_debugger_before_handler() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         bootstrap_eval_one(
             "(progn
@@ -6813,6 +7079,7 @@ fn bootstrap_condition_case_unless_debug_calls_debugger_before_handler() {
 
 #[test]
 fn bootstrap_with_demoted_errors_calls_debugger_when_debug_on_error_is_enabled() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         bootstrap_eval_one(
             "(progn
@@ -6829,6 +7096,7 @@ fn bootstrap_with_demoted_errors_calls_debugger_when_debug_on_error_is_enabled()
 
 #[test]
 fn buffer_char_after_before() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(get-buffer-create \"cb\")
          (set-buffer \"cb\")
@@ -6843,6 +7111,7 @@ fn buffer_char_after_before() {
 
 #[test]
 fn buffer_list_and_kill() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         "(get-buffer-create \"kill-me\")
          (kill-buffer \"kill-me\")
@@ -6854,6 +7123,7 @@ fn buffer_list_and_kill() {
 
 #[test]
 fn buffer_generate_new_buffer() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all_with_subr(
         "(buffer-name (generate-new-buffer \"test\"))
          (buffer-name (generate-new-buffer \"test\"))",
@@ -6864,12 +7134,14 @@ fn buffer_generate_new_buffer() {
 
 #[test]
 fn fillarray_string_writeback_updates_symbol_binding() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one("(let ((s (copy-sequence \"abc\"))) (fillarray s ?x) s)");
     assert_eq!(result, r#"OK "xxx""#);
 }
 
 #[test]
 fn fillarray_alias_string_writeback_updates_symbol_binding() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(progn
             (defalias 'vm-fillarray-alias 'fillarray)
@@ -6882,18 +7154,21 @@ fn fillarray_alias_string_writeback_updates_symbol_binding() {
 
 #[test]
 fn fillarray_string_writeback_updates_alias_from_prog1_expression() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one("(let ((s (copy-sequence \"abc\"))) (fillarray (prog1 s) ?x) s)");
     assert_eq!(result, r#"OK "xxx""#);
 }
 
 #[test]
 fn fillarray_string_writeback_updates_alias_from_list_car_expression() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one("(let ((s (copy-sequence \"abc\"))) (fillarray (car (list s)) ?y) s)");
     assert_eq!(result, r#"OK "yyy""#);
 }
 
 #[test]
 fn fillarray_string_writeback_updates_vector_alias_element() {
+    crate::test_utils::init_test_tracing();
     let result =
         eval_one("(let* ((s (copy-sequence \"abc\")) (v (vector s))) (fillarray s ?x) (aref v 0))");
     assert_eq!(result, r#"OK "xxx""#);
@@ -6901,6 +7176,7 @@ fn fillarray_string_writeback_updates_vector_alias_element() {
 
 #[test]
 fn fillarray_string_writeback_updates_cons_alias_element() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(let* ((s (copy-sequence \"abc\")) (cell (cons s nil))) (fillarray s ?y) (car cell))",
     );
@@ -6909,6 +7185,7 @@ fn fillarray_string_writeback_updates_cons_alias_element() {
 
 #[test]
 fn fillarray_string_writeback_preserves_eq_hash_key_lookup() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(let* ((s (copy-sequence \"abc\")) (ht (make-hash-table :test 'eq)))
            (puthash s 'v ht)
@@ -6920,6 +7197,7 @@ fn fillarray_string_writeback_preserves_eq_hash_key_lookup() {
 
 #[test]
 fn fillarray_string_writeback_preserves_eql_hash_key_lookup() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(let* ((s (copy-sequence \"abc\")) (ht (make-hash-table :test 'eql)))
            (puthash s 'v ht)
@@ -6931,6 +7209,7 @@ fn fillarray_string_writeback_preserves_eql_hash_key_lookup() {
 
 #[test]
 fn fillarray_string_writeback_equal_hash_key_lookup_stays_nil() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(let* ((s (copy-sequence \"abc\")) (ht (make-hash-table :test 'equal)))
            (puthash s 'v ht)
@@ -6942,12 +7221,14 @@ fn fillarray_string_writeback_equal_hash_key_lookup_stays_nil() {
 
 #[test]
 fn aset_string_writeback_updates_symbol_binding() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one("(let ((s (copy-sequence \"abc\"))) (aset s 1 ?x) s)");
     assert_eq!(result, r#"OK "axc""#);
 }
 
 #[test]
 fn aset_alias_string_writeback_updates_symbol_binding() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(progn
             (defalias 'vm-aset-alias 'aset)
@@ -6960,18 +7241,21 @@ fn aset_alias_string_writeback_updates_symbol_binding() {
 
 #[test]
 fn aset_string_writeback_updates_alias_from_prog1_expression() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one("(let ((s (copy-sequence \"abc\"))) (aset (prog1 s) 1 ?x) s)");
     assert_eq!(result, r#"OK "axc""#);
 }
 
 #[test]
 fn aset_string_writeback_updates_alias_from_list_car_expression() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one("(let ((s (copy-sequence \"abc\"))) (aset (car (list s)) 1 ?y) s)");
     assert_eq!(result, r#"OK "ayc""#);
 }
 
 #[test]
 fn aset_string_writeback_updates_vector_alias_element() {
+    crate::test_utils::init_test_tracing();
     let result =
         eval_one("(let* ((s (copy-sequence \"abc\")) (v (vector s))) (aset s 1 ?x) (aref v 0))");
     assert_eq!(result, r#"OK "axc""#);
@@ -6979,6 +7263,7 @@ fn aset_string_writeback_updates_vector_alias_element() {
 
 #[test]
 fn aset_string_writeback_updates_cons_alias_element() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(let* ((s (copy-sequence \"abc\")) (cell (cons s nil))) (aset s 1 ?y) (car cell))",
     );
@@ -6987,6 +7272,7 @@ fn aset_string_writeback_updates_cons_alias_element() {
 
 #[test]
 fn aset_string_writeback_preserves_eq_hash_key_lookup() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(let* ((s (copy-sequence \"abc\")) (ht (make-hash-table :test 'eq)))
            (puthash s 'v ht)
@@ -6998,6 +7284,7 @@ fn aset_string_writeback_preserves_eq_hash_key_lookup() {
 
 #[test]
 fn aset_string_writeback_preserves_eql_hash_key_lookup() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(let* ((s (copy-sequence \"abc\")) (ht (make-hash-table :test 'eql)))
            (puthash s 'v ht)
@@ -7009,6 +7296,7 @@ fn aset_string_writeback_preserves_eql_hash_key_lookup() {
 
 #[test]
 fn aset_string_writeback_equal_hash_key_lookup_stays_nil() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(let* ((s (copy-sequence \"abc\")) (ht (make-hash-table :test 'equal)))
            (puthash s 'v ht)
@@ -7024,6 +7312,7 @@ fn aset_string_writeback_equal_hash_key_lookup_stays_nil() {
 
 #[test]
 fn gc_collect_retains_reachable() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = crate::emacs_core::parse_forms("(setq x (cons 1 2))").unwrap();
     ev.eval_forms(&forms);
@@ -7041,6 +7330,7 @@ fn gc_collect_retains_reachable() {
 
 #[test]
 fn gc_collect_frees_unreachable() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     // Create orphaned conses that aren't bound to any variable.
     let forms =
@@ -7058,6 +7348,7 @@ fn gc_collect_frees_unreachable() {
 
 #[test]
 fn gc_collect_handles_cycles() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     // Create a circular list: (setq x (cons 1 nil)) (setcdr x x)
     let forms =
@@ -7084,6 +7375,7 @@ fn gc_collect_handles_cycles() {
 
 #[test]
 fn gc_safe_point_collects_when_threshold_reached() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.tagged_heap.set_gc_threshold(5);
     // Allocate enough conses to exceed threshold.
@@ -7107,6 +7399,7 @@ fn gc_safe_point_collects_when_threshold_reached() {
 
 #[test]
 fn gc_threshold_adapts_after_collection() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.tagged_heap.set_gc_threshold(3);
     // Create 3 conses that are reachable via variables.
@@ -7128,6 +7421,7 @@ fn gc_threshold_adapts_after_collection() {
 
 #[test]
 fn gc_collect_runs_post_gc_hook() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         "(progn
            (setq gc-hook-log nil)
@@ -7142,6 +7436,7 @@ fn gc_collect_runs_post_gc_hook() {
 
 #[test]
 fn gc_safe_point_runs_post_gc_hook_when_incremental_collection_finishes() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let setup = crate::emacs_core::parse_forms(
         "(progn
@@ -7189,12 +7484,14 @@ fn eval_stress(src: &str) -> Vec<String> {
 
 #[test]
 fn gc_stress_arithmetic() {
+    crate::test_utils::init_test_tracing();
     let r = eval_stress("(+ 1 2) (* 3 4) (- 10 5)");
     assert_eq!(r, vec!["OK 3", "OK 12", "OK 5"]);
 }
 
 #[test]
 fn gc_stress_cons_operations() {
+    crate::test_utils::init_test_tracing();
     let r = eval_stress(
         "(setq x (cons 1 (cons 2 (cons 3 nil))))
          (car x)
@@ -7206,6 +7503,7 @@ fn gc_stress_cons_operations() {
 
 #[test]
 fn gc_stress_vector_operations() {
+    crate::test_utils::init_test_tracing();
     let r = eval_stress(
         "(setq v (vector 10 20 30))
          (aref v 0)
@@ -7217,6 +7515,7 @@ fn gc_stress_vector_operations() {
 
 #[test]
 fn gc_stress_hash_table() {
+    crate::test_utils::init_test_tracing();
     let r = eval_stress(
         "(setq ht (make-hash-table :test 'equal))
          (puthash \"a\" 1 ht)
@@ -7232,6 +7531,7 @@ fn gc_stress_hash_table() {
 
 #[test]
 fn gc_stress_closures() {
+    crate::test_utils::init_test_tracing();
     // Test lambdas and funcall survive GC (dynamic binding).
     // Lexical capture across separate top-level forms is a
     // pre-existing limitation unrelated to GC.
@@ -7247,6 +7547,7 @@ fn gc_stress_closures() {
 
 #[test]
 fn gc_stress_lambda_argument_closure_survives_binding_installation() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
@@ -7264,6 +7565,7 @@ fn gc_stress_lambda_argument_closure_survives_binding_installation() {
 
 #[test]
 fn gc_stress_direct_lambda_head_roots_fresh_closure_during_arg_eval() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
@@ -7283,6 +7585,7 @@ fn gc_stress_direct_lambda_head_roots_fresh_closure_during_arg_eval() {
 
 #[test]
 fn gc_stress_builtin_apply_roots_closure_function_argument() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
@@ -7299,6 +7602,7 @@ fn gc_stress_builtin_apply_roots_closure_function_argument() {
 
 #[test]
 fn gc_stress_let_star_lexical_binding_roots_evaluated_values() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
@@ -7316,12 +7620,14 @@ fn gc_stress_let_star_lexical_binding_roots_evaluated_values() {
 
 #[test]
 fn gc_stress_prog1_roots_first_value() {
+    crate::test_utils::init_test_tracing();
     let r = eval_stress("(prog1 (list 1 2 3) (list 4 5 6) (list 7 8 9))");
     assert_eq!(r[0], "OK (1 2 3)");
 }
 
 #[test]
 fn gc_stress_apply_env_expander_closure_capturing_uninterned_symbol() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
     ev.lexenv = Value::list(vec![Value::T]);
@@ -7353,6 +7659,7 @@ fn gc_stress_apply_env_expander_closure_capturing_uninterned_symbol() {
 
 #[test]
 fn interpreted_closure_while_can_advance_lexical_loop_variable() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
     let forms = parse_forms(
@@ -7375,6 +7682,7 @@ fn interpreted_closure_while_can_advance_lexical_loop_variable() {
 
 #[test]
 fn gc_stress_aref_on_closure_survives_closure_vector_conversion() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
@@ -7391,6 +7699,7 @@ fn gc_stress_aref_on_closure_survives_closure_vector_conversion() {
 
 #[test]
 fn gc_stress_cdr_on_lambda_survives_cons_list_conversion() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
@@ -7407,6 +7716,7 @@ fn gc_stress_cdr_on_lambda_survives_cons_list_conversion() {
 
 #[test]
 fn gc_stress_recursive_function() {
+    crate::test_utils::init_test_tracing();
     let r = eval_stress(
         "(defalias 'my-length #'(lambda (lst)
            (if (null lst) 0
@@ -7420,6 +7730,7 @@ fn gc_stress_recursive_function() {
 
 #[test]
 fn gc_stress_setcar_setcdr() {
+    crate::test_utils::init_test_tracing();
     let r = eval_stress(
         "(setq x (cons 1 2))
          (setcar x 10)
@@ -7431,6 +7742,7 @@ fn gc_stress_setcar_setcdr() {
 
 #[test]
 fn gc_stress_let_bindings() {
+    crate::test_utils::init_test_tracing();
     let r = eval_stress(
         "(let ((a (cons 1 2))
                (b (cons 3 4)))
@@ -7441,12 +7753,14 @@ fn gc_stress_let_bindings() {
 
 #[test]
 fn gc_stress_mapcar() {
+    crate::test_utils::init_test_tracing();
     let r = eval_stress("(mapcar '1+ '(1 2 3 4 5))");
     assert_eq!(r[0], "OK (2 3 4 5 6)");
 }
 
 #[test]
 fn gc_stress_string_operations() {
+    crate::test_utils::init_test_tracing();
     let r = eval_stress(
         r#"(setq s (concat "hello" " " "world"))
            (length s)
@@ -7459,6 +7773,7 @@ fn gc_stress_string_operations() {
 
 #[test]
 fn gc_stress_nreverse() {
+    crate::test_utils::init_test_tracing();
     let r = eval_stress(
         "(setq x (list 1 2 3 4 5))
          (setq y (nreverse x))
@@ -7469,6 +7784,7 @@ fn gc_stress_nreverse() {
 
 #[test]
 fn gc_stress_plist() {
+    crate::test_utils::init_test_tracing();
     let r = eval_stress(
         "(setq pl '(a 1 b 2 c 3))
          (plist-get pl 'b)
@@ -7481,6 +7797,7 @@ fn gc_stress_plist() {
 
 #[test]
 fn gc_stress_circular_list_survives() {
+    crate::test_utils::init_test_tracing();
     // Create circular list inside a single progn to avoid formatting
     // the circular cons (which would hang the Display impl).
     let r = eval_stress(
@@ -7494,6 +7811,7 @@ fn gc_stress_circular_list_survives() {
 
 #[test]
 fn gc_stress_many_allocations() {
+    crate::test_utils::init_test_tracing();
     // Allocate many short-lived conses; only final result should survive
     // dotimes is no longer a special form; use let+while equivalent
     let r = eval_stress(
@@ -7512,6 +7830,7 @@ fn gc_stress_many_allocations() {
 
 #[test]
 fn lexical_closure_mutation_visible() {
+    crate::test_utils::init_test_tracing();
     // Closures must share the same lexical frame — mutations through
     // one closure must be visible to the outer scope.
     let mut ev = Context::new();
@@ -7530,6 +7849,7 @@ fn lexical_closure_mutation_visible() {
 
 #[test]
 fn lexical_closure_shared_state() {
+    crate::test_utils::init_test_tracing();
     // Two closures sharing the same binding (inc + get).
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
@@ -7549,6 +7869,7 @@ fn lexical_closure_shared_state() {
 
 #[test]
 fn lexical_closure_make_counter() {
+    crate::test_utils::init_test_tracing();
     // Classic make-counter pattern with independent counters.
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
@@ -7574,6 +7895,7 @@ fn lexical_closure_make_counter() {
 
 #[test]
 fn lexical_closure_outer_mutation_visible() {
+    crate::test_utils::init_test_tracing();
     // Outer setq visible to closure.
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
@@ -7590,6 +7912,7 @@ fn lexical_closure_outer_mutation_visible() {
 
 #[test]
 fn closure_inside_mapcar_lambda_captures_outer_param() {
+    crate::test_utils::init_test_tracing();
     // Reproduces the pcase-compile-patterns pattern:
     // (mapcar (lambda (case)
     //           (list case
@@ -7614,6 +7937,7 @@ fn closure_inside_mapcar_lambda_captures_outer_param() {
 
 #[test]
 fn closure_inside_backquote_mapcar_captures_outer_param() {
+    crate::test_utils::init_test_tracing();
     // More closely matches pcase-compile-patterns:
     // The inner lambda is created inside a backquote, after a function call.
     let mut ev = Context::new();
@@ -7635,6 +7959,7 @@ fn closure_inside_backquote_mapcar_captures_outer_param() {
 
 #[test]
 fn closure_inside_real_backquote_with_fn_call_captures_outer_param() {
+    crate::test_utils::init_test_tracing();
     // Replicates the exact pcase-compile-patterns pattern:
     // (mapcar (lambda (case)
     //           `(,(some-fn val (car case))
@@ -7663,6 +7988,7 @@ fn closure_inside_real_backquote_with_fn_call_captures_outer_param() {
 
 #[test]
 fn real_backquote_computed_symbols_match_runtime_macro_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     load_minimal_backquote_runtime(&mut eval);
 
@@ -7687,6 +8013,7 @@ fn real_backquote_computed_symbols_match_runtime_macro_semantics() {
 
 #[test]
 fn real_backquote_macroexpand_preserves_debug_head_before_splice() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         eval_all_with_subr(
             "(progn
@@ -7704,6 +8031,7 @@ fn real_backquote_macroexpand_preserves_debug_head_before_splice() {
 
 #[test]
 fn loaded_subr_condition_case_unless_debug_calls_debugger_before_handler() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     load_minimal_backquote_runtime(&mut eval);
 
@@ -7728,6 +8056,7 @@ fn loaded_subr_condition_case_unless_debug_calls_debugger_before_handler() {
 
 #[test]
 fn loaded_subr_condition_case_unless_debug_macroexpand_includes_debug_marker() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     load_minimal_backquote_runtime(&mut eval);
 
@@ -7747,6 +8076,7 @@ fn loaded_subr_condition_case_unless_debug_macroexpand_includes_debug_marker() {
 
 #[test]
 fn lexical_condition_case_debug_marker_calls_debugger_before_handler() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     eval.set_lexical_binding(true);
 
@@ -7771,6 +8101,7 @@ fn lexical_condition_case_debug_marker_calls_debugger_before_handler() {
 
 #[test]
 fn real_backquote_nested_eval_chain_matches_gnu_error_shape() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     load_minimal_backquote_runtime(&mut eval);
 
@@ -7788,6 +8119,7 @@ fn real_backquote_nested_eval_chain_matches_gnu_error_shape() {
 
 #[test]
 fn condition_case_lexical_handler_binding_restores_outer_let() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     eval.set_lexical_binding(true);
 
@@ -7808,6 +8140,7 @@ fn condition_case_lexical_handler_binding_restores_outer_let() {
 
 #[test]
 fn gc_stress_lexical_closure_mutation() {
+    crate::test_utils::init_test_tracing();
     // GC stress variant of closure mutation.
     let r = eval_stress(
         "(let ((x 0))
@@ -7822,6 +8155,7 @@ fn gc_stress_lexical_closure_mutation() {
 
 #[test]
 fn evaluator_face_table_has_standard_faces() {
+    crate::test_utils::init_test_tracing();
     let ev = Context::new();
     let ft = ev.face_table();
 
@@ -7849,6 +8183,7 @@ fn evaluator_face_table_has_standard_faces() {
 
 #[test]
 fn advice_around_compiler_macro_pattern() {
+    crate::test_utils::init_test_tracing();
     // Reproduce the cl-macs pattern: macroexp--compiler-macro calls a
     // compiler-macro handler. condition-case-unless-debug should catch
     // wrong-number-of-arguments errors.
@@ -7872,6 +8207,7 @@ fn advice_around_compiler_macro_pattern() {
 
 #[test]
 fn oclosure_define_basic() {
+    crate::test_utils::init_test_tracing();
     // Test basic oclosure-define usage - the pattern that fails in loadup
     let results = eval_all(
         r#"
@@ -7892,6 +8228,7 @@ fn oclosure_define_basic() {
 
 #[test]
 fn oclosure_define_macroexpand() {
+    crate::test_utils::init_test_tracing();
     // Trace what oclosure-define expands to
     let results = eval_all(
         r#"
@@ -7908,6 +8245,7 @@ fn oclosure_define_macroexpand() {
 
 #[test]
 fn cl_defstruct_keyword_handling() {
+    crate::test_utils::init_test_tracing();
     // Test cl-defstruct with :copier/:constructor keywords
     // These fail with (invalid-function :copier) in loadup
     let results = eval_all(
@@ -7929,6 +8267,7 @@ fn cl_defstruct_keyword_handling() {
 
 #[test]
 fn cl_deftype_basic() {
+    crate::test_utils::init_test_tracing();
     // Test cl-deftype which fails in ring.el with (void-variable ring)
     let results = eval_all(
         r#"

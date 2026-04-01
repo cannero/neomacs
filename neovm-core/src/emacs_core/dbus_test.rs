@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn dbus_init_bus_contract() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         builtin_dbus_init_bus(vec![Value::keyword(":session")]).unwrap(),
         Value::fixnum(2)
@@ -15,6 +16,7 @@ fn dbus_init_bus_contract() {
 
 #[test]
 fn dbus_get_unique_name_errors_without_connection() {
+    crate::test_utils::init_test_tracing();
     let err = builtin_dbus_get_unique_name(vec![Value::keyword(":system")]).unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "dbus-error"),
@@ -24,6 +26,7 @@ fn dbus_get_unique_name_errors_without_connection() {
 
 #[test]
 fn dbus_message_internal_validates_first_arg() {
+    crate::test_utils::init_test_tracing();
     let err = builtin_dbus_message_internal(vec![
         Value::keyword(":session"),
         Value::string("/"),

@@ -4,6 +4,7 @@ use crate::emacs_core::value::Value;
 
 #[test]
 fn redraw_frame_nil_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let mut ctx = crate::emacs_core::eval::Context::new();
     let result = builtin_redraw_frame(&mut ctx, vec![]).unwrap();
     assert!(result.is_nil());
@@ -11,6 +12,7 @@ fn redraw_frame_nil_returns_nil() {
 
 #[test]
 fn redraw_frame_rejects_non_frame_designator() {
+    crate::test_utils::init_test_tracing();
     let mut ctx = crate::emacs_core::eval::Context::new();
     let result = builtin_redraw_frame(&mut ctx, vec![Value::string("not-a-frame")]);
     assert!(result.is_err());
@@ -18,24 +20,28 @@ fn redraw_frame_rejects_non_frame_designator() {
 
 #[test]
 fn redraw_display_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_redraw_display(vec![]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn ding_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_ding(vec![]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn ding_with_arg_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_ding(vec![Value::T]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn open_termscript_signals_tty_error() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_open_termscript(vec![Value::NIL]);
     match result {
         Err(Flow::Signal(sig)) => {
@@ -51,6 +57,7 @@ fn open_termscript_signals_tty_error() {
 
 #[test]
 fn send_string_to_terminal_rejects_non_string() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let result = builtin_send_string_to_terminal(&mut eval, vec![Value::fixnum(42)]);
     assert!(result.is_err());
@@ -58,6 +65,7 @@ fn send_string_to_terminal_rejects_non_string() {
 
 #[test]
 fn send_string_to_terminal_accepts_string() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let result = builtin_send_string_to_terminal(&mut eval, vec![Value::string("hello")]).unwrap();
     assert!(result.is_nil());
@@ -65,6 +73,7 @@ fn send_string_to_terminal_accepts_string() {
 
 #[test]
 fn internal_show_cursor_tracks_visibility() {
+    crate::test_utils::init_test_tracing();
     reset_dispnew_thread_locals();
     let mut eval = crate::emacs_core::eval::Context::new();
     let default_visible = builtin_internal_show_cursor_p(&mut eval, vec![]).unwrap();
@@ -81,6 +90,7 @@ fn internal_show_cursor_tracks_visibility() {
 
 #[test]
 fn internal_show_cursor_rejects_non_window() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let result = builtin_internal_show_cursor(&mut eval, vec![Value::fixnum(1), Value::NIL]);
     assert!(result.is_err());
@@ -88,24 +98,28 @@ fn internal_show_cursor_rejects_non_window() {
 
 #[test]
 fn force_window_update_no_arg_returns_t() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_force_window_update(vec![]).unwrap();
     assert_eq!(result, Value::T);
 }
 
 #[test]
 fn force_window_update_with_arg_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_force_window_update(vec![Value::T]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn force_window_update_nil_arg_returns_t() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_force_window_update(vec![Value::NIL]).unwrap();
     assert_eq!(result, Value::T);
 }
 
 #[test]
 fn eval_internal_show_cursor_per_window_state() {
+    crate::test_utils::init_test_tracing();
     reset_dispnew_thread_locals();
     let mut eval = crate::emacs_core::Context::new();
     let _ = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
@@ -144,12 +158,14 @@ fn eval_internal_show_cursor_per_window_state() {
 
 #[test]
 fn frame_z_order_lessp_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_frame_z_order_lessp(vec![Value::NIL, Value::NIL]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn frame_z_order_lessp_requires_two_args() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_frame_z_order_lessp(vec![]).is_err());
     assert!(builtin_frame_z_order_lessp(vec![Value::NIL]).is_err());
 }

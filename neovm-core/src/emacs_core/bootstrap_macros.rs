@@ -70,6 +70,7 @@ mod tests {
 
     #[test]
     fn source_bootstrap_installs_eval_and_compile_only() {
+        crate::test_utils::init_test_tracing();
         let mut eval = Context::new();
         install_bootstrap_macro_function_cells(&mut eval);
 
@@ -98,6 +99,7 @@ mod tests {
 
     #[test]
     fn source_bootstrap_does_not_override_existing_function_cells() {
+        crate::test_utils::init_test_tracing();
         let mut eval = Context::new();
         let sym = intern("eval-and-compile");
         eval.obarray

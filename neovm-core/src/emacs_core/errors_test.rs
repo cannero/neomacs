@@ -26,6 +26,7 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
 
 #[test]
 fn registry_new_has_standard_errors() {
+    crate::test_utils::init_test_tracing();
     let reg = ErrorRegistry::new();
     assert!(reg.parents.contains_key("error"));
     assert!(reg.parents.contains_key("void-variable"));
@@ -35,18 +36,21 @@ fn registry_new_has_standard_errors() {
 
 #[test]
 fn registry_direct_match() {
+    crate::test_utils::init_test_tracing();
     let reg = ErrorRegistry::new();
     assert!(reg.signal_matches_condition("void-variable", "void-variable"));
 }
 
 #[test]
 fn registry_parent_match() {
+    crate::test_utils::init_test_tracing();
     let reg = ErrorRegistry::new();
     assert!(reg.signal_matches_condition("void-variable", "error"));
 }
 
 #[test]
 fn registry_grandparent_match() {
+    crate::test_utils::init_test_tracing();
     let reg = ErrorRegistry::new();
     // overflow-error -> arith-error -> error
     assert!(reg.signal_matches_condition("overflow-error", "arith-error"));
@@ -55,6 +59,7 @@ fn registry_grandparent_match() {
 
 #[test]
 fn registry_no_match() {
+    crate::test_utils::init_test_tracing();
     let reg = ErrorRegistry::new();
     assert!(!reg.signal_matches_condition("void-variable", "void-function"));
     assert!(!reg.signal_matches_condition("void-variable", "arith-error"));
@@ -62,6 +67,7 @@ fn registry_no_match() {
 
 #[test]
 fn registry_t_catches_all() {
+    crate::test_utils::init_test_tracing();
     let reg = ErrorRegistry::new();
     assert!(reg.signal_matches_condition("void-variable", "t"));
     assert!(reg.signal_matches_condition("file-missing", "t"));
@@ -70,6 +76,7 @@ fn registry_t_catches_all() {
 
 #[test]
 fn registry_define_error_custom() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ErrorRegistry::new();
     reg.define_error("my-error", "My custom error", &["user-error"]);
     assert!(reg.signal_matches_condition("my-error", "user-error"));
@@ -79,6 +86,7 @@ fn registry_define_error_custom() {
 
 #[test]
 fn registry_define_error_multiple_parents() {
+    crate::test_utils::init_test_tracing();
     let mut reg = ErrorRegistry::new();
     reg.define_error("hybrid-error", "Hybrid", &["file-error", "arith-error"]);
     assert!(reg.signal_matches_condition("hybrid-error", "file-error"));
@@ -88,6 +96,7 @@ fn registry_define_error_multiple_parents() {
 
 #[test]
 fn registry_conditions_for() {
+    crate::test_utils::init_test_tracing();
     let reg = ErrorRegistry::new();
     let conds = reg.conditions_for("file-missing");
     assert!(conds.contains(&"file-missing".to_string()));
@@ -97,6 +106,7 @@ fn registry_conditions_for() {
 
 #[test]
 fn registry_file_error_family() {
+    crate::test_utils::init_test_tracing();
     let reg = ErrorRegistry::new();
     for child in &[
         "file-already-exists",
@@ -120,6 +130,7 @@ fn registry_file_error_family() {
 
 #[test]
 fn registry_json_error_family() {
+    crate::test_utils::init_test_tracing();
     let reg = ErrorRegistry::new();
     assert!(reg.signal_matches_condition("json-parse-error", "json-error"));
     assert!(reg.signal_matches_condition("json-serialize-error", "json-error"));
@@ -128,6 +139,7 @@ fn registry_json_error_family() {
 
 #[test]
 fn registry_remote_file_error_inherits_file_error() {
+    crate::test_utils::init_test_tracing();
     let reg = ErrorRegistry::new();
     assert!(reg.signal_matches_condition("remote-file-error", "file-error"));
     assert!(reg.signal_matches_condition("remote-file-error", "error"));
@@ -139,6 +151,7 @@ fn registry_remote_file_error_inherits_file_error() {
 
 #[test]
 fn obarray_init_standard_errors() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);
     // Check that error-conditions is set for 'error' itself.
@@ -149,6 +162,7 @@ fn obarray_init_standard_errors() {
 
 #[test]
 fn obarray_void_variable_conditions() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);
     let conds = ob
@@ -161,6 +175,7 @@ fn obarray_void_variable_conditions() {
 
 #[test]
 fn obarray_overflow_error_conditions() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);
     let conds = ob
@@ -174,6 +189,7 @@ fn obarray_overflow_error_conditions() {
 
 #[test]
 fn obarray_file_missing_conditions() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);
     let conds = ob.get_property("file-missing", "error-conditions").unwrap();
@@ -185,6 +201,7 @@ fn obarray_file_missing_conditions() {
 
 #[test]
 fn obarray_dbus_error_conditions() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);
     let conds = ob.get_property("dbus-error", "error-conditions").unwrap();
@@ -195,6 +212,7 @@ fn obarray_dbus_error_conditions() {
 
 #[test]
 fn obarray_cyclic_indirection_conditions() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);
 
@@ -215,6 +233,7 @@ fn obarray_cyclic_indirection_conditions() {
 
 #[test]
 fn obarray_hierarchical_match() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);
     assert!(signal_matches_hierarchical(&ob, "void-variable", "error"));
@@ -237,6 +256,7 @@ fn obarray_hierarchical_match() {
 
 #[test]
 fn obarray_hierarchical_match_exact() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);
     assert!(signal_matches_hierarchical(
@@ -248,6 +268,7 @@ fn obarray_hierarchical_match_exact() {
 
 #[test]
 fn obarray_hierarchical_match_t() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);
     assert!(signal_matches_hierarchical(&ob, "void-variable", "t"));
@@ -255,6 +276,7 @@ fn obarray_hierarchical_match_t() {
 
 #[test]
 fn obarray_error_message_property() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);
     let msg = ob.get_property("void-variable", "error-message").unwrap();
@@ -263,6 +285,7 @@ fn obarray_error_message_property() {
 
 #[test]
 fn obarray_condition_pattern_symbol() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);
     let pat = Expr::Symbol(intern("error"));
@@ -271,6 +294,7 @@ fn obarray_condition_pattern_symbol() {
 
 #[test]
 fn obarray_condition_pattern_list() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);
     let pat = Expr::List(vec![
@@ -292,6 +316,7 @@ fn obarray_condition_pattern_list() {
 
 #[test]
 fn obarray_unknown_signal_no_conditions() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);
     // A signal that was never registered — only exact match works.
@@ -310,6 +335,7 @@ fn obarray_unknown_signal_no_conditions() {
 
 #[test]
 fn define_error_basic() {
+    crate::test_utils::init_test_tracing();
     let mut evaluator = bootstrap_context();
     let forms = parse_forms(r#"(define-error 'my-error "My error")"#).expect("parse");
     let result = evaluator.eval_expr(&forms[0]);
@@ -333,6 +359,7 @@ fn define_error_basic() {
 
 #[test]
 fn define_error_with_parent() {
+    crate::test_utils::init_test_tracing();
     let mut evaluator = bootstrap_context();
     let forms =
         parse_forms(r#"(define-error 'my-file-error "My file error" 'file-error)"#).expect("parse");
@@ -353,6 +380,7 @@ fn define_error_with_parent() {
 
 #[test]
 fn define_error_with_parent_list() {
+    crate::test_utils::init_test_tracing();
     let mut evaluator = bootstrap_context();
     let forms = parse_forms(r#"(define-error 'multi-error "Multi" '(file-error arith-error))"#)
         .expect("parse");
@@ -378,18 +406,21 @@ fn define_error_with_parent_list() {
 
 #[test]
 fn define_error_wrong_type_name() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(r#"(condition-case err (define-error 42 "Bad") (error err))"#);
     assert_eq!(results[0], "OK (wrong-type-argument symbolp 42)");
 }
 
 #[test]
 fn define_error_wrong_type_message() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(r#"(condition-case err (define-error 'foo 42) (error err))"#);
     assert_eq!(results[0], "OK (wrong-type-argument stringp 42)");
 }
 
 #[test]
 fn define_error_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let results =
         bootstrap_eval_all(r#"(condition-case err (define-error 'x "X" 'error 99) (error err))"#);
     assert_eq!(results[0], "OK (wrong-number-of-arguments define-error 4)");
@@ -401,6 +432,7 @@ fn define_error_too_many_args() {
 
 #[test]
 fn builtin_signal_basic() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let args = vec![Value::symbol("void-variable"), Value::NIL];
     let result = builtin_signal(&mut eval, args);
@@ -416,6 +448,7 @@ fn builtin_signal_basic() {
 
 #[test]
 fn builtin_signal_with_data() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let data_list = Value::list(vec![Value::symbol("x")]);
     let args = vec![Value::symbol("void-variable"), data_list];
@@ -431,6 +464,7 @@ fn builtin_signal_with_data() {
 
 #[test]
 fn builtin_signal_atom_preserves_raw_payload() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let result = builtin_signal(&mut eval, vec![Value::symbol("error"), Value::fixnum(1)]);
     match result {
@@ -445,6 +479,7 @@ fn builtin_signal_atom_preserves_raw_payload() {
 
 #[test]
 fn condition_case_preserves_raw_signal_binding_shape() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let forms = parse_forms("(condition-case err (signal 'error 1) (error err))").expect("parse");
     let value = eval
@@ -455,6 +490,7 @@ fn condition_case_preserves_raw_signal_binding_shape() {
 
 #[test]
 fn builtin_signal_wrong_arity() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let result = builtin_signal(&mut eval, vec![Value::symbol("error")]);
     assert!(result.is_err());
@@ -462,6 +498,7 @@ fn builtin_signal_wrong_arity() {
 
 #[test]
 fn builtin_signal_non_symbol() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let result = builtin_signal(&mut eval, vec![Value::fixnum(42), Value::NIL]);
     assert!(result.is_err());
@@ -469,6 +506,7 @@ fn builtin_signal_non_symbol() {
 
 #[test]
 fn builtin_error_message_string_basic() {
+    crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
@@ -485,6 +523,7 @@ fn builtin_error_message_string_basic() {
 
 #[test]
 fn builtin_error_message_string_no_data() {
+    crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
@@ -498,6 +537,7 @@ fn builtin_error_message_string_no_data() {
 
 #[test]
 fn builtin_error_message_string_void_function_typography() {
+    crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
@@ -513,6 +553,7 @@ fn builtin_error_message_string_void_function_typography() {
 
 #[test]
 fn builtin_error_message_string_unknown() {
+    crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
 
     // Unknown condition symbols are treated as peculiar errors.
@@ -538,6 +579,7 @@ fn builtin_error_message_string_unknown() {
 
 #[test]
 fn builtin_error_message_string_no_payload_specials() {
+    crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
@@ -554,6 +596,7 @@ fn builtin_error_message_string_no_payload_specials() {
 
 #[test]
 fn builtin_error_message_string_error_with_string_payload() {
+    crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
@@ -566,6 +609,7 @@ fn builtin_error_message_string_error_with_string_payload() {
 
 #[test]
 fn builtin_error_message_string_error_with_string_and_extra() {
+    crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
@@ -582,6 +626,7 @@ fn builtin_error_message_string_error_with_string_and_extra() {
 
 #[test]
 fn builtin_error_message_string_user_error_variants() {
+    crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
@@ -606,6 +651,7 @@ fn builtin_error_message_string_user_error_variants() {
 
 #[test]
 fn builtin_error_message_string_file_error_string_payload() {
+    crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
@@ -622,6 +668,7 @@ fn builtin_error_message_string_file_error_string_payload() {
 
 #[test]
 fn builtin_error_message_string_file_missing_string_payload() {
+    crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
@@ -642,6 +689,7 @@ fn builtin_error_message_string_file_missing_string_payload() {
 
 #[test]
 fn builtin_error_message_string_peculiar_error_paths() {
+    crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
@@ -739,6 +787,7 @@ fn builtin_error_message_string_peculiar_error_paths() {
 
 #[test]
 fn builtin_error_message_string_end_of_file_does_not_quote_string_payload() {
+    crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
@@ -756,6 +805,7 @@ fn builtin_error_message_string_end_of_file_does_not_quote_string_payload() {
 
 #[test]
 fn builtin_error_message_string_args_out_of_range_uses_base_message() {
+    crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
@@ -774,6 +824,7 @@ fn builtin_error_message_string_args_out_of_range_uses_base_message() {
 
 #[test]
 fn builtin_error_message_string_formats_buffer_handles_with_names() {
+    crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
@@ -807,6 +858,7 @@ fn builtin_error_message_string_formats_buffer_handles_with_names() {
 
 #[test]
 fn builtin_error_message_string_formats_mutex_and_condvar_handles() {
+    crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
@@ -853,6 +905,7 @@ fn builtin_error_message_string_formats_mutex_and_condvar_handles() {
 
 #[test]
 fn builtin_error_message_string_formats_thread_handles() {
+    crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
@@ -876,6 +929,7 @@ fn builtin_error_message_string_formats_thread_handles() {
 
 #[test]
 fn builtin_error_message_string_formats_terminal_handles() {
+    crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
@@ -903,6 +957,7 @@ fn builtin_error_message_string_formats_terminal_handles() {
 
 #[test]
 fn builtin_error_message_string_formats_frame_and_window_handles() {
+    crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
     init_standard_errors(&mut evaluator.obarray);
 
@@ -943,6 +998,7 @@ fn builtin_error_message_string_formats_frame_and_window_handles() {
 
 #[test]
 fn builtin_error_message_string_not_cons() {
+    crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
 
     // Non-list input signals wrong-type-argument (listp VALUE).
@@ -959,6 +1015,7 @@ fn builtin_error_message_string_not_cons() {
 
 #[test]
 fn builtin_error_message_string_symbol_input_is_wrong_type() {
+    crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
 
     let result = builtin_error_message_string(&mut evaluator, vec![Value::symbol("foo")]);
@@ -984,6 +1041,7 @@ fn builtin_error_message_string_symbol_input_is_wrong_type() {
 
 #[test]
 fn builtin_error_message_string_wrong_arity() {
+    crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
     let result = builtin_error_message_string(&mut evaluator, vec![]);
     assert!(result.is_err());
@@ -995,6 +1053,7 @@ fn builtin_error_message_string_wrong_arity() {
 
 #[test]
 fn obarray_define_then_match() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);
 
@@ -1010,6 +1069,7 @@ fn obarray_define_then_match() {
 
 #[test]
 fn obarray_deep_hierarchy() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);
 
@@ -1029,6 +1089,7 @@ fn obarray_deep_hierarchy() {
 
 #[test]
 fn obarray_all_standard_errors_have_message() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);
 
@@ -1090,6 +1151,7 @@ fn obarray_all_standard_errors_have_message() {
 
 #[test]
 fn obarray_all_standard_errors_include_self_in_conditions() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);
 

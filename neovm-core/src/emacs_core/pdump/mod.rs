@@ -246,6 +246,7 @@ mod tests {
 
     #[test]
     fn test_pdump_round_trip_basic() {
+        crate::test_utils::init_test_tracing();
         // Create a minimal evaluator
         let mut eval = Context::new();
 
@@ -270,6 +271,7 @@ mod tests {
 
     #[test]
     fn test_pdump_bad_magic() {
+        crate::test_utils::init_test_tracing();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("bad.pdump");
         std::fs::write(&path, b"BADMAGIC").unwrap();
@@ -278,6 +280,7 @@ mod tests {
 
     #[test]
     fn test_pdump_round_trip_bootstrap() {
+        crate::test_utils::init_test_tracing();
         // Bootstrap, dump, load, and verify eval works on loaded state
         let eval = crate::emacs_core::load::create_bootstrap_evaluator()
             .expect("bootstrap should succeed");
@@ -345,6 +348,7 @@ mod tests {
 
     #[test]
     fn test_pdump_round_trip_preserves_runtime_derived_mode_syntax() {
+        crate::test_utils::init_test_tracing();
         let mut eval = crate::emacs_core::load::create_bootstrap_evaluator()
             .expect("bootstrap should succeed");
         crate::emacs_core::load::apply_runtime_startup_state(&mut eval)
@@ -394,6 +398,7 @@ mod tests {
 
     #[test]
     fn test_pdump_round_trip_preserves_pre_runtime_standard_syntax_identity() {
+        crate::test_utils::init_test_tracing();
         let eval = crate::emacs_core::load::create_bootstrap_evaluator()
             .expect("bootstrap should succeed");
 
@@ -429,6 +434,7 @@ mod tests {
 
     #[test]
     fn test_pdump_round_trip_preserves_default_fontset_han_order() {
+        crate::test_utils::init_test_tracing();
         let mut eval =
             crate::emacs_core::load::create_bootstrap_evaluator_with_features(&["neomacs"])
                 .expect("bootstrap should succeed");
@@ -476,6 +482,7 @@ mod tests {
 
     #[test]
     fn test_restore_snapshot_isolated_between_clones() {
+        crate::test_utils::init_test_tracing();
         let template = crate::emacs_core::load::create_bootstrap_evaluator_cached()
             .expect("bootstrap template should succeed");
         let snapshot = snapshot_evaluator(&template);
@@ -510,6 +517,7 @@ mod tests {
 
     #[test]
     fn test_restore_snapshot_preserves_core_subr_callable_surface() {
+        crate::test_utils::init_test_tracing();
         let template = Context::new();
         let snapshot = snapshot_evaluator(&template);
 
@@ -532,6 +540,7 @@ mod tests {
 
     #[test]
     fn test_pdump_checksum_mismatch() {
+        crate::test_utils::init_test_tracing();
         let dir = tempfile::tempdir().unwrap();
         let dump_path = dir.path().join("test.pdump");
 
@@ -552,6 +561,7 @@ mod tests {
 
     #[test]
     fn test_restore_snapshot_rejects_legacy_unwind_protect_dump_opcode() {
+        crate::test_utils::init_test_tracing();
         let mut snapshot = snapshot_evaluator(&Context::new());
         snapshot
             .heap

@@ -11,6 +11,7 @@ fn with_test_heap<R>(f: impl FnOnce() -> R) -> R {
 
 #[test]
 fn value_constructors() {
+    crate::test_utils::init_test_tracing();
     with_test_heap(|| {
         assert!(Value::NIL.is_nil());
         assert!(Value::T.is_truthy());
@@ -25,6 +26,7 @@ fn value_constructors() {
 
 #[test]
 fn list_round_trip() {
+    crate::test_utils::init_test_tracing();
     with_test_heap(|| {
         let lst = Value::list(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
         let vec = list_to_vec(&lst).unwrap();
@@ -34,6 +36,7 @@ fn list_round_trip() {
 
 #[test]
 fn eq_identity() {
+    crate::test_utils::init_test_tracing();
     with_test_heap(|| {
         assert!(eq_value(&Value::NIL, &Value::NIL));
         assert!(eq_value(&Value::fixnum(42), &Value::fixnum(42)));
@@ -46,6 +49,7 @@ fn eq_identity() {
 
 #[test]
 fn keyword_identity_is_consistent_across_constructors() {
+    crate::test_utils::init_test_tracing();
     with_test_heap(|| {
         let keyword_from_symbol_ctor = Value::symbol(":kw");
         let keyword_from_keyword_ctor = Value::keyword(":kw");
@@ -78,6 +82,7 @@ fn keyword_identity_is_consistent_across_constructors() {
 
 #[test]
 fn equal_structural() {
+    crate::test_utils::init_test_tracing();
     with_test_heap(|| {
         let a = Value::list(vec![Value::fixnum(1), Value::fixnum(2)]);
         let b = Value::list(vec![Value::fixnum(1), Value::fixnum(2)]);
@@ -88,6 +93,7 @@ fn equal_structural() {
 
 #[test]
 fn string_equality() {
+    crate::test_utils::init_test_tracing();
     with_test_heap(|| {
         let a = Value::string("hello");
         let b = Value::string("hello");
@@ -99,6 +105,7 @@ fn string_equality() {
 
 #[test]
 fn marker_equal_ignores_internal_tracking_id() {
+    crate::test_utils::init_test_tracing();
     with_test_heap(|| {
         let left = make_marker_value_with_id(None, Some(4), false, Some(1));
         let right = make_marker_value_with_id(None, Some(4), false, Some(2));
@@ -111,6 +118,7 @@ fn marker_equal_ignores_internal_tracking_id() {
 
 #[test]
 fn closure_equal_is_structural() {
+    crate::test_utils::init_test_tracing();
     with_test_heap(|| {
         let env_a = Value::list(vec![Value::cons(Value::symbol("n"), Value::fixnum(5))]);
         let env_b = Value::list(vec![Value::cons(Value::symbol("n"), Value::fixnum(5))]);
@@ -148,6 +156,7 @@ fn closure_equal_is_structural() {
 
 #[test]
 fn recursive_closure_equal_and_hash_are_structural() {
+    crate::test_utils::init_test_tracing();
     with_test_heap(|| {
         let make_recursive = || {
             let binding = Value::cons(Value::symbol("f"), Value::NIL);
@@ -178,6 +187,7 @@ fn recursive_closure_equal_and_hash_are_structural() {
 
 #[test]
 fn hash_key_char_int_equivalence() {
+    crate::test_utils::init_test_tracing();
     for test in [HashTableTest::Eq, HashTableTest::Eql, HashTableTest::Equal] {
         let char_key = Value::char('a').to_hash_key(&test);
         let int_key = Value::fixnum(97).to_hash_key(&test);
@@ -187,6 +197,7 @@ fn hash_key_char_int_equivalence() {
 
 #[test]
 fn lambda_params_arity() {
+    crate::test_utils::init_test_tracing();
     let p = LambdaParams {
         required: vec![intern("a"), intern("b")],
         optional: vec![intern("c")],
@@ -206,6 +217,7 @@ fn lambda_params_arity() {
 
 #[test]
 fn cons_accessors() {
+    crate::test_utils::init_test_tracing();
     with_test_heap(|| {
         let c = Value::cons(Value::fixnum(1), Value::fixnum(2));
         assert_eq!(c.cons_car(), Value::fixnum(1));
@@ -217,6 +229,7 @@ fn cons_accessors() {
 
 #[test]
 fn value_is_copy_and_16_bytes() {
+    crate::test_utils::init_test_tracing();
     // Value is Copy — this assignment would fail to compile if not.
     let a = Value::fixnum(42);
     let b = a; // copy, not move
@@ -232,6 +245,7 @@ fn value_is_copy_and_16_bytes() {
 
 #[test]
 fn float_equality() {
+    crate::test_utils::init_test_tracing();
     use super::equal_value;
     use crate::emacs_core::value::{ValueKind, VecLikeType};
     with_test_heap(|| {
@@ -266,6 +280,7 @@ fn float_equality() {
 
 #[test]
 fn vector_operations() {
+    crate::test_utils::init_test_tracing();
     with_test_heap(|| {
         let v = Value::vector(vec![
             Value::fixnum(10),
@@ -283,6 +298,7 @@ fn vector_operations() {
 
 #[test]
 fn list_length_proper() {
+    crate::test_utils::init_test_tracing();
     with_test_heap(|| {
         let list = Value::list(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
         assert_eq!(super::list_length(&list), Some(3));
@@ -292,6 +308,7 @@ fn list_length_proper() {
 
 #[test]
 fn list_length_dotted() {
+    crate::test_utils::init_test_tracing();
     with_test_heap(|| {
         // (1 . 2) — improper list
         let dotted = Value::cons(Value::fixnum(1), Value::fixnum(2));
@@ -301,6 +318,7 @@ fn list_length_dotted() {
 
 #[test]
 fn as_int_as_float() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(Value::fixnum(42).as_int(), Some(42));
     assert_eq!(Value::make_float(3.14).as_int(), None);
     assert_eq!(Value::make_float(3.14).as_float(), Some(3.14));
@@ -313,6 +331,7 @@ fn as_int_as_float() {
 
 #[test]
 fn type_predicates() {
+    crate::test_utils::init_test_tracing();
     with_test_heap(|| {
         assert!(Value::fixnum(1).is_integer());
         assert!(Value::fixnum(1).is_number());

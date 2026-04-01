@@ -146,6 +146,7 @@ fn gnu_timer_before(delay: Duration, callback: &str) -> Value {
 
 #[test]
 fn process_manager_create_and_query() {
+    crate::test_utils::init_test_tracing();
     let mut pm = ProcessManager::new();
     let id = pm.create_process(
         "test".into(),
@@ -162,6 +163,7 @@ fn process_manager_create_and_query() {
 
 #[test]
 fn process_manager_kill() {
+    crate::test_utils::init_test_tracing();
     let mut pm = ProcessManager::new();
     let id = pm.create_process("p".into(), None, "prog".into(), vec![]);
     assert!(pm.kill_process(id));
@@ -170,6 +172,7 @@ fn process_manager_kill() {
 
 #[test]
 fn process_manager_delete() {
+    crate::test_utils::init_test_tracing();
     let mut pm = ProcessManager::new();
     let id = pm.create_process("p".into(), None, "prog".into(), vec![]);
     assert!(pm.delete_process(id));
@@ -178,6 +181,7 @@ fn process_manager_delete() {
 
 #[test]
 fn process_manager_send_input() {
+    crate::test_utils::init_test_tracing();
     let mut pm = ProcessManager::new();
     let id = pm.create_process("p".into(), None, "prog".into(), vec![]);
     assert!(pm.send_input(id, "hello "));
@@ -187,6 +191,7 @@ fn process_manager_send_input() {
 
 #[test]
 fn process_manager_find_by_name() {
+    crate::test_utils::init_test_tracing();
     let mut pm = ProcessManager::new();
     let id = pm.create_process("my-proc".into(), None, "prog".into(), vec![]);
     assert_eq!(pm.find_by_name("my-proc"), Some(id));
@@ -195,6 +200,7 @@ fn process_manager_find_by_name() {
 
 #[test]
 fn process_manager_list() {
+    crate::test_utils::init_test_tracing();
     let mut pm = ProcessManager::new();
     let id1 = pm.create_process("a".into(), None, "p".into(), vec![]);
     let id2 = pm.create_process("b".into(), None, "q".into(), vec![]);
@@ -206,6 +212,7 @@ fn process_manager_list() {
 
 #[test]
 fn process_manager_env() {
+    crate::test_utils::init_test_tracing();
     let mut pm = ProcessManager::new();
     pm.setenv("NEOVM_TEST_VAR".into(), Some("hello".into()));
     assert_eq!(pm.getenv("NEOVM_TEST_VAR"), Some("hello".into()));
@@ -217,6 +224,7 @@ fn process_manager_env() {
 
 #[test]
 fn start_process_and_query() {
+    crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let results = eval_all(&format!(
         r#"(start-process "my-proc" nil "{echo}" "hello")
@@ -232,6 +240,7 @@ fn start_process_and_query() {
 
 #[test]
 fn start_process_with_buffer() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let results = eval_all(&format!(
         r#"(start-process "p" "*output*" "{cat}")
@@ -244,6 +253,7 @@ fn start_process_with_buffer() {
 
 #[test]
 fn start_process_buffer_name_program_and_arg_contracts_match_oracle() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let results = eval_all(&format!(
         r#"(with-temp-buffer
@@ -285,6 +295,7 @@ fn start_process_buffer_name_program_and_arg_contracts_match_oracle() {
 
 #[test]
 fn call_process_and_start_file_process_string_contracts_match_oracle() {
+    crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let results = eval_all(&format!(
         r#"(condition-case err (call-process nil) (error err))
@@ -342,6 +353,7 @@ fn call_process_and_start_file_process_string_contracts_match_oracle() {
 
 #[test]
 fn delete_process_removes() {
+    crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let results = eval_all(&format!(
         r#"(start-process "p" nil "{echo}")
@@ -353,6 +365,7 @@ fn delete_process_removes() {
 
 #[test]
 fn process_send_string_test() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let results = eval_all(&format!(
         r#"(start-process "p" nil "{cat}")
@@ -363,6 +376,7 @@ fn process_send_string_test() {
 
 #[test]
 fn process_exit_status_initial() {
+    crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let results = eval_all(&format!(
         r#"(start-process "p" nil "{echo}")
@@ -373,6 +387,7 @@ fn process_exit_status_initial() {
 
 #[test]
 fn process_list_test() {
+    crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let cat = find_bin("cat");
     let results = eval_all(&format!(
@@ -388,6 +403,7 @@ fn process_list_test() {
 
 #[test]
 fn call_process_echo() {
+    crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     // call-process with echo, inserting into current buffer
     let results = eval_all(&format!(
@@ -404,6 +420,7 @@ fn call_process_echo() {
 
 #[test]
 fn call_process_no_destination() {
+    crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     // call-process with nil destination discards output
     let results = eval_all(&format!(
@@ -418,6 +435,7 @@ fn call_process_no_destination() {
 
 #[test]
 fn call_process_display_requests_redisplay_after_buffer_insert() {
+    crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let mut ev = Context::new();
     let buf_id = ev.buffers.create_buffer("*cp-display*");
@@ -459,6 +477,7 @@ fn call_process_display_requests_redisplay_after_buffer_insert() {
 
 #[test]
 fn call_process_infile_feeds_stdin() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let infile = tmp_file("cp-infile");
     std::fs::write(&infile, "infile-data").expect("write infile");
@@ -474,6 +493,7 @@ fn call_process_infile_feeds_stdin() {
 
 #[test]
 fn call_process_destination_buffer_name_inserts_there() {
+    crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let results = eval_all(&format!(
         r#"(get-buffer-create "cp-src")
@@ -494,6 +514,7 @@ fn call_process_destination_buffer_name_inserts_there() {
 
 #[test]
 fn call_process_file_destination_collects_stdout_and_stderr() {
+    crate::test_utils::init_test_tracing();
     let sh = find_bin("sh");
     let out = tmp_file("cp-file");
     let _ = std::fs::remove_file(&out);
@@ -509,6 +530,7 @@ fn call_process_file_destination_collects_stdout_and_stderr() {
 
 #[test]
 fn call_process_pair_destination_splits_stderr_to_file() {
+    crate::test_utils::init_test_tracing();
     let sh = find_bin("sh");
     let out = tmp_file("cp-pair-out");
     let err = tmp_file("cp-pair-err");
@@ -529,6 +551,7 @@ fn call_process_pair_destination_splits_stderr_to_file() {
 
 #[test]
 fn call_process_integer_destination_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     // Any integer destination behaves like 0: discard and return nil.
     let results = eval_all(&format!(
@@ -543,6 +566,7 @@ fn call_process_integer_destination_returns_nil() {
 
 #[test]
 fn call_process_false() {
+    crate::test_utils::init_test_tracing();
     let false_bin = find_bin("false");
     // false exits with code 1
     let result = eval_one(&format!(r#"(call-process "{false_bin}")"#));
@@ -551,6 +575,7 @@ fn call_process_false() {
 
 #[test]
 fn call_process_region_test() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let results = eval_all(&format!(
         r#"(get-buffer-create "cpr-test")
@@ -567,6 +592,7 @@ fn call_process_region_test() {
 
 #[test]
 fn call_process_region_display_requests_redisplay_after_buffer_insert() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let mut ev = Context::new();
     let buf_id = ev.buffers.create_buffer("*cpr-display*");
@@ -609,6 +635,7 @@ fn call_process_region_display_requests_redisplay_after_buffer_insert() {
 
 #[test]
 fn call_process_region_destination_buffer_name_inserts_there() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let results = eval_all(&format!(
         r#"(get-buffer-create "cpr-src")
@@ -627,6 +654,7 @@ fn call_process_region_destination_buffer_name_inserts_there() {
 
 #[test]
 fn call_process_region_file_destination_writes_file() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let out = tmp_file("cpr-file");
     let _ = std::fs::remove_file(&out);
@@ -643,6 +671,7 @@ fn call_process_region_file_destination_writes_file() {
 
 #[test]
 fn call_process_region_start_nil_uses_whole_buffer() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let results = eval_all(&format!(
         r#"(with-temp-buffer
@@ -655,6 +684,7 @@ fn call_process_region_start_nil_uses_whole_buffer() {
 
 #[test]
 fn call_process_region_start_string_uses_string_input() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let results = eval_all(&format!(
         r#"(with-temp-buffer
@@ -667,6 +697,7 @@ fn call_process_region_start_string_uses_string_input() {
 
 #[test]
 fn call_process_region_start_string_with_delete_signals_wrong_type() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let result = eval_one(&format!(
         r#"(condition-case err
@@ -678,6 +709,7 @@ fn call_process_region_start_string_with_delete_signals_wrong_type() {
 
 #[test]
 fn call_process_region_accepts_marker_positions() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let results = eval_all(&format!(
         r#"(with-temp-buffer
@@ -692,6 +724,7 @@ fn call_process_region_accepts_marker_positions() {
 
 #[test]
 fn call_process_region_reversed_bounds_are_accepted() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let results = eval_all(&format!(
         r#"(with-temp-buffer
@@ -704,6 +737,7 @@ fn call_process_region_reversed_bounds_are_accepted() {
 
 #[test]
 fn call_process_region_reversed_bounds_with_delete_delete_region() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let results = eval_all(&format!(
         r#"(with-temp-buffer
@@ -716,6 +750,7 @@ fn call_process_region_reversed_bounds_with_delete_delete_region() {
 
 #[test]
 fn call_process_region_negative_start_signals_args_out_of_range() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let result = eval_one(&format!(
         r#"(with-temp-buffer
@@ -729,6 +764,7 @@ fn call_process_region_negative_start_signals_args_out_of_range() {
 
 #[test]
 fn call_process_region_huge_end_signals_args_out_of_range() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let result = eval_one(&format!(
         r#"(with-temp-buffer
@@ -742,6 +778,7 @@ fn call_process_region_huge_end_signals_args_out_of_range() {
 
 #[test]
 fn call_process_region_integer_destination_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let results = eval_all(&format!(
         r#"(get-buffer-create "cpr-int")
@@ -757,18 +794,21 @@ fn call_process_region_integer_destination_returns_nil() {
 
 #[test]
 fn shell_command_to_string_test() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(r#"(shell-command-to-string "echo -n hello")"#);
     assert_eq!(result, r#"OK "hello""#);
 }
 
 #[test]
 fn shell_command_to_string_with_pipe() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(r#"(shell-command-to-string "echo hello | tr a-z A-Z")"#);
     assert_eq!(result, "OK \"HELLO\n\"");
 }
 
 #[test]
 fn getenv_path() {
+    crate::test_utils::init_test_tracing();
     // PATH should always be set — use getenv-internal (C builtin)
     let result = eval_one(r#"(getenv-internal "PATH")"#);
     assert!(result.starts_with("OK \""));
@@ -776,18 +816,21 @@ fn getenv_path() {
 
 #[test]
 fn getenv_nonexistent() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(r#"(getenv-internal "NEOVM_DEFINITELY_NOT_SET_12345")"#);
     assert_eq!(result, "OK nil");
 }
 
 #[test]
 fn getenv_name_must_be_string() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(r#"(condition-case err (getenv-internal nil) (error err))"#);
     assert_eq!(result, "OK (wrong-type-argument stringp nil)");
 }
 
 #[test]
 fn getenv_accepts_optional_nil_env_arg() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         r#"(condition-case err
                (let ((v (getenv-internal "HOME" nil)))
@@ -799,6 +842,7 @@ fn getenv_accepts_optional_nil_env_arg() {
 
 #[test]
 fn getenv_rejects_more_than_two_args() {
+    crate::test_utils::init_test_tracing();
     let result =
         eval_one(r#"(condition-case err (getenv-internal "HOME" nil nil) (error (car err)))"#);
     assert_eq!(result, "OK wrong-number-of-arguments");
@@ -806,6 +850,7 @@ fn getenv_rejects_more_than_two_args() {
 
 #[test]
 fn setenv_and_getenv() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(setenv "NEOVM_TEST_SETENV" "myvalue")
            (getenv "NEOVM_TEST_SETENV")"#,
@@ -816,6 +861,7 @@ fn setenv_and_getenv() {
 
 #[test]
 fn setenv_unset() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(setenv "NEOVM_TEST_UNSET" "val")
            (setenv "NEOVM_TEST_UNSET")
@@ -826,12 +872,14 @@ fn setenv_unset() {
 
 #[test]
 fn setenv_name_must_be_string() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(r#"(condition-case err (setenv nil "v") (error err))"#);
     assert_eq!(result, "OK (wrong-type-argument stringp nil)");
 }
 
 #[test]
 fn setenv_accepts_sequence_value_and_sets_environment() {
+    crate::test_utils::init_test_tracing();
     let vector_result = eval_one(
         r#"(let ((old (getenv "NEOVM_TEST_SETENV_SEQ")))
              (unwind-protect
@@ -855,6 +903,7 @@ fn setenv_accepts_sequence_value_and_sets_environment() {
 
 #[test]
 fn setenv_substitute_flag_controls_expansion_and_requires_string() {
+    crate::test_utils::init_test_tracing();
     let unsubstituted = eval_one(
         r#"(let ((old (getenv "NEOVM_TEST_SETENV_SEQ")))
              (unwind-protect
@@ -884,12 +933,14 @@ fn setenv_substitute_flag_controls_expansion_and_requires_string() {
 
 #[test]
 fn setenv_rejects_non_sequence_value() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(r#"(condition-case err (setenv "NEOVM_TEST_SETENV_SEQ" 1) (error err))"#);
     assert_eq!(result, "OK (wrong-type-argument sequencep 1)");
 }
 
 #[test]
 fn setenv_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         r#"(condition-case err (setenv "NEOVM_TEST_SETENV_SEQ" "v" nil nil) (error (car err)))"#,
     );
@@ -898,6 +949,7 @@ fn setenv_rejects_too_many_args() {
 
 #[test]
 fn set_binary_mode_stream_contract_matches_oracle() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(condition-case err (set-binary-mode 'stdin t) (error err))
            (condition-case err (set-binary-mode 'stdout nil) (error err))
@@ -918,12 +970,14 @@ fn set_binary_mode_stream_contract_matches_oracle() {
 
 #[test]
 fn call_process_bad_program() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(r#"(call-process "/nonexistent/program_xyz")"#);
     assert!(result.contains("ERR"));
 }
 
 #[test]
 fn call_process_bad_program_signals_file_missing() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         r#"(condition-case err (call-process "/nonexistent/program_xyz") (error (car err)))"#,
     );
@@ -932,6 +986,7 @@ fn call_process_bad_program_signals_file_missing() {
 
 #[test]
 fn call_process_missing_infile_signals_file_missing() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let result = eval_one(&format!(
         r#"(condition-case err (call-process "{cat}" "/nonexistent/neovm-process-infile") (error (car err)))"#
@@ -941,6 +996,7 @@ fn call_process_missing_infile_signals_file_missing() {
 
 #[test]
 fn call_process_region_bad_program_signals_file_missing() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         r#"(condition-case err (call-process-region 1 1 "/nonexistent/program_xyz") (error (car err)))"#,
     );
@@ -949,6 +1005,7 @@ fn call_process_region_bad_program_signals_file_missing() {
 
 #[test]
 fn call_process_symbol_destination_signals_wrong_type_argument() {
+    crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let result = eval_one(&format!(
         r#"(condition-case err (call-process "{echo}" nil 'foo nil "x") (error err))"#
@@ -958,6 +1015,7 @@ fn call_process_symbol_destination_signals_wrong_type_argument() {
 
 #[test]
 fn call_process_bad_stderr_target_signals_wrong_type_argument() {
+    crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let result = eval_one(&format!(
         r#"(condition-case err (call-process "{echo}" nil '(t 99) nil "x") (error err))"#
@@ -967,12 +1025,14 @@ fn call_process_bad_stderr_target_signals_wrong_type_argument() {
 
 #[test]
 fn process_status_wrong_arg_type() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(r#"(process-status 999)"#);
     assert!(result.contains("ERR"));
 }
 
 #[test]
 fn start_process_multiple_args() {
+    crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let results = eval_all(&format!(
         r#"(start-process "echo" nil "{echo}" "a" "b" "c")
@@ -984,6 +1044,7 @@ fn start_process_multiple_args() {
 
 #[test]
 fn process_runtime_introspection_controls() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let results = eval_all(&format!(
         r#"(let ((p (start-process "proc-introspect" nil "{cat}")))
@@ -1018,6 +1079,7 @@ fn process_runtime_introspection_controls() {
 
 #[test]
 fn process_contact_keyword_matrix_for_network_and_pipe() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         r#"(list
             (let ((p (make-network-process :name "neo-contact-key-net" :server t :service 0)))
@@ -1053,6 +1115,7 @@ fn process_contact_keyword_matrix_for_network_and_pipe() {
 
 #[test]
 fn process_stale_mutator_matrix_matches_oracle() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let result = eval_one(&format!(
         r#"(let ((p (start-process "proc-stale-mutator" nil "{cat}")))
@@ -1081,6 +1144,7 @@ fn process_stale_mutator_matrix_matches_oracle() {
 
 #[test]
 fn process_stale_control_matrix_matches_oracle() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let result = eval_one(&format!(
         r#"(let ((p (start-process "proc-stale-control" nil "{cat}")))
@@ -1110,6 +1174,7 @@ fn process_stale_control_matrix_matches_oracle() {
 
 #[test]
 fn process_attributes_runtime_shape_matches_oracle() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         r#"(let ((attrs (process-attributes (emacs-pid))))
              (list
@@ -1167,6 +1232,7 @@ fn process_attributes_runtime_shape_matches_oracle() {
 
 #[test]
 fn process_attributes_timing_memory_shape_matches_oracle() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         r#"(let ((attrs (process-attributes (emacs-pid))))
              (list
@@ -1199,6 +1265,7 @@ fn process_attributes_timing_memory_shape_matches_oracle() {
 
 #[test]
 fn accept_process_output_and_get_process_runtime_surface() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let results = eval_all(&format!(
         r#"(condition-case err (accept-process-output) (error err))
@@ -1228,6 +1295,7 @@ fn accept_process_output_and_get_process_runtime_surface() {
 
 #[test]
 fn accept_process_output_millis_contract_matches_oracle() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(condition-case err (accept-process-output nil 0.1 "x") (error err))
            (condition-case err (accept-process-output nil nil "x") (error err))
@@ -1246,6 +1314,7 @@ fn accept_process_output_millis_contract_matches_oracle() {
 
 #[test]
 fn accept_process_output_roots_callbacks_across_gc() {
+    crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let mut ev = Context::new();
     let forms = parse_forms(&format!(
@@ -1286,6 +1355,7 @@ fn accept_process_output_roots_callbacks_across_gc() {
 
 #[test]
 fn accept_process_output_waiting_for_target_still_services_other_processes() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let echo = find_bin("echo");
     let mut ev = Context::new();
@@ -1322,6 +1392,7 @@ fn accept_process_output_waiting_for_target_still_services_other_processes() {
 
 #[test]
 fn accept_process_output_just_this_one_suspends_other_processes() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let echo = find_bin("echo");
     let mut ev = Context::new();
@@ -1354,6 +1425,7 @@ fn accept_process_output_just_this_one_suspends_other_processes() {
 
 #[test]
 fn accept_process_output_integer_just_this_one_suppresses_timers() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let mut ev = Context::new();
     let setup = parse_forms(
@@ -1406,6 +1478,7 @@ fn accept_process_output_integer_just_this_one_suppresses_timers() {
 
 #[test]
 fn accept_process_output_timer_preserves_deactivate_mark_like_gnu() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let setup = parse_forms(
         r#"(progn
@@ -1436,6 +1509,7 @@ fn accept_process_output_timer_preserves_deactivate_mark_like_gnu() {
 
 #[test]
 fn accept_process_output_runs_timer_before_filter_and_sentinel_like_gnu() {
+    crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let mut ev = Context::new();
     let setup = parse_forms(
@@ -1520,6 +1594,7 @@ fn accept_process_output_runs_timer_before_filter_and_sentinel_like_gnu() {
 
 #[test]
 fn accept_process_output_runs_gnu_timer_then_internal_timer_before_process_callbacks() {
+    crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let mut ev = Context::new();
     let setup = parse_forms(
@@ -1610,6 +1685,7 @@ fn accept_process_output_runs_gnu_timer_then_internal_timer_before_process_callb
 
 #[test]
 fn accept_process_output_runs_default_process_filter() {
+    crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let mut ev = Context::new();
     let _ = ev.buffers.create_buffer("*apio-default-filter*");
@@ -1655,6 +1731,7 @@ fn accept_process_output_runs_default_process_filter() {
 
 #[test]
 fn accept_process_output_restores_current_buffer_and_match_data() {
+    crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let mut ev = Context::new();
     let setup = parse_forms(
@@ -1706,6 +1783,7 @@ fn accept_process_output_restores_current_buffer_and_match_data() {
 
 #[test]
 fn accept_process_output_preserves_process_callback_runtime_state() {
+    crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let mut ev = Context::new();
     let result = eval_one_in_context(
@@ -1786,6 +1864,7 @@ fn accept_process_output_preserves_process_callback_runtime_state() {
 
 #[test]
 fn make_network_process_open_sentinel_uses_shared_callback_runtime_state() {
+    crate::test_utils::init_test_tracing();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind test listener");
     let port = listener.local_addr().expect("listener local addr").port();
     let accept_thread = std::thread::spawn(move || {
@@ -1845,6 +1924,7 @@ fn make_network_process_open_sentinel_uses_shared_callback_runtime_state() {
 
 #[test]
 fn sleep_for_uses_shared_wait_path_for_process_output_and_timers() {
+    crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let mut ev = Context::new();
     let setup = parse_forms(
@@ -1894,6 +1974,7 @@ fn sleep_for_uses_shared_wait_path_for_process_output_and_timers() {
 
 #[test]
 fn accept_process_output_services_pending_resize_from_shared_wait_path() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let fid = ev
         .frames
@@ -1934,6 +2015,7 @@ fn accept_process_output_services_pending_resize_from_shared_wait_path() {
 
 #[test]
 fn accept_process_output_services_resize_arriving_during_wait() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let fid = ev
         .frames
@@ -1975,6 +2057,7 @@ fn accept_process_output_services_resize_arriving_during_wait() {
 
 #[test]
 fn accept_process_output_window_close_uses_special_event_map_handler_when_loaded() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let scratch = ev.buffer_manager_mut().create_buffer("*scratch*");
     ev.buffer_manager_mut().set_current(scratch);
@@ -2008,6 +2091,7 @@ fn accept_process_output_window_close_uses_special_event_map_handler_when_loaded
 
 #[test]
 fn accept_process_output_window_close_quits_without_special_handler() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let (tx, rx) = crossbeam_channel::unbounded();
     tx.send(crate::keyboard::InputEvent::WindowClose { emacs_frame_id: 0 })
@@ -2023,6 +2107,7 @@ fn accept_process_output_window_close_quits_without_special_handler() {
 
 #[test]
 fn accept_process_output_window_close_honors_throw_on_input_before_quit() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let (tx, rx) = crossbeam_channel::unbounded();
     tx.send(crate::keyboard::InputEvent::WindowClose { emacs_frame_id: 0 })
@@ -2048,6 +2133,7 @@ fn accept_process_output_window_close_honors_throw_on_input_before_quit() {
 
 #[test]
 fn process_mark_type_thread_send_and_running_child_runtime_surface() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let results = eval_all(&format!(
         r#"(let ((p (start-process "proc-mark-type-thread-send" nil "{cat}")))
@@ -2093,6 +2179,7 @@ fn process_mark_type_thread_send_and_running_child_runtime_surface() {
 
 #[test]
 fn process_coding_tty_and_kill_buffer_query_runtime_surface() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     let results = eval_all(&format!(
         r#"(let ((p (start-process "proc-coding-tty-query" nil "{cat}")))
@@ -2159,6 +2246,7 @@ fn process_coding_tty_and_kill_buffer_query_runtime_surface() {
 
 #[test]
 fn process_list_network_serial_runtime_surface() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(mapcar (lambda (s)
                      (list s
@@ -2249,6 +2337,7 @@ fn process_list_network_serial_runtime_surface() {
 
 #[test]
 fn list_processes_refresh_returns_propertized_spacer() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_one(r#"(list-processes--refresh)"#);
     assert_eq!(
         result,
@@ -2258,6 +2347,7 @@ fn list_processes_refresh_returns_propertized_spacer() {
 
 #[test]
 fn minibuffer_sort_preprocess_history_sequence_contract() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(minibuffer--sort-preprocess-history nil)
            (minibuffer--sort-preprocess-history "")
@@ -2280,6 +2370,7 @@ fn minibuffer_sort_preprocess_history_sequence_contract() {
 
 #[test]
 fn window_adjust_process_window_size_requires_list_window() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(condition-case err (window-adjust-process-window-size 1 2) (error err))
            (condition-case err (window-adjust-process-window-size-largest 1 2) (error err))
@@ -2299,6 +2390,7 @@ fn window_adjust_process_window_size_requires_list_window() {
 
 #[test]
 fn network_interface_broadcast_derivation_helpers() {
+    crate::test_utils::init_test_tracing();
     let ipv4_address = int_vector(&[192, 168, 1, 30, 0]);
     let ipv4_netmask = int_vector(&[255, 255, 255, 0, 0]);
     let ipv4_raw = int_vector(&[0, 0, 0, 0, 0]);
@@ -2344,6 +2436,7 @@ fn network_interface_broadcast_derivation_helpers() {
 
 #[test]
 fn network_lookup_literal_family_filtering_helpers() {
+    crate::test_utils::init_test_tracing();
     let loopback_v4 = int_vector(&[127, 0, 0, 1, 0]);
     let loopback_v6 = int_vector(&[0, 0, 0, 0, 0, 0, 0, 1, 0]);
 
@@ -2368,6 +2461,7 @@ fn network_lookup_literal_family_filtering_helpers() {
 
 #[test]
 fn network_lookup_embedded_nul_normalizes_like_c_strings() {
+    crate::test_utils::init_test_tracing();
     let plain = resolve_network_lookup_addresses("abc", None);
     let embedded_nul = resolve_network_lookup_addresses("abc\0def", None);
     assert_eq!(embedded_nul, plain);
@@ -2379,6 +2473,7 @@ fn network_lookup_embedded_nul_normalizes_like_c_strings() {
 
 #[test]
 fn process_network_interface_and_signal_runtime_surface() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(mapcar (lambda (s)
                      (let ((fn (and (fboundp s) (symbol-function s))))

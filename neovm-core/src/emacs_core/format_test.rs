@@ -32,6 +32,7 @@ fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Context {
 
 #[test]
 fn format_spec_bootstrap_matches_gnu_elisp() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (format-spec "%n is %a" '((?n . "Bob") (?a . "21")))
@@ -56,6 +57,7 @@ fn format_spec_bootstrap_matches_gnu_elisp() {
 
 #[test]
 fn format_percent_s_uses_recursive_princ_semantics_for_lists() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (format "%s" '("development" "testing" "production"))
@@ -70,6 +72,7 @@ fn format_percent_s_uses_recursive_princ_semantics_for_lists() {
 
 #[test]
 fn format_time_string_epoch() {
+    crate::test_utils::init_test_tracing();
     // Unix epoch: 1970-01-01 00:00:00 UTC (Thursday)
     let result =
         builtin_format_time_string(vec![Value::string("%Y-%m-%d %H:%M:%S"), Value::fixnum(0)]);
@@ -78,6 +81,7 @@ fn format_time_string_epoch() {
 
 #[test]
 fn format_time_string_day_name() {
+    crate::test_utils::init_test_tracing();
     // 1970-01-01 is a Thursday.
     let result = builtin_format_time_string(vec![Value::string("%A"), Value::fixnum(0)]);
     assert_eq!(result.unwrap().as_str().unwrap(), "Thursday");
@@ -85,12 +89,14 @@ fn format_time_string_day_name() {
 
 #[test]
 fn format_time_string_month_name() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_format_time_string(vec![Value::string("%B"), Value::fixnum(0)]);
     assert_eq!(result.unwrap().as_str().unwrap(), "January");
 }
 
 #[test]
 fn format_time_string_known_date() {
+    crate::test_utils::init_test_tracing();
     // 2000-01-01 00:00:00 UTC = 946684800
     let result =
         builtin_format_time_string(vec![Value::string("%Y-%m-%d %A"), Value::fixnum(946684800)]);
@@ -99,24 +105,28 @@ fn format_time_string_known_date() {
 
 #[test]
 fn format_time_string_literal_percent() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_format_time_string(vec![Value::string("100%%"), Value::fixnum(0)]);
     assert_eq!(result.unwrap().as_str().unwrap(), "100%");
 }
 
 #[test]
 fn format_time_string_timezone() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_format_time_string(vec![Value::string("%Z"), Value::fixnum(0)]);
     assert_eq!(result.unwrap().as_str().unwrap(), "UTC");
 }
 
 #[test]
 fn format_time_string_iso_format() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_format_time_string(vec![Value::string("%F %T"), Value::fixnum(946684800)]);
     assert_eq!(result.unwrap().as_str().unwrap(), "2000-01-01 00:00:00");
 }
 
 #[test]
 fn format_time_string_ampm() {
+    crate::test_utils::init_test_tracing();
     // 2000-01-01 15:30:00 UTC = 946684800 + 15*3600 + 30*60 = 946740600
     let result =
         builtin_format_time_string(vec![Value::string("%I:%M %p"), Value::fixnum(946740600)]);
@@ -125,6 +135,7 @@ fn format_time_string_ampm() {
 
 #[test]
 fn format_time_string_no_time_uses_current() {
+    crate::test_utils::init_test_tracing();
     // Should not error when TIME is nil.
     let result = builtin_format_time_string(vec![Value::string("%Y"), Value::NIL]);
     assert!(result.is_ok());
@@ -139,6 +150,7 @@ fn format_time_string_no_time_uses_current() {
 
 #[test]
 fn format_seconds_bootstrap_matches_gnu_elisp() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (format-seconds "%h:%m:%s" 3661)
@@ -159,6 +171,7 @@ fn format_seconds_bootstrap_matches_gnu_elisp() {
 
 #[test]
 fn subr_x_string_helpers_bootstrap_match_gnu() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (load "subr-x")
@@ -189,6 +202,7 @@ fn subr_x_string_helpers_bootstrap_match_gnu() {
 
 #[test]
 fn subr_x_string_helpers_autoload() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (let ((before-pad (symbol-function 'string-pad))
@@ -226,24 +240,28 @@ fn subr_x_string_helpers_autoload() {
 
 #[test]
 fn string_chop_newline_no_newline() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_string_chop_newline(vec![Value::string("x")]).unwrap();
     assert_eq!(result.as_str().unwrap(), "x");
 }
 
 #[test]
 fn string_chop_newline_lf() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_string_chop_newline(vec![Value::string("x\n")]).unwrap();
     assert_eq!(result.as_str().unwrap(), "x");
 }
 
 #[test]
 fn string_chop_newline_crlf_run() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_string_chop_newline(vec![Value::string("x\r\n\n")]).unwrap();
     assert_eq!(result.as_str().unwrap(), "x");
 }
 
 #[test]
 fn string_chop_newline_wrong_type() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_string_chop_newline(vec![Value::fixnum(1)]).is_err());
 }
 
@@ -253,6 +271,7 @@ fn string_chop_newline_wrong_type() {
 
 #[test]
 fn string_lines_bootstrap_matches_gnu_subr() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (subrp (symbol-function 'string-lines))
@@ -279,6 +298,7 @@ fn string_lines_bootstrap_matches_gnu_subr() {
 
 #[test]
 fn string_clean_whitespace_bootstrap_matches_gnu_elisp() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (string-clean-whitespace "  hello   world  ")
@@ -303,6 +323,7 @@ fn string_clean_whitespace_bootstrap_matches_gnu_elisp() {
 
 #[test]
 fn string_pixel_width_startup_is_autoloaded() {
+    crate::test_utils::init_test_tracing();
     let eval = eval_with_ldefs_boot_autoloads(&["string-pixel-width"]);
     let function = eval
         .obarray
@@ -313,6 +334,7 @@ fn string_pixel_width_startup_is_autoloaded() {
 
 #[test]
 fn string_pixel_width_bootstrap_matches_gnu_subr_x() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (string-pixel-width "hello")
@@ -348,6 +370,7 @@ fn string_pixel_width_bootstrap_matches_gnu_subr_x() {
 
 #[test]
 fn broken_down_epoch() {
+    crate::test_utils::init_test_tracing();
     let tm = unix_to_broken_down(0);
     assert_eq!(tm.year, 1970);
     assert_eq!(tm.month, 1);
@@ -360,6 +383,7 @@ fn broken_down_epoch() {
 
 #[test]
 fn broken_down_y2k() {
+    crate::test_utils::init_test_tracing();
     // 2000-01-01 00:00:00 UTC = 946684800
     let tm = unix_to_broken_down(946684800);
     assert_eq!(tm.year, 2000);
@@ -370,6 +394,7 @@ fn broken_down_y2k() {
 
 #[test]
 fn broken_down_leap_year() {
+    crate::test_utils::init_test_tracing();
     // 2000-02-29 00:00:00 UTC = 946684800 + 59*86400 = 946684800 + 5097600 = 951782400
     let tm = unix_to_broken_down(951782400);
     assert_eq!(tm.year, 2000);
@@ -379,6 +404,7 @@ fn broken_down_leap_year() {
 
 #[test]
 fn broken_down_end_of_day() {
+    crate::test_utils::init_test_tracing();
     // 1970-01-01 23:59:59 = 86399
     let tm = unix_to_broken_down(86399);
     assert_eq!(tm.year, 1970);
@@ -391,6 +417,7 @@ fn broken_down_end_of_day() {
 
 #[test]
 fn broken_down_2024() {
+    crate::test_utils::init_test_tracing();
     // 2024-03-15 12:30:45 UTC
     // Compute: days from 1970 to 2024-03-15
     // Using known: 2024-01-01 = 1704067200

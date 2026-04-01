@@ -3,6 +3,7 @@ use crate::emacs_core::value::ValueKind;
 
 #[test]
 fn ccl_programp_validates_shape_and_type() {
+    crate::test_utils::init_test_tracing();
     let program = Value::vector(vec![Value::fixnum(10), Value::fixnum(0), Value::fixnum(0)]);
     let invalid_program = Value::vector(vec![Value::fixnum(0), Value::fixnum(0)]);
     let invalid_negative =
@@ -29,6 +30,7 @@ fn ccl_programp_validates_shape_and_type() {
 
 #[test]
 fn ccl_programp_accepts_registered_symbol_designator() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         builtin_ccl_program_p_impl(vec![Value::symbol("ccl-program-p-unregistered")])
             .expect("unregistered symbol should be nil"),
@@ -48,6 +50,7 @@ fn ccl_programp_accepts_registered_symbol_designator() {
 
 #[test]
 fn ccl_execute_requires_registers_vector_length_eight() {
+    crate::test_utils::init_test_tracing();
     let err = builtin_ccl_execute_impl(vec![
         Value::vector(vec![Value::fixnum(10), Value::fixnum(0), Value::fixnum(0)]),
         Value::vector(vec![Value::fixnum(0), Value::fixnum(0), Value::fixnum(0)]),
@@ -64,6 +67,7 @@ fn ccl_execute_requires_registers_vector_length_eight() {
 
 #[test]
 fn ccl_execute_reports_invalid_program_before_success() {
+    crate::test_utils::init_test_tracing();
     let err = builtin_ccl_execute_impl(vec![
         Value::fixnum(1),
         Value::vector(vec![
@@ -86,6 +90,7 @@ fn ccl_execute_reports_invalid_program_before_success() {
 
 #[test]
 fn ccl_execute_on_string_requires_status_vector_length_nine() {
+    crate::test_utils::init_test_tracing();
     let err = builtin_ccl_execute_on_string_impl(vec![
         Value::vector(vec![Value::fixnum(10), Value::fixnum(0), Value::fixnum(0)]),
         Value::vector(vec![
@@ -108,6 +113,7 @@ fn ccl_execute_on_string_requires_status_vector_length_nine() {
 
 #[test]
 fn ccl_execute_on_string_rejects_non_vector_status() {
+    crate::test_utils::init_test_tracing();
     let err = builtin_ccl_execute_on_string_impl(vec![
         Value::vector(vec![Value::fixnum(10), Value::fixnum(0), Value::fixnum(0)]),
         Value::fixnum(1),
@@ -122,6 +128,7 @@ fn ccl_execute_on_string_rejects_non_vector_status() {
 
 #[test]
 fn ccl_execute_on_string_rejects_non_string_payload() {
+    crate::test_utils::init_test_tracing();
     let err = builtin_ccl_execute_on_string_impl(vec![
         Value::vector(vec![Value::fixnum(10), Value::fixnum(0), Value::fixnum(0)]),
         Value::vector(vec![
@@ -146,6 +153,7 @@ fn ccl_execute_on_string_rejects_non_string_payload() {
 
 #[test]
 fn ccl_execute_on_string_rejects_over_arity() {
+    crate::test_utils::init_test_tracing();
     let err = builtin_ccl_execute_on_string_impl(vec![
         Value::vector(vec![Value::fixnum(10), Value::fixnum(0), Value::fixnum(0)]),
         Value::vector(vec![
@@ -173,6 +181,7 @@ fn ccl_execute_on_string_rejects_over_arity() {
 
 #[test]
 fn register_ccl_program_requires_symbol_name() {
+    crate::test_utils::init_test_tracing();
     let err = builtin_register_ccl_program_impl(vec![
         Value::fixnum(1),
         Value::vector(vec![Value::fixnum(10)]),
@@ -188,6 +197,7 @@ fn register_ccl_program_requires_symbol_name() {
 
 #[test]
 fn register_ccl_program_requires_vector_when_program_non_nil() {
+    crate::test_utils::init_test_tracing();
     let err = builtin_register_ccl_program_impl(vec![Value::symbol("foo"), Value::fixnum(1)])
         .expect_err("register-ccl-program program must be vector when non-nil");
     match err {
@@ -202,6 +212,7 @@ fn register_ccl_program_requires_vector_when_program_non_nil() {
 
 #[test]
 fn register_ccl_program_accepts_nil_program() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_register_ccl_program_impl(vec![Value::symbol("foo-nil"), Value::NIL])
         .expect("register-ccl-program should accept nil");
     match result.kind() {
@@ -215,6 +226,7 @@ fn register_ccl_program_accepts_nil_program() {
 
 #[test]
 fn register_ccl_program_rejects_invalid_program_shape() {
+    crate::test_utils::init_test_tracing();
     let err = builtin_register_ccl_program_impl(vec![
         Value::symbol("foo"),
         Value::vector(vec![Value::fixnum(1)]),
@@ -230,6 +242,7 @@ fn register_ccl_program_rejects_invalid_program_shape() {
 
 #[test]
 fn register_ccl_program_rejects_second_header_out_of_range() {
+    crate::test_utils::init_test_tracing();
     let err = builtin_register_ccl_program_impl(vec![
         Value::symbol("foo"),
         Value::vector(vec![Value::fixnum(10), Value::fixnum(4), Value::fixnum(0)]),
@@ -246,6 +259,7 @@ fn register_ccl_program_rejects_second_header_out_of_range() {
 
 #[test]
 fn register_ccl_program_returns_success_code() {
+    crate::test_utils::init_test_tracing();
     let first = builtin_register_ccl_program_impl(vec![
         Value::symbol("foo"),
         Value::vector(vec![Value::fixnum(10), Value::fixnum(0), Value::fixnum(0)]),
@@ -265,6 +279,7 @@ fn register_ccl_program_returns_success_code() {
 
 #[test]
 fn register_code_conversion_map_requires_symbol_name() {
+    crate::test_utils::init_test_tracing();
     let err = builtin_register_code_conversion_map_impl(vec![
         Value::fixnum(1),
         Value::vector(vec![Value::fixnum(0)]),
@@ -280,6 +295,7 @@ fn register_code_conversion_map_requires_symbol_name() {
 
 #[test]
 fn register_code_conversion_map_requires_vector_map() {
+    crate::test_utils::init_test_tracing();
     let err =
         builtin_register_code_conversion_map_impl(vec![Value::symbol("foo"), Value::fixnum(1)])
             .expect_err("register-code-conversion-map map must be vector");
@@ -295,6 +311,7 @@ fn register_code_conversion_map_requires_vector_map() {
 
 #[test]
 fn register_code_conversion_map_returns_success_code() {
+    crate::test_utils::init_test_tracing();
     let first = builtin_register_code_conversion_map_impl(vec![
         Value::symbol("foo"),
         Value::vector(vec![Value::fixnum(10), Value::fixnum(0), Value::fixnum(0)]),
@@ -314,6 +331,7 @@ fn register_code_conversion_map_returns_success_code() {
 
 #[test]
 fn register_ccl_program_assigns_new_ids_for_new_symbols() {
+    crate::test_utils::init_test_tracing();
     let a = builtin_register_ccl_program_impl(vec![
         Value::symbol("ccl-id-a"),
         Value::vector(vec![Value::fixnum(10), Value::fixnum(0), Value::fixnum(0)]),
@@ -332,6 +350,7 @@ fn register_ccl_program_assigns_new_ids_for_new_symbols() {
 
 #[test]
 fn register_code_conversion_map_assigns_new_ids_for_new_symbols() {
+    crate::test_utils::init_test_tracing();
     let a = builtin_register_code_conversion_map_impl(vec![
         Value::symbol("ccl-map-id-a"),
         Value::vector(vec![Value::fixnum(10), Value::fixnum(0), Value::fixnum(0)]),
@@ -350,6 +369,7 @@ fn register_code_conversion_map_assigns_new_ids_for_new_symbols() {
 
 #[test]
 fn ccl_execute_accepts_registered_symbol_program_designator() {
+    crate::test_utils::init_test_tracing();
     let _ = builtin_register_ccl_program_impl(vec![
         Value::symbol("ccl-designator-probe"),
         Value::vector(vec![
@@ -387,6 +407,7 @@ fn ccl_execute_accepts_registered_symbol_program_designator() {
 
 #[test]
 fn ccl_execute_on_string_accepts_registered_symbol_program_designator() {
+    crate::test_utils::init_test_tracing();
     let _ = builtin_register_ccl_program_impl(vec![
         Value::symbol("ccl-designator-probe-on-string"),
         Value::vector(vec![
@@ -426,6 +447,7 @@ fn ccl_execute_on_string_accepts_registered_symbol_program_designator() {
 
 #[test]
 fn register_ccl_program_rejects_over_arity() {
+    crate::test_utils::init_test_tracing();
     let err = builtin_register_ccl_program_impl(vec![
         Value::symbol("foo"),
         Value::vector(vec![Value::fixnum(10), Value::fixnum(0), Value::fixnum(0)]),
@@ -440,6 +462,7 @@ fn register_ccl_program_rejects_over_arity() {
 
 #[test]
 fn register_code_conversion_map_rejects_over_arity() {
+    crate::test_utils::init_test_tracing();
     let err = builtin_register_code_conversion_map_impl(vec![
         Value::symbol("foo"),
         Value::vector(vec![Value::fixnum(10), Value::fixnum(0), Value::fixnum(0)]),

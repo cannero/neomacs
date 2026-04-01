@@ -110,6 +110,7 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
 
 #[test]
 fn fontp_on_non_font() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_fontp(vec![Value::fixnum(42)]).unwrap().is_nil());
     assert!(
         builtin_fontp(vec![Value::string("hello")])
@@ -120,6 +121,7 @@ fn fontp_on_non_font() {
 
 #[test]
 fn font_spec_basic() {
+    crate::test_utils::init_test_tracing();
     let spec = builtin_font_spec(vec![
         Value::keyword(intern("family")),
         Value::string("Monospace"),
@@ -133,6 +135,7 @@ fn font_spec_basic() {
 
 #[test]
 fn find_font_eval_requests_exact_registry_match_from_display_host() {
+    crate::test_utils::init_test_tracing();
     let last_request = Rc::new(RefCell::new(None));
     let mut eval = crate::emacs_core::Context::new();
     crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
@@ -187,6 +190,7 @@ fn find_font_eval_requests_exact_registry_match_from_display_host() {
 
 #[test]
 fn find_font_eval_returns_gnu_canonical_ultra_light_weight_symbol() {
+    crate::test_utils::init_test_tracing();
     let last_request = Rc::new(RefCell::new(None));
     let mut eval = crate::emacs_core::Context::new();
     crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
@@ -218,12 +222,14 @@ fn find_font_eval_returns_gnu_canonical_ultra_light_weight_symbol() {
 
 #[test]
 fn font_spec_odd_args_error() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_font_spec(vec![Value::keyword(intern("family"))]);
     assert!(result.is_err());
 }
 
 #[test]
 fn font_get_and_put() {
+    crate::test_utils::init_test_tracing();
     let spec = builtin_font_spec(vec![
         Value::keyword(intern("family")),
         Value::string("Monospace"),
@@ -263,6 +269,7 @@ fn font_get_and_put() {
 
 #[test]
 fn font_get_symbol_key() {
+    crate::test_utils::init_test_tracing();
     // Symbol key does not match keyword storage.
     let spec = builtin_font_spec(vec![
         Value::keyword(intern("weight")),
@@ -275,6 +282,7 @@ fn font_get_symbol_key() {
 
 #[test]
 fn font_get_keyword_with_colon_matches_keyword_storage_without_colon() {
+    crate::test_utils::init_test_tracing();
     let font = Value::vector(vec![
         Value::keyword(FONT_OBJECT_TAG),
         Value::keyword("family"),
@@ -290,6 +298,7 @@ fn font_get_keyword_with_colon_matches_keyword_storage_without_colon() {
 
 #[test]
 fn font_get_non_symbol_property_errors() {
+    crate::test_utils::init_test_tracing();
     let spec = builtin_font_spec(vec![
         Value::keyword(intern("weight")),
         Value::symbol("bold"),
@@ -301,6 +310,7 @@ fn font_get_non_symbol_property_errors() {
 
 #[test]
 fn font_get_non_vector() {
+    crate::test_utils::init_test_tracing();
     // font-get on a non-font value signals wrong-type-argument.
     let result = builtin_font_get(vec![Value::fixnum(42), Value::keyword(intern("family"))]);
     assert!(result.is_err());
@@ -308,6 +318,7 @@ fn font_get_non_vector() {
 
 #[test]
 fn list_fonts_returns_list_or_nil() {
+    crate::test_utils::init_test_tracing();
     let result = call_font_builtin!(
         builtin_list_fonts,
         vec![Value::vector(vec![Value::keyword(intern(FONT_SPEC_TAG))])]
@@ -318,12 +329,14 @@ fn list_fonts_returns_list_or_nil() {
 
 #[test]
 fn list_fonts_rejects_non_font_spec() {
+    crate::test_utils::init_test_tracing();
     let result = call_font_builtin!(builtin_list_fonts, vec![Value::NIL]);
     assert!(result.is_err());
 }
 
 #[test]
 fn eval_list_fonts_accepts_live_frame_designator() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
     let result = builtin_list_fonts(
@@ -339,6 +352,7 @@ fn eval_list_fonts_accepts_live_frame_designator() {
 
 #[test]
 fn find_font_returns_nil_for_font_spec() {
+    crate::test_utils::init_test_tracing();
     let result = call_font_builtin!(
         builtin_find_font,
         vec![Value::vector(vec![Value::keyword(intern(FONT_SPEC_TAG))])]
@@ -349,12 +363,14 @@ fn find_font_returns_nil_for_font_spec() {
 
 #[test]
 fn find_font_rejects_non_font_spec() {
+    crate::test_utils::init_test_tracing();
     let result = call_font_builtin!(builtin_find_font, vec![Value::NIL]);
     assert!(result.is_err());
 }
 
 #[test]
 fn eval_find_font_accepts_live_frame_designator() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
     let result = builtin_find_font(
@@ -370,16 +386,19 @@ fn eval_find_font_accepts_live_frame_designator() {
 
 #[test]
 fn clear_font_cache_returns_nil() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_clear_font_cache(vec![]).unwrap().is_nil());
 }
 
 #[test]
 fn clear_font_cache_rejects_arity() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_clear_font_cache(vec![Value::NIL]).is_err());
 }
 
 #[test]
 fn clear_font_cache_resets_face_caches() {
+    crate::test_utils::init_test_tracing();
     let face = Value::symbol("__neovm_clear_font_cache_unit_test");
     let _ = call_font_builtin!(builtin_internal_make_lisp_face, vec![face]).unwrap();
     let _ = call_font_builtin!(
@@ -417,18 +436,21 @@ fn clear_font_cache_resets_face_caches() {
 
 #[test]
 fn font_family_list_batch_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let result = call_font_builtin!(builtin_font_family_list, vec![]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn font_family_list_rejects_non_nil_frame_designator() {
+    crate::test_utils::init_test_tracing();
     let result = call_font_builtin!(builtin_font_family_list, vec![Value::fixnum(1)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn eval_font_family_list_accepts_live_frame_designator() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
     let result = builtin_font_family_list(&mut eval, vec![Value::fixnum(frame_id)]).unwrap();
@@ -437,6 +459,7 @@ fn eval_font_family_list_accepts_live_frame_designator() {
 
 #[test]
 fn font_xlfd_name_returns_xlfd() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_font_xlfd_name(vec![Value::vector(vec![Value::keyword(intern(
         FONT_SPEC_TAG,
     ))])])
@@ -446,6 +469,7 @@ fn font_xlfd_name_returns_xlfd() {
 
 #[test]
 fn font_xlfd_name_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_font_xlfd_name(vec![
         Value::vector(vec![Value::keyword(intern(FONT_SPEC_TAG))]),
         Value::NIL,
@@ -460,6 +484,7 @@ fn font_xlfd_name_too_many_args() {
 
 #[test]
 fn close_font_requires_font_object() {
+    crate::test_utils::init_test_tracing();
     let wrong_nil = builtin_close_font(vec![Value::NIL]).unwrap_err();
     match wrong_nil {
         Flow::Signal(sig) => {
@@ -481,6 +506,7 @@ fn close_font_requires_font_object() {
 
 #[test]
 fn close_font_accepts_tagged_font_object_and_checks_arity() {
+    crate::test_utils::init_test_tracing();
     let _eval = crate::emacs_core::Context::new(); // sets up heap
     let font_obj = Value::vector(vec![Value::keyword("font-object"), Value::fixnum(1)]);
     assert!(builtin_close_font(vec![font_obj]).unwrap().is_nil());
@@ -496,6 +522,7 @@ fn close_font_accepts_tagged_font_object_and_checks_arity() {
 
 #[test]
 fn font_at_eval_returns_font_object_for_multibyte_buffer_face() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
 
@@ -538,6 +565,7 @@ fn font_at_eval_returns_font_object_for_multibyte_buffer_face() {
 
 #[test]
 fn font_at_eval_returns_font_object_for_multibyte_string_face() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
 
@@ -579,6 +607,7 @@ fn font_at_eval_returns_font_object_for_multibyte_string_face() {
 
 #[test]
 fn font_at_eval_reads_source_style_inline_face_keywords() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
 
@@ -627,6 +656,7 @@ fn font_at_eval_reads_source_style_inline_face_keywords() {
 
 #[test]
 fn font_at_eval_passes_inline_face_weight_and_family_to_display_host() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
 
@@ -673,6 +703,7 @@ fn font_at_eval_passes_inline_face_weight_and_family_to_display_host() {
 
 #[test]
 fn font_at_eval_prefers_backend_selected_font_match_when_available() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
     eval.set_display_host(Box::new(FontAtDisplayHost {
@@ -718,6 +749,7 @@ fn font_at_eval_prefers_backend_selected_font_match_when_available() {
 
 #[test]
 fn internal_lisp_face_p_symbol_returns_face_vector() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_internal_lisp_face_p(vec![Value::symbol("default")]).unwrap();
     let values = match result.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => result.as_vector_data().unwrap().clone(),
@@ -729,24 +761,28 @@ fn internal_lisp_face_p_symbol_returns_face_vector() {
 
 #[test]
 fn internal_lisp_face_p_non_symbol() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_internal_lisp_face_p(vec![Value::fixnum(42)]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn internal_lisp_face_p_nil_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_internal_lisp_face_p(vec![Value::NIL]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn internal_lisp_face_p_rejects_non_nil_frame_designator() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_internal_lisp_face_p(vec![Value::symbol("default"), Value::fixnum(1)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn internal_lisp_face_p_with_frame_designator_returns_resolved_vector() {
+    crate::test_utils::init_test_tracing();
     clear_font_cache_state();
 
     let result = builtin_internal_lisp_face_p(vec![
@@ -771,6 +807,7 @@ fn internal_lisp_face_p_with_frame_designator_returns_resolved_vector() {
 
 #[test]
 fn internal_make_lisp_face_creates_symbol_visible_to_internal_lisp_face_p() {
+    crate::test_utils::init_test_tracing();
     let name = Value::symbol("__neovm_make_face_unit_test");
     let made = call_font_builtin!(builtin_internal_make_lisp_face, vec![name]).unwrap();
     assert!(made.is_vector());
@@ -780,6 +817,7 @@ fn internal_make_lisp_face_creates_symbol_visible_to_internal_lisp_face_p() {
 
 #[test]
 fn internal_make_lisp_face_rejects_non_symbol_and_non_nil_frame() {
+    crate::test_utils::init_test_tracing();
     assert!(
         call_font_builtin!(builtin_internal_make_lisp_face, vec![Value::string("foo")]).is_err()
     );
@@ -794,6 +832,7 @@ fn internal_make_lisp_face_rejects_non_symbol_and_non_nil_frame() {
 
 #[test]
 fn internal_copy_lisp_face_returns_to_when_frame_t() {
+    crate::test_utils::init_test_tracing();
     let result = call_font_builtin!(
         builtin_internal_copy_lisp_face,
         vec![
@@ -809,6 +848,7 @@ fn internal_copy_lisp_face_returns_to_when_frame_t() {
 
 #[test]
 fn internal_copy_lisp_face_eval_updates_face_table() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     builtin_internal_set_lisp_face_attribute(
         &mut eval,
@@ -839,6 +879,7 @@ fn internal_copy_lisp_face_eval_updates_face_table() {
 
 #[test]
 fn internal_copy_lisp_face_rejects_non_t_frame_designator() {
+    crate::test_utils::init_test_tracing();
     let result = call_font_builtin!(
         builtin_internal_copy_lisp_face,
         vec![
@@ -853,6 +894,7 @@ fn internal_copy_lisp_face_rejects_non_t_frame_designator() {
 
 #[test]
 fn internal_copy_lisp_face_validates_new_frame_when_frame_designator_used() {
+    crate::test_utils::init_test_tracing();
     let frame = Value::make_frame(FRAME_ID_BASE);
     let err_t = call_font_builtin!(
         builtin_internal_copy_lisp_face,
@@ -891,6 +933,7 @@ fn internal_copy_lisp_face_validates_new_frame_when_frame_designator_used() {
 
 #[test]
 fn internal_copy_lisp_face_uses_symbol_checks_before_frame_checks() {
+    crate::test_utils::init_test_tracing();
     let result = call_font_builtin!(
         builtin_internal_copy_lisp_face,
         vec![
@@ -905,6 +948,7 @@ fn internal_copy_lisp_face_uses_symbol_checks_before_frame_checks() {
 
 #[test]
 fn internal_set_lisp_face_attribute_returns_value() {
+    crate::test_utils::init_test_tracing();
     let face = Value::symbol("__neovm_set_attr_unit_test");
     let result = call_font_builtin!(
         builtin_internal_set_lisp_face_attribute,
@@ -920,6 +964,7 @@ fn internal_set_lisp_face_attribute_returns_value() {
 
 #[test]
 fn internal_get_lisp_face_attribute_default_foreground() {
+    crate::test_utils::init_test_tracing();
     let result = call_font_builtin!(
         builtin_internal_get_lisp_face_attribute,
         vec![
@@ -933,6 +978,7 @@ fn internal_get_lisp_face_attribute_default_foreground() {
 
 #[test]
 fn internal_get_lisp_face_attribute_mode_line_returns_unspecified() {
+    crate::test_utils::init_test_tracing();
     let result = call_font_builtin!(
         builtin_internal_get_lisp_face_attribute,
         vec![
@@ -946,6 +992,7 @@ fn internal_get_lisp_face_attribute_mode_line_returns_unspecified() {
 
 #[test]
 fn internal_get_lisp_face_attribute_defaults_frame_returns_unspecified() {
+    crate::test_utils::init_test_tracing();
     let result = call_font_builtin!(
         builtin_internal_get_lisp_face_attribute,
         vec![
@@ -960,6 +1007,7 @@ fn internal_get_lisp_face_attribute_defaults_frame_returns_unspecified() {
 
 #[test]
 fn internal_get_lisp_face_attribute_invalid_face_errors() {
+    crate::test_utils::init_test_tracing();
     let result = call_font_builtin!(
         builtin_internal_get_lisp_face_attribute,
         vec![
@@ -972,6 +1020,7 @@ fn internal_get_lisp_face_attribute_invalid_face_errors() {
 
 #[test]
 fn internal_get_lisp_face_attribute_invalid_attr_errors() {
+    crate::test_utils::init_test_tracing();
     let wrong_type = call_font_builtin!(
         builtin_internal_get_lisp_face_attribute,
         vec![Value::symbol("default"), Value::fixnum(1)]
@@ -987,6 +1036,7 @@ fn internal_get_lisp_face_attribute_invalid_attr_errors() {
 
 #[test]
 fn internal_set_lisp_face_attribute_font_object_derives_font_related_attrs() {
+    crate::test_utils::init_test_tracing();
     let font_object = Value::vector(vec![
         Value::keyword(FONT_OBJECT_TAG),
         Value::keyword("family"),
@@ -1042,6 +1092,7 @@ fn internal_set_lisp_face_attribute_font_object_derives_font_related_attrs() {
 
 #[test]
 fn internal_set_lisp_face_attribute_eval_uses_live_frame_font_parameter_for_default_face() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
     let font_name = Value::string("-*-Hack-regular-normal-*-*-102-*-*-*-m-0-iso10646-1");
@@ -1179,6 +1230,7 @@ fn internal_set_lisp_face_attribute_eval_uses_live_frame_font_parameter_for_defa
 
 #[test]
 fn face_font_eval_returns_font_name_on_live_gui_frame() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
     let frame = eval
@@ -1197,6 +1249,7 @@ fn face_font_eval_returns_font_name_on_live_gui_frame() {
 
 #[test]
 fn font_info_eval_accepts_font_object_on_live_gui_frame() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
     {
@@ -1228,6 +1281,7 @@ fn font_info_eval_accepts_font_object_on_live_gui_frame() {
 
 #[test]
 fn internal_lisp_face_attribute_values_discrete_boolean_attrs() {
+    crate::test_utils::init_test_tracing();
     let result =
         builtin_internal_lisp_face_attribute_values(vec![Value::keyword(intern(":underline"))])
             .unwrap();
@@ -1237,6 +1291,7 @@ fn internal_lisp_face_attribute_values_discrete_boolean_attrs() {
 
 #[test]
 fn internal_lisp_face_attribute_values_non_discrete_attr_is_nil() {
+    crate::test_utils::init_test_tracing();
     let result =
         builtin_internal_lisp_face_attribute_values(vec![Value::keyword(intern(":weight"))])
             .unwrap();
@@ -1245,24 +1300,28 @@ fn internal_lisp_face_attribute_values_non_discrete_attr_is_nil() {
 
 #[test]
 fn internal_lisp_face_attribute_values_rejects_non_symbol() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_internal_lisp_face_attribute_values(vec![Value::fixnum(1)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn internal_lisp_face_empty_p_selected_frame_default_is_not_empty() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_internal_lisp_face_empty_p(vec![Value::symbol("default")]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn internal_lisp_face_empty_p_accepts_string_face_name() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_internal_lisp_face_empty_p(vec![Value::string("default")]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn internal_lisp_face_empty_p_defaults_frame_is_empty() {
+    crate::test_utils::init_test_tracing();
     let result =
         builtin_internal_lisp_face_empty_p(vec![Value::symbol("default"), Value::T]).unwrap();
     assert!(result.is_truthy());
@@ -1270,6 +1329,7 @@ fn internal_lisp_face_empty_p_defaults_frame_is_empty() {
 
 #[test]
 fn internal_lisp_face_empty_p_rejects_non_nil_non_t_frame_designator() {
+    crate::test_utils::init_test_tracing();
     let result =
         builtin_internal_lisp_face_empty_p(vec![Value::symbol("default"), Value::fixnum(1)]);
     assert!(result.is_err());
@@ -1280,6 +1340,7 @@ fn internal_lisp_face_empty_p_rejects_non_nil_non_t_frame_designator() {
 
 #[test]
 fn internal_lisp_face_comparators_accept_frame_handles() {
+    crate::test_utils::init_test_tracing();
     let frame = Value::make_frame(FRAME_ID_BASE);
     let empty_result =
         builtin_internal_lisp_face_empty_p(vec![Value::symbol("default"), frame]).unwrap();
@@ -1296,6 +1357,7 @@ fn internal_lisp_face_comparators_accept_frame_handles() {
 
 #[test]
 fn internal_lisp_face_equal_p_selected_frame_distinguishes_faces() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_internal_lisp_face_equal_p(vec![
         Value::symbol("default"),
         Value::symbol("mode-line"),
@@ -1306,6 +1368,7 @@ fn internal_lisp_face_equal_p_selected_frame_distinguishes_faces() {
 
 #[test]
 fn internal_lisp_face_equal_p_defaults_frame_treats_faces_as_equal() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_internal_lisp_face_equal_p(vec![
         Value::symbol("default"),
         Value::symbol("mode-line"),
@@ -1317,6 +1380,7 @@ fn internal_lisp_face_equal_p_defaults_frame_treats_faces_as_equal() {
 
 #[test]
 fn internal_lisp_face_equal_p_accepts_string_face_names() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_internal_lisp_face_equal_p(vec![
         Value::string("default"),
         Value::string("default"),
@@ -1327,6 +1391,7 @@ fn internal_lisp_face_equal_p_accepts_string_face_names() {
 
 #[test]
 fn internal_merge_in_global_face_rejects_non_frame_designator() {
+    crate::test_utils::init_test_tracing();
     let result = call_font_builtin!(
         builtin_internal_merge_in_global_face,
         vec![Value::symbol("default"), Value::NIL]
@@ -1341,6 +1406,7 @@ fn internal_merge_in_global_face_rejects_non_frame_designator() {
 
 #[test]
 fn internal_merge_in_global_face_copies_defaults_into_selected_face() {
+    crate::test_utils::init_test_tracing();
     let face = Value::symbol("__neovm_merge_face_unit_test");
     let _ = call_font_builtin!(builtin_internal_make_lisp_face, vec![face]).unwrap();
     let _ = call_font_builtin!(
@@ -1369,6 +1435,7 @@ fn internal_merge_in_global_face_copies_defaults_into_selected_face() {
 
 #[test]
 fn internal_lisp_face_helpers_accept_frame_handles() {
+    crate::test_utils::init_test_tracing();
     let frame = Value::make_frame(FRAME_ID_BASE);
 
     let descriptor = builtin_internal_lisp_face_p(vec![Value::symbol("default"), frame]).unwrap();
@@ -1411,6 +1478,7 @@ fn internal_lisp_face_helpers_accept_frame_handles() {
 
 #[test]
 fn face_attribute_relative_p_height_non_fixnum_is_relative() {
+    crate::test_utils::init_test_tracing();
     let result =
         builtin_face_attribute_relative_p(vec![Value::keyword(intern("height")), Value::NIL])
             .unwrap();
@@ -1419,6 +1487,7 @@ fn face_attribute_relative_p_height_non_fixnum_is_relative() {
 
 #[test]
 fn face_attribute_relative_p_height_fixnum_is_not_relative() {
+    crate::test_utils::init_test_tracing();
     let result =
         builtin_face_attribute_relative_p(vec![Value::keyword(intern("height")), Value::fixnum(1)])
             .unwrap();
@@ -1427,6 +1496,7 @@ fn face_attribute_relative_p_height_fixnum_is_not_relative() {
 
 #[test]
 fn face_attribute_relative_p_non_height_attribute_is_nil() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_face_attribute_relative_p(vec![
         Value::keyword(intern("weight")),
         Value::symbol("foo"),
@@ -1437,6 +1507,7 @@ fn face_attribute_relative_p_non_height_attribute_is_nil() {
 
 #[test]
 fn face_attribute_relative_p_unspecified_is_relative() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_face_attribute_relative_p(vec![
         Value::keyword(intern("weight")),
         Value::symbol("unspecified"),
@@ -1447,6 +1518,7 @@ fn face_attribute_relative_p_unspecified_is_relative() {
 
 #[test]
 fn merge_face_attribute_non_unspecified() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_merge_face_attribute(vec![
         Value::keyword(intern("foreground")),
         Value::string("red"),
@@ -1458,6 +1530,7 @@ fn merge_face_attribute_non_unspecified() {
 
 #[test]
 fn merge_face_attribute_unspecified() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_merge_face_attribute(vec![
         Value::keyword(intern("foreground")),
         Value::symbol("unspecified"),
@@ -1469,6 +1542,7 @@ fn merge_face_attribute_unspecified() {
 
 #[test]
 fn merge_face_attribute_height_relative_over_absolute() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_merge_face_attribute(vec![
         Value::keyword(intern("height")),
         Value::make_float(1.5),
@@ -1480,6 +1554,7 @@ fn merge_face_attribute_height_relative_over_absolute() {
 
 #[test]
 fn merge_face_attribute_height_relative_over_relative() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_merge_face_attribute(vec![
         Value::keyword(intern("height")),
         Value::make_float(1.5),
@@ -1497,6 +1572,7 @@ fn merge_face_attribute_height_relative_over_relative() {
 
 #[test]
 fn face_list_orders_default_last_and_includes_dynamic_faces() {
+    crate::test_utils::init_test_tracing();
     clear_font_cache_state();
     call_font_builtin!(
         builtin_internal_make_lisp_face,
@@ -1520,6 +1596,7 @@ fn face_list_orders_default_last_and_includes_dynamic_faces() {
 
 #[test]
 fn color_defined_p_known_and_unknown() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_color_defined_p(vec![Value::string("red")]).unwrap();
     assert!(result.is_truthy());
 
@@ -1535,6 +1612,7 @@ fn color_defined_p_known_and_unknown() {
 
 #[test]
 fn color_queries_validate_optional_device_arg() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_color_defined_p(vec![Value::string("red"), Value::fixnum(1)]).is_err());
     assert!(builtin_color_values(vec![Value::string("red"), Value::fixnum(1)]).is_err());
     assert!(builtin_defined_colors(vec![Value::fixnum(1)]).is_err());
@@ -1553,6 +1631,7 @@ fn color_queries_validate_optional_device_arg() {
 
 #[test]
 fn color_values_named_black() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_color_values(vec![Value::string("black")]).unwrap();
     let rgb = list_to_vec(&result).unwrap();
     assert_eq!(rgb.len(), 3);
@@ -1563,6 +1642,7 @@ fn color_values_named_black() {
 
 #[test]
 fn color_values_named_white() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_color_values(vec![Value::string("white")]).unwrap();
     let rgb = list_to_vec(&result).unwrap();
     assert_eq!(rgb[0].as_int(), Some(65535));
@@ -1572,6 +1652,7 @@ fn color_values_named_white() {
 
 #[test]
 fn color_values_hex_rrggbb() {
+    crate::test_utils::init_test_tracing();
     // Hex colors are approximated to terminal palette colors in batch mode.
     let result = builtin_color_values(vec![Value::string("#FF0000")]).unwrap();
     let rgb = list_to_vec(&result).unwrap();
@@ -1582,6 +1663,7 @@ fn color_values_hex_rrggbb() {
 
 #[test]
 fn color_values_hex_short() {
+    crate::test_utils::init_test_tracing();
     // #F00 resolves and approximates to red.
     let result = builtin_color_values(vec![Value::string("#F00")]).unwrap();
     let rgb = list_to_vec(&result).unwrap();
@@ -1592,6 +1674,7 @@ fn color_values_hex_short() {
 
 #[test]
 fn color_values_hex_12digit() {
+    crate::test_utils::init_test_tracing();
     // 12-digit hex resolves and approximates to red.
     let result = builtin_color_values(vec![Value::string("#FFFF00000000")]).unwrap();
     let rgb = list_to_vec(&result).unwrap();
@@ -1602,18 +1685,21 @@ fn color_values_hex_12digit() {
 
 #[test]
 fn color_values_unknown_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_color_values(vec![Value::string("nonexistent-color")]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn color_values_wrong_type_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_color_values(vec![Value::fixnum(42)]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn defined_colors_returns_list() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_defined_colors(vec![]).unwrap();
     assert!(result.is_list());
     assert!(!result.is_nil());
@@ -1625,12 +1711,14 @@ fn defined_colors_returns_list() {
 
 #[test]
 fn face_id_rejects_non_symbol_faces() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_face_id(vec![Value::symbol("default")]).unwrap();
     assert_eq!(result.as_int(), Some(0));
 }
 
 #[test]
 fn face_id_known_faces_use_oracle_ids() {
+    crate::test_utils::init_test_tracing();
     let bold = builtin_face_id(vec![Value::symbol("bold")]).unwrap();
     assert_eq!(bold.as_int(), Some(1));
     let mode_line = builtin_face_id(vec![Value::symbol("mode-line")]).unwrap();
@@ -1639,12 +1727,14 @@ fn face_id_known_faces_use_oracle_ids() {
 
 #[test]
 fn face_id_accepts_optional_frame_argument() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_face_id(vec![Value::symbol("default"), Value::NIL]).unwrap();
     assert_eq!(result.as_int(), Some(0));
 }
 
 #[test]
 fn face_id_assigns_dynamic_id_for_created_faces() {
+    crate::test_utils::init_test_tracing();
     let face = Value::symbol("__neovm_face_id_dynamic_unit_test");
     let _ = call_font_builtin!(builtin_internal_make_lisp_face, vec![face]).unwrap();
     let first = builtin_face_id(vec![face]).unwrap();
@@ -1654,36 +1744,42 @@ fn face_id_assigns_dynamic_id_for_created_faces() {
 
 #[test]
 fn face_id_rejects_invalid_face() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_face_id(vec![Value::fixnum(1)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn face_font_returns_nil_for_known_faces() {
+    crate::test_utils::init_test_tracing();
     let result = call_face_font(vec![Value::symbol("default")]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn face_font_accepts_known_string_face() {
+    crate::test_utils::init_test_tracing();
     let result = call_face_font(vec![Value::string("default")]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn face_font_ignores_optional_arguments_for_known_face() {
+    crate::test_utils::init_test_tracing();
     let result = call_face_font(vec![Value::symbol("default"), Value::NIL, Value::T]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn face_font_rejects_invalid_face() {
+    crate::test_utils::init_test_tracing();
     let result = call_face_font(vec![Value::fixnum(1)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn internal_get_lisp_face_attribute_eval_reads_live_face_table() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     eval.set_face_attribute(
         "mode-line",
@@ -1706,6 +1802,7 @@ fn internal_get_lisp_face_attribute_eval_reads_live_face_table() {
 
 #[test]
 fn internal_merge_in_global_face_eval_updates_live_face_table() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let face = Value::symbol("__neovm_internal_merge_global_face_eval");
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
@@ -1736,6 +1833,7 @@ fn internal_merge_in_global_face_eval_updates_live_face_table() {
 
 #[test]
 fn internal_get_lisp_face_attribute_eval_prefers_explicit_lisp_face_values() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let face = Value::symbol("__neovm_internal_get_lisp_face_attribute_eval_prefers_lisp");
 
@@ -1763,6 +1861,7 @@ fn internal_get_lisp_face_attribute_eval_prefers_explicit_lisp_face_values() {
 
 #[test]
 fn bootstrap_set_face_attribute_updates_live_mode_line_face() {
+    crate::test_utils::init_test_tracing();
     let rendered = bootstrap_eval_all(
         r#"(list
              (assq :background face-x-resources)
@@ -1784,6 +1883,7 @@ fn bootstrap_set_face_attribute_updates_live_mode_line_face() {
 
 #[test]
 fn bootstrap_frame_face_hash_table_is_frame_owned_object() {
+    crate::test_utils::init_test_tracing();
     let rendered = bootstrap_eval_all(
         r#"(let ((a (frame--face-hash-table (selected-frame)))
                  (b (frame--face-hash-table (selected-frame))))
@@ -1795,6 +1895,7 @@ fn bootstrap_frame_face_hash_table_is_frame_owned_object() {
 
 #[test]
 fn internal_face_x_get_resource_returns_nil_for_string_args() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_internal_face_x_get_resource(vec![
         Value::string("font"),
         Value::string("Font"),
@@ -1806,6 +1907,7 @@ fn internal_face_x_get_resource_returns_nil_for_string_args() {
 
 #[test]
 fn internal_face_x_get_resource_validates_string_args_and_arity() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_internal_face_x_get_resource(vec![]).is_err());
     assert!(builtin_internal_face_x_get_resource(vec![Value::NIL]).is_err());
     assert!(builtin_internal_face_x_get_resource(vec![Value::NIL, Value::string("Font")]).is_err());
@@ -1814,6 +1916,7 @@ fn internal_face_x_get_resource_validates_string_args_and_arity() {
 
 #[test]
 fn internal_set_font_selection_order_accepts_valid_order() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_internal_set_font_selection_order(vec![Value::list(vec![
         Value::keyword(intern(":width")),
         Value::keyword(intern(":height")),
@@ -1826,6 +1929,7 @@ fn internal_set_font_selection_order_accepts_valid_order() {
 
 #[test]
 fn internal_set_font_selection_order_rejects_invalid_order() {
+    crate::test_utils::init_test_tracing();
     let result =
         builtin_internal_set_font_selection_order(vec![Value::list(vec![Value::symbol("x")])]);
     assert!(result.is_err());
@@ -1833,12 +1937,14 @@ fn internal_set_font_selection_order_rejects_invalid_order() {
 
 #[test]
 fn internal_set_alternative_font_family_alist_returns_converted_list() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_internal_set_alternative_font_family_alist(vec![Value::NIL]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn internal_set_alternative_font_family_alist_converts_strings_to_symbols() {
+    crate::test_utils::init_test_tracing();
     let input = Value::list(vec![Value::list(vec![
         Value::string("Foo"),
         Value::string("Bar"),
@@ -1852,6 +1958,7 @@ fn internal_set_alternative_font_family_alist_converts_strings_to_symbols() {
 
 #[test]
 fn internal_set_alternative_font_family_alist_updates_family_lookup_order() {
+    crate::test_utils::init_test_tracing();
     let input = Value::list(vec![Value::list(vec![
         Value::string("Noto Sans Mono"),
         Value::string("Noto Sans Mono CJK SC"),
@@ -1879,12 +1986,14 @@ fn internal_set_alternative_font_family_alist_updates_family_lookup_order() {
 
 #[test]
 fn internal_set_alternative_font_registry_alist_returns_nil_or_value() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_internal_set_alternative_font_registry_alist(vec![Value::NIL]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn internal_set_alternative_font_registry_alist_preserves_values() {
+    crate::test_utils::init_test_tracing();
     let input = Value::list(vec![Value::list(vec![Value::fixnum(1), Value::fixnum(2)])]);
     let result = builtin_internal_set_alternative_font_registry_alist(vec![input]).unwrap();
     assert_eq!(result, input);
@@ -1896,39 +2005,46 @@ fn internal_set_alternative_font_registry_alist_preserves_values() {
 
 #[test]
 fn fontp_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_fontp(vec![Value::NIL, Value::NIL, Value::NIL]);
     assert!(result.is_err());
 }
 
 #[test]
 fn fontp_no_args() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_fontp(vec![]);
     assert!(result.is_err());
 }
 
 #[test]
 fn font_get_wrong_arity() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_font_get(vec![Value::NIL]).is_err());
     assert!(builtin_font_get(vec![Value::NIL, Value::NIL, Value::NIL]).is_err());
 }
 
 #[test]
 fn font_put_wrong_arity() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_font_put(vec![Value::NIL, Value::NIL]).is_err());
 }
 
 #[test]
 fn face_attribute_relative_p_wrong_arity() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_face_attribute_relative_p(vec![Value::NIL]).is_err());
 }
 
 #[test]
 fn merge_face_attribute_wrong_arity() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_merge_face_attribute(vec![Value::NIL, Value::NIL]).is_err());
 }
 
 #[test]
 fn color_values_case_insensitive() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_color_values(vec![Value::string("RED")]).unwrap();
     let rgb = list_to_vec(&result).unwrap();
     assert_eq!(rgb[0].as_int(), Some(65535));
@@ -1938,6 +2054,7 @@ fn color_values_case_insensitive() {
 
 #[test]
 fn color_values_hex_lowercase() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_color_values(vec![Value::string("#ff8000")]).unwrap();
     let rgb = list_to_vec(&result).unwrap();
     // #ff8000 approximates to yellow in the terminal palette.
@@ -1948,12 +2065,14 @@ fn color_values_hex_lowercase() {
 
 #[test]
 fn color_values_invalid_hex_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_color_values(vec![Value::string("#ggg")]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn color_values_from_color_spec_semantics() {
+    crate::test_utils::init_test_tracing();
     let rgb_short =
         list_to_vec(&builtin_color_values_from_color_spec(vec![Value::string("#000")]).unwrap())
             .unwrap();
@@ -1999,6 +2118,7 @@ fn color_values_from_color_spec_semantics() {
 
 #[test]
 fn color_gray_and_supported_semantics() {
+    crate::test_utils::init_test_tracing();
     assert!(
         builtin_color_gray_p(vec![Value::string("#000000")])
             .unwrap()
@@ -2080,6 +2200,7 @@ fn color_gray_and_supported_semantics() {
 
 #[test]
 fn color_distance_semantics() {
+    crate::test_utils::init_test_tracing();
     let black_white = builtin_color_distance(vec![Value::string("#000"), Value::string("#fff")])
         .expect("color-distance should evaluate");
     match black_white.kind() {
@@ -2101,6 +2222,7 @@ fn color_distance_semantics() {
 
 #[test]
 fn xw_color_primitives_follow_live_gui_frame_state() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
     {
@@ -2143,6 +2265,7 @@ fn xw_color_primitives_follow_live_gui_frame_state() {
 
 #[test]
 fn color_distance_errors_match_oracle_shape() {
+    crate::test_utils::init_test_tracing();
     let invalid_left =
         builtin_color_distance(vec![Value::string("#00"), Value::string("#fff")]).unwrap_err();
     match invalid_left {
@@ -2183,6 +2306,7 @@ fn color_distance_errors_match_oracle_shape() {
 
 #[test]
 fn color_values_dark_gray_approximates_to_white() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_color_values(vec![Value::string("DarkGray")]).unwrap();
     let rgb = list_to_vec(&result).unwrap();
     assert_eq!(rgb[0].as_int(), Some(65535));

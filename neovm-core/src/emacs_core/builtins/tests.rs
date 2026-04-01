@@ -96,6 +96,7 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
 
 #[test]
 fn pure_dispatch_typed_add_still_works() {
+    crate::test_utils::init_test_tracing();
     let result = dispatch_builtin_pure("+", vec![Value::fixnum(2), Value::fixnum(3)])
         .expect("builtin + should resolve")
         .expect("builtin + should evaluate");
@@ -104,6 +105,7 @@ fn pure_dispatch_typed_add_still_works() {
 
 #[test]
 fn pure_dispatch_typed_percent_and_mod_follow_emacs_sign_rules() {
+    crate::test_utils::init_test_tracing();
     let percent = dispatch_builtin_pure("%", vec![Value::fixnum(-5), Value::fixnum(2)])
         .expect("builtin % should resolve")
         .expect("builtin % should evaluate");
@@ -116,6 +118,7 @@ fn pure_dispatch_typed_percent_and_mod_follow_emacs_sign_rules() {
 
 #[test]
 fn pure_dispatch_typed_mod_zero_remainder_with_negative_divisor_stays_zero() {
+    crate::test_utils::init_test_tracing();
     let int_mod = dispatch_builtin_pure("mod", vec![Value::fixnum(0), Value::fixnum(-3)])
         .expect("builtin mod should resolve")
         .expect("builtin mod should evaluate");
@@ -152,6 +155,7 @@ fn pure_dispatch_typed_mod_zero_remainder_with_negative_divisor_stays_zero() {
 
 #[test]
 fn pure_dispatch_typed_max_min_preserve_selected_operand_type() {
+    crate::test_utils::init_test_tracing();
     let max_int = dispatch_builtin_pure("max", vec![Value::make_float(-2.5), Value::fixnum(1)])
         .expect("builtin max should resolve")
         .expect("builtin max should evaluate");
@@ -170,6 +174,7 @@ fn pure_dispatch_typed_max_min_preserve_selected_operand_type() {
 
 #[test]
 fn pure_dispatch_typed_numeric_primitives_accept_markers() {
+    crate::test_utils::init_test_tracing();
     let marker = crate::emacs_core::marker::make_marker_value(None, Some(4), false);
 
     let max_with_marker = dispatch_builtin_pure("max", vec![Value::fixnum(1), marker])
@@ -205,6 +210,7 @@ fn pure_dispatch_typed_numeric_primitives_accept_markers() {
 
 #[test]
 fn eval_dispatch_typed_max_uses_live_marker_position_after_insertions() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let forms = parse_forms(
         r#"(with-temp-buffer
@@ -226,6 +232,7 @@ fn eval_dispatch_typed_max_uses_live_marker_position_after_insertions() {
 
 #[test]
 fn eval_dispatch_typed_min_uses_live_marker_position_after_insertions() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let forms = parse_forms(
         r#"(with-temp-buffer
@@ -247,6 +254,7 @@ fn eval_dispatch_typed_min_uses_live_marker_position_after_insertions() {
 
 #[test]
 fn pure_dispatch_typed_percent_rejects_float_args() {
+    crate::test_utils::init_test_tracing();
     let err = dispatch_builtin_pure("%", vec![Value::make_float(1.5), Value::fixnum(2)])
         .expect("builtin % should resolve")
         .expect_err("builtin % should reject non-integer args");
@@ -264,6 +272,7 @@ fn pure_dispatch_typed_percent_rejects_float_args() {
 
 #[test]
 fn pure_dispatch_typed_log_bitops_reject_with_integer_or_marker_p() {
+    crate::test_utils::init_test_tracing();
     for name in ["logand", "logior", "logxor"] {
         let err = dispatch_builtin_pure(name, vec![Value::fixnum(1), Value::make_float(2.0)])
             .expect("builtin should resolve")
@@ -283,6 +292,7 @@ fn pure_dispatch_typed_log_bitops_reject_with_integer_or_marker_p() {
 
 #[test]
 fn pure_dispatch_typed_numeric_symbol_rejections_use_number_or_marker_p() {
+    crate::test_utils::init_test_tracing();
     let symbol_arg = Value::symbol("a");
     let cases = [
         ("+", vec![Value::fixnum(1), symbol_arg]),
@@ -310,6 +320,7 @@ fn pure_dispatch_typed_numeric_symbol_rejections_use_number_or_marker_p() {
 
 #[test]
 fn pure_dispatch_typed_div_float_zero_uses_ieee_results() {
+    crate::test_utils::init_test_tracing();
     let pos_inf = dispatch_builtin_pure("/", vec![Value::make_float(1.0), Value::make_float(0.0)])
         .expect("builtin / should resolve")
         .expect("float division should evaluate");
@@ -346,6 +357,7 @@ fn pure_dispatch_typed_div_float_zero_uses_ieee_results() {
 
 #[test]
 fn pure_dispatch_typed_ash_handles_extreme_negative_shift_counts() {
+    crate::test_utils::init_test_tracing();
     let right = dispatch_builtin_pure("ash", vec![Value::fixnum(3), Value::fixnum(i64::MIN)])
         .expect("builtin ash should resolve")
         .expect("builtin ash should evaluate");
@@ -359,6 +371,7 @@ fn pure_dispatch_typed_ash_handles_extreme_negative_shift_counts() {
 
 #[test]
 fn pure_dispatch_typed_abs_min_fixnum_signals_overflow_error() {
+    crate::test_utils::init_test_tracing();
     let err = dispatch_builtin_pure("abs", vec![Value::fixnum(i64::MIN)])
         .expect("builtin abs should resolve")
         .expect_err("abs on i64::MIN should not panic");
@@ -370,6 +383,7 @@ fn pure_dispatch_typed_abs_min_fixnum_signals_overflow_error() {
 
 #[test]
 fn pure_dispatch_typed_eq_returns_truthy_for_same_symbol() {
+    crate::test_utils::init_test_tracing();
     let sym = Value::symbol("typed-dispatch-test");
     let result = dispatch_builtin_pure("eq", vec![sym, sym])
         .expect("builtin eq should resolve")
@@ -379,6 +393,7 @@ fn pure_dispatch_typed_eq_returns_truthy_for_same_symbol() {
 
 #[test]
 fn pure_dispatch_typed_append_concatenates_lists() {
+    crate::test_utils::init_test_tracing();
     let left = Value::list(vec![Value::fixnum(1), Value::fixnum(2)]);
     let right = Value::list(vec![Value::fixnum(3), Value::fixnum(4)]);
     let result = dispatch_builtin_pure("append", vec![left, right])
@@ -397,6 +412,7 @@ fn pure_dispatch_typed_append_concatenates_lists() {
 
 #[test]
 fn pure_dispatch_typed_append_flattens_bytecode_slots() {
+    crate::test_utils::init_test_tracing();
     let bc = Value::make_bytecode(crate::emacs_core::bytecode::ByteCodeFunction::new(
         LambdaParams::simple(vec![intern("x")]),
     ));
@@ -413,6 +429,7 @@ fn pure_dispatch_typed_append_flattens_bytecode_slots() {
 
 #[test]
 fn pure_dispatch_typed_length_predicates_accept_bytecode_functions() {
+    crate::test_utils::init_test_tracing();
     let bc = Value::make_bytecode(crate::emacs_core::bytecode::ByteCodeFunction::new(
         LambdaParams::simple(vec![intern("x")]),
     ));
@@ -428,6 +445,7 @@ fn pure_dispatch_typed_length_predicates_accept_bytecode_functions() {
 
 #[test]
 fn pure_dispatch_typed_length_tracks_bytecode_doc_slot() {
+    crate::test_utils::init_test_tracing();
     let mut bc =
         crate::emacs_core::bytecode::ByteCodeFunction::new(LambdaParams::simple(vec![intern("x")]));
     bc.docstring = Some("doc".into());
@@ -442,6 +460,7 @@ fn pure_dispatch_typed_length_tracks_bytecode_doc_slot() {
 
 #[test]
 fn pure_dispatch_typed_vconcat_flattens_bytecode_slots() {
+    crate::test_utils::init_test_tracing();
     let bc = Value::make_bytecode(crate::emacs_core::bytecode::ByteCodeFunction::new(
         LambdaParams::simple(vec![intern("x")]),
     ));
@@ -461,6 +480,7 @@ fn pure_dispatch_typed_vconcat_flattens_bytecode_slots() {
 
 #[test]
 fn pure_dispatch_typed_length_tracks_interpreted_closure_slot_count() {
+    crate::test_utils::init_test_tracing();
     let bare = Value::make_lambda(LambdaData {
         params: LambdaParams::simple(vec![intern("x")]),
         body: vec![Expr::Symbol(intern("x"))].into(),
@@ -491,6 +511,7 @@ fn pure_dispatch_typed_length_tracks_interpreted_closure_slot_count() {
 
 #[test]
 fn compiled_literal_reifier_turns_interpreted_closure_vectors_callable() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let closure_vec = Value::vector(vec![
         Value::list(vec![Value::symbol("x")]),
@@ -513,6 +534,7 @@ fn compiled_literal_reifier_turns_interpreted_closure_vectors_callable() {
 
 #[test]
 fn pure_dispatch_typed_string_equal_aliases_match() {
+    crate::test_utils::init_test_tracing();
     let a = Value::string("neo");
     let b = Value::string("neo");
     let full = dispatch_builtin_pure("string-equal", vec![a, b])
@@ -527,6 +549,7 @@ fn pure_dispatch_typed_string_equal_aliases_match() {
 
 #[test]
 fn pure_dispatch_typed_string_comparisons_accept_symbol_designators() {
+    crate::test_utils::init_test_tracing();
     let less = dispatch_builtin_pure("string<", vec![Value::symbol("foo"), Value::string("g")])
         .expect("builtin string< should resolve")
         .expect("builtin string< should evaluate");
@@ -556,6 +579,7 @@ fn pure_dispatch_typed_string_comparisons_accept_symbol_designators() {
 
 #[test]
 fn pure_dispatch_typed_downcase_unicode_edge_payloads_match_oracle() {
+    crate::test_utils::init_test_tracing();
     let cases = [
         (304, 304),
         (7305, 7305),
@@ -632,6 +656,7 @@ fn pure_dispatch_typed_downcase_unicode_edge_payloads_match_oracle() {
 
 #[test]
 fn pure_dispatch_typed_upcase_unicode_edge_payloads_match_oracle() {
+    crate::test_utils::init_test_tracing();
     let cases = [
         (223, 7838),
         (305, 305),
@@ -711,6 +736,7 @@ fn pure_dispatch_typed_upcase_unicode_edge_payloads_match_oracle() {
 
 #[test]
 fn keymapp_accepts_lisp_keymap_cons_cells() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
 
     let proper = Value::list(vec![Value::symbol("keymap")]);
@@ -743,6 +769,7 @@ fn keymapp_accepts_lisp_keymap_cons_cells() {
 
 #[test]
 fn keymapp_rejects_non_keymap_integer_designators() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let keymap = builtin_make_sparse_keymap(&mut eval, vec![]).unwrap();
     assert_eq!(builtin_keymapp(&mut eval, vec![keymap]).unwrap(), Value::T);
@@ -758,6 +785,7 @@ fn keymapp_rejects_non_keymap_integer_designators() {
 
 #[test]
 fn accessible_keymaps_reports_root_and_prefix_paths() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let root = builtin_make_sparse_keymap(&mut eval, vec![]).unwrap();
     let child = builtin_make_sparse_keymap(&mut eval, vec![]).unwrap();
@@ -801,6 +829,7 @@ fn accessible_keymaps_reports_root_and_prefix_paths() {
 
 #[test]
 fn accessible_keymaps_prefix_type_errors_match_oracle_shape() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let map = builtin_make_sparse_keymap(&mut eval, vec![]).unwrap();
 
@@ -833,6 +862,7 @@ fn accessible_keymaps_prefix_type_errors_match_oracle_shape() {
 
 #[test]
 fn key_description_renders_super_prefixed_symbol_events_with_expected_angles() {
+    crate::test_utils::init_test_tracing();
     let super_only = builtin_key_description(vec![Value::vector(vec![Value::symbol("s-f1")])])
         .expect("key-description should succeed");
     assert_eq!(super_only, Value::string("s-<f1>"));
@@ -848,6 +878,7 @@ fn key_description_renders_super_prefixed_symbol_events_with_expected_angles() {
 
 #[test]
 fn key_description_symbol_modifier_edges_match_emacs() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         builtin_single_key_description(vec![Value::symbol("M-a")])
             .expect("single-key-description should succeed"),
@@ -882,6 +913,7 @@ fn key_description_symbol_modifier_edges_match_emacs() {
 
 #[test]
 fn key_description_integer_modifier_and_nonunicode_edges_match_emacs() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         builtin_single_key_description(vec![Value::fixnum(0x40_0000)])
             .expect("single-key-description should succeed"),
@@ -955,6 +987,7 @@ fn key_description_integer_modifier_and_nonunicode_edges_match_emacs() {
 
 #[test]
 fn eval_get_file_buffer_matches_visited_paths() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let id = eval.buffers.create_buffer("gfb");
 
@@ -985,6 +1018,7 @@ fn eval_get_file_buffer_matches_visited_paths() {
 
 #[test]
 fn eval_get_file_buffer_type_and_missing_paths() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let missing = builtin_get_file_buffer(
         &mut eval,
@@ -997,6 +1031,7 @@ fn eval_get_file_buffer_type_and_missing_paths() {
 
 #[test]
 fn eval_builtin_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let err = builtin_eval(
         &mut eval,
@@ -1014,6 +1049,7 @@ fn eval_builtin_rejects_too_many_args() {
 
 #[test]
 fn eval_buffer_live_p_tracks_killed_buffers() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let buf = builtin_get_buffer_create(&mut eval, vec![Value::string("*blp*")]).unwrap();
     let live = builtin_buffer_live_p(&mut eval, vec![buf]).unwrap();
@@ -1026,6 +1062,7 @@ fn eval_buffer_live_p_tracks_killed_buffers() {
 
 #[test]
 fn kill_buffer_optional_arg_and_error_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let a = builtin_get_buffer_create(&mut eval, vec![Value::string("*kb-opt-a*")]).unwrap();
     let b = builtin_get_buffer_create(&mut eval, vec![Value::string("*kb-opt-b*")]).unwrap();
@@ -1085,6 +1122,7 @@ fn kill_buffer_optional_arg_and_error_semantics() {
 
 #[test]
 fn set_buffer_rejects_deleted_buffer_object() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let dead = create_unique_test_buffer(&mut eval, "*sb-dead*");
     let _ = builtin_kill_buffer(&mut eval, vec![dead]).unwrap();
@@ -1102,6 +1140,7 @@ fn set_buffer_rejects_deleted_buffer_object() {
 
 #[test]
 fn eval_buffer_live_p_non_buffer_objects_return_nil() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let by_name = builtin_buffer_live_p(&mut eval, vec![Value::string("*scratch*")]).unwrap();
     assert_eq!(by_name, Value::NIL);
@@ -1111,6 +1150,7 @@ fn eval_buffer_live_p_non_buffer_objects_return_nil() {
 
 #[test]
 fn get_buffer_create_accepts_optional_second_arg() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let first = builtin_get_buffer_create(
         &mut eval,
@@ -1140,6 +1180,7 @@ fn get_buffer_create_accepts_optional_second_arg() {
 
 #[test]
 fn buffer_creation_helpers_reject_missing_required_name_arg() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
 
     let err = builtin_get_buffer_create(&mut eval, vec![])
@@ -1171,6 +1212,7 @@ fn buffer_creation_helpers_reject_missing_required_name_arg() {
 
 #[test]
 fn get_buffer_rejects_non_string_non_buffer_designators() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     for bad in [Value::fixnum(1), Value::NIL, Value::symbol("foo")] {
         let err = builtin_get_buffer(&mut eval, vec![bad])
@@ -1191,6 +1233,7 @@ fn get_buffer_rejects_non_string_non_buffer_designators() {
 
 #[test]
 fn generate_new_buffer_name_optional_arg_matches_expected_types() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let _ = builtin_get_buffer_create(&mut eval, vec![Value::string("*gnbn-opt*")]).unwrap();
     let _ = builtin_get_buffer_create(&mut eval, vec![Value::string("*gnbn-opt*<2>")]).unwrap();
@@ -1251,6 +1294,7 @@ fn generate_new_buffer_name_optional_arg_matches_expected_types() {
 
 #[test]
 fn buffer_size_and_modified_p_return_defaults_for_deleted_buffer_objects() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
 
     let dead_for_size = create_unique_test_buffer(&mut eval, "*bs-dead*");
@@ -1266,6 +1310,7 @@ fn buffer_size_and_modified_p_return_defaults_for_deleted_buffer_objects() {
 
 #[test]
 fn buffer_base_buffer_and_last_name_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let base_id = eval.buffers.current_buffer().unwrap().id;
     let indirect_id = eval.buffers.create_buffer("*indirect*");
@@ -1354,6 +1399,7 @@ fn buffer_base_buffer_and_last_name_semantics() {
 
 #[test]
 fn make_indirect_buffer_shares_text_and_flattens_base_buffer_chain() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let base = create_unique_test_buffer(&mut eval, "*mib-base*");
     if !base.is_buffer() {
@@ -1402,6 +1448,7 @@ fn make_indirect_buffer_shares_text_and_flattens_base_buffer_chain() {
 
 #[test]
 fn make_indirect_buffer_rejects_duplicate_and_empty_names() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let base = create_unique_test_buffer(&mut eval, "*mib-errors-base*");
 
@@ -1422,6 +1469,7 @@ fn make_indirect_buffer_rejects_duplicate_and_empty_names() {
 
 #[test]
 fn make_indirect_buffer_clone_and_hook_semantics_follow_buffer_c() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let base = create_unique_test_buffer(&mut eval, "*mib-clone-base*");
     if !base.is_buffer() {
@@ -1533,6 +1581,7 @@ fn make_indirect_buffer_clone_and_hook_semantics_follow_buffer_c() {
 
 #[test]
 fn make_indirect_buffer_clone_nil_resets_buffer_state() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let base = create_unique_test_buffer(&mut eval, "*mib-clone-nil-base*");
     if !base.is_buffer() {
@@ -1571,6 +1620,7 @@ fn make_indirect_buffer_clone_nil_resets_buffer_state() {
 
 #[test]
 fn buffer_modified_tick_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
 
     assert_eq!(
@@ -1652,6 +1702,7 @@ fn buffer_modified_tick_semantics() {
 
 #[test]
 fn subst_char_in_region_replaces_chars_in_accessible_region() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     builtin_insert(&mut eval, vec![Value::string("hello world hello")]).unwrap();
 
@@ -1674,6 +1725,7 @@ fn subst_char_in_region_replaces_chars_in_accessible_region() {
 
 #[test]
 fn subst_char_in_region_preserves_modified_flag_with_noundo() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     builtin_insert(&mut eval, vec![Value::string("a\nb\n")]).unwrap();
     builtin_set_buffer_modified_p(&mut eval, vec![Value::NIL]).unwrap();
@@ -1702,6 +1754,7 @@ fn subst_char_in_region_preserves_modified_flag_with_noundo() {
 
 #[test]
 fn subst_char_in_region_replaces_trailing_newline_with_marker_end() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let forms = parse_forms(
         r#"(with-temp-buffer
@@ -1724,6 +1777,7 @@ fn subst_char_in_region_replaces_trailing_newline_with_marker_end() {
 
 #[test]
 fn subst_char_in_region_uses_live_marker_end_after_insertions() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let forms = parse_forms(
         r#"(with-temp-buffer
@@ -1748,6 +1802,7 @@ fn subst_char_in_region_uses_live_marker_end_after_insertions() {
 
 #[test]
 fn goto_char_uses_live_marker_position_after_insertions() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let forms = parse_forms(
         r#"(with-temp-buffer
@@ -1772,6 +1827,7 @@ fn goto_char_uses_live_marker_position_after_insertions() {
 
 #[test]
 fn char_queries_use_live_marker_positions_after_insertions() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let forms = parse_forms(
         r#"(with-temp-buffer
@@ -1797,6 +1853,7 @@ fn char_queries_use_live_marker_positions_after_insertions() {
 
 #[test]
 fn search_forward_uses_live_marker_bound_after_insertions() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let forms = parse_forms(
         r#"(insert "ab")
@@ -1822,6 +1879,7 @@ fn search_forward_uses_live_marker_bound_after_insertions() {
 
 #[test]
 fn subst_char_in_region_rejects_different_utf8_lengths() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     builtin_insert(&mut eval, vec![Value::string("aa")]).unwrap();
 
@@ -1852,6 +1910,7 @@ fn subst_char_in_region_rejects_different_utf8_lengths() {
 
 #[test]
 fn insert_honors_inhibit_read_only_override() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     eval.obarray.set_symbol_value("buffer-read-only", Value::T);
     eval.obarray.set_symbol_value("inhibit-read-only", Value::T);
@@ -1865,6 +1924,7 @@ fn insert_honors_inhibit_read_only_override() {
 
 #[test]
 fn insert_inherit_variants_reuse_insert_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     assert_eq!(
         builtin_insert_and_inherit(
@@ -1907,6 +1967,7 @@ fn insert_inherit_variants_reuse_insert_semantics() {
 
 #[test]
 fn insert_copies_string_text_properties_into_buffer() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let text = Value::string("xy");
     assert!(text.is_string(), "expected string value");
@@ -1931,6 +1992,7 @@ fn insert_copies_string_text_properties_into_buffer() {
 
 #[test]
 fn insert_and_inherit_copies_previous_text_properties() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -1954,6 +2016,7 @@ fn insert_and_inherit_copies_previous_text_properties() {
 
 #[test]
 fn plain_insert_does_not_inherit_spanning_text_properties() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -1983,6 +2046,7 @@ fn plain_insert_does_not_inherit_spanning_text_properties() {
 
 #[test]
 fn insert_char_nil_count_defaults_to_one_and_can_inherit_text_properties() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -2010,6 +2074,7 @@ fn insert_char_nil_count_defaults_to_one_and_can_inherit_text_properties() {
 
 #[test]
 fn insert_and_inherit_copies_string_properties_then_inherits_overlapping_names() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     builtin_insert(&mut eval, vec![Value::string("a")]).unwrap();
     crate::emacs_core::textprop::builtin_put_text_property(
@@ -2046,6 +2111,7 @@ fn insert_and_inherit_copies_string_properties_then_inherits_overlapping_names()
 
 #[test]
 fn delete_all_overlays_clears_current_buffer() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -2070,6 +2136,7 @@ fn delete_all_overlays_clears_current_buffer() {
 
 #[test]
 fn insert_buffer_substring_inserts_source_region() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let source_id = eval.buffers.create_buffer("*ibs-source*");
     eval.buffers.set_current(source_id);
@@ -2128,6 +2195,7 @@ fn insert_buffer_substring_inserts_source_region() {
 
 #[test]
 fn insert_buffer_substring_defaults_to_source_accessible_region() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let source_id = eval.buffers.create_buffer("*ibs-source-defaults*");
     eval.buffers.set_current(source_id);
@@ -2152,6 +2220,7 @@ fn insert_buffer_substring_defaults_to_source_accessible_region() {
 
 #[test]
 fn insert_buffer_substring_signals_when_bounds_escape_source_narrowing() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let source_id = eval.buffers.create_buffer("*ibs-source-range*");
     eval.buffers.set_current(source_id);
@@ -2174,6 +2243,7 @@ fn insert_buffer_substring_signals_when_bounds_escape_source_narrowing() {
 
 #[test]
 fn insert_buffer_substring_rejects_deleted_buffer_object() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let dead = create_unique_test_buffer(&mut eval, "*ibs-dead*");
     let _ = builtin_kill_buffer(&mut eval, vec![dead]).unwrap();
@@ -2191,6 +2261,7 @@ fn insert_buffer_substring_rejects_deleted_buffer_object() {
 
 #[test]
 fn kill_all_local_variables_clears_buffer_locals() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().unwrap();
@@ -2227,6 +2298,7 @@ fn kill_all_local_variables_clears_buffer_locals() {
 
 #[test]
 fn ntake_destructively_truncates_lists() {
+    crate::test_utils::init_test_tracing();
     let list = Value::list(vec![
         Value::fixnum(1),
         Value::fixnum(2),
@@ -2263,6 +2335,7 @@ fn ntake_destructively_truncates_lists() {
 
 #[test]
 fn kill_all_local_variables_preserves_partial_permanent_local_hooks() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let buf_id = eval.buffers.create_buffer("*kill-all-local-hook*");
     eval.buffers.set_current(buf_id);
@@ -2302,6 +2375,7 @@ fn kill_all_local_variables_preserves_partial_permanent_local_hooks() {
 
 #[test]
 fn replace_buffer_contents_and_set_buffer_multibyte_runtime_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let source_id = eval.buffers.create_buffer("*rbc-source*");
     eval.buffers.set_current(source_id);
@@ -2338,6 +2412,7 @@ fn replace_buffer_contents_and_set_buffer_multibyte_runtime_semantics() {
 
 #[test]
 fn compare_buffer_substrings_nil_bounds_use_accessible_region() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let left_id = eval.buffers.create_buffer("*cbs-left*");
     eval.buffers.set_current(left_id);
@@ -2368,6 +2443,7 @@ fn compare_buffer_substrings_nil_bounds_use_accessible_region() {
 
 #[test]
 fn compare_buffer_substrings_signals_when_bounds_escape_narrowing() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let left_id = eval.buffers.create_buffer("*cbs-left-range*");
     eval.buffers.set_current(left_id);
@@ -2402,6 +2478,7 @@ fn compare_buffer_substrings_signals_when_bounds_escape_narrowing() {
 
 #[test]
 fn compare_buffer_substrings_rejects_deleted_buffer_object() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let dead = create_unique_test_buffer(&mut eval, "*cbs-dead*");
     let _ = builtin_kill_buffer(&mut eval, vec![dead]).unwrap();
@@ -2427,6 +2504,7 @@ fn compare_buffer_substrings_rejects_deleted_buffer_object() {
 
 #[test]
 fn replace_region_contents_replaces_from_string_and_buffer_sources() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     builtin_insert(&mut eval, vec![Value::string("abXXef")]).unwrap();
 
@@ -2476,6 +2554,7 @@ fn replace_region_contents_replaces_from_string_and_buffer_sources() {
 
 #[test]
 fn replace_region_contents_accepts_vector_buffer_slices() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let source_id = eval.buffers.create_buffer("*rrc-slice-source*");
     eval.buffers.set_current(source_id);
@@ -2512,6 +2591,7 @@ fn replace_region_contents_accepts_vector_buffer_slices() {
 
 #[test]
 fn split_window_internal_validates_core_argument_types() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let split = builtin_split_window_internal(
         &mut eval,
@@ -2578,6 +2658,7 @@ fn split_window_internal_validates_core_argument_types() {
 
 #[test]
 fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
 
     assert!(
@@ -2775,6 +2856,7 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
 
 #[test]
 fn byte_position_and_clear_bitmap_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
 
     assert_eq!(
@@ -2947,6 +3029,7 @@ fn byte_position_and_clear_bitmap_semantics() {
 
 #[test]
 fn buffer_undo_designators_match_deleted_and_missing_buffer_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
 
     let disable_current =
@@ -3019,6 +3102,7 @@ fn buffer_undo_designators_match_deleted_and_missing_buffer_semantics() {
 
 #[test]
 fn other_buffer_prefers_live_alternative_and_enforces_arity() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let _ = builtin_get_buffer_create(&mut eval, vec![Value::string("*Messages*")]).unwrap();
     let avoid = builtin_get_buffer_create(&mut eval, vec![Value::string("*ob-avoid*")])
@@ -3084,6 +3168,7 @@ fn other_buffer_prefers_live_alternative_and_enforces_arity() {
 
 #[test]
 fn buffer_list_returns_live_buffers_in_creation_order() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let scratch = eval
         .buffers
@@ -3100,6 +3185,7 @@ fn buffer_list_returns_live_buffers_in_creation_order() {
 
 #[test]
 fn featurep_accepts_optional_subfeature_arg() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     eval.set_variable(
         "features",
@@ -3144,6 +3230,7 @@ fn featurep_accepts_optional_subfeature_arg() {
 
 #[test]
 fn featurep_subfeatures_property_must_be_list() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     eval.set_variable(
         "features",
@@ -3171,6 +3258,7 @@ fn featurep_subfeatures_property_must_be_list() {
 
 #[test]
 fn featurep_rejects_more_than_two_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let err = builtin_featurep(
         &mut eval,
@@ -3192,6 +3280,7 @@ fn featurep_rejects_more_than_two_args() {
 
 #[test]
 fn pure_dispatch_typed_string_constructor_builds_string() {
+    crate::test_utils::init_test_tracing();
     let result = dispatch_builtin_pure(
         "string",
         vec![Value::fixnum(65), Value::fixnum(66), Value::char('C')],
@@ -3203,6 +3292,7 @@ fn pure_dispatch_typed_string_constructor_builds_string() {
 
 #[test]
 fn pure_dispatch_typed_propertize_validates_and_returns_string() {
+    crate::test_utils::init_test_tracing();
     let result = dispatch_builtin_pure(
         "propertize",
         vec![
@@ -3218,6 +3308,7 @@ fn pure_dispatch_typed_propertize_validates_and_returns_string() {
 
 #[test]
 fn pure_dispatch_typed_propertize_non_string_signals_stringp() {
+    crate::test_utils::init_test_tracing();
     let result = dispatch_builtin_pure("propertize", vec![Value::fixnum(1)])
         .expect("builtin propertize should resolve")
         .expect_err("propertize should reject non-string first arg");
@@ -3232,6 +3323,7 @@ fn pure_dispatch_typed_propertize_non_string_signals_stringp() {
 
 #[test]
 fn pure_dispatch_typed_propertize_odd_property_list_signals_arity() {
+    crate::test_utils::init_test_tracing();
     let result = dispatch_builtin_pure(
         "propertize",
         vec![Value::string("x"), Value::symbol("face")],
@@ -3252,6 +3344,7 @@ fn pure_dispatch_typed_propertize_odd_property_list_signals_arity() {
 
 #[test]
 fn pure_dispatch_typed_propertize_accepts_non_symbol_property_keys() {
+    crate::test_utils::init_test_tracing();
     let result = dispatch_builtin_pure(
         "propertize",
         vec![Value::string("x"), Value::fixnum(1), Value::symbol("v")],
@@ -3263,6 +3356,7 @@ fn pure_dispatch_typed_propertize_accepts_non_symbol_property_keys() {
 
 #[test]
 fn pure_dispatch_typed_unibyte_string_round_trips_bytes() {
+    crate::test_utils::init_test_tracing();
     let s = dispatch_builtin_pure(
         "unibyte-string",
         vec![Value::fixnum(65), Value::fixnum(255), Value::fixnum(66)],
@@ -3293,6 +3387,7 @@ fn pure_dispatch_typed_unibyte_string_round_trips_bytes() {
 
 #[test]
 fn pure_dispatch_typed_unibyte_string_validates_range_and_type() {
+    crate::test_utils::init_test_tracing();
     let out_of_range = dispatch_builtin_pure("unibyte-string", vec![Value::fixnum(256)])
         .expect("builtin unibyte-string should resolve")
         .expect_err("expected args-out-of-range");
@@ -3324,6 +3419,7 @@ fn pure_dispatch_typed_unibyte_string_validates_range_and_type() {
 
 #[test]
 fn pure_dispatch_typed_vector_builds_vector() {
+    crate::test_utils::init_test_tracing();
     let result = dispatch_builtin_pure("vector", vec![Value::fixnum(7), Value::fixnum(9)])
         .expect("builtin vector should resolve")
         .expect("builtin vector should evaluate");
@@ -3335,6 +3431,7 @@ fn pure_dispatch_typed_vector_builds_vector() {
 
 #[test]
 fn pure_dispatch_typed_make_vector_validates_wholenump_length() {
+    crate::test_utils::init_test_tracing();
     let ok = dispatch_builtin_pure("make-vector", vec![Value::fixnum(3), Value::symbol("x")])
         .expect("builtin make-vector should resolve")
         .expect("builtin make-vector should evaluate");
@@ -3367,6 +3464,7 @@ fn pure_dispatch_typed_make_vector_validates_wholenump_length() {
 
 #[test]
 fn pure_dispatch_typed_aref_bool_vector_returns_boolean_bits() {
+    crate::test_utils::init_test_tracing();
     let bv = Value::vector(vec![
         Value::symbol("--bool-vector--"),
         Value::fixnum(4),
@@ -3393,6 +3491,7 @@ fn pure_dispatch_typed_aref_bool_vector_returns_boolean_bits() {
 
 #[test]
 fn pure_dispatch_typed_aref_aset_char_table_uses_character_index_semantics() {
+    crate::test_utils::init_test_tracing();
     let ct = Value::vector(vec![
         Value::symbol("--char-table--"),
         Value::NIL,
@@ -3452,6 +3551,7 @@ fn pure_dispatch_typed_aref_aset_char_table_uses_character_index_semantics() {
 
 #[test]
 fn pure_dispatch_typed_length_family_uses_bool_vector_logical_length() {
+    crate::test_utils::init_test_tracing();
     let bv = Value::vector(vec![
         Value::symbol("--bool-vector--"),
         Value::fixnum(3),
@@ -3483,6 +3583,7 @@ fn pure_dispatch_typed_length_family_uses_bool_vector_logical_length() {
 
 #[test]
 fn pure_dispatch_typed_length_family_uses_char_table_logical_length() {
+    crate::test_utils::init_test_tracing();
     let ct = Value::vector(vec![
         Value::symbol("--char-table--"),
         Value::NIL,
@@ -3514,6 +3615,7 @@ fn pure_dispatch_typed_length_family_uses_char_table_logical_length() {
 
 #[test]
 fn pure_dispatch_typed_aset_string_returns_new_element_and_computes_replacement() {
+    crate::test_utils::init_test_tracing();
     let result = dispatch_builtin_pure(
         "aset",
         vec![Value::string("abc"), Value::fixnum(1), Value::fixnum(120)],
@@ -3533,6 +3635,7 @@ fn pure_dispatch_typed_aset_string_returns_new_element_and_computes_replacement(
 
 #[test]
 fn pure_dispatch_typed_aset_string_errors_match_oracle() {
+    crate::test_utils::init_test_tracing();
     let out_of_range = dispatch_builtin_pure(
         "aset",
         vec![Value::string("abc"), Value::fixnum(-1), Value::fixnum(120)],
@@ -3564,6 +3667,7 @@ fn pure_dispatch_typed_aset_string_errors_match_oracle() {
 
 #[test]
 fn pure_dispatch_typed_char_string_conversions_work() {
+    crate::test_utils::init_test_tracing();
     let as_code = dispatch_builtin_pure("string-to-char", vec![Value::string("A")])
         .expect("builtin string-to-char should resolve")
         .expect("builtin string-to-char should evaluate");
@@ -3577,6 +3681,7 @@ fn pure_dispatch_typed_char_string_conversions_work() {
 
 #[test]
 fn pure_dispatch_typed_hash_table_round_trip() {
+    crate::test_utils::init_test_tracing();
     let table = dispatch_builtin_pure(
         "make-hash-table",
         vec![Value::keyword(":test"), Value::symbol("equal")],
@@ -3604,6 +3709,7 @@ fn pure_dispatch_typed_hash_table_round_trip() {
 
 #[test]
 fn pure_dispatch_typed_hash_table_extended_builtins_round_trip() {
+    crate::test_utils::init_test_tracing();
     let alias = Value::symbol("neovm--pure-dispatch-eq-test-alias");
     dispatch_builtin_pure(
         "define-hash-table-test",
@@ -3681,6 +3787,7 @@ fn pure_dispatch_typed_hash_table_extended_builtins_round_trip() {
 
 #[test]
 fn pure_dispatch_typed_define_hash_table_test_registers_alias() {
+    crate::test_utils::init_test_tracing();
     let alias = Value::symbol("neovm--eq-test-alias");
 
     let defined = dispatch_builtin_pure(
@@ -3712,6 +3819,7 @@ fn pure_dispatch_typed_define_hash_table_test_registers_alias() {
 
 #[test]
 fn pure_dispatch_typed_define_hash_table_test_accepts_equal_including_properties_pair() {
+    crate::test_utils::init_test_tracing();
     let alias = Value::symbol("neovm--equal-props-test-alias");
 
     let defined = dispatch_builtin_pure(
@@ -3750,6 +3858,7 @@ fn pure_dispatch_typed_define_hash_table_test_accepts_equal_including_properties
 
 #[test]
 fn define_hash_table_test_alias_is_thread_local() {
+    crate::test_utils::init_test_tracing();
     let alias_name = "neovm--cross-thread-eq-test-alias";
     // Register alias on a spawned thread
     std::thread::spawn(move || {
@@ -3771,6 +3880,7 @@ fn define_hash_table_test_alias_is_thread_local() {
 
 #[test]
 fn define_hash_table_test_alias_redefinition_updates_mapping() {
+    crate::test_utils::init_test_tracing();
     let alias_name = "neovm--eq-test-alias-redefined";
 
     builtin_define_hash_table_test(vec![
@@ -3824,6 +3934,7 @@ fn define_hash_table_test_alias_redefinition_updates_mapping() {
 
 #[test]
 fn pure_dispatch_typed_plist_and_symbol_round_trip() {
+    crate::test_utils::init_test_tracing();
     let plist = dispatch_builtin_pure(
         "plist-put",
         vec![Value::NIL, Value::keyword(":lang"), Value::string("rust")],
@@ -3847,6 +3958,7 @@ fn pure_dispatch_typed_plist_and_symbol_round_trip() {
 
 #[test]
 fn pure_dispatch_typed_math_ops_work() {
+    crate::test_utils::init_test_tracing();
     let sqrt = dispatch_builtin_pure("sqrt", vec![Value::fixnum(4)])
         .expect("builtin sqrt should resolve")
         .expect("builtin sqrt should evaluate");
@@ -3865,6 +3977,7 @@ fn pure_dispatch_typed_math_ops_work() {
 
 #[test]
 fn pure_dispatch_typed_expt_and_isnan_type_errors_match_oracle() {
+    crate::test_utils::init_test_tracing();
     let expt_base = dispatch_builtin_pure("expt", vec![Value::symbol("a"), Value::fixnum(2)])
         .expect("builtin expt should resolve")
         .expect_err("expt should reject non-numeric base");
@@ -3901,6 +4014,7 @@ fn pure_dispatch_typed_expt_and_isnan_type_errors_match_oracle() {
 
 #[test]
 fn pure_dispatch_typed_round_half_ties_to_even() {
+    crate::test_utils::init_test_tracing();
     let positive_half = dispatch_builtin_pure("round", vec![Value::make_float(2.5)])
         .expect("builtin round should resolve")
         .expect("builtin round should evaluate");
@@ -3924,6 +4038,7 @@ fn pure_dispatch_typed_round_half_ties_to_even() {
 
 #[test]
 fn pure_dispatch_typed_string_width_and_bytes_work() {
+    crate::test_utils::init_test_tracing();
     let width = dispatch_builtin_pure("string-width", vec![Value::string("ab")])
         .expect("builtin string-width should resolve")
         .expect("builtin string-width should evaluate");
@@ -3937,6 +4052,7 @@ fn pure_dispatch_typed_string_width_and_bytes_work() {
 
 #[test]
 fn pure_dispatch_typed_extended_list_ops_work() {
+    crate::test_utils::init_test_tracing();
     let seq = Value::list(vec![
         Value::fixnum(1),
         Value::fixnum(2),
@@ -3961,6 +4077,7 @@ fn pure_dispatch_typed_extended_list_ops_work() {
 
 #[test]
 fn pure_dispatch_obarray_make_and_clear_use_vector_semantics() {
+    crate::test_utils::init_test_tracing();
     let made = dispatch_builtin_pure("obarray-make", vec![Value::fixnum(3)])
         .expect("builtin obarray-make should resolve")
         .expect("builtin obarray-make should evaluate");
@@ -4003,6 +4120,7 @@ fn pure_dispatch_obarray_make_and_clear_use_vector_semantics() {
 
 #[test]
 fn eval_dispatch_obarrayp_accepts_custom_obarrays() {
+    crate::test_utils::init_test_tracing();
     let table = crate::emacs_core::builtins::symbols::builtin_obarray_make(vec![Value::fixnum(3)])
         .expect("obarray-make should evaluate");
     let result = crate::emacs_core::builtins::symbols::builtin_obarrayp(vec![table])
@@ -4017,6 +4135,7 @@ fn eval_dispatch_obarrayp_accepts_custom_obarrays() {
 
 #[test]
 fn pure_dispatch_make_temp_file_internal_delegates_make_temp_file() {
+    crate::test_utils::init_test_tracing();
     let created = dispatch_builtin_pure(
         "make-temp-file-internal",
         vec![
@@ -4061,6 +4180,7 @@ fn pure_dispatch_make_temp_file_internal_delegates_make_temp_file() {
 
 #[test]
 fn pure_dispatch_minibuffer_and_frame_placeholders_match_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     assert!(
         dispatch_builtin_pure("minibuffer-prompt-end", vec![]).is_none(),
         "minibuffer-prompt-end should use eval-aware minibuffer state"
@@ -4098,6 +4218,7 @@ fn pure_dispatch_minibuffer_and_frame_placeholders_match_compat_contracts() {
 
 #[test]
 fn pure_dispatch_buffer_placeholder_mutators_match_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     // rename-buffer is now an eval builtin — test it through the evaluator
     {
         let mut eval = crate::emacs_core::eval::Context::new();
@@ -4134,6 +4255,7 @@ fn pure_dispatch_buffer_placeholder_mutators_match_compat_contracts() {
 
 #[test]
 fn pure_dispatch_unicode_and_re_placeholders_match_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     let unicode = dispatch_builtin_pure(
         "put-unicode-property-internal",
         vec![Value::NIL, Value::fixnum(0), Value::fixnum(1)],
@@ -4158,6 +4280,7 @@ fn pure_dispatch_unicode_and_re_placeholders_match_compat_contracts() {
 
 #[test]
 fn pure_dispatch_map_placeholders_match_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     let map_charset_chars = dispatch_builtin_pure(
         "map-charset-chars",
         vec![Value::NIL, Value::symbol("unicode"), Value::NIL],
@@ -4189,6 +4312,7 @@ fn pure_dispatch_map_placeholders_match_compat_contracts() {
 
 #[test]
 fn pure_dispatch_record_and_state_placeholders_match_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     let make_record = dispatch_builtin_pure(
         "make-record",
         vec![Value::symbol("tag"), Value::fixnum(0), Value::fixnum(0)],
@@ -4223,6 +4347,7 @@ fn pure_dispatch_record_and_state_placeholders_match_compat_contracts() {
 
 #[test]
 fn pure_dispatch_frame_menu_mouse_placeholders_match_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     let frame_invisible = dispatch_builtin_pure("make-frame-invisible", vec![Value::NIL, Value::T])
         .expect("builtin make-frame-invisible should resolve")
         .expect("builtin make-frame-invisible should evaluate");
@@ -4252,6 +4377,7 @@ fn pure_dispatch_frame_menu_mouse_placeholders_match_compat_contracts() {
 
 #[test]
 fn pure_dispatch_native_comp_placeholders_match_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     let available = dispatch_builtin_pure("native-comp-available-p", vec![])
         .expect("builtin native-comp-available-p should resolve")
         .expect("builtin native-comp-available-p should evaluate");
@@ -4304,6 +4430,7 @@ fn pure_dispatch_native_comp_placeholders_match_compat_contracts() {
 
 #[test]
 fn pure_dispatch_open_overlay_placeholders_match_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     let open_font = dispatch_builtin_pure(
         "open-font",
         vec![Value::vector(vec![Value::keyword("font-entity")])],
@@ -4346,6 +4473,7 @@ fn pure_dispatch_open_overlay_placeholders_match_compat_contracts() {
 
 #[test]
 fn pure_dispatch_profiler_placeholders_match_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     let cpu_log = dispatch_builtin_pure("profiler-cpu-log", vec![])
         .expect("builtin profiler-cpu-log should resolve")
         .expect("builtin profiler-cpu-log should evaluate");
@@ -4389,6 +4517,7 @@ fn pure_dispatch_profiler_placeholders_match_compat_contracts() {
 
 #[test]
 fn pure_dispatch_position_placeholders_match_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     let pdumper = dispatch_builtin_pure("pdumper-stats", vec![])
         .expect("builtin pdumper-stats should resolve")
         .expect("builtin pdumper-stats should evaluate");
@@ -4418,6 +4547,7 @@ fn pure_dispatch_position_placeholders_match_compat_contracts() {
 
 #[test]
 fn pure_dispatch_record_query_placeholders_match_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     let record = dispatch_builtin_pure("record", vec![Value::symbol("tag"), Value::fixnum(1)])
         .expect("builtin record should resolve")
         .expect("builtin record should evaluate");
@@ -4467,6 +4597,7 @@ fn pure_dispatch_record_query_placeholders_match_compat_contracts() {
 
 #[test]
 fn pure_dispatch_reconsider_redirect_placeholders_match_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     let reconsider = dispatch_builtin_pure("reconsider-frame-fonts", vec![Value::NIL])
         .expect("builtin reconsider-frame-fonts should resolve")
         .expect_err("reconsider-frame-fonts should require a window system frame");
@@ -4530,6 +4661,7 @@ fn pure_dispatch_reconsider_redirect_placeholders_match_compat_contracts() {
 
 #[test]
 fn pure_dispatch_set_window_placeholder_cluster_matches_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     let set_charset = dispatch_builtin_pure(
         "set-charset-plist",
         vec![Value::symbol("unicode"), Value::list(vec![])],
@@ -4616,6 +4748,7 @@ fn pure_dispatch_set_window_placeholder_cluster_matches_compat_contracts() {
 
 #[test]
 fn pure_dispatch_sort_subr_placeholder_cluster_matches_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     let sort_charsets = dispatch_builtin_pure("sort-charsets", vec![Value::list(vec![])])
         .expect("builtin sort-charsets should resolve")
         .expect("builtin sort-charsets should evaluate");
@@ -4662,6 +4795,7 @@ fn pure_dispatch_sort_subr_placeholder_cluster_matches_compat_contracts() {
 
 #[test]
 fn pure_dispatch_tty_tool_bar_placeholder_cluster_matches_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     let thread_blocker = dispatch_builtin_pure("thread--blocker", vec![Value::NIL])
         .expect("builtin thread--blocker should resolve")
         .expect("builtin thread--blocker should evaluate");
@@ -4718,6 +4852,7 @@ fn pure_dispatch_tty_tool_bar_placeholder_cluster_matches_compat_contracts() {
 
 #[test]
 fn pure_dispatch_unicode_value_placeholder_cluster_matches_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     let unencodable = dispatch_builtin_pure(
         "unencodable-char-position",
         vec![Value::fixnum(1), Value::fixnum(2), Value::symbol("utf-8")],
@@ -4760,6 +4895,7 @@ fn pure_dispatch_unicode_value_placeholder_cluster_matches_compat_contracts() {
 
 #[test]
 fn pure_dispatch_x_display_placeholder_cluster_matches_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     let x_begin_drag = dispatch_builtin_pure("x-begin-drag", vec![Value::NIL])
         .expect("builtin x-begin-drag should resolve")
         .expect("builtin x-begin-drag should evaluate");
@@ -4796,6 +4932,7 @@ fn pure_dispatch_x_display_placeholder_cluster_matches_compat_contracts() {
 
 #[test]
 fn pure_dispatch_minibuffer_lock_placeholder_cluster_matches_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     assert!(
         dispatch_builtin_pure("minibuffer-innermost-command-loop-p", vec![]).is_none(),
         "minibuffer-innermost-command-loop-p should use eval-aware minibuffer state"
@@ -4849,6 +4986,7 @@ fn pure_dispatch_minibuffer_lock_placeholder_cluster_matches_compat_contracts() 
 
 #[test]
 fn interactive_form_eval_resolves_symbol_lambda_and_alias() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let lambda = Value::list(vec![
         Value::symbol("lambda"),
@@ -4883,6 +5021,7 @@ fn interactive_form_eval_resolves_symbol_lambda_and_alias() {
 
 #[test]
 fn interactive_form_eval_uses_symbol_properties_and_builtin_subr_specs() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let target = Value::list(vec![Value::symbol("lambda"), Value::NIL, Value::fixnum(1)]);
     eval.obarray_mut()
@@ -4942,6 +5081,7 @@ fn interactive_form_eval_uses_symbol_properties_and_builtin_subr_specs() {
 
 #[test]
 fn interactive_form_eval_skips_docstring_before_interactive_spec() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let lambda_with_doc = Value::list(vec![
         Value::symbol("lambda"),
@@ -4962,6 +5102,7 @@ fn interactive_form_eval_skips_docstring_before_interactive_spec() {
 
 #[test]
 fn interactive_form_eval_returns_nil_for_non_interactive_lambda() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let lambda = Value::list(vec![Value::symbol("lambda"), Value::NIL, Value::fixnum(1)]);
     eval.obarray_mut()
@@ -4986,6 +5127,7 @@ fn interactive_form_eval_returns_nil_for_non_interactive_lambda() {
 
 #[test]
 fn interactive_form_eval_preserves_noarg_and_explicit_nil_shapes() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let noarg_lambda = Value::list(vec![
         Value::symbol("lambda"),
@@ -5028,6 +5170,7 @@ fn interactive_form_eval_preserves_noarg_and_explicit_nil_shapes() {
 
 #[test]
 fn interactive_form_eval_signals_listp_for_improper_lambda_shapes() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let dotted_interactive = Value::list(vec![
@@ -5111,6 +5254,7 @@ fn interactive_form_eval_signals_listp_for_improper_lambda_shapes() {
 
 #[test]
 fn pure_dispatch_internal_placeholder_cluster_matches_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     let char_font = dispatch_builtin_pure("internal-char-font", vec![Value::fixnum(65)])
         .expect("builtin internal-char-font should resolve")
         .expect("builtin internal-char-font should evaluate");
@@ -5183,6 +5327,7 @@ fn pure_dispatch_internal_placeholder_cluster_matches_compat_contracts() {
 
 #[test]
 fn internal_track_mouse_binds_and_restores_track_mouse() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let forms = parse_forms(
         "(progn
@@ -5199,6 +5344,7 @@ fn internal_track_mouse_binds_and_restores_track_mouse() {
 
 #[test]
 fn internal_track_mouse_restores_track_mouse_after_error() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let forms = parse_forms(
         "(progn
@@ -5223,6 +5369,7 @@ fn internal_track_mouse_restores_track_mouse_after_error() {
 
 #[test]
 fn internal_make_var_non_special_clears_special_flag() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     eval.obarray_mut().make_special("x");
     assert!(eval.obarray().is_special("x"));
@@ -5241,6 +5388,7 @@ fn internal_make_var_non_special_clears_special_flag() {
 
 #[test]
 fn pure_dispatch_memory_module_placeholder_cluster_matches_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     let malloc_info = dispatch_builtin_pure("malloc-info", vec![])
         .expect("builtin malloc-info should resolve")
         .expect("builtin malloc-info should evaluate");
@@ -5315,6 +5463,7 @@ fn pure_dispatch_memory_module_placeholder_cluster_matches_compat_contracts() {
 
 #[test]
 fn pure_dispatch_dump_portable_placeholder_cluster_matches_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     let dump_portable = dispatch_builtin_pure(
         "dump-emacs-portable",
         vec![Value::string("dump.pdmp"), Value::NIL],
@@ -5342,6 +5491,7 @@ fn pure_dispatch_dump_portable_placeholder_cluster_matches_compat_contracts() {
 
 #[test]
 fn pure_dispatch_coding_placeholder_cluster_matches_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     let byte_code = dispatch_builtin_pure(
         "byte-code",
         vec![Value::string(""), Value::vector(vec![]), Value::fixnum(0)],
@@ -5393,6 +5543,7 @@ fn pure_dispatch_coding_placeholder_cluster_matches_compat_contracts() {
 
 #[test]
 fn pure_dispatch_def_keymap_placeholder_cluster_matches_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     assert!(
         dispatch_builtin_pure(
             "defconst-1",
@@ -5431,6 +5582,7 @@ fn pure_dispatch_def_keymap_placeholder_cluster_matches_compat_contracts() {
 
 #[test]
 fn defvar_1_binds_only_when_default_is_unbound() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let result = builtin_defvar_1(
@@ -5466,6 +5618,7 @@ fn defvar_1_binds_only_when_default_is_unbound() {
 
 #[test]
 fn defconst_1_sets_constant_value_and_risky_local_property() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let result = builtin_defconst_1(
@@ -5495,6 +5648,7 @@ fn defconst_1_sets_constant_value_and_risky_local_property() {
 
 #[test]
 fn pure_dispatch_define_coding_system_internal_not_in_pure_path() {
+    crate::test_utils::init_test_tracing();
     // define-coding-system-internal is now dispatched via the eval-aware
     // path (it needs &mut CodingSystemManager from the Context).
     // The pure dispatch returns None for it.
@@ -5504,6 +5658,7 @@ fn pure_dispatch_define_coding_system_internal_not_in_pure_path() {
 
 #[test]
 fn pure_dispatch_process_placeholder_cluster_matches_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     let kill_emacs = dispatch_builtin_pure("kill-emacs", vec![]);
     assert!(
         kill_emacs.is_none(),
@@ -5526,6 +5681,7 @@ fn pure_dispatch_process_placeholder_cluster_matches_compat_contracts() {
 
 #[test]
 fn kill_emacs_eval_requests_shutdown_and_stops_command_loop() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     eval.command_loop.running = true;
 
@@ -5547,6 +5703,7 @@ fn kill_emacs_eval_requests_shutdown_and_stops_command_loop() {
 
 #[test]
 fn pure_dispatch_make_placeholder_cluster_matches_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     let make_byte_code = dispatch_builtin_pure(
         "make-byte-code",
         vec![
@@ -5640,6 +5797,7 @@ fn pure_dispatch_make_placeholder_cluster_matches_compat_contracts() {
 
 #[test]
 fn pure_dispatch_treesit_placeholder_cluster_matches_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     let available = dispatch_builtin_pure("treesit-available-p", vec![])
         .expect("builtin treesit-available-p should resolve")
         .expect("builtin treesit-available-p should evaluate");
@@ -5710,6 +5868,7 @@ fn pure_dispatch_treesit_placeholder_cluster_matches_compat_contracts() {
 
 #[test]
 fn make_byte_code_from_parts_preserves_non_string_doc_slot_as_doc_form() {
+    crate::test_utils::init_test_tracing();
     let value = make_byte_code_from_parts(
         &Value::list(vec![]),
         &Value::string(""),
@@ -5729,6 +5888,7 @@ fn make_byte_code_from_parts_preserves_non_string_doc_slot_as_doc_form() {
 
 #[test]
 fn pure_dispatch_treesit_node_placeholder_cluster_matches_compat_contracts() {
+    crate::test_utils::init_test_tracing();
     let node_end = dispatch_builtin_pure("treesit-node-end", vec![Value::NIL])
         .expect("builtin treesit-node-end should resolve")
         .expect("builtin treesit-node-end should evaluate");
@@ -5803,6 +5963,7 @@ fn pure_dispatch_treesit_node_placeholder_cluster_matches_compat_contracts() {
 
 #[test]
 fn pure_dispatch_typed_ignore_accepts_any_arity() {
+    crate::test_utils::init_test_tracing();
     let zero = dispatch_builtin_pure("ignore", vec![])
         .expect("builtin ignore should resolve")
         .expect("builtin ignore should evaluate");
@@ -5819,6 +5980,7 @@ fn pure_dispatch_typed_ignore_accepts_any_arity() {
 
 #[test]
 fn match_data_round_trip_with_nil_groups() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     builtin_set_match_data(
@@ -5850,6 +6012,7 @@ fn match_data_round_trip_with_nil_groups() {
 
 #[test]
 fn bootstrap_runtime_set_match_data_restores_multibyte_buffer_positions_like_gnu() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "a—b")
@@ -5871,6 +6034,7 @@ fn bootstrap_runtime_set_match_data_restores_multibyte_buffer_positions_like_gnu
 
 #[test]
 fn match_beginning_end_return_nil_without_match_data() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     builtin_set_match_data(&mut eval, vec![Value::NIL]).expect("set-match-data nil");
 
@@ -5884,6 +6048,7 @@ fn match_beginning_end_return_nil_without_match_data() {
 
 #[test]
 fn negative_match_group_signals_args_out_of_range() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let match_string_err = builtin_match_string(&mut eval, vec![Value::fixnum(-1)])
@@ -5919,6 +6084,7 @@ fn negative_match_group_signals_args_out_of_range() {
 
 #[test]
 fn buffer_region_negative_bounds_signal_without_panicking() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     builtin_insert(&mut eval, vec![Value::string("abc")]).expect("insert should succeed");
     let current = builtin_current_buffer(&mut eval, vec![]).expect("current-buffer should work");
@@ -5966,6 +6132,7 @@ fn buffer_region_negative_bounds_signal_without_panicking() {
 
 #[test]
 fn delete_region_normalizes_reversed_bounds() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     builtin_insert(&mut eval, vec![Value::string("abc")]).expect("insert should succeed");
 
@@ -5978,6 +6145,7 @@ fn delete_region_normalizes_reversed_bounds() {
 
 #[test]
 fn string_match_start_handles_nil_and_negative_offsets() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let with_nil = builtin_string_match(
         &mut eval,
@@ -6002,6 +6170,7 @@ fn string_match_start_handles_nil_and_negative_offsets() {
 
 #[test]
 fn search_match_runtime_arity_edges_match_oracle_contracts() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let search_over_arity = builtin_search_forward(
@@ -6115,6 +6284,7 @@ fn search_match_runtime_arity_edges_match_oracle_contracts() {
 
 #[test]
 fn set_match_data_rejects_non_list() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let result = builtin_set_match_data(&mut eval, vec![Value::fixnum(1)]);
     assert!(result.is_err());
@@ -6122,6 +6292,7 @@ fn set_match_data_rejects_non_list() {
 
 #[test]
 fn looking_at_inhibit_modify_preserves_match_data() {
+    crate::test_utils::init_test_tracing();
     use crate::emacs_core::eval::Context;
 
     let mut eval = Context::new();
@@ -6142,6 +6313,7 @@ fn looking_at_inhibit_modify_preserves_match_data() {
 
 #[test]
 fn looking_at_updates_match_data_when_allowed() {
+    crate::test_utils::init_test_tracing();
     use crate::emacs_core::eval::Context;
 
     let mut eval = Context::new();
@@ -6184,6 +6356,7 @@ fn looking_at_updates_match_data_when_allowed() {
 
 #[test]
 fn looking_at_p_preserves_match_data() {
+    crate::test_utils::init_test_tracing();
     use crate::emacs_core::eval::Context;
 
     let mut eval = Context::new();
@@ -6203,6 +6376,7 @@ fn looking_at_p_preserves_match_data() {
 
 #[test]
 fn string_match_inhibit_modify_preserves_match_data() {
+    crate::test_utils::init_test_tracing();
     use crate::emacs_core::eval::Context;
 
     let mut eval = Context::new();
@@ -6227,6 +6401,7 @@ fn string_match_inhibit_modify_preserves_match_data() {
 
 #[test]
 fn replace_match_missing_subexp_signals_error() {
+    crate::test_utils::init_test_tracing();
     use crate::emacs_core::eval::Context;
 
     let mut eval = Context::new();
@@ -6260,6 +6435,7 @@ fn replace_match_missing_subexp_signals_error() {
 
 #[test]
 fn replace_match_without_active_match_data_signals_missing_subexp_like_gnu() {
+    crate::test_utils::init_test_tracing();
     use crate::emacs_core::eval::Context;
 
     let mut eval = Context::new();
@@ -6280,6 +6456,7 @@ fn replace_match_without_active_match_data_signals_missing_subexp_like_gnu() {
 
 #[test]
 fn replace_match_buffer_updates_live_match_data_like_gnu() {
+    crate::test_utils::init_test_tracing();
     use crate::emacs_core::eval::Context;
 
     let mut eval = Context::new();
@@ -6325,6 +6502,7 @@ fn replace_match_buffer_updates_live_match_data_like_gnu() {
 
 #[test]
 fn match_data_translate_shifts_groups_in_shared_eval_state() {
+    crate::test_utils::init_test_tracing();
     use crate::emacs_core::eval::Context;
 
     let mut eval = Context::new();
@@ -6354,6 +6532,7 @@ fn match_data_translate_shifts_groups_in_shared_eval_state() {
 
 #[test]
 fn looking_at_p_respects_case_fold_search() {
+    crate::test_utils::init_test_tracing();
     use crate::emacs_core::eval::Context;
 
     let mut eval = Context::new();
@@ -6382,6 +6561,7 @@ fn looking_at_p_respects_case_fold_search() {
 
 #[test]
 fn dispatch_builtin_resolves_typed_only_pure_names() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let result = dispatch_builtin(
         &mut eval,
@@ -6395,6 +6575,7 @@ fn dispatch_builtin_resolves_typed_only_pure_names() {
 
 #[test]
 fn dispatch_builtin_pure_defers_evaluator_window_accessors_and_mutators() {
+    crate::test_utils::init_test_tracing();
     assert!(dispatch_builtin_pure("functionp", vec![]).is_none());
     assert!(dispatch_builtin_pure("copy-file", vec![]).is_none());
     assert!(dispatch_builtin_pure("defvaralias", vec![]).is_none());
@@ -6446,6 +6627,7 @@ fn dispatch_builtin_pure_defers_evaluator_window_accessors_and_mutators() {
 
 #[test]
 fn dispatch_builtin_pure_handles_treesit_parser_query_and_search_placeholders() {
+    crate::test_utils::init_test_tracing();
     let parser = dispatch_builtin_pure("treesit-parser-buffer", vec![Value::NIL])
         .expect("treesit-parser-buffer should resolve")
         .expect("treesit-parser-buffer should evaluate");
@@ -6470,6 +6652,7 @@ fn dispatch_builtin_pure_handles_treesit_parser_query_and_search_placeholders() 
 
 #[test]
 fn dispatch_builtin_pure_handles_inotify_watch_lifecycle() {
+    crate::test_utils::init_test_tracing();
     let watch = dispatch_builtin_pure(
         "inotify-add-watch",
         vec![Value::string("/tmp"), Value::NIL, Value::symbol("ignore")],
@@ -6494,6 +6677,7 @@ fn dispatch_builtin_pure_handles_inotify_watch_lifecycle() {
 
 #[test]
 fn dispatch_builtin_pure_handles_sqlite_lifecycle_and_closed_handle_guard() {
+    crate::test_utils::init_test_tracing();
     let db = dispatch_builtin_pure("sqlite-open", vec![])
         .expect("sqlite-open should resolve")
         .expect("sqlite-open should evaluate");
@@ -6518,6 +6702,7 @@ fn dispatch_builtin_pure_handles_sqlite_lifecycle_and_closed_handle_guard() {
 
 #[test]
 fn dispatch_builtin_pure_handles_fillarray_and_find_coding_region_internal() {
+    crate::test_utils::init_test_tracing();
     let vector = Value::vector(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
     let filled = dispatch_builtin_pure("fillarray", vec![vector, Value::fixnum(9)])
         .expect("fillarray should resolve")
@@ -6552,6 +6737,7 @@ fn dispatch_builtin_pure_handles_fillarray_and_find_coding_region_internal() {
 
 #[test]
 fn dispatch_builtin_pure_handles_fringe_display_and_debug_output_placeholders() {
+    crate::test_utils::init_test_tracing();
     let bitmap = dispatch_builtin_pure(
         "define-fringe-bitmap",
         vec![Value::symbol("neo"), Value::vector(vec![Value::fixnum(0)])],
@@ -6586,6 +6772,7 @@ fn dispatch_builtin_pure_handles_fringe_display_and_debug_output_placeholders() 
 
 #[test]
 fn mouse_position_builtins_default_to_selected_frame_with_nil_coords() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let selected = dispatch_builtin(&mut eval, "selected-frame", vec![])
         .expect("selected-frame should resolve")
@@ -6610,6 +6797,7 @@ fn mouse_position_builtins_default_to_selected_frame_with_nil_coords() {
 
 #[test]
 fn display_update_for_mouse_movement_updates_shared_mouse_state() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let frame = dispatch_builtin(&mut eval, "selected-frame", vec![])
         .expect("selected-frame should resolve")
@@ -6651,6 +6839,7 @@ fn display_update_for_mouse_movement_updates_shared_mouse_state() {
 
 #[test]
 fn set_mouse_position_builtins_update_shared_mouse_state() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let frame = dispatch_builtin(&mut eval, "selected-frame", vec![])
         .expect("selected-frame should resolve")
@@ -6703,6 +6892,7 @@ fn set_mouse_position_builtins_update_shared_mouse_state() {
 
 #[test]
 fn dispatch_builtin_pure_handles_internal_labeled_and_modified_tick_placeholders() {
+    crate::test_utils::init_test_tracing();
     assert!(
         dispatch_builtin_pure(
             "internal--define-uninitialized-variable",
@@ -6741,6 +6931,7 @@ fn dispatch_builtin_pure_handles_internal_labeled_and_modified_tick_placeholders
 
 #[test]
 fn internal_define_uninitialized_variable_marks_special_and_sets_doc() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let result = dispatch_builtin(
         &mut eval,
@@ -6761,6 +6952,7 @@ fn internal_define_uninitialized_variable_marks_special_and_sets_doc() {
 
 #[test]
 fn internal_labeled_narrow_to_region_clamps_within_current_restriction() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let buf_id = eval.buffers.create_buffer(" *vm-labeled-narrow*");
     eval.buffers.set_current(buf_id);
@@ -6797,6 +6989,7 @@ fn internal_labeled_narrow_to_region_clamps_within_current_restriction() {
 
 #[test]
 fn dispatch_builtin_pure_handles_window_resize_and_frame_switch_placeholders() {
+    crate::test_utils::init_test_tracing();
     let save = dispatch_builtin_pure("handle-save-session", vec![Value::symbol("event")])
         .expect("handle-save-session should resolve")
         .expect("handle-save-session should evaluate");
@@ -6820,6 +7013,7 @@ fn dispatch_builtin_pure_handles_window_resize_and_frame_switch_placeholders() {
 
 #[test]
 fn dispatch_builtin_pure_handles_window_placeholder_accessors() {
+    crate::test_utils::init_test_tracing();
     // Window accessor functions need eval state (FrameManager) and are
     // correctly deferred from dispatch_builtin_pure to the eval-backed
     // dispatch.  Verify they return None from pure dispatch.
@@ -6866,6 +7060,7 @@ fn dispatch_builtin_pure_handles_window_placeholder_accessors() {
 
 #[test]
 fn dispatch_builtin_pure_handles_gpm_help_and_init_image_placeholders() {
+    crate::test_utils::init_test_tracing();
     let err = dispatch_builtin_pure("gpm-mouse-start", vec![])
         .expect("gpm-mouse-start should resolve")
         .unwrap_err();
@@ -6903,6 +7098,7 @@ fn dispatch_builtin_pure_handles_gpm_help_and_init_image_placeholders() {
 
 #[test]
 fn dispatch_builtin_pure_handles_frame_placeholder_accessors() {
+    crate::test_utils::init_test_tracing();
     let face_table = dispatch_builtin_pure("frame--face-hash-table", vec![])
         .expect("frame--face-hash-table should resolve")
         .expect("frame--face-hash-table should evaluate");
@@ -6951,6 +7147,7 @@ fn dispatch_builtin_pure_handles_frame_placeholder_accessors() {
 
 #[test]
 fn dispatch_builtin_pure_handles_describe_and_delete_terminal_placeholders() {
+    crate::test_utils::init_test_tracing();
     let bindings = dispatch_builtin_pure(
         "describe-buffer-bindings",
         vec![Value::make_buffer(crate::buffer::BufferId(0))],
@@ -7003,6 +7200,7 @@ fn dispatch_builtin_pure_handles_describe_and_delete_terminal_placeholders() {
 
 #[test]
 fn dispatch_builtin_pure_handles_fringe_gap_and_garbage_placeholders() {
+    crate::test_utils::init_test_tracing();
     let fringe = dispatch_builtin_pure("fringe-bitmaps-at-pos", vec![Value::NIL, Value::NIL])
         .expect("fringe-bitmaps-at-pos should resolve")
         .expect("fringe-bitmaps-at-pos should evaluate");
@@ -7037,6 +7235,7 @@ fn dispatch_builtin_pure_handles_fringe_gap_and_garbage_placeholders() {
 
 #[test]
 fn dispatch_builtin_pure_handles_gnutls_query_and_error_placeholders() {
+    crate::test_utils::init_test_tracing();
     let available = dispatch_builtin_pure("gnutls-available-p", vec![])
         .expect("gnutls-available-p should resolve")
         .expect("gnutls-available-p should evaluate");
@@ -7078,6 +7277,7 @@ fn dispatch_builtin_pure_handles_gnutls_query_and_error_placeholders() {
 
 #[test]
 fn dispatch_builtin_pure_handles_gnutls_runtime_placeholders() {
+    crate::test_utils::init_test_tracing();
     let peer_warning =
         dispatch_builtin_pure("gnutls-peer-status-warning-describe", vec![Value::NIL])
             .expect("gnutls-peer-status-warning-describe should resolve")
@@ -7138,6 +7338,7 @@ fn dispatch_builtin_pure_handles_gnutls_runtime_placeholders() {
 
 #[test]
 fn dispatch_builtin_pure_handles_font_face_placeholders() {
+    crate::test_utils::init_test_tracing();
     let face = dispatch_builtin_pure("face-attributes-as-vector", vec![Value::NIL])
         .expect("face-attributes-as-vector should resolve")
         .expect("face-attributes-as-vector should evaluate");
@@ -7198,6 +7399,7 @@ fn dispatch_builtin_pure_handles_font_face_placeholders() {
 
 #[test]
 fn dispatch_builtin_pure_handles_fontset_placeholders() {
+    crate::test_utils::init_test_tracing();
     super::symbols::reset_symbols_thread_locals();
     let system = dispatch_builtin_pure("font-get-system-font", vec![])
         .expect("font-get-system-font should resolve")
@@ -7260,6 +7462,7 @@ fn dispatch_builtin_pure_handles_fontset_placeholders() {
 
 #[test]
 fn prin1_to_string_prints_canonical_threading_handles_as_opaque() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let thread = dispatch_builtin(&mut eval, "current-thread", vec![])
@@ -7289,6 +7492,7 @@ fn prin1_to_string_prints_canonical_threading_handles_as_opaque() {
 
 #[test]
 fn prin1_to_string_keeps_forged_threading_handles_as_cons() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let forged_thread = Value::cons(Value::symbol("thread"), Value::fixnum(0));
@@ -7312,6 +7516,7 @@ fn prin1_to_string_keeps_forged_threading_handles_as_cons() {
 
 #[test]
 fn prin1_to_string_supports_noescape_for_strings() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let value = Value::string("a\nb");
 
@@ -7330,6 +7535,7 @@ fn prin1_to_string_supports_noescape_for_strings() {
 
 #[test]
 fn prin1_to_string_respects_print_gensym_binding() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let sym = Value::symbol(intern_uninterned("vm-print-gensym"));
 
@@ -7347,6 +7553,7 @@ fn prin1_to_string_respects_print_gensym_binding() {
 
 #[test]
 fn prin1_to_string_ignores_extra_args_for_compat() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let result = dispatch_builtin(
         &mut eval,
@@ -7360,6 +7567,7 @@ fn prin1_to_string_ignores_extra_args_for_compat() {
 
 #[test]
 fn format_prints_thread_handles_as_opaque_in_eval_dispatch() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let thread = dispatch_builtin(&mut eval, "current-thread", vec![])
         .expect("current-thread should resolve")
@@ -7378,6 +7586,7 @@ fn format_prints_thread_handles_as_opaque_in_eval_dispatch() {
 
 #[test]
 fn message_prints_thread_handles_as_opaque_in_eval_dispatch() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let thread = dispatch_builtin(&mut eval, "current-thread", vec![])
         .expect("current-thread should resolve")
@@ -7390,6 +7599,7 @@ fn message_prints_thread_handles_as_opaque_in_eval_dispatch() {
 
 #[test]
 fn format_and_message_render_terminal_handles_in_eval_dispatch() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let terminals = dispatch_builtin(&mut eval, "terminal-list", vec![])
         .expect("terminal-list should resolve")
@@ -7418,6 +7628,7 @@ fn format_and_message_render_terminal_handles_in_eval_dispatch() {
 
 #[test]
 fn format_and_message_render_mutex_condvar_handles_in_eval_dispatch() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let mutex = dispatch_builtin(&mut eval, "make-mutex", vec![])
         .expect("make-mutex should resolve")
@@ -7449,6 +7660,7 @@ fn format_and_message_render_mutex_condvar_handles_in_eval_dispatch() {
 
 #[test]
 fn format_and_message_render_killed_buffer_handles_in_eval_dispatch() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let buffer = create_unique_test_buffer(&mut eval, "*format-killed-buffer*");
     let _ = dispatch_builtin(&mut eval, "kill-buffer", vec![buffer])
@@ -7468,6 +7680,7 @@ fn format_and_message_render_killed_buffer_handles_in_eval_dispatch() {
 
 #[test]
 fn format_and_message_render_live_buffer_handles_in_eval_dispatch() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let buffer = create_unique_test_buffer(&mut eval, "*format-live-buffer*");
 
@@ -7494,6 +7707,7 @@ fn format_and_message_render_live_buffer_handles_in_eval_dispatch() {
 
 #[test]
 fn format_and_message_percent_s_render_live_buffer_names_in_eval_dispatch() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let expected = "*format-live-s-buffer*";
     let buffer = create_unique_test_buffer(&mut eval, expected);
@@ -7511,6 +7725,7 @@ fn format_and_message_percent_s_render_live_buffer_names_in_eval_dispatch() {
 
 #[test]
 fn format_and_message_percent_s_render_killed_buffer_handles_in_eval_dispatch() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let buffer = create_unique_test_buffer(&mut eval, "*format-killed-s-buffer*");
     let _ = dispatch_builtin(&mut eval, "kill-buffer", vec![buffer])
@@ -7530,6 +7745,7 @@ fn format_and_message_percent_s_render_killed_buffer_handles_in_eval_dispatch() 
 
 #[test]
 fn format_and_message_render_frame_window_handles_in_eval_dispatch() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let frame = dispatch_builtin(&mut eval, "selected-frame", vec![])
         .expect("selected-frame should resolve")
@@ -7575,6 +7791,7 @@ fn format_and_message_render_frame_window_handles_in_eval_dispatch() {
 
 #[test]
 fn format_message_renders_opaque_handles_in_eval_dispatch() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let thread = dispatch_builtin(&mut eval, "current-thread", vec![])
@@ -7676,6 +7893,7 @@ fn format_message_renders_opaque_handles_in_eval_dispatch() {
 
 #[test]
 fn error_message_string_preserves_percent_s_handle_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let render_error_message = |eval: &mut crate::emacs_core::eval::Context,
@@ -7735,6 +7953,7 @@ fn error_message_string_preserves_percent_s_handle_semantics() {
 
 #[test]
 fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     for (builtin, symbol) in [
         ("message-box", "message-box"),
@@ -8002,6 +8221,7 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
 
 #[test]
 fn message_nil_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let eval_result =
@@ -8024,6 +8244,7 @@ fn message_nil_returns_nil() {
 
 #[test]
 fn message_eval_triggers_redisplay_with_current_echo_state() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let redisplays = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Option<String>>::new()));
     let redisplays_capture = std::sync::Arc::clone(&redisplays);
@@ -8045,6 +8266,7 @@ fn message_eval_triggers_redisplay_with_current_echo_state() {
 
 #[test]
 fn make_string_nonunicode_char_code_bounds_match_oracle() {
+    crate::test_utils::init_test_tracing();
     let overflow = dispatch_builtin_pure(
         "make-string",
         vec![Value::fixnum(1), Value::fixnum(0x40_0000)],
@@ -8090,6 +8312,7 @@ fn make_string_nonunicode_char_code_bounds_match_oracle() {
 
 #[test]
 fn make_string_matches_emacs_ascii_boundary() {
+    crate::test_utils::init_test_tracing();
     let ascii = dispatch_builtin_pure(
         "make-string",
         vec![Value::fixnum(3), Value::fixnum('a' as i64)],
@@ -8113,6 +8336,7 @@ fn make_string_matches_emacs_ascii_boundary() {
 
 #[test]
 fn text_char_description_nonunicode_char_code_bounds_match_oracle() {
+    crate::test_utils::init_test_tracing();
     let high = dispatch_builtin_pure("text-char-description", vec![Value::fixnum(0x11_0000)])
         .expect("text-char-description should resolve")
         .expect("text-char-description should evaluate");
@@ -8146,6 +8370,7 @@ fn text_char_description_nonunicode_char_code_bounds_match_oracle() {
 
 #[test]
 fn assoc_delete_all_supports_default_equal_and_optional_test() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"
         (assoc-delete-all "foo" '(("foo" . 1) ignored ("bar" . 2) ("foo" . 3)))
@@ -8162,6 +8387,7 @@ fn assoc_delete_all_supports_default_equal_and_optional_test() {
 
 #[test]
 fn insert_char_nonunicode_char_code_bounds_match_oracle() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     builtin_erase_buffer(&mut eval, vec![]).expect("erase-buffer should succeed");
@@ -8203,6 +8429,7 @@ fn insert_char_nonunicode_char_code_bounds_match_oracle() {
 
 #[test]
 fn insert_nonunicode_integer_arguments_match_oracle() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     builtin_erase_buffer(&mut eval, vec![]).expect("erase-buffer should succeed");
@@ -8247,6 +8474,7 @@ fn insert_nonunicode_integer_arguments_match_oracle() {
 
 #[test]
 fn insert_byte_matches_gnu_multibyte_and_unibyte_storage() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     builtin_insert_byte(&mut eval, vec![Value::fixnum(65), Value::fixnum(2)])
@@ -8285,6 +8513,7 @@ fn insert_byte_matches_gnu_multibyte_and_unibyte_storage() {
 
 #[test]
 fn format_message_and_message_signal_strict_format_errors() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     for builtin in ["format", "format-message"] {
@@ -8421,6 +8650,7 @@ fn format_message_and_message_signal_strict_format_errors() {
 /// Test it through the bootstrap evaluator which loads subr.el.
 #[test]
 fn user_error_signals_user_error_symbol_and_formatted_message() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::load::create_bootstrap_evaluator_cached().expect("bootstrap");
     crate::emacs_core::load::apply_runtime_startup_state(&mut eval).expect("startup");
     let forms = crate::emacs_core::parse_forms(
@@ -8434,6 +8664,7 @@ fn user_error_signals_user_error_symbol_and_formatted_message() {
 
 #[test]
 fn user_error_requires_message_argument() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::load::create_bootstrap_evaluator_cached().expect("bootstrap");
     crate::emacs_core::load::apply_runtime_startup_state(&mut eval).expect("startup");
     let forms =
@@ -8446,6 +8677,7 @@ fn user_error_requires_message_argument() {
 
 #[test]
 fn internal_save_selected_window_helpers_restore_selected_window() {
+    crate::test_utils::init_test_tracing();
     // internal--before/after-save-selected-window are Elisp in GNU
     // (window.el). Test through bootstrap evaluator.
     let mut eval = crate::emacs_core::load::create_bootstrap_evaluator_cached().expect("bootstrap");
@@ -8465,6 +8697,7 @@ fn internal_save_selected_window_helpers_restore_selected_window() {
 
 #[test]
 fn functionp_eval_matches_symbol_and_lambda_form_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let builtin_symbol = builtin_functionp(&mut eval, vec![Value::symbol("message")])
@@ -8609,6 +8842,7 @@ fn functionp_eval_matches_symbol_and_lambda_form_semantics() {
 
 #[test]
 fn functionp_eval_resolves_t_and_keyword_symbol_designators() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let keyword = Value::keyword(":vm-functionp-keyword");
@@ -8634,6 +8868,7 @@ fn functionp_eval_resolves_t_and_keyword_symbol_designators() {
 
 #[test]
 fn fmakunbound_masks_builtin_special_and_evaluator_callables() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     builtin_fmakunbound(&mut eval, vec![Value::symbol("car")])
@@ -8694,6 +8929,7 @@ fn fmakunbound_masks_builtin_special_and_evaluator_callables() {
 
 #[test]
 fn fset_nil_clears_fboundp_for_regular_and_fallback_names() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let regular = builtin_fset(&mut eval, vec![Value::symbol("vm-fsetnil"), Value::NIL])
@@ -8716,6 +8952,7 @@ fn fset_nil_clears_fboundp_for_regular_and_fallback_names() {
 
 #[test]
 fn fset_nil_nil_is_allowed_and_fmakunbound_rejects_constants() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let fset_nil = builtin_fset(&mut eval, vec![Value::NIL, Value::NIL])
@@ -8740,6 +8977,7 @@ fn fset_nil_nil_is_allowed_and_fmakunbound_rejects_constants() {
 
 #[test]
 fn func_arity_eval_resolves_symbol_designators_and_nil_cells() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let keyword = Value::keyword(":vm-func-arity-keyword");
@@ -8799,6 +9037,7 @@ fn func_arity_eval_resolves_symbol_designators_and_nil_cells() {
 
 #[test]
 fn indirect_function_follows_t_and_keyword_alias_values() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let keyword = Value::keyword(":vm-indirect-keyword-alias");
@@ -8838,6 +9077,7 @@ fn indirect_function_follows_t_and_keyword_alias_values() {
 
 #[test]
 fn macrop_eval_resolves_keyword_designators() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let keyword = Value::keyword(":vm-macrop-keyword");
@@ -8868,6 +9108,7 @@ fn macrop_eval_resolves_keyword_designators() {
 
 #[test]
 fn macroexpand_runtime_environment_overrides_and_shadows_global_macros() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     // Install a test macro on `vm-test-mac` that acts like `when`:
@@ -8924,6 +9165,7 @@ fn macroexpand_runtime_environment_overrides_and_shadows_global_macros() {
 
 #[test]
 fn macroexpand_runtime_environment_type_and_payload_edges_match_oracle() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let atom_ignores_bad_env =
@@ -8985,6 +9227,7 @@ fn macroexpand_runtime_environment_type_and_payload_edges_match_oracle() {
 
 #[test]
 fn macroexpand_runtime_improper_lists_match_oracle_error_behavior() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let not_macro = builtin_macroexpand(
@@ -9017,6 +9260,7 @@ fn macroexpand_runtime_improper_lists_match_oracle_error_behavior() {
 
 #[test]
 fn indirect_function_nil_and_non_symbol_behavior() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let noerror = builtin_indirect_function(
@@ -9053,6 +9297,7 @@ fn indirect_function_nil_and_non_symbol_behavior() {
 
 #[test]
 fn indirect_function_rejects_overflow_arity() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let err = builtin_indirect_function(
         &mut eval,
@@ -9067,6 +9312,7 @@ fn indirect_function_rejects_overflow_arity() {
 
 #[test]
 fn indirect_function_resolves_deep_alias_chain_without_depth_cutoff() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let depth = 120;
 
@@ -9088,6 +9334,7 @@ fn indirect_function_resolves_deep_alias_chain_without_depth_cutoff() {
 
 #[test]
 fn fset_rejects_self_alias_cycle() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let err = builtin_fset(
@@ -9114,6 +9361,7 @@ fn fset_rejects_self_alias_cycle() {
 
 #[test]
 fn fset_rejects_two_node_alias_cycle() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let first = builtin_fset(
@@ -9145,6 +9393,7 @@ fn fset_rejects_two_node_alias_cycle() {
 
 #[test]
 fn fset_rejects_keyword_and_t_alias_cycles() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let first = builtin_fset(
@@ -9183,6 +9432,7 @@ fn fset_rejects_keyword_and_t_alias_cycles() {
 
 #[test]
 fn fset_nil_signals_setting_constant() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let err = builtin_fset(&mut eval, vec![Value::NIL, Value::symbol("car")])
@@ -9198,6 +9448,7 @@ fn fset_nil_signals_setting_constant() {
 
 #[test]
 fn fset_t_accepts_symbol_cell_updates() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let result = builtin_fset(&mut eval, vec![Value::T, Value::symbol("car")])
@@ -9211,6 +9462,7 @@ fn fset_t_accepts_symbol_cell_updates() {
 
 #[test]
 fn keyword_symbols_are_bound_and_special_constants() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let keyword = Value::keyword(":vm-bound-keyword");
 
@@ -9228,6 +9480,7 @@ fn keyword_symbols_are_bound_and_special_constants() {
 
 #[test]
 fn boundp_and_symbol_value_see_dynamic_and_current_buffer_local_bindings() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     eval.obarray_mut().make_special_id(intern("vm-bound-dyn"));
@@ -9260,6 +9513,7 @@ fn boundp_and_symbol_value_see_dynamic_and_current_buffer_local_bindings() {
 
 #[test]
 fn defvaralias_and_indirect_variable_follow_runtime_aliases() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let aliased = builtin_defvaralias(
@@ -9334,6 +9588,7 @@ fn defvaralias_and_indirect_variable_follow_runtime_aliases() {
 
 #[test]
 fn variable_watchers_observe_set_setq_and_makunbound() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     install_variable_watcher_probe(&mut eval, "vm-watcher-probe");
 
@@ -9383,6 +9638,7 @@ fn variable_watchers_observe_set_setq_and_makunbound() {
 
 #[test]
 fn variable_watchers_observe_set_default_toplevel_value() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     install_variable_watcher_probe(&mut eval, "vm-watcher-probe");
 
@@ -9413,6 +9669,7 @@ fn variable_watchers_observe_set_default_toplevel_value() {
 
 #[test]
 fn defvaralias_triggers_variable_watchers_and_clears_alias_entry() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     install_variable_watcher_probe(&mut eval, "vm-defvaralias-watch-probe");
 
@@ -9454,6 +9711,7 @@ fn defvaralias_triggers_variable_watchers_and_clears_alias_entry() {
 
 #[test]
 fn defvaralias_raw_plist_errors_skip_variable_watcher_callbacks() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     install_variable_watcher_probe(&mut eval, "vm-defvaralias-watch-probe");
 
@@ -9495,6 +9753,7 @@ fn defvaralias_raw_plist_errors_skip_variable_watcher_callbacks() {
 
 #[test]
 fn defvaralias_repoint_notifies_previous_alias_target_watchers() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     install_variable_watcher_probe(&mut eval, "vm-defvaralias-repoint-watch");
 
@@ -9538,6 +9797,7 @@ fn defvaralias_repoint_notifies_previous_alias_target_watchers() {
 
 #[test]
 fn defvaralias_rejects_invalid_inputs_and_cycles() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let constant_err = builtin_defvaralias(
@@ -9596,6 +9856,7 @@ fn defvaralias_rejects_invalid_inputs_and_cycles() {
 
 #[test]
 fn setplist_runtime_controls_get_put_and_symbol_plist_edges() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let initial_plist = Value::list(vec![
@@ -9685,6 +9946,7 @@ fn setplist_runtime_controls_get_put_and_symbol_plist_edges() {
 
 #[test]
 fn put_promotes_symbol_properties_to_live_raw_plists() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let sym = Value::symbol("vm-live-plist");
 
@@ -9720,6 +9982,7 @@ fn put_promotes_symbol_properties_to_live_raw_plists() {
 
 #[test]
 fn register_code_conversion_map_publishes_symbol_properties() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let map = Value::vector(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
 
@@ -9771,6 +10034,7 @@ fn register_code_conversion_map_publishes_symbol_properties() {
 
 #[test]
 fn register_ccl_program_publishes_symbol_properties() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let program = Value::vector(vec![Value::fixnum(10), Value::fixnum(0), Value::fixnum(0)]);
 
@@ -9822,6 +10086,7 @@ fn register_ccl_program_publishes_symbol_properties() {
 
 #[test]
 fn ccl_symbol_designators_follow_plist_idx_gates() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let _ = builtin_put(
@@ -9975,6 +10240,7 @@ fn ccl_symbol_designators_follow_plist_idx_gates() {
 
 #[test]
 fn register_code_conversion_map_existing_symbol_plist_edges() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let first_id = dispatch_builtin(
@@ -10077,6 +10343,7 @@ fn register_code_conversion_map_existing_symbol_plist_edges() {
 
 #[test]
 fn ccl_registration_plist_errors_preserve_oracle_id_side_effects() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     let baseline_program_id = dispatch_builtin(
@@ -10190,6 +10457,7 @@ fn ccl_registration_plist_errors_preserve_oracle_id_side_effects() {
 
 #[test]
 fn variable_alias_to_constant_reports_alias_in_setting_constant_errors() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     builtin_defvaralias(
         &mut eval,
@@ -10240,6 +10508,7 @@ fn variable_alias_to_constant_reports_alias_in_setting_constant_errors() {
 
 #[test]
 fn set_allows_keyword_self_assignment_like_gnu_emacs() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let keyword = Value::keyword(":vm-set-keyword");
 
@@ -10263,6 +10532,7 @@ fn set_allows_keyword_self_assignment_like_gnu_emacs() {
 
 #[test]
 fn defvaralias_raises_plistp_errors_when_symbol_plist_is_non_list() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     builtin_setplist(
         &mut eval,
@@ -10295,6 +10565,7 @@ fn defvaralias_raises_plistp_errors_when_symbol_plist_is_non_list() {
 
 #[test]
 fn get_byte_string_semantics_match_oracle_edges() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
     assert_eq!(
@@ -10349,6 +10620,7 @@ fn get_byte_string_semantics_match_oracle_edges() {
 
 #[test]
 fn get_byte_buffer_semantics_match_oracle_edges() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     builtin_erase_buffer(&mut eval, vec![]).unwrap();
     builtin_insert(&mut eval, vec![Value::string("abc")]).unwrap();
@@ -10431,6 +10703,7 @@ fn get_byte_buffer_semantics_match_oracle_edges() {
 
 #[test]
 fn get_byte_unibyte_string_returns_raw_byte_values() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let s = builtin_unibyte_string(vec![Value::fixnum(255), Value::fixnum(65)]).unwrap();
 

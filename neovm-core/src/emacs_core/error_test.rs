@@ -6,6 +6,7 @@ use crate::emacs_core::{
 
 #[test]
 fn list_prints_buffers_with_names_in_eval_context() -> Result<(), EvalError> {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     let stale = Value::make_buffer(eval.buffers.create_buffer("stale-win-buf"));
     eval.set_variable("vm-stale-win-buf", stale);
@@ -40,6 +41,7 @@ fn list_prints_buffers_with_names_in_eval_context() -> Result<(), EvalError> {
 
 #[test]
 fn eval_context_printer_renders_killed_buffer_handles() -> Result<(), EvalError> {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     let forms = parse_forms(
         "(with-temp-buffer
@@ -68,6 +70,7 @@ fn eval_context_printer_renders_killed_buffer_handles() -> Result<(), EvalError>
 
 #[test]
 fn eval_context_printer_renders_mutex_handles_consistently() -> Result<(), EvalError> {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     let forms =
         parse_forms("(make-mutex \"error-printer-mutex\")").map_err(|err| EvalError::Signal {
@@ -89,6 +92,7 @@ fn eval_context_printer_renders_mutex_handles_consistently() -> Result<(), EvalE
 
 #[test]
 fn eval_context_printer_renders_condvar_handles_consistently() -> Result<(), EvalError> {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     let forms = parse_forms(
         "(let ((m (make-mutex \"error-printer-mutex\")))
@@ -113,6 +117,7 @@ fn eval_context_printer_renders_condvar_handles_consistently() -> Result<(), Eva
 
 #[test]
 fn eval_context_printer_renders_frame_window_handles_consistently() -> Result<(), EvalError> {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     let forms = parse_forms("(list (selected-frame) (selected-window))").map_err(|err| {
         EvalError::Signal {
@@ -136,6 +141,7 @@ fn eval_context_printer_renders_frame_window_handles_consistently() -> Result<()
 
 #[test]
 fn eval_context_printer_renders_window_handles_with_buffer_names() -> Result<(), EvalError> {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     let forms = parse_forms(
         "(list (selected-window)
@@ -162,6 +168,7 @@ fn eval_context_printer_renders_window_handles_with_buffer_names() -> Result<(),
 
 #[test]
 fn eval_context_printer_renders_terminal_thread_handles_consistently() -> Result<(), EvalError> {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     let forms = parse_forms("(list (car (terminal-list)) (current-thread))").map_err(|err| {
         EvalError::Signal {
@@ -185,6 +192,7 @@ fn eval_context_printer_renders_terminal_thread_handles_consistently() -> Result
 
 #[test]
 fn eval_context_printer_matches_gnu_backquote_shorthand_rules() {
+    crate::test_utils::init_test_tracing();
     let eval = Context::new();
     let raw_unquote = Value::list(vec![Value::symbol(","), Value::symbol("x")]);
     let nested = Value::list(vec![
@@ -208,6 +216,7 @@ fn eval_context_printer_matches_gnu_backquote_shorthand_rules() {
 
 #[test]
 fn signal_creates_signal_data() {
+    crate::test_utils::init_test_tracing();
     use super::{Flow, signal};
     let flow = signal(
         "wrong-type-argument",
@@ -225,6 +234,7 @@ fn signal_creates_signal_data() {
 
 #[test]
 fn signal_with_data_preserves_raw() {
+    crate::test_utils::init_test_tracing();
     use super::{Flow, signal_with_data};
     let dotted = Value::cons(Value::symbol("foo"), Value::fixnum(1));
     let flow = signal_with_data("error", dotted);
@@ -239,6 +249,7 @@ fn signal_with_data_preserves_raw() {
 
 #[test]
 fn make_signal_binding_value_preserves_raw_payload_shape() {
+    crate::test_utils::init_test_tracing();
     use super::{Flow, make_signal_binding_value, signal_with_data};
 
     let flow = signal_with_data("error", Value::fixnum(1));
@@ -251,6 +262,7 @@ fn make_signal_binding_value_preserves_raw_payload_shape() {
 
 #[test]
 fn format_eval_result_preserves_raw_signal_payload_shape() {
+    crate::test_utils::init_test_tracing();
     use super::{format_eval_result, map_flow, signal_with_data};
 
     let result = Err(map_flow(signal_with_data("error", Value::fixnum(1))));
@@ -259,6 +271,7 @@ fn format_eval_result_preserves_raw_signal_payload_shape() {
 
 #[test]
 fn signal_matches_symbol() {
+    crate::test_utils::init_test_tracing();
     use super::signal_matches;
     use crate::emacs_core::expr::Expr;
     use crate::emacs_core::intern::intern;
@@ -273,6 +286,7 @@ fn signal_matches_symbol() {
 
 #[test]
 fn signal_matches_t_matches_all() {
+    crate::test_utils::init_test_tracing();
     use super::signal_matches;
     use crate::emacs_core::expr::Expr;
     use crate::emacs_core::intern::intern;
@@ -284,6 +298,7 @@ fn signal_matches_t_matches_all() {
 
 #[test]
 fn make_signal_binding_value_structure() {
+    crate::test_utils::init_test_tracing();
     use super::{Flow, make_signal_binding_value, signal};
     use crate::emacs_core::value::list_to_vec;
 
@@ -299,6 +314,7 @@ fn make_signal_binding_value_structure() {
 
 #[test]
 fn eval_context_printer_renders_hash_s_literal_shorthand() {
+    crate::test_utils::init_test_tracing();
     let eval = Context::new();
     let literal = Value::list(vec![
         Value::symbol("make-hash-table-from-literal"),

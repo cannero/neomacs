@@ -20,6 +20,7 @@ fn eval_with_text(text: &str) -> Context {
 
 #[test]
 fn put_and_get_text_property() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello world");
     // Put 'face -> bold on positions 1..6 (1-based, "hello")
     let result = builtin_put_text_property(
@@ -49,6 +50,7 @@ fn put_and_get_text_property() {
 
 #[test]
 fn get_text_property_returns_nil_when_absent() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result =
         builtin_get_text_property(&mut eval, vec![Value::fixnum(1), Value::symbol("face")]);
@@ -57,6 +59,7 @@ fn get_text_property_returns_nil_when_absent() {
 
 #[test]
 fn put_text_property_outside_range() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     builtin_put_text_property(
         &mut eval,
@@ -77,6 +80,7 @@ fn put_text_property_outside_range() {
 
 #[test]
 fn indirect_buffers_share_text_property_updates() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let base = builtin_current_buffer(&mut eval, vec![]).unwrap();
     let indirect =
@@ -127,6 +131,7 @@ fn indirect_buffers_share_text_property_updates() {
 
 #[test]
 fn get_char_property_delegates() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("abcdef");
     builtin_put_text_property(
         &mut eval,
@@ -148,6 +153,7 @@ fn get_char_property_delegates() {
 
 #[test]
 fn get_char_property_and_overlay_shape() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("abcd");
     let result = builtin_get_char_property_and_overlay(
         &mut eval,
@@ -183,6 +189,7 @@ fn get_char_property_and_overlay_shape() {
 
 #[test]
 fn get_char_property_prefers_highest_priority_overlay() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("abcd");
     builtin_put_text_property(
         &mut eval,
@@ -264,6 +271,7 @@ fn get_char_property_prefers_highest_priority_overlay() {
 
 #[test]
 fn get_pos_property_respects_overlay_advance_and_text_stickiness() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("abcd");
 
     builtin_put_text_property(
@@ -375,6 +383,7 @@ fn get_pos_property_respects_overlay_advance_and_text_stickiness() {
 
 #[test]
 fn get_pos_property_on_string_delegates_to_text_property() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     let string = Value::string("abcd");
     builtin_put_text_property(
@@ -399,6 +408,7 @@ fn get_pos_property_on_string_delegates_to_text_property() {
 
 #[test]
 fn get_display_property_queries_display_only() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("abcd");
     builtin_put_text_property(
         &mut eval,
@@ -446,6 +456,7 @@ fn get_display_property_queries_display_only() {
 
 #[test]
 fn add_text_properties_multiple() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello world");
     let props = Value::list(vec![
         Value::symbol("face"),
@@ -471,6 +482,7 @@ fn add_text_properties_multiple() {
 
 #[test]
 fn add_text_properties_odd_plist_signals_error() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let props = Value::list(vec![Value::symbol("face")]);
     let result =
@@ -480,6 +492,7 @@ fn add_text_properties_odd_plist_signals_error() {
 
 #[test]
 fn add_face_text_property_basic_and_merge_order() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("abc");
     builtin_add_face_text_property(
         &mut eval,
@@ -551,6 +564,7 @@ fn add_face_text_property_basic_and_merge_order() {
 
 #[test]
 fn add_face_text_property_argument_contracts() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("abc");
 
     let begin_err = builtin_add_face_text_property(
@@ -611,6 +625,7 @@ fn add_face_text_property_argument_contracts() {
 
 #[test]
 fn remove_text_properties_basic() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     builtin_put_text_property(
         &mut eval,
@@ -634,6 +649,7 @@ fn remove_text_properties_basic() {
 
 #[test]
 fn set_text_properties_replaces_existing_values() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("abcd");
     builtin_put_text_property(
         &mut eval,
@@ -667,6 +683,7 @@ fn set_text_properties_replaces_existing_values() {
 
 #[test]
 fn remove_list_of_text_properties_returns_t_only_when_changed() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("abcd");
     builtin_set_text_properties(
         &mut eval,
@@ -706,6 +723,7 @@ fn remove_list_of_text_properties_returns_t_only_when_changed() {
 
 #[test]
 fn text_properties_at_returns_plist() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     builtin_put_text_property(
         &mut eval,
@@ -726,6 +744,7 @@ fn text_properties_at_returns_plist() {
 
 #[test]
 fn text_properties_at_empty_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_text_properties_at(&mut eval, vec![Value::fixnum(1)]).unwrap();
     // Empty plist is nil.
@@ -738,6 +757,7 @@ fn text_properties_at_empty_returns_nil() {
 
 #[test]
 fn next_property_change_basic() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello world");
     builtin_put_text_property(
         &mut eval,
@@ -757,6 +777,7 @@ fn next_property_change_basic() {
 
 #[test]
 fn next_property_change_with_limit() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello world");
     builtin_put_text_property(
         &mut eval,
@@ -780,6 +801,7 @@ fn next_property_change_with_limit() {
 
 #[test]
 fn next_property_change_no_change() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_next_property_change(&mut eval, vec![Value::fixnum(1)]).unwrap();
     assert!(result.is_nil());
@@ -791,6 +813,7 @@ fn next_property_change_no_change() {
 
 #[test]
 fn next_single_property_change_basic() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello world");
     builtin_put_text_property(
         &mut eval,
@@ -813,6 +836,7 @@ fn next_single_property_change_basic() {
 
 #[test]
 fn next_single_property_change_nil_when_none() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_next_single_property_change(
         &mut eval,
@@ -828,6 +852,7 @@ fn next_single_property_change_nil_when_none() {
 
 #[test]
 fn previous_single_property_change_basic() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello world");
     builtin_put_text_property(
         &mut eval,
@@ -851,6 +876,7 @@ fn previous_single_property_change_basic() {
 
 #[test]
 fn previous_single_property_change_from_interval_end_boundary() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("abcd");
     builtin_put_text_property(
         &mut eval,
@@ -877,6 +903,7 @@ fn previous_single_property_change_from_interval_end_boundary() {
 
 #[test]
 fn text_property_any_found() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello world");
     builtin_put_text_property(
         &mut eval,
@@ -905,6 +932,7 @@ fn text_property_any_found() {
 
 #[test]
 fn text_property_any_not_found() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_text_property_any(
         &mut eval,
@@ -921,6 +949,7 @@ fn text_property_any_not_found() {
 
 #[test]
 fn text_property_any_uses_live_marker_end_after_insertions() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     let forms = crate::emacs_core::parser::parse_forms(
         r#"(with-temp-buffer
@@ -943,6 +972,7 @@ fn text_property_any_uses_live_marker_end_after_insertions() {
 
 #[test]
 fn text_property_not_all_reports_first_mismatch() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("abcd");
     builtin_put_text_property(
         &mut eval,
@@ -985,6 +1015,7 @@ fn text_property_not_all_reports_first_mismatch() {
 
 #[test]
 fn make_and_delete_overlay() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello world");
     let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
 
@@ -1001,6 +1032,7 @@ fn make_and_delete_overlay() {
 
 #[test]
 fn overlay_put_and_get() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
 
@@ -1016,6 +1048,7 @@ fn overlay_put_and_get() {
 
 #[test]
 fn deleted_overlay_preserves_plist_and_identity() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(3)]).unwrap();
 
@@ -1048,6 +1081,7 @@ fn deleted_overlay_preserves_plist_and_identity() {
 
 #[test]
 fn overlay_get_absent_property() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
 
@@ -1061,6 +1095,7 @@ fn overlay_get_absent_property() {
 
 #[test]
 fn overlayp_true() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
 
@@ -1070,6 +1105,7 @@ fn overlayp_true() {
 
 #[test]
 fn overlayp_false() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     let result = builtin_overlayp(&mut eval, vec![Value::fixnum(42)]).unwrap();
     assert!(result.is_nil());
@@ -1081,6 +1117,7 @@ fn overlayp_false() {
 
 #[test]
 fn overlays_at_finds_overlay() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello world");
     let _ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
 
@@ -1091,6 +1128,7 @@ fn overlays_at_finds_overlay() {
 
 #[test]
 fn overlays_at_outside() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello world");
     let _ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(3)]).unwrap();
 
@@ -1101,6 +1139,7 @@ fn overlays_at_outside() {
 
 #[test]
 fn overlays_at_sorted_returns_highest_priority_first() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello world");
     let low = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
     let high = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
@@ -1125,6 +1164,7 @@ fn overlays_at_sorted_returns_highest_priority_first() {
 
 #[test]
 fn overlays_in_basic() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello world");
     builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
     builtin_make_overlay(&mut eval, vec![Value::fixnum(4), Value::fixnum(10)]).unwrap();
@@ -1136,6 +1176,7 @@ fn overlays_in_basic() {
 
 #[test]
 fn next_previous_overlay_change_boundaries() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("abcd");
     let no_overlay_next = builtin_next_overlay_change(&mut eval, vec![Value::fixnum(1)]).unwrap();
     let no_overlay_prev =
@@ -1160,6 +1201,7 @@ fn next_previous_overlay_change_boundaries() {
 
 #[test]
 fn move_overlay_changes_range() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello world");
     let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
 
@@ -1177,6 +1219,7 @@ fn move_overlay_changes_range() {
 
 #[test]
 fn overlay_start_and_end() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello world");
     let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(2), Value::fixnum(8)]).unwrap();
 
@@ -1192,6 +1235,7 @@ fn overlay_start_and_end() {
 
 #[test]
 fn overlay_buffer_returns_buffer() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(3)]).unwrap();
 
@@ -1205,6 +1249,7 @@ fn overlay_buffer_returns_buffer() {
 
 #[test]
 fn overlay_properties_returns_plist() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
 
@@ -1226,6 +1271,7 @@ fn overlay_properties_returns_plist() {
 
 #[test]
 fn overlay_properties_empty() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(3)]).unwrap();
 
@@ -1240,6 +1286,7 @@ fn overlay_properties_empty() {
 
 #[test]
 fn remove_overlays_all() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello world");
     builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
     builtin_make_overlay(&mut eval, vec![Value::fixnum(3), Value::fixnum(10)]).unwrap();
@@ -1253,6 +1300,7 @@ fn remove_overlays_all() {
 
 #[test]
 fn remove_overlays_by_property() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello world");
     let ov1 = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
     let ov2 = builtin_make_overlay(&mut eval, vec![Value::fixnum(3), Value::fixnum(10)]).unwrap();
@@ -1291,6 +1339,7 @@ fn remove_overlays_by_property() {
 
 #[test]
 fn put_text_property_wrong_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_put_text_property(&mut eval, vec![Value::fixnum(1), Value::fixnum(3)]);
     assert!(result.is_err());
@@ -1298,6 +1347,7 @@ fn put_text_property_wrong_args() {
 
 #[test]
 fn put_text_property_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_put_text_property(
         &mut eval,
@@ -1315,6 +1365,7 @@ fn put_text_property_rejects_too_many_args() {
 
 #[test]
 fn get_text_property_wrong_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_get_text_property(&mut eval, vec![]);
     assert!(result.is_err());
@@ -1322,6 +1373,7 @@ fn get_text_property_wrong_args() {
 
 #[test]
 fn get_text_property_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_get_text_property(
         &mut eval,
@@ -1337,6 +1389,7 @@ fn get_text_property_rejects_too_many_args() {
 
 #[test]
 fn get_char_property_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_get_char_property(
         &mut eval,
@@ -1352,6 +1405,7 @@ fn get_char_property_rejects_too_many_args() {
 
 #[test]
 fn get_char_property_and_overlay_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_get_char_property_and_overlay(
         &mut eval,
@@ -1367,6 +1421,7 @@ fn get_char_property_and_overlay_rejects_too_many_args() {
 
 #[test]
 fn get_display_property_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_get_display_property(
         &mut eval,
@@ -1383,6 +1438,7 @@ fn get_display_property_rejects_too_many_args() {
 
 #[test]
 fn overlay_put_wrong_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_overlay_put(&mut eval, vec![Value::fixnum(42), Value::symbol("face")]);
     assert!(result.is_err());
@@ -1390,6 +1446,7 @@ fn overlay_put_wrong_args() {
 
 #[test]
 fn text_properties_at_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result =
         builtin_text_properties_at(&mut eval, vec![Value::fixnum(1), Value::NIL, Value::NIL]);
@@ -1398,6 +1455,7 @@ fn text_properties_at_rejects_too_many_args() {
 
 #[test]
 fn text_property_any_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_text_property_any(
         &mut eval,
@@ -1415,6 +1473,7 @@ fn text_property_any_rejects_too_many_args() {
 
 #[test]
 fn text_property_not_all_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_text_property_not_all(
         &mut eval,
@@ -1432,6 +1491,7 @@ fn text_property_not_all_rejects_too_many_args() {
 
 #[test]
 fn set_text_properties_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_set_text_properties(
         &mut eval,
@@ -1448,6 +1508,7 @@ fn set_text_properties_rejects_too_many_args() {
 
 #[test]
 fn remove_list_of_text_properties_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_remove_list_of_text_properties(
         &mut eval,
@@ -1464,6 +1525,7 @@ fn remove_list_of_text_properties_rejects_too_many_args() {
 
 #[test]
 fn remove_overlays_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_remove_overlays(
         &mut eval,
@@ -1474,6 +1536,7 @@ fn remove_overlays_rejects_too_many_args() {
 
 #[test]
 fn make_overlay_wrong_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_make_overlay(&mut eval, vec![Value::fixnum(1)]);
     assert!(result.is_err());
@@ -1481,6 +1544,7 @@ fn make_overlay_wrong_args() {
 
 #[test]
 fn make_overlay_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_make_overlay(
         &mut eval,
@@ -1498,6 +1562,7 @@ fn make_overlay_rejects_too_many_args() {
 
 #[test]
 fn overlays_at_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_overlays_at(&mut eval, vec![Value::fixnum(1), Value::NIL, Value::NIL]);
     assert!(result.is_err());
@@ -1505,6 +1570,7 @@ fn overlays_at_rejects_too_many_args() {
 
 #[test]
 fn next_overlay_change_wrong_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_next_overlay_change(&mut eval, vec![]);
     assert!(result.is_err());
@@ -1512,6 +1578,7 @@ fn next_overlay_change_wrong_args() {
 
 #[test]
 fn previous_overlay_change_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_previous_overlay_change(&mut eval, vec![Value::fixnum(1), Value::NIL]);
     assert!(result.is_err());
@@ -1519,6 +1586,7 @@ fn previous_overlay_change_rejects_too_many_args() {
 
 #[test]
 fn next_property_change_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_next_property_change(
         &mut eval,
@@ -1529,6 +1597,7 @@ fn next_property_change_rejects_too_many_args() {
 
 #[test]
 fn next_single_property_change_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_next_single_property_change(
         &mut eval,
@@ -1545,6 +1614,7 @@ fn next_single_property_change_rejects_too_many_args() {
 
 #[test]
 fn previous_single_property_change_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_previous_single_property_change(
         &mut eval,
@@ -1561,6 +1631,7 @@ fn previous_single_property_change_rejects_too_many_args() {
 
 #[test]
 fn move_overlay_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let result = builtin_move_overlay(
         &mut eval,
@@ -1581,6 +1652,7 @@ fn move_overlay_rejects_too_many_args() {
 
 #[test]
 fn overlay_front_advance() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello world");
     // Create overlay with front-advance = t
     let ov = builtin_make_overlay(
@@ -1602,6 +1674,7 @@ fn overlay_front_advance() {
 
 #[test]
 fn overlay_rear_advance() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello world");
     let ov = builtin_make_overlay(
         &mut eval,
@@ -1625,6 +1698,7 @@ fn overlay_rear_advance() {
 
 #[test]
 fn text_property_on_empty_buffer() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     // Scratch buffer is empty.
     let result =
@@ -1634,6 +1708,7 @@ fn text_property_on_empty_buffer() {
 
 #[test]
 fn overlays_at_empty_buffer() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     let result = builtin_overlays_at(&mut eval, vec![Value::fixnum(1)]).unwrap();
     assert!(result.is_nil());
@@ -1641,6 +1716,7 @@ fn overlays_at_empty_buffer() {
 
 #[test]
 fn delete_overlay_twice_is_ok() {
+    crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello");
     let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(3)]).unwrap();
 

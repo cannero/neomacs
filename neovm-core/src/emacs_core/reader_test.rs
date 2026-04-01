@@ -90,6 +90,7 @@ fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Context {
 
 #[test]
 fn read_from_string_integer() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("42")]).unwrap();
     // Should be (42 . 2)
@@ -106,6 +107,7 @@ fn read_from_string_integer() {
 
 #[test]
 fn read_from_string_symbol() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("hello")]).unwrap();
     match result.kind() {
@@ -124,6 +126,7 @@ fn read_from_string_symbol() {
 
 #[test]
 fn read_from_string_string_value() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result =
         builtin_read_from_string(&mut ev, vec![Value::string(r#""hello world""#)]).unwrap();
@@ -140,6 +143,7 @@ fn read_from_string_string_value() {
 
 #[test]
 fn read_from_string_list() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("(+ 1 2)")]).unwrap();
     match result.kind() {
@@ -156,6 +160,7 @@ fn read_from_string_list() {
 
 #[test]
 fn read_from_string_with_start() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     // "  42 rest" — start at 2
     let result =
@@ -174,6 +179,7 @@ fn read_from_string_with_start() {
 
 #[test]
 fn read_from_string_float() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("3.14")]).unwrap();
     match result.kind() {
@@ -191,6 +197,7 @@ fn read_from_string_float() {
 
 #[test]
 fn read_from_string_char() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("?a")]).unwrap();
     match result.kind() {
@@ -205,6 +212,7 @@ fn read_from_string_char() {
 
 #[test]
 fn read_from_string_nil() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("nil")]).unwrap();
     match result.kind() {
@@ -219,6 +227,7 @@ fn read_from_string_nil() {
 
 #[test]
 fn read_from_string_t() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("t")]).unwrap();
     match result.kind() {
@@ -233,6 +242,7 @@ fn read_from_string_t() {
 
 #[test]
 fn read_from_string_vector() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("[1 2 3]")]).unwrap();
     match result.kind() {
@@ -247,6 +257,7 @@ fn read_from_string_vector() {
 
 #[test]
 fn read_from_string_quoted() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("'foo")]).unwrap();
     match result.kind() {
@@ -263,6 +274,7 @@ fn read_from_string_quoted() {
 
 #[test]
 fn read_from_string_dotted_pair() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("(a . b)")]).unwrap();
     match result.kind() {
@@ -278,6 +290,7 @@ fn read_from_string_dotted_pair() {
 
 #[test]
 fn read_from_string_keyword() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string(":test")]).unwrap();
     match result.kind() {
@@ -295,6 +308,7 @@ fn read_from_string_keyword() {
 
 #[test]
 fn read_from_string_uninterned_symbol() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#:test")]).unwrap();
     match result.kind() {
@@ -315,6 +329,7 @@ fn read_from_string_uninterned_symbol() {
 
 #[test]
 fn read_from_string_empty_error() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("")]);
     assert!(result.is_err());
@@ -322,6 +337,7 @@ fn read_from_string_empty_error() {
 
 #[test]
 fn read_from_string_whitespace_only_error() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("   ")]);
     assert!(result.is_err());
@@ -329,6 +345,7 @@ fn read_from_string_whitespace_only_error() {
 
 #[test]
 fn read_from_string_multiple_forms_reads_first() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("42 99")]).unwrap();
     match result.kind() {
@@ -348,6 +365,7 @@ fn read_from_string_multiple_forms_reads_first() {
 
 #[test]
 fn read_from_string_with_start_and_end() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     // "xxx42yyy" with start=3, end=5 -> substring "42"
     let result = builtin_read_from_string(
@@ -376,6 +394,7 @@ fn read_from_string_with_start_and_end() {
 
 #[test]
 fn read_from_string_stream() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read(&mut ev, vec![Value::string("42")]).unwrap();
     assert!(result.is_fixnum());
@@ -383,6 +402,7 @@ fn read_from_string_stream() {
 
 #[test]
 fn read_nil_stream() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read(&mut ev, vec![Value::NIL]);
     assert!(result.is_err());
@@ -390,6 +410,7 @@ fn read_nil_stream() {
 
 #[test]
 fn read_no_args() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read(&mut ev, vec![]);
     assert!(result.is_err());
@@ -397,6 +418,7 @@ fn read_no_args() {
 
 #[test]
 fn read_rejects_extra_args() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read(&mut ev, vec![Value::string("a"), Value::NIL]);
     assert!(result.is_err());
@@ -404,6 +426,7 @@ fn read_rejects_extra_args() {
 
 #[test]
 fn read_non_stream_type_is_invalid_function() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read(&mut ev, vec![Value::fixnum(1)]);
     match result {
@@ -418,6 +441,7 @@ fn read_non_stream_type_is_invalid_function() {
 
 #[test]
 fn read_from_minibuffer_signals_end_of_file() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_minibuffer(&mut ev, vec![Value::string("Prompt: ")]);
     assert!(result.is_err());
@@ -425,6 +449,7 @@ fn read_from_minibuffer_signals_end_of_file() {
 
 #[test]
 fn read_from_minibuffer_non_character_event_stays_queued_and_signals_end_of_file() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -440,6 +465,7 @@ fn read_from_minibuffer_non_character_event_stays_queued_and_signals_end_of_file
 
 #[test]
 fn read_from_minibuffer_ignores_initial_and_signals_end_of_file() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_minibuffer(
         &mut ev,
@@ -450,6 +476,7 @@ fn read_from_minibuffer_ignores_initial_and_signals_end_of_file() {
 
 #[test]
 fn read_from_minibuffer_rejects_non_stringish_initial_input() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result =
         builtin_read_from_minibuffer(&mut ev, vec![Value::string("Prompt: "), Value::fixnum(1)]);
@@ -461,6 +488,7 @@ fn read_from_minibuffer_rejects_non_stringish_initial_input() {
 
 #[test]
 fn read_from_minibuffer_rejects_cons_initial_with_non_string_car() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let cons_initial = Value::cons(Value::fixnum(1), Value::fixnum(1));
     let result =
@@ -473,6 +501,7 @@ fn read_from_minibuffer_rejects_cons_initial_with_non_string_car() {
 
 #[test]
 fn read_from_minibuffer_rejects_more_than_seven_args() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_minibuffer(
         &mut ev,
@@ -495,6 +524,7 @@ fn read_from_minibuffer_rejects_more_than_seven_args() {
 
 #[test]
 fn shared_read_from_minibuffer_runtime_runs_setup_and_exit_hooks_around_edit() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let order = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
     let order_in_setup = std::rc::Rc::clone(&order);
@@ -538,6 +568,7 @@ fn shared_read_from_minibuffer_runtime_runs_setup_and_exit_hooks_around_edit() {
 
 #[test]
 fn shared_read_from_minibuffer_runtime_swallows_exit_hook_signals() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let args = vec![Value::string("Prompt: ")];
 
@@ -565,6 +596,7 @@ fn shared_read_from_minibuffer_runtime_swallows_exit_hook_signals() {
 
 #[test]
 fn activate_minibuffer_window_switches_displayed_buffer_and_restores_state() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut ev);
     let minibuffer_window = ev
@@ -624,6 +656,7 @@ fn activate_minibuffer_window_switches_displayed_buffer_and_restores_state() {
 
 #[test]
 fn read_string_signals_end_of_file() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_string(&mut ev, vec![Value::string("Prompt: ")]);
     assert!(result.is_err());
@@ -631,6 +664,7 @@ fn read_string_signals_end_of_file() {
 
 #[test]
 fn read_string_non_character_event_stays_queued_and_signals_end_of_file() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -646,6 +680,7 @@ fn read_string_non_character_event_stays_queued_and_signals_end_of_file() {
 
 #[test]
 fn read_string_ignores_initial_and_signals_end_of_file() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_string(
         &mut ev,
@@ -656,6 +691,7 @@ fn read_string_ignores_initial_and_signals_end_of_file() {
 
 #[test]
 fn read_string_rejects_non_stringish_initial_input() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_string(&mut ev, vec![Value::string("Prompt: "), Value::fixnum(1)]);
     assert!(matches!(
@@ -666,6 +702,7 @@ fn read_string_rejects_non_stringish_initial_input() {
 
 #[test]
 fn read_string_rejects_cons_initial_with_non_string_car() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let cons_initial = Value::cons(Value::fixnum(1), Value::fixnum(1));
     let result = builtin_read_string(&mut ev, vec![Value::string("Prompt: "), cons_initial]);
@@ -677,6 +714,7 @@ fn read_string_rejects_cons_initial_with_non_string_car() {
 
 #[test]
 fn read_string_rejects_more_than_five_args() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_string(
         &mut ev,
@@ -697,6 +735,7 @@ fn read_string_rejects_more_than_five_args() {
 
 #[test]
 fn finish_read_string_with_minibuffer_builds_expected_args() {
+    crate::test_utils::init_test_tracing();
     let result = finish_read_string_with_minibuffer(
         &[
             Value::string("Prompt: "),
@@ -727,6 +766,7 @@ fn finish_read_string_with_minibuffer_builds_expected_args() {
 
 #[test]
 fn completing_read_minibuffer_args_choose_completion_keymap_by_require_match() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     eval.obarray.set_symbol_value(
         "minibuffer-local-completion-map",
@@ -777,6 +817,7 @@ fn completing_read_minibuffer_args_choose_completion_keymap_by_require_match() {
 
 #[test]
 fn read_number_signals_end_of_file_even_with_default() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_number(&mut ev, vec![Value::string("Number: "), Value::fixnum(42)]);
     assert!(result.is_err());
@@ -784,6 +825,7 @@ fn read_number_signals_end_of_file_even_with_default() {
 
 #[test]
 fn read_number_non_character_event_stays_queued_and_signals_end_of_file() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -799,6 +841,7 @@ fn read_number_non_character_event_stays_queued_and_signals_end_of_file() {
 
 #[test]
 fn read_number_signals_end_of_file_without_default() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_number(&mut ev, vec![Value::string("Number: ")]);
     assert!(result.is_err());
@@ -806,6 +849,7 @@ fn read_number_signals_end_of_file_without_default() {
 
 #[test]
 fn read_number_rejects_non_numeric_default() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_number(&mut ev, vec![Value::string("Number: "), Value::string("x")]);
     assert!(matches!(
@@ -816,6 +860,7 @@ fn read_number_rejects_non_numeric_default() {
 
 #[test]
 fn read_number_accepts_numeric_default_and_signals_end_of_file() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_number(
         &mut ev,
@@ -829,6 +874,7 @@ fn read_number_accepts_numeric_default_and_signals_end_of_file() {
 
 #[test]
 fn read_number_rejects_more_than_three_args() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_number(
         &mut ev,
@@ -847,6 +893,7 @@ fn read_number_rejects_more_than_three_args() {
 
 #[test]
 fn read_number_rejects_non_string_prompt() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_number(&mut ev, vec![Value::fixnum(123)]);
     assert!(matches!(
@@ -857,6 +904,7 @@ fn read_number_rejects_non_string_prompt() {
 
 #[test]
 fn read_passwd_startup_is_autoloaded() {
+    crate::test_utils::init_test_tracing();
     let eval = eval_with_ldefs_boot_autoloads(&["read-passwd"]);
     let function = eval
         .obarray
@@ -867,6 +915,7 @@ fn read_passwd_startup_is_autoloaded() {
 
 #[test]
 fn read_passwd_loads_from_gnu_auth_source() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"
         (condition-case err
@@ -881,6 +930,7 @@ fn read_passwd_loads_from_gnu_auth_source() {
 
 #[test]
 fn read_passwd_loaded_accepts_optional_args_and_signals_end_of_file() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"
         (condition-case err
@@ -893,6 +943,7 @@ fn read_passwd_loaded_accepts_optional_args_and_signals_end_of_file() {
 
 #[test]
 fn read_passwd_loaded_rejects_non_string_prompt() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"
         (condition-case err
@@ -905,6 +956,7 @@ fn read_passwd_loaded_rejects_non_string_prompt() {
 
 #[test]
 fn read_passwd_loaded_rejects_wrong_arity() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"
         (condition-case err
@@ -921,6 +973,7 @@ fn read_passwd_loaded_rejects_wrong_arity() {
 
 #[test]
 fn completing_read_signals_end_of_file() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_completing_read(&mut ev, vec![Value::string("Choose: "), Value::NIL]);
     assert!(result.is_err());
@@ -928,6 +981,7 @@ fn completing_read_signals_end_of_file() {
 
 #[test]
 fn completing_read_non_character_event_stays_queued_and_signals_end_of_file() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -943,6 +997,7 @@ fn completing_read_non_character_event_stays_queued_and_signals_end_of_file() {
 
 #[test]
 fn completing_read_ignores_default_and_signals_end_of_file() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_completing_read(
         &mut ev,
@@ -959,6 +1014,7 @@ fn completing_read_ignores_default_and_signals_end_of_file() {
 
 #[test]
 fn completing_read_rejects_non_stringish_initial_input() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_completing_read(
         &mut ev,
@@ -978,6 +1034,7 @@ fn completing_read_rejects_non_stringish_initial_input() {
 
 #[test]
 fn completing_read_accepts_cons_initial_with_string_and_position() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let cons_initial = Value::cons(Value::string("x"), Value::fixnum(1));
     let result = builtin_completing_read(
@@ -998,6 +1055,7 @@ fn completing_read_accepts_cons_initial_with_string_and_position() {
 
 #[test]
 fn completing_read_rejects_cons_initial_with_non_string_car() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let cons_initial = Value::cons(Value::fixnum(1), Value::fixnum(1));
     let result = builtin_completing_read(
@@ -1018,6 +1076,7 @@ fn completing_read_rejects_cons_initial_with_non_string_car() {
 
 #[test]
 fn completing_read_rejects_cons_initial_with_non_numeric_position() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let cons_initial = Value::cons(Value::string("x"), Value::NIL);
     let result = builtin_completing_read(
@@ -1038,6 +1097,7 @@ fn completing_read_rejects_cons_initial_with_non_numeric_position() {
 
 #[test]
 fn completing_read_rejects_more_than_eight_args() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_completing_read(
         &mut ev,
@@ -1061,6 +1121,7 @@ fn completing_read_rejects_more_than_eight_args() {
 
 #[test]
 fn y_or_n_p_signals_end_of_file() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_y_or_n_p(&mut ev, vec![Value::string("Continue? ")]);
     assert!(result.is_err());
@@ -1068,6 +1129,7 @@ fn y_or_n_p_signals_end_of_file() {
 
 #[test]
 fn y_or_n_p_rejects_non_sequence_prompt() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_y_or_n_p(&mut ev, vec![Value::fixnum(123)]);
     assert!(result.is_err());
@@ -1075,6 +1137,7 @@ fn y_or_n_p_rejects_non_sequence_prompt() {
 
 #[test]
 fn y_or_n_p_rejects_extra_arg() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_y_or_n_p(&mut ev, vec![Value::string("Continue? "), Value::NIL]);
     assert!(matches!(
@@ -1085,6 +1148,7 @@ fn y_or_n_p_rejects_extra_arg() {
 
 #[test]
 fn y_or_n_p_accepts_nil_and_vector_prompts() {
+    crate::test_utils::init_test_tracing();
     let mut ev_nil = Context::new();
     let nil_prompt = builtin_y_or_n_p(&mut ev_nil, vec![Value::NIL]);
     assert!(nil_prompt.is_err());
@@ -1103,6 +1167,7 @@ fn y_or_n_p_accepts_nil_and_vector_prompts() {
 
 #[test]
 fn y_or_n_p_rejects_list_prompt() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_y_or_n_p(
         &mut ev,
@@ -1120,6 +1185,7 @@ fn y_or_n_p_rejects_list_prompt() {
 
 #[test]
 fn y_or_n_p_ignores_unread_events_and_eofs() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -1138,6 +1204,7 @@ fn y_or_n_p_ignores_unread_events_and_eofs() {
 
 #[test]
 fn y_or_n_p_unread_events_do_not_change() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -1156,6 +1223,7 @@ fn y_or_n_p_unread_events_do_not_change() {
 
 #[test]
 fn y_or_n_p_rejects_invalid_character_event() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -1171,6 +1239,7 @@ fn y_or_n_p_rejects_invalid_character_event() {
 
 #[test]
 fn yes_or_no_p_signals_end_of_file() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_yes_or_no_p(&mut ev, vec![Value::string("Confirm? ")]);
     assert!(result.is_err());
@@ -1178,6 +1247,7 @@ fn yes_or_no_p_signals_end_of_file() {
 
 #[test]
 fn yes_or_no_p_rejects_non_string_prompt() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_yes_or_no_p(&mut ev, vec![Value::fixnum(123)]);
     assert!(result.is_err());
@@ -1185,6 +1255,7 @@ fn yes_or_no_p_rejects_non_string_prompt() {
 
 #[test]
 fn yes_or_no_p_rejects_extra_arg() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_yes_or_no_p(&mut ev, vec![Value::string("Confirm? "), Value::NIL]);
     assert!(matches!(
@@ -1195,6 +1266,7 @@ fn yes_or_no_p_rejects_extra_arg() {
 
 #[test]
 fn yes_or_no_p_ignores_unread_events_and_eofs() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -1213,6 +1285,7 @@ fn yes_or_no_p_ignores_unread_events_and_eofs() {
 
 #[test]
 fn yes_or_no_p_unread_events_do_not_change() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -1231,6 +1304,7 @@ fn yes_or_no_p_unread_events_do_not_change() {
 
 #[test]
 fn yes_or_no_p_rejects_invalid_character_event() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -1246,6 +1320,7 @@ fn yes_or_no_p_rejects_invalid_character_event() {
 
 #[test]
 fn yes_or_no_p_rejects_nil_prompt() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_yes_or_no_p(&mut ev, vec![Value::NIL]);
     assert!(matches!(
@@ -1256,6 +1331,7 @@ fn yes_or_no_p_rejects_nil_prompt() {
 
 #[test]
 fn finish_yes_or_no_p_with_minibuffer_retries_until_valid_answer() {
+    crate::test_utils::init_test_tracing();
     let mut prompts = Vec::new();
     let mut answers = [Value::string("maybe"), Value::string(" no ")].into_iter();
     let result = finish_yes_or_no_p_with_minibuffer(&[Value::string("Confirm?")], |args| {
@@ -1275,6 +1351,7 @@ fn finish_yes_or_no_p_with_minibuffer_retries_until_valid_answer() {
 
 #[test]
 fn input_pending_p_returns_nil_without_events() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_input_pending_p(&mut ev, vec![]).unwrap();
     assert!(result.is_nil());
@@ -1282,6 +1359,7 @@ fn input_pending_p_returns_nil_without_events() {
 
 #[test]
 fn input_pending_p_returns_t_with_unread_events() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -1293,6 +1371,7 @@ fn input_pending_p_returns_t_with_unread_events() {
 
 #[test]
 fn input_pending_p_uses_dynamic_unread_command_events_binding() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -1309,6 +1388,7 @@ fn input_pending_p_uses_dynamic_unread_command_events_binding() {
 
 #[test]
 fn input_pending_p_returns_nil_for_non_list_unread_command_events() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray
         .set_symbol_value("unread-command-events", Value::fixnum(7));
@@ -1318,6 +1398,7 @@ fn input_pending_p_returns_nil_for_non_list_unread_command_events() {
 
 #[test]
 fn input_pending_p_accepts_optional_check_timers_arg() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -1329,6 +1410,7 @@ fn input_pending_p_accepts_optional_check_timers_arg() {
 
 #[test]
 fn input_pending_p_returns_t_with_host_keypress() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let (tx, rx) = crossbeam_channel::unbounded();
     tx.send(crate::keyboard::InputEvent::key_press(
@@ -1346,6 +1428,7 @@ fn input_pending_p_returns_t_with_host_keypress() {
 
 #[test]
 fn input_pending_p_ignores_focus_events_by_default() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let (tx, rx) = crossbeam_channel::unbounded();
     tx.send(crate::keyboard::InputEvent::Focus {
@@ -1361,6 +1444,7 @@ fn input_pending_p_ignores_focus_events_by_default() {
 
 #[test]
 fn input_pending_p_ignores_mouse_move_without_track_mouse() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let (tx, rx) = crossbeam_channel::unbounded();
     tx.send(crate::keyboard::InputEvent::MouseMove {
@@ -1378,6 +1462,7 @@ fn input_pending_p_ignores_mouse_move_without_track_mouse() {
 
 #[test]
 fn input_pending_p_reports_mouse_move_with_track_mouse() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value("track-mouse", Value::T);
     let (tx, rx) = crossbeam_channel::unbounded();
@@ -1396,6 +1481,7 @@ fn input_pending_p_reports_mouse_move_with_track_mouse() {
 
 #[test]
 fn read_char_skips_mouse_move_without_track_mouse() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let (tx, rx) = crossbeam_channel::unbounded();
     tx.send(crate::keyboard::InputEvent::MouseMove {
@@ -1417,6 +1503,7 @@ fn read_char_skips_mouse_move_without_track_mouse() {
 
 #[test]
 fn read_char_returns_mouse_move_with_track_mouse() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value("track-mouse", Value::T);
     let (tx, rx) = crossbeam_channel::unbounded();
@@ -1443,6 +1530,7 @@ fn read_char_returns_mouse_move_with_track_mouse() {
 
 #[test]
 fn read_char_mouse_move_updates_mouse_position_even_without_track_mouse() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let (tx, rx) = crossbeam_channel::unbounded();
     tx.send(crate::keyboard::InputEvent::MouseMove {
@@ -1479,6 +1567,7 @@ fn read_char_mouse_move_updates_mouse_position_even_without_track_mouse() {
 
 #[test]
 fn input_pending_p_ignores_internal_help_echo_events() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let frame = install_mouse_help_echo_snapshot(&mut ev, "tip");
     crate::emacs_core::builtins::builtin_display_update_for_mouse_movement(
@@ -1493,6 +1582,7 @@ fn input_pending_p_ignores_internal_help_echo_events() {
 
 #[test]
 fn display_update_for_mouse_movement_shows_help_echo_via_read_char() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let frame = install_mouse_help_echo_snapshot(&mut ev, "tip");
     let (_tx, rx) = crossbeam_channel::unbounded();
@@ -1513,6 +1603,7 @@ fn display_update_for_mouse_movement_shows_help_echo_via_read_char() {
 
 #[test]
 fn display_update_for_mouse_movement_clears_help_echo_when_leaving_region() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let frame = install_mouse_help_echo_snapshot(&mut ev, "tip");
     let (_tx, rx) = crossbeam_channel::unbounded();
@@ -1539,6 +1630,7 @@ fn display_update_for_mouse_movement_clears_help_echo_when_leaving_region() {
 
 #[test]
 fn display_update_for_mouse_movement_respects_help_echo_inhibit_substitution() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let help = Value::string("\\[save-buffer]");
     crate::emacs_core::textprop::builtin_put_text_property(
@@ -1571,6 +1663,7 @@ fn display_update_for_mouse_movement_respects_help_echo_inhibit_substitution() {
 
 #[test]
 fn display_update_for_mouse_movement_runs_mouse_fixup_before_echo_message() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let frame = install_mouse_help_echo_snapshot(&mut ev, "tip");
     let (_tx, rx) = crossbeam_channel::unbounded();
@@ -1599,6 +1692,7 @@ fn display_update_for_mouse_movement_runs_mouse_fixup_before_echo_message() {
 
 #[test]
 fn display_update_for_mouse_movement_runs_mouse_fixup_without_input_receiver() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let frame = install_mouse_help_echo_snapshot(&mut ev, "tip");
 
@@ -1625,6 +1719,7 @@ fn display_update_for_mouse_movement_runs_mouse_fixup_without_input_receiver() {
 
 #[test]
 fn display_update_for_mouse_movement_runs_mouse_fixup_before_show_help_function() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let frame = install_mouse_help_echo_snapshot(&mut ev, "tip");
     let (_tx, rx) = crossbeam_channel::unbounded();
@@ -1660,6 +1755,7 @@ fn display_update_for_mouse_movement_runs_mouse_fixup_before_show_help_function(
 
 #[test]
 fn read_char_mouse_move_sets_help_echo_even_without_track_mouse() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     install_mouse_help_echo_snapshot(&mut ev, "tip");
     let (tx, rx) = crossbeam_channel::unbounded();
@@ -1683,6 +1779,7 @@ fn read_char_mouse_move_sets_help_echo_even_without_track_mouse() {
 
 #[test]
 fn input_pending_p_check_timers_does_not_run_timer_when_input_is_already_pending() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let setup = parse_forms(
         r#"(progn
@@ -1722,6 +1819,7 @@ fn input_pending_p_check_timers_does_not_run_timer_when_input_is_already_pending
 
 #[test]
 fn input_pending_p_returns_t_when_quit_flag_is_set() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_quit_flag_value(Value::T);
     let result = builtin_input_pending_p(&mut ev, vec![]).unwrap();
@@ -1730,6 +1828,7 @@ fn input_pending_p_returns_t_when_quit_flag_is_set() {
 
 #[test]
 fn input_pending_p_rejects_more_than_one_arg() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_input_pending_p(&mut ev, vec![Value::NIL, Value::NIL]);
     assert!(matches!(
@@ -1740,6 +1839,7 @@ fn input_pending_p_rejects_more_than_one_arg() {
 
 #[test]
 fn discard_input_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_discard_input(&mut ev, vec![]).unwrap();
     assert!(result.is_nil());
@@ -1747,6 +1847,7 @@ fn discard_input_returns_nil() {
 
 #[test]
 fn discard_input_clears_unread_command_events() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -1762,6 +1863,7 @@ fn discard_input_clears_unread_command_events() {
 
 #[test]
 fn discard_input_uses_dynamic_unread_command_events_binding() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -1781,6 +1883,7 @@ fn discard_input_uses_dynamic_unread_command_events_binding() {
 
 #[test]
 fn discard_input_rejects_args() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_discard_input(&mut ev, vec![Value::NIL]);
     assert!(matches!(
@@ -1791,6 +1894,7 @@ fn discard_input_rejects_args() {
 
 #[test]
 fn current_input_mode_returns_batch_tuple() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_current_input_mode(&mut ev, vec![]).unwrap();
     assert_eq!(
@@ -1801,6 +1905,7 @@ fn current_input_mode_returns_batch_tuple() {
 
 #[test]
 fn current_input_mode_rejects_args() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_current_input_mode(&mut ev, vec![Value::NIL]);
     assert!(matches!(
@@ -1811,6 +1916,7 @@ fn current_input_mode_rejects_args() {
 
 #[test]
 fn set_input_mode_toggles_interrupt_only() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let _ = builtin_set_input_mode(
         &mut ev,
@@ -1835,6 +1941,7 @@ fn set_input_mode_toggles_interrupt_only() {
 
 #[test]
 fn set_input_mode_rejects_wrong_arity() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let too_few = builtin_set_input_mode(&mut ev, vec![Value::NIL, Value::NIL]);
     assert!(matches!(
@@ -1854,6 +1961,7 @@ fn set_input_mode_rejects_wrong_arity() {
 
 #[test]
 fn set_input_mode_accepts_three_args() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_set_input_mode(&mut ev, vec![Value::NIL, Value::T, Value::T])
         .expect("set-input-mode should accept 3 args");
@@ -1866,6 +1974,7 @@ fn set_input_mode_accepts_three_args() {
 
 #[test]
 fn set_input_interrupt_mode_toggles_interrupt_state() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let _ = builtin_set_input_interrupt_mode(&mut ev, vec![Value::NIL]).unwrap();
     assert_eq!(
@@ -1881,6 +1990,7 @@ fn set_input_interrupt_mode_toggles_interrupt_state() {
 
 #[test]
 fn set_input_interrupt_mode_rejects_wrong_arity() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_set_input_interrupt_mode(&mut ev, vec![Value::NIL, Value::NIL]);
     assert!(matches!(
@@ -1891,18 +2001,21 @@ fn set_input_interrupt_mode_rejects_wrong_arity() {
 
 #[test]
 fn set_input_meta_mode_accepts_one_arg_and_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_set_input_meta_mode(vec![Value::NIL]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn set_input_meta_mode_accepts_optional_terminal_arg() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_set_input_meta_mode(vec![Value::symbol("encoded"), Value::NIL]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn set_input_meta_mode_rejects_wrong_arity() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_set_input_meta_mode(vec![]);
     assert!(matches!(
         result,
@@ -1917,18 +2030,21 @@ fn set_input_meta_mode_rejects_wrong_arity() {
 
 #[test]
 fn set_output_flow_control_accepts_one_arg_and_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_set_output_flow_control(vec![Value::T]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn set_output_flow_control_accepts_two_args_and_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_set_output_flow_control(vec![Value::T, Value::NIL]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn set_output_flow_control_rejects_wrong_arity() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_set_output_flow_control(vec![]);
     assert!(matches!(
         result,
@@ -1938,6 +2054,7 @@ fn set_output_flow_control_rejects_wrong_arity() {
 
 #[test]
 fn set_quit_char_accepts_one_arg_and_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_set_quit_char(&mut ev, vec![Value::fixnum(65)]).unwrap();
     assert!(result.is_nil());
@@ -1949,6 +2066,7 @@ fn set_quit_char_accepts_one_arg_and_returns_nil() {
 
 #[test]
 fn set_quit_char_rejects_non_ascii_values() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_set_quit_char(&mut ev, vec![Value::fixnum(0o401)]);
     assert!(matches!(result, Err(Flow::Signal(sig)) if sig.symbol_name() == "error"));
@@ -1956,6 +2074,7 @@ fn set_quit_char_rejects_non_ascii_values() {
 
 #[test]
 fn set_quit_char_rejects_wrong_arity() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_set_quit_char(&mut ev, vec![]);
     assert!(matches!(
@@ -1966,12 +2085,14 @@ fn set_quit_char_rejects_wrong_arity() {
 
 #[test]
 fn waiting_for_user_input_p_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_waiting_for_user_input_p(vec![]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn waiting_for_user_input_p_eval_tracks_runtime_flag() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     eval.set_waiting_for_user_input(true);
     let result = builtin_waiting_for_user_input_p_ctx(&mut eval, vec![]).unwrap();
@@ -1980,6 +2101,7 @@ fn waiting_for_user_input_p_eval_tracks_runtime_flag() {
 
 #[test]
 fn waiting_for_user_input_p_rejects_args() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_waiting_for_user_input_p(vec![Value::NIL]);
     assert!(matches!(
         result,
@@ -1989,6 +2111,7 @@ fn waiting_for_user_input_p_rejects_args() {
 
 #[test]
 fn read_char_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_char(&mut ev, vec![]).unwrap();
     assert!(result.is_nil());
@@ -1996,6 +2119,7 @@ fn read_char_returns_nil() {
 
 #[test]
 fn read_char_rejects_non_string_prompt() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_char(&mut ev, vec![Value::fixnum(123)]);
     assert!(matches!(
@@ -2006,6 +2130,7 @@ fn read_char_rejects_non_string_prompt() {
 
 #[test]
 fn read_char_consumes_unread_command_event() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -2019,6 +2144,7 @@ fn read_char_consumes_unread_command_event() {
 
 #[test]
 fn read_char_with_seconds_does_not_set_command_keys_when_empty() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -2032,6 +2158,7 @@ fn read_char_with_seconds_does_not_set_command_keys_when_empty() {
 
 #[test]
 fn read_char_with_nil_seconds_sets_command_keys_when_empty() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -2044,6 +2171,7 @@ fn read_char_with_nil_seconds_sets_command_keys_when_empty() {
 
 #[test]
 fn read_char_with_interactive_timeout_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let (tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
@@ -2062,6 +2190,7 @@ fn read_char_with_interactive_timeout_returns_nil() {
 
 #[test]
 fn read_char_preserves_existing_command_keys_context() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_read_command_keys(vec![Value::fixnum(97)]);
     ev.obarray.set_symbol_value(
@@ -2076,6 +2205,7 @@ fn read_char_preserves_existing_command_keys_context() {
 
 #[test]
 fn read_char_host_quit_char_returns_event_and_sets_quit_flag() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let (tx, rx) = crossbeam_channel::unbounded();
     tx.send(crate::keyboard::InputEvent::key_press(
@@ -2091,6 +2221,7 @@ fn read_char_host_quit_char_returns_event_and_sets_quit_flag() {
 
 #[test]
 fn read_char_signals_error_on_non_character_event() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -2112,6 +2243,7 @@ fn read_char_signals_error_on_non_character_event() {
 
 #[test]
 fn read_char_non_character_truncates_unread_tail_to_offending_event() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -2133,6 +2265,7 @@ fn read_char_non_character_truncates_unread_tail_to_offending_event() {
 
 #[test]
 fn read_char_consumes_character_event_and_preserves_tail() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -2148,6 +2281,7 @@ fn read_char_consumes_character_event_and_preserves_tail() {
 
 #[test]
 fn read_char_rejects_more_than_three_args() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_char(
         &mut ev,
@@ -2166,6 +2300,7 @@ fn read_char_rejects_more_than_three_args() {
 
 #[test]
 fn read_key_consumes_unread_command_event() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -2178,6 +2313,7 @@ fn read_key_consumes_unread_command_event() {
 
 #[test]
 fn read_key_rejects_non_string_prompt() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_key(&mut ev, vec![Value::fixnum(123)]);
     assert!(matches!(
@@ -2188,6 +2324,7 @@ fn read_key_rejects_non_string_prompt() {
 
 #[test]
 fn read_key_accepts_second_optional_arg() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -2199,6 +2336,7 @@ fn read_key_accepts_second_optional_arg() {
 
 #[test]
 fn read_key_rejects_more_than_two_args() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_key(
         &mut ev,
@@ -2212,6 +2350,7 @@ fn read_key_rejects_more_than_two_args() {
 
 #[test]
 fn read_key_returns_non_integer_event() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let event = Value::symbol("f");
     ev.obarray
@@ -2223,6 +2362,7 @@ fn read_key_returns_non_integer_event() {
 
 #[test]
 fn read_key_consumes_unread_character_and_keeps_tail() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let event = Value::symbol("foo");
     ev.obarray.set_symbol_value(
@@ -2240,6 +2380,7 @@ fn read_key_consumes_unread_character_and_keeps_tail() {
 
 #[test]
 fn read_key_consumes_character_event_and_preserves_tail() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let event = Value::symbol("foo");
     ev.obarray.set_symbol_value(
@@ -2257,6 +2398,7 @@ fn read_key_consumes_character_event_and_preserves_tail() {
 
 #[test]
 fn read_key_sequence_returns_empty_string() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_key_sequence(&mut ev, vec![Value::string("key: ")]).unwrap();
     assert!(result.is_string() && result.as_str() == Some(""));
@@ -2264,6 +2406,7 @@ fn read_key_sequence_returns_empty_string() {
 
 #[test]
 fn read_key_sequence_consumes_unread_command_event() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -2276,6 +2419,7 @@ fn read_key_sequence_consumes_unread_command_event() {
 
 #[test]
 fn read_key_sequence_consumes_non_character_event() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let event = Value::symbol("f");
     ev.obarray
@@ -2294,6 +2438,7 @@ fn read_key_sequence_consumes_non_character_event() {
 
 #[test]
 fn read_key_sequence_consumes_non_character_event_and_preserves_tail() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let event = Value::symbol("foo");
     ev.obarray.set_symbol_value(
@@ -2318,6 +2463,7 @@ fn read_key_sequence_consumes_non_character_event_and_preserves_tail() {
 
 #[test]
 fn read_key_sequence_consumes_character_and_preserves_tail() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let event = Value::symbol("foo");
     ev.obarray.set_symbol_value(
@@ -2335,6 +2481,7 @@ fn read_key_sequence_consumes_character_and_preserves_tail() {
 
 #[test]
 fn read_key_sequence_accepts_nil_prompt() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -2346,6 +2493,7 @@ fn read_key_sequence_accepts_nil_prompt() {
 
 #[test]
 fn read_key_sequence_treats_host_quit_char_as_ordinary_input() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let (tx, rx) = crossbeam_channel::unbounded();
     tx.send(crate::keyboard::InputEvent::key_press(
@@ -2362,6 +2510,7 @@ fn read_key_sequence_treats_host_quit_char_as_ordinary_input() {
 
 #[test]
 fn read_key_sequence_rejects_more_than_six_args() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -2387,6 +2536,7 @@ fn read_key_sequence_rejects_more_than_six_args() {
 
 #[test]
 fn read_key_sequence_vector_returns_empty_vector() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_key_sequence_vector(&mut ev, vec![Value::string("key: ")]).unwrap();
     match result.kind() {
@@ -2461,6 +2611,7 @@ impl KeyboardInputRuntime for BlockingKeySequenceRuntime {
 
 #[test]
 fn read_key_sequence_vector_interactive_runtime_returns_blocking_sequence() {
+    crate::test_utils::init_test_tracing();
     let mut runtime = BlockingKeySequenceRuntime {
         blocking_keys: vec![Value::fixnum(97), Value::symbol("f1")],
         ..Default::default()
@@ -2478,6 +2629,7 @@ fn read_key_sequence_vector_interactive_runtime_returns_blocking_sequence() {
 
 #[test]
 fn read_key_sequence_interactive_runtime_passes_prompt_options() {
+    crate::test_utils::init_test_tracing();
     let mut runtime = BlockingKeySequenceRuntime {
         blocking_keys: vec![Value::fixnum(97)],
         ..Default::default()
@@ -2500,6 +2652,7 @@ fn read_key_sequence_interactive_runtime_passes_prompt_options() {
 
 #[test]
 fn read_key_sequence_vector_consumes_unread_command_event() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -2519,6 +2672,7 @@ fn read_key_sequence_vector_consumes_unread_command_event() {
 
 #[test]
 fn read_key_sequence_vector_consumes_non_character_event() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let event = Value::symbol("x");
     ev.obarray
@@ -2537,6 +2691,7 @@ fn read_key_sequence_vector_consumes_non_character_event() {
 
 #[test]
 fn read_key_sequence_vector_consumes_non_character_event_and_preserves_tail() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let event = Value::symbol("bar");
     ev.obarray.set_symbol_value(
@@ -2561,6 +2716,7 @@ fn read_key_sequence_vector_consumes_non_character_event_and_preserves_tail() {
 
 #[test]
 fn read_key_sequence_vector_consumes_character_and_preserves_tail() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let event = Value::symbol("bar");
     ev.obarray.set_symbol_value(
@@ -2585,6 +2741,7 @@ fn read_key_sequence_vector_consumes_character_and_preserves_tail() {
 
 #[test]
 fn read_key_sequence_vector_accepts_nil_prompt() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -2603,6 +2760,7 @@ fn read_key_sequence_vector_accepts_nil_prompt() {
 
 #[test]
 fn read_key_sequence_vector_rejects_more_than_six_args() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
@@ -2632,6 +2790,7 @@ fn read_key_sequence_vector_rejects_more_than_six_args() {
 
 #[test]
 fn with_output_to_string_captures_print_output() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms =
         parse_forms(r#"(with-output-to-string (princ "a") (prin1 '(1 2)) (print "x"))"#).unwrap();
@@ -2641,6 +2800,7 @@ fn with_output_to_string_captures_print_output() {
 
 #[test]
 fn with_output_to_string_keeps_explicit_destination_working() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         r#"(with-temp-buffer
@@ -2661,6 +2821,7 @@ fn with_output_to_string_keeps_explicit_destination_working() {
 
 #[test]
 fn read_from_string_nested_list() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("((a b) (c d))")]).unwrap();
     match result.kind() {
@@ -2676,6 +2837,7 @@ fn read_from_string_nested_list() {
 
 #[test]
 fn read_from_string_with_leading_whitespace() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("   42")]).unwrap();
     match result.kind() {
@@ -2692,6 +2854,7 @@ fn read_from_string_with_leading_whitespace() {
 
 #[test]
 fn read_from_string_negative_number() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("-7")]).unwrap();
     match result.kind() {
@@ -2706,6 +2869,7 @@ fn read_from_string_negative_number() {
 
 #[test]
 fn read_from_string_wrong_type() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::fixnum(42)]);
     assert!(result.is_err());
@@ -2713,6 +2877,7 @@ fn read_from_string_wrong_type() {
 
 #[test]
 fn read_from_string_no_args() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![]);
     assert!(result.is_err());
@@ -2720,6 +2885,7 @@ fn read_from_string_no_args() {
 
 #[test]
 fn read_from_string_hash_syntax() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#xff")]).unwrap();
     match result.kind() {
@@ -2734,6 +2900,7 @@ fn read_from_string_hash_syntax() {
 
 #[test]
 fn read_from_string_hash_space_payload_matches_oracle() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("# ")]);
     match result {
@@ -2747,6 +2914,7 @@ fn read_from_string_hash_space_payload_matches_oracle() {
 
 #[test]
 fn read_from_string_hash_unknown_dispatch_payload_matches_oracle() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
 
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#a")]);
@@ -2770,6 +2938,7 @@ fn read_from_string_hash_unknown_dispatch_payload_matches_oracle() {
 
 #[test]
 fn read_from_string_hash_radix_missing_digits_payload_matches_oracle() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#x")]);
     match result {
@@ -2783,6 +2952,7 @@ fn read_from_string_hash_radix_missing_digits_payload_matches_oracle() {
 
 #[test]
 fn read_from_string_hash_s_without_list_payload_matches_oracle() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#s")]);
     match result {
@@ -2796,6 +2966,7 @@ fn read_from_string_hash_s_without_list_payload_matches_oracle() {
 
 #[test]
 fn read_from_string_unmatched_close_paren_payload_matches_oracle() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string(")")]);
     match result {
@@ -2809,6 +2980,7 @@ fn read_from_string_unmatched_close_paren_payload_matches_oracle() {
 
 #[test]
 fn read_from_string_char_literal_requires_gnu_emacs_delimiter() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("?child")]);
     match result {
@@ -2822,6 +2994,7 @@ fn read_from_string_char_literal_requires_gnu_emacs_delimiter() {
 
 #[test]
 fn read_from_string_hash_skip_without_length_signals_eof() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
 
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#@")]);
@@ -2833,6 +3006,7 @@ fn read_from_string_hash_skip_without_length_signals_eof() {
 
 #[test]
 fn read_from_string_hash_skip_with_payload_signals_eof() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
 
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#@0x")]);
@@ -2844,6 +3018,7 @@ fn read_from_string_hash_skip_with_payload_signals_eof() {
 
 #[test]
 fn read_from_string_hash_dollar_uses_load_file_name() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_variable("load-file-name", Value::string("/tmp/reader-probe.elc"));
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#$")]).unwrap();
@@ -2859,6 +3034,7 @@ fn read_from_string_hash_dollar_uses_load_file_name() {
 
 #[test]
 fn read_from_string_hash_dollar_defaults_to_nil() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#$")]).unwrap();
     match result.kind() {
@@ -2873,6 +3049,7 @@ fn read_from_string_hash_dollar_defaults_to_nil() {
 
 #[test]
 fn read_from_string_hash_skip_then_hash_dollar_signals_eof() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_variable("load-file-name", Value::string("/tmp/reader-skip.elc"));
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#@4data#$")]);
@@ -2881,6 +3058,7 @@ fn read_from_string_hash_skip_then_hash_dollar_signals_eof() {
 
 #[test]
 fn read_from_string_hash_hash_reads_empty_symbol() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("##")]).unwrap();
     match result.kind() {
@@ -2896,6 +3074,7 @@ fn read_from_string_hash_hash_reads_empty_symbol() {
 
 #[test]
 fn read_from_string_escaped_hash_hash_reads_literal_symbol() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("\\#\\#")]).unwrap();
     match result.kind() {
@@ -2911,6 +3090,7 @@ fn read_from_string_escaped_hash_hash_reads_literal_symbol() {
 
 #[test]
 fn read_from_string_hash_skip_bytes_signals_eof() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("#@4data42 rest")]);
     assert!(matches!(result, Err(Flow::Signal(sig)) if sig.symbol_name() == "end-of-file"));
@@ -2918,6 +3098,7 @@ fn read_from_string_hash_skip_bytes_signals_eof() {
 
 #[test]
 fn read_from_string_hash_bracket_end_position() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let input = "#[(x) \"\\bT\\207\" [x] 1 (#$ . 83)] tail";
     let expected_end = input.find(" tail").unwrap() as i64;
@@ -2934,6 +3115,7 @@ fn read_from_string_hash_bracket_end_position() {
 
 #[test]
 fn read_from_string_hash_table_literal_returns_hash_table() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let input = "#s(hash-table size 3 test equal data (\"a\" 1 \"b\" 2))";
     let result = builtin_read_from_string(&mut ev, vec![Value::string(input)]).unwrap();
@@ -2962,6 +3144,7 @@ fn read_from_string_hash_table_literal_returns_hash_table() {
 
 #[test]
 fn read_buffer_hash_table_literal_returns_hash_table() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let buf_id = ev.buffers.create_buffer(" *reader-hash-table*");
     {
@@ -2989,6 +3172,7 @@ fn read_buffer_hash_table_literal_returns_hash_table() {
 
 #[test]
 fn read_from_buffer_advances_point_across_multiple_forms() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let buf_id = ev.buffers.create_buffer(" *reader-multi*");
     let source = "(setq reader-first 1)\n(setq reader-second 2)\n";
@@ -3026,6 +3210,7 @@ fn read_from_buffer_advances_point_across_multiple_forms() {
 
 #[test]
 fn read_from_buffer_preserves_string_literals_during_eval() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let buf_id = ev.buffers.create_buffer(" *reader-string-eval*");
     {
@@ -3041,6 +3226,7 @@ fn read_from_buffer_preserves_string_literals_during_eval() {
 
 #[test]
 fn read_from_buffer_incomplete_list_signals_end_of_file_like_gnu_emacs() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let buf_id = ev.buffers.create_buffer(" *reader-incomplete-list*");
     {
@@ -3055,6 +3241,7 @@ fn read_from_buffer_incomplete_list_signals_end_of_file_like_gnu_emacs() {
 
 #[test]
 fn read_from_buffer_invalid_read_syntax_reports_line_and_column_like_gnu_emacs() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let buf_id = ev.buffers.create_buffer(" *reader-invalid-syntax*");
     {
@@ -3078,6 +3265,7 @@ fn read_from_buffer_invalid_read_syntax_reports_line_and_column_like_gnu_emacs()
 
 #[test]
 fn read_from_buffer_unmatched_close_paren_reports_post_consumption_column_like_gnu_emacs() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let buf_id = ev.buffers.create_buffer(" *reader-invalid-close-paren*");
     {
@@ -3101,6 +3289,7 @@ fn read_from_buffer_unmatched_close_paren_reports_post_consumption_column_like_g
 
 #[test]
 fn read_from_buffer_invalid_hash_dispatch_reports_post_consumption_column_like_gnu_emacs() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let buf_id = ev.buffers.create_buffer(" *reader-invalid-hash-dispatch*");
     {
@@ -3124,6 +3313,7 @@ fn read_from_buffer_invalid_hash_dispatch_reports_post_consumption_column_like_g
 
 #[test]
 fn read_from_string_hash_bracket_preserves_vector() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let input = "#[nil \"\\300\\207\" [0] 1]";
     let result = builtin_read_from_string(&mut ev, vec![Value::string(input)]).unwrap();
@@ -3142,6 +3332,7 @@ fn read_from_string_hash_bracket_preserves_vector() {
 
 #[test]
 fn read_from_string_hash_dollar_inside_dotted_pair_uses_load_file_name() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_variable("load-file-name", Value::string("/tmp/reader-dotted.elc"));
     let result = builtin_read_from_string(&mut ev, vec![Value::string("(#$ . 83)")]).unwrap();

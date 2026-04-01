@@ -34,6 +34,7 @@ mod tests {
 
     #[test]
     fn register_bootstrap_vars_matches_gnu_alloc_defaults() {
+        crate::test_utils::init_test_tracing();
         let mut obarray = Obarray::new();
         register_bootstrap_vars(&mut obarray);
 
@@ -75,6 +76,7 @@ mod tests {
 
     #[test]
     fn evaluator_binds_alloc_bootstrap_vars() {
+        crate::test_utils::init_test_tracing();
         let eval = Context::new();
         let obarray = eval.obarray();
 

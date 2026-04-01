@@ -4,6 +4,7 @@ use super::*;
 
 #[test]
 fn network_manager_new() {
+    crate::test_utils::init_test_tracing();
     let nm = NetworkManager::new();
     assert_eq!(nm.connections.len(), 0);
     assert_eq!(nm.next_id, 1);
@@ -12,6 +13,7 @@ fn network_manager_new() {
 
 #[test]
 fn network_manager_default_trait() {
+    crate::test_utils::init_test_tracing();
     let nm = NetworkManager::default();
     assert_eq!(nm.connections.len(), 0);
 }
@@ -20,6 +22,7 @@ fn network_manager_default_trait() {
 
 #[test]
 fn process_filter_set_and_get() {
+    crate::test_utils::init_test_tracing();
     let mut nm = NetworkManager::new();
     assert!(nm.get_process_filter(1).is_none());
 
@@ -29,6 +32,7 @@ fn process_filter_set_and_get() {
 
 #[test]
 fn process_filter_overwrite() {
+    crate::test_utils::init_test_tracing();
     let mut nm = NetworkManager::new();
     nm.set_process_filter(1, "first");
     nm.set_process_filter(1, "second");
@@ -37,6 +41,7 @@ fn process_filter_overwrite() {
 
 #[test]
 fn process_filter_remove() {
+    crate::test_utils::init_test_tracing();
     let mut nm = NetworkManager::new();
     nm.set_process_filter(1, "my-filter");
     nm.remove_process_filter(1);
@@ -45,6 +50,7 @@ fn process_filter_remove() {
 
 #[test]
 fn process_filter_remove_nonexistent() {
+    crate::test_utils::init_test_tracing();
     let mut nm = NetworkManager::new();
     // Should not panic.
     nm.remove_process_filter(999);
@@ -53,6 +59,7 @@ fn process_filter_remove_nonexistent() {
 
 #[test]
 fn process_filter_multiple_ids() {
+    crate::test_utils::init_test_tracing();
     let mut nm = NetworkManager::new();
     nm.set_process_filter(1, "filter-a");
     nm.set_process_filter(2, "filter-b");
@@ -66,6 +73,7 @@ fn process_filter_multiple_ids() {
 
 #[test]
 fn process_sentinel_set_and_get() {
+    crate::test_utils::init_test_tracing();
     let mut nm = NetworkManager::new();
     assert!(nm.get_process_sentinel(1).is_none());
 
@@ -75,6 +83,7 @@ fn process_sentinel_set_and_get() {
 
 #[test]
 fn process_sentinel_overwrite() {
+    crate::test_utils::init_test_tracing();
     let mut nm = NetworkManager::new();
     nm.set_process_sentinel(1, "first");
     nm.set_process_sentinel(1, "second");
@@ -83,6 +92,7 @@ fn process_sentinel_overwrite() {
 
 #[test]
 fn process_sentinel_remove() {
+    crate::test_utils::init_test_tracing();
     let mut nm = NetworkManager::new();
     nm.set_process_sentinel(1, "my-sentinel");
     nm.remove_process_sentinel(1);
@@ -91,6 +101,7 @@ fn process_sentinel_remove() {
 
 #[test]
 fn process_sentinel_remove_nonexistent() {
+    crate::test_utils::init_test_tracing();
     let mut nm = NetworkManager::new();
     nm.remove_process_sentinel(999);
     assert!(nm.get_process_sentinel(999).is_none());
@@ -100,24 +111,28 @@ fn process_sentinel_remove_nonexistent() {
 
 #[test]
 fn close_nonexistent_connection() {
+    crate::test_utils::init_test_tracing();
     let mut nm = NetworkManager::new();
     assert!(!nm.close_connection(999));
 }
 
 #[test]
 fn delete_nonexistent_connection() {
+    crate::test_utils::init_test_tracing();
     let mut nm = NetworkManager::new();
     assert!(!nm.delete_connection(999));
 }
 
 #[test]
 fn connection_status_nonexistent() {
+    crate::test_utils::init_test_tracing();
     let nm = NetworkManager::new();
     assert!(nm.connection_status(999).is_none());
 }
 
 #[test]
 fn get_connection_nonexistent() {
+    crate::test_utils::init_test_tracing();
     let nm = NetworkManager::new();
     assert!(nm.get_connection(999).is_none());
 }
@@ -126,12 +141,14 @@ fn get_connection_nonexistent() {
 
 #[test]
 fn process_output_pending_nonexistent() {
+    crate::test_utils::init_test_tracing();
     let nm = NetworkManager::new();
     assert!(!nm.process_output_pending(999));
 }
 
 #[test]
 fn accept_output_nonexistent() {
+    crate::test_utils::init_test_tracing();
     let mut nm = NetworkManager::new();
     let result = nm.accept_process_output(999, None);
     assert!(result.is_err());
@@ -141,6 +158,7 @@ fn accept_output_nonexistent() {
 
 #[test]
 fn send_data_nonexistent() {
+    crate::test_utils::init_test_tracing();
     let mut nm = NetworkManager::new();
     let result = nm.send_data(999, b"hello");
     assert!(result.is_err());
@@ -150,6 +168,7 @@ fn send_data_nonexistent() {
 
 #[test]
 fn receive_data_nonexistent() {
+    crate::test_utils::init_test_tracing();
     let mut nm = NetworkManager::new();
     let result = nm.receive_data(999, None);
     assert!(result.is_err());
@@ -159,6 +178,7 @@ fn receive_data_nonexistent() {
 
 #[test]
 fn open_connection_refused() {
+    crate::test_utils::init_test_tracing();
     let mut nm = NetworkManager::new();
     // Port 1 on localhost should refuse connections on virtually all systems.
     let result = nm.open_connection("test", "127.0.0.1", 1, None);
@@ -169,6 +189,7 @@ fn open_connection_refused() {
 
 #[test]
 fn parse_http_url_basic() {
+    crate::test_utils::init_test_tracing();
     let (host, port, path) = parse_http_url("http://example.com/foo").unwrap();
     assert_eq!(host, "example.com");
     assert_eq!(port, 80);
@@ -177,6 +198,7 @@ fn parse_http_url_basic() {
 
 #[test]
 fn parse_http_url_with_port() {
+    crate::test_utils::init_test_tracing();
     let (host, port, path) = parse_http_url("http://example.com:8080/bar").unwrap();
     assert_eq!(host, "example.com");
     assert_eq!(port, 8080);
@@ -185,6 +207,7 @@ fn parse_http_url_with_port() {
 
 #[test]
 fn parse_http_url_no_path() {
+    crate::test_utils::init_test_tracing();
     let (host, port, path) = parse_http_url("http://example.com").unwrap();
     assert_eq!(host, "example.com");
     assert_eq!(port, 80);
@@ -193,6 +216,7 @@ fn parse_http_url_no_path() {
 
 #[test]
 fn parse_https_url() {
+    crate::test_utils::init_test_tracing();
     let (host, port, path) = parse_http_url("https://secure.example.com/api").unwrap();
     assert_eq!(host, "secure.example.com");
     assert_eq!(port, 443);
@@ -201,18 +225,21 @@ fn parse_https_url() {
 
 #[test]
 fn parse_url_unsupported_scheme() {
+    crate::test_utils::init_test_tracing();
     let result = parse_http_url("ftp://example.com/file");
     assert!(result.is_err());
 }
 
 #[test]
 fn parse_url_empty_host() {
+    crate::test_utils::init_test_tracing();
     let result = parse_http_url("http:///path");
     assert!(result.is_err());
 }
 
 #[test]
 fn parse_url_deep_path() {
+    crate::test_utils::init_test_tracing();
     let (host, port, path) = parse_http_url("http://host.com/a/b/c?q=1").unwrap();
     assert_eq!(host, "host.com");
     assert_eq!(port, 80);
@@ -223,70 +250,82 @@ fn parse_url_deep_path() {
 
 #[test]
 fn expect_args_correct_count() {
+    crate::test_utils::init_test_tracing();
     let args = vec![Value::fixnum(1), Value::fixnum(2)];
     assert!(expect_args("test", &args, 2).is_ok());
 }
 
 #[test]
 fn expect_args_wrong_count() {
+    crate::test_utils::init_test_tracing();
     let args = vec![Value::fixnum(1)];
     assert!(expect_args("test", &args, 2).is_err());
 }
 
 #[test]
 fn expect_min_args_sufficient() {
+    crate::test_utils::init_test_tracing();
     let args = vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)];
     assert!(expect_min_args("test", &args, 2).is_ok());
 }
 
 #[test]
 fn expect_min_args_insufficient() {
+    crate::test_utils::init_test_tracing();
     let args = vec![Value::fixnum(1)];
     assert!(expect_min_args("test", &args, 3).is_err());
 }
 
 #[test]
 fn expect_string_from_str() {
+    crate::test_utils::init_test_tracing();
     let v = Value::string("hello");
     assert_eq!(expect_string(&v).unwrap(), "hello");
 }
 
 #[test]
 fn expect_string_from_symbol() {
+    crate::test_utils::init_test_tracing();
     let v = Value::symbol("foo");
     assert_eq!(expect_string(&v).unwrap(), "foo");
 }
 
 #[test]
 fn expect_string_from_nil() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(expect_string(&Value::NIL).unwrap(), "nil");
 }
 
 #[test]
 fn expect_string_from_true() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(expect_string(&Value::T).unwrap(), "t");
 }
 
 #[test]
 fn expect_string_wrong_type() {
+    crate::test_utils::init_test_tracing();
     let v = Value::fixnum(42);
     assert!(expect_string(&v).is_err());
 }
 
 #[test]
 fn expect_int_from_int() {
+    crate::test_utils::init_test_tracing();
     let v = Value::fixnum(42);
     assert_eq!(expect_int(&v).unwrap(), 42);
 }
 
 #[test]
 fn expect_int_from_char() {
+    crate::test_utils::init_test_tracing();
     let v = Value::char('A');
     assert_eq!(expect_int(&v).unwrap(), 65);
 }
 
 #[test]
 fn expect_int_wrong_type() {
+    crate::test_utils::init_test_tracing();
     let v = Value::string("not a number");
     assert!(expect_int(&v).is_err());
 }
@@ -295,6 +334,7 @@ fn expect_int_wrong_type() {
 
 #[test]
 fn network_status_eq() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(NetworkStatus::Open, NetworkStatus::Open);
     assert_eq!(NetworkStatus::Closed, NetworkStatus::Closed);
     assert_eq!(NetworkStatus::Connecting, NetworkStatus::Connecting);
@@ -307,6 +347,7 @@ fn network_status_eq() {
 
 #[test]
 fn connection_type_eq() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(ConnectionType::Plain, ConnectionType::Plain);
 }
 
@@ -314,6 +355,7 @@ fn connection_type_eq() {
 
 #[test]
 fn filter_and_sentinel_independent() {
+    crate::test_utils::init_test_tracing();
     let mut nm = NetworkManager::new();
     nm.set_process_filter(1, "my-filter");
     nm.set_process_sentinel(1, "my-sentinel");
@@ -330,6 +372,7 @@ fn filter_and_sentinel_independent() {
 
 #[test]
 fn list_connections_empty() {
+    crate::test_utils::init_test_tracing();
     let nm = NetworkManager::new();
     assert!(nm.list_connections().is_empty());
 }
@@ -338,6 +381,7 @@ fn list_connections_empty() {
 
 #[test]
 fn url_retrieve_bad_scheme() {
+    crate::test_utils::init_test_tracing();
     let mut nm = NetworkManager::new();
     let result = nm.url_retrieve_synchronously("ftp://example.com");
     assert!(result.is_err());
@@ -347,6 +391,7 @@ fn url_retrieve_bad_scheme() {
 
 #[test]
 fn url_retrieve_refused_port() {
+    crate::test_utils::init_test_tracing();
     let mut nm = NetworkManager::new();
     // Port 1 on localhost should refuse connections.
     let result = nm.url_retrieve_synchronously("http://127.0.0.1:1/path");

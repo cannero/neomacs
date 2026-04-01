@@ -19,18 +19,21 @@ macro_rules! call_fns_builtin {
 
 #[test]
 fn base64_encode_empty() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_base64_encode_string(vec![Value::string(""), Value::T]).unwrap();
     assert_eq!(r.as_str(), Some(""));
 }
 
 #[test]
 fn base64_encode_hello() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_base64_encode_string(vec![Value::string("Hello"), Value::T]).unwrap();
     assert_eq!(r.as_str(), Some("SGVsbG8="));
 }
 
 #[test]
 fn base64_encode_padding_1() {
+    crate::test_utils::init_test_tracing();
     // "a" -> "YQ=="
     let r = builtin_base64_encode_string(vec![Value::string("a"), Value::T]).unwrap();
     assert_eq!(r.as_str(), Some("YQ=="));
@@ -38,6 +41,7 @@ fn base64_encode_padding_1() {
 
 #[test]
 fn base64_encode_padding_2() {
+    crate::test_utils::init_test_tracing();
     // "ab" -> "YWI="
     let r = builtin_base64_encode_string(vec![Value::string("ab"), Value::T]).unwrap();
     assert_eq!(r.as_str(), Some("YWI="));
@@ -45,6 +49,7 @@ fn base64_encode_padding_2() {
 
 #[test]
 fn base64_encode_no_padding_3() {
+    crate::test_utils::init_test_tracing();
     // "abc" -> "YWJj" (no padding needed)
     let r = builtin_base64_encode_string(vec![Value::string("abc"), Value::T]).unwrap();
     assert_eq!(r.as_str(), Some("YWJj"));
@@ -52,6 +57,7 @@ fn base64_encode_no_padding_3() {
 
 #[test]
 fn base64_roundtrip() {
+    crate::test_utils::init_test_tracing();
     let original = "The quick brown fox jumps over the lazy dog";
     let encoded = builtin_base64_encode_string(vec![Value::string(original), Value::T]).unwrap();
     let decoded = builtin_base64_decode_string(vec![encoded]).unwrap();
@@ -60,6 +66,7 @@ fn base64_roundtrip() {
 
 #[test]
 fn base64_decode_invalid() {
+    crate::test_utils::init_test_tracing();
     // Invalid base64 now signals an error (matching GNU Emacs)
     let r = builtin_base64_decode_string(vec![Value::string("!!!!")]);
     assert!(r.is_err());
@@ -69,6 +76,7 @@ fn base64_decode_invalid() {
 
 #[test]
 fn base64url_encode_no_pad() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_base64url_encode_string(vec![Value::string("a"), Value::T]).unwrap();
     // URL-safe, no padding
     assert_eq!(r.as_str(), Some("YQ"));
@@ -76,12 +84,14 @@ fn base64url_encode_no_pad() {
 
 #[test]
 fn base64url_encode_with_pad() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_base64url_encode_string(vec![Value::string("a")]).unwrap();
     assert_eq!(r.as_str(), Some("YQ=="));
 }
 
 #[test]
 fn base64url_roundtrip() {
+    crate::test_utils::init_test_tracing();
     let original = "Hello+World/Foo";
     let encoded = builtin_base64url_encode_string(vec![Value::string(original), Value::T]).unwrap();
     let decoded = builtin_base64_decode_string(vec![encoded, Value::T]).unwrap();
@@ -90,18 +100,21 @@ fn base64url_roundtrip() {
 
 #[test]
 fn base64url_decode_basic() {
+    crate::test_utils::init_test_tracing();
     let decoded = builtin_base64url_decode_string(vec![Value::string("YQ")]).unwrap();
     assert_eq!(decoded.as_str(), Some("a"));
 }
 
 #[test]
 fn base64url_decode_invalid() {
+    crate::test_utils::init_test_tracing();
     let decoded = builtin_base64url_decode_string(vec![Value::string("!!!!")]).unwrap();
     assert!(decoded.is_nil());
 }
 
 #[test]
 fn base64url_uses_dash_underscore() {
+    crate::test_utils::init_test_tracing();
     // Standard base64 of "?>" is "Pz4=" which contains no + or /.
     // Use a string that we know produces different chars in std vs url.
     // "abc?+/" in standard base64 is "YWJjPysvg" — contains + and /.
@@ -132,6 +145,7 @@ fn base64url_uses_dash_underscore() {
 
 #[test]
 fn base64_region_eval_encode_decode_roundtrip() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -162,6 +176,7 @@ fn base64_region_eval_encode_decode_roundtrip() {
 
 #[test]
 fn base64_region_eval_swapped_bounds_and_url_encoding() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -185,6 +200,7 @@ fn base64_region_eval_swapped_bounds_and_url_encoding() {
 
 #[test]
 fn base64_decode_region_noerror_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -227,6 +243,7 @@ fn base64_decode_region_noerror_semantics() {
 
 #[test]
 fn base64_region_eval_error_shapes() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -267,12 +284,14 @@ fn base64_region_eval_error_shapes() {
 
 #[test]
 fn md5_empty() {
+    crate::test_utils::init_test_tracing();
     let r = call_fns_builtin!(builtin_md5, vec![Value::string("")]).unwrap();
     assert_eq!(r.as_str(), Some("d41d8cd98f00b204e9800998ecf8427e"));
 }
 
 #[test]
 fn md5_hello() {
+    crate::test_utils::init_test_tracing();
     // md5("Hello") = 8b1a9953c4611296a827abf8c47804d7
     let r = call_fns_builtin!(builtin_md5, vec![Value::string("Hello")]).unwrap();
     assert_eq!(r.as_str(), Some("8b1a9953c4611296a827abf8c47804d7"));
@@ -280,12 +299,14 @@ fn md5_hello() {
 
 #[test]
 fn md5_abc() {
+    crate::test_utils::init_test_tracing();
     let r = call_fns_builtin!(builtin_md5, vec![Value::string("abc")]).unwrap();
     assert_eq!(r.as_str(), Some("900150983cd24fb0d6963f7d28e17f72"));
 }
 
 #[test]
 fn md5_fox() {
+    crate::test_utils::init_test_tracing();
     let r = call_fns_builtin!(
         builtin_md5,
         vec![Value::string("The quick brown fox jumps over the lazy dog")]
@@ -296,6 +317,7 @@ fn md5_fox() {
 
 #[test]
 fn md5_string_range_errors() {
+    crate::test_utils::init_test_tracing();
     match call_fns_builtin!(
         builtin_md5,
         vec![Value::string("abc"), Value::fixnum(2), Value::fixnum(1)]
@@ -313,6 +335,7 @@ fn md5_string_range_errors() {
 
 #[test]
 fn md5_string_index_type_error() {
+    crate::test_utils::init_test_tracing();
     match call_fns_builtin!(
         builtin_md5,
         vec![Value::string("abc"), Value::T, Value::fixnum(1)]
@@ -327,6 +350,7 @@ fn md5_string_index_type_error() {
 
 #[test]
 fn md5_invalid_object_errors() {
+    crate::test_utils::init_test_tracing();
     match call_fns_builtin!(builtin_md5, vec![Value::NIL]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
@@ -342,6 +366,7 @@ fn md5_invalid_object_errors() {
 
 #[test]
 fn md5_unknown_coding_system_errors() {
+    crate::test_utils::init_test_tracing();
     match call_fns_builtin!(
         builtin_md5,
         vec![
@@ -361,6 +386,7 @@ fn md5_unknown_coding_system_errors() {
 
 #[test]
 fn md5_unknown_coding_system_ignored_with_noerror() {
+    crate::test_utils::init_test_tracing();
     let r = call_fns_builtin!(
         builtin_md5,
         vec![
@@ -377,6 +403,7 @@ fn md5_unknown_coding_system_ignored_with_noerror() {
 
 #[test]
 fn md5_accepts_iso_8859_15_alias() {
+    crate::test_utils::init_test_tracing();
     let r = call_fns_builtin!(
         builtin_md5,
         vec![
@@ -392,6 +419,7 @@ fn md5_accepts_iso_8859_15_alias() {
 
 #[test]
 fn md5_accepts_iso_8859_9_alias() {
+    crate::test_utils::init_test_tracing();
     let r = call_fns_builtin!(
         builtin_md5,
         vec![
@@ -407,6 +435,7 @@ fn md5_accepts_iso_8859_9_alias() {
 
 #[test]
 fn md5_non_symbol_coding_system_errors() {
+    crate::test_utils::init_test_tracing();
     match call_fns_builtin!(
         builtin_md5,
         vec![
@@ -426,6 +455,7 @@ fn md5_non_symbol_coding_system_errors() {
 
 #[test]
 fn md5_eval_buffer_core_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -447,6 +477,7 @@ fn md5_eval_buffer_core_semantics() {
 
 #[test]
 fn md5_eval_buffer_range_errors() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -466,6 +497,7 @@ fn md5_eval_buffer_range_errors() {
 
 #[test]
 fn md5_eval_buffer_index_type_error() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let id = eval.buffers.current_buffer().expect("current buffer").id;
 
@@ -486,6 +518,7 @@ fn md5_eval_buffer_index_type_error() {
 
 #[test]
 fn md5_eval_deleted_buffer_errors() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let id = eval.buffers.create_buffer("*md5-doomed*");
     assert!(eval.buffers.kill_buffer(id));
@@ -506,6 +539,7 @@ fn md5_eval_deleted_buffer_errors() {
 
 #[test]
 fn secure_hash_sha256_known() {
+    crate::test_utils::init_test_tracing();
     let r = call_fns_builtin!(
         builtin_secure_hash,
         vec![Value::symbol("sha256"), Value::string("abc")]
@@ -519,6 +553,7 @@ fn secure_hash_sha256_known() {
 
 #[test]
 fn secure_hash_sha1_known() {
+    crate::test_utils::init_test_tracing();
     let r = call_fns_builtin!(
         builtin_secure_hash,
         vec![Value::symbol("sha1"), Value::string("abc")]
@@ -529,6 +564,7 @@ fn secure_hash_sha1_known() {
 
 #[test]
 fn secure_hash_md5_known() {
+    crate::test_utils::init_test_tracing();
     let r = call_fns_builtin!(
         builtin_secure_hash,
         vec![Value::symbol("md5"), Value::string("abc")]
@@ -539,6 +575,7 @@ fn secure_hash_md5_known() {
 
 #[test]
 fn secure_hash_binary_string_uses_unibyte_storage() {
+    crate::test_utils::init_test_tracing();
     let r = call_fns_builtin!(
         builtin_secure_hash,
         vec![
@@ -567,6 +604,7 @@ fn secure_hash_binary_string_uses_unibyte_storage() {
 
 #[test]
 fn secure_hash_subrange_semantics() {
+    crate::test_utils::init_test_tracing();
     let r = call_fns_builtin!(
         builtin_secure_hash,
         vec![
@@ -585,6 +623,7 @@ fn secure_hash_subrange_semantics() {
 
 #[test]
 fn secure_hash_invalid_algorithm_errors() {
+    crate::test_utils::init_test_tracing();
     match call_fns_builtin!(
         builtin_secure_hash,
         vec![Value::symbol("no-such"), Value::string("abc")]
@@ -602,6 +641,7 @@ fn secure_hash_invalid_algorithm_errors() {
 
 #[test]
 fn secure_hash_invalid_algorithm_type_errors() {
+    crate::test_utils::init_test_tracing();
     match call_fns_builtin!(
         builtin_secure_hash,
         vec![Value::fixnum(1), Value::string("abc")]
@@ -616,6 +656,7 @@ fn secure_hash_invalid_algorithm_type_errors() {
 
 #[test]
 fn secure_hash_invalid_object_errors() {
+    crate::test_utils::init_test_tracing();
     match call_fns_builtin!(
         builtin_secure_hash,
         vec![Value::symbol("sha256"), Value::fixnum(123)]
@@ -634,6 +675,7 @@ fn secure_hash_invalid_object_errors() {
 
 #[test]
 fn secure_hash_eval_buffer_sha1() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -651,6 +693,7 @@ fn secure_hash_eval_buffer_sha1() {
 
 #[test]
 fn secure_hash_eval_buffer_range_errors() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -677,6 +720,7 @@ fn secure_hash_eval_buffer_range_errors() {
 
 #[test]
 fn secure_hash_eval_buffer_index_type_error() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let id = eval.buffers.current_buffer().expect("current buffer").id;
 
@@ -702,6 +746,7 @@ fn secure_hash_eval_buffer_index_type_error() {
 
 #[test]
 fn secure_hash_eval_buffer_marker_range() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -725,6 +770,7 @@ fn secure_hash_eval_buffer_marker_range() {
 
 #[test]
 fn secure_hash_eval_deleted_buffer_errors() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let id = eval.buffers.create_buffer("*secure-doomed*");
     assert!(eval.buffers.kill_buffer(id));
@@ -746,6 +792,7 @@ fn secure_hash_eval_deleted_buffer_errors() {
 
 #[test]
 fn buffer_hash_eval_current_buffer_sha1() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let buf = eval.buffers.current_buffer_mut().expect("current buffer");
     buf.delete_region(buf.point_min(), buf.point_max());
@@ -756,6 +803,7 @@ fn buffer_hash_eval_current_buffer_sha1() {
 
 #[test]
 fn buffer_hash_eval_by_name_sha1() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let buf = eval.buffers.current_buffer_mut().expect("current buffer");
     buf.delete_region(buf.point_min(), buf.point_max());
@@ -772,6 +820,7 @@ fn buffer_hash_eval_by_name_sha1() {
 
 #[test]
 fn buffer_hash_eval_missing_name_errors() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     match builtin_buffer_hash(&mut eval, vec![Value::string("*missing*")]) {
         Err(Flow::Signal(sig)) => {
@@ -789,6 +838,7 @@ fn buffer_hash_eval_missing_name_errors() {
 
 #[test]
 fn equal_including_properties_strings() {
+    crate::test_utils::init_test_tracing();
     let r =
         builtin_equal_including_properties(vec![Value::string("hello"), Value::string("hello")])
             .unwrap();
@@ -797,12 +847,14 @@ fn equal_including_properties_strings() {
 
 #[test]
 fn string_make_multibyte_passthrough_ascii() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_string_make_multibyte(vec![Value::string("abc")]).unwrap();
     assert_eq!(r.as_str(), Some("abc"));
 }
 
 #[test]
 fn string_make_multibyte_promotes_unibyte_byte() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_string_make_multibyte(vec![Value::string(bytes_to_unibyte_storage_string(&[
         0xFF,
     ]))])
@@ -815,6 +867,7 @@ fn string_make_multibyte_promotes_unibyte_byte() {
 
 #[test]
 fn string_make_unibyte_passthrough_ascii() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_string_make_unibyte(vec![Value::string("abc")]).unwrap();
     assert_eq!(
         string_escape::decode_storage_char_codes(r.as_str().unwrap()),
@@ -824,6 +877,7 @@ fn string_make_unibyte_passthrough_ascii() {
 
 #[test]
 fn string_make_unibyte_truncates_unicode_char_code() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_string_make_unibyte(vec![Value::string("😀")]).unwrap();
     assert_eq!(
         string_escape::decode_storage_char_codes(r.as_str().unwrap()),
@@ -835,6 +889,7 @@ fn string_make_unibyte_truncates_unicode_char_code() {
 
 #[test]
 fn compare_strings_equal() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_compare_strings(vec![
         Value::string("hello"),
         Value::NIL,
@@ -849,6 +904,7 @@ fn compare_strings_equal() {
 
 #[test]
 fn compare_strings_less() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_compare_strings(vec![
         Value::string("abc"),
         Value::NIL,
@@ -864,6 +920,7 @@ fn compare_strings_less() {
 
 #[test]
 fn compare_strings_greater() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_compare_strings(vec![
         Value::string("abd"),
         Value::NIL,
@@ -878,6 +935,7 @@ fn compare_strings_greater() {
 
 #[test]
 fn compare_strings_ignore_case() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_compare_strings(vec![
         Value::string("Hello"),
         Value::NIL,
@@ -893,6 +951,7 @@ fn compare_strings_ignore_case() {
 
 #[test]
 fn compare_strings_subrange() {
+    crate::test_utils::init_test_tracing();
     // Compare "hel" from "hello" (chars 1-3) with "hel" from "help" (chars 1-3)
     let r = builtin_compare_strings(vec![
         Value::string("hello"),
@@ -908,6 +967,7 @@ fn compare_strings_subrange() {
 
 #[test]
 fn compare_strings_length_diff() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_compare_strings(vec![
         Value::string("ab"),
         Value::NIL,
@@ -925,6 +985,7 @@ fn compare_strings_length_diff() {
 
 #[test]
 fn version_lessp_basic() {
+    crate::test_utils::init_test_tracing();
     let r =
         builtin_string_version_lessp(vec![Value::string("foo2"), Value::string("foo10")]).unwrap();
     assert!(r.is_truthy());
@@ -932,6 +993,7 @@ fn version_lessp_basic() {
 
 #[test]
 fn version_lessp_equal() {
+    crate::test_utils::init_test_tracing();
     let r =
         builtin_string_version_lessp(vec![Value::string("foo10"), Value::string("foo10")]).unwrap();
     assert!(r.is_nil());
@@ -939,12 +1001,14 @@ fn version_lessp_equal() {
 
 #[test]
 fn version_lessp_alpha() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_string_version_lessp(vec![Value::string("abc"), Value::string("abd")]).unwrap();
     assert!(r.is_truthy());
 }
 
 #[test]
 fn version_lessp_numeric_segments() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_string_version_lessp(vec![
         Value::string("emacs-27.1"),
         Value::string("emacs-27.2"),
@@ -957,12 +1021,14 @@ fn version_lessp_numeric_segments() {
 
 #[test]
 fn collate_lessp_basic() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_string_collate_lessp(vec![Value::string("abc"), Value::string("abd")]).unwrap();
     assert!(r.is_truthy());
 }
 
 #[test]
 fn collate_lessp_ignore_case() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_string_collate_lessp(vec![
         Value::string("ABC"),
         Value::string("abd"),
@@ -977,6 +1043,7 @@ fn collate_lessp_ignore_case() {
 
 #[test]
 fn collate_equalp_basic() {
+    crate::test_utils::init_test_tracing();
     let r =
         builtin_string_collate_equalp(vec![Value::string("abc"), Value::string("abc")]).unwrap();
     assert!(r.is_truthy());
@@ -984,6 +1051,7 @@ fn collate_equalp_basic() {
 
 #[test]
 fn collate_equalp_ignore_case() {
+    crate::test_utils::init_test_tracing();
     let r = builtin_string_collate_equalp(vec![
         Value::string("ABC"),
         Value::string("abc"),
@@ -996,6 +1064,7 @@ fn collate_equalp_ignore_case() {
 
 #[test]
 fn collate_equalp_different() {
+    crate::test_utils::init_test_tracing();
     let r =
         builtin_string_collate_equalp(vec![Value::string("abc"), Value::string("abd")]).unwrap();
     assert!(r.is_nil());
@@ -1005,6 +1074,7 @@ fn collate_equalp_different() {
 
 #[test]
 fn widget_get_found() {
+    crate::test_utils::init_test_tracing();
     // Widget: (button :tag "OK" :value 42)
     let widget = Value::list(vec![
         Value::symbol("button"),
@@ -1019,6 +1089,7 @@ fn widget_get_found() {
 
 #[test]
 fn widget_get_not_found() {
+    crate::test_utils::init_test_tracing();
     let widget = Value::list(vec![
         Value::symbol("button"),
         Value::keyword("tag"),
@@ -1030,6 +1101,7 @@ fn widget_get_not_found() {
 
 #[test]
 fn widget_put_existing() {
+    crate::test_utils::init_test_tracing();
     let widget = Value::list(vec![
         Value::symbol("button"),
         Value::keyword("value"),
@@ -1045,6 +1117,7 @@ fn widget_put_existing() {
 
 #[test]
 fn widget_put_new_property() {
+    crate::test_utils::init_test_tracing();
     let widget = Value::list(vec![Value::symbol("button")]);
     let r =
         builtin_widget_put(vec![widget, Value::keyword("tag"), Value::string("Hello")]).unwrap();
@@ -1056,6 +1129,7 @@ fn widget_put_new_property() {
 
 #[test]
 fn widget_apply_missing_property_signals_void_function_nil() {
+    crate::test_utils::init_test_tracing();
     let widget = Value::list(vec![Value::symbol("button")]);
     let mut ctx = test_eval_ctx();
     let err = builtin_widget_apply(&mut ctx, vec![widget, Value::keyword("action")])
@@ -1071,6 +1145,7 @@ fn widget_apply_missing_property_signals_void_function_nil() {
 
 #[test]
 fn widget_apply_calls_symbol_property_with_widget_as_first_arg() {
+    crate::test_utils::init_test_tracing();
     let widget = Value::list(vec![
         Value::symbol("button"),
         Value::keyword("action"),
@@ -1083,6 +1158,7 @@ fn widget_apply_calls_symbol_property_with_widget_as_first_arg() {
 
 #[test]
 fn widget_apply_passes_rest_arguments() {
+    crate::test_utils::init_test_tracing();
     let widget = Value::list(vec![
         Value::symbol("button"),
         Value::keyword("action"),
@@ -1107,6 +1183,7 @@ fn widget_apply_passes_rest_arguments() {
 
 #[test]
 fn widget_apply_non_callable_property_signals_invalid_function() {
+    crate::test_utils::init_test_tracing();
     let widget = Value::list(vec![
         Value::symbol("button"),
         Value::keyword("action"),
@@ -1128,6 +1205,7 @@ fn widget_apply_non_callable_property_signals_invalid_function() {
 
 #[test]
 fn base64_encode_line_break() {
+    crate::test_utils::init_test_tracing();
     // A string long enough to trigger line breaks at column 76
     let long = "a".repeat(100);
     let encoded = builtin_base64_encode_string(vec![Value::string(long.clone())]).unwrap();
@@ -1142,6 +1220,7 @@ fn base64_encode_line_break() {
 
 #[test]
 fn base64_decode_ignores_whitespace() {
+    crate::test_utils::init_test_tracing();
     // Encoded "Hello" with embedded whitespace
     let r = builtin_base64_decode_string(vec![Value::string("SGVs\nbG8=")]).unwrap();
     assert_eq!(r.as_str(), Some("Hello"));

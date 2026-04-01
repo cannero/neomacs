@@ -7,6 +7,7 @@ use crate::emacs_core::value::{
 
 #[test]
 fn test_register_bootstrap_vars_include_tab_bar_display_vars() {
+    crate::test_utils::init_test_tracing();
     let mut obarray = crate::emacs_core::symbol::Obarray::new();
     register_bootstrap_vars(&mut obarray);
 
@@ -31,6 +32,7 @@ fn test_register_bootstrap_vars_include_tab_bar_display_vars() {
 
 #[test]
 fn test_format_mode_line() {
+    crate::test_utils::init_test_tracing();
     let result =
         builtin_format_mode_line(vec![Value::string("test"), Value::symbol("default")]).unwrap();
     assert_eq!(result, Value::string(""));
@@ -71,6 +73,7 @@ fn test_format_mode_line() {
 
 #[test]
 fn test_format_mode_line_eval_optional_designators() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let buffer_id = eval.buffers.current_buffer().expect("current buffer").id;
     let frame_id = eval.frames.create_frame("xdisp-format", 80, 24, buffer_id);
@@ -122,6 +125,7 @@ fn test_format_mode_line_eval_optional_designators() {
 
 #[test]
 fn test_resolve_live_window_display_context_uses_selected_window_buffer_point() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     let selected_buffer_id = eval.buffers.current_buffer().expect("current buffer").id;
     let frame_id = eval
@@ -153,6 +157,7 @@ fn test_resolve_live_window_display_context_uses_selected_window_buffer_point() 
 
 #[test]
 fn test_format_mode_line_eval_uses_explicit_buffer_instead_of_current_buffer() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let saved_current = eval.buffers.current_buffer_id().expect("current buffer");
     let other_id = eval.buffers.create_buffer("*other*");
@@ -174,6 +179,7 @@ fn test_format_mode_line_eval_uses_explicit_buffer_instead_of_current_buffer() {
 
 #[test]
 fn test_format_mode_line_eval_uses_window_buffer_instead_of_current_buffer() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let saved_current = eval.buffers.current_buffer_id().expect("current buffer");
     let frame_id = eval
@@ -210,6 +216,7 @@ fn test_format_mode_line_eval_uses_window_buffer_instead_of_current_buffer() {
 
 #[test]
 fn test_format_mode_line_in_state_uses_buffer_local_symbols_and_restores_buffer() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let saved_current = eval.buffers.current_buffer_id().expect("current buffer");
     let other_id = eval.buffers.create_buffer("*mode-line*");
@@ -244,6 +251,7 @@ fn test_format_mode_line_in_state_uses_buffer_local_symbols_and_restores_buffer(
 
 #[test]
 fn test_format_mode_line_eval_keeps_shared_buffer_context_around_eval_forms() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let saved_current = eval.buffers.current_buffer_id().expect("current buffer");
     let other_id = eval.buffers.create_buffer("*mode-line-eval*");
@@ -271,6 +279,7 @@ fn test_format_mode_line_eval_keeps_shared_buffer_context_around_eval_forms() {
 
 #[test]
 fn test_format_mode_line_in_state_with_eval_keeps_shared_buffer_context_around_eval_forms() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let saved_current = eval.buffers.current_buffer_id().expect("current buffer");
     let other_id = eval.buffers.create_buffer("*mode-line-shared-eval*");
@@ -309,6 +318,7 @@ fn test_format_mode_line_in_state_with_eval_keeps_shared_buffer_context_around_e
 
 #[test]
 fn test_format_mode_line_symbol_conditional_uses_only_selected_branch() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     eval.obarray.set_symbol_value("mode-line-flag", Value::T);
 
@@ -345,6 +355,7 @@ fn test_format_mode_line_symbol_conditional_uses_only_selected_branch() {
 
 #[test]
 fn test_format_mode_line_string_valued_symbols_render_literally() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let other_id = eval.buffers.create_buffer("*mode-line-literal*");
     eval.buffers
@@ -372,6 +383,7 @@ fn test_format_mode_line_string_valued_symbols_render_literally() {
 
 #[test]
 fn test_format_mode_line_fixnum_elements_pad_and_truncate_tail() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let other_id = eval.buffers.create_buffer("xy");
 
@@ -400,6 +412,7 @@ fn test_format_mode_line_fixnum_elements_pad_and_truncate_tail() {
 
 #[test]
 fn test_format_mode_line_percent_specs_keep_gnu_field_width_and_dash_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let other_id = eval.buffers.create_buffer("xy");
 
@@ -424,6 +437,7 @@ fn test_format_mode_line_percent_specs_keep_gnu_field_width_and_dash_semantics()
 
 #[test]
 fn test_format_mode_line_respects_risky_local_variable_for_eval_forms() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     eval.obarray.set_symbol_value(
         "unsafe-mode-line",
@@ -451,6 +465,7 @@ fn test_format_mode_line_respects_risky_local_variable_for_eval_forms() {
 
 #[test]
 fn test_format_mode_line_propertize_preserves_text_properties() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let rendered = builtin_format_mode_line_ctx(
         &mut eval,
@@ -481,6 +496,7 @@ fn test_format_mode_line_propertize_preserves_text_properties() {
 
 #[test]
 fn test_format_mode_line_percent_specs_preserve_source_string_text_properties() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let buffer_id = eval.buffers.create_buffer("fmt-prop-buffer");
     eval.buffers.set_current(buffer_id);
@@ -531,6 +547,7 @@ fn test_format_mode_line_percent_specs_preserve_source_string_text_properties() 
 
 #[test]
 fn test_format_mode_line_status_specs_match_gnu_buffer_state() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let buffer_id = eval.buffers.create_buffer("status-buffer");
     eval.buffers.set_current(buffer_id);
@@ -559,6 +576,7 @@ fn test_format_mode_line_status_specs_match_gnu_buffer_state() {
 
 #[test]
 fn test_format_mode_line_face_argument_adds_default_face_and_merges_explicit_face() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let rendered = builtin_format_mode_line_ctx(
         &mut eval,
@@ -596,6 +614,7 @@ fn test_format_mode_line_face_argument_adds_default_face_and_merges_explicit_fac
 
 #[test]
 fn test_format_mode_line_integer_face_argument_discards_text_properties() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let rendered = builtin_format_mode_line_ctx(
         &mut eval,
@@ -623,6 +642,7 @@ fn test_format_mode_line_integer_face_argument_discards_text_properties() {
 
 #[test]
 fn test_format_mode_line_fixnum_padding_does_not_inherit_inner_properties() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let rendered = builtin_format_mode_line_ctx(
         &mut eval,
@@ -651,6 +671,7 @@ fn test_format_mode_line_fixnum_padding_does_not_inherit_inner_properties() {
 
 #[test]
 fn test_format_mode_line_recursive_depth_specs_match_gnu() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
 
     eval.command_loop.recursive_depth = 3;
@@ -666,6 +687,7 @@ fn test_format_mode_line_recursive_depth_specs_match_gnu() {
 
 #[test]
 fn test_format_mode_line_size_and_process_specs_match_gnu() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let buffer_id = eval.buffers.create_buffer("mode-line-metadata");
     eval.buffers.set_current(buffer_id);
@@ -691,6 +713,7 @@ fn test_format_mode_line_size_and_process_specs_match_gnu() {
 
 #[test]
 fn test_format_mode_line_column_c_and_big_c_specs_match_gnu() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let buffer_id = eval.buffers.create_buffer("col-test");
     eval.buffers.set_current(buffer_id);
@@ -708,6 +731,7 @@ fn test_format_mode_line_column_c_and_big_c_specs_match_gnu() {
 
 #[test]
 fn test_format_mode_line_major_mode_name_spec_matches_gnu() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let buffer_id = eval.buffers.create_buffer("mode-test");
     eval.buffers.set_current(buffer_id);
@@ -729,6 +753,7 @@ fn test_format_mode_line_major_mode_name_spec_matches_gnu() {
 
 #[test]
 fn test_format_mode_line_remote_at_spec_matches_gnu() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let buffer_id = eval.buffers.create_buffer("remote-test");
     eval.buffers.set_current(buffer_id);
@@ -750,6 +775,7 @@ fn test_format_mode_line_remote_at_spec_matches_gnu() {
 
 #[test]
 fn test_format_mode_line_coding_system_z_and_big_z_specs_match_gnu() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let buffer_id = eval.buffers.create_buffer("coding-test");
     eval.buffers.set_current(buffer_id);
@@ -781,6 +807,7 @@ fn test_format_mode_line_coding_system_z_and_big_z_specs_match_gnu() {
 
 #[test]
 fn test_format_mode_line_position_o_and_q_specs() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let buffer_id = eval.buffers.create_buffer("pos-test");
     eval.buffers.set_current(buffer_id);
@@ -858,6 +885,7 @@ fn test_format_mode_line_position_o_and_q_specs() {
 
 #[test]
 fn test_format_mode_line_percent_specs_use_window_buffer_and_completed_window_end() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     let target_id = eval.buffers.create_buffer("window-target");
     {
@@ -908,6 +936,7 @@ fn test_format_mode_line_percent_specs_use_window_buffer_and_completed_window_en
 
 #[test]
 fn test_invisible_p() {
+    crate::test_utils::init_test_tracing();
     let err = builtin_invisible_p(vec![Value::fixnum(0)]).unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "args-out-of-range"),
@@ -934,12 +963,14 @@ fn test_invisible_p() {
 
 #[test]
 fn test_line_pixel_height() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_line_pixel_height(vec![]).unwrap();
     assert_eq!(result, Value::fixnum(1));
 }
 
 #[test]
 fn test_window_text_pixel_size() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_window_text_pixel_size(vec![]).unwrap();
     if result.is_cons() {
         let pair_car = result.cons_car();
@@ -953,6 +984,7 @@ fn test_window_text_pixel_size() {
 
 #[test]
 fn test_window_text_pixel_size_arg_validation() {
+    crate::test_utils::init_test_tracing();
     let err = builtin_window_text_pixel_size(vec![Value::fixnum(1)]).unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
@@ -989,6 +1021,7 @@ fn test_window_text_pixel_size_arg_validation() {
 
 #[test]
 fn test_window_text_pixel_size_eval_window_validation() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
     let frame_id = eval.frames.create_frame("xdisp-test", 80, 24, buf_id);
@@ -1011,6 +1044,7 @@ fn test_window_text_pixel_size_eval_window_validation() {
 
 #[test]
 fn test_pos_visible_in_window_p() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_pos_visible_in_window_p(vec![Value::fixnum(1)]).unwrap();
     assert!(result.is_nil());
 
@@ -1051,6 +1085,7 @@ fn test_pos_visible_in_window_p() {
 
 #[test]
 fn test_pos_visible_in_window_p_eval_window_validation() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let err = builtin_pos_visible_in_window_p_ctx(&mut eval, vec![Value::NIL, Value::string("x")])
         .unwrap_err();
@@ -1078,6 +1113,7 @@ fn test_pos_visible_in_window_p_eval_window_validation() {
 
 #[test]
 fn test_pos_visible_in_window_p_eval_returns_partial_geometry_for_live_window() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
     let frame_id = eval.frames.create_frame("xdisp-pos", 160, 64, buf_id);
@@ -1119,6 +1155,7 @@ fn test_pos_visible_in_window_p_eval_returns_partial_geometry_for_live_window() 
 
 #[test]
 fn test_window_line_height_eval_returns_live_gui_row_metrics() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
     let frame_id = eval
@@ -1164,6 +1201,7 @@ fn test_window_line_height_eval_returns_live_gui_row_metrics() {
 
 #[test]
 fn test_posn_at_point_eval_uses_exact_redisplay_snapshot() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
     let frame_id = eval.frames.create_frame("xdisp-posn", 160, 64, buf_id);
@@ -1225,6 +1263,7 @@ fn test_posn_at_point_eval_uses_exact_redisplay_snapshot() {
 
 #[test]
 fn test_posn_at_x_y_eval_uses_exact_redisplay_snapshot() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
     let frame_id = eval.frames.create_frame("xdisp-posn-xy", 160, 64, buf_id);
@@ -1292,6 +1331,7 @@ fn test_posn_at_x_y_eval_uses_exact_redisplay_snapshot() {
 
 #[test]
 fn test_posn_at_point_eval_returns_nil_outside_visible_snapshot_span() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
     let frame_id = eval
@@ -1375,6 +1415,7 @@ fn test_posn_at_point_eval_returns_nil_outside_visible_snapshot_span() {
 
 #[test]
 fn test_posn_at_point_eval_returns_nil_for_positions_missing_entire_visible_row() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
     let frame_id = eval
@@ -1448,6 +1489,7 @@ fn test_posn_at_point_eval_returns_nil_for_positions_missing_entire_visible_row(
 
 #[test]
 fn test_move_point_visually() {
+    crate::test_utils::init_test_tracing();
     for direction in [1_i64, 0, -1, 2] {
         let err = builtin_move_point_visually(vec![Value::fixnum(direction)]).unwrap_err();
         match err {
@@ -1471,6 +1513,7 @@ fn test_move_point_visually() {
 
 #[test]
 fn test_lookup_image_map() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_lookup_image_map(vec![
         Value::symbol("map"),
         Value::fixnum(10),
@@ -1514,6 +1557,7 @@ fn test_lookup_image_map() {
 
 #[test]
 fn test_current_bidi_paragraph_direction() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_current_bidi_paragraph_direction(vec![]).unwrap();
     assert_eq!(result, Value::symbol("left-to-right"));
 
@@ -1532,6 +1576,7 @@ fn test_current_bidi_paragraph_direction() {
 
 #[test]
 fn test_bidi_resolved_levels() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_bidi_resolved_levels(vec![]).unwrap().is_nil());
     assert!(
         builtin_bidi_resolved_levels(vec![Value::NIL])
@@ -1556,6 +1601,7 @@ fn test_bidi_resolved_levels() {
 
 #[test]
 fn test_bidi_find_overridden_directionality() {
+    crate::test_utils::init_test_tracing();
     assert!(
         builtin_bidi_find_overridden_directionality(vec![
             Value::string("abc"),
@@ -1615,6 +1661,7 @@ fn test_bidi_find_overridden_directionality() {
 
 #[test]
 fn test_move_to_window_line() {
+    crate::test_utils::init_test_tracing();
     // Without a selected frame, move-to-window-line should signal an error.
     let mut ev = crate::emacs_core::Context::new();
     for arg in [Value::fixnum(1), Value::fixnum(0), Value::symbol("left")] {
@@ -1630,6 +1677,7 @@ fn test_move_to_window_line() {
 
 #[test]
 fn test_tool_bar_height() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_tool_bar_height(vec![]).unwrap();
     assert_eq!(result, Value::fixnum(0));
 
@@ -1639,6 +1687,7 @@ fn test_tool_bar_height() {
 
 #[test]
 fn test_tool_bar_height_eval_frame_validation() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
     let frame_id = eval.frames.create_frame("xdisp-test", 80, 24, buf_id);
@@ -1656,6 +1705,7 @@ fn test_tool_bar_height_eval_frame_validation() {
 
 #[test]
 fn test_tab_bar_height() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_tab_bar_height(vec![]).unwrap();
     assert_eq!(result, Value::fixnum(0));
 
@@ -1665,6 +1715,7 @@ fn test_tab_bar_height() {
 
 #[test]
 fn test_tab_bar_height_eval_frame_validation() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
     let frame_id = eval.frames.create_frame("xdisp-test", 80, 24, buf_id);
@@ -1682,6 +1733,7 @@ fn test_tab_bar_height_eval_frame_validation() {
 
 #[test]
 fn test_tab_bar_height_eval_reflects_tab_bar_lines_and_pixels() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let frame_id = super::super::window_cmds::ensure_selected_frame_id(&mut eval);
     {
@@ -1715,6 +1767,7 @@ fn test_tab_bar_height_eval_reflects_tab_bar_lines_and_pixels() {
 
 #[test]
 fn test_line_number_display_width() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_line_number_display_width(vec![]).unwrap();
     assert_eq!(result, Value::fixnum(0));
 
@@ -1724,6 +1777,7 @@ fn test_line_number_display_width() {
 
 #[test]
 fn test_long_line_optimizations_p() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_long_line_optimizations_p(vec![]).unwrap();
     assert!(result.is_nil());
 }
@@ -1731,6 +1785,7 @@ fn test_long_line_optimizations_p() {
 // Test wrong arity errors
 #[test]
 fn test_wrong_arity() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_line_pixel_height(vec![Value::fixnum(1)]).is_err());
     assert!(builtin_invisible_p(vec![]).is_err());
     assert!(builtin_move_point_visually(vec![]).is_err());
@@ -1744,6 +1799,7 @@ fn test_wrong_arity() {
 // Test optional args
 #[test]
 fn test_optional_args() {
+    crate::test_utils::init_test_tracing();
     // format-mode-line allows 1-4 args
     assert!(builtin_format_mode_line(vec![]).is_err());
     assert!(builtin_format_mode_line(vec![Value::string("fmt")]).is_ok());

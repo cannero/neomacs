@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn test_undo_boundary_no_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let result = builtin_undo_boundary(&mut eval, vec![]);
     assert!(result.is_ok());
@@ -10,6 +11,7 @@ fn test_undo_boundary_no_args() {
 
 #[test]
 fn test_undo_boundary_eval_inserts_boundary_marker() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -26,6 +28,7 @@ fn test_undo_boundary_eval_inserts_boundary_marker() {
 
 #[test]
 fn test_undo_boundary_wrong_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let result = builtin_undo_boundary(&mut eval, vec![Value::fixnum(1)]);
     assert!(result.is_err());
@@ -33,6 +36,7 @@ fn test_undo_boundary_wrong_args() {
 
 #[test]
 fn test_primitive_undo_with_count_and_list() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
     let mut eval = Context::new();
     let list = Value::list(vec![Value::NIL, Value::NIL, Value::NIL]);
@@ -43,6 +47,7 @@ fn test_primitive_undo_with_count_and_list() {
 
 #[test]
 fn test_primitive_undo_zero_count() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
     let mut eval = Context::new();
     let list = Value::list(vec![Value::NIL, Value::NIL]);
@@ -54,6 +59,7 @@ fn test_primitive_undo_zero_count() {
 
 #[test]
 fn test_primitive_undo_negative_count() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
     let mut eval = Context::new();
     let list = Value::list(vec![Value::NIL]);
@@ -65,6 +71,7 @@ fn test_primitive_undo_negative_count() {
 
 #[test]
 fn test_primitive_undo_invalid_count() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
     let mut eval = Context::new();
     let list = Value::list(vec![]);
@@ -74,6 +81,7 @@ fn test_primitive_undo_invalid_count() {
 
 #[test]
 fn test_primitive_undo_non_list_signals_wrong_type() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
     let mut eval = Context::new();
     let result = builtin_primitive_undo(&mut eval, vec![Value::fixnum(1), Value::fixnum(7)]);
@@ -82,6 +90,7 @@ fn test_primitive_undo_non_list_signals_wrong_type() {
 
 #[test]
 fn test_primitive_undo_wrong_arg_count() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
     let mut eval = Context::new();
     let result = builtin_primitive_undo(&mut eval, vec![Value::fixnum(1)]);
@@ -96,6 +105,7 @@ fn test_primitive_undo_wrong_arg_count() {
 
 #[test]
 fn test_primitive_undo_reverts_insertion() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
     let mut eval = Context::new();
     // Insert text into the current buffer.
@@ -119,6 +129,7 @@ fn test_primitive_undo_reverts_insertion() {
 
 #[test]
 fn test_primitive_undo_reverts_deletion() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
     let mut eval = Context::new();
     // Buffer starts empty; the undo entry says "hello" was deleted at pos 1.
@@ -136,6 +147,7 @@ fn test_primitive_undo_reverts_deletion() {
 
 #[test]
 fn test_undo_no_args() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -145,6 +157,7 @@ fn test_undo_no_args() {
 
 #[test]
 fn test_undo_with_arg() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -154,6 +167,7 @@ fn test_undo_with_arg() {
 
 #[test]
 fn test_undo_with_invalid_arg() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -163,6 +177,7 @@ fn test_undo_with_invalid_arg() {
 
 #[test]
 fn test_undo_with_multiple_args() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -172,6 +187,7 @@ fn test_undo_with_multiple_args() {
 
 #[test]
 fn test_undo_reverts_inserted_text() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -194,6 +210,7 @@ fn test_undo_reverts_inserted_text() {
 
 #[test]
 fn test_undo_without_boundary_signals_user_error_after_apply() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -213,6 +230,7 @@ fn test_undo_without_boundary_signals_user_error_after_apply() {
 
 #[test]
 fn test_undo_with_non_positive_arg_and_boundary_returns_undo() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();

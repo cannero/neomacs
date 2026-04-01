@@ -3,6 +3,7 @@ use crate::emacs_core::value::ValueKind;
 
 #[test]
 fn zlib_decompress_region_arity_and_type_validation() {
+    crate::test_utils::init_test_tracing();
     let arity = builtin_zlib_decompress_region(vec![]);
     assert!(arity.is_err());
 
@@ -20,6 +21,7 @@ fn zlib_decompress_region_arity_and_type_validation() {
 
 #[test]
 fn zlib_decompress_region_signals_unibyte_requirement() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_zlib_decompress_region(vec![Value::fixnum(1), Value::fixnum(1)])
         .expect_err("must signal error in multibyte buffers");
     match result {
@@ -38,6 +40,7 @@ fn zlib_decompress_region_signals_unibyte_requirement() {
 
 #[test]
 fn libxml_parse_xml_region_arity_and_type_subset() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(builtin_libxml_parse_xml_region(vec![]).unwrap(), Value::NIL);
     assert_eq!(
         builtin_libxml_parse_xml_region(vec![Value::NIL]).unwrap(),
@@ -97,6 +100,7 @@ fn libxml_parse_xml_region_arity_and_type_subset() {
 
 #[test]
 fn libxml_parse_html_region_arity_and_type_subset() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         builtin_libxml_parse_html_region(vec![]).unwrap(),
         html_parse_fallback("libxml-parse-html-region", &[])
@@ -177,6 +181,7 @@ fn libxml_parse_html_region_arity_and_type_subset() {
 
 #[test]
 fn availability_probes_return_true_and_validate_arity() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(builtin_libxml_available_p(vec![]).unwrap(), Value::T);
     assert_eq!(builtin_zlib_available_p(vec![]).unwrap(), Value::T);
 

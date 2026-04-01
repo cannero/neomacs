@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn intern_dedup() {
+    crate::test_utils::init_test_tracing();
     let mut interner = StringInterner::new();
     let a = interner.intern("foo");
     let b = interner.intern("foo");
@@ -14,6 +15,7 @@ fn intern_dedup() {
 
 #[test]
 fn thread_local_intern() {
+    crate::test_utils::init_test_tracing();
     // Uses fallback interner in test mode
     let a = intern("hello");
     let b = intern("hello");
@@ -26,6 +28,7 @@ fn thread_local_intern() {
 
 #[test]
 fn intern_empty_string() {
+    crate::test_utils::init_test_tracing();
     let mut interner = StringInterner::new();
     let id = interner.intern("");
     assert_eq!(interner.resolve(id), "");
@@ -35,6 +38,7 @@ fn intern_empty_string() {
 
 #[test]
 fn intern_many_strings() {
+    crate::test_utils::init_test_tracing();
     let mut interner = StringInterner::new();
     let ids: Vec<SymId> = (0..1000)
         .map(|i| interner.intern(&format!("sym-{i}")))
@@ -49,6 +53,7 @@ fn intern_many_strings() {
 
 #[test]
 fn intern_idempotent() {
+    crate::test_utils::init_test_tracing();
     let mut interner = StringInterner::new();
     let first = interner.intern("repeated");
     for _ in 0..100 {
@@ -58,6 +63,7 @@ fn intern_idempotent() {
 
 #[test]
 fn symid_copy_eq_hash() {
+    crate::test_utils::init_test_tracing();
     let mut interner = StringInterner::new();
     let a = interner.intern("x");
     let b = a; // Copy
@@ -71,6 +77,7 @@ fn symid_copy_eq_hash() {
 
 #[test]
 fn resolve_sym_stable_across_growth() {
+    crate::test_utils::init_test_tracing();
     let mut interner = StringInterner::new();
     let early = interner.intern("early");
     assert_eq!(interner.resolve(early), "early");

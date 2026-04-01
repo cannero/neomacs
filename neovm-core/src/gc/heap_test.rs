@@ -3,6 +3,7 @@ use crate::emacs_core::value::ValueKind;
 
 #[test]
 fn alloc_cons_read() {
+    crate::test_utils::init_test_tracing();
     let mut heap = LispHeap::new();
     let id = heap.alloc_cons(Value::fixnum(1), Value::fixnum(2));
     assert_eq!(heap.cons_car(id), Value::fixnum(1));
@@ -11,6 +12,7 @@ fn alloc_cons_read() {
 
 #[test]
 fn alloc_cons_mutate() {
+    crate::test_utils::init_test_tracing();
     let mut heap = LispHeap::new();
     let id = heap.alloc_cons(Value::fixnum(1), Value::fixnum(2));
     heap.set_car(id, Value::fixnum(10));
@@ -19,6 +21,7 @@ fn alloc_cons_mutate() {
 
 #[test]
 fn free_list_reuse() {
+    crate::test_utils::init_test_tracing();
     let mut heap = LispHeap::new();
     let id1 = heap.alloc_cons(Value::NIL, Value::NIL);
     let idx = id1.index;
@@ -33,6 +36,7 @@ fn free_list_reuse() {
 #[test]
 #[should_panic(expected = "stale ObjId")]
 fn stale_id_panics() {
+    crate::test_utils::init_test_tracing();
     let mut heap = LispHeap::new();
     let id = heap.alloc_cons(Value::NIL, Value::NIL);
     heap.collect(std::iter::empty());
@@ -41,6 +45,7 @@ fn stale_id_panics() {
 
 #[test]
 fn collect_unreachable() {
+    crate::test_utils::init_test_tracing();
     let mut heap = LispHeap::new();
     let _a = heap.alloc_cons(Value::fixnum(1), Value::NIL);
     let b = heap.alloc_cons(Value::fixnum(2), Value::NIL);
@@ -54,6 +59,7 @@ fn collect_unreachable() {
 
 #[test]
 fn collect_nested() {
+    crate::test_utils::init_test_tracing();
     let mut heap = LispHeap::new();
     let inner = heap.alloc_cons(Value::fixnum(1), Value::NIL);
     let _outer = heap.alloc_cons(Value::fixnum(99), Value::NIL);
@@ -65,6 +71,7 @@ fn collect_nested() {
 
 #[test]
 fn collect_cycle() {
+    crate::test_utils::init_test_tracing();
     let mut heap = LispHeap::new();
     let _a = heap.alloc_cons(Value::fixnum(1), Value::NIL);
     let _b = heap.alloc_cons(Value::fixnum(2), Value::NIL);
@@ -77,6 +84,7 @@ fn collect_cycle() {
 
 #[test]
 fn vector_ops() {
+    crate::test_utils::init_test_tracing();
     let mut heap = LispHeap::new();
     let id = heap.alloc_vector(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
     assert_eq!(heap.vector_len(id), 3);
@@ -87,6 +95,7 @@ fn vector_ops() {
 
 #[test]
 fn list_helpers() {
+    crate::test_utils::init_test_tracing();
     let heap = LispHeap::new();
     // Use tagged heap cons values since list_to_vec now uses Value::cons_car/cons_cdr
     let list = Value::list(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
@@ -101,6 +110,7 @@ fn list_helpers() {
 
 #[test]
 fn structural_equality() {
+    crate::test_utils::init_test_tracing();
     let heap = LispHeap::new();
     // Use tagged heap cons values since equal_value now uses Value's methods
     let a = Value::cons(Value::fixnum(1), Value::fixnum(2));
@@ -112,6 +122,7 @@ fn structural_equality() {
 
 #[test]
 fn hash_table_basic() {
+    crate::test_utils::init_test_tracing();
     let mut heap = LispHeap::new();
     let id = heap.alloc_hash_table(HashTableTest::Equal);
     let ht = heap.get_hash_table(id);
@@ -120,6 +131,7 @@ fn hash_table_basic() {
 
 #[test]
 fn gc_threshold_is_configurable_and_clamped() {
+    crate::test_utils::init_test_tracing();
     let mut heap = LispHeap::new();
     assert_eq!(heap.gc_threshold(), 8192);
     heap.set_gc_threshold(0);
@@ -130,6 +142,7 @@ fn gc_threshold_is_configurable_and_clamped() {
 
 #[test]
 fn should_collect_tracks_allocations_against_threshold() {
+    crate::test_utils::init_test_tracing();
     let mut heap = LispHeap::new();
     heap.set_gc_threshold(2);
     assert!(!heap.should_collect());
@@ -141,6 +154,7 @@ fn should_collect_tracks_allocations_against_threshold() {
 
 #[test]
 fn mark_some_incremental() {
+    crate::test_utils::init_test_tracing();
     let mut heap = LispHeap::new();
     let a = heap.alloc_cons(Value::fixnum(1), Value::NIL);
     let b = heap.alloc_cons(Value::fixnum(2), Value::NIL);
@@ -174,6 +188,7 @@ fn mark_some_incremental() {
 
 #[test]
 fn write_barrier_regays_black_object() {
+    crate::test_utils::init_test_tracing();
     let mut heap = LispHeap::new();
     let a = heap.alloc_cons(Value::fixnum(1), Value::NIL);
     let new_child = heap.alloc_cons(Value::fixnum(99), Value::NIL);
@@ -202,6 +217,7 @@ fn write_barrier_regays_black_object() {
 
 #[test]
 fn write_barrier_noop_when_idle() {
+    crate::test_utils::init_test_tracing();
     let mut heap = LispHeap::new();
     let a = heap.alloc_cons(Value::fixnum(1), Value::NIL);
 
@@ -213,6 +229,7 @@ fn write_barrier_noop_when_idle() {
 
 #[test]
 fn alloc_string_and_collect() {
+    crate::test_utils::init_test_tracing();
     let mut heap = LispHeap::new();
     let id = heap.alloc_string("hello".to_string());
     assert_eq!(heap.get_string(id), "hello");
@@ -225,6 +242,7 @@ fn alloc_string_and_collect() {
 
 #[test]
 fn alloc_string_survives_when_rooted() {
+    crate::test_utils::init_test_tracing();
     let mut heap = LispHeap::new();
     let id = heap.alloc_string("world".to_string());
 
@@ -237,6 +255,7 @@ fn alloc_string_survives_when_rooted() {
 
 #[test]
 fn multi_cycle_gc() {
+    crate::test_utils::init_test_tracing();
     let mut heap = LispHeap::new();
 
     // Cycle 1: allocate and collect
@@ -254,6 +273,7 @@ fn multi_cycle_gc() {
 
 #[test]
 fn free_list_reuse_after_collect() {
+    crate::test_utils::init_test_tracing();
     let mut heap = LispHeap::new();
 
     // Allocate and free
@@ -269,6 +289,7 @@ fn free_list_reuse_after_collect() {
 
 #[test]
 fn collect_preserves_cons_chain() {
+    crate::test_utils::init_test_tracing();
     let heap = LispHeap::new();
     // Use tagged heap cons values since list_to_vec uses Value's methods
     let list = Value::list(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
@@ -283,6 +304,7 @@ fn collect_preserves_cons_chain() {
 
 #[test]
 fn sweep_after_incremental_marking() {
+    crate::test_utils::init_test_tracing();
     let mut heap = LispHeap::new();
     let a = heap.alloc_cons(Value::fixnum(1), Value::NIL);
     let b = heap.alloc_cons(Value::fixnum(2), Value::NIL);

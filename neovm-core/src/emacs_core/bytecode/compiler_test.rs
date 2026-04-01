@@ -9,6 +9,7 @@ fn compile(src: &str) -> ByteCodeFunction {
 
 #[test]
 fn compile_literal_int() {
+    crate::test_utils::init_test_tracing();
     let func = compile("42");
     assert_eq!(func.ops.len(), 2); // Constant + Return
     assert!(matches!(func.ops[0], Op::Constant(0)));
@@ -18,6 +19,7 @@ fn compile_literal_int() {
 
 #[test]
 fn compile_nil_t() {
+    crate::test_utils::init_test_tracing();
     let func = compile("nil");
     assert!(matches!(func.ops[0], Op::Nil));
 
@@ -27,6 +29,7 @@ fn compile_nil_t() {
 
 #[test]
 fn compile_addition() {
+    crate::test_utils::init_test_tracing();
     let func = compile("(+ 1 2)");
     // Constant(1), Constant(2), Add, Return
     assert_eq!(func.ops.len(), 4);
@@ -35,6 +38,7 @@ fn compile_addition() {
 
 #[test]
 fn compile_if() {
+    crate::test_utils::init_test_tracing();
     let func = compile("(if t 1 2)");
     // Has GotoIfNil and Goto for branching
     let has_goto_nil = func.ops.iter().any(|op| matches!(op, Op::GotoIfNil(_)));
@@ -43,6 +47,7 @@ fn compile_if() {
 
 #[test]
 fn compile_let() {
+    crate::test_utils::init_test_tracing();
     let func = compile("(let ((x 1)) x)");
     let has_varbind = func.ops.iter().any(|op| matches!(op, Op::VarBind(_)));
     let has_unbind = func.ops.iter().any(|op| matches!(op, Op::Unbind(_)));
@@ -52,6 +57,7 @@ fn compile_let() {
 
 #[test]
 fn compile_setq() {
+    crate::test_utils::init_test_tracing();
     let func = compile("(setq x 42)");
     let has_varset = func.ops.iter().any(|op| matches!(op, Op::VarSet(_)));
     assert!(has_varset);
@@ -59,6 +65,7 @@ fn compile_setq() {
 
 #[test]
 fn compile_while() {
+    crate::test_utils::init_test_tracing();
     let func = compile("(while nil 1)");
     let has_goto = func.ops.iter().any(|op| matches!(op, Op::Goto(_)));
     let has_goto_nil = func.ops.iter().any(|op| matches!(op, Op::GotoIfNil(_)));
@@ -68,6 +75,7 @@ fn compile_while() {
 
 #[test]
 fn compile_lambda() {
+    crate::test_utils::init_test_tracing();
     let func = compile("(lambda (x) (+ x 1))");
     // Should have MakeClosure or Constant (depends on lexical mode)
     let has_constant = func.ops.iter().any(|op| matches!(op, Op::Constant(_)));
@@ -76,12 +84,14 @@ fn compile_lambda() {
 
 #[test]
 fn compile_quote() {
+    crate::test_utils::init_test_tracing();
     let func = compile("'(1 2 3)");
     assert_eq!(func.ops.len(), 2); // Constant + Return
 }
 
 #[test]
 fn compile_and_or() {
+    crate::test_utils::init_test_tracing();
     let func = compile("(and 1 2 3)");
     let has_short_circuit = func
         .ops
@@ -99,6 +109,7 @@ fn compile_and_or() {
 
 #[test]
 fn compile_type_predicates() {
+    crate::test_utils::init_test_tracing();
     let func = compile("(null x)");
     let has_not = func.ops.iter().any(|op| matches!(op, Op::Not));
     assert!(has_not);
@@ -110,6 +121,7 @@ fn compile_type_predicates() {
 
 #[test]
 fn compile_list_ops() {
+    crate::test_utils::init_test_tracing();
     let func = compile("(car x)");
     assert!(func.ops.iter().any(|op| matches!(op, Op::Car)));
 
@@ -122,6 +134,7 @@ fn compile_list_ops() {
 
 #[test]
 fn compile_progn() {
+    crate::test_utils::init_test_tracing();
     let func = compile("(progn 1 2 3)");
     // Should only keep last value
     assert!(matches!(func.ops.last(), Some(Op::Return)));
@@ -129,6 +142,7 @@ fn compile_progn() {
 
 #[test]
 fn disassemble_output() {
+    crate::test_utils::init_test_tracing();
     let func = compile("(+ 1 2)");
     let dis = func.disassemble();
     assert!(dis.contains("add"));
@@ -137,6 +151,7 @@ fn disassemble_output() {
 
 #[test]
 fn compile_cond() {
+    crate::test_utils::init_test_tracing();
     let func = compile("(cond (nil 1) (t 2))");
     // cond compiles to a series of conditional branches
     let has_goto_nil = func.ops.iter().any(|op| matches!(op, Op::GotoIfNil(_)));
@@ -145,6 +160,7 @@ fn compile_cond() {
 
 #[test]
 fn compile_when() {
+    crate::test_utils::init_test_tracing();
     let func = compile("(when t 1 2)");
     let has_goto_nil = func.ops.iter().any(|op| matches!(op, Op::GotoIfNil(_)));
     assert!(has_goto_nil);
@@ -152,6 +168,7 @@ fn compile_when() {
 
 #[test]
 fn compile_unless() {
+    crate::test_utils::init_test_tracing();
     let func = compile("(unless nil 1)");
     // unless branches when condition is NOT nil
     let has_goto_not_nil = func.ops.iter().any(|op| matches!(op, Op::GotoIfNotNil(_)));
@@ -162,6 +179,7 @@ fn compile_unless() {
 
 #[test]
 fn compile_catch() {
+    crate::test_utils::init_test_tracing();
     let func = compile("(catch 'tag (+ 1 2))");
     // catch compiles via compile_catch which uses PushCatch + PopHandler
     let has_handler = func.ops.iter().any(|op| matches!(op, Op::PushCatch(_)));
@@ -172,6 +190,7 @@ fn compile_catch() {
 
 #[test]
 fn compile_unwind_protect() {
+    crate::test_utils::init_test_tracing();
     let func = compile("(unwind-protect 1 2)");
     let has_cleanup = func.ops.iter().any(|op| matches!(op, Op::UnwindProtectPop));
     assert!(has_cleanup);
@@ -181,6 +200,7 @@ fn compile_unwind_protect() {
 
 #[test]
 fn compile_condition_case() {
+    crate::test_utils::init_test_tracing();
     let func = compile("(condition-case err (error \"boom\") (error err))");
     let has_push_cc = func
         .ops
@@ -191,6 +211,7 @@ fn compile_condition_case() {
 
 #[test]
 fn compile_prog1() {
+    crate::test_utils::init_test_tracing();
     let func = compile("(prog1 1 2 3)");
     // prog1 keeps the first value — needs discard operations
     assert!(matches!(func.ops.last(), Some(Op::Return)));
@@ -198,6 +219,7 @@ fn compile_prog1() {
 
 #[test]
 fn compile_defun() {
+    crate::test_utils::init_test_tracing();
     let func = compile("(defun my-fn (x) (+ x 1))");
     // defun should produce a constant (the function) and a call to defalias/fset
     let has_constant = func.ops.iter().any(|op| matches!(op, Op::Constant(_)));
@@ -206,6 +228,7 @@ fn compile_defun() {
 
 #[test]
 fn compile_dotimes() {
+    crate::test_utils::init_test_tracing();
     let func = compile("(dotimes (i 10) i)");
     // dotimes uses a counter loop with goto
     let has_goto = func.ops.iter().any(|op| matches!(op, Op::Goto(_)));
@@ -214,6 +237,7 @@ fn compile_dotimes() {
 
 #[test]
 fn compile_dolist() {
+    crate::test_utils::init_test_tracing();
     let func = compile("(dolist (x '(1 2 3)) x)");
     // dolist iterates a list with goto
     let has_goto = func.ops.iter().any(|op| matches!(op, Op::Goto(_)));
@@ -222,6 +246,7 @@ fn compile_dolist() {
 
 #[test]
 fn compile_let_star() {
+    crate::test_utils::init_test_tracing();
     let func = compile("(let* ((x 1) (y x)) y)");
     // let* uses sequential binding
     let varbind_count = func
@@ -234,6 +259,7 @@ fn compile_let_star() {
 
 #[test]
 fn compile_save_excursion() {
+    crate::test_utils::init_test_tracing();
     // save-excursion is compiled as a progn (stub), so body should still produce a value
     let func = compile("(save-excursion 1)");
     // Should have the constant 1 in it
@@ -242,6 +268,7 @@ fn compile_save_excursion() {
 
 #[test]
 fn compile_subtraction_and_multiplication() {
+    crate::test_utils::init_test_tracing();
     let func = compile("(- 3 1)");
     assert!(func.ops.iter().any(|op| matches!(op, Op::Sub)));
 
@@ -251,6 +278,7 @@ fn compile_subtraction_and_multiplication() {
 
 #[test]
 fn compile_comparisons() {
+    crate::test_utils::init_test_tracing();
     let func = compile("(< 1 2)");
     assert!(func.ops.iter().any(|op| matches!(op, Op::Lss)));
 

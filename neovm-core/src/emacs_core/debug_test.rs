@@ -9,6 +9,7 @@ fn init_test_heap() {}
 
 #[test]
 fn backtrace_push_pop() {
+    crate::test_utils::init_test_tracing();
     let mut bt = Backtrace::new();
     assert_eq!(bt.depth(), 0);
 
@@ -43,6 +44,7 @@ fn backtrace_push_pop() {
 
 #[test]
 fn backtrace_max_depth() {
+    crate::test_utils::init_test_tracing();
     let mut bt = Backtrace::with_max_depth(3);
     for i in 0..10 {
         bt.push(BacktraceFrame {
@@ -58,6 +60,7 @@ fn backtrace_max_depth() {
 
 #[test]
 fn backtrace_format_nonempty() {
+    crate::test_utils::init_test_tracing();
     let mut bt = Backtrace::new();
     bt.push(BacktraceFrame {
         function: "+".to_string(),
@@ -81,6 +84,7 @@ fn backtrace_format_nonempty() {
 
 #[test]
 fn backtrace_format_empty() {
+    crate::test_utils::init_test_tracing();
     let bt = Backtrace::new();
     let formatted = bt.format();
     assert!(formatted.contains("no backtrace"));
@@ -88,6 +92,7 @@ fn backtrace_format_empty() {
 
 #[test]
 fn backtrace_format_special_form() {
+    crate::test_utils::init_test_tracing();
     let mut bt = Backtrace::new();
     bt.push(BacktraceFrame {
         function: "if".to_string(),
@@ -103,6 +108,7 @@ fn backtrace_format_special_form() {
 
 #[test]
 fn backtrace_clear() {
+    crate::test_utils::init_test_tracing();
     let mut bt = Backtrace::new();
     bt.push(BacktraceFrame {
         function: "foo".to_string(),
@@ -120,6 +126,7 @@ fn backtrace_clear() {
 
 #[test]
 fn debug_on_entry_add_remove() {
+    crate::test_utils::init_test_tracing();
     let mut ds = DebugState::new();
     assert!(!ds.should_debug_on_entry("foo"));
 
@@ -133,6 +140,7 @@ fn debug_on_entry_add_remove() {
 
 #[test]
 fn debug_on_entry_via_breakpoint() {
+    crate::test_utils::init_test_tracing();
     let mut ds = DebugState::new();
     let bp_id = ds.add_breakpoint("my-fn");
     assert!(ds.should_debug_on_entry("my-fn"));
@@ -151,6 +159,7 @@ fn debug_on_entry_via_breakpoint() {
 
 #[test]
 fn breakpoint_add_remove() {
+    crate::test_utils::init_test_tracing();
     let mut ds = DebugState::new();
     let id1 = ds.add_breakpoint("foo");
     let id2 = ds.add_breakpoint("bar");
@@ -169,6 +178,7 @@ fn breakpoint_add_remove() {
 
 #[test]
 fn breakpoint_toggle() {
+    crate::test_utils::init_test_tracing();
     let mut ds = DebugState::new();
     let id = ds.add_breakpoint("test-fn");
     assert!(ds.list_breakpoints()[0].enabled);
@@ -185,6 +195,7 @@ fn breakpoint_toggle() {
 
 #[test]
 fn breakpoint_hit_count() {
+    crate::test_utils::init_test_tracing();
     let mut ds = DebugState::new();
     let _id = ds.add_breakpoint("count-me");
     assert_eq!(ds.list_breakpoints()[0].hit_count, 0);
@@ -203,6 +214,7 @@ fn breakpoint_hit_count() {
 
 #[test]
 fn breakpoint_conditional() {
+    crate::test_utils::init_test_tracing();
     let mut ds = DebugState::new();
     let id = ds.add_conditional_breakpoint("my-fn", "(> x 5)");
     let bp = &ds.list_breakpoints()[0];
@@ -214,6 +226,7 @@ fn breakpoint_conditional() {
 
 #[test]
 fn docstore_set_get_function() {
+    crate::test_utils::init_test_tracing();
     let mut store = DocStore::new();
     assert!(store.get_function_doc("car").is_none());
 
@@ -230,6 +243,7 @@ fn docstore_set_get_function() {
 
 #[test]
 fn docstore_set_get_variable() {
+    crate::test_utils::init_test_tracing();
     let mut store = DocStore::new();
     assert!(store.get_variable_doc("load-path").is_none());
 
@@ -242,6 +256,7 @@ fn docstore_set_get_variable() {
 
 #[test]
 fn docstore_apropos_basic() {
+    crate::test_utils::init_test_tracing();
     let mut store = DocStore::new();
     store.set_function_doc("car", "Return the car.");
     store.set_function_doc("cdr", "Return the cdr.");
@@ -263,6 +278,7 @@ fn docstore_apropos_basic() {
 
 #[test]
 fn docstore_apropos_case_insensitive() {
+    crate::test_utils::init_test_tracing();
     let mut store = DocStore::new();
     store.set_function_doc("Buffer-Name", "Return buffer name.");
     store.set_function_doc("buffer-size", "Return buffer size.");
@@ -273,6 +289,7 @@ fn docstore_apropos_case_insensitive() {
 
 #[test]
 fn docstore_apropos_both() {
+    crate::test_utils::init_test_tracing();
     let mut store = DocStore::new();
     store.set_function_doc("fill-column", "Get fill column.");
     store.set_variable_doc("fill-column", "Column for fill.");
@@ -286,6 +303,7 @@ fn docstore_apropos_both() {
 
 #[test]
 fn docstore_apropos_no_match() {
+    crate::test_utils::init_test_tracing();
     let mut store = DocStore::new();
     store.set_function_doc("car", "car doc");
     let results = store.apropos("zzz-nonexistent");
@@ -294,6 +312,7 @@ fn docstore_apropos_no_match() {
 
 #[test]
 fn docstore_all_documented() {
+    crate::test_utils::init_test_tracing();
     let mut store = DocStore::new();
     store.set_function_doc("cdr", "cdr doc");
     store.set_function_doc("car", "car doc");
@@ -309,6 +328,7 @@ fn docstore_all_documented() {
 
 #[test]
 fn docstore_remove() {
+    crate::test_utils::init_test_tracing();
     let mut store = DocStore::new();
     store.set_function_doc("foo", "doc");
     assert!(store.remove_function_doc("foo"));
@@ -324,6 +344,7 @@ fn docstore_remove() {
 
 #[test]
 fn help_describe_function_lambda() {
+    crate::test_utils::init_test_tracing();
     init_test_heap();
     let lam = Value::make_lambda(LambdaData {
         params: LambdaParams {
@@ -345,6 +366,7 @@ fn help_describe_function_lambda() {
 
 #[test]
 fn help_describe_function_with_docstore() {
+    crate::test_utils::init_test_tracing();
     init_test_heap();
     let lam = Value::make_lambda(LambdaData {
         params: LambdaParams::simple(vec![intern("x")]),
@@ -362,6 +384,7 @@ fn help_describe_function_with_docstore() {
 
 #[test]
 fn help_describe_function_subr() {
+    crate::test_utils::init_test_tracing();
     let subr = Value::subr(intern("car"));
     let output = HelpFormatter::describe_function("car", &subr, Some("Return the car of LIST."));
     assert!(output.contains("car is a built-in function."));
@@ -370,6 +393,7 @@ fn help_describe_function_subr() {
 
 #[test]
 fn help_describe_function_no_doc() {
+    crate::test_utils::init_test_tracing();
     let subr = Value::subr(intern("mystery"));
     let output = HelpFormatter::describe_function("mystery", &subr, None);
     assert!(output.contains("Not documented."));
@@ -377,6 +401,7 @@ fn help_describe_function_no_doc() {
 
 #[test]
 fn help_describe_function_closure() {
+    crate::test_utils::init_test_tracing();
     init_test_heap();
     let lam = Value::make_lambda(LambdaData {
         params: LambdaParams::simple(vec![intern("x")]),
@@ -392,6 +417,7 @@ fn help_describe_function_closure() {
 
 #[test]
 fn help_describe_variable() {
+    crate::test_utils::init_test_tracing();
     let output = HelpFormatter::describe_variable(
         "fill-column",
         &Value::fixnum(70),
@@ -403,6 +429,7 @@ fn help_describe_variable() {
 
 #[test]
 fn help_describe_variable_no_doc() {
+    crate::test_utils::init_test_tracing();
     let output = HelpFormatter::describe_variable("x", &Value::NIL, None);
     assert!(output.contains("x's value is nil"));
     assert!(output.contains("Not documented."));
@@ -410,6 +437,7 @@ fn help_describe_variable_no_doc() {
 
 #[test]
 fn help_describe_key() {
+    crate::test_utils::init_test_tracing();
     let output = HelpFormatter::describe_key("C-x C-f", "find-file", Some("Visit a file."));
     assert!(output.contains("C-x C-f runs the command find-file"));
     assert!(output.contains("Visit a file."));
@@ -417,6 +445,7 @@ fn help_describe_key() {
 
 #[test]
 fn help_describe_key_no_doc() {
+    crate::test_utils::init_test_tracing();
     let output = HelpFormatter::describe_key("C-c a", "my-cmd", None);
     assert!(output.contains("C-c a runs the command my-cmd"));
     assert!(!output.contains("documented"));
@@ -424,6 +453,7 @@ fn help_describe_key_no_doc() {
 
 #[test]
 fn help_format_apropos_entries() {
+    crate::test_utils::init_test_tracing();
     let entries = vec![
         ("car".to_string(), true, false),
         ("car-mode".to_string(), false, true),
@@ -437,6 +467,7 @@ fn help_format_apropos_entries() {
 
 #[test]
 fn help_format_apropos_empty() {
+    crate::test_utils::init_test_tracing();
     let output = HelpFormatter::format_apropos(&[]);
     assert!(output.contains("No matches."));
 }
@@ -445,6 +476,7 @@ fn help_format_apropos_empty() {
 
 #[test]
 fn debug_action_variants() {
+    crate::test_utils::init_test_tracing();
     let actions = vec![
         DebugAction::Continue,
         DebugAction::Step,
@@ -464,6 +496,7 @@ fn debug_action_variants() {
 
 #[test]
 fn debug_state_full_workflow() {
+    crate::test_utils::init_test_tracing();
     let mut ds = DebugState::new();
 
     // Initially nothing triggers
@@ -502,6 +535,7 @@ fn debug_state_full_workflow() {
 
 #[test]
 fn docstore_full_workflow() {
+    crate::test_utils::init_test_tracing();
     let mut store = DocStore::new();
 
     // Populate
@@ -556,6 +590,7 @@ fn docstore_full_workflow() {
 
 #[test]
 fn help_formatter_with_optional_and_rest() {
+    crate::test_utils::init_test_tracing();
     init_test_heap();
     let lam = Value::make_lambda(LambdaData {
         params: LambdaParams {
@@ -576,6 +611,7 @@ fn help_formatter_with_optional_and_rest() {
 
 #[test]
 fn help_formatter_macro() {
+    crate::test_utils::init_test_tracing();
     init_test_heap();
     let mac = Value::make_macro(LambdaData {
         params: LambdaParams::simple(vec![intern("body")]),

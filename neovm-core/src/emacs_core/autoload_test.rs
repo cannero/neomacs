@@ -49,6 +49,7 @@ fn bootstrap_eval_one(src: &str) -> String {
 
 #[test]
 fn autoload_manager_register_and_lookup() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = AutoloadManager::new();
     assert!(!mgr.is_autoloaded("foo"));
 
@@ -70,6 +71,7 @@ fn autoload_manager_register_and_lookup() {
 
 #[test]
 fn autoload_manager_remove() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = AutoloadManager::new();
     mgr.register(AutoloadEntry {
         name: "bar".into(),
@@ -85,6 +87,7 @@ fn autoload_manager_remove() {
 
 #[test]
 fn autoload_manager_multiple_entries() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = AutoloadManager::new();
     mgr.register(AutoloadEntry {
         name: "a".into(),
@@ -107,6 +110,7 @@ fn autoload_manager_multiple_entries() {
 
 #[test]
 fn autoload_type_from_value() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         AutoloadType::from_value(&Value::NIL),
         AutoloadType::Function
@@ -127,6 +131,7 @@ fn autoload_type_from_value() {
 
 #[test]
 fn autoload_type_roundtrip() {
+    crate::test_utils::init_test_tracing();
     let types = [
         AutoloadType::Function,
         AutoloadType::Macro,
@@ -141,6 +146,7 @@ fn autoload_type_roundtrip() {
 
 #[test]
 fn after_load_add_and_take() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = AutoloadManager::new();
     mgr.add_after_load("my-file", Value::fixnum(1));
     mgr.add_after_load("my-file", Value::fixnum(2));
@@ -160,6 +166,7 @@ fn after_load_add_and_take() {
 
 #[test]
 fn loaded_files_tracking() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = AutoloadManager::new();
     assert!(!mgr.is_loaded("foo.el"));
     mgr.mark_loaded("foo.el");
@@ -171,6 +178,7 @@ fn loaded_files_tracking() {
 
 #[test]
 fn obsolete_function_tracking() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = AutoloadManager::new();
     assert!(!mgr.is_function_obsolete("old-fn"));
     mgr.make_obsolete("old-fn", "new-fn", "28.1");
@@ -182,6 +190,7 @@ fn obsolete_function_tracking() {
 
 #[test]
 fn obsolete_variable_tracking() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = AutoloadManager::new();
     assert!(!mgr.is_variable_obsolete("old-var"));
     mgr.make_variable_obsolete("old-var", "new-var", "27.1");
@@ -197,12 +206,14 @@ fn obsolete_variable_tracking() {
 
 #[test]
 fn is_autoload_value_positive() {
+    crate::test_utils::init_test_tracing();
     let val = Value::list(vec![Value::symbol("autoload"), Value::string("my-file")]);
     assert!(is_autoload_value(&val));
 }
 
 #[test]
 fn is_autoload_value_negative() {
+    crate::test_utils::init_test_tracing();
     assert!(!is_autoload_value(&Value::NIL));
     assert!(!is_autoload_value(&Value::fixnum(42)));
     assert!(!is_autoload_value(&Value::list(vec![
@@ -217,6 +228,7 @@ fn is_autoload_value_negative() {
 
 #[test]
 fn autoload_special_form_registers() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(autoload 'my-func "my-file" "A function." t)
            (let ((f (symbol-function 'my-func)))
@@ -230,6 +242,7 @@ fn autoload_special_form_registers() {
 
 #[test]
 fn autoload_minimal_form() {
+    crate::test_utils::init_test_tracing();
     // Minimal autoload: just function name and file
     let results = eval_all(
         r#"(autoload 'minimal-fn "min-file")
@@ -242,6 +255,7 @@ fn autoload_minimal_form() {
 
 #[test]
 fn autoload_with_type() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(autoload 'my-macro "macro-file" nil nil 'macro)
            (let ((f (symbol-function 'my-macro)))
@@ -253,6 +267,7 @@ fn autoload_with_type() {
 
 #[test]
 fn autoload_is_callable_subr_surface() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(fboundp 'autoload)
            (special-form-p 'autoload)
@@ -274,6 +289,7 @@ fn autoload_is_callable_subr_surface() {
 
 #[test]
 fn autoload_rejects_too_many_arguments() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         r#"(condition-case err
               (autoload 'too-many "x" nil nil nil nil)
@@ -284,6 +300,7 @@ fn autoload_rejects_too_many_arguments() {
 
 #[test]
 fn autoload_funcall_type_checks_first_argument() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         r#"(condition-case err
               (funcall 'autoload 1 "x")
@@ -294,18 +311,21 @@ fn autoload_funcall_type_checks_first_argument() {
 
 #[test]
 fn eval_when_compile_evaluates_body() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_one("(eval-when-compile (+ 1 2))");
     assert_eq!(result, "OK 3");
 }
 
 #[test]
 fn eval_when_compile_multiple_forms() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_one("(eval-when-compile 1 2 (+ 3 4))");
     assert_eq!(result, "OK 7");
 }
 
 #[test]
 fn eval_when_compile_propagates_errors() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_one(
         r#"(condition-case err
               (eval-when-compile (signal 'error '("boom")))
@@ -316,12 +336,14 @@ fn eval_when_compile_propagates_errors() {
 
 #[test]
 fn eval_and_compile_evaluates_body() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_one("(eval-and-compile (+ 10 20))");
     assert_eq!(result, "OK 30");
 }
 
 #[test]
 fn eval_and_compile_multiple_forms() {
+    crate::test_utils::init_test_tracing();
     // Should return the last form's value
     let result = bootstrap_eval_one("(eval-and-compile (setq x 1) (setq y 2) (+ x y))");
     assert_eq!(result, "OK 3");
@@ -329,12 +351,14 @@ fn eval_and_compile_multiple_forms() {
 
 #[test]
 fn symbol_file_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one("(symbol-file 'cons)");
     assert_eq!(result, "OK nil");
 }
 
 #[test]
 fn symbol_file_returns_autoload_file_for_function() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         r#"(progn (autoload 'sym-file-probe "sym-file-probe-file") (symbol-file 'sym-file-probe))"#,
     );
@@ -343,6 +367,7 @@ fn symbol_file_returns_autoload_file_for_function() {
 
 #[test]
 fn symbol_file_type_gate_matches_defun_only() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(autoload 'sym-file-type-probe "sym-file-type-probe-file")
            (symbol-file 'sym-file-type-probe 'defun)
@@ -356,6 +381,7 @@ fn symbol_file_type_gate_matches_defun_only() {
 
 #[test]
 fn symbol_file_non_symbol_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(symbol-file 1)
            (symbol-file "x")
@@ -368,6 +394,7 @@ fn symbol_file_non_symbol_returns_nil() {
 
 #[test]
 fn symbol_file_accepts_third_arg_but_not_fourth() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(autoload 'sym-file-arity-probe "sym-file-arity-probe-file")
            (symbol-file 'sym-file-arity-probe 'defun t)
@@ -381,6 +408,7 @@ fn symbol_file_accepts_third_arg_but_not_fourth() {
 
 #[test]
 fn autoload_entry_interactive_flag() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = AutoloadManager::new();
     mgr.register(AutoloadEntry {
         name: "cmd".into(),
@@ -395,6 +423,7 @@ fn autoload_entry_interactive_flag() {
 
 #[test]
 fn autoload_entry_keymap_type() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = AutoloadManager::new();
     mgr.register(AutoloadEntry {
         name: "my-map".into(),
@@ -409,6 +438,7 @@ fn autoload_entry_keymap_type() {
 
 #[test]
 fn autoload_overwrites_previous() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = AutoloadManager::new();
     mgr.register(AutoloadEntry {
         name: "f".into(),
@@ -434,6 +464,7 @@ fn autoload_overwrites_previous() {
 /// this does nothing and returns nil."
 #[test]
 fn autoload_does_not_override_real_definition() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(defalias 'already-defined #'(lambda () 42))
            (autoload 'already-defined "some-file")
@@ -449,6 +480,7 @@ fn autoload_does_not_override_real_definition() {
 
 #[test]
 fn autoload_registers_in_autoload_manager() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let results = eval_all_with(
         &mut ev,
@@ -469,6 +501,7 @@ fn autoload_registers_in_autoload_manager() {
 
 #[test]
 fn eval_after_load_deferred_fires_on_provide() {
+    crate::test_utils::init_test_tracing();
     // Register eval-after-load BEFORE providing the feature.
     // When provide is called, the deferred callback should fire.
     let results = bootstrap_eval_all(
@@ -487,6 +520,7 @@ fn eval_after_load_deferred_fires_on_provide() {
 
 #[test]
 fn eval_after_load_immediate_fires_when_already_provided() {
+    crate::test_utils::init_test_tracing();
     // When eval-after-load is called for an already-provided feature,
     // the callback should fire immediately.
     let results = bootstrap_eval_all(
@@ -502,6 +536,7 @@ fn eval_after_load_immediate_fires_when_already_provided() {
 
 #[test]
 fn with_eval_after_load_fires_when_already_provided() {
+    crate::test_utils::init_test_tracing();
     // with-eval-after-load macro wraps body in a lambda and calls eval-after-load.
     let results = bootstrap_eval_all(
         r#"(defvar neovm--weal-test-result nil)

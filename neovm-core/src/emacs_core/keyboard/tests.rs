@@ -7,12 +7,14 @@ use crate::emacs_core::value::Value;
 
 #[test]
 fn describe_int_key_succeeds() {
+    crate::test_utils::init_test_tracing();
     let value = Value::fixnum(97);
     assert_eq!(describe_single_key_value(&value, false).unwrap(), "a");
 }
 
 #[test]
 fn key_sequence_values_accept_string_and_list() {
+    crate::test_utils::init_test_tracing();
     let string = Value::string("abc");
     let list: Value =
         crate::emacs_core::value::Value::list(vec![Value::fixnum(97), Value::fixnum(98)]);
@@ -28,6 +30,7 @@ fn key_sequence_values_accept_string_and_list() {
 
 #[test]
 fn symbol_modifier_helpers() {
+    crate::test_utils::init_test_tracing();
     assert!(symbol_has_modifier_prefix("C-x"));
     assert!(!symbol_has_modifier_prefix("foo"));
     assert_eq!(event_modifier_bit("control"), Some(KEY_CHAR_CTRL));
@@ -36,6 +39,7 @@ fn symbol_modifier_helpers() {
 
 #[test]
 fn control_code_resolution() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(resolve_control_code(65), Some(1));
     assert_eq!(resolve_control_code(97), Some(1));
     assert!(resolve_control_code(999).is_none());
@@ -43,6 +47,7 @@ fn control_code_resolution() {
 
 #[test]
 fn basic_char_code_masks() {
+    crate::test_utils::init_test_tracing();
     let bits = 0x123456;
     assert!(basic_char_code(bits) <= KEY_CHAR_CODE_MASK);
 }

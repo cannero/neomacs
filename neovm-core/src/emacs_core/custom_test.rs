@@ -32,12 +32,14 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
 
 #[test]
 fn custom_manager_new_is_empty() {
+    crate::test_utils::init_test_tracing();
     let cm = CustomManager::new();
     assert!(cm.auto_buffer_local.is_empty());
 }
 
 #[test]
 fn custom_manager_buffer_local() {
+    crate::test_utils::init_test_tracing();
     let mut cm = CustomManager::new();
     assert!(!cm.is_auto_buffer_local("tab-width"));
     cm.make_variable_buffer_local("tab-width");
@@ -48,30 +50,35 @@ fn custom_manager_buffer_local() {
 
 #[test]
 fn defcustom_basic() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(r#"(defcustom my-var 42 "My variable.")"#);
     assert_eq!(results[0], "OK my-var");
 }
 
 #[test]
 fn defcustom_sets_value() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(r#"(defcustom my-var 42 "My variable.") my-var"#);
     assert_eq!(results[1], "OK 42");
 }
 
 #[test]
 fn defcustom_with_type() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(r#"(defcustom my-var 42 "Docs." :type 'integer) my-var"#);
     assert_eq!(results[1], "OK 42");
 }
 
 #[test]
 fn defcustom_with_group() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(r#"(defcustom my-var 10 "Docs." :group 'my-group) my-var"#);
     assert_eq!(results[1], "OK 10");
 }
 
 #[test]
 fn defcustom_does_not_override_existing() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(r#"(setq my-var 99) (defcustom my-var 42 "Docs.") my-var"#);
     // defcustom should not override an existing value, like defvar
     assert_eq!(results[2], "OK 99");
@@ -79,6 +86,7 @@ fn defcustom_does_not_override_existing() {
 
 #[test]
 fn defcustom_marks_special() {
+    crate::test_utils::init_test_tracing();
     let mut ev = bootstrap_context();
     let forms = parse_forms(r#"(defcustom my-var 42 "Docs.")"#).expect("parse");
     let _result = ev.eval_expr(&forms[0]);
@@ -87,6 +95,7 @@ fn defcustom_marks_special() {
 
 #[test]
 fn defcustom_custom_variable_p() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(defcustom my-var 42 "Docs.") (custom-variable-p 'my-var) (custom-variable-p 'other)"#,
     );
@@ -104,12 +113,14 @@ fn defcustom_custom_variable_p() {
 
 #[test]
 fn defgroup_basic() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(r#"(defgroup my-group nil "My group.")"#);
     assert_eq!(results[0], "OK my-group");
 }
 
 #[test]
 fn defgroup_registers_group() {
+    crate::test_utils::init_test_tracing();
     let mut ev = bootstrap_context();
     let forms = parse_forms(r#"(defgroup my-group nil "Docs.")"#).expect("parse");
     let _result = ev.eval_expr(&forms[0]);
@@ -122,6 +133,7 @@ fn defgroup_registers_group() {
 
 #[test]
 fn custom_group_p_unavailable_without_custom_library() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(defgroup my-group nil "Docs.")
            (fboundp 'custom-group-p)
@@ -135,6 +147,7 @@ fn custom_group_p_unavailable_without_custom_library() {
 
 #[test]
 fn defgroup_with_parent_records_parent_group() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(defgroup parent-group nil "Parent.")
            (defgroup child-group nil "Child." :group 'parent-group)
@@ -147,6 +160,7 @@ fn defgroup_with_parent_records_parent_group() {
 
 #[test]
 fn defvar_local_basic() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(r#"(defvar-local my-local 42) my-local"#);
     assert_eq!(results[0], "OK my-local");
     assert_eq!(results[1], "OK 42");
@@ -154,6 +168,7 @@ fn defvar_local_basic() {
 
 #[test]
 fn defvar_local_marks_special() {
+    crate::test_utils::init_test_tracing();
     let mut ev = bootstrap_context();
     let forms = parse_forms(r#"(defvar-local my-local 42)"#).expect("parse");
     let _result = ev.eval_expr(&forms[0]);
@@ -162,6 +177,7 @@ fn defvar_local_marks_special() {
 
 #[test]
 fn defvar_local_marks_buffer_local() {
+    crate::test_utils::init_test_tracing();
     let mut ev = bootstrap_context();
     let forms = parse_forms(r#"(defvar-local my-local 42)"#).expect("parse");
     let _result = ev.eval_expr(&forms[0]);
@@ -171,12 +187,14 @@ fn defvar_local_marks_buffer_local() {
 
 #[test]
 fn defvar_local_does_not_override() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(r#"(setq my-local 99) (defvar-local my-local 42) my-local"#);
     assert_eq!(results[2], "OK 99");
 }
 
 #[test]
 fn defvar_local_with_docstring() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(r#"(defvar-local my-local 42 "Documentation.") my-local"#);
     assert_eq!(results[1], "OK 42");
 }
@@ -185,24 +203,28 @@ fn defvar_local_with_docstring() {
 
 #[test]
 fn setq_default_basic() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(r#"(defvar x 10) (setq-default x 42) x"#);
     assert_eq!(results[2], "OK 42");
 }
 
 #[test]
 fn setq_default_multiple_pairs() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(r#"(defvar a 1) (defvar b 2) (setq-default a 10 b 20) a"#);
     assert_eq!(results[3], "OK 10");
 }
 
 #[test]
 fn setq_default_returns_last_value() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(r#"(setq-default x 42)"#);
     assert_eq!(results[0], "OK 42");
 }
 
 #[test]
 fn setq_default_follows_alias_resolution() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(defvaralias 'vm-setq-default-alias 'vm-setq-default-base)
            (setq-default vm-setq-default-alias 3)
@@ -214,6 +236,7 @@ fn setq_default_follows_alias_resolution() {
 
 #[test]
 fn setq_default_rejects_constant_symbols() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(list
              (condition-case err (setq-default nil 1) (error err))
@@ -227,6 +250,7 @@ fn setq_default_rejects_constant_symbols() {
 
 #[test]
 fn setq_default_alias_triggers_variable_watchers_twice() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(setq vm-setq-default-watch-events nil)
            (fset 'vm-setq-default-watch-rec
@@ -246,18 +270,21 @@ fn setq_default_alias_triggers_variable_watchers_twice() {
 
 #[test]
 fn default_value_returns_global() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(r#"(defvar my-var 42) (default-value 'my-var)"#);
     assert_eq!(results[1], "OK 42");
 }
 
 #[test]
 fn default_value_void_signals_error() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(r#"(default-value 'nonexistent-var)"#);
     assert!(results[0].starts_with("ERR"));
 }
 
 #[test]
 fn keyword_defaults_and_symbol_values_self_evaluate() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(list (default-value :foo) (default-toplevel-value :foo) (symbol-value :foo))"#,
     );
@@ -266,6 +293,7 @@ fn keyword_defaults_and_symbol_values_self_evaluate() {
 
 #[test]
 fn uninterned_keyword_defaults_do_not_self_evaluate() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(let ((s (make-symbol ":vm-k")))
              (list (condition-case e (eval s nil) (error (car e)))
@@ -277,6 +305,7 @@ fn uninterned_keyword_defaults_do_not_self_evaluate() {
 
 #[test]
 fn uninterned_value_cells_ignore_buffer_local_namesakes() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     let canonical = intern("depth-alist");
     let uninterned = intern_uninterned("depth-alist");
@@ -312,12 +341,14 @@ fn uninterned_value_cells_ignore_buffer_local_namesakes() {
 
 #[test]
 fn set_default_sets_global() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(r#"(set-default 'my-var 99) (default-value 'my-var)"#);
     assert_eq!(results[1], "OK 99");
 }
 
 #[test]
 fn set_default_preserves_current_buffer_local_binding() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     let current = eval.buffers.current_buffer_id().expect("current buffer");
     eval.buffers
@@ -351,6 +382,7 @@ fn set_default_preserves_current_buffer_local_binding() {
 
 #[test]
 fn set_default_and_default_value_follow_alias_resolution() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(defvaralias 'vm-set-default-alias 'vm-set-default-base)
            (set-default 'vm-set-default-alias 5)
@@ -362,6 +394,7 @@ fn set_default_and_default_value_follow_alias_resolution() {
 
 #[test]
 fn default_value_alias_void_uses_original_symbol_in_error_payload() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(defvaralias 'vm-default-alias-unbound 'vm-default-base-unbound)
            (condition-case err
@@ -373,6 +406,7 @@ fn default_value_alias_void_uses_original_symbol_in_error_payload() {
 
 #[test]
 fn set_default_rejects_constant_symbols() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(list
              (condition-case err (set-default nil 1) (error err))
@@ -387,6 +421,7 @@ fn set_default_rejects_constant_symbols() {
 
 #[test]
 fn set_default_triggers_variable_watchers() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(fset 'vm-set-default-watch-rec
                  (lambda (symbol newval operation where)
@@ -401,6 +436,7 @@ fn set_default_triggers_variable_watchers() {
 
 #[test]
 fn set_default_alias_triggers_variable_watchers_twice() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(setq vm-set-default-alias-watch-events nil)
            (fset 'vm-set-default-alias-watch-rec
@@ -418,6 +454,7 @@ fn set_default_alias_triggers_variable_watchers_twice() {
 
 #[test]
 fn set_default_toplevel_alias_triggers_variable_watchers_twice() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(setq vm-set-default-top-watch-events nil)
            (fset 'vm-set-default-top-watch-rec
@@ -437,12 +474,14 @@ fn set_default_toplevel_alias_triggers_variable_watchers_twice() {
 
 #[test]
 fn make_variable_buffer_local_works() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(r#"(make-variable-buffer-local 'my-var)"#);
     assert_eq!(results[0], "OK my-var");
 }
 
 #[test]
 fn make_variable_buffer_local_binds_unbound_symbol_to_nil_like_gnu() {
+    crate::test_utils::init_test_tracing();
     let result = eval_all(
         r#"(progn
              (makunbound 'vm-mvbl-unbound)
@@ -457,6 +496,7 @@ fn make_variable_buffer_local_binds_unbound_symbol_to_nil_like_gnu() {
 
 #[test]
 fn make_variable_buffer_local_resolves_alias_for_auto_local_assignment() {
+    crate::test_utils::init_test_tracing();
     let result = eval_all(
         r#"(setq vm-mvbl-base 1)
            (defvaralias 'vm-mvbl-alias 'vm-mvbl-base)
@@ -474,6 +514,7 @@ fn make_variable_buffer_local_resolves_alias_for_auto_local_assignment() {
 
 #[test]
 fn make_variable_buffer_local_constant_and_keyword_payloads_match_oracle() {
+    crate::test_utils::init_test_tracing();
     let result = eval_all(
         r#"(list
              (condition-case err (make-variable-buffer-local nil) (error err))
@@ -491,6 +532,7 @@ fn make_variable_buffer_local_constant_and_keyword_payloads_match_oracle() {
 
 #[test]
 fn make_local_variable_in_buffer() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(defvar my-var 42)
            (get-buffer-create "test-buf")
@@ -503,6 +545,7 @@ fn make_local_variable_in_buffer() {
 
 #[test]
 fn make_local_variable_resolves_alias_bindings() {
+    crate::test_utils::init_test_tracing();
     let result = eval_all(
         r#"(setq vm-mlv-base 4)
            (defvaralias 'vm-mlv-alias 'vm-mlv-base)
@@ -519,6 +562,7 @@ fn make_local_variable_resolves_alias_bindings() {
 
 #[test]
 fn make_local_variable_preserves_existing_buffer_local_binding() {
+    crate::test_utils::init_test_tracing();
     let result = eval_all(
         r#"(progn
              (setq vm-mlv-preserve-global 1)
@@ -533,6 +577,7 @@ fn make_local_variable_preserves_existing_buffer_local_binding() {
 
 #[test]
 fn make_local_variable_captures_dynamic_value_in_new_local_binding() {
+    crate::test_utils::init_test_tracing();
     let result = eval_all(
         r#"(let ((buf (get-buffer-create "vm-mlv-buf")))
              (let ((vm-mlv-cross 5))
@@ -546,6 +591,7 @@ fn make_local_variable_captures_dynamic_value_in_new_local_binding() {
 
 #[test]
 fn make_local_variable_on_void_symbol_creates_local_void_binding() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(with-temp-buffer
              (makunbound 'vm-mlv-void)
@@ -564,6 +610,7 @@ fn make_local_variable_on_void_symbol_creates_local_void_binding() {
 
 #[test]
 fn make_local_variable_ignores_lexical_bindings_like_gnu() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(let ((lexical-binding t))
              (eval
@@ -585,6 +632,7 @@ fn make_local_variable_ignores_lexical_bindings_like_gnu() {
 
 #[test]
 fn make_local_variable_constant_and_keyword_payloads_match_oracle() {
+    crate::test_utils::init_test_tracing();
     let result = eval_all(
         r#"(list
              (condition-case err (with-temp-buffer (make-local-variable nil)) (error err))
@@ -602,6 +650,7 @@ fn make_local_variable_constant_and_keyword_payloads_match_oracle() {
 
 #[test]
 fn local_variable_p_returns_nil_when_not_local() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(get-buffer-create "test-buf")
            (set-buffer "test-buf")
@@ -612,6 +661,7 @@ fn local_variable_p_returns_nil_when_not_local() {
 
 #[test]
 fn local_variable_p_reports_builtin_buffer_locals() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(with-temp-buffer
              (list (local-variable-p 'major-mode)
@@ -623,6 +673,7 @@ fn local_variable_p_reports_builtin_buffer_locals() {
 
 #[test]
 fn local_variable_p_enforces_buffer_and_symbol_contracts() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(list
              (condition-case err (local-variable-p 'x) (error err))
@@ -643,6 +694,7 @@ fn local_variable_p_enforces_buffer_and_symbol_contracts() {
 
 #[test]
 fn local_and_buffer_local_predicates_follow_alias_resolution() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(defvaralias 'vm-local-p-alias 'vm-local-p-base)
            (let ((buf (get-buffer-create "vm-local-p-buf")))
@@ -658,6 +710,7 @@ fn local_and_buffer_local_predicates_follow_alias_resolution() {
 
 #[test]
 fn buffer_local_bound_p_matches_emacs_shape() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(defvar neomacs-buffer-local-boundp-global 1)
            (let ((buf (get-buffer-create "test-buf")))
@@ -690,6 +743,7 @@ fn buffer_local_bound_p_matches_emacs_shape() {
 
 #[test]
 fn buffer_local_variables_include_default_entries() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(get-buffer-create "test-buf")
            (set-buffer "test-buf")
@@ -702,6 +756,7 @@ fn buffer_local_variables_include_default_entries() {
 
 #[test]
 fn buffer_local_variables_argument_validation() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(condition-case err (buffer-local-variables 1) (error err))
            (condition-case err (buffer-local-variables "test-buf") (error err))
@@ -719,6 +774,7 @@ fn buffer_local_variables_argument_validation() {
 
 #[test]
 fn kill_local_variable_removes_binding() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(defvar my-var 42)
            (get-buffer-create "test-buf")
@@ -734,6 +790,7 @@ fn kill_local_variable_removes_binding() {
 
 #[test]
 fn kill_local_variable_resolves_alias_bindings() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(defvaralias 'vm-klv-alias 'vm-klv-base)
            (with-temp-buffer
@@ -750,6 +807,7 @@ fn kill_local_variable_resolves_alias_bindings() {
 
 #[test]
 fn kill_local_variable_accepts_keywords_like_oracle() {
+    crate::test_utils::init_test_tracing();
     let result = eval_all(
         r#"(list
              (condition-case err (with-temp-buffer (kill-local-variable nil)) (error err))
@@ -765,6 +823,7 @@ fn kill_local_variable_accepts_keywords_like_oracle() {
 
 #[test]
 fn kill_local_variable_triggers_makunbound_watcher_with_buffer_where() {
+    crate::test_utils::init_test_tracing();
     let result = eval_all(
         r#"(progn
              (setq vm-klv-a-events nil)
@@ -790,6 +849,7 @@ fn kill_local_variable_triggers_makunbound_watcher_with_buffer_where() {
 
 #[test]
 fn custom_set_variables_basic() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(defvar my-var 1)
            (custom-set-variables '(my-var 42))
@@ -800,6 +860,7 @@ fn custom_set_variables_basic() {
 
 #[test]
 fn custom_set_variables_ignores_unknown_variable() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(custom-set-variables '(my-var 42))
            (condition-case err (default-value 'my-var) (error err))"#,
@@ -811,18 +872,21 @@ fn custom_set_variables_ignores_unknown_variable() {
 
 #[test]
 fn custom_set_faces_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(r#"(custom-set-faces '(default ((t (:height 120)))))"#);
     assert_eq!(results[0], "OK nil");
 }
 
 #[test]
 fn custom_set_faces_non_list_spec_errors() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(r#"(condition-case err (custom-set-faces 1) (error err))"#);
     assert_eq!(results[0], r#"OK (error "Incompatible Custom theme spec")"#);
 }
 
 #[test]
 fn custom_set_faces_requires_symbol_face_name() {
+    crate::test_utils::init_test_tracing();
     let results =
         bootstrap_eval_all(r#"(condition-case err (custom-set-faces '(1 2)) (error err))"#);
     assert_eq!(results[0], "OK (wrong-type-argument symbolp 1)");
@@ -830,6 +894,7 @@ fn custom_set_faces_requires_symbol_face_name() {
 
 #[test]
 fn custom_set_variables_errors_for_non_list_spec() {
+    crate::test_utils::init_test_tracing();
     let results =
         bootstrap_eval_all(r#"(condition-case err (custom-set-variables 1) (error err))"#);
     assert_eq!(results[0], "OK (wrong-type-argument listp 1)");
@@ -837,6 +902,7 @@ fn custom_set_variables_errors_for_non_list_spec() {
 
 #[test]
 fn custom_set_variables_errors_for_non_symbol_variable_name() {
+    crate::test_utils::init_test_tracing();
     let results =
         bootstrap_eval_all(r#"(condition-case err (custom-set-variables '(1 2)) (error err))"#);
     assert_eq!(results[0], "OK (wrong-type-argument symbolp 1)");
@@ -846,6 +912,7 @@ fn custom_set_variables_errors_for_non_symbol_variable_name() {
 
 #[test]
 fn defcustom_then_setq_default() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(defcustom my-opt 10 "Opt." :type 'integer)
            (setq-default my-opt 20)
@@ -856,6 +923,7 @@ fn defcustom_then_setq_default() {
 
 #[test]
 fn defvar_local_then_buffer_local_check() {
+    crate::test_utils::init_test_tracing();
     let mut ev = bootstrap_context();
     let forms = parse_forms(
         r#"(defvar-local my-local-var 99)
@@ -870,6 +938,7 @@ fn defvar_local_then_buffer_local_check() {
 
 #[test]
 fn defcustom_keyword_args_ignored_gracefully() {
+    crate::test_utils::init_test_tracing();
     // Extra keywords like :initialize should not cause errors
     let results = bootstrap_eval_all(
         r#"(defcustom my-var 5 "Docs." :type 'integer :group 'editing :initialize 'custom-initialize-default) my-var"#,
@@ -879,6 +948,7 @@ fn defcustom_keyword_args_ignored_gracefully() {
 
 #[test]
 fn defgroup_multiple_groups() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(defgroup g1 nil "Group 1.")
            (defgroup g2 nil "Group 2.")
@@ -890,6 +960,7 @@ fn defgroup_multiple_groups() {
 
 #[test]
 fn setq_default_works_on_new_variable() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(r#"(setq-default new-var 100) new-var"#);
     assert_eq!(results[1], "OK 100");
 }

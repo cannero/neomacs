@@ -44,6 +44,7 @@ fn list_length(value: TaggedValue) -> Option<usize> {
 
 #[test]
 fn test_list_operations() {
+    crate::test_utils::init_test_tracing();
     let mut heap = TaggedHeap::new();
 
     // OLD: Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
@@ -76,6 +77,7 @@ fn test_list_operations() {
 
 #[test]
 fn test_type_dispatch() {
+    crate::test_utils::init_test_tracing();
     let mut heap = TaggedHeap::new();
 
     let values = vec![
@@ -136,6 +138,7 @@ fn test_type_dispatch() {
 
 #[test]
 fn test_eq_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut heap = TaggedHeap::new();
 
     // Fixnum eq: same value = eq
@@ -172,6 +175,7 @@ fn test_eq_semantics() {
 
 #[test]
 fn test_predicate_patterns() {
+    crate::test_utils::init_test_tracing();
     let mut heap = TaggedHeap::new();
 
     let val = heap.alloc_cons(TaggedValue::fixnum(1), TaggedValue::NIL);
@@ -201,6 +205,7 @@ fn test_predicate_patterns() {
 
 #[test]
 fn test_cons_mutation() {
+    crate::test_utils::init_test_tracing();
     let mut heap = TaggedHeap::new();
 
     // OLD: let cons = Value::cons(Value::Int(1), Value::Int(2));
@@ -222,6 +227,7 @@ fn test_cons_mutation() {
 
 #[test]
 fn test_alist_lookup() {
+    crate::test_utils::init_test_tracing();
     let mut heap = TaggedHeap::new();
 
     // Build alist: ((a . 1) (b . 2) (c . 3))
@@ -258,6 +264,7 @@ fn test_alist_lookup() {
 
 #[test]
 fn test_gc_mixed_types() {
+    crate::test_utils::init_test_tracing();
     let mut heap = TaggedHeap::new();
 
     // Allocate various types
@@ -282,6 +289,7 @@ fn test_gc_mixed_types() {
 
 #[test]
 fn test_value_description() {
+    crate::test_utils::init_test_tracing();
     let mut heap = TaggedHeap::new();
 
     // Show that we can describe any value without the old match-on-enum pattern

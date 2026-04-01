@@ -604,6 +604,7 @@ mod tests {
 
     #[test]
     fn new_buffer_is_empty() {
+        crate::test_utils::init_test_tracing();
         let buf = GapBuffer::new();
         assert_eq!(buf.len(), 0);
         assert!(buf.is_empty());
@@ -613,6 +614,7 @@ mod tests {
 
     #[test]
     fn from_str_ascii() {
+        crate::test_utils::init_test_tracing();
         let buf = GapBuffer::from_str("hello");
         assert_eq!(buf.len(), 5);
         assert_eq!(buf.char_count(), 5);
@@ -621,6 +623,7 @@ mod tests {
 
     #[test]
     fn from_str_empty() {
+        crate::test_utils::init_test_tracing();
         let buf = GapBuffer::from_str("");
         assert_eq!(buf.len(), 0);
         assert!(buf.is_empty());
@@ -633,6 +636,7 @@ mod tests {
 
     #[test]
     fn insert_at_beginning() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("world");
         buf.insert_str(0, "hello ");
         assert_eq!(buf.to_string(), "hello world");
@@ -640,6 +644,7 @@ mod tests {
 
     #[test]
     fn insert_at_end() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("hello");
         buf.insert_str(5, " world");
         assert_eq!(buf.to_string(), "hello world");
@@ -647,6 +652,7 @@ mod tests {
 
     #[test]
     fn insert_in_middle() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("helo");
         buf.insert_str(2, "l");
         assert_eq!(buf.to_string(), "hello");
@@ -654,6 +660,7 @@ mod tests {
 
     #[test]
     fn insert_into_empty_buffer() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::new();
         buf.insert_str(0, "abc");
         assert_eq!(buf.to_string(), "abc");
@@ -662,6 +669,7 @@ mod tests {
 
     #[test]
     fn insert_empty_string_is_noop() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("hello");
         buf.insert_str(3, "");
         assert_eq!(buf.to_string(), "hello");
@@ -669,6 +677,7 @@ mod tests {
 
     #[test]
     fn multiple_sequential_inserts() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::new();
         buf.insert_str(0, "a");
         buf.insert_str(1, "b");
@@ -679,6 +688,7 @@ mod tests {
 
     #[test]
     fn insert_larger_than_gap() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::new();
         let long = "x".repeat(256);
         buf.insert_str(0, &long);
@@ -692,6 +702,7 @@ mod tests {
 
     #[test]
     fn delete_from_beginning() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("hello world");
         buf.delete_range(0, 6);
         assert_eq!(buf.to_string(), "world");
@@ -699,6 +710,7 @@ mod tests {
 
     #[test]
     fn delete_from_end() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("hello world");
         buf.delete_range(5, 11);
         assert_eq!(buf.to_string(), "hello");
@@ -706,6 +718,7 @@ mod tests {
 
     #[test]
     fn delete_from_middle() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("hello world");
         buf.delete_range(5, 6); // delete the space
         assert_eq!(buf.to_string(), "helloworld");
@@ -713,6 +726,7 @@ mod tests {
 
     #[test]
     fn delete_everything() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("hello");
         buf.delete_range(0, 5);
         assert_eq!(buf.to_string(), "");
@@ -721,6 +735,7 @@ mod tests {
 
     #[test]
     fn delete_empty_range_is_noop() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("hello");
         buf.delete_range(2, 2);
         assert_eq!(buf.to_string(), "hello");
@@ -728,6 +743,7 @@ mod tests {
 
     #[test]
     fn delete_then_insert() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("hello world");
         buf.delete_range(5, 11);
         buf.insert_str(5, " rust");
@@ -740,6 +756,7 @@ mod tests {
 
     #[test]
     fn byte_at_ascii() {
+        crate::test_utils::init_test_tracing();
         let buf = GapBuffer::from_str("abcde");
         assert_eq!(buf.byte_at(0), b'a');
         assert_eq!(buf.byte_at(4), b'e');
@@ -747,6 +764,7 @@ mod tests {
 
     #[test]
     fn byte_at_after_gap_move() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("abcde");
         buf.move_gap_to(2);
         // Logical content unchanged.
@@ -757,6 +775,7 @@ mod tests {
 
     #[test]
     fn char_at_ascii() {
+        crate::test_utils::init_test_tracing();
         let buf = GapBuffer::from_str("hello");
         assert_eq!(buf.char_at(0), Some('h'));
         assert_eq!(buf.char_at(4), Some('o'));
@@ -766,6 +785,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn byte_at_out_of_range_panics() {
+        crate::test_utils::init_test_tracing();
         let buf = GapBuffer::from_str("hi");
         buf.byte_at(2);
     }
@@ -776,24 +796,28 @@ mod tests {
 
     #[test]
     fn text_range_full() {
+        crate::test_utils::init_test_tracing();
         let buf = GapBuffer::from_str("hello world");
         assert_eq!(buf.text_range(0, 11), "hello world");
     }
 
     #[test]
     fn text_range_prefix() {
+        crate::test_utils::init_test_tracing();
         let buf = GapBuffer::from_str("hello world");
         assert_eq!(buf.text_range(0, 5), "hello");
     }
 
     #[test]
     fn text_range_suffix() {
+        crate::test_utils::init_test_tracing();
         let buf = GapBuffer::from_str("hello world");
         assert_eq!(buf.text_range(6, 11), "world");
     }
 
     #[test]
     fn text_range_spanning_gap() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("hello world");
         buf.move_gap_to(5);
         // Range spans the gap.
@@ -802,6 +826,7 @@ mod tests {
 
     #[test]
     fn text_range_empty() {
+        crate::test_utils::init_test_tracing();
         let buf = GapBuffer::from_str("hello");
         assert_eq!(buf.text_range(2, 2), "");
     }
@@ -812,6 +837,7 @@ mod tests {
 
     #[test]
     fn move_gap_to_start() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("hello");
         buf.move_gap_to(0);
         assert_eq!(buf.to_string(), "hello");
@@ -819,6 +845,7 @@ mod tests {
 
     #[test]
     fn move_gap_to_end() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("hello");
         buf.move_gap_to(5);
         assert_eq!(buf.to_string(), "hello");
@@ -826,6 +853,7 @@ mod tests {
 
     #[test]
     fn move_gap_around() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("abcdef");
         buf.move_gap_to(3);
         assert_eq!(buf.to_string(), "abcdef");
@@ -843,6 +871,7 @@ mod tests {
 
     #[test]
     fn ensure_gap_grows() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("hello");
         let old_gap = buf.gap_size();
         buf.ensure_gap(old_gap + 100);
@@ -853,6 +882,7 @@ mod tests {
 
     #[test]
     fn ensure_gap_noop_when_large_enough() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("hello");
         let old_gap = buf.gap_size();
         buf.ensure_gap(1);
@@ -865,6 +895,7 @@ mod tests {
 
     #[test]
     fn multibyte_cjk() {
+        crate::test_utils::init_test_tracing();
         // Each CJK character is 3 bytes in UTF-8.
         let text = "\u{4F60}\u{597D}\u{4E16}\u{754C}"; // 你好世界
         let buf = GapBuffer::from_str(text);
@@ -881,6 +912,7 @@ mod tests {
 
     #[test]
     fn multibyte_emoji() {
+        crate::test_utils::init_test_tracing();
         // Emoji are 4 bytes in UTF-8.
         let text = "\u{1F600}\u{1F60D}"; // two emoji
         let buf = GapBuffer::from_str(text);
@@ -892,6 +924,7 @@ mod tests {
 
     #[test]
     fn insert_multibyte_in_middle() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("ab");
         buf.insert_str(1, "\u{1F600}"); // insert emoji between a and b
         assert_eq!(buf.to_string(), "a\u{1F600}b");
@@ -901,6 +934,7 @@ mod tests {
 
     #[test]
     fn delete_multibyte_char() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("a\u{4F60}b"); // a你b
         // Delete the CJK char (bytes 1..4).
         buf.delete_range(1, 4);
@@ -909,6 +943,7 @@ mod tests {
 
     #[test]
     fn text_range_multibyte_spanning_gap() {
+        crate::test_utils::init_test_tracing();
         let text = "\u{4F60}\u{597D}\u{4E16}\u{754C}"; // 你好世界
         let mut buf = GapBuffer::from_str(text);
         buf.move_gap_to(6); // gap between 好 and 世
@@ -919,6 +954,7 @@ mod tests {
 
     #[test]
     fn mixed_ascii_and_multibyte() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("hello\u{4E16}\u{754C}!");
         // "hello世界!" — 5 + 3 + 3 + 1 = 12 bytes, 8 chars
         assert_eq!(buf.len(), 12);
@@ -938,6 +974,7 @@ mod tests {
 
     #[test]
     fn byte_char_roundtrip_ascii() {
+        crate::test_utils::init_test_tracing();
         let buf = GapBuffer::from_str("hello");
         for i in 0..=5 {
             assert_eq!(buf.byte_to_char(i), i);
@@ -947,6 +984,7 @@ mod tests {
 
     #[test]
     fn byte_to_char_cjk() {
+        crate::test_utils::init_test_tracing();
         let buf = GapBuffer::from_str("\u{4F60}\u{597D}\u{4E16}"); // 你好世
         assert_eq!(buf.byte_to_char(0), 0);
         assert_eq!(buf.byte_to_char(3), 1);
@@ -956,6 +994,7 @@ mod tests {
 
     #[test]
     fn char_to_byte_cjk() {
+        crate::test_utils::init_test_tracing();
         let buf = GapBuffer::from_str("\u{4F60}\u{597D}\u{4E16}"); // 你好世
         assert_eq!(buf.char_to_byte(0), 0);
         assert_eq!(buf.char_to_byte(1), 3);
@@ -965,6 +1004,7 @@ mod tests {
 
     #[test]
     fn byte_char_roundtrip_mixed() {
+        crate::test_utils::init_test_tracing();
         // "a你b" — byte offsets: a=0, 你=1..4, b=4
         let buf = GapBuffer::from_str("a\u{4F60}b");
         assert_eq!(buf.byte_to_char(0), 0); // before 'a'
@@ -980,6 +1020,7 @@ mod tests {
 
     #[test]
     fn byte_char_conversion_with_gap_in_middle() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("a\u{4F60}b\u{597D}c");
         // Move gap to middle of the text.
         buf.move_gap_to(4); // between 你 and b
@@ -999,6 +1040,7 @@ mod tests {
 
     #[test]
     fn byte_char_conversion_empty() {
+        crate::test_utils::init_test_tracing();
         let buf = GapBuffer::new();
         assert_eq!(buf.byte_to_char(0), 0);
         assert_eq!(buf.char_to_byte(0), 0);
@@ -1006,6 +1048,7 @@ mod tests {
 
     #[test]
     fn byte_to_char_emoji() {
+        crate::test_utils::init_test_tracing();
         let buf = GapBuffer::from_str("x\u{1F600}y"); // x😀y
         // byte offsets: x=0, 😀=1..5, y=5
         assert_eq!(buf.byte_to_char(0), 0);
@@ -1020,6 +1063,7 @@ mod tests {
 
     #[test]
     fn repeated_insert_delete_cycle() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::new();
         for i in 0..100 {
             let s = format!("{i}");
@@ -1038,6 +1082,7 @@ mod tests {
 
     #[test]
     fn gap_moves_correctly_after_multiple_operations() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("the quick brown fox");
         buf.delete_range(4, 10); // delete "quick "
         assert_eq!(buf.to_string(), "the brown fox");
@@ -1051,6 +1096,7 @@ mod tests {
 
     #[test]
     fn insert_at_every_position() {
+        crate::test_utils::init_test_tracing();
         for pos in 0..=5 {
             let mut buf = GapBuffer::from_str("hello");
             buf.insert_str(pos, "X");
@@ -1061,6 +1107,7 @@ mod tests {
 
     #[test]
     fn display_trait() {
+        crate::test_utils::init_test_tracing();
         let buf = GapBuffer::from_str("display test");
         let s = format!("{buf}");
         assert_eq!(s, "display test");
@@ -1068,6 +1115,7 @@ mod tests {
 
     #[test]
     fn debug_trait_contains_text() {
+        crate::test_utils::init_test_tracing();
         let buf = GapBuffer::from_str("dbg");
         let dbg = format!("{buf:?}");
         assert!(dbg.contains("dbg"));
@@ -1076,12 +1124,14 @@ mod tests {
 
     #[test]
     fn default_is_empty() {
+        crate::test_utils::init_test_tracing();
         let buf = GapBuffer::default();
         assert!(buf.is_empty());
     }
 
     #[test]
     fn clone_is_independent() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("original");
         let clone = buf.clone();
         buf.insert_str(0, "X");
@@ -1092,6 +1142,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn insert_past_end_panics() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("hi");
         buf.insert_str(3, "x");
     }
@@ -1099,6 +1150,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn delete_past_end_panics() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("hi");
         buf.delete_range(0, 3);
     }
@@ -1106,6 +1158,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn delete_inverted_range_panics() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("hello");
         buf.delete_range(3, 1);
     }
@@ -1113,6 +1166,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn text_range_past_end_panics() {
+        crate::test_utils::init_test_tracing();
         let buf = GapBuffer::from_str("hi");
         buf.text_range(0, 3);
     }
@@ -1120,6 +1174,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn move_gap_past_end_panics() {
+        crate::test_utils::init_test_tracing();
         let mut buf = GapBuffer::from_str("hi");
         buf.move_gap_to(3);
     }
@@ -1127,12 +1182,14 @@ mod tests {
     #[test]
     #[should_panic]
     fn byte_to_char_past_end_panics() {
+        crate::test_utils::init_test_tracing();
         let buf = GapBuffer::from_str("hi");
         buf.byte_to_char(3);
     }
 
     #[test]
     fn char_to_byte_past_end_clamps() {
+        crate::test_utils::init_test_tracing();
         let buf = GapBuffer::from_str("hi");
         // char_to_byte clamps to buffer end instead of panicking
         // when char_pos exceeds char_count (for stale positions).
@@ -1146,6 +1203,7 @@ mod tests {
 
     #[test]
     fn copy_bytes_to_basic() {
+        crate::test_utils::init_test_tracing();
         let gb = GapBuffer::from_str("Hello, world!");
         let mut out = Vec::new();
         gb.copy_bytes_to(0, 5, &mut out);
@@ -1157,6 +1215,7 @@ mod tests {
 
     #[test]
     fn copy_bytes_to_spanning_gap() {
+        crate::test_utils::init_test_tracing();
         let mut gb = GapBuffer::from_str("abcdef");
         gb.move_gap_to(3); // gap after "abc"
         let mut out = Vec::new();
@@ -1166,6 +1225,7 @@ mod tests {
 
     #[test]
     fn copy_bytes_to_empty_range() {
+        crate::test_utils::init_test_tracing();
         let gb = GapBuffer::from_str("test");
         let mut out = vec![1, 2, 3]; // pre-existing contents
         gb.copy_bytes_to(2, 2, &mut out);

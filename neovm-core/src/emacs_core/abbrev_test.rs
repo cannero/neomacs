@@ -6,6 +6,7 @@ use super::*;
 
 #[test]
 fn define_and_expand() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = AbbrevManager::new();
     mgr.define_abbrev("global-abbrev-table", "btw", "by the way");
 
@@ -26,6 +27,7 @@ fn define_and_expand() {
 
 #[test]
 fn expand_nonexistent() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = AbbrevManager::new();
     let result = mgr.expand_abbrev("global-abbrev-table", "nope");
     assert!(result.is_none());
@@ -33,6 +35,7 @@ fn expand_nonexistent() {
 
 #[test]
 fn case_insensitive_lookup() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = AbbrevManager::new();
     mgr.define_abbrev("global-abbrev-table", "BTW", "by the way");
 
@@ -47,6 +50,7 @@ fn case_insensitive_lookup() {
 
 #[test]
 fn case_capitalized() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = AbbrevManager::new();
     mgr.define_abbrev("global-abbrev-table", "btw", "by the way");
 
@@ -57,6 +61,7 @@ fn case_capitalized() {
 
 #[test]
 fn case_fixed() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = AbbrevManager::new();
     mgr.define_abbrev("global-abbrev-table", "btw", "by the way");
     mgr.tables
@@ -71,6 +76,7 @@ fn case_fixed() {
 
 #[test]
 fn table_inheritance() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = AbbrevManager::new();
 
     // Define in global
@@ -94,6 +100,7 @@ fn table_inheritance() {
 
 #[test]
 fn fallback_to_global() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = AbbrevManager::new();
 
     mgr.define_abbrev("global-abbrev-table", "teh", "the");
@@ -105,6 +112,7 @@ fn fallback_to_global() {
 
 #[test]
 fn list_abbrevs_sorted() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = AbbrevManager::new();
     mgr.define_abbrev("global-abbrev-table", "zz", "sleep");
     mgr.define_abbrev("global-abbrev-table", "aa", "alpha");
@@ -119,6 +127,7 @@ fn list_abbrevs_sorted() {
 
 #[test]
 fn list_abbrevs_nonexistent_table() {
+    crate::test_utils::init_test_tracing();
     let mgr = AbbrevManager::new();
     let list = mgr.list_abbrevs("no-such-table");
     assert!(list.is_empty());
@@ -126,6 +135,7 @@ fn list_abbrevs_nonexistent_table() {
 
 #[test]
 fn clear_table() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = AbbrevManager::new();
     mgr.define_abbrev("global-abbrev-table", "a", "alpha");
     mgr.define_abbrev("global-abbrev-table", "b", "beta");
@@ -137,6 +147,7 @@ fn clear_table() {
 
 #[test]
 fn enable_disable() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = AbbrevManager::new();
     assert!(!mgr.is_enabled());
 
@@ -149,6 +160,7 @@ fn enable_disable() {
 
 #[test]
 fn define_abbrev_full_with_hook_and_system() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = AbbrevManager::new();
     mgr.define_abbrev_full(
         "global-abbrev-table",
@@ -168,6 +180,7 @@ fn define_abbrev_full_with_hook_and_system() {
 
 #[test]
 fn all_table_names() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = AbbrevManager::new();
     mgr.create_table("z-table");
     mgr.create_table("a-table");
@@ -189,6 +202,7 @@ fn all_table_names() {
 
 #[test]
 fn test_apply_case() {
+    crate::test_utils::init_test_tracing();
     // Lowercase word -> as-is
     assert_eq!(apply_case("hello world", "hw", false), "hello world");
 
@@ -212,6 +226,7 @@ fn test_apply_case() {
 
 #[test]
 fn test_make_abbrev_table_and_predicate() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -239,6 +254,7 @@ fn test_make_abbrev_table_and_predicate() {
 
 #[test]
 fn test_define_abbrev_and_lookup() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -269,6 +285,7 @@ fn test_define_abbrev_and_lookup() {
 
 #[test]
 fn test_clear_abbrev_table() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -305,6 +322,7 @@ fn test_clear_abbrev_table() {
 
 #[test]
 fn test_abbrev_get_put() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -322,6 +340,7 @@ fn test_abbrev_get_put() {
 
 #[test]
 fn test_define_abbrev_table_and_lookup() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -337,6 +356,7 @@ fn test_define_abbrev_table_and_lookup() {
 
 #[test]
 fn test_insert_abbrev_table_description_writes_buffer_text() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -374,6 +394,7 @@ fn test_insert_abbrev_table_description_writes_buffer_text() {
 
 #[test]
 fn test_abbrev_tables_do_not_share_symbol_cells() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -399,6 +420,7 @@ fn test_abbrev_tables_do_not_share_symbol_cells() {
 
 #[test]
 fn test_abbrev_table_properties_are_table_local() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -419,6 +441,7 @@ fn test_abbrev_table_properties_are_table_local() {
 
 #[test]
 fn test_wrong_arg_count() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();

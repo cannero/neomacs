@@ -16,6 +16,7 @@ fn bootstrap_eval(src: &str) -> Vec<String> {
 
 #[test]
 fn remove_family_bootstrap_matches_gnu_subr() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (subrp (symbol-function 'remove))
@@ -36,6 +37,7 @@ fn remove_family_bootstrap_matches_gnu_subr() {
 
 #[test]
 fn take_from_list() {
+    crate::test_utils::init_test_tracing();
     let list = Value::list(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
     let result = builtin_take(vec![Value::fixnum(2), list]).unwrap();
     let items = super::super::value::list_to_vec(&result).unwrap();
@@ -44,6 +46,7 @@ fn take_from_list() {
 
 #[test]
 fn string_empty_blank() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (string-empty-p "")
@@ -60,6 +63,7 @@ fn string_empty_blank() {
 
 #[test]
 fn string_replace_bootstrap_matches_gnu_subr() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (subrp (symbol-function 'string-replace))
@@ -78,6 +82,7 @@ fn string_replace_bootstrap_matches_gnu_subr() {
 
 #[test]
 fn string_search() {
+    crate::test_utils::init_test_tracing();
     let result =
         builtin_string_search(vec![Value::string("world"), Value::string("hello world")]).unwrap();
     assert_eq!(result.as_int(), Some(6));
@@ -88,6 +93,7 @@ fn string_search() {
 
 #[test]
 fn proper_list_p() {
+    crate::test_utils::init_test_tracing();
     let list = Value::list(vec![Value::fixnum(1), Value::fixnum(2)]);
     // proper-list-p returns the length of the list (2), not t
     assert_eq!(builtin_proper_list_p(vec![list]).unwrap(), Value::fixnum(2),);
@@ -100,6 +106,7 @@ fn proper_list_p() {
 
 #[test]
 fn closurep_true_for_lambda_values() {
+    crate::test_utils::init_test_tracing();
     let lambda = Value::make_lambda(LambdaData {
         params: LambdaParams::simple(vec![intern("x")]),
         body: vec![].into(),
@@ -114,6 +121,7 @@ fn closurep_true_for_lambda_values() {
 
 #[test]
 fn bare_symbol_and_predicate_semantics() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         builtin_bare_symbol(vec![Value::symbol("alpha")]).unwrap(),
         Value::symbol("alpha")
@@ -153,6 +161,7 @@ fn bare_symbol_and_predicate_semantics() {
 
 #[test]
 fn byteorder_shape_and_arity() {
+    crate::test_utils::init_test_tracing();
     let byteorder = builtin_byteorder(vec![]).unwrap();
     assert!(byteorder.is_fixnum() || byteorder.is_fixnum());
 
@@ -165,6 +174,7 @@ fn byteorder_shape_and_arity() {
 
 #[test]
 fn assoc_string_and_car_less_than_car_semantics() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_assoc_string(vec![
         Value::string("A"),
         Value::list(vec![
@@ -256,6 +266,7 @@ fn assoc_string_and_car_less_than_car_semantics() {
 
 #[test]
 fn number_predicates() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_zerop(vec![Value::fixnum(0)]).unwrap().is_t());
     assert!(builtin_zerop(vec![Value::fixnum(1)]).unwrap().is_nil());
     assert!(builtin_natnump(vec![Value::fixnum(5)]).unwrap().is_t());
@@ -264,6 +275,7 @@ fn number_predicates() {
 
 #[test]
 fn fixnum_predicates_bootstrap_match_gnu_subr() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (subrp (symbol-function 'fixnump))
@@ -286,6 +298,7 @@ fn fixnum_predicates_bootstrap_match_gnu_subr() {
 
 #[test]
 fn seq_uniq() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (seq-uniq '(1 2 1 3))
@@ -298,6 +311,7 @@ fn seq_uniq() {
 
 #[test]
 fn seq_length_list_and_string() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (seq-length '(1 2 3))
@@ -314,6 +328,7 @@ fn seq_length_list_and_string() {
 
 #[test]
 fn seq_length_wrong_type_errors() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (condition-case err
@@ -330,6 +345,7 @@ fn seq_length_wrong_type_errors() {
 
 #[test]
 fn user_info() {
+    crate::test_utils::init_test_tracing();
     // These should not panic, just return strings.
     assert!(builtin_user_login_name(vec![]).unwrap().is_string());
     assert!(builtin_user_real_login_name(vec![]).unwrap().is_string());
@@ -346,6 +362,7 @@ fn user_info() {
 
 #[test]
 fn user_identity_optional_args() {
+    crate::test_utils::init_test_tracing();
     let login_for_uid = builtin_user_login_name(vec![Value::fixnum(current_uid())]).unwrap();
     assert!(login_for_uid.is_nil() || login_for_uid.is_string());
 
@@ -359,6 +376,7 @@ fn user_identity_optional_args() {
 
 #[test]
 fn user_identity_arity_contracts() {
+    crate::test_utils::init_test_tracing();
     let login_name_err =
         builtin_user_login_name(vec![Value::fixnum(1), Value::fixnum(2)]).unwrap_err();
     match login_name_err {
@@ -382,6 +400,7 @@ fn user_identity_arity_contracts() {
 
 #[test]
 fn user_identity_type_contracts() {
+    crate::test_utils::init_test_tracing();
     let login_name_err = builtin_user_login_name(vec![Value::string("root")]).unwrap_err();
     match login_name_err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "error"),
@@ -410,12 +429,14 @@ fn user_identity_type_contracts() {
 
 #[test]
 fn emacs_pid() {
+    crate::test_utils::init_test_tracing();
     let pid = builtin_emacs_pid(vec![]).unwrap();
     assert!(pid.as_fixnum().map_or(false, |n| n > 0));
 }
 
 #[test]
 fn runtime_identity_arity_contracts() {
+    crate::test_utils::init_test_tracing();
     let system_name_err = builtin_system_name(vec![Value::NIL]).unwrap_err();
     match system_name_err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
@@ -443,6 +464,7 @@ fn runtime_identity_arity_contracts() {
 
 #[test]
 fn garbage_collect_shape_and_arity() {
+    crate::test_utils::init_test_tracing();
     let gc = builtin_garbage_collect_stats().unwrap();
     let buckets = super::super::value::list_to_vec(&gc).expect("gc list");
     assert_eq!(buckets.len(), 9);
@@ -482,6 +504,7 @@ fn garbage_collect_shape_and_arity() {
 
 #[test]
 fn memory_use_counts_shape_and_arity() {
+    crate::test_utils::init_test_tracing();
     let counts = builtin_memory_use_counts(vec![]).unwrap();
     let items = super::super::value::list_to_vec(&counts).expect("counts list");
     assert_eq!(items.len(), 7);

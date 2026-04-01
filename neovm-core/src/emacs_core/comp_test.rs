@@ -2,12 +2,14 @@ use super::*;
 
 #[test]
 fn comp_init_and_release_return_true() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(builtin_comp_init_ctxt(vec![]).unwrap(), Value::T);
     assert_eq!(builtin_comp_release_ctxt(vec![]).unwrap(), Value::T);
 }
 
 #[test]
 fn comp_subr_signature_requires_subr() {
+    crate::test_utils::init_test_tracing();
     let err = builtin_comp_subr_signature(vec![Value::symbol("+")]).unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
@@ -17,6 +19,7 @@ fn comp_subr_signature_requires_subr() {
 
 #[test]
 fn comp_el_to_eln_reports_missing_file() {
+    crate::test_utils::init_test_tracing();
     let err = builtin_comp_el_to_eln_filename(vec![Value::string("no-such-file.el")]).unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "file-missing"),

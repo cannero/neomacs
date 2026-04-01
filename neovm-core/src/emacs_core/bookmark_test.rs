@@ -6,6 +6,7 @@ use super::*;
 
 #[test]
 fn set_get_delete() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = BookmarkManager::new();
 
     let bm = Bookmark {
@@ -33,6 +34,7 @@ fn set_get_delete() {
 
 #[test]
 fn rename() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = BookmarkManager::new();
 
     let bm = Bookmark {
@@ -55,12 +57,14 @@ fn rename() {
 
 #[test]
 fn rename_nonexistent() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = BookmarkManager::new();
     assert!(!mgr.rename("nope", "whatever"));
 }
 
 #[test]
 fn rename_collision() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = BookmarkManager::new();
     let bm1 = Bookmark {
         name: "a".to_string(),
@@ -92,6 +96,7 @@ fn rename_collision() {
 
 #[test]
 fn all_names_sorted() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = BookmarkManager::new();
 
     for name in &["zebra", "alpha", "middle"] {
@@ -113,6 +118,7 @@ fn all_names_sorted() {
 
 #[test]
 fn most_recent_tracking() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = BookmarkManager::new();
 
     for name in &["first", "second", "third"] {
@@ -149,6 +155,7 @@ fn most_recent_tracking() {
 
 #[test]
 fn serialize_deserialize() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = BookmarkManager::new();
 
     let bm1 = Bookmark {
@@ -198,6 +205,7 @@ fn serialize_deserialize() {
 
 #[test]
 fn load_empty_string() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = BookmarkManager::new();
     let bm = Bookmark {
         name: "test".to_string(),
@@ -216,6 +224,7 @@ fn load_empty_string() {
 
 #[test]
 fn modified_flag() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = BookmarkManager::new();
     assert!(!mgr.is_modified());
 
@@ -250,6 +259,7 @@ fn set_current_buffer_file(eval: &mut super::super::eval::Context, path: &str) {
 
 #[test]
 fn test_builtin_bookmark_set_and_jump() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -273,6 +283,7 @@ fn test_builtin_bookmark_set_and_jump() {
 
 #[test]
 fn test_builtin_bookmark_jump_permissive_designators() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -297,6 +308,7 @@ fn test_builtin_bookmark_jump_permissive_designators() {
 
 #[test]
 fn test_builtin_bookmark_delete() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -329,6 +341,7 @@ fn test_builtin_bookmark_delete() {
 
 #[test]
 fn test_builtin_bookmark_rename() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -350,6 +363,7 @@ fn test_builtin_bookmark_rename() {
 
 #[test]
 fn test_builtin_bookmark_rename_permissive_designators() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -396,6 +410,7 @@ fn test_builtin_bookmark_rename_permissive_designators() {
 
 #[test]
 fn test_builtin_bookmark_all_names() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -412,6 +427,7 @@ fn test_builtin_bookmark_all_names() {
 
 #[test]
 fn test_builtin_bookmark_get_filename() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -427,6 +443,7 @@ fn test_builtin_bookmark_get_filename() {
 
 #[test]
 fn test_builtin_bookmark_get_position() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -442,6 +459,7 @@ fn test_builtin_bookmark_get_position() {
 
 #[test]
 fn test_builtin_bookmark_get_annotation() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -464,6 +482,7 @@ fn test_builtin_bookmark_get_annotation() {
 
 #[test]
 fn test_builtin_bookmark_set_annotation() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -490,6 +509,7 @@ fn test_builtin_bookmark_set_annotation() {
 
 #[test]
 fn test_builtin_bookmark_save_load() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -536,6 +556,7 @@ fn test_builtin_bookmark_save_load() {
 
 #[test]
 fn test_wrong_arg_count() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();

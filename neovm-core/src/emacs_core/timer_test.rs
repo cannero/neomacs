@@ -100,6 +100,7 @@ fn gnu_timer_before(delay: Duration, callback: &str) -> Value {
 
 #[test]
 fn timer_creation_and_list() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = TimerManager::new();
     let id1 = mgr.add_timer(1.0, 0.0, Value::symbol("my-callback"), vec![], false);
     let id2 = mgr.add_timer(
@@ -123,6 +124,7 @@ fn timer_creation_and_list() {
 
 #[test]
 fn timer_cancellation() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = TimerManager::new();
     let id = mgr.add_timer(1.0, 0.0, Value::symbol("cb"), vec![], false);
 
@@ -139,6 +141,7 @@ fn timer_cancellation() {
 
 #[test]
 fn fire_pending_timers_one_shot() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = TimerManager::new();
     // Create a timer with 0 delay (fires immediately)
     let id = mgr.add_timer(
@@ -173,6 +176,7 @@ fn fire_pending_timers_one_shot() {
 
 #[test]
 fn fire_pending_timers_repeat() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = TimerManager::new();
     // Create a repeating timer with 0 delay and 1-second repeat
     let id = mgr.add_timer(0.0, 1.0, Value::symbol("repeater"), vec![], false);
@@ -198,6 +202,7 @@ fn fire_pending_timers_repeat() {
 
 #[test]
 fn timer_not_yet_due() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = TimerManager::new();
     // Timer fires in 10 seconds
     let id = mgr.add_timer(10.0, 0.0, Value::symbol("future"), vec![], false);
@@ -209,6 +214,7 @@ fn timer_not_yet_due() {
 
 #[test]
 fn next_fire_time_works() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = TimerManager::new();
 
     // No timers => None
@@ -226,6 +232,7 @@ fn next_fire_time_works() {
 
 #[test]
 fn next_fire_time_overdue() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = TimerManager::new();
     // Timer with 0 delay => immediately overdue
     let _id = mgr.add_timer(0.0, 0.0, Value::symbol("cb"), vec![], false);
@@ -236,6 +243,7 @@ fn next_fire_time_overdue() {
 
 #[test]
 fn idle_timer_flag() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = TimerManager::new();
     let id = mgr.add_timer(1.0, 0.0, Value::symbol("idle-cb"), vec![], true);
 
@@ -246,6 +254,7 @@ fn idle_timer_flag() {
 
 #[test]
 fn timer_set_time_reschedules() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = TimerManager::new();
     let id = mgr.add_timer(100.0, 0.0, Value::symbol("cb"), vec![], false);
 
@@ -261,6 +270,7 @@ fn timer_set_time_reschedules() {
 
 #[test]
 fn timer_activate_reactivates() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = TimerManager::new();
     let id = mgr.add_timer(0.0, 0.0, Value::symbol("cb"), vec![], false);
 
@@ -279,12 +289,14 @@ fn timer_activate_reactivates() {
 
 #[test]
 fn timer_activate_nonexistent() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = TimerManager::new();
     assert!(!mgr.timer_activate(999));
 }
 
 #[test]
 fn list_active_timers() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = TimerManager::new();
     let id1 = mgr.add_timer(1.0, 0.0, Value::symbol("a"), vec![], false);
     let id2 = mgr.add_timer(2.0, 0.0, Value::symbol("b"), vec![], false);
@@ -304,6 +316,7 @@ fn list_active_timers() {
 
 #[test]
 fn test_builtin_timerp() {
+    crate::test_utils::init_test_tracing();
     // Timer value
     let result = builtin_timerp(vec![Value::make_timer(1)]);
     assert!(result.is_ok());
@@ -322,6 +335,7 @@ fn test_builtin_timerp() {
 
 #[test]
 fn gnu_sit_for_matches_subr_el() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_subr_sit_for_eval();
     let forms = super::super::parser::parse_forms(
         r#"
@@ -342,6 +356,7 @@ fn gnu_sit_for_matches_subr_el() {
 
 #[test]
 fn gnu_sit_for_interactive_timeout_returns_t() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_subr_sit_for_eval();
     ev.set_variable("noninteractive", Value::NIL);
     let (tx, rx) = crossbeam_channel::unbounded();
@@ -358,6 +373,7 @@ fn gnu_sit_for_interactive_timeout_returns_t() {
 
 #[test]
 fn gnu_sit_for_with_pending_input_does_not_run_timers_first() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_subr_sit_for_eval();
     ev.set_variable("noninteractive", Value::NIL);
     let setup = super::super::parser::parse_forms(
@@ -400,6 +416,7 @@ fn gnu_sit_for_with_pending_input_does_not_run_timers_first() {
 
 #[test]
 fn gnu_sit_for_pending_input_returns_nil_without_redisplay() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_subr_sit_for_eval();
     ev.set_variable("noninteractive", Value::NIL);
     let redisplays = Rc::new(RefCell::new(0usize));
@@ -426,6 +443,7 @@ fn gnu_sit_for_pending_input_returns_nil_without_redisplay() {
 
 #[test]
 fn gnu_sit_for_zero_without_nodisp_redisplays_once() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_subr_sit_for_eval();
     ev.set_variable("noninteractive", Value::NIL);
     let redisplays = Rc::new(RefCell::new(0usize));
@@ -447,6 +465,7 @@ fn gnu_sit_for_zero_without_nodisp_redisplays_once() {
 
 #[test]
 fn gnu_sit_for_zero_nodisp_runs_due_gnu_timer_without_redisplay() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_subr_sit_for_eval();
     ev.set_variable("noninteractive", Value::NIL);
     let setup = super::super::parser::parse_forms(
@@ -495,6 +514,7 @@ fn gnu_sit_for_zero_nodisp_runs_due_gnu_timer_without_redisplay() {
 
 #[test]
 fn test_builtin_sleep_for() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -541,6 +561,7 @@ fn test_builtin_sleep_for() {
 
 #[test]
 fn sleep_for_window_close_uses_special_event_map_handler_when_loaded() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let scratch = ev.buffers.create_buffer("*scratch*");
     ev.buffers.set_current(scratch);
@@ -574,6 +595,7 @@ fn sleep_for_window_close_uses_special_event_map_handler_when_loaded() {
 
 #[test]
 fn sleep_for_window_close_honors_throw_on_input_before_handler() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let scratch = ev.buffers.create_buffer("*scratch*");
     ev.buffers.set_current(scratch);
@@ -617,6 +639,7 @@ fn sleep_for_window_close_honors_throw_on_input_before_handler() {
 
 #[test]
 fn test_eval_run_at_time_and_cancel() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -649,6 +672,7 @@ fn test_eval_run_at_time_and_cancel() {
 
 #[test]
 fn test_eval_run_with_idle_timer() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -677,6 +701,7 @@ fn test_eval_run_with_idle_timer() {
 
 #[test]
 fn test_eval_run_at_time_accepts_nil_and_string_specs() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -702,6 +727,7 @@ fn test_eval_run_at_time_accepts_nil_and_string_specs() {
 
 #[test]
 fn test_parse_run_at_time_delay_units() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         parse_run_at_time_delay(&Value::string("2 min")).expect("2 min should parse"),
         120.0
@@ -875,6 +901,7 @@ fn test_parse_run_at_time_delay_units() {
 
 #[test]
 fn test_eval_run_at_time_invalid_spec_signals_error() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -898,6 +925,7 @@ fn test_eval_run_at_time_invalid_spec_signals_error() {
 
 #[test]
 fn test_eval_run_with_idle_timer_nil_ok_string_error() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -919,6 +947,7 @@ fn test_eval_run_with_idle_timer_nil_ok_string_error() {
 
 #[test]
 fn test_eval_timer_activate() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -966,6 +995,7 @@ fn test_eval_timer_activate() {
 
 #[test]
 fn test_eval_timer_activate_rejects_non_timer_with_error() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -975,6 +1005,7 @@ fn test_eval_timer_activate_rejects_non_timer_with_error() {
 
 #[test]
 fn test_eval_timer_activate_optional_delta_must_be_cons_or_nil() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
     use crate::emacs_core::value::ValueKind;
 

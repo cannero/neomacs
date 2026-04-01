@@ -6,6 +6,7 @@ use crate::emacs_core::intern::SymId;
 
 #[test]
 fn nil_is_zero() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(TaggedValue::NIL.bits(), 0);
     assert!(TaggedValue::NIL.is_nil());
     assert!(TaggedValue::NIL.is_symbol());
@@ -16,6 +17,7 @@ fn nil_is_zero() {
 
 #[test]
 fn t_is_symbol_1() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(TaggedValue::T.bits(), 8); // 1 << 3
     assert!(TaggedValue::T.is_t());
     assert!(TaggedValue::T.is_symbol());
@@ -25,6 +27,7 @@ fn t_is_symbol_1() {
 
 #[test]
 fn fixnum_encoding() {
+    crate::test_utils::init_test_tracing();
     let zero = TaggedValue::fixnum(0);
     assert!(zero.is_fixnum());
     assert_eq!(zero.as_fixnum(), Some(0));
@@ -52,6 +55,7 @@ fn fixnum_encoding() {
 
 #[test]
 fn fixnum_not_nil() {
+    crate::test_utils::init_test_tracing();
     // Fixnum 0 must NOT be nil (nil is Symbol(0) with tag 000)
     let zero = TaggedValue::fixnum(0);
     assert!(!zero.is_nil());
@@ -63,6 +67,7 @@ fn fixnum_not_nil() {
 
 #[test]
 fn symbol_encoding() {
+    crate::test_utils::init_test_tracing();
     let sym = TaggedValue::from_sym_id(SymId(42));
     assert!(sym.is_symbol());
     assert_eq!(sym.as_symbol_id(), Some(SymId(42)));
@@ -73,6 +78,7 @@ fn symbol_encoding() {
 
 #[test]
 fn char_encoding() {
+    crate::test_utils::init_test_tracing();
     let ch = TaggedValue::char('A');
     assert!(ch.is_char());
     assert!(ch.is_immediate());
@@ -87,6 +93,7 @@ fn char_encoding() {
 
 #[test]
 fn keyword_encoding() {
+    crate::test_utils::init_test_tracing();
     let kw = TaggedValue::from_kw_id(SymId(99));
     assert!(kw.is_keyword());
     assert!(kw.is_immediate());
@@ -97,6 +104,7 @@ fn keyword_encoding() {
 
 #[test]
 fn subr_encoding() {
+    crate::test_utils::init_test_tracing();
     let subr = TaggedValue::subr(SymId(7));
     assert!(subr.is_subr());
     assert!(subr.is_immediate());
@@ -105,6 +113,7 @@ fn subr_encoding() {
 
 #[test]
 fn cons_allocation_and_access() {
+    crate::test_utils::init_test_tracing();
     let mut heap = super::gc::TaggedHeap::new();
 
     let car = TaggedValue::fixnum(1);
@@ -120,6 +129,7 @@ fn cons_allocation_and_access() {
 
 #[test]
 fn cons_set_car_cdr() {
+    crate::test_utils::init_test_tracing();
     let mut heap = super::gc::TaggedHeap::new();
 
     let cons = heap.alloc_cons(TaggedValue::fixnum(1), TaggedValue::NIL);
@@ -134,6 +144,7 @@ fn cons_set_car_cdr() {
 
 #[test]
 fn nested_cons_list() {
+    crate::test_utils::init_test_tracing();
     let mut heap = super::gc::TaggedHeap::new();
 
     // Build list (1 2 3)
@@ -149,6 +160,7 @@ fn nested_cons_list() {
 
 #[test]
 fn float_allocation() {
+    crate::test_utils::init_test_tracing();
     let mut heap = super::gc::TaggedHeap::new();
 
     let f = heap.alloc_float(3.14);
@@ -158,6 +170,7 @@ fn float_allocation() {
 
 #[test]
 fn vector_allocation() {
+    crate::test_utils::init_test_tracing();
     let mut heap = super::gc::TaggedHeap::new();
 
     let items = vec![TaggedValue::fixnum(10), TaggedValue::fixnum(20)];
@@ -168,6 +181,7 @@ fn vector_allocation() {
 
 #[test]
 fn value_size_is_one_word() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         std::mem::size_of::<TaggedValue>(),
         std::mem::size_of::<usize>()
@@ -177,11 +191,13 @@ fn value_size_is_one_word() {
 
 #[test]
 fn cons_cell_is_two_words() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(std::mem::size_of::<ConsCell>(), 16);
 }
 
 #[test]
 fn value_kind_dispatch() {
+    crate::test_utils::init_test_tracing();
     let nil = TaggedValue::NIL;
     assert!(matches!(nil.kind(), ValueKind::Nil));
 
@@ -203,6 +219,7 @@ fn value_kind_dispatch() {
 
 #[test]
 fn gc_basic_collection() {
+    crate::test_utils::init_test_tracing();
     let mut heap = super::gc::TaggedHeap::new();
 
     // Allocate some cons cells
@@ -223,6 +240,7 @@ fn gc_basic_collection() {
 
 #[test]
 fn gc_transitive_reachability() {
+    crate::test_utils::init_test_tracing();
     let mut heap = super::gc::TaggedHeap::new();
 
     // Build a chain: root -> c1 -> c2 -> c3
@@ -248,6 +266,7 @@ fn gc_transitive_reachability() {
 
 #[test]
 fn gc_float_collection() {
+    crate::test_utils::init_test_tracing();
     let mut heap = super::gc::TaggedHeap::new();
 
     let f1 = heap.alloc_float(1.0);
@@ -263,6 +282,7 @@ fn gc_float_collection() {
 
 #[test]
 fn equality_identity() {
+    crate::test_utils::init_test_tracing();
     // Same tagged value = equal
     let a = TaggedValue::fixnum(42);
     let b = TaggedValue::fixnum(42);
@@ -283,6 +303,7 @@ fn equality_identity() {
 
 #[test]
 fn fixnum_62bit_range() {
+    crate::test_utils::init_test_tracing();
     // Verify 62-bit range works
     let max = TaggedValue::MOST_POSITIVE_FIXNUM;
     let min = TaggedValue::MOST_NEGATIVE_FIXNUM;
@@ -300,6 +321,7 @@ fn fixnum_62bit_range() {
 
 #[test]
 fn debug_format() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(format!("{:?}", TaggedValue::NIL), "nil");
     assert_eq!(format!("{:?}", TaggedValue::T), "t");
     assert_eq!(format!("{:?}", TaggedValue::fixnum(42)), "42");

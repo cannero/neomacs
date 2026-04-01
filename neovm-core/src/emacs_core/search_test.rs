@@ -47,12 +47,14 @@ fn assert_str(val: Value, expected: &str) {
 
 #[test]
 fn string_match_basic() {
+    crate::test_utils::init_test_tracing();
     let result = call_string_match(vec![Value::string("he..o"), Value::string("hello world")]);
     assert_int(result.unwrap(), 0);
 }
 
 #[test]
 fn string_match_with_start() {
+    crate::test_utils::init_test_tracing();
     let result = call_string_match(vec![
         Value::string("world"),
         Value::string("hello world"),
@@ -63,24 +65,28 @@ fn string_match_with_start() {
 
 #[test]
 fn string_match_no_match() {
+    crate::test_utils::init_test_tracing();
     let result = call_string_match(vec![Value::string("xyz"), Value::string("hello world")]);
     assert_nil(result.unwrap());
 }
 
 #[test]
 fn string_match_defaults_to_case_fold() {
+    crate::test_utils::init_test_tracing();
     let result = call_string_match(vec![Value::string("a"), Value::string("A")]);
     assert_int(result.unwrap(), 0);
 }
 
 #[test]
 fn string_match_p_basic() {
+    crate::test_utils::init_test_tracing();
     let result = call_string_match_p(vec![Value::string("[0-9]+"), Value::string("abc 123 def")]);
     assert_int(result.unwrap(), 4);
 }
 
 #[test]
 fn string_match_p_no_match() {
+    crate::test_utils::init_test_tracing();
     let result = call_string_match_p(vec![
         Value::string("[0-9]+"),
         Value::string("no digits here"),
@@ -90,24 +96,28 @@ fn string_match_p_no_match() {
 
 #[test]
 fn string_match_p_defaults_to_case_fold() {
+    crate::test_utils::init_test_tracing();
     let result = call_string_match_p(vec![Value::string("a"), Value::string("A")]);
     assert_int(result.unwrap(), 0);
 }
 
 #[test]
 fn regexp_quote_specials() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_regexp_quote(vec![Value::string("foo.bar*baz+qux")]);
     assert_str(result.unwrap(), "foo\\.bar\\*baz\\+qux");
 }
 
 #[test]
 fn regexp_quote_no_specials() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_regexp_quote(vec![Value::string("hello")]);
     assert_str(result.unwrap(), "hello");
 }
 
 #[test]
 fn regexp_quote_all_specials() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_regexp_quote(vec![Value::string(".*+?[]^$\\")]);
     // GNU regexp-quote does NOT escape ']' — only '[' is special.
     assert_str(result.unwrap(), "\\.\\*\\+\\?\\[]\\^\\$\\\\");
@@ -115,6 +125,7 @@ fn regexp_quote_all_specials() {
 
 #[test]
 fn match_data_nil_without_match_data() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     builtin_set_match_data(&mut eval, vec![Value::NIL]).unwrap();
     let result = builtin_match_data(&mut eval, vec![]);
@@ -123,6 +134,7 @@ fn match_data_nil_without_match_data() {
 
 #[test]
 fn set_match_data_nil_clears_state() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     builtin_set_match_data(
         &mut eval,
@@ -137,6 +149,7 @@ fn set_match_data_nil_clears_state() {
 
 #[test]
 fn set_match_data_round_trip() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     builtin_set_match_data(
         &mut eval,
@@ -166,6 +179,7 @@ fn set_match_data_round_trip() {
 
 #[test]
 fn string_match_start_nil_and_negative() {
+    crate::test_utils::init_test_tracing();
     let with_nil =
         call_string_match(vec![Value::string("a"), Value::string("ba"), Value::NIL]).unwrap();
     assert_int(with_nil, 1);
@@ -188,6 +202,7 @@ fn string_match_start_nil_and_negative() {
 
 #[test]
 fn replace_regexp_basic() {
+    crate::test_utils::init_test_tracing();
     let result = call_replace_regexp_in_string(vec![
         Value::string("[0-9]+"),
         Value::string("NUM"),
@@ -198,6 +213,7 @@ fn replace_regexp_basic() {
 
 #[test]
 fn replace_regexp_literal() {
+    crate::test_utils::init_test_tracing();
     let result = call_replace_regexp_in_string(vec![
         Value::string("[0-9]+"),
         Value::string("$0"),
@@ -210,6 +226,7 @@ fn replace_regexp_literal() {
 
 #[test]
 fn replace_regexp_with_backref() {
+    crate::test_utils::init_test_tracing();
     // Use Emacs-style group: \(\w+\) and back-reference \1
     let result = call_replace_regexp_in_string(vec![
         Value::string("\\(\\w+\\)"),
@@ -221,6 +238,7 @@ fn replace_regexp_with_backref() {
 
 #[test]
 fn replace_regexp_with_start() {
+    crate::test_utils::init_test_tracing();
     // Emacs: START omits the first START chars from the result.
     let result = call_replace_regexp_in_string(vec![
         Value::string("[0-9]+"),
@@ -236,6 +254,7 @@ fn replace_regexp_with_start() {
 
 #[test]
 fn replace_regexp_with_start_no_subexp() {
+    crate::test_utils::init_test_tracing();
     // In Emacs, arg 6 is SUBEXP and arg 7 is START.
     // To pass START without SUBEXP, use nil for SUBEXP.
     let result = call_replace_regexp_in_string(vec![
@@ -252,6 +271,7 @@ fn replace_regexp_with_start_no_subexp() {
 
 #[test]
 fn replace_regexp_subexp() {
+    crate::test_utils::init_test_tracing();
     let result = call_replace_regexp_in_string(vec![
         Value::string("\\([a-z]+\\)-\\([0-9]+\\)"),
         Value::string("N"),
@@ -266,6 +286,7 @@ fn replace_regexp_subexp() {
 
 #[test]
 fn replace_regexp_subexp_unmatched_errors() {
+    crate::test_utils::init_test_tracing();
     let result = call_replace_regexp_in_string(vec![
         Value::string("\\(a\\)?b"),
         Value::string("N"),
@@ -280,6 +301,7 @@ fn replace_regexp_subexp_unmatched_errors() {
 
 #[test]
 fn replace_regexp_preserves_case_when_fixedcase_nil() {
+    crate::test_utils::init_test_tracing();
     let result = call_replace_regexp_in_string(vec![
         Value::string("a"),
         Value::string("x"),
@@ -290,6 +312,7 @@ fn replace_regexp_preserves_case_when_fixedcase_nil() {
 
 #[test]
 fn replace_regexp_fixedcase_disables_case_preserve() {
+    crate::test_utils::init_test_tracing();
     let result = call_replace_regexp_in_string(vec![
         Value::string("a"),
         Value::string("x"),
@@ -301,18 +324,21 @@ fn replace_regexp_fixedcase_disables_case_preserve() {
 
 #[test]
 fn string_match_wrong_type() {
+    crate::test_utils::init_test_tracing();
     let result = call_string_match(vec![Value::fixnum(42), Value::string("hello")]);
     assert!(result.is_err());
 }
 
 #[test]
 fn string_match_too_few_args() {
+    crate::test_utils::init_test_tracing();
     let result = call_string_match(vec![Value::string("foo")]);
     assert!(result.is_err());
 }
 
 #[test]
 fn regexp_quote_parens_not_escaped() {
+    crate::test_utils::init_test_tracing();
     // In Emacs regex, literal ( ) are NOT special, so regexp-quote
     // should NOT escape them.
     let result = builtin_regexp_quote(vec![Value::string("(foo)")]);
@@ -321,12 +347,14 @@ fn regexp_quote_parens_not_escaped() {
 
 #[test]
 fn regexp_quote_right_bracket_not_escaped() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_regexp_quote(vec![Value::string("]")]);
     assert_str(result.unwrap(), "]");
 }
 
 #[test]
 fn string_match_emacs_groups() {
+    crate::test_utils::init_test_tracing();
     // Emacs regex with groups: \(foo\|bar\) matching "test bar"
     let result = call_string_match(vec![
         Value::string("\\(foo\\|bar\\)"),

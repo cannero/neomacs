@@ -7,6 +7,7 @@ use crate::emacs_core::intern::intern;
 
 #[test]
 fn standard_ascii_upcase() {
+    crate::test_utils::init_test_tracing();
     let table = CaseTable::standard_ascii();
     assert_eq!(table.upcase.get(&'a'), Some(&'A'));
     assert_eq!(table.upcase.get(&'z'), Some(&'Z'));
@@ -17,6 +18,7 @@ fn standard_ascii_upcase() {
 
 #[test]
 fn standard_ascii_downcase() {
+    crate::test_utils::init_test_tracing();
     let table = CaseTable::standard_ascii();
     assert_eq!(table.downcase.get(&'A'), Some(&'a'));
     assert_eq!(table.downcase.get(&'Z'), Some(&'z'));
@@ -27,6 +29,7 @@ fn standard_ascii_downcase() {
 
 #[test]
 fn standard_ascii_canonicalize() {
+    crate::test_utils::init_test_tracing();
     let table = CaseTable::standard_ascii();
     // Both upper and lower should canonicalize to lowercase.
     assert_eq!(table.canonicalize.get(&'A'), Some(&'a'));
@@ -37,6 +40,7 @@ fn standard_ascii_canonicalize() {
 
 #[test]
 fn standard_ascii_equivalences() {
+    crate::test_utils::init_test_tracing();
     let table = CaseTable::standard_ascii();
     // Equivalences form a cycle: A -> a -> A.
     assert_eq!(table.equivalences.get(&'A'), Some(&'a'));
@@ -45,6 +49,7 @@ fn standard_ascii_equivalences() {
 
 #[test]
 fn empty_table_has_no_mappings() {
+    crate::test_utils::init_test_tracing();
     let table = CaseTable::empty();
     assert!(table.upcase.is_empty());
     assert!(table.downcase.is_empty());
@@ -58,6 +63,7 @@ fn empty_table_has_no_mappings() {
 
 #[test]
 fn manager_upcase_char() {
+    crate::test_utils::init_test_tracing();
     let mgr = CaseTableManager::new();
     assert_eq!(mgr.upcase_char('a'), 'A');
     assert_eq!(mgr.upcase_char('z'), 'Z');
@@ -68,6 +74,7 @@ fn manager_upcase_char() {
 
 #[test]
 fn manager_downcase_char() {
+    crate::test_utils::init_test_tracing();
     let mgr = CaseTableManager::new();
     assert_eq!(mgr.downcase_char('A'), 'a');
     assert_eq!(mgr.downcase_char('Z'), 'z');
@@ -77,6 +84,7 @@ fn manager_downcase_char() {
 
 #[test]
 fn manager_upcase_string() {
+    crate::test_utils::init_test_tracing();
     let mgr = CaseTableManager::new();
     assert_eq!(mgr.upcase_string("hello"), "HELLO");
     assert_eq!(mgr.upcase_string("Hello World"), "HELLO WORLD");
@@ -87,6 +95,7 @@ fn manager_upcase_string() {
 
 #[test]
 fn manager_downcase_string() {
+    crate::test_utils::init_test_tracing();
     let mgr = CaseTableManager::new();
     assert_eq!(mgr.downcase_string("HELLO"), "hello");
     assert_eq!(mgr.downcase_string("Hello World"), "hello world");
@@ -97,6 +106,7 @@ fn manager_downcase_string() {
 
 #[test]
 fn manager_default() {
+    crate::test_utils::init_test_tracing();
     let mgr = CaseTableManager::default();
     assert_eq!(mgr.upcase_char('a'), 'A');
     assert_eq!(mgr.downcase_char('A'), 'a');
@@ -104,6 +114,7 @@ fn manager_default() {
 
 #[test]
 fn manager_set_current() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = CaseTableManager::new();
     let mut custom = CaseTable::empty();
     // Map 'x' to 'Y' for upcase.
@@ -116,6 +127,7 @@ fn manager_set_current() {
 
 #[test]
 fn manager_set_standard() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = CaseTableManager::new();
     let custom = CaseTable::empty();
     mgr.set_standard(custom);
@@ -128,6 +140,7 @@ fn manager_set_standard() {
 
 #[test]
 fn builtin_case_table_p_on_non_table() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_case_table_p(vec![Value::NIL]).unwrap().is_nil());
     assert!(
         builtin_case_table_p(vec![Value::fixnum(42)])
@@ -143,6 +156,7 @@ fn builtin_case_table_p_on_non_table() {
 
 #[test]
 fn builtin_case_table_p_on_char_table() {
+    crate::test_utils::init_test_tracing();
     // A proper char-table with case-table subtype.
     let ct = make_case_table_value();
     assert!(builtin_case_table_p(vec![ct]).unwrap().is_t());
@@ -150,12 +164,14 @@ fn builtin_case_table_p_on_char_table() {
 
 #[test]
 fn builtin_case_table_p_wrong_arg_count() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_case_table_p(vec![]).is_err());
     assert!(builtin_case_table_p(vec![Value::NIL, Value::NIL]).is_err());
 }
 
 #[test]
 fn builtin_current_case_table_returns_case_table() {
+    crate::test_utils::init_test_tracing();
     let mut ctx = super::super::eval::Context::new();
     let result = builtin_current_case_table(&mut ctx, vec![]).unwrap();
     assert!(is_case_table(&result));
@@ -163,12 +179,14 @@ fn builtin_current_case_table_returns_case_table() {
 
 #[test]
 fn builtin_current_case_table_wrong_args() {
+    crate::test_utils::init_test_tracing();
     let mut ctx = super::super::eval::Context::new();
     assert!(builtin_current_case_table(&mut ctx, vec![Value::NIL]).is_err());
 }
 
 #[test]
 fn builtin_standard_case_table_returns_case_table() {
+    crate::test_utils::init_test_tracing();
     let mut ctx = super::super::eval::Context::new();
     let result = builtin_standard_case_table(&mut ctx, vec![]).unwrap();
     assert!(is_case_table(&result));
@@ -176,12 +194,14 @@ fn builtin_standard_case_table_returns_case_table() {
 
 #[test]
 fn builtin_standard_case_table_wrong_args() {
+    crate::test_utils::init_test_tracing();
     let mut ctx = super::super::eval::Context::new();
     assert!(builtin_standard_case_table(&mut ctx, vec![Value::NIL]).is_err());
 }
 
 #[test]
 fn builtin_set_case_table_returns_arg() {
+    crate::test_utils::init_test_tracing();
     let mut ctx = super::super::eval::Context::new();
     let table = make_case_table_value();
     let result = builtin_set_case_table(&mut ctx, vec![table]).unwrap();
@@ -190,12 +210,14 @@ fn builtin_set_case_table_returns_arg() {
 
 #[test]
 fn builtin_set_case_table_rejects_non_table() {
+    crate::test_utils::init_test_tracing();
     let mut ctx = super::super::eval::Context::new();
     assert!(builtin_set_case_table(&mut ctx, vec![Value::fixnum(1)]).is_err());
 }
 
 #[test]
 fn builtin_set_case_table_wrong_args() {
+    crate::test_utils::init_test_tracing();
     let mut ctx = super::super::eval::Context::new();
     assert!(builtin_set_case_table(&mut ctx, vec![]).is_err());
     assert!(builtin_set_case_table(&mut ctx, vec![Value::NIL, Value::NIL]).is_err());
@@ -203,6 +225,7 @@ fn builtin_set_case_table_wrong_args() {
 
 #[test]
 fn builtin_set_standard_case_table_returns_arg() {
+    crate::test_utils::init_test_tracing();
     let mut ctx = super::super::eval::Context::new();
     let table = make_case_table_value();
     let result = builtin_set_standard_case_table(&mut ctx, vec![table]).unwrap();
@@ -211,18 +234,21 @@ fn builtin_set_standard_case_table_returns_arg() {
 
 #[test]
 fn builtin_set_standard_case_table_rejects_non_table() {
+    crate::test_utils::init_test_tracing();
     let mut ctx = super::super::eval::Context::new();
     assert!(builtin_set_standard_case_table(&mut ctx, vec![Value::fixnum(1)]).is_err());
 }
 
 #[test]
 fn builtin_set_standard_case_table_wrong_args() {
+    crate::test_utils::init_test_tracing();
     let mut ctx = super::super::eval::Context::new();
     assert!(builtin_set_standard_case_table(&mut ctx, vec![]).is_err());
 }
 
 #[test]
 fn evaluator_case_table_roundtrip_and_isolation() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let standard = builtin_standard_case_table(&mut eval, vec![]).unwrap();
     let current = builtin_current_case_table(&mut eval, vec![]).unwrap();
@@ -247,6 +273,7 @@ fn evaluator_case_table_roundtrip_and_isolation() {
 
 #[test]
 fn builtin_downcase_char_uppercase() {
+    crate::test_utils::init_test_tracing();
     // (downcase ?A) -> 97 (i.e., ?a)
     let result = builtin_downcase_char(vec![Value::char('A')]).unwrap();
     assert!(result.is_fixnum());
@@ -254,6 +281,7 @@ fn builtin_downcase_char_uppercase() {
 
 #[test]
 fn builtin_downcase_char_lowercase_unchanged() {
+    crate::test_utils::init_test_tracing();
     // (downcase ?a) -> 97
     let result = builtin_downcase_char(vec![Value::char('a')]).unwrap();
     assert!(result.is_fixnum());
@@ -261,6 +289,7 @@ fn builtin_downcase_char_lowercase_unchanged() {
 
 #[test]
 fn builtin_downcase_char_from_int() {
+    crate::test_utils::init_test_tracing();
     // (downcase 65) -> 97 (65 = ?A, 97 = ?a)
     let result = builtin_downcase_char(vec![Value::fixnum(65)]).unwrap();
     assert!(result.is_fixnum());
@@ -268,18 +297,21 @@ fn builtin_downcase_char_from_int() {
 
 #[test]
 fn builtin_downcase_char_wrong_type() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_downcase_char(vec![Value::string("A")]).is_err());
     assert!(builtin_downcase_char(vec![Value::NIL]).is_err());
 }
 
 #[test]
 fn builtin_downcase_char_wrong_arg_count() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_downcase_char(vec![]).is_err());
     assert!(builtin_downcase_char(vec![Value::char('A'), Value::char('B')]).is_err());
 }
 
 #[test]
 fn upcase_all_letters() {
+    crate::test_utils::init_test_tracing();
     let mgr = CaseTableManager::new();
     for lower in b'a'..=b'z' {
         let lc = lower as char;
@@ -290,6 +322,7 @@ fn upcase_all_letters() {
 
 #[test]
 fn downcase_all_letters() {
+    crate::test_utils::init_test_tracing();
     let mgr = CaseTableManager::new();
     for upper in b'A'..=b'Z' {
         let uc = upper as char;
@@ -300,6 +333,7 @@ fn downcase_all_letters() {
 
 #[test]
 fn roundtrip_upcase_downcase() {
+    crate::test_utils::init_test_tracing();
     let mgr = CaseTableManager::new();
     for lower in b'a'..=b'z' {
         let lc = lower as char;
@@ -311,6 +345,7 @@ fn roundtrip_upcase_downcase() {
 
 #[test]
 fn string_roundtrip() {
+    crate::test_utils::init_test_tracing();
     let mgr = CaseTableManager::new();
     let original = "Hello World";
     let upper = mgr.upcase_string(original);
@@ -320,6 +355,7 @@ fn string_roundtrip() {
 
 #[test]
 fn non_ascii_chars_unchanged() {
+    crate::test_utils::init_test_tracing();
     let mgr = CaseTableManager::new();
     // Non-ASCII characters should pass through unchanged with the ASCII table.
     assert_eq!(mgr.upcase_char('\u{00e9}'), '\u{00e9}'); // e-acute
@@ -329,6 +365,7 @@ fn non_ascii_chars_unchanged() {
 
 #[test]
 fn is_case_table_on_short_vector() {
+    crate::test_utils::init_test_tracing();
     // A vector too short to be a char-table.
     let v = Value::vector(vec![Value::symbol(intern(CT_CHAR_TABLE_TAG)), Value::NIL]);
     assert!(!is_case_table(&v));
@@ -336,6 +373,7 @@ fn is_case_table_on_short_vector() {
 
 #[test]
 fn is_case_table_wrong_subtype() {
+    crate::test_utils::init_test_tracing();
     // A char-table with a different subtype is NOT a case table.
     let v = build_char_table("syntax-table", &[], Value::NIL, &[]);
     assert!(!is_case_table(&v));
@@ -343,6 +381,7 @@ fn is_case_table_wrong_subtype() {
 
 #[test]
 fn standard_case_table_is_char_table() {
+    crate::test_utils::init_test_tracing();
     use super::super::chartable::is_char_table;
     let ct = make_standard_case_table_value();
     assert!(is_char_table(&ct));
@@ -351,6 +390,7 @@ fn standard_case_table_is_char_table() {
 
 #[test]
 fn standard_case_table_has_extra_slots() {
+    crate::test_utils::init_test_tracing();
     let ct = make_standard_case_table_value();
     if ct.is_vector() {
         let vec = ct.as_vector_data().unwrap().clone();

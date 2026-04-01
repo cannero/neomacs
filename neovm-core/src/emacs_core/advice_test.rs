@@ -9,6 +9,7 @@ use super::*;
 
 #[test]
 fn add_and_notify_watcher() {
+    crate::test_utils::init_test_tracing();
     let mut wl = VariableWatcherList::new();
     assert!(!wl.has_watchers("my-var"));
 
@@ -39,6 +40,7 @@ fn add_and_notify_watcher() {
 
 #[test]
 fn remove_watcher() {
+    crate::test_utils::init_test_tracing();
     let mut wl = VariableWatcherList::new();
     wl.add_watcher("my-var", Value::symbol("watcher1"));
     wl.add_watcher("my-var", Value::symbol("watcher2"));
@@ -58,6 +60,7 @@ fn remove_watcher() {
 
 #[test]
 fn remove_all_watchers_cleans_up() {
+    crate::test_utils::init_test_tracing();
     let mut wl = VariableWatcherList::new();
     wl.add_watcher("my-var", Value::symbol("w1"));
 
@@ -67,6 +70,7 @@ fn remove_all_watchers_cleans_up() {
 
 #[test]
 fn no_duplicate_watchers() {
+    crate::test_utils::init_test_tracing();
     let mut wl = VariableWatcherList::new();
     wl.add_watcher("my-var", Value::symbol("w"));
     wl.add_watcher("my-var", Value::symbol("w"));
@@ -83,6 +87,7 @@ fn no_duplicate_watchers() {
 
 #[test]
 fn no_duplicate_equivalent_lambda_watchers() {
+    crate::test_utils::init_test_tracing();
     let mut wl = VariableWatcherList::new();
     let callback_a = Value::make_lambda(LambdaData {
         params: LambdaParams {
@@ -126,6 +131,7 @@ fn no_duplicate_equivalent_lambda_watchers() {
 
 #[test]
 fn notify_no_watchers_returns_empty() {
+    crate::test_utils::init_test_tracing();
     let wl = VariableWatcherList::new();
     let calls = wl.notify_watchers(
         "no-var",
@@ -139,6 +145,7 @@ fn notify_no_watchers_returns_empty() {
 
 #[test]
 fn multiple_watchers_all_notified() {
+    crate::test_utils::init_test_tracing();
     let mut wl = VariableWatcherList::new();
     wl.add_watcher("v", Value::symbol("w1"));
     wl.add_watcher("v", Value::symbol("w2"));
@@ -156,6 +163,7 @@ fn multiple_watchers_all_notified() {
 
 #[test]
 fn get_watchers_returns_callbacks_in_registration_order() {
+    crate::test_utils::init_test_tracing();
     let mut wl = VariableWatcherList::new();
     wl.add_watcher("v", Value::symbol("w1"));
     wl.add_watcher("v", Value::symbol("w2"));
@@ -167,6 +175,7 @@ fn get_watchers_returns_callbacks_in_registration_order() {
 
 #[test]
 fn builtin_get_variable_watchers_tracks_runtime_registry() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     builtin_add_variable_watcher(
         &mut eval,
@@ -208,6 +217,7 @@ fn builtin_get_variable_watchers_tracks_runtime_registry() {
 
 #[test]
 fn variable_watcher_builtins_follow_runtime_alias_resolution() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     super::super::builtins::builtin_defvaralias(
         &mut eval,
@@ -250,6 +260,7 @@ fn variable_watcher_builtins_follow_runtime_alias_resolution() {
 
 #[test]
 fn remove_variable_watcher_accepts_non_symbol_callbacks() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let callback = Value::make_lambda(LambdaData {
         params: LambdaParams {

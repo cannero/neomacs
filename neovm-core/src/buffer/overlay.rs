@@ -581,6 +581,7 @@ mod tests {
 
     #[test]
     fn insert_and_delete_overlay_preserves_object_identity() {
+        crate::test_utils::init_test_tracing();
         let mut list = OverlayList::new();
         let overlay = alloc_overlay(2, 5);
         list.insert_overlay(overlay);
@@ -592,6 +593,7 @@ mod tests {
 
     #[test]
     fn overlay_put_preserves_existing_property_position() {
+        crate::test_utils::init_test_tracing();
         let mut list = OverlayList::new();
         let overlay = alloc_overlay(0, 1);
         list.insert_overlay(overlay);
@@ -609,6 +611,7 @@ mod tests {
 
     #[test]
     fn move_overlay_updates_boundaries() {
+        crate::test_utils::init_test_tracing();
         let mut list = OverlayList::new();
         let overlay = alloc_overlay(0, 2);
         list.insert_overlay(overlay);
@@ -620,6 +623,7 @@ mod tests {
 
     #[test]
     fn insert_adjusts_front_and_rear_advance() {
+        crate::test_utils::init_test_tracing();
         let mut list = OverlayList::new();
         let overlay = alloc_overlay(5, 10);
         list.insert_overlay(overlay);
@@ -632,6 +636,7 @@ mod tests {
 
     #[test]
     fn empty_front_advance_overlay_does_not_invert_on_insert() {
+        crate::test_utils::init_test_tracing();
         let mut list = OverlayList::new();
         let overlay = alloc_overlay(5, 5);
         list.insert_overlay(overlay);
@@ -644,6 +649,7 @@ mod tests {
 
     #[test]
     fn before_markers_insert_moves_overlay_boundaries_at_point() {
+        crate::test_utils::init_test_tracing();
         let mut list = OverlayList::new();
         let starts_here = alloc_overlay(5, 10);
         let ends_here = alloc_overlay(2, 5);
@@ -662,6 +668,7 @@ mod tests {
 
     #[test]
     fn delete_evaporates_zero_width_overlay() {
+        crate::test_utils::init_test_tracing();
         let mut list = OverlayList::new();
         let overlay = alloc_overlay(5, 10);
         list.insert_overlay(overlay);
@@ -673,6 +680,7 @@ mod tests {
 
     #[test]
     fn priority_sort_uses_gnu_precedence_rules() {
+        crate::test_utils::init_test_tracing();
         let mut list = OverlayList::new();
         let low = alloc_overlay(2, 7);
         let high = alloc_overlay(4, 7);

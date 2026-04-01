@@ -3,12 +3,14 @@ use crate::emacs_core::value::HashTableTest;
 
 #[test]
 fn string_value_to_bytes_basic() {
+    crate::test_utils::init_test_tracing();
     let bytes = string_value_to_bytes("ABC");
     assert_eq!(bytes, vec![65, 66, 67]);
 }
 
 #[test]
 fn string_value_to_bytes_octal_escape() {
+    crate::test_utils::init_test_tracing();
     // \300 = 0xC0 = char 192
     let s = "\u{00C0}"; // 192 as char
     let bytes = string_value_to_bytes(s);
@@ -17,6 +19,7 @@ fn string_value_to_bytes_octal_escape() {
 
 #[test]
 fn decode_simple_constant_return() {
+    crate::test_utils::init_test_tracing();
     // bytecodes: constant(0) return
     // byte 192 = constant 0, byte 135 = return
     let bytecodes = vec![192, 135];
@@ -27,6 +30,7 @@ fn decode_simple_constant_return() {
 
 #[test]
 fn decode_car_cdr() {
+    crate::test_utils::init_test_tracing();
     // car=64, cdr=65, return=135
     let bytecodes = vec![64, 65, 135];
     let mut constants = vec![];
@@ -36,6 +40,7 @@ fn decode_car_cdr() {
 
 #[test]
 fn decode_arithmetic() {
+    crate::test_utils::init_test_tracing();
     // add=92, sub=90, mul=95, return=135
     let bytecodes = vec![92, 90, 95, 135];
     let mut constants = vec![];
@@ -45,6 +50,7 @@ fn decode_arithmetic() {
 
 #[test]
 fn decode_varref_immediate() {
+    crate::test_utils::init_test_tracing();
     // varref 0 = byte 8, varref 5 = byte 13
     let bytecodes = vec![8, 13, 135];
     let mut constants = vec![
@@ -61,6 +67,7 @@ fn decode_varref_immediate() {
 
 #[test]
 fn decode_goto_jump_patching() {
+    crate::test_utils::init_test_tracing();
     // constant(0), goto-if-nil to byte 5, constant(1), return, constant(2), return
     // byte 0: 192 → constant(0) [1 byte]
     // byte 1: 131, 5, 0 → goto-if-nil to byte 5 [3 bytes]
@@ -89,6 +96,7 @@ fn decode_goto_jump_patching() {
 
 #[test]
 fn decode_call_immediate() {
+    crate::test_utils::init_test_tracing();
     // call 0 = byte 32, call 3 = byte 35
     let bytecodes = vec![32, 35, 135];
     let mut constants = vec![];
@@ -98,6 +106,7 @@ fn decode_call_immediate() {
 
 #[test]
 fn decode_list_ops() {
+    crate::test_utils::init_test_tracing();
     // list1=67, list2=68, cons=66
     let bytecodes = vec![67, 68, 66, 135];
     let mut constants = vec![];
@@ -107,6 +116,7 @@ fn decode_list_ops() {
 
 #[test]
 fn decode_constant_range() {
+    crate::test_utils::init_test_tracing();
     // byte 192 = constant(0), byte 255 = constant(63)
     let bytecodes = vec![192, 255, 135];
     let mut constants = (0..64).map(|i| Value::fixnum(i)).collect();
@@ -116,6 +126,7 @@ fn decode_constant_range() {
 
 #[test]
 fn decode_unwind_protect_pop() {
+    crate::test_utils::init_test_tracing();
     // unwind-protect = byte 142
     let bytecodes = vec![142, 135];
     let mut constants = vec![];
@@ -125,6 +136,7 @@ fn decode_unwind_protect_pop() {
 
 #[test]
 fn decode_save_excursion_and_restriction() {
+    crate::test_utils::init_test_tracing();
     let mut constants = vec![];
     let save_excursion = decode_gnu_bytecode(&[138, 135], &mut constants).unwrap();
     assert_eq!(save_excursion, vec![Op::SaveExcursion, Op::Return]);
@@ -136,6 +148,7 @@ fn decode_save_excursion_and_restriction() {
 
 #[test]
 fn decode_discard_n() {
+    crate::test_utils::init_test_tracing();
     // discardN = byte 182, operand = 3
     let bytecodes = vec![182, 3, 135];
     let mut constants = vec![];
@@ -145,6 +158,7 @@ fn decode_discard_n() {
 
 #[test]
 fn decode_switch_preserves_hash_table_byte_targets() {
+    crate::test_utils::init_test_tracing();
     let table = Value::hash_table(HashTableTest::Eq);
     if !table.is_hash_table() {
         panic!("expected hash table constant");
@@ -205,6 +219,7 @@ fn decode_switch_preserves_hash_table_byte_targets() {
 
 #[test]
 fn decode_buffer_op_point() {
+    crate::test_utils::init_test_tracing();
     // point = byte 96
     let bytecodes = vec![96, 135];
     let mut constants = vec![];
@@ -223,6 +238,7 @@ fn decode_buffer_op_point() {
 
 #[test]
 fn decode_buffer_op_save_current_buffer() {
+    crate::test_utils::init_test_tracing();
     let bytecodes = vec![114, 135];
     let mut constants = vec![];
     let ops = decode_gnu_bytecode(&bytecodes, &mut constants).unwrap();
@@ -232,6 +248,7 @@ fn decode_buffer_op_save_current_buffer() {
 
 #[test]
 fn parse_arglist_descriptor_no_rest() {
+    crate::test_utils::init_test_tracing();
     // 2 mandatory, 3 total → 1 optional
     let params = parse_arglist_descriptor(2 | (3 << 8));
     assert_eq!(params.required.len(), 2);
@@ -241,6 +258,7 @@ fn parse_arglist_descriptor_no_rest() {
 
 #[test]
 fn parse_arglist_descriptor_with_rest() {
+    crate::test_utils::init_test_tracing();
     // 1 mandatory + &rest, with 1 non-rest slot total.
     let params = parse_arglist_descriptor(1 | (1 << 8) | 128);
     assert_eq!(params.required.len(), 1);
@@ -250,6 +268,7 @@ fn parse_arglist_descriptor_with_rest() {
 
 #[test]
 fn parse_arglist_descriptor_with_optional_and_rest_slot() {
+    crate::test_utils::init_test_tracing();
     // GNU lexical bytecode can carry both optional args and a hidden rest slot.
     let params = parse_arglist_descriptor(3 | (4 << 8) | 128);
     assert_eq!(params.required.len(), 3);
@@ -259,6 +278,7 @@ fn parse_arglist_descriptor_with_optional_and_rest_slot() {
 
 #[test]
 fn parse_arglist_descriptor_zero_args() {
+    crate::test_utils::init_test_tracing();
     let params = parse_arglist_descriptor(0);
     assert_eq!(params.required.len(), 0);
     assert_eq!(params.optional.len(), 0);
@@ -267,6 +287,7 @@ fn parse_arglist_descriptor_zero_args() {
 
 #[test]
 fn parse_arglist_value_from_list() {
+    crate::test_utils::init_test_tracing();
     use crate::emacs_core::intern::intern;
     let arglist = Value::list(vec![
         Value::symbol("x"),
@@ -286,6 +307,7 @@ fn parse_arglist_value_from_list() {
 
 #[test]
 fn parse_arglist_value_int() {
+    crate::test_utils::init_test_tracing();
     let params = parse_arglist_value(&Value::fixnum(1 | (2 << 8)));
     assert_eq!(params.required.len(), 1);
     assert_eq!(params.optional.len(), 1);

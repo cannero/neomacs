@@ -8,84 +8,98 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 #[test]
 fn serialize_null() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::NIL]);
     assert_eq!(result.unwrap().as_str(), Some("null"));
 }
 
 #[test]
 fn serialize_true() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::T]);
     assert_eq!(result.unwrap().as_str(), Some("true"));
 }
 
 #[test]
 fn serialize_false_keyword() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::keyword(intern(":false"))]);
     assert_eq!(result.unwrap().as_str(), Some("false"));
 }
 
 #[test]
 fn serialize_json_false_keyword() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::keyword(intern(":json-false"))]);
     assert_eq!(result.unwrap().as_str(), Some("false"));
 }
 
 #[test]
 fn serialize_integer() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::fixnum(42)]);
     assert_eq!(result.unwrap().as_str(), Some("42"));
 }
 
 #[test]
 fn serialize_negative_integer() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::fixnum(-7)]);
     assert_eq!(result.unwrap().as_str(), Some("-7"));
 }
 
 #[test]
 fn serialize_float() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::make_float(3.14)]);
     assert_eq!(result.unwrap().as_str(), Some("3.14"));
 }
 
 #[test]
 fn serialize_float_whole() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::make_float(1.0)]);
     assert_eq!(result.unwrap().as_str(), Some("1.0"));
 }
 
 #[test]
 fn serialize_nan_errors() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::make_float(f64::NAN)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn serialize_inf_errors() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::make_float(f64::INFINITY)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn serialize_string() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::string("hello")]);
     assert_eq!(result.unwrap().as_str(), Some("\"hello\""));
 }
 
 #[test]
 fn serialize_string_with_escapes() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::string("a\"b\\c\ndef")]);
     assert_eq!(result.unwrap().as_str(), Some("\"a\\\"b\\\\c\\ndef\""));
 }
 
 #[test]
 fn serialize_empty_vector() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::vector(vec![])]);
     assert_eq!(result.unwrap().as_str(), Some("[]"));
 }
 
 #[test]
 fn serialize_vector() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::vector(vec![
         Value::fixnum(1),
         Value::string("two"),
@@ -97,6 +111,7 @@ fn serialize_vector() {
 
 #[test]
 fn serialize_hash_table() {
+    crate::test_utils::init_test_tracing();
     let ht = Value::hash_table(HashTableTest::Equal);
     {
         let table = ht.as_hash_table_mut().unwrap();
@@ -110,6 +125,7 @@ fn serialize_hash_table() {
 
 #[test]
 fn serialize_alist() {
+    crate::test_utils::init_test_tracing();
     let alist = Value::list(vec![
         Value::cons(Value::symbol("a"), Value::fixnum(1)),
         Value::cons(Value::symbol("b"), Value::fixnum(2)),
@@ -120,6 +136,7 @@ fn serialize_alist() {
 
 #[test]
 fn serialize_nested() {
+    crate::test_utils::init_test_tracing();
     let inner = Value::vector(vec![Value::fixnum(1), Value::fixnum(2)]);
     let alist = Value::list(vec![Value::cons(Value::symbol("arr"), inner)]);
     let result = builtin_json_serialize(vec![alist]);
@@ -128,6 +145,7 @@ fn serialize_nested() {
 
 #[test]
 fn serialize_alist_string_key_type_error() {
+    crate::test_utils::init_test_tracing();
     let alist = Value::list(vec![Value::cons(Value::string("a"), Value::fixnum(1))]);
     match builtin_json_serialize(vec![alist]) {
         Err(Flow::Signal(sig)) => {
@@ -140,6 +158,7 @@ fn serialize_alist_string_key_type_error() {
 
 #[test]
 fn serialize_custom_false_object() {
+    crate::test_utils::init_test_tracing();
     // Use nil as the false-object.
     let result = builtin_json_serialize(vec![
         Value::NIL,
@@ -153,12 +172,14 @@ fn serialize_custom_false_object() {
 
 #[test]
 fn serialize_wrong_no_args() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![]);
     assert!(result.is_err());
 }
 
 #[test]
 fn json_parse_buffer_advances_point_after_value() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -180,6 +201,7 @@ fn json_parse_buffer_advances_point_after_value() {
 
 #[test]
 fn json_insert_writes_at_point_and_advances() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -205,6 +227,7 @@ fn json_insert_writes_at_point_and_advances() {
 
 #[test]
 fn parse_null() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![Value::string("null")]);
     let val = result.unwrap();
     assert!(
@@ -215,12 +238,14 @@ fn parse_null() {
 
 #[test]
 fn parse_true() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![Value::string("true")]);
     assert!(result.unwrap().is_t());
 }
 
 #[test]
 fn parse_false() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![Value::string("false")]);
     let val = result.unwrap();
     assert!(
@@ -231,18 +256,21 @@ fn parse_false() {
 
 #[test]
 fn parse_integer() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![Value::string("42")]);
     assert!(result.unwrap().is_fixnum());
 }
 
 #[test]
 fn parse_negative_integer() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![Value::string("-7")]);
     assert!(result.unwrap().is_fixnum());
 }
 
 #[test]
 fn parse_float() {
+    crate::test_utils::init_test_tracing();
     let val = builtin_json_parse_string(vec![Value::string("3.14")]).unwrap();
     match val.kind() {
         ValueKind::Float => assert!((val.as_float().unwrap() - 3.14).abs() < 1e-10),
@@ -252,6 +280,7 @@ fn parse_float() {
 
 #[test]
 fn parse_float_exponent() {
+    crate::test_utils::init_test_tracing();
     let val = builtin_json_parse_string(vec![Value::string("1.5e2")]).unwrap();
     match val.kind() {
         ValueKind::Float => assert!((val.as_float().unwrap() - 150.0).abs() < 1e-10),
@@ -261,30 +290,35 @@ fn parse_float_exponent() {
 
 #[test]
 fn parse_zero() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![Value::string("0")]);
     assert!(result.unwrap().is_fixnum());
 }
 
 #[test]
 fn parse_string_simple() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![Value::string("\"hello\"")]);
     assert_eq!(result.unwrap().as_str(), Some("hello"));
 }
 
 #[test]
 fn parse_string_with_escapes() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![Value::string("\"a\\\"b\\\\c\\nd\"")]);
     assert_eq!(result.unwrap().as_str(), Some("a\"b\\c\nd"));
 }
 
 #[test]
 fn parse_string_unicode_escape() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![Value::string("\"\\u0041\"")]);
     assert_eq!(result.unwrap().as_str(), Some("A"));
 }
 
 #[test]
 fn parse_string_surrogate_pair() {
+    crate::test_utils::init_test_tracing();
     // U+1F600 (grinning face) = \uD83D\uDE00
     let result = builtin_json_parse_string(vec![Value::string("\"\\uD83D\\uDE00\"")]);
     let val = result.unwrap();
@@ -293,6 +327,7 @@ fn parse_string_surrogate_pair() {
 
 #[test]
 fn parse_empty_array() {
+    crate::test_utils::init_test_tracing();
     let val = builtin_json_parse_string(vec![Value::string("[]")]).unwrap();
     match val.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
@@ -304,6 +339,7 @@ fn parse_empty_array() {
 
 #[test]
 fn parse_array() {
+    crate::test_utils::init_test_tracing();
     let val = builtin_json_parse_string(vec![Value::string("[1, 2, 3]")]).unwrap();
     match val.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
@@ -319,6 +355,7 @@ fn parse_array() {
 
 #[test]
 fn parse_array_as_list() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![
         Value::string("[1, 2]"),
         Value::keyword(intern(":array-type")),
@@ -333,6 +370,7 @@ fn parse_array_as_list() {
 
 #[test]
 fn parse_empty_object() {
+    crate::test_utils::init_test_tracing();
     let val = builtin_json_parse_string(vec![Value::string("{}")]).unwrap();
     match val.kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
@@ -345,6 +383,7 @@ fn parse_empty_object() {
 
 #[test]
 fn parse_object_hash_table() {
+    crate::test_utils::init_test_tracing();
     let val = builtin_json_parse_string(vec![Value::string("{\"a\": 1, \"b\": 2}")]).unwrap();
     match val.kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
@@ -380,6 +419,7 @@ fn parse_object_hash_table() {
 
 #[test]
 fn parse_object_as_alist() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![
         Value::string("{\"x\": 10}"),
         Value::keyword(intern(":object-type")),
@@ -402,6 +442,7 @@ fn parse_object_as_alist() {
 
 #[test]
 fn parse_object_as_plist() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![
         Value::string("{\"key\": 42}"),
         Value::keyword(intern(":object-type")),
@@ -420,6 +461,7 @@ fn parse_object_as_plist() {
 
 #[test]
 fn parse_nested() {
+    crate::test_utils::init_test_tracing();
     let json = r#"{"arr": [1, {"nested": true}], "val": null}"#;
     let result = builtin_json_parse_string(vec![Value::string(json)]);
     assert!(result.is_ok());
@@ -427,6 +469,7 @@ fn parse_nested() {
 
 #[test]
 fn parse_custom_null_object() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![
         Value::string("null"),
         Value::keyword(intern(":null-object")),
@@ -437,6 +480,7 @@ fn parse_custom_null_object() {
 
 #[test]
 fn parse_custom_false_object() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![
         Value::string("false"),
         Value::keyword(intern(":false-object")),
@@ -451,12 +495,14 @@ fn parse_custom_false_object() {
 
 #[test]
 fn parse_trailing_content_error() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![Value::string("42 extra")]);
     assert!(result.is_err());
 }
 
 #[test]
 fn parse_empty_string_error() {
+    crate::test_utils::init_test_tracing();
     match builtin_json_parse_string(vec![Value::string("")]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "json-end-of-file");
@@ -467,18 +513,21 @@ fn parse_empty_string_error() {
 
 #[test]
 fn parse_invalid_json_error() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![Value::string("{bad}")]);
     assert!(result.is_err());
 }
 
 #[test]
 fn parse_wrong_type_argument() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![Value::fixnum(42)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn parse_no_args() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![]);
     assert!(result.is_err());
 }
@@ -489,6 +538,7 @@ fn parse_no_args() {
 
 #[test]
 fn round_trip_integer() {
+    crate::test_utils::init_test_tracing();
     let serialized = builtin_json_serialize(vec![Value::fixnum(123)]).unwrap();
     let parsed = builtin_json_parse_string(vec![serialized]).unwrap();
     assert!(parsed.is_fixnum());
@@ -496,6 +546,7 @@ fn round_trip_integer() {
 
 #[test]
 fn round_trip_string() {
+    crate::test_utils::init_test_tracing();
     let original = Value::string("hello \"world\"\ntest");
     let serialized = builtin_json_serialize(vec![original]).unwrap();
     let parsed = builtin_json_parse_string(vec![serialized]).unwrap();
@@ -504,6 +555,7 @@ fn round_trip_string() {
 
 #[test]
 fn round_trip_array() {
+    crate::test_utils::init_test_tracing();
     let original = Value::vector(vec![Value::fixnum(1), Value::string("two"), Value::T]);
     let serialized = builtin_json_serialize(vec![original]).unwrap();
     let parsed = builtin_json_parse_string(vec![serialized]).unwrap();
@@ -521,6 +573,7 @@ fn round_trip_array() {
 
 #[test]
 fn round_trip_object() {
+    crate::test_utils::init_test_tracing();
     let ht = Value::hash_table(HashTableTest::Equal);
     {
         let table = ht.as_hash_table_mut().unwrap();
@@ -551,6 +604,7 @@ fn round_trip_object() {
 
 #[test]
 fn encode_control_chars() {
+    crate::test_utils::init_test_tracing();
     let s = "a\x00b\x01c";
     let encoded = json_encode_string(s);
     assert_eq!(encoded, "\"a\\u0000b\\u0001c\"");
@@ -558,6 +612,7 @@ fn encode_control_chars() {
 
 #[test]
 fn encode_backspace_formfeed() {
+    crate::test_utils::init_test_tracing();
     let s = "\x08\x0C";
     let encoded = json_encode_string(s);
     assert_eq!(encoded, "\"\\b\\f\"");
@@ -565,6 +620,7 @@ fn encode_backspace_formfeed() {
 
 #[test]
 fn parse_large_number_as_float() {
+    crate::test_utils::init_test_tracing();
     // Number too large for i64.
     let val = builtin_json_parse_string(vec![Value::string("99999999999999999999")]).unwrap();
     match val.kind() {
@@ -575,6 +631,7 @@ fn parse_large_number_as_float() {
 
 #[test]
 fn serialize_symbol_key_in_alist() {
+    crate::test_utils::init_test_tracing();
     let alist = Value::list(vec![Value::cons(
         Value::symbol("name"),
         Value::string("test"),
@@ -585,12 +642,14 @@ fn serialize_symbol_key_in_alist() {
 
 #[test]
 fn parse_whitespace_around_values() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![Value::string("  {  \"a\"  :  1  }  ")]);
     assert!(result.is_ok());
 }
 
 #[test]
 fn parse_deeply_nested() {
+    crate::test_utils::init_test_tracing();
     let json = "[[[[[[1]]]]]]";
     let result = builtin_json_parse_string(vec![Value::string(json)]);
     assert!(result.is_ok());

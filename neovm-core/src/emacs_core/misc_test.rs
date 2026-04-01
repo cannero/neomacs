@@ -21,6 +21,7 @@ fn bootstrap_eval(src: &str) -> Vec<String> {
 
 #[test]
 fn copy_alist_basic() {
+    crate::test_utils::init_test_tracing();
     let alist = Value::list(vec![
         Value::cons(Value::symbol("a"), Value::fixnum(1)),
         Value::cons(Value::symbol("b"), Value::fixnum(2)),
@@ -39,6 +40,7 @@ fn copy_alist_basic() {
 
 #[test]
 fn copy_alist_empty() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_copy_alist(vec![Value::NIL]).unwrap();
     assert!(result.is_nil());
 }
@@ -47,6 +49,7 @@ fn copy_alist_empty() {
 
 #[test]
 fn rassoc_found() {
+    crate::test_utils::init_test_tracing();
     let alist = Value::list(vec![
         Value::cons(Value::symbol("a"), Value::fixnum(1)),
         Value::cons(Value::symbol("b"), Value::fixnum(2)),
@@ -65,6 +68,7 @@ fn rassoc_found() {
 
 #[test]
 fn rassoc_not_found() {
+    crate::test_utils::init_test_tracing();
     let alist = Value::list(vec![Value::cons(Value::symbol("a"), Value::fixnum(1))]);
     let result = builtin_rassoc(vec![Value::fixnum(99), alist]).unwrap();
     assert!(result.is_nil());
@@ -72,6 +76,7 @@ fn rassoc_not_found() {
 
 #[test]
 fn rassq_found() {
+    crate::test_utils::init_test_tracing();
     let alist = Value::list(vec![
         Value::cons(Value::symbol("x"), Value::symbol("yes")),
         Value::cons(Value::symbol("y"), Value::symbol("no")),
@@ -88,6 +93,7 @@ fn rassq_found() {
 
 #[test]
 fn rassq_not_found() {
+    crate::test_utils::init_test_tracing();
     let alist = Value::list(vec![Value::cons(Value::symbol("a"), Value::fixnum(1))]);
     let result = builtin_rassq(vec![Value::fixnum(99), alist]).unwrap();
     assert!(result.is_nil());
@@ -97,6 +103,7 @@ fn rassq_not_found() {
 
 #[test]
 fn assoc_default_bootstrap_matches_gnu_subr() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (subrp (symbol-function 'assoc-default))
@@ -115,6 +122,7 @@ fn assoc_default_bootstrap_matches_gnu_subr() {
 
 #[test]
 fn assoc_default_bootstrap_error_shapes_match_gnu_subr() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (condition-case err
@@ -133,6 +141,7 @@ fn assoc_default_bootstrap_error_shapes_match_gnu_subr() {
 
 #[test]
 fn make_list_basic() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_make_list(vec![Value::fixnum(3), Value::symbol("x")]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 3);
@@ -143,12 +152,14 @@ fn make_list_basic() {
 
 #[test]
 fn make_list_zero() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_make_list(vec![Value::fixnum(0), Value::fixnum(1)]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn make_list_validates_wholenump_length() {
+    crate::test_utils::init_test_tracing();
     let negative = builtin_make_list(vec![Value::fixnum(-1), Value::fixnum(1)]).unwrap_err();
     let float = builtin_make_list(vec![Value::make_float(3.2), Value::fixnum(1)]).unwrap_err();
     match negative {
@@ -175,18 +186,21 @@ fn make_list_validates_wholenump_length() {
 
 #[test]
 fn string_repeat_basic() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_string_repeat(vec![Value::string("ab"), Value::fixnum(3)]).unwrap();
     assert_eq!(result.as_str().unwrap(), "ababab");
 }
 
 #[test]
 fn string_repeat_zero() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_string_repeat(vec![Value::string("ab"), Value::fixnum(0)]).unwrap();
     assert_eq!(result.as_str().unwrap(), "");
 }
 
 #[test]
 fn string_repeat_errors() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_string_repeat(vec![]).is_err());
     assert!(builtin_string_repeat(vec![Value::string("ab")]).is_err());
     assert!(builtin_string_repeat(vec![Value::string("ab"), Value::fixnum(-1)]).is_err());
@@ -197,6 +211,7 @@ fn string_repeat_errors() {
 
 #[test]
 fn safe_length_proper_list() {
+    crate::test_utils::init_test_tracing();
     let list = Value::list(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
     let result = builtin_safe_length(vec![list]).unwrap();
     assert!(eq_value(&result, &Value::fixnum(3)));
@@ -204,12 +219,14 @@ fn safe_length_proper_list() {
 
 #[test]
 fn safe_length_nil() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_safe_length(vec![Value::NIL]).unwrap();
     assert!(eq_value(&result, &Value::fixnum(0)));
 }
 
 #[test]
 fn safe_length_non_list() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_safe_length(vec![Value::fixnum(42)]).unwrap();
     assert!(eq_value(&result, &Value::fixnum(0)));
 }
@@ -218,6 +235,7 @@ fn safe_length_non_list() {
 
 #[test]
 fn subst_char_basic() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_subst_char_in_string(vec![
         Value::char('.'),
         Value::char('/'),
@@ -229,6 +247,7 @@ fn subst_char_basic() {
 
 #[test]
 fn subst_char_no_match() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_subst_char_in_string(vec![
         Value::char('z'),
         Value::char('!'),
@@ -242,6 +261,7 @@ fn subst_char_no_match() {
 
 #[test]
 fn string_to_multibyte_identity() {
+    crate::test_utils::init_test_tracing();
     let s = Value::string("hello");
     let result = builtin_string_to_multibyte(vec![s]).unwrap();
     assert!(equal_value(&s, &result, 0));
@@ -249,6 +269,7 @@ fn string_to_multibyte_identity() {
 
 #[test]
 fn string_to_multibyte_converts_unibyte_high_bytes_to_raw_byte_chars() {
+    crate::test_utils::init_test_tracing();
     let mut s = String::new();
     s.push(char::from_u32(0xE3FF).expect("valid unibyte sentinel"));
     let result = builtin_string_to_multibyte(vec![Value::string(s)]).unwrap();
@@ -262,6 +283,7 @@ fn string_to_multibyte_converts_unibyte_high_bytes_to_raw_byte_chars() {
 
 #[test]
 fn string_to_unibyte_ascii_storage() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_string_to_unibyte(vec![Value::string("world")]).unwrap();
     let s = result.as_str().unwrap();
     assert_eq!(string_escape::storage_byte_len(s), 5);
@@ -273,6 +295,7 @@ fn string_to_unibyte_ascii_storage() {
 
 #[test]
 fn string_to_unibyte_rejects_unicode_scalar() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_string_to_unibyte(vec![Value::string("é")]);
     match result {
         Err(Flow::Signal(sig)) => {
@@ -290,6 +313,7 @@ fn string_to_unibyte_rejects_unicode_scalar() {
 
 #[test]
 fn string_to_unibyte_preserves_existing_unibyte_storage() {
+    crate::test_utils::init_test_tracing();
     let mut s = String::new();
     s.push(char::from_u32(0xE3FF).expect("valid unibyte sentinel"));
     let result = builtin_string_to_unibyte(vec![Value::string(s)]).unwrap();
@@ -300,6 +324,7 @@ fn string_to_unibyte_preserves_existing_unibyte_storage() {
 
 #[test]
 fn string_as_unibyte_utf8_bytes_for_unicode() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_string_as_unibyte(vec![Value::string("é")]).unwrap();
     let s = result.as_str().unwrap();
     assert_eq!(string_escape::storage_byte_len(s), 2);
@@ -308,6 +333,7 @@ fn string_as_unibyte_utf8_bytes_for_unicode() {
 
 #[test]
 fn string_as_unibyte_ascii_passthrough_bytes() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_string_as_unibyte(vec![Value::string("test")]).unwrap();
     let s = result.as_str().unwrap();
     assert_eq!(string_escape::storage_byte_len(s), 4);
@@ -319,6 +345,7 @@ fn string_as_unibyte_ascii_passthrough_bytes() {
 
 #[test]
 fn string_as_unibyte_preserves_unibyte_storage_bytes() {
+    crate::test_utils::init_test_tracing();
     let mut s = String::new();
     s.push(char::from_u32(0xE3FF).expect("valid unibyte sentinel"));
     let result = builtin_string_as_unibyte(vec![Value::string(s)]).unwrap();
@@ -329,6 +356,7 @@ fn string_as_unibyte_preserves_unibyte_storage_bytes() {
 
 #[test]
 fn string_as_multibyte_identity_for_multibyte_input() {
+    crate::test_utils::init_test_tracing();
     let s = Value::string("test");
     let result = builtin_string_as_multibyte(vec![s]).unwrap();
     assert!(equal_value(&s, &result, 0));
@@ -336,6 +364,7 @@ fn string_as_multibyte_identity_for_multibyte_input() {
 
 #[test]
 fn string_as_multibyte_converts_unibyte_high_bytes_to_raw_byte_chars() {
+    crate::test_utils::init_test_tracing();
     let mut s = String::new();
     s.push(char::from_u32(0xE3FF).expect("valid unibyte sentinel"));
     let result = builtin_string_as_multibyte(vec![Value::string(s)]).unwrap();
@@ -351,18 +380,21 @@ fn string_as_multibyte_converts_unibyte_high_bytes_to_raw_byte_chars() {
 
 #[test]
 fn unibyte_char_to_multibyte_ascii_identity() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_unibyte_char_to_multibyte(vec![Value::fixnum(65)]).unwrap();
     assert!(eq_value(&result, &Value::fixnum(65)));
 }
 
 #[test]
 fn unibyte_char_to_multibyte_high_byte_maps_to_raw_range() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_unibyte_char_to_multibyte(vec![Value::fixnum(255)]).unwrap();
     assert!(eq_value(&result, &Value::fixnum(0x3FFFFF)));
 }
 
 #[test]
 fn unibyte_char_to_multibyte_rejects_non_unibyte_code() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_unibyte_char_to_multibyte(vec![Value::fixnum(256)]);
     match result {
         Err(Flow::Signal(sig)) => {
@@ -378,18 +410,21 @@ fn unibyte_char_to_multibyte_rejects_non_unibyte_code() {
 
 #[test]
 fn multibyte_char_to_unibyte_ascii_passthrough() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_multibyte_char_to_unibyte(vec![Value::fixnum(65)]).unwrap();
     assert!(eq_value(&result, &Value::fixnum(65)));
 }
 
 #[test]
 fn multibyte_char_to_unibyte_raw_range_maps_to_byte() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_multibyte_char_to_unibyte(vec![Value::fixnum(0x3FFFFF)]).unwrap();
     assert!(eq_value(&result, &Value::fixnum(255)));
 }
 
 #[test]
 fn multibyte_char_to_unibyte_returns_minus_one_for_non_unibyte_unicode() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_multibyte_char_to_unibyte(vec![Value::fixnum(256)]).unwrap();
     assert!(eq_value(&result, &Value::fixnum(-1)));
 }
@@ -398,12 +433,14 @@ fn multibyte_char_to_unibyte_returns_minus_one_for_non_unibyte_unicode() {
 
 #[test]
 fn locale_info_codeset_returns_utf8() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_locale_info(vec![Value::symbol("codeset")]).unwrap();
     assert_eq!(result.as_str(), Some("UTF-8"));
 }
 
 #[test]
 fn locale_info_days_months_and_paper_return_oracle_shapes() {
+    crate::test_utils::init_test_tracing();
     let days = builtin_locale_info(vec![Value::symbol("days")]).unwrap();
     let days_vec = match days.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => days.as_vector_data().unwrap().clone(),
@@ -431,6 +468,7 @@ fn locale_info_days_months_and_paper_return_oracle_shapes() {
 
 #[test]
 fn locale_info_unknown_or_non_symbol_items_return_nil() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_locale_info(vec![Value::symbol("time")]).unwrap();
     assert!(result.is_nil());
     let result = builtin_locale_info(vec![Value::string("codeset")]).unwrap();
@@ -441,12 +479,14 @@ fn locale_info_unknown_or_non_symbol_items_return_nil() {
 
 #[test]
 fn display_line_numbers_update_width_is_noop() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_display_line_numbers_update_width(vec![]).unwrap();
     assert_eq!(result, Value::NIL);
 }
 
 #[test]
 fn display_line_numbers_update_width_arity() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_display_line_numbers_update_width(vec![Value::NIL]).is_err());
 }
 
@@ -454,6 +494,7 @@ fn display_line_numbers_update_width_arity() {
 
 #[test]
 fn recursion_depth_zero() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let result = builtin_recursion_depth(&mut eval, vec![]).unwrap();
     // At top level, depth is 0
@@ -462,6 +503,7 @@ fn recursion_depth_zero() {
 
 #[test]
 fn backtrace_frame_basic_shape() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let frame0 = builtin_backtrace_frame(&mut eval, vec![Value::fixnum(0)]).unwrap();
     let items0 = list_to_vec(&frame0).expect("frame0 should be a list");
@@ -479,6 +521,7 @@ fn backtrace_frame_basic_shape() {
 
 #[test]
 fn backtrace_frame_handles_base_and_depth() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
 
     let with_nil_base =
@@ -497,6 +540,7 @@ fn backtrace_frame_handles_base_and_depth() {
 
 #[test]
 fn backtrace_frame_validation() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
 
     let missing = builtin_backtrace_frame(&mut eval, vec![]);
@@ -534,6 +578,7 @@ fn backtrace_frame_validation() {
 
 #[test]
 fn backtrace_helper_stubs_shape_and_errors() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let thread = super::super::threads::builtin_current_thread(&mut eval, vec![]).unwrap();
     let frames = builtin_backtrace_frames_from_thread(&mut eval, vec![thread]).unwrap();
@@ -567,6 +612,7 @@ fn backtrace_helper_stubs_shape_and_errors() {
 
 #[test]
 fn backtrace_helper_stubs_arity_checks() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     assert!(matches!(
         builtin_backtrace_debug(&mut eval, vec![]),
@@ -590,6 +636,7 @@ fn backtrace_helper_stubs_arity_checks() {
 
 #[test]
 fn backtrace_frame_internal_tracks_runtime_funcall_interactively_marker() {
+    crate::test_utils::init_test_tracing();
     let mut ev = super::super::eval::Context::new();
     let forms = parse_forms(
         r#"
@@ -623,6 +670,7 @@ fn backtrace_frame_internal_tracks_runtime_funcall_interactively_marker() {
 
 #[test]
 fn sf_save_current_buffer_restores() {
+    crate::test_utils::init_test_tracing();
     use super::super::expr::Expr;
     use crate::emacs_core::value::{ValueKind, VecLikeType};
     let mut ev = super::super::eval::Context::new();
@@ -642,6 +690,7 @@ fn sf_save_current_buffer_restores() {
 
 #[test]
 fn sf_with_syntax_table_evaluates_body() {
+    crate::test_utils::init_test_tracing();
     // with-syntax-table is an Elisp macro in GNU. Test through bootstrap.
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("startup");
@@ -652,6 +701,7 @@ fn sf_with_syntax_table_evaluates_body() {
 
 #[test]
 fn sf_with_syntax_table_restores_original_table_on_success() {
+    crate::test_utils::init_test_tracing();
     // with-syntax-table is an Elisp macro in GNU. Test through bootstrap.
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("startup");
@@ -664,6 +714,7 @@ fn sf_with_syntax_table_restores_original_table_on_success() {
 
 #[test]
 fn with_syntax_table_restores_original_table_on_error() {
+    crate::test_utils::init_test_tracing();
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("startup");
     let original = crate::emacs_core::syntax::builtin_syntax_table(&mut ev, vec![]).unwrap();

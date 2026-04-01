@@ -2509,6 +2509,7 @@ mod tests {
 
     #[test]
     fn new_buffer_is_empty() {
+        crate::test_utils::init_test_tracing();
         let buf = Buffer::new(BufferId(1), "*scratch*".into());
         assert_eq!(buf.name, "*scratch*");
         assert_eq!(buf.point(), 0);
@@ -2524,6 +2525,7 @@ mod tests {
 
     #[test]
     fn buffer_id_equality() {
+        crate::test_utils::init_test_tracing();
         let a = BufferId(1);
         let b = BufferId(1);
         let c = BufferId(2);
@@ -2533,6 +2535,7 @@ mod tests {
 
     #[test]
     fn create_indirect_buffer_shares_root_text_and_updates_siblings() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = BufferManager::new();
         let base_id = mgr.current_buffer_id().expect("scratch buffer");
 
@@ -2559,6 +2562,7 @@ mod tests {
 
     #[test]
     fn create_indirect_buffer_flattens_double_indirection() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = BufferManager::new();
         let base_id = mgr.current_buffer_id().expect("scratch buffer");
         let first_id = mgr
@@ -2580,6 +2584,7 @@ mod tests {
 
     #[test]
     fn indirect_buffers_keep_undo_state_in_sync() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = BufferManager::new();
         let base_id = mgr.current_buffer_id().expect("scratch buffer");
         let indirect_id = mgr
@@ -2605,6 +2610,7 @@ mod tests {
 
     #[test]
     fn from_dump_restores_indirect_buffer_shared_text_state() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = BufferManager::new();
         let base_id = mgr.current_buffer_id().expect("scratch buffer");
         let _ = mgr.insert_into_buffer(base_id, "abcdef");
@@ -2643,6 +2649,7 @@ mod tests {
 
     #[test]
     fn indirect_buffers_preserve_narrowing_across_shared_edits() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = BufferManager::new();
         let base_id = mgr.current_buffer_id().expect("scratch buffer");
         let _ = mgr.insert_into_buffer(base_id, "abcdef");
@@ -2677,6 +2684,7 @@ mod tests {
 
     #[test]
     fn goto_char_clamps_to_accessible_region() {
+        crate::test_utils::init_test_tracing();
         let mut buf = buf_with_text("hello");
         buf.goto_char(3);
         assert_eq!(buf.point(), 3);
@@ -2694,6 +2702,7 @@ mod tests {
 
     #[test]
     fn point_char_converts_byte_to_char_pos() {
+        crate::test_utils::init_test_tracing();
         // "cafe\u{0301}" — 'e' + combining acute = 5 bytes, 5 chars in UTF-8
         let mut buf = buf_with_text("hello");
         buf.goto_char(3);
@@ -2702,6 +2711,7 @@ mod tests {
 
     #[test]
     fn byte_position_aliases_match_legacy_buffer_apis() {
+        crate::test_utils::init_test_tracing();
         let mut buf = buf_with_text("hello world");
         buf.narrow_to_byte_region(2, 9);
         buf.goto_byte(7);
@@ -2715,6 +2725,7 @@ mod tests {
 
     #[test]
     fn cached_char_positions_track_multibyte_edits_and_narrowing() {
+        crate::test_utils::init_test_tracing();
         let mut buf = buf_with_text("ééz");
         assert_eq!(buf.point_max_char(), 3);
 
@@ -2739,6 +2750,7 @@ mod tests {
 
     #[test]
     fn char_position_conversions_clamp_to_buffer_and_accessible_bounds() {
+        crate::test_utils::init_test_tracing();
         let mut buf = buf_with_text("ééz");
         assert_eq!(buf.total_chars(), 3);
         assert_eq!(buf.char_to_byte_clamped(99), "ééz".len());
@@ -2757,6 +2769,7 @@ mod tests {
 
     #[test]
     fn insert_at_point_advances_point() {
+        crate::test_utils::init_test_tracing();
         let mut buf = Buffer::new(BufferId(1), "test".into());
         // zv starts at 0 for an empty buffer; insert should extend it.
         buf.insert("hello");
@@ -2768,6 +2781,7 @@ mod tests {
 
     #[test]
     fn insert_in_middle() {
+        crate::test_utils::init_test_tracing();
         let mut buf = buf_with_text("helo");
         buf.goto_char(3);
         buf.insert("l");
@@ -2777,6 +2791,7 @@ mod tests {
 
     #[test]
     fn insert_adjusts_mark() {
+        crate::test_utils::init_test_tracing();
         let mut buf = buf_with_text("ab");
         buf.set_mark(1);
         buf.goto_char(0);
@@ -2788,6 +2803,7 @@ mod tests {
 
     #[test]
     fn insert_empty_string_is_noop() {
+        crate::test_utils::init_test_tracing();
         let mut buf = buf_with_text("hello");
         buf.goto_char(2);
         buf.insert("");
@@ -2801,6 +2817,7 @@ mod tests {
 
     #[test]
     fn delete_region_basic() {
+        crate::test_utils::init_test_tracing();
         let mut buf = buf_with_text("hello world");
         buf.goto_char(11); // at end
         buf.delete_region(5, 11);
@@ -2810,6 +2827,7 @@ mod tests {
 
     #[test]
     fn delete_region_adjusts_point_inside() {
+        crate::test_utils::init_test_tracing();
         let mut buf = buf_with_text("abcdef");
         buf.goto_char(3); // in middle of deleted range
         buf.delete_region(1, 5);
@@ -2819,6 +2837,7 @@ mod tests {
 
     #[test]
     fn delete_region_adjusts_point_at_end_boundary() {
+        crate::test_utils::init_test_tracing();
         let mut buf = buf_with_text("abcdef");
         buf.goto_char(5);
         buf.delete_region(1, 5);
@@ -2828,6 +2847,7 @@ mod tests {
 
     #[test]
     fn delete_region_adjusts_mark() {
+        crate::test_utils::init_test_tracing();
         let mut buf = buf_with_text("abcdef");
         buf.set_mark(4);
         buf.delete_region(1, 3);
@@ -2838,6 +2858,7 @@ mod tests {
 
     #[test]
     fn delete_region_moves_marker_at_end_to_start() {
+        crate::test_utils::init_test_tracing();
         let mut buf = buf_with_text("0123456789ABCDEF");
         buf.register_marker(1, 12, InsertionType::Before);
         buf.delete_region(5, 12);
@@ -2848,6 +2869,7 @@ mod tests {
 
     #[test]
     fn mark_char_tracks_multibyte_edits() {
+        crate::test_utils::init_test_tracing();
         let mut buf = buf_with_text("ééz");
         buf.set_mark_byte('é'.len_utf8());
         buf.goto_byte('é'.len_utf8());
@@ -2862,6 +2884,7 @@ mod tests {
 
     #[test]
     fn delete_region_adjusts_zv() {
+        crate::test_utils::init_test_tracing();
         let mut buf = buf_with_text("abcdef");
         assert_eq!(buf.zv, 6);
         buf.delete_region(2, 4);
@@ -2870,6 +2893,7 @@ mod tests {
 
     #[test]
     fn delete_empty_range_is_noop() {
+        crate::test_utils::init_test_tracing();
         let mut buf = buf_with_text("hello");
         buf.delete_region(2, 2);
         assert_eq!(buf.buffer_string(), "hello");
@@ -2881,12 +2905,14 @@ mod tests {
 
     #[test]
     fn buffer_substring_range() {
+        crate::test_utils::init_test_tracing();
         let buf = buf_with_text("hello world");
         assert_eq!(buf.buffer_substring(6, 11), "world");
     }
 
     #[test]
     fn buffer_string_returns_accessible() {
+        crate::test_utils::init_test_tracing();
         let mut buf = buf_with_text("hello world");
         buf.narrow_to_region(6, 11);
         assert_eq!(buf.buffer_string(), "world");
@@ -2898,6 +2924,7 @@ mod tests {
 
     #[test]
     fn char_after_basic() {
+        crate::test_utils::init_test_tracing();
         let buf = buf_with_text("hello");
         assert_eq!(buf.char_after(0), Some('h'));
         assert_eq!(buf.char_after(4), Some('o'));
@@ -2906,6 +2933,7 @@ mod tests {
 
     #[test]
     fn char_before_basic() {
+        crate::test_utils::init_test_tracing();
         let buf = buf_with_text("hello");
         assert_eq!(buf.char_before(0), None);
         assert_eq!(buf.char_before(1), Some('h'));
@@ -2914,6 +2942,7 @@ mod tests {
 
     #[test]
     fn char_after_multibyte() {
+        crate::test_utils::init_test_tracing();
         // Each Chinese character is 3 bytes in UTF-8.
         let buf = buf_with_text("\u{4f60}\u{597d}"); // "nihao" in Chinese
         assert_eq!(buf.char_after(0), Some('\u{4f60}'));
@@ -2922,6 +2951,7 @@ mod tests {
 
     #[test]
     fn char_before_multibyte() {
+        crate::test_utils::init_test_tracing();
         let buf = buf_with_text("\u{4f60}\u{597d}");
         assert_eq!(buf.char_before(3), Some('\u{4f60}'));
         assert_eq!(buf.char_before(6), Some('\u{597d}'));
@@ -2933,6 +2963,7 @@ mod tests {
 
     #[test]
     fn narrow_and_widen() {
+        crate::test_utils::init_test_tracing();
         let mut buf = buf_with_text("hello world");
         buf.goto_char(8);
         buf.narrow_to_region(6, 11);
@@ -2950,6 +2981,7 @@ mod tests {
 
     #[test]
     fn narrow_clamps_point() {
+        crate::test_utils::init_test_tracing();
         let mut buf = buf_with_text("hello world");
         buf.goto_char(2);
         buf.narrow_to_region(5, 11);
@@ -2963,6 +2995,7 @@ mod tests {
 
     #[test]
     fn marker_tracks_insertion_after() {
+        crate::test_utils::init_test_tracing();
         let mut buf = buf_with_text("ab");
         buf.register_marker(1, 1, InsertionType::After);
         buf.goto_char(1);
@@ -2975,6 +3008,7 @@ mod tests {
 
     #[test]
     fn marker_stays_on_insertion_before() {
+        crate::test_utils::init_test_tracing();
         let mut buf = buf_with_text("ab");
         buf.register_marker(1, 1, InsertionType::Before);
         buf.goto_char(1);
@@ -2987,6 +3021,7 @@ mod tests {
 
     #[test]
     fn marker_adjusts_on_deletion() {
+        crate::test_utils::init_test_tracing();
         let mut buf = buf_with_text("abcdef");
         buf.register_marker(1, 4, InsertionType::After);
         buf.delete_region(1, 3);
@@ -2998,6 +3033,7 @@ mod tests {
 
     #[test]
     fn marker_inside_deleted_range_collapses() {
+        crate::test_utils::init_test_tracing();
         let mut buf = buf_with_text("abcdef");
         buf.register_marker(1, 2, InsertionType::After);
         buf.delete_region(1, 5);
@@ -3009,6 +3045,7 @@ mod tests {
 
     #[test]
     fn marker_char_pos_tracks_multibyte_edits() {
+        crate::test_utils::init_test_tracing();
         let mut buf = buf_with_text("ééz");
         buf.register_marker(1, 'é'.len_utf8(), InsertionType::After);
         buf.goto_byte('é'.len_utf8());
@@ -3029,6 +3066,7 @@ mod tests {
 
     #[test]
     fn buffer_local_get_set() {
+        crate::test_utils::init_test_tracing();
         let mut buf = Buffer::new(BufferId(1), "test".into());
         assert!(buf.get_buffer_local("tab-width").is_none());
 
@@ -3043,6 +3081,7 @@ mod tests {
 
     #[test]
     fn buffer_local_multiple_vars() {
+        crate::test_utils::init_test_tracing();
         let mut buf = Buffer::new(BufferId(1), "test".into());
         buf.set_buffer_local("fill-column", Value::fixnum(80));
         buf.set_buffer_local("major-mode", Value::symbol("text-mode"));
@@ -3054,6 +3093,7 @@ mod tests {
 
     #[test]
     fn buffer_local_defaults_include_builtin_per_buffer_vars() {
+        crate::test_utils::init_test_tracing();
         let buf = Buffer::new(BufferId(1), "test".into());
 
         assert_eq!(
@@ -3086,6 +3126,7 @@ mod tests {
 
     #[test]
     fn buffer_file_name_variable_tracks_slot_backed_state() {
+        crate::test_utils::init_test_tracing();
         let mut buf = Buffer::new(BufferId(1), "test".into());
         assert_eq!(buf.buffer_local_value("buffer-file-name"), Some(Value::NIL));
 
@@ -3103,6 +3144,7 @@ mod tests {
 
     #[test]
     fn buffer_auto_save_file_name_variable_tracks_slot_backed_state() {
+        crate::test_utils::init_test_tracing();
         let mut buf = Buffer::new(BufferId(1), "test".into());
         assert_eq!(
             buf.buffer_local_value("buffer-auto-save-file-name"),
@@ -3133,6 +3175,7 @@ mod tests {
 
     #[test]
     fn modified_flag() {
+        crate::test_utils::init_test_tracing();
         let mut buf = Buffer::new(BufferId(1), "test".into());
         assert!(!buf.is_modified());
         buf.insert("x");
@@ -3143,6 +3186,7 @@ mod tests {
 
     #[test]
     fn modified_state_tracks_autosaved_semantics() {
+        crate::test_utils::init_test_tracing();
         let mut buf = Buffer::new(BufferId(1), "test".into());
         assert_eq!(buf.modified_state_value(), Value::NIL);
         assert!(!buf.recent_auto_save_p());
@@ -3173,6 +3217,7 @@ mod tests {
 
     #[test]
     fn modification_ticks_track_content_changes() {
+        crate::test_utils::init_test_tracing();
         let mut buf = Buffer::new(BufferId(1), "test".into());
         assert_eq!(buf.modified_tick, 1);
         assert_eq!(buf.chars_modified_tick, 1);
@@ -3194,6 +3239,7 @@ mod tests {
 
     #[test]
     fn chars_modified_tick_rejoins_modiff_after_non_char_modification() {
+        crate::test_utils::init_test_tracing();
         let mut buf = Buffer::new(BufferId(1), "test".into());
         assert_eq!(buf.restore_modified_state(Value::T), Value::T);
         assert_eq!(buf.modified_tick, 2);
@@ -3211,6 +3257,7 @@ mod tests {
 
     #[test]
     fn manager_starts_with_scratch() {
+        crate::test_utils::init_test_tracing();
         let mgr = BufferManager::new();
         let scratch = mgr.find_buffer_by_name("*scratch*");
         assert!(scratch.is_some());
@@ -3220,6 +3267,7 @@ mod tests {
 
     #[test]
     fn manager_create_and_lookup() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = BufferManager::new();
         let id = mgr.create_buffer("foo.el");
         assert!(mgr.get(id).is_some());
@@ -3230,6 +3278,7 @@ mod tests {
 
     #[test]
     fn manager_set_current() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = BufferManager::new();
         let a = mgr.create_buffer("a");
         let b = mgr.create_buffer("b");
@@ -3241,6 +3290,7 @@ mod tests {
 
     #[test]
     fn switch_current_refreshes_indirect_undo_binding_cache() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = BufferManager::new();
         let base_id = mgr.current_buffer_id().expect("scratch buffer");
         let indirect_id = mgr
@@ -3274,6 +3324,7 @@ mod tests {
 
     #[test]
     fn manager_kill_buffer() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = BufferManager::new();
         let id = mgr.create_buffer("doomed");
         assert!(mgr.kill_buffer(id));
@@ -3283,6 +3334,7 @@ mod tests {
 
     #[test]
     fn manager_kill_current_clears_current() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = BufferManager::new();
         let scratch = mgr.find_buffer_by_name("*scratch*").unwrap();
         mgr.set_current(scratch);
@@ -3292,6 +3344,7 @@ mod tests {
 
     #[test]
     fn manager_buffer_list() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = BufferManager::new();
         let scratch = mgr.find_buffer_by_name("*scratch*").expect("scratch");
         let a = mgr.create_buffer("a");
@@ -3301,6 +3354,7 @@ mod tests {
 
     #[test]
     fn manager_generate_new_buffer_name_unique() {
+        crate::test_utils::init_test_tracing();
         let mgr = BufferManager::new();
         // "*scratch*" is taken, "foo" is not.
         assert_eq!(mgr.generate_new_buffer_name("foo"), "foo");
@@ -3309,6 +3363,7 @@ mod tests {
 
     #[test]
     fn manager_generate_new_buffer_name_increments() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = BufferManager::new();
         mgr.create_buffer("buf");
         assert_eq!(mgr.generate_new_buffer_name("buf"), "buf<2>");
@@ -3318,6 +3373,7 @@ mod tests {
 
     #[test]
     fn manager_generate_new_buffer_name_honors_ignore_candidate() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = BufferManager::new();
         mgr.create_buffer("buf");
         mgr.create_buffer("buf<2>");
@@ -3337,6 +3393,7 @@ mod tests {
 
     #[test]
     fn manager_create_and_query_marker() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = BufferManager::new();
         let id = mgr.create_buffer("m");
         // Insert some text so there is room for a marker.
@@ -3350,6 +3407,7 @@ mod tests {
 
     #[test]
     fn manager_marker_clamped_to_buffer_len() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = BufferManager::new();
         let id = mgr.create_buffer("m");
         // Buffer is empty (len = 0), marker at 100 should be clamped.
@@ -3360,6 +3418,7 @@ mod tests {
 
     #[test]
     fn manager_marker_nonexistent_buffer() {
+        crate::test_utils::init_test_tracing();
         let mgr = BufferManager::new();
         let pos = mgr.marker_position(BufferId(9999), 1);
         assert_eq!(pos, None);
@@ -3367,6 +3426,7 @@ mod tests {
 
     #[test]
     fn manager_labeled_widen_uses_innermost_and_without_restriction_reaches_full_buffer() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = BufferManager::new();
         let id = mgr.create_buffer("labeled");
         mgr.set_current(id);
@@ -3390,6 +3450,7 @@ mod tests {
 
     #[test]
     fn manager_save_restriction_state_restores_labeled_stack() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = BufferManager::new();
         let id = mgr.create_buffer("saved-labeled");
         mgr.set_current(id);
@@ -3415,6 +3476,7 @@ mod tests {
 
     #[test]
     fn manager_reset_outermost_restrictions_restores_current_innermost_after_mutation() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = BufferManager::new();
         let id = mgr.create_buffer("redisplay-labeled");
         mgr.set_current(id);
@@ -3449,6 +3511,7 @@ mod tests {
 
     #[test]
     fn manager_current_buffer_mut_insert() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = BufferManager::new();
         let current = mgr.current_buffer_id().unwrap();
         mgr.insert_into_buffer(current, "hello");
@@ -3457,6 +3520,7 @@ mod tests {
 
     #[test]
     fn manager_replace_buffer_contents_resets_narrowing_and_point() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = BufferManager::new();
         let current = mgr.current_buffer_id().unwrap();
         let buf = mgr.get_mut(current).unwrap();
@@ -3479,6 +3543,7 @@ mod tests {
 
     #[test]
     fn integration_edit_narrow_widen() {
+        crate::test_utils::init_test_tracing();
         let mut buf = Buffer::new(BufferId(1), "work".into());
         buf.insert("abcdefghij");
         assert_eq!(buf.buffer_string(), "abcdefghij");

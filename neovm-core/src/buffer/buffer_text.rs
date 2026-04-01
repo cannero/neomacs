@@ -398,6 +398,7 @@ mod tests {
 
     #[test]
     fn char_count_tracks_multibyte_inserts_and_deletes() {
+        crate::test_utils::init_test_tracing();
         let mut text = BufferText::from_str("ééz");
         assert_eq!(text.char_count(), 3);
 
@@ -411,6 +412,7 @@ mod tests {
 
     #[test]
     fn shared_clone_observes_cached_char_count_updates() {
+        crate::test_utils::init_test_tracing();
         let mut text = BufferText::from_str("ab");
         let shared = text.shared_clone();
         text.insert_str(2, "é");
@@ -420,6 +422,7 @@ mod tests {
 
     #[test]
     fn deep_clone_keeps_independent_char_count_cache() {
+        crate::test_utils::init_test_tracing();
         let mut text = BufferText::from_str("ab");
         let cloned = text.clone();
         text.insert_str(2, "é");

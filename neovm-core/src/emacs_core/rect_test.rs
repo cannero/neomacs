@@ -29,18 +29,21 @@ fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Context {
 
 #[test]
 fn rectangle_state_default() {
+    crate::test_utils::init_test_tracing();
     let state = RectangleState::new();
     assert!(state.killed.is_empty());
 }
 
 #[test]
 fn rectangle_state_default_trait() {
+    crate::test_utils::init_test_tracing();
     let state = RectangleState::default();
     assert!(state.killed.is_empty());
 }
 
 #[test]
 fn extract_rectangle_startup_is_autoloaded() {
+    crate::test_utils::init_test_tracing();
     let eval = eval_with_ldefs_boot_autoloads(&["extract-rectangle"]);
     let function = eval
         .obarray
@@ -51,6 +54,7 @@ fn extract_rectangle_startup_is_autoloaded() {
 
 #[test]
 fn extract_rectangle_loads_from_gnu_rect_el() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "abcdef\n123456\n")
@@ -62,12 +66,14 @@ fn extract_rectangle_loads_from_gnu_rect_el() {
 
 #[test]
 fn extract_rectangle_line_returns_string() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_extract_rectangle_line(vec![Value::fixnum(1), Value::fixnum(3)]).unwrap();
     assert_eq!(result.as_str(), Some(""));
 }
 
 #[test]
 fn extract_rectangle_line_with_line_argument() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_extract_rectangle_line(vec![
         Value::fixnum(1),
         Value::fixnum(3),
@@ -79,6 +85,7 @@ fn extract_rectangle_line_with_line_argument() {
 
 #[test]
 fn extract_rectangle_line_swapped_columns() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_extract_rectangle_line(vec![
         Value::fixnum(3),
         Value::fixnum(1),
@@ -90,6 +97,7 @@ fn extract_rectangle_line_swapped_columns() {
 
 #[test]
 fn extract_rectangle_line_negative_column_errors() {
+    crate::test_utils::init_test_tracing();
     assert!(
         builtin_extract_rectangle_line(vec![
             Value::fixnum(-1),
@@ -102,6 +110,7 @@ fn extract_rectangle_line_negative_column_errors() {
 
 #[test]
 fn extract_rectangle_line_validates_args() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_extract_rectangle_line(vec![]).is_err());
     assert!(builtin_extract_rectangle_line(vec![Value::fixnum(1)]).is_err());
     assert!(
@@ -112,6 +121,7 @@ fn extract_rectangle_line_validates_args() {
 
 #[test]
 fn delete_rectangle_startup_is_autoloaded() {
+    crate::test_utils::init_test_tracing();
     let eval = eval_with_ldefs_boot_autoloads(&["delete-rectangle"]);
     let function = eval
         .obarray
@@ -122,6 +132,7 @@ fn delete_rectangle_startup_is_autoloaded() {
 
 #[test]
 fn delete_rectangle_loads_from_gnu_rect_el() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "abcdef\n123456\n")
@@ -135,6 +146,7 @@ fn delete_rectangle_loads_from_gnu_rect_el() {
 
 #[test]
 fn kill_rectangle_startup_is_autoloaded() {
+    crate::test_utils::init_test_tracing();
     let eval = eval_with_ldefs_boot_autoloads(&["kill-rectangle"]);
     let function = eval
         .obarray
@@ -145,6 +157,7 @@ fn kill_rectangle_startup_is_autoloaded() {
 
 #[test]
 fn kill_rectangle_loads_from_gnu_rect_el() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "abcdef\n123456\n")
@@ -162,6 +175,7 @@ fn kill_rectangle_loads_from_gnu_rect_el() {
 
 #[test]
 fn yank_rectangle_startup_is_autoloaded() {
+    crate::test_utils::init_test_tracing();
     let eval = eval_with_ldefs_boot_autoloads(&["yank-rectangle"]);
     let function = eval
         .obarray
@@ -172,6 +186,7 @@ fn yank_rectangle_startup_is_autoloaded() {
 
 #[test]
 fn yank_rectangle_loads_from_gnu_rect_el() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(progn
              (setq killed-rectangle '("X" "Y"))
@@ -188,6 +203,7 @@ fn yank_rectangle_loads_from_gnu_rect_el() {
 
 #[test]
 fn yank_rectangle_loaded_rejects_non_list_killed_rectangle() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(progn
              (setq killed-rectangle 1)
@@ -200,6 +216,7 @@ fn yank_rectangle_loaded_rejects_non_list_killed_rectangle() {
 
 #[test]
 fn yank_rectangle_loaded_function_is_simple_bytecode_call() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
     let forms = parse_forms(r#"(load "rect")"#).expect("parse rect load");
@@ -238,6 +255,7 @@ fn yank_rectangle_loaded_function_is_simple_bytecode_call() {
 
 #[test]
 fn insert_rectangle_startup_is_autoloaded() {
+    crate::test_utils::init_test_tracing();
     let eval = eval_with_ldefs_boot_autoloads(&["insert-rectangle"]);
     let function = eval
         .obarray
@@ -248,6 +266,7 @@ fn insert_rectangle_startup_is_autoloaded() {
 
 #[test]
 fn insert_rectangle_loads_from_gnu_rect_el() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "abc\ndef\n")
@@ -262,6 +281,7 @@ fn insert_rectangle_loads_from_gnu_rect_el() {
 
 #[test]
 fn insert_rectangle_loaded_rejects_non_list_argument() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(condition-case err
                (insert-rectangle 42)
@@ -272,6 +292,7 @@ fn insert_rectangle_loaded_rejects_non_list_argument() {
 
 #[test]
 fn insert_rectangle_loaded_rejects_non_string_elements() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(condition-case err
                (insert-rectangle '("a" 42))
@@ -282,6 +303,7 @@ fn insert_rectangle_loaded_rejects_non_string_elements() {
 
 #[test]
 fn open_rectangle_startup_is_autoloaded() {
+    crate::test_utils::init_test_tracing();
     let eval = eval_with_ldefs_boot_autoloads(&["open-rectangle"]);
     let function = eval
         .obarray
@@ -292,6 +314,7 @@ fn open_rectangle_startup_is_autoloaded() {
 
 #[test]
 fn open_rectangle_loads_from_gnu_rect_el() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "abcdef\n123456\n")
@@ -305,6 +328,7 @@ fn open_rectangle_loads_from_gnu_rect_el() {
 
 #[test]
 fn clear_rectangle_startup_is_autoloaded() {
+    crate::test_utils::init_test_tracing();
     let eval = eval_with_ldefs_boot_autoloads(&["clear-rectangle"]);
     let function = eval
         .obarray
@@ -315,6 +339,7 @@ fn clear_rectangle_startup_is_autoloaded() {
 
 #[test]
 fn clear_rectangle_loads_from_gnu_rect_el() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "abcdef\n123456\n")
@@ -328,6 +353,7 @@ fn clear_rectangle_loads_from_gnu_rect_el() {
 
 #[test]
 fn string_rectangle_startup_is_autoloaded() {
+    crate::test_utils::init_test_tracing();
     let eval = eval_with_ldefs_boot_autoloads(&["string-rectangle"]);
     let function = eval
         .obarray
@@ -338,6 +364,7 @@ fn string_rectangle_startup_is_autoloaded() {
 
 #[test]
 fn string_rectangle_loads_from_gnu_rect_el() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "abcdef\n123456\n")
@@ -351,6 +378,7 @@ fn string_rectangle_loads_from_gnu_rect_el() {
 
 #[test]
 fn string_rectangle_loaded_rejects_non_char_or_string() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(condition-case err
                (string-rectangle 1 10 1.5)
@@ -361,6 +389,7 @@ fn string_rectangle_loaded_rejects_non_char_or_string() {
 
 #[test]
 fn delete_extract_rectangle_startup_is_autoloaded() {
+    crate::test_utils::init_test_tracing();
     let eval = eval_with_ldefs_boot_autoloads(&["delete-extract-rectangle"]);
     let function = eval
         .obarray
@@ -371,6 +400,7 @@ fn delete_extract_rectangle_startup_is_autoloaded() {
 
 #[test]
 fn delete_extract_rectangle_loads_from_gnu_rect_el() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "abcdef\n123456\n")
@@ -384,6 +414,7 @@ fn delete_extract_rectangle_loads_from_gnu_rect_el() {
 
 #[test]
 fn delete_extract_rectangle_after_explicit_rect_load_matches_gnu() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(progn
              (load "rect")
@@ -424,6 +455,7 @@ fn delete_extract_rectangle_after_explicit_rect_load_matches_gnu() {
 
 #[test]
 fn delete_extract_rectangle_line_loaded_state_matches_gnu() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(progn
              (load "rect")
@@ -457,6 +489,7 @@ fn delete_extract_rectangle_line_loaded_state_matches_gnu() {
 
 #[test]
 fn replace_rectangle_startup_aliases_string_rectangle() {
+    crate::test_utils::init_test_tracing();
     let eval = super::super::eval::Context::new();
     assert_eq!(
         eval.obarray
@@ -469,6 +502,7 @@ fn replace_rectangle_startup_aliases_string_rectangle() {
 
 #[test]
 fn replace_rectangle_uses_runtime_alias_behavior() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "abcdef\n123456\n")

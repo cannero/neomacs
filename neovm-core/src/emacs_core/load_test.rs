@@ -12,7 +12,6 @@ use crate::emacs_core::{format_eval_result, parse_forms};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::Once;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn isolated_runtime_bootstrap_eval() -> Context {
@@ -38,6 +37,7 @@ fn isolated_runtime_bootstrap_eval() -> Context {
 
 #[test]
 fn cached_bootstrap_evaluator_clears_top_level_eval_state() {
+    crate::test_utils::init_test_tracing();
     let eval =
         create_bootstrap_evaluator_cached_with_features(&["neomacs"]).expect("bootstrap evaluator");
     assert!(
@@ -48,6 +48,7 @@ fn cached_bootstrap_evaluator_clears_top_level_eval_state() {
 
 #[test]
 fn runtime_startup_state_clears_top_level_eval_state() {
+    crate::test_utils::init_test_tracing();
     let mut eval =
         create_bootstrap_evaluator_cached_with_features(&["neomacs"]).expect("bootstrap evaluator");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
@@ -186,18 +187,8 @@ const BOOTSTRAP_LOAD_SEQUENCE: &[&str] = &[
     "emacs-lisp/rmc",
 ];
 
-static TEST_TRACING_INIT: Once = Once::new();
-
 fn init_test_tracing() {
-    TEST_TRACING_INIT.call_once(|| {
-        let _ = tracing_subscriber::fmt()
-            .with_test_writer()
-            .with_env_filter(
-                tracing_subscriber::EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("debug")),
-            )
-            .try_init();
-    });
+    crate::test_utils::init_test_tracing();
 }
 
 fn bootstrap_fixture_path(
@@ -250,6 +241,8 @@ fn format_eval_error(eval: &Context, err: &EvalError) -> String {
 }
 
 fn partial_bootstrap_eval_until(stop_before: &str, prefer_compiled: bool) -> Context {
+    crate::test_utils::init_test_tracing();
+
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
     let lisp_dir = project_root.join("lisp");
@@ -352,6 +345,7 @@ fn partial_bootstrap_eval_until(stop_before: &str, prefer_compiled: bool) -> Con
 
 #[test]
 fn bootstrap_lambda_parameters_bind_special_symbols_like_gnu_emacs() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).unwrap_or_else(|err| {
         panic!("startup state: {}", format_eval_error(&eval, &err));
@@ -382,6 +376,7 @@ fn bootstrap_lambda_parameters_bind_special_symbols_like_gnu_emacs() {
 
 #[test]
 fn bootstrap_lambda_parameter_named_pi_shadows_obsolete_global_constant() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).unwrap_or_else(|err| {
         panic!("startup state: {}", format_eval_error(&eval, &err));
@@ -402,6 +397,7 @@ fn bootstrap_lambda_parameter_named_pi_shadows_obsolete_global_constant() {
 
 #[test]
 fn bootstrap_cconv_closure_keeps_captured_canonical_t_binding() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).unwrap_or_else(|err| {
         panic!("startup state: {}", format_eval_error(&eval, &err));
@@ -418,6 +414,7 @@ fn bootstrap_cconv_closure_keeps_captured_canonical_t_binding() {
 
 #[test]
 fn bootstrap_church_list_tail_and_to_list_keep_captured_t() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).unwrap_or_else(|err| {
         panic!("startup state: {}", format_eval_error(&eval, &err));
@@ -455,6 +452,7 @@ fn bootstrap_church_list_tail_and_to_list_keep_captured_t() {
 
 #[test]
 fn bootstrap_church_map_keeps_local_t_with_outer_captures() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).unwrap_or_else(|err| {
         panic!("startup state: {}", format_eval_error(&eval, &err));
@@ -498,6 +496,7 @@ fn bootstrap_church_map_keeps_local_t_with_outer_captures() {
 
 #[test]
 fn bootstrap_church_foldr_keeps_local_t_with_outer_captures() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).unwrap_or_else(|err| {
         panic!("startup state: {}", format_eval_error(&eval, &err));
@@ -533,6 +532,7 @@ fn bootstrap_church_foldr_keeps_local_t_with_outer_captures() {
 
 #[test]
 fn bootstrap_church_append_roundtrip_and_map_sum_match_gnu() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).unwrap_or_else(|err| {
         panic!("startup state: {}", format_eval_error(&eval, &err));
@@ -602,6 +602,7 @@ fn bootstrap_church_append_roundtrip_and_map_sum_match_gnu() {
 
 #[test]
 fn bootstrap_runtime_does_not_leak_eval_when_compile_cl_lib_side_effects() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).unwrap_or_else(|err| {
         panic!("startup state: {}", format_eval_error(&eval, &err));
@@ -644,6 +645,7 @@ fn bootstrap_runtime_does_not_leak_eval_when_compile_cl_lib_side_effects() {
 
 #[test]
 fn bootstrap_runtime_matches_gnu_oclosure_advice_surface() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).unwrap_or_else(|err| {
         panic!("startup state: {}", format_eval_error(&eval, &err));
@@ -676,6 +678,7 @@ const BOOTSTRAP_CACHE_RACE_WORKER_TEST: &str =
 
 #[test]
 fn bootstrap_cache_parallel_creation_worker() {
+    crate::test_utils::init_test_tracing();
     let Some(dump_path) = std::env::var_os(BOOTSTRAP_CACHE_RACE_DUMP_ENV) else {
         return;
     };
@@ -694,6 +697,7 @@ fn bootstrap_cache_parallel_creation_worker() {
 
 #[test]
 fn bootstrap_cache_parallel_creation_is_safe() {
+    crate::test_utils::init_test_tracing();
     let dir = tempfile::tempdir().expect("tempdir");
     let dump_path = dir.path().join("parallel-bootstrap.pdump");
     let exe = std::env::current_exe().expect("current test binary");
@@ -725,6 +729,7 @@ fn bootstrap_cache_parallel_creation_is_safe() {
 
 #[test]
 fn bootstrap_runtime_advice_copy_and_add_behavior() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).unwrap_or_else(|err| {
         panic!("startup state: {}", format_eval_error(&eval, &err));
@@ -750,6 +755,7 @@ fn bootstrap_runtime_advice_copy_and_add_behavior() {
 
 #[test]
 fn bootstrap_runtime_advice_make_preserves_oclosure_type() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).unwrap_or_else(|err| {
         panic!("startup state: {}", format_eval_error(&eval, &err));
@@ -778,6 +784,7 @@ fn bootstrap_runtime_advice_make_preserves_oclosure_type() {
 
 #[test]
 fn bootstrap_runtime_loaded_bytecode_preserves_wrong_arity_shape() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).unwrap_or_else(|err| {
         panic!("startup state: {}", format_eval_error(&eval, &err));
@@ -797,6 +804,7 @@ fn bootstrap_runtime_loaded_bytecode_preserves_wrong_arity_shape() {
 
 #[test]
 fn bootstrap_runtime_keeps_cl_loaddefs_out_of_default_q_surface() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).unwrap_or_else(|err| {
         panic!("runtime startup state: {}", format_eval_error(&eval, &err));
@@ -818,6 +826,7 @@ fn bootstrap_runtime_keeps_cl_loaddefs_out_of_default_q_surface() {
 
 #[test]
 fn bootstrap_runtime_cl_adjoin_entry_point_works() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
     let rendered = eval_rendered(
@@ -831,6 +840,7 @@ fn bootstrap_runtime_cl_adjoin_entry_point_works() {
 
 #[test]
 fn bootstrap_runtime_require_cl_lib_works() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
     let rendered = eval_rendered(
@@ -870,6 +880,7 @@ fn bootstrap_runtime_require_icons_restores_cl_loaddefs_under_gui_features() {
 
 #[test]
 fn bootstrap_runtime_gui_surface_matches_gnu_icons_residency() {
+    crate::test_utils::init_test_tracing();
     let mut eval =
         create_bootstrap_evaluator_cached_with_features(&["x", "neomacs"]).expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
@@ -892,6 +903,7 @@ fn bootstrap_runtime_gui_surface_matches_gnu_icons_residency() {
 
 #[test]
 fn bootstrap_runtime_display_selections_p_is_true_under_neomacs_gui_surface() {
+    crate::test_utils::init_test_tracing();
     let mut eval =
         create_bootstrap_evaluator_cached_with_features(&["x", "neomacs"]).expect("bootstrap");
     let forms = parse_forms("(display-selections-p)").expect("parse display-selections-p");
@@ -922,6 +934,7 @@ fn bootstrap_runtime_require_cl_lib_works_under_gui_features() {
 
 #[test]
 fn bootstrap_runtime_require_uses_live_features_variable_when_internal_cache_is_stale() {
+    crate::test_utils::init_test_tracing();
     let mut eval =
         create_bootstrap_evaluator_cached_with_features(&["x", "neomacs"]).expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
@@ -990,6 +1003,7 @@ fn bootstrap_runtime_tab_bar_mode_restores_cl_loaddefs_under_gui_features() {
 
 #[test]
 fn bootstrap_runtime_tab_bar_make_keymap_supports_auto_width_hash_test() {
+    crate::test_utils::init_test_tracing();
     let mut eval =
         create_bootstrap_evaluator_cached_with_features(&["x", "neomacs"]).expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
@@ -1011,6 +1025,7 @@ fn bootstrap_runtime_tab_bar_make_keymap_supports_auto_width_hash_test() {
 
 #[test]
 fn bootstrap_runtime_cached_gui_surface_clears_transient_loader_state() {
+    crate::test_utils::init_test_tracing();
     let eval = create_bootstrap_evaluator_cached_with_features(&["x", "neomacs"])
         .expect("bootstrap evaluator");
     assert!(
@@ -1025,6 +1040,7 @@ fn bootstrap_runtime_cached_gui_surface_clears_transient_loader_state() {
 
 #[test]
 fn bootstrap_runtime_cached_gui_surface_restores_window_system_surface() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached_with_features(&["x", "neomacs"])
         .expect("bootstrap evaluator");
     assert!(
@@ -1048,6 +1064,7 @@ fn bootstrap_runtime_cached_gui_surface_restores_window_system_surface() {
 
 #[test]
 fn bootstrap_runtime_require_eieio_restores_cl_loaddefs_surface() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
     let rendered = eval_rendered(
@@ -1068,6 +1085,7 @@ fn bootstrap_runtime_require_eieio_restores_cl_loaddefs_surface() {
 
 #[test]
 fn bootstrap_runtime_loads_gnu_subr_helpers() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
     let rendered = eval_rendered(
@@ -1121,6 +1139,7 @@ fn bootstrap_runtime_loads_gnu_subr_helpers() {
 
 #[test]
 fn bootstrap_runtime_preserves_gnu_global_prefix_links() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
     let rendered = eval_rendered(
@@ -1142,6 +1161,7 @@ fn bootstrap_runtime_preserves_gnu_global_prefix_links() {
 
 #[test]
 fn bootstrap_runtime_preserves_gnu_minibuffer_completion_bindings() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
     let rendered = eval_rendered(
@@ -1160,6 +1180,7 @@ fn bootstrap_runtime_preserves_gnu_minibuffer_completion_bindings() {
 
 #[test]
 fn bootstrap_runtime_global_obarray_proxy_preserves_completion_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
     let rendered = eval_rendered(
@@ -1357,6 +1378,7 @@ fn bootstrap_runtime_list_buffers_command_path_matches_gnu() {
 
 #[test]
 fn bootstrap_runtime_buffer_file_name_variable_defaults_to_nil() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
@@ -1373,6 +1395,7 @@ fn bootstrap_runtime_buffer_file_name_variable_defaults_to_nil() {
 
 #[test]
 fn bootstrap_runtime_buffer_auto_save_file_name_variable_defaults_to_nil() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
@@ -1389,6 +1412,7 @@ fn bootstrap_runtime_buffer_auto_save_file_name_variable_defaults_to_nil() {
 
 #[test]
 fn bootstrap_runtime_add_to_invisibility_spec_matches_gnu_default_t() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
@@ -1407,6 +1431,7 @@ fn bootstrap_runtime_add_to_invisibility_spec_matches_gnu_default_t() {
 
 #[test]
 fn bootstrap_runtime_view_hello_file_command_path_matches_gnu() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
@@ -1427,6 +1452,7 @@ fn bootstrap_runtime_view_hello_file_command_path_matches_gnu() {
 
 #[test]
 fn bootstrap_runtime_cd_accepts_existing_abbreviated_directory_like_gnu() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
@@ -1448,6 +1474,7 @@ fn bootstrap_runtime_cd_accepts_existing_abbreviated_directory_like_gnu() {
 
 #[test]
 fn bootstrap_runtime_find_file_handles_multibyte_markdown_like_gnu() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
@@ -1495,6 +1522,7 @@ fn bootstrap_runtime_read_key_sequence_follows_escape_prefix_command() {
 
 #[test]
 fn bootstrap_runtime_read_key_sequence_follows_meta_x_command() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
@@ -1510,6 +1538,7 @@ fn bootstrap_runtime_read_key_sequence_follows_meta_x_command() {
 
 #[test]
 fn bootstrap_runtime_loads_gnu_window_split_entry_point() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     let forms = parse_forms(
         "(list (fboundp 'split-window)
@@ -1524,6 +1553,7 @@ fn bootstrap_runtime_loads_gnu_window_split_entry_point() {
 
 #[test]
 fn bootstrap_runtime_cl_reduce_entry_point_works() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
     let rendered = eval_rendered(
@@ -1537,6 +1567,7 @@ fn bootstrap_runtime_cl_reduce_entry_point_works() {
 
 #[test]
 fn bootstrap_runtime_cl_defstruct_entry_point_works() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
     let rendered = eval_rendered(
@@ -1557,6 +1588,7 @@ fn bootstrap_runtime_cl_defstruct_entry_point_works() {
 
 #[test]
 fn bootstrap_runtime_interpreted_closure_filter_state_matches_gnu_emacs() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
     let rendered = eval_rendered(
@@ -1574,6 +1606,7 @@ fn bootstrap_runtime_interpreted_closure_filter_state_matches_gnu_emacs() {
 
 #[test]
 fn bootstrap_runtime_rebound_interpreted_closure_filter_remains_observable() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
     let rendered = eval_rendered(
@@ -1599,6 +1632,7 @@ fn bootstrap_runtime_rebound_interpreted_closure_filter_remains_observable() {
 
 #[test]
 fn bootstrap_runtime_cl_defstruct_macroexpand_all_head_matches_gnu() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
     let rendered = eval_rendered(
@@ -1614,6 +1648,7 @@ fn bootstrap_runtime_cl_defstruct_macroexpand_all_head_matches_gnu() {
 
 #[test]
 fn bootstrap_runtime_cl_defstruct_autoload_state_matches_gnu() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
     let rendered = eval_rendered(
@@ -1640,6 +1675,7 @@ fn bootstrap_runtime_cl_defstruct_autoload_state_matches_gnu() {
 
 #[test]
 fn bootstrap_runtime_cl_transform_lambda_matches_gnu() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
     let rendered = eval_rendered(
@@ -1656,6 +1692,7 @@ fn bootstrap_runtime_cl_transform_lambda_matches_gnu() {
 
 #[test]
 fn bootstrap_runtime_cl_defun_entry_point_matches_gnu() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
     let rendered = eval_rendered(
@@ -1673,6 +1710,7 @@ fn bootstrap_runtime_cl_defun_entry_point_matches_gnu() {
 
 #[test]
 fn bootstrap_runtime_cl_defsubst_key_defaults_matches_gnu() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
     let rendered = eval_rendered(
@@ -1691,6 +1729,7 @@ fn bootstrap_runtime_cl_defsubst_key_defaults_matches_gnu() {
 
 #[test]
 fn bootstrap_runtime_cl_defun_cl_quote_key_defaults_matches_gnu() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
     let rendered = eval_rendered(
@@ -1709,6 +1748,7 @@ fn bootstrap_runtime_cl_defun_cl_quote_key_defaults_matches_gnu() {
 
 #[test]
 fn bootstrap_runtime_cl_transform_lambda_cl_quote_key_defaults_matches_gnu() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
     let rendered = eval_rendered(
@@ -1742,6 +1782,7 @@ fn eval_rendered(eval: &mut Context, form: &str) -> String {
 
 #[test]
 fn bootstrap_condition_case_lexical_handler_binding_restores_outer_let() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
@@ -1761,6 +1802,7 @@ fn bootstrap_condition_case_lexical_handler_binding_restores_outer_let() {
 
 #[test]
 fn bootstrap_runtime_seeds_gnu_per_buffer_frame_display_vars() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
@@ -1782,6 +1824,7 @@ fn bootstrap_runtime_seeds_gnu_per_buffer_frame_display_vars() {
 
 #[test]
 fn bootstrap_runtime_standard_fontset_spec_creates_named_fontset() {
+    crate::test_utils::init_test_tracing();
     let mut eval =
         create_bootstrap_evaluator_cached_with_features(&["neomacs"]).expect("bootstrap evaluator");
     let parsed = parse_forms(
@@ -1803,6 +1846,7 @@ fn bootstrap_runtime_standard_fontset_spec_creates_named_fontset() {
 
 #[test]
 fn bootstrap_runtime_setup_default_fontset_preserves_gnu_han_order() {
+    crate::test_utils::init_test_tracing();
     let mut eval =
         create_bootstrap_evaluator_with_features(&["neomacs"]).expect("fresh bootstrap evaluator");
     let rendered = eval_rendered(
@@ -1860,6 +1904,7 @@ fn bootstrap_runtime_setup_default_fontset_preserves_gnu_han_order() {
 
 #[test]
 fn bootstrap_runtime_fontset_font_for_han_matches_gnu_order() {
+    crate::test_utils::init_test_tracing();
     let mut eval =
         create_bootstrap_evaluator_with_features(&["neomacs"]).expect("fresh bootstrap evaluator");
 
@@ -1888,6 +1933,7 @@ fn bootstrap_runtime_fontset_font_for_han_matches_gnu_order() {
 
 #[test]
 fn bootstrap_runtime_fontset_font_accepts_multibyte_character_ints() {
+    crate::test_utils::init_test_tracing();
     let mut eval =
         create_bootstrap_evaluator_with_features(&["neomacs"]).expect("fresh bootstrap evaluator");
 
@@ -1917,6 +1963,7 @@ fn bootstrap_runtime_fontset_font_accepts_multibyte_character_ints() {
 
 #[test]
 fn bootstrap_x_runtime_prebinds_gnu_x_globals_before_x_win_initialization() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_with_features(&["x"]).expect("x bootstrap evaluator");
     let rendered = eval_rendered(
         &mut eval,
@@ -1937,6 +1984,7 @@ fn bootstrap_x_runtime_prebinds_gnu_x_globals_before_x_win_initialization() {
 
 #[test]
 fn bootstrap_runtime_match_data_returns_marker_handles_for_buffer_search() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
@@ -1956,6 +2004,7 @@ fn bootstrap_runtime_match_data_returns_marker_handles_for_buffer_search() {
 
 #[test]
 fn bootstrap_neomacs_runtime_loads_neo_term_layer() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_with_features(&["neomacs"])
         .expect("neomacs bootstrap evaluator");
     assert!(eval.feature_present("neomacs"));
@@ -1965,6 +2014,7 @@ fn bootstrap_neomacs_runtime_loads_neo_term_layer() {
 
 #[test]
 fn bootstrap_neomacs_gui_runtime_prefers_neo_term_layer_over_x_term() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_with_features(&["neomacs", "x"])
         .expect("neomacs+x bootstrap evaluator");
     assert!(eval.feature_present("neomacs"));
@@ -1975,6 +2025,7 @@ fn bootstrap_neomacs_gui_runtime_prefers_neo_term_layer_over_x_term() {
 
 #[test]
 fn loadup_source_preloads_mouse_help_fixup_runtime_surface() {
+    crate::test_utils::init_test_tracing();
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
     let loadup = project_root.join("lisp/loadup.el");
@@ -1988,6 +2039,7 @@ fn loadup_source_preloads_mouse_help_fixup_runtime_surface() {
 
 #[test]
 fn bootstrap_help_fns_loads_and_preserves_hook_depth_metadata() {
+    crate::test_utils::init_test_tracing();
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
     let help_fns = project_root.join("lisp/help-fns.el");
@@ -2011,6 +2063,7 @@ fn bootstrap_help_fns_loads_and_preserves_hook_depth_metadata() {
 
 #[test]
 fn bootstrap_help_fns_describe_function_writes_help_buffer() {
+    crate::test_utils::init_test_tracing();
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
     let help_fns = project_root.join("lisp/help-fns.el");
@@ -2032,6 +2085,7 @@ fn bootstrap_help_fns_describe_function_writes_help_buffer() {
 
 #[test]
 fn bootstrap_help_fns_describe_variable_writes_help_buffer() {
+    crate::test_utils::init_test_tracing();
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
     let help_fns = project_root.join("lisp/help-fns.el");
@@ -2053,6 +2107,7 @@ fn bootstrap_help_fns_describe_variable_writes_help_buffer() {
 
 #[test]
 fn bootstrap_runtime_describe_function_autoloads_help_fns() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
@@ -2071,6 +2126,7 @@ fn bootstrap_runtime_describe_function_autoloads_help_fns() {
 
 #[test]
 fn bootstrap_runtime_describe_variable_autoloads_help_fns() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
@@ -2089,6 +2145,7 @@ fn bootstrap_runtime_describe_variable_autoloads_help_fns() {
 
 #[test]
 fn bootstrap_runtime_eieio_core_starts_as_gnu_autoload_state() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
 
     let rendered = eval_rendered(
@@ -2103,6 +2160,7 @@ fn bootstrap_runtime_eieio_core_starts_as_gnu_autoload_state() {
 
 #[test]
 fn runtime_startup_state_preserves_gui_frame_metrics() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     let scratch = eval.buffers.create_buffer("*scratch*");
     let fid = eval.frames.create_frame("F1", 960, 640, scratch);
@@ -2121,6 +2179,7 @@ fn runtime_startup_state_preserves_gui_frame_metrics() {
 
 #[test]
 fn bootstrap_misc_upcase_char_preserves_point_and_uppercases_region() {
+    crate::test_utils::init_test_tracing();
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
     let misc = project_root.join("lisp/misc.el");
@@ -2141,6 +2200,7 @@ fn bootstrap_misc_upcase_char_preserves_point_and_uppercases_region() {
 
 #[test]
 fn bootstrap_runtime_upcase_char_autoloads_misc() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
@@ -2196,17 +2256,12 @@ fn fresh_bootstrap_eval_with_loaded_file(path: &std::path::Path, form: &str) -> 
 
 #[test]
 fn profile_single_bootstrap_file_load() {
+    crate::test_utils::init_test_tracing();
     if std::env::var("NEOVM_PROFILE_BOOTSTRAP_FILE").is_err() {
         return;
     }
 
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .with_test_writer()
-        .try_init();
+    crate::test_utils::init_test_tracing();
 
     let target = std::env::var("NEOVM_PROFILE_BOOTSTRAP_FILE").expect("profile target");
     let stop_before =
@@ -2244,6 +2299,7 @@ fn profile_single_bootstrap_file_load() {
 
 #[test]
 fn strip_reader_prefix_handles_bom_and_shebang() {
+    crate::test_utils::init_test_tracing();
     let source = "#!/usr/bin/env emacs --script\n(setq vm-shebang-strip 1)\n";
     assert_eq!(
         strip_reader_prefix(source),
@@ -2274,6 +2330,7 @@ fn strip_reader_prefix_handles_bom_and_shebang() {
 
 #[test]
 fn lexical_binding_detects_second_line_cookie_after_shebang() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         lexical_binding_cookie_in_file_local_cookie_line(
             ";; -*- mode: emacs-lisp; lexical-binding: nil; -*-",
@@ -2320,11 +2377,13 @@ fn lexical_binding_detects_second_line_cookie_after_shebang() {
 
 #[test]
 fn find_file_nonexistent() {
+    crate::test_utils::init_test_tracing();
     assert!(find_file_in_load_path("nonexistent", &[]).is_none());
 }
 
 #[test]
 fn load_path_extraction() {
+    crate::test_utils::init_test_tracing();
     let mut ob = super::super::symbol::Obarray::new();
     ob.set_symbol_value("default-directory", Value::string("/tmp/project"));
     ob.set_symbol_value(
@@ -2348,6 +2407,7 @@ fn load_path_extraction() {
 
 #[test]
 fn find_file_with_suffix_flags() {
+    crate::test_utils::init_test_tracing();
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock before epoch")
@@ -2390,6 +2450,7 @@ fn find_file_with_suffix_flags() {
 
 #[test]
 fn find_file_prefers_earlier_load_path_directory() {
+    crate::test_utils::init_test_tracing();
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock before epoch")
@@ -2419,6 +2480,7 @@ fn find_file_prefers_earlier_load_path_directory() {
 
 #[test]
 fn find_file_prefers_newer_source_when_enabled() {
+    crate::test_utils::init_test_tracing();
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock before epoch")
@@ -2450,6 +2512,7 @@ fn find_file_prefers_newer_source_when_enabled() {
 
 #[test]
 fn load_file_records_load_history() {
+    crate::test_utils::init_test_tracing();
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock before epoch")
@@ -2489,6 +2552,7 @@ fn load_file_records_load_history() {
 
 #[test]
 fn ensure_startup_compat_variables_backfills_xfaces_bootstrap_state() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     for name in [
         "face-filters-always-match",
@@ -2579,6 +2643,7 @@ fn ensure_startup_compat_variables_backfills_xfaces_bootstrap_state() {
 
 #[test]
 fn nested_load_restores_parent_load_file_name() {
+    crate::test_utils::init_test_tracing();
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock before epoch")
@@ -2632,6 +2697,7 @@ fn nested_load_restores_parent_load_file_name() {
 
 #[test]
 fn load_file_accepts_shebang_and_honors_second_line_lexical_binding_cookie() {
+    crate::test_utils::init_test_tracing();
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock before epoch")
@@ -2675,6 +2741,7 @@ fn load_file_accepts_shebang_and_honors_second_line_lexical_binding_cookie() {
 
 #[test]
 fn load_file_does_not_enable_lexical_binding_from_non_cookie_second_line_text() {
+    crate::test_utils::init_test_tracing();
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock before epoch")
@@ -2721,6 +2788,7 @@ fn load_file_does_not_enable_lexical_binding_from_non_cookie_second_line_text() 
 
 #[test]
 fn load_file_accepts_utf8_bom_prefixed_source() {
+    crate::test_utils::init_test_tracing();
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock before epoch")
@@ -2752,6 +2820,7 @@ fn load_file_accepts_utf8_bom_prefixed_source() {
 
 #[test]
 fn load_file_single_line_shebang_signals_end_of_file() {
+    crate::test_utils::init_test_tracing();
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock before epoch")
@@ -2776,6 +2845,7 @@ fn load_file_single_line_shebang_signals_end_of_file() {
 
 #[test]
 fn load_elc_is_supported() {
+    crate::test_utils::init_test_tracing();
     // .elc files are now supported. A valid .elc with a simple setq should work.
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -2804,6 +2874,7 @@ fn load_elc_is_supported() {
 
 #[test]
 fn load_elc_gz_is_rejected() {
+    crate::test_utils::init_test_tracing();
     // .elc.gz files are still unsupported.
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -2826,6 +2897,7 @@ fn load_elc_gz_is_rejected() {
 
 #[test]
 fn find_file_surfaces_elc_only_artifact_as_explicit_unsupported_load_target() {
+    crate::test_utils::init_test_tracing();
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock before epoch")
@@ -2847,6 +2919,7 @@ fn find_file_surfaces_elc_only_artifact_as_explicit_unsupported_load_target() {
 
 #[test]
 fn load_elc_gz_is_explicitly_unsupported() {
+    crate::test_utils::init_test_tracing();
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock before epoch")
@@ -2871,18 +2944,13 @@ fn load_elc_gz_is_explicitly_unsupported() {
 /// NEOVM_LOADUP_TEST_SKIP=1 to skip it.
 #[test]
 fn neovm_loadup_bootstrap() {
+    crate::test_utils::init_test_tracing();
     if std::env::var("NEOVM_LOADUP_TEST_SKIP").as_deref() == Ok("1") {
         tracing::info!("skipping neovm_loadup_bootstrap (NEOVM_LOADUP_TEST_SKIP=1)");
         return;
     }
 
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .with_test_writer()
-        .try_init();
+    crate::test_utils::init_test_tracing();
 
     let mut eval = create_bootstrap_evaluator().expect("loadup bootstrap should succeed");
     let form = crate::emacs_core::parser::parse_forms(
@@ -2932,6 +3000,7 @@ fn neovm_loadup_bootstrap() {
 
 #[test]
 fn compiled_bootstrap_cl_preload_stubs_work_after_faces() {
+    crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("!bootstrap-cl-preloaded-stubs", true);
     let stubs = [
         "(defmacro cl--find-class (type) `(get ,type 'cl--class))",
@@ -2962,13 +3031,7 @@ fn compiled_bootstrap_cl_preload_stubs_work_after_faces() {
 
 #[test]
 fn deftheme_and_provide_theme_works() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
-        )
-        .with_test_writer()
-        .try_init();
+    crate::test_utils::init_test_tracing();
 
     let mut eval = create_bootstrap_evaluator().expect("bootstrap");
 
@@ -2994,13 +3057,7 @@ fn deftheme_and_provide_theme_works() {
 
 #[test]
 fn eval_after_load_defines_function_on_provide() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
-        )
-        .with_test_writer()
-        .try_init();
+    crate::test_utils::init_test_tracing();
 
     let mut eval = create_bootstrap_evaluator().expect("bootstrap");
 
@@ -3060,13 +3117,7 @@ fn eval_after_load_defines_function_on_provide() {
 
 #[test]
 fn defface_warning_creates_face_after_bootstrap() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
-        )
-        .with_test_writer()
-        .try_init();
+    crate::test_utils::init_test_tracing();
 
     let mut eval = create_bootstrap_evaluator().expect("bootstrap");
 
@@ -3082,13 +3133,7 @@ fn defface_warning_creates_face_after_bootstrap() {
 
 #[test]
 fn uninterned_symbol_in_hook_works() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
-        )
-        .with_test_writer()
-        .try_init();
+    crate::test_utils::init_test_tracing();
 
     let mut eval = create_bootstrap_evaluator().expect("bootstrap");
 
@@ -3115,13 +3160,7 @@ fn uninterned_symbol_in_hook_works() {
 
 #[test]
 fn defun_inside_lambda_works() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .with_test_writer()
-        .try_init();
+    crate::test_utils::init_test_tracing();
 
     let mut eval = create_bootstrap_evaluator().expect("bootstrap");
 
@@ -3146,6 +3185,7 @@ fn defun_inside_lambda_works() {
 
 #[test]
 fn elc_loading_defines_defcustom_variables() {
+    crate::test_utils::init_test_tracing();
     let general_elc = std::path::Path::new(
         "/home/exec/.config/emacs/.local/straight/build-31.0.50/general/general.elc",
     );
@@ -3154,13 +3194,7 @@ fn elc_loading_defines_defcustom_variables() {
         return;
     }
 
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .with_test_writer()
-        .try_init();
+    crate::test_utils::init_test_tracing();
 
     let mut eval = create_bootstrap_evaluator().expect("bootstrap");
 
@@ -3237,6 +3271,7 @@ fn elc_loading_defines_defcustom_variables() {
 
 #[test]
 fn source_cl_lib_loads_after_early_gv_without_bootstrap_gv_stubs() {
+    crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("!bootstrap-cl-preloaded-stubs", false);
     let rendered = eval_rendered(
         &mut eval,
@@ -3257,6 +3292,7 @@ fn source_cl_lib_loads_after_early_gv_without_bootstrap_gv_stubs() {
 
 #[test]
 fn compiled_cl_preloaded_loads_after_faces() {
+    crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("emacs-lisp/cl-preloaded", true);
     let load_path = get_load_path(&eval.obarray());
     let path = bootstrap_fixture_path(&load_path, "emacs-lisp/cl-preloaded", true)
@@ -3280,6 +3316,7 @@ fn compiled_cl_preloaded_loads_after_faces() {
 
 #[test]
 fn source_cycle_spacing_form_loads_after_bootstrap_prefix() {
+    crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("simple", false);
     let load_path = get_load_path(&eval.obarray());
     let path = bootstrap_fixture_path(&load_path, "simple", false).expect("simple.el path");
@@ -3326,6 +3363,7 @@ fn source_cycle_spacing_form_loads_after_bootstrap_prefix() {
 
 #[test]
 fn partial_bootstrap_footer_local_variables_error_is_catchable() {
+    crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("emacs-lisp/macroexp", false);
     let rendered = eval_rendered(
         &mut eval,
@@ -3353,6 +3391,7 @@ fn partial_bootstrap_footer_local_variables_error_is_catchable() {
 
 #[test]
 fn partial_bootstrap_with_demoted_errors_swallows_footer_local_variables_error() {
+    crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("emacs-lisp/macroexp", false);
     let rendered = eval_rendered(
         &mut eval,
@@ -3376,6 +3415,7 @@ fn partial_bootstrap_with_demoted_errors_swallows_footer_local_variables_error()
 
 #[test]
 fn partial_bootstrap_load_with_code_conversion_swallows_footer_local_variables_error() {
+    crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("emacs-lisp/macroexp", false);
     eval.set_variable(
         "load-source-file-function",
@@ -3406,6 +3446,7 @@ fn partial_bootstrap_load_with_code_conversion_swallows_footer_local_variables_e
 
 #[test]
 fn partial_bootstrap_looking_back_matches_empty_suffix_at_line_end() {
+    crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("emacs-lisp/macroexp", false);
     let rendered = eval_rendered(
         &mut eval,
@@ -3425,6 +3466,7 @@ fn partial_bootstrap_looking_back_matches_empty_suffix_at_line_end() {
 
 #[test]
 fn compiled_characters_loads_after_case_table() {
+    crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("international/characters", true);
     let load_path = get_load_path(&eval.obarray());
     let path = bootstrap_fixture_path(&load_path, "international/characters", true)
@@ -3441,13 +3483,7 @@ fn compiled_characters_loads_after_case_table() {
 
 #[test]
 fn source_chinese_loads_after_composite() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .with_test_writer()
-        .try_init();
+    crate::test_utils::init_test_tracing();
 
     let mut eval = partial_bootstrap_eval_until("language/chinese", false);
     let load_path = get_load_path(&eval.obarray());
@@ -3465,6 +3501,7 @@ fn source_chinese_loads_after_composite() {
 
 #[test]
 fn define_prefix_command_sets_symbol_value_and_function() {
+    crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("keymap", false);
     let probe = crate::emacs_core::parser::parse_forms(
         r#"(let ((cmd 'neovm--test-prefix-map))
@@ -3485,6 +3522,7 @@ fn define_prefix_command_sets_symbol_value_and_function() {
 
 #[test]
 fn lookup_key_returned_submenu_symbol_has_bound_value() {
+    crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("keymap", false);
     let probe = crate::emacs_core::parser::parse_forms(
         r#"(let* ((root (make-sparse-keymap))
@@ -3507,6 +3545,7 @@ fn lookup_key_returned_submenu_symbol_has_bound_value() {
 
 #[test]
 fn set_language_info_alist_reuses_chinese_submenu_like_gnu_emacs() {
+    crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("language/chinese", false);
     let probe = crate::emacs_core::parser::parse_forms(
         r#"(progn
@@ -3529,6 +3568,7 @@ fn set_language_info_alist_reuses_chinese_submenu_like_gnu_emacs() {
 
 #[test]
 fn bootstrap_load_sequence_includes_gnu_x_term_layer_after_tool_bar() {
+    crate::test_utils::init_test_tracing();
     let tool_bar_idx = BOOTSTRAP_LOAD_SEQUENCE
         .iter()
         .position(|name| *name == "tool-bar")
@@ -3552,6 +3592,7 @@ fn bootstrap_load_sequence_includes_gnu_x_term_layer_after_tool_bar() {
 
 #[test]
 fn partial_bootstrap_fill_delete_newlines_matches_gnu_trailing_space_behavior() {
+    crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("tool-bar", false);
     let load_path = get_load_path(&eval.obarray());
     let fill_path =
@@ -3588,13 +3629,7 @@ fn partial_bootstrap_fill_delete_newlines_matches_gnu_trailing_space_behavior() 
 
 #[test]
 fn bootstrap_tool_bar_mode_comes_from_gnu_mode_macro_path() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .with_test_writer()
-        .try_init();
+    crate::test_utils::init_test_tracing();
 
     tracing::info!("tool-bar probe: begin partial bootstrap");
     let mut eval = partial_bootstrap_eval_until("tool-bar", false);
@@ -4601,6 +4636,7 @@ conveniently adding tool bar items."
 
 #[test]
 fn evaluator_bootstrap_binds_default_frame_scroll_bars_like_gnu_frame_c() {
+    crate::test_utils::init_test_tracing();
     let eval = Context::new();
     assert_eq!(
         eval.obarray.symbol_value("default-frame-scroll-bars"),
@@ -4610,13 +4646,7 @@ fn evaluator_bootstrap_binds_default_frame_scroll_bars_like_gnu_frame_c() {
 
 #[test]
 fn auth_source_backend_exposes_type_slot() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .with_test_writer()
-        .try_init();
+    crate::test_utils::init_test_tracing();
 
     let mut eval =
         create_bootstrap_evaluator_cached_with_features(&["neomacs"]).expect("bootstrap evaluator");
@@ -4685,6 +4715,7 @@ fn expect_vector_ints(value: Value) -> Vec<i64> {
 
 #[test]
 fn cl_callf_updates_variable_place() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
     let form = crate::emacs_core::parser::parse_forms(
         "(let ((a '(3 2 1)))
@@ -4700,6 +4731,7 @@ fn cl_callf_updates_variable_place() {
 
 #[test]
 fn direct_setq_funcall_updates_variable_place() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
     let form = crate::emacs_core::parser::parse_forms(
         "(let ((a '(3 2 1)))
@@ -4715,6 +4747,7 @@ fn direct_setq_funcall_updates_variable_place() {
 
 #[test]
 fn pdump_roundtrip_preserves_advice_remove_member_lifecycle() {
+    crate::test_utils::init_test_tracing();
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
 
@@ -4812,6 +4845,7 @@ fn pdump_roundtrip_preserves_advice_remove_member_lifecycle() {
 
 #[test]
 fn pdump_roundtrip_evaluates_full_advice_remove_member_form() {
+    crate::test_utils::init_test_tracing();
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
 
@@ -4859,6 +4893,7 @@ fn pdump_roundtrip_evaluates_full_advice_remove_member_form() {
 
 #[test]
 fn cached_bootstrap_reload_evaluates_full_advice_remove_member_form() {
+    crate::test_utils::init_test_tracing();
     let form_source = r#"(progn
       (fset 'neovm--adv-tgt3 (lambda (x) x))
       (fset 'neovm--adv-fn3a (lambda (&rest _) nil))
@@ -4908,6 +4943,7 @@ fn cached_bootstrap_reload_evaluates_full_advice_remove_member_form() {
 
 #[test]
 fn runtime_startup_state_matches_char_syntax_comprehensive_form() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
@@ -4959,6 +4995,7 @@ fn runtime_startup_state_matches_char_syntax_comprehensive_form() {
 
 #[test]
 fn bootstrap_eieio_core_preserves_accessor_compiler_macro() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
@@ -4983,6 +5020,7 @@ fn bootstrap_eieio_core_preserves_accessor_compiler_macro() {
 
 #[test]
 fn bootstrap_defun_compiler_macro_declaration_sets_properties() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
@@ -5004,6 +5042,7 @@ fn bootstrap_defun_compiler_macro_declaration_sets_properties() {
 
 #[test]
 fn bootstrap_define_inline_sets_compiler_macro_properties() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
@@ -5026,6 +5065,7 @@ fn bootstrap_define_inline_sets_compiler_macro_properties() {
 
 #[test]
 fn expanded_cache_replay_preserves_define_inline_compiler_macro() {
+    crate::test_utils::init_test_tracing();
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("vm-inline-cache.el");
     std::fs::write(
@@ -5057,6 +5097,7 @@ fn expanded_cache_replay_preserves_define_inline_compiler_macro() {
 
 #[test]
 fn expanded_cache_replay_preserves_oclosure_define_class_registration() {
+    crate::test_utils::init_test_tracing();
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("vm-oclosure-cache.el");
     std::fs::write(
@@ -5096,6 +5137,7 @@ fn expanded_cache_replay_preserves_oclosure_define_class_registration() {
 
 #[test]
 fn expanded_cache_replay_preserves_nadvice_eval_and_compile_helpers() {
+    crate::test_utils::init_test_tracing();
     let load_with_partial_bootstrap = || {
         std::thread::Builder::new()
             .name("nadvice-cache-replay".into())
@@ -5124,6 +5166,7 @@ fn expanded_cache_replay_preserves_nadvice_eval_and_compile_helpers() {
 
 #[test]
 fn bootstrap_eieio_core_accessor_macroexpand_matches_gnu_source_shape() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
@@ -5149,6 +5192,7 @@ fn bootstrap_eieio_core_accessor_macroexpand_matches_gnu_source_shape() {
 
 #[test]
 fn bootstrap_eieio_core_accessor_compiler_macro_properties_visible() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
@@ -5170,6 +5214,7 @@ fn bootstrap_eieio_core_accessor_compiler_macro_properties_visible() {
 
 #[test]
 fn bootstrap_eieio_core_accessor_compiler_macro_call_matches_gnu_source_shape() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
@@ -5192,6 +5237,7 @@ fn bootstrap_eieio_core_accessor_compiler_macro_call_matches_gnu_source_shape() 
 
 #[test]
 fn bootstrap_runtime_funcall_interactively_marks_backtrace_frame() {
+    crate::test_utils::init_test_tracing();
     let mut eval = isolated_runtime_bootstrap_eval();
 
     let rendered = eval_rendered(
@@ -5214,6 +5260,7 @@ fn bootstrap_runtime_funcall_interactively_marks_backtrace_frame() {
 
 #[test]
 fn bootstrap_runtime_advice_preserves_called_interactively_stack_behavior() {
+    crate::test_utils::init_test_tracing();
     let mut eval = isolated_runtime_bootstrap_eval();
 
     let rendered = eval_rendered(
@@ -5242,6 +5289,7 @@ fn bootstrap_runtime_advice_preserves_called_interactively_stack_behavior() {
 
 #[test]
 fn bootstrap_runtime_around_advice_preserves_advice_stack_shape() {
+    crate::test_utils::init_test_tracing();
     let mut eval = isolated_runtime_bootstrap_eval();
 
     let rendered = eval_rendered(
@@ -5279,6 +5327,7 @@ fn bootstrap_runtime_around_advice_preserves_advice_stack_shape() {
 
 #[test]
 fn bootstrap_runtime_before_advice_preserves_advice_stack_shape() {
+    crate::test_utils::init_test_tracing();
     let mut eval = isolated_runtime_bootstrap_eval();
 
     let rendered = eval_rendered(
@@ -5324,6 +5373,7 @@ fn bootstrap_runtime_before_advice_preserves_advice_stack_shape() {
 
 #[test]
 fn runtime_add_function_and_advice_mapc_on_symbol_function_place() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
@@ -5371,6 +5421,7 @@ fn runtime_add_function_and_advice_mapc_on_symbol_function_place() {
 
 #[test]
 fn runtime_add_function_on_local_place() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
@@ -5413,6 +5464,7 @@ fn runtime_add_function_on_local_place() {
 
 #[test]
 fn runtime_add_function_on_process_filter_place() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
@@ -5443,6 +5495,7 @@ fn runtime_add_function_on_process_filter_place() {
 
 #[test]
 fn runtime_add_function_on_process_sentinel_place() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
@@ -5473,6 +5526,7 @@ fn runtime_add_function_on_process_sentinel_place() {
 
 #[test]
 fn bootstrap_cl_extra_source_vs_compiled_cl_subseq_setf() {
+    crate::test_utils::init_test_tracing();
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
     let cl_extra_base = project_root.join("lisp/emacs-lisp/cl-extra");
@@ -5497,6 +5551,7 @@ fn bootstrap_cl_extra_source_vs_compiled_cl_subseq_setf() {
 
 #[test]
 fn bootstrap_cl_extra_gv_expander_requires_eval_in_source_and_compiled_paths() {
+    crate::test_utils::init_test_tracing();
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
     let cl_extra_base = project_root.join("lisp/emacs-lisp/cl-extra");
@@ -5532,6 +5587,7 @@ fn bootstrap_cl_extra_gv_expander_requires_eval_in_source_and_compiled_paths() {
 
 #[test]
 fn bootstrap_load_file_defun_gv_setter_declaration_evaluates_generated_form() {
+    crate::test_utils::init_test_tracing();
     let source = r#"
 (defun vm-loaded-gv-subseq (seq start &optional end)
   (declare
@@ -5554,6 +5610,7 @@ fn bootstrap_load_file_defun_gv_setter_declaration_evaluates_generated_form() {
 
 #[test]
 fn bootstrap_load_file_exact_cl_subseq_shape_evaluates_generated_form() {
+    crate::test_utils::init_test_tracing();
     let source = r#"
 (defun vm-loaded-cl-subseq-shape (seq start &optional end)
   "Return the subsequence of SEQ from START to END.
@@ -5580,6 +5637,7 @@ too large if positive or too small if negative)."
 
 #[test]
 fn cl_callf_updates_generalized_place() {
+    crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
     let form = crate::emacs_core::parser::parse_forms(
         "(let ((box (list '(3 2 1))))
@@ -5598,17 +5656,12 @@ fn cl_callf_updates_generalized_place() {
 /// if it terminates.
 #[test]
 fn macroexpand_all_pcase_terminates() {
+    crate::test_utils::init_test_tracing();
     if std::env::var("NEOVM_LOADUP_TEST").as_deref() != Ok("1") {
         tracing::info!("skipping (set NEOVM_LOADUP_TEST=1)");
         return;
     }
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .with_test_writer()
-        .try_init();
+    crate::test_utils::init_test_tracing();
     let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("root");
     let lisp_dir = project_root.join("lisp");
@@ -5698,6 +5751,7 @@ fn macroexpand_all_pcase_terminates() {
 
 #[test]
 fn macroexp_eager_reload_preserves_symbol_identity() {
+    crate::test_utils::init_test_tracing();
     let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("root");
     let lisp_dir = project_root.join("lisp");
@@ -5791,6 +5845,7 @@ fn macroexp_eager_reload_preserves_symbol_identity() {
 
 #[test]
 fn function_get_only_exposes_cxxr_compiler_macro_on_cxxr_symbols() {
+    crate::test_utils::init_test_tracing();
     let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("root");
     let lisp_dir = project_root.join("lisp");
@@ -5840,13 +5895,7 @@ fn function_get_only_exposes_cxxr_compiler_macro_on_cxxr_symbols() {
 /// "Unknown pattern '32'" error from rx.el line 1284.
 #[test]
 fn pcase_integer_literal_pattern() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("debug")),
-        )
-        .with_test_writer()
-        .try_init();
+    crate::test_utils::init_test_tracing();
     let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("root");
     let lisp_dir = project_root.join("lisp");
@@ -6003,13 +6052,7 @@ fn pcase_integer_literal_pattern() {
 
 #[test]
 fn key_parse_modifier_bits() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .with_test_writer()
-        .try_init();
+    crate::test_utils::init_test_tracing();
 
     let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
@@ -6106,6 +6149,7 @@ fn key_parse_modifier_bits() {
 
 #[test]
 fn char_literal_roundtrip() {
+    crate::test_utils::init_test_tracing();
     use crate::emacs_core::expr::print_expr;
 
     let cases: Vec<(char, &str)> = vec![
@@ -6169,6 +6213,7 @@ fn char_literal_roundtrip() {
 
 #[test]
 fn generated_loaddefs_replays_metadata_forms_on_bootstrap_runtime_surface() {
+    crate::test_utils::init_test_tracing();
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock before epoch")
@@ -6304,6 +6349,7 @@ fn generated_loaddefs_replays_metadata_forms_on_bootstrap_runtime_surface() {
 
 #[test]
 fn contains_opaque_value_detection() {
+    crate::test_utils::init_test_tracing();
     // Plain forms should not contain opaque values
     let plain = Expr::List(vec![
         Expr::Symbol(intern("setq")),

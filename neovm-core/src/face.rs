@@ -1476,6 +1476,7 @@ mod tests {
 
     #[test]
     fn color_from_hex() {
+        crate::test_utils::init_test_tracing();
         assert_eq!(Color::from_hex("#ff0000"), Some(Color::rgb(255, 0, 0)));
         assert_eq!(Color::from_hex("#00ff00"), Some(Color::rgb(0, 255, 0)));
         assert_eq!(Color::from_hex("#abc"), Some(Color::rgb(170, 187, 204)));
@@ -1484,11 +1485,13 @@ mod tests {
 
     #[test]
     fn color_to_hex() {
+        crate::test_utils::init_test_tracing();
         assert_eq!(Color::rgb(255, 0, 128).to_hex(), "#ff0080");
     }
 
     #[test]
     fn color_from_name() {
+        crate::test_utils::init_test_tracing();
         assert_eq!(Color::from_name("red"), Some(Color::rgb(255, 0, 0)));
         assert_eq!(Color::from_name("RED"), Some(Color::rgb(255, 0, 0)));
         assert_eq!(Color::from_name("nonexistent"), None);
@@ -1496,6 +1499,7 @@ mod tests {
 
     #[test]
     fn face_merge() {
+        crate::test_utils::init_test_tracing();
         let base = Face {
             name: "base".into(),
             foreground: Some(Color::rgb(0, 0, 0)),
@@ -1515,6 +1519,7 @@ mod tests {
 
     #[test]
     fn face_inverse_video() {
+        crate::test_utils::init_test_tracing();
         let face = Face {
             name: "test".into(),
             foreground: Some(Color::rgb(255, 255, 255)),
@@ -1529,6 +1534,7 @@ mod tests {
 
     #[test]
     fn face_table_standard_faces() {
+        crate::test_utils::init_test_tracing();
         let table = FaceTable::new();
         assert!(table.get("default").is_some());
         assert!(table.get("bold").is_some());
@@ -1543,6 +1549,7 @@ mod tests {
 
     #[test]
     fn default_face_does_not_seed_font_family_or_height() {
+        crate::test_utils::init_test_tracing();
         let table = FaceTable::new();
         let default = table.get("default").expect("default face");
         assert!(default.family.is_none());
@@ -1551,6 +1558,7 @@ mod tests {
 
     #[test]
     fn face_table_resolve_inheritance() {
+        crate::test_utils::init_test_tracing();
         let table = FaceTable::new();
         let bold = table.resolve("bold");
         assert_eq!(bold.weight, Some(FontWeight::BOLD));
@@ -1560,6 +1568,7 @@ mod tests {
 
     #[test]
     fn face_table_merge_faces() {
+        crate::test_utils::init_test_tracing();
         let table = FaceTable::new();
         let merged = table.merge_faces(&["bold", "italic"]);
         assert_eq!(merged.weight, Some(FontWeight::BOLD));
@@ -1568,6 +1577,7 @@ mod tests {
 
     #[test]
     fn face_from_plist() {
+        crate::test_utils::init_test_tracing();
         let plist = vec![
             Value::keyword("foreground"),
             Value::string("#ff0000"),
@@ -1584,6 +1594,7 @@ mod tests {
 
     #[test]
     fn face_from_plist_accepts_source_style_keywords() {
+        crate::test_utils::init_test_tracing();
         let plist = vec![
             Value::symbol(":family"),
             Value::string("JetBrains Mono"),
@@ -1636,6 +1647,7 @@ mod tests {
 
     #[test]
     fn font_weight_from_symbol() {
+        crate::test_utils::init_test_tracing();
         assert_eq!(FontWeight::from_symbol("bold"), Some(FontWeight::BOLD));
         assert_eq!(FontWeight::from_symbol("normal"), Some(FontWeight::NORMAL));
         assert!(FontWeight::BOLD.is_bold());
@@ -1644,6 +1656,7 @@ mod tests {
 
     #[test]
     fn face_table_custom_face() {
+        crate::test_utils::init_test_tracing();
         let mut table = FaceTable::new();
         let mut custom = Face::new("my-face");
         custom.foreground = Some(Color::rgb(100, 200, 50));
@@ -1659,6 +1672,7 @@ mod tests {
 
     #[test]
     fn color_parse_hex_and_named() {
+        crate::test_utils::init_test_tracing();
         // Hex path
         assert_eq!(Color::parse("#ff0000"), Some(Color::rgb(255, 0, 0)));
         assert_eq!(Color::parse("#abc"), Some(Color::rgb(170, 187, 204)));
@@ -1672,6 +1686,7 @@ mod tests {
 
     #[test]
     fn color_from_name_case_insensitive() {
+        crate::test_utils::init_test_tracing();
         assert_eq!(Color::from_name("Black"), Some(Color::rgb(0, 0, 0)));
         assert_eq!(Color::from_name("CYAN"), Some(Color::rgb(0, 255, 255)));
         assert_eq!(Color::from_name("Gray"), Some(Color::rgb(128, 128, 128)));
@@ -1680,6 +1695,7 @@ mod tests {
 
     #[test]
     fn color_from_name_full_palette() {
+        crate::test_utils::init_test_tracing();
         // Spot-check a wide range of named colors
         let names_and_expected = [
             ("orange", Color::rgb(255, 165, 0)),
@@ -1706,6 +1722,7 @@ mod tests {
 
     #[test]
     fn font_weight_from_symbol_all_names() {
+        crate::test_utils::init_test_tracing();
         assert_eq!(FontWeight::from_symbol("thin"), Some(FontWeight::THIN));
         assert_eq!(
             FontWeight::from_symbol("ultra-light"),
@@ -1751,6 +1768,7 @@ mod tests {
 
     #[test]
     fn font_slant_from_symbol_all() {
+        crate::test_utils::init_test_tracing();
         assert_eq!(FontSlant::from_symbol("normal"), Some(FontSlant::Normal));
         assert_eq!(FontSlant::from_symbol("roman"), Some(FontSlant::Normal));
         assert_eq!(FontSlant::from_symbol("italic"), Some(FontSlant::Italic));
@@ -1773,6 +1791,7 @@ mod tests {
 
     #[test]
     fn face_to_plist_contains_set_attrs() {
+        crate::test_utils::init_test_tracing();
         let mut face = Face::new("test");
         face.foreground = Some(Color::rgb(255, 0, 0));
         face.weight = Some(FontWeight::BOLD);
@@ -1789,6 +1808,7 @@ mod tests {
 
     #[test]
     fn face_merge_underline_and_box() {
+        crate::test_utils::init_test_tracing();
         let base = Face {
             name: "base".into(),
             underline: Some(Underline {
@@ -1820,6 +1840,7 @@ mod tests {
 
     #[test]
     fn face_merge_relative_height_over_absolute_becomes_absolute() {
+        crate::test_utils::init_test_tracing();
         let mut base = Face::new("base");
         base.height = Some(FaceHeight::Absolute(120));
 
@@ -1832,6 +1853,7 @@ mod tests {
 
     #[test]
     fn face_merge_relative_height_over_relative_multiplies() {
+        crate::test_utils::init_test_tracing();
         let mut base = Face::new("base");
         base.height = Some(FaceHeight::Relative(1.2));
 
@@ -1849,6 +1871,7 @@ mod tests {
 
     #[test]
     fn face_table_multi_level_inheritance() {
+        crate::test_utils::init_test_tracing();
         let mut table = FaceTable::new();
 
         // grandparent: sets foreground
@@ -1880,6 +1903,7 @@ mod tests {
 
     #[test]
     fn face_from_plist_underline_and_flags() {
+        crate::test_utils::init_test_tracing();
         let plist = vec![
             Value::keyword("underline"),
             Value::T,
@@ -1908,6 +1932,7 @@ mod tests {
 
     #[test]
     fn face_table_resolve_unknown_face() {
+        crate::test_utils::init_test_tracing();
         let table = FaceTable::new();
         let resolved = table.resolve("nonexistent");
         assert_eq!(resolved.name, "nonexistent");
@@ -1918,6 +1943,7 @@ mod tests {
 
     #[test]
     fn face_table_face_list() {
+        crate::test_utils::init_test_tracing();
         let table = FaceTable::new();
         let list = table.face_list();
         assert!(list.contains(&"default".to_string()));

@@ -8,6 +8,7 @@ fn fresh_eval() -> super::super::eval::Context {
 
 #[test]
 fn make_category_table_matches_gnu_shape() {
+    crate::test_utils::init_test_tracing();
     reset_category_thread_locals();
     let table = builtin_make_category_table(vec![]).unwrap();
     assert!(builtin_category_table_p(vec![table]).unwrap().is_truthy());
@@ -35,6 +36,7 @@ fn make_category_table_matches_gnu_shape() {
 
 #[test]
 fn copy_category_table_deep_copies_docstrings_and_sets() {
+    crate::test_utils::init_test_tracing();
     let mut eval = fresh_eval();
     let table = builtin_make_category_table(vec![]).unwrap();
     builtin_define_category(
@@ -89,6 +91,7 @@ fn copy_category_table_deep_copies_docstrings_and_sets() {
 
 #[test]
 fn define_category_redefinition_matches_gnu_error() {
+    crate::test_utils::init_test_tracing();
     let mut eval = fresh_eval();
     let table = builtin_make_category_table(vec![]).unwrap();
     builtin_define_category(
@@ -115,6 +118,7 @@ fn define_category_redefinition_matches_gnu_error() {
 
 #[test]
 fn get_unused_category_scans_ascii_graphics() {
+    crate::test_utils::init_test_tracing();
     let mut eval = fresh_eval();
     let table = builtin_make_category_table(vec![]).unwrap();
     assert_eq!(
@@ -134,6 +138,7 @@ fn get_unused_category_scans_ascii_graphics() {
 
 #[test]
 fn set_category_table_nil_returns_current_table() {
+    crate::test_utils::init_test_tracing();
     let mut eval = fresh_eval();
     let current = builtin_category_table(&mut eval, vec![]).unwrap();
     let out = builtin_set_category_table(&mut eval, vec![Value::NIL]).unwrap();
@@ -142,6 +147,7 @@ fn set_category_table_nil_returns_current_table() {
 
 #[test]
 fn modify_category_entry_honors_optional_table_argument() {
+    crate::test_utils::init_test_tracing();
     let mut eval = fresh_eval();
     let table = builtin_make_category_table(vec![]).unwrap();
     builtin_define_category(

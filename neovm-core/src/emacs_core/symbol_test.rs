@@ -3,6 +3,7 @@ use super::*;
 
 #[test]
 fn intern_creates_symbol() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     ob.intern("foo");
     assert!(ob.intern_soft("foo").is_some());
@@ -11,6 +12,7 @@ fn intern_creates_symbol() {
 
 #[test]
 fn symbol_value_cell() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     assert!(!ob.boundp("x"));
     ob.set_symbol_value("x", Value::fixnum(42));
@@ -20,6 +22,7 @@ fn symbol_value_cell() {
 
 #[test]
 fn symbol_function_cell() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     assert!(!ob.fboundp("f"));
     let start_epoch = ob.function_epoch();
@@ -34,6 +37,7 @@ fn symbol_function_cell() {
 
 #[test]
 fn fmakunbound_masks_builtin_fallback_name() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     let start_epoch = ob.function_epoch();
     ob.fmakunbound("car");
@@ -49,6 +53,7 @@ fn fmakunbound_masks_builtin_fallback_name() {
 
 #[test]
 fn symbol_properties() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     ob.put_property("foo", "doc", Value::string("A function."));
     assert_eq!(
@@ -59,6 +64,7 @@ fn symbol_properties() {
 
 #[test]
 fn special_flag() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     assert!(!ob.is_special("x"));
     ob.make_special("x");
@@ -67,6 +73,7 @@ fn special_flag() {
 
 #[test]
 fn indirect_function_follows_chain() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     ob.set_symbol_function("real-fn", Value::subr(intern("+")));
     // alias -> real-fn
@@ -81,6 +88,7 @@ fn indirect_function_follows_chain() {
 
 #[test]
 fn t_and_nil_are_preinterned() {
+    crate::test_utils::init_test_tracing();
     let ob = Obarray::new();
     assert!(ob.is_constant("t"));
     assert!(ob.is_constant("nil"));
@@ -91,6 +99,7 @@ fn t_and_nil_are_preinterned() {
 
 #[test]
 fn makunbound_doesnt_touch_constants() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     ob.makunbound("t");
     assert!(ob.boundp("t")); // t is constant, can't unbind
@@ -98,6 +107,7 @@ fn makunbound_doesnt_touch_constants() {
 
 #[test]
 fn canonical_id_mutators_keep_symbol_globally_interned() {
+    crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     let sym = intern("vm-ghost");
 
@@ -120,6 +130,7 @@ fn canonical_id_mutators_keep_symbol_globally_interned() {
 
 #[test]
 fn uninterned_keyword_and_nil_names_are_not_canonical_constants() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let nil_id = crate::emacs_core::intern::intern_uninterned("nil");
     let kw_id = crate::emacs_core::intern::intern_uninterned(":vm-k");

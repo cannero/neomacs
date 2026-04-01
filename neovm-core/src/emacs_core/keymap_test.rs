@@ -4,6 +4,7 @@ use super::*;
 
 #[test]
 fn parse_plain_char() {
+    crate::test_utils::init_test_tracing();
     let keys = parse_key_description("a").unwrap();
     assert_eq!(keys.len(), 1);
     assert_eq!(
@@ -22,6 +23,7 @@ fn parse_plain_char() {
 
 #[test]
 fn parse_ctrl_x() {
+    crate::test_utils::init_test_tracing();
     let keys = parse_key_description("C-x").unwrap();
     assert_eq!(keys.len(), 1);
     assert_eq!(
@@ -40,6 +42,7 @@ fn parse_ctrl_x() {
 
 #[test]
 fn parse_meta_x() {
+    crate::test_utils::init_test_tracing();
     let keys = parse_key_description("M-x").unwrap();
     assert_eq!(keys.len(), 1);
     assert_eq!(
@@ -58,6 +61,7 @@ fn parse_meta_x() {
 
 #[test]
 fn parse_ctrl_x_ctrl_f_sequence() {
+    crate::test_utils::init_test_tracing();
     let keys = parse_key_description("C-x C-f").unwrap();
     assert_eq!(keys.len(), 2);
     assert_eq!(
@@ -88,6 +92,7 @@ fn parse_ctrl_x_ctrl_f_sequence() {
 
 #[test]
 fn parse_ret() {
+    crate::test_utils::init_test_tracing();
     let keys = parse_key_description("RET").unwrap();
     assert_eq!(keys.len(), 1);
     assert_eq!(
@@ -106,6 +111,7 @@ fn parse_ret() {
 
 #[test]
 fn parse_tab() {
+    crate::test_utils::init_test_tracing();
     let keys = parse_key_description("TAB").unwrap();
     assert_eq!(keys.len(), 1);
     assert_eq!(
@@ -124,6 +130,7 @@ fn parse_tab() {
 
 #[test]
 fn parse_esc_as_literal_escape_char() {
+    crate::test_utils::init_test_tracing();
     let keys = parse_key_description("ESC").unwrap();
     assert_eq!(keys.len(), 1);
     assert_eq!(
@@ -142,6 +149,7 @@ fn parse_esc_as_literal_escape_char() {
 
 #[test]
 fn parse_spc() {
+    crate::test_utils::init_test_tracing();
     let keys = parse_key_description("SPC").unwrap();
     assert_eq!(keys.len(), 1);
     assert_eq!(
@@ -160,6 +168,7 @@ fn parse_spc() {
 
 #[test]
 fn parse_combined_modifiers() {
+    crate::test_utils::init_test_tracing();
     let keys = parse_key_description("C-M-s").unwrap();
     assert_eq!(keys.len(), 1);
     assert_eq!(
@@ -178,6 +187,7 @@ fn parse_combined_modifiers() {
 
 #[test]
 fn parse_function_key() {
+    crate::test_utils::init_test_tracing();
     let keys = parse_key_description("f1").unwrap();
     assert_eq!(keys.len(), 1);
     assert_eq!(
@@ -196,6 +206,7 @@ fn parse_function_key() {
 
 #[test]
 fn parse_ctrl_function_key() {
+    crate::test_utils::init_test_tracing();
     let keys = parse_key_description("C-f12").unwrap();
     assert_eq!(keys.len(), 1);
     assert_eq!(
@@ -214,16 +225,19 @@ fn parse_ctrl_function_key() {
 
 #[test]
 fn parse_error_empty() {
+    crate::test_utils::init_test_tracing();
     assert!(parse_key_description("").is_err());
 }
 
 #[test]
 fn parse_error_unknown_name() {
+    crate::test_utils::init_test_tracing();
     assert!(parse_key_description("foobar").is_err());
 }
 
 #[test]
 fn format_key_event_roundtrip() {
+    crate::test_utils::init_test_tracing();
     let cases = vec![
         "C-x", "M-x", "C-M-s", "a", "SPC", "RET", "TAB", "ESC", "f1", "C-f12",
     ];
@@ -242,6 +256,7 @@ fn format_key_event_roundtrip() {
 
 #[test]
 fn keyboard_escape_encodes_to_emacs_escape_prefix_char() {
+    crate::test_utils::init_test_tracing();
     let event = KeyEvent::from(crate::keyboard::KeyEvent::named(
         crate::keyboard::NamedKey::Escape,
     ));
@@ -254,6 +269,7 @@ fn keyboard_escape_encodes_to_emacs_escape_prefix_char() {
 
 #[test]
 fn keyboard_escape_preserves_non_ctrl_modifiers_when_encoded() {
+    crate::test_utils::init_test_tracing();
     let event = KeyEvent::from(crate::keyboard::KeyEvent::named_with_mods(
         crate::keyboard::NamedKey::Escape,
         crate::keyboard::Modifiers {
@@ -273,6 +289,7 @@ fn keyboard_escape_preserves_non_ctrl_modifiers_when_encoded() {
 
 #[test]
 fn keyboard_return_encodes_to_emacs_carriage_return() {
+    crate::test_utils::init_test_tracing();
     let event = KeyEvent::from(crate::keyboard::KeyEvent::named(
         crate::keyboard::NamedKey::Return,
     ));
@@ -285,6 +302,7 @@ fn keyboard_return_encodes_to_emacs_carriage_return() {
 
 #[test]
 fn keyboard_meta_return_encodes_to_emacs_meta_carriage_return() {
+    crate::test_utils::init_test_tracing();
     let event = KeyEvent::from(crate::keyboard::KeyEvent::named_with_mods(
         crate::keyboard::NamedKey::Return,
         crate::keyboard::Modifiers::meta(),
@@ -298,6 +316,7 @@ fn keyboard_meta_return_encodes_to_emacs_meta_carriage_return() {
 
 #[test]
 fn keyboard_tab_encodes_to_emacs_tab_char() {
+    crate::test_utils::init_test_tracing();
     let event = KeyEvent::from(crate::keyboard::KeyEvent::named(
         crate::keyboard::NamedKey::Tab,
     ));
@@ -310,6 +329,7 @@ fn keyboard_tab_encodes_to_emacs_tab_char() {
 
 #[test]
 fn format_key_event_renders_gnu_control_char_names() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         format_key_event(&KeyEvent::Char {
             code: '\r',
@@ -350,6 +370,7 @@ fn format_key_event_renders_gnu_control_char_names() {
 
 #[test]
 fn format_key_sequence_roundtrip() {
+    crate::test_utils::init_test_tracing();
     let desc = "C-x C-f";
     let keys = parse_key_description(desc).unwrap();
     let formatted = format_key_sequence(&keys);
@@ -358,6 +379,7 @@ fn format_key_sequence_roundtrip() {
 
 #[test]
 fn parse_arrow_keys() {
+    crate::test_utils::init_test_tracing();
     for name in &["up", "down", "left", "right"] {
         let keys = parse_key_description(name).unwrap();
         assert_eq!(keys.len(), 1);
@@ -370,6 +392,7 @@ fn parse_arrow_keys() {
 
 #[test]
 fn parse_modifier_with_named_key() {
+    crate::test_utils::init_test_tracing();
     let keys = parse_key_description("C-RET").unwrap();
     assert_eq!(keys.len(), 1);
     assert_eq!(
@@ -390,6 +413,7 @@ fn parse_modifier_with_named_key() {
 
 #[test]
 fn list_keymap_create_and_check() {
+    crate::test_utils::init_test_tracing();
     let km = make_list_keymap();
     assert!(is_list_keymap(&km));
     let sparse = make_sparse_list_keymap();
@@ -400,6 +424,7 @@ fn list_keymap_create_and_check() {
 
 #[test]
 fn list_keymap_define_and_lookup() {
+    crate::test_utils::init_test_tracing();
     let km = make_sparse_list_keymap();
     let event = Value::symbol("return");
     list_keymap_define(km, event, Value::symbol("newline"));
@@ -409,6 +434,7 @@ fn list_keymap_define_and_lookup() {
 
 #[test]
 fn list_keymap_parent_chain() {
+    crate::test_utils::init_test_tracing();
     let parent = make_sparse_list_keymap();
     let child = make_sparse_list_keymap();
     list_keymap_set_parent(child, parent);
@@ -423,6 +449,7 @@ fn list_keymap_parent_chain() {
 
 #[test]
 fn list_keymap_child_overrides_parent() {
+    crate::test_utils::init_test_tracing();
     let parent = make_sparse_list_keymap();
     let child = make_sparse_list_keymap();
     list_keymap_set_parent(child, parent);
@@ -436,6 +463,7 @@ fn list_keymap_child_overrides_parent() {
 
 #[test]
 fn list_keymap_set_parent_replaces_direct_sparse_parent_without_mutating_old_parent() {
+    crate::test_utils::init_test_tracing();
     let parent_one = make_sparse_list_keymap();
     let parent_two = make_sparse_list_keymap();
     let child = make_sparse_list_keymap();
@@ -470,6 +498,7 @@ fn list_keymap_set_parent_replaces_direct_sparse_parent_without_mutating_old_par
 
 #[test]
 fn list_keymap_for_each_binding_stops_before_direct_sparse_parent() {
+    crate::test_utils::init_test_tracing();
     let parent = make_sparse_list_keymap();
     let child = make_sparse_list_keymap();
 
@@ -491,6 +520,7 @@ fn list_keymap_for_each_binding_stops_before_direct_sparse_parent() {
 
 #[test]
 fn list_keymap_accessible_does_not_descend_into_direct_sparse_parent() {
+    crate::test_utils::init_test_tracing();
     let parent = make_sparse_list_keymap();
     let prefix_map = make_sparse_list_keymap();
     let child = make_sparse_list_keymap();
@@ -508,6 +538,7 @@ fn list_keymap_accessible_does_not_descend_into_direct_sparse_parent() {
 
 #[test]
 fn list_keymap_copy_preserves_direct_sparse_parent_without_inlining_parent_bindings() {
+    crate::test_utils::init_test_tracing();
     let parent = make_sparse_list_keymap();
     let child = make_sparse_list_keymap();
 
@@ -539,6 +570,7 @@ fn list_keymap_copy_preserves_direct_sparse_parent_without_inlining_parent_bindi
 
 #[test]
 fn list_keymap_event_conversion_roundtrip() {
+    crate::test_utils::init_test_tracing();
     let key = KeyEvent::Char {
         code: 'x',
         ctrl: true,

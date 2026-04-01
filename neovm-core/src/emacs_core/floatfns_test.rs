@@ -28,6 +28,7 @@ fn assert_int_eq(val: &Value, expected: i64) {
 
 #[test]
 fn test_copysign() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_copysign(vec![Value::make_float(5.0), Value::make_float(-1.0)]).unwrap();
     assert_float_eq(&result, -5.0, 1e-10);
 
@@ -37,6 +38,7 @@ fn test_copysign() {
 
 #[test]
 fn test_frexp() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_frexp(vec![Value::make_float(8.0)]).unwrap();
     // 8.0 = 0.5 * 2^4
     if result.is_cons() {
@@ -80,6 +82,7 @@ fn test_frexp() {
 
 #[test]
 fn test_frexp_negative() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_frexp(vec![Value::make_float(-6.0)]).unwrap();
     // -6.0 = -0.75 * 2^3
     if result.is_cons() {
@@ -94,6 +97,7 @@ fn test_frexp_negative() {
 
 #[test]
 fn test_ldexp() {
+    crate::test_utils::init_test_tracing();
     // 0.5 * 2^4 = 8.0
     let result = builtin_ldexp(vec![Value::make_float(0.5), Value::fixnum(4)]).unwrap();
     assert_float_eq(&result, 8.0, 1e-10);
@@ -107,6 +111,7 @@ fn test_ldexp() {
 
 #[test]
 fn test_logb() {
+    crate::test_utils::init_test_tracing();
     // logb(8) = 3  (since log2(8) = 3)
     let result = builtin_logb(vec![Value::make_float(8.0)]).unwrap();
     assert_int_eq(&result, 3);
@@ -124,6 +129,7 @@ fn test_logb() {
 
 #[test]
 fn test_fceiling() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_fceiling(vec![Value::make_float(1.1)]).unwrap();
     assert_float_eq(&result, 2.0, 1e-10);
 
@@ -133,6 +139,7 @@ fn test_fceiling() {
 
 #[test]
 fn test_ffloor() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_ffloor(vec![Value::make_float(1.9)]).unwrap();
     assert_float_eq(&result, 1.0, 1e-10);
 
@@ -142,6 +149,7 @@ fn test_ffloor() {
 
 #[test]
 fn test_fround() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_fround(vec![Value::make_float(1.4)]).unwrap();
     assert_float_eq(&result, 1.0, 1e-10);
 
@@ -168,6 +176,7 @@ fn test_fround() {
 
 #[test]
 fn test_ftruncate() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_ftruncate(vec![Value::make_float(1.9)]).unwrap();
     assert_float_eq(&result, 1.0, 1e-10);
 
@@ -179,6 +188,7 @@ fn test_ftruncate() {
 
 #[test]
 fn test_wrong_type_errors() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_copysign(vec![Value::string("x"), Value::make_float(1.0)]).is_err());
     assert!(builtin_copysign(vec![Value::fixnum(1), Value::make_float(1.0)]).is_err());
     assert!(builtin_fceiling(vec![Value::NIL]).is_err());
@@ -193,6 +203,7 @@ fn test_wrong_type_errors() {
 
 #[test]
 fn test_ldexp_type_check_order_matches_oracle() {
+    crate::test_utils::init_test_tracing();
     let err = builtin_ldexp(vec![Value::symbol("sym"), Value::make_float(2.0)])
         .expect_err("ldexp should reject non-fixnum exponent first");
     match err {
@@ -224,6 +235,7 @@ fn test_ldexp_type_check_order_matches_oracle() {
 
 #[test]
 fn test_wrong_arity() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_logb(vec![]).is_err());
     assert!(builtin_logb(vec![Value::make_float(1.0), Value::make_float(2.0)]).is_err());
     assert!(builtin_copysign(vec![Value::make_float(1.0)]).is_err());

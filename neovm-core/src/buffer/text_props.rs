@@ -564,6 +564,7 @@ mod tests {
 
     #[test]
     fn put_and_get_basic() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(0, 5, "face", Value::symbol("bold"));
 
@@ -575,6 +576,7 @@ mod tests {
 
     #[test]
     fn get_property_returns_correct_value() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(0, 10, "face", Value::symbol("bold"));
         let val = table.get_property(5, "face").unwrap();
@@ -587,6 +589,7 @@ mod tests {
 
     #[test]
     fn get_property_nonexistent_name() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(0, 10, "face", Value::symbol("bold"));
         assert!(table.get_property(5, "syntax-table").is_none());
@@ -594,6 +597,7 @@ mod tests {
 
     #[test]
     fn get_properties_returns_all() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(0, 10, "face", Value::symbol("bold"));
         table.put_property(0, 10, "help-echo", Value::string("tooltip"));
@@ -605,6 +609,7 @@ mod tests {
 
     #[test]
     fn get_property_outside_any_interval() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(5, 10, "face", Value::symbol("bold"));
         assert!(table.get_property(0, "face").is_none());
@@ -619,6 +624,7 @@ mod tests {
 
     #[test]
     fn overlapping_put_splits_intervals() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(0, 10, "face", Value::symbol("bold"));
         table.put_property(5, 15, "face", Value::symbol("italic"));
@@ -649,6 +655,7 @@ mod tests {
 
     #[test]
     fn multiple_properties_on_same_range() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(0, 10, "face", Value::symbol("bold"));
         table.put_property(0, 10, "mouse-face", Value::symbol("highlight"));
@@ -659,6 +666,7 @@ mod tests {
 
     #[test]
     fn put_property_inner_range() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(0, 20, "face", Value::symbol("default"));
         table.put_property(5, 15, "face", Value::symbol("bold"));
@@ -687,6 +695,7 @@ mod tests {
 
     #[test]
     fn put_different_properties_on_overlapping_ranges() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(0, 10, "face", Value::symbol("bold"));
         table.put_property(5, 15, "syntax-table", Value::fixnum(42));
@@ -712,6 +721,7 @@ mod tests {
 
     #[test]
     fn remove_property_basic() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(0, 10, "face", Value::symbol("bold"));
         table.put_property(0, 10, "help-echo", Value::string("help"));
@@ -724,6 +734,7 @@ mod tests {
 
     #[test]
     fn remove_property_partial_range() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(0, 10, "face", Value::symbol("bold"));
 
@@ -739,6 +750,7 @@ mod tests {
 
     #[test]
     fn remove_all_properties_basic() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(0, 10, "face", Value::symbol("bold"));
         table.put_property(0, 10, "help-echo", Value::string("help"));
@@ -751,6 +763,7 @@ mod tests {
 
     #[test]
     fn remove_all_properties_partial() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(0, 10, "face", Value::symbol("bold"));
 
@@ -767,6 +780,7 @@ mod tests {
 
     #[test]
     fn next_property_change_basic() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(5, 10, "face", Value::symbol("bold"));
         table.put_property(15, 20, "face", Value::symbol("italic"));
@@ -785,6 +799,7 @@ mod tests {
 
     #[test]
     fn next_property_change_at_boundary() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(5, 10, "face", Value::symbol("bold"));
 
@@ -794,6 +809,7 @@ mod tests {
 
     #[test]
     fn previous_property_change_basic() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(5, 10, "face", Value::symbol("bold"));
         table.put_property(15, 20, "face", Value::symbol("italic"));
@@ -813,6 +829,7 @@ mod tests {
 
     #[test]
     fn previous_property_change_at_end() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(5, 10, "face", Value::symbol("bold"));
 
@@ -822,6 +839,7 @@ mod tests {
 
     #[test]
     fn next_previous_empty_table() {
+        crate::test_utils::init_test_tracing();
         let table = TextPropertyTable::new();
         assert_eq!(table.next_property_change(0), None);
         assert_eq!(table.previous_property_change(10), None);
@@ -833,6 +851,7 @@ mod tests {
 
     #[test]
     fn adjust_insert_shifts_intervals_after() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(10, 20, "face", Value::symbol("bold"));
 
@@ -847,6 +866,7 @@ mod tests {
 
     #[test]
     fn adjust_insert_splits_spanning_interval_around_plain_inserted_text() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(5, 15, "face", Value::symbol("bold"));
 
@@ -864,6 +884,7 @@ mod tests {
 
     #[test]
     fn adjust_insert_at_interval_start() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(5, 10, "face", Value::symbol("bold"));
 
@@ -878,6 +899,7 @@ mod tests {
 
     #[test]
     fn adjust_insert_before_all() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(5, 10, "face", Value::symbol("bold"));
 
@@ -889,6 +911,7 @@ mod tests {
 
     #[test]
     fn adjust_insert_zero_length() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(5, 10, "face", Value::symbol("bold"));
 
@@ -906,6 +929,7 @@ mod tests {
 
     #[test]
     fn adjust_delete_shifts_intervals_after() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(10, 20, "face", Value::symbol("bold"));
 
@@ -920,6 +944,7 @@ mod tests {
 
     #[test]
     fn adjust_delete_removes_contained_interval() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(5, 10, "face", Value::symbol("bold"));
 
@@ -932,6 +957,7 @@ mod tests {
 
     #[test]
     fn adjust_delete_truncates_start() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(5, 15, "face", Value::symbol("bold"));
 
@@ -945,6 +971,7 @@ mod tests {
 
     #[test]
     fn adjust_delete_shrinks_spanning_interval() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(5, 20, "face", Value::symbol("bold"));
 
@@ -958,6 +985,7 @@ mod tests {
 
     #[test]
     fn adjust_delete_overlaps_interval_start() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(5, 15, "face", Value::symbol("bold"));
 
@@ -972,6 +1000,7 @@ mod tests {
 
     #[test]
     fn adjust_delete_empty_range() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(5, 10, "face", Value::symbol("bold"));
 
@@ -988,6 +1017,7 @@ mod tests {
 
     #[test]
     fn merge_adjacent_same_properties() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(0, 5, "face", Value::symbol("bold"));
         table.put_property(5, 10, "face", Value::symbol("bold"));
@@ -1003,6 +1033,7 @@ mod tests {
 
     #[test]
     fn no_merge_different_properties() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(0, 5, "face", Value::symbol("bold"));
         table.put_property(5, 10, "face", Value::symbol("italic"));
@@ -1018,6 +1049,7 @@ mod tests {
 
     #[test]
     fn put_property_empty_range() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(5, 5, "face", Value::symbol("bold"));
         assert!(table.get_property(5, "face").is_none());
@@ -1025,6 +1057,7 @@ mod tests {
 
     #[test]
     fn put_property_overwrites_same_name() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(0, 10, "face", Value::symbol("bold"));
         table.put_property(0, 10, "face", Value::symbol("italic"));
@@ -1039,6 +1072,7 @@ mod tests {
 
     #[test]
     fn multiple_non_contiguous_intervals() {
+        crate::test_utils::init_test_tracing();
         let mut table = TextPropertyTable::new();
         table.put_property(0, 5, "face", Value::symbol("bold"));
         table.put_property(10, 15, "face", Value::symbol("italic"));

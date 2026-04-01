@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn constant_dedup() {
+    crate::test_utils::init_test_tracing();
     let mut func = ByteCodeFunction::new(LambdaParams::simple(vec![]));
     let i1 = func.add_constant(Value::fixnum(42));
     let i2 = func.add_constant(Value::fixnum(42));
@@ -11,6 +12,7 @@ fn constant_dedup() {
 
 #[test]
 fn symbol_dedup() {
+    crate::test_utils::init_test_tracing();
     let mut func = ByteCodeFunction::new(LambdaParams::simple(vec![]));
     let i1 = func.add_symbol("x");
     let i2 = func.add_symbol("x");
@@ -22,6 +24,7 @@ fn symbol_dedup() {
 
 #[test]
 fn patch_jump() {
+    crate::test_utils::init_test_tracing();
     let mut func = ByteCodeFunction::new(LambdaParams::simple(vec![]));
     func.emit(Op::GotoIfNil(0)); // placeholder
     func.emit(Op::Constant(0));
@@ -33,6 +36,7 @@ fn patch_jump() {
 
 #[test]
 fn disassemble_output() {
+    crate::test_utils::init_test_tracing();
     let mut func = ByteCodeFunction::new(LambdaParams::simple(vec![]));
     func.add_constant(Value::fixnum(42));
     func.emit(Op::Constant(0));

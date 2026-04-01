@@ -61,6 +61,7 @@ fn bootstrap_eval_one_with_frame(src: &str) -> String {
 
 #[test]
 fn active_minibuffer_window_tracks_live_minibuffer_state() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     ev.frames.create_frame("F1", 800, 600, buf);
@@ -129,6 +130,7 @@ impl DisplayHost for RecordingDisplayHost {
 
 #[test]
 fn bootstrap_window_command_boundary_matches_gnu_emacs() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_one_with_frame(
         r#"(list (subrp (symbol-function 'select-window))
                  (subrp (symbol-function 'split-window-internal))
@@ -150,6 +152,7 @@ fn bootstrap_window_command_boundary_matches_gnu_emacs() {
 
 #[test]
 fn selected_window_returns_window_handle() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(selected-window)");
     assert!(
         r.starts_with("OK #<window "),
@@ -159,6 +162,7 @@ fn selected_window_returns_window_handle() {
 
 #[test]
 fn selected_window_bootstraps_initial_frame() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms("(window-live-p (selected-window))").expect("parse");
     let out = ev
@@ -171,6 +175,7 @@ fn selected_window_bootstraps_initial_frame() {
 
 #[test]
 fn frame_selected_window_arity_and_designators() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(windowp (frame-selected-window))
@@ -196,6 +201,7 @@ fn frame_selected_window_arity_and_designators() {
 
 #[test]
 fn minibuffer_window_frame_first_window_and_window_minibuffer_p_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(window-minibuffer-p)
@@ -237,6 +243,7 @@ fn minibuffer_window_frame_first_window_and_window_minibuffer_p_semantics() {
 
 #[test]
 fn frame_root_window_window_valid_and_minibuffer_activity_semantics() {
+    crate::test_utils::init_test_tracing();
     let out = bootstrap_eval_with_frame(
         "(window-valid-p (selected-window))
          (window-valid-p (minibuffer-window))
@@ -308,6 +315,7 @@ fn frame_root_window_window_valid_and_minibuffer_activity_semantics() {
 
 #[test]
 fn frame_root_window_p_semantics_and_errors() {
+    crate::test_utils::init_test_tracing();
     let out = bootstrap_eval_with_frame(
         "(frame-root-window-p (selected-window))
          (frame-root-window-p (minibuffer-window))
@@ -326,6 +334,7 @@ fn frame_root_window_p_semantics_and_errors() {
 
 #[test]
 fn window_at_matches_batch_coordinate_and_error_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(windowp (window-at 0 0))
@@ -371,6 +380,7 @@ fn window_at_matches_batch_coordinate_and_error_semantics() {
 
 #[test]
 fn window_frame_arity_and_designators() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(framep (window-frame))
@@ -396,6 +406,7 @@ fn window_frame_arity_and_designators() {
 
 #[test]
 fn window_designators_bootstrap_nil_and_validate_invalid_window_handles() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(window-start nil)
@@ -427,12 +438,14 @@ fn window_designators_bootstrap_nil_and_validate_invalid_window_handles() {
 
 #[test]
 fn windowp_true() {
+    crate::test_utils::init_test_tracing();
     let r = eval_with_frame("(windowp (selected-window))");
     assert_eq!(r[0], "OK t");
 }
 
 #[test]
 fn windowp_true_for_stale_deleted_window() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame(
         "(let ((w (split-window-internal (selected-window) nil nil nil)))
            (delete-window w)
@@ -443,30 +456,35 @@ fn windowp_true_for_stale_deleted_window() {
 
 #[test]
 fn windowp_false() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(windowp 999999)");
     assert_eq!(r, "OK nil");
 }
 
 #[test]
 fn window_live_p_true() {
+    crate::test_utils::init_test_tracing();
     let r = eval_with_frame("(window-live-p (selected-window))");
     assert_eq!(r[0], "OK t");
 }
 
 #[test]
 fn window_live_p_false_for_non_window() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(window-live-p 999999)");
     assert_eq!(r, "OK nil");
 }
 
 #[test]
 fn window_buffer_returns_buffer() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(bufferp (window-buffer))");
     assert_eq!(r, "OK t");
 }
 
 #[test]
 fn window_buffer_returns_nil_for_stale_deleted_window() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame(
         "(let ((w (split-window-internal (selected-window) nil nil nil)))
            (delete-window w)
@@ -477,12 +495,14 @@ fn window_buffer_returns_nil_for_stale_deleted_window() {
 
 #[test]
 fn window_start_default() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(window-start)");
     assert_eq!(r, "OK 1");
 }
 
 #[test]
 fn set_window_start_and_read() {
+    crate::test_utils::init_test_tracing();
     let results = eval_with_frame(
         "(let ((w (selected-window)))
             (save-current-buffer (set-buffer (window-buffer w))
@@ -497,12 +517,14 @@ fn set_window_start_and_read() {
 
 #[test]
 fn window_point_default() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(window-point)");
     assert_eq!(r, "OK 1");
 }
 
 #[test]
 fn set_window_point_and_read() {
+    crate::test_utils::init_test_tracing();
     let results = eval_with_frame(
         "(let ((w (selected-window)))
             (save-current-buffer (set-buffer (window-buffer w))
@@ -517,6 +539,7 @@ fn set_window_point_and_read() {
 
 #[test]
 fn window_point_selected_window_uses_live_buffer_point_when_current_buffer_differs() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame(
         r#"(let* ((w (selected-window))
                   (orig (window-buffer w))
@@ -537,6 +560,7 @@ def
 
 #[test]
 fn set_window_point_selected_window_updates_live_buffer_point_when_current_buffer_differs() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame(
         r#"(let* ((w (selected-window))
                   (orig (window-buffer w))
@@ -558,6 +582,7 @@ def
 
 #[test]
 fn set_window_start_point_and_group_start_accept_marker_positions() {
+    crate::test_utils::init_test_tracing();
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let forms = parse_forms(
@@ -691,6 +716,7 @@ fn set_window_start_point_and_group_start_accept_marker_positions() {
 
 #[test]
 fn window_height_positive() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(window-height)");
     assert!(r.starts_with("OK "));
     let val: i64 = r.strip_prefix("OK ").unwrap().trim().parse().unwrap();
@@ -699,6 +725,7 @@ fn window_height_positive() {
 
 #[test]
 fn window_width_positive() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(window-width)");
     assert!(r.starts_with("OK "));
     let val: i64 = r.strip_prefix("OK ").unwrap().trim().parse().unwrap();
@@ -707,6 +734,7 @@ fn window_width_positive() {
 
 #[test]
 fn window_body_height_pixelwise() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(window-body-height nil t)");
     assert!(r.starts_with("OK "));
     let val: i64 = r.strip_prefix("OK ").unwrap().trim().parse().unwrap();
@@ -716,6 +744,7 @@ fn window_body_height_pixelwise() {
 
 #[test]
 fn window_body_width_pixelwise() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(window-body-width nil t)");
     assert!(r.starts_with("OK "));
     let val: i64 = r.strip_prefix("OK ").unwrap().trim().parse().unwrap();
@@ -725,6 +754,7 @@ fn window_body_width_pixelwise() {
 
 #[test]
 fn gui_window_body_geometry_excludes_fringes_and_margins() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     ev.buffers.set_current(buf);
@@ -787,6 +817,7 @@ fn gui_window_body_geometry_excludes_fringes_and_margins() {
 
 #[test]
 fn gui_window_fringes_default_to_frame_defaults_when_reset() {
+    crate::test_utils::init_test_tracing();
     let out = eval_with_gui_frame(
         "(let ((w (selected-window)))
            (list (window-fringes w)
@@ -800,6 +831,7 @@ fn gui_window_fringes_default_to_frame_defaults_when_reset() {
 
 #[test]
 fn gui_window_scroll_bars_round_trip_explicit_state() {
+    crate::test_utils::init_test_tracing();
     let out = eval_with_gui_frame(
         "(let ((w (selected-window)))
            (list (window-scroll-bars w)
@@ -816,6 +848,7 @@ fn gui_window_scroll_bars_round_trip_explicit_state() {
 
 #[test]
 fn gui_window_body_geometry_excludes_scroll_bar_area() {
+    crate::test_utils::init_test_tracing();
     let out = eval_with_gui_frame(
         "(let ((w (selected-window)))
            (set-window-scroll-bars w 13 'left)
@@ -827,6 +860,7 @@ fn gui_window_body_geometry_excludes_scroll_bar_area() {
 
 #[test]
 fn gui_set_window_buffer_applies_buffer_local_display_defaults() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let scratch = ev.buffers.create_buffer("*scratch*");
     ev.buffers.set_current(scratch);
@@ -878,6 +912,7 @@ fn gui_set_window_buffer_applies_buffer_local_display_defaults() {
 
 #[test]
 fn window_total_size_queries_work() {
+    crate::test_utils::init_test_tracing();
     let results = eval_with_frame(
         "(list (integerp (window-total-height))
                (integerp (window-total-width))
@@ -889,6 +924,7 @@ fn window_total_size_queries_work() {
 
 #[test]
 fn get_buffer_window_finds_selected_window_for_current_buffer() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one_with_frame(
         "(let ((w (selected-window)))
            (eq w (get-buffer-window (window-buffer w))))",
@@ -898,12 +934,14 @@ fn get_buffer_window_finds_selected_window_for_current_buffer() {
 
 #[test]
 fn get_buffer_window_list_returns_matching_windows() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_with_frame("(length (get-buffer-window-list (window-buffer)))");
     assert_eq!(result[0], "OK 1");
 }
 
 #[test]
 fn get_buffer_window_and_list_match_optional_and_missing_buffer_semantics() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_with_frame(
         "(let ((vm-gbwl-live (generate-new-buffer \"gbwl-live\"))
                (vm-gbwl-dead (generate-new-buffer \"gbwl-dead\")))
@@ -931,12 +969,14 @@ fn get_buffer_window_and_list_match_optional_and_missing_buffer_semantics() {
 
 #[test]
 fn fit_window_to_buffer_returns_nil_in_batch_mode() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_with_frame("(fit-window-to-buffer)");
     assert_eq!(result[0], "OK nil");
 }
 
 #[test]
 fn fit_window_to_buffer_invalid_window_designators_signal_error() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_with_frame(
         "(condition-case err (fit-window-to-buffer 999999) (error (car err)))
          (condition-case err (fit-window-to-buffer 'foo) (error (car err)))",
@@ -947,6 +987,7 @@ fn fit_window_to_buffer_invalid_window_designators_signal_error() {
 
 #[test]
 fn window_list_1_callable_paths_return_live_windows() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame(
         "(let* ((fn (indirect-function 'window-list-1))
                 (a (funcall #'window-list-1 nil nil))
@@ -963,6 +1004,7 @@ fn window_list_1_callable_paths_return_live_windows() {
 
 #[test]
 fn window_list_1_stale_window_signals_wrong_type_argument() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame(
         "(let ((w (split-window-internal (selected-window) nil nil nil)))
            (delete-window w)
@@ -978,6 +1020,7 @@ fn window_list_1_stale_window_signals_wrong_type_argument() {
 
 #[test]
 fn window_list_1_all_frames_includes_other_frame_windows() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame(
         "(let ((f1 (selected-frame))
               (f2 (make-frame)))
@@ -998,18 +1041,21 @@ fn window_list_1_all_frames_includes_other_frame_windows() {
 
 #[test]
 fn window_list_returns_list() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(listp (window-list))");
     assert_eq!(r, "OK t");
 }
 
 #[test]
 fn window_list_has_one_entry() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(length (window-list))");
     assert_eq!(r, "OK 1");
 }
 
 #[test]
 fn window_list_matches_frame_minibuffer_and_all_frames_batch_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err (length (window-list)) (error err))
@@ -1047,6 +1093,7 @@ fn window_list_matches_frame_minibuffer_and_all_frames_batch_semantics() {
 
 #[test]
 fn minibuffer_window_from_window_list_supports_basic_accessors() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(let ((m (car (nthcdr (1- (length (window-list nil t))) (window-list nil t)))))
@@ -1077,12 +1124,14 @@ fn minibuffer_window_from_window_list_supports_basic_accessors() {
 
 #[test]
 fn window_dedicated_p_default() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(window-dedicated-p)");
     assert_eq!(r, "OK nil");
 }
 
 #[test]
 fn window_accessors_enforce_max_arity() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err (window-buffer nil nil) (error (car err)))
@@ -1108,6 +1157,7 @@ fn window_accessors_enforce_max_arity() {
 
 #[test]
 fn set_window_dedicated_p() {
+    crate::test_utils::init_test_tracing();
     let results = eval_with_frame(
         "(set-window-dedicated-p (selected-window) t)
          (window-dedicated-p)",
@@ -1118,6 +1168,7 @@ fn set_window_dedicated_p() {
 
 #[test]
 fn set_window_dedicated_p_bootstraps_nil_and_validates_designators() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err (set-window-dedicated-p nil t) (error err))
@@ -1145,6 +1196,7 @@ fn set_window_dedicated_p_bootstraps_nil_and_validates_designators() {
 
 #[test]
 fn split_window_internal_creates_new() {
+    crate::test_utils::init_test_tracing();
     let results = eval_with_frame(
         "(split-window-internal (selected-window) nil nil nil)
          (length (window-list))",
@@ -1155,6 +1207,7 @@ fn split_window_internal_creates_new() {
 
 #[test]
 fn split_window_internal_enforces_arity() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err
@@ -1175,6 +1228,7 @@ fn split_window_internal_enforces_arity() {
 
 #[test]
 fn split_delete_window_invalid_designators_signal_error() {
+    crate::test_utils::init_test_tracing();
     let results = eval_with_frame(
         "(condition-case err
              (split-window-internal 999999 nil nil nil)
@@ -1199,6 +1253,7 @@ fn split_delete_window_invalid_designators_signal_error() {
 
 #[test]
 fn delete_window_after_split() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_with_frame(
         "(let ((new-win (split-window-internal (selected-window) nil nil nil)))
            (delete-window new-win)
@@ -1209,6 +1264,7 @@ fn delete_window_after_split() {
 
 #[test]
 fn delete_window_updates_current_buffer_to_selected_window_buffer() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_one_with_frame(
         "(save-current-buffer
            (let* ((b1 (get-buffer-create \"dw-curbuf-a\"))
@@ -1225,12 +1281,14 @@ fn delete_window_updates_current_buffer_to_selected_window_buffer() {
 
 #[test]
 fn delete_sole_window_errors() {
+    crate::test_utils::init_test_tracing();
     let r = bootstrap_eval_one_with_frame("(delete-window)");
     assert!(r.contains("ERR"), "deleting sole window should error: {r}");
 }
 
 #[test]
 fn delete_window_and_delete_other_windows_enforce_max_arity() {
+    crate::test_utils::init_test_tracing();
     let out = bootstrap_eval_with_frame(
         "(condition-case err (delete-window nil nil) (error (car err)))
          (condition-case err (delete-other-windows nil nil nil) (error (car err)))
@@ -1246,6 +1304,7 @@ fn delete_window_and_delete_other_windows_enforce_max_arity() {
 
 #[test]
 fn delete_other_windows_keeps_one() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_with_frame(
         "(split-window-internal (selected-window) nil nil nil)
          (split-window-internal (selected-window) nil nil nil)
@@ -1257,6 +1316,7 @@ fn delete_other_windows_keeps_one() {
 
 #[test]
 fn delete_other_windows_updates_current_buffer_when_kept_window_differs() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_one_with_frame(
         "(save-current-buffer
            (let* ((b1 (get-buffer-create \"dow-curbuf-a\"))
@@ -1274,6 +1334,7 @@ fn delete_other_windows_updates_current_buffer_when_kept_window_differs() {
 
 #[test]
 fn select_window_works() {
+    crate::test_utils::init_test_tracing();
     let results = eval_with_frame(
         "(let ((new-win (split-window-internal (selected-window) nil nil nil)))
            (select-window new-win)
@@ -1284,6 +1345,7 @@ fn select_window_works() {
 
 #[test]
 fn select_window_accepts_minibuffer_window_and_switches_current_buffer() {
+    crate::test_utils::init_test_tracing();
     let results = eval_with_frame(
         "(let ((mw (minibuffer-window)))
            (select-window mw)
@@ -1296,6 +1358,7 @@ fn select_window_accepts_minibuffer_window_and_switches_current_buffer() {
 
 #[test]
 fn select_window_validates_designators_and_arity() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err (select-window nil) (error err))
@@ -1319,6 +1382,7 @@ fn select_window_validates_designators_and_arity() {
 
 #[test]
 fn select_window_updates_current_buffer_to_selected_window_buffer() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one_with_frame(
         "(save-current-buffer
            (let* ((b1 (get-buffer-create \"sw-curbuf-a\"))
@@ -1334,6 +1398,7 @@ fn select_window_updates_current_buffer_to_selected_window_buffer() {
 
 #[test]
 fn select_window_runs_buffer_list_update_hook_unless_norecord() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one_with_frame(
         "(let* ((w1 (selected-window))
                 (b2 (get-buffer-create \"sw-hook-buf\"))
@@ -1354,6 +1419,7 @@ fn select_window_runs_buffer_list_update_hook_unless_norecord() {
 
 #[test]
 fn select_window_swaps_buffer_point_between_windows() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one_with_frame(
         "(let ((w1 (selected-window)))
            (set-buffer (window-buffer w1))
@@ -1374,6 +1440,7 @@ fn select_window_swaps_buffer_point_between_windows() {
 
 #[test]
 fn other_window_cycles() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_with_frame(
         "(let ((w1 (selected-window)))
            (split-window-internal (selected-window) nil nil nil)
@@ -1385,6 +1452,7 @@ fn other_window_cycles() {
 
 #[test]
 fn other_window_updates_current_buffer_to_selected_window_buffer() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_one_with_frame(
         "(save-current-buffer
            (let* ((b1 (get-buffer-create \"ow-curbuf-a\"))
@@ -1400,6 +1468,7 @@ fn other_window_updates_current_buffer_to_selected_window_buffer() {
 
 #[test]
 fn other_window_requires_count_and_enforces_number_or_marker_p() {
+    crate::test_utils::init_test_tracing();
     let out = bootstrap_eval_with_frame(
         "(condition-case err (other-window) (error (car err)))
          (condition-case err (other-window nil) (error err))
@@ -1412,6 +1481,7 @@ fn other_window_requires_count_and_enforces_number_or_marker_p() {
 
 #[test]
 fn other_window_accepts_float_counts_with_floor_semantics() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_with_frame(
         "(let* ((w1 (progn (delete-other-windows) (selected-window)))
                 (w2 (split-window-internal (selected-window) nil nil nil)))
@@ -1426,6 +1496,7 @@ fn other_window_accepts_float_counts_with_floor_semantics() {
 
 #[test]
 fn other_window_enforces_max_arity() {
+    crate::test_utils::init_test_tracing();
     let out = bootstrap_eval_with_frame(
         "(condition-case err (other-window 1 nil nil nil) (error (car err)))
          (condition-case err
@@ -1441,6 +1512,7 @@ fn other_window_enforces_max_arity() {
 
 #[test]
 fn other_window_without_selected_frame_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let forms = parse_forms("(other-window 1)").expect("parse");
@@ -1450,6 +1522,7 @@ fn other_window_without_selected_frame_returns_nil() {
 
 #[test]
 fn selected_frame_bootstraps_initial_frame() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms =
         parse_forms("(list (framep (selected-frame)) (length (frame-list)))").expect("parse");
@@ -1459,6 +1532,7 @@ fn selected_frame_bootstraps_initial_frame() {
 
 #[test]
 fn window_size_queries_bootstrap_initial_frame() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(list (integerp (window-height))
@@ -1473,6 +1547,7 @@ fn window_size_queries_bootstrap_initial_frame() {
 
 #[test]
 fn window_size_queries_match_batch_defaults_and_invalid_window_predicates() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(window-height nil)
@@ -1510,6 +1585,7 @@ fn window_size_queries_match_batch_defaults_and_invalid_window_predicates() {
 
 #[test]
 fn window_geometry_helper_queries_match_batch_defaults_and_error_predicates() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(let* ((w (selected-window))
@@ -1557,6 +1633,7 @@ fn window_geometry_helper_queries_match_batch_defaults_and_error_predicates() {
 
 #[test]
 fn window_use_time_and_old_state_queries_match_batch_defaults_and_error_predicates() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(let* ((w (selected-window))
@@ -1613,6 +1690,7 @@ fn window_use_time_and_old_state_queries_match_batch_defaults_and_error_predicat
 
 #[test]
 fn window_bump_use_time_tracks_second_most_recent_window() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(let* ((w1 (selected-window))
@@ -1644,6 +1722,7 @@ fn window_bump_use_time_tracks_second_most_recent_window() {
 
 #[test]
 fn window_bump_use_time_shared_state_smoke() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(let* ((w1 (selected-window))
@@ -1672,6 +1751,7 @@ fn window_bump_use_time_shared_state_smoke() {
 
 #[test]
 fn window_vscroll_helpers_match_batch_defaults_and_error_predicates() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(let* ((w (selected-window))
@@ -1714,6 +1794,7 @@ fn window_vscroll_helpers_match_batch_defaults_and_error_predicates() {
 
 #[test]
 fn window_scroll_state_shared_state_smoke() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(let* ((w (selected-window))
@@ -1770,6 +1851,7 @@ fn window_scroll_state_shared_state_smoke() {
 
 #[test]
 fn window_hscroll_and_margin_setters_match_batch_defaults_and_error_predicates() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(let* ((w (selected-window))
@@ -1835,6 +1917,7 @@ fn window_hscroll_and_margin_setters_match_batch_defaults_and_error_predicates()
 
 #[test]
 fn window_fringes_and_scroll_bar_setters_match_batch_defaults_and_error_predicates() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(let* ((w (selected-window))
@@ -1888,6 +1971,7 @@ fn window_fringes_and_scroll_bar_setters_match_batch_defaults_and_error_predicat
 
 #[test]
 fn window_parameter_helpers_match_batch_defaults_and_key_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(let* ((w (selected-window))
@@ -1937,6 +2021,7 @@ fn window_parameter_helpers_match_batch_defaults_and_key_semantics() {
 
 #[test]
 fn window_display_table_helpers_match_batch_defaults_and_set_get_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(let* ((w (selected-window))
@@ -1981,6 +2066,7 @@ fn window_display_table_helpers_match_batch_defaults_and_set_get_semantics() {
 
 #[test]
 fn window_cursor_type_helpers_match_batch_defaults_and_set_get_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(let* ((w (selected-window))
@@ -2025,6 +2111,7 @@ fn window_cursor_type_helpers_match_batch_defaults_and_set_get_semantics() {
 
 #[test]
 fn window_metadata_shared_state_smoke() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(let* ((w (selected-window))
@@ -2079,6 +2166,7 @@ fn window_metadata_shared_state_smoke() {
 
 #[test]
 fn window_preserve_size_fixed_and_resizable_helpers_match_batch_semantics() {
+    crate::test_utils::init_test_tracing();
     let out = bootstrap_eval_with_frame(
         "(let ((w (selected-window)))
            (list (window-size-fixed-p w)
@@ -2142,6 +2230,7 @@ fn window_preserve_size_fixed_and_resizable_helpers_match_batch_semantics() {
 
 #[test]
 fn window_tree_navigation_and_normal_size_match_gnu_runtime() {
+    crate::test_utils::init_test_tracing();
     let out = bootstrap_eval_with_frame(
         "(let* ((left (selected-window))
                 (right (split-window nil nil 'right))
@@ -2175,6 +2264,7 @@ fn window_tree_navigation_and_normal_size_match_gnu_runtime() {
 
 #[test]
 fn window_geometry_queries_match_batch_alias_and_edge_shapes() {
+    crate::test_utils::init_test_tracing();
     let out = bootstrap_eval_with_frame(
         "(list (symbol-function 'window-inside-pixel-edges)
                (symbol-function 'window-inside-edges))
@@ -2235,6 +2325,7 @@ fn window_geometry_queries_match_batch_alias_and_edge_shapes() {
 
 #[test]
 fn next_window_cycles() {
+    crate::test_utils::init_test_tracing();
     let results = eval_with_frame(
         "(let ((w1 (selected-window)))
            (split-window-internal (selected-window) nil nil nil)
@@ -2246,6 +2337,7 @@ fn next_window_cycles() {
 
 #[test]
 fn one_window_p_tracks_current_window_count() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_with_frame(
         "(list (one-window-p)
                (progn
@@ -2257,6 +2349,7 @@ fn one_window_p_tracks_current_window_count() {
 
 #[test]
 fn one_window_p_enforces_max_arity() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_with_frame(
         "(condition-case err (one-window-p nil nil nil) (error (car err)))",
     );
@@ -2265,6 +2358,7 @@ fn one_window_p_enforces_max_arity() {
 
 #[test]
 fn next_previous_window_enforce_max_arity() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err (next-window nil nil nil nil) (error (car err)))
@@ -2290,6 +2384,7 @@ fn next_previous_window_enforce_max_arity() {
 
 #[test]
 fn previous_window_wraps() {
+    crate::test_utils::init_test_tracing();
     let results = eval_with_frame(
         "(split-window-internal (selected-window) nil nil nil)
          (let ((w (previous-window)))
@@ -2302,6 +2397,7 @@ fn previous_window_wraps() {
 
 #[test]
 fn frame_ops_enforce_max_arity() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err (make-frame nil nil) (error (car err)))
@@ -2327,6 +2423,7 @@ fn frame_ops_enforce_max_arity() {
 
 #[test]
 fn frame_visible_p_enforces_arity_and_designators() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err (frame-visible-p) (error (car err)))
@@ -2348,6 +2445,7 @@ fn frame_visible_p_enforces_arity_and_designators() {
 
 #[test]
 fn frame_designator_errors_use_emacs_predicates() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err (frame-parameter \"x\" 'name) (error err))
@@ -2381,6 +2479,7 @@ fn frame_designator_errors_use_emacs_predicates() {
 
 #[test]
 fn frame_query_builtins_match_gnu_batch_startup_geometry() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         r#"(list (frame-char-height)
@@ -2406,6 +2505,7 @@ fn frame_query_builtins_match_gnu_batch_startup_geometry() {
 
 #[test]
 fn frame_identity_builtins_match_gnu_batch_startup_defaults() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         r#"(let ((mouse (mouse-position))
@@ -2431,6 +2531,7 @@ fn frame_identity_builtins_match_gnu_batch_startup_defaults() {
 
 #[test]
 fn frame_query_builtins_report_pixel_sizes_for_gui_frames() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("gui", 800, 600, buf);
@@ -2459,6 +2560,7 @@ fn frame_query_builtins_report_pixel_sizes_for_gui_frames() {
 
 #[test]
 fn frame_query_builtins_use_internal_window_system_state() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("gui", 800, 600, buf);
@@ -2480,6 +2582,7 @@ fn frame_query_builtins_use_internal_window_system_state() {
 
 #[test]
 fn select_frame_arity_designators_and_selection() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err (select-frame) (error (car err)))
@@ -2509,6 +2612,7 @@ fn select_frame_arity_designators_and_selection() {
 
 #[test]
 fn select_frame_set_input_focus_arity_designators_and_result() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err (select-frame-set-input-focus) (error (car err)))
@@ -2534,6 +2638,7 @@ fn select_frame_set_input_focus_arity_designators_and_result() {
 
 #[test]
 fn set_frame_selected_window_matches_selection_and_error_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err (set-frame-selected-window) (error (car err)))
@@ -2611,6 +2716,7 @@ fn set_frame_selected_window_matches_selection_and_error_semantics() {
 
 #[test]
 fn old_selected_window_matches_stable_and_stale_window_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let forms = parse_forms(
@@ -2658,6 +2764,7 @@ fn old_selected_window_matches_stable_and_stale_window_semantics() {
 
 #[test]
 fn frame_old_selected_window_matches_batch_and_arity_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
     let forms = parse_forms(
@@ -2705,6 +2812,7 @@ fn frame_old_selected_window_matches_batch_and_arity_semantics() {
 
 #[test]
 fn frame_old_selected_window_direct_wrapper_matches_batch_nil_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let fid = super::ensure_selected_frame_id(&mut ev);
 
@@ -2737,6 +2845,7 @@ fn frame_old_selected_window_direct_wrapper_matches_batch_nil_semantics() {
 
 #[test]
 fn selected_frame_returns_frame_handle() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame(
         "(let ((f (selected-frame)))
            (list (framep f)
@@ -2749,12 +2858,14 @@ fn selected_frame_returns_frame_handle() {
 
 #[test]
 fn frame_list_has_one() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(length (frame-list))");
     assert_eq!(r, "OK 1");
 }
 
 #[test]
 fn make_frame_creates_new() {
+    crate::test_utils::init_test_tracing();
     let results = eval_with_frame(
         "(make-frame)
          (length (frame-list))",
@@ -2765,6 +2876,7 @@ fn make_frame_creates_new() {
 
 #[test]
 fn x_create_frame_creates_live_frame_and_preserves_char_geometry_params() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let scratch = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("bootstrap", 800, 600, scratch);
@@ -2800,6 +2912,7 @@ fn x_create_frame_creates_live_frame_and_preserves_char_geometry_params() {
 
 #[test]
 fn x_create_frame_creates_opening_frame_and_notifies_host() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let scratch = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("bootstrap", 960, 640, scratch);
@@ -2849,6 +2962,7 @@ fn x_create_frame_creates_opening_frame_and_notifies_host() {
 
 #[test]
 fn x_create_frame_reserves_tab_bar_space_above_root_window() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let scratch = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("bootstrap", 960, 640, scratch);
@@ -2886,6 +3000,7 @@ fn x_create_frame_reserves_tab_bar_space_above_root_window() {
 
 #[test]
 fn make_frame_uses_gui_creation_path_when_display_host_is_active() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let scratch = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("bootstrap", 960, 640, scratch);
@@ -2934,6 +3049,7 @@ fn make_frame_uses_gui_creation_path_when_display_host_is_active() {
 
 #[test]
 fn x_create_frame_syncs_pending_resize_before_adopting_opening_gui_frame() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let scratch = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("bootstrap", 960, 640, scratch);
@@ -2992,6 +3108,7 @@ fn x_create_frame_syncs_pending_resize_before_adopting_opening_gui_frame() {
 
 #[test]
 fn x_create_frame_prefers_display_host_primary_window_size_without_explicit_geometry() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let scratch = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("bootstrap", 960, 640, scratch);
@@ -3039,6 +3156,7 @@ fn x_create_frame_prefers_display_host_primary_window_size_without_explicit_geom
 
 #[test]
 fn delete_frame_works() {
+    crate::test_utils::init_test_tracing();
     let results = eval_with_frame(
         "(let ((f2 (make-frame)))
            (delete-frame f2)
@@ -3049,6 +3167,7 @@ fn delete_frame_works() {
 
 #[test]
 fn delete_frame_errors_on_sole_frame_without_force() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one_with_frame(
         "(condition-case err
              (delete-frame nil)
@@ -3062,6 +3181,7 @@ fn delete_frame_errors_on_sole_frame_without_force() {
 
 #[test]
 fn delete_frame_force_errors_on_only_frame() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one_with_frame(
         "(condition-case err
              (delete-frame nil t)
@@ -3072,6 +3192,7 @@ fn delete_frame_force_errors_on_only_frame() {
 
 #[test]
 fn deleting_last_frame_on_terminal_deletes_terminal_too() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     ev.buffers.set_current(buf);
@@ -3105,12 +3226,14 @@ fn deleting_last_frame_on_terminal_deletes_terminal_too() {
 
 #[test]
 fn framep_true() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(framep (selected-frame))");
     assert_eq!(r, "OK t");
 }
 
 #[test]
 fn framep_returns_window_system_symbol_for_gui_frames() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let frame_id = super::ensure_selected_frame_id(&mut ev);
     ev.frames
@@ -3125,24 +3248,28 @@ fn framep_returns_window_system_symbol_for_gui_frames() {
 
 #[test]
 fn framep_false() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(framep 999999)");
     assert_eq!(r, "OK nil");
 }
 
 #[test]
 fn frame_live_p_true() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(frame-live-p (selected-frame))");
     assert_eq!(r, "OK t");
 }
 
 #[test]
 fn frame_live_p_false() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(frame-live-p 999999)");
     assert_eq!(r, "OK nil");
 }
 
 #[test]
 fn frame_builtins_accept_frame_handle_values() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let fid = super::ensure_selected_frame_id(&mut ev);
     let frame = Value::make_frame(fid.0);
@@ -3171,6 +3298,7 @@ fn frame_builtins_accept_frame_handle_values() {
 
 #[test]
 fn select_frame_switches_active_kboard_to_frame_terminal() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     ev.buffers.set_current(buf);
@@ -3221,36 +3349,42 @@ fn select_frame_switches_active_kboard_to_frame_terminal() {
 
 #[test]
 fn frame_visible_p_requires_one_arg() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(condition-case err (frame-visible-p) (error (car err)))");
     assert_eq!(r, "OK wrong-number-of-arguments");
 }
 
 #[test]
 fn frame_parameter_name() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(frame-parameter (selected-frame) 'name)");
     assert_eq!(r, r#"OK "F1""#);
 }
 
 #[test]
 fn frame_parameter_width() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(frame-parameter (selected-frame) 'width)");
     assert_eq!(r, "OK 100");
 }
 
 #[test]
 fn frame_parameter_height() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(frame-parameter (selected-frame) 'height)");
     assert_eq!(r, "OK 37");
 }
 
 #[test]
 fn frame_parameters_returns_alist() {
+    crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(listp (frame-parameters))");
     assert_eq!(r, "OK t");
 }
 
 #[test]
 fn modify_frame_parameters_name() {
+    crate::test_utils::init_test_tracing();
     let results = eval_with_frame(
         "(modify-frame-parameters (selected-frame) '((name . \"NewName\")))
          (frame-parameter (selected-frame) 'name)",
@@ -3261,6 +3395,7 @@ fn modify_frame_parameters_name() {
 
 #[test]
 fn modify_frame_parameters_width_height_preserve_pixel_dimensions() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("F1", 800, 600, buf);
@@ -3283,6 +3418,7 @@ fn modify_frame_parameters_width_height_preserve_pixel_dimensions() {
 
 #[test]
 fn modify_frame_parameters_tab_bar_lines_reflows_root_window_tree() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("F1", 800, 600, buf);
@@ -3315,6 +3451,7 @@ fn modify_frame_parameters_tab_bar_lines_reflows_root_window_tree() {
 
 #[test]
 fn set_frame_size_builtins_preserve_pixel_dimensions() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("F1", 800, 600, buf);
@@ -3345,6 +3482,7 @@ fn set_frame_size_builtins_preserve_pixel_dimensions() {
 
 #[test]
 fn set_frame_size_builtins_resize_live_gui_frames_and_notify_host() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     let fid = ev.frames.create_frame("F1", 800, 600, buf);
@@ -3386,6 +3524,7 @@ fn set_frame_size_builtins_resize_live_gui_frames_and_notify_host() {
 
 #[test]
 fn switch_to_buffer_changes_window() {
+    crate::test_utils::init_test_tracing();
     let results = eval_with_frame(
         "(get-buffer-create \"other-buf\")
          (switch-to-buffer \"other-buf\")
@@ -3396,6 +3535,7 @@ fn switch_to_buffer_changes_window() {
 
 #[test]
 fn switch_to_buffer_runs_buffer_list_update_hook_unless_norecord() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one_with_frame(
         "(let ((stb-log nil))
            (setq buffer-list-update-hook
@@ -3415,6 +3555,7 @@ fn switch_to_buffer_runs_buffer_list_update_hook_unless_norecord() {
 
 #[test]
 fn set_window_buffer_works() {
+    crate::test_utils::init_test_tracing();
     let results = eval_with_frame(
         "(get-buffer-create \"buf2\")
          (set-window-buffer (selected-window) \"buf2\")
@@ -3426,6 +3567,7 @@ fn set_window_buffer_works() {
 
 #[test]
 fn set_window_buffer_runs_buffer_list_update_hook_for_normal_windows() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one_with_frame(
         "(let ((swb-log nil)
                (w (selected-window))
@@ -3443,6 +3585,7 @@ fn set_window_buffer_runs_buffer_list_update_hook_for_normal_windows() {
 
 #[test]
 fn set_window_buffer_restores_saved_window_point_and_keep_margins() {
+    crate::test_utils::init_test_tracing();
     let results = eval_with_frame(
         "(setq swb-test-w (selected-window))
          (setq swb-test-b1 (get-buffer-create \"swb-state-a\"))
@@ -3495,6 +3638,7 @@ fn set_window_buffer_restores_saved_window_point_and_keep_margins() {
 
 #[test]
 fn set_window_buffer_updates_history_lists_on_real_buffer_switches() {
+    crate::test_utils::init_test_tracing();
     let results = eval_with_frame(
         "(let* ((w (selected-window))
                 (b1 (get-buffer-create \"swb-hist-a\"))
@@ -3552,6 +3696,7 @@ fn set_window_buffer_updates_history_lists_on_real_buffer_switches() {
 
 #[test]
 fn window_end_greater_than_start() {
+    crate::test_utils::init_test_tracing();
     // Check that window-end and window-start return valid positions.
     // Use >= since they can be equal for small/empty visible regions.
     let r = eval_one_with_frame(
@@ -3562,6 +3707,7 @@ fn window_end_greater_than_start() {
 
 #[test]
 fn window_end_prefers_last_redisplay_snapshot_when_available() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     ev.buffers.set_current(buf);
@@ -3612,6 +3758,7 @@ fn window_end_prefers_last_redisplay_snapshot_when_available() {
 
 #[test]
 fn window_chrome_height_queries_prefer_last_redisplay_snapshot_when_available() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     ev.buffers.set_current(buf);
@@ -3645,6 +3792,7 @@ fn window_chrome_height_queries_prefer_last_redisplay_snapshot_when_available() 
 
 #[test]
 fn display_buffer_returns_window() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_with_frame(
         "(get-buffer-create \"disp-buf\")
          (windowp (display-buffer \"disp-buf\"))",
@@ -3654,6 +3802,7 @@ fn display_buffer_returns_window() {
 
 #[test]
 fn pop_to_buffer_returns_buffer() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_with_frame(
         "(get-buffer-create \"pop-buf\")
          (bufferp (pop-to-buffer \"pop-buf\"))",
@@ -3663,6 +3812,7 @@ fn pop_to_buffer_returns_buffer() {
 
 #[test]
 fn switch_display_pop_bootstrap_initial_frame() {
+    crate::test_utils::init_test_tracing();
     let out = bootstrap_eval_with_frame(
         "(save-current-buffer (bufferp (switch-to-buffer \"*scratch*\")))
          (save-current-buffer (windowp (display-buffer \"*scratch*\")))
@@ -3675,6 +3825,7 @@ fn switch_display_pop_bootstrap_initial_frame() {
 
 #[test]
 fn switch_display_pop_enforce_max_arity() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_with_frame(
         "(condition-case err (switch-to-buffer \"*scratch*\" nil nil nil) (error (car err)))
          (condition-case err (display-buffer \"*scratch*\" nil nil nil) (error (car err)))
@@ -3689,6 +3840,7 @@ fn switch_display_pop_enforce_max_arity() {
 
 #[test]
 fn switch_display_pop_reject_non_buffer_designators() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_with_frame(
         "(condition-case err (switch-to-buffer 1) (error (list (car err) (nth 1 err) (nth 2 err))))
          (condition-case err (display-buffer 1) (error (list (car err) (nth 1 err) (nth 2 err))))
@@ -3703,6 +3855,7 @@ fn switch_display_pop_reject_non_buffer_designators() {
 
 #[test]
 fn switch_and_pop_create_missing_named_buffers() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_with_frame(
         "(save-current-buffer (bufferp (switch-to-buffer \"sw-auto-create\")))
          (buffer-live-p (get-buffer \"sw-auto-create\"))
@@ -3721,6 +3874,7 @@ fn switch_and_pop_create_missing_named_buffers() {
 
 #[test]
 fn display_buffer_missing_or_dead_signals_invalid_buffer() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_with_frame(
         "(condition-case err (display-buffer \"db-missing\") (error err))
          (let ((b (get-buffer-create \"db-dead\")))
@@ -3733,6 +3887,7 @@ fn display_buffer_missing_or_dead_signals_invalid_buffer() {
 
 #[test]
 fn set_window_buffer_matches_window_and_buffer_designator_errors() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let buf = ev.buffers.create_buffer("*scratch*");
     ev.frames.create_frame("F1", 800, 600, buf);
@@ -3765,6 +3920,7 @@ fn set_window_buffer_matches_window_and_buffer_designator_errors() {
 
 #[test]
 fn set_window_buffer_bootstraps_initial_frame_for_nil_window_designator() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
         "(condition-case err
@@ -3790,6 +3946,7 @@ fn set_window_buffer_bootstraps_initial_frame_for_nil_window_designator() {
 
 #[test]
 fn scroll_and_recenter_use_selected_window_state() {
+    crate::test_utils::init_test_tracing();
     let results = eval_with_frame(
         "(let ((w (selected-window)))
            (save-current-buffer (set-buffer (window-buffer w))
@@ -3807,6 +3964,7 @@ fn scroll_and_recenter_use_selected_window_state() {
 
 #[test]
 fn scroll_up_down_updates_window_start_for_multibyte_content() {
+    crate::test_utils::init_test_tracing();
     // dotimes is no longer a special form; use let+while equivalent
     let results = eval_with_frame(
         "(let ((w (selected-window)))

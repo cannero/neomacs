@@ -4,12 +4,14 @@ use crate::emacs_core::string_escape::bytes_to_unibyte_storage_string;
 
 #[test]
 fn parse_integers() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms("42 -7 0").unwrap();
     assert_eq!(forms, vec![Expr::Int(42), Expr::Int(-7), Expr::Int(0)]);
 }
 
 #[test]
 fn parse_floats() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms("3.14 1e10 .5 -2.5").unwrap();
     assert_eq!(
         forms,
@@ -24,6 +26,7 @@ fn parse_floats() {
 
 #[test]
 fn parse_emacs_special_float_literals() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms(
         "0.0e+NaN -0.0e+NaN 1.0e+INF -1.0e+INF 0.0e+INF 0e+NaN 1.0E+INF 1.0e+NaN -2.0e+NaN .5e+NaN -.5e+NaN 1.5e+NaN 0.9e+NaN",
     )
@@ -86,6 +89,7 @@ fn parse_emacs_special_float_literals() {
 
 #[test]
 fn parse_nan_payload_literals_render_to_oracle_shapes() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms(
         "1.0e+NaN -2.0e+NaN .5e+NaN -.5e+NaN 1.5e+NaN 0.9e+NaN .0e+NaN -.0e+NaN 9007199254740991.0e+NaN 2251799813685248.0e+NaN 4503599627370495.0e+NaN 4503599627370496.0e+NaN -4503599627370496.0e+NaN 9007199254740993.0e+NaN -9007199254740993.0e+NaN",
     )
@@ -118,6 +122,7 @@ fn parse_nan_payload_literals_render_to_oracle_shapes() {
 
 #[test]
 fn parse_special_float_plus_and_trailing_dot_literals() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms("+1.e+NaN -1.e+NaN +.0e+NaN +1.e+INF -.0e+INF +1E+NaN").unwrap();
     let rendered: Vec<String> = forms
         .iter()
@@ -138,6 +143,7 @@ fn parse_special_float_plus_and_trailing_dot_literals() {
 
 #[test]
 fn parse_invalid_nan_inf_spellings_as_symbols() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms("0.0e+inf 0.0e+nan 1.0eNaN 1.0eINF").unwrap();
     assert_eq!(
         forms,
@@ -152,6 +158,7 @@ fn parse_invalid_nan_inf_spellings_as_symbols() {
 
 #[test]
 fn parse_strings() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms(r#""hello" "world\n" "tab\there" "quote\"d""#).unwrap();
     assert_eq!(
         forms,
@@ -166,12 +173,14 @@ fn parse_strings() {
 
 #[test]
 fn parse_string_hex_escape() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms(r#""\x41""#).unwrap();
     assert_eq!(forms, vec![Expr::Str("A".into())]);
 }
 
 #[test]
 fn parse_string_octal_raw_bytes_as_unibyte_storage() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms(r#""\303\251""#).unwrap();
     assert_eq!(
         forms,
@@ -181,6 +190,7 @@ fn parse_string_octal_raw_bytes_as_unibyte_storage() {
 
 #[test]
 fn parse_string_two_digit_hex_raw_byte_as_unibyte_storage() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms(r#""\xE9""#).unwrap();
     assert_eq!(
         forms,
@@ -190,12 +200,14 @@ fn parse_string_two_digit_hex_raw_byte_as_unibyte_storage() {
 
 #[test]
 fn parse_string_unicode_name_escape_u_plus() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms(r#""\N{U+2764}""#).unwrap();
     assert_eq!(forms, vec![Expr::Str("\u{2764}".into())]);
 }
 
 #[test]
 fn parse_char_literals() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms("?a ?\\n ?\\t").unwrap();
     assert_eq!(
         forms,
@@ -205,6 +217,7 @@ fn parse_char_literals() {
 
 #[test]
 fn parse_char_literal_single_space_syntax_matches_gnu_emacs() {
+    crate::test_utils::init_test_tracing();
     // GNU reads "? x ?\ty" as 4 forms: (32 x 9 y)
     // ?<space> = space char, x = symbol, ?\t = tab char, y = symbol
     let forms = parse_forms("? x ?\ty").unwrap();
@@ -221,12 +234,14 @@ fn parse_char_literal_single_space_syntax_matches_gnu_emacs() {
 
 #[test]
 fn parse_char_literal_requires_gnu_emacs_delimiter() {
+    crate::test_utils::init_test_tracing();
     let err = parse_forms("?child").expect_err("?child should be invalid reader syntax");
     assert_eq!(err.message, "?");
 }
 
 #[test]
 fn parse_control_char_literals() {
+    crate::test_utils::init_test_tracing();
     // GNU Emacs lread.c rules for \C-:
     //   \C-a = 1 (letter → & 0x1F, no ctrl bit)
     //   \C-z = 26 (letter → & 0x1F, no ctrl bit)
@@ -245,12 +260,14 @@ fn parse_control_char_literals() {
 
 #[test]
 fn parse_char_literal_unicode_name_escape_u_plus() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms(r"?\N{U+2764}").unwrap();
     assert_eq!(forms, vec![Expr::Char('\u{2764}')]);
 }
 
 #[test]
 fn parse_keywords() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms(":test :size").unwrap();
     assert_eq!(
         forms,
@@ -263,6 +280,7 @@ fn parse_keywords() {
 
 #[test]
 fn parse_uninterned_symbols_create_fresh_ids_and_preserve_labels() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms("#:foo #:foo #1=#:bar #1#").unwrap();
     assert_eq!(forms.len(), 4);
 
@@ -288,6 +306,7 @@ fn parse_uninterned_symbols_create_fresh_ids_and_preserve_labels() {
 
 #[test]
 fn parse_symbols_honor_backslash_escapes() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms("\\.foo a\\ b a\\,b a\\\\b ## \\#\\#").unwrap();
     assert_eq!(
         forms,
@@ -304,6 +323,7 @@ fn parse_symbols_honor_backslash_escapes() {
 
 #[test]
 fn parse_lists() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms("(+ 1 2) ()").unwrap();
     assert_eq!(
         forms,
@@ -316,6 +336,7 @@ fn parse_lists() {
 
 #[test]
 fn parse_dotted_pair() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms("(a . b)").unwrap();
     assert_eq!(
         forms,
@@ -328,6 +349,7 @@ fn parse_dotted_pair() {
 
 #[test]
 fn parse_vectors() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms("[1 2 3]").unwrap();
     assert_eq!(
         forms,
@@ -337,6 +359,7 @@ fn parse_vectors() {
 
 #[test]
 fn parse_quote_shorthand() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms("'foo '(1 2)").unwrap();
     assert_eq!(
         forms,
@@ -355,6 +378,7 @@ fn parse_quote_shorthand() {
 
 #[test]
 fn parse_function_shorthand() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms("#'car").unwrap();
     assert_eq!(
         forms,
@@ -367,36 +391,42 @@ fn parse_function_shorthand() {
 
 #[test]
 fn parse_backquote() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms("`(a ,b ,@c)").unwrap();
     assert_eq!(forms.len(), 1);
 }
 
 #[test]
 fn parse_hex_literal() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms("#xff #b1010 #o17").unwrap();
     assert_eq!(forms, vec![Expr::Int(255), Expr::Int(10), Expr::Int(15)]);
 }
 
 #[test]
 fn parse_line_comment() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms("42 ; this is a comment\n7").unwrap();
     assert_eq!(forms, vec![Expr::Int(42), Expr::Int(7)]);
 }
 
 #[test]
 fn parse_block_comment() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms("42 #| block comment |# 7").unwrap();
     assert_eq!(forms, vec![Expr::Int(42), Expr::Int(7)]);
 }
 
 #[test]
 fn parse_nested_block_comment() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms("42 #| outer #| inner |# still outer |# 7").unwrap();
     assert_eq!(forms, vec![Expr::Int(42), Expr::Int(7)]);
 }
 
 #[test]
 fn parse_bytecode_literal_vector_uses_byte_code_literal_form() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms("#[(x) \"\\bT\\207\" [x] 1 (#$ . 83)]").unwrap();
     assert_eq!(forms.len(), 1);
     let Expr::List(items) = &forms[0] else {
@@ -417,18 +447,21 @@ fn parse_bytecode_literal_vector_uses_byte_code_literal_form() {
 
 #[test]
 fn parse_paren_bytecode_literal_is_rejected() {
+    crate::test_utils::init_test_tracing();
     let err = parse_forms("#((x) \"\\bT\\207\" [x] 1 (#$ . 83))").expect_err("should fail");
     assert!(err.message.contains('#'));
 }
 
 #[test]
 fn parse_trailing_hash_reports_hash_payload() {
+    crate::test_utils::init_test_tracing();
     let err = parse_forms("#").expect_err("should fail");
     assert_eq!(err.message, "#");
 }
 
 #[test]
 fn parse_hash_unknown_dispatch_preserves_payload() {
+    crate::test_utils::init_test_tracing();
     let err = parse_forms("#a").expect_err("should fail");
     assert_eq!(err.message, "#a");
 
@@ -441,30 +474,35 @@ fn parse_hash_unknown_dispatch_preserves_payload() {
 
 #[test]
 fn parse_hash_radix_missing_digits_reports_oracle_payload() {
+    crate::test_utils::init_test_tracing();
     let err = parse_forms("#x").expect_err("should fail");
     assert_eq!(err.message, "integer, radix 16");
 }
 
 #[test]
 fn parse_hash_open_paren_without_close_reports_eof_shape() {
+    crate::test_utils::init_test_tracing();
     let err = parse_forms("#(").expect_err("should fail");
     assert!(err.message.contains("unterminated"));
 }
 
 #[test]
 fn parse_hash_skip_bytes_reads_next_form() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms("#@4data42").unwrap();
     assert_eq!(forms, vec![Expr::Int(42)]);
 }
 
 #[test]
 fn parse_hash_s_without_list_reports_hash_s_payload() {
+    crate::test_utils::init_test_tracing();
     let err = parse_forms("#s").expect_err("should fail");
     assert_eq!(err.message, "#s");
 }
 
 #[test]
 fn parse_hash_skip_without_length_reports_end_of_input() {
+    crate::test_utils::init_test_tracing();
     let err = parse_forms("#@").expect_err("should fail");
     assert!(err.message.contains("end of input"));
 
@@ -474,6 +512,7 @@ fn parse_hash_skip_without_length_reports_end_of_input() {
 
 #[test]
 fn parse_hash_dollar_maps_to_load_file_name_symbol() {
+    crate::test_utils::init_test_tracing();
     let forms = parse_forms("#$").unwrap();
     assert_eq!(forms, vec![Expr::ReaderLoadFileName]);
 }

@@ -56,18 +56,21 @@ fn assert_same_file_paths(path1: &str, path2: &str) {
 
 #[test]
 fn test_expand_file_name_absolute() {
+    crate::test_utils::init_test_tracing();
     let result = expand_file_name("/usr/bin/ls", None);
     assert_eq!(result, "/usr/bin/ls");
 }
 
 #[test]
 fn test_expand_file_name_relative() {
+    crate::test_utils::init_test_tracing();
     let result = expand_file_name("foo.txt", Some("/home/user"));
     assert_eq!(result, "/home/user/foo.txt");
 }
 
 #[test]
 fn test_expand_file_name_tilde() {
+    crate::test_utils::init_test_tracing();
     if std::env::var("HOME").is_ok() {
         let result = expand_file_name("~/test.txt", None);
         assert!(result.ends_with("/test.txt"));
@@ -77,18 +80,21 @@ fn test_expand_file_name_tilde() {
 
 #[test]
 fn test_expand_file_name_dotdot() {
+    crate::test_utils::init_test_tracing();
     let result = expand_file_name("../bar.txt", Some("/home/user/dir"));
     assert_eq!(result, "/home/user/bar.txt");
 }
 
 #[test]
 fn test_expand_file_name_dot() {
+    crate::test_utils::init_test_tracing();
     let result = expand_file_name("./foo.txt", Some("/home/user"));
     assert_eq!(result, "/home/user/foo.txt");
 }
 
 #[test]
 fn test_expand_file_name_preserves_directory_marker() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         expand_file_name("fixtures/", Some("/tmp")),
         "/tmp/fixtures/"
@@ -98,6 +104,7 @@ fn test_expand_file_name_preserves_directory_marker() {
 
 #[test]
 fn test_file_truename_missing_file_and_trailing_slash() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         file_truename("/tmp/neovm-file-truename-missing", None),
         "/tmp/neovm-file-truename-missing"
@@ -107,6 +114,7 @@ fn test_file_truename_missing_file_and_trailing_slash() {
 
 #[test]
 fn test_file_truename_resolves_relative_default_directory() {
+    crate::test_utils::init_test_tracing();
     let dir = std::env::temp_dir().join("neovm-file-truename-rel");
     let _ = fs::create_dir_all(&dir);
     let file = dir.join("alpha.txt");
@@ -121,6 +129,7 @@ fn test_file_truename_resolves_relative_default_directory() {
 
 #[test]
 fn test_file_name_directory() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         file_name_directory("/home/user/test.txt"),
         Some("/home/user/".to_string())
@@ -134,6 +143,7 @@ fn test_file_name_directory() {
 
 #[test]
 fn test_file_name_nondirectory() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(file_name_nondirectory("/home/user/test.txt"), "test.txt");
     assert_eq!(file_name_nondirectory("test.txt"), "test.txt");
     assert_eq!(file_name_nondirectory("/home/user/"), "");
@@ -141,6 +151,7 @@ fn test_file_name_nondirectory() {
 
 #[test]
 fn test_file_name_as_directory() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(file_name_as_directory("/tmp"), "/tmp/");
     assert_eq!(file_name_as_directory("/tmp/"), "/tmp/");
     assert_eq!(file_name_as_directory(""), "./");
@@ -152,6 +163,7 @@ fn test_file_name_as_directory() {
 
 #[test]
 fn test_directory_file_name() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(directory_file_name("/tmp/"), "/tmp");
     assert_eq!(directory_file_name("/tmp"), "/tmp");
     assert_eq!(directory_file_name("/"), "/");
@@ -167,6 +179,7 @@ fn test_directory_file_name() {
 
 #[test]
 fn test_file_name_concat() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(file_name_concat(&["foo", "bar"]), "foo/bar");
     assert_eq!(file_name_concat(&["foo", "bar", "zot"]), "foo/bar/zot");
     assert_eq!(file_name_concat(&["foo/", "bar"]), "foo/bar");
@@ -182,6 +195,7 @@ fn test_file_name_concat() {
 
 #[test]
 fn test_file_name_absolute_p() {
+    crate::test_utils::init_test_tracing();
     assert!(file_name_absolute_p("/tmp"));
     assert!(file_name_absolute_p("~/tmp"));
     assert!(file_name_absolute_p("~"));
@@ -192,6 +206,7 @@ fn test_file_name_absolute_p() {
 
 #[test]
 fn test_directory_name_p() {
+    crate::test_utils::init_test_tracing();
     assert!(directory_name_p("/tmp/"));
     assert!(directory_name_p("foo/"));
     assert!(!directory_name_p("/tmp"));
@@ -201,6 +216,7 @@ fn test_directory_name_p() {
 
 #[test]
 fn test_substitute_in_file_name() {
+    crate::test_utils::init_test_tracing();
     let home = std::env::var("HOME").unwrap_or_default();
 
     assert_eq!(substitute_in_file_name("$HOME/foo"), format!("{home}/foo"));
@@ -228,18 +244,21 @@ fn test_substitute_in_file_name() {
 
 #[test]
 fn test_file_exists_p() {
+    crate::test_utils::init_test_tracing();
     assert!(file_exists_p("/tmp"));
     assert!(!file_exists_p("/nonexistent_path_12345"));
 }
 
 #[test]
 fn test_file_directory_p() {
+    crate::test_utils::init_test_tracing();
     assert!(file_directory_p("/tmp"));
     assert!(!file_directory_p("/nonexistent_path_12345"));
 }
 
 #[test]
 fn test_file_regular_p() {
+    crate::test_utils::init_test_tracing();
     // /tmp is a directory, not a regular file
     assert!(!file_regular_p("/tmp"));
     assert!(!file_regular_p("/nonexistent_path_12345"));
@@ -247,6 +266,7 @@ fn test_file_regular_p() {
 
 #[test]
 fn test_file_symlink_p() {
+    crate::test_utils::init_test_tracing();
     // /tmp itself typically isn't a symlink
     assert!(!file_symlink_p("/nonexistent_path_12345"));
 }
@@ -257,6 +277,7 @@ fn test_file_symlink_p() {
 
 #[test]
 fn test_read_write_file() {
+    crate::test_utils::init_test_tracing();
     let dir = std::env::temp_dir().join("neovm_fileio_test");
     let _ = fs::create_dir_all(&dir);
     let path = dir.join("test_rw.txt");
@@ -294,6 +315,7 @@ fn test_read_write_file() {
 
 #[test]
 fn test_file_error_symbol_mapping() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(file_error_symbol(ErrorKind::NotFound), "file-missing");
     assert_eq!(
         file_error_symbol(ErrorKind::AlreadyExists),
@@ -308,6 +330,7 @@ fn test_file_error_symbol_mapping() {
 
 #[test]
 fn test_signal_file_io_error_uses_specific_condition() {
+    crate::test_utils::init_test_tracing();
     let flow = signal_file_io_error(
         std::io::Error::from(ErrorKind::PermissionDenied),
         "Writing to /tmp/neovm-probe".to_string(),
@@ -327,6 +350,7 @@ fn test_signal_file_io_error_uses_specific_condition() {
 
 #[test]
 fn test_delete_file_compat_missing_is_noop() {
+    crate::test_utils::init_test_tracing();
     let path = std::env::temp_dir().join("neovm_delete_missing_noop.tmp");
     let path_str = path.to_string_lossy().to_string();
     let _ = fs::remove_file(&path);
@@ -335,6 +359,7 @@ fn test_delete_file_compat_missing_is_noop() {
 
 #[test]
 fn test_builtin_delete_file_accepts_optional_trash_arg() {
+    crate::test_utils::init_test_tracing();
     let path = std::env::temp_dir().join("neovm_delete_file_trash_arg.tmp");
     let path_str = path.to_string_lossy().to_string();
     let _ = fs::remove_file(&path);
@@ -367,6 +392,7 @@ fn test_builtin_delete_file_accepts_optional_trash_arg() {
 
 #[test]
 fn test_builtin_delete_directory_basic_and_recursive() {
+    crate::test_utils::init_test_tracing();
     let root = std::env::temp_dir().join("neovm_delete_directory_test");
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&root).unwrap();
@@ -406,6 +432,7 @@ fn test_builtin_delete_directory_basic_and_recursive() {
 
 #[test]
 fn test_builtin_delete_directory_eval_resolves_default_directory() {
+    crate::test_utils::init_test_tracing();
     let base = std::env::temp_dir().join("neovm-delete-dir-eval");
     let _ = fs::remove_dir_all(&base);
     fs::create_dir_all(&base).unwrap();
@@ -426,6 +453,7 @@ fn test_builtin_delete_directory_eval_resolves_default_directory() {
 #[cfg(unix)]
 #[test]
 fn test_builtin_make_symbolic_link_core_semantics() {
+    crate::test_utils::init_test_tracing();
     let base = std::env::temp_dir().join("neovm-symlink-test");
     let _ = fs::remove_dir_all(&base);
     fs::create_dir_all(&base).unwrap();
@@ -476,6 +504,7 @@ fn test_builtin_make_symbolic_link_core_semantics() {
 #[cfg(unix)]
 #[test]
 fn test_builtin_make_symbolic_link_eval_uses_default_directory() {
+    crate::test_utils::init_test_tracing();
     let base = std::env::temp_dir().join("neovm-symlink-eval");
     let _ = fs::remove_dir_all(&base);
     fs::create_dir_all(&base).unwrap();
@@ -504,6 +533,7 @@ fn test_builtin_make_symbolic_link_eval_uses_default_directory() {
 
 #[test]
 fn test_make_directory_and_directory_files() {
+    crate::test_utils::init_test_tracing();
     let base = std::env::temp_dir().join("neovm_dirtest");
     let _ = fs::remove_dir_all(&base);
     let base_str = base.to_string_lossy().to_string();
@@ -550,6 +580,7 @@ fn test_make_directory_and_directory_files() {
 
 #[test]
 fn test_rename_and_copy_file() {
+    crate::test_utils::init_test_tracing();
     let dir = std::env::temp_dir().join("neovm_rename_copy_test");
     let _ = fs::create_dir_all(&dir);
 
@@ -588,6 +619,7 @@ fn test_rename_and_copy_file() {
 
 #[test]
 fn test_builtin_rename_file_overwrite_semantics() {
+    crate::test_utils::init_test_tracing();
     let dir = std::env::temp_dir().join("neovm_builtin_rename_overwrite");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
@@ -640,6 +672,7 @@ fn test_builtin_rename_file_overwrite_semantics() {
 
 #[test]
 fn test_builtin_copy_file_optional_arg_semantics() {
+    crate::test_utils::init_test_tracing();
     let dir = std::env::temp_dir().join("neovm_builtin_copy_optional");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
@@ -709,6 +742,7 @@ fn test_builtin_copy_file_optional_arg_semantics() {
 
 #[test]
 fn test_builtin_add_name_to_file_semantics() {
+    crate::test_utils::init_test_tracing();
     let dir = std::env::temp_dir().join("neovm_add_name_to_file_test");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
@@ -772,6 +806,7 @@ fn test_builtin_add_name_to_file_semantics() {
 
 #[test]
 fn test_file_attributes() {
+    crate::test_utils::init_test_tracing();
     let dir = std::env::temp_dir().join("neovm_attrs_test");
     let _ = fs::create_dir_all(&dir);
     let path = dir.join("attrs.txt");
@@ -803,6 +838,7 @@ fn test_file_attributes() {
 
 #[test]
 fn test_builtin_expand_file_name() {
+    crate::test_utils::init_test_tracing();
     let result = call_fileio_builtin!(
         builtin_expand_file_name,
         vec![Value::string("/usr/local/bin/emacs")]
@@ -826,6 +862,7 @@ fn test_builtin_expand_file_name() {
 
 #[test]
 fn test_builtin_expand_file_name_eval_uses_default_directory() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     eval.obarray
         .set_symbol_value("default-directory", Value::string("/tmp/neovm-expand/"));
@@ -845,6 +882,7 @@ fn test_builtin_expand_file_name_eval_uses_default_directory() {
 
 #[test]
 fn test_fileio_eval_prefers_current_buffer_local_default_directory() {
+    crate::test_utils::init_test_tracing();
     let base =
         std::env::temp_dir().join(format!("neovm-fileio-buffer-local-{}", std::process::id()));
     let _ = fs::remove_dir_all(&base);
@@ -890,6 +928,7 @@ fn test_fileio_eval_prefers_current_buffer_local_default_directory() {
 
 #[test]
 fn test_builtin_file_truename_counter_validation() {
+    crate::test_utils::init_test_tracing();
     let value = call_fileio_builtin!(
         builtin_file_truename,
         vec![Value::string("/tmp"), Value::list(vec![])]
@@ -935,6 +974,7 @@ fn test_builtin_file_truename_counter_validation() {
 
 #[test]
 fn test_builtin_file_truename_eval_uses_default_directory() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     eval.obarray.set_symbol_value(
         "default-directory",
@@ -947,6 +987,7 @@ fn test_builtin_file_truename_eval_uses_default_directory() {
 
 #[test]
 fn test_builtin_make_temp_file_core_paths() {
+    crate::test_utils::init_test_tracing();
     let file =
         call_fileio_builtin!(builtin_make_temp_file, vec![Value::string("neovm-mtf-")]).unwrap();
     let file_path = file.as_str().unwrap().to_string();
@@ -979,6 +1020,7 @@ fn test_builtin_make_temp_file_core_paths() {
 
 #[test]
 fn test_builtin_make_temp_file_validation() {
+    crate::test_utils::init_test_tracing();
     let err = call_fileio_builtin!(builtin_make_temp_file, vec![Value::fixnum(1)]).unwrap_err();
     match err {
         Flow::Signal(sig) => {
@@ -1004,6 +1046,7 @@ fn test_builtin_make_temp_file_validation() {
 
 #[test]
 fn test_builtin_make_temp_file_eval_honors_temp_directory() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     let dir = std::env::temp_dir().join("neovm-mtf-eval");
     let _ = fs::create_dir_all(&dir);
@@ -1022,6 +1065,7 @@ fn test_builtin_make_temp_file_eval_honors_temp_directory() {
 
 #[test]
 fn test_builtin_make_nearby_temp_file_core_semantics() {
+    crate::test_utils::init_test_tracing();
     let path = call_fileio_builtin!(
         builtin_make_nearby_temp_file,
         vec![Value::string("neovm-nearby-")]
@@ -1058,6 +1102,7 @@ fn test_builtin_make_nearby_temp_file_core_semantics() {
 
 #[test]
 fn test_builtin_make_nearby_temp_file_eval_relative_prefix_uses_temp_dir() {
+    crate::test_utils::init_test_tracing();
     let base = std::env::temp_dir().join("neovm-nearby-eval");
     let sub = base.join("sub");
     let _ = fs::remove_dir_all(&base);
@@ -1079,6 +1124,7 @@ fn test_builtin_make_nearby_temp_file_eval_relative_prefix_uses_temp_dir() {
 
 #[test]
 fn test_builtin_file_predicates() {
+    crate::test_utils::init_test_tracing();
     let result = call_fileio_builtin!(builtin_file_exists_p, vec![Value::string("/tmp")]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_truthy());
@@ -1097,6 +1143,7 @@ fn test_builtin_file_predicates() {
 
 #[test]
 fn test_builtin_access_file_semantics() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         call_fileio_builtin!(
             builtin_access_file,
@@ -1155,6 +1202,7 @@ fn test_builtin_access_file_semantics() {
 
 #[test]
 fn test_builtin_file_modes_semantics() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         call_fileio_builtin!(
             builtin_file_modes,
@@ -1180,6 +1228,7 @@ fn test_builtin_file_modes_semantics() {
 
 #[test]
 fn test_builtin_file_modes_eval_respects_default_directory() {
+    crate::test_utils::init_test_tracing();
     let base = std::env::temp_dir().join("neovm-file-modes-eval");
     let _ = fs::remove_dir_all(&base);
     fs::create_dir_all(&base).unwrap();
@@ -1199,6 +1248,7 @@ fn test_builtin_file_modes_eval_respects_default_directory() {
 
 #[test]
 fn test_builtin_set_file_modes_semantics() {
+    crate::test_utils::init_test_tracing();
     let path = call_fileio_builtin!(
         builtin_make_temp_file,
         vec![Value::string("neovm-set-file-modes-")]
@@ -1234,6 +1284,7 @@ fn test_builtin_set_file_modes_semantics() {
 
 #[test]
 fn test_builtin_set_file_modes_eval_respects_default_directory() {
+    crate::test_utils::init_test_tracing();
     let base = std::env::temp_dir().join("neovm-set-file-modes-eval");
     let _ = fs::remove_dir_all(&base);
     fs::create_dir_all(&base).unwrap();
@@ -1265,6 +1316,7 @@ fn test_builtin_set_file_modes_eval_respects_default_directory() {
 
 #[test]
 fn test_builtin_directory_files_args() {
+    crate::test_utils::init_test_tracing();
     let dir = std::env::temp_dir().join("neovm_dirfiles_builtin");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
@@ -1373,6 +1425,7 @@ fn test_builtin_directory_files_args() {
 
 #[test]
 fn test_builtin_directory_files_eval_respects_default_directory() {
+    crate::test_utils::init_test_tracing();
     let base = std::env::temp_dir().join("neovm_dirfiles_eval_builtin");
     let fixture = base.join("fixtures");
     let _ = fs::remove_dir_all(&base);
@@ -1403,6 +1456,7 @@ fn test_builtin_directory_files_eval_respects_default_directory() {
 
 #[test]
 fn test_builtin_directory_files_nonexistent_signals_file_missing() {
+    crate::test_utils::init_test_tracing();
     let result = call_fileio_builtin!(
         builtin_directory_files,
         vec![Value::string("/nonexistent_dir_xyz_12345")]
@@ -1415,6 +1469,7 @@ fn test_builtin_directory_files_nonexistent_signals_file_missing() {
 
 #[test]
 fn test_builtin_directory_files_invalid_regexp_signals_invalid_regexp() {
+    crate::test_utils::init_test_tracing();
     let dir = std::env::temp_dir().join("neovm_dirfiles_invalid_regexp");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
@@ -1438,6 +1493,7 @@ fn test_builtin_directory_files_invalid_regexp_signals_invalid_regexp() {
 
 #[test]
 fn test_builtin_file_ops_eval_respects_default_directory() {
+    crate::test_utils::init_test_tracing();
     let base = std::env::temp_dir().join("neovm_fileops_eval_builtin");
     let _ = fs::remove_dir_all(&base);
     fs::create_dir_all(&base).unwrap();
@@ -1483,6 +1539,7 @@ fn test_builtin_file_ops_eval_respects_default_directory() {
 
 #[test]
 fn test_builtin_rename_file_eval_overwrite_semantics() {
+    crate::test_utils::init_test_tracing();
     let base = std::env::temp_dir().join("neovm_rename_eval_overwrite");
     let _ = fs::remove_dir_all(&base);
     fs::create_dir_all(&base).unwrap();
@@ -1520,6 +1577,7 @@ fn test_builtin_rename_file_eval_overwrite_semantics() {
 
 #[test]
 fn test_builtin_copy_file_eval_optional_arg_semantics() {
+    crate::test_utils::init_test_tracing();
     let base = std::env::temp_dir().join("neovm_copy_eval_optional");
     let _ = fs::remove_dir_all(&base);
     fs::create_dir_all(&base).unwrap();
@@ -1555,6 +1613,7 @@ fn test_builtin_copy_file_eval_optional_arg_semantics() {
 
 #[test]
 fn test_builtin_file_name_ops() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_file_name_directory(vec![Value::string("/home/user/test.el")]);
     assert_eq!(result.unwrap().as_str(), Some("/home/user/"));
 
@@ -1578,6 +1637,7 @@ fn test_builtin_file_name_ops() {
 
 #[test]
 fn test_builtin_file_name_ops_strict_types() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_file_name_directory(vec![Value::symbol("x")]).is_err());
     assert!(builtin_file_name_nondirectory(vec![Value::symbol("x")]).is_err());
     assert!(builtin_file_name_as_directory(vec![Value::symbol("x")]).is_err());
@@ -1586,6 +1646,7 @@ fn test_builtin_file_name_ops_strict_types() {
 
 #[test]
 fn file_name_with_extension_bootstrap_matches_gnu_elisp() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (file-name-with-extension "foo" "el")
@@ -1608,6 +1669,7 @@ fn file_name_with_extension_bootstrap_matches_gnu_elisp() {
 
 #[test]
 fn file_name_splitters_bootstrap_match_gnu_files_el() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (list (subrp (symbol-function 'file-name-extension))
@@ -1652,6 +1714,7 @@ fn file_name_splitters_bootstrap_match_gnu_files_el() {
 
 #[test]
 fn file_name_splitters_bootstrap_error_shapes_match_gnu_files_el() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (condition-case err (file-name-extension 'x) (error (car err)))
@@ -1672,6 +1735,7 @@ fn file_name_splitters_bootstrap_error_shapes_match_gnu_files_el() {
 
 #[test]
 fn file_name_sans_versions_bootstrap_matches_gnu_files_el() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (subrp (symbol-function 'file-name-sans-versions))
@@ -1690,6 +1754,7 @@ fn file_name_sans_versions_bootstrap_matches_gnu_files_el() {
 
 #[test]
 fn file_name_sans_versions_bootstrap_error_shapes_match_gnu_files_el() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (condition-case err (file-name-sans-versions 'x) (error (car err)))
@@ -1702,6 +1767,7 @@ fn file_name_sans_versions_bootstrap_error_shapes_match_gnu_files_el() {
 
 #[test]
 fn file_name_misc_bootstrap_matches_gnu_files_el() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r##"
         (list (subrp (symbol-function 'convert-standard-filename))
@@ -1735,6 +1801,7 @@ fn file_name_misc_bootstrap_matches_gnu_files_el() {
 
 #[test]
 fn file_name_misc_bootstrap_error_shapes_match_gnu_files_el() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (condition-case err (backup-file-name-p 'x) (error (car err)))
@@ -1753,6 +1820,7 @@ fn file_name_misc_bootstrap_error_shapes_match_gnu_files_el() {
 
 #[test]
 fn test_builtin_file_name_concat_strict_types() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_file_name_concat(vec![Value::NIL, Value::string("bar")]);
     assert_eq!(result.unwrap().as_str(), Some("bar"));
 
@@ -1762,6 +1830,7 @@ fn test_builtin_file_name_concat_strict_types() {
 
 #[test]
 fn test_builtin_path_predicates() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_file_name_absolute_p(vec![Value::string("/tmp")]);
     assert_eq!(result.unwrap(), Value::T);
 
@@ -1787,6 +1856,7 @@ fn test_builtin_path_predicates() {
 
 #[test]
 fn test_builtin_path_predicates_strict_types() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_file_name_absolute_p(vec![Value::symbol("foo")]);
     assert!(result.is_err());
 
@@ -1796,6 +1866,7 @@ fn test_builtin_path_predicates_strict_types() {
 
 #[test]
 fn test_builtin_file_predicates_strict_types() {
+    crate::test_utils::init_test_tracing();
     assert!(call_fileio_builtin!(builtin_file_exists_p, vec![Value::NIL]).is_err());
     assert!(call_fileio_builtin!(builtin_file_readable_p, vec![Value::NIL]).is_err());
     assert!(call_fileio_builtin!(builtin_file_writable_p, vec![Value::NIL]).is_err());
@@ -1821,6 +1892,7 @@ fn test_builtin_file_predicates_strict_types() {
 
 #[test]
 fn test_eval_file_predicates_respect_default_directory() {
+    crate::test_utils::init_test_tracing();
     let dir = std::env::temp_dir().join("neovm_fileio_eval_default_dir");
     let subdir = dir.join("subdir");
     let _ = fs::remove_dir_all(&dir);
@@ -1843,6 +1915,7 @@ fn test_eval_file_predicates_respect_default_directory() {
 
 #[test]
 fn test_file_name_case_insensitive_eval_respects_default_directory() {
+    crate::test_utils::init_test_tracing();
     let dir = std::env::temp_dir().join("neovm_fileio_case_insensitive_eval");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create test dir");
@@ -1870,6 +1943,7 @@ fn test_file_name_case_insensitive_eval_respects_default_directory() {
 
 #[test]
 fn test_builtin_file_newer_than_file_p_semantics() {
+    crate::test_utils::init_test_tracing();
     let dir = std::env::temp_dir().join("neovm-file-newer-than-file-p");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create test dir");
@@ -1932,6 +2006,7 @@ fn test_builtin_file_newer_than_file_p_semantics() {
 
 #[test]
 fn test_file_newer_than_file_p_eval_respects_default_directory() {
+    crate::test_utils::init_test_tracing();
     let dir = std::env::temp_dir().join("neovm-file-newer-than-file-p-eval");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create test dir");
@@ -1960,6 +2035,7 @@ fn test_file_newer_than_file_p_eval_respects_default_directory() {
 
 #[test]
 fn test_builtin_set_file_times_semantics() {
+    crate::test_utils::init_test_tracing();
     let dir = std::env::temp_dir().join("neovm-set-file-times");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create test dir");
@@ -2002,6 +2078,7 @@ fn test_builtin_set_file_times_semantics() {
 
 #[test]
 fn test_set_file_times_eval_respects_default_directory() {
+    crate::test_utils::init_test_tracing();
     let dir = std::env::temp_dir().join("neovm-set-file-times-eval");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create test dir");
@@ -2036,6 +2113,7 @@ fn test_set_file_times_eval_respects_default_directory() {
 
 #[test]
 fn test_visited_file_modtime_state_builtins_use_current_buffer_file_name() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     let current = eval.buffers.current_buffer_id().expect("current buffer");
 
@@ -2067,6 +2145,7 @@ fn test_visited_file_modtime_state_builtins_use_current_buffer_file_name() {
 
 #[test]
 fn test_default_file_modes_round_trip() {
+    crate::test_utils::init_test_tracing();
     let original = builtin_default_file_modes(vec![])
         .expect("default-file-modes")
         .as_int()
@@ -2086,6 +2165,7 @@ fn test_default_file_modes_round_trip() {
 
 #[test]
 fn test_default_file_modes_argument_errors() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_set_default_file_modes(vec![]).is_err());
     assert!(builtin_default_file_modes(vec![Value::fixnum(1)]).is_err());
     assert!(builtin_set_default_file_modes(vec![Value::NIL]).is_err());
@@ -2093,6 +2173,7 @@ fn test_default_file_modes_argument_errors() {
 
 #[test]
 fn test_builtin_substitute_in_file_name() {
+    crate::test_utils::init_test_tracing();
     let home = std::env::var("HOME").unwrap_or_default();
     let result = builtin_substitute_in_file_name(vec![Value::string("$HOME/foo")]).unwrap();
     assert_eq!(result.as_str(), Some(format!("{home}/foo").as_str()));
@@ -2100,12 +2181,14 @@ fn test_builtin_substitute_in_file_name() {
 
 #[test]
 fn test_builtin_substitute_in_file_name_strict_type() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_substitute_in_file_name(vec![Value::symbol("foo")]);
     assert!(result.is_err());
 }
 
 #[test]
 fn test_builtin_wrong_arg_count() {
+    crate::test_utils::init_test_tracing();
     // expand-file-name needs at least 1 arg
     let result = call_fileio_builtin!(builtin_expand_file_name, vec![]);
     assert!(result.is_err());
@@ -2121,6 +2204,7 @@ fn test_builtin_wrong_arg_count() {
 
 #[test]
 fn test_insert_file_contents_and_write_region() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm_eval_fileio_test");
@@ -2159,6 +2243,7 @@ fn test_insert_file_contents_and_write_region() {
 
 #[test]
 fn test_insert_file_contents_visit_sets_file_name_and_clears_modified() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm_eval_insert_file_contents_visit");
@@ -2185,6 +2270,7 @@ fn test_insert_file_contents_visit_sets_file_name_and_clears_modified() {
 
 #[test]
 fn test_insert_file_contents_visit_rejects_partial_and_nonempty_visits() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm_eval_insert_file_contents_visit_errors");
@@ -2239,6 +2325,7 @@ fn test_insert_file_contents_visit_rejects_partial_and_nonempty_visits() {
 
 #[test]
 fn test_insert_file_contents_beg_end_semantics() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm_eval_insert_file_contents_beg_end");
@@ -2331,6 +2418,7 @@ fn test_insert_file_contents_beg_end_semantics() {
 
 #[test]
 fn test_insert_file_contents_and_write_region_arity_bounds() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm_eval_fileio_arity_bounds");
@@ -2438,6 +2526,7 @@ fn test_insert_file_contents_and_write_region_arity_bounds() {
 
 #[test]
 fn test_find_file_noselect_arity_bounds() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm_eval_find_file_noselect_arity");
@@ -2484,6 +2573,7 @@ fn test_find_file_noselect_arity_bounds() {
 
 #[test]
 fn test_eval_fileio_relative_paths_respect_default_directory() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm_eval_fileio_relative");
@@ -2543,6 +2633,7 @@ fn test_eval_fileio_relative_paths_respect_default_directory() {
 
 #[test]
 fn test_write_region_bounds_and_order_semantics() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm_eval_write_region_bounds");
@@ -2590,6 +2681,7 @@ fn test_write_region_bounds_and_order_semantics() {
 
 #[test]
 fn test_write_region_visit_sets_file_name_and_clears_modified() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm_eval_write_region_visit");
@@ -2625,6 +2717,7 @@ fn test_write_region_visit_sets_file_name_and_clears_modified() {
 
 #[test]
 fn test_write_region_string_start_numeric_append_and_visit_string_semantics() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm_eval_write_region_string_append");
@@ -2666,6 +2759,7 @@ fn test_write_region_string_start_numeric_append_and_visit_string_semantics() {
 
 #[test]
 fn test_find_file_noselect() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let dir = std::env::temp_dir().join("neovm_findfile_test");
@@ -2704,6 +2798,7 @@ fn test_find_file_noselect() {
 
 #[test]
 fn test_find_file_noselect_nonexistent() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
     use crate::emacs_core::value::{ValueKind, VecLikeType};
 
@@ -2730,6 +2825,7 @@ fn test_find_file_noselect_nonexistent() {
 
 #[test]
 fn file_local_name_bootstrap_matches_gnu_files_el() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (subrp (symbol-function 'file-local-name))
@@ -2744,6 +2840,7 @@ fn file_local_name_bootstrap_matches_gnu_files_el() {
 
 #[test]
 fn file_local_name_bootstrap_error_shapes_match_gnu_files_el() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval(
         r#"
         (condition-case err (file-local-name nil) (error (car err)))

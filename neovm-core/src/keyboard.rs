@@ -4254,6 +4254,7 @@ mod tests {
 
     #[test]
     fn key_event_description() {
+        crate::test_utils::init_test_tracing();
         let e = KeyEvent::char('x');
         assert_eq!(e.to_description(), "x");
 
@@ -4272,6 +4273,7 @@ mod tests {
 
     #[test]
     fn key_event_parse() {
+        crate::test_utils::init_test_tracing();
         let e = KeyEvent::from_description("C-x").unwrap();
         assert_eq!(e.key, Key::Char('x'));
         assert!(e.modifiers.ctrl);
@@ -4291,6 +4293,7 @@ mod tests {
 
     #[test]
     fn key_sequence_description() {
+        crate::test_utils::init_test_tracing();
         let seq = KeySequence::from_description("C-x C-f").unwrap();
         assert_eq!(seq.len(), 2);
         assert_eq!(seq.to_description(), "C-x C-f");
@@ -4298,6 +4301,7 @@ mod tests {
 
     #[test]
     fn prefix_arg_values() {
+        crate::test_utils::init_test_tracing();
         assert_eq!(PrefixArg::None.numeric_value(), 1);
         assert_eq!(PrefixArg::Numeric(5).numeric_value(), 5);
         assert_eq!(PrefixArg::Raw(1).numeric_value(), 4);
@@ -4306,6 +4310,7 @@ mod tests {
 
     #[test]
     fn command_loop_enqueue_read() {
+        crate::test_utils::init_test_tracing();
         let mut cl = CommandLoop::new();
         cl.enqueue_event(InputEvent::key_press(KeyEvent::char('a')));
         cl.enqueue_event(InputEvent::key_press(KeyEvent::char('b')));
@@ -4319,6 +4324,7 @@ mod tests {
 
     #[test]
     fn unread_events_have_priority() {
+        crate::test_utils::init_test_tracing();
         let mut cl = CommandLoop::new();
         cl.enqueue_event(InputEvent::key_press(KeyEvent::char('a')));
         cl.unread_key(KeyEvent::char('z'));
@@ -4331,6 +4337,7 @@ mod tests {
 
     #[test]
     fn keyboard_runtime_preserves_kboard_state_per_terminal() {
+        crate::test_utils::init_test_tracing();
         reset_keyboard_test_terminals();
         ensure_keyboard_test_terminal(7);
         let mut runtime = KeyboardRuntime::new();
@@ -4367,6 +4374,7 @@ mod tests {
 
     #[test]
     fn keyboard_runtime_polls_parked_kboards_after_active_one() {
+        crate::test_utils::init_test_tracing();
         reset_keyboard_test_terminals();
         ensure_keyboard_test_terminal(7);
         ensure_keyboard_test_terminal(9);
@@ -4394,6 +4402,7 @@ mod tests {
 
     #[test]
     fn keyboard_runtime_reports_pending_input_across_parked_kboards() {
+        crate::test_utils::init_test_tracing();
         reset_keyboard_test_terminals();
         ensure_keyboard_test_terminal(9);
         let mut runtime = KeyboardRuntime::new();
@@ -4409,6 +4418,7 @@ mod tests {
 
     #[test]
     fn keyboard_macro_recording() {
+        crate::test_utils::init_test_tracing();
         let mut cl = CommandLoop::new();
         cl.start_kbd_macro();
 
@@ -4433,6 +4443,7 @@ mod tests {
 
     #[test]
     fn quit_flag() {
+        crate::test_utils::init_test_tracing();
         let mut cl = CommandLoop::new();
         assert!(!cl.check_quit());
 
@@ -4443,6 +4454,7 @@ mod tests {
 
     #[test]
     fn interactive_spec_parsing() {
+        crate::test_utils::init_test_tracing();
         let codes = parse_interactive_spec("sSearch for: \nnCount: ");
         assert_eq!(codes.len(), 2);
         assert!(matches!(&codes[0], InteractiveCode::StringArg(p) if p == "Search for: "));
@@ -4451,6 +4463,7 @@ mod tests {
 
     #[test]
     fn modifier_bits_round_trip() {
+        crate::test_utils::init_test_tracing();
         let m = Modifiers {
             ctrl: true,
             meta: true,
@@ -4465,6 +4478,7 @@ mod tests {
 
     #[test]
     fn modifier_bits_round_trip_all_combinations() {
+        crate::test_utils::init_test_tracing();
         // Test each individual modifier
         for (field, expected_bit) in [
             ("ctrl", 1u32 << 26),
@@ -4522,6 +4536,7 @@ mod tests {
 
     #[test]
     fn prefix_string_various() {
+        crate::test_utils::init_test_tracing();
         assert_eq!(Modifiers::none().prefix_string(), "");
         assert_eq!(Modifiers::ctrl().prefix_string(), "C-");
         assert_eq!(Modifiers::meta().prefix_string(), "M-");
@@ -4540,6 +4555,7 @@ mod tests {
 
     #[test]
     fn modifiers_is_empty() {
+        crate::test_utils::init_test_tracing();
         assert!(Modifiers::none().is_empty());
         assert!(!Modifiers::ctrl().is_empty());
         assert!(!Modifiers::meta().is_empty());
@@ -4547,6 +4563,7 @@ mod tests {
 
     #[test]
     fn key_event_from_description_all_named_keys() {
+        crate::test_utils::init_test_tracing();
         let cases = [
             ("RET", Key::Named(NamedKey::Return)),
             ("TAB", Key::Named(NamedKey::Tab)),
@@ -4576,6 +4593,7 @@ mod tests {
 
     #[test]
     fn key_event_description_round_trip() {
+        crate::test_utils::init_test_tracing();
         let descriptions = [
             "C-x", "M-f", "C-M-g", "S-<f1>", "H-s-a", "RET", "TAB", "SPC", "<left>",
         ];
@@ -4589,6 +4607,7 @@ mod tests {
 
     #[test]
     fn key_event_to_event_int() {
+        crate::test_utils::init_test_tracing();
         // Plain 'a' = 97
         let e = KeyEvent::char('a');
         assert_eq!(e.to_event_int(), 97);
@@ -4604,6 +4623,7 @@ mod tests {
 
     #[test]
     fn prefix_arg_to_value() {
+        crate::test_utils::init_test_tracing();
         assert_eq!(PrefixArg::None.to_value(), Value::NIL);
         assert_eq!(PrefixArg::Numeric(3).to_value(), Value::fixnum(3));
         // Raw(1) = C-u once = (4)
@@ -4613,6 +4633,7 @@ mod tests {
 
     #[test]
     fn key_sequence_from_description_multi() {
+        crate::test_utils::init_test_tracing();
         let seq = KeySequence::from_description("C-x C-s").unwrap();
         assert_eq!(seq.len(), 2);
         assert_eq!(seq.events[0], KeyEvent::from_description("C-x").unwrap());
@@ -4621,6 +4642,7 @@ mod tests {
 
     #[test]
     fn key_sequence_empty() {
+        crate::test_utils::init_test_tracing();
         let seq = KeySequence::new();
         assert!(seq.is_empty());
         assert_eq!(seq.to_description(), "");
@@ -4628,6 +4650,7 @@ mod tests {
 
     #[test]
     fn read_key_sequence_state_tracks_raw_and_translated_events() {
+        crate::test_utils::init_test_tracing();
         let mut state = ReadKeySequenceState::new();
         state.push_input_event(Value::fixnum('A' as i64));
         state.push_input_event(Value::fixnum('B' as i64));
@@ -4643,6 +4666,7 @@ mod tests {
 
     #[test]
     fn key_sequence_translation_events_normalizes_vector_string_and_scalar() {
+        crate::test_utils::init_test_tracing();
         let vector = Value::vector(vec![Value::fixnum('x' as i64), Value::fixnum('y' as i64)]);
         assert_eq!(
             key_sequence_translation_events(vector),
@@ -4661,6 +4685,7 @@ mod tests {
 
     #[test]
     fn parse_interactive_spec_all_codes() {
+        crate::test_utils::init_test_tracing();
         let codes = parse_interactive_spec("d");
         assert!(matches!(&codes[0], InteractiveCode::Point));
 
@@ -4685,6 +4710,7 @@ mod tests {
 
     #[test]
     fn parse_interactive_spec_empty() {
+        crate::test_utils::init_test_tracing();
         let codes = parse_interactive_spec("");
         assert_eq!(codes.len(), 1);
         assert!(matches!(&codes[0], InteractiveCode::None));
@@ -4692,6 +4718,7 @@ mod tests {
 
     #[test]
     fn inhibit_quit_blocks_signal() {
+        crate::test_utils::init_test_tracing();
         let mut cl = CommandLoop::new();
         cl.inhibit_quit = true;
         cl.signal_quit();
@@ -4704,6 +4731,7 @@ mod tests {
 
     #[test]
     fn keysym_ctrl_x_from_control_char() {
+        crate::test_utils::init_test_tracing();
         // Ctrl+x → winit gives keysym 0x18 (control character)
         let event = keysym_to_key_event(0x18, RENDER_CTRL_MASK).unwrap();
         assert_eq!(event.key, Key::Char('x'));
@@ -4712,6 +4740,7 @@ mod tests {
 
     #[test]
     fn keysym_ctrl_a_from_control_char() {
+        crate::test_utils::init_test_tracing();
         let event = keysym_to_key_event(0x01, RENDER_CTRL_MASK).unwrap();
         assert_eq!(event.key, Key::Char('a'));
         assert!(event.modifiers.ctrl);
@@ -4719,6 +4748,7 @@ mod tests {
 
     #[test]
     fn keysym_ctrl_z_from_control_char() {
+        crate::test_utils::init_test_tracing();
         let event = keysym_to_key_event(0x1A, RENDER_CTRL_MASK).unwrap();
         assert_eq!(event.key, Key::Char('z'));
         assert!(event.modifiers.ctrl);
@@ -4726,6 +4756,7 @@ mod tests {
 
     #[test]
     fn keysym_ctrl_g_from_control_char_no_modifier() {
+        crate::test_utils::init_test_tracing();
         // Even without explicit ctrl modifier bit, control char implies ctrl
         let event = keysym_to_key_event(0x07, 0).unwrap();
         assert_eq!(event.key, Key::Char('g'));
@@ -4734,6 +4765,7 @@ mod tests {
 
     #[test]
     fn keysym_ctrl_x_from_printable_with_modifier() {
+        crate::test_utils::init_test_tracing();
         // Ctrl+x when winit gives keysym 0x78 ('x') with ctrl modifier
         let event = keysym_to_key_event(0x78, RENDER_CTRL_MASK).unwrap();
         assert_eq!(event.key, Key::Char('x'));
@@ -4742,6 +4774,7 @@ mod tests {
 
     #[test]
     fn keysym_shifted_uppercase_char_drops_shift_modifier() {
+        crate::test_utils::init_test_tracing();
         let event = keysym_to_key_event('A' as u32, RENDER_SHIFT_MASK).unwrap();
         assert_eq!(event.key, Key::Char('A'));
         assert!(!event.modifiers.shift);
@@ -4749,6 +4782,7 @@ mod tests {
 
     #[test]
     fn keysym_unicode_scalar_maps_to_character_event() {
+        crate::test_utils::init_test_tracing();
         let event = keysym_to_key_event('中' as u32, 0).unwrap();
         assert_eq!(event.key, Key::Char('中'));
         assert!(event.modifiers.is_empty());
@@ -4756,6 +4790,7 @@ mod tests {
 
     #[test]
     fn keysym_ctrl_shift_x_drops_shift_modifier() {
+        crate::test_utils::init_test_tracing();
         let event = keysym_to_key_event(0x18, RENDER_CTRL_MASK | RENDER_SHIFT_MASK).unwrap();
         assert_eq!(event.key, Key::Char('x'));
         assert!(event.modifiers.ctrl);
@@ -4764,6 +4799,7 @@ mod tests {
 
     #[test]
     fn render_modifiers_helper_matches_transport_bit_layout() {
+        crate::test_utils::init_test_tracing();
         let mods =
             render_modifiers_to_modifiers(RENDER_SHIFT_MASK | RENDER_CTRL_MASK | RENDER_META_MASK);
         assert!(mods.shift);
@@ -4775,6 +4811,7 @@ mod tests {
 
     #[test]
     fn render_key_transport_drops_key_releases() {
+        crate::test_utils::init_test_tracing();
         assert!(render_key_transport_to_input_event(XK_RETURN, 0, false, 0).is_none());
     }
 }

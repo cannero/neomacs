@@ -6,6 +6,7 @@ fn install_test_runtime() {
 
 #[test]
 fn file_user_uid_matches_user_uid() {
+    crate::test_utils::init_test_tracing();
     let user_uid = builtin_user_uid(vec![]).expect("user-uid should succeed");
     let file_user_uid = builtin_file_user_uid(vec![]).expect("file-user-uid should succeed");
     assert_eq!(file_user_uid, user_uid);
@@ -14,11 +15,13 @@ fn file_user_uid_matches_user_uid() {
 
 #[test]
 fn file_user_uid_arity_errors() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_file_user_uid(vec![Value::NIL]).is_err());
 }
 
 #[test]
 fn file_group_gid_matches_group_gid() {
+    crate::test_utils::init_test_tracing();
     let group_gid = builtin_group_gid(vec![]).expect("group-gid should succeed");
     let file_group_gid = builtin_file_group_gid(vec![]).expect("file-group-gid should succeed");
     assert_eq!(file_group_gid, group_gid);
@@ -27,6 +30,7 @@ fn file_group_gid_matches_group_gid() {
 
 #[test]
 fn file_group_gid_arity_errors() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_file_group_gid(vec![Value::NIL]).is_err());
 }
 
@@ -34,32 +38,38 @@ fn file_group_gid_arity_errors() {
 
 #[test]
 fn expect_args_exact_match() {
+    crate::test_utils::init_test_tracing();
     assert!(expect_args("test", &[Value::NIL, Value::NIL], 2).is_ok());
 }
 
 #[test]
 fn expect_args_wrong_count() {
+    crate::test_utils::init_test_tracing();
     let err = expect_args("test", &[Value::NIL], 2);
     assert!(err.is_err());
 }
 
 #[test]
 fn expect_min_args_at_min() {
+    crate::test_utils::init_test_tracing();
     assert!(expect_min_args("test", &[Value::NIL], 1).is_ok());
 }
 
 #[test]
 fn expect_min_args_below_min() {
+    crate::test_utils::init_test_tracing();
     assert!(expect_min_args("test", &[], 1).is_err());
 }
 
 #[test]
 fn expect_max_args_at_max() {
+    crate::test_utils::init_test_tracing();
     assert!(expect_max_args("test", &[Value::NIL, Value::NIL], 2).is_ok());
 }
 
 #[test]
 fn expect_max_args_above_max() {
+    crate::test_utils::init_test_tracing();
     assert!(expect_max_args("test", &[Value::NIL, Value::NIL, Value::NIL], 2).is_err());
 }
 
@@ -67,11 +77,13 @@ fn expect_max_args_above_max() {
 
 #[test]
 fn expect_integer_from_int() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(expect_integer("test", &Value::fixnum(42)).unwrap(), 42);
 }
 
 #[test]
 fn expect_integer_from_non_int() {
+    crate::test_utils::init_test_tracing();
     assert!(expect_integer("test", &Value::NIL).is_err());
 }
 
@@ -79,6 +91,7 @@ fn expect_integer_from_non_int() {
 
 #[test]
 fn collect_insert_text_strings_and_chars() {
+    crate::test_utils::init_test_tracing();
     install_test_runtime();
 
     let s = Value::string("hello");
@@ -89,6 +102,7 @@ fn collect_insert_text_strings_and_chars() {
 
 #[test]
 fn collect_insert_text_int_as_char() {
+    crate::test_utils::init_test_tracing();
     install_test_runtime();
 
     // ASCII 65 = 'A'
@@ -98,6 +112,7 @@ fn collect_insert_text_int_as_char() {
 
 #[test]
 fn collect_insert_text_wrong_type() {
+    crate::test_utils::init_test_tracing();
     install_test_runtime();
 
     assert!(collect_insert_text("insert", &[Value::NIL]).is_err());
@@ -107,6 +122,7 @@ fn collect_insert_text_wrong_type() {
 
 #[test]
 fn logcount_positive() {
+    crate::test_utils::init_test_tracing();
     install_test_runtime();
 
     // 7 = 0b111 → 3 bits
@@ -116,6 +132,7 @@ fn logcount_positive() {
 
 #[test]
 fn logcount_zero() {
+    crate::test_utils::init_test_tracing();
     install_test_runtime();
 
     let result = builtin_logcount(vec![Value::fixnum(0)]).unwrap();
@@ -124,6 +141,7 @@ fn logcount_zero() {
 
 #[test]
 fn logcount_negative() {
+    crate::test_utils::init_test_tracing();
     install_test_runtime();
 
     // -1 = all 1s → !(-1) = 0 → count_ones = 0
@@ -137,6 +155,7 @@ fn logcount_negative() {
 
 #[test]
 fn logcount_wrong_type() {
+    crate::test_utils::init_test_tracing();
     install_test_runtime();
 
     assert!(builtin_logcount(vec![Value::NIL]).is_err());
@@ -144,6 +163,7 @@ fn logcount_wrong_type() {
 
 #[test]
 fn erase_buffer_widens_before_deleting_current_contents() {
+    crate::test_utils::init_test_tracing();
     install_test_runtime();
 
     let obarray = Obarray::new();

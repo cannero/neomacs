@@ -19,36 +19,42 @@ fn expect_vector_ints(value: Value) -> Vec<i64> {
 
 #[test]
 fn empty_kbd_string_returns_empty_string() {
+    crate::test_utils::init_test_tracing();
     let result = parse_kbd_string("   ").expect("parse should succeed");
     assert_eq!(result.as_str(), Some(""));
 }
 
 #[test]
 fn kbd_ctrl_char_returns_string() {
+    crate::test_utils::init_test_tracing();
     let result = parse_kbd_string("C-a").expect("parse should succeed");
     assert_eq!(result.as_str(), Some("\u{1}"));
 }
 
 #[test]
 fn kbd_ctrl_sequence_returns_string() {
+    crate::test_utils::init_test_tracing();
     let result = parse_kbd_string("C-x C-f").expect("parse should succeed");
     assert_eq!(result.as_str(), Some("\u{18}\u{6}"));
 }
 
 #[test]
 fn kbd_meta_char_returns_vector() {
+    crate::test_utils::init_test_tracing();
     let result = parse_kbd_string("M-x").expect("parse should succeed");
     assert_eq!(expect_vector_ints(result), vec![134_217_848]);
 }
 
 #[test]
 fn kbd_ctrl_meta_char_returns_vector() {
+    crate::test_utils::init_test_tracing();
     let result = parse_kbd_string("C-M-a").expect("parse should succeed");
     assert_eq!(expect_vector_ints(result), vec![134_217_729]);
 }
 
 #[test]
 fn kbd_named_keys_without_modifiers_return_chars() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         parse_kbd_string("RET").expect("RET parse").as_str(),
         Some("\r")
@@ -69,6 +75,7 @@ fn kbd_named_keys_without_modifiers_return_chars() {
 
 #[test]
 fn kbd_named_keys_with_modifiers_return_modifier_encoded_ints() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         expect_vector_ints(parse_kbd_string("C-RET").expect("C-RET parse")),
         vec![67_108_877]
@@ -81,18 +88,21 @@ fn kbd_named_keys_with_modifiers_return_modifier_encoded_ints() {
 
 #[test]
 fn kbd_plain_multi_char_token_expands_into_plain_string() {
+    crate::test_utils::init_test_tracing();
     let result = parse_kbd_string("f1").expect("parse should succeed");
     assert_eq!(result.as_str(), Some("f1"));
 }
 
 #[test]
 fn kbd_mixed_sequence_returns_vector_with_plain_char_codes() {
+    crate::test_utils::init_test_tracing();
     let result = parse_kbd_string("a M-b").expect("parse should succeed");
     assert_eq!(expect_vector_ints(result), vec![97, 134_217_826]);
 }
 
 #[test]
 fn kbd_angle_events_return_symbols() {
+    crate::test_utils::init_test_tracing();
     let result = parse_kbd_string("<f1>").expect("parse should succeed");
     match result.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
@@ -116,18 +126,21 @@ fn kbd_angle_events_return_symbols() {
 
 #[test]
 fn kbd_modifier_plus_multi_char_token_signals_error() {
+    crate::test_utils::init_test_tracing();
     let err = parse_kbd_string("C-f1").expect_err("C-f1 should fail");
     assert_eq!(err, "C- must prefix a single character, not f1");
 }
 
 #[test]
 fn kbd_modifier_chain_uses_consumed_prefix_in_error() {
+    crate::test_utils::init_test_tracing();
     let err = parse_kbd_string("C-M-BS").expect_err("C-M-BS should fail");
     assert_eq!(err, "C-M- must prefix a single character, not BS");
 }
 
 #[test]
 fn key_events_from_designator_accepts_kbd_string_and_vector() {
+    crate::test_utils::init_test_tracing();
     // Raw strings: each character is a key event.
     // For meta-x, use Emacs unibyte encoding: 'x' | 0x80 = 0xF8
     let from_string =
@@ -152,6 +165,7 @@ fn key_events_from_designator_accepts_kbd_string_and_vector() {
 
 #[test]
 fn key_events_from_designator_decodes_symbol_events() {
+    crate::test_utils::init_test_tracing();
     let events = key_events_from_designator(&Value::vector(vec![Value::symbol("C-f1")]))
         .expect("decode symbol");
     assert_eq!(
@@ -170,6 +184,7 @@ fn key_events_from_designator_decodes_symbol_events() {
 
 #[test]
 fn key_events_from_designator_decodes_event_modifier_list() {
+    crate::test_utils::init_test_tracing();
     // (control ??) => Ctrl+?
     let list = Value::list(vec![Value::symbol("control"), Value::fixnum('?' as i64)]);
     let events =
@@ -211,6 +226,7 @@ fn key_events_from_designator_decodes_event_modifier_list() {
 
 #[test]
 fn key_events_from_designator_rejects_non_array_types() {
+    crate::test_utils::init_test_tracing();
     let err = key_events_from_designator(&Value::fixnum(1)).expect_err("int should fail");
     match err {
         KeyDesignatorError::WrongType(v) => assert_eq!(v, Value::fixnum(1)),

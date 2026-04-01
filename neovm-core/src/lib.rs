@@ -5,6 +5,8 @@ pub mod face;
 pub mod gc;
 pub mod keyboard;
 pub mod tagged;
+#[cfg(test)]
+pub mod test_utils;
 pub mod window;
 
 pub const CORE_BACKEND: &str = "rust";
@@ -261,6 +263,7 @@ mod tests {
 
     #[test]
     fn vm_delegates_task_apis_to_scheduler() {
+        crate::test_utils::init_test_tracing();
         let vm = Vm::with_scheduler(DummyHost, MockScheduler);
         let handle = vm
             .spawn_task(
@@ -291,6 +294,7 @@ mod tests {
 
     #[test]
     fn noop_scheduler_rejects_spawn() {
+        crate::test_utils::init_test_tracing();
         let vm = Vm::new(DummyHost);
         let err = vm
             .spawn_task(LispValue::default(), TaskOptions::default())
@@ -300,18 +304,21 @@ mod tests {
 
     #[test]
     fn noop_scheduler_task_cancel_returns_false() {
+        crate::test_utils::init_test_tracing();
         let sched = NoopScheduler;
         assert!(!sched.task_cancel(TaskHandle(999)));
     }
 
     #[test]
     fn noop_scheduler_task_status_returns_none() {
+        crate::test_utils::init_test_tracing();
         let sched = NoopScheduler;
         assert_eq!(sched.task_status(TaskHandle(1)), None);
     }
 
     #[test]
     fn noop_scheduler_task_await_returns_timed_out() {
+        crate::test_utils::init_test_tracing();
         let sched = NoopScheduler;
         let err = sched.task_await(TaskHandle(1), None).unwrap_err();
         assert!(matches!(err, TaskError::TimedOut));
@@ -319,6 +326,7 @@ mod tests {
 
     #[test]
     fn noop_scheduler_select_returns_timed_out() {
+        crate::test_utils::init_test_tracing();
         let sched = NoopScheduler;
         let result = sched.select(&[], None);
         assert!(matches!(result, SelectResult::TimedOut));
@@ -326,6 +334,7 @@ mod tests {
 
     #[test]
     fn vm_into_parts() {
+        crate::test_utils::init_test_tracing();
         let vm = Vm::with_scheduler(DummyHost, MockScheduler);
         let (host, sched) = vm.into_parts();
         // Verify we got back our types (they're unit structs, just check we can use them)
@@ -335,12 +344,14 @@ mod tests {
 
     #[test]
     fn vm_into_host() {
+        crate::test_utils::init_test_tracing();
         let vm = Vm::new(DummyHost);
         let _host = vm.into_host();
     }
 
     #[test]
     fn vm_call_primitive_delegates() {
+        crate::test_utils::init_test_tracing();
         let mut vm = Vm::new(DummyHost);
         let result = vm
             .call_primitive(IsolateId(0), PrimitiveId(0), &[])
@@ -350,6 +361,7 @@ mod tests {
 
     #[test]
     fn vm_primitive_descriptor_delegates() {
+        crate::test_utils::init_test_tracing();
         let vm = Vm::new(DummyHost);
         let desc = vm.primitive_descriptor(PrimitiveId(0));
         assert_eq!(desc.name, "dummy");
@@ -357,6 +369,7 @@ mod tests {
 
     #[test]
     fn task_handle_eq_hash() {
+        crate::test_utils::init_test_tracing();
         use std::collections::HashSet;
         let h1 = TaskHandle(1);
         let h2 = TaskHandle(1);
@@ -371,6 +384,7 @@ mod tests {
 
     #[test]
     fn scheduler_config_default() {
+        crate::test_utils::init_test_tracing();
         let cfg = SchedulerConfig::default();
         assert_eq!(cfg.worker_threads, 1);
     }

@@ -5,6 +5,7 @@ use crate::emacs_core::builtins::{
 
 #[test]
 fn hash_table_keys_values_basics() {
+    crate::test_utils::init_test_tracing();
     let table = Value::hash_table(HashTableTest::Equal);
     if table.is_hash_table() {
         {
@@ -36,6 +37,7 @@ fn hash_table_keys_values_basics() {
 
 #[test]
 fn hash_table_keys_values_errors() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_hash_table_keys(vec![]).is_err());
     assert!(builtin_hash_table_values(vec![]).is_err());
     assert!(builtin_hash_table_keys(vec![Value::NIL]).is_err());
@@ -44,6 +46,7 @@ fn hash_table_keys_values_errors() {
 
 #[test]
 fn hash_table_rehash_defaults() {
+    crate::test_utils::init_test_tracing();
     let table = builtin_make_hash_table(vec![]).unwrap();
     let size = builtin_hash_table_rehash_size(vec![table]).unwrap();
     let threshold = builtin_hash_table_rehash_threshold(vec![table]).unwrap();
@@ -54,6 +57,7 @@ fn hash_table_rehash_defaults() {
 
 #[test]
 fn hash_table_rehash_options_are_ignored() {
+    crate::test_utils::init_test_tracing();
     let table = builtin_make_hash_table(vec![
         Value::keyword(":rehash-size"),
         Value::make_float(2.0),
@@ -90,6 +94,7 @@ fn hash_table_rehash_options_are_ignored() {
 
 #[test]
 fn sxhash_variants_return_fixnums_and_preserve_hash_contracts() {
+    crate::test_utils::init_test_tracing();
     assert!(
         builtin_sxhash_eq(vec![Value::symbol("foo")])
             .unwrap()
@@ -129,6 +134,7 @@ fn sxhash_variants_return_fixnums_and_preserve_hash_contracts() {
 
 #[test]
 fn sxhash_equal_matches_oracle_for_small_int_and_string_values() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         builtin_sxhash_equal(vec![Value::string("a")]).unwrap(),
         Value::fixnum(109)
@@ -153,6 +159,7 @@ fn sxhash_equal_matches_oracle_for_small_int_and_string_values() {
 
 #[test]
 fn sxhash_eq_eql_fixnum_and_char_match_oracle_values() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         builtin_sxhash_eq(vec![Value::fixnum(1)]).unwrap(),
         Value::fixnum(6)
@@ -198,6 +205,7 @@ fn sxhash_eq_eql_fixnum_and_char_match_oracle_values() {
 
 #[test]
 fn sxhash_float_matches_oracle_fixnum_values() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         builtin_sxhash_eql(vec![Value::make_float(1.0)]).unwrap(),
         Value::fixnum(-1_149_543_804_886_319_104)
@@ -218,6 +226,7 @@ fn sxhash_float_matches_oracle_fixnum_values() {
 
 #[test]
 fn sxhash_float_signed_zero_and_nan_semantics_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         builtin_sxhash_eql(vec![Value::make_float(0.0)]).unwrap(),
         Value::fixnum(0)
@@ -262,6 +271,7 @@ fn sxhash_float_signed_zero_and_nan_semantics_match_oracle() {
 
 #[test]
 fn hash_table_nan_payloads_remain_distinct_for_eql_and_equal() {
+    crate::test_utils::init_test_tracing();
     let nan_a = Value::make_float(f64::from_bits(0x7ff8_0000_0000_0000));
     let nan_b = Value::make_float(f64::from_bits(0x7ff8_0000_0000_0001));
     assert_eq!(
@@ -322,6 +332,7 @@ fn hash_table_nan_payloads_remain_distinct_for_eql_and_equal() {
 
 #[test]
 fn internal_hash_table_introspection_empty_defaults() {
+    crate::test_utils::init_test_tracing();
     let table = builtin_make_hash_table(vec![]).unwrap();
     assert_eq!(
         builtin_internal_hash_table_buckets(vec![table]).unwrap(),
@@ -339,6 +350,7 @@ fn internal_hash_table_introspection_empty_defaults() {
 
 #[test]
 fn internal_hash_table_index_size_uses_declared_size() {
+    crate::test_utils::init_test_tracing();
     let table_one = builtin_make_hash_table(vec![Value::keyword(":size"), Value::fixnum(1)])
         .expect("size 1 table");
     assert_eq!(
@@ -356,6 +368,7 @@ fn internal_hash_table_index_size_uses_declared_size() {
 
 #[test]
 fn internal_hash_table_index_size_tracks_growth_boundaries() {
+    crate::test_utils::init_test_tracing();
     let tiny = builtin_make_hash_table(vec![Value::keyword(":size"), Value::fixnum(1)])
         .expect("size 1 table");
     let _ = builtin_puthash(vec![Value::fixnum(1), Value::symbol("x"), tiny])
@@ -400,6 +413,7 @@ fn internal_hash_table_index_size_tracks_growth_boundaries() {
 
 #[test]
 fn hash_table_size_tracks_growth_boundaries() {
+    crate::test_utils::init_test_tracing();
     let tiny = builtin_make_hash_table(vec![Value::keyword(":size"), Value::fixnum(1)])
         .expect("size 1 table");
     let _ = builtin_puthash(vec![Value::fixnum(1), Value::symbol("x"), tiny])
@@ -442,6 +456,7 @@ fn hash_table_size_tracks_growth_boundaries() {
 
 #[test]
 fn internal_hash_table_buckets_report_hash_diagnostics() {
+    crate::test_utils::init_test_tracing();
     let table = builtin_make_hash_table(vec![
         Value::keyword(":test"),
         Value::symbol("equal"),
@@ -488,6 +503,7 @@ fn internal_hash_table_buckets_report_hash_diagnostics() {
 
 #[test]
 fn internal_hash_table_buckets_match_oracle_small_string_hashes() {
+    crate::test_utils::init_test_tracing();
     let table = builtin_make_hash_table(vec![
         Value::keyword(":test"),
         Value::symbol("equal"),
@@ -509,6 +525,7 @@ fn internal_hash_table_buckets_match_oracle_small_string_hashes() {
 
 #[test]
 fn internal_hash_table_buckets_match_oracle_eq_eql_fixnum_hashes() {
+    crate::test_utils::init_test_tracing();
     for test_name in ["eq", "eql"] {
         let table = builtin_make_hash_table(vec![
             Value::keyword(":test"),
@@ -558,6 +575,7 @@ fn internal_hash_table_buckets_match_oracle_eq_eql_fixnum_hashes() {
 
 #[test]
 fn internal_hash_table_buckets_eq_pointer_keys_keep_distinct_hashes() {
+    crate::test_utils::init_test_tracing();
     let table = builtin_make_hash_table(vec![
         Value::keyword(":test"),
         Value::symbol("eq"),
@@ -607,6 +625,7 @@ fn internal_hash_table_buckets_eq_pointer_keys_keep_distinct_hashes() {
 
 #[test]
 fn internal_hash_table_buckets_equal_preserve_first_key_identity_on_overwrite() {
+    crate::test_utils::init_test_tracing();
     let table = builtin_make_hash_table(vec![
         Value::keyword(":test"),
         Value::symbol("equal"),
@@ -644,6 +663,7 @@ fn internal_hash_table_buckets_equal_preserve_first_key_identity_on_overwrite() 
 
 #[test]
 fn internal_hash_table_buckets_match_oracle_small_float_hashes() {
+    crate::test_utils::init_test_tracing();
     fn collect_float_hashes(table: Value) -> std::collections::BTreeMap<u64, i64> {
         let buckets = builtin_internal_hash_table_buckets(vec![table]).expect("bucket alists");
         let outer = list_to_vec(&buckets).expect("outer list");
@@ -688,6 +708,7 @@ fn internal_hash_table_buckets_match_oracle_small_float_hashes() {
 
 #[test]
 fn internal_hash_table_buckets_match_oracle_float_special_hashes() {
+    crate::test_utils::init_test_tracing();
     fn collect_hashes(table: Value) -> Vec<i64> {
         let buckets = builtin_internal_hash_table_buckets(vec![table]).expect("bucket alists");
         let outer = list_to_vec(&buckets).expect("outer list");
@@ -733,6 +754,7 @@ fn internal_hash_table_buckets_match_oracle_float_special_hashes() {
 
 #[test]
 fn internal_hash_table_introspection_type_errors() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_internal_hash_table_buckets(vec![Value::NIL]).is_err());
     assert!(builtin_internal_hash_table_histogram(vec![Value::NIL]).is_err());
     assert!(builtin_internal_hash_table_index_size(vec![Value::NIL]).is_err());

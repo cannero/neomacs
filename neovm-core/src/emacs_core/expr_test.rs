@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn print_basic_exprs() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(print_expr(&Expr::Int(42)), "42");
     assert_eq!(print_expr(&Expr::Float(3.14)), "3.14");
     assert_eq!(print_expr(&Expr::Symbol(intern("foo"))), "foo");
@@ -12,6 +13,7 @@ fn print_basic_exprs() {
 
 #[test]
 fn print_symbol_escapes_reader_sensitive_chars() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(print_expr(&Expr::Symbol(intern("a b"))), "a\\ b");
     assert_eq!(print_expr(&Expr::Symbol(intern("a,b"))), "a\\,b");
     assert_eq!(print_expr(&Expr::Symbol(intern("a,@b"))), "a\\,@b");
@@ -31,12 +33,14 @@ fn print_symbol_escapes_reader_sensitive_chars() {
 
 #[test]
 fn print_list() {
+    crate::test_utils::init_test_tracing();
     let expr = Expr::List(vec![Expr::Symbol(intern("+")), Expr::Int(1), Expr::Int(2)]);
     assert_eq!(print_expr(&expr), "(+ 1 2)");
 }
 
 #[test]
 fn print_quote_shorthand() {
+    crate::test_utils::init_test_tracing();
     let expr = Expr::List(vec![
         Expr::Symbol(intern("quote")),
         Expr::Symbol(intern("foo")),
@@ -46,12 +50,14 @@ fn print_quote_shorthand() {
 
 #[test]
 fn print_vector() {
+    crate::test_utils::init_test_tracing();
     let expr = Expr::Vector(vec![Expr::Int(1), Expr::Int(2)]);
     assert_eq!(print_expr(&expr), "[1 2]");
 }
 
 #[test]
 fn print_string_keeps_non_bmp_visible() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         print_expr(&Expr::Str("\u{10ffff}".into())),
         "\"\u{10ffff}\""
@@ -60,6 +66,7 @@ fn print_string_keeps_non_bmp_visible() {
 
 #[test]
 fn print_special_float_spellings_match_oracle_shape() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(print_expr(&Expr::Float(f64::NAN)), "0.0e+NaN");
     let neg_nan = -f64::NAN;
     assert_eq!(print_expr(&Expr::Float(neg_nan)), "-0.0e+NaN");

@@ -21,59 +21,69 @@ fn extract_heap_match_string(md: &MatchData, group: usize) -> Option<String> {
 
 #[test]
 fn translate_groups() {
+    crate::test_utils::init_test_tracing();
     // Emacs \( \) → Rust ( )
     assert_eq!(translate_emacs_regex("\\(foo\\)"), "(foo)");
 }
 
 #[test]
 fn translate_alternation() {
+    crate::test_utils::init_test_tracing();
     // Emacs \| → Rust |
     assert_eq!(translate_emacs_regex("foo\\|bar"), "foo|bar");
 }
 
 #[test]
 fn translate_literal_parens() {
+    crate::test_utils::init_test_tracing();
     // Emacs literal ( ) → Rust \( \)
     assert_eq!(translate_emacs_regex("(foo)"), "\\(foo\\)");
 }
 
 #[test]
 fn translate_literal_braces() {
+    crate::test_utils::init_test_tracing();
     // Emacs literal { } → Rust \{ \}
     assert_eq!(translate_emacs_regex("{3}"), "\\{3\\}");
 }
 
 #[test]
 fn translate_repetition_braces() {
+    crate::test_utils::init_test_tracing();
     // Emacs \{3\} → Rust {3}
     assert_eq!(translate_emacs_regex("a\\{3\\}"), "a{3}");
 }
 
 #[test]
 fn translate_literal_pipe() {
+    crate::test_utils::init_test_tracing();
     // Emacs literal | → Rust \|
     assert_eq!(translate_emacs_regex("a|b"), "a\\|b");
 }
 
 #[test]
 fn translate_word_boundary() {
+    crate::test_utils::init_test_tracing();
     // Emacs \< \> → Rust \b
     assert_eq!(translate_emacs_regex("\\<word\\>"), "\\bword\\b");
 }
 
 #[test]
 fn translate_symbol_boundary() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(translate_emacs_regex("\\_<word\\_>"), "\\bword\\b");
 }
 
 #[test]
 fn translate_buffer_boundaries() {
+    crate::test_utils::init_test_tracing();
     // Emacs \` → Rust \A, Emacs \' → Rust \z
     assert_eq!(translate_emacs_regex("\\`foo\\'"), "\\Afoo\\z");
 }
 
 #[test]
 fn translate_character_class_passthrough() {
+    crate::test_utils::init_test_tracing();
     // Character classes should pass through mostly unchanged
     assert_eq!(translate_emacs_regex("[a-z]"), "[a-z]");
     assert_eq!(translate_emacs_regex("[^0-9]"), "[^0-9]");
@@ -81,11 +91,13 @@ fn translate_character_class_passthrough() {
 
 #[test]
 fn translate_character_class_backslash_ranges_like_gnu() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(translate_emacs_regex("[+\\-*/=<>]"), "[+/=<>]");
 }
 
 #[test]
 fn translate_easymenu_command_hint_regexp() {
+    crate::test_utils::init_test_tracing();
     let emacs = r"^[^\]*\(\\\[\([^]]+\)]\)[^\]*$";
     assert_eq!(
         translate_emacs_regex(emacs),
@@ -95,6 +107,7 @@ fn translate_easymenu_command_hint_regexp() {
 
 #[test]
 fn replace_match_case_capitalizes_each_word_like_gnu() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(apply_match_case("[alice:5]", "Alice"), "[Alice:5]");
     assert_eq!(
         apply_match_case("h_hello w_world", "Hello World"),
@@ -104,11 +117,13 @@ fn replace_match_case_capitalizes_each_word_like_gnu() {
 
 #[test]
 fn replace_match_case_upcases_all_caps_matches() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(apply_match_case("foo-bar", "FOO"), "FOO-BAR");
 }
 
 #[test]
 fn translate_reversed_range_classes() {
+    crate::test_utils::init_test_tracing();
     // Reversed ranges are empty in Emacs.
     assert_eq!(translate_emacs_regex("[z-a]"), "[^\\s\\S]");
     assert_eq!(translate_emacs_regex("[^z-a]"), "[\\s\\S]");
@@ -116,11 +131,13 @@ fn translate_reversed_range_classes() {
 
 #[test]
 fn translate_backslash_w() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(translate_emacs_regex("\\w+"), "\\w+");
 }
 
 #[test]
 fn compile_search_pattern_uses_backref_engine_for_supported_captures() {
+    crate::test_utils::init_test_tracing();
     assert!(matches!(
         compile_search_pattern("\\([a-z]+\\)-\\([0-9]+\\)", false),
         Ok(CompiledSearchPattern::Emacs(_))
@@ -129,6 +146,7 @@ fn compile_search_pattern_uses_backref_engine_for_supported_captures() {
 
 #[test]
 fn compile_search_pattern_uses_backref_engine_for_noncapturing_groups() {
+    crate::test_utils::init_test_tracing();
     assert!(matches!(
         compile_search_pattern("\\(?:foo\\|bar\\)+", false),
         Ok(CompiledSearchPattern::Emacs(_))
@@ -137,6 +155,7 @@ fn compile_search_pattern_uses_backref_engine_for_noncapturing_groups() {
 
 #[test]
 fn compile_search_pattern_routes_syntax_classes_through_backref_engine() {
+    crate::test_utils::init_test_tracing();
     assert!(matches!(
         compile_search_pattern("\\(defun\\|defvar\\)\\s-+\\(\\w+\\)", false),
         Ok(CompiledSearchPattern::Emacs(_))
@@ -145,6 +164,7 @@ fn compile_search_pattern_routes_syntax_classes_through_backref_engine() {
 
 #[test]
 fn compile_search_pattern_routes_category_classes_through_backref_engine() {
+    crate::test_utils::init_test_tracing();
     assert!(matches!(
         compile_search_pattern("[ \t]\\|\\c|.\\|.\\c|", false),
         Ok(CompiledSearchPattern::Emacs(_))
@@ -153,6 +173,7 @@ fn compile_search_pattern_routes_category_classes_through_backref_engine() {
 
 #[test]
 fn compile_search_pattern_routes_digit_classes_through_backref_engine() {
+    crate::test_utils::init_test_tracing();
     assert!(matches!(
         compile_search_pattern("\\d+", false),
         Ok(CompiledSearchPattern::Emacs(_))
@@ -161,6 +182,7 @@ fn compile_search_pattern_routes_digit_classes_through_backref_engine() {
 
 #[test]
 fn compile_search_pattern_routes_char_class_escapes_through_backref_engine() {
+    crate::test_utils::init_test_tracing();
     assert!(matches!(
         compile_search_pattern("[\\w-]+", false),
         Ok(CompiledSearchPattern::Emacs(_))
@@ -173,6 +195,7 @@ fn compile_search_pattern_routes_char_class_escapes_through_backref_engine() {
 
 #[test]
 fn compile_search_pattern_routes_lazy_quantifiers_through_backref_engine() {
+    crate::test_utils::init_test_tracing();
     assert!(matches!(
         compile_search_pattern("a.*?b", false),
         Ok(CompiledSearchPattern::Emacs(_))
@@ -185,6 +208,7 @@ fn compile_search_pattern_routes_lazy_quantifiers_through_backref_engine() {
 
 #[test]
 fn compile_search_pattern_routes_open_interval_quantifiers_through_backref_engine() {
+    crate::test_utils::init_test_tracing();
     assert!(matches!(
         compile_search_pattern("a\\{,2\\}b", false),
         Ok(CompiledSearchPattern::Emacs(_))
@@ -193,6 +217,7 @@ fn compile_search_pattern_routes_open_interval_quantifiers_through_backref_engin
 
 #[test]
 fn compile_search_pattern_routes_explicit_numbered_groups_through_backref_engine() {
+    crate::test_utils::init_test_tracing();
     assert!(matches!(
         compile_search_pattern("\\(?1:[^}]*\\)", false),
         Ok(CompiledSearchPattern::Emacs(_))
@@ -205,6 +230,7 @@ fn compile_search_pattern_routes_explicit_numbered_groups_through_backref_engine
 
 #[test]
 fn compile_search_pattern_routes_symbol_boundaries_through_backref_engine() {
+    crate::test_utils::init_test_tracing();
     assert!(matches!(
         compile_search_pattern("\\_<foo\\_>", false),
         Ok(CompiledSearchPattern::Emacs(_))
@@ -213,6 +239,7 @@ fn compile_search_pattern_routes_symbol_boundaries_through_backref_engine() {
 
 #[test]
 fn compile_search_pattern_routes_bracket_section_anchor_through_backref_engine() {
+    crate::test_utils::init_test_tracing();
     assert!(matches!(
         compile_search_pattern("\\`\\[\\([^]]+\\)\\]\\'", true),
         Ok(CompiledSearchPattern::Emacs(_))
@@ -221,6 +248,7 @@ fn compile_search_pattern_routes_bracket_section_anchor_through_backref_engine()
 
 #[test]
 fn string_match_supported_capture_pattern_uses_backref_engine_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result =
         string_match_full_with_case_fold("\\([a-z]+\\)-\\([0-9]+\\)", "foo-123", 0, false, &mut md);
@@ -233,6 +261,7 @@ fn string_match_supported_capture_pattern_uses_backref_engine_semantics() {
 
 #[test]
 fn string_match_noncapturing_group_pattern_uses_backref_engine_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result =
         string_match_full_with_case_fold("\\(?:foo\\|bar\\)+", "foobar", 0, false, &mut md);
@@ -244,6 +273,7 @@ fn string_match_noncapturing_group_pattern_uses_backref_engine_semantics() {
 
 #[test]
 fn string_match_syntax_class_pattern_uses_backref_engine_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full_with_case_fold(
         "\\(defun\\|defvar\\)\\s-+\\(\\w+\\)",
@@ -261,6 +291,7 @@ fn string_match_syntax_class_pattern_uses_backref_engine_semantics() {
 
 #[test]
 fn string_match_word_syntax_class_pattern_uses_backref_engine_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full_with_case_fold("\\sw+", "foo_bar", 0, false, &mut md);
     assert_eq!(result, Ok(Some(0)));
@@ -270,6 +301,7 @@ fn string_match_word_syntax_class_pattern_uses_backref_engine_semantics() {
 
 #[test]
 fn string_match_category_escape_pattern_uses_backref_engine_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full_with_case_fold("\\c|.", "éx", 0, false, &mut md);
     assert_eq!(result, Ok(Some(0)));
@@ -279,6 +311,7 @@ fn string_match_category_escape_pattern_uses_backref_engine_semantics() {
 
 #[test]
 fn string_match_match_at_point_escape_uses_backref_engine_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full_with_case_fold("\\=foo", "foo", 0, false, &mut md);
     assert_eq!(result, Ok(Some(0)));
@@ -288,6 +321,7 @@ fn string_match_match_at_point_escape_uses_backref_engine_semantics() {
 
 #[test]
 fn string_match_match_at_point_escape_respects_nonzero_start() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full_with_case_fold("\\=foo", "xxfoo", 2, false, &mut md);
     assert_eq!(result, Ok(Some(2)));
@@ -297,6 +331,7 @@ fn string_match_match_at_point_escape_respects_nonzero_start() {
 
 #[test]
 fn string_match_match_at_point_escape_does_not_skip_past_start() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full_with_case_fold("\\=foo", "xxafoo", 2, false, &mut md);
     assert_eq!(result, Ok(None));
@@ -305,6 +340,7 @@ fn string_match_match_at_point_escape_does_not_skip_past_start() {
 
 #[test]
 fn string_match_digit_escape_uses_backref_engine_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full_with_case_fold("\\d+", "123x", 0, false, &mut md);
     assert_eq!(result, Ok(Some(0)));
@@ -314,6 +350,7 @@ fn string_match_digit_escape_uses_backref_engine_semantics() {
 
 #[test]
 fn string_match_control_escape_uses_backref_engine_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full_with_case_fold("a\\tb", "a\tb", 0, false, &mut md);
     assert_eq!(result, Ok(Some(0)));
@@ -323,6 +360,7 @@ fn string_match_control_escape_uses_backref_engine_semantics() {
 
 #[test]
 fn string_match_char_class_word_escape_uses_backref_engine_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full_with_case_fold("[\\w-]+", "foo-bar!", 0, false, &mut md);
     assert_eq!(result, Ok(Some(0)));
@@ -332,6 +370,7 @@ fn string_match_char_class_word_escape_uses_backref_engine_semantics() {
 
 #[test]
 fn string_match_char_class_syntax_escape_uses_backref_engine_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full_with_case_fold("[\\s-]+", " \tfoo", 0, false, &mut md);
     assert_eq!(result, Ok(Some(0)));
@@ -341,6 +380,7 @@ fn string_match_char_class_syntax_escape_uses_backref_engine_semantics() {
 
 #[test]
 fn string_match_lazy_quantifier_preserves_fallback_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full_with_case_fold("a.*?b", "aXXbYYb", 0, false, &mut md);
     assert_eq!(result, Ok(Some(0)));
@@ -350,6 +390,7 @@ fn string_match_lazy_quantifier_preserves_fallback_semantics() {
 
 #[test]
 fn string_match_lazy_plus_quantifier_prefers_shorter_match() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full_with_case_fold("a.+?b", "aXXbYYb", 0, false, &mut md);
     assert_eq!(result, Ok(Some(0)));
@@ -359,6 +400,7 @@ fn string_match_lazy_plus_quantifier_prefers_shorter_match() {
 
 #[test]
 fn string_match_lazy_optional_quantifier_prefers_zero_width_choice() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full_with_case_fold("ab??c", "abc", 0, false, &mut md);
     assert_eq!(result, Ok(Some(0)));
@@ -368,6 +410,7 @@ fn string_match_lazy_optional_quantifier_prefers_zero_width_choice() {
 
 #[test]
 fn string_match_lazy_counted_quantifier_prefers_shorter_match() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full_with_case_fold("a\\{2,4\\}?b", "aaaab", 0, false, &mut md);
     assert_eq!(result, Ok(Some(0)));
@@ -377,6 +420,7 @@ fn string_match_lazy_counted_quantifier_prefers_shorter_match() {
 
 #[test]
 fn string_match_open_interval_quantifier_matches_gnu_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full_with_case_fold("a\\{,2\\}b", "aab", 0, false, &mut md);
     assert_eq!(result, Ok(Some(0)));
@@ -386,6 +430,7 @@ fn string_match_open_interval_quantifier_matches_gnu_semantics() {
 
 #[test]
 fn string_match_explicit_numbered_group_preserves_group_slot() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full_with_case_fold("\\(?9:[A-Z]+\\)", "xxABCyy", 0, false, &mut md);
     assert_eq!(result, Ok(Some(2)));
@@ -398,6 +443,7 @@ fn string_match_explicit_numbered_group_preserves_group_slot() {
 
 #[test]
 fn string_match_symbol_boundary_pattern_uses_backref_engine_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full_with_case_fold("\\_<foo\\_>", "x foo y", 0, false, &mut md);
     assert_eq!(result, Ok(Some(2)));
@@ -407,6 +453,7 @@ fn string_match_symbol_boundary_pattern_uses_backref_engine_semantics() {
 
 #[test]
 fn string_match_posix_upper_class_folds_to_alpha_under_case_fold() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result =
         string_match_full_with_case_fold("[[:upper:]]+", "helloWORLDfoo", 0, true, &mut md);
@@ -417,6 +464,7 @@ fn string_match_posix_upper_class_folds_to_alpha_under_case_fold() {
 
 #[test]
 fn string_match_posix_upper_class_folds_to_alpha_on_lisp_string() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let string = LispString::new("helloWORLDfoo".to_string(), false);
     let result = string_match_full_with_case_fold_source_lisp(
@@ -434,6 +482,7 @@ fn string_match_posix_upper_class_folds_to_alpha_on_lisp_string() {
 
 #[test]
 fn string_match_anchored_operator_char_class_mirrors_gnu_bracket_closing() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result =
         string_match_full_with_case_fold("\\`[-+*/=<>!&|(){}\\[\\];,.]", "=", 0, true, &mut md);
@@ -443,6 +492,7 @@ fn string_match_anchored_operator_char_class_mirrors_gnu_bracket_closing() {
 
 #[test]
 fn string_match_anchored_operator_char_class_on_lisp_slice_mirrors_gnu_bracket_closing() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let source = LispString::new("x = 42;".to_string(), false);
     let slice = source.slice(2, source.byte_len()).expect("slice");
@@ -460,6 +510,7 @@ fn string_match_anchored_operator_char_class_on_lisp_slice_mirrors_gnu_bracket_c
 
 #[test]
 fn heap_match_string_on_lisp_slice_mirrors_gnu_bracket_closing() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let source = LispString::new("x = 42;".to_string(), false);
     let slice = source.slice(2, source.byte_len()).expect("slice");
@@ -479,6 +530,7 @@ fn heap_match_string_on_lisp_slice_mirrors_gnu_bracket_closing() {
 
 #[test]
 fn heap_tokenizer_loop_mirrors_gnu_single_char_operator_behavior() {
+    crate::test_utils::init_test_tracing();
     let code = LispString::new(
         "let x = 42; if x >= 10 && x != 0 { return x + 1; }".to_string(),
         false,
@@ -556,6 +608,7 @@ fn heap_tokenizer_loop_mirrors_gnu_single_char_operator_behavior() {
 
 #[test]
 fn string_match_bracket_section_anchor_pattern_matches_whole_string() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result =
         string_match_full_with_case_fold("\\`\\[\\([^]]+\\)\\]\\'", "[database]", 0, true, &mut md);
@@ -567,6 +620,7 @@ fn string_match_bracket_section_anchor_pattern_matches_whole_string() {
 
 #[test]
 fn string_match_line_anchor_pattern_uses_backref_engine_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full_with_case_fold("^foo$", "foo", 0, false, &mut md);
     assert_eq!(result, Ok(Some(0)));
@@ -576,6 +630,7 @@ fn string_match_line_anchor_pattern_uses_backref_engine_semantics() {
 
 #[test]
 fn string_match_line_anchor_pattern_respects_multiline_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full_with_case_fold("^foo$", "a\nfoo\nb", 0, false, &mut md);
     assert_eq!(result, Ok(Some(2)));
@@ -585,6 +640,7 @@ fn string_match_line_anchor_pattern_respects_multiline_semantics() {
 
 #[test]
 fn translate_complex_pattern() {
+    crate::test_utils::init_test_tracing();
     // Emacs: \(defun\|defvar\)\s-+\(\w+\)
     // Rust:  (defun|defvar)\s+(\w+)
     let emacs = "\\(defun\\|defvar\\)\\s-+\\(\\w+\\)";
@@ -595,18 +651,21 @@ fn translate_complex_pattern() {
 
 #[test]
 fn translate_explicit_numbered_group_keeps_fallback_compilable() {
+    crate::test_utils::init_test_tracing();
     let emacs = "\\(?9:.*?\\)";
     assert_eq!(translate_emacs_regex(emacs), "(.*?)");
 }
 
 #[test]
 fn translate_open_interval_quantifier_keeps_fallback_compilable() {
+    crate::test_utils::init_test_tracing();
     let emacs = "a\\{,2\\}b";
     assert_eq!(translate_emacs_regex(emacs), "a{0,2}b");
 }
 
 #[test]
 fn translate_category_escape_keeps_fill_patterns_compilable() {
+    crate::test_utils::init_test_tracing();
     let emacs = "[ \t]\\|\\c|.\\|.\\c|";
     let rust = translate_emacs_regex(emacs);
     assert_eq!(rust, "[ \t]|[^\\x00-\\x7F].|.[^\\x00-\\x7F]");
@@ -614,21 +673,25 @@ fn translate_category_escape_keeps_fill_patterns_compilable() {
 
 #[test]
 fn translate_empty_pattern() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(translate_emacs_regex(""), "");
 }
 
 #[test]
 fn translate_no_special_chars() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(translate_emacs_regex("hello"), "hello");
 }
 
 #[test]
 fn translate_escaped_backslash() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(translate_emacs_regex("\\\\"), "\\\\");
 }
 
 #[test]
 fn translate_multibyte_literals() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(translate_emacs_regex("\\(é\\)"), "(é)");
     assert_eq!(translate_emacs_regex("[éx]"), "[éx]");
     assert_eq!(translate_emacs_regex("\\é"), "é");
@@ -637,6 +700,7 @@ fn translate_multibyte_literals() {
 
 #[test]
 fn trivial_regexp_matches_gnu_meta_rules() {
+    crate::test_utils::init_test_tracing();
     assert!(trivial_regexp_p("hello\\.txt"));
     assert!(trivial_regexp_p("\\😀"));
     assert!(!trivial_regexp_p("he.*o"));
@@ -651,6 +715,7 @@ fn trivial_regexp_matches_gnu_meta_rules() {
 
 #[test]
 fn string_match_basic() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full("he..o", "hello world", 0, &mut md);
     assert!(result.is_ok());
@@ -662,6 +727,7 @@ fn string_match_basic() {
 
 #[test]
 fn string_match_with_groups() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     // Emacs regex: \(\w+\)@\(\w+\)
     let result = string_match_full("\\(\\w+\\)@\\(\\w+\\)", "user@host", 0, &mut md);
@@ -676,6 +742,7 @@ fn string_match_with_groups() {
 
 #[test]
 fn string_match_with_multibyte_group_literal() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full("\\(é\\)", "aéx", 0, &mut md);
     assert!(result.is_ok());
@@ -687,6 +754,7 @@ fn string_match_with_multibyte_group_literal() {
 
 #[test]
 fn string_match_with_escaped_multibyte_literal() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full("\\é", "aéx", 0, &mut md);
     assert!(result.is_ok());
@@ -695,6 +763,7 @@ fn string_match_with_escaped_multibyte_literal() {
 
 #[test]
 fn string_match_trivial_escaped_literal_uses_character_positions() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full("\\.", "a.b", 0, &mut md);
     assert!(result.is_ok());
@@ -705,6 +774,7 @@ fn string_match_trivial_escaped_literal_uses_character_positions() {
 
 #[test]
 fn string_match_backreference_reuses_captured_text() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full("\\(..\\)\\1", "zzabab", 0, &mut md);
     assert!(result.is_ok());
@@ -716,6 +786,7 @@ fn string_match_backreference_reuses_captured_text() {
 
 #[test]
 fn looking_at_string_backreference_matches_at_start() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let matched = looking_at_string("\\(x\\)\\1\\1", "xxx!", false, &mut md).unwrap();
     assert!(matched);
@@ -726,6 +797,7 @@ fn looking_at_string_backreference_matches_at_start() {
 
 #[test]
 fn re_search_forward_backreference_word_boundary() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("the the cat");
     let mut md = None;
     let result = re_search_forward(
@@ -745,6 +817,7 @@ fn re_search_forward_backreference_word_boundary() {
 
 #[test]
 fn string_match_backreference_with_char_class_group() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full("\\([a-z]+\\) \\1", "the the cat", 0, &mut md);
     assert!(result.is_ok());
@@ -756,6 +829,7 @@ fn string_match_backreference_with_char_class_group() {
 
 #[test]
 fn string_match_template_interpolation_pattern() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full(r"{{\([^}]+\)}}", "x {{name}} y", 0, &mut md).unwrap();
     assert_eq!(result, Some(2));
@@ -766,6 +840,7 @@ fn string_match_template_interpolation_pattern() {
 
 #[test]
 fn string_match_template_foreach_pattern() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full(
         r"{%foreach \([^ ]+\) in \([^%]+\)%}\(\(?:.\|\n\)*?\){%endforeach%}",
@@ -783,6 +858,7 @@ fn string_match_template_foreach_pattern() {
 
 #[test]
 fn string_match_template_conditional_pattern() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full(
         r"{%if \([^%]+\)%}\(\(?:.\|\n\)*?\){%else%}\(\(?:.\|\n\)*?\){%endif%}",
@@ -800,6 +876,7 @@ fn string_match_template_conditional_pattern() {
 
 #[test]
 fn string_match_with_start_offset() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full("world", "hello world", 6, &mut md);
     assert!(result.is_ok());
@@ -808,6 +885,7 @@ fn string_match_with_start_offset() {
 
 #[test]
 fn string_match_no_match() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let result = string_match_full("xyz", "hello world", 0, &mut md);
     assert!(result.is_ok());
@@ -817,6 +895,7 @@ fn string_match_no_match() {
 
 #[test]
 fn string_match_emacs_alternation() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     // Emacs regex: \(foo\|bar\)
     let result = string_match_full("\\(foo\\|bar\\)", "test bar baz", 0, &mut md);
@@ -841,6 +920,7 @@ fn make_test_buffer(text: &str) -> Buffer {
 
 #[test]
 fn search_forward_basic() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("hello world");
     let mut md = None;
     let result = search_forward(&mut buf, "world", None, false, false, &mut md);
@@ -853,6 +933,7 @@ fn search_forward_basic() {
 
 #[test]
 fn search_forward_not_found_noerror() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("hello world");
     let mut md = None;
     let result = search_forward(&mut buf, "xyz", None, true, false, &mut md);
@@ -863,6 +944,7 @@ fn search_forward_not_found_noerror() {
 
 #[test]
 fn search_forward_not_found_error() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("hello world");
     let mut md = None;
     let result = search_forward(&mut buf, "xyz", None, false, false, &mut md);
@@ -871,6 +953,7 @@ fn search_forward_not_found_error() {
 
 #[test]
 fn search_forward_case_fold_true() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("A");
     let mut md = None;
     let result = search_forward(&mut buf, "a", None, false, true, &mut md);
@@ -880,6 +963,7 @@ fn search_forward_case_fold_true() {
 
 #[test]
 fn search_forward_case_fold_true_unicode_literal() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("Äx");
     let mut md = None;
     let result = search_forward(&mut buf, "ä", None, false, true, &mut md);
@@ -889,6 +973,7 @@ fn search_forward_case_fold_true_unicode_literal() {
 
 #[test]
 fn re_search_forward_trivial_regexp_follows_literal_case_fold_path() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("A.b");
     let mut md = None;
     let result = re_search_forward(&mut buf, "a\\.", None, false, true, &mut md);
@@ -900,6 +985,7 @@ fn re_search_forward_trivial_regexp_follows_literal_case_fold_path() {
 
 #[test]
 fn search_forward_with_bound() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("hello world");
     let mut md = None;
     // Search only within first 5 bytes — "world" starts at 6 so should not be found
@@ -910,6 +996,7 @@ fn search_forward_with_bound() {
 
 #[test]
 fn search_forward_from_middle() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("aaa bbb aaa");
     buf.goto_byte(4); // after "aaa "
     let mut md = None;
@@ -924,6 +1011,7 @@ fn search_forward_from_middle() {
 
 #[test]
 fn search_backward_basic() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("hello world");
     buf.goto_byte(11); // end of buffer
     let mut md = None;
@@ -935,6 +1023,7 @@ fn search_backward_basic() {
 
 #[test]
 fn search_backward_not_found() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("hello world");
     buf.goto_byte(11);
     let mut md = None;
@@ -945,6 +1034,7 @@ fn search_backward_not_found() {
 
 #[test]
 fn search_backward_finds_last_occurrence() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("aaa bbb aaa");
     buf.goto_byte(11); // end
     let mut md = None;
@@ -957,6 +1047,7 @@ fn search_backward_finds_last_occurrence() {
 
 #[test]
 fn search_backward_case_fold_true_unicode_literal() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("Ää");
     buf.goto_byte("Ää".len());
     let mut md = None;
@@ -972,6 +1063,7 @@ fn search_backward_case_fold_true_unicode_literal() {
 
 #[test]
 fn re_search_forward_basic() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("foo 123 bar");
     let mut md = None;
     let result = re_search_forward(&mut buf, "[0-9]+", None, false, false, &mut md);
@@ -984,6 +1076,7 @@ fn re_search_forward_basic() {
 
 #[test]
 fn re_search_forward_with_groups() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("name: John");
     let mut md = None;
     // Emacs regex: \(\w+\): \(\w+\)
@@ -1004,6 +1097,7 @@ fn re_search_forward_with_groups() {
 
 #[test]
 fn re_search_forward_multiline_anchor_respects_real_line_start() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("alpha=1\nbeta=2\ngamma=3\n");
     let mut md = None;
 
@@ -1044,6 +1138,7 @@ fn re_search_forward_multiline_anchor_respects_real_line_start() {
 
 #[test]
 fn re_search_backward_basic() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("abc 123 def 456");
     buf.goto_byte(15); // end
     let mut md = None;
@@ -1058,6 +1153,7 @@ fn re_search_backward_basic() {
 
 #[test]
 fn re_search_backward_finds_nullable_match_at_point() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("abc\n");
     buf.goto_byte(3); // point before trailing newline
     let mut md = None;
@@ -1070,6 +1166,7 @@ fn re_search_backward_finds_nullable_match_at_point() {
 
 #[test]
 fn re_search_forward_finds_nullable_match_at_buffer_end() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("abc");
     buf.goto_byte(3);
     let mut md = None;
@@ -1086,6 +1183,7 @@ fn re_search_forward_finds_nullable_match_at_buffer_end() {
 
 #[test]
 fn looking_at_matches() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("hello world");
     buf.goto_byte(0);
     let mut md = None;
@@ -1097,6 +1195,7 @@ fn looking_at_matches() {
 
 #[test]
 fn looking_at_no_match() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("hello world");
     buf.goto_byte(0);
     let mut md = None;
@@ -1107,6 +1206,7 @@ fn looking_at_no_match() {
 
 #[test]
 fn looking_at_from_middle() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("hello world");
     buf.goto_byte(6); // "world"
     let mut md = None;
@@ -1117,6 +1217,7 @@ fn looking_at_from_middle() {
 
 #[test]
 fn looking_at_defaults_to_case_fold() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("A");
     buf.goto_byte(0);
     let mut md = None;
@@ -1127,6 +1228,7 @@ fn looking_at_defaults_to_case_fold() {
 
 #[test]
 fn looking_at_respects_case_fold_false() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("A");
     buf.goto_byte(0);
     let mut md = None;
@@ -1137,6 +1239,7 @@ fn looking_at_respects_case_fold_false() {
 
 #[test]
 fn looking_at_with_groups() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("foo123bar");
     buf.goto_byte(0);
     let mut md = None;
@@ -1153,6 +1256,7 @@ fn looking_at_with_groups() {
 
 #[test]
 fn looking_at_character_class_backslash_range_like_gnu() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let buf = make_test_buffer("/");
     let result = looking_at(&buf, "[+\\-*/=<>]", false, &mut md);
@@ -1175,6 +1279,7 @@ fn looking_at_character_class_backslash_range_like_gnu() {
 
 #[test]
 fn replace_match_literal() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("hello world");
     let mut md = None;
     let _ = re_search_forward(&mut buf, "world", None, false, false, &mut md);
@@ -1186,6 +1291,7 @@ fn replace_match_literal() {
 
 #[test]
 fn replace_match_with_backref() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("hello world");
     buf.goto_byte(0);
     let mut md = None;
@@ -1199,6 +1305,7 @@ fn replace_match_with_backref() {
 
 #[test]
 fn replace_match_applies_case_pattern() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let _ = string_match_full("FOO", "FOO", 0, &mut md);
     let replaced = replace_match_string("FOO", "bar", false, false, 0, &md).unwrap();
@@ -1211,6 +1318,7 @@ fn replace_match_applies_case_pattern() {
 
 #[test]
 fn replace_match_subexp_replaces_requested_group() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let _ = string_match_full("\\([a-z]+\\)\\([0-9]+\\)", "abc123", 0, &mut md);
     let replaced = replace_match_string("abc123", "X", false, false, 2, &md).unwrap();
@@ -1219,6 +1327,7 @@ fn replace_match_subexp_replaces_requested_group() {
 
 #[test]
 fn replace_match_subexp_errors_when_missing() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let _ = string_match_full("\\([a-z]+\\)?\\([0-9]+\\)", "123", 0, &mut md);
     let err = replace_match_string("123", "X", false, false, 1, &md).unwrap_err();
@@ -1227,6 +1336,7 @@ fn replace_match_subexp_errors_when_missing() {
 
 #[test]
 fn replace_match_preserves_multibyte_replacement_literals() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let _ = string_match_full("x", "x", 0, &mut md);
     let replaced = replace_match_string("x", "éz", false, false, 0, &md).unwrap();
@@ -1235,6 +1345,7 @@ fn replace_match_preserves_multibyte_replacement_literals() {
 
 #[test]
 fn replace_match_preserves_multibyte_replacement_with_backref() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let _ = string_match_full("\\(x\\)", "x", 0, &mut md);
     let replaced = replace_match_string("x", "\\1é", false, false, 0, &md).unwrap();
@@ -1247,6 +1358,7 @@ fn replace_match_preserves_multibyte_replacement_with_backref() {
 
 #[test]
 fn search_forward_then_match_string() {
+    crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("The quick brown fox");
     let mut md = None;
     let _ = re_search_forward(
@@ -1274,6 +1386,7 @@ fn search_forward_then_match_string() {
 
 #[test]
 fn string_match_then_match_data() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let _ = string_match_full("\\([0-9]+\\)-\\([0-9]+\\)", "date: 2024-01-15", 0, &mut md);
     let md = md.as_ref().unwrap();
@@ -1294,6 +1407,7 @@ fn string_match_then_match_data() {
 
 #[test]
 fn string_match_optional_group() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     // Pattern with an optional group: \(foo\)\(bar\)?
     let _ = string_match_full("\\(foo\\)\\(bar\\)?", "fooXYZ", 0, &mut md);
@@ -1304,6 +1418,7 @@ fn string_match_optional_group() {
 
 #[test]
 fn string_match_start_offset_respects_real_line_start() {
+    crate::test_utils::init_test_tracing();
     let mut md = None;
     let source = "alpha=1\nbeta=2\ngamma=3";
     let start = "alpha=1".len();
@@ -1329,6 +1444,7 @@ fn string_match_start_offset_respects_real_line_start() {
 
 #[test]
 fn test_lazy_interval() {
+    crate::test_utils::init_test_tracing();
     use crate::emacs_core::regex_emacs::{DefaultSyntaxLookup, search_pattern};
     let syn = DefaultSyntaxLookup;
     // Greedy: a\{1,3\} on "aaab" matches "aaa"

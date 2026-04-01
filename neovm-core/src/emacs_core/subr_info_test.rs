@@ -42,12 +42,14 @@ fn make_bytecode(required: Vec<&str>, rest: Option<&str>) -> Value {
 
 #[test]
 fn subr_name_returns_string() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_subr_name(vec![Value::subr(intern("cons"))]).unwrap();
     assert_eq!(result.as_str(), Some("cons"));
 }
 
 #[test]
 fn subr_name_error_for_non_subr() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_subr_name(vec![Value::fixnum(1)]);
     assert!(result.is_err());
 }
@@ -84,11 +86,13 @@ fn assert_subr_arity(name: &str, min: i64, max: Option<i64>) {
 
 #[test]
 fn subr_arity_returns_cons() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("+", 0, None);
 }
 
 #[test]
 fn subr_arity_error_for_non_subr() {
+    crate::test_utils::init_test_tracing();
     let mut ctx = crate::emacs_core::eval::Context::new();
     let result = builtin_subr_arity(&mut ctx, vec![Value::NIL]);
     assert!(result.is_err());
@@ -96,6 +100,7 @@ fn subr_arity_error_for_non_subr() {
 
 #[test]
 fn subr_arity_message_is_one_or_more() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("message", 1, None);
     assert_subr_arity("message-box", 1, None);
     assert_subr_arity("message-or-box", 1, None);
@@ -103,6 +108,7 @@ fn subr_arity_message_is_one_or_more() {
 
 #[test]
 fn subr_arity_if_is_unevalled() {
+    crate::test_utils::init_test_tracing();
     let mut ctx = crate::emacs_core::eval::Context::new();
     let result = builtin_subr_arity(&mut ctx, vec![Value::subr(intern("if"))]).unwrap();
     if result.is_cons() {
@@ -117,6 +123,7 @@ fn subr_arity_if_is_unevalled() {
 
 #[test]
 fn subr_arity_core_special_forms_match_oracle_unevalled_shapes() {
+    crate::test_utils::init_test_tracing();
     for (name, min) in [
         ("and", 0),
         ("setq", 0),
@@ -142,39 +149,48 @@ fn subr_arity_core_special_forms_match_oracle_unevalled_shapes() {
 
 #[test]
 fn subr_arity_thread_join_is_one() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("thread-join", 1, Some(1));
 }
 
 #[test]
 fn subr_arity_thread_signal_is_three() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("thread-signal", 3, Some(3));
 }
 
 #[test]
 fn subr_arity_thread_last_error_optional_cleanup() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("thread-last-error", 0, Some(1));
 }
 
 #[test]
 fn subr_arity_make_thread_optional_name() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("make-thread", 1, Some(2));
 }
 
 #[test]
 fn subr_arity_current_thread_is_zero() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("current-thread", 0, Some(0));
 }
 
 #[test]
 fn subr_arity_condition_notify_optional_all() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("condition-notify", 1, Some(2));
 }
 
 #[test]
-fn subr_arity_event_apply_modifier_is_four() {}
+fn subr_arity_event_apply_modifier_is_four() {
+    crate::test_utils::init_test_tracing();
+}
 
 #[test]
 fn subr_arity_thread_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("thread-join", 1, Some(1));
     assert_subr_arity("thread-yield", 0, Some(0));
     assert_subr_arity("thread-name", 1, Some(1));
@@ -199,6 +215,7 @@ fn subr_arity_thread_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_display_terminal_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("display-supports-face-attributes-p", 1, Some(2));
     assert_subr_arity("ding", 0, Some(1));
     assert_subr_arity("redraw-display", 0, Some(0));
@@ -287,6 +304,7 @@ fn subr_arity_display_terminal_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_image_font_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("clear-face-cache", 0, Some(1));
     assert_subr_arity("clear-font-cache", 0, Some(0));
     assert_subr_arity("clear-image-cache", 0, Some(2));
@@ -305,6 +323,7 @@ fn subr_arity_image_font_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_process_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("accept-process-output", 0, Some(4));
     assert_subr_arity("call-process", 1, None);
     assert_subr_arity("call-process-region", 3, None);
@@ -377,6 +396,7 @@ fn subr_arity_process_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_core_math_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("%", 2, Some(2));
     assert_subr_arity("/", 1, None);
     assert_subr_arity("/=", 2, Some(2));
@@ -394,6 +414,7 @@ fn subr_arity_core_math_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_minibuffer_control_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("recursive-edit", 0, Some(0));
     assert_subr_arity("top-level", 0, Some(0));
     assert_subr_arity("exit-recursive-edit", 0, Some(0));
@@ -409,6 +430,7 @@ fn subr_arity_minibuffer_control_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_point_navigation_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("beginning-of-line", 0, Some(1));
     assert_subr_arity("end-of-line", 0, Some(1));
     assert_subr_arity("forward-char", 0, Some(1));
@@ -426,6 +448,7 @@ fn subr_arity_point_navigation_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_buffer_point_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("current-buffer", 0, Some(0));
     assert_subr_arity("buffer-string", 0, Some(0));
     assert_subr_arity("point", 0, Some(0));
@@ -465,6 +488,7 @@ fn subr_arity_buffer_point_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_mark_marker_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("mark-marker", 0, Some(0));
     assert_subr_arity("point-marker", 0, Some(0));
     assert_subr_arity("point-min-marker", 0, Some(0));
@@ -480,12 +504,14 @@ fn subr_arity_mark_marker_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_register_helper_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("register-ccl-program", 2, Some(2));
     assert_subr_arity("register-code-conversion-map", 2, Some(2));
 }
 
 #[test]
 fn subr_arity_list_sequence_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("max", 1, None);
     assert_subr_arity("min", 1, None);
     assert_subr_arity("mod", 2, Some(2));
@@ -504,6 +530,7 @@ fn subr_arity_list_sequence_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_char_charset_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("char-after", 0, Some(1));
     assert_subr_arity("char-before", 0, Some(1));
     assert_subr_arity("char-category-set", 1, Some(1));
@@ -533,6 +560,7 @@ fn subr_arity_char_charset_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_assoc_predicate_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("assoc", 2, Some(3));
     assert_subr_arity("assoc-string", 2, Some(3));
     assert_subr_arity("assq", 2, Some(2));
@@ -552,6 +580,7 @@ fn subr_arity_assoc_predicate_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_navigation_case_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("backward-prefix-chars", 0, Some(0));
     assert_subr_arity("capitalize", 1, Some(1));
     assert_subr_arity("capitalize-word", 1, Some(1));
@@ -560,6 +589,7 @@ fn subr_arity_navigation_case_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_kill_edit_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("downcase-region", 2, Some(3));
     assert_subr_arity("downcase-word", 1, Some(1));
     assert_subr_arity("kill-buffer", 0, Some(1));
@@ -568,6 +598,7 @@ fn subr_arity_kill_edit_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_hook_advice_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("add-face-text-property", 3, Some(5));
     assert_subr_arity("add-name-to-file", 2, Some(3));
     assert_subr_arity("add-text-properties", 3, Some(4));
@@ -590,6 +621,7 @@ fn subr_arity_hook_advice_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_doc_helper_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("Snarf-documentation", 1, Some(1));
     assert_subr_arity("substitute-command-keys", 1, Some(3));
     assert_subr_arity("documentation", 1, Some(2));
@@ -599,6 +631,7 @@ fn subr_arity_doc_helper_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_coding_time_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("decode-coding-string", 2, Some(4));
     assert_subr_arity("decode-time", 0, Some(3));
     assert_subr_arity("detect-coding-region", 2, Some(3));
@@ -611,12 +644,14 @@ fn subr_arity_coding_time_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_indent_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("indent-to", 1, Some(2));
     assert_subr_arity("move-to-column", 1, Some(2));
 }
 
 #[test]
 fn subr_arity_text_property_overlay_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("put-text-property", 4, Some(5));
     assert_subr_arity("set-text-properties", 3, Some(4));
     assert_subr_arity("remove-text-properties", 3, Some(4));
@@ -654,6 +689,7 @@ fn subr_arity_text_property_overlay_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_encoding_bool_vector_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("bool-vector", 0, None);
     assert_subr_arity("base64-decode-region", 2, Some(4));
     assert_subr_arity("base64-encode-region", 2, Some(3));
@@ -674,6 +710,7 @@ fn subr_arity_encoding_bool_vector_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_runtime_covered_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("aref", 2, Some(2));
     assert_subr_arity("arrayp", 1, Some(1));
     assert_subr_arity("aset", 3, Some(3));
@@ -723,6 +760,7 @@ fn subr_arity_runtime_covered_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_command_timer_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("call-interactively", 1, Some(3));
     assert_subr_arity("command-modes", 1, Some(1));
     assert_subr_arity("command-error-default-function", 3, Some(3));
@@ -741,6 +779,7 @@ fn subr_arity_command_timer_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_command_read_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("compare-buffer-substrings", 6, Some(6));
     assert_subr_arity("compare-strings", 6, Some(7));
     assert_subr_arity("comp--compile-ctxt-to-file0", 1, Some(1));
@@ -1110,6 +1149,7 @@ fn subr_arity_command_read_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_read_core_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("read", 0, Some(1));
     assert_subr_arity("read-char", 0, Some(3));
     assert_subr_arity("read-char-exclusive", 0, Some(3));
@@ -1122,6 +1162,7 @@ fn subr_arity_read_core_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_input_mode_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("current-input-mode", 0, Some(0));
     assert_subr_arity("set-input-mode", 3, Some(4));
     assert_subr_arity("set-input-interrupt-mode", 1, Some(1));
@@ -1135,6 +1176,7 @@ fn subr_arity_input_mode_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_kmacro_command_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("start-kbd-macro", 1, Some(2));
     assert_subr_arity("cancel-kbd-macro-events", 0, Some(0));
     assert_subr_arity("end-kbd-macro", 0, Some(2));
@@ -1144,6 +1186,7 @@ fn subr_arity_kmacro_command_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_keymap_keyboard_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("key-binding", 1, Some(4));
     assert_subr_arity("lookup-key", 2, Some(3));
     assert_subr_arity("key-description", 1, Some(2));
@@ -1157,6 +1200,7 @@ fn subr_arity_keymap_keyboard_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_delete_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("delete-char", 1, Some(2));
     assert_subr_arity("delete-all-overlays", 0, Some(1));
     assert_subr_arity("delete-and-extract-region", 2, Some(2));
@@ -1168,6 +1212,7 @@ fn subr_arity_delete_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_filesystem_path_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("access-file", 2, Some(2));
     assert_subr_arity("delete-directory-internal", 1, Some(1));
     assert_subr_arity("delete-file-internal", 1, Some(1));
@@ -1180,6 +1225,7 @@ fn subr_arity_filesystem_path_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_filesystem_create_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("make-directory-internal", 1, Some(1));
     assert_subr_arity("make-temp-name", 1, Some(1));
     assert_subr_arity("make-symbolic-link", 2, Some(3));
@@ -1189,6 +1235,7 @@ fn subr_arity_filesystem_create_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_file_load_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("find-buffer", 2, Some(2));
     assert_subr_arity("find-file-name-handler", 2, Some(2));
     assert_subr_arity("insert-file-contents", 1, Some(5));
@@ -1198,6 +1245,7 @@ fn subr_arity_file_load_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_file_stat_predicate_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("file-acl", 1, Some(1));
     assert_subr_arity("file-attributes", 1, Some(2));
     assert_subr_arity("file-accessible-directory-p", 1, Some(1));
@@ -1217,6 +1265,7 @@ fn subr_arity_file_stat_predicate_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_file_name_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("file-name-absolute-p", 1, Some(1));
     assert_subr_arity("file-name-all-completions", 2, Some(2));
     assert_subr_arity("file-name-as-directory", 1, Some(1));
@@ -1231,6 +1280,7 @@ fn subr_arity_file_name_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_event_error_misc_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("event-convert-list", 1, Some(1));
     assert_subr_arity("error-message-string", 1, Some(1));
     assert_subr_arity("copysign", 2, Some(2));
@@ -1241,6 +1291,7 @@ fn subr_arity_event_error_misc_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_eval_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("eval", 1, Some(2));
     assert_subr_arity("eval-buffer", 0, Some(5));
     assert_subr_arity("eval-region", 2, Some(4));
@@ -1248,6 +1299,7 @@ fn subr_arity_eval_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_define_defaults_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("default-file-modes", 0, Some(0));
     assert_subr_arity("define-category", 2, Some(3));
     assert_subr_arity("define-coding-system-alias", 2, Some(2));
@@ -1256,6 +1308,7 @@ fn subr_arity_define_defaults_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_category_ccl_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("category-table", 0, Some(0));
     assert_subr_arity("clear-charset-maps", 0, Some(0));
     assert_subr_arity("case-table-p", 1, Some(1));
@@ -1270,6 +1323,7 @@ fn subr_arity_category_ccl_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_coding_system_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("check-coding-systems-region", 3, Some(3));
     assert_subr_arity("coding-system-aliases", 1, Some(1));
     assert_subr_arity("coding-system-base", 1, Some(1));
@@ -1282,6 +1336,7 @@ fn subr_arity_coding_system_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_color_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("color-distance", 2, Some(4));
     assert_subr_arity("color-gray-p", 1, Some(2));
     assert_subr_arity("color-supported-p", 1, Some(3));
@@ -1290,6 +1345,7 @@ fn subr_arity_color_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_copy_cons_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("cons", 2, Some(2));
     assert_subr_arity("copy-alist", 1, Some(1));
     assert_subr_arity("copy-category-table", 0, Some(1));
@@ -1303,6 +1359,7 @@ fn subr_arity_copy_cons_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_current_state_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("bitmap-spec-p", 1, Some(1));
     assert_subr_arity("byte-to-string", 1, Some(1));
     assert_subr_arity("byteorder", 0, Some(0));
@@ -1331,6 +1388,7 @@ fn subr_arity_current_state_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_composition_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("clear-composition-cache", 0, Some(0));
     assert_subr_arity("compose-region-internal", 2, Some(4));
     assert_subr_arity("compose-string-internal", 3, Some(5));
@@ -1340,6 +1398,7 @@ fn subr_arity_composition_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_predicate_core_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("charsetp", 1, Some(1));
     assert_subr_arity("closurep", 1, Some(1));
     assert_subr_arity("decode-char", 2, Some(2));
@@ -1359,16 +1418,20 @@ fn subr_arity_predicate_core_primitives_match_oracle() {
 }
 
 #[test]
-fn subr_arity_abbrev_primitives_match_oracle() {}
+fn subr_arity_abbrev_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
+}
 
 #[test]
 fn subr_arity_cxr_family_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("car", 1, Some(1));
     assert_subr_arity("cdr", 1, Some(1));
 }
 
 #[test]
 fn subr_arity_symbol_state_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("fboundp", 1, Some(1));
     assert_subr_arity("func-arity", 1, Some(1));
     assert_subr_arity("native-comp-function-p", 1, Some(1));
@@ -1384,6 +1447,7 @@ fn subr_arity_symbol_state_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_symbol_obarray_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("intern", 1, Some(2));
     assert_subr_arity("intern-soft", 1, Some(2));
     assert_subr_arity("make-symbol", 1, Some(1));
@@ -1395,6 +1459,7 @@ fn subr_arity_symbol_obarray_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_line_position_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("line-beginning-position", 0, Some(1));
     assert_subr_arity("line-end-position", 0, Some(1));
     assert_subr_arity("pos-bol", 0, Some(1));
@@ -1406,6 +1471,7 @@ fn subr_arity_line_position_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_search_match_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("looking-at", 1, Some(2));
     assert_subr_arity("posix-looking-at", 1, Some(2));
     assert_subr_arity("match-beginning", 1, Some(1));
@@ -1424,6 +1490,7 @@ fn subr_arity_search_match_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_edit_state_helper_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("insert-byte", 2, Some(3));
     assert_subr_arity("insert-char", 1, Some(3));
     assert_subr_arity("other-window-for-scrolling", 0, Some(0));
@@ -1440,6 +1507,7 @@ fn subr_arity_edit_state_helper_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_read_region_helper_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("read-buffer", 1, Some(4));
     assert_subr_arity("read-coding-system", 1, Some(2));
     assert_subr_arity("read-from-minibuffer", 1, Some(7));
@@ -1455,6 +1523,7 @@ fn subr_arity_read_region_helper_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_print_replace_edit_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("prin1", 1, Some(3));
     assert_subr_arity("prin1-to-string", 1, Some(3));
     assert_subr_arity("princ", 1, Some(2));
@@ -1466,6 +1535,7 @@ fn subr_arity_print_replace_edit_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_window_navigation_helpers_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("delete-frame", 0, Some(2));
     assert_subr_arity("delete-other-windows-internal", 0, Some(2));
     assert_subr_arity("next-window", 0, Some(3));
@@ -1481,6 +1551,7 @@ fn subr_arity_window_navigation_helpers_match_oracle() {
 
 #[test]
 fn subr_arity_face_font_helper_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("close-font", 1, Some(2));
     assert_subr_arity("face-attribute-relative-p", 2, Some(2));
     assert_subr_arity("face-font", 1, Some(3));
@@ -1505,6 +1576,7 @@ fn subr_arity_face_font_helper_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_syntax_category_plist_helpers_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("category-set-mnemonics", 1, Some(1));
     assert_subr_arity("file-attributes-lessp", 2, Some(2));
     assert_subr_arity("forward-comment", 1, Some(1));
@@ -1524,6 +1596,7 @@ fn subr_arity_syntax_category_plist_helpers_match_oracle() {
 
 #[test]
 fn subr_arity_set_scan_helpers_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("set-buffer", 1, Some(1));
     assert_subr_arity("set-buffer-modified-p", 1, Some(1));
     assert_subr_arity("set-case-table", 1, Some(1));
@@ -1559,6 +1632,7 @@ fn subr_arity_set_scan_helpers_match_oracle() {
 
 #[test]
 fn subr_arity_string_syntax_helpers_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("string-as-multibyte", 1, Some(1));
     assert_subr_arity("string-as-unibyte", 1, Some(1));
     assert_subr_arity("string-collate-equalp", 2, Some(4));
@@ -1581,6 +1655,7 @@ fn subr_arity_string_syntax_helpers_match_oracle() {
 
 #[test]
 fn subr_arity_time_user_runtime_helpers_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("threadp", 1, Some(1));
     assert_subr_arity("time-add", 2, Some(2));
     assert_subr_arity("time-convert", 1, Some(2));
@@ -1604,6 +1679,7 @@ fn subr_arity_time_user_runtime_helpers_match_oracle() {
 
 #[test]
 fn subr_arity_command_edit_runtime_helpers_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("self-insert-command", 1, Some(2));
     assert_subr_arity("signal", 2, Some(2));
     assert_subr_arity("single-key-description", 1, Some(2));
@@ -1631,6 +1707,7 @@ fn subr_arity_command_edit_runtime_helpers_match_oracle() {
 
 #[test]
 fn subr_arity_replace_window_io_helpers_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("minor-mode-key-binding", 1, Some(2));
     assert_subr_arity("narrow-to-region", 2, Some(2));
     assert_subr_arity("remove-variable-watcher", 2, Some(2));
@@ -1650,6 +1727,7 @@ fn subr_arity_replace_window_io_helpers_match_oracle() {
 
 #[test]
 fn subr_arity_charset_json_libxml_display_helpers_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("define-charset-internal", 17, None);
     assert_subr_arity("find-charset-region", 2, Some(3));
     assert_subr_arity("find-charset-string", 1, Some(2));
@@ -1676,6 +1754,7 @@ fn subr_arity_charset_json_libxml_display_helpers_match_oracle() {
 
 #[test]
 fn subr_arity_hash_table_introspection_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("hash-table-test", 1, Some(1));
     assert_subr_arity("hash-table-size", 1, Some(1));
     assert_subr_arity("hash-table-rehash-size", 1, Some(1));
@@ -1692,6 +1771,7 @@ fn subr_arity_hash_table_introspection_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_hash_table_core_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("hash-table-p", 1, Some(1));
     assert_subr_arity("make-hash-table", 0, None);
     assert_subr_arity("gethash", 2, Some(3));
@@ -1704,6 +1784,7 @@ fn subr_arity_hash_table_core_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_buffer_lookup_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("get-buffer", 1, Some(1));
     assert_subr_arity("get-buffer-create", 1, Some(2));
     assert_subr_arity("get-file-buffer", 1, Some(1));
@@ -1712,6 +1793,7 @@ fn subr_arity_buffer_lookup_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_numeric_state_helper_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("fceiling", 1, Some(1));
     assert_subr_arity("ffloor", 1, Some(1));
     assert_subr_arity("frexp", 1, Some(1));
@@ -1726,6 +1808,7 @@ fn subr_arity_numeric_state_helper_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_misc_helper_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("format-message", 1, None);
     assert_subr_arity("identity", 1, Some(1));
     assert_subr_arity("prefix-numeric-value", 1, Some(1));
@@ -1751,6 +1834,7 @@ fn subr_arity_misc_helper_primitives_match_oracle() {
 
 #[test]
 fn subr_arity_window_frame_primitives_match_oracle() {
+    crate::test_utils::init_test_tracing();
     assert_subr_arity("active-minibuffer-window", 0, Some(0));
     assert_subr_arity("frame-char-height", 0, Some(1));
     assert_subr_arity("frame-char-width", 0, Some(1));
@@ -1840,6 +1924,7 @@ fn subr_arity_window_frame_primitives_match_oracle() {
 
 #[test]
 fn subr_primitive_and_native_predicates() {
+    crate::test_utils::init_test_tracing();
     let primitive = builtin_subr_primitive_p(vec![Value::subr(intern("car"))]).unwrap();
     assert!(primitive.is_truthy());
 
@@ -1851,6 +1936,7 @@ fn subr_primitive_and_native_predicates() {
 
 #[test]
 fn interpreted_function_p_true_for_lambda() {
+    crate::test_utils::init_test_tracing();
     let lam = make_lambda(vec!["x"], vec![], None);
     let result = builtin_interpreted_function_p(vec![lam]).unwrap();
     assert!(result.is_truthy());
@@ -1858,6 +1944,7 @@ fn interpreted_function_p_true_for_lambda() {
 
 #[test]
 fn interpreted_function_p_false_for_bytecode() {
+    crate::test_utils::init_test_tracing();
     let bc = make_bytecode(vec![], None);
     let result = builtin_interpreted_function_p(vec![bc]).unwrap();
     assert!(result.is_nil());
@@ -1865,6 +1952,7 @@ fn interpreted_function_p_false_for_bytecode() {
 
 #[test]
 fn interpreted_function_p_false_for_subr() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_interpreted_function_p(vec![Value::subr(intern("car"))]).unwrap();
     assert!(result.is_nil());
 }
@@ -1873,42 +1961,49 @@ fn interpreted_function_p_false_for_subr() {
 
 #[test]
 fn special_form_p_true_for_if() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_special_form_p(vec![Value::symbol("if")]).unwrap();
     assert!(result.is_truthy());
 }
 
 #[test]
 fn special_form_p_true_for_quote() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_special_form_p(vec![Value::symbol("quote")]).unwrap();
     assert!(result.is_truthy());
 }
 
 #[test]
 fn special_form_p_true_for_setq() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_special_form_p(vec![Value::symbol("setq")]).unwrap();
     assert!(result.is_truthy());
 }
 
 #[test]
 fn special_form_p_false_for_car() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_special_form_p(vec![Value::symbol("car")]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn special_form_p_false_for_when() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_special_form_p(vec![Value::symbol("when")]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn special_form_p_false_for_throw() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_special_form_p(vec![Value::symbol("throw")]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn special_form_p_false_for_int() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_special_form_p(vec![Value::fixnum(42)]).unwrap();
     assert!(result.is_nil());
 }
@@ -1917,6 +2012,7 @@ fn special_form_p_false_for_int() {
 
 #[test]
 fn macrop_true_for_macro() {
+    crate::test_utils::init_test_tracing();
     let m = make_macro(vec!["form"]);
     let result = macrop_check(&m).unwrap();
     assert!(result.is_truthy());
@@ -1924,6 +2020,7 @@ fn macrop_true_for_macro() {
 
 #[test]
 fn macrop_false_for_lambda() {
+    crate::test_utils::init_test_tracing();
     let lam = make_lambda(vec!["x"], vec![], None);
     let result = macrop_check(&lam).unwrap();
     assert!(result.is_nil());
@@ -1931,12 +2028,14 @@ fn macrop_false_for_lambda() {
 
 #[test]
 fn macrop_false_for_nil() {
+    crate::test_utils::init_test_tracing();
     let result = macrop_check(&Value::NIL).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn macrop_true_for_macro_cons_marker() {
+    crate::test_utils::init_test_tracing();
     let marker = Value::cons(Value::symbol("macro"), Value::fixnum(1));
     let result = macrop_check(&marker).unwrap();
     assert!(result.is_truthy());
@@ -1944,6 +2043,7 @@ fn macrop_true_for_macro_cons_marker() {
 
 #[test]
 fn macrop_autoload_macro_returns_macro_marker_list() {
+    crate::test_utils::init_test_tracing();
     let autoload_macro = Value::list(vec![
         Value::symbol("autoload"),
         Value::string("dummy-file"),
@@ -1957,6 +2057,7 @@ fn macrop_autoload_macro_returns_macro_marker_list() {
 
 #[test]
 fn macrop_autoload_function_is_nil() {
+    crate::test_utils::init_test_tracing();
     let autoload_function = Value::list(vec![
         Value::symbol("autoload"),
         Value::string("dummy-file"),
@@ -1970,6 +2071,7 @@ fn macrop_autoload_function_is_nil() {
 
 #[test]
 fn macrop_autoload_t_marker_returns_single_t_list() {
+    crate::test_utils::init_test_tracing();
     let autoload_t_marker = Value::list(vec![
         Value::symbol("autoload"),
         Value::string("dummy-file"),
@@ -1985,12 +2087,14 @@ fn macrop_autoload_t_marker_returns_single_t_list() {
 
 #[test]
 fn commandp_true_for_subr() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_commandp(vec![Value::subr(intern("car"))]).unwrap();
     assert!(result.is_truthy());
 }
 
 #[test]
 fn commandp_true_for_lambda() {
+    crate::test_utils::init_test_tracing();
     let lam = make_lambda(vec![], vec![], None);
     let result = builtin_commandp(vec![lam]).unwrap();
     assert!(result.is_truthy());
@@ -1998,18 +2102,21 @@ fn commandp_true_for_lambda() {
 
 #[test]
 fn commandp_false_for_int() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_commandp(vec![Value::fixnum(42)]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn commandp_false_for_nil() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_commandp(vec![Value::NIL]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn commandp_rejects_overflow_arity() {
+    crate::test_utils::init_test_tracing();
     let err = builtin_commandp(vec![Value::symbol("car"), Value::NIL, Value::NIL])
         .expect_err("commandp should reject more than two arguments");
     match err {
@@ -2022,6 +2129,7 @@ fn commandp_rejects_overflow_arity() {
 
 #[test]
 fn func_arity_lambda_required_only() {
+    crate::test_utils::init_test_tracing();
     let lam = make_lambda(vec!["a", "b"], vec![], None);
     let result = builtin_func_arity_impl(vec![lam]).unwrap();
     if result.is_cons() {
@@ -2036,6 +2144,7 @@ fn func_arity_lambda_required_only() {
 
 #[test]
 fn func_arity_lambda_with_optional() {
+    crate::test_utils::init_test_tracing();
     let lam = make_lambda(vec!["a"], vec!["b", "c"], None);
     let result = builtin_func_arity_impl(vec![lam]).unwrap();
     if result.is_cons() {
@@ -2050,6 +2159,7 @@ fn func_arity_lambda_with_optional() {
 
 #[test]
 fn func_arity_lambda_with_rest() {
+    crate::test_utils::init_test_tracing();
     let lam = make_lambda(vec!["a"], vec![], Some("rest"));
     let result = builtin_func_arity_impl(vec![lam]).unwrap();
     if result.is_cons() {
@@ -2064,6 +2174,7 @@ fn func_arity_lambda_with_rest() {
 
 #[test]
 fn func_arity_bytecode() {
+    crate::test_utils::init_test_tracing();
     let bc = make_bytecode(vec!["x", "y"], Some("rest"));
     let result = builtin_func_arity_impl(vec![bc]).unwrap();
     if result.is_cons() {
@@ -2078,6 +2189,7 @@ fn func_arity_bytecode() {
 
 #[test]
 fn func_arity_subr() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_func_arity_impl(vec![Value::subr(intern("+"))]).unwrap();
     if result.is_cons() {
         let pair_car = result.cons_car();
@@ -2091,6 +2203,7 @@ fn func_arity_subr() {
 
 #[test]
 fn func_arity_subr_uses_compat_overrides() {
+    crate::test_utils::init_test_tracing();
     let message = builtin_func_arity_impl(vec![Value::subr(intern("message"))]).unwrap();
     if message.is_cons() {
         let pair_car = message.cons_car();
@@ -2114,6 +2227,7 @@ fn func_arity_subr_uses_compat_overrides() {
 
 #[test]
 fn func_arity_macro() {
+    crate::test_utils::init_test_tracing();
     let m = make_macro(vec!["a", "b"]);
     let result = builtin_func_arity_impl(vec![m]).unwrap();
     if result.is_cons() {
@@ -2128,6 +2242,7 @@ fn func_arity_macro() {
 
 #[test]
 fn gnu_lisp_macro_forms_are_not_evaluator_special_forms() {
+    crate::test_utils::init_test_tracing();
     for name in [
         "declare",
         "eval-when-compile",
@@ -2154,12 +2269,14 @@ fn gnu_lisp_macro_forms_are_not_evaluator_special_forms() {
 
 #[test]
 fn func_arity_error_for_non_callable() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_func_arity_impl(vec![Value::fixnum(42)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn func_arity_autoload_object_signals_wrong_type_argument_symbolp() {
+    crate::test_utils::init_test_tracing();
     let autoload_fn = Value::list(vec![
         Value::symbol("autoload"),
         Value::string("vm-auto-file"),
@@ -2182,12 +2299,14 @@ fn func_arity_autoload_object_signals_wrong_type_argument_symbolp() {
 
 #[test]
 fn subr_name_wrong_args() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_subr_name(vec![]);
     assert!(result.is_err());
 }
 
 #[test]
 fn func_arity_wrong_args() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_func_arity_impl(vec![]);
     assert!(result.is_err());
 }

@@ -170,6 +170,7 @@ fn eval_all(ev: &mut Context, src: &str) -> Vec<String> {
 
 #[test]
 fn eval_column_and_indentation_subset() {
+    crate::test_utils::init_test_tracing();
     let mut ev = super::super::eval::Context::new();
     let forms = super::super::parser::parse_forms(
         r#"
@@ -203,6 +204,7 @@ fn eval_column_and_indentation_subset() {
 
 #[test]
 fn eval_move_to_column_wholenump_validation() {
+    crate::test_utils::init_test_tracing();
     let mut ev = super::super::eval::Context::new();
     let err = builtin_move_to_column(&mut ev, vec![Value::string("x")]).unwrap_err();
     match err {
@@ -219,6 +221,7 @@ fn eval_move_to_column_wholenump_validation() {
 
 #[test]
 fn eval_move_to_column_force_subset() {
+    crate::test_utils::init_test_tracing();
     let mut ev = super::super::eval::Context::new();
     let forms = super::super::parser::parse_forms(
         r#"
@@ -270,6 +273,7 @@ fn eval_move_to_column_force_subset() {
 
 #[test]
 fn gnu_back_to_indentation_matches_simple_el() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_indent_eval();
     let results = eval_all(
         &mut ev,
@@ -305,6 +309,7 @@ fn gnu_back_to_indentation_matches_simple_el() {
 
 #[test]
 fn gnu_indent_region_matches_indent_el() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_indent_el_eval();
     let forms = super::super::parser::parse_forms(
         r#"
@@ -368,6 +373,7 @@ fn gnu_indent_region_matches_indent_el() {
 
 #[test]
 fn gnu_indent_according_to_mode_matches_indent_el() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_indent_el_eval();
     let forms = super::super::parser::parse_forms(
         r#"
@@ -419,6 +425,7 @@ fn gnu_indent_according_to_mode_matches_indent_el() {
 
 #[test]
 fn bootstrap_self_insert_command_uses_last_command_event() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (let ((last-command-event 10))
@@ -431,6 +438,7 @@ fn bootstrap_self_insert_command_uses_last_command_event() {
 
 #[test]
 fn bootstrap_newline_inserts_lf_in_simple_el() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "ab")
@@ -444,6 +452,7 @@ fn bootstrap_newline_inserts_lf_in_simple_el() {
 
 #[test]
 fn bootstrap_newline_marker_round_trip_in_simple_el() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "ab")
@@ -460,6 +469,7 @@ fn bootstrap_newline_marker_round_trip_in_simple_el() {
 
 #[test]
 fn bootstrap_newline_copy_marker_sequence_matches_simple_el() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "a b")
@@ -479,6 +489,7 @@ fn bootstrap_newline_copy_marker_sequence_matches_simple_el() {
 
 #[test]
 fn bootstrap_reindent_delete_horizontal_space_step_matches_simple_el() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "a b")
@@ -499,6 +510,7 @@ fn bootstrap_reindent_delete_horizontal_space_step_matches_simple_el() {
 
 #[test]
 fn reindent_then_newline_and_indent_normalizes_split_whitespace() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "a b")
@@ -512,6 +524,7 @@ fn reindent_then_newline_and_indent_normalizes_split_whitespace() {
 
 #[test]
 fn wrong_arg_count_errors() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     // current-indentation takes no args
     assert!(builtin_current_indentation(&mut eval, vec![Value::fixnum(1)]).is_err());
@@ -531,12 +544,14 @@ fn wrong_arg_count_errors() {
 
 #[test]
 fn indent_to_rejects_non_integer() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     assert!(builtin_indent_to(&mut eval, vec![Value::string("foo")]).is_err());
 }
 
 #[test]
 fn init_indent_vars_sets_defaults() {
+    crate::test_utils::init_test_tracing();
     let mut obarray = super::super::symbol::Obarray::new();
     init_indent_vars(&mut obarray);
 
@@ -562,6 +577,7 @@ fn init_indent_vars_sets_defaults() {
 
 #[test]
 fn indent_for_tab_command_inserts_tab() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_indent_el_eval();
     let forms = super::super::parser::parse_forms(
         r#"(with-temp-buffer
@@ -577,6 +593,7 @@ fn indent_for_tab_command_inserts_tab() {
 
 #[test]
 fn eval_indent_to_inserts_padding_and_returns_column() {
+    crate::test_utils::init_test_tracing();
     let mut ev = super::super::eval::Context::new();
     let forms = super::super::parser::parse_forms(
         r#"(with-temp-buffer
@@ -601,6 +618,7 @@ fn eval_indent_to_inserts_padding_and_returns_column() {
 
 #[test]
 fn eval_indent_to_rejects_non_fixnump_minimum() {
+    crate::test_utils::init_test_tracing();
     let mut ev = super::super::eval::Context::new();
     let forms = super::super::parser::parse_forms(
         r#"(with-temp-buffer (condition-case err (indent-to 4 nil) (error err)))
@@ -624,6 +642,7 @@ fn eval_indent_to_rejects_non_fixnump_minimum() {
 
 #[test]
 fn eval_indent_builtins_respect_dynamic_and_buffer_local_settings() {
+    crate::test_utils::init_test_tracing();
     let mut ev = super::super::eval::Context::new();
     let forms = super::super::parser::parse_forms(
         r#"(let ((tab-width 4))
@@ -661,6 +680,7 @@ fn eval_indent_builtins_respect_dynamic_and_buffer_local_settings() {
 
 #[test]
 fn indent_for_tab_command_normalizes_leading_whitespace_at_point() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_indent_el_eval();
     let forms = super::super::parser::parse_forms(
         r#"(with-temp-buffer
@@ -676,6 +696,7 @@ fn indent_for_tab_command_normalizes_leading_whitespace_at_point() {
 
 #[test]
 fn save_restriction_restores_full_buffer_after_widen_insert() {
+    crate::test_utils::init_test_tracing();
     let mut ev = super::super::eval::Context::new();
     let forms = super::super::parser::parse_forms(
         r#"(with-temp-buffer

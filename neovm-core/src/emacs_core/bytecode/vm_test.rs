@@ -101,6 +101,7 @@ fn vm_eval_with_init_str(src: &str, init: impl FnOnce(&mut Context)) -> String {
 
 #[test]
 fn vm_catch_leaves_shared_condition_stack_balanced() {
+    crate::test_utils::init_test_tracing();
     with_vm_eval_state("(catch 'tag (throw 'tag 42))", false, |result, eval| {
         assert_eq!(
             crate::emacs_core::error::format_eval_result(&result),
@@ -112,6 +113,7 @@ fn vm_catch_leaves_shared_condition_stack_balanced() {
 
 #[test]
 fn vm_condition_case_leaves_shared_condition_stack_balanced() {
+    crate::test_utils::init_test_tracing();
     with_vm_eval_full_context_state(
         "(condition-case err (signal 'error 1) (error (car err)))",
         false,
@@ -127,6 +129,7 @@ fn vm_condition_case_leaves_shared_condition_stack_balanced() {
 
 #[test]
 fn vm_handler_bind_1_leaves_shared_condition_stack_balanced() {
+    crate::test_utils::init_test_tracing();
     with_vm_eval_full_context_state(
         "(condition-case err
            (handler-bind-1 (lambda () (signal 'error 1))
@@ -146,6 +149,7 @@ fn vm_handler_bind_1_leaves_shared_condition_stack_balanced() {
 
 #[test]
 fn vm_handler_bind_1_runs_inside_signal_dynamic_extent() {
+    crate::test_utils::init_test_tracing();
     with_vm_eval_full_context_state(
         "(catch 'tag
            (handler-bind-1
@@ -167,6 +171,7 @@ fn vm_handler_bind_1_runs_inside_signal_dynamic_extent() {
 
 #[test]
 fn vm_handler_bind_1_mutes_lower_condition_handlers() {
+    crate::test_utils::init_test_tracing();
     with_vm_eval_full_context_state(
         "(condition-case nil
            (handler-bind-1
@@ -190,6 +195,7 @@ fn vm_handler_bind_1_mutes_lower_condition_handlers() {
 
 #[test]
 fn vm_handler_bind_1_handlers_do_not_apply_within_handlers() {
+    crate::test_utils::init_test_tracing();
     with_vm_eval_full_context_state(
         "(condition-case nil
            (handler-bind-1
@@ -212,6 +218,7 @@ fn vm_handler_bind_1_handlers_do_not_apply_within_handlers() {
 
 #[test]
 fn vm_signal_hook_function_sees_raw_signal_payload_before_condition_case() {
+    crate::test_utils::init_test_tracing();
     with_vm_eval_full_context_state(
         "(let (seen)
            (let ((signal-hook-function
@@ -232,6 +239,7 @@ fn vm_signal_hook_function_sees_raw_signal_payload_before_condition_case() {
 
 #[test]
 fn vm_signal_nil_error_object_uses_embedded_symbol_and_skips_signal_hook() {
+    crate::test_utils::init_test_tracing();
     with_vm_eval_full_context_state(
         "(let (seen)
            (let ((signal-hook-function
@@ -252,6 +260,7 @@ fn vm_signal_nil_error_object_uses_embedded_symbol_and_skips_signal_hook() {
 
 #[test]
 fn vm_compiled_unwind_protect_runs_cleanup_on_throw() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(let (log)
@@ -268,6 +277,7 @@ fn vm_compiled_unwind_protect_runs_cleanup_on_throw() {
 
 #[test]
 fn vm_compiled_unwind_protect_runs_cleanup_on_signal() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(let (log)
@@ -283,6 +293,7 @@ fn vm_compiled_unwind_protect_runs_cleanup_on_signal() {
 
 #[test]
 fn vm_compiled_unwind_protect_cleanup_closure_captures_lexical_scope() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_lexical_str(
             "(let ((x 7)
@@ -298,6 +309,7 @@ fn vm_compiled_unwind_protect_cleanup_closure_captures_lexical_scope() {
 
 #[test]
 fn vm_condition_case_suppresses_debugger_without_debug_marker() {
+    crate::test_utils::init_test_tracing();
     with_vm_eval_full_context_state(
         "(let ((debug-on-error t)
                (called nil)
@@ -319,6 +331,7 @@ fn vm_condition_case_suppresses_debugger_without_debug_marker() {
 
 #[test]
 fn vm_condition_case_debug_marker_calls_debugger_before_handler() {
+    crate::test_utils::init_test_tracing();
     with_vm_eval_full_context_state(
         "(let ((debug-on-error t)
                (called nil)
@@ -340,6 +353,7 @@ fn vm_condition_case_debug_marker_calls_debugger_before_handler() {
 
 #[test]
 fn vm_debug_on_signal_overrides_condition_case_debugger_suppression() {
+    crate::test_utils::init_test_tracing();
     with_vm_eval_full_context_state(
         "(let ((debug-on-error t)
                (debug-on-signal t)
@@ -362,6 +376,7 @@ fn vm_debug_on_signal_overrides_condition_case_debugger_suppression() {
 
 #[test]
 fn vm_debug_ignored_errors_blocks_debugger_even_with_debug_marker() {
+    crate::test_utils::init_test_tracing();
     with_vm_eval_full_context_state(
         "(let ((debug-on-error t)
                (debug-ignored-errors '(arith-error))
@@ -397,6 +412,7 @@ fn quoted_dispatch_names(source: &str, predicate: impl Fn(&str) -> bool) -> BTre
 
 #[test]
 fn vm_direct_dispatch_covers_all_dispatch_builtin_names() {
+    crate::test_utils::init_test_tracing();
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let builtins_mod = std::fs::read_to_string(manifest.join("src/emacs_core/builtins/mod.rs"))
         .expect("read builtins/mod.rs");
@@ -420,6 +436,7 @@ fn vm_direct_dispatch_covers_all_dispatch_builtin_names() {
 
 #[test]
 fn vm_raw_parent_bridge_helper_is_gone() {
+    crate::test_utils::init_test_tracing();
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let root = manifest.join("src/emacs_core");
     let mut pending = vec![root.clone()];
@@ -462,6 +479,7 @@ fn vm_raw_parent_bridge_helper_is_gone() {
 
 #[test]
 fn vm_parent_evaluator_bridge_is_limited_to_semantic_boundaries() {
+    crate::test_utils::init_test_tracing();
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let root = manifest.join("src/emacs_core");
     let mut pending = vec![root.clone()];
@@ -512,6 +530,7 @@ fn vm_parent_evaluator_bridge_is_limited_to_semantic_boundaries() {
 
 #[test]
 fn vm_lexical_let_closure_captures_bytecode_binding() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_lexical_str(
             r#"
@@ -526,6 +545,7 @@ fn vm_lexical_let_closure_captures_bytecode_binding() {
 
 #[test]
 fn vm_lexical_param_closure_captures_bytecode_binding() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_lexical_str(
             r#"
@@ -541,6 +561,7 @@ fn vm_lexical_param_closure_captures_bytecode_binding() {
 
 #[test]
 fn vm_interpreted_lambda_call_restores_outer_binding_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str("(let ((x 41)) (list (funcall (lambda (x) x) 7) x))"),
         "OK (7 41)"
@@ -553,6 +574,7 @@ fn vm_interpreted_lambda_call_restores_outer_binding_state() {
 
 #[test]
 fn vm_mapc_mapcan_and_mapconcat_use_shared_runtime_callbacks() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str("(let ((xs '(1 2 3))) (eq (mapc #'identity xs) xs))"),
         "OK t"
@@ -583,6 +605,7 @@ fn vm_mapc_mapcan_and_mapconcat_use_shared_runtime_callbacks() {
 
 #[test]
 fn vm_reader_and_minibuffer_builtins_use_shared_runtime_entry() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(list
@@ -622,6 +645,7 @@ fn vm_reader_and_minibuffer_builtins_use_shared_runtime_entry() {
 
 #[test]
 fn vm_keyboard_c_builtins_use_shared_unread_and_batch_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(list
@@ -645,6 +669,7 @@ fn vm_keyboard_c_builtins_use_shared_unread_and_batch_state() {
 
 #[test]
 fn vm_internal_labeled_restriction_builtins_use_shared_buffer_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             r#"(progn
@@ -667,6 +692,7 @@ fn vm_internal_labeled_restriction_builtins_use_shared_buffer_state() {
 
 #[test]
 fn vm_save_restriction_restores_labeled_restrictions_and_widen_semantics() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             r#"(progn
@@ -691,6 +717,7 @@ fn vm_save_restriction_restores_labeled_restrictions_and_widen_semantics() {
 
 #[test]
 fn vm_save_excursion_restores_point_on_normal_exit() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             r#"(progn
@@ -710,6 +737,7 @@ fn vm_save_excursion_restores_point_on_normal_exit() {
 
 #[test]
 fn vm_sort_uses_shared_runtime_callbacks_and_semantics() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(let* ((xs '((1 . a) (1 . b) (0 . c)))
@@ -773,6 +801,7 @@ fn execute_manual_vm_built<T>(
 
 #[test]
 fn vm_runtime_harness_exposes_public_builtin_surface() {
+    crate::test_utils::init_test_tracing();
     with_vm_eval_in_context(
         Context::new_vm_runtime_harness(),
         r#"(progn
@@ -797,17 +826,20 @@ fn vm_runtime_harness_exposes_public_builtin_surface() {
 
 #[test]
 fn vm_literal_int() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("42"), "OK 42");
 }
 
 #[test]
 fn vm_nil_t() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("nil"), "OK nil");
     assert_eq!(vm_eval_str("t"), "OK t");
 }
 
 #[test]
 fn vm_eval_preserves_variable_watcher_registry_across_builtin_dispatch() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(progn (add-variable-watcher 'vm-bytecode-var 'vm-bytecode-watch) (get-variable-watchers 'vm-bytecode-var))"
@@ -818,6 +850,7 @@ fn vm_eval_preserves_variable_watcher_registry_across_builtin_dispatch() {
 
 #[test]
 fn vm_variable_watcher_management_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(progn
@@ -836,6 +869,7 @@ fn vm_variable_watcher_management_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_kmacro_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     let setup = parse_forms(
         r#"(progn
@@ -909,6 +943,7 @@ fn vm_kmacro_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_execute_kbd_macro_real_key_events_use_command_loop_dispatch() {
+    crate::test_utils::init_test_tracing();
     let result = with_vm_eval_full_context_state(
         "(progn
            (setq vm-kmacro-command-loop-count 0)
@@ -930,6 +965,7 @@ fn vm_execute_kbd_macro_real_key_events_use_command_loop_dispatch() {
 
 #[test]
 fn vm_execute_kbd_macro_named_symbol_uses_function_indirection_chain() {
+    crate::test_utils::init_test_tracing();
     let result = with_vm_eval_full_context_state(
         "(progn
            (setq vm-kmacro-named-symbol-count 0)
@@ -953,6 +989,7 @@ fn vm_execute_kbd_macro_named_symbol_uses_function_indirection_chain() {
 
 #[test]
 fn vm_execute_kbd_macro_zero_count_uses_loopfunc() {
+    crate::test_utils::init_test_tracing();
     let result = with_vm_eval_full_context_state(
         "(progn
            (setq vm-kmacro-loop-count 0)
@@ -978,6 +1015,7 @@ fn vm_execute_kbd_macro_zero_count_uses_loopfunc() {
 
 #[test]
 fn vm_execute_kbd_macro_runs_termination_hook_after_error() {
+    crate::test_utils::init_test_tracing();
     let result = with_vm_eval_full_context_state(
         "(progn
            (setq vm-kmacro-term-ok nil)
@@ -1005,6 +1043,7 @@ fn vm_execute_kbd_macro_runs_termination_hook_after_error() {
 
 #[test]
 fn vm_varset_triggers_variable_watcher_callbacks() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(progn
@@ -1023,6 +1062,7 @@ fn vm_varset_triggers_variable_watcher_callbacks() {
 
 #[test]
 fn vm_varbind_and_unbind_trigger_variable_watcher_callbacks() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(progn
@@ -1056,6 +1096,7 @@ fn vm_varbind_and_unbind_trigger_variable_watcher_callbacks() {
 
 #[test]
 fn vm_declared_special_ignores_lexical_lookup() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_lexical_str(
             "(progn
@@ -1071,6 +1112,7 @@ fn vm_declared_special_ignores_lexical_lookup() {
 
 #[test]
 fn vm_declared_special_setq_updates_dynamic_binding() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_lexical_str(
             "(progn
@@ -1087,6 +1129,7 @@ fn vm_declared_special_setq_updates_dynamic_binding() {
 
 #[test]
 fn vm_unbind_restores_saved_current_buffer() {
+    crate::test_utils::init_test_tracing();
     let (result, buffers, saved_buffer) = execute_manual_vm_built(|buffers| {
         let saved_buffer = buffers.create_buffer("saved");
         let other_buffer = buffers.create_buffer("other");
@@ -1121,6 +1164,7 @@ fn vm_unbind_restores_saved_current_buffer() {
 
 #[test]
 fn vm_unbind_counts_unwind_protect_entries_like_gnu() {
+    crate::test_utils::init_test_tracing();
     let (result, _buffers, _) = execute_manual_vm_built(|_buffers| {
         let mut noop_func = ByteCodeFunction::new(LambdaParams {
             required: vec![],
@@ -1199,6 +1243,7 @@ fn vm_unbind_restores_saved_excursion_point() {
 
 #[test]
 fn vm_unbind_restores_saved_restriction() {
+    crate::test_utils::init_test_tracing();
     let (result, buffers, (buffer_id, saved_begv, saved_zv)) = execute_manual_vm_built(|buffers| {
         let buffer_id = buffers.create_buffer("restriction");
         buffers.set_current(buffer_id);
@@ -1241,6 +1286,7 @@ fn vm_unbind_restores_saved_restriction() {
 
 #[test]
 fn vm_eval_shared_runtime_path_preserves_active_shared_catches() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     eval.push_condition_frame(ConditionFrame::Catch {
         tag: Value::symbol("vm-bridge-catch"),
@@ -1270,6 +1316,7 @@ fn vm_eval_shared_runtime_path_preserves_active_shared_catches() {
 
 #[test]
 fn vm_eval_with_explicit_lexenv_restores_outer_vm_lexenv() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_lexical_str("(let ((x 41)) (list (eval 'x '((x . 7))) x))"),
         "OK (7 41)"
@@ -1278,28 +1325,33 @@ fn vm_eval_with_explicit_lexenv_restores_outer_vm_lexenv() {
 
 #[test]
 fn vm_addition() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("(+ 1 2)"), "OK 3");
     assert_eq!(vm_eval_str("(+ 1 2 3)"), "OK 6");
 }
 
 #[test]
 fn vm_subtraction() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("(- 10 3)"), "OK 7");
     assert_eq!(vm_eval_str("(- 5)"), "OK -5");
 }
 
 #[test]
 fn vm_multiplication() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("(* 4 5)"), "OK 20");
 }
 
 #[test]
 fn vm_division() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("(/ 10 3)"), "OK 3");
 }
 
 #[test]
 fn vm_comparisons() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("(< 1 2)"), "OK t");
     assert_eq!(vm_eval_str("(> 1 2)"), "OK nil");
     assert_eq!(vm_eval_str("(= 3 3)"), "OK t");
@@ -1309,6 +1361,7 @@ fn vm_comparisons() {
 
 #[test]
 fn vm_if() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("(if t 1 2)"), "OK 1");
     assert_eq!(vm_eval_str("(if nil 1 2)"), "OK 2");
     assert_eq!(vm_eval_str("(if nil 1)"), "OK nil");
@@ -1316,6 +1369,7 @@ fn vm_if() {
 
 #[test]
 fn vm_and_or() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("(and 1 2 3)"), "OK 3");
     assert_eq!(vm_eval_str("(and 1 nil 3)"), "OK nil");
     assert_eq!(vm_eval_str("(or nil nil 3)"), "OK 3");
@@ -1324,22 +1378,26 @@ fn vm_and_or() {
 
 #[test]
 fn vm_let() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("(let ((x 42)) x)"), "OK 42");
     assert_eq!(vm_eval_str("(let ((x 1) (y 2)) (+ x y))"), "OK 3");
 }
 
 #[test]
 fn vm_let_star() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("(let* ((x 1) (y (+ x 1))) y)"), "OK 2");
 }
 
 #[test]
 fn vm_setq() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("(progn (setq x 42) x)"), "OK 42");
 }
 
 #[test]
 fn vm_while_loop() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str("(let ((x 0)) (while (< x 5) (setq x (1+ x))) x)"),
         "OK 5"
@@ -1348,16 +1406,19 @@ fn vm_while_loop() {
 
 #[test]
 fn vm_progn() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("(progn 1 2 3)"), "OK 3");
 }
 
 #[test]
 fn vm_prog1() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("(prog1 1 2 3)"), "OK 1");
 }
 
 #[test]
 fn vm_quote() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("'foo"), "OK foo");
     assert_eq!(vm_eval_str("'(1 2 3)"), "OK (1 2 3)");
     assert_eq!(vm_eval_str("[remap ignore]"), "OK [remap ignore]");
@@ -1365,6 +1426,7 @@ fn vm_quote() {
 
 #[test]
 fn vm_type_predicates() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("(null nil)"), "OK t");
     assert_eq!(vm_eval_str("(null 1)"), "OK nil");
     assert_eq!(vm_eval_str("(consp '(1 2))"), "OK t");
@@ -1374,6 +1436,7 @@ fn vm_type_predicates() {
 
 #[test]
 fn vm_list_ops() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("(car '(1 2 3))"), "OK 1");
     assert_eq!(vm_eval_str("(cdr '(1 2 3))"), "OK (2 3)");
     assert_eq!(vm_eval_str("(cons 1 '(2 3))"), "OK (1 2 3)");
@@ -1383,12 +1446,14 @@ fn vm_list_ops() {
 
 #[test]
 fn vm_eq_equal() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("(eq 'foo 'foo)"), "OK t");
     assert_eq!(vm_eval_str("(equal '(1 2) '(1 2))"), "OK t");
 }
 
 #[test]
 fn vm_concat() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(r#"(concat "hello" " " "world")"#),
         r#"OK "hello world""#
@@ -1397,6 +1462,7 @@ fn vm_concat() {
 
 #[test]
 fn vm_switch_branches_using_hash_table_jump_table() {
+    crate::test_utils::init_test_tracing();
     // Build all Values AFTER the evaluator is initialized to avoid
     // stale ObjId/SymId from thread-local heap/interner replacement.
     let mut eval = Context::new_minimal_vm_harness();
@@ -1446,6 +1512,7 @@ fn vm_switch_branches_using_hash_table_jump_table() {
 
 #[test]
 fn vm_condition_case_catches_signal_and_binds_error() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str("(condition-case err missing-vm-var (error err))"),
         "OK (void-variable missing-vm-var)"
@@ -1454,11 +1521,13 @@ fn vm_condition_case_catches_signal_and_binds_error() {
 
 #[test]
 fn vm_catch_returns_thrown_value() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("(catch 'done (throw 'done 99))"), "OK 99");
 }
 
 #[test]
 fn vm_define_charset_alias_survives_eval_builtin_bridge() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(progn
@@ -1480,6 +1549,7 @@ fn vm_define_charset_alias_survives_eval_builtin_bridge() {
 
 #[test]
 fn vm_define_coding_system_alias_uses_shared_runtime_manager() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(progn
@@ -1507,6 +1577,7 @@ fn vm_define_coding_system_alias_uses_shared_runtime_manager() {
 
 #[test]
 fn vm_coding_system_priority_and_terminal_internal_state_use_shared_runtime_manager() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(progn
@@ -1521,6 +1592,7 @@ fn vm_coding_system_priority_and_terminal_internal_state_use_shared_runtime_mana
 
 #[test]
 fn vm_roots_bytecode_constants_across_gc_during_eval_builtin_dispatch() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(let ((map (make-sparse-keymap)))
@@ -1534,6 +1606,7 @@ fn vm_roots_bytecode_constants_across_gc_during_eval_builtin_dispatch() {
 
 #[test]
 fn vm_length_accepts_plain_bytecode_closure_shape() {
+    crate::test_utils::init_test_tracing();
     let bc = Value::make_bytecode(crate::emacs_core::bytecode::ByteCodeFunction::new(
         crate::emacs_core::value::LambdaParams::simple(vec![intern("x")]),
     ));
@@ -1543,6 +1616,7 @@ fn vm_length_accepts_plain_bytecode_closure_shape() {
 
 #[test]
 fn vm_keymap_predicate_and_lookup_resolve_symbol_function_cells() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(let ((map (make-sparse-keymap)))
@@ -1557,6 +1631,7 @@ fn vm_keymap_predicate_and_lookup_resolve_symbol_function_cells() {
 
 #[test]
 fn vm_throw_restores_saved_stack_before_resuming_catch() {
+    crate::test_utils::init_test_tracing();
     let func = ByteCodeFunction {
         ops: vec![
             Op::Constant(0),
@@ -1591,6 +1666,7 @@ fn vm_throw_restores_saved_stack_before_resuming_catch() {
 
 #[test]
 fn vm_throw_uses_shared_condition_stack_for_outer_catch_without_catch_tag_mirror() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new_minimal_vm_harness();
     let tag = Value::symbol("vm-shared-outer");
     eval.push_condition_frame(ConditionFrame::Catch {
@@ -1620,6 +1696,7 @@ fn vm_throw_uses_shared_condition_stack_for_outer_catch_without_catch_tag_mirror
 
 #[test]
 fn vm_throw_selection_uses_resume_identity_not_numeric_tuple() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new_minimal_vm_harness();
 
     let mut inner = ByteCodeFunction::new(LambdaParams {
@@ -1675,6 +1752,7 @@ fn vm_throw_selection_uses_resume_identity_not_numeric_tuple() {
 
 #[test]
 fn vm_signal_selection_uses_resume_identity_not_numeric_tuple() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
 
     let mut inner = ByteCodeFunction::new(LambdaParams {
@@ -1731,6 +1809,7 @@ fn vm_signal_selection_uses_resume_identity_not_numeric_tuple() {
 
 #[test]
 fn vm_nested_condition_case_uses_current_shared_condition_slice() {
+    crate::test_utils::init_test_tracing();
     with_vm_eval_full_context_state(
         "(condition-case outer
            (condition-case inner
@@ -1749,6 +1828,7 @@ fn vm_nested_condition_case_uses_current_shared_condition_slice() {
 
 #[test]
 fn vm_eval_bridge_preserves_frames_across_eval_dependent_builtins() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str("(frame-parameter (selected-frame) 'width)"),
         "OK 80"
@@ -1757,6 +1837,7 @@ fn vm_eval_bridge_preserves_frames_across_eval_dependent_builtins() {
 
 #[test]
 fn vm_window_and_frame_selection_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((f (selected-frame))
@@ -1780,6 +1861,7 @@ fn vm_window_and_frame_selection_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_frame_query_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(list (frame-char-height)
@@ -1808,6 +1890,7 @@ fn vm_frame_query_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_frame_native_metrics_sync_pending_resize_events() {
+    crate::test_utils::init_test_tracing();
     let result = vm_eval_with_init_str(
         r#"(list (frame-native-width) (frame-native-height))"#,
         |eval| {
@@ -1838,6 +1921,7 @@ fn vm_frame_native_metrics_sync_pending_resize_events() {
 
 #[test]
 fn vm_frame_identity_and_display_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((mouse (mouse-position))
@@ -1870,6 +1954,7 @@ fn vm_frame_identity_and_display_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_terminal_and_display_entrypoints_use_shared_runtime() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((frame (selected-frame))
@@ -1895,6 +1980,7 @@ fn vm_terminal_and_display_entrypoints_use_shared_runtime() {
 
 #[test]
 fn vm_xdisp_window_visibility_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((w (selected-window))
@@ -1927,6 +2013,7 @@ fn vm_xdisp_window_visibility_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_frame_parameter_and_resize_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((f (selected-frame)))
@@ -1991,6 +2078,7 @@ impl crate::emacs_core::DisplayHost for VmRecordingDisplayHost {
 
 #[test]
 fn vm_x_create_frame_syncs_pending_resize_before_adopting_opening_gui_frame() {
+    crate::test_utils::init_test_tracing();
     let host = VmRecordingDisplayHost::default();
     let requests = host.realized.clone();
     let result = vm_eval_with_init_str(
@@ -2040,6 +2128,7 @@ fn vm_x_create_frame_syncs_pending_resize_before_adopting_opening_gui_frame() {
 
 #[test]
 fn vm_make_frame_uses_gui_creation_path_when_display_host_is_active() {
+    crate::test_utils::init_test_tracing();
     let host = VmRecordingDisplayHost::default();
     let requests = host.realized.clone();
     let result = vm_eval_with_init_str(
@@ -2074,6 +2163,7 @@ fn vm_make_frame_uses_gui_creation_path_when_display_host_is_active() {
 
 #[test]
 fn vm_x_create_frame_prefers_display_host_primary_window_size_when_available() {
+    crate::test_utils::init_test_tracing();
     let host = VmRecordingDisplayHost::with_primary_size(1500, 1900);
     let requests = host.realized.clone();
     let result = vm_eval_with_init_str(
@@ -2110,6 +2200,7 @@ fn vm_x_create_frame_prefers_display_host_primary_window_size_when_available() {
 
 #[test]
 fn vm_frame_selected_window_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((w1 (selected-window))
@@ -2129,6 +2220,7 @@ fn vm_frame_selected_window_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_window_state_accessors_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((w (selected-window)))
@@ -2165,6 +2257,7 @@ fn vm_window_state_accessors_use_shared_runtime_state() {
 
 #[test]
 fn vm_window_scroll_and_history_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((w (selected-window)))
@@ -2216,6 +2309,7 @@ fn vm_window_scroll_and_history_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_scroll_and_recenter_builtins_use_shared_window_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((w (selected-window)))
@@ -2235,6 +2329,7 @@ fn vm_scroll_and_recenter_builtins_use_shared_window_state() {
 
 #[test]
 fn vm_window_geometry_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((w (selected-window))
@@ -2275,6 +2370,7 @@ fn vm_window_geometry_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_window_chrome_height_builtins_use_last_redisplay_snapshot() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             r#"(list (window-mode-line-height)
@@ -2304,6 +2400,7 @@ fn vm_window_chrome_height_builtins_use_last_redisplay_snapshot() {
 
 #[test]
 fn vm_interactive_minibuffer_query_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             r#"(list
@@ -2343,6 +2440,7 @@ fn vm_interactive_minibuffer_query_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_call_interactively_uses_shared_runtime_planning() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(progn
@@ -2361,6 +2459,7 @@ fn vm_call_interactively_uses_shared_runtime_planning() {
 
 #[test]
 fn vm_call_interactively_builtin_forward_char_uses_default_prefix_arg() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             r#"(progn
@@ -2378,6 +2477,7 @@ fn vm_call_interactively_builtin_forward_char_uses_default_prefix_arg() {
 
 #[test]
 fn vm_call_interactively_instantiates_raw_lambda_commands_on_shared_runtime() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(let ((current-prefix-arg 3))
@@ -2389,6 +2489,7 @@ fn vm_call_interactively_instantiates_raw_lambda_commands_on_shared_runtime() {
 
 #[test]
 fn vm_call_interactively_handles_simple_string_specs_on_shared_runtime() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             r#"(let ((current-prefix-arg '(4))
@@ -2419,6 +2520,7 @@ i")
 
 #[test]
 fn vm_call_interactively_handles_optional_coding_without_prefix_on_shared_runtime() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((current-prefix-arg nil)
@@ -2433,6 +2535,7 @@ fn vm_call_interactively_handles_optional_coding_without_prefix_on_shared_runtim
 
 #[test]
 fn vm_call_interactively_handles_k_k_capital_and_u_specs_on_shared_runtime() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(list
@@ -2451,6 +2554,7 @@ U") (list keys up)))))"#
 
 #[test]
 fn vm_call_interactively_handles_prompt_driven_batch_specs_on_shared_runtime() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(list
@@ -2505,6 +2609,7 @@ fn vm_call_interactively_handles_prompt_driven_batch_specs_on_shared_runtime() {
 
 #[test]
 fn vm_call_interactively_handles_number_and_optional_coding_prompt_cases_on_shared_runtime() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(list
@@ -2531,6 +2636,7 @@ fn vm_call_interactively_handles_number_and_optional_coding_prompt_cases_on_shar
 
 #[test]
 fn vm_call_interactively_handles_r_capital_spec_via_use_region_p_on_shared_runtime() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             r#"(list
@@ -2555,6 +2661,7 @@ fn vm_call_interactively_handles_r_capital_spec_via_use_region_p_on_shared_runti
 
 #[test]
 fn vm_call_interactively_handles_expression_prompt_specs_on_shared_runtime() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(list
@@ -2571,6 +2678,7 @@ fn vm_call_interactively_handles_expression_prompt_specs_on_shared_runtime() {
 
 #[test]
 fn vm_yes_or_no_p_uses_shared_runtime_batch_path() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((unread-command-events '(121)))
@@ -2586,6 +2694,7 @@ fn vm_yes_or_no_p_uses_shared_runtime_batch_path() {
 
 #[test]
 fn vm_hash_and_collection_tail_use_shared_and_direct_paths() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             "(list
@@ -2611,6 +2720,7 @@ fn vm_hash_and_collection_tail_use_shared_and_direct_paths() {
 
 #[test]
 fn vm_assoc_and_plist_member_predicates_use_shared_runtime_callbacks() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(list
@@ -2635,6 +2745,7 @@ fn vm_assoc_and_plist_member_predicates_use_shared_runtime_callbacks() {
 
 #[test]
 fn vm_runtime_control_tail_uses_localized_shared_paths() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("(listp (garbage-collect))"), "OK t");
 
     let mut eval = Context::new_vm_runtime_harness();
@@ -2661,6 +2772,7 @@ fn vm_runtime_control_tail_uses_localized_shared_paths() {
 
 #[test]
 fn vm_kill_emacs_runs_hooks_on_shared_runtime() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(progn
@@ -2676,6 +2788,7 @@ fn vm_kill_emacs_runs_hooks_on_shared_runtime() {
 
 #[test]
 fn vm_eval_and_macroexpand_tail_use_localized_shared_paths() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             "(progn (setq vm-eval-buffer-target nil) (eval-buffer (current-buffer)) vm-eval-buffer-target)",
@@ -2728,6 +2841,7 @@ fn vm_eval_and_macroexpand_tail_use_localized_shared_paths() {
 
 #[test]
 fn vm_macroexpand_environment_lambda_uses_localized_shared_callbacks() {
+    crate::test_utils::init_test_tracing();
     // when is no longer a built-in macro; the env-lambda now produces
     // (vm-result t 1) which is not a macro, so macroexpand returns it as-is.
     assert_eq!(
@@ -2742,6 +2856,7 @@ fn vm_macroexpand_environment_lambda_uses_localized_shared_callbacks() {
 
 #[test]
 fn vm_raw_lambda_and_closure_callables_use_shared_runtime() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(list
@@ -2754,6 +2869,7 @@ fn vm_raw_lambda_and_closure_callables_use_shared_runtime() {
 
 #[test]
 fn vm_mapatoms_and_maphash_use_shared_runtime_callbacks() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(list
@@ -2784,6 +2900,7 @@ fn vm_mapatoms_and_maphash_use_shared_runtime_callbacks() {
 
 #[test]
 fn vm_window_metadata_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((w (selected-window))
@@ -2819,6 +2936,7 @@ fn vm_window_metadata_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_window_tree_and_list_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             r#"(let* ((left (selected-window))
@@ -2867,6 +2985,7 @@ fn vm_window_tree_and_list_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_window_resize_and_metric_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((w (selected-window))
@@ -2913,6 +3032,7 @@ fn vm_window_resize_and_metric_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_remaining_frame_stub_builtins_use_direct_dispatch() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((f (selected-frame)))
@@ -2933,6 +3053,7 @@ fn vm_remaining_frame_stub_builtins_use_direct_dispatch() {
 
 #[test]
 fn vm_window_selection_and_buffer_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             r#"(let* ((w1 (selected-window))
@@ -2973,6 +3094,7 @@ fn vm_window_selection_and_buffer_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_window_deletion_and_frame_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             r#"(let* ((w1 (selected-window))
@@ -3008,6 +3130,7 @@ fn vm_window_deletion_and_frame_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_split_window_and_frame_selection_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((f1 (selected-frame))
@@ -3032,6 +3155,7 @@ fn vm_split_window_and_frame_selection_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_window_configuration_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((w1 (selected-window))
@@ -3059,6 +3183,7 @@ fn vm_window_configuration_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_eval_bridge_preserves_current_local_map_across_builtin_calls() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str("(progn (use-local-map (make-sparse-keymap)) (keymapp (current-local-map)))"),
         "OK t"
@@ -3067,6 +3192,7 @@ fn vm_eval_bridge_preserves_current_local_map_across_builtin_calls() {
 
 #[test]
 fn vm_use_global_map_updates_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str("(progn (use-global-map (make-sparse-keymap)) (keymapp (current-global-map)))"),
         "OK t"
@@ -3075,6 +3201,7 @@ fn vm_use_global_map_updates_shared_runtime_state() {
 
 #[test]
 fn vm_keymap_structure_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((parent (make-keymap))
@@ -3112,6 +3239,7 @@ fn vm_keymap_structure_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_map_keymap_builtins_use_shared_state_and_vm_callbacks() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((parent (make-sparse-keymap))
@@ -3139,6 +3267,7 @@ fn vm_map_keymap_builtins_use_shared_state_and_vm_callbacks() {
 
 #[test]
 fn vm_hook_builtins_use_shared_runtime_state_and_vm_callbacks() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((buf (get-buffer-create "vm-hook-buf"))
@@ -3181,6 +3310,7 @@ fn vm_hook_builtins_use_shared_runtime_state_and_vm_callbacks() {
 
 #[test]
 fn vm_run_hook_wrapped_stops_on_first_non_nil_wrapper_result() {
+    crate::test_utils::init_test_tracing();
     with_vm_eval_full_context_state(
         r#"(let ((seen nil))
              (fset 'vm-hook-wrap-a (lambda () 'a))
@@ -3204,6 +3334,7 @@ fn vm_run_hook_wrapped_stops_on_first_non_nil_wrapper_result() {
 
 #[test]
 fn vm_feature_and_symbol_table_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((sym (intern "vm-plist-sym")))
@@ -3227,6 +3358,7 @@ fn vm_feature_and_symbol_table_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_default_value_watcher_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let (log)
@@ -3248,6 +3380,7 @@ fn vm_default_value_watcher_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_key_lookup_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((g (make-sparse-keymap))
@@ -3276,6 +3409,7 @@ fn vm_key_lookup_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_command_remapping_uses_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((g (make-sparse-keymap))
@@ -3297,6 +3431,7 @@ fn vm_command_remapping_uses_shared_runtime_state() {
 
 #[test]
 fn vm_set_buffer_and_current_buffer_share_buffer_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(progn
@@ -3310,6 +3445,7 @@ fn vm_set_buffer_and_current_buffer_share_buffer_runtime_state() {
 
 #[test]
 fn vm_current_buffer_query_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             r#"(list (point-min)
@@ -3336,6 +3472,7 @@ fn vm_current_buffer_query_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_goto_char_and_char_queries_use_live_marker_positions() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -3355,6 +3492,7 @@ fn vm_goto_char_and_char_queries_use_live_marker_positions() {
 
 #[test]
 fn vm_navigation_predicates_and_line_positions_use_shared_narrowed_buffer_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             r#"(list (list (bobp) (eobp) (bolp) (eolp)
@@ -3379,6 +3517,7 @@ fn vm_navigation_predicates_and_line_positions_use_shared_narrowed_buffer_state(
 
 #[test]
 fn vm_line_position_optional_argument_matches_gnu_current_rules() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -3395,6 +3534,7 @@ fn vm_line_position_optional_argument_matches_gnu_current_rules() {
 
 #[test]
 fn vm_buffer_restriction_and_modified_state_use_shared_runtime_manager() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -3421,6 +3561,7 @@ fn vm_buffer_restriction_and_modified_state_use_shared_runtime_manager() {
 
 #[test]
 fn vm_buffer_mutation_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -3442,6 +3583,7 @@ fn vm_buffer_mutation_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_casefiddle_region_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -3466,6 +3608,7 @@ fn vm_casefiddle_region_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_casefiddle_word_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -3490,6 +3633,7 @@ fn vm_casefiddle_word_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_char_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(list
@@ -3504,6 +3648,7 @@ fn vm_char_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_buffer_substring_copy_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((src (get-buffer-create "*vm-sub-src*"))
@@ -3532,6 +3677,7 @@ fn vm_buffer_substring_copy_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_compare_buffer_substrings_uses_shared_case_fold_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((left (get-buffer-create "*vm-cmp-left*"))
@@ -3556,6 +3702,7 @@ fn vm_compare_buffer_substrings_uses_shared_case_fold_state() {
 
 #[test]
 fn vm_buffer_metrics_and_swap_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((left (get-buffer-create "*vm-buf-metrics-left*"))
@@ -3585,6 +3732,7 @@ fn vm_buffer_metrics_and_swap_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_minibuffer_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             r#"(progn
@@ -3616,6 +3764,7 @@ fn vm_minibuffer_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_waiting_for_user_input_builtin_uses_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str("(waiting-for-user-input-p)", |eval| {
             eval.set_waiting_for_user_input(true);
@@ -3626,6 +3775,7 @@ fn vm_waiting_for_user_input_builtin_uses_shared_runtime_state() {
 
 #[test]
 fn vm_reader_message_and_completion_builtins_use_shared_runtime_entry() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             r#"(let ((buf (get-buffer "vm-message-buffer")))
@@ -3650,6 +3800,7 @@ fn vm_reader_message_and_completion_builtins_use_shared_runtime_entry() {
 
 #[test]
 fn vm_completion_builtins_use_shared_runtime_callbacks() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             r#"(progn
@@ -3694,6 +3845,7 @@ fn vm_completion_builtins_use_shared_runtime_callbacks() {
 
 #[test]
 fn vm_time_builtins_use_direct_timefns_dispatch() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(list
@@ -3724,6 +3876,7 @@ fn vm_time_builtins_use_direct_timefns_dispatch() {
 
 #[test]
 fn vm_misc_runtime_builtins_use_direct_dispatch() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(list
@@ -3744,6 +3897,7 @@ fn vm_misc_runtime_builtins_use_direct_dispatch() {
 
 #[test]
 fn vm_minibuffer_reader_frontends_use_shared_runtime_batch_eof_path() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(list
@@ -3782,6 +3936,7 @@ fn vm_minibuffer_reader_frontends_use_shared_runtime_batch_eof_path() {
 
 #[test]
 fn vm_printer_builtins_use_shared_runtime_entry() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r##"(let* ((live (get-buffer-create "vm-print-live"))
@@ -3820,6 +3975,7 @@ fn vm_printer_builtins_use_shared_runtime_entry() {
 
 #[test]
 fn vm_write_char_and_terpri_callable_targets_use_shared_runtime_callback() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -3838,6 +3994,7 @@ fn vm_write_char_and_terpri_callable_targets_use_shared_runtime_callback() {
 
 #[test]
 fn vm_princ_prin1_and_print_callable_targets_stream_gnu_char_callbacks() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -3865,6 +4022,7 @@ fn vm_princ_prin1_and_print_callable_targets_stream_gnu_char_callbacks() {
 
 #[test]
 fn vm_marker_print_targets_insert_and_restore_like_gnu() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((orig (current-buffer))
@@ -3895,6 +4053,7 @@ fn vm_marker_print_targets_insert_and_restore_like_gnu() {
 
 #[test]
 fn vm_with_current_buffer_restores_outer_point_like_gnu() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((orig (current-buffer))
@@ -3915,6 +4074,7 @@ fn vm_with_current_buffer_restores_outer_point_like_gnu() {
 
 #[test]
 fn vm_save_current_buffer_restores_outer_point_like_gnu() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((orig (current-buffer))
@@ -3936,6 +4096,7 @@ fn vm_save_current_buffer_restores_outer_point_like_gnu() {
 
 #[test]
 fn vm_case_table_builtins_use_shared_buffer_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((buf (current-buffer))
@@ -3958,6 +4119,7 @@ fn vm_case_table_builtins_use_shared_buffer_state() {
 
 #[test]
 fn vm_undo_boundary_uses_shared_buffer_state() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new_vm_runtime_harness();
     {
         let buffer = eval.buffers.current_buffer_mut().expect("scratch buffer");
@@ -3976,6 +4138,7 @@ fn vm_undo_boundary_uses_shared_buffer_state() {
 
 #[test]
 fn vm_simple_process_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     let result = vm_eval_with_init_str(
         r#"(let ((p 1))
              (list
@@ -4009,6 +4172,7 @@ fn vm_simple_process_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_stale_process_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     let result = vm_eval_with_init_str(
         r#"(let ((p 1))
              (list
@@ -4038,6 +4202,7 @@ fn vm_stale_process_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_process_introspection_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     let result = vm_eval_with_init_str(
         r#"(let ((p 1))
              (list
@@ -4075,6 +4240,7 @@ fn vm_process_introspection_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_stale_process_introspection_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     let result = vm_eval_with_init_str(
         r#"(let ((p 1))
              (list
@@ -4104,6 +4270,7 @@ fn vm_stale_process_introspection_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_process_coding_and_tty_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     let result = vm_eval_with_init_str(
         r#"(let ((p 1) (pp 2) (np 3))
              (list
@@ -4166,6 +4333,7 @@ fn vm_process_coding_and_tty_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_stale_process_coding_and_tty_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     let result = vm_eval_with_init_str(
         r#"(let ((p 1))
              (list
@@ -4193,6 +4361,7 @@ fn vm_stale_process_coding_and_tty_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_process_status_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     let result = vm_eval_with_init_str(
         r#"(list
              (eq (process-status 1) 'run)
@@ -4255,6 +4424,7 @@ fn vm_process_status_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_stale_process_status_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     let result = vm_eval_with_init_str(
         r#"(let ((p 1))
              (list
@@ -4281,6 +4451,7 @@ fn vm_stale_process_status_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_process_control_and_send_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     use crate::emacs_core::process::ProcessStatus;
 
     let mut eval = Context::new_vm_runtime_harness();
@@ -4383,6 +4554,7 @@ fn vm_process_control_and_send_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_stale_process_control_and_send_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     let result = vm_eval_with_init_str(
         r#"(let ((p 1))
              (list
@@ -4424,6 +4596,7 @@ fn vm_stale_process_control_and_send_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_delete_process_builtin_uses_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     let result = vm_eval_with_init_str(
         r#"(list
              (processp 1)
@@ -4451,6 +4624,7 @@ fn vm_delete_process_builtin_uses_shared_runtime_state() {
 
 #[test]
 fn vm_process_contact_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     let result = vm_eval_with_init_str(
         r#"(list
              (let ((port (process-contact 1 :service))
@@ -4500,6 +4674,7 @@ fn vm_process_contact_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_process_attributes_builtin_uses_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(list
@@ -4519,6 +4694,7 @@ fn vm_process_attributes_builtin_uses_shared_runtime_state() {
 
 #[test]
 fn vm_set_process_thread_builtin_uses_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     let result = vm_eval_with_init_str(
         r#"(let ((thr (current-thread)))
              (list
@@ -4543,6 +4719,7 @@ fn vm_set_process_thread_builtin_uses_shared_runtime_state() {
 
 #[test]
 fn vm_non_child_process_creation_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(list
@@ -4577,6 +4754,7 @@ fn vm_non_child_process_creation_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_network_and_serial_process_config_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     let result = vm_eval_with_init_str(
         r#"(list
              (null (serial-process-configure))
@@ -4624,6 +4802,7 @@ fn vm_network_and_serial_process_config_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_thread_mutex_and_condition_builtins_use_shared_runtime() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((main (current-thread))
@@ -4669,6 +4848,7 @@ fn vm_thread_mutex_and_condition_builtins_use_shared_runtime() {
 
 #[test]
 fn vm_make_thread_runs_body_on_shared_runtime() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -4692,6 +4872,7 @@ fn vm_make_thread_runs_body_on_shared_runtime() {
 
 #[test]
 fn vm_make_thread_restores_caller_current_buffer() {
+    crate::test_utils::init_test_tracing();
     let result = vm_eval_with_init_str(
         r#"(let* ((orig (current-buffer))
                   (worker (make-thread
@@ -4712,6 +4893,7 @@ fn vm_make_thread_restores_caller_current_buffer() {
 
 #[test]
 fn vm_make_thread_records_join_error_on_shared_runtime() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((worker (make-thread
@@ -4743,6 +4925,7 @@ fn vm_make_thread_records_join_error_on_shared_runtime() {
 
 #[test]
 fn vm_make_process_builtin_uses_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((p (make-process
@@ -4769,6 +4952,7 @@ fn vm_make_process_builtin_uses_shared_runtime_state() {
 
 #[test]
 fn vm_accept_process_output_uses_shared_runtime_and_callbacks() {
+    crate::test_utils::init_test_tracing();
     let result = vm_eval_with_init_str(
         r#"(progn
              (fset 'vm-accept-filter
@@ -4814,6 +4998,7 @@ fn vm_accept_process_output_uses_shared_runtime_and_callbacks() {
 
 #[test]
 fn vm_process_network_and_signal_builtins_use_direct_runtime_paths() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((interfaces (network-interface-list))
@@ -4848,6 +5033,7 @@ fn vm_process_network_and_signal_builtins_use_direct_runtime_paths() {
 
 #[test]
 fn vm_call_process_builtins_use_shared_buffer_state() {
+    crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let form = format!(
         r#"(let ((src (get-buffer-create "vm-cp-src"))
@@ -4880,6 +5066,7 @@ fn vm_call_process_builtins_use_shared_buffer_state() {
 
 #[test]
 fn vm_call_process_region_builtins_use_shared_buffer_state() {
+    crate::test_utils::init_test_tracing();
     let cat = find_bin("cat");
     assert_eq!(
         vm_eval_str(&format!(
@@ -4922,6 +5109,7 @@ fn vm_call_process_region_builtins_use_shared_buffer_state() {
 
 #[test]
 fn vm_buffer_identity_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     let path =
         std::env::temp_dir().join(format!("neovm-vm-gfb-{}-{}", std::process::id(), "shared"));
     std::fs::write(&path, b"vm-gfb").expect("write test file");
@@ -4958,6 +5146,7 @@ fn vm_buffer_identity_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_fileio_builtins_use_shared_default_directory_state() {
+    crate::test_utils::init_test_tracing();
     let base = std::env::temp_dir().join(format!("neovm-vm-fileio-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
     std::fs::create_dir_all(base.join("subdir")).expect("create subdir");
@@ -5000,6 +5189,7 @@ fn vm_fileio_builtins_use_shared_default_directory_state() {
 
 #[test]
 fn vm_fileio_mutation_builtins_use_shared_default_directory_state() {
+    crate::test_utils::init_test_tracing();
     let base =
         std::env::temp_dir().join(format!("neovm-vm-fileio-mutation-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
@@ -5037,6 +5227,7 @@ fn vm_fileio_mutation_builtins_use_shared_default_directory_state() {
 
 #[test]
 fn vm_insert_file_contents_and_write_region_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     let base = std::env::temp_dir().join(format!(
         "neovm-vm-fileio-insert-write-{}",
         std::process::id()
@@ -5098,6 +5289,7 @@ fn vm_insert_file_contents_and_write_region_use_shared_runtime_state() {
 
 #[test]
 fn vm_file_name_helper_builtins_use_direct_dispatch() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(list
@@ -5116,6 +5308,7 @@ fn vm_file_name_helper_builtins_use_direct_dispatch() {
 
 #[test]
 fn vm_dired_builtins_use_shared_default_directory_state() {
+    crate::test_utils::init_test_tracing();
     let base =
         std::env::temp_dir().join(format!("neovm-vm-dired-default-dir-{}", std::process::id()));
     let fixture = base.join("fixtures");
@@ -5157,6 +5350,7 @@ fn vm_dired_builtins_use_shared_default_directory_state() {
 
 #[test]
 fn vm_file_name_completion_callable_predicate_uses_shared_runtime_callback() {
+    crate::test_utils::init_test_tracing();
     let base = std::env::temp_dir().join(format!(
         "neovm-vm-file-name-completion-callable-{}",
         std::process::id()
@@ -5194,6 +5388,7 @@ fn vm_file_name_completion_callable_predicate_uses_shared_runtime_callback() {
 
 #[test]
 fn vm_file_metadata_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     let base = std::env::temp_dir().join(format!("neovm-vm-file-metadata-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
     std::fs::create_dir_all(&base).expect("create base");
@@ -5233,6 +5428,7 @@ fn vm_file_metadata_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_file_metadata_tail_and_coding_scan_builtins_use_direct_dispatch() {
+    crate::test_utils::init_test_tracing();
     let base = std::env::temp_dir().join(format!(
         "neovm-vm-file-metadata-tail-{}",
         std::process::id()
@@ -5272,6 +5468,7 @@ fn vm_file_metadata_tail_and_coding_scan_builtins_use_direct_dispatch() {
 
 #[test]
 fn vm_file_setters_and_display_stubs_use_direct_dispatch() {
+    crate::test_utils::init_test_tracing();
     let base = std::env::temp_dir().join(format!("neovm-vm-file-setters-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
     std::fs::create_dir_all(&base).expect("create base");
@@ -5305,6 +5502,7 @@ fn vm_file_setters_and_display_stubs_use_direct_dispatch() {
 
 #[test]
 fn vm_font_builtins_accept_live_frame_designators_on_shared_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((f (selected-frame)))
@@ -5318,6 +5516,7 @@ fn vm_font_builtins_accept_live_frame_designators_on_shared_state() {
 
 #[test]
 fn vm_font_face_and_color_builtins_use_direct_dispatch() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r##"(let ((f (selected-frame)))
@@ -5353,6 +5552,7 @@ fn vm_font_face_and_color_builtins_use_direct_dispatch() {
 
 #[test]
 fn vm_font_face_frame_sensitive_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r##"(let* ((f (selected-frame))
@@ -5373,6 +5573,7 @@ fn vm_font_face_frame_sensitive_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_font_stub_tail_uses_direct_dispatch() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r##"(list
@@ -5409,6 +5610,7 @@ fn vm_font_stub_tail_uses_direct_dispatch() {
 
 #[test]
 fn vm_sqlite_stub_runtime_uses_direct_dispatch() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r##"(list
@@ -5439,6 +5641,7 @@ fn vm_sqlite_stub_runtime_uses_direct_dispatch() {
 
 #[test]
 fn vm_native_stub_clusters_use_direct_dispatch() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r##"(list
@@ -5508,6 +5711,7 @@ fn vm_native_stub_clusters_use_direct_dispatch() {
 
 #[test]
 fn vm_base64_json_ccl_and_runtime_clusters_use_direct_dispatch() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(list
@@ -5573,6 +5777,7 @@ fn vm_base64_json_ccl_and_runtime_clusters_use_direct_dispatch() {
 
 #[test]
 fn vm_base64_region_and_json_buffer_builtins_use_shared_current_buffer_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(with-current-buffer (get-buffer-create " *vm-base64-json*")
@@ -5604,6 +5809,7 @@ fn vm_base64_region_and_json_buffer_builtins_use_shared_current_buffer_state() {
 
 #[test]
 fn vm_internal_utility_builtins_use_direct_and_shared_state_paths() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(with-current-buffer (get-buffer-create " *vm-internal-utils*")
@@ -5637,6 +5843,7 @@ fn vm_internal_utility_builtins_use_direct_and_shared_state_paths() {
 
 #[test]
 fn vm_internal_default_process_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     let result = vm_eval_with_init_str(
         r#"(let ((p 1))
              (list
@@ -5661,6 +5868,7 @@ fn vm_internal_default_process_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_category_charset_and_case_table_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((orig (category-table))
@@ -5700,6 +5908,7 @@ fn vm_category_charset_and_case_table_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_composition_and_compute_motion_builtins_use_direct_dispatch() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(list
@@ -5721,6 +5930,7 @@ fn vm_composition_and_compute_motion_builtins_use_direct_dispatch() {
 
 #[test]
 fn vm_char_table_and_copy_syntax_table_builtins_use_direct_dispatch() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(list
@@ -5743,6 +5953,7 @@ fn vm_char_table_and_copy_syntax_table_builtins_use_direct_dispatch() {
 
 #[test]
 fn vm_map_char_table_uses_direct_dispatch() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((seen nil)
@@ -5766,6 +5977,7 @@ fn vm_map_char_table_uses_direct_dispatch() {
 
 #[test]
 fn vm_format_mode_line_uses_shared_state_and_falls_back_for_eval_forms() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((w (selected-window))
@@ -5784,6 +5996,7 @@ fn vm_format_mode_line_uses_shared_state_and_falls_back_for_eval_forms() {
 
 #[test]
 fn vm_format_mode_line_symbol_conditional_uses_only_selected_branch() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((mode-line-flag t))
@@ -5805,6 +6018,7 @@ fn vm_format_mode_line_symbol_conditional_uses_only_selected_branch() {
 
 #[test]
 fn vm_format_mode_line_string_valued_symbols_render_literally() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((w (selected-window))
@@ -5820,6 +6034,7 @@ fn vm_format_mode_line_string_valued_symbols_render_literally() {
 
 #[test]
 fn vm_format_mode_line_fixnum_elements_pad_and_truncate_tail() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((w (selected-window))
@@ -5834,6 +6049,7 @@ fn vm_format_mode_line_fixnum_elements_pad_and_truncate_tail() {
 
 #[test]
 fn vm_format_mode_line_percent_specs_keep_gnu_field_width_and_dash_semantics() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((w (selected-window))
@@ -5848,6 +6064,7 @@ fn vm_format_mode_line_percent_specs_keep_gnu_field_width_and_dash_semantics() {
 
 #[test]
 fn vm_format_mode_line_respects_risky_local_variable_for_eval_forms() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((unsafe-mode-line '(:eval (error "boom")))
@@ -5862,6 +6079,7 @@ fn vm_format_mode_line_respects_risky_local_variable_for_eval_forms() {
 
 #[test]
 fn vm_format_mode_line_propertize_preserves_text_properties() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((s (format-mode-line '(:propertize "abc" face bold help-echo "h")))
@@ -5876,6 +6094,7 @@ fn vm_format_mode_line_propertize_preserves_text_properties() {
 
 #[test]
 fn vm_format_mode_line_percent_specs_preserve_source_string_text_properties() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((w (selected-window))
@@ -5898,6 +6117,7 @@ fn vm_format_mode_line_percent_specs_preserve_source_string_text_properties() {
 
 #[test]
 fn vm_format_mode_line_status_specs_match_gnu_buffer_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((w (selected-window))
@@ -5919,6 +6139,7 @@ fn vm_format_mode_line_status_specs_match_gnu_buffer_state() {
 
 #[test]
 fn vm_format_mode_line_face_argument_merges_explicit_faces_and_can_drop_props() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((with-face (format-mode-line
@@ -5941,6 +6162,7 @@ fn vm_format_mode_line_face_argument_merges_explicit_faces_and_can_drop_props() 
 
 #[test]
 fn vm_format_mode_line_fixnum_padding_does_not_inherit_inner_properties() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((s (format-mode-line '(5 (:propertize "x" face bold))))
@@ -5956,6 +6178,7 @@ fn vm_format_mode_line_fixnum_padding_does_not_inherit_inner_properties() {
 
 #[test]
 fn vm_format_mode_line_recursive_depth_specs_match_gnu() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(r#"(format-mode-line "%[|%]")"#, |eval| {
             eval.command_loop.recursive_depth = 3;
@@ -5972,6 +6195,7 @@ fn vm_format_mode_line_recursive_depth_specs_match_gnu() {
 
 #[test]
 fn vm_format_mode_line_size_and_process_specs_match_gnu() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             r#"(let* ((w (selected-window))
@@ -6010,6 +6234,7 @@ fn vm_format_mode_line_size_and_process_specs_match_gnu() {
 
 #[test]
 fn vm_format_mode_line_column_and_mode_specs_match_gnu() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((w (selected-window))
@@ -6027,6 +6252,7 @@ fn vm_format_mode_line_column_and_mode_specs_match_gnu() {
 
 #[test]
 fn vm_format_mode_line_coding_and_remote_specs_match_gnu() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((w (selected-window))
@@ -6043,6 +6269,7 @@ fn vm_format_mode_line_coding_and_remote_specs_match_gnu() {
 
 #[test]
 fn vm_format_mode_line_position_o_and_q_specs() {
+    crate::test_utils::init_test_tracing();
     // With content and window covering the full buffer → "All"
     assert_eq!(
         vm_eval_str(
@@ -6062,6 +6289,7 @@ fn vm_format_mode_line_position_o_and_q_specs() {
 
 #[test]
 fn vm_xdisp_query_builtins_use_direct_dispatch() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(list
@@ -6082,6 +6310,7 @@ fn vm_xdisp_query_builtins_use_direct_dispatch() {
 
 #[test]
 fn vm_terminal_query_builtins_accept_live_frame_designators() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((f (selected-frame)))
@@ -6105,6 +6334,7 @@ fn vm_terminal_query_builtins_accept_live_frame_designators() {
 
 #[test]
 fn vm_x_display_query_builtins_reject_non_window_system_frame_designators() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((f (selected-frame)))
@@ -6132,6 +6362,7 @@ fn vm_x_display_query_builtins_reject_non_window_system_frame_designators() {
 
 #[test]
 fn vm_gui_display_capability_builtins_use_live_window_system_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((f (selected-frame)))
@@ -6148,6 +6379,7 @@ fn vm_gui_display_capability_builtins_use_live_window_system_state() {
 
 #[test]
 fn vm_x_display_stub_builtins_use_direct_dispatch() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(list
@@ -6175,6 +6407,7 @@ fn vm_x_display_stub_builtins_use_direct_dispatch() {
 
 #[test]
 fn vm_x_connection_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((f (selected-frame)))
@@ -6191,6 +6424,7 @@ fn vm_x_connection_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_x_frame_property_and_tty_stub_builtins_use_direct_dispatch() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((f (selected-frame)))
@@ -6227,6 +6461,7 @@ fn vm_x_frame_property_and_tty_stub_builtins_use_direct_dispatch() {
 
 #[test]
 fn vm_remaining_display_stub_tail_uses_direct_dispatch() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((f (selected-frame)))
@@ -6250,6 +6485,7 @@ fn vm_remaining_display_stub_tail_uses_direct_dispatch() {
 
 #[test]
 fn vm_image_builtins_use_direct_dispatch() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((spec (list 'image :type 'png :file "test.png")))
@@ -6271,6 +6507,7 @@ fn vm_image_builtins_use_direct_dispatch() {
 
 #[test]
 fn vm_make_indirect_buffer_uses_shared_manager_state_and_vm_hooks() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((base (get-buffer-create "vm-mib-base")))
@@ -6294,6 +6531,7 @@ fn vm_make_indirect_buffer_uses_shared_manager_state_and_vm_hooks() {
 
 #[test]
 fn vm_kill_buffer_uses_shared_manager_and_frame_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((a (get-buffer-create "vm-kill-a"))
@@ -6315,6 +6553,7 @@ fn vm_kill_buffer_uses_shared_manager_and_frame_state() {
 
 #[test]
 fn vm_set_buffer_multibyte_uses_shared_current_buffer_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -6334,6 +6573,7 @@ fn vm_set_buffer_multibyte_uses_shared_current_buffer_state() {
 
 #[test]
 fn vm_field_builtins_use_shared_property_boundary_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -6380,6 +6620,7 @@ fn vm_field_builtins_use_shared_property_boundary_state() {
 
 #[test]
 fn vm_constrain_to_field_uses_shared_field_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -6416,6 +6657,7 @@ fn vm_constrain_to_field_uses_shared_field_state() {
 
 #[test]
 fn vm_replace_region_contents_uses_shared_source_and_property_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((dest (current-buffer))
@@ -6452,6 +6694,7 @@ fn vm_replace_region_contents_uses_shared_source_and_property_state() {
 
 #[test]
 fn vm_read_only_noop_buffer_mutations_match_gnu() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -6469,6 +6712,7 @@ fn vm_read_only_noop_buffer_mutations_match_gnu() {
 
 #[test]
 fn vm_autoload_and_symbol_file_share_autoload_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -6481,6 +6725,7 @@ fn vm_autoload_and_symbol_file_share_autoload_runtime_state() {
 
 #[test]
 fn vm_compiled_autoload_do_load_uses_shared_runtime_and_load_bridge() {
+    crate::test_utils::init_test_tracing();
     let dir = tempfile::tempdir().expect("tempdir");
     std::fs::write(
         dir.path().join("vm-bytecode-autoload-do-load.el"),
@@ -6515,6 +6760,7 @@ fn vm_compiled_autoload_do_load_uses_shared_runtime_and_load_bridge() {
 
 #[test]
 fn vm_compiled_named_autoload_call_uses_shared_runtime_and_load_bridge() {
+    crate::test_utils::init_test_tracing();
     let dir = tempfile::tempdir().expect("tempdir");
     std::fs::write(
         dir.path().join("vm-bytecode-autoload-call.el"),
@@ -6547,6 +6793,7 @@ fn vm_compiled_named_autoload_call_uses_shared_runtime_and_load_bridge() {
 
 #[test]
 fn vm_indentation_builtins_use_buffer_local_current_buffer_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             r#"(list (current-indentation)
@@ -6569,6 +6816,7 @@ fn vm_indentation_builtins_use_buffer_local_current_buffer_state() {
 
 #[test]
 fn vm_indent_to_uses_dynamic_indentation_bindings() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((tab-width 4) (indent-tabs-mode t))
@@ -6582,6 +6830,7 @@ fn vm_indent_to_uses_dynamic_indentation_bindings() {
 
 #[test]
 fn vm_insert_before_markers_updates_markers_at_point() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -6597,6 +6846,7 @@ fn vm_insert_before_markers_updates_markers_at_point() {
 
 #[test]
 fn vm_insert_and_insert_char_use_shared_buffer_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -6617,6 +6867,7 @@ fn vm_insert_and_insert_char_use_shared_buffer_state() {
 
 #[test]
 fn vm_insert_read_only_shape_and_noop_cases_match_gnu() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -6653,6 +6904,7 @@ fn vm_insert_read_only_shape_and_noop_cases_match_gnu() {
 
 #[test]
 fn vm_insert_inherit_variants_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -6686,6 +6938,7 @@ fn vm_insert_inherit_variants_use_shared_runtime_state() {
 
 #[test]
 fn vm_insert_byte_and_buffer_undo_toggles_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -6724,6 +6977,7 @@ fn vm_insert_byte_and_buffer_undo_toggles_use_shared_runtime_state() {
 
 #[test]
 fn vm_subst_char_in_region_uses_shared_runtime_state_and_gnu_noop_rules() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -6750,6 +7004,7 @@ fn vm_subst_char_in_region_uses_shared_runtime_state_and_gnu_noop_rules() {
 
 #[test]
 fn vm_barf_if_buffer_read_only_uses_shared_state_and_inhibit_text_property() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -6767,6 +7022,7 @@ fn vm_barf_if_buffer_read_only_uses_shared_state_and_inhibit_text_property() {
 
 #[test]
 fn vm_char_primitives_and_buffer_substring_use_narrowed_current_buffer_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             r#"(list (following-char)
@@ -6792,6 +7048,7 @@ fn vm_char_primitives_and_buffer_substring_use_narrowed_current_buffer_state() {
 
 #[test]
 fn vm_byte_position_and_get_byte_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -6831,6 +7088,7 @@ fn vm_byte_position_and_get_byte_use_shared_runtime_state() {
 
 #[test]
 fn vm_syntax_navigation_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -6861,6 +7119,7 @@ fn vm_syntax_navigation_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_delete_char_uses_shared_read_only_and_narrowing_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             r#"(list
@@ -6891,6 +7150,7 @@ fn vm_delete_char_uses_shared_read_only_and_narrowing_state() {
 
 #[test]
 fn vm_string_match_updates_match_data_for_followup_builtins() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(progn
@@ -6906,6 +7166,7 @@ fn vm_string_match_updates_match_data_for_followup_builtins() {
 
 #[test]
 fn vm_buffer_local_and_binding_builtins_use_shared_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             r#"(progn
@@ -6949,6 +7210,7 @@ fn vm_buffer_local_and_binding_builtins_use_shared_state() {
 
 #[test]
 fn vm_search_builtins_use_shared_runtime_state_and_match_data() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -6988,6 +7250,7 @@ fn vm_search_builtins_use_shared_runtime_state_and_match_data() {
 
 #[test]
 fn vm_looking_at_builtins_use_shared_match_data_and_case_fold() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -7018,6 +7281,7 @@ fn vm_looking_at_builtins_use_shared_match_data_and_case_fold() {
 
 #[test]
 fn vm_replace_match_and_match_translate_use_shared_match_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(list
@@ -7051,6 +7315,7 @@ fn vm_replace_match_and_match_translate_use_shared_match_state() {
 
 #[test]
 fn vm_buffer_manager_query_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -7069,6 +7334,7 @@ fn vm_buffer_manager_query_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_charset_region_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -7088,6 +7354,7 @@ fn vm_charset_region_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_compose_region_internal_uses_shared_buffer_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -7104,6 +7371,7 @@ fn vm_compose_region_internal_uses_shared_buffer_state() {
 
 #[test]
 fn vm_when_unless() {
+    crate::test_utils::init_test_tracing();
     // when/unless are compiled as native syntax by the bytecode compiler,
     // so they still work in vm_eval_str even without bootstrap.
     assert_eq!(vm_eval_str("(when t 1 2 3)"), "OK 3");
@@ -7114,23 +7382,27 @@ fn vm_when_unless() {
 
 #[test]
 fn vm_cond() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("(cond (nil 1) (t 2))"), "OK 2");
     assert_eq!(vm_eval_str("(cond (nil 1) (nil 2))"), "OK nil");
 }
 
 #[test]
 fn vm_nested_let() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("(let ((x 1)) (let ((y 2)) (+ x y)))"), "OK 3");
 }
 
 #[test]
 fn vm_vector_ops() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("(aref [10 20 30] 1)"), "OK 20");
     assert_eq!(vm_eval_str("(length [1 2 3])"), "OK 3");
 }
 
 #[test]
 fn vm_aset_string_writeback() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str("(let ((s (copy-sequence \"abc\"))) (aset s 1 ?x) s)"),
         r#"OK "axc""#
@@ -7139,6 +7411,7 @@ fn vm_aset_string_writeback() {
 
 #[test]
 fn vm_fillarray_string_writeback() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str("(let ((s (copy-sequence \"abc\"))) (fillarray s ?y) s)"),
         r#"OK "yyy""#
@@ -7147,6 +7420,7 @@ fn vm_fillarray_string_writeback() {
 
 #[test]
 fn vm_aref_aset_error_parity() {
+    crate::test_utils::init_test_tracing();
     with_vm_eval("(aref [10 20 30] -1)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "args-out-of-range");
@@ -7194,6 +7468,7 @@ fn vm_aref_aset_error_parity() {
 
 #[test]
 fn vm_builtin_wrong_arity_uses_subr_payload() {
+    crate::test_utils::init_test_tracing();
     with_vm_eval("(car)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-number-of-arguments");
@@ -7213,6 +7488,7 @@ fn vm_builtin_wrong_arity_uses_subr_payload() {
 
 #[test]
 fn vm_bytecode_wrong_arity_matches_gnu_entry_check() {
+    crate::test_utils::init_test_tracing();
     let mut func = ByteCodeFunction::new(
         crate::emacs_core::bytecode::decode::parse_arglist_descriptor(2 | (3 << 8)),
     );
@@ -7243,6 +7519,7 @@ fn vm_bytecode_wrong_arity_matches_gnu_entry_check() {
 
 #[test]
 fn vm_string_compare_type_errors_match_oracle() {
+    crate::test_utils::init_test_tracing();
     with_vm_eval("(string= \"ab\" 1)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
@@ -7262,6 +7539,7 @@ fn vm_string_compare_type_errors_match_oracle() {
 
 #[test]
 fn vm_list_lookup_type_errors_match_oracle() {
+    crate::test_utils::init_test_tracing();
     with_vm_eval("(car 1)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
@@ -7338,6 +7616,7 @@ fn vm_list_lookup_type_errors_match_oracle() {
 
 #[test]
 fn vm_length_and_symbol_access_type_errors_match_oracle() {
+    crate::test_utils::init_test_tracing();
     with_vm_eval("(length '(1 . 2))", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
@@ -7373,6 +7652,7 @@ fn vm_length_and_symbol_access_type_errors_match_oracle() {
 
 #[test]
 fn vm_symbol_introspection_builtins_use_shared_symbol_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -7398,6 +7678,7 @@ fn vm_symbol_introspection_builtins_use_shared_symbol_state() {
 
 #[test]
 fn vm_variable_lookup_builtins_use_shared_dynamic_and_buffer_local_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             r#"(progn
@@ -7426,6 +7707,7 @@ fn vm_variable_lookup_builtins_use_shared_dynamic_and_buffer_local_state() {
 
 #[test]
 fn vm_func_arity_and_obarray_queries_use_shared_obarray_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str(
             r#"(progn
@@ -7446,6 +7728,7 @@ fn vm_func_arity_and_obarray_queries_use_shared_obarray_state() {
 
 #[test]
 fn vm_function_mutator_builtins_use_shared_function_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -7468,6 +7751,7 @@ fn vm_function_mutator_builtins_use_shared_function_state() {
 
 #[test]
 fn vm_defalias_uses_shared_runtime_state_and_gnu_cycle_errors() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -7491,6 +7775,7 @@ fn vm_defalias_uses_shared_runtime_state_and_gnu_cycle_errors() {
 
 #[test]
 fn vm_fset_inside_lambda_uses_argument_definition() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"((lambda (sym def)
@@ -7505,6 +7790,7 @@ fn vm_fset_inside_lambda_uses_argument_definition() {
 
 #[test]
 fn vm_lambda_argument_stack_slots_start_correct() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"((lambda (sym def)
@@ -7518,6 +7804,7 @@ fn vm_lambda_argument_stack_slots_start_correct() {
 
 #[test]
 fn vm_fset_inside_lambda_preserves_argument_identity() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"((lambda (sym def)
@@ -7534,6 +7821,7 @@ fn vm_fset_inside_lambda_preserves_argument_identity() {
 
 #[test]
 fn vm_set_builtin_uses_shared_runtime_without_touching_lexicals() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_lexical_str(
             r#"(progn
@@ -7549,6 +7837,7 @@ fn vm_set_builtin_uses_shared_runtime_without_touching_lexicals() {
 
 #[test]
 fn vm_defvaralias_uses_shared_runtime_state_and_gnu_cycle_errors() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -7577,6 +7866,7 @@ fn vm_defvaralias_uses_shared_runtime_state_and_gnu_cycle_errors() {
 
 #[test]
 fn vm_varset_and_set_resolve_aliases_and_reject_constants_like_gnu() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -7605,6 +7895,7 @@ fn vm_varset_and_set_resolve_aliases_and_reject_constants_like_gnu() {
 
 #[test]
 fn vm_makunbound_uses_shared_runtime_void_bindings() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -7626,6 +7917,7 @@ fn vm_makunbound_uses_shared_runtime_void_bindings() {
 
 #[test]
 fn vm_make_local_variable_ignores_lexical_locals_and_uses_runtime_binding() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_lexical_str(
             r#"(progn
@@ -7649,6 +7941,7 @@ fn vm_make_local_variable_ignores_lexical_locals_and_uses_runtime_binding() {
 
 #[test]
 fn vm_kill_local_variable_uses_shared_runtime_and_buffer_where_watchers() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -7673,6 +7966,7 @@ fn vm_kill_local_variable_uses_shared_runtime_and_buffer_where_watchers() {
 
 #[test]
 fn vm_kill_all_local_variables_uses_shared_runtime_defaults_and_clears_local_map() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -7699,6 +7993,7 @@ fn vm_kill_all_local_variables_uses_shared_runtime_defaults_and_clears_local_map
 
 #[test]
 fn vm_syntax_table_accessors_use_shared_current_buffer_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((primary (current-buffer))
@@ -7726,6 +8021,7 @@ fn vm_syntax_table_accessors_use_shared_current_buffer_state() {
 
 #[test]
 fn vm_syntax_motion_builtins_use_shared_point_and_syntax_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -7748,6 +8044,7 @@ fn vm_syntax_motion_builtins_use_shared_point_and_syntax_state() {
 
 #[test]
 fn vm_buffer_metadata_builtins_use_shared_manager_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let* ((base (get-buffer-create "vm-meta-base"))
@@ -7770,6 +8067,7 @@ fn vm_buffer_metadata_builtins_use_shared_manager_state() {
 
 #[test]
 fn vm_parse_partial_sexp_uses_shared_current_buffer_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(let ((a (get-buffer-create "vm-pps-a"))
@@ -7790,6 +8088,7 @@ fn vm_parse_partial_sexp_uses_shared_current_buffer_state() {
 
 #[test]
 fn vm_parse_partial_sexp_commentstop_syntax_table_advances_point() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -7810,6 +8109,7 @@ fn vm_parse_partial_sexp_commentstop_syntax_table_advances_point() {
 
 #[test]
 fn vm_overlay_builtins_use_shared_current_buffer_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -7844,6 +8144,7 @@ fn vm_overlay_builtins_use_shared_current_buffer_state() {
 
 #[test]
 fn vm_overlays_at_sorted_uses_shared_priority_order() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -7866,6 +8167,7 @@ fn vm_overlays_at_sorted_uses_shared_priority_order() {
 
 #[test]
 fn vm_text_property_builtins_use_shared_buffer_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -7896,6 +8198,7 @@ fn vm_text_property_builtins_use_shared_buffer_state() {
 
 #[test]
 fn vm_text_property_change_queries_use_shared_live_marker_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -7924,6 +8227,7 @@ fn vm_text_property_change_queries_use_shared_live_marker_state() {
 
 #[test]
 fn vm_property_query_builtins_use_shared_overlay_precedence_and_stickiness() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -7955,6 +8259,7 @@ fn vm_property_query_builtins_use_shared_overlay_precedence_and_stickiness() {
 
 #[test]
 fn vm_add_face_text_property_uses_shared_face_merge_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -7973,6 +8278,7 @@ fn vm_add_face_text_property_uses_shared_face_merge_state() {
 
 #[test]
 fn vm_marker_builtins_use_shared_live_buffer_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -8001,6 +8307,7 @@ fn vm_marker_builtins_use_shared_live_buffer_state() {
 
 #[test]
 fn vm_mark_marker_uses_shared_buffer_mark_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str("(marker-position (mark-marker))", |eval| {
             let current = eval.buffers.current_buffer_id().expect("current buffer");
@@ -8013,6 +8320,7 @@ fn vm_mark_marker_uses_shared_buffer_mark_state() {
 
 #[test]
 fn vm_motion_builtins_use_shared_current_buffer_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -8038,6 +8346,7 @@ fn vm_motion_builtins_use_shared_current_buffer_state() {
 
 #[test]
 fn vm_region_bounds_use_shared_mark_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_with_init_str("(list (region-beginning) (region-end))", |eval| {
             let current = eval.buffers.current_buffer_id().expect("current buffer");
@@ -8051,6 +8360,7 @@ fn vm_region_bounds_use_shared_mark_state() {
 
 #[test]
 fn vm_symbol_mutator_type_errors_match_oracle() {
+    crate::test_utils::init_test_tracing();
     with_vm_eval("(set 1 2)", false, |result| match result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             assert_eq!(resolve_sym(symbol), "wrong-type-argument");
@@ -8086,18 +8396,21 @@ fn vm_symbol_mutator_type_errors_match_oracle() {
 
 #[test]
 fn vm_not_negation() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("(/= 1 2)"), "OK t");
     assert_eq!(vm_eval_str("(/= 1 1)"), "OK nil");
 }
 
 #[test]
 fn vm_float_arithmetic() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("(+ 1.0 2.0)"), "OK 3.0");
     assert_eq!(vm_eval_str("(+ 1 2.0)"), "OK 3.0");
 }
 
 #[test]
 fn vm_dotimes() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str("(let ((sum 0)) (dotimes (i 5) (setq sum (+ sum i))) sum)"),
         "OK 10"
@@ -8106,6 +8419,7 @@ fn vm_dotimes() {
 
 #[test]
 fn vm_dolist() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(let ((result nil)) (dolist (x '(a b c)) (setq result (cons x result))) result)"
@@ -8116,6 +8430,7 @@ fn vm_dolist() {
 
 #[test]
 fn vm_lambda_parameters_can_shadow_nil_and_t() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("(funcall (lambda (t) t) 7)"), "OK 7");
     assert_eq!(vm_eval_str("(funcall (lambda (nil) nil) 9)"), "OK 9");
     assert_eq!(
@@ -8130,6 +8445,7 @@ fn vm_lambda_parameters_can_shadow_nil_and_t() {
 
 #[test]
 fn vm_gnu_arg_descriptor_preserves_optional_and_rest_slots() {
+    crate::test_utils::init_test_tracing();
     let func = ByteCodeFunction {
         ops: vec![
             Op::StackRef(4),
@@ -8180,6 +8496,7 @@ fn vm_gnu_arg_descriptor_preserves_optional_and_rest_slots() {
 
 #[test]
 fn vm_compiled_autoload_registration_updates_shared_autoload_manager() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new_vm_runtime_harness();
     let forms =
         parse_forms("(autoload 'vm-bytecode-auto \"vm-bytecode-auto-file\")").expect("parse");
@@ -8202,6 +8519,7 @@ fn vm_compiled_autoload_registration_updates_shared_autoload_manager() {
 
 #[test]
 fn vm_compiled_this_single_command_keys_uses_live_eval_key_context() {
+    crate::test_utils::init_test_tracing();
     let mut eval = Context::new_vm_runtime_harness();
     eval.set_read_command_keys(vec![Value::fixnum(97)]);
 
@@ -8220,6 +8538,7 @@ fn vm_compiled_this_single_command_keys_uses_live_eval_key_context() {
 
 #[test]
 fn vm_compiled_require_respects_recursive_require_guard() {
+    crate::test_utils::init_test_tracing();
     let dir = tempfile::tempdir().expect("tempdir");
     let fixture = dir.path().join("vm-bytecode-rec.el");
     std::fs::write(
@@ -8259,6 +8578,7 @@ fn vm_compiled_require_respects_recursive_require_guard() {
 
 #[test]
 fn vm_compiled_require_loads_feature_with_nil_filename_through_shared_runtime() {
+    crate::test_utils::init_test_tracing();
     let dir = tempfile::tempdir().expect("tempdir");
     let fixture = dir.path().join("vm-bytecode-load.el");
     std::fs::write(
@@ -8306,6 +8626,7 @@ fn vm_compiled_require_loads_feature_with_nil_filename_through_shared_runtime() 
 
 #[test]
 fn vm_compiled_load_uses_shared_runtime_and_restores_load_file_name() {
+    crate::test_utils::init_test_tracing();
     let dir = tempfile::tempdir().expect("tempdir");
     let fixture = dir.path().join("vm-bytecode-shared-load.el");
     std::fs::write(&fixture, "(setq vm-bytecode-load-seen load-file-name)\n")
@@ -8348,6 +8669,7 @@ fn vm_compiled_load_uses_shared_runtime_and_restores_load_file_name() {
 
 #[test]
 fn vm_compiled_load_allows_gnu_normal_recursive_load_depth() {
+    crate::test_utils::init_test_tracing();
     let dir = tempfile::tempdir().expect("tempdir");
     let fixture = dir.path().join("vm-bytecode-load.el");
     std::fs::write(&fixture, "(setq vm-bytecode-load-ran t)\n").expect("write load fixture");
@@ -8386,6 +8708,7 @@ fn vm_compiled_load_allows_gnu_normal_recursive_load_depth() {
 
 #[test]
 fn vm_compiled_load_signals_after_gnu_recursive_load_limit() {
+    crate::test_utils::init_test_tracing();
     let dir = tempfile::tempdir().expect("tempdir");
     let fixture = dir.path().join("vm-bytecode-recursive-limit.el");
     std::fs::write(&fixture, "(setq vm-bytecode-load-ran t)\n").expect("write load fixture");
@@ -8430,6 +8753,7 @@ fn vm_compiled_load_signals_after_gnu_recursive_load_limit() {
 
 #[test]
 fn vm_interactive_form_uses_shared_symbol_property_and_builtin_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(progn
@@ -8449,6 +8773,7 @@ fn vm_interactive_form_uses_shared_symbol_property_and_builtin_state() {
 
 #[test]
 fn vm_interactive_form_uses_shared_autoload_load_bridge() {
+    crate::test_utils::init_test_tracing();
     let dir = tempfile::tempdir().expect("tempdir");
     let fixture = dir.path().join("vm-interactive-form-auto.el");
     std::fs::write(
@@ -8486,6 +8811,7 @@ fn vm_interactive_form_uses_shared_autoload_load_bridge() {
 
 #[test]
 fn vm_command_modes_uses_shared_symbol_and_bytecode_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(progn
@@ -8508,6 +8834,7 @@ fn vm_command_modes_uses_shared_symbol_and_bytecode_state() {
 
 #[test]
 fn vm_commandp_uses_shared_command_metadata_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(let ((f (make-byte-code '() \"\" [] 0 nil [nil nil])))
@@ -8528,6 +8855,7 @@ fn vm_commandp_uses_shared_command_metadata_state() {
 
 #[test]
 fn vm_documentation_and_help_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(progn
@@ -8548,6 +8876,7 @@ fn vm_documentation_and_help_builtins_use_shared_runtime_state() {
 
 #[test]
 fn vm_documentation_and_property_respect_raw_substitute_command_keys_semantics() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             r#"(progn
@@ -8569,6 +8898,7 @@ fn vm_documentation_and_property_respect_raw_substitute_command_keys_semantics()
 
 #[test]
 fn vm_backtrace_and_recursion_builtins_use_shared_runtime_state() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         vm_eval_str(
             "(let ((thread (current-thread)))

@@ -231,6 +231,7 @@ mod tests {
     use super::*;
     #[test]
     fn register_bootstrap_vars_matches_gnu_defaults() {
+        crate::test_utils::init_test_tracing();
         let mut obarray = Obarray::new();
         register_bootstrap_vars(&mut obarray);
 
@@ -264,6 +265,7 @@ mod tests {
 
     #[test]
     fn frame_face_hash_table_eval_is_empty_before_any_face_realization() {
+        crate::test_utils::init_test_tracing();
         let mut eval = crate::emacs_core::eval::Context::new();
         let out = builtin_frame_face_hash_table(&mut eval, vec![Value::NIL])
             .expect("live frame face hash table");
@@ -276,6 +278,7 @@ mod tests {
 
     #[test]
     fn frame_face_hash_table_eval_returns_stable_frame_owned_table() {
+        crate::test_utils::init_test_tracing();
         let mut eval = crate::emacs_core::eval::Context::new();
         let first = builtin_frame_face_hash_table(&mut eval, vec![Value::NIL])
             .expect("first face hash table");
@@ -286,6 +289,7 @@ mod tests {
 
     #[test]
     fn ensure_startup_compat_variables_backfills_missing_xfaces_state() {
+        crate::test_utils::init_test_tracing();
         let mut eval = crate::emacs_core::eval::Context::new();
         for name in [
             "face-filters-always-match",

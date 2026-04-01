@@ -3,6 +3,7 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 #[test]
 fn compose_region_internal_min_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     {
         let buffer = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -16,6 +17,7 @@ fn compose_region_internal_min_args() {
 
 #[test]
 fn compose_region_internal_max_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     {
         let buffer = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -31,6 +33,7 @@ fn compose_region_internal_max_args() {
 
 #[test]
 fn compose_region_internal_too_few_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let result = builtin_compose_region_internal(&mut eval, vec![Value::fixnum(1)]);
     assert!(result.is_err());
@@ -38,6 +41,7 @@ fn compose_region_internal_too_few_args() {
 
 #[test]
 fn compose_region_internal_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let result = builtin_compose_region_internal(
         &mut eval,
@@ -54,6 +58,7 @@ fn compose_region_internal_too_many_args() {
 
 #[test]
 fn compose_region_internal_rejects_non_integer_positions() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let result =
         builtin_compose_region_internal(&mut eval, vec![Value::symbol("x"), Value::fixnum(10)]);
@@ -65,6 +70,7 @@ fn compose_region_internal_rejects_non_integer_positions() {
 
 #[test]
 fn compose_region_internal_eval_range_checks() {
+    crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     {
         let buffer = eval.buffers.current_buffer_mut().expect("current buffer");
@@ -80,6 +86,7 @@ fn compose_region_internal_eval_range_checks() {
 
 #[test]
 fn compose_string_internal_returns_string() {
+    crate::test_utils::init_test_tracing();
     let s = Value::string("hello");
     let result = builtin_compose_string_internal(vec![s, Value::fixnum(0), Value::fixnum(5)]);
     assert!(result.is_ok());
@@ -88,6 +95,7 @@ fn compose_string_internal_returns_string() {
 
 #[test]
 fn compose_string_internal_with_optional_args() {
+    crate::test_utils::init_test_tracing();
     let s = Value::string("hello");
     let result = builtin_compose_string_internal(vec![
         s,
@@ -102,12 +110,14 @@ fn compose_string_internal_with_optional_args() {
 
 #[test]
 fn compose_string_internal_too_few_args() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_compose_string_internal(vec![Value::string("hi"), Value::fixnum(0)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn compose_string_internal_type_checks() {
+    crate::test_utils::init_test_tracing();
     let non_string =
         builtin_compose_string_internal(vec![Value::fixnum(1), Value::fixnum(0), Value::fixnum(1)]);
     assert!(non_string.is_err());
@@ -127,6 +137,7 @@ fn compose_string_internal_type_checks() {
 
 #[test]
 fn compose_string_internal_range_checks() {
+    crate::test_utils::init_test_tracing();
     let ok = builtin_compose_string_internal(vec![
         Value::string("abc"),
         Value::fixnum(0),
@@ -158,6 +169,7 @@ fn compose_string_internal_range_checks() {
 
 #[test]
 fn find_composition_internal_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_find_composition_internal(vec![
         Value::fixnum(1),
         Value::fixnum(100),
@@ -170,12 +182,14 @@ fn find_composition_internal_returns_nil() {
 
 #[test]
 fn find_composition_internal_wrong_arity() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_find_composition_internal(vec![Value::fixnum(1)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn find_composition_internal_type_checks() {
+    crate::test_utils::init_test_tracing();
     let bad_pos = builtin_find_composition_internal(vec![
         Value::symbol("x"),
         Value::fixnum(10),
@@ -203,6 +217,7 @@ fn find_composition_internal_type_checks() {
 
 #[test]
 fn find_composition_internal_position_range_checks() {
+    crate::test_utils::init_test_tracing();
     let zero = builtin_find_composition_internal(vec![
         Value::fixnum(0),
         Value::NIL,
@@ -222,6 +237,7 @@ fn find_composition_internal_position_range_checks() {
 
 #[test]
 fn composition_get_gstring_returns_vector_shape() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_composition_get_gstring(vec![
         Value::fixnum(0),
         Value::fixnum(1),
@@ -239,12 +255,14 @@ fn composition_get_gstring_returns_vector_shape() {
 
 #[test]
 fn composition_get_gstring_wrong_arity() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_composition_get_gstring(vec![Value::fixnum(0)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn composition_get_gstring_type_checks() {
+    crate::test_utils::init_test_tracing();
     let bad_from = builtin_composition_get_gstring(vec![
         Value::symbol("x"),
         Value::fixnum(5),
@@ -272,6 +290,7 @@ fn composition_get_gstring_type_checks() {
 
 #[test]
 fn composition_get_gstring_range_errors() {
+    crate::test_utils::init_test_tracing();
     let from_gt_to = builtin_composition_get_gstring(vec![
         Value::fixnum(2),
         Value::fixnum(1),
@@ -291,6 +310,7 @@ fn composition_get_gstring_range_errors() {
 
 #[test]
 fn clear_composition_cache_no_args() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_clear_composition_cache(vec![]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
@@ -298,24 +318,28 @@ fn clear_composition_cache_no_args() {
 
 #[test]
 fn clear_composition_cache_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_clear_composition_cache(vec![Value::NIL]);
     assert!(result.is_err());
 }
 
 #[test]
 fn composition_sort_rules_nil_returns_nil() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_composition_sort_rules(vec![Value::NIL]).unwrap();
     assert!(result.is_nil());
 }
 
 #[test]
 fn composition_sort_rules_rejects_non_lists() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_composition_sort_rules(vec![Value::vector(vec![Value::fixnum(1)])]);
     assert!(result.is_err());
 }
 
 #[test]
 fn composition_sort_rules_rejects_invalid_rules() {
+    crate::test_utils::init_test_tracing();
     let rules = Value::list(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
     let result = builtin_composition_sort_rules(vec![rules]);
     assert!(result.is_err());
@@ -323,6 +347,7 @@ fn composition_sort_rules_rejects_invalid_rules() {
 
 #[test]
 fn composition_sort_rules_accepts_cons_rules() {
+    crate::test_utils::init_test_tracing();
     let rules = Value::list(vec![Value::cons(Value::fixnum(1), Value::fixnum(2))]);
     let result = builtin_composition_sort_rules(vec![rules]).unwrap();
     assert_eq!(result, rules);
@@ -330,6 +355,7 @@ fn composition_sort_rules_accepts_cons_rules() {
 
 #[test]
 fn composition_sort_rules_wrong_arity() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_composition_sort_rules(vec![]);
     assert!(result.is_err());
 }

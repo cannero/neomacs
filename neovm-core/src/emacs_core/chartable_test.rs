@@ -7,6 +7,7 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 #[test]
 fn make_char_table_basic() {
+    crate::test_utils::init_test_tracing();
     let ct = make_char_table_value(Value::symbol("syntax-table"), Value::NIL);
     assert!(is_char_table(&ct));
     assert!(!is_bool_vector(&ct));
@@ -14,6 +15,7 @@ fn make_char_table_basic() {
 
 #[test]
 fn make_char_table_with_default() {
+    crate::test_utils::init_test_tracing();
     let ct = make_char_table_value(Value::symbol("syntax-table"), Value::fixnum(42));
     assert!(is_char_table(&ct));
     // Default lookup should return the default.
@@ -23,6 +25,7 @@ fn make_char_table_with_default() {
 
 #[test]
 fn char_table_p_predicate() {
+    crate::test_utils::init_test_tracing();
     let ct = make_char_table_value(Value::symbol("test"), Value::NIL);
     assert!(builtin_char_table_p(vec![ct]).unwrap().is_t());
     assert!(
@@ -35,6 +38,7 @@ fn char_table_p_predicate() {
 
 #[test]
 fn set_and_get_single_char() {
+    crate::test_utils::init_test_tracing();
     let ct = make_char_table_value(Value::symbol("test"), Value::NIL);
     builtin_set_char_table_range(vec![ct, Value::fixnum(65), Value::symbol("letter-a")]).unwrap();
     let val = builtin_char_table_range(vec![ct, Value::fixnum(65)]).unwrap();
@@ -43,6 +47,7 @@ fn set_and_get_single_char() {
 
 #[test]
 fn lookup_falls_back_to_default() {
+    crate::test_utils::init_test_tracing();
     let ct = make_char_table_value(Value::symbol("test"), Value::symbol("default-val"));
     // No entry for char 90.
     let val = builtin_char_table_range(vec![ct, Value::fixnum(90)]).unwrap();
@@ -51,6 +56,7 @@ fn lookup_falls_back_to_default() {
 
 #[test]
 fn set_range_cons() {
+    crate::test_utils::init_test_tracing();
     let ct = make_char_table_value(Value::symbol("test"), Value::NIL);
     // Set chars 65..=67 (A, B, C)
     let range = Value::cons(Value::fixnum(65), Value::fixnum(67));
@@ -66,6 +72,7 @@ fn set_range_cons() {
 
 #[test]
 fn set_default_via_range_nil() {
+    crate::test_utils::init_test_tracing();
     let ct = make_char_table_value(Value::symbol("test"), Value::NIL);
     builtin_set_char_table_range(vec![ct, Value::NIL, Value::fixnum(999)]).unwrap();
     let def = builtin_char_table_range(vec![ct, Value::NIL]).unwrap();
@@ -74,6 +81,7 @@ fn set_default_via_range_nil() {
 
 #[test]
 fn set_range_t_sets_default_value() {
+    crate::test_utils::init_test_tracing();
     // In GNU Emacs, (set-char-table-range ct t value) sets all character
     // entries, but leaves the default slot untouched.
     let ct = make_char_table_value(Value::symbol("test"), Value::fixnum(0));
@@ -89,6 +97,7 @@ fn set_range_t_sets_default_value() {
 
 #[test]
 fn set_range_t_allows_single_char_override() {
+    crate::test_utils::init_test_tracing();
     // (set-char-table-range ct t 5) sets all characters to 5 without touching
     // the default slot. Later single-char overrides take precedence.
     let ct = make_char_table_value(Value::symbol("test"), Value::fixnum(0));
@@ -105,6 +114,7 @@ fn set_range_t_allows_single_char_override() {
 
 #[test]
 fn later_t_write_overrides_prior_specific_entries() {
+    crate::test_utils::init_test_tracing();
     let ct = make_char_table_value(Value::symbol("test"), Value::NIL);
     builtin_set_char_table_range(vec![ct, Value::fixnum('a' as i64), Value::fixnum(9)]).unwrap();
     builtin_set_char_table_range(vec![
@@ -125,6 +135,7 @@ fn later_t_write_overrides_prior_specific_entries() {
 
 #[test]
 fn parent_chain_lookup() {
+    crate::test_utils::init_test_tracing();
     let parent = make_char_table_value(Value::symbol("test"), Value::NIL);
     builtin_set_char_table_range(vec![
         parent,
@@ -148,6 +159,7 @@ fn parent_chain_lookup() {
 
 #[test]
 fn char_table_parent_get_set() {
+    crate::test_utils::init_test_tracing();
     let ct = make_char_table_value(Value::symbol("test"), Value::NIL);
     // Initially nil.
     let p = builtin_char_table_parent(vec![ct]).unwrap();
@@ -161,6 +173,7 @@ fn char_table_parent_get_set() {
 
 #[test]
 fn set_char_table_parent_nil() {
+    crate::test_utils::init_test_tracing();
     let ct = make_char_table_value(Value::symbol("test"), Value::NIL);
     let parent = make_char_table_value(Value::symbol("parent"), Value::NIL);
     builtin_set_char_table_parent(vec![ct, parent]).unwrap();
@@ -171,6 +184,7 @@ fn set_char_table_parent_nil() {
 
 #[test]
 fn set_char_table_parent_wrong_type() {
+    crate::test_utils::init_test_tracing();
     let ct = make_char_table_value(Value::symbol("test"), Value::NIL);
     let result = builtin_set_char_table_parent(vec![ct, Value::fixnum(5)]);
     assert!(result.is_err());
@@ -178,6 +192,7 @@ fn set_char_table_parent_wrong_type() {
 
 #[test]
 fn char_table_extra_slot_basic() {
+    crate::test_utils::init_test_tracing();
     let ct = make_char_table_value(Value::symbol("test"), Value::NIL);
     // Initially 0 extra slots -- should error.
     let result = builtin_char_table_extra_slot(vec![ct, Value::fixnum(0)]);
@@ -191,6 +206,7 @@ fn char_table_extra_slot_basic() {
 
 #[test]
 fn char_table_extra_slot_preserves_data() {
+    crate::test_utils::init_test_tracing();
     let ct = make_char_table_value(Value::symbol("test"), Value::NIL);
     // Set a char entry first.
     builtin_set_char_table_range(vec![ct, Value::fixnum(65), Value::symbol("a-val")]).unwrap();
@@ -207,6 +223,7 @@ fn char_table_extra_slot_preserves_data() {
 
 #[test]
 fn char_table_subtype() {
+    crate::test_utils::init_test_tracing();
     let ct = make_char_table_value(Value::symbol("syntax-table"), Value::NIL);
     let st = builtin_char_table_subtype(vec![ct]).unwrap();
     assert!(st.is_symbol_named("syntax-table"));
@@ -214,6 +231,7 @@ fn char_table_subtype() {
 
 #[test]
 fn char_table_overwrite_entry() {
+    crate::test_utils::init_test_tracing();
     let ct = make_char_table_value(Value::symbol("test"), Value::NIL);
     builtin_set_char_table_range(vec![ct, Value::fixnum(65), Value::fixnum(1)]).unwrap();
     builtin_set_char_table_range(vec![ct, Value::fixnum(65), Value::fixnum(2)]).unwrap();
@@ -223,6 +241,7 @@ fn char_table_overwrite_entry() {
 
 #[test]
 fn later_range_overrides_earlier_single_entry() {
+    crate::test_utils::init_test_tracing();
     let ct = make_char_table_value(Value::symbol("test"), Value::NIL);
     builtin_set_char_table_range(vec![ct, Value::fixnum('M' as i64), Value::symbol("single")])
         .unwrap();
@@ -239,6 +258,7 @@ fn later_range_overrides_earlier_single_entry() {
 
 #[test]
 fn explicit_nil_entry_inherits_from_parent() {
+    crate::test_utils::init_test_tracing();
     let parent = make_char_table_value(Value::symbol("test"), Value::NIL);
     builtin_set_char_table_range(vec![
         parent,
@@ -257,6 +277,7 @@ fn explicit_nil_entry_inherits_from_parent() {
 
 #[test]
 fn set_char_table_parent_rejects_cycles() {
+    crate::test_utils::init_test_tracing();
     let parent = make_char_table_value(Value::symbol("test"), Value::NIL);
     let child = make_char_table_value(Value::symbol("test"), Value::NIL);
     builtin_set_char_table_parent(vec![child, parent]).unwrap();
@@ -267,6 +288,7 @@ fn set_char_table_parent_rejects_cycles() {
 
 #[test]
 fn map_char_table_coalesces_ranges_after_single_override() {
+    crate::test_utils::init_test_tracing();
     let ct = make_char_table_value(Value::symbol("test"), Value::NIL);
     builtin_set_char_table_range(vec![
         ct,
@@ -297,6 +319,7 @@ fn map_char_table_coalesces_ranges_after_single_override() {
 
 #[test]
 fn char_table_p_on_plain_vector() {
+    crate::test_utils::init_test_tracing();
     // A plain vector should not be detected as a char-table.
     let v = Value::vector(vec![Value::fixnum(1), Value::fixnum(2)]);
     assert!(!is_char_table(&v));
@@ -304,6 +327,7 @@ fn char_table_p_on_plain_vector() {
 
 #[test]
 fn char_table_wrong_type_signals() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_char_table_range(vec![Value::fixnum(5), Value::fixnum(65)]);
     assert!(result.is_err());
     let result =
@@ -315,6 +339,7 @@ fn char_table_wrong_type_signals() {
 
 #[test]
 fn char_table_wrong_arg_count() {
+    crate::test_utils::init_test_tracing();
     // builtin_make_char_table arity is validated by the Context dispatch
     // layer; make_char_table_value doesn't validate, so skip that assertion.
     assert!(builtin_char_table_p(vec![]).is_err());
@@ -324,6 +349,7 @@ fn char_table_wrong_arg_count() {
 
 #[test]
 fn char_table_char_key() {
+    crate::test_utils::init_test_tracing();
     let ct = make_char_table_value(Value::symbol("test"), Value::NIL);
     // Use Value::Char for setting.
     builtin_set_char_table_range(vec![ct, Value::char('Z'), Value::symbol("zee")]).unwrap();
@@ -334,6 +360,7 @@ fn char_table_char_key() {
 
 #[test]
 fn parent_default_fallback() {
+    crate::test_utils::init_test_tracing();
     // Parent has default but no explicit entry.
     let parent = make_char_table_value(Value::symbol("test"), Value::symbol("parent-default"));
     let child = make_char_table_value(Value::symbol("test"), Value::NIL);
@@ -346,6 +373,7 @@ fn parent_default_fallback() {
 
 #[test]
 fn non_nil_child_default_overrides_parent_lookup() {
+    crate::test_utils::init_test_tracing();
     let parent = make_char_table_value(Value::symbol("test"), Value::fixnum(8));
     let child = make_char_table_value(Value::symbol("test"), Value::fixnum(0));
     builtin_set_char_table_parent(vec![child, parent]).unwrap();
@@ -360,6 +388,7 @@ fn non_nil_child_default_overrides_parent_lookup() {
 
 #[test]
 fn make_bool_vector_basic() {
+    crate::test_utils::init_test_tracing();
     let bv = builtin_make_bool_vector(vec![Value::fixnum(5), Value::NIL]).unwrap();
     assert!(is_bool_vector(&bv));
     assert!(!is_char_table(&bv));
@@ -367,6 +396,7 @@ fn make_bool_vector_basic() {
 
 #[test]
 fn bool_vector_constructor_from_rest_args() {
+    crate::test_utils::init_test_tracing();
     let bv = builtin_bool_vector(vec![
         Value::T,
         Value::NIL,
@@ -384,6 +414,7 @@ fn bool_vector_constructor_from_rest_args() {
 
 #[test]
 fn make_bool_vector_all_true() {
+    crate::test_utils::init_test_tracing();
     let bv = builtin_make_bool_vector(vec![Value::fixnum(4), Value::T]).unwrap();
     let count = builtin_bool_vector_count_population(vec![bv]).unwrap();
     assert!(count.is_fixnum());
@@ -391,6 +422,7 @@ fn make_bool_vector_all_true() {
 
 #[test]
 fn make_bool_vector_all_false() {
+    crate::test_utils::init_test_tracing();
     let bv = builtin_make_bool_vector(vec![Value::fixnum(4), Value::NIL]).unwrap();
     let count = builtin_bool_vector_count_population(vec![bv]).unwrap();
     assert!(count.is_fixnum());
@@ -398,6 +430,7 @@ fn make_bool_vector_all_false() {
 
 #[test]
 fn bool_vector_p_predicate() {
+    crate::test_utils::init_test_tracing();
     let bv = builtin_make_bool_vector(vec![Value::fixnum(3), Value::NIL]).unwrap();
     assert!(builtin_bool_vector_p(vec![bv]).unwrap().is_t());
     assert!(
@@ -409,6 +442,7 @@ fn bool_vector_p_predicate() {
 
 #[test]
 fn bool_vector_intersection() {
+    crate::test_utils::init_test_tracing();
     // a = [1, 1, 0, 0], b = [1, 0, 1, 0] -> AND = [1, 0, 0, 0]
     let a = make_bv(&[true, true, false, false]);
     let b = make_bv(&[true, false, true, false]);
@@ -418,6 +452,7 @@ fn bool_vector_intersection() {
 
 #[test]
 fn bool_vector_union() {
+    crate::test_utils::init_test_tracing();
     let a = make_bv(&[true, true, false, false]);
     let b = make_bv(&[true, false, true, false]);
     let result = builtin_bool_vector_union(vec![a, b]).unwrap();
@@ -426,6 +461,7 @@ fn bool_vector_union() {
 
 #[test]
 fn bool_vector_exclusive_or() {
+    crate::test_utils::init_test_tracing();
     let a = make_bv(&[true, true, false, false]);
     let b = make_bv(&[true, false, true, false]);
     let result = builtin_bool_vector_exclusive_or(vec![a, b]).unwrap();
@@ -434,6 +470,7 @@ fn bool_vector_exclusive_or() {
 
 #[test]
 fn bool_vector_not() {
+    crate::test_utils::init_test_tracing();
     let a = make_bv(&[true, false, true, false]);
     let result = builtin_bool_vector_not(vec![a]).unwrap();
     assert_bv_bits(&result, &[false, true, false, true]);
@@ -441,6 +478,7 @@ fn bool_vector_not() {
 
 #[test]
 fn bool_vector_not_into_dest() {
+    crate::test_utils::init_test_tracing();
     let a = make_bv(&[false, false, true]);
     let dest = make_bv(&[false, false, false]);
     let result = builtin_bool_vector_not(vec![a, dest]).unwrap();
@@ -450,6 +488,7 @@ fn bool_vector_not_into_dest() {
 
 #[test]
 fn bool_vector_set_difference() {
+    crate::test_utils::init_test_tracing();
     let a = make_bv(&[true, true, false, true]);
     let b = make_bv(&[false, true, true, false]);
     let result = builtin_bool_vector_set_difference(vec![a, b]).unwrap();
@@ -458,6 +497,7 @@ fn bool_vector_set_difference() {
 
 #[test]
 fn bool_vector_count_consecutive() {
+    crate::test_utils::init_test_tracing();
     let bv = make_bv(&[true, true, false, false, true, true]);
     let count_true_start =
         builtin_bool_vector_count_consecutive(vec![bv, Value::T, Value::fixnum(0)]).unwrap();
@@ -472,6 +512,7 @@ fn bool_vector_count_consecutive() {
 
 #[test]
 fn bool_vector_subsetp_true() {
+    crate::test_utils::init_test_tracing();
     let a = make_bv(&[true, false, false]);
     let b = make_bv(&[true, true, false]);
     let result = builtin_bool_vector_subsetp(vec![a, b]).unwrap();
@@ -480,6 +521,7 @@ fn bool_vector_subsetp_true() {
 
 #[test]
 fn bool_vector_subsetp_false() {
+    crate::test_utils::init_test_tracing();
     let a = make_bv(&[true, false, true]);
     let b = make_bv(&[true, true, false]);
     let result = builtin_bool_vector_subsetp(vec![a, b]).unwrap();
@@ -488,6 +530,7 @@ fn bool_vector_subsetp_false() {
 
 #[test]
 fn bool_vector_count_population_mixed() {
+    crate::test_utils::init_test_tracing();
     let bv = make_bv(&[true, false, true, true, false]);
     let count = builtin_bool_vector_count_population(vec![bv]).unwrap();
     assert!(count.is_fixnum());
@@ -495,6 +538,7 @@ fn bool_vector_count_population_mixed() {
 
 #[test]
 fn bool_vector_empty() {
+    crate::test_utils::init_test_tracing();
     let bv = builtin_make_bool_vector(vec![Value::fixnum(0), Value::NIL]).unwrap();
     assert!(is_bool_vector(&bv));
     let count = builtin_bool_vector_count_population(vec![bv]).unwrap();
@@ -503,18 +547,21 @@ fn bool_vector_empty() {
 
 #[test]
 fn bool_vector_negative_length() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_make_bool_vector(vec![Value::fixnum(-1), Value::NIL]);
     assert!(result.is_err());
 }
 
 #[test]
 fn bool_vector_wrong_type_signals() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_bool_vector_count_population(vec![Value::fixnum(0)]);
     assert!(result.is_err());
 }
 
 #[test]
 fn bool_vector_mismatched_length() {
+    crate::test_utils::init_test_tracing();
     let a = make_bv(&[true, false]);
     let b = make_bv(&[true]);
     let result = builtin_bool_vector_intersection(vec![a, b]);
@@ -523,6 +570,7 @@ fn bool_vector_mismatched_length() {
 
 #[test]
 fn bool_vector_intersection_into_dest() {
+    crate::test_utils::init_test_tracing();
     let a = make_bv(&[true, true, false]);
     let b = make_bv(&[false, true, true]);
     let dest = make_bv(&[false, false, false]);
@@ -535,6 +583,7 @@ fn bool_vector_intersection_into_dest() {
 
 #[test]
 fn bool_vector_union_into_dest() {
+    crate::test_utils::init_test_tracing();
     let a = make_bv(&[true, false, false]);
     let b = make_bv(&[false, true, false]);
     let dest = make_bv(&[false, false, false]);
@@ -544,6 +593,7 @@ fn bool_vector_union_into_dest() {
 
 #[test]
 fn is_predicates_disjoint() {
+    crate::test_utils::init_test_tracing();
     let ct = make_char_table_value(Value::symbol("test"), Value::NIL);
     let bv = builtin_make_bool_vector(vec![Value::fixnum(3), Value::NIL]).unwrap();
     let v = Value::vector(vec![Value::fixnum(1)]);
@@ -557,6 +607,7 @@ fn is_predicates_disjoint() {
 
 #[test]
 fn bool_vector_wrong_arg_count() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_make_bool_vector(vec![]).is_err());
     assert!(builtin_bool_vector_p(vec![]).is_err());
     assert!(builtin_bool_vector_subsetp(vec![Value::NIL]).is_err());
@@ -566,6 +617,7 @@ fn bool_vector_wrong_arg_count() {
 
 #[test]
 fn char_table_range_invalid_range_type() {
+    crate::test_utils::init_test_tracing();
     let ct = make_char_table_value(Value::symbol("test"), Value::NIL);
     let result = builtin_set_char_table_range(vec![ct, Value::string("invalid"), Value::fixnum(1)]);
     assert!(result.is_err());
@@ -573,6 +625,7 @@ fn char_table_range_invalid_range_type() {
 
 #[test]
 fn char_table_range_reverse_cons_errors() {
+    crate::test_utils::init_test_tracing();
     let ct = make_char_table_value(Value::symbol("test"), Value::NIL);
     let range = Value::cons(Value::fixnum(70), Value::fixnum(65)); // min > max
     let result = builtin_set_char_table_range(vec![ct, range, Value::fixnum(1)]);

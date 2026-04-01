@@ -6,6 +6,7 @@ use super::*;
 
 #[test]
 fn set_get_clear() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = RegisterManager::new();
 
     // Initially empty
@@ -31,6 +32,7 @@ fn set_get_clear() {
 
 #[test]
 fn clear_all() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = RegisterManager::new();
     mgr.set('a', RegisterContent::Text("one".to_string()));
     mgr.set('b', RegisterContent::Text("two".to_string()));
@@ -43,6 +45,7 @@ fn clear_all() {
 
 #[test]
 fn text_append_and_prepend() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = RegisterManager::new();
 
     // Append to empty register creates text
@@ -60,6 +63,7 @@ fn text_append_and_prepend() {
 
 #[test]
 fn append_to_non_text_replaces() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = RegisterManager::new();
     mgr.set('n', RegisterContent::Number(99));
     mgr.append_text('n', "new text", false);
@@ -68,6 +72,7 @@ fn append_to_non_text_replaces() {
 
 #[test]
 fn position_storage() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = RegisterManager::new();
     mgr.set(
         'p',
@@ -87,6 +92,7 @@ fn position_storage() {
 
 #[test]
 fn list_registers_sorted() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = RegisterManager::new();
     mgr.set('z', RegisterContent::Text("z-text".to_string()));
     mgr.set('a', RegisterContent::Number(1));
@@ -104,6 +110,7 @@ fn list_registers_sorted() {
 
 #[test]
 fn rectangle_and_kbd_macro() {
+    crate::test_utils::init_test_tracing();
     let mut mgr = RegisterManager::new();
 
     let rect = vec![
@@ -131,6 +138,7 @@ fn rectangle_and_kbd_macro() {
 
 #[test]
 fn test_expect_register() {
+    crate::test_utils::init_test_tracing();
     // Char
     assert_eq!(expect_register(&Value::char('a')).unwrap(), 'a');
 
@@ -149,6 +157,7 @@ fn test_expect_register() {
 
 #[test]
 fn test_builtin_copy_and_insert() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -173,6 +182,7 @@ fn test_builtin_copy_and_insert() {
 
 #[test]
 fn test_builtin_number_and_increment() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -198,6 +208,7 @@ fn test_builtin_number_and_increment() {
 
 #[test]
 fn test_builtin_increment_empty_register() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -213,6 +224,7 @@ fn test_builtin_increment_empty_register() {
 
 #[test]
 fn test_builtin_set_and_get_register() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -239,6 +251,7 @@ fn test_builtin_set_and_get_register() {
 
 #[test]
 fn test_builtin_view_register() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -268,6 +281,7 @@ fn test_builtin_view_register() {
 
 #[test]
 fn test_builtin_register_to_string() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();
@@ -284,6 +298,7 @@ fn test_builtin_register_to_string() {
 
 #[test]
 fn test_wrong_arg_count() {
+    crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
     let mut eval = Context::new();

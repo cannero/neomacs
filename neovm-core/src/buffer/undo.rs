@@ -289,6 +289,7 @@ mod tests {
 
     #[test]
     fn basic_insert_undo() {
+        crate::test_utils::init_test_tracing();
         let mut list = Value::NIL;
         undo_list_record_insert(&mut list, 0, 5, 0);
         undo_list_record_insert(&mut list, 5, 3, 5);
@@ -308,6 +309,7 @@ mod tests {
 
     #[test]
     fn delete_records_text() {
+        crate::test_utils::init_test_tracing();
         let mut list = Value::NIL;
         undo_list_record_delete(&mut list, 3, "hello", 3);
         undo_list_boundary(&mut list);
@@ -324,6 +326,7 @@ mod tests {
 
     #[test]
     fn boundary_separates_groups() {
+        crate::test_utils::init_test_tracing();
         let mut list = Value::NIL;
         undo_list_record_insert(&mut list, 0, 1, 0);
         undo_list_boundary(&mut list);
@@ -347,6 +350,7 @@ mod tests {
 
     #[test]
     fn disabled_records_nothing() {
+        crate::test_utils::init_test_tracing();
         let mut list = Value::T;
         undo_list_record_insert(&mut list, 0, 5, 0);
         assert!(undo_list_is_disabled(&list));
@@ -354,6 +358,7 @@ mod tests {
 
     #[test]
     fn cursor_move_dedup() {
+        crate::test_utils::init_test_tracing();
         let mut list = Value::NIL;
         undo_list_record_point(&mut list, 5);
         undo_list_record_point(&mut list, 5);
@@ -371,6 +376,7 @@ mod tests {
 
     #[test]
     fn no_double_boundary() {
+        crate::test_utils::init_test_tracing();
         let mut list = Value::NIL;
         undo_list_record_insert(&mut list, 0, 1, 0);
         undo_list_boundary(&mut list);
@@ -385,6 +391,7 @@ mod tests {
 
     #[test]
     fn to_value_produces_list() {
+        crate::test_utils::init_test_tracing();
         let mut list = Value::NIL;
         undo_list_record_insert(&mut list, 0, 5, 0);
         undo_list_boundary(&mut list);
@@ -393,6 +400,7 @@ mod tests {
 
     #[test]
     fn undoing_flag_not_needed() {
+        crate::test_utils::init_test_tracing();
         // The undoing flag is now tracked on Buffer, not in the undo list itself.
         // This test just verifies that disabled lists don't record.
         let mut list = Value::T; // disabled

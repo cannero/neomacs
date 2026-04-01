@@ -877,6 +877,7 @@ mod tests {
 
     #[test]
     fn ascii_width() {
+        crate::test_utils::init_test_tracing();
         assert_eq!(char_width('a'), 1);
         assert_eq!(char_width(' '), 1);
         assert_eq!(char_width('Z'), 1);
@@ -884,6 +885,7 @@ mod tests {
 
     #[test]
     fn cjk_width() {
+        crate::test_utils::init_test_tracing();
         assert_eq!(char_width('中'), 2);
         assert_eq!(char_width('日'), 2);
         assert_eq!(char_width('あ'), 2);
@@ -892,6 +894,7 @@ mod tests {
 
     #[test]
     fn gnu_default_emoji_symbol_widths() {
+        crate::test_utils::init_test_tracing();
         assert_eq!(char_width('\u{2603}'), 1);
         assert_eq!(char_width('\u{2615}'), 2);
         assert_eq!(char_width('\u{263A}'), 1);
@@ -899,6 +902,7 @@ mod tests {
 
     #[test]
     fn control_char_width() {
+        crate::test_utils::init_test_tracing();
         assert_eq!(char_width('\0'), 2);
         assert_eq!(char_width('\x01'), 2); // ^A
         assert_eq!(char_width('\n'), 0);
@@ -909,6 +913,7 @@ mod tests {
 
     #[test]
     fn string_width_mixed() {
+        crate::test_utils::init_test_tracing();
         assert_eq!(string_width("hello"), 5);
         assert_eq!(string_width("中文"), 4);
         assert_eq!(string_width("hi中"), 4);
@@ -916,12 +921,14 @@ mod tests {
 
     #[test]
     fn builtin_string_bytes_counts_utf8_length() {
+        crate::test_utils::init_test_tracing();
         let result = builtin_string_bytes(vec![Value::string("Aé中")]).unwrap();
         assert_eq!(result, Value::fixnum(6));
     }
 
     #[test]
     fn builtin_char_displayable_p_matches_oracle_bounds_and_types() {
+        crate::test_utils::init_test_tracing();
         assert_eq!(
             builtin_char_displayable_p(vec![Value::fixnum('a' as i64)]).unwrap(),
             Value::T
@@ -964,6 +971,7 @@ mod tests {
 
     #[test]
     fn builtin_char_width_matches_oracle_control_and_bounds() {
+        crate::test_utils::init_test_tracing();
         assert_eq!(
             builtin_char_width(vec![Value::fixnum(0)]).unwrap(),
             Value::fixnum(2)
@@ -1014,6 +1022,7 @@ mod tests {
 
     #[test]
     fn builtin_char_or_string_p_respects_character_bounds() {
+        crate::test_utils::init_test_tracing();
         assert_eq!(
             builtin_char_or_string_p(vec![Value::fixnum(0)]).unwrap(),
             Value::T
@@ -1038,6 +1047,7 @@ mod tests {
 
     #[test]
     fn builtin_max_char_optional_unicode_matches_oracle() {
+        crate::test_utils::init_test_tracing();
         assert_eq!(builtin_max_char(vec![]).unwrap(), Value::fixnum(0x3F_FFFF));
         assert_eq!(
             builtin_max_char(vec![Value::NIL]).unwrap(),
@@ -1065,6 +1075,7 @@ mod tests {
 
     #[test]
     fn builtin_coding_string_helpers_enforce_max_arity() {
+        crate::test_utils::init_test_tracing();
         let encode_over = builtin_encode_coding_string(vec![
             Value::string("a"),
             Value::symbol("utf-8"),
@@ -1106,6 +1117,7 @@ mod tests {
 
     #[test]
     fn builtin_coding_string_helpers_runtime_match_oracle_core_cases() {
+        crate::test_utils::init_test_tracing();
         use crate::emacs_core::string_escape::decode_storage_char_codes;
 
         let encoded =
@@ -1194,6 +1206,7 @@ mod tests {
 
     #[test]
     fn builtin_coding_string_helpers_accept_iso_8859_15_alias() {
+        crate::test_utils::init_test_tracing();
         let encoded =
             builtin_encode_coding_string(vec![Value::string("abc"), Value::symbol("iso-8859-15")])
                 .expect("iso-8859-15 should be accepted as a known coding system");
@@ -1207,6 +1220,7 @@ mod tests {
 
     #[test]
     fn builtin_coding_string_helpers_accept_iso_8859_9_alias() {
+        crate::test_utils::init_test_tracing();
         let encoded =
             builtin_encode_coding_string(vec![Value::string("abc"), Value::symbol("iso-8859-9")])
                 .expect("iso-8859-9 should be accepted as a known coding system");
@@ -1220,6 +1234,7 @@ mod tests {
 
     #[test]
     fn decode_latin1_attaches_charset_text_property() {
+        crate::test_utils::init_test_tracing();
         let encoded = Value::unibyte_string(bytes_to_unibyte_storage_string(&[0xE9]));
         let decoded = builtin_decode_coding_string(vec![encoded, Value::symbol("latin-1")])
             .expect("latin-1 decode should succeed");
@@ -1239,6 +1254,7 @@ mod tests {
 
     #[test]
     fn encode_no_conversion_preserves_unibyte_storage_bytes() {
+        crate::test_utils::init_test_tracing();
         let source = Value::unibyte_string(bytes_to_unibyte_storage_string(&[0xE9]));
         let encoded =
             builtin_encode_coding_string(vec![source, Value::symbol("no-conversion")]).unwrap();
@@ -1254,6 +1270,7 @@ mod tests {
 
     #[test]
     fn decode_no_conversion_returns_unibyte_bytes_for_non_ascii_input() {
+        crate::test_utils::init_test_tracing();
         let encoded =
             builtin_encode_coding_string(vec![Value::string("é"), Value::symbol("no-conversion")])
                 .expect("encoding should succeed");
@@ -1271,6 +1288,7 @@ mod tests {
 
     #[test]
     fn char_byte_conversion() {
+        crate::test_utils::init_test_tracing();
         let s = "hello中文";
         assert_eq!(char_to_byte_pos(s, 5), 5);
         assert_eq!(char_to_byte_pos(s, 6), 8); // '中' is 3 bytes
@@ -1280,6 +1298,7 @@ mod tests {
 
     #[test]
     fn encoding_utf8() {
+        crate::test_utils::init_test_tracing();
         let bytes = encode_string("hello", "utf-8");
         assert_eq!(bytes, b"hello");
         let decoded = decode_bytes(b"hello", "utf-8");
@@ -1288,6 +1307,7 @@ mod tests {
 
     #[test]
     fn encoding_utf8_dos_applies_eol_conversion() {
+        crate::test_utils::init_test_tracing();
         let bytes = encode_string("a\nb", "utf-8-dos");
         assert_eq!(bytes, b"a\r\nb");
         let decoded = decode_bytes(b"a\r\nb", "utf-8-dos");
@@ -1296,6 +1316,7 @@ mod tests {
 
     #[test]
     fn raw_text_dos_preserves_bytes_but_converts_eol() {
+        crate::test_utils::init_test_tracing();
         let encoded = builtin_encode_coding_string(vec![
             Value::string("a\nb"),
             Value::symbol("raw-text-dos"),
@@ -1325,6 +1346,7 @@ mod tests {
 
     #[test]
     fn encoding_latin1() {
+        crate::test_utils::init_test_tracing();
         let bytes = encode_string("café", "latin-1");
         assert_eq!(bytes.len(), 4); // é maps to 0xe9
         let decoded = decode_bytes(&[0x63, 0x61, 0x66, 0xe9], "latin-1");
@@ -1333,6 +1355,7 @@ mod tests {
 
     #[test]
     fn glyphless_display() {
+        crate::test_utils::init_test_tracing();
         assert_eq!(glyphless_char_display('\x01'), "^A");
         assert_eq!(glyphless_char_display('\x7f'), "^?");
         assert_eq!(glyphless_char_display('\u{FEFF}'), "\\uFEFF");
@@ -1340,6 +1363,7 @@ mod tests {
 
     #[test]
     fn multibyte_detection() {
+        crate::test_utils::init_test_tracing();
         assert!(!is_multibyte_string("hello"));
         assert!(is_multibyte_string("héllo"));
         assert!(is_multibyte_string("中文"));
@@ -1347,6 +1371,7 @@ mod tests {
 
     #[test]
     fn multibyte_detection_treats_unibyte_storage_as_unibyte() {
+        crate::test_utils::init_test_tracing();
         let unibyte_ascii =
             crate::emacs_core::string_escape::bytes_to_unibyte_storage_string(b"abc");
         assert!(!is_multibyte_string(&unibyte_ascii));
@@ -1358,6 +1383,7 @@ mod tests {
 
     #[test]
     fn builtin_multibyte_string_p_matches_oracle_non_string_and_unibyte_storage() {
+        crate::test_utils::init_test_tracing();
         assert_eq!(
             builtin_multibyte_string_p(vec![Value::string("abc")]).unwrap(),
             Value::NIL
@@ -1382,6 +1408,7 @@ mod tests {
 
     #[test]
     fn builtin_unibyte_string_p_basics() {
+        crate::test_utils::init_test_tracing();
         assert_eq!(
             builtin_unibyte_string_p(vec![Value::string("hello")]).unwrap(),
             Value::T
@@ -1394,6 +1421,7 @@ mod tests {
 
     #[test]
     fn builtin_unibyte_string_p_errors() {
+        crate::test_utils::init_test_tracing();
         // Wrong arity signals error.
         assert!(builtin_unibyte_string_p(vec![]).is_err());
         // Non-string arg returns nil (type predicates don't error on wrong type).
@@ -1405,6 +1433,7 @@ mod tests {
 
     #[test]
     fn printable_check() {
+        crate::test_utils::init_test_tracing();
         assert!(is_printable('a'));
         assert!(is_printable('中'));
         assert!(!is_printable('\x00'));

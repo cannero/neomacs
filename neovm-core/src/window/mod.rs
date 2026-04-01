@@ -1938,6 +1938,7 @@ mod tests {
 
     #[test]
     fn create_frame_and_window() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let frame = mgr.get(fid).unwrap();
@@ -1949,6 +1950,7 @@ mod tests {
 
     #[test]
     fn split_window_horizontal() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let wid = mgr.get(fid).unwrap().window_list()[0];
@@ -1962,6 +1964,7 @@ mod tests {
 
     #[test]
     fn split_window_vertical() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let wid = mgr.get(fid).unwrap().window_list()[0];
@@ -1975,6 +1978,7 @@ mod tests {
 
     #[test]
     fn split_window_copies_window_display_state() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         {
@@ -2045,6 +2049,7 @@ mod tests {
 
     #[test]
     fn split_window_resets_new_leaf_vscroll_state() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let original_wid = mgr.get(fid).unwrap().window_list()[0];
@@ -2097,6 +2102,7 @@ mod tests {
 
     #[test]
     fn delete_window() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let wid = mgr.get(fid).unwrap().window_list()[0];
@@ -2113,6 +2119,7 @@ mod tests {
 
     #[test]
     fn cannot_delete_last_window() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let wid = mgr.get(fid).unwrap().window_list()[0];
@@ -2122,6 +2129,7 @@ mod tests {
 
     #[test]
     fn select_window() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let wid = mgr.get(fid).unwrap().window_list()[0];
@@ -2136,6 +2144,7 @@ mod tests {
 
     #[test]
     fn window_at_coordinates() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let wid = mgr.get(fid).unwrap().window_list()[0];
@@ -2155,6 +2164,7 @@ mod tests {
 
     #[test]
     fn frame_columns_and_lines() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let frame = mgr.get(fid).unwrap();
@@ -2165,6 +2175,7 @@ mod tests {
 
     #[test]
     fn delete_frame() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         assert!(mgr.delete_frame(fid));
@@ -2173,6 +2184,7 @@ mod tests {
 
     #[test]
     fn multiple_frames() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let f1 = mgr.create_frame("F1", 800, 600, BufferId(1));
         let f2 = mgr.create_frame("F2", 1024, 768, BufferId(2));
@@ -2187,6 +2199,7 @@ mod tests {
 
     #[test]
     fn rect_contains() {
+        crate::test_utils::init_test_tracing();
         let r = Rect::new(10.0, 20.0, 100.0, 50.0);
         assert!(r.contains(10.0, 20.0));
         assert!(r.contains(50.0, 40.0));
@@ -2196,6 +2209,7 @@ mod tests {
 
     #[test]
     fn find_window_frame_id() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let wid = mgr.get(fid).unwrap().window_list()[0];
@@ -2206,6 +2220,7 @@ mod tests {
 
     #[test]
     fn is_live_window_id() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let wid = mgr.get(fid).unwrap().window_list()[0];
@@ -2216,6 +2231,7 @@ mod tests {
 
     #[test]
     fn window_parameters() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let wid = mgr.get(fid).unwrap().window_list()[0];
@@ -2232,6 +2248,7 @@ mod tests {
 
     #[test]
     fn split_window_does_not_copy_window_parameters() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let wid = mgr.get(fid).unwrap().window_list()[0];
@@ -2248,6 +2265,7 @@ mod tests {
 
     #[test]
     fn deleted_window_retains_window_parameters() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let wid = mgr.get(fid).unwrap().window_list()[0];
@@ -2263,6 +2281,7 @@ mod tests {
 
     #[test]
     fn replace_buffer_in_windows() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let wid = mgr.get(fid).unwrap().window_list()[0];
@@ -2286,6 +2305,7 @@ mod tests {
 
     #[test]
     fn deep_split_and_delete() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let w1 = mgr.get(fid).unwrap().window_list()[0];
@@ -2316,6 +2336,7 @@ mod tests {
 
     #[test]
     fn note_window_selected_updates_use_time() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let w1 = mgr.get(fid).unwrap().window_list()[0];
@@ -2331,6 +2352,7 @@ mod tests {
 
     #[test]
     fn window_set_buffer_resets_position() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let wid = mgr.get(fid).unwrap().window_list()[0];
@@ -2362,6 +2384,7 @@ mod tests {
 
     #[test]
     fn frame_resize_pixelwise_updates_window_tree_and_invalidates_display_state() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let w1 = mgr.get(fid).unwrap().window_list()[0];
@@ -2424,6 +2447,7 @@ mod tests {
 
     #[test]
     fn frame_resize_pixelwise_reserves_tab_bar_height_above_root_window_tree() {
+        crate::test_utils::init_test_tracing();
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         let frame = mgr.get_mut(fid).unwrap();

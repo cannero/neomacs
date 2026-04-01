@@ -144,6 +144,7 @@ fn eval_int(ev: &mut Context, src: &str) -> i64 {
 
 #[test]
 fn test_bobp_at_beginning() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("hello");
     let val = eval_str(&mut ev, "(bobp)");
     assert!(val.is_truthy());
@@ -151,6 +152,7 @@ fn test_bobp_at_beginning() {
 
 #[test]
 fn test_bobp_not_at_beginning() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("hello");
     eval_str(&mut ev, "(forward-char 2)");
     let val = eval_str(&mut ev, "(bobp)");
@@ -159,6 +161,7 @@ fn test_bobp_not_at_beginning() {
 
 #[test]
 fn test_eobp_at_end() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("hello");
     eval_str(&mut ev, "(goto-char 6)"); // past last char (1-based)
     let val = eval_str(&mut ev, "(eobp)");
@@ -167,6 +170,7 @@ fn test_eobp_at_end() {
 
 #[test]
 fn test_eobp_not_at_end() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("hello");
     let val = eval_str(&mut ev, "(eobp)");
     assert!(val.is_nil());
@@ -174,6 +178,7 @@ fn test_eobp_not_at_end() {
 
 #[test]
 fn test_bolp_at_beginning_of_buffer() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("hello");
     let val = eval_str(&mut ev, "(bolp)");
     assert!(val.is_truthy());
@@ -181,6 +186,7 @@ fn test_bolp_at_beginning_of_buffer() {
 
 #[test]
 fn test_bolp_after_newline() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("abc\ndef");
     eval_str(&mut ev, "(goto-char 5)"); // right after newline
     let val = eval_str(&mut ev, "(bolp)");
@@ -189,6 +195,7 @@ fn test_bolp_after_newline() {
 
 #[test]
 fn test_bolp_not_at_bol() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("hello");
     eval_str(&mut ev, "(forward-char 2)");
     let val = eval_str(&mut ev, "(bolp)");
@@ -197,6 +204,7 @@ fn test_bolp_not_at_bol() {
 
 #[test]
 fn test_eolp_at_newline() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("abc\ndef");
     eval_str(&mut ev, "(goto-char 4)"); // at newline
     let val = eval_str(&mut ev, "(eolp)");
@@ -205,6 +213,7 @@ fn test_eolp_at_newline() {
 
 #[test]
 fn test_eolp_at_eob() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("hello");
     eval_str(&mut ev, "(goto-char 6)");
     let val = eval_str(&mut ev, "(eolp)");
@@ -213,6 +222,7 @@ fn test_eolp_at_eob() {
 
 #[test]
 fn test_eolp_not_at_eol() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("hello");
     eval_str(&mut ev, "(goto-char 2)");
     let val = eval_str(&mut ev, "(eolp)");
@@ -225,6 +235,7 @@ fn test_eolp_not_at_eol() {
 
 #[test]
 fn test_line_beginning_position() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("abc\ndef\nghi");
     eval_str(&mut ev, "(goto-char 6)"); // middle of "def"
     let pos = eval_int(&mut ev, "(line-beginning-position)");
@@ -233,6 +244,7 @@ fn test_line_beginning_position() {
 
 #[test]
 fn test_line_end_position() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("abc\ndef\nghi");
     eval_str(&mut ev, "(goto-char 6)"); // middle of "def"
     let pos = eval_int(&mut ev, "(line-end-position)");
@@ -241,6 +253,7 @@ fn test_line_end_position() {
 
 #[test]
 fn test_line_beginning_position_with_offset() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("aaa\nbbb\nccc");
     eval_str(&mut ev, "(goto-char 1)"); // beginning of first line
     let pos = eval_int(&mut ev, "(line-beginning-position 2)");
@@ -249,6 +262,7 @@ fn test_line_beginning_position_with_offset() {
 
 #[test]
 fn test_line_end_position_with_offset() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("aaa\nbbb\nccc");
     eval_str(&mut ev, "(goto-char 1)");
     let pos = eval_int(&mut ev, "(line-end-position 2)");
@@ -257,6 +271,7 @@ fn test_line_end_position_with_offset() {
 
 #[test]
 fn test_line_positions_with_zero_offset() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("hello world\nfoo bar\nbaz qux\n");
     eval_str(&mut ev, "(goto-char 14)");
     assert_eq!(eval_int(&mut ev, "(line-beginning-position 0)"), 1);
@@ -265,6 +280,7 @@ fn test_line_positions_with_zero_offset() {
 
 #[test]
 fn test_line_end_position_zero_offset_clips_to_point_min() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("hello world\nfoo bar\n");
     eval_str(&mut ev, "(goto-char 5)");
     assert_eq!(eval_int(&mut ev, "(line-end-position 0)"), 1);
@@ -272,6 +288,7 @@ fn test_line_end_position_zero_offset_clips_to_point_min() {
 
 #[test]
 fn test_line_number_at_pos() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("abc\ndef\nghi");
     let n = eval_int(&mut ev, "(line-number-at-pos 6)");
     assert_eq!(n, 2); // "def" is line 2
@@ -279,6 +296,7 @@ fn test_line_number_at_pos() {
 
 #[test]
 fn test_line_number_at_pos_default() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("abc\ndef\nghi");
     // Point is at 1 (first char)
     let n = eval_int(&mut ev, "(line-number-at-pos)");
@@ -287,6 +305,7 @@ fn test_line_number_at_pos_default() {
 
 #[test]
 fn test_forward_line() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("abc\ndef\nghi");
     let remainder = eval_int(&mut ev, "(forward-line 1)");
     assert_eq!(remainder, 0);
@@ -296,6 +315,7 @@ fn test_forward_line() {
 
 #[test]
 fn test_forward_line_past_end() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("abc\ndef");
     let remainder = eval_int(&mut ev, "(forward-line 5)");
     assert!(remainder > 0);
@@ -303,6 +323,7 @@ fn test_forward_line_past_end() {
 
 #[test]
 fn test_forward_line_negative_from_middle_of_line() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("aaa\nbbb\nccc");
     eval_str(&mut ev, "(goto-char 6)");
     let remainder = eval_int(&mut ev, "(forward-line -1)");
@@ -312,6 +333,7 @@ fn test_forward_line_negative_from_middle_of_line() {
 
 #[test]
 fn bootstrap_next_and_previous_line_match_simple_el() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_line_eval();
     let ownership = eval_str(
         &mut ev,
@@ -381,6 +403,7 @@ fn bootstrap_next_and_previous_line_match_simple_el() {
 
 #[test]
 fn test_beginning_of_line() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("abc\ndef");
     eval_str(&mut ev, "(goto-char 6)");
     eval_str(&mut ev, "(beginning-of-line)");
@@ -390,6 +413,7 @@ fn test_beginning_of_line() {
 
 #[test]
 fn test_end_of_line() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("abc\ndef");
     eval_str(&mut ev, "(goto-char 1)");
     eval_str(&mut ev, "(end-of-line)");
@@ -399,6 +423,7 @@ fn test_end_of_line() {
 
 #[test]
 fn bootstrap_beginning_and_end_of_buffer_match_simple_el() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_line_eval();
     let buf = ev.buffers.current_buffer_id().expect("current buffer");
     ev.frames.create_frame("F1", 800, 600, buf);
@@ -463,6 +488,7 @@ fn bootstrap_beginning_and_end_of_buffer_match_simple_el() {
 
 #[test]
 fn bootstrap_goto_line_matches_simple_el() {
+    crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_line_eval();
 
     let ownership = eval_str(&mut ev, "(subrp (symbol-function 'goto-line))");
@@ -505,6 +531,7 @@ fn bootstrap_goto_line_matches_simple_el() {
 
 #[test]
 fn test_forward_char() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("abcdef");
     eval_str(&mut ev, "(forward-char 3)");
     let pos = eval_int(&mut ev, "(point)");
@@ -513,6 +540,7 @@ fn test_forward_char() {
 
 #[test]
 fn test_backward_char() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("abcdef");
     eval_str(&mut ev, "(goto-char 5)");
     eval_str(&mut ev, "(backward-char 2)");
@@ -522,6 +550,7 @@ fn test_backward_char() {
 
 #[test]
 fn test_forward_char_default() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("abcdef");
     eval_str(&mut ev, "(forward-char)");
     let pos = eval_int(&mut ev, "(point)");
@@ -530,6 +559,7 @@ fn test_forward_char_default() {
 
 #[test]
 fn test_skip_chars_forward() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("aaabbbccc");
     let moved = eval_int(&mut ev, "(skip-chars-forward \"a\")");
     assert_eq!(moved, 3);
@@ -539,6 +569,7 @@ fn test_skip_chars_forward() {
 
 #[test]
 fn test_skip_chars_forward_range() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("abcdef123");
     let moved = eval_int(&mut ev, "(skip-chars-forward \"a-f\")");
     assert_eq!(moved, 6);
@@ -546,6 +577,7 @@ fn test_skip_chars_forward_range() {
 
 #[test]
 fn test_skip_chars_backward() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("aaabbbccc");
     eval_str(&mut ev, "(goto-char 10)"); // end
     let moved = eval_int(&mut ev, "(skip-chars-backward \"c\")");
@@ -556,6 +588,7 @@ fn test_skip_chars_backward() {
 
 #[test]
 fn test_skip_chars_forward_negate() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("aaabbbccc");
     let moved = eval_int(&mut ev, "(skip-chars-forward \"^b\")");
     assert_eq!(moved, 3);
@@ -567,6 +600,7 @@ fn test_skip_chars_forward_negate() {
 
 #[test]
 fn test_push_mark_and_mark() {
+    crate::test_utils::init_test_tracing();
     let mut ev = bootstrap_eval_with_text("hello world");
     eval_str(&mut ev, "(push-mark 3)");
     let m = eval_int(&mut ev, "(mark t)");
@@ -575,6 +609,7 @@ fn test_push_mark_and_mark() {
 
 #[test]
 fn test_push_mark_default_pos() {
+    crate::test_utils::init_test_tracing();
     let mut ev = bootstrap_eval_with_text("hello");
     eval_str(&mut ev, "(goto-char 3)");
     eval_str(&mut ev, "(push-mark)");
@@ -584,6 +619,7 @@ fn test_push_mark_default_pos() {
 
 #[test]
 fn test_pop_mark() {
+    crate::test_utils::init_test_tracing();
     let mut ev = bootstrap_eval_with_text("hello world");
     eval_str(&mut ev, "(push-mark 3)");
     eval_str(&mut ev, "(push-mark 5)");
@@ -597,6 +633,7 @@ fn test_pop_mark() {
 
 #[test]
 fn test_region_beginning_and_end() {
+    crate::test_utils::init_test_tracing();
     let mut ev = bootstrap_eval_with_text("hello world");
     eval_str(&mut ev, "(goto-char 8)");
     eval_str(&mut ev, "(push-mark 3 nil t)");
@@ -608,6 +645,7 @@ fn test_region_beginning_and_end() {
 
 #[test]
 fn test_use_region_p_is_available_after_bootstrap() {
+    crate::test_utils::init_test_tracing();
     // use-region-p is a defun in simple.el, not autoloaded in GNU Emacs.
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut ev).expect("runtime startup state");
@@ -623,6 +661,7 @@ fn test_use_region_p_is_available_after_bootstrap() {
 
 #[test]
 fn test_use_region_p() {
+    crate::test_utils::init_test_tracing();
     let mut ev = bootstrap_eval_with_text("hello");
     let active = eval_str(
         &mut ev,
@@ -635,6 +674,7 @@ fn test_use_region_p() {
 
 #[test]
 fn test_use_region_p_inactive() {
+    crate::test_utils::init_test_tracing();
     let mut ev = bootstrap_eval_with_text("hello");
     eval_str(&mut ev, "(push-mark 3)"); // not activated
     let active = eval_str(&mut ev, "(use-region-p)");
@@ -643,6 +683,7 @@ fn test_use_region_p_inactive() {
 
 #[test]
 fn test_region_active_p_true_for_active_empty_region() {
+    crate::test_utils::init_test_tracing();
     let mut ev = bootstrap_eval_with_text("hello");
     let active = eval_str(
         &mut ev,
@@ -655,6 +696,7 @@ fn test_region_active_p_true_for_active_empty_region() {
 
 #[test]
 fn test_region_active_p_requires_mark() {
+    crate::test_utils::init_test_tracing();
     let mut ev = bootstrap_eval_with_text("hello");
     let active = eval_str(
         &mut ev,
@@ -672,6 +714,7 @@ fn test_region_active_p_requires_mark() {
 
 #[test]
 fn test_region_active_p_over_arity() {
+    crate::test_utils::init_test_tracing();
     let mut ev = bootstrap_eval_with_text("hello");
     let result = eval_str(
         &mut ev,
@@ -682,6 +725,7 @@ fn test_region_active_p_over_arity() {
 
 #[test]
 fn test_deactivate_mark() {
+    crate::test_utils::init_test_tracing();
     let mut ev = bootstrap_eval_with_text("hello");
     eval_str(&mut ev, "(push-mark 3 nil t)");
     eval_str(&mut ev, "(deactivate-mark)");
@@ -691,6 +735,7 @@ fn test_deactivate_mark() {
 
 #[test]
 fn test_exchange_point_and_mark() {
+    crate::test_utils::init_test_tracing();
     let mut ev = bootstrap_eval_with_text("hello world");
     eval_str(&mut ev, "(goto-char 3)");
     eval_str(&mut ev, "(push-mark 8 nil t)");
@@ -703,6 +748,7 @@ fn test_exchange_point_and_mark() {
 
 #[test]
 fn test_transient_mark_mode() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("hello");
     let enabled = eval_str(&mut ev, "(transient-mark-mode)");
     assert!(enabled.is_truthy());
@@ -725,6 +771,7 @@ fn test_transient_mark_mode() {
 
 #[test]
 fn test_transient_mark_mode_over_arity() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("hello");
     let result = eval_str(
         &mut ev,
@@ -735,6 +782,7 @@ fn test_transient_mark_mode_over_arity() {
 
 #[test]
 fn test_mark_marker() {
+    crate::test_utils::init_test_tracing();
     let mut ev = bootstrap_eval_with_text("hello");
     eval_str(&mut ev, "(push-mark 4)");
     let pos = eval_int(&mut ev, "(marker-position (mark-marker))");
@@ -743,6 +791,7 @@ fn test_mark_marker() {
 
 #[test]
 fn test_set_mark_activates() {
+    crate::test_utils::init_test_tracing();
     let mut ev = bootstrap_eval_with_text("hello");
     let active = eval_str(
         &mut ev,
@@ -755,6 +804,7 @@ fn test_set_mark_activates() {
 
 #[test]
 fn test_use_region_p_honors_buffer_local_mark_active_when_global_is_nil() {
+    crate::test_utils::init_test_tracing();
     let mut ev = bootstrap_eval_with_text("hello");
     let active = eval_str(
         &mut ev,
@@ -775,6 +825,7 @@ fn test_use_region_p_honors_buffer_local_mark_active_when_global_is_nil() {
 
 #[test]
 fn test_empty_buffer_predicates() {
+    crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let val = eval_str(&mut ev, "(bobp)");
     assert!(val.is_truthy());
@@ -788,6 +839,7 @@ fn test_empty_buffer_predicates() {
 
 #[test]
 fn test_forward_line_negative() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("abc\ndef\nghi");
     eval_str(&mut ev, "(goto-char 9)"); // on "ghi" line
     eval_str(&mut ev, "(forward-line -1)");
@@ -797,6 +849,7 @@ fn test_forward_line_negative() {
 
 #[test]
 fn test_line_number_at_pos_last_line() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("abc\ndef\nghi");
     let n = eval_int(&mut ev, "(line-number-at-pos 10)");
     assert_eq!(n, 3);
@@ -804,6 +857,7 @@ fn test_line_number_at_pos_last_line() {
 
 #[test]
 fn test_skip_chars_forward_with_limit() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("aaaaaaa");
     let moved = eval_int(&mut ev, "(skip-chars-forward \"a\" 4)");
     assert_eq!(moved, 3); // limited to position 4 (1-based = 3 chars from pos 1)
@@ -811,6 +865,7 @@ fn test_skip_chars_forward_with_limit() {
 
 #[test]
 fn test_forward_char_negative() {
+    crate::test_utils::init_test_tracing();
     let mut ev = eval_with_text("abcdef");
     eval_str(&mut ev, "(goto-char 4)");
     eval_str(&mut ev, "(forward-char -2)");

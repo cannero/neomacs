@@ -19,6 +19,7 @@ fn clear_terminal_parameters() {
 
 #[test]
 fn x_window_system_active_falls_back_to_window_system_when_initial_is_nil() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     eval.set_variable("initial-window-system", Value::NIL);
     eval.set_variable("window-system", Value::symbol(gui_window_system_symbol()));
@@ -29,6 +30,7 @@ fn x_window_system_active_falls_back_to_window_system_when_initial_is_nil() {
 
 #[test]
 fn terminal_parameter_exposes_oracle_defaults() {
+    crate::test_utils::init_test_tracing();
     clear_terminal_parameters();
     let mut eval = crate::emacs_core::Context::new();
     let normal = builtin_terminal_parameter(
@@ -53,6 +55,7 @@ fn terminal_parameter_exposes_oracle_defaults() {
 
 #[test]
 fn terminal_parameter_round_trips() {
+    crate::test_utils::init_test_tracing();
     clear_terminal_parameters();
     let mut eval = crate::emacs_core::Context::new();
     let set_result = builtin_set_terminal_parameter(
@@ -70,6 +73,7 @@ fn terminal_parameter_round_trips() {
 
 #[test]
 fn set_terminal_parameter_returns_previous_default_values() {
+    crate::test_utils::init_test_tracing();
     clear_terminal_parameters();
     let mut eval = crate::emacs_core::Context::new();
     let previous_normal = builtin_set_terminal_parameter(
@@ -97,6 +101,7 @@ fn set_terminal_parameter_returns_previous_default_values() {
 
 #[test]
 fn terminal_parameter_distinct_keys_do_not_alias() {
+    crate::test_utils::init_test_tracing();
     clear_terminal_parameters();
     let mut eval = crate::emacs_core::Context::new();
     builtin_set_terminal_parameter(
@@ -120,6 +125,7 @@ fn terminal_parameter_distinct_keys_do_not_alias() {
 
 #[test]
 fn terminal_parameter_rejects_non_symbol_key() {
+    crate::test_utils::init_test_tracing();
     clear_terminal_parameters();
     let mut eval = crate::emacs_core::Context::new();
     let result = builtin_terminal_parameter(&mut eval, vec![Value::NIL, Value::string("k")]);
@@ -128,6 +134,7 @@ fn terminal_parameter_rejects_non_symbol_key() {
 
 #[test]
 fn set_terminal_parameter_ignores_non_symbol_key() {
+    crate::test_utils::init_test_tracing();
     clear_terminal_parameters();
     let mut eval = crate::emacs_core::Context::new();
     let set_result = builtin_set_terminal_parameter(
@@ -151,6 +158,7 @@ fn set_terminal_parameter_ignores_non_symbol_key() {
 
 #[test]
 fn set_terminal_parameter_returns_previous_for_repeat_non_symbol_key() {
+    crate::test_utils::init_test_tracing();
     clear_terminal_parameters();
     let mut eval = crate::emacs_core::Context::new();
     let first = builtin_set_terminal_parameter(
@@ -170,6 +178,7 @@ fn set_terminal_parameter_returns_previous_for_repeat_non_symbol_key() {
 
 #[test]
 fn terminal_parameter_rejects_non_terminal_designator() {
+    crate::test_utils::init_test_tracing();
     clear_terminal_parameters();
     let mut eval = crate::emacs_core::Context::new();
     let result = builtin_terminal_parameter(&mut eval, vec![Value::fixnum(1), Value::symbol("k")]);
@@ -178,6 +187,7 @@ fn terminal_parameter_rejects_non_terminal_designator() {
 
 #[test]
 fn terminal_parameters_lists_mutated_symbol_entries() {
+    crate::test_utils::init_test_tracing();
     clear_terminal_parameters();
     let mut eval = crate::emacs_core::Context::new();
     let _ = builtin_set_terminal_parameter(
@@ -218,6 +228,7 @@ fn terminal_parameters_lists_mutated_symbol_entries() {
 
 #[test]
 fn set_terminal_parameter_rejects_non_terminal_designator() {
+    crate::test_utils::init_test_tracing();
     clear_terminal_parameters();
     let mut eval = crate::emacs_core::Context::new();
     let result = builtin_set_terminal_parameter(
@@ -229,6 +240,7 @@ fn set_terminal_parameter_rejects_non_terminal_designator() {
 
 #[test]
 fn eval_terminal_parameter_accepts_live_frame_designator() {
+    crate::test_utils::init_test_tracing();
     clear_terminal_parameters();
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
@@ -254,6 +266,7 @@ fn eval_terminal_parameter_accepts_live_frame_designator() {
 
 #[test]
 fn terminal_live_p_reflects_designator_shape() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let live_nil = builtin_terminal_live_p(&mut eval, vec![Value::NIL]).unwrap();
     let live_handle = builtin_terminal_live_p(&mut eval, vec![terminal_handle_value()]).unwrap();
@@ -268,6 +281,7 @@ fn terminal_live_p_reflects_designator_shape() {
 
 #[test]
 fn eval_terminal_live_p_accepts_live_frame_designator() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
     let live = builtin_terminal_live_p(&mut eval, vec![Value::make_frame(frame_id)]).unwrap();
@@ -279,6 +293,7 @@ fn eval_terminal_live_p_accepts_live_frame_designator() {
 
 #[test]
 fn terminal_name_rejects_invalid_designator() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let result = builtin_terminal_name(&mut eval, vec![Value::fixnum(1)]);
     assert!(result.is_err());
@@ -286,6 +301,7 @@ fn terminal_name_rejects_invalid_designator() {
 
 #[test]
 fn eval_terminal_name_accepts_live_frame_designator() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
     let result = builtin_terminal_name(&mut eval, vec![Value::make_frame(frame_id)]).unwrap();
@@ -294,6 +310,7 @@ fn eval_terminal_name_accepts_live_frame_designator() {
 
 #[test]
 fn frame_terminal_rejects_non_frame_designator() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let result = builtin_frame_terminal(&mut eval, vec![Value::string("not-a-frame")]);
     assert!(result.is_err());
@@ -301,6 +318,7 @@ fn frame_terminal_rejects_non_frame_designator() {
 
 #[test]
 fn frame_terminal_accepts_frame_id() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let result = builtin_frame_terminal(&mut eval, vec![Value::fixnum(1)]);
     assert!(result.is_ok());
@@ -311,6 +329,7 @@ fn frame_terminal_accepts_frame_id() {
 
 #[test]
 fn frame_terminal_returns_live_terminal_handle() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let handle = builtin_frame_terminal(&mut eval, vec![Value::NIL]).unwrap();
     let live = builtin_terminal_live_p(&mut eval, vec![handle]).unwrap();
@@ -319,6 +338,7 @@ fn frame_terminal_returns_live_terminal_handle() {
 
 #[test]
 fn selected_terminal_returns_live_terminal_handle() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let handle = builtin_selected_terminal(vec![]).unwrap();
     let live = builtin_terminal_live_p(&mut eval, vec![handle]).unwrap();
@@ -327,11 +347,13 @@ fn selected_terminal_returns_live_terminal_handle() {
 
 #[test]
 fn selected_terminal_arity() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_selected_terminal(vec![Value::NIL]).is_err());
 }
 
 #[test]
 fn eval_frame_terminal_accepts_live_frame_designator() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
     let handle = builtin_frame_terminal(&mut eval, vec![Value::make_frame(frame_id)]).unwrap();
@@ -341,6 +363,7 @@ fn eval_frame_terminal_accepts_live_frame_designator() {
 
 #[test]
 fn redraw_frame_rejects_non_frame_designator() {
+    crate::test_utils::init_test_tracing();
     let mut ctx = crate::emacs_core::Context::new();
     let result = builtin_redraw_frame(&mut ctx, vec![Value::string("not-a-frame")]);
     assert!(result.is_err());
@@ -348,6 +371,7 @@ fn redraw_frame_rejects_non_frame_designator() {
 
 #[test]
 fn eval_redraw_frame_accepts_live_frame_designator() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
     let result = builtin_redraw_frame(&mut eval, vec![Value::make_frame(frame_id)]).unwrap();
@@ -356,6 +380,7 @@ fn eval_redraw_frame_accepts_live_frame_designator() {
 
 #[test]
 fn frame_edges_string_designator_uses_unquoted_live_frame_error_message() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let result = builtin_frame_edges(&mut eval, vec![Value::string("x")]);
     match result {
@@ -369,6 +394,7 @@ fn frame_edges_string_designator_uses_unquoted_live_frame_error_message() {
 
 #[test]
 fn eval_frame_edges_numeric_designator_reports_numeric_message() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let result = builtin_frame_edges(&mut eval, vec![Value::fixnum(999_999)]);
     match result {
@@ -382,6 +408,7 @@ fn eval_frame_edges_numeric_designator_reports_numeric_message() {
 
 #[test]
 fn eval_frame_edges_live_window_designator_includes_buffer_context() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let _ = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
     let window =
@@ -404,6 +431,7 @@ fn eval_frame_edges_live_window_designator_includes_buffer_context() {
 
 #[test]
 fn open_termscript_uses_batch_tty_error_payload() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_open_termscript(vec![Value::NIL]);
     match result {
         Err(Flow::Signal(sig)) => {
@@ -419,6 +447,7 @@ fn open_termscript_uses_batch_tty_error_payload() {
 
 #[test]
 fn send_string_to_terminal_rejects_invalid_terminal_designator() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let result =
         builtin_send_string_to_terminal(&mut eval, vec![Value::string(""), Value::fixnum(1)]);
@@ -427,6 +456,7 @@ fn send_string_to_terminal_rejects_invalid_terminal_designator() {
 
 #[test]
 fn send_string_to_terminal_accepts_live_terminal_handle() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let handle = terminal_handle_value();
     let result =
@@ -436,6 +466,7 @@ fn send_string_to_terminal_accepts_live_terminal_handle() {
 
 #[test]
 fn eval_send_string_to_terminal_accepts_live_frame_designator() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
     let result = builtin_send_string_to_terminal(
@@ -448,6 +479,7 @@ fn eval_send_string_to_terminal_accepts_live_frame_designator() {
 
 #[test]
 fn internal_show_cursor_tracks_visibility_state() {
+    crate::test_utils::init_test_tracing();
     reset_dispnew_thread_locals();
     let mut eval = crate::emacs_core::Context::new();
     let default_visible = builtin_internal_show_cursor_p(&mut eval, vec![]).unwrap();
@@ -464,6 +496,7 @@ fn internal_show_cursor_tracks_visibility_state() {
 
 #[test]
 fn internal_show_cursor_rejects_non_window_designator() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let result = builtin_internal_show_cursor(&mut eval, vec![Value::fixnum(1), Value::NIL]);
     assert!(result.is_err());
@@ -471,6 +504,7 @@ fn internal_show_cursor_rejects_non_window_designator() {
 
 #[test]
 fn eval_internal_show_cursor_accepts_live_window_designator() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let _ = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
     let window =
@@ -481,6 +515,7 @@ fn eval_internal_show_cursor_accepts_live_window_designator() {
 
 #[test]
 fn eval_internal_show_cursor_p_accepts_live_window_designator() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let _ = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
     let window =
@@ -491,6 +526,7 @@ fn eval_internal_show_cursor_p_accepts_live_window_designator() {
 
 #[test]
 fn eval_internal_show_cursor_tracks_per_window_state() {
+    crate::test_utils::init_test_tracing();
     reset_dispnew_thread_locals();
     let mut eval = crate::emacs_core::Context::new();
     let _ = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
@@ -548,6 +584,7 @@ fn eval_internal_show_cursor_tracks_per_window_state() {
 
 #[test]
 fn tty_queries_reject_invalid_terminal_designator() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let tty_type = builtin_tty_type(&mut eval, vec![Value::fixnum(1)]);
     let tty_top_frame = builtin_tty_top_frame(&mut eval, vec![Value::fixnum(1)]);
@@ -559,6 +596,7 @@ fn tty_queries_reject_invalid_terminal_designator() {
 
 #[test]
 fn eval_tty_queries_accept_live_frame_designator() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
     assert!(
@@ -580,6 +618,7 @@ fn eval_tty_queries_accept_live_frame_designator() {
 
 #[test]
 fn suspend_tty_signals_non_text_terminal_error() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     for args in [vec![], vec![Value::NIL], vec![terminal_handle_value()]] {
         let result = builtin_suspend_tty(&mut eval, args);
@@ -600,6 +639,7 @@ fn suspend_tty_signals_non_text_terminal_error() {
 
 #[test]
 fn eval_suspend_resume_accept_live_frame_and_signal_non_text_terminal_error() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
     let suspend = builtin_suspend_tty(&mut eval, vec![Value::make_frame(frame_id)]);
@@ -610,6 +650,7 @@ fn eval_suspend_resume_accept_live_frame_and_signal_non_text_terminal_error() {
 
 #[test]
 fn resume_tty_signals_non_text_terminal_error() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     for args in [vec![], vec![Value::NIL], vec![terminal_handle_value()]] {
         let result = builtin_resume_tty(&mut eval, args);
@@ -630,6 +671,7 @@ fn resume_tty_signals_non_text_terminal_error() {
 
 #[test]
 fn x_open_connection_requires_string_display_arg() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let bad = builtin_x_open_connection(&mut eval, vec![Value::NIL]);
     assert!(bad.is_err());
@@ -637,6 +679,7 @@ fn x_open_connection_requires_string_display_arg() {
 
 #[test]
 fn x_open_connection_eval_accepts_x_host_startup() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     eval.set_variable("initial-window-system", Value::symbol("x"));
     assert!(
@@ -648,6 +691,7 @@ fn x_open_connection_eval_accepts_x_host_startup() {
 
 #[test]
 fn x_window_system_resource_queries_return_nil() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     eval.set_variable("initial-window-system", Value::symbol("x"));
 
@@ -673,6 +717,7 @@ fn x_window_system_resource_queries_return_nil() {
 
 #[test]
 fn x_open_connection_arity_errors() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let x_open_none = builtin_x_open_connection(&mut eval, vec![]);
     let x_open_four = builtin_x_open_connection(
@@ -702,6 +747,7 @@ fn x_open_connection_arity_errors() {
 
 #[test]
 fn x_close_connection_argument_shape_errors() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let x_nil = builtin_x_close_connection(&mut eval, vec![Value::NIL]);
     let x_int = builtin_x_close_connection(&mut eval, vec![Value::fixnum(1)]);
@@ -740,6 +786,7 @@ fn x_close_connection_argument_shape_errors() {
 
 #[test]
 fn eval_x_close_connection_live_frame_uses_window_system_error() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
 
@@ -758,6 +805,7 @@ fn eval_x_close_connection_live_frame_uses_window_system_error() {
 
 #[test]
 fn x_display_pixel_size_errors_match_batch_shapes() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let width_none = builtin_x_display_pixel_width(&mut eval, vec![]);
     let width_int = builtin_x_display_pixel_width(&mut eval, vec![Value::fixnum(1)]);
@@ -797,6 +845,7 @@ fn x_display_pixel_size_errors_match_batch_shapes() {
 
 #[test]
 fn x_missing_optional_display_queries_match_batch_no_x_shapes() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let term = terminal_handle_value();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
@@ -876,6 +925,7 @@ fn x_missing_optional_display_queries_match_batch_no_x_shapes() {
 
 #[test]
 fn x_gui_display_queries_accept_nil_and_live_frames_when_x_is_active() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
     let frame = Value::fixnum(frame_id.0 as i64);
@@ -922,6 +972,7 @@ fn x_gui_display_queries_accept_nil_and_live_frames_when_x_is_active() {
 
 #[test]
 fn display_queries_default_to_selected_frame_window_system_surface() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
     let frame = Value::fixnum(frame_id.0 as i64);
@@ -978,6 +1029,7 @@ fn display_queries_default_to_selected_frame_window_system_surface() {
 
 #[test]
 fn x_display_set_last_user_time_batch_semantics() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
 
     match builtin_x_display_set_last_user_time(&mut eval, vec![Value::NIL]) {
@@ -1060,6 +1112,7 @@ fn x_display_set_last_user_time_batch_semantics() {
 
 #[test]
 fn x_display_set_last_user_time_eval_uses_user_time_designator_payloads() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let term = terminal_handle_value();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
@@ -1109,6 +1162,7 @@ fn x_display_set_last_user_time_eval_uses_user_time_designator_payloads() {
 
 #[test]
 fn x_selection_queries_and_old_gtk_dialog_batch_semantics() {
+    crate::test_utils::init_test_tracing();
     assert!(builtin_x_selection_exists_p(vec![]).unwrap().is_nil());
     assert!(builtin_x_selection_owner_p(vec![]).unwrap().is_nil());
     assert!(
@@ -1145,6 +1199,7 @@ fn x_selection_queries_and_old_gtk_dialog_batch_semantics() {
 
 #[test]
 fn x_geometry_fonts_and_resource_batch_semantics() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(
         builtin_x_parse_geometry(vec![Value::string("80x24+10+20")]).unwrap(),
         Value::list(vec![
@@ -1233,6 +1288,7 @@ fn x_geometry_fonts_and_resource_batch_semantics() {
 
 #[test]
 fn x_property_and_frame_arg_batch_semantics() {
+    crate::test_utils::init_test_tracing();
     for args in [vec![], vec![Value::NIL], vec![Value::make_frame(1)]] {
         match builtin_x_backspace_delete_keys_p(args) {
             Err(Flow::Signal(sig)) => {
@@ -1343,6 +1399,7 @@ fn x_property_and_frame_arg_batch_semantics() {
 
 #[test]
 fn x_coordinate_sync_and_message_batch_semantics() {
+    crate::test_utils::init_test_tracing();
     let term = terminal_handle_value();
 
     for args in [
@@ -1581,6 +1638,7 @@ fn x_coordinate_sync_and_message_batch_semantics() {
 
 #[test]
 fn x_popup_dialog_and_menu_batch_semantics() {
+    crate::test_utils::init_test_tracing();
     let term = terminal_handle_value();
 
     match builtin_x_popup_dialog(vec![Value::NIL, Value::NIL]) {
@@ -1931,6 +1989,7 @@ fn x_popup_dialog_and_menu_batch_semantics() {
 
 #[test]
 fn x_clipboard_input_context_batch_semantics() {
+    crate::test_utils::init_test_tracing();
     let term = terminal_handle_value();
     let frame = Value::make_frame(1);
 
@@ -2061,6 +2120,7 @@ fn x_clipboard_input_context_batch_semantics() {
 
 #[test]
 fn x_selection_property_tip_batch_semantics() {
+    crate::test_utils::init_test_tracing();
     let assert_wrong_type = |result: EvalResult, pred: &str, arg: Value| match result {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -2252,6 +2312,7 @@ fn x_selection_property_tip_batch_semantics() {
 
 #[test]
 fn gui_selection_batch_semantics() {
+    crate::test_utils::init_test_tracing();
     let assert_error = |result: EvalResult, msg: &str| match result {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
@@ -2319,6 +2380,7 @@ fn gui_selection_batch_semantics() {
 
 #[test]
 fn x_frame_restack_safe_arity_surface() {
+    crate::test_utils::init_test_tracing();
     match builtin_x_frame_restack(vec![Value::NIL, Value::NIL]) {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
@@ -2355,6 +2417,7 @@ fn x_frame_restack_safe_arity_surface() {
 
 #[test]
 fn x_frame_mouse_and_dnd_batch_semantics() {
+    crate::test_utils::init_test_tracing();
     let term = terminal_handle_value();
 
     for args in [
@@ -2546,6 +2609,7 @@ fn x_frame_mouse_and_dnd_batch_semantics() {
 
 #[test]
 fn eval_x_display_queries_accept_live_frame_designator() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
 
@@ -2557,6 +2621,7 @@ fn eval_x_display_queries_accept_live_frame_designator() {
 
 #[test]
 fn eval_monitor_attributes_include_bootstrapped_frame() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let list = builtin_display_monitor_attributes_list(&mut eval, vec![]).unwrap();
     let monitors = list_to_vec(&list).expect("monitor list");
@@ -2590,6 +2655,7 @@ fn eval_monitor_attributes_include_bootstrapped_frame() {
 
 #[test]
 fn eval_monitor_queries_accept_live_frame_designator() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
 
@@ -2607,6 +2673,7 @@ fn eval_monitor_queries_accept_live_frame_designator() {
 
 #[test]
 fn eval_monitor_queries_accept_frame_handle_designator() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let list = builtin_display_monitor_attributes_list(&mut eval, vec![]).unwrap();
     let monitors = list_to_vec(&list).expect("monitor list");
@@ -2637,6 +2704,7 @@ fn eval_monitor_queries_accept_frame_handle_designator() {
 
 #[test]
 fn eval_display_queries_accept_live_frame_designator() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
 
@@ -2712,6 +2780,7 @@ fn eval_display_queries_accept_live_frame_designator() {
 
 #[test]
 fn window_system_prefers_selected_frame_then_global_fallback() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
 
     assert_eq!(
@@ -2761,6 +2830,7 @@ fn window_system_prefers_selected_frame_then_global_fallback() {
 
 #[test]
 fn display_graphic_p_uses_global_window_system_without_live_frame() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     eval.set_variable("initial-window-system", Value::symbol("neo"));
 
@@ -2776,6 +2846,7 @@ fn display_graphic_p_uses_global_window_system_without_live_frame() {
 
 #[test]
 fn eval_display_queries_reject_invalid_frame_designator() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let _ = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
     let result = builtin_display_pixel_width(&mut eval, vec![Value::fixnum(999_999)]);
@@ -2784,6 +2855,7 @@ fn eval_display_queries_reject_invalid_frame_designator() {
 
 #[test]
 fn eval_display_queries_string_designator_reports_missing_display() {
+    crate::test_utils::init_test_tracing();
     fn assert_missing_display(result: EvalResult) {
         match result {
             Err(Flow::Signal(sig)) => {
@@ -2845,6 +2917,7 @@ fn eval_display_queries_string_designator_reports_missing_display() {
 
 #[test]
 fn eval_display_monitor_errors_render_window_designators() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let _ = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
     let window =
@@ -2876,6 +2949,7 @@ fn eval_display_monitor_errors_render_window_designators() {
 
 #[test]
 fn get_device_terminal_formatter_keeps_integer_literals() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let _ = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
     let window =
@@ -2891,6 +2965,7 @@ fn get_device_terminal_formatter_keeps_integer_literals() {
 
 #[test]
 fn display_images_p_shapes_and_errors() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     assert!(
         builtin_display_images_p(&mut eval, vec![])
@@ -2922,6 +2997,7 @@ fn display_images_p_shapes_and_errors() {
 
 #[test]
 fn display_save_under_and_display_selections_p_shapes_and_errors() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
 
     assert_eq!(
@@ -2978,6 +3054,7 @@ fn display_save_under_and_display_selections_p_shapes_and_errors() {
 
 #[test]
 fn display_optional_capability_queries_match_color_shapes() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
 
     for query in [
@@ -3034,6 +3111,7 @@ fn display_optional_capability_queries_match_color_shapes() {
 
 #[test]
 fn display_supports_face_attributes_p_arity_and_nil_result() {
+    crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let attrs = Value::list(vec![Value::symbol(":weight"), Value::symbol("bold")]);
     assert!(

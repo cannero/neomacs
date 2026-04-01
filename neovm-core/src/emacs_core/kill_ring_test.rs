@@ -35,6 +35,7 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
 
 #[test]
 fn bootstrap_kill_ring_commands_are_not_rust_subrs() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_one(
         r#"(list kill-ring-max
                  (subrp (symbol-function 'kill-new))
@@ -58,6 +59,7 @@ fn bootstrap_kill_ring_commands_are_not_rust_subrs() {
 
 #[test]
 fn bootstrap_kill_ring_entry_ops_match_simple_el() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(progn
              (setq kill-ring nil kill-ring-yank-pointer nil)
@@ -111,6 +113,7 @@ fn bootstrap_kill_ring_entry_ops_match_simple_el() {
 
 #[test]
 fn bootstrap_current_kill_pointer_rules_match_simple_el() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(progn
              (setq kill-ring nil kill-ring-yank-pointer nil)
@@ -149,6 +152,7 @@ fn bootstrap_current_kill_pointer_rules_match_simple_el() {
 
 #[test]
 fn bootstrap_region_copy_cut_ops_match_simple_el() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(progn
              (setq kill-ring nil kill-ring-yank-pointer nil)
@@ -181,6 +185,7 @@ fn bootstrap_region_copy_cut_ops_match_simple_el() {
 
 #[test]
 fn bootstrap_line_and_word_kill_ops_match_simple_el() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(progn
              (setq kill-ring nil kill-ring-yank-pointer nil)
@@ -240,6 +245,7 @@ fn bootstrap_line_and_word_kill_ops_match_simple_el() {
 
 #[test]
 fn bootstrap_line_and_word_kill_arity_checks_match_simple_el() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer (condition-case err (kill-line nil nil) (error err)))
            (with-temp-buffer (condition-case err (kill-line 1 nil) (error err)))
@@ -271,6 +277,7 @@ fn bootstrap_line_and_word_kill_arity_checks_match_simple_el() {
 
 #[test]
 fn bootstrap_yank_ops_match_simple_el() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(progn
              (setq kill-ring nil kill-ring-yank-pointer nil)
@@ -298,6 +305,7 @@ fn bootstrap_yank_ops_match_simple_el() {
 
 #[test]
 fn bootstrap_yank_and_yank_pop_arity_checks_match_simple_el() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer (condition-case err (yank nil nil) (error err)))
            (with-temp-buffer (condition-case err (yank 1 2 3) (error err)))
@@ -314,6 +322,7 @@ fn bootstrap_yank_and_yank_pop_arity_checks_match_simple_el() {
 
 #[test]
 fn yank_pop_basic() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(kill-new "first")
            (kill-new "second")
@@ -328,12 +337,14 @@ fn yank_pop_basic() {
 
 #[test]
 fn yank_pop_without_yank_errors() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(r#"(kill-new "hello") (yank-pop)"#);
     assert!(results[1].contains("end-of-file"));
 }
 
 #[test]
 fn yank_pop_with_last_command_yank_pop_errors() {
+    crate::test_utils::init_test_tracing();
     let results =
         bootstrap_eval_all(r#"(kill-new "hello") (setq last-command 'yank-pop) (yank-pop)"#);
     assert!(results[2].contains("end-of-file"));
@@ -341,12 +352,14 @@ fn yank_pop_with_last_command_yank_pop_errors() {
 
 #[test]
 fn yank_pop_empty_ring_errors() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_one("(yank-pop)");
     assert!(result.contains("Kill ring is empty"));
 }
 
 #[test]
 fn yank_pop_without_region_errors() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(r#"(kill-new "hello") (setq last-command 'yank) (yank-pop)"#);
     assert!(results[2].contains("wrong-type-argument"));
 }
@@ -355,6 +368,7 @@ fn yank_pop_without_region_errors() {
 
 #[test]
 fn downcase_region_basic() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(insert "HELLO WORLD")
            (downcase-region 1 12)
@@ -365,6 +379,7 @@ fn downcase_region_basic() {
 
 #[test]
 fn downcase_region_unicode_kelvin_preserved() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(insert "K")
            (downcase-region 1 2)
@@ -377,6 +392,7 @@ fn downcase_region_unicode_kelvin_preserved() {
 
 #[test]
 fn upcase_region_basic() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(insert "hello world")
            (upcase-region 1 12)
@@ -387,6 +403,7 @@ fn upcase_region_basic() {
 
 #[test]
 fn upcase_region_unicode_dotless_i_preserved() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(insert "ı")
            (upcase-region 1 2)
@@ -397,6 +414,7 @@ fn upcase_region_unicode_dotless_i_preserved() {
 
 #[test]
 fn downcase_region_unicode_edge_preserved() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(insert (char-to-string 42955))
            (downcase-region 1 2)
@@ -407,6 +425,7 @@ fn downcase_region_unicode_edge_preserved() {
 
 #[test]
 fn upcase_region_unicode_edge_preserved() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(insert (char-to-string 42957))
            (upcase-region 1 2)
@@ -419,6 +438,7 @@ fn upcase_region_unicode_edge_preserved() {
 
 #[test]
 fn capitalize_region_basic() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(insert "hello world")
            (capitalize-region 1 12)
@@ -429,6 +449,7 @@ fn capitalize_region_basic() {
 
 #[test]
 fn upcase_initials_region_basic() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(insert "hELLo wORLD")
            (upcase-initials-region 1 12)
@@ -439,6 +460,7 @@ fn upcase_initials_region_basic() {
 
 #[test]
 fn capitalize_region_unicode_sharp_s_titlecase() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(insert "ß")
            (capitalize-region 1 2)
@@ -449,6 +471,7 @@ fn capitalize_region_unicode_sharp_s_titlecase() {
 
 #[test]
 fn upcase_initials_region_unicode_sharp_s_titlecase() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(insert "ß")
            (upcase-initials-region 1 2)
@@ -459,6 +482,7 @@ fn upcase_initials_region_unicode_sharp_s_titlecase() {
 
 #[test]
 fn capitalize_region_unicode_ligature_titlecase() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(insert (char-to-string 64256))
            (capitalize-region 1 2)
@@ -469,6 +493,7 @@ fn capitalize_region_unicode_ligature_titlecase() {
 
 #[test]
 fn capitalize_region_unicode_greek_precomposed_titlecase() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(insert (char-to-string 8064))
            (capitalize-region 1 2)
@@ -479,6 +504,7 @@ fn capitalize_region_unicode_greek_precomposed_titlecase() {
 
 #[test]
 fn upcase_initials_region_unicode_armenian_titlecase() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(insert (char-to-string 1415))
            (upcase-initials-region 1 2)
@@ -489,6 +515,7 @@ fn upcase_initials_region_unicode_armenian_titlecase() {
 
 #[test]
 fn upcase_region_noncontiguous_requires_mark() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         r#"(with-temp-buffer
              (insert "abc")
@@ -500,6 +527,7 @@ fn upcase_region_noncontiguous_requires_mark() {
 
 #[test]
 fn upcase_region_noncontiguous_accepts_live_mark() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(insert "abc")
            (set-mark 2)
@@ -513,6 +541,7 @@ fn upcase_region_noncontiguous_accepts_live_mark() {
 
 #[test]
 fn downcase_word_basic() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(insert "HELLO WORLD")
            (goto-char 0)
@@ -524,6 +553,7 @@ fn downcase_word_basic() {
 
 #[test]
 fn downcase_word_unicode_kelvin_preserved() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(insert "K")
            (goto-char 0)
@@ -535,6 +565,7 @@ fn downcase_word_unicode_kelvin_preserved() {
 
 #[test]
 fn downcase_word_unicode_extended_preserved() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(insert (char-to-string 68944))
            (goto-char 0)
@@ -548,6 +579,7 @@ fn downcase_word_unicode_extended_preserved() {
 
 #[test]
 fn upcase_word_basic() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(insert "hello world")
            (goto-char 0)
@@ -559,6 +591,7 @@ fn upcase_word_basic() {
 
 #[test]
 fn upcase_word_unicode_dotless_i_preserved() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(insert "ı")
            (goto-char 0)
@@ -570,6 +603,7 @@ fn upcase_word_unicode_dotless_i_preserved() {
 
 #[test]
 fn upcase_word_unicode_extended_preserved() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(insert (char-to-string 68976))
            (goto-char 0)
@@ -583,6 +617,7 @@ fn upcase_word_unicode_extended_preserved() {
 
 #[test]
 fn capitalize_word_basic() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(insert "hello world")
            (goto-char 0)
@@ -594,6 +629,7 @@ fn capitalize_word_basic() {
 
 #[test]
 fn capitalize_word_mixed_case() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(insert "hELLO world")
            (goto-char 0)
@@ -605,6 +641,7 @@ fn capitalize_word_mixed_case() {
 
 #[test]
 fn capitalize_word_unicode_greek_iota_subscript_titlecase() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(insert (char-to-string 8114))
            (goto-char 0)
@@ -616,6 +653,7 @@ fn capitalize_word_unicode_greek_iota_subscript_titlecase() {
 
 #[test]
 fn capitalize_word_unicode_greek_small_alpha_ypogegrammeni_titlecase() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(insert (char-to-string 8064))
            (goto-char 0)
@@ -629,6 +667,7 @@ fn capitalize_word_unicode_greek_small_alpha_ypogegrammeni_titlecase() {
 
 #[test]
 fn transpose_chars_basic() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(insert "abc")
            (goto-char 2)
@@ -640,6 +679,7 @@ fn transpose_chars_basic() {
 
 #[test]
 fn transpose_chars_at_end() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(insert "abc")
            (transpose-chars 1)
@@ -653,6 +693,7 @@ fn transpose_chars_at_end() {
 
 #[test]
 fn transpose_lines_basic() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(insert "line1\nline2\nline3")
            (goto-char 8)
@@ -664,6 +705,7 @@ fn transpose_lines_basic() {
 
 #[test]
 fn transpose_lines_at_buffer_start() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(insert "line1\nline2")
            (goto-char 1)
@@ -675,6 +717,7 @@ fn transpose_lines_at_buffer_start() {
 
 #[test]
 fn transpose_lines_arg_two_at_buffer_start() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(insert "a\nb\nc\n")
            (goto-char 1)
@@ -686,6 +729,7 @@ fn transpose_lines_arg_two_at_buffer_start() {
 
 #[test]
 fn transpose_lines_last_line_without_trailing_newline() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(insert "line1\nline2")
            (goto-char 7)
@@ -697,6 +741,7 @@ fn transpose_lines_last_line_without_trailing_newline() {
 
 #[test]
 fn transpose_lines_negative_errors() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_one(
         r#"(with-temp-buffer
              (insert "a\nb\n")
@@ -710,6 +755,7 @@ fn transpose_lines_negative_errors() {
 
 #[test]
 fn transpose_words_basic() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(insert "aa bb")
            (goto-char 0)
@@ -721,6 +767,7 @@ fn transpose_words_basic() {
 
 #[test]
 fn transpose_words_not_enough_words_errors() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one(
         r#"(with-temp-buffer
              (insert "aa")
@@ -734,6 +781,7 @@ fn transpose_words_not_enough_words_errors() {
 
 #[test]
 fn transpose_sexps_basic() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(insert "(aa) (bb)")
            (goto-char 5)
@@ -745,6 +793,7 @@ fn transpose_sexps_basic() {
 
 #[test]
 fn transpose_sexps_at_bob_advances_without_swapping() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(insert "(aa) (bb)")
            (goto-char 1)
@@ -758,6 +807,7 @@ fn transpose_sexps_at_bob_advances_without_swapping() {
 
 #[test]
 fn transpose_sentences_basic() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(insert "One.  Two.")
            (goto-char 1)
@@ -769,6 +819,7 @@ fn transpose_sentences_basic() {
 
 #[test]
 fn transpose_sentences_with_single_space_signals_end_of_buffer() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_one(
         r#"(with-temp-buffer
              (insert "One. Two.")
@@ -782,6 +833,7 @@ fn transpose_sentences_with_single_space_signals_end_of_buffer() {
 
 #[test]
 fn transpose_paragraphs_basic() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_one(
         r#"(with-temp-buffer
              (insert "A\n\nB")
@@ -794,6 +846,7 @@ fn transpose_paragraphs_basic() {
 
 #[test]
 fn transpose_paragraphs_backward_from_eob() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_one(
         r#"(with-temp-buffer
              (insert "A\n\nB\n\nC")
@@ -808,6 +861,7 @@ fn transpose_paragraphs_backward_from_eob() {
 
 #[test]
 fn indent_line_to_basic() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(insert "hello")
            (indent-line-to 4)
@@ -818,6 +872,7 @@ fn indent_line_to_basic() {
 
 #[test]
 fn indent_line_to_replaces_existing() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(insert "  hello")
            (indent-line-to 4)
@@ -828,6 +883,7 @@ fn indent_line_to_replaces_existing() {
 
 #[test]
 fn indent_line_to_returns_column() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "  hi")
@@ -848,6 +904,7 @@ fn indent_line_to_returns_column() {
 
 #[test]
 fn indent_to_basic() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(insert "hi")
            (indent-to 8)
@@ -859,6 +916,7 @@ fn indent_to_basic() {
 
 #[test]
 fn indent_to_returns_reached_column() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(with-temp-buffer
              (insert "abcdef")
@@ -877,6 +935,7 @@ fn indent_to_returns_reached_column() {
 
 #[test]
 fn indent_to_minimum_requires_fixnump() {
+    crate::test_utils::init_test_tracing();
     let results = eval_all(
         r#"(with-temp-buffer (condition-case err (indent-to 4 nil) (error err)))
            (with-temp-buffer (condition-case err (indent-to 4 "x") (error err)))
@@ -893,6 +952,7 @@ fn indent_to_minimum_requires_fixnump() {
 
 #[test]
 fn newline_basic() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(insert "ab")
            (goto-char 2)
@@ -904,12 +964,14 @@ fn newline_basic() {
 
 #[test]
 fn newline_multiple() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(r#"(newline 3) (buffer-string)"#);
     assert_eq!(results[1], "OK \"\n\n\n\"");
 }
 
 #[test]
 fn newline_prefix_arg_coercion_contract() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "ab")
@@ -934,6 +996,7 @@ fn newline_prefix_arg_coercion_contract() {
 
 #[test]
 fn newline_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (condition-case err (newline 1 t nil) (error err)))
@@ -946,6 +1009,7 @@ fn newline_rejects_too_many_args() {
 
 #[test]
 fn newline_and_indent_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (condition-case err (newline-and-indent nil nil) (error err)))
@@ -966,6 +1030,7 @@ fn newline_and_indent_rejects_too_many_args() {
 
 #[test]
 fn newline_and_indent_basic() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (setq indent-line-function 'indent-relative)
@@ -979,6 +1044,7 @@ fn newline_and_indent_basic() {
 
 #[test]
 fn newline_and_indent_normalizes_surrounding_whitespace() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "  x")
@@ -1001,6 +1067,7 @@ fn newline_and_indent_normalizes_surrounding_whitespace() {
 
 #[test]
 fn open_line_keeps_point_before_inserted_newlines() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(insert "ab")
            (goto-char 2)
@@ -1012,6 +1079,7 @@ fn open_line_keeps_point_before_inserted_newlines() {
 
 #[test]
 fn open_line_accepts_float_and_rejects_non_number_marker() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "ab")
@@ -1031,6 +1099,7 @@ fn open_line_accepts_float_and_rejects_non_number_marker() {
 
 #[test]
 fn open_line_count_coercion_contract() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (condition-case err (open-line -1) (error err)))
@@ -1063,6 +1132,7 @@ fn open_line_count_coercion_contract() {
 
 #[test]
 fn delete_horizontal_space_deletes_both_sides() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(insert "a \t  b")
            (goto-char 4)
@@ -1074,6 +1144,7 @@ fn delete_horizontal_space_deletes_both_sides() {
 
 #[test]
 fn delete_horizontal_space_backward_only() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(insert "a \t  b")
            (goto-char 4)
@@ -1087,6 +1158,7 @@ fn delete_horizontal_space_backward_only() {
 
 #[test]
 fn just_one_space_default() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(insert "a \t  b")
            (goto-char 4)
@@ -1098,6 +1170,7 @@ fn just_one_space_default() {
 
 #[test]
 fn just_one_space_zero() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(insert "a \t  b")
            (goto-char 4)
@@ -1109,6 +1182,7 @@ fn just_one_space_zero() {
 
 #[test]
 fn just_one_space_argument_contract_subset() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (condition-case err (just-one-space "x") (error (list (car err) (nth 1 err)))))
@@ -1146,6 +1220,7 @@ fn just_one_space_argument_contract_subset() {
 
 #[test]
 fn delete_indentation_basic() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(insert "hello\n    world")
            (goto-char 14)
@@ -1157,6 +1232,7 @@ fn delete_indentation_basic() {
 
 #[test]
 fn delete_indentation_keeps_point_before_join_space() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (insert "a\n  b")
@@ -1173,6 +1249,7 @@ fn delete_indentation_keeps_point_before_join_space() {
 
 #[test]
 fn delete_indentation_rejects_too_many_args() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (condition-case err (delete-indentation nil nil nil nil) (error err)))
@@ -1193,6 +1270,7 @@ fn delete_indentation_rejects_too_many_args() {
 
 #[test]
 fn tab_to_tab_stop_basic() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(insert "hi")
            (tab-to-tab-stop)
@@ -1203,6 +1281,7 @@ fn tab_to_tab_stop_basic() {
 
 #[test]
 fn tab_to_tab_stop_returns_reached_column() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer
              (list (current-column)
@@ -1225,6 +1304,7 @@ fn tab_to_tab_stop_returns_reached_column() {
 
 #[test]
 fn indent_rigidly_forward() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(insert "a\nb\nc")
            (indent-rigidly 1 6 2)
@@ -1235,6 +1315,7 @@ fn indent_rigidly_forward() {
 
 #[test]
 fn indent_rigidly_backward() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(insert "  a\n  b\n  c")
            (indent-rigidly 1 12 -2)
@@ -1245,6 +1326,7 @@ fn indent_rigidly_backward() {
 
 #[test]
 fn indent_rigidly_argument_contract_subset() {
+    crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
         r#"(with-temp-buffer (condition-case err (indent-rigidly 1 2 "x") (error err)))
            (with-temp-buffer (condition-case err (indent-rigidly 1 2 t) (error err)))
@@ -1276,24 +1358,28 @@ fn indent_rigidly_argument_contract_subset() {
 
 #[test]
 fn kill_new_wrong_type() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one("(kill-new 42)");
     assert!(result.starts_with("ERR"));
 }
 
 #[test]
 fn kill_word_wrong_args() {
+    crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_one("(kill-word)");
     assert!(result.starts_with("ERR"));
 }
 
 #[test]
 fn downcase_region_wrong_args() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one("(downcase-region 0)");
     assert!(result.starts_with("ERR"));
 }
 
 #[test]
 fn transpose_chars_wrong_args() {
+    crate::test_utils::init_test_tracing();
     let result = eval_one("(transpose-chars)");
     assert!(result.starts_with("ERR"));
 }

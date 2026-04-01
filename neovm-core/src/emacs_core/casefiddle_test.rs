@@ -6,24 +6,28 @@ use super::*;
 
 #[test]
 fn capitalize_string_basic() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_capitalize(vec![Value::string("hello world")]).unwrap();
     assert_eq!(result.as_str(), Some("Hello World"));
 }
 
 #[test]
 fn capitalize_string_mixed() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_capitalize(vec![Value::string("hELLO wORLD")]).unwrap();
     assert_eq!(result.as_str(), Some("Hello World"));
 }
 
 #[test]
 fn capitalize_char() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_capitalize(vec![Value::char('a')]).unwrap();
     assert_eq!(result.as_int(), Some('A' as i64));
 }
 
 #[test]
 fn capitalize_empty_string() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_capitalize(vec![Value::string("")]).unwrap();
     assert_eq!(result.as_str(), Some(""));
 }
@@ -34,12 +38,14 @@ fn capitalize_empty_string() {
 
 #[test]
 fn upcase_initials_basic() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_upcase_initials(vec![Value::string("hello world")]).unwrap();
     assert_eq!(result.as_str(), Some("Hello World"));
 }
 
 #[test]
 fn upcase_initials_preserves_rest() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_upcase_initials(vec![Value::string("hELLO wORLD")]).unwrap();
     // Only first letter of each word is uppercased; rest is left alone.
     assert_eq!(result.as_str(), Some("HELLO WORLD"));
@@ -47,6 +53,7 @@ fn upcase_initials_preserves_rest() {
 
 #[test]
 fn upcase_initials_char() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_upcase_initials(vec![Value::char('a')]).unwrap();
     assert_eq!(result.as_int(), Some('A' as i64));
 }
@@ -57,6 +64,7 @@ fn upcase_initials_char() {
 
 #[test]
 fn char_resolve_modifiers_resolves_shift_lowercase() {
+    crate::test_utils::init_test_tracing();
     let result =
         builtin_char_resolve_modifiers(vec![Value::fixnum(0x2000000 | ('a' as i64))]).unwrap();
     assert_eq!(result.as_int(), Some('A' as i64));
@@ -64,6 +72,7 @@ fn char_resolve_modifiers_resolves_shift_lowercase() {
 
 #[test]
 fn char_resolve_modifiers_clears_shift_on_uppercase() {
+    crate::test_utils::init_test_tracing();
     let result =
         builtin_char_resolve_modifiers(vec![Value::fixnum(0x2000000 | ('A' as i64))]).unwrap();
     assert_eq!(result.as_int(), Some('A' as i64));
@@ -71,6 +80,7 @@ fn char_resolve_modifiers_clears_shift_on_uppercase() {
 
 #[test]
 fn char_resolve_modifiers_wrong_type_predicate() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_char_resolve_modifiers(vec![Value::string("a")]).unwrap_err();
     match result {
         super::super::error::Flow::Signal(sig) => {
@@ -87,12 +97,14 @@ fn char_resolve_modifiers_wrong_type_predicate() {
 
 #[test]
 fn capitalize_with_punctuation() {
+    crate::test_utils::init_test_tracing();
     let result = builtin_capitalize(vec![Value::string("it's a test")]).unwrap();
     assert_eq!(result.as_str(), Some("It'S A Test"));
 }
 
 #[test]
 fn capitalize_unicode_edge_semantics() {
+    crate::test_utils::init_test_tracing();
     let int_sharp_s = builtin_capitalize(vec![Value::fixnum(223)]).unwrap();
     assert_eq!(int_sharp_s.as_int(), Some(7838));
 
@@ -161,6 +173,7 @@ fn capitalize_unicode_edge_semantics() {
 
 #[test]
 fn upcase_initials_unicode_edge_semantics() {
+    crate::test_utils::init_test_tracing();
     let int_sharp_s = builtin_upcase_initials(vec![Value::fixnum(223)]).unwrap();
     assert_eq!(int_sharp_s.as_int(), Some(7838));
 
@@ -231,6 +244,7 @@ fn upcase_initials_unicode_edge_semantics() {
 
 #[test]
 fn eval_upcase_region_noncontiguous_uses_live_mark() {
+    crate::test_utils::init_test_tracing();
     let mut ev = super::super::eval::Context::new();
     let buffer_id = ev.buffers.current_buffer_id().expect("current buffer");
     ev.buffers.insert_into_buffer(buffer_id, "abc");
@@ -245,6 +259,7 @@ fn eval_upcase_region_noncontiguous_uses_live_mark() {
 
 #[test]
 fn eval_capitalize_word_updates_buffer_text() {
+    crate::test_utils::init_test_tracing();
     let mut ev = super::super::eval::Context::new();
     let buffer_id = ev.buffers.current_buffer_id().expect("current buffer");
     ev.buffers.insert_into_buffer(buffer_id, "hELLO world");

@@ -7,6 +7,7 @@ use crate::emacs_core::value::{
 
 #[test]
 fn print_basic_values() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(print_value(&Value::NIL), "nil");
     assert_eq!(print_value(&Value::T), "t");
     assert_eq!(print_value(&Value::fixnum(42)), "42");
@@ -20,6 +21,7 @@ fn print_basic_values() {
 
 #[test]
 fn print_symbol_escapes_reader_sensitive_chars() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(print_value(&Value::symbol("a b")), "a\\ b");
     assert_eq!(print_value(&Value::symbol("a,b")), "a\\,b");
     assert_eq!(print_value(&Value::symbol("a,@b")), "a\\,@b");
@@ -39,6 +41,7 @@ fn print_symbol_escapes_reader_sensitive_chars() {
 
 #[test]
 fn print_uninterned_symbols_follow_gnu_default_print_gensym_nil() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(print_value(&Value::symbol(intern_uninterned("foo"))), "foo");
     assert_eq!(
         print_value(&Value::symbol(intern_uninterned(":foo"))),
@@ -49,6 +52,7 @@ fn print_uninterned_symbols_follow_gnu_default_print_gensym_nil() {
 
 #[test]
 fn print_uninterned_symbols_support_print_gensym_round_trip_syntax() {
+    crate::test_utils::init_test_tracing();
     let options = PrintOptions::with_print_gensym(true);
     assert_eq!(
         print_value_with_options(&Value::symbol(intern_uninterned("foo")), options),
@@ -66,6 +70,7 @@ fn print_uninterned_symbols_support_print_gensym_round_trip_syntax() {
 
 #[test]
 fn print_float_nan_preserves_sign() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(print_value(&Value::make_float(f64::NAN)), "0.0e+NaN");
     let neg_nan = f64::from_bits(f64::NAN.to_bits() | (1_u64 << 63));
     assert_eq!(print_value(&Value::make_float(neg_nan)), "-0.0e+NaN");
@@ -73,6 +78,7 @@ fn print_float_nan_preserves_sign() {
 
 #[test]
 fn print_float_nan_payload_tag_round_trip_shape() {
+    crate::test_utils::init_test_tracing();
     let tagged = f64::from_bits((0x7ffu64 << 52) | (1u64 << 51) | 1u64);
     assert_eq!(print_value(&Value::make_float(tagged)), "1.0e+NaN");
 
@@ -82,11 +88,13 @@ fn print_float_nan_payload_tag_round_trip_shape() {
 
 #[test]
 fn print_string() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(print_value(&Value::string("hello")), "\"hello\"");
 }
 
 #[test]
 fn print_empty_char_table_uses_gnu_vector_shape() {
+    crate::test_utils::init_test_tracing();
     let table = crate::emacs_core::chartable::make_char_table_with_extra_slots(
         Value::symbol("syntax-table"),
         Value::NIL,
@@ -98,6 +106,7 @@ fn print_empty_char_table_uses_gnu_vector_shape() {
 
 #[test]
 fn print_propertized_string_literal_shape() {
+    crate::test_utils::init_test_tracing();
     let value = Value::string_with_text_properties(
         " ",
         vec![StringTextPropertyRun {
@@ -129,11 +138,13 @@ fn print_propertized_string_literal_shape() {
 
 #[test]
 fn print_string_keeps_non_bmp_visible() {
+    crate::test_utils::init_test_tracing();
     assert_eq!(print_value(&Value::string("\u{10ffff}")), "\"\u{10ffff}\"");
 }
 
 #[test]
 fn print_string_bytes_preserve_non_utf8_payloads() {
+    crate::test_utils::init_test_tracing();
     let raw = char::from_u32(0xE0FF).expect("raw-byte sentinel");
     assert_eq!(
         print_value_bytes(&Value::string(raw.to_string())),
@@ -143,12 +154,14 @@ fn print_string_bytes_preserve_non_utf8_payloads() {
 
 #[test]
 fn print_list() {
+    crate::test_utils::init_test_tracing();
     let lst = Value::list(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
     assert_eq!(print_value(&lst), "(1 2 3)");
 }
 
 #[test]
 fn print_hash_s_literal_shorthand() {
+    crate::test_utils::init_test_tracing();
     let literal = Value::list(vec![
         Value::symbol("make-hash-table-from-literal"),
         Value::list(vec![
@@ -162,6 +175,7 @@ fn print_hash_s_literal_shorthand() {
 
 #[test]
 fn print_hash_table_object_uses_readable_hash_s_shape() {
+    crate::test_utils::init_test_tracing();
     let table = Value::hash_table(HashTableTest::Equal);
     // GNU Emacs prints "test equal" for non-default test (default is eql).
     assert_eq!(print_value(&table), "#s(hash-table test equal)");
@@ -170,6 +184,7 @@ fn print_hash_table_object_uses_readable_hash_s_shape() {
 
 #[test]
 fn print_quote_shorthand_lists() {
+    crate::test_utils::init_test_tracing();
     let quoted = Value::list(vec![Value::symbol("quote"), Value::symbol("foo")]);
     let function = Value::list(vec![Value::symbol("function"), Value::symbol("car")]);
     let quasiquoted = Value::list(vec![
@@ -188,6 +203,7 @@ fn print_quote_shorthand_lists() {
 
 #[test]
 fn print_backquote_preserves_nested_unquote_shorthand_only_in_context() {
+    crate::test_utils::init_test_tracing();
     let nested = Value::list(vec![
         Value::symbol("`"),
         Value::list(vec![
@@ -201,18 +217,21 @@ fn print_backquote_preserves_nested_unquote_shorthand_only_in_context() {
 
 #[test]
 fn print_dotted_pair() {
+    crate::test_utils::init_test_tracing();
     let pair = Value::cons(Value::fixnum(1), Value::fixnum(2));
     assert_eq!(print_value(&pair), "(1 . 2)");
 }
 
 #[test]
 fn print_vector() {
+    crate::test_utils::init_test_tracing();
     let v = Value::vector(vec![Value::fixnum(1), Value::fixnum(2)]);
     assert_eq!(print_value(&v), "[1 2]");
 }
 
 #[test]
 fn print_lambda() {
+    crate::test_utils::init_test_tracing();
     let lam = Value::make_lambda(LambdaData {
         params: LambdaParams::simple(vec![intern("x"), intern("y")]),
         body: vec![Expr::List(vec![
@@ -231,6 +250,7 @@ fn print_lambda() {
 
 #[test]
 fn print_lexical_closure_uses_gnu_vector_syntax() {
+    crate::test_utils::init_test_tracing();
     let closure = Value::make_lambda(LambdaData {
         params: LambdaParams::simple(vec![intern("a"), intern("b")]),
         body: vec![Expr::List(vec![
@@ -258,6 +278,7 @@ fn print_lexical_closure_uses_gnu_vector_syntax() {
 
 #[test]
 fn print_recursive_closure_uses_backreference() {
+    crate::test_utils::init_test_tracing();
     let binding = Value::cons(Value::symbol("f"), Value::NIL);
     let env = Value::list(vec![binding]);
     let closure = Value::make_lambda(LambdaData {
@@ -279,6 +300,7 @@ fn print_recursive_closure_uses_backreference() {
 
 #[test]
 fn print_terminal_handle_special_form() {
+    crate::test_utils::init_test_tracing();
     let list = super::super::terminal::pure::builtin_terminal_list(vec![]).unwrap();
     let items = list_to_vec(&list).expect("terminal-list should return a list");
     let handle = items
@@ -292,6 +314,7 @@ fn print_terminal_handle_special_form() {
 
 #[test]
 fn print_frame_handles_use_oracle_style_f_prefix() {
+    crate::test_utils::init_test_tracing();
     let f1 = Value::make_frame(crate::window::FRAME_ID_BASE);
     let f2 = Value::make_frame(crate::window::FRAME_ID_BASE + 1);
     let legacy = Value::make_frame(7);
@@ -305,6 +328,7 @@ fn print_frame_handles_use_oracle_style_f_prefix() {
 
 #[test]
 fn print_markers_use_gnu_style_handles() {
+    crate::test_utils::init_test_tracing();
     let marker = make_marker_value(None, None, false);
     assert_eq!(print_value(&marker), "#<marker in no buffer>");
 
