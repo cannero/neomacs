@@ -6462,6 +6462,34 @@ fn bootstrap_macroexpand_all_pcase() {
 }
 
 #[test]
+fn bootstrap_macroexpand_all_pcase_and_pred() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = partial_bootstrap_eval_until("emacs-lisp/cl-preloaded", true);
+    // Test macroexpand-all on the same pcase pattern
+    let forms = parse_forms(
+        r#"
+(macroexpand-all
+ '(pcase val
+    ((and type (pred symbolp))
+     (if (get type 'test-prop) (list 'found type) 'no-prop))
+    (_ 'default)))
+"#,
+    )
+    .expect("parse");
+    let result = eval.eval_forms(&forms);
+    let rendered = result
+        .iter()
+        .map(format_eval_result)
+        .collect::<Vec<_>>()
+        .join(" ");
+    tracing::info!("macroexpand-all pcase and+pred => {rendered}");
+    assert!(
+        rendered.starts_with("OK"),
+        "macroexpand-all pcase and+pred failed: {rendered}"
+    );
+}
+
+#[test]
 fn bootstrap_pcase_complex_and_pred_guard() {
     crate::test_utils::init_test_tracing();
     // Load enough to have pcase (stop before cl-preloaded to avoid cl-macs failure)
