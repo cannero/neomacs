@@ -1123,11 +1123,14 @@ pub(crate) fn parse_eval_lexical_arg(arg: Option<Value>) -> Result<(bool, Option
         return Ok((false, None));
     }
 
-    // GNU eval:
-    // - non-nil atom => lexical mode enabled, empty interpreter environment.
-    // - cons         => lexical mode enabled with explicit interpreter env.
+    // GNU eval.c:
+    //   specbind(Qinternal_interpreter_environment,
+    //            CONSP(lexical) || NILP(lexical) ? lexical : list_of_t);
+    // - non-nil atom (like t) => lexical mode, env = (t)  [the list!]
+    // - cons                  => lexical mode, env = lexical
     if !arg.is_cons() {
-        return Ok((true, None));
+        // Non-nil non-cons: set env to (t) matching GNU's list_of_t
+        return Ok((true, Some(Value::list(vec![Value::T]))));
     };
 
     if list_to_vec(&arg).is_none() {
@@ -8485,6 +8488,14 @@ impl Context {
         let resolved =
             builtins::resolve_variable_alias_id_in_obarray(&self.obarray, sym_id).unwrap_or(sym_id);
         let name = resolve_sym(resolved);
+        // Debug: trace when macroexpand-all-environment gets a non-list value
+        if name == "macroexpand-all-environment" && !value.is_nil() && !value.is_cons() {
+            tracing::error!(
+                "specbind macroexpand-all-environment to non-list: {:?} bits={:#x}",
+                value.kind(),
+                value.bits()
+            );
+        }
 
         // Check if this is a buffer-local variable (GNU: SYMBOL_LOCALIZED path)
         if self.obarray.is_buffer_local(name) || self.custom.is_auto_buffer_local(name) {
