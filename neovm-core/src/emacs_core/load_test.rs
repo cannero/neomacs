@@ -6522,3 +6522,38 @@ fn bootstrap_pcase_complex_and_pred_guard() {
         "pcase and+pred+guard failed: {rendered}"
     );
 }
+
+#[test]
+fn bootstrap_macroexpand1_vs_all_pcase() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = partial_bootstrap_eval_until("emacs-lisp/cl-preloaded", true);
+    // Compare macroexpand-1 vs macroexpand-all
+    let forms = parse_forms(
+        r#"
+(list
+  (condition-case err
+    (macroexpand-1 '(pcase val
+      ((and type (pred symbolp)) (list 'found type))
+      (_ 'default)))
+    (error (list 'expand1-error err)))
+  (condition-case err
+    (macroexpand-all '(pcase val
+      ((and type (pred symbolp)) (list 'found type))
+      (_ 'default)))
+    (error (list 'expand-all-error err))))
+"#,
+    )
+    .expect("parse");
+    let result = eval.eval_forms(&forms);
+    let rendered = result
+        .iter()
+        .map(format_eval_result)
+        .collect::<Vec<_>>()
+        .join(" ");
+    tracing::info!("macroexpand1 vs all => {rendered}");
+    // Both should succeed
+    assert!(
+        rendered.starts_with("OK"),
+        "macroexpand comparison failed: {rendered}"
+    );
+}
