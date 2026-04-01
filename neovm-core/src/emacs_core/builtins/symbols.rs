@@ -1824,7 +1824,7 @@ pub(crate) fn builtin_mapbacktrace(args: Vec<Value>) -> EvalResult {
             return Err(signal("void-function", vec![args[0]]));
         }
         ValueKind::Symbol(_)
-        | ValueKind::Subr(_)
+        | ValueKind::Veclike(VecLikeType::Subr)
         | ValueKind::Veclike(VecLikeType::Lambda)
         | ValueKind::Veclike(VecLikeType::Macro)
         | ValueKind::Veclike(VecLikeType::ByteCode) => {}
@@ -2988,7 +2988,8 @@ pub(crate) fn plan_interactive_form_in_state(
     }
 
     match function.kind() {
-        ValueKind::Subr(id) => {
+        ValueKind::Veclike(VecLikeType::Subr) => {
+            let id = function.as_subr_id().unwrap();
             let name = resolve_sym(id);
             Ok(InteractiveFormPlan::Return(
                 crate::emacs_core::interactive::registry_interactive_form(interactive, name)
@@ -3072,7 +3073,8 @@ pub(crate) fn builtin_interactive_form(
     // Now `fun` is the resolved function value (not a symbol).
     match fun.kind() {
         // GNU (data.c:1151-1161): SUBRP
-        ValueKind::Subr(id) => {
+        ValueKind::Veclike(VecLikeType::Subr) => {
+            let id = fun.as_subr_id().unwrap();
             let name = resolve_sym(id);
             let result =
                 crate::emacs_core::interactive::registry_interactive_form(&eval.interactive, name)

@@ -1790,7 +1790,10 @@ impl<'a> Vm<'a> {
 
     fn writeback_callable_names(&self, func_val: &Value) -> Option<(String, Option<String>)> {
         match func_val.kind() {
-            ValueKind::Subr(id) => Some((resolve_sym(id).to_owned(), None)),
+            ValueKind::Veclike(VecLikeType::Subr) => {
+                let id = func_val.as_subr_id().unwrap();
+                Some((resolve_sym(id).to_owned(), None))
+            }
             ValueKind::Symbol(id) => {
                 let name = resolve_sym(id);
                 let alias_target =
@@ -1798,7 +1801,9 @@ impl<'a> Vm<'a> {
                         .obarray
                         .symbol_function(name)
                         .and_then(|bound| match bound.kind() {
-                            ValueKind::Symbol(tid) | ValueKind::Subr(tid) => {
+                            ValueKind::Symbol(tid) => Some(resolve_sym(tid).to_owned()),
+                            ValueKind::Veclike(VecLikeType::Subr) => {
+                                let tid = bound.as_subr_id().unwrap();
                                 Some(resolve_sym(tid).to_owned())
                             }
                             _ => None,
@@ -1812,7 +1817,10 @@ impl<'a> Vm<'a> {
     fn named_builtin_fast_path_allowed(&self, name: &str) -> bool {
         match self.ctx.obarray.symbol_function(name) {
             Some(val) => match val.kind() {
-                ValueKind::Subr(id) => resolve_sym(id) == name,
+                ValueKind::Veclike(VecLikeType::Subr) => {
+                    let id = val.as_subr_id().unwrap();
+                    resolve_sym(id) == name
+                }
                 ValueKind::Nil => true,
                 _ => false,
             },

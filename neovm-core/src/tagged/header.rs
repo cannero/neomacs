@@ -93,6 +93,8 @@ pub enum VecLikeType {
     Window = 9,
     Frame = 10,
     Timer = 11,
+    /// Built-in function (like GNU's PVEC_SUBR).
+    Subr = 12,
 }
 
 /// Header for all vectorlike heap objects.
@@ -198,4 +200,17 @@ pub struct FrameObj {
 pub struct TimerObj {
     pub header: VecLikeHeader,
     pub id: u64,
+}
+
+/// Heap-allocated built-in function (like GNU's PVEC_SUBR).
+/// Contains the function pointer, arity, and name symbol.
+#[repr(C)]
+pub struct SubrObj {
+    pub header: VecLikeHeader,
+    /// The SymId of the subr's name (e.g., intern("car")).
+    pub name: crate::emacs_core::intern::SymId,
+    /// Minimum number of arguments.
+    pub min_args: u16,
+    /// Maximum number of arguments (None = unlimited/&rest).
+    pub max_args: Option<u16>,
 }

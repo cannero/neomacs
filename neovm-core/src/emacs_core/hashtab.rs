@@ -320,8 +320,9 @@ fn hash_value_for_equal(value: &Value, hasher: &mut DefaultHasher, depth: usize)
             12_u8.hash(hasher);
             value.bits().hash(hasher);
         }
-        ValueKind::Subr(id) => {
+        ValueKind::Veclike(VecLikeType::Subr) => {
             13_u8.hash(hasher);
+            let id = value.as_subr_id().unwrap();
             resolve_sym(id).hash(hasher);
         }
         ValueKind::Veclike(VecLikeType::Lambda) => {

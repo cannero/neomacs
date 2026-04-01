@@ -228,7 +228,10 @@ fn autoload_macro_marker(value: &Value) -> Option<Value> {
 pub(crate) fn builtin_subr_name(args: Vec<Value>) -> EvalResult {
     expect_args("subr-name", &args, 1)?;
     match args[0].kind() {
-        ValueKind::Subr(id) => Ok(Value::string(resolve_sym(id))),
+        ValueKind::Veclike(VecLikeType::Subr) => {
+            let id = args[0].as_subr_id().unwrap();
+            Ok(Value::string(resolve_sym(id)))
+        }
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("subrp"), args[0]],
@@ -243,7 +246,10 @@ pub(crate) fn builtin_subr_name(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_subr_arity(ctx: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("subr-arity", &args, 1)?;
     match args[0].kind() {
-        ValueKind::Subr(id) => Ok(subr_arity_from_registry(ctx, id)),
+        ValueKind::Veclike(VecLikeType::Subr) => {
+            let id = args[0].as_subr_id().unwrap();
+            Ok(subr_arity_from_registry(ctx, id))
+        }
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("subrp"), args[0]],
@@ -309,7 +315,10 @@ pub(crate) fn builtin_special_form_p(args: Vec<Value>) -> EvalResult {
     expect_args("special-form-p", &args, 1)?;
     let result = match args[0].kind() {
         ValueKind::Symbol(id) => is_public_special_form_name(resolve_sym(id)),
-        ValueKind::Subr(id) => is_public_special_form_name(resolve_sym(id)),
+        ValueKind::Veclike(VecLikeType::Subr) => {
+            let id = args[0].as_subr_id().unwrap();
+            is_public_special_form_name(resolve_sym(id))
+        }
         _ => false,
     };
     Ok(Value::bool_val(result))
@@ -363,7 +372,10 @@ pub(crate) fn builtin_func_arity_ctx(
             let max = bc.params.max_arity();
             Ok(arity_cons(min, max))
         }
-        ValueKind::Subr(id) => Ok(subr_arity_from_registry(ctx, id)),
+        ValueKind::Veclike(VecLikeType::Subr) => {
+            let id = args[0].as_subr_id().unwrap();
+            Ok(subr_arity_from_registry(ctx, id))
+        }
         ValueKind::Veclike(VecLikeType::Macro) => {
             let ld = args[0].get_lambda_data().unwrap();
             let min = ld.params.min_arity();
@@ -392,7 +404,10 @@ pub(crate) fn builtin_func_arity_impl(args: Vec<Value>) -> EvalResult {
             let bc = args[0].get_bytecode_data().unwrap();
             Ok(arity_cons(bc.params.min_arity(), bc.params.max_arity()))
         }
-        ValueKind::Subr(id) => Ok(subr_arity_value(resolve_sym(id))),
+        ValueKind::Veclike(VecLikeType::Subr) => {
+            let id = args[0].as_subr_id().unwrap();
+            Ok(subr_arity_value(resolve_sym(id)))
+        }
         ValueKind::Veclike(VecLikeType::Macro) => {
             let ld = args[0].get_lambda_data().unwrap();
             Ok(arity_cons(ld.params.min_arity(), ld.params.max_arity()))

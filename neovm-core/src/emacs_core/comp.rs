@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 
 use super::error::{EvalResult, Flow, signal};
 use super::value::{Value, ValueKind};
+use crate::tagged::header::VecLikeType;
 
 fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
@@ -46,7 +47,7 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
 
 fn expect_subr(value: &Value) -> Result<(), Flow> {
     match value.kind() {
-        ValueKind::Subr(_) => Ok(()),
+        ValueKind::Veclike(VecLikeType::Subr) => Ok(()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("subrp"), *value],

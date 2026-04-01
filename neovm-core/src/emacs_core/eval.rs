@@ -5655,7 +5655,8 @@ impl Context {
             ValueKind::Veclike(VecLikeType::Lambda)
             | ValueKind::Veclike(VecLikeType::ByteCode)
             | ValueKind::Veclike(VecLikeType::Macro) => true,
-            ValueKind::Subr(bound_name) => {
+            ValueKind::Veclike(VecLikeType::Subr) => {
+                let bound_name = function.as_subr_id().unwrap();
                 !super::subr_info::is_special_form(resolve_sym(bound_name))
             }
             ValueKind::Cons => {
@@ -7804,7 +7805,10 @@ impl Context {
                 let lambda_data = function.get_lambda_data().unwrap().clone();
                 self.apply_lambda(&lambda_data, args, function)
             }
-            ValueKind::Subr(id) => self.apply_subr_object_by_id(id, args, true),
+            ValueKind::Veclike(VecLikeType::Subr) => {
+                let id = function.as_subr_id().unwrap();
+                self.apply_subr_object_by_id(id, args, true)
+            }
             ValueKind::Symbol(id) => self.apply_symbol_callable_untraced(id, args, true),
             ValueKind::T => self.apply_symbol_callable_untraced(intern("t"), args, true),
             ValueKind::Nil => Err(signal("void-function", vec![Value::symbol("nil")])),
@@ -8011,7 +8015,9 @@ impl Context {
                 // `(fset 'foo (symbol-function 'foo))` writes `#<subr foo>` into
                 // the function cell. Treat this as a direct builtin/special-form
                 // callable, not an obarray indirection cycle.
-                ValueKind::Subr(bound_name) if resolve_sym(bound_name) == name => {
+                ValueKind::Veclike(VecLikeType::Subr)
+                    if resolve_sym(func.as_subr_id().unwrap()) == name =>
+                {
                     if super::subr_info::is_evaluator_callable_name(name) {
                         NamedCallTarget::ContextCallable
                     } else if super::subr_info::is_special_form(name) {
@@ -8131,8 +8137,13 @@ impl Context {
                 let function_is_callable = self.function_value_is_callable(&func);
                 let alias_target = match func.kind() {
                     ValueKind::Symbol(target) => Some(resolve_sym(target).to_owned()),
-                    ValueKind::Subr(bound_name) if resolve_sym(bound_name) != name => {
-                        Some(resolve_sym(bound_name).to_owned())
+                    ValueKind::Veclike(VecLikeType::Subr) => {
+                        let bound_name = func.as_subr_id().unwrap();
+                        if resolve_sym(bound_name) != name {
+                            Some(resolve_sym(bound_name).to_owned())
+                        } else {
+                            None
+                        }
                     }
                     _ => None,
                 };
@@ -8195,8 +8206,13 @@ impl Context {
                 let function_is_callable = self.function_value_is_callable(&func);
                 let alias_target = match func.kind() {
                     ValueKind::Symbol(target) => Some(resolve_sym(target).to_owned()),
-                    ValueKind::Subr(bound_name) if resolve_sym(bound_name) != name => {
-                        Some(resolve_sym(bound_name).to_owned())
+                    ValueKind::Veclike(VecLikeType::Subr) => {
+                        let bound_name = func.as_subr_id().unwrap();
+                        if resolve_sym(bound_name) != name {
+                            Some(resolve_sym(bound_name).to_owned())
+                        } else {
+                            None
+                        }
                     }
                     _ => None,
                 };
@@ -8432,7 +8448,10 @@ impl Context {
                 ValueKind::T => 1,
                 ValueKind::Fixnum(n) => ((n as u64).wrapping_mul(0x9E37_79B1)) ^ 0x10,
                 ValueKind::Symbol(sym) => ((sym.0 as u64) << 8) ^ 0x20,
-                ValueKind::Subr(sym) => ((sym.0 as u64) << 8) ^ 0x22,
+                ValueKind::Veclike(VecLikeType::Subr) => {
+                    let sym = value.as_subr_id().unwrap();
+                    ((sym.0 as u64) << 8) ^ 0x22
+                }
                 _ => (value.bits() as u64) ^ 0x30,
             }
         }
@@ -9214,7 +9233,10 @@ fn rewrite_wrong_arity_alias_function_object(flow: Flow, alias: &str, target: &s
     match flow {
         Flow::Signal(mut sig) => {
             let target_is_payload = sig.data.first().is_some_and(|value| match value.kind() {
-                ValueKind::Subr(id) => resolve_sym(id) == target || resolve_sym(id) == alias,
+                ValueKind::Veclike(VecLikeType::Subr) => {
+                    let id = value.as_subr_id().unwrap();
+                    resolve_sym(id) == target || resolve_sym(id) == alias
+                }
                 _ => {
                     value.as_symbol_name() == Some(target) || value.as_symbol_name() == Some(alias)
                 }
@@ -9317,8 +9339,8 @@ pub(crate) fn value_to_expr(value: &Value) -> Expr {
             let items = value.as_vector_data().unwrap().clone();
             Expr::Vector(items.iter().map(value_to_expr).collect())
         }
-        ValueKind::Subr(id) => {
-            Expr::OpaqueValueRef(OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(Value::subr(id))))
+        ValueKind::Veclike(VecLikeType::Subr) => {
+            Expr::OpaqueValueRef(OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(*value)))
         }
         // Lambda, Macro, ByteCode, HashTable, Buffer, etc. — preserve as
         // opaque values so they survive the Value→Expr→Value round-trip

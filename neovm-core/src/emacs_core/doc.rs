@@ -165,9 +165,12 @@ fn function_doc_or_error(func_val: Value) -> EvalResult {
                 None => Ok(Value::NIL),
             }
         }
-        ValueKind::Subr(id) => Ok(Value::string(
-            subr_documentation_stub(resolve_sym(id)).unwrap_or("Built-in function."),
-        )),
+        ValueKind::Veclike(VecLikeType::Subr) => {
+            let id = func_val.as_subr_id().unwrap();
+            Ok(Value::string(
+                subr_documentation_stub(resolve_sym(id)).unwrap_or("Built-in function."),
+            ))
+        }
         ValueKind::String | ValueKind::Veclike(VecLikeType::Vector) => {
             Ok(Value::string("Keyboard macro."))
         }

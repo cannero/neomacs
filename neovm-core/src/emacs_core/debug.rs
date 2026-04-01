@@ -423,7 +423,7 @@ impl HelpFormatter {
                     "a Lisp function"
                 }
             }
-            ValueKind::Subr(_) => "a built-in function",
+            ValueKind::Veclike(VecLikeType::Subr) => "a built-in function",
             ValueKind::Veclike(VecLikeType::Macro) => "a Lisp macro",
             ValueKind::Veclike(VecLikeType::ByteCode) => "a compiled Lisp function",
             _ => "a Lisp function",
@@ -445,7 +445,8 @@ impl HelpFormatter {
                     out.push_str(&format!("({}{})\n", name, params));
                 }
             }
-            ValueKind::Subr(id) => {
+            ValueKind::Veclike(VecLikeType::Subr) => {
+                let id = value.as_subr_id().unwrap();
                 out.push_str(&format!("({} &rest ARGS)\n", resolve_sym(id)));
             }
             _ => {

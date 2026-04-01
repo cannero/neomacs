@@ -197,10 +197,23 @@ impl TaggedValue {
         Self::from_sym_id(id)
     }
 
-    /// Create a subr (builtin function) value from a SymId.
-    #[inline]
+    /// Create a subr (builtin function) value.
+    /// In GNU Emacs, subrs are PVEC_SUBR heap objects. We allocate a SubrObj
+    /// on the tagged heap.
     pub fn subr(id: SymId) -> Self {
-        Self(TAG_IMMEDIATE | IMM_SUBR | ((id.0 as usize) << IMM_PAYLOAD_SHIFT))
+        use super::header::{SubrObj, VecLikeHeader, VecLikeType};
+        let obj = Box::new(SubrObj {
+            header: VecLikeHeader::new(VecLikeType::Subr),
+            name: id,
+            min_args: 0,
+            max_args: None,
+        });
+        let ptr = Box::into_raw(obj);
+        // Link into tagged heap for GC management
+        crate::tagged::gc::with_tagged_heap(|h| {
+            h.allocated_count += 1;
+            unsafe { Self::from_veclike_ptr(ptr as *const VecLikeHeader) }
+        })
     }
 
     // ---------------------------------------------------------------------------
@@ -293,9 +306,10 @@ impl TaggedValue {
         false
     }
 
+    /// Subrs are PVEC_SUBR veclike heap objects.
     #[inline]
     pub fn is_subr(self) -> bool {
-        self.is_immediate() && (self.0 & IMM_SUB_MASK) == IMM_SUBR
+        self.veclike_type() == Some(super::header::VecLikeType::Subr)
     }
 
     /// True if this value holds a heap pointer (needs GC tracing).
@@ -382,7 +396,8 @@ impl TaggedValue {
     #[inline]
     pub fn as_subr_id(self) -> Option<SymId> {
         if self.is_subr() {
-            Some(SymId((self.0 >> IMM_PAYLOAD_SHIFT) as u32))
+            let ptr = self.as_veclike_ptr().unwrap() as *const super::header::SubrObj;
+            Some(unsafe { (*ptr).name })
         } else {
             None
         }
@@ -524,14 +539,7 @@ impl TaggedValue {
             }
             TAG_STRING => ValueKind::String,
             TAG_FLOAT => ValueKind::Float,
-            TAG_IMMEDIATE => {
-                let sub = self.0 & IMM_SUB_MASK;
-                if sub == IMM_SUBR {
-                    ValueKind::Subr(self.as_subr_id().unwrap())
-                } else {
-                    ValueKind::Unknown
-                }
-            }
+            TAG_IMMEDIATE => ValueKind::Unknown,
             _ => ValueKind::Unknown,
         }
     }
@@ -624,8 +632,8 @@ impl TaggedValue {
             ValueKind::Cons => "cons",
             ValueKind::String => "string",
             ValueKind::Float => "float",
-            ValueKind::Subr(_) => "subr",
             ValueKind::Veclike(ty) => match ty {
+                VecLikeType::Subr => "subr",
                 VecLikeType::Vector => "vector",
                 VecLikeType::HashTable => "hash-table",
                 VecLikeType::Lambda => "closure",
@@ -718,7 +726,7 @@ pub enum ValueKind {
     Float,
     // NOTE: No Char variant. Characters are Fixnum in GNU Emacs.
     // NOTE: No Keyword variant. Keywords are Symbol in GNU Emacs.
-    Subr(SymId),
+    // NOTE: No Subr variant. Subrs are Veclike(VecLikeType::Subr) in GNU Emacs.
     Veclike(VecLikeType),
     Unknown,
 }
@@ -739,7 +747,6 @@ impl fmt::Debug for TaggedValue {
             ValueKind::Float => {
                 write!(f, "Float({})", self.xfloat())
             }
-            ValueKind::Subr(id) => write!(f, "Subr({:?})", id),
             ValueKind::Veclike(ty) => write!(f, "{:?}@{:#x}", ty, self.0 & !TAG_MASK),
             ValueKind::Unknown => write!(f, "Unknown({:#x})", self.0),
         }

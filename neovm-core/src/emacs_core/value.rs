@@ -1226,7 +1226,7 @@ impl TaggedValue {
                 HashKey::Ptr(self.bits())
             }
             ValueKind::Symbol(id) => HashKey::Symbol(id),
-            ValueKind::Subr(id) => HashKey::Symbol(id),
+            ValueKind::Veclike(VecLikeType::Subr) => HashKey::Symbol(self.as_subr_id().unwrap()),
             // All heap types: use pointer identity
             ValueKind::Cons | ValueKind::String | ValueKind::Veclike(_) => {
                 HashKey::Ptr(self.bits())
@@ -1424,7 +1424,9 @@ fn equal_value_inner(
             let right_lambda = right.get_lambda_data().unwrap().clone();
             lambda_data_equal(&left_lambda, &right_lambda, depth + 1, seen)
         }
-        (ValueKind::Subr(a), ValueKind::Subr(b)) => a == b,
+        (ValueKind::Veclike(VecLikeType::Subr), ValueKind::Veclike(VecLikeType::Subr)) => {
+            left.as_subr_id().unwrap() == right.as_subr_id().unwrap()
+        }
         // For all other same-type veclike comparisons, use identity
         (ValueKind::Veclike(a), ValueKind::Veclike(b)) if a == b => left.bits() == right.bits(),
         _ => false,

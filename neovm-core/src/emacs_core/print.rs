@@ -444,7 +444,10 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
                 .join(" ");
             write!(out, "(macro {} {})", params, body).unwrap();
         }
-        ValueKind::Subr(id) => write!(out, "#<subr {}>", resolve_sym(id)).unwrap(),
+        ValueKind::Veclike(VecLikeType::Subr) => {
+            let id = value.as_subr_id().unwrap();
+            write!(out, "#<subr {}>", resolve_sym(id)).unwrap()
+        }
         ValueKind::Veclike(VecLikeType::ByteCode) => {
             let bc = value.get_bytecode_data().unwrap();
             let params = format_params(&bc.params);
@@ -1019,7 +1022,10 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
                 .join(" ");
             format!("(macro {} {})", params, body)
         }
-        ValueKind::Subr(id) => format!("#<subr {}>", resolve_sym(id)),
+        ValueKind::Veclike(VecLikeType::Subr) => {
+            let id = value.as_subr_id().unwrap();
+            format!("#<subr {}>", resolve_sym(id))
+        }
         ValueKind::Veclike(VecLikeType::ByteCode) => {
             let bc = value.get_bytecode_data().unwrap();
             let params = format_params(&bc.params);
@@ -1174,7 +1180,8 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
                 .join(" ");
             out.extend_from_slice(format!("(macro {} {})", params, body).as_bytes());
         }
-        ValueKind::Subr(id) => {
+        ValueKind::Veclike(VecLikeType::Subr) => {
+            let id = value.as_subr_id().unwrap();
             out.extend_from_slice(format!("#<subr {}>", resolve_sym(id)).as_bytes())
         }
         ValueKind::Veclike(VecLikeType::ByteCode) => {

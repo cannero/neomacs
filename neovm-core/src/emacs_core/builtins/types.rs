@@ -170,7 +170,10 @@ fn is_macro_marker_list(value: &Value) -> bool {
 fn is_runtime_function_object(value: &Value) -> bool {
     match value.kind() {
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => true,
-        ValueKind::Subr(id) => !super::subr_info::is_special_form(resolve_sym(id)),
+        ValueKind::Veclike(VecLikeType::Subr) => {
+            let id = value.as_subr_id().unwrap();
+            !super::subr_info::is_special_form(resolve_sym(id))
+        }
         _ => false,
     }
 }
@@ -206,7 +209,7 @@ pub(crate) fn builtin_functionp(eval: &mut super::eval::Context, args: Vec<Value
     } else {
         match args[0].kind() {
             ValueKind::Veclike(VecLikeType::Lambda)
-            | ValueKind::Subr(_)
+            | ValueKind::Veclike(VecLikeType::Subr)
             | ValueKind::Veclike(VecLikeType::ByteCode) => is_runtime_function_object(&args[0]),
             ValueKind::Cons => !is_macro_marker_list(&args[0]) && is_lambda_form_list(&args[0]),
             _ => false,
@@ -232,7 +235,7 @@ pub(crate) fn builtin_type_of(args: Vec<Value>) -> EvalResult {
     match args[0].kind() {
         ValueKind::Nil | ValueKind::T | ValueKind::Symbol(_) => Ok(Value::symbol("symbol")),
         ValueKind::Fixnum(_) => Ok(Value::symbol("integer")),
-        ValueKind::Subr(_) => Ok(Value::symbol("subr")),
+        ValueKind::Veclike(VecLikeType::Subr) => Ok(Value::symbol("subr")),
         _ => builtin_cl_type_of(args),
     }
 }
@@ -289,7 +292,7 @@ pub(crate) fn builtin_cl_type_of(args: Vec<Value>) -> EvalResult {
         ValueKind::Veclike(VecLikeType::Vector) => "vector",
         ValueKind::Veclike(VecLikeType::Record) => unreachable!(),
         ValueKind::Veclike(VecLikeType::HashTable) => "hash-table",
-        ValueKind::Subr(_) => "primitive-function",
+        ValueKind::Veclike(VecLikeType::Subr) => "primitive-function",
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => {
             "interpreted-function"
         }

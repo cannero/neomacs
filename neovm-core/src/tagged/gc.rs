@@ -626,7 +626,8 @@ impl TaggedHeap {
             | VecLikeType::Window
             | VecLikeType::Frame
             | VecLikeType::Timer
-            | VecLikeType::Marker => {
+            | VecLikeType::Marker
+            | VecLikeType::Subr => {
                 // These have no Value children to trace
             }
         }

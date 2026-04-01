@@ -1024,7 +1024,11 @@ fn is_builtin_path_predicate(name: &str) -> bool {
 
 fn predicate_callable_name(predicate: &Value) -> Option<&str> {
     match predicate.kind() {
-        ValueKind::Symbol(id) | ValueKind::Subr(id) => Some(resolve_sym(id)),
+        ValueKind::Symbol(id) => Some(resolve_sym(id)),
+        ValueKind::Veclike(VecLikeType::Subr) => {
+            let id = predicate.as_subr_id().unwrap();
+            Some(resolve_sym(id))
+        }
         _ => None,
     }
 }
