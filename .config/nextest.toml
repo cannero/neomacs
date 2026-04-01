@@ -24,13 +24,11 @@ slow-timeout = { period = "120s", terminate-after = 1 }
 # Bootstrap tests need much longer timeouts
 [[profile.default.overrides]]
 filter = 'test(bootstrap) | test(pdump)'
-threads-required = 2
 slow-timeout = { period = "600s", terminate-after = 1 }
 
 # GNU-vs-NeoVM compatibility integration tests also need the cold-bootstrap budget.
 [[profile.default.overrides]]
 filter = 'package(=neovm-core) and test(/compat_.*_matches_gnu_emacs/)'
-threads-required = 2
 slow-timeout = { period = "600s", terminate-after = 1 }
 
 # Loadup bootstrap is the slowest (cold start can take >300s)
