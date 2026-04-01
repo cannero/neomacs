@@ -562,15 +562,17 @@ impl TaggedValue {
     }
 
     /// True for integers.
+    /// In GNU Emacs, characters are integers (same Lisp type).
     #[inline]
     pub fn is_integer(self) -> bool {
-        self.is_fixnum()
+        self.is_fixnum() || self.is_char()
     }
 
-    /// True for any number (fixnum or float).
+    /// True for any number (fixnum, char, or float).
+    /// In GNU Emacs, characters are integers.
     #[inline]
     pub fn is_number(self) -> bool {
-        self.is_fixnum() || self.is_float()
+        self.is_fixnum() || self.is_char() || self.is_float()
     }
 
     /// True if this value is a vector (veclike with Vector type tag).
