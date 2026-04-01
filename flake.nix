@@ -159,7 +159,6 @@
               wrapProgram "$out/bin/neomacs" \
                 --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath runtimeLibs}" \
                 --set-default RUST_LOG info \
-                --set-default NEOMACS_LOG info \
                 --set-default NEOMACS_RUNTIME_ROOT "$out/share/neomacs" \
                 ${lib.concatStringsSep " \\\n                " linuxWrapArgs}
             '';
@@ -366,8 +365,7 @@
             # Common shell hook (both platforms)
             + ''
               # Set default log levels (can be overridden before entering nix develop)
-              export RUST_LOG="''${RUST_LOG:-info}"
-              export NEOMACS_LOG="''${NEOMACS_LOG:-info}"
+              export RUST_LOG="''${RUST_LOG:-debug}"
 
               echo ""
               echo "Build commands:"
@@ -375,8 +373,7 @@
               echo "  2. ./target/release/neomacs"
               echo ""
               echo "Logging (set before entering nix develop to override):"
-              echo "  RUST_LOG=$RUST_LOG      (Rust render thread: trace|debug|info|warn|error)"
-              echo "  NEOMACS_LOG=$NEOMACS_LOG  (Neomacs runtime: trace|debug|info|warn|error)"
+              echo "  RUST_LOG=$RUST_LOG  (trace|debug|info|warn|error)"
               echo ""
             '';
           };
