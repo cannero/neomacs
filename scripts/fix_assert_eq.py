@@ -254,12 +254,9 @@ def split_macro_args(text: str, body_start: int, body_end: int) -> list[str]:
 
 
 def has_value_at_top_level(arg: str) -> bool:
-    """Return True if ``Value::`` appears at paren/bracket/brace depth 0
-    within *arg*, and is NOT inside a string literal.
-
-    This means ``Value::`` is a direct operand, not nested inside
-    ``Some(...)``, ``vec![...]``, ``print_value(...)``, etc.
-    """
+    """Return True if ``Value::`` appears anywhere within *arg*,
+    NOT inside a string literal. Checks at any depth (including
+    inside ``vec![...]``, ``Some(...)``, etc.)."""
     depth = 0
     i = 0
     while i < len(arg):
@@ -318,8 +315,8 @@ def has_value_at_top_level(arg: str) -> bool:
             i += 1
             continue
 
-        # Check for Value:: at depth 0
-        if depth == 0 and arg[i:i+7] == 'Value::':
+        # Check for Value:: at any depth (not inside strings)
+        if arg[i:i+7] == 'Value::':
             return True
 
         i += 1

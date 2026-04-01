@@ -422,7 +422,7 @@ fn cl_member_found_tail() {
         ]),
     ])
     .unwrap();
-    assert_val_eq!(
+    assert_eq!(
         result,
         Value::list(vec![Value::symbol("b"), Value::symbol("c")])
     );
@@ -450,7 +450,7 @@ fn cl_coerce_list_to_vector() {
         Value::symbol("vector"),
     ])
     .unwrap();
-    assert_val_eq!(
+    assert_eq!(
         result,
         Value::vector(vec![Value::symbol("a"), Value::symbol("b")])
     );
@@ -468,7 +468,7 @@ fn cl_adjoin_prepends_when_missing() {
         Value::list(vec![Value::symbol("b"), Value::symbol("c")]),
     ])
     .unwrap();
-    assert_val_eq!(
+    assert_eq!(
         result,
         Value::list(vec![
             Value::symbol("a"),
@@ -501,7 +501,7 @@ fn cl_remove_filters_equal_items() {
         ]),
     ])
     .unwrap();
-    assert_val_eq!(result, Value::list(vec![Value::symbol("b")]));
+    assert_eq!(result, Value::list(vec![Value::symbol("b")]));
 }
 
 #[test]
@@ -708,7 +708,7 @@ fn cl_find_found() {
         ]),
     ])
     .unwrap();
-    assert_val_eq!(result, Value::symbol("b"));
+    assert_eq!(result, Value::symbol("b"));
 }
 
 #[test]
@@ -741,7 +741,7 @@ fn cl_find_if_with_eval() {
         ],
     )
     .unwrap();
-    assert_val_eq!(result, Value::fixnum(2));
+    assert_eq!(result, Value::fixnum(2));
 }
 
 #[test]
@@ -794,7 +794,7 @@ fn cl_intersection_basic() {
         ]),
     ])
     .unwrap();
-    assert_val_eq!(
+    assert_eq!(
         result,
         Value::list(vec![Value::symbol("b"), Value::symbol("c")])
     );
@@ -827,7 +827,7 @@ fn cl_set_difference_basic() {
         Value::list(vec![Value::symbol("b"), Value::symbol("d")]),
     ])
     .unwrap();
-    assert_val_eq!(
+    assert_eq!(
         result,
         Value::list(vec![Value::symbol("a"), Value::symbol("c")])
     );
@@ -855,7 +855,7 @@ fn cl_union_basic() {
         Value::list(vec![Value::symbol("b"), Value::symbol("c")]),
     ])
     .unwrap();
-    assert_val_eq!(
+    assert_eq!(
         result,
         Value::list(vec![
             Value::symbol("a"),
@@ -868,7 +868,7 @@ fn cl_union_basic() {
 #[test]
 fn cl_union_empty_left() {
     let result = builtin_cl_union(vec![Value::NIL, Value::list(vec![Value::symbol("c")])]).unwrap();
-    assert_val_eq!(result, Value::list(vec![Value::symbol("c")]));
+    assert_eq!(result, Value::list(vec![Value::symbol("c")]));
 }
 
 #[test]
@@ -889,7 +889,7 @@ fn cl_substitute_basic() {
         ]),
     ])
     .unwrap();
-    assert_val_eq!(
+    assert_eq!(
         result,
         Value::list(vec![
             Value::symbol("a"),
@@ -910,7 +910,7 @@ fn cl_sort_with_eval() {
     let mut evaluator = super::super::eval::Context::new();
     let seq = Value::list(vec![Value::fixnum(3), Value::fixnum(1), Value::fixnum(2)]);
     let result = builtin_cl_sort(&mut evaluator, vec![seq, Value::subr(intern("<"))]).unwrap();
-    assert_val_eq!(
+    assert_eq!(
         result,
         Value::list(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)])
     );
@@ -922,7 +922,7 @@ fn cl_stable_sort_with_eval() {
     let seq = Value::list(vec![Value::fixnum(3), Value::fixnum(1), Value::fixnum(2)]);
     let result =
         builtin_cl_stable_sort(&mut evaluator, vec![seq, Value::subr(intern("<"))]).unwrap();
-    assert_val_eq!(
+    assert_eq!(
         result,
         Value::list(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)])
     );
@@ -939,7 +939,7 @@ fn cl_remove_if_with_eval() {
         ],
     )
     .unwrap();
-    assert_val_eq!(result, Value::list(vec![Value::string("x")]));
+    assert_eq!(result, Value::list(vec![Value::string("x")]));
 }
 
 #[test]
@@ -953,7 +953,7 @@ fn cl_remove_if_not_with_eval() {
         ],
     )
     .unwrap();
-    assert_val_eq!(
+    assert_eq!(
         result,
         Value::list(vec![Value::fixnum(1), Value::fixnum(2)])
     );
@@ -971,7 +971,7 @@ fn cl_map_list_with_eval() {
         ],
     )
     .unwrap();
-    assert_val_eq!(
+    assert_eq!(
         result,
         Value::list(vec![Value::fixnum(2), Value::fixnum(3), Value::fixnum(4)])
     );
@@ -989,7 +989,7 @@ fn cl_map_string_with_eval() {
         ],
     )
     .unwrap();
-    assert_val_eq!(result, Value::string("ab"));
+    assert_eq!(result, Value::string("ab"));
 }
 
 #[test]

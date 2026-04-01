@@ -2,8 +2,8 @@ use super::*;
 
 #[test]
 fn comp_init_and_release_return_true() {
-    assert_val_eq!(builtin_comp_init_ctxt(vec![]).unwrap(), Value::T);
-    assert_val_eq!(builtin_comp_release_ctxt(vec![]).unwrap(), Value::T);
+    assert_eq!(builtin_comp_init_ctxt(vec![]).unwrap(), Value::T);
+    assert_eq!(builtin_comp_release_ctxt(vec![]).unwrap(), Value::T);
 }
 
 #[test]

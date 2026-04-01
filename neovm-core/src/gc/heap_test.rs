@@ -5,8 +5,8 @@ use crate::emacs_core::value::ValueKind;
 fn alloc_cons_read() {
     let mut heap = LispHeap::new();
     let id = heap.alloc_cons(Value::fixnum(1), Value::fixnum(2));
-    assert_val_eq!(heap.cons_car(id), Value::fixnum(1));
-    assert_val_eq!(heap.cons_cdr(id), Value::fixnum(2));
+    assert_eq!(heap.cons_car(id), Value::fixnum(1));
+    assert_eq!(heap.cons_cdr(id), Value::fixnum(2));
 }
 
 #[test]
@@ -14,7 +14,7 @@ fn alloc_cons_mutate() {
     let mut heap = LispHeap::new();
     let id = heap.alloc_cons(Value::fixnum(1), Value::fixnum(2));
     heap.set_car(id, Value::fixnum(10));
-    assert_val_eq!(heap.cons_car(id), Value::fixnum(10));
+    assert_eq!(heap.cons_car(id), Value::fixnum(10));
 }
 
 #[test]
@@ -80,9 +80,9 @@ fn vector_ops() {
     let mut heap = LispHeap::new();
     let id = heap.alloc_vector(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
     assert_eq!(heap.vector_len(id), 3);
-    assert_val_eq!(heap.vector_ref(id, 1), Value::fixnum(2));
+    assert_eq!(heap.vector_ref(id, 1), Value::fixnum(2));
     heap.vector_set(id, 1, Value::fixnum(20));
-    assert_val_eq!(heap.vector_ref(id, 1), Value::fixnum(20));
+    assert_eq!(heap.vector_ref(id, 1), Value::fixnum(20));
 }
 
 #[test]

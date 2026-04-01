@@ -59,7 +59,7 @@ fn copy_category_table_deep_copies_docstrings_and_sets() {
             .unwrap()
             .is_nil()
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_category_set_mnemonics(vec![
             super::super::chartable::builtin_char_table_range(vec![table, Value::char('B')])
                 .unwrap(),
@@ -67,7 +67,7 @@ fn copy_category_table_deep_copies_docstrings_and_sets() {
         .unwrap(),
         Value::string("")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_category_set_mnemonics(vec![
             super::super::chartable::builtin_char_table_range(vec![copy, Value::char('B')])
                 .unwrap(),
@@ -117,7 +117,7 @@ fn define_category_redefinition_matches_gnu_error() {
 fn get_unused_category_scans_ascii_graphics() {
     let mut eval = fresh_eval();
     let table = builtin_make_category_table(vec![]).unwrap();
-    assert_val_eq!(
+    assert_eq!(
         builtin_get_unused_category(&mut eval, vec![table]).unwrap(),
         Value::char(' ')
     );
@@ -126,7 +126,7 @@ fn get_unused_category_scans_ascii_graphics() {
         vec![Value::char(' '), Value::string("space"), table],
     )
     .unwrap();
-    assert_val_eq!(
+    assert_eq!(
         builtin_get_unused_category(&mut eval, vec![table]).unwrap(),
         Value::char('!')
     );
@@ -162,7 +162,7 @@ fn modify_category_entry_honors_optional_table_argument() {
     for ch in ['A', 'B', 'C'] {
         let set = super::super::chartable::builtin_char_table_range(vec![table, Value::char(ch)])
             .unwrap();
-        assert_val_eq!(
+        assert_eq!(
             builtin_category_set_mnemonics(vec![set]).unwrap(),
             Value::string("!")
         );
@@ -170,7 +170,7 @@ fn modify_category_entry_honors_optional_table_argument() {
     let current = builtin_category_table(&mut eval, vec![]).unwrap();
     let current_set =
         super::super::chartable::builtin_char_table_range(vec![current, Value::char('A')]).unwrap();
-    assert_val_eq!(
+    assert_eq!(
         builtin_category_set_mnemonics(vec![current_set]).unwrap(),
         Value::string("")
     );

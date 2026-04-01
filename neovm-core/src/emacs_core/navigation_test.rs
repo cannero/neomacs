@@ -318,7 +318,7 @@ fn bootstrap_next_and_previous_line_match_simple_el() {
         "(list (subrp (symbol-function 'next-line))
                (subrp (symbol-function 'previous-line)))",
     );
-    assert_val_eq!(ownership, Value::list(vec![Value::NIL, Value::NIL]));
+    assert_eq!(ownership, Value::list(vec![Value::NIL, Value::NIL]));
 
     let next_line_pos = eval_int(
         &mut ev,
@@ -408,7 +408,7 @@ fn bootstrap_beginning_and_end_of_buffer_match_simple_el() {
         "(list (subrp (symbol-function 'beginning-of-buffer))
                (subrp (symbol-function 'end-of-buffer)))",
     );
-    assert_val_eq!(ownership, Value::list(vec![Value::NIL, Value::NIL]));
+    assert_eq!(ownership, Value::list(vec![Value::NIL, Value::NIL]));
     eval_str(&mut ev, "(fset 'push-mark (lambda (&rest _args) nil))");
     eval_str(&mut ev, "(fset 'region-active-p (lambda () nil))");
 
@@ -466,7 +466,7 @@ fn bootstrap_goto_line_matches_simple_el() {
     let mut ev = gnu_simple_line_eval();
 
     let ownership = eval_str(&mut ev, "(subrp (symbol-function 'goto-line))");
-    assert_val_eq!(ownership, Value::NIL);
+    assert_eq!(ownership, Value::NIL);
 
     let default_pos = eval_int(
         &mut ev,
@@ -677,7 +677,7 @@ fn test_region_active_p_over_arity() {
         &mut ev,
         "(condition-case err (region-active-p nil) (error (car err)))",
     );
-    assert_val_eq!(result, Value::symbol("wrong-number-of-arguments"));
+    assert_eq!(result, Value::symbol("wrong-number-of-arguments"));
 }
 
 #[test]
@@ -730,7 +730,7 @@ fn test_transient_mark_mode_over_arity() {
         &mut ev,
         "(condition-case err (transient-mark-mode nil nil) (error (car err)))",
     );
-    assert_val_eq!(result, Value::symbol("wrong-number-of-arguments"));
+    assert_eq!(result, Value::symbol("wrong-number-of-arguments"));
 }
 
 #[test]

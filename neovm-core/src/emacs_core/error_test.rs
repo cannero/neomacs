@@ -243,7 +243,7 @@ fn make_signal_binding_value_preserves_raw_payload_shape() {
 
     let flow = signal_with_data("error", Value::fixnum(1));
     let Flow::Signal(sig) = flow else { panic!() };
-    assert_val_eq!(
+    assert_eq!(
         make_signal_binding_value(&sig),
         Value::cons(Value::symbol("error"), Value::fixnum(1))
     );

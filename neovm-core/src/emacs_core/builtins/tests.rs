@@ -99,7 +99,7 @@ fn pure_dispatch_typed_add_still_works() {
     let result = dispatch_builtin_pure("+", vec![Value::fixnum(2), Value::fixnum(3)])
         .expect("builtin + should resolve")
         .expect("builtin + should evaluate");
-    assert_val_eq!(result, Value::fixnum(5));
+    assert_eq!(result, Value::fixnum(5));
 }
 
 #[test]
@@ -110,8 +110,8 @@ fn pure_dispatch_typed_percent_and_mod_follow_emacs_sign_rules() {
     let mod_name = dispatch_builtin_pure("mod", vec![Value::fixnum(-5), Value::fixnum(2)])
         .expect("builtin mod should resolve")
         .expect("builtin mod should evaluate");
-    assert_val_eq!(percent, Value::fixnum(-1));
-    assert_val_eq!(mod_name, Value::fixnum(1));
+    assert_eq!(percent, Value::fixnum(-1));
+    assert_eq!(mod_name, Value::fixnum(1));
 }
 
 #[test]
@@ -119,7 +119,7 @@ fn pure_dispatch_typed_mod_zero_remainder_with_negative_divisor_stays_zero() {
     let int_mod = dispatch_builtin_pure("mod", vec![Value::fixnum(0), Value::fixnum(-3)])
         .expect("builtin mod should resolve")
         .expect("builtin mod should evaluate");
-    assert_val_eq!(int_mod, Value::fixnum(0));
+    assert_eq!(int_mod, Value::fixnum(0));
 
     let float_mod =
         dispatch_builtin_pure("mod", vec![Value::make_float(0.5), Value::make_float(-0.5)])
@@ -155,17 +155,17 @@ fn pure_dispatch_typed_max_min_preserve_selected_operand_type() {
     let max_int = dispatch_builtin_pure("max", vec![Value::make_float(-2.5), Value::fixnum(1)])
         .expect("builtin max should resolve")
         .expect("builtin max should evaluate");
-    assert_val_eq!(max_int, Value::fixnum(1));
+    assert_eq!(max_int, Value::fixnum(1));
 
     let min_int = dispatch_builtin_pure("min", vec![Value::fixnum(1), Value::make_float(1.0)])
         .expect("builtin min should resolve")
         .expect("builtin min should evaluate");
-    assert_val_eq!(min_int, Value::fixnum(1));
+    assert_eq!(min_int, Value::fixnum(1));
 
     let max_float = dispatch_builtin_pure("max", vec![Value::make_float(1.0), Value::fixnum(1)])
         .expect("builtin max should resolve")
         .expect("builtin max should evaluate");
-    assert_val_eq!(max_float, Value::make_float(1.0));
+    assert_eq!(max_float, Value::make_float(1.0));
 }
 
 #[test]
@@ -175,32 +175,32 @@ fn pure_dispatch_typed_numeric_primitives_accept_markers() {
     let max_with_marker = dispatch_builtin_pure("max", vec![Value::fixnum(1), marker])
         .expect("builtin max should resolve")
         .expect("builtin max should evaluate");
-    assert_val_eq!(max_with_marker, Value::fixnum(4));
+    assert_eq!(max_with_marker, Value::fixnum(4));
 
     let marker = crate::emacs_core::marker::make_marker_value(None, Some(4), false);
     let min_with_marker = dispatch_builtin_pure("min", vec![Value::fixnum(10), marker])
         .expect("builtin min should resolve")
         .expect("builtin min should evaluate");
-    assert_val_eq!(min_with_marker, Value::fixnum(4));
+    assert_eq!(min_with_marker, Value::fixnum(4));
 
     let left_marker = crate::emacs_core::marker::make_marker_value(None, Some(2), false);
     let right_marker = crate::emacs_core::marker::make_marker_value(None, Some(5), false);
     let lt_with_markers = dispatch_builtin_pure("<", vec![left_marker, right_marker])
         .expect("builtin < should resolve")
         .expect("builtin < should evaluate");
-    assert_val_eq!(lt_with_markers, Value::T);
+    assert_eq!(lt_with_markers, Value::T);
 
     let marker = crate::emacs_core::marker::make_marker_value(None, Some(4), false);
     let add1_with_marker = dispatch_builtin_pure("1+", vec![marker])
         .expect("builtin 1+ should resolve")
         .expect("builtin 1+ should evaluate");
-    assert_val_eq!(add1_with_marker, Value::fixnum(5));
+    assert_eq!(add1_with_marker, Value::fixnum(5));
 
     let marker = crate::emacs_core::marker::make_marker_value(None, Some(4), false);
     let sub1_with_marker = dispatch_builtin_pure("1-", vec![marker])
         .expect("builtin 1- should resolve")
         .expect("builtin 1- should evaluate");
-    assert_val_eq!(sub1_with_marker, Value::fixnum(3));
+    assert_eq!(sub1_with_marker, Value::fixnum(3));
 }
 
 #[test]
@@ -221,7 +221,7 @@ fn eval_dispatch_typed_max_uses_live_marker_position_after_insertions() {
         .last()
         .expect("one form")
         .expect("evaluation succeeds");
-    assert_val_eq!(result, Value::fixnum(7));
+    assert_eq!(result, Value::fixnum(7));
 }
 
 #[test]
@@ -242,7 +242,7 @@ fn eval_dispatch_typed_min_uses_live_marker_position_after_insertions() {
         .last()
         .expect("one form")
         .expect("evaluation succeeds");
-    assert_val_eq!(result, Value::fixnum(7));
+    assert_eq!(result, Value::fixnum(7));
 }
 
 #[test]
@@ -349,12 +349,12 @@ fn pure_dispatch_typed_ash_handles_extreme_negative_shift_counts() {
     let right = dispatch_builtin_pure("ash", vec![Value::fixnum(3), Value::fixnum(i64::MIN)])
         .expect("builtin ash should resolve")
         .expect("builtin ash should evaluate");
-    assert_val_eq!(right, Value::fixnum(0));
+    assert_eq!(right, Value::fixnum(0));
 
     let right_neg = dispatch_builtin_pure("ash", vec![Value::fixnum(-3), Value::fixnum(i64::MIN)])
         .expect("builtin ash should resolve")
         .expect("builtin ash should evaluate");
-    assert_val_eq!(right_neg, Value::fixnum(-1));
+    assert_eq!(right_neg, Value::fixnum(-1));
 }
 
 #[test]
@@ -384,7 +384,7 @@ fn pure_dispatch_typed_append_concatenates_lists() {
     let result = dispatch_builtin_pure("append", vec![left, right])
         .expect("builtin append should resolve")
         .expect("builtin append should evaluate");
-    assert_val_eq!(
+    assert_eq!(
         result,
         Value::list(vec![
             Value::fixnum(1),
@@ -437,7 +437,7 @@ fn pure_dispatch_typed_length_tracks_bytecode_doc_slot() {
         .expect("builtin length should resolve")
         .expect("builtin length should evaluate");
 
-    assert_val_eq!(len, Value::fixnum(5));
+    assert_eq!(len, Value::fixnum(5));
 }
 
 #[test]
@@ -485,8 +485,8 @@ fn pure_dispatch_typed_length_tracks_interpreted_closure_slot_count() {
         .expect("builtin length should resolve")
         .expect("builtin length should evaluate");
 
-    assert_val_eq!(bare_len, Value::fixnum(3));
-    assert_val_eq!(doc_len, Value::fixnum(5));
+    assert_eq!(bare_len, Value::fixnum(3));
+    assert_eq!(doc_len, Value::fixnum(5));
 }
 
 #[test]
@@ -508,7 +508,7 @@ fn compiled_literal_reifier_turns_interpreted_closure_vectors_callable() {
     let out = eval
         .apply(converted, vec![Value::fixnum(41)])
         .expect("converted closure should be callable");
-    assert_val_eq!(out, Value::fixnum(42));
+    assert_eq!(out, Value::fixnum(42));
 }
 
 #[test]
@@ -578,7 +578,7 @@ fn pure_dispatch_typed_downcase_unicode_edge_payloads_match_oracle() {
         let result = dispatch_builtin_pure("downcase", vec![Value::fixnum(input)])
             .expect("builtin downcase should resolve")
             .expect("builtin downcase should evaluate");
-        assert_val_eq!(
+        assert_eq!(
             result,
             Value::fixnum(expected),
             "downcase({input}) should equal {expected}"
@@ -588,32 +588,32 @@ fn pure_dispatch_typed_downcase_unicode_edge_payloads_match_oracle() {
     let dotted_i = dispatch_builtin_pure("downcase", vec![Value::char('\u{0130}')])
         .expect("builtin downcase should resolve")
         .expect("builtin downcase should evaluate");
-    assert_val_eq!(dotted_i, Value::char('\u{0130}'));
+    assert_eq!(dotted_i, Value::char('\u{0130}'));
 
     let kelvin = dispatch_builtin_pure("downcase", vec![Value::string("\u{212A}")])
         .expect("builtin downcase should resolve")
         .expect("builtin downcase should evaluate");
-    assert_val_eq!(kelvin, Value::string("\u{212A}"));
+    assert_eq!(kelvin, Value::string("\u{212A}"));
 
     let dotted_i_string = dispatch_builtin_pure("downcase", vec![Value::string("\u{0130}")])
         .expect("builtin downcase should resolve")
         .expect("builtin downcase should evaluate");
-    assert_val_eq!(dotted_i_string, Value::string("i\u{307}"));
+    assert_eq!(dotted_i_string, Value::string("i\u{307}"));
 
     let preserve_latin = dispatch_builtin_pure("downcase", vec![Value::string("\u{A7CB}")])
         .expect("builtin downcase should resolve")
         .expect("builtin downcase should evaluate");
-    assert_val_eq!(preserve_latin, Value::string("\u{A7CB}"));
+    assert_eq!(preserve_latin, Value::string("\u{A7CB}"));
 
     let preserve_cyrillic_sup = dispatch_builtin_pure("downcase", vec![Value::string("\u{10D50}")])
         .expect("builtin downcase should resolve")
         .expect("builtin downcase should evaluate");
-    assert_val_eq!(preserve_cyrillic_sup, Value::string("\u{10D50}"));
+    assert_eq!(preserve_cyrillic_sup, Value::string("\u{10D50}"));
 
     let preserve_adlam = dispatch_builtin_pure("downcase", vec![Value::string("\u{16EA0}")])
         .expect("builtin downcase should resolve")
         .expect("builtin downcase should evaluate");
-    assert_val_eq!(preserve_adlam, Value::string("\u{16EA0}"));
+    assert_eq!(preserve_adlam, Value::string("\u{16EA0}"));
 
     let negative = dispatch_builtin_pure("downcase", vec![Value::fixnum(-1)])
         .expect("builtin downcase should resolve")
@@ -657,7 +657,7 @@ fn pure_dispatch_typed_upcase_unicode_edge_payloads_match_oracle() {
         let result = dispatch_builtin_pure("upcase", vec![Value::fixnum(input)])
             .expect("builtin upcase should resolve")
             .expect("builtin upcase should evaluate");
-        assert_val_eq!(
+        assert_eq!(
             result,
             Value::fixnum(expected),
             "upcase({input}) should equal {expected}"
@@ -667,32 +667,32 @@ fn pure_dispatch_typed_upcase_unicode_edge_payloads_match_oracle() {
     let sharp_s = dispatch_builtin_pure("upcase", vec![Value::char('ß')])
         .expect("builtin upcase should resolve")
         .expect("builtin upcase should evaluate");
-    assert_val_eq!(sharp_s, Value::char('\u{1E9E}'));
+    assert_eq!(sharp_s, Value::char('\u{1E9E}'));
 
     let sharp_s_string = dispatch_builtin_pure("upcase", vec![Value::string("ß")])
         .expect("builtin upcase should resolve")
         .expect("builtin upcase should evaluate");
-    assert_val_eq!(sharp_s_string, Value::string("SS"));
+    assert_eq!(sharp_s_string, Value::string("SS"));
 
     let dotless_i_string = dispatch_builtin_pure("upcase", vec![Value::string("\u{0131}")])
         .expect("builtin upcase should resolve")
         .expect("builtin upcase should evaluate");
-    assert_val_eq!(dotless_i_string, Value::string("\u{0131}"));
+    assert_eq!(dotless_i_string, Value::string("\u{0131}"));
 
     let preserve_latin = dispatch_builtin_pure("upcase", vec![Value::string("\u{019B}")])
         .expect("builtin upcase should resolve")
         .expect("builtin upcase should evaluate");
-    assert_val_eq!(preserve_latin, Value::string("\u{019B}"));
+    assert_eq!(preserve_latin, Value::string("\u{019B}"));
 
     let preserve_cyrillic_sup = dispatch_builtin_pure("upcase", vec![Value::string("\u{10D70}")])
         .expect("builtin upcase should resolve")
         .expect("builtin upcase should evaluate");
-    assert_val_eq!(preserve_cyrillic_sup, Value::string("\u{10D70}"));
+    assert_eq!(preserve_cyrillic_sup, Value::string("\u{10D70}"));
 
     let preserve_adlam = dispatch_builtin_pure("upcase", vec![Value::string("\u{16EBB}")])
         .expect("builtin upcase should resolve")
         .expect("builtin upcase should evaluate");
-    assert_val_eq!(preserve_adlam, Value::string("\u{16EBB}"));
+    assert_eq!(preserve_adlam, Value::string("\u{16EBB}"));
 
     let negative = dispatch_builtin_pure("upcase", vec![Value::fixnum(-1)])
         .expect("builtin upcase should resolve")
@@ -714,7 +714,7 @@ fn keymapp_accepts_lisp_keymap_cons_cells() {
     let mut eval = super::super::eval::Context::new();
 
     let proper = Value::list(vec![Value::symbol("keymap")]);
-    assert_val_eq!(builtin_keymapp(&mut eval, vec![proper]).unwrap(), Value::T);
+    assert_eq!(builtin_keymapp(&mut eval, vec![proper]).unwrap(), Value::T);
 
     let proper_with_entry = Value::cons(
         Value::symbol("keymap"),
@@ -723,19 +723,19 @@ fn keymapp_accepts_lisp_keymap_cons_cells() {
             Value::NIL,
         ),
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_keymapp(&mut eval, vec![proper_with_entry]).unwrap(),
         Value::T
     );
 
     let improper = Value::cons(Value::symbol("keymap"), Value::symbol("tail"));
-    assert_val_eq!(
+    assert_eq!(
         builtin_keymapp(&mut eval, vec![improper]).unwrap(),
         Value::T
     );
 
     let non_keymap = Value::list(vec![Value::symbol("foo"), Value::symbol("keymap")]);
-    assert_val_eq!(
+    assert_eq!(
         builtin_keymapp(&mut eval, vec![non_keymap]).unwrap(),
         Value::NIL
     );
@@ -745,12 +745,12 @@ fn keymapp_accepts_lisp_keymap_cons_cells() {
 fn keymapp_rejects_non_keymap_integer_designators() {
     let mut eval = super::super::eval::Context::new();
     let keymap = builtin_make_sparse_keymap(&mut eval, vec![]).unwrap();
-    assert_val_eq!(builtin_keymapp(&mut eval, vec![keymap]).unwrap(), Value::T);
-    assert_val_eq!(
+    assert_eq!(builtin_keymapp(&mut eval, vec![keymap]).unwrap(), Value::T);
+    assert_eq!(
         builtin_keymapp(&mut eval, vec![Value::fixnum(16)]).unwrap(),
         Value::NIL
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_keymapp(&mut eval, vec![Value::fixnum(999_999)]).unwrap(),
         Value::NIL
     );
@@ -774,8 +774,8 @@ fn accessible_keymaps_reports_root_and_prefix_paths() {
     assert!(all_items[0].is_cons(), "expected cons cell");
     let first_car = all_items[0].cons_car();
     let first_cdr = all_items[0].cons_cdr();
-    assert_val_eq!(first_car, Value::vector(vec![]));
-    assert_val_eq!(
+    assert_eq!(first_car, Value::vector(vec![]));
+    assert_eq!(
         builtin_keymapp(&mut eval, vec![first_cdr]).unwrap(),
         Value::T
     );
@@ -789,7 +789,7 @@ fn accessible_keymaps_reports_root_and_prefix_paths() {
     assert_eq!(filtered_items.len(), 1);
     assert!(filtered_items[0].is_cons(), "expected cons cell");
     let only_car = filtered_items[0].cons_car();
-    assert_val_eq!(only_car, Value::vector(vec![Value::fixnum(24)]));
+    assert_eq!(only_car, Value::vector(vec![Value::fixnum(24)]));
 
     let no_match = builtin_accessible_keymaps(
         &mut eval,
@@ -835,45 +835,45 @@ fn accessible_keymaps_prefix_type_errors_match_oracle_shape() {
 fn key_description_renders_super_prefixed_symbol_events_with_expected_angles() {
     let super_only = builtin_key_description(vec![Value::vector(vec![Value::symbol("s-f1")])])
         .expect("key-description should succeed");
-    assert_val_eq!(super_only, Value::string("s-<f1>"));
+    assert_eq!(super_only, Value::string("s-<f1>"));
 
     let ctrl_super = builtin_key_description(vec![Value::vector(vec![Value::symbol("C-s-f1")])])
         .expect("key-description should succeed");
-    assert_val_eq!(ctrl_super, Value::string("C-s-<f1>"));
+    assert_eq!(ctrl_super, Value::string("C-s-<f1>"));
 
     let single = builtin_single_key_description(vec![Value::symbol("s-f1")])
         .expect("single-key-description should succeed");
-    assert_val_eq!(single, Value::string("s-<f1>"));
+    assert_eq!(single, Value::string("s-<f1>"));
 }
 
 #[test]
 fn key_description_symbol_modifier_edges_match_emacs() {
-    assert_val_eq!(
+    assert_eq!(
         builtin_single_key_description(vec![Value::symbol("M-a")])
             .expect("single-key-description should succeed"),
         Value::string("<M-a>")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_single_key_description(vec![Value::symbol("C-a")])
             .expect("single-key-description should succeed"),
         Value::string("<C-a>")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_single_key_description(vec![Value::symbol("C-M-a")])
             .expect("single-key-description should succeed"),
         Value::string("C-<M-a>")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_single_key_description(vec![Value::symbol("M-a"), Value::T])
             .expect("single-key-description should succeed"),
         Value::string("M-a")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_key_description(vec![Value::vector(vec![Value::symbol("M-a")])])
             .expect("key-description should succeed"),
         Value::string("<M-a>")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_key_description(vec![Value::vector(vec![Value::symbol("C-s-f1")])])
             .expect("key-description should succeed"),
         Value::string("C-s-<f1>")
@@ -882,32 +882,32 @@ fn key_description_symbol_modifier_edges_match_emacs() {
 
 #[test]
 fn key_description_integer_modifier_and_nonunicode_edges_match_emacs() {
-    assert_val_eq!(
+    assert_eq!(
         builtin_single_key_description(vec![Value::fixnum(0x40_0000)])
             .expect("single-key-description should succeed"),
         Value::string("A-C-@")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_single_key_description(vec![Value::fixnum(58_720_257)])
             .expect("single-key-description should succeed"),
         Value::string("C-H-S-s-a")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_single_key_description(vec![Value::fixnum(264_241_249)])
             .expect("single-key-description should succeed"),
         Value::string("A-C-H-M-S-s-a")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_single_key_description(vec![Value::fixnum(134_217_737)])
             .expect("single-key-description should succeed"),
         Value::string("C-M-i")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_single_key_description(vec![Value::fixnum(138_412_041)])
             .expect("single-key-description should succeed"),
         Value::string("A-C-M-i")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_single_key_description(vec![Value::fixnum(201_326_601)])
             .expect("single-key-description should succeed"),
         Value::string("C-M-i")
@@ -936,17 +936,17 @@ fn key_description_integer_modifier_and_nonunicode_edges_match_emacs() {
         vec![0x20_0000]
     );
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_key_description(vec![Value::vector(vec![Value::fixnum(0x40_0000)])])
             .expect("key-description should succeed"),
         Value::string("A-C-@")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_key_description(vec![Value::vector(vec![Value::fixnum(134_217_737)])])
             .expect("key-description should succeed"),
         Value::string("C-M-i")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_key_description(vec![Value::vector(vec![Value::fixnum(201_326_601)])])
             .expect("key-description should succeed"),
         Value::string("C-M-i")
@@ -964,21 +964,21 @@ fn eval_get_file_buffer_matches_visited_paths() {
     eval.buffers.get_mut(id).unwrap().file_name = Some(file.clone());
 
     let exact = builtin_get_file_buffer(&mut eval, vec![Value::string(&file)]).unwrap();
-    assert_val_eq!(exact, Value::make_buffer(id));
+    assert_eq!(exact, Value::make_buffer(id));
 
     let truename = std::fs::canonicalize(&path)
         .expect("canonicalize file")
         .to_string_lossy()
         .to_string();
     let true_match = builtin_get_file_buffer(&mut eval, vec![Value::string(truename)]).unwrap();
-    assert_val_eq!(true_match, Value::make_buffer(id));
+    assert_eq!(true_match, Value::make_buffer(id));
 
     let default_dir = format!("{}/", path.parent().unwrap().to_string_lossy());
     let basename = path.file_name().unwrap().to_string_lossy().to_string();
     eval.obarray
         .set_symbol_value("default-directory", Value::string(default_dir));
     let relative = builtin_get_file_buffer(&mut eval, vec![Value::string(basename)]).unwrap();
-    assert_val_eq!(relative, Value::make_buffer(id));
+    assert_eq!(relative, Value::make_buffer(id));
 
     let _ = std::fs::remove_file(path);
 }
@@ -1017,11 +1017,11 @@ fn eval_buffer_live_p_tracks_killed_buffers() {
     let mut eval = super::super::eval::Context::new();
     let buf = builtin_get_buffer_create(&mut eval, vec![Value::string("*blp*")]).unwrap();
     let live = builtin_buffer_live_p(&mut eval, vec![buf]).unwrap();
-    assert_val_eq!(live, Value::T);
+    assert_eq!(live, Value::T);
 
     let _ = builtin_kill_buffer(&mut eval, vec![buf]).unwrap();
     let dead = builtin_buffer_live_p(&mut eval, vec![buf]).unwrap();
-    assert_val_eq!(dead, Value::NIL);
+    assert_eq!(dead, Value::NIL);
 }
 
 #[test]
@@ -1033,8 +1033,8 @@ fn kill_buffer_optional_arg_and_error_semantics() {
 
     // Optional argument omitted kills current buffer and selects another.
     let killed_current = builtin_kill_buffer(&mut eval, vec![]).unwrap();
-    assert_val_eq!(killed_current, Value::T);
-    assert_val_eq!(
+    assert_eq!(killed_current, Value::T);
+    assert_eq!(
         builtin_buffer_live_p(&mut eval, vec![a]).unwrap(),
         Value::NIL
     );
@@ -1060,11 +1060,11 @@ fn kill_buffer_optional_arg_and_error_semantics() {
 
     // Dead buffer object returns nil.
     let dead = create_unique_test_buffer(&mut eval, "*kb-opt-dead*");
-    assert_val_eq!(
+    assert_eq!(
         builtin_kill_buffer(&mut eval, vec![dead]).unwrap(),
         Value::T
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_kill_buffer(&mut eval, vec![dead]).unwrap(),
         Value::NIL
     );
@@ -1104,9 +1104,9 @@ fn set_buffer_rejects_deleted_buffer_object() {
 fn eval_buffer_live_p_non_buffer_objects_return_nil() {
     let mut eval = super::super::eval::Context::new();
     let by_name = builtin_buffer_live_p(&mut eval, vec![Value::string("*scratch*")]).unwrap();
-    assert_val_eq!(by_name, Value::NIL);
+    assert_eq!(by_name, Value::NIL);
     let nil_arg = builtin_buffer_live_p(&mut eval, vec![Value::NIL]).unwrap();
-    assert_val_eq!(nil_arg, Value::NIL);
+    assert_eq!(nil_arg, Value::NIL);
 }
 
 #[test]
@@ -1220,11 +1220,11 @@ fn generate_new_buffer_name_optional_arg_matches_expected_types() {
     )
     .unwrap();
 
-    assert_val_eq!(with_nil, Value::string("*gnbn-opt*<3>"));
-    assert_val_eq!(with_true, Value::string("*gnbn-opt*<3>"));
-    assert_val_eq!(with_symbol, Value::string("*gnbn-opt*<3>"));
-    assert_val_eq!(with_keyword, Value::string("*gnbn-opt*<3>"));
-    assert_val_eq!(with_string, Value::string("*gnbn-opt*<2>"));
+    assert_eq!(with_nil, Value::string("*gnbn-opt*<3>"));
+    assert_eq!(with_true, Value::string("*gnbn-opt*<3>"));
+    assert_eq!(with_symbol, Value::string("*gnbn-opt*<3>"));
+    assert_eq!(with_keyword, Value::string("*gnbn-opt*<3>"));
+    assert_eq!(with_string, Value::string("*gnbn-opt*<2>"));
 
     let err = builtin_generate_new_buffer_name(
         &mut eval,
@@ -1256,12 +1256,12 @@ fn buffer_size_and_modified_p_return_defaults_for_deleted_buffer_objects() {
     let dead_for_size = create_unique_test_buffer(&mut eval, "*bs-dead*");
     let _ = builtin_kill_buffer(&mut eval, vec![dead_for_size]).unwrap();
     let size = builtin_buffer_size(&mut eval, vec![dead_for_size]).unwrap();
-    assert_val_eq!(size, Value::fixnum(0));
+    assert_eq!(size, Value::fixnum(0));
 
     let dead_for_modified = create_unique_test_buffer(&mut eval, "*bm-dead*");
     let _ = builtin_kill_buffer(&mut eval, vec![dead_for_modified]).unwrap();
     let modified = builtin_buffer_modified_p(&mut eval, vec![dead_for_modified]).unwrap();
-    assert_val_eq!(modified, Value::NIL);
+    assert_eq!(modified, Value::NIL);
 }
 
 #[test]
@@ -1271,23 +1271,23 @@ fn buffer_base_buffer_and_last_name_semantics() {
     let indirect_id = eval.buffers.create_buffer("*indirect*");
     eval.buffers.get_mut(indirect_id).unwrap().base_buffer = Some(base_id);
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_buffer_base_buffer(&mut eval, vec![]).unwrap(),
         Value::NIL
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_buffer_last_name(&mut eval, vec![]).unwrap(),
         Value::NIL
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_buffer_base_buffer(&mut eval, vec![Value::NIL]).unwrap(),
         Value::NIL
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_buffer_base_buffer(&mut eval, vec![Value::make_buffer(indirect_id)]).unwrap(),
         Value::make_buffer(base_id)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_buffer_last_name(&mut eval, vec![Value::NIL]).unwrap(),
         Value::NIL
     );
@@ -1342,7 +1342,7 @@ fn buffer_base_buffer_and_last_name_semantics() {
     let live_name = builtin_buffer_name(&mut eval, vec![dead]).unwrap();
     let _ = builtin_kill_buffer(&mut eval, vec![dead]).unwrap();
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_buffer_base_buffer(&mut eval, vec![dead]).unwrap(),
         Value::NIL
     );
@@ -1573,52 +1573,52 @@ fn make_indirect_buffer_clone_nil_resets_buffer_state() {
 fn buffer_modified_tick_semantics() {
     let mut eval = super::super::eval::Context::new();
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_buffer_modified_tick(&mut eval, vec![]).unwrap(),
         Value::fixnum(1)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_buffer_chars_modified_tick(&mut eval, vec![]).unwrap(),
         Value::fixnum(1)
     );
 
     builtin_insert(&mut eval, vec![Value::string("abcdef")]).unwrap();
-    assert_val_eq!(
+    assert_eq!(
         builtin_buffer_modified_tick(&mut eval, vec![]).unwrap(),
         Value::fixnum(4)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_buffer_chars_modified_tick(&mut eval, vec![]).unwrap(),
         Value::fixnum(4)
     );
 
     builtin_set_buffer_modified_p(&mut eval, vec![Value::NIL]).unwrap();
-    assert_val_eq!(
+    assert_eq!(
         builtin_buffer_modified_tick(&mut eval, vec![]).unwrap(),
         Value::fixnum(4)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_buffer_chars_modified_tick(&mut eval, vec![]).unwrap(),
         Value::fixnum(4)
     );
 
     builtin_delete_region(&mut eval, vec![Value::fixnum(1), Value::fixnum(7)]).unwrap();
-    assert_val_eq!(
+    assert_eq!(
         builtin_buffer_modified_tick(&mut eval, vec![]).unwrap(),
         Value::fixnum(7)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_buffer_chars_modified_tick(&mut eval, vec![]).unwrap(),
         Value::fixnum(7)
     );
 
     let dead = create_unique_test_buffer(&mut eval, "*ticks-dead*");
     let _ = builtin_kill_buffer(&mut eval, vec![dead]).unwrap();
-    assert_val_eq!(
+    assert_eq!(
         builtin_buffer_modified_tick(&mut eval, vec![dead]).unwrap(),
         Value::fixnum(1)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_buffer_chars_modified_tick(&mut eval, vec![dead]).unwrap(),
         Value::fixnum(1)
     );
@@ -1694,7 +1694,7 @@ fn subst_char_in_region_preserves_modified_flag_with_noundo() {
         builtin_buffer_string(&mut eval, vec![]).unwrap().as_str(),
         Some("a b ")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_buffer_modified_p(&mut eval, vec![]).unwrap(),
         Value::NIL
     );
@@ -1866,7 +1866,7 @@ fn insert_honors_inhibit_read_only_override() {
 #[test]
 fn insert_inherit_variants_reuse_insert_semantics() {
     let mut eval = super::super::eval::Context::new();
-    assert_val_eq!(
+    assert_eq!(
         builtin_insert_and_inherit(
             &mut eval,
             vec![
@@ -1878,11 +1878,11 @@ fn insert_inherit_variants_reuse_insert_semantics() {
         .unwrap(),
         Value::NIL
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_insert_before_markers_and_inherit(&mut eval, vec![Value::string("d")]).unwrap(),
         Value::NIL
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_buffer_string(&mut eval, vec![]).unwrap(),
         Value::string("abcd")
     );
@@ -1915,7 +1915,7 @@ fn insert_copies_string_text_properties_into_buffer() {
     table.put_property(0, 2, "face", Value::symbol("bold"));
     crate::emacs_core::value::set_string_text_properties_table_for_value(text, table);
 
-    assert_val_eq!(builtin_insert(&mut eval, vec![text]).unwrap(), Value::NIL);
+    assert_eq!(builtin_insert(&mut eval, vec![text]).unwrap(), Value::NIL);
 
     let buf = eval.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.buffer_string(), "xy");
@@ -1939,7 +1939,7 @@ fn insert_and_inherit_copies_previous_text_properties() {
             .text_props_put_property(1, 2, "face", Value::symbol("bold"));
     }
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_insert_and_inherit(&mut eval, vec![Value::string("X")]).unwrap(),
         Value::NIL
     );
@@ -1963,7 +1963,7 @@ fn plain_insert_does_not_inherit_spanning_text_properties() {
         buf.goto_char(1);
     }
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_insert(&mut eval, vec![Value::string("X")]).unwrap(),
         Value::NIL
     );
@@ -1991,7 +1991,7 @@ fn insert_char_nil_count_defaults_to_one_and_can_inherit_text_properties() {
             .text_props_put_property(1, 2, "face", Value::symbol("bold"));
     }
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_insert_char(
             &mut eval,
             vec![Value::fixnum('X' as i64), Value::NIL, Value::T],
@@ -2059,7 +2059,7 @@ fn delete_all_overlays_clears_current_buffer() {
     let buf = eval.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.overlays.len(), 2);
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_delete_all_overlays(&mut eval, vec![]).unwrap(),
         Value::NIL
     );
@@ -2079,7 +2079,7 @@ fn insert_buffer_substring_inserts_source_region() {
     eval.buffers.set_current(dest_id);
     builtin_insert(&mut eval, vec![Value::string("start:")]).unwrap();
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_insert_buffer_substring(
             &mut eval,
             vec![
@@ -2137,7 +2137,7 @@ fn insert_buffer_substring_defaults_to_source_accessible_region() {
     let dest_id = eval.buffers.create_buffer("*ibs-dest-defaults*");
     eval.buffers.set_current(dest_id);
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_insert_buffer_substring(&mut eval, vec![Value::make_buffer(source_id)]).unwrap(),
         Value::NIL
     );
@@ -2204,7 +2204,7 @@ fn kill_all_local_variables_clears_buffer_locals() {
         .buffers
         .set_current_local_map(crate::emacs_core::keymap::make_sparse_list_keymap());
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_kill_all_local_variables(&mut eval, vec![]).unwrap(),
         Value::NIL
     );
@@ -2234,7 +2234,7 @@ fn ntake_destructively_truncates_lists() {
         Value::fixnum(4),
     ]);
     let kept = builtin_ntake(vec![Value::fixnum(2), list]).unwrap();
-    assert_val_eq!(kept, Value::list(vec![Value::fixnum(1), Value::fixnum(2)]));
+    assert_eq!(kept, Value::list(vec![Value::fixnum(1), Value::fixnum(2)]));
     assert_eq!(
         list_to_vec(&list).expect("list should stay proper after ntake"),
         vec![Value::fixnum(1), Value::fixnum(2)]
@@ -2245,7 +2245,7 @@ fn ntake_destructively_truncates_lists() {
         builtin_ntake(vec![Value::fixnum(10), unchanged]).unwrap(),
         unchanged
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_ntake(vec![Value::fixnum(0), list]).unwrap(),
         Value::NIL
     );
@@ -2285,7 +2285,7 @@ fn kill_all_local_variables_preserves_partial_permanent_local_hooks() {
         );
     }
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_kill_all_local_variables(&mut eval, vec![]).unwrap(),
         Value::NIL
     );
@@ -2311,7 +2311,7 @@ fn replace_buffer_contents_and_set_buffer_multibyte_runtime_semantics() {
     eval.buffers.set_current(dest_id);
     builtin_insert(&mut eval, vec![Value::string("dest-text")]).unwrap();
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_replace_buffer_contents(&mut eval, vec![Value::make_buffer(source_id)]).unwrap(),
         Value::T
     );
@@ -2323,13 +2323,13 @@ fn replace_buffer_contents_and_set_buffer_multibyte_runtime_semantics() {
         "source-text"
     );
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_set_buffer_multibyte(&mut eval, vec![Value::NIL]).unwrap(),
         Value::NIL
     );
     assert!(!eval.buffers.current_buffer().unwrap().multibyte);
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_set_buffer_multibyte(&mut eval, vec![Value::symbol("foo")]).unwrap(),
         Value::symbol("foo")
     );
@@ -2349,7 +2349,7 @@ fn compare_buffer_substrings_nil_bounds_use_accessible_region() {
     builtin_insert(&mut eval, vec![Value::string("zaBCw")]).unwrap();
     let _ = eval.buffers.narrow_buffer_to_region(right_id, 1, 4);
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_compare_buffer_substrings(
             &mut eval,
             vec![
@@ -2430,7 +2430,7 @@ fn replace_region_contents_replaces_from_string_and_buffer_sources() {
     let mut eval = super::super::eval::Context::new();
     builtin_insert(&mut eval, vec![Value::string("abXXef")]).unwrap();
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_replace_region_contents(
             &mut eval,
             vec![
@@ -2456,7 +2456,7 @@ fn replace_region_contents_replaces_from_string_and_buffer_sources() {
     eval.buffers.set_current(dest_id);
     builtin_insert(&mut eval, vec![Value::string("abYYef")]).unwrap();
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_replace_region_contents(
             &mut eval,
             vec![
@@ -2485,7 +2485,7 @@ fn replace_region_contents_accepts_vector_buffer_slices() {
     eval.buffers.set_current(dest_id);
     builtin_insert(&mut eval, vec![Value::string("abZZef")]).unwrap();
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_replace_region_contents(
             &mut eval,
             vec![
@@ -2607,43 +2607,43 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_cl_type_of(vec![Value::NIL]).unwrap(),
         Value::symbol("null")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_cl_type_of(vec![Value::T]).unwrap(),
         Value::symbol("boolean")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_cl_type_of(vec![Value::fixnum(1)]).unwrap(),
         Value::symbol("fixnum")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_cl_type_of(vec![Value::make_float(1.0)]).unwrap(),
         Value::symbol("float")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_cl_type_of(vec![Value::string("x")]).unwrap(),
         Value::symbol("string")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_cl_type_of(vec![Value::symbol("foo")]).unwrap(),
         Value::symbol("symbol")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_cl_type_of(vec![Value::cons(Value::fixnum(1), Value::fixnum(2))]).unwrap(),
         Value::symbol("cons")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_cl_type_of(vec![Value::vector(vec![Value::fixnum(1)])]).unwrap(),
         Value::symbol("vector")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_cl_type_of(vec![Value::hash_table(HashTableTest::Equal)]).unwrap(),
         Value::symbol("hash-table")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_cl_type_of(vec![Value::subr(intern("car"))]).unwrap(),
         Value::symbol("primitive-function")
     );
@@ -2655,13 +2655,13 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
         doc_form: None,
         interactive: None,
     });
-    assert_val_eq!(
+    assert_eq!(
         builtin_cl_type_of(vec![lambda]).unwrap(),
         Value::symbol("interpreted-function")
     );
 
     let mut cancel_eval = crate::emacs_core::eval::Context::new();
-    assert_val_eq!(
+    assert_eq!(
         builtin_cancel_kbd_macro_events(&mut cancel_eval, vec![]).unwrap(),
         Value::NIL
     );
@@ -2683,7 +2683,7 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
     let _ = builtin_set_buffer(&mut eval, vec![barf_buffer]).expect("select barf test buffer");
     builtin_insert(&mut eval, vec![Value::string("abc")]).expect("seed barf test buffer");
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_barf_if_buffer_read_only(&mut eval, vec![Value::fixnum(0)]).unwrap(),
         Value::NIL
     );
@@ -2704,7 +2704,7 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
         buf.text
             .text_props_put_property(1, 2, "inhibit-read-only", Value::T);
     }
-    assert_val_eq!(
+    assert_eq!(
         builtin_barf_if_buffer_read_only(&mut eval, vec![Value::fixnum(2)]).unwrap(),
         Value::NIL
     );
@@ -2746,7 +2746,7 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
     }
 
     let buffer = create_unique_test_buffer(&mut eval, "*bury*");
-    assert_val_eq!(
+    assert_eq!(
         builtin_bury_buffer_internal(&mut eval, vec![buffer]).unwrap(),
         Value::NIL
     );
@@ -2777,11 +2777,11 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
 fn byte_position_and_clear_bitmap_semantics() {
     let mut eval = super::super::eval::Context::new();
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_byte_to_position(&mut eval, vec![Value::fixnum(1)]).unwrap(),
         Value::fixnum(1)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_byte_to_position(&mut eval, vec![Value::fixnum(2)]).unwrap(),
         Value::NIL
     );
@@ -2789,35 +2789,35 @@ fn byte_position_and_clear_bitmap_semantics() {
     builtin_erase_buffer(&mut eval, vec![]).unwrap();
     builtin_insert(&mut eval, vec![Value::string("a\u{00E9}")]).unwrap();
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_byte_to_position(&mut eval, vec![Value::fixnum(1)]).unwrap(),
         Value::fixnum(1)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_byte_to_position(&mut eval, vec![Value::fixnum(2)]).unwrap(),
         Value::fixnum(2)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_byte_to_position(&mut eval, vec![Value::fixnum(3)]).unwrap(),
         Value::fixnum(2)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_byte_to_position(&mut eval, vec![Value::fixnum(4)]).unwrap(),
         Value::fixnum(3)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_position_bytes(&mut eval, vec![Value::fixnum(1)]).unwrap(),
         Value::fixnum(1)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_position_bytes(&mut eval, vec![Value::fixnum(2)]).unwrap(),
         Value::fixnum(2)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_position_bytes(&mut eval, vec![Value::fixnum(3)]).unwrap(),
         Value::fixnum(4)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_position_bytes(
             &mut eval,
             vec![crate::emacs_core::marker::make_marker_value(
@@ -2829,15 +2829,15 @@ fn byte_position_and_clear_bitmap_semantics() {
         .unwrap(),
         Value::fixnum(2)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_byte_to_position(&mut eval, vec![Value::fixnum(5)]).unwrap(),
         Value::NIL
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_byte_to_position(&mut eval, vec![Value::fixnum(0)]).unwrap(),
         Value::NIL
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_byte_to_position(&mut eval, vec![Value::fixnum(-1)]).unwrap(),
         Value::NIL
     );
@@ -2867,7 +2867,7 @@ fn byte_position_and_clear_bitmap_semantics() {
     }
 
     let byte_to_string = builtin_byte_to_string(vec![Value::fixnum(255)]).unwrap();
-    assert_val_eq!(
+    assert_eq!(
         builtin_get_byte(&mut eval, vec![Value::fixnum(0), byte_to_string]).unwrap(),
         Value::fixnum(255)
     );
@@ -2892,7 +2892,7 @@ fn byte_position_and_clear_bitmap_semantics() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    assert_val_eq!(builtin_bitmap_spec_p(vec![Value::NIL]).unwrap(), Value::NIL);
+    assert_eq!(builtin_bitmap_spec_p(vec![Value::NIL]).unwrap(), Value::NIL);
     let bitmap_arity =
         builtin_bitmap_spec_p(vec![]).expect_err("bitmap-spec-p should reject wrong arity");
     match bitmap_arity {
@@ -2906,8 +2906,8 @@ fn byte_position_and_clear_bitmap_semantics() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    assert_val_eq!(builtin_clear_face_cache(vec![]).unwrap(), Value::NIL);
-    assert_val_eq!(
+    assert_eq!(builtin_clear_face_cache(vec![]).unwrap(), Value::NIL);
+    assert_eq!(
         builtin_clear_face_cache(vec![Value::symbol("all")]).unwrap(),
         Value::NIL
     );
@@ -2924,7 +2924,7 @@ fn byte_position_and_clear_bitmap_semantics() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_clear_buffer_auto_save_failure(vec![]).unwrap(),
         Value::NIL
     );
@@ -2951,7 +2951,7 @@ fn buffer_undo_designators_match_deleted_and_missing_buffer_semantics() {
 
     let disable_current =
         builtin_buffer_disable_undo(&mut eval, vec![]).expect("buffer-disable-undo should work");
-    assert_val_eq!(disable_current, Value::T);
+    assert_eq!(disable_current, Value::T);
     let current_id = eval.buffers.current_buffer_id().expect("current buffer");
     let current = eval.buffers.get(current_id).expect("current buffer");
     assert!(crate::buffer::undo_list_is_disabled(
@@ -2964,7 +2964,7 @@ fn buffer_undo_designators_match_deleted_and_missing_buffer_semantics() {
 
     let enable_current =
         builtin_buffer_enable_undo(&mut eval, vec![]).expect("buffer-enable-undo should work");
-    assert_val_eq!(enable_current, Value::NIL);
+    assert_eq!(enable_current, Value::NIL);
     let current = eval.buffers.get(current_id).expect("current buffer");
     assert!(!crate::buffer::undo_list_is_disabled(
         &current.get_undo_list()
@@ -3002,7 +3002,7 @@ fn buffer_undo_designators_match_deleted_and_missing_buffer_semantics() {
     let dead_for_enable = create_unique_test_buffer(&mut eval, "*undo-enable-deleted*");
     let _ = builtin_kill_buffer(&mut eval, vec![dead_for_enable]).unwrap();
     let enable_deleted = builtin_buffer_enable_undo(&mut eval, vec![dead_for_enable]).unwrap();
-    assert_val_eq!(enable_deleted, Value::NIL);
+    assert_eq!(enable_deleted, Value::NIL);
 
     let dead_for_disable = create_unique_test_buffer(&mut eval, "*undo-disable-deleted*");
     let _ = builtin_kill_buffer(&mut eval, vec![dead_for_disable]).unwrap();
@@ -3092,7 +3092,7 @@ fn buffer_list_returns_live_buffers_in_creation_order() {
     let a = builtin_get_buffer_create(&mut eval, vec![Value::string("*bl-a*")]).unwrap();
     let b = builtin_get_buffer_create(&mut eval, vec![Value::string("*bl-b*")]).unwrap();
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_buffer_list(&mut eval, vec![]).expect("buffer-list"),
         Value::list(vec![Value::make_buffer(scratch), a, b])
     );
@@ -3112,14 +3112,14 @@ fn featurep_accepts_optional_subfeature_arg() {
     );
 
     let base = builtin_featurep(&mut eval, vec![Value::symbol("vm-featurep-present")]).unwrap();
-    assert_val_eq!(base, Value::T);
+    assert_eq!(base, Value::T);
 
     let with_nil = builtin_featurep(
         &mut eval,
         vec![Value::symbol("vm-featurep-present"), Value::NIL],
     )
     .unwrap();
-    assert_val_eq!(with_nil, Value::T);
+    assert_eq!(with_nil, Value::T);
 
     let with_sub = builtin_featurep(
         &mut eval,
@@ -3129,7 +3129,7 @@ fn featurep_accepts_optional_subfeature_arg() {
         ],
     )
     .unwrap();
-    assert_val_eq!(with_sub, Value::T);
+    assert_eq!(with_sub, Value::T);
 
     let with_other = builtin_featurep(
         &mut eval,
@@ -3139,7 +3139,7 @@ fn featurep_accepts_optional_subfeature_arg() {
         ],
     )
     .unwrap();
-    assert_val_eq!(with_other, Value::NIL);
+    assert_eq!(with_other, Value::NIL);
 }
 
 #[test]
@@ -3198,7 +3198,7 @@ fn pure_dispatch_typed_string_constructor_builds_string() {
     )
     .expect("builtin string should resolve")
     .expect("builtin string should evaluate");
-    assert_val_eq!(result, Value::string("ABC"));
+    assert_eq!(result, Value::string("ABC"));
 }
 
 #[test]
@@ -3213,7 +3213,7 @@ fn pure_dispatch_typed_propertize_validates_and_returns_string() {
     )
     .expect("builtin propertize should resolve")
     .expect("builtin propertize should evaluate");
-    assert_val_eq!(result, Value::string("x"));
+    assert_eq!(result, Value::string("x"));
 }
 
 #[test]
@@ -3258,7 +3258,7 @@ fn pure_dispatch_typed_propertize_accepts_non_symbol_property_keys() {
     )
     .expect("builtin propertize should resolve")
     .expect("builtin propertize should evaluate");
-    assert_val_eq!(result, Value::string("x"));
+    assert_eq!(result, Value::string("x"));
 }
 
 #[test]
@@ -3273,22 +3273,22 @@ fn pure_dispatch_typed_unibyte_string_round_trips_bytes() {
     let len = dispatch_builtin_pure("string-bytes", vec![s])
         .expect("builtin string-bytes should resolve")
         .expect("builtin string-bytes should evaluate");
-    assert_val_eq!(len, Value::fixnum(3));
+    assert_eq!(len, Value::fixnum(3));
 
     let a = dispatch_builtin_pure("aref", vec![s, Value::fixnum(0)])
         .expect("builtin aref should resolve")
         .expect("builtin aref should evaluate");
-    assert_val_eq!(a, Value::fixnum(65));
+    assert_eq!(a, Value::fixnum(65));
 
     let ff = dispatch_builtin_pure("aref", vec![s, Value::fixnum(1)])
         .expect("builtin aref should resolve")
         .expect("builtin aref should evaluate");
-    assert_val_eq!(ff, Value::fixnum(255));
+    assert_eq!(ff, Value::fixnum(255));
 
     let b = dispatch_builtin_pure("aref", vec![s, Value::fixnum(2)])
         .expect("builtin aref should resolve")
         .expect("builtin aref should evaluate");
-    assert_val_eq!(b, Value::fixnum(66));
+    assert_eq!(b, Value::fixnum(66));
 }
 
 #[test]
@@ -3327,7 +3327,7 @@ fn pure_dispatch_typed_vector_builds_vector() {
     let result = dispatch_builtin_pure("vector", vec![Value::fixnum(7), Value::fixnum(9)])
         .expect("builtin vector should resolve")
         .expect("builtin vector should evaluate");
-    assert_val_eq!(
+    assert_eq!(
         result,
         Value::vector(vec![Value::fixnum(7), Value::fixnum(9)])
     );
@@ -3338,7 +3338,7 @@ fn pure_dispatch_typed_make_vector_validates_wholenump_length() {
     let ok = dispatch_builtin_pure("make-vector", vec![Value::fixnum(3), Value::symbol("x")])
         .expect("builtin make-vector should resolve")
         .expect("builtin make-vector should evaluate");
-    assert_val_eq!(
+    assert_eq!(
         ok,
         Value::vector(vec![
             Value::symbol("x"),
@@ -3404,7 +3404,7 @@ fn pure_dispatch_typed_aref_aset_char_table_uses_character_index_semantics() {
     let initial = dispatch_builtin_pure("aref", vec![ct, Value::fixnum(0)])
         .expect("builtin aref should resolve")
         .expect("builtin aref should evaluate");
-    assert_val_eq!(initial, Value::NIL);
+    assert_eq!(initial, Value::NIL);
 
     let _ = dispatch_builtin_pure("aset", vec![ct, Value::fixnum(0x3F_FFFF), Value::fixnum(9)])
         .expect("builtin aset should resolve")
@@ -3413,12 +3413,12 @@ fn pure_dispatch_typed_aref_aset_char_table_uses_character_index_semantics() {
     let edge = dispatch_builtin_pure("aref", vec![ct, Value::fixnum(0x3F_FFFF)])
         .expect("builtin aref should resolve")
         .expect("builtin aref should evaluate");
-    assert_val_eq!(edge, Value::fixnum(9));
+    assert_eq!(edge, Value::fixnum(9));
 
     let elt = dispatch_builtin_pure("elt", vec![ct, Value::fixnum(0x3F_FFFF)])
         .expect("builtin elt should resolve")
         .expect("builtin elt should evaluate");
-    assert_val_eq!(elt, Value::fixnum(9));
+    assert_eq!(elt, Value::fixnum(9));
 
     let negative = dispatch_builtin_pure("aref", vec![ct, Value::fixnum(-1)])
         .expect("builtin aref should resolve")
@@ -3463,22 +3463,22 @@ fn pure_dispatch_typed_length_family_uses_bool_vector_logical_length() {
     let len = dispatch_builtin_pure("length", vec![bv])
         .expect("builtin length should resolve")
         .expect("builtin length should evaluate");
-    assert_val_eq!(len, Value::fixnum(3));
+    assert_eq!(len, Value::fixnum(3));
 
     let lt = dispatch_builtin_pure("length<", vec![bv, Value::fixnum(4)])
         .expect("builtin length< should resolve")
         .expect("builtin length< should evaluate");
-    assert_val_eq!(lt, Value::T);
+    assert_eq!(lt, Value::T);
 
     let eq = dispatch_builtin_pure("length=", vec![bv, Value::fixnum(3)])
         .expect("builtin length= should resolve")
         .expect("builtin length= should evaluate");
-    assert_val_eq!(eq, Value::T);
+    assert_eq!(eq, Value::T);
 
     let gt = dispatch_builtin_pure("length>", vec![bv, Value::fixnum(2)])
         .expect("builtin length> should resolve")
         .expect("builtin length> should evaluate");
-    assert_val_eq!(gt, Value::T);
+    assert_eq!(gt, Value::T);
 }
 
 #[test]
@@ -3494,22 +3494,22 @@ fn pure_dispatch_typed_length_family_uses_char_table_logical_length() {
     let len = dispatch_builtin_pure("length", vec![ct])
         .expect("builtin length should resolve")
         .expect("builtin length should evaluate");
-    assert_val_eq!(len, Value::fixnum(0x3F_FFFF));
+    assert_eq!(len, Value::fixnum(0x3F_FFFF));
 
     let lt = dispatch_builtin_pure("length<", vec![ct, Value::fixnum(100)])
         .expect("builtin length< should resolve")
         .expect("builtin length< should evaluate");
-    assert_val_eq!(lt, Value::NIL);
+    assert_eq!(lt, Value::NIL);
 
     let eq = dispatch_builtin_pure("length=", vec![ct, Value::fixnum(0x3F_FFFF)])
         .expect("builtin length= should resolve")
         .expect("builtin length= should evaluate");
-    assert_val_eq!(eq, Value::T);
+    assert_eq!(eq, Value::T);
 
     let gt = dispatch_builtin_pure("length>", vec![ct, Value::fixnum(0)])
         .expect("builtin length> should resolve")
         .expect("builtin length> should evaluate");
-    assert_val_eq!(gt, Value::T);
+    assert_eq!(gt, Value::T);
 }
 
 #[test]
@@ -3520,7 +3520,7 @@ fn pure_dispatch_typed_aset_string_returns_new_element_and_computes_replacement(
     )
     .expect("builtin aset should resolve")
     .expect("builtin aset should evaluate");
-    assert_val_eq!(result, Value::fixnum(120));
+    assert_eq!(result, Value::fixnum(120));
 
     let replacement = aset_string_replacement(
         &Value::string("abc"),
@@ -3528,7 +3528,7 @@ fn pure_dispatch_typed_aset_string_returns_new_element_and_computes_replacement(
         &Value::fixnum(120),
     )
     .expect("string replacement should succeed");
-    assert_val_eq!(replacement, Value::string("axc"));
+    assert_eq!(replacement, Value::string("axc"));
 }
 
 #[test]
@@ -3567,12 +3567,12 @@ fn pure_dispatch_typed_char_string_conversions_work() {
     let as_code = dispatch_builtin_pure("string-to-char", vec![Value::string("A")])
         .expect("builtin string-to-char should resolve")
         .expect("builtin string-to-char should evaluate");
-    assert_val_eq!(as_code, Value::fixnum(65));
+    assert_eq!(as_code, Value::fixnum(65));
 
     let as_string = dispatch_builtin_pure("char-to-string", vec![Value::fixnum(65)])
         .expect("builtin char-to-string should resolve")
         .expect("builtin char-to-string should evaluate");
-    assert_val_eq!(as_string, Value::string("A"));
+    assert_eq!(as_string, Value::string("A"));
 }
 
 #[test]
@@ -3594,12 +3594,12 @@ fn pure_dispatch_typed_hash_table_round_trip() {
     let value = dispatch_builtin_pure("gethash", vec![Value::string("answer"), table])
         .expect("builtin gethash should resolve")
         .expect("builtin gethash should evaluate");
-    assert_val_eq!(value, Value::fixnum(42));
+    assert_eq!(value, Value::fixnum(42));
 
     let count = dispatch_builtin_pure("hash-table-count", vec![table])
         .expect("builtin hash-table-count should resolve")
         .expect("builtin hash-table-count should evaluate");
-    assert_val_eq!(count, Value::fixnum(1));
+    assert_eq!(count, Value::fixnum(1));
 }
 
 #[test]
@@ -3624,22 +3624,22 @@ fn pure_dispatch_typed_hash_table_extended_builtins_round_trip() {
     let size = dispatch_builtin_pure("hash-table-size", vec![table])
         .expect("hash-table-size should resolve")
         .expect("hash-table-size should evaluate");
-    assert_val_eq!(size, Value::fixnum(0));
+    assert_eq!(size, Value::fixnum(0));
 
     let weakness = dispatch_builtin_pure("hash-table-weakness", vec![table])
         .expect("hash-table-weakness should resolve")
         .expect("hash-table-weakness should evaluate");
-    assert_val_eq!(weakness, Value::NIL);
+    assert_eq!(weakness, Value::NIL);
 
     let rehash_size = dispatch_builtin_pure("hash-table-rehash-size", vec![table])
         .expect("hash-table-rehash-size should resolve")
         .expect("hash-table-rehash-size should evaluate");
-    assert_val_eq!(rehash_size, Value::make_float(1.5));
+    assert_eq!(rehash_size, Value::make_float(1.5));
 
     let rehash_threshold = dispatch_builtin_pure("hash-table-rehash-threshold", vec![table])
         .expect("hash-table-rehash-threshold should resolve")
         .expect("hash-table-rehash-threshold should evaluate");
-    assert_val_eq!(rehash_threshold, Value::make_float(0.8125));
+    assert_eq!(rehash_threshold, Value::make_float(0.8125));
 
     let sxhash = dispatch_builtin_pure("sxhash-eq", vec![Value::symbol("k")])
         .expect("sxhash-eq should resolve")
@@ -3649,7 +3649,7 @@ fn pure_dispatch_typed_hash_table_extended_builtins_round_trip() {
     let buckets_before = dispatch_builtin_pure("internal--hash-table-buckets", vec![table])
         .expect("internal--hash-table-buckets should resolve")
         .expect("internal--hash-table-buckets should evaluate");
-    assert_val_eq!(buckets_before, Value::NIL);
+    assert_eq!(buckets_before, Value::NIL);
 
     let _ = dispatch_builtin_pure("puthash", vec![Value::symbol("k"), Value::fixnum(1), table])
         .expect("puthash should resolve")
@@ -3689,7 +3689,7 @@ fn pure_dispatch_typed_define_hash_table_test_registers_alias() {
     )
     .expect("define-hash-table-test should resolve")
     .expect("define-hash-table-test should evaluate");
-    assert_val_eq!(
+    assert_eq!(
         defined,
         Value::list(vec![Value::symbol("eq"), Value::symbol("sxhash-eq")])
     );
@@ -3724,7 +3724,7 @@ fn pure_dispatch_typed_define_hash_table_test_accepts_equal_including_properties
     )
     .expect("define-hash-table-test should resolve")
     .expect("define-hash-table-test should evaluate");
-    assert_val_eq!(
+    assert_eq!(
         defined,
         Value::list(vec![
             Value::symbol("equal-including-properties"),
@@ -3787,7 +3787,7 @@ fn define_hash_table_test_alias_redefinition_updates_mapping() {
     .expect("make-hash-table should evaluate");
     let first_name = crate::emacs_core::hashtab::builtin_hash_table_test(vec![first])
         .expect("hash-table-test should evaluate for initial alias mapping");
-    assert_val_eq!(first_name, Value::symbol(alias_name));
+    assert_eq!(first_name, Value::symbol(alias_name));
 
     if !first.is_hash_table() {
         panic!("expected hash table");
@@ -3811,7 +3811,7 @@ fn define_hash_table_test_alias_redefinition_updates_mapping() {
     .expect("make-hash-table should evaluate after alias redefinition");
     let second_name = crate::emacs_core::hashtab::builtin_hash_table_test(vec![second])
         .expect("hash-table-test should evaluate after alias redefinition");
-    assert_val_eq!(second_name, Value::symbol(alias_name));
+    assert_eq!(second_name, Value::symbol(alias_name));
 
     if !second.is_hash_table() {
         panic!("expected hash table");
@@ -3834,7 +3834,7 @@ fn pure_dispatch_typed_plist_and_symbol_round_trip() {
     let lang = dispatch_builtin_pure("plist-get", vec![plist, Value::keyword(":lang")])
         .expect("builtin plist-get should resolve")
         .expect("builtin plist-get should evaluate");
-    assert_val_eq!(lang, Value::string("rust"));
+    assert_eq!(lang, Value::string("rust"));
 
     let sym = dispatch_builtin_pure("make-symbol", vec![Value::string("neo-vm")])
         .expect("builtin make-symbol should resolve")
@@ -3842,7 +3842,7 @@ fn pure_dispatch_typed_plist_and_symbol_round_trip() {
     let name = dispatch_builtin_pure("symbol-name", vec![sym])
         .expect("builtin symbol-name should resolve")
         .expect("builtin symbol-name should evaluate");
-    assert_val_eq!(name, Value::string("neo-vm"));
+    assert_eq!(name, Value::string("neo-vm"));
 }
 
 #[test]
@@ -3850,12 +3850,12 @@ fn pure_dispatch_typed_math_ops_work() {
     let sqrt = dispatch_builtin_pure("sqrt", vec![Value::fixnum(4)])
         .expect("builtin sqrt should resolve")
         .expect("builtin sqrt should evaluate");
-    assert_val_eq!(sqrt, Value::make_float(2.0));
+    assert_eq!(sqrt, Value::make_float(2.0));
 
     let expt = dispatch_builtin_pure("expt", vec![Value::fixnum(2), Value::fixnum(8)])
         .expect("builtin expt should resolve")
         .expect("builtin expt should evaluate");
-    assert_val_eq!(expt, Value::fixnum(256));
+    assert_eq!(expt, Value::fixnum(256));
 
     let nan_check = dispatch_builtin_pure("isnan", vec![Value::make_float(f64::NAN)])
         .expect("builtin isnan should resolve")
@@ -3904,22 +3904,22 @@ fn pure_dispatch_typed_round_half_ties_to_even() {
     let positive_half = dispatch_builtin_pure("round", vec![Value::make_float(2.5)])
         .expect("builtin round should resolve")
         .expect("builtin round should evaluate");
-    assert_val_eq!(positive_half, Value::fixnum(2));
+    assert_eq!(positive_half, Value::fixnum(2));
 
     let negative_half = dispatch_builtin_pure("round", vec![Value::make_float(-2.5)])
         .expect("builtin round should resolve")
         .expect("builtin round should evaluate");
-    assert_val_eq!(negative_half, Value::fixnum(-2));
+    assert_eq!(negative_half, Value::fixnum(-2));
 
     let zero_half = dispatch_builtin_pure("round", vec![Value::make_float(0.5)])
         .expect("builtin round should resolve")
         .expect("builtin round should evaluate");
-    assert_val_eq!(zero_half, Value::fixnum(0));
+    assert_eq!(zero_half, Value::fixnum(0));
 
     let negative_zero_half = dispatch_builtin_pure("round", vec![Value::make_float(-0.5)])
         .expect("builtin round should resolve")
         .expect("builtin round should evaluate");
-    assert_val_eq!(negative_zero_half, Value::fixnum(0));
+    assert_eq!(negative_zero_half, Value::fixnum(0));
 }
 
 #[test]
@@ -3927,12 +3927,12 @@ fn pure_dispatch_typed_string_width_and_bytes_work() {
     let width = dispatch_builtin_pure("string-width", vec![Value::string("ab")])
         .expect("builtin string-width should resolve")
         .expect("builtin string-width should evaluate");
-    assert_val_eq!(width, Value::fixnum(2));
+    assert_eq!(width, Value::fixnum(2));
 
     let bytes = dispatch_builtin_pure("string-bytes", vec![Value::string("ab")])
         .expect("builtin string-bytes should resolve")
         .expect("builtin string-bytes should evaluate");
-    assert_val_eq!(bytes, Value::fixnum(2));
+    assert_eq!(bytes, Value::fixnum(2));
 }
 
 #[test]
@@ -3953,7 +3953,7 @@ fn pure_dispatch_typed_extended_list_ops_work() {
     )
     .expect("builtin ntake should resolve")
     .expect("builtin ntake should evaluate");
-    assert_val_eq!(
+    assert_eq!(
         truncated,
         Value::list(vec![Value::fixnum(7), Value::fixnum(8)])
     );
@@ -4088,12 +4088,12 @@ fn pure_dispatch_minibuffer_and_frame_placeholders_match_compat_contracts() {
     let redisplay = dispatch_builtin_pure("redisplay", vec![])
         .expect("builtin redisplay should resolve")
         .expect("builtin redisplay should evaluate");
-    assert_val_eq!(redisplay, Value::T);
+    assert_eq!(redisplay, Value::T);
 
     let redisplay_force = dispatch_builtin_pure("redisplay", vec![Value::T])
         .expect("builtin redisplay should resolve with optional arg")
         .expect("builtin redisplay should evaluate with optional arg");
-    assert_val_eq!(redisplay_force, Value::T);
+    assert_eq!(redisplay_force, Value::T);
 }
 
 #[test]
@@ -4106,7 +4106,7 @@ fn pure_dispatch_buffer_placeholder_mutators_match_compat_contracts() {
         let renamed = dispatch_builtin(&mut eval, "rename-buffer", vec![Value::string("new-name")])
             .expect("builtin rename-buffer should resolve")
             .expect("builtin rename-buffer should evaluate");
-        assert_val_eq!(renamed, Value::string("new-name"));
+        assert_eq!(renamed, Value::string("new-name"));
         assert_eq!(eval.buffers.get(buf_id).unwrap().name, "new-name");
     }
 
@@ -4205,7 +4205,7 @@ fn pure_dispatch_record_and_state_placeholders_match_compat_contracts() {
     )
     .expect("builtin marker-last-position should resolve")
     .expect("builtin marker-last-position should evaluate");
-    assert_val_eq!(marker_last_position, Value::fixnum(0));
+    assert_eq!(marker_last_position, Value::fixnum(0));
 
     // match-data--translate is now dispatched in eval path (needs &mut eval)
     assert!(dispatch_builtin_pure("match-data--translate", vec![Value::fixnum(1)]).is_none());
@@ -4449,7 +4449,7 @@ fn pure_dispatch_record_query_placeholders_match_compat_contracts() {
         dispatch_builtin_pure("query-fontset", vec![Value::string("fontset-default")])
             .expect("builtin query-fontset should resolve")
             .expect("builtin query-fontset should evaluate");
-    assert_val_eq!(
+    assert_eq!(
         query_fontset,
         Value::string("-*-*-*-*-*-*-*-*-*-*-*-*-fontset-default")
     );
@@ -4494,7 +4494,7 @@ fn pure_dispatch_reconsider_redirect_placeholders_match_compat_contracts() {
     let remove_pos = dispatch_builtin_pure("remove-pos-from-symbol", vec![Value::symbol("x")])
         .expect("builtin remove-pos-from-symbol should resolve")
         .expect("builtin remove-pos-from-symbol should evaluate");
-    assert_val_eq!(remove_pos, Value::symbol("x"));
+    assert_eq!(remove_pos, Value::symbol("x"));
 
     let resize_mini =
         dispatch_builtin_pure("resize-mini-window-internal", vec![Value::make_window(1)])
@@ -4536,7 +4536,7 @@ fn pure_dispatch_set_window_placeholder_cluster_matches_compat_contracts() {
     )
     .expect("builtin set-charset-plist should resolve")
     .expect("builtin set-charset-plist should evaluate");
-    assert_val_eq!(set_charset, Value::list(vec![]));
+    assert_eq!(set_charset, Value::list(vec![]));
 
     assert!(
         dispatch_builtin_pure(
@@ -4603,7 +4603,7 @@ fn pure_dispatch_set_window_placeholder_cluster_matches_compat_contracts() {
     )
     .expect("builtin set-window-new-pixel should resolve")
     .expect("builtin set-window-new-pixel should evaluate");
-    assert_val_eq!(set_new_pixel, Value::fixnum(1));
+    assert_eq!(set_new_pixel, Value::fixnum(1));
 
     let set_new_total = dispatch_builtin_pure(
         "set-window-new-total",
@@ -4611,7 +4611,7 @@ fn pure_dispatch_set_window_placeholder_cluster_matches_compat_contracts() {
     )
     .expect("builtin set-window-new-total should resolve")
     .expect("builtin set-window-new-total should evaluate");
-    assert_val_eq!(set_new_total, Value::fixnum(1));
+    assert_eq!(set_new_total, Value::fixnum(1));
 }
 
 #[test]
@@ -4632,7 +4632,7 @@ fn pure_dispatch_sort_subr_placeholder_cluster_matches_compat_contracts() {
     )
     .expect("builtin string-distance should resolve")
     .expect("builtin string-distance should evaluate");
-    assert_val_eq!(string_distance, Value::fixnum(1));
+    assert_eq!(string_distance, Value::fixnum(1));
 
     let subr_unit = dispatch_builtin_pure("subr-native-comp-unit", vec![Value::NIL])
         .expect("builtin subr-native-comp-unit should resolve")
@@ -4675,7 +4675,7 @@ fn pure_dispatch_tty_tool_bar_placeholder_cluster_matches_compat_contracts() {
     let tool_bar_width = dispatch_builtin_pure("tool-bar-pixel-width", vec![])
         .expect("builtin tool-bar-pixel-width should resolve")
         .expect("builtin tool-bar-pixel-width should evaluate");
-    assert_val_eq!(tool_bar_width, Value::fixnum(0));
+    assert_eq!(tool_bar_width, Value::fixnum(0));
 
     let translate = dispatch_builtin_pure(
         "translate-region-internal",
@@ -4702,7 +4702,7 @@ fn pure_dispatch_tty_tool_bar_placeholder_cluster_matches_compat_contracts() {
     let tty_buf = dispatch_builtin_pure("tty--output-buffer-size", vec![])
         .expect("builtin tty--output-buffer-size should resolve")
         .expect("builtin tty--output-buffer-size should evaluate");
-    assert_val_eq!(tty_buf, Value::fixnum(0));
+    assert_eq!(tty_buf, Value::fixnum(0));
 
     let tty_set = dispatch_builtin_pure("tty--set-output-buffer-size", vec![Value::fixnum(4096)])
         .expect("builtin tty--set-output-buffer-size should resolve")
@@ -4809,7 +4809,7 @@ fn pure_dispatch_minibuffer_lock_placeholder_cluster_matches_compat_contracts() 
         dispatch_builtin_pure("interactive-form", vec![Value::symbol("ignore")])
             .expect("builtin interactive-form should resolve")
             .expect("builtin interactive-form should evaluate");
-    assert_val_eq!(
+    assert_eq!(
         interactive_ignore,
         Value::list(vec![Value::symbol("interactive"), Value::NIL])
     );
@@ -4834,7 +4834,7 @@ fn pure_dispatch_minibuffer_lock_placeholder_cluster_matches_compat_contracts() 
     let lossage_size = dispatch_builtin_pure("lossage-size", vec![])
         .expect("builtin lossage-size should resolve")
         .expect("builtin lossage-size should evaluate");
-    assert_val_eq!(lossage_size, Value::fixnum(300));
+    assert_eq!(lossage_size, Value::fixnum(300));
 
     let unlock_buffer = dispatch_builtin_pure("unlock-buffer", vec![])
         .expect("builtin unlock-buffer should resolve")
@@ -4901,7 +4901,7 @@ fn interactive_form_eval_uses_symbol_properties_and_builtin_subr_specs() {
     )
     .expect("put should install interactive-form symbol property");
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_interactive_form(
             &mut eval,
             vec![Value::symbol("vm-interactive-form-property-alias")]
@@ -4917,12 +4917,12 @@ fn interactive_form_eval_uses_symbol_properties_and_builtin_subr_specs() {
         .expect("interactive-form should evaluate target symbol")
         .is_nil()
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_interactive_form(&mut eval, vec![Value::symbol("forward-char")])
             .expect("interactive-form should expose builtin subr spec"),
         Value::list(vec![Value::symbol("interactive"), Value::string("^p")])
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_interactive_form(&mut eval, vec![Value::symbol("goto-char")])
             .expect("interactive-form should expose computed builtin form"),
         Value::list(vec![
@@ -4953,7 +4953,7 @@ fn interactive_form_eval_skips_docstring_before_interactive_spec() {
     eval.obarray_mut()
         .set_symbol_function("vm-interactive-form-doc", lambda_with_doc);
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_interactive_form(&mut eval, vec![Value::symbol("vm-interactive-form-doc")])
             .expect("interactive-form should inspect lambda body after docstring"),
         Value::list(vec![Value::symbol("interactive"), Value::string("P")])
@@ -5004,22 +5004,22 @@ fn interactive_form_eval_preserves_noarg_and_explicit_nil_shapes() {
     eval.obarray_mut()
         .set_symbol_function("vm-interactive-form-nil", nil_lambda);
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_interactive_form(&mut eval, vec![noarg_lambda])
             .expect("interactive-form should evaluate"),
         Value::list(vec![Value::symbol("interactive"), Value::NIL])
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_interactive_form(&mut eval, vec![Value::symbol("vm-interactive-form-noarg")])
             .expect("interactive-form should evaluate"),
         Value::list(vec![Value::symbol("interactive"), Value::NIL])
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_interactive_form(&mut eval, vec![nil_lambda])
             .expect("interactive-form should evaluate"),
         Value::list(vec![Value::symbol("interactive"), Value::NIL])
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_interactive_form(&mut eval, vec![Value::symbol("vm-interactive-form-nil")])
             .expect("interactive-form should evaluate"),
         Value::list(vec![Value::symbol("interactive"), Value::NIL])
@@ -5102,7 +5102,7 @@ fn interactive_form_eval_signals_listp_for_improper_lambda_shapes() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_interactive_form(&mut eval, vec![doc_interactive_dotted_tail])
             .expect("interactive-form should stop at first interactive form"),
         Value::list(vec![Value::symbol("interactive"), Value::NIL])
@@ -5134,7 +5134,7 @@ fn pure_dispatch_internal_placeholder_cluster_matches_compat_contracts() {
         dispatch_builtin_pure("internal-describe-syntax-value", vec![Value::fixnum(0)])
             .expect("builtin internal-describe-syntax-value should resolve")
             .expect("builtin internal-describe-syntax-value should evaluate");
-    assert_val_eq!(describe_syntax, Value::fixnum(0));
+    assert_eq!(describe_syntax, Value::fixnum(0));
 
     let parse_modifiers = dispatch_builtin_pure(
         "internal-event-symbol-parse-modifiers",
@@ -5142,7 +5142,7 @@ fn pure_dispatch_internal_placeholder_cluster_matches_compat_contracts() {
     )
     .expect("builtin internal-event-symbol-parse-modifiers should resolve")
     .expect("builtin internal-event-symbol-parse-modifiers should evaluate");
-    assert_val_eq!(
+    assert_eq!(
         parse_modifiers,
         Value::list(vec![Value::symbol("x"), Value::symbol("control")])
     );
@@ -5168,7 +5168,7 @@ fn pure_dispatch_internal_placeholder_cluster_matches_compat_contracts() {
     )
     .expect("builtin internal-set-lisp-face-attribute-from-resource should resolve")
     .expect("builtin internal-set-lisp-face-attribute-from-resource should evaluate");
-    assert_val_eq!(set_face_attr, Value::symbol("face"));
+    assert_eq!(set_face_attr, Value::symbol("face"));
 
     let stack_stats = dispatch_builtin_pure("internal-stack-stats", vec![])
         .expect("builtin internal-stack-stats should resolve")
@@ -5178,7 +5178,7 @@ fn pure_dispatch_internal_placeholder_cluster_matches_compat_contracts() {
     let subr_doc = dispatch_builtin_pure("internal-subr-documentation", vec![Value::NIL])
         .expect("builtin internal-subr-documentation should resolve")
         .expect("builtin internal-subr-documentation should evaluate");
-    assert_val_eq!(subr_doc, Value::T);
+    assert_eq!(subr_doc, Value::T);
 }
 
 #[test]
@@ -5194,7 +5194,7 @@ fn internal_track_mouse_binds_and_restores_track_mouse() {
     .expect("parse");
 
     let result = eval.eval_expr(&forms[0]).expect("internal--track-mouse");
-    assert_val_eq!(result, Value::list(vec![Value::T, Value::symbol("outer")]));
+    assert_eq!(result, Value::list(vec![Value::T, Value::symbol("outer")]));
 }
 
 #[test]
@@ -5215,7 +5215,7 @@ fn internal_track_mouse_restores_track_mouse_after_error() {
     let result = eval
         .eval_expr(&forms[0])
         .expect("internal--track-mouse condition-case");
-    assert_val_eq!(
+    assert_eq!(
         result,
         Value::list(vec![Value::symbol("outer"), Value::symbol("error")])
     );
@@ -5249,17 +5249,17 @@ fn pure_dispatch_memory_module_placeholder_cluster_matches_compat_contracts() {
     let malloc_trim = dispatch_builtin_pure("malloc-trim", vec![])
         .expect("builtin malloc-trim should resolve")
         .expect("builtin malloc-trim should evaluate");
-    assert_val_eq!(malloc_trim, Value::T);
+    assert_eq!(malloc_trim, Value::T);
 
     let malloc_trim_nil = dispatch_builtin_pure("malloc-trim", vec![Value::NIL])
         .expect("builtin malloc-trim should resolve with nil pad")
         .expect("builtin malloc-trim should evaluate with nil pad");
-    assert_val_eq!(malloc_trim_nil, Value::T);
+    assert_eq!(malloc_trim_nil, Value::T);
 
     let malloc_trim_zero = dispatch_builtin_pure("malloc-trim", vec![Value::fixnum(0)])
         .expect("builtin malloc-trim should resolve with integer pad")
         .expect("builtin malloc-trim should evaluate with integer pad");
-    assert_val_eq!(malloc_trim_zero, Value::T);
+    assert_eq!(malloc_trim_zero, Value::T);
 
     for bad in [
         Value::fixnum(-1),
@@ -5442,7 +5442,7 @@ fn defvar_1_binds_only_when_default_is_unbound() {
         ],
     )
     .expect("defvar-1 should succeed");
-    assert_val_eq!(result, Value::symbol("vm-defvar-1"));
+    assert_eq!(result, Value::symbol("vm-defvar-1"));
     assert_eq!(
         eval.obarray()
             .symbol_value_id(intern("vm-defvar-1"))
@@ -5455,7 +5455,7 @@ fn defvar_1_binds_only_when_default_is_unbound() {
         vec![Value::symbol("vm-defvar-1"), Value::fixnum(9)],
     )
     .expect("second defvar-1 should succeed");
-    assert_val_eq!(result, Value::symbol("vm-defvar-1"));
+    assert_eq!(result, Value::symbol("vm-defvar-1"));
     assert_eq!(
         eval.obarray()
             .symbol_value_id(intern("vm-defvar-1"))
@@ -5478,7 +5478,7 @@ fn defconst_1_sets_constant_value_and_risky_local_property() {
     )
     .expect("defconst-1 should succeed");
 
-    assert_val_eq!(result, Value::symbol("vm-defconst-1"));
+    assert_eq!(result, Value::symbol("vm-defconst-1"));
     let symbol = intern("vm-defconst-1");
     assert_eq!(
         eval.obarray().symbol_value_id(symbol).copied(),
@@ -5835,7 +5835,7 @@ fn match_data_round_trip_with_nil_groups() {
     .expect("set-match-data should succeed");
 
     let md = builtin_match_data(&mut eval, vec![]).expect("match-data should succeed");
-    assert_val_eq!(
+    assert_eq!(
         md,
         Value::list(vec![
             Value::fixnum(0),
@@ -5954,11 +5954,11 @@ fn buffer_region_negative_bounds_signal_without_panicking() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_char_after(&mut eval, vec![Value::fixnum(-1)]).expect("char-after should succeed"),
         Value::NIL
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_char_before(&mut eval, vec![Value::fixnum(0)]).expect("char-before should succeed"),
         Value::NIL
     );
@@ -5984,14 +5984,14 @@ fn string_match_start_handles_nil_and_negative_offsets() {
         vec![Value::string("a"), Value::string("ba"), Value::NIL],
     )
     .expect("string-match with nil start");
-    assert_val_eq!(with_nil, Value::fixnum(1));
+    assert_eq!(with_nil, Value::fixnum(1));
 
     let with_negative = builtin_string_match(
         &mut eval,
         vec![Value::string("a"), Value::string("ba"), Value::fixnum(-1)],
     )
     .expect("string-match with negative start");
-    assert_val_eq!(with_negative, Value::fixnum(1));
+    assert_eq!(with_negative, Value::fixnum(1));
 
     let out_of_range = builtin_string_match(
         &mut eval,
@@ -6219,7 +6219,7 @@ fn string_match_inhibit_modify_preserves_match_data() {
         ],
     )
     .expect("string-match with inhibit-modify");
-    assert_val_eq!(result, Value::fixnum(0));
+    assert_eq!(result, Value::fixnum(0));
 
     let observed = builtin_match_data(&mut eval, vec![]).expect("read match-data");
     assert_eq!(observed, baseline);
@@ -6297,27 +6297,27 @@ fn replace_match_buffer_updates_live_match_data_like_gnu() {
     let buffer = eval.buffers.current_buffer().expect("scratch buffer");
     assert_eq!(buffer.text.text_range(0, buffer.text.len()), "42-foo");
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_match_beginning(&mut eval, vec![Value::fixnum(0)]).expect("match-beginning 0"),
         Value::fixnum(1)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_match_end(&mut eval, vec![Value::fixnum(0)]).expect("match-end 0"),
         Value::fixnum(7)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_match_beginning(&mut eval, vec![Value::fixnum(1)]).expect("match-beginning 1"),
         Value::fixnum(1)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_match_end(&mut eval, vec![Value::fixnum(1)]).expect("match-end 1"),
         Value::fixnum(1)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_match_beginning(&mut eval, vec![Value::fixnum(2)]).expect("match-beginning 2"),
         Value::fixnum(1)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_match_end(&mut eval, vec![Value::fixnum(2)]).expect("match-end 2"),
         Value::fixnum(7)
     );
@@ -6341,7 +6341,7 @@ fn match_data_translate_shifts_groups_in_shared_eval_state() {
 
     builtin_match_data_translate(&mut eval, vec![Value::fixnum(5)]).expect("translate match data");
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_match_data(&mut eval, vec![]).expect("read translated match data"),
         Value::list(vec![
             Value::fixnum(6),
@@ -6449,7 +6449,7 @@ fn dispatch_builtin_pure_handles_treesit_parser_query_and_search_placeholders() 
     let parser = dispatch_builtin_pure("treesit-parser-buffer", vec![Value::NIL])
         .expect("treesit-parser-buffer should resolve")
         .expect("treesit-parser-buffer should evaluate");
-    assert_val_eq!(parser, Value::NIL);
+    assert_eq!(parser, Value::NIL);
 
     let search = dispatch_builtin_pure(
         "treesit-search-forward",
@@ -6457,7 +6457,7 @@ fn dispatch_builtin_pure_handles_treesit_parser_query_and_search_placeholders() 
     )
     .expect("treesit-search-forward should resolve")
     .expect("treesit-search-forward should evaluate");
-    assert_val_eq!(search, Value::NIL);
+    assert_eq!(search, Value::NIL);
 
     let err = dispatch_builtin_pure("treesit-query-compile", vec![Value::NIL])
         .expect("treesit-query-compile should resolve")
@@ -6479,17 +6479,17 @@ fn dispatch_builtin_pure_handles_inotify_watch_lifecycle() {
     let active = dispatch_builtin_pure("inotify-valid-p", vec![watch])
         .expect("inotify-valid-p should resolve")
         .expect("inotify-valid-p should evaluate");
-    assert_val_eq!(active, Value::T);
+    assert_eq!(active, Value::T);
 
     let removed = dispatch_builtin_pure("inotify-rm-watch", vec![watch])
         .expect("inotify-rm-watch should resolve")
         .expect("inotify-rm-watch should evaluate");
-    assert_val_eq!(removed, Value::T);
+    assert_eq!(removed, Value::T);
 
     let inactive = dispatch_builtin_pure("inotify-valid-p", vec![watch])
         .expect("inotify-valid-p should resolve")
         .expect("inotify-valid-p should evaluate");
-    assert_val_eq!(inactive, Value::NIL);
+    assert_eq!(inactive, Value::NIL);
 }
 
 #[test]
@@ -6500,12 +6500,12 @@ fn dispatch_builtin_pure_handles_sqlite_lifecycle_and_closed_handle_guard() {
     let sqlitep = dispatch_builtin_pure("sqlitep", vec![db])
         .expect("sqlitep should resolve")
         .expect("sqlitep should evaluate");
-    assert_val_eq!(sqlitep, Value::T);
+    assert_eq!(sqlitep, Value::T);
 
     let closed = dispatch_builtin_pure("sqlite-close", vec![db])
         .expect("sqlite-close should resolve")
         .expect("sqlite-close should evaluate");
-    assert_val_eq!(closed, Value::T);
+    assert_eq!(closed, Value::T);
 
     let err = dispatch_builtin_pure("sqlite-execute", vec![db, Value::string("select 1")])
         .expect("sqlite-execute should resolve")
@@ -6547,7 +6547,7 @@ fn dispatch_builtin_pure_handles_fillarray_and_find_coding_region_internal() {
     )
     .expect("find-coding-systems-region-internal should resolve")
     .expect("find-coding-systems-region-internal should evaluate");
-    assert_val_eq!(coding, Value::T);
+    assert_eq!(coding, Value::T);
 }
 
 #[test]
@@ -6558,22 +6558,22 @@ fn dispatch_builtin_pure_handles_fringe_display_and_debug_output_placeholders() 
     )
     .expect("define-fringe-bitmap should resolve")
     .expect("define-fringe-bitmap should evaluate");
-    assert_val_eq!(bitmap, Value::symbol("neo"));
+    assert_eq!(bitmap, Value::symbol("neo"));
 
     let destroy = dispatch_builtin_pure("destroy-fringe-bitmap", vec![Value::symbol("neo")])
         .expect("destroy-fringe-bitmap should resolve")
         .expect("destroy-fringe-bitmap should evaluate");
-    assert_val_eq!(destroy, Value::NIL);
+    assert_eq!(destroy, Value::NIL);
 
     let line = dispatch_builtin_pure("display--line-is-continued-p", vec![])
         .expect("display--line-is-continued-p should resolve")
         .expect("display--line-is-continued-p should evaluate");
-    assert_val_eq!(line, Value::NIL);
+    assert_eq!(line, Value::NIL);
 
     let autosave = dispatch_builtin_pure("do-auto-save", vec![])
         .expect("do-auto-save should resolve")
         .expect("do-auto-save should evaluate");
-    assert_val_eq!(autosave, Value::NIL);
+    assert_eq!(autosave, Value::NIL);
 
     let err = dispatch_builtin_pure("external-debugging-output", vec![Value::fixnum(-1)])
         .expect("external-debugging-output should resolve")
@@ -6594,7 +6594,7 @@ fn mouse_position_builtins_default_to_selected_frame_with_nil_coords() {
     let pixel = dispatch_builtin(&mut eval, "mouse-pixel-position", vec![])
         .expect("mouse-pixel-position should resolve")
         .expect("mouse-pixel-position should evaluate");
-    assert_val_eq!(
+    assert_eq!(
         pixel,
         Value::cons(selected, Value::cons(Value::NIL, Value::NIL))
     );
@@ -6602,7 +6602,7 @@ fn mouse_position_builtins_default_to_selected_frame_with_nil_coords() {
     let pos = dispatch_builtin(&mut eval, "mouse-position", vec![])
         .expect("mouse-position should resolve")
         .expect("mouse-position should evaluate");
-    assert_val_eq!(
+    assert_eq!(
         pos,
         Value::cons(selected, Value::cons(Value::NIL, Value::NIL))
     );
@@ -6630,12 +6630,12 @@ fn display_update_for_mouse_movement_updates_shared_mouse_state() {
     )
     .expect("display--update-for-mouse-movement should resolve")
     .expect("display--update-for-mouse-movement should evaluate");
-    assert_val_eq!(update, Value::NIL);
+    assert_eq!(update, Value::NIL);
 
     let pixel = dispatch_builtin(&mut eval, "mouse-pixel-position", vec![])
         .expect("mouse-pixel-position should resolve")
         .expect("mouse-pixel-position should evaluate");
-    assert_val_eq!(
+    assert_eq!(
         pixel,
         Value::cons(frame, Value::cons(Value::fixnum(16), Value::fixnum(32)))
     );
@@ -6643,7 +6643,7 @@ fn display_update_for_mouse_movement_updates_shared_mouse_state() {
     let pos = dispatch_builtin(&mut eval, "mouse-position", vec![])
         .expect("mouse-position should resolve")
         .expect("mouse-position should evaluate");
-    assert_val_eq!(
+    assert_eq!(
         pos,
         Value::cons(frame, Value::cons(Value::fixnum(2), Value::fixnum(2)))
     );
@@ -6671,8 +6671,8 @@ fn set_mouse_position_builtins_update_shared_mouse_state() {
     )
     .expect("set-mouse-pixel-position should resolve")
     .expect("set-mouse-pixel-position should evaluate");
-    assert_val_eq!(set_pixel, Value::NIL);
-    assert_val_eq!(
+    assert_eq!(set_pixel, Value::NIL);
+    assert_eq!(
         dispatch_builtin(&mut eval, "mouse-pixel-position", vec![])
             .expect("mouse-pixel-position should resolve")
             .expect("mouse-pixel-position should evaluate"),
@@ -6686,14 +6686,14 @@ fn set_mouse_position_builtins_update_shared_mouse_state() {
     )
     .expect("set-mouse-position should resolve")
     .expect("set-mouse-position should evaluate");
-    assert_val_eq!(set_char, Value::NIL);
-    assert_val_eq!(
+    assert_eq!(set_char, Value::NIL);
+    assert_eq!(
         dispatch_builtin(&mut eval, "mouse-position", vec![])
             .expect("mouse-position should resolve")
             .expect("mouse-position should evaluate"),
         Value::cons(frame, Value::cons(Value::fixnum(3), Value::fixnum(4)))
     );
-    assert_val_eq!(
+    assert_eq!(
         dispatch_builtin(&mut eval, "mouse-pixel-position", vec![])
             .expect("mouse-pixel-position should resolve")
             .expect("mouse-pixel-position should evaluate"),
@@ -6718,17 +6718,17 @@ fn dispatch_builtin_pure_handles_internal_labeled_and_modified_tick_placeholders
     )
     .expect("internal--labeled-narrow-to-region should resolve")
     .expect("internal--labeled-narrow-to-region should evaluate");
-    assert_val_eq!(narrow, Value::NIL);
+    assert_eq!(narrow, Value::NIL);
 
     let widen = dispatch_builtin_pure("internal--labeled-widen", vec![Value::symbol("tag")])
         .expect("internal--labeled-widen should resolve")
         .expect("internal--labeled-widen should evaluate");
-    assert_val_eq!(widen, Value::NIL);
+    assert_eq!(widen, Value::NIL);
 
     let buckets = dispatch_builtin_pure("internal--obarray-buckets", vec![Value::vector(vec![])])
         .expect("internal--obarray-buckets should resolve")
         .expect("internal--obarray-buckets should evaluate");
-    assert_val_eq!(buckets, Value::NIL);
+    assert_eq!(buckets, Value::NIL);
 
     let tick = dispatch_builtin_pure(
         "internal--set-buffer-modified-tick",
@@ -6736,7 +6736,7 @@ fn dispatch_builtin_pure_handles_internal_labeled_and_modified_tick_placeholders
     )
     .expect("internal--set-buffer-modified-tick should resolve")
     .expect("internal--set-buffer-modified-tick should evaluate");
-    assert_val_eq!(tick, Value::NIL);
+    assert_eq!(tick, Value::NIL);
 }
 
 #[test]
@@ -6749,7 +6749,7 @@ fn internal_define_uninitialized_variable_marks_special_and_sets_doc() {
     )
     .expect("internal--define-uninitialized-variable should resolve")
     .expect("internal--define-uninitialized-variable should evaluate");
-    assert_val_eq!(result, Value::NIL);
+    assert_eq!(result, Value::NIL);
     assert!(eval.obarray().is_special("neo-var"));
     assert_eq!(
         eval.obarray()
@@ -6788,7 +6788,7 @@ fn internal_labeled_narrow_to_region_clamps_within_current_restriction() {
     )
     .expect("internal--labeled-narrow-to-region should resolve")
     .expect("internal--labeled-narrow-to-region should evaluate");
-    assert_val_eq!(narrowed, Value::NIL);
+    assert_eq!(narrowed, Value::NIL);
 
     let buf = eval.buffers.get(buf_id).expect("buffer should stay live");
     assert_eq!(buf.point_min_char() as i64 + 1, 2);
@@ -6800,22 +6800,22 @@ fn dispatch_builtin_pure_handles_window_resize_and_frame_switch_placeholders() {
     let save = dispatch_builtin_pure("handle-save-session", vec![Value::symbol("event")])
         .expect("handle-save-session should resolve")
         .expect("handle-save-session should evaluate");
-    assert_val_eq!(save, Value::NIL);
+    assert_eq!(save, Value::NIL);
 
     let frame = dispatch_builtin_pure("handle-switch-frame", vec![Value::make_frame(1)])
         .expect("handle-switch-frame should resolve")
         .expect("handle-switch-frame should evaluate");
-    assert_val_eq!(frame, Value::NIL);
+    assert_eq!(frame, Value::NIL);
 
     let divider = dispatch_builtin_pure("window-bottom-divider-width", vec![])
         .expect("window-bottom-divider-width should resolve")
         .expect("window-bottom-divider-width should evaluate");
-    assert_val_eq!(divider, Value::fixnum(0));
+    assert_eq!(divider, Value::fixnum(0));
 
     let resize = dispatch_builtin_pure("window-resize-apply-total", vec![])
         .expect("window-resize-apply-total should resolve")
         .expect("window-resize-apply-total should evaluate");
-    assert_val_eq!(resize, Value::T);
+    assert_eq!(resize, Value::T);
 }
 
 #[test]
@@ -6843,17 +6843,17 @@ fn dispatch_builtin_pure_handles_window_placeholder_accessors() {
     )
     .expect("window-line-height should resolve")
     .expect("window-line-height should evaluate");
-    assert_val_eq!(line_height, Value::NIL);
+    assert_eq!(line_height, Value::NIL);
 
     let old_body = dispatch_builtin_pure("window-old-body-pixel-height", vec![])
         .expect("window-old-body-pixel-height should resolve")
         .expect("window-old-body-pixel-height should evaluate");
-    assert_val_eq!(old_body, Value::fixnum(0));
+    assert_eq!(old_body, Value::fixnum(0));
 
     let tab = dispatch_builtin_pure("window-tab-line-height", vec![])
         .expect("window-tab-line-height should resolve")
         .expect("window-tab-line-height should evaluate");
-    assert_val_eq!(tab, Value::fixnum(0));
+    assert_eq!(tab, Value::fixnum(0));
 
     let err = dispatch_builtin_pure("window-right-divider-width", vec![Value::fixnum(1)])
         .expect("window-right-divider-width should resolve")
@@ -6877,7 +6877,7 @@ fn dispatch_builtin_pure_handles_gpm_help_and_init_image_placeholders() {
     let stop = dispatch_builtin_pure("gpm-mouse-stop", vec![])
         .expect("gpm-mouse-stop should resolve")
         .expect("gpm-mouse-stop should evaluate");
-    assert_val_eq!(stop, Value::NIL);
+    assert_eq!(stop, Value::NIL);
 
     let help = dispatch_builtin_pure(
         "help--describe-vector",
@@ -6893,12 +6893,12 @@ fn dispatch_builtin_pure_handles_gpm_help_and_init_image_placeholders() {
     )
     .expect("help--describe-vector should resolve")
     .expect("help--describe-vector should evaluate");
-    assert_val_eq!(help, Value::NIL);
+    assert_eq!(help, Value::NIL);
 
     let init = dispatch_builtin_pure("init-image-library", vec![Value::symbol("png")])
         .expect("init-image-library should resolve")
         .expect("init-image-library should evaluate");
-    assert_val_eq!(init, Value::NIL);
+    assert_eq!(init, Value::NIL);
 }
 
 #[test]
@@ -6918,27 +6918,27 @@ fn dispatch_builtin_pure_handles_frame_placeholder_accessors() {
         dispatch_builtin_pure("frame--set-was-invisible", vec![Value::NIL, Value::T])
             .expect("frame--set-was-invisible should resolve")
             .expect("frame--set-was-invisible should evaluate");
-    assert_val_eq!(was_invisible, Value::T);
+    assert_eq!(was_invisible, Value::T);
 
     let changed = dispatch_builtin_pure("frame-or-buffer-changed-p", vec![])
         .expect("frame-or-buffer-changed-p should resolve")
         .expect("frame-or-buffer-changed-p should evaluate");
-    assert_val_eq!(changed, Value::T);
+    assert_eq!(changed, Value::T);
 
     let changed_nil = dispatch_builtin_pure("frame-or-buffer-changed-p", vec![Value::NIL])
         .expect("frame-or-buffer-changed-p should resolve")
         .expect("frame-or-buffer-changed-p should evaluate");
-    assert_val_eq!(changed_nil, Value::NIL);
+    assert_eq!(changed_nil, Value::NIL);
 
     let scale = dispatch_builtin_pure("frame-scale-factor", vec![])
         .expect("frame-scale-factor should resolve")
         .expect("frame-scale-factor should evaluate");
-    assert_val_eq!(scale, Value::make_float(1.0));
+    assert_eq!(scale, Value::make_float(1.0));
 
     let pointer = dispatch_builtin_pure("frame-pointer-visible-p", vec![])
         .expect("frame-pointer-visible-p should resolve")
         .expect("frame-pointer-visible-p should evaluate");
-    assert_val_eq!(pointer, Value::T);
+    assert_eq!(pointer, Value::T);
 
     let err = dispatch_builtin_pure("frame-or-buffer-changed-p", vec![Value::fixnum(1)])
         .expect("frame-or-buffer-changed-p should resolve")
@@ -6957,7 +6957,7 @@ fn dispatch_builtin_pure_handles_describe_and_delete_terminal_placeholders() {
     )
     .expect("describe-buffer-bindings should resolve")
     .expect("describe-buffer-bindings should evaluate");
-    assert_val_eq!(bindings, Value::NIL);
+    assert_eq!(bindings, Value::NIL);
 
     let seq_err = dispatch_builtin_pure(
         "describe-buffer-bindings",
@@ -6998,7 +6998,7 @@ fn dispatch_builtin_pure_handles_describe_and_delete_terminal_placeholders() {
     let deleted = dispatch_builtin_pure("delete-terminal", vec![Value::symbol("tty")])
         .expect("delete-terminal should resolve")
         .expect("delete-terminal should evaluate");
-    assert_val_eq!(deleted, Value::NIL);
+    assert_eq!(deleted, Value::NIL);
 }
 
 #[test]
@@ -7006,22 +7006,22 @@ fn dispatch_builtin_pure_handles_fringe_gap_and_garbage_placeholders() {
     let fringe = dispatch_builtin_pure("fringe-bitmaps-at-pos", vec![Value::NIL, Value::NIL])
         .expect("fringe-bitmaps-at-pos should resolve")
         .expect("fringe-bitmaps-at-pos should evaluate");
-    assert_val_eq!(fringe, Value::NIL);
+    assert_eq!(fringe, Value::NIL);
 
     let gap_pos = dispatch_builtin_pure("gap-position", vec![])
         .expect("gap-position should resolve")
         .expect("gap-position should evaluate");
-    assert_val_eq!(gap_pos, Value::fixnum(1));
+    assert_eq!(gap_pos, Value::fixnum(1));
 
     let gap_size = dispatch_builtin_pure("gap-size", vec![])
         .expect("gap-size should resolve")
         .expect("gap-size should evaluate");
-    assert_val_eq!(gap_size, Value::fixnum(2001));
+    assert_eq!(gap_size, Value::fixnum(2001));
 
     let gc = dispatch_builtin_pure("garbage-collect-maybe", vec![Value::fixnum(0)])
         .expect("garbage-collect-maybe should resolve")
         .expect("garbage-collect-maybe should evaluate");
-    assert_val_eq!(gc, Value::NIL);
+    assert_eq!(gc, Value::NIL);
 
     let prop_err = dispatch_builtin_pure(
         "get-unicode-property-internal",
@@ -7040,32 +7040,32 @@ fn dispatch_builtin_pure_handles_gnutls_query_and_error_placeholders() {
     let available = dispatch_builtin_pure("gnutls-available-p", vec![])
         .expect("gnutls-available-p should resolve")
         .expect("gnutls-available-p should evaluate");
-    assert_val_eq!(available, Value::list(vec![Value::symbol("gnutls")]));
+    assert_eq!(available, Value::list(vec![Value::symbol("gnutls")]));
 
     let ciphers = dispatch_builtin_pure("gnutls-ciphers", vec![])
         .expect("gnutls-ciphers should resolve")
         .expect("gnutls-ciphers should evaluate");
-    assert_val_eq!(ciphers, Value::list(vec![Value::symbol("AES-256-GCM")]));
+    assert_eq!(ciphers, Value::list(vec![Value::symbol("AES-256-GCM")]));
 
     let digests = dispatch_builtin_pure("gnutls-digests", vec![])
         .expect("gnutls-digests should resolve")
         .expect("gnutls-digests should evaluate");
-    assert_val_eq!(digests, Value::list(vec![Value::symbol("SHA256")]));
+    assert_eq!(digests, Value::list(vec![Value::symbol("SHA256")]));
 
     let macs = dispatch_builtin_pure("gnutls-macs", vec![])
         .expect("gnutls-macs should resolve")
         .expect("gnutls-macs should evaluate");
-    assert_val_eq!(macs, Value::list(vec![Value::symbol("AEAD")]));
+    assert_eq!(macs, Value::list(vec![Value::symbol("AEAD")]));
 
     let errorp = dispatch_builtin_pure("gnutls-errorp", vec![Value::fixnum(0)])
         .expect("gnutls-errorp should resolve")
         .expect("gnutls-errorp should evaluate");
-    assert_val_eq!(errorp, Value::T);
+    assert_eq!(errorp, Value::T);
 
     let success = dispatch_builtin_pure("gnutls-error-string", vec![Value::fixnum(0)])
         .expect("gnutls-error-string should resolve")
         .expect("gnutls-error-string should evaluate");
-    assert_val_eq!(success, Value::string("Success."));
+    assert_eq!(success, Value::string("Success."));
 
     let fatal_err = dispatch_builtin_pure("gnutls-error-fatalp", vec![Value::NIL])
         .expect("gnutls-error-fatalp should resolve")
@@ -7082,7 +7082,7 @@ fn dispatch_builtin_pure_handles_gnutls_runtime_placeholders() {
         dispatch_builtin_pure("gnutls-peer-status-warning-describe", vec![Value::NIL])
             .expect("gnutls-peer-status-warning-describe should resolve")
             .expect("gnutls-peer-status-warning-describe should evaluate");
-    assert_val_eq!(peer_warning, Value::NIL);
+    assert_eq!(peer_warning, Value::NIL);
 
     let bye_err = dispatch_builtin_pure("gnutls-bye", vec![Value::NIL, Value::NIL])
         .expect("gnutls-bye should resolve")
@@ -7119,7 +7119,7 @@ fn dispatch_builtin_pure_handles_gnutls_runtime_placeholders() {
     )
     .expect("gnutls-hash-mac should resolve")
     .expect("gnutls-hash-mac should evaluate");
-    assert_val_eq!(mac, Value::string("mac"));
+    assert_eq!(mac, Value::string("mac"));
 
     let enc = dispatch_builtin_pure(
         "gnutls-symmetric-encrypt",
@@ -7133,7 +7133,7 @@ fn dispatch_builtin_pure_handles_gnutls_runtime_placeholders() {
     )
     .expect("gnutls-symmetric-encrypt should resolve")
     .expect("gnutls-symmetric-encrypt should evaluate");
-    assert_val_eq!(enc, Value::NIL);
+    assert_eq!(enc, Value::NIL);
 }
 
 #[test]
@@ -7169,7 +7169,7 @@ fn dispatch_builtin_pure_handles_font_face_placeholders() {
     )
     .expect("font-get-glyphs should resolve")
     .expect("font-get-glyphs should evaluate");
-    assert_val_eq!(glyphs, Value::NIL);
+    assert_eq!(glyphs, Value::NIL);
 
     let has_char = dispatch_builtin_pure(
         "font-has-char-p",
@@ -7177,7 +7177,7 @@ fn dispatch_builtin_pure_handles_font_face_placeholders() {
     )
     .expect("font-has-char-p should resolve")
     .expect("font-has-char-p should evaluate");
-    assert_val_eq!(has_char, Value::NIL);
+    assert_eq!(has_char, Value::NIL);
 
     let match_err = dispatch_builtin_pure("font-match-p", vec![Value::NIL, font_spec])
         .expect("font-match-p should resolve")
@@ -7202,12 +7202,12 @@ fn dispatch_builtin_pure_handles_fontset_placeholders() {
     let system = dispatch_builtin_pure("font-get-system-font", vec![])
         .expect("font-get-system-font should resolve")
         .expect("font-get-system-font should evaluate");
-    assert_val_eq!(system, Value::NIL);
+    assert_eq!(system, Value::NIL);
 
     let normal = dispatch_builtin_pure("font-get-system-normal-font", vec![])
         .expect("font-get-system-normal-font should resolve")
         .expect("font-get-system-normal-font should evaluate");
-    assert_val_eq!(normal, Value::NIL);
+    assert_eq!(normal, Value::NIL);
 
     let fontset = dispatch_builtin_pure(
         "fontset-font",
@@ -7215,7 +7215,7 @@ fn dispatch_builtin_pure_handles_fontset_placeholders() {
     )
     .expect("fontset-font should resolve")
     .expect("fontset-font should evaluate");
-    assert_val_eq!(fontset, Value::NIL);
+    assert_eq!(fontset, Value::NIL);
 
     let info_err = dispatch_builtin_pure("fontset-info", vec![Value::symbol("fontset-default")])
         .expect("fontset-info should resolve")
@@ -7228,7 +7228,7 @@ fn dispatch_builtin_pure_handles_fontset_placeholders() {
     let list = dispatch_builtin_pure("fontset-list", vec![])
         .expect("fontset-list should resolve")
         .expect("fontset-list should evaluate");
-    assert_val_eq!(
+    assert_eq!(
         list,
         Value::list(vec![Value::string(
             "-*-*-*-*-*-*-*-*-*-*-*-*-fontset-default"
@@ -7268,7 +7268,7 @@ fn prin1_to_string_prints_canonical_threading_handles_as_opaque() {
     let thread_text = dispatch_builtin(&mut eval, "prin1-to-string", vec![thread])
         .expect("prin1-to-string should resolve for thread")
         .expect("prin1-to-string should evaluate for thread");
-    assert_val_eq!(thread_text, Value::string("#<thread 0>"));
+    assert_eq!(thread_text, Value::string("#<thread 0>"));
 
     let mutex = dispatch_builtin(&mut eval, "make-mutex", vec![])
         .expect("make-mutex should resolve")
@@ -7276,7 +7276,7 @@ fn prin1_to_string_prints_canonical_threading_handles_as_opaque() {
     let mutex_text = dispatch_builtin(&mut eval, "prin1-to-string", vec![mutex])
         .expect("prin1-to-string should resolve for mutex")
         .expect("prin1-to-string should evaluate for mutex");
-    assert_val_eq!(mutex_text, Value::string("#<mutex 1>"));
+    assert_eq!(mutex_text, Value::string("#<mutex 1>"));
 
     let condvar = dispatch_builtin(&mut eval, "make-condition-variable", vec![mutex])
         .expect("make-condition-variable should resolve")
@@ -7284,7 +7284,7 @@ fn prin1_to_string_prints_canonical_threading_handles_as_opaque() {
     let condvar_text = dispatch_builtin(&mut eval, "prin1-to-string", vec![condvar])
         .expect("prin1-to-string should resolve for condvar")
         .expect("prin1-to-string should evaluate for condvar");
-    assert_val_eq!(condvar_text, Value::string("#<condvar 1>"));
+    assert_eq!(condvar_text, Value::string("#<condvar 1>"));
 }
 
 #[test]
@@ -7295,19 +7295,19 @@ fn prin1_to_string_keeps_forged_threading_handles_as_cons() {
     let thread_text = dispatch_builtin(&mut eval, "prin1-to-string", vec![forged_thread])
         .expect("prin1-to-string should resolve for forged thread")
         .expect("prin1-to-string should evaluate for forged thread");
-    assert_val_eq!(thread_text, Value::string("(thread . 0)"));
+    assert_eq!(thread_text, Value::string("(thread . 0)"));
 
     let forged_mutex = Value::cons(Value::symbol("mutex"), Value::fixnum(1));
     let mutex_text = dispatch_builtin(&mut eval, "prin1-to-string", vec![forged_mutex])
         .expect("prin1-to-string should resolve for forged mutex")
         .expect("prin1-to-string should evaluate for forged mutex");
-    assert_val_eq!(mutex_text, Value::string("(mutex . 1)"));
+    assert_eq!(mutex_text, Value::string("(mutex . 1)"));
 
     let forged_condvar = Value::cons(Value::symbol("condition-variable"), Value::fixnum(1));
     let condvar_text = dispatch_builtin(&mut eval, "prin1-to-string", vec![forged_condvar])
         .expect("prin1-to-string should resolve for forged condvar")
         .expect("prin1-to-string should evaluate for forged condvar");
-    assert_val_eq!(condvar_text, Value::string("(condition-variable . 1)"));
+    assert_eq!(condvar_text, Value::string("(condition-variable . 1)"));
 }
 
 #[test]
@@ -7320,12 +7320,12 @@ fn prin1_to_string_supports_noescape_for_strings() {
         .expect("prin1-to-string should evaluate");
     // GNU Emacs default: print-escape-newlines is nil, so \n passes
     // through literally in prin1-to-string.
-    assert_val_eq!(escaped, Value::string("\"a\nb\""));
+    assert_eq!(escaped, Value::string("\"a\nb\""));
 
     let noescape = dispatch_builtin(&mut eval, "prin1-to-string", vec![value, Value::T])
         .expect("prin1-to-string should resolve with noescape")
         .expect("prin1-to-string should evaluate with noescape");
-    assert_val_eq!(noescape, Value::string("a\nb"));
+    assert_eq!(noescape, Value::string("a\nb"));
 }
 
 #[test]
@@ -7336,13 +7336,13 @@ fn prin1_to_string_respects_print_gensym_binding() {
     let default_text = dispatch_builtin(&mut eval, "prin1-to-string", vec![sym])
         .expect("prin1-to-string should resolve")
         .expect("prin1-to-string should evaluate");
-    assert_val_eq!(default_text, Value::string("vm-print-gensym"));
+    assert_eq!(default_text, Value::string("vm-print-gensym"));
 
     eval.set_variable("print-gensym", Value::T);
     let gensym_text = dispatch_builtin(&mut eval, "prin1-to-string", vec![sym])
         .expect("prin1-to-string should resolve with print-gensym")
         .expect("prin1-to-string should evaluate with print-gensym");
-    assert_val_eq!(gensym_text, Value::string("#:vm-print-gensym"));
+    assert_eq!(gensym_text, Value::string("#:vm-print-gensym"));
 }
 
 #[test]
@@ -7355,7 +7355,7 @@ fn prin1_to_string_ignores_extra_args_for_compat() {
     )
     .expect("prin1-to-string should resolve with extra args")
     .expect("prin1-to-string should evaluate with extra args");
-    assert_val_eq!(result, Value::string("1"));
+    assert_eq!(result, Value::string("1"));
 }
 
 #[test]
@@ -7458,12 +7458,12 @@ fn format_and_message_render_killed_buffer_handles_in_eval_dispatch() {
     let formatted = dispatch_builtin(&mut eval, "format", vec![Value::string("%S"), buffer])
         .expect("format should resolve")
         .expect("format should evaluate");
-    assert_val_eq!(formatted, Value::string("#<killed buffer>"));
+    assert_eq!(formatted, Value::string("#<killed buffer>"));
 
     let message = dispatch_builtin(&mut eval, "message", vec![Value::string("%S"), buffer])
         .expect("message should resolve")
         .expect("message should evaluate");
-    assert_val_eq!(message, Value::string("#<killed buffer>"));
+    assert_eq!(message, Value::string("#<killed buffer>"));
 }
 
 #[test]
@@ -7501,12 +7501,12 @@ fn format_and_message_percent_s_render_live_buffer_names_in_eval_dispatch() {
     let formatted = dispatch_builtin(&mut eval, "format", vec![Value::string("%s"), buffer])
         .expect("format should resolve")
         .expect("format should evaluate");
-    assert_val_eq!(formatted, Value::string(expected));
+    assert_eq!(formatted, Value::string(expected));
 
     let message = dispatch_builtin(&mut eval, "message", vec![Value::string("%s"), buffer])
         .expect("message should resolve")
         .expect("message should evaluate");
-    assert_val_eq!(message, Value::string(expected));
+    assert_eq!(message, Value::string(expected));
 }
 
 #[test]
@@ -7520,12 +7520,12 @@ fn format_and_message_percent_s_render_killed_buffer_handles_in_eval_dispatch() 
     let formatted = dispatch_builtin(&mut eval, "format", vec![Value::string("%s"), buffer])
         .expect("format should resolve")
         .expect("format should evaluate");
-    assert_val_eq!(formatted, Value::string("#<killed buffer>"));
+    assert_eq!(formatted, Value::string("#<killed buffer>"));
 
     let message = dispatch_builtin(&mut eval, "message", vec![Value::string("%s"), buffer])
         .expect("message should resolve")
         .expect("message should evaluate");
-    assert_val_eq!(message, Value::string("#<killed buffer>"));
+    assert_eq!(message, Value::string("#<killed buffer>"));
 }
 
 #[test]
@@ -7647,7 +7647,7 @@ fn format_message_renders_opaque_handles_in_eval_dispatch() {
     )
     .expect("format-message should resolve")
     .expect("format-message should evaluate");
-    assert_val_eq!(live_lower, Value::string(live_name));
+    assert_eq!(live_lower, Value::string(live_name));
     let _ = dispatch_builtin(&mut eval, "kill-buffer", vec![live_buffer])
         .expect("kill-buffer should resolve")
         .expect("kill-buffer should evaluate");
@@ -7663,7 +7663,7 @@ fn format_message_renders_opaque_handles_in_eval_dispatch() {
     )
     .expect("format-message should resolve")
     .expect("format-message should evaluate");
-    assert_val_eq!(killed_upper, Value::string("#<killed buffer>"));
+    assert_eq!(killed_upper, Value::string("#<killed buffer>"));
     let killed_lower = dispatch_builtin(
         &mut eval,
         "format-message",
@@ -7671,7 +7671,7 @@ fn format_message_renders_opaque_handles_in_eval_dispatch() {
     )
     .expect("format-message should resolve")
     .expect("format-message should evaluate");
-    assert_val_eq!(killed_lower, Value::string("#<killed buffer>"));
+    assert_eq!(killed_lower, Value::string("#<killed buffer>"));
 }
 
 #[test]
@@ -7936,7 +7936,7 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
     )
     .expect("message-box should resolve")
     .expect("message-box should evaluate");
-    assert_val_eq!(live_box_lower, Value::string(live_name));
+    assert_eq!(live_box_lower, Value::string(live_name));
     let live_or_upper = dispatch_builtin(
         &mut eval,
         "message-or-box",
@@ -7957,7 +7957,7 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
     )
     .expect("message-or-box should resolve")
     .expect("message-or-box should evaluate");
-    assert_val_eq!(live_lower, Value::string(live_name));
+    assert_eq!(live_lower, Value::string(live_name));
     let _ = dispatch_builtin(&mut eval, "kill-buffer", vec![live_buffer])
         .expect("kill-buffer should resolve")
         .expect("kill-buffer should evaluate");
@@ -7973,7 +7973,7 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
     )
     .expect("message-box should resolve")
     .expect("message-box should evaluate");
-    assert_val_eq!(killed_upper, Value::string("#<killed buffer>"));
+    assert_eq!(killed_upper, Value::string("#<killed buffer>"));
     let killed_box_lower = dispatch_builtin(
         &mut eval,
         "message-box",
@@ -7981,7 +7981,7 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
     )
     .expect("message-box should resolve")
     .expect("message-box should evaluate");
-    assert_val_eq!(killed_box_lower, Value::string("#<killed buffer>"));
+    assert_eq!(killed_box_lower, Value::string("#<killed buffer>"));
     let killed_or_upper = dispatch_builtin(
         &mut eval,
         "message-or-box",
@@ -7989,7 +7989,7 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
     )
     .expect("message-or-box should resolve")
     .expect("message-or-box should evaluate");
-    assert_val_eq!(killed_or_upper, Value::string("#<killed buffer>"));
+    assert_eq!(killed_or_upper, Value::string("#<killed buffer>"));
     let killed_lower = dispatch_builtin(
         &mut eval,
         "message-or-box",
@@ -7997,7 +7997,7 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
     )
     .expect("message-or-box should resolve")
     .expect("message-or-box should evaluate");
-    assert_val_eq!(killed_lower, Value::string("#<killed buffer>"));
+    assert_eq!(killed_lower, Value::string("#<killed buffer>"));
 }
 
 #[test]
@@ -8010,10 +8010,10 @@ fn message_nil_returns_nil() {
 
     let displayed = builtin_message(&mut eval, vec![Value::string("hello echo")])
         .expect("message eval should store echo text");
-    assert_val_eq!(displayed, Value::string("hello echo"));
+    assert_eq!(displayed, Value::string("hello echo"));
     let current = builtin_current_message(&mut eval, vec![])
         .expect("current-message should read stored echo text");
-    assert_val_eq!(current, Value::string("hello echo"));
+    assert_eq!(current, Value::string("hello echo"));
 
     let cleared = builtin_message(&mut eval, vec![Value::NIL]).expect("message eval should clear");
     assert!(cleared.is_nil());
@@ -8107,8 +8107,8 @@ fn make_string_matches_emacs_ascii_boundary() {
         .expect("multibyte-string-p should resolve")
         .expect("byte-200 multibyte-string-p should evaluate");
 
-    assert_val_eq!(ascii_multibyte, Value::NIL);
-    assert_val_eq!(byte_200_multibyte, Value::T);
+    assert_eq!(ascii_multibyte, Value::NIL);
+    assert_eq!(byte_200_multibyte, Value::T);
 }
 
 #[test]
@@ -8764,8 +8764,8 @@ fn func_arity_eval_resolves_symbol_designators_and_nil_cells() {
         ValueKind::Cons => {
             let pair_car = t_arity.cons_car();
             let pair_cdr = t_arity.cons_cdr();
-            assert_val_eq!(pair_car, Value::fixnum(1));
-            assert_val_eq!(pair_cdr, Value::fixnum(1));
+            assert_eq!(pair_car, Value::fixnum(1));
+            assert_eq!(pair_cdr, Value::fixnum(1));
         }
         other => panic!("expected cons arity pair, got {other:?}"),
     }
@@ -8776,8 +8776,8 @@ fn func_arity_eval_resolves_symbol_designators_and_nil_cells() {
         ValueKind::Cons => {
             let pair_car = keyword_arity.cons_car();
             let pair_cdr = keyword_arity.cons_cdr();
-            assert_val_eq!(pair_car, Value::fixnum(1));
-            assert_val_eq!(pair_cdr, Value::fixnum(1));
+            assert_eq!(pair_car, Value::fixnum(1));
+            assert_eq!(pair_cdr, Value::fixnum(1));
         }
         other => panic!("expected cons arity pair, got {other:?}"),
     }
@@ -8824,10 +8824,10 @@ fn indirect_function_follows_t_and_keyword_alias_values() {
 
     let resolved_t_alias = builtin_indirect_function(&mut eval, vec![t_alias])
         .expect("indirect-function should resolve alias through t");
-    assert_val_eq!(resolved_t_alias, Value::subr(intern("car")));
+    assert_eq!(resolved_t_alias, Value::subr(intern("car")));
     let resolved_keyword_alias = builtin_indirect_function(&mut eval, vec![keyword_alias])
         .expect("indirect-function should resolve alias through keyword");
-    assert_val_eq!(resolved_keyword_alias, Value::subr(intern("car")));
+    assert_eq!(resolved_keyword_alias, Value::subr(intern("car")));
 
     builtin_fset(&mut eval, vec![Value::T, orig_t]).expect("restore t function cell");
     builtin_fset(&mut eval, vec![keyword, orig_keyword]).expect("restore keyword function cell");
@@ -8896,7 +8896,7 @@ fn macroexpand_runtime_environment_overrides_and_shadows_global_macros() {
         ],
     )
     .expect("macroexpand should apply lambda environment expanders");
-    assert_val_eq!(
+    assert_eq!(
         expanded,
         Value::list(vec![
             Value::symbol("vm-env-result"),
@@ -8916,7 +8916,7 @@ fn macroexpand_runtime_environment_overrides_and_shadows_global_macros() {
         ],
     )
     .expect("environment shadow entries should suppress global macro expansion");
-    assert_val_eq!(
+    assert_eq!(
         shadow,
         Value::list(vec![Value::symbol("with-temp-buffer"), Value::fixnum(1),])
     );
@@ -8929,7 +8929,7 @@ fn macroexpand_runtime_environment_type_and_payload_edges_match_oracle() {
     let atom_ignores_bad_env =
         builtin_macroexpand(&mut eval, vec![Value::symbol("x"), Value::fixnum(1)])
             .expect("non-list forms should ignore non-list environments");
-    assert_val_eq!(atom_ignores_bad_env, Value::symbol("x"));
+    assert_eq!(atom_ignores_bad_env, Value::symbol("x"));
 
     let nonsymbol_head_ignores_bad_env = builtin_macroexpand(
         &mut eval,
@@ -8942,7 +8942,7 @@ fn macroexpand_runtime_environment_type_and_payload_edges_match_oracle() {
         ],
     )
     .expect("list forms without symbol heads should ignore non-list env");
-    assert_val_eq!(
+    assert_eq!(
         nonsymbol_head_ignores_bad_env,
         Value::list(vec![
             Value::list(vec![Value::symbol("lambda")]),
@@ -8992,7 +8992,7 @@ fn macroexpand_runtime_improper_lists_match_oracle_error_behavior() {
         vec![Value::cons(Value::symbol("foo"), Value::fixnum(1))],
     )
     .expect("non-macro improper forms should pass through unchanged");
-    assert_val_eq!(
+    assert_eq!(
         not_macro,
         Value::cons(Value::symbol("foo"), Value::fixnum(1))
     );
@@ -9048,7 +9048,7 @@ fn indirect_function_nil_and_non_symbol_behavior() {
 
     let passthrough = builtin_indirect_function(&mut eval, vec![Value::fixnum(42)])
         .expect("non-symbol should be returned as-is");
-    assert_val_eq!(passthrough, Value::fixnum(42));
+    assert_eq!(passthrough, Value::fixnum(42));
 }
 
 #[test]
@@ -9083,7 +9083,7 @@ fn indirect_function_resolves_deep_alias_chain_without_depth_cutoff() {
     let resolved =
         builtin_indirect_function(&mut eval, vec![Value::symbol("vm-test-deep-alias-0")])
             .expect("indirect-function should resolve deep alias chains");
-    assert_val_eq!(resolved, Value::subr(intern("car")));
+    assert_eq!(resolved, Value::subr(intern("car")));
 }
 
 #[test]
@@ -9124,7 +9124,7 @@ fn fset_rejects_two_node_alias_cycle() {
         ],
     )
     .expect("first alias should be accepted");
-    assert_val_eq!(first, Value::symbol("vm-test-fset-cycle-b"));
+    assert_eq!(first, Value::symbol("vm-test-fset-cycle-b"));
 
     let err = builtin_fset(
         &mut eval,
@@ -9152,7 +9152,7 @@ fn fset_rejects_keyword_and_t_alias_cycles() {
         vec![Value::keyword(":vmk2"), Value::keyword(":vmk3")],
     )
     .expect("first keyword alias should be accepted");
-    assert_val_eq!(first, Value::keyword(":vmk3"));
+    assert_eq!(first, Value::keyword(":vmk3"));
 
     let keyword_cycle = builtin_fset(
         &mut eval,
@@ -9202,11 +9202,11 @@ fn fset_t_accepts_symbol_cell_updates() {
 
     let result = builtin_fset(&mut eval, vec![Value::T, Value::symbol("car")])
         .expect("fset should allow writing t's function cell");
-    assert_val_eq!(result, Value::symbol("car"));
+    assert_eq!(result, Value::symbol("car"));
 
     let resolved = builtin_indirect_function(&mut eval, vec![Value::T])
         .expect("indirect-function should resolve t after fset");
-    assert_val_eq!(resolved, Value::subr(intern("car")));
+    assert_eq!(resolved, Value::subr(intern("car")));
 }
 
 #[test]
@@ -9245,7 +9245,7 @@ fn boundp_and_symbol_value_see_dynamic_and_current_buffer_local_bindings() {
     assert!(dyn_default.is_truthy());
     let dyn_value = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-bound-dyn")])
         .expect("symbol-value should see dynamic binding");
-    assert_val_eq!(dyn_value, Value::fixnum(9));
+    assert_eq!(dyn_value, Value::fixnum(9));
 
     let buf_bound = builtin_boundp(&mut eval, vec![Value::symbol("vm-bound-buf")])
         .expect("boundp should see current buffer-local binding");
@@ -9255,7 +9255,7 @@ fn boundp_and_symbol_value_see_dynamic_and_current_buffer_local_bindings() {
     assert!(buf_default.is_nil());
     let buf_value = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-bound-buf")])
         .expect("symbol-value should read current buffer-local binding");
-    assert_val_eq!(buf_value, Value::fixnum(7));
+    assert_eq!(buf_value, Value::fixnum(7));
 }
 
 #[test]
@@ -9271,7 +9271,7 @@ fn defvaralias_and_indirect_variable_follow_runtime_aliases() {
         ],
     )
     .expect("defvaralias should succeed");
-    assert_val_eq!(aliased, Value::symbol("vm-defvaralias-old"));
+    assert_eq!(aliased, Value::symbol("vm-defvaralias-old"));
 
     let doc = builtin_get(
         &mut eval,
@@ -9281,11 +9281,11 @@ fn defvaralias_and_indirect_variable_follow_runtime_aliases() {
         ],
     )
     .expect("get should return variable doc");
-    assert_val_eq!(doc, Value::string("vm-doc"));
+    assert_eq!(doc, Value::string("vm-doc"));
 
     let direct = builtin_indirect_variable(&mut eval, vec![Value::symbol("vm-defvaralias-new")])
         .expect("indirect-variable should resolve aliases");
-    assert_val_eq!(direct, Value::symbol("vm-defvaralias-old"));
+    assert_eq!(direct, Value::symbol("vm-defvaralias-old"));
 
     let special_new =
         builtin_special_variable_p(&mut eval, vec![Value::symbol("vm-defvaralias-new")])
@@ -9301,10 +9301,10 @@ fn defvaralias_and_indirect_variable_follow_runtime_aliases() {
         vec![Value::symbol("vm-defvaralias-new"), Value::fixnum(7)],
     )
     .expect("set should assign through aliases");
-    assert_val_eq!(set_value, Value::fixnum(7));
+    assert_eq!(set_value, Value::fixnum(7));
     let old_value = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-defvaralias-old")])
         .expect("symbol-value should read aliased target");
-    assert_val_eq!(old_value, Value::fixnum(7));
+    assert_eq!(old_value, Value::fixnum(7));
 
     builtin_defvaralias(
         &mut eval,
@@ -9326,7 +9326,7 @@ fn defvaralias_and_indirect_variable_follow_runtime_aliases() {
 
     let unbound = builtin_makunbound(&mut eval, vec![Value::symbol("vm-defvaralias-new")])
         .expect("makunbound should clear target through alias");
-    assert_val_eq!(unbound, Value::symbol("vm-defvaralias-new"));
+    assert_eq!(unbound, Value::symbol("vm-defvaralias-new"));
     let bound_old = builtin_boundp(&mut eval, vec![Value::symbol("vm-defvaralias-old")])
         .expect("boundp should read aliased target");
     assert!(bound_old.is_nil());
@@ -9355,8 +9355,8 @@ fn variable_watchers_observe_set_setq_and_makunbound() {
         .expect("watcher should record operation");
     let set_val = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-watcher-last-value")])
         .expect("watcher should record value");
-    assert_val_eq!(set_op, Value::symbol("set"));
-    assert_val_eq!(set_val, Value::fixnum(7));
+    assert_eq!(set_op, Value::symbol("set"));
+    assert_eq!(set_val, Value::fixnum(7));
 
     eval.eval_expr(&Expr::List(vec![
         Expr::Symbol(intern("setq")),
@@ -9368,8 +9368,8 @@ fn variable_watchers_observe_set_setq_and_makunbound() {
         .expect("watcher should record setq operation");
     let setq_val = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-watcher-last-value")])
         .expect("watcher should record setq value");
-    assert_val_eq!(setq_op, Value::symbol("set"));
-    assert_val_eq!(setq_val, Value::fixnum(11));
+    assert_eq!(setq_op, Value::symbol("set"));
+    assert_eq!(setq_val, Value::fixnum(11));
 
     builtin_makunbound(&mut eval, vec![Value::symbol("vm-watcher-target")])
         .expect("makunbound should trigger watcher");
@@ -9377,7 +9377,7 @@ fn variable_watchers_observe_set_setq_and_makunbound() {
         .expect("watcher should record makunbound operation");
     let unbind_val = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-watcher-last-value")])
         .expect("watcher should record makunbound value");
-    assert_val_eq!(unbind_op, Value::symbol("makunbound"));
+    assert_eq!(unbind_op, Value::symbol("makunbound"));
     assert!(unbind_val.is_nil());
 }
 
@@ -9407,8 +9407,8 @@ fn variable_watchers_observe_set_default_toplevel_value() {
         .expect("watcher should record operation");
     let val = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-watcher-last-value")])
         .expect("watcher should record value");
-    assert_val_eq!(op, Value::symbol("set"));
-    assert_val_eq!(val, Value::fixnum(23));
+    assert_eq!(op, Value::symbol("set"));
+    assert_eq!(val, Value::fixnum(23));
 }
 
 #[test]
@@ -9440,9 +9440,9 @@ fn defvaralias_triggers_variable_watchers_and_clears_alias_entry() {
         .expect("watcher should record defvaralias operation");
     let value = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-watcher-last-value")])
         .expect("watcher should record aliased target");
-    assert_val_eq!(symbol, Value::symbol("vm-defvaralias-watch-new"));
-    assert_val_eq!(op, Value::symbol("defvaralias"));
-    assert_val_eq!(value, Value::symbol("vm-defvaralias-watch-old"));
+    assert_eq!(symbol, Value::symbol("vm-defvaralias-watch-new"));
+    assert_eq!(op, Value::symbol("defvaralias"));
+    assert_eq!(value, Value::symbol("vm-defvaralias-watch-old"));
 
     let remaining = super::super::advice::builtin_get_variable_watchers(
         &mut eval,
@@ -9531,9 +9531,9 @@ fn defvaralias_repoint_notifies_previous_alias_target_watchers() {
         .expect("watcher should record operation");
     let value = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-watcher-last-value")])
         .expect("watcher should record new alias target");
-    assert_val_eq!(symbol, Value::symbol("vm-defvaralias-repoint-old"));
-    assert_val_eq!(op, Value::symbol("defvaralias"));
-    assert_val_eq!(value, Value::symbol("vm-defvaralias-repoint-new"));
+    assert_eq!(symbol, Value::symbol("vm-defvaralias-repoint-old"));
+    assert_eq!(op, Value::symbol("defvaralias"));
+    assert_eq!(value, Value::symbol("vm-defvaralias-repoint-new"));
 }
 
 #[test]
@@ -9610,7 +9610,7 @@ fn setplist_runtime_controls_get_put_and_symbol_plist_edges() {
 
     let read_plist = builtin_symbol_plist_fn(&mut eval, vec![Value::symbol("vm-setplist")])
         .expect("symbol-plist should return stored raw plist");
-    assert_val_eq!(
+    assert_eq!(
         read_plist,
         Value::list(vec![
             Value::symbol("a"),
@@ -9625,7 +9625,7 @@ fn setplist_runtime_controls_get_put_and_symbol_plist_edges() {
         vec![Value::symbol("vm-setplist"), Value::symbol("a")],
     )
     .expect("get should read entries from raw plist");
-    assert_val_eq!(lookup, Value::fixnum(1));
+    assert_eq!(lookup, Value::fixnum(1));
 
     let put = builtin_put(
         &mut eval,
@@ -9636,10 +9636,10 @@ fn setplist_runtime_controls_get_put_and_symbol_plist_edges() {
         ],
     )
     .expect("put should update raw plist entries");
-    assert_val_eq!(put, Value::fixnum(5));
+    assert_eq!(put, Value::fixnum(5));
     let updated = builtin_symbol_plist_fn(&mut eval, vec![Value::symbol("vm-setplist")])
         .expect("symbol-plist should reflect updated plist values");
-    assert_val_eq!(
+    assert_eq!(
         updated,
         Value::list(vec![
             Value::symbol("a"),
@@ -9656,7 +9656,7 @@ fn setplist_runtime_controls_get_put_and_symbol_plist_edges() {
     .expect("setplist should accept non-list plist values");
     let non_list = builtin_symbol_plist_fn(&mut eval, vec![Value::symbol("vm-setplist")])
         .expect("symbol-plist should return raw non-list values");
-    assert_val_eq!(non_list, Value::fixnum(1));
+    assert_eq!(non_list, Value::fixnum(1));
 
     let missing = builtin_get(
         &mut eval,
@@ -9707,7 +9707,7 @@ fn put_promotes_symbol_properties_to_live_raw_plists() {
     builtin_put(&mut eval, vec![sym, Value::symbol("doc"), Value::NIL])
         .expect("put should mutate the live plist in place");
 
-    assert_val_eq!(
+    assert_eq!(
         plist,
         Value::list(vec![
             Value::symbol("type"),
@@ -9807,7 +9807,7 @@ fn register_ccl_program_publishes_symbol_properties() {
         ],
     )
     .expect("get should return nil for ccl-program property");
-    assert_val_eq!(unpublished_program, Value::NIL);
+    assert_eq!(unpublished_program, Value::NIL);
 
     let sym_value = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-ccl-program-prop")])
         .expect_err("register-ccl-program should not bind symbol value");
@@ -9840,7 +9840,7 @@ fn ccl_symbol_designators_follow_plist_idx_gates() {
     )
     .expect("ccl-program-p should dispatch")
     .expect("ccl-program-p should evaluate symbol plist idx");
-    assert_val_eq!(manual_programp, Value::T);
+    assert_eq!(manual_programp, Value::T);
 
     let first_id = dispatch_builtin(
         &mut eval,
@@ -9883,7 +9883,7 @@ fn ccl_symbol_designators_follow_plist_idx_gates() {
         ],
     )
     .expect("get should read plist gate");
-    assert_val_eq!(missing_idx, Value::NIL);
+    assert_eq!(missing_idx, Value::NIL);
 
     let gated_programp = dispatch_builtin(
         &mut eval,
@@ -9892,7 +9892,7 @@ fn ccl_symbol_designators_follow_plist_idx_gates() {
     )
     .expect("ccl-program-p should dispatch")
     .expect("ccl-program-p should gate on plist idx");
-    assert_val_eq!(gated_programp, Value::NIL);
+    assert_eq!(gated_programp, Value::NIL);
 
     let execute_err = dispatch_builtin(
         &mut eval,
@@ -9987,7 +9987,7 @@ fn register_code_conversion_map_existing_symbol_plist_edges() {
     )
     .expect("register-code-conversion-map should dispatch")
     .expect("initial register-code-conversion-map should succeed");
-    assert_val_eq!(first_id, Value::fixnum(0));
+    assert_eq!(first_id, Value::fixnum(0));
 
     let _ = builtin_setplist(
         &mut eval,
@@ -10015,7 +10015,7 @@ fn register_code_conversion_map_existing_symbol_plist_edges() {
         ],
     )
     .expect("get should read republished map");
-    assert_val_eq!(
+    assert_eq!(
         republished_map,
         Value::vector(vec![Value::fixnum(4), Value::fixnum(5), Value::fixnum(6)])
     );
@@ -10060,7 +10060,7 @@ fn register_code_conversion_map_existing_symbol_plist_edges() {
         ],
     )
     .expect("get should read hidden id after malformed plist");
-    assert_val_eq!(hidden_id, Value::NIL);
+    assert_eq!(hidden_id, Value::NIL);
 
     let next_id = dispatch_builtin(
         &mut eval,
@@ -10072,7 +10072,7 @@ fn register_code_conversion_map_existing_symbol_plist_edges() {
     )
     .expect("register-code-conversion-map next should dispatch")
     .expect("register-code-conversion-map next should succeed");
-    assert_val_eq!(next_id, Value::fixnum(1));
+    assert_eq!(next_id, Value::fixnum(1));
 }
 
 #[test]
@@ -10121,7 +10121,7 @@ fn ccl_registration_plist_errors_preserve_oracle_id_side_effects() {
     )
     .expect("ccl-program-p should dispatch")
     .expect("ccl-program-p should return predicate value");
-    assert_val_eq!(bad_program_designator, Value::NIL);
+    assert_eq!(bad_program_designator, Value::NIL);
 
     let next_program_id = dispatch_builtin(
         &mut eval,
@@ -10290,22 +10290,22 @@ fn defvaralias_raises_plistp_errors_when_symbol_plist_is_non_list() {
     let unresolved =
         builtin_indirect_variable(&mut eval, vec![Value::symbol("vm-defvaralias-bad-plist")])
             .expect("failed defvaralias should still install alias edges");
-    assert_val_eq!(unresolved, Value::symbol("vm-defvaralias-target"));
+    assert_eq!(unresolved, Value::symbol("vm-defvaralias-target"));
 }
 
 #[test]
 fn get_byte_string_semantics_match_oracle_edges() {
     let mut eval = crate::emacs_core::eval::Context::new();
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_get_byte(&mut eval, vec![Value::fixnum(0), Value::string("abc")]).unwrap(),
         Value::fixnum(97)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_get_byte(&mut eval, vec![Value::fixnum(1), Value::string("abc")]).unwrap(),
         Value::fixnum(98)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_get_byte(&mut eval, vec![Value::NIL, Value::string("abc")]).unwrap(),
         Value::fixnum(97)
     );
@@ -10353,19 +10353,19 @@ fn get_byte_buffer_semantics_match_oracle_edges() {
     builtin_erase_buffer(&mut eval, vec![]).unwrap();
     builtin_insert(&mut eval, vec![Value::string("abc")]).unwrap();
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_get_byte(&mut eval, vec![]).unwrap(),
         Value::fixnum(0)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_get_byte(&mut eval, vec![Value::fixnum(1)]).unwrap(),
         Value::fixnum(97)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_get_byte(&mut eval, vec![Value::fixnum(2)]).unwrap(),
         Value::fixnum(98)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_get_byte(
             &mut eval,
             vec![crate::emacs_core::marker::make_marker_value(
@@ -10377,13 +10377,13 @@ fn get_byte_buffer_semantics_match_oracle_edges() {
         .unwrap(),
         Value::fixnum(98)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_get_byte(&mut eval, vec![Value::fixnum(3)]).unwrap(),
         Value::fixnum(99)
     );
 
     builtin_goto_char(&mut eval, vec![Value::fixnum(2)]).unwrap();
-    assert_val_eq!(
+    assert_eq!(
         builtin_get_byte(&mut eval, vec![Value::NIL]).unwrap(),
         Value::fixnum(98)
     );
@@ -10419,11 +10419,11 @@ fn get_byte_buffer_semantics_match_oracle_edges() {
         .expect("set-buffer-multibyte should accept current buffer");
     builtin_insert_byte(&mut eval, vec![Value::fixnum(200), Value::fixnum(1)]).unwrap();
     builtin_insert_byte(&mut eval, vec![Value::fixnum(65), Value::fixnum(1)]).unwrap();
-    assert_val_eq!(
+    assert_eq!(
         builtin_get_byte(&mut eval, vec![Value::fixnum(1)]).unwrap(),
         Value::fixnum(200)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_get_byte(&mut eval, vec![Value::fixnum(2)]).unwrap(),
         Value::fixnum(65)
     );
@@ -10434,11 +10434,11 @@ fn get_byte_unibyte_string_returns_raw_byte_values() {
     let mut eval = crate::emacs_core::eval::Context::new();
     let s = builtin_unibyte_string(vec![Value::fixnum(255), Value::fixnum(65)]).unwrap();
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_get_byte(&mut eval, vec![Value::fixnum(0), s]).unwrap(),
         Value::fixnum(255)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_get_byte(&mut eval, vec![Value::fixnum(1), s]).unwrap(),
         Value::fixnum(65)
     );

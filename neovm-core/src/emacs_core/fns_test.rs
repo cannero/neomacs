@@ -141,7 +141,7 @@ fn base64_region_eval_encode_decode_roundtrip() {
 
     let encoded = builtin_base64_encode_region(&mut eval, vec![Value::fixnum(1), Value::fixnum(3)])
         .expect("encode region should succeed");
-    assert_val_eq!(encoded, Value::fixnum(4));
+    assert_eq!(encoded, Value::fixnum(4));
     let encoded_text = eval
         .buffers
         .current_buffer()
@@ -151,7 +151,7 @@ fn base64_region_eval_encode_decode_roundtrip() {
 
     let decoded = builtin_base64_decode_region(&mut eval, vec![Value::fixnum(1), Value::fixnum(5)])
         .expect("decode region should succeed");
-    assert_val_eq!(decoded, Value::fixnum(2));
+    assert_eq!(decoded, Value::fixnum(2));
     let decoded_text = eval
         .buffers
         .current_buffer()
@@ -174,7 +174,7 @@ fn base64_region_eval_swapped_bounds_and_url_encoding() {
         vec![Value::fixnum(3), Value::fixnum(1), Value::T],
     )
     .expect("url encode region should succeed");
-    assert_val_eq!(encoded, Value::fixnum(3));
+    assert_eq!(encoded, Value::fixnum(3));
     let encoded_text = eval
         .buffers
         .current_buffer()
@@ -197,7 +197,7 @@ fn base64_decode_region_noerror_semantics() {
         vec![Value::fixnum(1), Value::fixnum(3), Value::NIL, Value::T],
     )
     .expect("noerror decode should succeed");
-    assert_val_eq!(ignored, Value::fixnum(0));
+    assert_eq!(ignored, Value::fixnum(0));
     let emptied = eval
         .buffers
         .current_buffer()
@@ -256,8 +256,8 @@ fn base64_region_eval_error_shapes() {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
             assert_eq!(sig.data.len(), 3);
             assert!(sig.data[0].is_buffer());
-            assert_val_eq!(sig.data[1], Value::fixnum(0));
-            assert_val_eq!(sig.data[2], Value::fixnum(2));
+            assert_eq!(sig.data[1], Value::fixnum(0));
+            assert_eq!(sig.data[2], Value::fixnum(2));
         }
         other => panic!("expected args-out-of-range, got {other:?}"),
     }
@@ -1078,7 +1078,7 @@ fn widget_apply_calls_symbol_property_with_widget_as_first_arg() {
     ]);
     let mut ctx = test_eval_ctx();
     let r = builtin_widget_apply(&mut ctx, vec![widget, Value::keyword("action")]).unwrap();
-    assert_val_eq!(r, Value::symbol("button"));
+    assert_eq!(r, Value::symbol("button"));
 }
 
 #[test]
@@ -1099,7 +1099,7 @@ fn widget_apply_passes_rest_arguments() {
         ],
     )
     .unwrap();
-    assert_val_eq!(
+    assert_eq!(
         r,
         Value::list(vec![widget, Value::fixnum(1), Value::fixnum(2)])
     );

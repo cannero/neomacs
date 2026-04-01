@@ -488,7 +488,7 @@ fn add_face_text_property_basic_and_merge_order() {
     .unwrap();
     let face = builtin_get_text_property(&mut eval, vec![Value::fixnum(2), Value::symbol("face")])
         .unwrap();
-    assert_val_eq!(face, Value::symbol("bold"));
+    assert_eq!(face, Value::symbol("bold"));
 
     let mut eval = eval_with_text("abc");
     builtin_put_text_property(
@@ -514,7 +514,7 @@ fn add_face_text_property_basic_and_merge_order() {
     let appended =
         builtin_get_text_property(&mut eval, vec![Value::fixnum(1), Value::symbol("face")])
             .unwrap();
-    assert_val_eq!(
+    assert_eq!(
         appended,
         Value::list(vec![Value::symbol("italic"), Value::symbol("bold")])
     );
@@ -543,7 +543,7 @@ fn add_face_text_property_basic_and_merge_order() {
     let prepended =
         builtin_get_text_property(&mut eval, vec![Value::fixnum(1), Value::symbol("face")])
             .unwrap();
-    assert_val_eq!(
+    assert_eq!(
         prepended,
         Value::list(vec![Value::symbol("bold"), Value::symbol("italic")])
     );
@@ -938,7 +938,7 @@ fn text_property_any_uses_live_marker_end_after_insertions() {
         .last()
         .expect("one form")
         .expect("evaluation succeeds");
-    assert_val_eq!(result, Value::fixnum(4));
+    assert_eq!(result, Value::fixnum(4));
 }
 
 #[test]

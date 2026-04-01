@@ -345,7 +345,7 @@ fn test_builtin_delete_file_accepts_optional_trash_arg() {
         vec![Value::string(&path_str), Value::T]
     )
     .unwrap();
-    assert_val_eq!(result, Value::NIL);
+    assert_eq!(result, Value::NIL);
     assert!(!path.exists());
 
     let err = call_fileio_builtin!(
@@ -373,7 +373,7 @@ fn test_builtin_delete_directory_basic_and_recursive() {
     let root_str = root.to_string_lossy().to_string();
 
     // Non-recursive removal succeeds for empty directories.
-    assert_val_eq!(
+    assert_eq!(
         call_fileio_builtin!(builtin_delete_directory, vec![Value::string(&root_str)]).unwrap(),
         Value::NIL
     );
@@ -393,7 +393,7 @@ fn test_builtin_delete_directory_basic_and_recursive() {
     }
 
     // Recursive removal succeeds.
-    assert_val_eq!(
+    assert_eq!(
         call_fileio_builtin!(
             builtin_delete_directory,
             vec![Value::string(&root_str), Value::T]
@@ -435,7 +435,7 @@ fn test_builtin_make_symbolic_link_core_semantics() {
     let target_str = target.to_string_lossy().to_string();
     let link_str = link.to_string_lossy().to_string();
 
-    assert_val_eq!(
+    assert_eq!(
         call_fileio_builtin!(
             builtin_make_symbolic_link,
             vec![Value::string(&target_str), Value::string(&link_str)]
@@ -455,7 +455,7 @@ fn test_builtin_make_symbolic_link_core_semantics() {
         other => panic!("expected signal, got {:?}", other),
     }
 
-    assert_val_eq!(
+    assert_eq!(
         call_fileio_builtin!(
             builtin_make_symbolic_link,
             vec![
@@ -609,7 +609,7 @@ fn test_builtin_rename_file_overwrite_semantics() {
         other => panic!("expected signal, got {:?}", other),
     }
 
-    assert_val_eq!(
+    assert_eq!(
         call_fileio_builtin!(
             builtin_rename_file,
             vec![Value::string(&src_s), Value::string(&dst_s), Value::T]
@@ -661,7 +661,7 @@ fn test_builtin_copy_file_optional_arg_semantics() {
         other => panic!("expected signal, got {:?}", other),
     }
 
-    assert_val_eq!(
+    assert_eq!(
         call_fileio_builtin!(
             builtin_copy_file,
             vec![Value::string(&src_s), Value::string(&dst_s), Value::T]
@@ -670,7 +670,7 @@ fn test_builtin_copy_file_optional_arg_semantics() {
         Value::NIL
     );
 
-    assert_val_eq!(
+    assert_eq!(
         call_fileio_builtin!(
             builtin_copy_file,
             vec![
@@ -720,7 +720,7 @@ fn test_builtin_add_name_to_file_semantics() {
     let src_str = src.to_string_lossy().to_string();
     let dst_str = dst.to_string_lossy().to_string();
 
-    assert_val_eq!(
+    assert_eq!(
         call_fileio_builtin!(
             builtin_add_name_to_file,
             vec![Value::string(&src_str), Value::string(&dst_str)]
@@ -741,7 +741,7 @@ fn test_builtin_add_name_to_file_semantics() {
         other => panic!("expected signal, got {:?}", other),
     }
 
-    assert_val_eq!(
+    assert_eq!(
         call_fileio_builtin!(
             builtin_add_name_to_file,
             vec![Value::string(&src_str), Value::string(&dst_str), Value::T,]
@@ -872,15 +872,15 @@ fn test_fileio_eval_prefers_current_buffer_local_default_directory() {
             .as_str(),
         Some(base.join("alpha.txt").to_string_lossy().as_ref())
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_file_exists_p(&mut eval, vec![Value::string("alpha.txt")]).unwrap(),
         Value::T
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_file_directory_p(&mut eval, vec![Value::string("subdir")]).unwrap(),
         Value::T
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_file_regular_p(&mut eval, vec![Value::string("alpha.txt")]).unwrap(),
         Value::T
     );
@@ -1097,7 +1097,7 @@ fn test_builtin_file_predicates() {
 
 #[test]
 fn test_builtin_access_file_semantics() {
-    assert_val_eq!(
+    assert_eq!(
         call_fileio_builtin!(
             builtin_access_file,
             vec![Value::string("/tmp"), Value::string("read")]
@@ -1155,7 +1155,7 @@ fn test_builtin_access_file_semantics() {
 
 #[test]
 fn test_builtin_file_modes_semantics() {
-    assert_val_eq!(
+    assert_eq!(
         call_fileio_builtin!(
             builtin_file_modes,
             vec![Value::string("/tmp/neovm-file-modes-missing")]
@@ -1206,7 +1206,7 @@ fn test_builtin_set_file_modes_semantics() {
     .unwrap();
     let path_str = path.as_str().unwrap().to_string();
 
-    assert_val_eq!(
+    assert_eq!(
         call_fileio_builtin!(
             builtin_set_file_modes,
             vec![Value::string(&path_str), Value::fixnum(0o600)]
@@ -1214,7 +1214,7 @@ fn test_builtin_set_file_modes_semantics() {
         .unwrap(),
         Value::NIL
     );
-    assert_val_eq!(
+    assert_eq!(
         call_fileio_builtin!(
             builtin_set_file_modes,
             vec![Value::string(&path_str), Value::fixnum(0o640), Value::T]
@@ -1504,7 +1504,7 @@ fn test_builtin_rename_file_eval_overwrite_semantics() {
         other => panic!("expected signal, got {:?}", other),
     }
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_rename_file(
             &mut eval,
             vec![Value::string("src.txt"), Value::string("dst.txt"), Value::T],
@@ -1541,7 +1541,7 @@ fn test_builtin_copy_file_eval_optional_arg_semantics() {
         other => panic!("expected signal, got {:?}", other),
     }
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_copy_file(
             &mut eval,
             vec![Value::string("src.txt"), Value::string("dst.txt"), Value::T],
@@ -1763,16 +1763,16 @@ fn test_builtin_file_name_concat_strict_types() {
 #[test]
 fn test_builtin_path_predicates() {
     let result = builtin_file_name_absolute_p(vec![Value::string("/tmp")]);
-    assert_val_eq!(result.unwrap(), Value::T);
+    assert_eq!(result.unwrap(), Value::T);
 
     let result = builtin_file_name_absolute_p(vec![Value::string("tmp")]);
-    assert_val_eq!(result.unwrap(), Value::NIL);
+    assert_eq!(result.unwrap(), Value::NIL);
 
     let result = builtin_directory_name_p(vec![Value::string("foo/")]);
-    assert_val_eq!(result.unwrap(), Value::T);
+    assert_eq!(result.unwrap(), Value::T);
 
     let result = builtin_directory_name_p(vec![Value::string("foo")]);
-    assert_val_eq!(result.unwrap(), Value::NIL);
+    assert_eq!(result.unwrap(), Value::NIL);
 
     let base = std::env::temp_dir().join("neovm_builtin_directory_empty_p");
     let _ = fs::remove_dir_all(&base);
@@ -1882,7 +1882,7 @@ fn test_builtin_file_newer_than_file_p_semantics() {
     std::thread::sleep(std::time::Duration::from_millis(1200));
     fs::write(&new, b"new").expect("write new file");
 
-    assert_val_eq!(
+    assert_eq!(
         call_fileio_builtin!(
             builtin_file_newer_than_file_p,
             vec![
@@ -1893,7 +1893,7 @@ fn test_builtin_file_newer_than_file_p_semantics() {
         .expect("newer"),
         Value::T
     );
-    assert_val_eq!(
+    assert_eq!(
         call_fileio_builtin!(
             builtin_file_newer_than_file_p,
             vec![
@@ -1904,7 +1904,7 @@ fn test_builtin_file_newer_than_file_p_semantics() {
         .expect("older"),
         Value::NIL
     );
-    assert_val_eq!(
+    assert_eq!(
         call_fileio_builtin!(
             builtin_file_newer_than_file_p,
             vec![
@@ -1915,7 +1915,7 @@ fn test_builtin_file_newer_than_file_p_semantics() {
         .expect("missing first"),
         Value::NIL
     );
-    assert_val_eq!(
+    assert_eq!(
         call_fileio_builtin!(
             builtin_file_newer_than_file_p,
             vec![
@@ -1953,7 +1953,7 @@ fn test_file_newer_than_file_p_eval_respects_default_directory() {
         vec![Value::string("new.txt"), Value::string("old.txt")],
     )
     .expect("relative newer check");
-    assert_val_eq!(result, Value::T);
+    assert_eq!(result, Value::T);
 
     let _ = fs::remove_dir_all(&dir);
 }
@@ -1969,7 +1969,7 @@ fn test_builtin_set_file_times_semantics() {
     fs::write(&older, b"older").expect("write older");
     fs::write(&newer, b"newer").expect("write newer");
 
-    assert_val_eq!(
+    assert_eq!(
         call_fileio_builtin!(
             builtin_set_file_times,
             vec![Value::string(older.to_string_lossy()), Value::fixnum(0),]
@@ -1977,7 +1977,7 @@ fn test_builtin_set_file_times_semantics() {
         .expect("set-file-times"),
         Value::T
     );
-    assert_val_eq!(
+    assert_eq!(
         call_fileio_builtin!(
             builtin_set_file_times,
             vec![Value::string(newer.to_string_lossy()), Value::NIL, Value::T,]
@@ -1985,7 +1985,7 @@ fn test_builtin_set_file_times_semantics() {
         .expect("set-file-times with flag"),
         Value::T
     );
-    assert_val_eq!(
+    assert_eq!(
         call_fileio_builtin!(
             builtin_file_newer_than_file_p,
             vec![
@@ -2014,7 +2014,7 @@ fn test_set_file_times_eval_respects_default_directory() {
         Value::string(format!("{}/", dir.to_string_lossy())),
     );
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_set_file_times(
             &mut eval,
             vec![Value::string("alpha.txt"), Value::fixnum(0)],
@@ -2039,7 +2039,7 @@ fn test_visited_file_modtime_state_builtins_use_current_buffer_file_name() {
     let mut eval = Context::new();
     let current = eval.buffers.current_buffer_id().expect("current buffer");
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_verify_visited_file_modtime(&mut eval, vec![Value::make_buffer(current)])
             .expect("verify-visited-file-modtime"),
         Value::T
@@ -2058,7 +2058,7 @@ fn test_visited_file_modtime_state_builtins_use_current_buffer_file_name() {
     eval.buffers
         .set_buffer_file_name(current, Some("/tmp/neovm-visited-file.txt".to_string()))
         .expect("buffer file name should set");
-    assert_val_eq!(
+    assert_eq!(
         builtin_set_visited_file_modtime(&mut eval, vec![Value::NIL])
             .expect("set-visited-file-modtime"),
         Value::NIL
@@ -2071,7 +2071,7 @@ fn test_default_file_modes_round_trip() {
         .expect("default-file-modes")
         .as_int()
         .expect("default-file-modes int");
-    assert_val_eq!(
+    assert_eq!(
         builtin_set_default_file_modes(vec![Value::fixnum(0o700)]).expect("set-default-file-modes"),
         Value::NIL
     );
@@ -2259,7 +2259,7 @@ fn test_insert_file_contents_beg_end_semantics() {
         ],
     )
     .expect("insert-file-contents 2..4 should succeed");
-    assert_val_eq!(
+    assert_eq!(
         list_to_vec(&inserted).unwrap()[1],
         Value::fixnum(2),
         "inserted char count should match slice length"
@@ -2281,7 +2281,7 @@ fn test_insert_file_contents_beg_end_semantics() {
         ],
     )
     .expect("insert-file-contents start>end should succeed with empty insertion");
-    assert_val_eq!(list_to_vec(&inserted_zero).unwrap()[1], Value::fixnum(0));
+    assert_eq!(list_to_vec(&inserted_zero).unwrap()[1], Value::fixnum(0));
     assert_eq!(
         eval_empty.buffers.current_buffer().unwrap().buffer_string(),
         ""
@@ -2298,7 +2298,7 @@ fn test_insert_file_contents_beg_end_semantics() {
         ],
     )
     .expect("insert-file-contents end beyond file should clamp");
-    assert_val_eq!(list_to_vec(&inserted_tail).unwrap()[1], Value::fixnum(4));
+    assert_eq!(list_to_vec(&inserted_tail).unwrap()[1], Value::fixnum(4));
     assert_eq!(
         eval_tail.buffers.current_buffer().unwrap().buffer_string(),
         "cdef"
@@ -2353,7 +2353,7 @@ fn test_insert_file_contents_and_write_region_arity_bounds() {
         ],
     )
     .expect("5-arg insert-file-contents should succeed");
-    assert_val_eq!(list_to_vec(&insert_ok).unwrap()[1], Value::fixnum(0));
+    assert_eq!(list_to_vec(&insert_ok).unwrap()[1], Value::fixnum(0));
 
     let mut eval_insert_bad = Context::new();
     let insert_bad = builtin_insert_file_contents(

@@ -395,7 +395,7 @@ fn gnu_sit_for_with_pending_input_does_not_run_timers_first() {
             .is_nil()
     );
     let event = ev.read_char().expect("keypress should remain available");
-    assert_val_eq!(event, Value::fixnum('a' as i64));
+    assert_eq!(event, Value::fixnum('a' as i64));
 }
 
 #[test]
@@ -421,7 +421,7 @@ fn gnu_sit_for_pending_input_returns_nil_without_redisplay() {
     assert!(result.is_nil());
     assert_eq!(*redisplays.borrow(), 0);
     let event = ev.read_char().expect("keypress should remain available");
-    assert_val_eq!(event, Value::fixnum('a' as i64));
+    assert_eq!(event, Value::fixnum('a' as i64));
 }
 
 #[test]
@@ -486,7 +486,7 @@ fn gnu_sit_for_zero_nodisp_runs_due_gnu_timer_without_redisplay() {
 
     assert!(result.is_truthy());
     assert_eq!(*redisplays.borrow(), 0);
-    assert_val_eq!(
+    assert_eq!(
         ev.eval_symbol("sit-for-zero-timer-fired")
             .expect("zero-second sit-for timer flag"),
         Value::symbol("done")
@@ -559,11 +559,11 @@ fn sleep_for_window_close_uses_special_event_map_handler_when_loaded() {
         .expect("sleep-for should consume handled window close");
     drop(tx);
 
-    assert_val_eq!(result, Value::NIL);
+    assert_eq!(result, Value::NIL);
     let logged = ev
         .eval_symbol("neo-last-delete-frame-event")
         .expect("delete-frame event should be logged");
-    assert_val_eq!(
+    assert_eq!(
         logged,
         Value::list(vec![
             Value::symbol("delete-frame"),
@@ -602,11 +602,11 @@ fn sleep_for_window_close_honors_throw_on_input_before_handler() {
         .expect("sleep-for should consume handled window close afterwards");
     drop(tx);
 
-    assert_val_eq!(result, Value::NIL);
+    assert_eq!(result, Value::NIL);
     let logged = ev
         .eval_symbol("neo-last-delete-frame-event")
         .expect("delete-frame event should be logged");
-    assert_val_eq!(
+    assert_eq!(
         logged,
         Value::list(vec![
             Value::symbol("delete-frame"),

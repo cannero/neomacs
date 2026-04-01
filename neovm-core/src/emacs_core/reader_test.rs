@@ -722,7 +722,7 @@ fn finish_read_string_with_minibuffer_builds_expected_args() {
         },
     )
     .unwrap();
-    assert_val_eq!(result, Value::string("result"));
+    assert_eq!(result, Value::string("result"));
 }
 
 #[test]
@@ -772,7 +772,7 @@ fn completing_read_minibuffer_args_choose_completion_keymap_by_require_match() {
             Value::T,
         ],
     );
-    assert_val_eq!(must_match_args[2], Value::symbol("must-match-map"));
+    assert_eq!(must_match_args[2], Value::symbol("must-match-map"));
 }
 
 #[test]
@@ -1263,7 +1263,7 @@ fn finish_yes_or_no_p_with_minibuffer_retries_until_valid_answer() {
         Ok(answers.next().expect("enough answers"))
     })
     .unwrap();
-    assert_val_eq!(result, Value::NIL);
+    assert_eq!(result, Value::NIL);
     assert_eq!(
         prompts,
         vec![
@@ -1288,7 +1288,7 @@ fn input_pending_p_returns_t_with_unread_events() {
         Value::list(vec![Value::fixnum(97)]),
     );
     let result = builtin_input_pending_p(&mut ev, vec![]).unwrap();
-    assert_val_eq!(result, Value::T);
+    assert_eq!(result, Value::T);
 }
 
 #[test]
@@ -1324,7 +1324,7 @@ fn input_pending_p_accepts_optional_check_timers_arg() {
         Value::list(vec![Value::symbol("foo")]),
     );
     let result = builtin_input_pending_p(&mut ev, vec![Value::symbol("timers")]).unwrap();
-    assert_val_eq!(result, Value::T);
+    assert_eq!(result, Value::T);
 }
 
 #[test]
@@ -1338,10 +1338,10 @@ fn input_pending_p_returns_t_with_host_keypress() {
     ev.input_rx = Some(rx);
 
     let result = builtin_input_pending_p(&mut ev, vec![]).unwrap();
-    assert_val_eq!(result, Value::T);
+    assert_eq!(result, Value::T);
 
     let event = ev.read_char().expect("keypress should remain available");
-    assert_val_eq!(event, Value::fixnum('a' as i64));
+    assert_eq!(event, Value::fixnum('a' as i64));
 }
 
 #[test]
@@ -1391,7 +1391,7 @@ fn input_pending_p_reports_mouse_move_with_track_mouse() {
     ev.input_rx = Some(rx);
 
     let result = builtin_input_pending_p(&mut ev, vec![]).unwrap();
-    assert_val_eq!(result, Value::T);
+    assert_eq!(result, Value::T);
 }
 
 #[test]
@@ -1412,7 +1412,7 @@ fn read_char_skips_mouse_move_without_track_mouse() {
     ev.input_rx = Some(rx);
 
     let result = ev.read_char().expect("keypress should remain readable");
-    assert_val_eq!(result, Value::fixnum('a' as i64));
+    assert_eq!(result, Value::fixnum('a' as i64));
 }
 
 #[test]
@@ -1435,10 +1435,10 @@ fn read_char_returns_mouse_move_with_track_mouse() {
 
     let result = ev.read_char().expect("mouse movement should be readable");
     let slots = crate::emacs_core::value::list_to_vec(&result).expect("mouse movement event");
-    assert_val_eq!(slots[0], Value::symbol("mouse-movement"));
+    assert_eq!(slots[0], Value::symbol("mouse-movement"));
 
     let next = ev.read_char().expect("keypress should remain readable");
-    assert_val_eq!(next, Value::fixnum('a' as i64));
+    assert_eq!(next, Value::fixnum('a' as i64));
 }
 
 #[test]
@@ -1459,7 +1459,7 @@ fn read_char_mouse_move_updates_mouse_position_even_without_track_mouse() {
     ev.input_rx = Some(rx);
 
     let result = ev.read_char().expect("keypress should remain readable");
-    assert_val_eq!(result, Value::fixnum('a' as i64));
+    assert_eq!(result, Value::fixnum('a' as i64));
 
     let pixel = crate::emacs_core::builtins::symbols::builtin_mouse_pixel_position(&mut ev, vec![])
         .expect("mouse-pixel-position should succeed");
@@ -1473,8 +1473,8 @@ fn read_char_mouse_move_updates_mouse_position_even_without_track_mouse() {
     };
     let inner_car = outer_cdr.cons_car();
     let inner_cdr = outer_cdr.cons_cdr();
-    assert_val_eq!(inner_car, Value::fixnum(24));
-    assert_val_eq!(inner_cdr, Value::fixnum(40));
+    assert_eq!(inner_car, Value::fixnum(24));
+    assert_eq!(inner_cdr, Value::fixnum(40));
 }
 
 #[test]
@@ -1677,7 +1677,7 @@ fn read_char_mouse_move_sets_help_echo_even_without_track_mouse() {
     ev.input_rx = Some(rx);
 
     let result = ev.read_char().expect("keypress should remain readable");
-    assert_val_eq!(result, Value::fixnum('a' as i64));
+    assert_eq!(result, Value::fixnum('a' as i64));
     assert_eq!(ev.current_message_text(), None);
 }
 
@@ -1709,7 +1709,7 @@ fn input_pending_p_check_timers_does_not_run_timer_when_input_is_already_pending
     ev.input_rx = Some(rx);
 
     let result = builtin_input_pending_p(&mut ev, vec![Value::T]).unwrap();
-    assert_val_eq!(result, Value::T);
+    assert_eq!(result, Value::T);
     assert!(
         ev.eval_symbol("input-pending-timer-fired")
             .expect("timer callback flag")
@@ -1717,7 +1717,7 @@ fn input_pending_p_check_timers_does_not_run_timer_when_input_is_already_pending
     );
 
     let event = ev.read_char().expect("keypress should remain available");
-    assert_val_eq!(event, Value::fixnum('a' as i64));
+    assert_eq!(event, Value::fixnum('a' as i64));
 }
 
 #[test]
@@ -1725,7 +1725,7 @@ fn input_pending_p_returns_t_when_quit_flag_is_set() {
     let mut ev = Context::new();
     ev.set_quit_flag_value(Value::T);
     let result = builtin_input_pending_p(&mut ev, vec![]).unwrap();
-    assert_val_eq!(result, Value::T);
+    assert_eq!(result, Value::T);
 }
 
 #[test]
@@ -1793,7 +1793,7 @@ fn discard_input_rejects_args() {
 fn current_input_mode_returns_batch_tuple() {
     let mut ev = Context::new();
     let result = builtin_current_input_mode(&mut ev, vec![]).unwrap();
-    assert_val_eq!(
+    assert_eq!(
         result,
         Value::list(vec![Value::T, Value::NIL, Value::T, Value::fixnum(7)])
     );
@@ -1817,7 +1817,7 @@ fn set_input_mode_toggles_interrupt_only() {
         vec![Value::NIL, Value::T, Value::NIL, Value::fixnum(65)],
     )
     .unwrap();
-    assert_val_eq!(
+    assert_eq!(
         builtin_current_input_mode(&mut ev, vec![]).unwrap(),
         Value::list(vec![Value::NIL, Value::NIL, Value::T, Value::fixnum(65)])
     );
@@ -1827,7 +1827,7 @@ fn set_input_mode_toggles_interrupt_only() {
         vec![Value::symbol("x"), Value::NIL, Value::NIL, Value::NIL],
     )
     .unwrap();
-    assert_val_eq!(
+    assert_eq!(
         builtin_current_input_mode(&mut ev, vec![]).unwrap(),
         Value::list(vec![Value::T, Value::NIL, Value::T, Value::fixnum(65)])
     );
@@ -1858,7 +1858,7 @@ fn set_input_mode_accepts_three_args() {
     let result = builtin_set_input_mode(&mut ev, vec![Value::NIL, Value::T, Value::T])
         .expect("set-input-mode should accept 3 args");
     assert!(result.is_nil());
-    assert_val_eq!(
+    assert_eq!(
         builtin_current_input_mode(&mut ev, vec![]).unwrap(),
         Value::list(vec![Value::NIL, Value::NIL, Value::T, Value::fixnum(7)])
     );
@@ -1868,12 +1868,12 @@ fn set_input_mode_accepts_three_args() {
 fn set_input_interrupt_mode_toggles_interrupt_state() {
     let mut ev = Context::new();
     let _ = builtin_set_input_interrupt_mode(&mut ev, vec![Value::NIL]).unwrap();
-    assert_val_eq!(
+    assert_eq!(
         builtin_current_input_mode(&mut ev, vec![]).unwrap(),
         Value::list(vec![Value::NIL, Value::NIL, Value::T, Value::fixnum(7)])
     );
     let _ = builtin_set_input_interrupt_mode(&mut ev, vec![Value::symbol("x")]).unwrap();
-    assert_val_eq!(
+    assert_eq!(
         builtin_current_input_mode(&mut ev, vec![]).unwrap(),
         Value::list(vec![Value::T, Value::NIL, Value::T, Value::fixnum(7)])
     );
@@ -1941,7 +1941,7 @@ fn set_quit_char_accepts_one_arg_and_returns_nil() {
     let mut ev = Context::new();
     let result = builtin_set_quit_char(&mut ev, vec![Value::fixnum(65)]).unwrap();
     assert!(result.is_nil());
-    assert_val_eq!(
+    assert_eq!(
         builtin_current_input_mode(&mut ev, vec![]).unwrap(),
         Value::list(vec![Value::T, Value::NIL, Value::T, Value::fixnum(65)])
     );
@@ -2085,8 +2085,8 @@ fn read_char_host_quit_char_returns_event_and_sets_quit_flag() {
     ev.input_rx = Some(rx);
 
     let result = builtin_read_char(&mut ev, vec![]).unwrap();
-    assert_val_eq!(result, Value::fixnum(7));
-    assert_val_eq!(ev.quit_flag_value(), Value::T);
+    assert_eq!(result, Value::fixnum(7));
+    assert_eq!(ev.quit_flag_value(), Value::T);
 }
 
 #[test]
@@ -2470,7 +2470,7 @@ fn read_key_sequence_vector_interactive_runtime_returns_blocking_sequence() {
         crate::keyboard::ReadKeySequenceOptions::default(),
     )
     .expect("vector read");
-    assert_val_eq!(
+    assert_eq!(
         result,
         Value::vector(vec![Value::fixnum(97), Value::symbol("f1")])
     );
@@ -2487,7 +2487,7 @@ fn read_key_sequence_interactive_runtime_passes_prompt_options() {
         crate::keyboard::ReadKeySequenceOptions::new(Value::string("Prompt> "), true, true),
     )
     .expect("interactive read");
-    assert_val_eq!(result, Value::string("a"));
+    assert_eq!(result, Value::string("a"));
     assert_eq!(
         runtime.last_options,
         Some(crate::keyboard::ReadKeySequenceOptions::new(
@@ -2888,7 +2888,7 @@ fn read_from_string_hash_hash_reads_empty_symbol() {
             let pair_car = result.cons_car();
             let pair_cdr = result.cons_cdr();
             assert_eq!(pair_car.as_symbol_name(), Some(""));
-            assert_val_eq!(pair_cdr, Value::fixnum(2));
+            assert_eq!(pair_cdr, Value::fixnum(2));
         }
         _ => panic!("Expected cons"),
     }
@@ -2903,7 +2903,7 @@ fn read_from_string_escaped_hash_hash_reads_literal_symbol() {
             let pair_car = result.cons_car();
             let pair_cdr = result.cons_cdr();
             assert_eq!(pair_car.as_symbol_name(), Some("##"));
-            assert_val_eq!(pair_cdr, Value::fixnum(4));
+            assert_eq!(pair_cdr, Value::fixnum(4));
         }
         _ => panic!("Expected cons"),
     }
@@ -2926,7 +2926,7 @@ fn read_from_string_hash_bracket_end_position() {
         ValueKind::Cons => {
             let pair_car = result.cons_car();
             let pair_cdr = result.cons_cdr();
-            assert_val_eq!(pair_cdr, Value::fixnum(expected_end));
+            assert_eq!(pair_cdr, Value::fixnum(expected_end));
         }
         _ => panic!("Expected cons"),
     }

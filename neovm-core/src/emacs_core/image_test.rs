@@ -321,7 +321,7 @@ fn insert_image_without_position_returns_true() {
 
     let result = builtin_insert_image(vec![spec]);
     assert!(result.is_ok());
-    assert_val_eq!(result.unwrap(), Value::T);
+    assert_eq!(result.unwrap(), Value::T);
 }
 
 #[test]
@@ -514,7 +514,7 @@ fn clear_image_cache_with_animation_cache_list() {
 #[test]
 fn image_cache_size_is_zero() {
     let result = builtin_image_cache_size(vec![]);
-    assert_val_eq!(result.unwrap(), Value::fixnum(0));
+    assert_eq!(result.unwrap(), Value::fixnum(0));
 }
 
 #[test]

@@ -856,35 +856,35 @@ fn vm_kmacro_builtins_use_shared_runtime_state() {
     let _ = eval.eval_forms(&setup);
 
     let mut vm = new_vm(&mut eval);
-    assert_val_eq!(
+    assert_eq!(
         vm.dispatch_vm_builtin("start-kbd-macro", vec![Value::NIL, Value::NIL])
             .expect("vm start-kbd-macro"),
         Value::NIL
     );
-    assert_val_eq!(
+    assert_eq!(
         vm.dispatch_vm_builtin("store-kbd-macro-event", vec![Value::symbol("ignore")])
             .expect("vm store-kbd-macro-event"),
         Value::NIL
     );
     vm.ctx.finalize_kbd_macro_runtime_chars();
-    assert_val_eq!(
+    assert_eq!(
         vm.dispatch_vm_builtin("end-kbd-macro", vec![])
             .expect("vm end-kbd-macro"),
         Value::NIL
     );
-    assert_val_eq!(
+    assert_eq!(
         vm.ctx
             .eval_symbol("last-kbd-macro")
             .expect("last-kbd-macro"),
         Value::vector(vec![Value::symbol("ignore")])
     );
 
-    assert_val_eq!(
+    assert_eq!(
         vm.dispatch_vm_builtin("call-last-kbd-macro", vec![])
             .expect("vm call-last-kbd-macro"),
         Value::NIL
     );
-    assert_val_eq!(
+    assert_eq!(
         vm.dispatch_vm_builtin(
             "execute-kbd-macro",
             vec![Value::vector(vec![Value::symbol("ignore")])]
@@ -893,13 +893,13 @@ fn vm_kmacro_builtins_use_shared_runtime_state() {
         Value::NIL
     );
 
-    assert_val_eq!(
+    assert_eq!(
         vm.ctx
             .eval_symbol("vm-kmacro-shared-count")
             .expect("vm-kmacro-shared-count"),
         Value::fixnum(2)
     );
-    assert_val_eq!(
+    assert_eq!(
         vm.ctx
             .eval_symbol("vm-kmacro-ignore-direct-called")
             .expect("vm-kmacro-ignore-direct-called"),
@@ -1112,7 +1112,7 @@ fn vm_unbind_restores_saved_current_buffer() {
         (func, saved_buffer)
     });
 
-    assert_val_eq!(result, Value::NIL);
+    assert_eq!(result, Value::NIL);
     assert_eq!(
         buffers.current_buffer().map(|buffer| buffer.id),
         Some(saved_buffer)
@@ -1155,7 +1155,7 @@ fn vm_unbind_counts_unwind_protect_entries_like_gnu() {
         func.max_stack = 2;
         (func, ())
     });
-    assert_val_eq!(result, Value::fixnum(9));
+    assert_eq!(result, Value::fixnum(9));
 }
 
 fn vm_unbind_restores_saved_excursion_point() {
@@ -1189,7 +1189,7 @@ fn vm_unbind_restores_saved_excursion_point() {
         (func, (buffer_id, saved_point))
     });
 
-    assert_val_eq!(result, Value::NIL);
+    assert_eq!(result, Value::NIL);
     assert_eq!(
         buffers.current_buffer().map(|buffer| buffer.id),
         Some(buffer_id)
@@ -1233,7 +1233,7 @@ fn vm_unbind_restores_saved_restriction() {
         (func, saved)
     });
 
-    assert_val_eq!(result, Value::NIL);
+    assert_eq!(result, Value::NIL);
     let buffer = buffers.get(buffer_id).expect("buffer");
     assert_eq!(buffer.begv, saved_begv);
     assert_eq!(buffer.zv, saved_zv);
@@ -1441,7 +1441,7 @@ fn vm_switch_branches_using_hash_table_jump_table() {
 
     let mut vm = new_vm(&mut eval);
     let result = vm.execute(&func, vec![]).expect("vm switch should execute");
-    assert_val_eq!(result, Value::fixnum(20));
+    assert_eq!(result, Value::fixnum(20));
 }
 
 #[test]
@@ -1538,7 +1538,7 @@ fn vm_length_accepts_plain_bytecode_closure_shape() {
         crate::emacs_core::value::LambdaParams::simple(vec![intern("x")]),
     ));
 
-    assert_val_eq!(length_value(&bc).unwrap(), Value::fixnum(4));
+    assert_eq!(length_value(&bc).unwrap(), Value::fixnum(4));
 }
 
 #[test]
@@ -1583,7 +1583,7 @@ fn vm_throw_restores_saved_stack_before_resuming_catch() {
     let mut vm = new_vm(&mut eval);
 
     let result = vm.execute(&func, vec![]).expect("vm catch should execute");
-    assert_val_eq!(
+    assert_eq!(
         result,
         Value::list(vec![Value::fixnum(42), Value::fixnum(99)])
     );
@@ -5070,7 +5070,7 @@ fn vm_insert_file_contents_and_write_region_use_shared_runtime_state() {
     let insert_parts =
         crate::emacs_core::value::list_to_vec(&insert_result).expect("insert return list");
     assert_eq!(insert_parts[0].as_str(), Some(alpha.as_str()));
-    assert_val_eq!(insert_parts[1], Value::fixnum(6));
+    assert_eq!(insert_parts[1], Value::fixnum(6));
     let buf = eval.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.buffer_string(), "abcdef");
     assert_eq!(buf.file_name.as_deref(), Some(alpha.as_str()));
@@ -6510,7 +6510,7 @@ fn vm_compiled_autoload_do_load_uses_shared_runtime_and_load_bridge() {
             .expect("compiled autoload-do-load should execute")
     };
 
-    assert_val_eq!(result, Value::fixnum(91));
+    assert_eq!(result, Value::fixnum(91));
 }
 
 #[test]
@@ -6542,7 +6542,7 @@ fn vm_compiled_named_autoload_call_uses_shared_runtime_and_load_bridge() {
             .expect("compiled autoloaded call should execute")
     };
 
-    assert_val_eq!(result, Value::fixnum(12));
+    assert_eq!(result, Value::fixnum(12));
 }
 
 #[test]
@@ -7279,11 +7279,11 @@ fn vm_list_lookup_type_errors_match_oracle() {
     });
 
     with_vm_eval("(car-safe 1)", false, |result| match result {
-        Ok(value) => assert_val_eq!(value, Value::NIL),
+        Ok(value) => assert_eq!(value, Value::NIL),
         other => panic!("unexpected error: {other:?}"),
     });
     with_vm_eval("(cdr-safe 1)", false, |result| match result {
-        Ok(value) => assert_val_eq!(value, Value::NIL),
+        Ok(value) => assert_eq!(value, Value::NIL),
         other => panic!("unexpected error: {other:?}"),
     });
 
@@ -8166,7 +8166,7 @@ fn vm_gnu_arg_descriptor_preserves_optional_and_rest_slots() {
         )
         .expect("vm should preserve GNU descriptor slot layout");
 
-    assert_val_eq!(
+    assert_eq!(
         result,
         Value::list(vec![
             Value::fixnum(1),
@@ -8192,7 +8192,7 @@ fn vm_compiled_autoload_registration_updates_shared_autoload_manager() {
             .expect("compiled autoload should execute")
     };
 
-    assert_val_eq!(result, Value::symbol("vm-bytecode-auto"));
+    assert_eq!(result, Value::symbol("vm-bytecode-auto"));
     let entry = eval
         .autoloads
         .get_entry("vm-bytecode-auto")
@@ -8215,7 +8215,7 @@ fn vm_compiled_this_single_command_keys_uses_live_eval_key_context() {
             .expect("compiled this-single-command-keys should execute")
     };
 
-    assert_val_eq!(result, Value::vector(vec![Value::fixnum(97)]));
+    assert_eq!(result, Value::vector(vec![Value::fixnum(97)]));
 }
 
 #[test]
@@ -8250,7 +8250,7 @@ fn vm_compiled_require_respects_recursive_require_guard() {
             .expect("compiled require should observe recursive guard")
     };
 
-    assert_val_eq!(
+    assert_eq!(
         result,
         Value::NIL,
         "compiled require should return immediately without loading the file again"
@@ -8290,7 +8290,7 @@ fn vm_compiled_require_loads_feature_with_nil_filename_through_shared_runtime() 
             .expect("compiled require should load feature through shared runtime")
     };
 
-    assert_val_eq!(
+    assert_eq!(
         result,
         Value::list(vec![Value::symbol("vm-bytecode-load"), Value::T, Value::T,])
     );
@@ -8332,7 +8332,7 @@ fn vm_compiled_load_uses_shared_runtime_and_restores_load_file_name() {
             .expect("compiled load should resolve path and execute through shared runtime")
     };
 
-    assert_val_eq!(
+    assert_eq!(
         result,
         Value::list(vec![
             Value::T,
@@ -8372,7 +8372,7 @@ fn vm_compiled_load_allows_gnu_normal_recursive_load_depth() {
             .expect("compiled load should allow GNU's normal recursive depth")
     };
 
-    assert_val_eq!(
+    assert_eq!(
         result,
         Value::T,
         "compiled load should proceed until GNU's recursive-load limit is exceeded"
@@ -8416,7 +8416,7 @@ fn vm_compiled_load_signals_after_gnu_recursive_load_limit() {
         EvalError::Signal { symbol, data, .. } => {
             assert_eq!(resolve_sym(symbol), "error");
             assert_eq!(data[0].as_str(), Some("Recursive load"));
-            assert_val_eq!(data[1].cons_car(), Value::string(fixture.to_string_lossy()));
+            assert_eq!(data[1].cons_car(), Value::string(fixture.to_string_lossy()));
             assert_eq!(
                 crate::emacs_core::value::list_to_vec(&data[1].cons_cdr())
                     .expect("recursive load payload tail should be a proper list")
@@ -8478,7 +8478,7 @@ fn vm_interactive_form_uses_shared_autoload_load_bridge() {
             .expect("compiled interactive-form should use shared autoload bridge")
     };
 
-    assert_val_eq!(
+    assert_eq!(
         result,
         Value::list(vec![Value::symbol("interactive"), Value::string("P")])
     );

@@ -1357,7 +1357,7 @@ fn this_command_keys_vector_after_set() {
     if result.is_vector() {
         let v = result.as_vector_data().unwrap().clone();
         assert_eq!(v.len(), 1);
-        assert_val_eq!(v[0], Value::fixnum('x' as i64));
+        assert_eq!(v[0], Value::fixnum('x' as i64));
     } else {
         panic!("expected vector");
     }
@@ -1464,14 +1464,14 @@ fn set_this_command_keys_clears_raw_sequence_history() {
     match translated.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = translated.as_vector_data().unwrap().clone();
-            assert_val_eq!(
+            assert_eq!(
                 items[0],
                 Value::fixnum(('x' as i64) | ((1u32 << 27) as i64))
             );
-            assert_val_eq!(items[1], Value::fixnum('f' as i64));
-            assert_val_eq!(items[2], Value::fixnum('o' as i64));
-            assert_val_eq!(items[3], Value::fixnum('o' as i64));
-            assert_val_eq!(items[4], Value::fixnum('\r' as i64));
+            assert_eq!(items[1], Value::fixnum('f' as i64));
+            assert_eq!(items[2], Value::fixnum('o' as i64));
+            assert_eq!(items[3], Value::fixnum('o' as i64));
+            assert_eq!(items[4], Value::fixnum('\r' as i64));
         }
         other => panic!("expected vector, got {other:?}"),
     }
@@ -3662,7 +3662,7 @@ fn eval_expression_rejects_too_many_args() {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(sig.data.len(), 2);
-            assert_val_eq!(sig.data[1], Value::fixnum(5));
+            assert_eq!(sig.data[1], Value::fixnum(5));
         }
         other => panic!("unexpected flow: {other:?}"),
     }

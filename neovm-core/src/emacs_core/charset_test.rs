@@ -527,7 +527,7 @@ fn find_charset_region_eval_semantics() {
 
     let all = builtin_find_charset_region(&mut eval, vec![Value::fixnum(1), Value::fixnum(4)])
         .expect("find-charset-region all");
-    assert_val_eq!(
+    assert_eq!(
         all,
         Value::list(vec![
             Value::symbol("ascii"),
@@ -538,11 +538,11 @@ fn find_charset_region_eval_semantics() {
 
     let bmp = builtin_find_charset_region(&mut eval, vec![Value::fixnum(2), Value::fixnum(3)])
         .expect("find-charset-region bmp");
-    assert_val_eq!(bmp, Value::list(vec![Value::symbol("unicode-bmp")]));
+    assert_eq!(bmp, Value::list(vec![Value::symbol("unicode-bmp")]));
 
     let empty = builtin_find_charset_region(&mut eval, vec![Value::fixnum(4), Value::fixnum(4)])
         .expect("find-charset-region empty");
-    assert_val_eq!(empty, Value::list(vec![Value::symbol("ascii")]));
+    assert_eq!(empty, Value::list(vec![Value::symbol("ascii")]));
 }
 
 #[test]
@@ -797,19 +797,19 @@ fn encode_char_wrong_arg_count() {
 
 #[test]
 fn encode_decode_big5_sjis_basic_identity() {
-    assert_val_eq!(
+    assert_eq!(
         builtin_encode_big5_char(vec![Value::fixnum(65)]).expect("encode-big5-char"),
         Value::fixnum(65)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_decode_big5_char(vec![Value::fixnum(65)]).expect("decode-big5-char"),
         Value::fixnum(65)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_encode_sjis_char(vec![Value::fixnum(65)]).expect("encode-sjis-char"),
         Value::fixnum(65)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_decode_sjis_char(vec![Value::fixnum(65)]).expect("decode-sjis-char"),
         Value::fixnum(65)
     );
@@ -817,23 +817,23 @@ fn encode_decode_big5_sjis_basic_identity() {
 
 #[test]
 fn get_unused_iso_final_char_known_values() {
-    assert_val_eq!(
+    assert_eq!(
         builtin_get_unused_iso_final_char(vec![Value::fixnum(1), Value::fixnum(94)]).expect("1/94"),
         Value::fixnum(54)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_get_unused_iso_final_char(vec![Value::fixnum(1), Value::fixnum(96)]).expect("1/96"),
         Value::fixnum(51)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_get_unused_iso_final_char(vec![Value::fixnum(2), Value::fixnum(94)]).expect("2/94"),
         Value::fixnum(50)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_get_unused_iso_final_char(vec![Value::fixnum(2), Value::fixnum(96)]).expect("2/96"),
         Value::fixnum(48)
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_get_unused_iso_final_char(vec![Value::fixnum(3), Value::fixnum(94)]).expect("3/94"),
         Value::fixnum(48)
     );
@@ -906,7 +906,7 @@ fn define_charset_alias_adds_symbol_alias_only() {
             .expect("charsetp latin-1")
             .is_truthy()
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_charset_id_internal(vec![Value::symbol("latin-1")]).expect("id latin-1"),
         Value::fixnum(5)
     );
@@ -987,15 +987,15 @@ fn charset_after_eval_semantics() {
             .is_nil()
     );
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_charset_after(&mut eval, vec![Value::fixnum(1)]).expect("pos 1"),
         Value::symbol("ascii")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_charset_after(&mut eval, vec![Value::fixnum(2)]).expect("pos 2"),
         Value::symbol("unicode-bmp")
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_charset_after(&mut eval, vec![Value::fixnum(3)]).expect("pos 3"),
         Value::symbol("unicode")
     );

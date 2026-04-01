@@ -245,7 +245,7 @@ fn keyboard_escape_encodes_to_emacs_escape_prefix_char() {
     let event = KeyEvent::from(crate::keyboard::KeyEvent::named(
         crate::keyboard::NamedKey::Escape,
     ));
-    assert_val_eq!(
+    assert_eq!(
         key_event_to_emacs_event(&event),
         Value::fixnum(27),
         "physical Escape should enter GNU ESC-prefix through event 27"
@@ -262,7 +262,7 @@ fn keyboard_escape_preserves_non_ctrl_modifiers_when_encoded() {
             ..crate::keyboard::Modifiers::none()
         },
     ));
-    assert_val_eq!(
+    assert_eq!(
         key_event_to_emacs_event(&event),
         Value::fixnum(
             27 | crate::emacs_core::keyboard::pure::KEY_CHAR_SHIFT
@@ -276,7 +276,7 @@ fn keyboard_return_encodes_to_emacs_carriage_return() {
     let event = KeyEvent::from(crate::keyboard::KeyEvent::named(
         crate::keyboard::NamedKey::Return,
     ));
-    assert_val_eq!(
+    assert_eq!(
         key_event_to_emacs_event(&event),
         Value::fixnum('\r' as i64),
         "physical Return should enter GNU RET/C-m through event 13"
@@ -289,7 +289,7 @@ fn keyboard_meta_return_encodes_to_emacs_meta_carriage_return() {
         crate::keyboard::NamedKey::Return,
         crate::keyboard::Modifiers::meta(),
     ));
-    assert_val_eq!(
+    assert_eq!(
         key_event_to_emacs_event(&event),
         Value::fixnum(0x08000000 | '\r' as i64),
         "Meta+Return should be encoded as meta-bit plus RET/C-m"
@@ -301,7 +301,7 @@ fn keyboard_tab_encodes_to_emacs_tab_char() {
     let event = KeyEvent::from(crate::keyboard::KeyEvent::named(
         crate::keyboard::NamedKey::Tab,
     ));
-    assert_val_eq!(
+    assert_eq!(
         key_event_to_emacs_event(&event),
         Value::fixnum('\t' as i64),
         "physical Tab should enter GNU TAB through event 9"
@@ -485,7 +485,7 @@ fn list_keymap_for_each_binding_stops_before_direct_sparse_parent() {
     list_keymap_for_each_binding(&child, |event, def| seen.push((event, def)));
 
     assert_eq!(seen.len(), 1);
-    assert_val_eq!(seen[0].0, Value::fixnum('x' as i64));
+    assert_eq!(seen[0].0, Value::fixnum('x' as i64));
     assert_eq!(seen[0].1.as_symbol_name(), Some("child-cmd"));
 }
 
@@ -534,7 +534,7 @@ fn list_keymap_copy_preserves_direct_sparse_parent_without_inlining_parent_bindi
     let mut seen = Vec::new();
     list_keymap_for_each_binding(&copy, |event, def| seen.push((event, def)));
     assert_eq!(seen.len(), 1);
-    assert_val_eq!(seen[0].0, Value::fixnum('x' as i64));
+    assert_eq!(seen[0].0, Value::fixnum('x' as i64));
 }
 
 #[test]

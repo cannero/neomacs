@@ -98,7 +98,7 @@ fn kbd_angle_events_return_symbols() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let guard = result.as_vector_data().unwrap().clone();
             assert_eq!(guard.len(), 1);
-            assert_val_eq!(guard[0], Value::symbol("f1"));
+            assert_eq!(guard[0], Value::symbol("f1"));
         }
         other => panic!("expected vector, got {other:?}"),
     }
@@ -108,7 +108,7 @@ fn kbd_angle_events_return_symbols() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let guard = result.as_vector_data().unwrap().clone();
             assert_eq!(guard.len(), 1);
-            assert_val_eq!(guard[0], Value::symbol("C-f1"));
+            assert_eq!(guard[0], Value::symbol("C-f1"));
         }
         other => panic!("expected vector, got {other:?}"),
     }
@@ -213,7 +213,7 @@ fn key_events_from_designator_decodes_event_modifier_list() {
 fn key_events_from_designator_rejects_non_array_types() {
     let err = key_events_from_designator(&Value::fixnum(1)).expect_err("int should fail");
     match err {
-        KeyDesignatorError::WrongType(v) => assert_val_eq!(v, Value::fixnum(1)),
+        KeyDesignatorError::WrongType(v) => assert_eq!(v, Value::fixnum(1)),
         other => panic!("expected WrongType error, got {other:?}"),
     }
 }

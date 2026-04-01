@@ -734,7 +734,7 @@ fn gui_window_body_geometry_excludes_fringes_and_margins() {
         frame.set_window_system(Some(Value::symbol("neo")));
     }
 
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_set_window_margins(
             &mut ev,
             vec![Value::NIL, Value::fixnum(1), Value::fixnum(2)]
@@ -742,7 +742,7 @@ fn gui_window_body_geometry_excludes_fringes_and_margins() {
         .expect("set-window-margins"),
         Value::T
     );
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_set_window_fringes(
             &mut ev,
             vec![Value::NIL, Value::fixnum(8), Value::fixnum(12)]
@@ -750,17 +750,17 @@ fn gui_window_body_geometry_excludes_fringes_and_margins() {
         .expect("set-window-fringes"),
         Value::T
     );
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_window_body_width(&mut ev, vec![Value::NIL, Value::T])
             .expect("window-body-width"),
         Value::fixnum(756)
     );
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_window_text_width(&mut ev, vec![Value::NIL, Value::T])
             .expect("window-text-width"),
         Value::fixnum(756)
     );
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_window_edges(&mut ev, vec![Value::NIL, Value::T, Value::NIL, Value::T])
             .expect("window-edges"),
         Value::list(vec![
@@ -770,7 +770,7 @@ fn gui_window_body_geometry_excludes_fringes_and_margins() {
             Value::fixnum(584),
         ])
     );
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_window_fringes(&mut ev, vec![Value::NIL]).expect("window-fringes"),
         Value::list(vec![
             Value::fixnum(8),
@@ -779,7 +779,7 @@ fn gui_window_body_geometry_excludes_fringes_and_margins() {
             Value::NIL,
         ])
     );
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_window_margins(&mut ev, vec![Value::NIL]).expect("window-margins"),
         Value::cons(Value::fixnum(1), Value::fixnum(2))
     );
@@ -2439,19 +2439,19 @@ fn frame_query_builtins_report_pixel_sizes_for_gui_frames() {
         frame.set_window_system(Some(Value::symbol("x")));
     }
 
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_frame_native_width(&mut ev, vec![Value::make_frame(fid.0)]).unwrap(),
         Value::fixnum(800)
     );
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_frame_native_height(&mut ev, vec![Value::make_frame(fid.0)]).unwrap(),
         Value::fixnum(600)
     );
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_frame_text_width(&mut ev, vec![Value::make_frame(fid.0)]).unwrap(),
         Value::fixnum(800)
     );
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_frame_text_height(&mut ev, vec![Value::make_frame(fid.0)]).unwrap(),
         Value::fixnum(584)
     );
@@ -2468,11 +2468,11 @@ fn frame_query_builtins_use_internal_window_system_state() {
         frame.parameters.remove("window-system");
     }
 
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_frame_native_width(&mut ev, vec![Value::make_frame(fid.0)]).unwrap(),
         Value::fixnum(800)
     );
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_frame_native_height(&mut ev, vec![Value::make_frame(fid.0)]).unwrap(),
         Value::fixnum(600)
     );
@@ -2708,15 +2708,15 @@ fn frame_old_selected_window_direct_wrapper_matches_batch_nil_semantics() {
     let mut ev = Context::new();
     let fid = super::ensure_selected_frame_id(&mut ev);
 
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_frame_old_selected_window(&mut ev, vec![]).unwrap(),
         Value::NIL
     );
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_frame_old_selected_window(&mut ev, vec![Value::NIL]).unwrap(),
         Value::NIL
     );
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_frame_old_selected_window(&mut ev, vec![Value::make_frame(fid.0)]).unwrap(),
         Value::NIL
     );
@@ -3088,7 +3088,7 @@ fn deleting_last_frame_on_terminal_deletes_terminal_too() {
     let secondary_terminal =
         crate::emacs_core::terminal::pure::terminal_handle_value_for_id(7).expect("terminal 7");
 
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_delete_frame(&mut ev, vec![Value::make_frame(secondary.0)]).unwrap(),
         Value::NIL
     );
@@ -3120,7 +3120,7 @@ fn framep_returns_window_system_symbol_for_gui_frames() {
         .insert("window-system".to_string(), Value::symbol("x"));
 
     let result = super::builtin_framep(&mut ev, vec![Value::make_frame(frame_id.0)]).unwrap();
-    assert_val_eq!(result, Value::symbol("x"));
+    assert_eq!(result, Value::symbol("x"));
 }
 
 #[test]
@@ -3147,23 +3147,23 @@ fn frame_builtins_accept_frame_handle_values() {
     let fid = super::ensure_selected_frame_id(&mut ev);
     let frame = Value::make_frame(fid.0);
 
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_framep(&mut ev, vec![frame]).unwrap(),
         Value::T
     );
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_frame_live_p(&mut ev, vec![frame]).unwrap(),
         Value::T
     );
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_frame_visible_p(&mut ev, vec![frame]).unwrap(),
         Value::T
     );
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_select_frame(&mut ev, vec![frame]).unwrap(),
         Value::make_frame(fid.0)
     );
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_select_frame_set_input_focus(&mut ev, vec![frame]).unwrap(),
         Value::NIL
     );
@@ -3189,31 +3189,31 @@ fn select_frame_switches_active_kboard_to_frame_terminal() {
     );
     let secondary = ev.frames.create_frame_on_terminal("F2", 7, 800, 600, buf);
 
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_select_frame(&mut ev, vec![Value::make_frame(secondary.0)])
             .expect("select secondary frame"),
         Value::make_frame(secondary.0)
     );
     assert_eq!(ev.command_loop.keyboard.active_terminal_id(), 7);
-    assert_val_eq!(ev.command_loop.keyboard.input_decode_map(), Value::NIL);
+    assert_eq!(ev.command_loop.keyboard.input_decode_map(), Value::NIL);
 
     ev.command_loop
         .keyboard
         .set_input_decode_map(Value::symbol("secondary-map"));
 
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_select_frame(&mut ev, vec![Value::make_frame(primary.0)])
             .expect("reselect primary frame"),
         Value::make_frame(primary.0)
     );
-    assert_val_eq!(
+    assert_eq!(
         ev.command_loop.keyboard.input_decode_map(),
         Value::symbol("primary-map")
     );
 
     super::builtin_select_frame(&mut ev, vec![Value::make_frame(secondary.0)])
         .expect("reselect secondary frame");
-    assert_val_eq!(
+    assert_eq!(
         ev.command_loop.keyboard.input_decode_map(),
         Value::symbol("secondary-map")
     );
@@ -3607,7 +3607,7 @@ fn window_end_prefers_last_redisplay_snapshot_when_available() {
     }
 
     let result = super::builtin_window_end(&mut ev, vec![]).expect("window-end");
-    assert_val_eq!(result, Value::fixnum(12));
+    assert_eq!(result, Value::fixnum(12));
 }
 
 #[test]
@@ -3629,15 +3629,15 @@ fn window_chrome_height_queries_prefer_last_redisplay_snapshot_when_available() 
         }]);
     }
 
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_window_mode_line_height(&mut ev, vec![]).expect("mode-line height"),
         Value::fixnum(35)
     );
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_window_header_line_height(&mut ev, vec![]).expect("header-line height"),
         Value::fixnum(35)
     );
-    assert_val_eq!(
+    assert_eq!(
         super::builtin_window_tab_line_height(&mut ev, vec![]).expect("tab-line height"),
         Value::fixnum(34)
     );

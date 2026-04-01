@@ -3144,28 +3144,28 @@ mod tests {
     #[test]
     fn modified_state_tracks_autosaved_semantics() {
         let mut buf = Buffer::new(BufferId(1), "test".into());
-        assert_val_eq!(buf.modified_state_value(), Value::NIL);
+        assert_eq!(buf.modified_state_value(), Value::NIL);
         assert!(!buf.recent_auto_save_p());
         assert_eq!(buf.modified_tick, 1);
         assert_eq!(buf.chars_modified_tick, 1);
 
-        assert_val_eq!(buf.restore_modified_state(Value::T), Value::T);
-        assert_val_eq!(buf.modified_state_value(), Value::T);
+        assert_eq!(buf.restore_modified_state(Value::T), Value::T);
+        assert_eq!(buf.modified_state_value(), Value::T);
         assert_eq!(buf.modified_tick, 2);
         assert_eq!(buf.chars_modified_tick, 1);
         assert!(!buf.recent_auto_save_p());
 
-        assert_val_eq!(
+        assert_eq!(
             buf.restore_modified_state(Value::symbol("autosaved")),
             Value::symbol("autosaved")
         );
-        assert_val_eq!(buf.modified_state_value(), Value::symbol("autosaved"));
+        assert_eq!(buf.modified_state_value(), Value::symbol("autosaved"));
         assert_eq!(buf.modified_tick, 2);
         assert_eq!(buf.chars_modified_tick, 1);
         assert!(buf.recent_auto_save_p());
 
-        assert_val_eq!(buf.restore_modified_state(Value::NIL), Value::NIL);
-        assert_val_eq!(buf.modified_state_value(), Value::NIL);
+        assert_eq!(buf.restore_modified_state(Value::NIL), Value::NIL);
+        assert_eq!(buf.modified_state_value(), Value::NIL);
         assert_eq!(buf.modified_tick, 2);
         assert_eq!(buf.chars_modified_tick, 1);
         assert!(!buf.recent_auto_save_p());
@@ -3184,25 +3184,25 @@ mod tests {
         buf.set_modified(false);
         assert_eq!(buf.modified_tick, 4);
         assert_eq!(buf.chars_modified_tick, 4);
-        assert_val_eq!(buf.modified_state_value(), Value::NIL);
+        assert_eq!(buf.modified_state_value(), Value::NIL);
 
         buf.delete_region(0, 6);
         assert_eq!(buf.modified_tick, 7);
         assert_eq!(buf.chars_modified_tick, 7);
-        assert_val_eq!(buf.modified_state_value(), Value::T);
+        assert_eq!(buf.modified_state_value(), Value::T);
     }
 
     #[test]
     fn chars_modified_tick_rejoins_modiff_after_non_char_modification() {
         let mut buf = Buffer::new(BufferId(1), "test".into());
-        assert_val_eq!(buf.restore_modified_state(Value::T), Value::T);
+        assert_eq!(buf.restore_modified_state(Value::T), Value::T);
         assert_eq!(buf.modified_tick, 2);
         assert_eq!(buf.chars_modified_tick, 1);
 
         buf.insert("x");
         assert_eq!(buf.modified_tick, 3);
         assert_eq!(buf.chars_modified_tick, 3);
-        assert_val_eq!(buf.modified_state_value(), Value::T);
+        assert_eq!(buf.modified_state_value(), Value::T);
     }
 
     // -----------------------------------------------------------------------

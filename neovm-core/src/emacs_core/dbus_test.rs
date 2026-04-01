@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn dbus_init_bus_contract() {
-    assert_val_eq!(
+    assert_eq!(
         builtin_dbus_init_bus(vec![Value::keyword(":session")]).unwrap(),
         Value::fixnum(2)
     );

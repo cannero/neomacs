@@ -151,19 +151,19 @@ fn test_eq_semantics() {
     // Cons eq: same pointer = eq, different pointer = not eq
     let c1 = heap.alloc_cons(TaggedValue::fixnum(1), TaggedValue::NIL);
     let c2 = heap.alloc_cons(TaggedValue::fixnum(1), TaggedValue::NIL);
-    assert_ne!(c1, c2); // Different allocations → different pointers → not eq
+    assert_ne!(c1.bits(), c2.bits()); // Different allocations → different pointers → not eq
 
     // But same value copied = eq (same pointer)
     let c3 = c1;
-    assert_eq!(c1, c3);
+    assert_eq!(c1.bits(), c3.bits());
 
     // nil eq nil
-    assert_val_eq!(TaggedValue::NIL, TaggedValue::NIL);
+    assert_eq!(TaggedValue::NIL.bits(), TaggedValue::NIL.bits());
 
     // Float eq: different allocations = not eq (pointer identity)
     let f1 = heap.alloc_float(3.14);
     let f2 = heap.alloc_float(3.14);
-    assert_ne!(f1, f2); // Different allocations
+    assert_ne!(f1.bits(), f2.bits()); // Different allocations
 }
 
 // -----------------------------------------------------------------------

@@ -45,7 +45,7 @@ fn keyboard_runtime_finalize_and_cancel_match_gnu_macro_boundary_shape() {
 
     builtin_start_kbd_macro(&mut eval, vec![]).expect("start");
     assert!(eval.command_loop.keyboard.kboard.defining_kbd_macro);
-    assert_val_eq!(
+    assert_eq!(
         eval.eval_symbol("defining-kbd-macro")
             .expect("defining-kbd-macro"),
         Value::T
@@ -62,16 +62,16 @@ fn keyboard_runtime_finalize_and_cancel_match_gnu_macro_boundary_shape() {
         eval.command_loop.last_kbd_macro(),
         Some([Value::char('a')].as_slice())
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_last_kbd_macro(&mut eval, vec![]).expect("last-kbd-macro"),
         Value::vector(vec![Value::char('a')])
     );
-    assert_val_eq!(
+    assert_eq!(
         eval.eval_symbol("last-kbd-macro")
             .expect("last-kbd-macro var"),
         Value::vector(vec![Value::char('a')])
     );
-    assert_val_eq!(
+    assert_eq!(
         eval.eval_symbol("defining-kbd-macro")
             .expect("defining-kbd-macro"),
         Value::NIL
@@ -210,7 +210,7 @@ fn test_defining_kbd_macro_builtin_contract() {
     assert!(append_without_last.is_err());
 
     // Fresh recording with APPEND=nil should succeed.
-    assert_val_eq!(
+    assert_eq!(
         builtin_defining_kbd_macro(&mut eval, vec![Value::NIL]).unwrap(),
         Value::NIL
     );
@@ -228,7 +228,7 @@ fn test_defining_kbd_macro_builtin_contract() {
         eval.command_loop.last_kbd_macro(),
         Some([Value::char('a')].as_slice())
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_defining_kbd_macro(&mut eval, vec![Value::T, Value::T]).unwrap(),
         Value::NIL
     );
@@ -281,14 +281,14 @@ fn test_start_with_append_reexecutes_last_macro_when_no_exec_is_nil() {
     eval.finalize_kbd_macro_runtime_chars();
     builtin_end_kbd_macro(&mut eval, vec![]).expect("end");
 
-    assert_val_eq!(
+    assert_eq!(
         eval.eval_symbol("kmacro-append-count")
             .expect("kmacro-append-count"),
         Value::fixnum(0)
     );
 
     builtin_start_kbd_macro(&mut eval, vec![Value::T, Value::NIL]).expect("append");
-    assert_val_eq!(
+    assert_eq!(
         eval.eval_symbol("kmacro-append-count")
             .expect("kmacro-append-count"),
         Value::fixnum(1)
@@ -328,19 +328,19 @@ fn test_start_with_append_real_key_macro_reexecutes_via_command_loop_and_marks_a
     eval.finalize_kbd_macro_runtime_chars();
     builtin_end_kbd_macro(&mut eval, vec![]).expect("end");
 
-    assert_val_eq!(
+    assert_eq!(
         eval.eval_symbol("kmacro-append-real-count")
             .expect("kmacro-append-real-count"),
         Value::fixnum(0)
     );
 
     builtin_start_kbd_macro(&mut eval, vec![Value::T, Value::NIL]).expect("append");
-    assert_val_eq!(
+    assert_eq!(
         eval.eval_symbol("kmacro-append-real-count")
             .expect("kmacro-append-real-count"),
         Value::fixnum(1)
     );
-    assert_val_eq!(
+    assert_eq!(
         eval.eval_symbol("defining-kbd-macro")
             .expect("defining-kbd-macro"),
         Value::symbol("append")
@@ -370,7 +370,7 @@ fn test_start_with_append_no_exec_skips_reexecution() {
     builtin_end_kbd_macro(&mut eval, vec![]).expect("end");
 
     builtin_start_kbd_macro(&mut eval, vec![Value::T, Value::T]).expect("append");
-    assert_val_eq!(
+    assert_eq!(
         eval.eval_symbol("kmacro-no-exec-count")
             .expect("kmacro-no-exec-count"),
         Value::fixnum(0)
@@ -406,24 +406,24 @@ fn test_defining_executing_kbd_macro_p_builtins() {
 
     let mut eval = Context::new();
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_defining_kbd_macro_p(&mut eval, vec![]).unwrap(),
         Value::NIL
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_executing_kbd_macro_p(&mut eval, vec![]).unwrap(),
         Value::NIL
     );
 
     eval.start_kbd_macro_runtime(None, false).unwrap();
-    assert_val_eq!(
+    assert_eq!(
         builtin_defining_kbd_macro_p(&mut eval, vec![]).unwrap(),
         Value::T
     );
     let _ = eval.end_kbd_macro_runtime().unwrap();
 
     eval.begin_executing_kbd_macro_runtime(vec![Value::char('x')]);
-    assert_val_eq!(
+    assert_eq!(
         builtin_executing_kbd_macro_p(&mut eval, vec![]).unwrap(),
         Value::T
     );
@@ -454,7 +454,7 @@ fn test_execute_kbd_macro_restores_outer_execution_state() {
         Some(outer.as_slice())
     );
     assert_eq!(eval.command_loop.keyboard.kboard.kbd_macro_index, 1);
-    assert_val_eq!(
+    assert_eq!(
         eval.eval_symbol("executing-kbd-macro-index")
             .expect("executing-kbd-macro-index"),
         Value::fixnum(1)
@@ -560,7 +560,7 @@ fn test_call_last_kbd_macro_raw_prefix_repeats_real_key_macro() {
     builtin_call_last_kbd_macro(&mut eval, vec![Value::list(vec![Value::fixnum(4)])])
         .expect("call-last with raw prefix");
 
-    assert_val_eq!(
+    assert_eq!(
         eval.eval_symbol("kmacro-call-last-count")
             .expect("kmacro-call-last-count"),
         Value::fixnum(4)
@@ -595,12 +595,12 @@ fn test_call_last_kbd_macro_symbol_events_use_command_loop_dispatch() {
     builtin_end_kbd_macro(&mut eval, vec![]).expect("end");
     builtin_call_last_kbd_macro(&mut eval, vec![]).expect("call-last");
 
-    assert_val_eq!(
+    assert_eq!(
         eval.eval_symbol("kmacro-call-last-symbol-count")
             .expect("kmacro-call-last-symbol-count"),
         Value::fixnum(1)
     );
-    assert_val_eq!(
+    assert_eq!(
         eval.eval_symbol("kmacro-call-last-ignore-direct-called")
             .expect("kmacro-call-last-ignore-direct-called"),
         Value::NIL
@@ -641,12 +641,12 @@ fn test_execute_kbd_macro_zero_count_uses_loopfunc_for_real_key_macro() {
     )
     .expect("execute with loopfunc");
 
-    assert_val_eq!(
+    assert_eq!(
         eval.eval_symbol("kmacro-loop-count")
             .expect("kmacro-loop-count"),
         Value::fixnum(2)
     );
-    assert_val_eq!(
+    assert_eq!(
         eval.eval_symbol("kmacro-loopfunc-count")
             .expect("kmacro-loopfunc-count"),
         Value::fixnum(3)
@@ -677,7 +677,7 @@ fn test_end_kbd_macro_repeat_executes_remaining_iterations() {
     eval.finalize_kbd_macro_runtime_chars();
     builtin_end_kbd_macro(&mut eval, vec![Value::fixnum(3)]).expect("end with repeat");
 
-    assert_val_eq!(
+    assert_eq!(
         eval.eval_symbol("kmacro-end-repeat-count")
             .expect("kmacro-end-repeat-count"),
         Value::fixnum(2)
@@ -711,11 +711,11 @@ fn test_execute_kbd_macro_runs_termination_hook_after_restoring_runtime_state() 
     .expect("parse");
     let _ = eval.eval_forms(&forms);
 
-    assert_val_eq!(
+    assert_eq!(
         eval.eval_symbol("kmacro-term-ok").expect("kmacro-term-ok"),
         Value::T
     );
-    assert_val_eq!(
+    assert_eq!(
         eval.eval_symbol("real-this-command")
             .expect("real-this-command"),
         Value::symbol("outer-real")
@@ -747,12 +747,12 @@ fn test_execute_kbd_macro_runs_termination_hook_after_error() {
     .expect("parse");
     let _ = eval.eval_forms(&forms);
 
-    assert_val_eq!(
+    assert_eq!(
         eval.eval_symbol("kmacro-error-term-ok")
             .expect("kmacro-error-term-ok"),
         Value::T
     );
-    assert_val_eq!(
+    assert_eq!(
         eval.eval_symbol("real-this-command")
             .expect("real-this-command"),
         Value::symbol("outer-real")
@@ -785,7 +785,7 @@ fn test_call_last_kbd_macro_preserves_gnu_real_this_command_shape() {
     .expect("parse setup");
     let _ = eval.eval_forms(&setup);
 
-    assert_val_eq!(
+    assert_eq!(
         eval.eval_symbol("kmacro-call-last-term-ok")
             .expect("kmacro-call-last-term-ok"),
         Value::T
@@ -803,7 +803,7 @@ fn test_last_kbd_macro_builtin() {
 
     let mut eval = Context::new();
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_last_kbd_macro(&mut eval, vec![]).unwrap(),
         Value::NIL
     );
@@ -824,16 +824,16 @@ fn test_last_kbd_macro_builtin() {
 
 #[test]
 fn test_kmacro_p_builtin_subset() {
-    assert_val_eq!(builtin_kmacro_p(vec![Value::NIL]).unwrap(), Value::NIL);
-    assert_val_eq!(
+    assert_eq!(builtin_kmacro_p(vec![Value::NIL]).unwrap(), Value::NIL);
+    assert_eq!(
         builtin_kmacro_p(vec![Value::vector(vec![])]).unwrap(),
         Value::T
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_kmacro_p(vec![Value::string("abc")]).unwrap(),
         Value::T
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_kmacro_p(vec![Value::fixnum(1)]).unwrap(),
         Value::NIL
     );
@@ -846,13 +846,13 @@ fn test_kmacro_set_counter_builtin() {
     use super::super::eval::Context;
 
     let mut eval = Context::new();
-    assert_val_eq!(
+    assert_eq!(
         builtin_kmacro_set_counter(&mut eval, vec![Value::fixnum(42)]).unwrap(),
         Value::NIL
     );
     assert_eq!(eval.kmacro.counter, 42);
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_kmacro_set_counter(&mut eval, vec![Value::fixnum(-3), Value::NIL]).unwrap(),
         Value::NIL
     );
@@ -872,13 +872,13 @@ fn test_kmacro_add_counter_builtin() {
 
     let mut eval = Context::new();
     eval.kmacro.counter = 10;
-    assert_val_eq!(
+    assert_eq!(
         builtin_kmacro_add_counter(&mut eval, vec![Value::fixnum(5)]).unwrap(),
         Value::NIL
     );
     assert_eq!(eval.kmacro.counter, 15);
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_kmacro_add_counter(&mut eval, vec![Value::fixnum(-2)]).unwrap(),
         Value::NIL
     );
@@ -896,13 +896,13 @@ fn test_kmacro_set_format_builtin() {
     let mut eval = Context::new();
     assert_eq!(eval.kmacro.counter_format, "%d");
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_kmacro_set_format(&mut eval, vec![Value::string("item-%d")]).unwrap(),
         Value::NIL
     );
     assert_eq!(eval.kmacro.counter_format, "item-%d");
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_kmacro_set_format(&mut eval, vec![Value::string("")]).unwrap(),
         Value::NIL
     );
@@ -919,12 +919,12 @@ fn test_kmacro_builtin_arity_contracts() {
 
     let mut eval = Context::new();
 
-    assert_val_eq!(
+    assert_eq!(
         builtin_start_kbd_macro(&mut eval, vec![Value::NIL, Value::NIL]).unwrap(),
         Value::NIL
     );
     assert!(builtin_start_kbd_macro(&mut eval, vec![Value::NIL, Value::NIL]).is_err());
-    assert_val_eq!(
+    assert_eq!(
         builtin_end_kbd_macro(&mut eval, vec![]).unwrap(),
         Value::NIL
     );

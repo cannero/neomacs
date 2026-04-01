@@ -21,17 +21,17 @@ fn fillarray_bool_vector_preserves_layout_and_sets_bits() {
     let out =
         crate::emacs_core::builtins::builtin_fillarray(vec![bv, Value::symbol("non-nil")]).unwrap();
     assert_eq!(out, bv);
-    assert_val_eq!(
+    assert_eq!(
         crate::emacs_core::chartable::builtin_bool_vector_p(vec![bv]).unwrap(),
         Value::T
     );
-    assert_val_eq!(
+    assert_eq!(
         crate::emacs_core::chartable::builtin_bool_vector_count_population(vec![bv]).unwrap(),
         Value::fixnum(4)
     );
 
     crate::emacs_core::builtins::builtin_fillarray(vec![bv, Value::NIL]).unwrap();
-    assert_val_eq!(
+    assert_eq!(
         crate::emacs_core::chartable::builtin_bool_vector_count_population(vec![bv]).unwrap(),
         Value::fixnum(0)
     );
@@ -53,15 +53,15 @@ fn fillarray_char_table_preserves_shape_and_updates_default_slot() {
     let out =
         crate::emacs_core::builtins::builtin_fillarray(vec![table, Value::fixnum(7)]).unwrap();
     assert_eq!(out, table);
-    assert_val_eq!(
+    assert_eq!(
         crate::emacs_core::chartable::builtin_char_table_p(vec![table]).unwrap(),
         Value::T
     );
-    assert_val_eq!(
+    assert_eq!(
         crate::emacs_core::chartable::builtin_char_table_subtype(vec![table]).unwrap(),
         Value::symbol("syntax-table")
     );
-    assert_val_eq!(
+    assert_eq!(
         crate::emacs_core::chartable::builtin_char_table_range(vec![
             table,
             Value::fixnum('a' as i64)
@@ -69,7 +69,7 @@ fn fillarray_char_table_preserves_shape_and_updates_default_slot() {
         .unwrap(),
         Value::fixnum(9)
     );
-    assert_val_eq!(
+    assert_eq!(
         crate::emacs_core::chartable::builtin_char_table_range(vec![table, Value::NIL]).unwrap(),
         Value::fixnum(7)
     );
@@ -139,7 +139,7 @@ fn frame_set_was_invisible_returns_new_state() {
     let out =
         crate::emacs_core::builtins::builtin_frame_set_was_invisible(vec![Value::NIL, Value::T])
             .unwrap();
-    assert_val_eq!(out, Value::T);
+    assert_eq!(out, Value::T);
 }
 
 #[test]
@@ -156,7 +156,7 @@ fn frame_bottom_divider_width_rejects_non_frame_designator() {
 #[test]
 fn frame_scale_factor_defaults_to_one_float() {
     let out = crate::emacs_core::builtins::builtin_frame_scale_factor(vec![]).unwrap();
-    assert_val_eq!(out, Value::make_float(1.0));
+    assert_eq!(out, Value::make_float(1.0));
 }
 
 #[test]
@@ -173,7 +173,7 @@ fn garbage_collect_maybe_requires_whole_number() {
 fn gnutls_error_string_zero_is_success() {
     let out =
         crate::emacs_core::builtins::builtin_gnutls_error_string(vec![Value::fixnum(0)]).unwrap();
-    assert_val_eq!(out, Value::string("Success."));
+    assert_eq!(out, Value::string("Success."));
 }
 
 #[test]
@@ -206,16 +206,16 @@ fn sqlite_version_returns_string() {
 #[test]
 fn inotify_valid_p_returns_nil() {
     let out = crate::emacs_core::builtins::builtin_inotify_valid_p(vec![Value::fixnum(0)]).unwrap();
-    assert_val_eq!(out, Value::NIL);
+    assert_eq!(out, Value::NIL);
 }
 
 #[test]
 fn sqlite_open_and_close_round_trip() {
     let db = crate::emacs_core::builtins::builtin_sqlite_open(vec![]).unwrap();
     let sqlitep = crate::emacs_core::builtins::builtin_sqlitep(vec![db]).unwrap();
-    assert_val_eq!(sqlitep, Value::T);
+    assert_eq!(sqlitep, Value::T);
     let closed = crate::emacs_core::builtins::builtin_sqlite_close(vec![db]).unwrap();
-    assert_val_eq!(closed, Value::T);
+    assert_eq!(closed, Value::T);
 }
 
 #[test]
@@ -240,11 +240,11 @@ fn inotify_watch_lifecycle() {
     ])
     .unwrap();
     let active = crate::emacs_core::builtins::builtin_inotify_valid_p(vec![watch]).unwrap();
-    assert_val_eq!(active, Value::T);
+    assert_eq!(active, Value::T);
     let removed = crate::emacs_core::builtins::builtin_inotify_rm_watch(vec![watch]).unwrap();
-    assert_val_eq!(removed, Value::T);
+    assert_eq!(removed, Value::T);
     let inactive = crate::emacs_core::builtins::builtin_inotify_valid_p(vec![watch]).unwrap();
-    assert_val_eq!(inactive, Value::NIL);
+    assert_eq!(inactive, Value::NIL);
 }
 
 #[test]
@@ -311,7 +311,7 @@ fn gnutls_symmetric_encrypt_accepts_optional_aad_slot() {
         Value::string("aad"),
     ])
     .unwrap();
-    assert_val_eq!(out, Value::NIL);
+    assert_eq!(out, Value::NIL);
 }
 
 #[test]
@@ -319,7 +319,7 @@ fn handle_switch_frame_accepts_switch_frame_event_and_rejects_nil() {
     let frame_event = Value::list(vec![Value::symbol("switch-frame"), Value::make_frame(1)]);
     let out = crate::emacs_core::builtins::builtin_handle_switch_frame(vec![frame_event])
         .expect("switch-frame event should be accepted");
-    assert_val_eq!(out, Value::NIL);
+    assert_eq!(out, Value::NIL);
 
     let err =
         crate::emacs_core::builtins::builtin_handle_switch_frame(vec![Value::NIL]).unwrap_err();
@@ -337,7 +337,7 @@ fn interactive_form_for_ignore_returns_interactive_list() {
         vec![Value::symbol("ignore")],
     )
     .unwrap();
-    assert_val_eq!(
+    assert_eq!(
         out,
         Value::list(vec![Value::symbol("interactive"), Value::NIL])
     );
@@ -392,7 +392,7 @@ fn window_bottom_divider_width_rejects_non_window_designator() {
 #[test]
 fn treesit_available_p_defaults_to_nil() {
     let out = crate::emacs_core::builtins::builtin_treesit_available_p(vec![]).unwrap();
-    assert_val_eq!(out, Value::NIL);
+    assert_eq!(out, Value::NIL);
 }
 
 #[test]
@@ -408,7 +408,7 @@ fn treesit_query_compile_validates_arity() {
 #[test]
 fn internal_stack_stats_returns_nil() {
     let out = crate::emacs_core::builtins::builtin_internal_stack_stats(vec![]).unwrap();
-    assert_val_eq!(out, Value::NIL);
+    assert_eq!(out, Value::NIL);
 }
 
 #[test]
@@ -428,5 +428,5 @@ fn internal_labeled_narrow_to_region_validates_arity() {
 #[test]
 fn lossage_size_defaults_to_three_hundred() {
     let out = crate::emacs_core::builtins::builtin_lossage_size(vec![]).unwrap();
-    assert_val_eq!(out, Value::fixnum(300));
+    assert_eq!(out, Value::fixnum(300));
 }

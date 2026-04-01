@@ -64,8 +64,8 @@ mod tests {
             .expect("memory-signal-data");
         let items = list_to_vec(&signal_data).expect("memory-signal-data list");
         assert_eq!(items.len(), 2);
-        assert_val_eq!(items[0], Value::symbol("error"));
-        assert_val_eq!(
+        assert_eq!(items[0], Value::symbol("error"));
+        assert_eq!(
             items[1],
             Value::string(
                 "Memory exhausted--use M-x save-some-buffers then exit and restart Emacs"
@@ -92,6 +92,6 @@ mod tests {
             .copied()
             .expect("memory-signal-data");
         let items = list_to_vec(&signal_data).expect("memory-signal-data list");
-        assert_val_eq!(items[0], Value::symbol("error"));
+        assert_eq!(items[0], Value::symbol("error"));
     }
 }

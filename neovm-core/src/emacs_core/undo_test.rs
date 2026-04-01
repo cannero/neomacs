@@ -224,7 +224,7 @@ fn test_undo_with_non_positive_arg_and_boundary_returns_undo() {
         buffer.set_undo_list(ul);
     }
     let result = builtin_undo(&mut eval, vec![Value::fixnum(0)]).unwrap();
-    assert_val_eq!(result, Value::string("Undo"));
+    assert_eq!(result, Value::string("Undo"));
     let contents = eval
         .buffers
         .current_buffer()

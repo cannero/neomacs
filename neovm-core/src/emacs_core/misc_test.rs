@@ -410,8 +410,8 @@ fn locale_info_days_months_and_paper_return_oracle_shapes() {
         other => panic!("days should be a vector, got {other:?}"),
     };
     assert_eq!(days_vec.len(), 7);
-    assert_val_eq!(days_vec[0], Value::string("Sunday"));
-    assert_val_eq!(days_vec[6], Value::string("Saturday"));
+    assert_eq!(days_vec[0], Value::string("Sunday"));
+    assert_eq!(days_vec[6], Value::string("Saturday"));
 
     let months = builtin_locale_info(vec![Value::symbol("months")]).unwrap();
     let months_vec = match months.kind() {
@@ -419,11 +419,11 @@ fn locale_info_days_months_and_paper_return_oracle_shapes() {
         other => panic!("months should be a vector, got {other:?}"),
     };
     assert_eq!(months_vec.len(), 12);
-    assert_val_eq!(months_vec[0], Value::string("January"));
-    assert_val_eq!(months_vec[11], Value::string("December"));
+    assert_eq!(months_vec[0], Value::string("January"));
+    assert_eq!(months_vec[11], Value::string("December"));
 
     let paper = builtin_locale_info(vec![Value::symbol("paper")]).unwrap();
-    assert_val_eq!(
+    assert_eq!(
         paper,
         Value::list(vec![Value::fixnum(210), Value::fixnum(297)])
     );
@@ -442,7 +442,7 @@ fn locale_info_unknown_or_non_symbol_items_return_nil() {
 #[test]
 fn display_line_numbers_update_width_is_noop() {
     let result = builtin_display_line_numbers_update_width(vec![]).unwrap();
-    assert_val_eq!(result, Value::NIL);
+    assert_eq!(result, Value::NIL);
 }
 
 #[test]

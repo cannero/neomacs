@@ -38,16 +38,16 @@ fn zlib_decompress_region_signals_unibyte_requirement() {
 
 #[test]
 fn libxml_parse_xml_region_arity_and_type_subset() {
-    assert_val_eq!(builtin_libxml_parse_xml_region(vec![]).unwrap(), Value::NIL);
-    assert_val_eq!(
+    assert_eq!(builtin_libxml_parse_xml_region(vec![]).unwrap(), Value::NIL);
+    assert_eq!(
         builtin_libxml_parse_xml_region(vec![Value::NIL]).unwrap(),
         Value::NIL
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_libxml_parse_xml_region(vec![Value::fixnum(1), Value::fixnum(1)]).unwrap(),
         Value::NIL
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_libxml_parse_xml_region(vec![Value::NIL, Value::fixnum(1)]).unwrap(),
         Value::NIL
     );
@@ -113,11 +113,11 @@ fn libxml_parse_html_region_arity_and_type_subset() {
         builtin_libxml_parse_html_region(vec![Value::fixnum(1), Value::NIL]).unwrap(),
         html_parse_fallback("libxml-parse-html-region", &[Value::fixnum(1), Value::NIL])
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_libxml_parse_html_region(vec![Value::NIL, Value::fixnum(1)]).unwrap(),
         Value::NIL
     );
-    assert_val_eq!(
+    assert_eq!(
         builtin_libxml_parse_html_region(vec![Value::fixnum(1), Value::fixnum(1)]).unwrap(),
         Value::NIL
     );
@@ -177,8 +177,8 @@ fn libxml_parse_html_region_arity_and_type_subset() {
 
 #[test]
 fn availability_probes_return_true_and_validate_arity() {
-    assert_val_eq!(builtin_libxml_available_p(vec![]).unwrap(), Value::T);
-    assert_val_eq!(builtin_zlib_available_p(vec![]).unwrap(), Value::T);
+    assert_eq!(builtin_libxml_available_p(vec![]).unwrap(), Value::T);
+    assert_eq!(builtin_zlib_available_p(vec![]).unwrap(), Value::T);
 
     let libxml_arity = builtin_libxml_available_p(vec![Value::fixnum(1)]).unwrap_err();
     match libxml_arity {
