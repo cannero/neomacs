@@ -243,6 +243,7 @@
             LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
 
             shellHook = ''
+              export RUST_BACKTRACE=full
               echo "=== Neomacs Development Environment ==="
               echo ""
               echo "Rust: $(rustc --version)"
