@@ -2587,14 +2587,14 @@ mod tests {
             .expect("indirect buffer");
 
         let _ = mgr.insert_into_buffer(base_id, "abc");
-        assert!(
-            !matches!(
-                mgr.get(indirect_id)
-                    .and_then(|buf| buf.buffer_local_value("buffer-undo-list")),
-                Some(Value::NIL) | None
-            ),
-            "indirect buffer should observe the base buffer's undo history"
-        );
+        {
+            let undo_val = mgr.get(indirect_id)
+                .and_then(|buf| buf.buffer_local_value("buffer-undo-list"));
+            assert!(
+                undo_val.is_some() && !undo_val.unwrap().is_nil(),
+                "indirect buffer should observe the base buffer's undo history"
+            );
+        }
 
         let result = mgr.undo_buffer(indirect_id, 1).expect("undo result");
         assert!(result.applied_any);

@@ -47,7 +47,7 @@ fn put_and_get_text_property() {
 fn get_text_property_returns_nil_when_absent() {
     let mut eval = eval_with_text("hello");
     let result = builtin_get_text_property(&mut eval, vec![Value::fixnum(1), Value::symbol("face")]);
-    assert!(matches!(result, Ok(Value::NIL)));
+    assert!(result.as_ref().map_or(false, |v| v.is_nil()));
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn put_text_property_outside_range() {
 
     // Position 4 is outside the propertized range.
     let result = builtin_get_text_property(&mut eval, vec![Value::fixnum(4), Value::symbol("face")]);
-    assert!(matches!(result, Ok(Value::NIL)));
+    assert!(result.as_ref().map_or(false, |v| v.is_nil()));
 }
 
 #[test]
@@ -608,7 +608,7 @@ fn remove_text_properties_basic() {
     builtin_remove_text_properties(&mut eval, vec![Value::fixnum(1), Value::fixnum(6), props]).unwrap();
 
     let result = builtin_get_text_property(&mut eval, vec![Value::fixnum(3), Value::symbol("face")]);
-    assert!(matches!(result, Ok(Value::NIL)));
+    assert!(result.as_ref().map_or(false, |v| v.is_nil()));
 }
 
 #[test]
@@ -1579,7 +1579,7 @@ fn text_property_on_empty_buffer() {
     let mut eval = Context::new();
     // Scratch buffer is empty.
     let result = builtin_get_text_property(&mut eval, vec![Value::fixnum(1), Value::symbol("face")]);
-    assert!(matches!(result, Ok(Value::NIL)));
+    assert!(result.as_ref().map_or(false, |v| v.is_nil()));
 }
 
 #[test]

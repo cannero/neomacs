@@ -2637,7 +2637,7 @@ fn vm_runtime_control_tail_uses_localized_shared_paths() {
         let mut vm = new_vm(&mut eval);
         let kill_result = vm.execute(&kill_func, vec![]);
         assert!(
-            matches!(kill_result, Ok(Value::NIL)),
+            kill_result.as_ref().map_or(false, |v| v.is_nil()),
             "compiled kill-emacs should return nil, got {kill_result:?}"
         );
     }
