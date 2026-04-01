@@ -404,10 +404,7 @@ fn test_abbrev_table_properties_are_table_local() {
     let mut eval = Context::new();
     let table_a = builtin_make_abbrev_table(
         &mut eval,
-        vec![Value::list(vec![
-            Value::keyword(":case-fixed"),
-            Value::T,
-        ])],
+        vec![Value::list(vec![Value::keyword(":case-fixed"), Value::T])],
     )
     .unwrap();
     let table_b = builtin_make_abbrev_table(&mut eval, vec![]).unwrap();

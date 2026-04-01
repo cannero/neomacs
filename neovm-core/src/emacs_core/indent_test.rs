@@ -519,7 +519,11 @@ fn wrong_arg_count_errors() {
     assert!(builtin_indent_to(&mut eval, vec![]).is_err());
     // indent-to accepts at most 2 args
     assert!(
-        builtin_indent_to(&mut eval, vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]).is_err()
+        builtin_indent_to(
+            &mut eval,
+            vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]
+        )
+        .is_err()
     );
     // current-column takes no args
     assert!(builtin_current_column(&mut eval, vec![Value::fixnum(1)]).is_err());

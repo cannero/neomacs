@@ -163,7 +163,9 @@ fn collect_sequence_strict(val: &Value) -> Result<Vec<Value>, Flow> {
                 }
             }
         }
-        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => Ok(val.as_vector_data().unwrap().clone()),
+        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
+            Ok(val.as_vector_data().unwrap().clone())
+        }
         ValueKind::String => {
             let s = val.as_str().unwrap().to_owned();
             Ok(s.chars().map(|ch| Value::fixnum(ch as i64)).collect())
@@ -394,7 +396,9 @@ pub(crate) fn builtin_compiled_function_p(args: Vec<Value>) -> EvalResult {
 /// `(closurep OBJ)` -> t if closure.
 pub(crate) fn builtin_closurep(args: Vec<Value>) -> EvalResult {
     expect_args("closurep", &args, 1)?;
-    Ok(Value::bool_val(args[0].is_lambda() || args[0].is_bytecode()))
+    Ok(Value::bool_val(
+        args[0].is_lambda() || args[0].is_bytecode(),
+    ))
 }
 
 /// `(natnump OBJ)` -> t if natural number (>= 0).
@@ -637,7 +641,9 @@ pub(crate) fn builtin_user_full_name(args: Vec<Value>) -> EvalResult {
 /// NeoVM has no bignums, so all integers are fixnums.
 pub(crate) fn builtin_fixnump(args: Vec<Value>) -> EvalResult {
     expect_args("fixnump", &args, 1)?;
-    Ok(Value::bool_val(args[0].is_fixnum() || args[0].as_char().is_some()))
+    Ok(Value::bool_val(
+        args[0].is_fixnum() || args[0].as_char().is_some(),
+    ))
 }
 
 /// `(bignump OBJ)` — return t if OBJ is a bignum.

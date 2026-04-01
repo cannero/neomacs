@@ -14,7 +14,7 @@
 use super::error::{EvalResult, Flow, signal};
 use super::intern::intern;
 use super::value::*;
-use crate::emacs_core::value::{ValueKind};
+use crate::emacs_core::value::ValueKind;
 
 // ---------------------------------------------------------------------------
 // Argument helpers (local copies — same pattern as other modules)

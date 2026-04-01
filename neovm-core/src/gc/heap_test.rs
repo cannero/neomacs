@@ -1,5 +1,5 @@
 use super::*;
-use crate::emacs_core::value::{ValueKind};
+use crate::emacs_core::value::ValueKind;
 
 #[test]
 fn alloc_cons_read() {
@@ -92,7 +92,10 @@ fn list_helpers() {
     let list = Value::list(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
 
     let vec = heap.list_to_vec(&list).unwrap();
-    assert_eq!(vec, vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
+    assert_eq!(
+        vec,
+        vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]
+    );
     assert_eq!(heap.list_length(&list), Some(3));
 }
 
@@ -272,7 +275,10 @@ fn collect_preserves_cons_chain() {
 
     // Verify the chain is intact via tagged heap cons accessors
     let vec = heap.list_to_vec(&list).unwrap();
-    assert_eq!(vec, vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]);
+    assert_eq!(
+        vec,
+        vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]
+    );
 }
 
 #[test]

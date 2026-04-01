@@ -45,13 +45,13 @@ use crate::emacs_core::value::{
     HashKey, HashTableTest, HashTableWeakness, LambdaData, LambdaParams, LispHashTable,
     OrderedRuntimeBindingMap, OrderedSymMap, RuntimeBindingValue, StringTextPropertyRun, Value,
 };
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 use crate::face::{
     BoxBorder, BoxStyle, Color, Face, FaceHeight, FaceTable, FontSlant, FontWeight, FontWidth,
     Underline, UnderlineStyle,
 };
 use crate::gc::heap::LispHeap;
 use crate::gc::types::{HeapObject, ObjId};
-use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 // ===========================================================================
 // Dump direction: Runtime → Dump
@@ -95,17 +95,33 @@ pub(crate) fn dump_value(v: &Value) -> DumpValue {
         ValueKind::Keyword(s) => DumpValue::Keyword(dump_sym_id(s)),
         ValueKind::String => DumpValue::Str(dump_obj_id(value_to_obj_id(v))),
         ValueKind::Cons => DumpValue::Cons(dump_obj_id(value_to_obj_id(v))),
-        ValueKind::Veclike(VecLikeType::Vector) => DumpValue::Vector(dump_obj_id(value_to_obj_id(v))),
-        ValueKind::Veclike(VecLikeType::Record) => DumpValue::Record(dump_obj_id(value_to_obj_id(v))),
-        ValueKind::Veclike(VecLikeType::HashTable) => DumpValue::HashTable(dump_obj_id(value_to_obj_id(v))),
-        ValueKind::Veclike(VecLikeType::Lambda) => DumpValue::Lambda(dump_obj_id(value_to_obj_id(v))),
+        ValueKind::Veclike(VecLikeType::Vector) => {
+            DumpValue::Vector(dump_obj_id(value_to_obj_id(v)))
+        }
+        ValueKind::Veclike(VecLikeType::Record) => {
+            DumpValue::Record(dump_obj_id(value_to_obj_id(v)))
+        }
+        ValueKind::Veclike(VecLikeType::HashTable) => {
+            DumpValue::HashTable(dump_obj_id(value_to_obj_id(v)))
+        }
+        ValueKind::Veclike(VecLikeType::Lambda) => {
+            DumpValue::Lambda(dump_obj_id(value_to_obj_id(v)))
+        }
         ValueKind::Veclike(VecLikeType::Macro) => DumpValue::Macro(dump_obj_id(value_to_obj_id(v))),
         ValueKind::Char(c) => DumpValue::Char(c),
         ValueKind::Subr(s) => DumpValue::Subr(dump_sym_id(s)),
-        ValueKind::Veclike(VecLikeType::ByteCode) => DumpValue::ByteCode(dump_obj_id(value_to_obj_id(v))),
-        ValueKind::Veclike(VecLikeType::Marker) => DumpValue::Marker(dump_obj_id(value_to_obj_id(v))),
-        ValueKind::Veclike(VecLikeType::Overlay) => DumpValue::Overlay(dump_obj_id(value_to_obj_id(v))),
-        ValueKind::Veclike(VecLikeType::Buffer) => DumpValue::Buffer(DumpBufferId(v.as_buffer_id().unwrap().0)),
+        ValueKind::Veclike(VecLikeType::ByteCode) => {
+            DumpValue::ByteCode(dump_obj_id(value_to_obj_id(v)))
+        }
+        ValueKind::Veclike(VecLikeType::Marker) => {
+            DumpValue::Marker(dump_obj_id(value_to_obj_id(v)))
+        }
+        ValueKind::Veclike(VecLikeType::Overlay) => {
+            DumpValue::Overlay(dump_obj_id(value_to_obj_id(v)))
+        }
+        ValueKind::Veclike(VecLikeType::Buffer) => {
+            DumpValue::Buffer(DumpBufferId(v.as_buffer_id().unwrap().0))
+        }
         ValueKind::Veclike(VecLikeType::Window) => DumpValue::Window(v.as_window_id().unwrap()),
         ValueKind::Veclike(VecLikeType::Frame) => DumpValue::Frame(v.as_frame_id().unwrap()),
         ValueKind::Veclike(VecLikeType::Timer) => DumpValue::Timer(v.as_timer_id().unwrap()),
@@ -1544,7 +1560,9 @@ pub(crate) fn load_hash_key(k: &DumpHashKey) -> HashKey {
         DumpHashKey::Keyword(s) => HashKey::Keyword(load_sym_id(s)),
         // TODO(tagged): legacy DumpHashKey::Str carried an ObjId; need heap access
         // to resolve the string content.  Map to Ptr as a placeholder.
-        DumpHashKey::Str(id) => HashKey::Ptr(((id.index as usize) << 32) | (id.generation as usize)),
+        DumpHashKey::Str(id) => {
+            HashKey::Ptr(((id.index as usize) << 32) | (id.generation as usize))
+        }
         DumpHashKey::Char(c) => HashKey::Char(*c),
         DumpHashKey::Window(w) => HashKey::Window(*w),
         DumpHashKey::Frame(f) => HashKey::Frame(*f),

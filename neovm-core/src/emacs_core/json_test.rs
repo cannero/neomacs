@@ -100,7 +100,9 @@ fn serialize_hash_table() {
     let ht = Value::hash_table(HashTableTest::Equal);
     {
         let table = ht.as_hash_table_mut().unwrap();
-        table.data.insert(HashKey::from_str("name"), Value::string("Alice"));
+        table
+            .data
+            .insert(HashKey::from_str("name"), Value::string("Alice"));
     }
     let result = builtin_json_serialize(vec![ht]);
     assert_eq!(result.unwrap().as_str(), Some("{\"name\":\"Alice\"}"));
@@ -205,7 +207,10 @@ fn json_insert_writes_at_point_and_advances() {
 fn parse_null() {
     let result = builtin_json_parse_string(vec![Value::string("null")]);
     let val = result.unwrap();
-    assert!(val.as_keyword_id().map_or(false, |k| resolve_sym(k) == ":null"));
+    assert!(
+        val.as_keyword_id()
+            .map_or(false, |k| resolve_sym(k) == ":null")
+    );
 }
 
 #[test]
@@ -218,7 +223,10 @@ fn parse_true() {
 fn parse_false() {
     let result = builtin_json_parse_string(vec![Value::string("false")]);
     let val = result.unwrap();
-    assert!(val.as_keyword_id().map_or(false, |k| resolve_sym(k) == ":false"));
+    assert!(
+        val.as_keyword_id()
+            .map_or(false, |k| resolve_sym(k) == ":false")
+    );
 }
 
 #[test]
@@ -287,7 +295,9 @@ fn parse_string_surrogate_pair() {
 fn parse_empty_array() {
     let val = builtin_json_parse_string(vec![Value::string("[]")]).unwrap();
     match val.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => assert!(val.as_vector_data().unwrap().is_empty()),
+        ValueKind::Veclike(VecLikeType::Vector) => {
+            assert!(val.as_vector_data().unwrap().is_empty())
+        }
         _ => panic!("expected vector, got {:?}", val),
     }
 }
@@ -342,11 +352,17 @@ fn parse_object_hash_table() {
             assert_eq!(table.data.len(), 2);
             assert_eq!(table.key_snapshots.len(), 2);
             assert_eq!(
-                table.data.get(&HashKey::from_str("a")).map(|v| v.as_fixnum()),
+                table
+                    .data
+                    .get(&HashKey::from_str("a"))
+                    .map(|v| v.as_fixnum()),
                 Some(Some(1))
             );
             assert_eq!(
-                table.data.get(&HashKey::from_str("b")).map(|v| v.as_fixnum()),
+                table
+                    .data
+                    .get(&HashKey::from_str("b"))
+                    .map(|v| v.as_fixnum()),
                 Some(Some(2))
             );
             assert!(matches!(
@@ -394,7 +410,11 @@ fn parse_object_as_plist() {
     let val = result.unwrap();
     let items = list_to_vec(&val).expect("should be a list");
     assert_eq!(items.len(), 2);
-    assert!(items[0].as_keyword_id().map_or(false, |k| resolve_sym(k) == ":key"));
+    assert!(
+        items[0]
+            .as_keyword_id()
+            .map_or(false, |k| resolve_sym(k) == ":key")
+    );
     assert!(items[1].is_fixnum());
 }
 
@@ -423,7 +443,10 @@ fn parse_custom_false_object() {
         Value::keyword(intern(":json-false")),
     ]);
     let val = result.unwrap();
-    assert!(val.as_keyword_id().map_or(false, |k| resolve_sym(k) == ":json-false"));
+    assert!(
+        val.as_keyword_id()
+            .map_or(false, |k| resolve_sym(k) == ":json-false")
+    );
 }
 
 #[test]
@@ -501,7 +524,9 @@ fn round_trip_object() {
     let ht = Value::hash_table(HashTableTest::Equal);
     {
         let table = ht.as_hash_table_mut().unwrap();
-        table.data.insert(HashKey::from_str("key"), Value::fixnum(99));
+        table
+            .data
+            .insert(HashKey::from_str("key"), Value::fixnum(99));
     }
     let serialized = builtin_json_serialize(vec![ht]).unwrap();
     let parsed = builtin_json_parse_string(vec![serialized]).unwrap();
@@ -509,7 +534,10 @@ fn round_trip_object() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
             let table = parsed.as_hash_table().unwrap();
             assert_eq!(
-                table.data.get(&HashKey::from_str("key")).map(|v| v.as_fixnum()),
+                table
+                    .data
+                    .get(&HashKey::from_str("key"))
+                    .map(|v| v.as_fixnum()),
                 Some(Some(99))
             );
         }

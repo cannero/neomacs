@@ -331,7 +331,10 @@ pub(crate) fn builtin_bookmark_set(
     if args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("bookmark-set"), Value::fixnum(args.len() as i64)],
+            vec![
+                Value::symbol("bookmark-set"),
+                Value::fixnum(args.len() as i64),
+            ],
         ));
     }
     let name = expect_string(&args[0])?;

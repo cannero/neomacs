@@ -16,7 +16,7 @@ use std::collections::HashMap;
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::{SymId, intern, intern_uninterned, resolve_sym};
-use super::value::{Value, list_to_vec, ValueKind, VecLikeType};
+use super::value::{Value, ValueKind, VecLikeType, list_to_vec};
 
 // ---------------------------------------------------------------------------
 // AbbrevManager -- kept for backward compat (eval.rs, pdump)
@@ -523,7 +523,9 @@ pub(crate) fn builtin_define_abbrev(
         props.push(Value::fixnum(0));
     }
     props.push(Value::keyword(":abbrev-table-modiff"));
-    props.push(get_table_property(eval, vec_val, ":abbrev-table-modiff").unwrap_or(Value::fixnum(0)));
+    props.push(
+        get_table_property(eval, vec_val, ":abbrev-table-modiff").unwrap_or(Value::fixnum(0)),
+    );
     let system_flag = props
         .chunks_exact(2)
         .find(|chunk| chunk[0].as_symbol_name() == Some(":system"))

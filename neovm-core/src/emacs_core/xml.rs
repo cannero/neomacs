@@ -8,7 +8,7 @@
 
 use super::error::{EvalResult, Flow, signal};
 use super::value::*;
-use crate::emacs_core::value::{ValueKind};
+use crate::emacs_core::value::ValueKind;
 
 // ---------------------------------------------------------------------------
 // Argument helpers

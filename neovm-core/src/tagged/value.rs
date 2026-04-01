@@ -34,9 +34,7 @@ use std::fmt;
 
 use crate::emacs_core::intern::SymId;
 
-use super::header::{
-    ConsCell, FloatObj, GcHeader, StringObj, VecLikeHeader, VecLikeType,
-};
+use super::header::{ConsCell, FloatObj, GcHeader, StringObj, VecLikeHeader, VecLikeType};
 
 // ---------------------------------------------------------------------------
 // Tag constants
@@ -485,9 +483,9 @@ impl TaggedValue {
             }
             _ if self.is_fixnum() => ValueKind::Fixnum(self.xfixnum()),
             TAG_CONS => ValueKind::Cons,
-            TAG_VECLIKE => ValueKind::Veclike(
-                unsafe { (*self.as_veclike_ptr().unwrap()).type_tag },
-            ),
+            TAG_VECLIKE => {
+                ValueKind::Veclike(unsafe { (*self.as_veclike_ptr().unwrap()).type_tag })
+            }
             TAG_STRING => ValueKind::String,
             TAG_FLOAT => ValueKind::Float,
             TAG_IMMEDIATE => {

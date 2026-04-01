@@ -121,15 +121,10 @@ fn pure_dispatch_typed_mod_zero_remainder_with_negative_divisor_stays_zero() {
         .expect("builtin mod should evaluate");
     assert_eq!(int_mod, Value::fixnum(0));
 
-    let float_mod = dispatch_builtin_pure(
-        "mod",
-        vec![
-            Value::make_float(0.5),
-            Value::make_float(-0.5),
-        ],
-    )
-    .expect("builtin mod should resolve")
-    .expect("builtin mod should evaluate");
+    let float_mod =
+        dispatch_builtin_pure("mod", vec![Value::make_float(0.5), Value::make_float(-0.5)])
+            .expect("builtin mod should resolve")
+            .expect("builtin mod should evaluate");
     match float_mod.kind() {
         ValueKind::Float => {
             let f = float_mod.as_float().unwrap();
@@ -141,10 +136,7 @@ fn pure_dispatch_typed_mod_zero_remainder_with_negative_divisor_stays_zero() {
 
     let neg_zero_mod = dispatch_builtin_pure(
         "mod",
-        vec![
-            Value::make_float(-0.5),
-            Value::make_float(-0.5),
-        ],
+        vec![Value::make_float(-0.5), Value::make_float(-0.5)],
     )
     .expect("builtin mod should resolve")
     .expect("builtin mod should evaluate");
@@ -160,28 +152,19 @@ fn pure_dispatch_typed_mod_zero_remainder_with_negative_divisor_stays_zero() {
 
 #[test]
 fn pure_dispatch_typed_max_min_preserve_selected_operand_type() {
-    let max_int = dispatch_builtin_pure(
-        "max",
-        vec![Value::make_float(-2.5), Value::fixnum(1)],
-    )
-    .expect("builtin max should resolve")
-    .expect("builtin max should evaluate");
+    let max_int = dispatch_builtin_pure("max", vec![Value::make_float(-2.5), Value::fixnum(1)])
+        .expect("builtin max should resolve")
+        .expect("builtin max should evaluate");
     assert_eq!(max_int, Value::fixnum(1));
 
-    let min_int = dispatch_builtin_pure(
-        "min",
-        vec![Value::fixnum(1), Value::make_float(1.0)],
-    )
-    .expect("builtin min should resolve")
-    .expect("builtin min should evaluate");
+    let min_int = dispatch_builtin_pure("min", vec![Value::fixnum(1), Value::make_float(1.0)])
+        .expect("builtin min should resolve")
+        .expect("builtin min should evaluate");
     assert_eq!(min_int, Value::fixnum(1));
 
-    let max_float = dispatch_builtin_pure(
-        "max",
-        vec![Value::make_float(1.0), Value::fixnum(1)],
-    )
-    .expect("builtin max should resolve")
-    .expect("builtin max should evaluate");
+    let max_float = dispatch_builtin_pure("max", vec![Value::make_float(1.0), Value::fixnum(1)])
+        .expect("builtin max should resolve")
+        .expect("builtin max should evaluate");
     assert_eq!(max_float, Value::make_float(1.0));
 }
 
@@ -272,10 +255,7 @@ fn pure_dispatch_typed_percent_rejects_float_args() {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![
-                    Value::symbol("integer-or-marker-p"),
-                    Value::make_float(1.5)
-                ]
+                vec![Value::symbol("integer-or-marker-p"), Value::make_float(1.5)]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -285,21 +265,15 @@ fn pure_dispatch_typed_percent_rejects_float_args() {
 #[test]
 fn pure_dispatch_typed_log_bitops_reject_with_integer_or_marker_p() {
     for name in ["logand", "logior", "logxor"] {
-        let err = dispatch_builtin_pure(
-            name,
-            vec![Value::fixnum(1), Value::make_float(2.0)],
-        )
-        .expect("builtin should resolve")
-        .expect_err("bit operation should reject non-integer args");
+        let err = dispatch_builtin_pure(name, vec![Value::fixnum(1), Value::make_float(2.0)])
+            .expect("builtin should resolve")
+            .expect_err("bit operation should reject non-integer args");
         match err {
             Flow::Signal(sig) => {
                 assert_eq!(sig.symbol_name(), "wrong-type-argument");
                 assert_eq!(
                     sig.data,
-                    vec![
-                        Value::symbol("integer-or-marker-p"),
-                        Value::make_float(2.0)
-                    ]
+                    vec![Value::symbol("integer-or-marker-p"), Value::make_float(2.0)]
                 );
             }
             other => panic!("unexpected flow: {other:?}"),
@@ -336,45 +310,36 @@ fn pure_dispatch_typed_numeric_symbol_rejections_use_number_or_marker_p() {
 
 #[test]
 fn pure_dispatch_typed_div_float_zero_uses_ieee_results() {
-    let pos_inf = dispatch_builtin_pure(
-        "/",
-        vec![
-            Value::make_float(1.0),
-            Value::make_float(0.0),
-        ],
-    )
-    .expect("builtin / should resolve")
-    .expect("float division should evaluate");
+    let pos_inf = dispatch_builtin_pure("/", vec![Value::make_float(1.0), Value::make_float(0.0)])
+        .expect("builtin / should resolve")
+        .expect("float division should evaluate");
     match pos_inf.kind() {
-        ValueKind::Float => { let f = pos_inf.as_float().unwrap(); assert!(f.is_infinite() && f.is_sign_positive()); }
+        ValueKind::Float => {
+            let f = pos_inf.as_float().unwrap();
+            assert!(f.is_infinite() && f.is_sign_positive());
+        }
         other => panic!("expected float, got {other:?}"),
     }
 
-    let neg_inf = dispatch_builtin_pure(
-        "/",
-        vec![
-            Value::make_float(-1.0),
-            Value::make_float(0.0),
-        ],
-    )
-    .expect("builtin / should resolve")
-    .expect("float division should evaluate");
+    let neg_inf = dispatch_builtin_pure("/", vec![Value::make_float(-1.0), Value::make_float(0.0)])
+        .expect("builtin / should resolve")
+        .expect("float division should evaluate");
     match neg_inf.kind() {
-        ValueKind::Float => { let f = neg_inf.as_float().unwrap(); assert!(f.is_infinite() && f.is_sign_negative()); }
+        ValueKind::Float => {
+            let f = neg_inf.as_float().unwrap();
+            assert!(f.is_infinite() && f.is_sign_negative());
+        }
         other => panic!("expected float, got {other:?}"),
     }
 
-    let neg_nan = dispatch_builtin_pure(
-        "/",
-        vec![
-            Value::make_float(0.0),
-            Value::make_float(0.0),
-        ],
-    )
-    .expect("builtin / should resolve")
-    .expect("float division should evaluate");
+    let neg_nan = dispatch_builtin_pure("/", vec![Value::make_float(0.0), Value::make_float(0.0)])
+        .expect("builtin / should resolve")
+        .expect("float division should evaluate");
     match neg_nan.kind() {
-        ValueKind::Float => { let f = neg_nan.as_float().unwrap(); assert!(f.is_nan() && f.is_sign_negative()); }
+        ValueKind::Float => {
+            let f = neg_nan.as_float().unwrap();
+            assert!(f.is_nan() && f.is_sign_negative());
+        }
         other => panic!("expected float, got {other:?}"),
     }
 }
@@ -749,10 +714,7 @@ fn keymapp_accepts_lisp_keymap_cons_cells() {
     let mut eval = super::super::eval::Context::new();
 
     let proper = Value::list(vec![Value::symbol("keymap")]);
-    assert_eq!(
-        builtin_keymapp(&mut eval, vec![proper]).unwrap(),
-        Value::T
-    );
+    assert_eq!(builtin_keymapp(&mut eval, vec![proper]).unwrap(), Value::T);
 
     let proper_with_entry = Value::cons(
         Value::symbol("keymap"),
@@ -783,10 +745,7 @@ fn keymapp_accepts_lisp_keymap_cons_cells() {
 fn keymapp_rejects_non_keymap_integer_designators() {
     let mut eval = super::super::eval::Context::new();
     let keymap = builtin_make_sparse_keymap(&mut eval, vec![]).unwrap();
-    assert_eq!(
-        builtin_keymapp(&mut eval, vec![keymap]).unwrap(),
-        Value::T
-    );
+    assert_eq!(builtin_keymapp(&mut eval, vec![keymap]).unwrap(), Value::T);
     assert_eq!(
         builtin_keymapp(&mut eval, vec![Value::fixnum(16)]).unwrap(),
         Value::NIL
@@ -821,18 +780,22 @@ fn accessible_keymaps_reports_root_and_prefix_paths() {
         Value::T
     );
 
-    let filtered =
-        builtin_accessible_keymaps(&mut eval, vec![root, Value::vector(vec![Value::fixnum(24)])])
-            .unwrap();
+    let filtered = builtin_accessible_keymaps(
+        &mut eval,
+        vec![root, Value::vector(vec![Value::fixnum(24)])],
+    )
+    .unwrap();
     let filtered_items = list_to_vec(&filtered).expect("filtered accessible-keymaps list");
     assert_eq!(filtered_items.len(), 1);
     assert!(filtered_items[0].is_cons(), "expected cons cell");
     let only_car = filtered_items[0].cons_car();
     assert_eq!(only_car, Value::vector(vec![Value::fixnum(24)]));
 
-    let no_match =
-        builtin_accessible_keymaps(&mut eval, vec![root, Value::vector(vec![Value::fixnum(97)])])
-            .unwrap();
+    let no_match = builtin_accessible_keymaps(
+        &mut eval,
+        vec![root, Value::vector(vec![Value::fixnum(97)])],
+    )
+    .unwrap();
     assert!(no_match.is_nil());
 }
 
@@ -961,8 +924,9 @@ fn key_description_integer_modifier_and_nonunicode_edges_match_emacs() {
         vec![0x11_0000]
     );
 
-    let key_nonunicode = builtin_key_description(vec![Value::vector(vec![Value::fixnum(0x20_0000)])])
-        .expect("key-description should support nonunicode char code");
+    let key_nonunicode =
+        builtin_key_description(vec![Value::vector(vec![Value::fixnum(0x20_0000)])])
+            .expect("key-description should support nonunicode char code");
     assert_eq!(
         decode_storage_char_codes(
             key_nonunicode
@@ -1074,7 +1038,11 @@ fn kill_buffer_optional_arg_and_error_semantics() {
         builtin_buffer_live_p(&mut eval, vec![a]).unwrap(),
         Value::NIL
     );
-    assert!(builtin_current_buffer(&mut eval, vec![]).unwrap().is_buffer());
+    assert!(
+        builtin_current_buffer(&mut eval, vec![])
+            .unwrap()
+            .is_buffer()
+    );
 
     // Missing buffer name signals `(error "No buffer named ...")`.
     let missing = builtin_kill_buffer(&mut eval, vec![Value::string("*kb-opt-missing*")])
@@ -1144,9 +1112,11 @@ fn eval_buffer_live_p_non_buffer_objects_return_nil() {
 #[test]
 fn get_buffer_create_accepts_optional_second_arg() {
     let mut eval = super::super::eval::Context::new();
-    let first =
-        builtin_get_buffer_create(&mut eval, vec![Value::string("*gbc-opt*"), Value::fixnum(7)])
-            .unwrap();
+    let first = builtin_get_buffer_create(
+        &mut eval,
+        vec![Value::string("*gbc-opt*"), Value::fixnum(7)],
+    )
+    .unwrap();
     let second =
         builtin_get_buffer_create(&mut eval, vec![Value::string("*gbc-opt*"), Value::NIL]).unwrap();
     assert_eq!(first, second);
@@ -1269,7 +1239,10 @@ fn generate_new_buffer_name_optional_arg_matches_expected_types() {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("stringp"), Value::list(vec![Value::fixnum(1)])]
+                vec![
+                    Value::symbol("stringp"),
+                    Value::list(vec![Value::fixnum(1)])
+                ]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -1667,7 +1640,10 @@ fn buffer_modified_tick_semantics() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("buffer-chars-modified-tick"), Value::fixnum(2)]
+                vec![
+                    Value::symbol("buffer-chars-modified-tick"),
+                    Value::fixnum(2)
+                ]
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -1877,10 +1853,8 @@ fn subst_char_in_region_rejects_different_utf8_lengths() {
 #[test]
 fn insert_honors_inhibit_read_only_override() {
     let mut eval = super::super::eval::Context::new();
-    eval.obarray
-        .set_symbol_value("buffer-read-only", Value::T);
-    eval.obarray
-        .set_symbol_value("inhibit-read-only", Value::T);
+    eval.obarray.set_symbol_value("buffer-read-only", Value::T);
+    eval.obarray.set_symbol_value("inhibit-read-only", Value::T);
 
     builtin_insert(&mut eval, vec![Value::string("ok")]).expect("insert should bypass read-only");
 
@@ -1895,7 +1869,11 @@ fn insert_inherit_variants_reuse_insert_semantics() {
     assert_eq!(
         builtin_insert_and_inherit(
             &mut eval,
-            vec![Value::string("a"), Value::char('b'), Value::fixnum('c' as i64)],
+            vec![
+                Value::string("a"),
+                Value::char('b'),
+                Value::fixnum('c' as i64)
+            ],
         )
         .unwrap(),
         Value::NIL
@@ -1909,8 +1887,9 @@ fn insert_inherit_variants_reuse_insert_semantics() {
         Value::string("abcd")
     );
 
-    let type_error = builtin_insert_and_inherit(&mut eval, vec![Value::list(vec![Value::fixnum(1)])])
-        .expect_err("insert-and-inherit should reject non char/string values");
+    let type_error =
+        builtin_insert_and_inherit(&mut eval, vec![Value::list(vec![Value::fixnum(1)])])
+            .expect_err("insert-and-inherit should reject non char/string values");
     match type_error {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -2103,7 +2082,11 @@ fn insert_buffer_substring_inserts_source_region() {
     assert_eq!(
         builtin_insert_buffer_substring(
             &mut eval,
-            vec![Value::make_buffer(source_id), Value::fixnum(2), Value::fixnum(5)],
+            vec![
+                Value::make_buffer(source_id),
+                Value::fixnum(2),
+                Value::fixnum(5)
+            ],
         )
         .unwrap(),
         Value::NIL
@@ -2175,9 +2158,11 @@ fn insert_buffer_substring_signals_when_bounds_escape_source_narrowing() {
     builtin_insert(&mut eval, vec![Value::string("abcdef")]).unwrap();
     let _ = eval.buffers.narrow_buffer_to_region(source_id, 1, 4);
 
-    let err =
-        builtin_insert_buffer_substring(&mut eval, vec![Value::make_buffer(source_id), Value::fixnum(1)])
-            .expect_err("insert-buffer-substring should reject out-of-range narrowed START");
+    let err = builtin_insert_buffer_substring(
+        &mut eval,
+        vec![Value::make_buffer(source_id), Value::fixnum(1)],
+    )
+    .expect_err("insert-buffer-substring should reject out-of-range narrowed START");
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
@@ -2474,7 +2459,11 @@ fn replace_region_contents_replaces_from_string_and_buffer_sources() {
     assert_eq!(
         builtin_replace_region_contents(
             &mut eval,
-            vec![Value::fixnum(3), Value::fixnum(5), Value::make_buffer(source_id)]
+            vec![
+                Value::fixnum(3),
+                Value::fixnum(5),
+                Value::make_buffer(source_id)
+            ]
         )
         .unwrap(),
         Value::T
@@ -2502,7 +2491,11 @@ fn replace_region_contents_accepts_vector_buffer_slices() {
             vec![
                 Value::fixnum(3),
                 Value::fixnum(5),
-                Value::vector(vec![Value::make_buffer(source_id), Value::fixnum(2), Value::fixnum(4)])
+                Value::vector(vec![
+                    Value::make_buffer(source_id),
+                    Value::fixnum(2),
+                    Value::fixnum(4)
+                ])
             ]
         )
         .unwrap(),
@@ -2599,8 +2592,7 @@ fn barf_bury_char_equal_cl_type_and_cancel_semantics() {
             .unwrap()
             .is_nil()
     );
-    eval.obarray
-        .set_symbol_value("case-fold-search", Value::T);
+    eval.obarray.set_symbol_value("case-fold-search", Value::T);
 
     let char_type = builtin_char_equal(&mut eval, vec![Value::fixnum(1), Value::string("a")])
         .expect_err("char-equal should reject non-character args");
@@ -3081,7 +3073,10 @@ fn other_buffer_prefers_live_alternative_and_enforces_arity() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
-            assert_eq!(sig.data, vec![Value::symbol("other-buffer"), Value::fixnum(4)]);
+            assert_eq!(
+                sig.data,
+                vec![Value::symbol("other-buffer"), Value::fixnum(4)]
+            );
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -3246,7 +3241,10 @@ fn pure_dispatch_typed_propertize_odd_property_list_signals_arity() {
     match result {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
-            assert_eq!(sig.data, vec![Value::symbol("propertize"), Value::fixnum(2)]);
+            assert_eq!(
+                sig.data,
+                vec![Value::symbol("propertize"), Value::fixnum(2)]
+            );
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -3329,7 +3327,10 @@ fn pure_dispatch_typed_vector_builds_vector() {
     let result = dispatch_builtin_pure("vector", vec![Value::fixnum(7), Value::fixnum(9)])
         .expect("builtin vector should resolve")
         .expect("builtin vector should evaluate");
-    assert_eq!(result, Value::vector(vec![Value::fixnum(7), Value::fixnum(9)]));
+    assert_eq!(
+        result,
+        Value::vector(vec![Value::fixnum(7), Value::fixnum(9)])
+    );
 }
 
 #[test]
@@ -3425,14 +3426,18 @@ fn pure_dispatch_typed_aref_aset_char_table_uses_character_index_semantics() {
     match negative {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("characterp"), Value::fixnum(-1)],);
+            assert_eq!(
+                sig.data,
+                vec![Value::symbol("characterp"), Value::fixnum(-1)],
+            );
         }
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    let too_large = dispatch_builtin_pure("aset", vec![ct, Value::fixnum(0x40_0000), Value::fixnum(1)])
-        .expect("builtin aset should resolve")
-        .expect_err("out-of-range char-table index should fail");
+    let too_large =
+        dispatch_builtin_pure("aset", vec![ct, Value::fixnum(0x40_0000), Value::fixnum(1)])
+            .expect("builtin aset should resolve")
+            .expect_err("out-of-range char-table index should fail");
     match too_large {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -3517,9 +3522,12 @@ fn pure_dispatch_typed_aset_string_returns_new_element_and_computes_replacement(
     .expect("builtin aset should evaluate");
     assert_eq!(result, Value::fixnum(120));
 
-    let replacement =
-        aset_string_replacement(&Value::string("abc"), &Value::fixnum(1), &Value::fixnum(120))
-            .expect("string replacement should succeed");
+    let replacement = aset_string_replacement(
+        &Value::string("abc"),
+        &Value::fixnum(1),
+        &Value::fixnum(120),
+    )
+    .expect("string replacement should succeed");
     assert_eq!(replacement, Value::string("axc"));
 }
 
@@ -3908,10 +3916,9 @@ fn pure_dispatch_typed_round_half_ties_to_even() {
         .expect("builtin round should evaluate");
     assert_eq!(zero_half, Value::fixnum(0));
 
-    let negative_zero_half =
-        dispatch_builtin_pure("round", vec![Value::make_float(-0.5)])
-            .expect("builtin round should resolve")
-            .expect("builtin round should evaluate");
+    let negative_zero_half = dispatch_builtin_pure("round", vec![Value::make_float(-0.5)])
+        .expect("builtin round should resolve")
+        .expect("builtin round should evaluate");
     assert_eq!(negative_zero_half, Value::fixnum(0));
 }
 
@@ -3946,7 +3953,10 @@ fn pure_dispatch_typed_extended_list_ops_work() {
     )
     .expect("builtin ntake should resolve")
     .expect("builtin ntake should evaluate");
-    assert_eq!(truncated, Value::list(vec![Value::fixnum(7), Value::fixnum(8)]));
+    assert_eq!(
+        truncated,
+        Value::list(vec![Value::fixnum(7), Value::fixnum(8)])
+    );
 }
 
 #[test]
@@ -3977,11 +3987,7 @@ fn pure_dispatch_obarray_make_and_clear_use_vector_semantics() {
     if !&table.is_vector() {
         panic!("table should stay vector");
     };
-    assert!(
-        table.as_vector_data().unwrap()
-            .iter()
-            .all(|v| v.is_nil())
-    );
+    assert!(table.as_vector_data().unwrap().iter().all(|v| v.is_nil()));
 
     let wrong_type = dispatch_builtin_pure("obarray-clear", vec![Value::fixnum(1)])
         .expect("builtin obarray-clear should resolve")
@@ -4114,7 +4120,12 @@ fn pure_dispatch_buffer_placeholder_mutators_match_compat_contracts() {
 
     let redisplay = dispatch_builtin_pure(
         "set-buffer-redisplay",
-        vec![Value::NIL, Value::fixnum(1), Value::fixnum(1), Value::fixnum(0)],
+        vec![
+            Value::NIL,
+            Value::fixnum(1),
+            Value::fixnum(1),
+            Value::fixnum(0),
+        ],
     )
     .expect("builtin set-buffer-redisplay should resolve")
     .expect("builtin set-buffer-redisplay should evaluate");
@@ -4212,10 +4223,9 @@ fn pure_dispatch_record_and_state_placeholders_match_compat_contracts() {
 
 #[test]
 fn pure_dispatch_frame_menu_mouse_placeholders_match_compat_contracts() {
-    let frame_invisible =
-        dispatch_builtin_pure("make-frame-invisible", vec![Value::NIL, Value::T])
-            .expect("builtin make-frame-invisible should resolve")
-            .expect("builtin make-frame-invisible should evaluate");
+    let frame_invisible = dispatch_builtin_pure("make-frame-invisible", vec![Value::NIL, Value::T])
+        .expect("builtin make-frame-invisible should resolve")
+        .expect("builtin make-frame-invisible should evaluate");
     assert!(frame_invisible.is_nil());
 
     let terminal_frame = dispatch_builtin_pure("make-terminal-frame", vec![Value::NIL])
@@ -4486,9 +4496,10 @@ fn pure_dispatch_reconsider_redirect_placeholders_match_compat_contracts() {
         .expect("builtin remove-pos-from-symbol should evaluate");
     assert_eq!(remove_pos, Value::symbol("x"));
 
-    let resize_mini = dispatch_builtin_pure("resize-mini-window-internal", vec![Value::make_window(1)])
-        .expect("builtin resize-mini-window-internal should resolve")
-        .expect_err("resize-mini-window-internal should reject non-minibuffer windows");
+    let resize_mini =
+        dispatch_builtin_pure("resize-mini-window-internal", vec![Value::make_window(1)])
+            .expect("builtin resize-mini-window-internal should resolve")
+            .expect_err("resize-mini-window-internal should reject non-minibuffer windows");
     match resize_mini {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "error");
@@ -5031,7 +5042,10 @@ fn interactive_form_eval_signals_listp_for_improper_lambda_shapes() {
     );
     let doc_dotted_body = Value::cons(
         Value::symbol("lambda"),
-        Value::cons(Value::NIL, Value::cons(Value::string("doc"), Value::fixnum(2))),
+        Value::cons(
+            Value::NIL,
+            Value::cons(Value::string("doc"), Value::fixnum(2)),
+        ),
     );
     let doc_interactive_dotted_tail = Value::cons(
         Value::symbol("lambda"),
@@ -5180,10 +5194,7 @@ fn internal_track_mouse_binds_and_restores_track_mouse() {
     .expect("parse");
 
     let result = eval.eval_expr(&forms[0]).expect("internal--track-mouse");
-    assert_eq!(
-        result,
-        Value::list(vec![Value::T, Value::symbol("outer")])
-    );
+    assert_eq!(result, Value::list(vec![Value::T, Value::symbol("outer")]));
 }
 
 #[test]
@@ -5390,7 +5401,9 @@ fn pure_dispatch_def_keymap_placeholder_cluster_matches_compat_contracts() {
         .is_none()
     );
 
-    assert!(dispatch_builtin_pure("defvar-1", vec![Value::symbol("foo"), Value::fixnum(1)]).is_none());
+    assert!(
+        dispatch_builtin_pure("defvar-1", vec![Value::symbol("foo"), Value::fixnum(1)]).is_none()
+    );
 
     let iso_charset = dispatch_builtin_pure(
         "iso-charset",
@@ -5437,8 +5450,11 @@ fn defvar_1_binds_only_when_default_is_unbound() {
         Some(Value::fixnum(7))
     );
 
-    let result = builtin_defvar_1(&mut eval, vec![Value::symbol("vm-defvar-1"), Value::fixnum(9)])
-        .expect("second defvar-1 should succeed");
+    let result = builtin_defvar_1(
+        &mut eval,
+        vec![Value::symbol("vm-defvar-1"), Value::fixnum(9)],
+    )
+    .expect("second defvar-1 should succeed");
     assert_eq!(result, Value::symbol("vm-defvar-1"));
     assert_eq!(
         eval.obarray()
@@ -5663,9 +5679,10 @@ fn pure_dispatch_treesit_placeholder_cluster_matches_compat_contracts() {
         .expect("builtin treesit-node-check should evaluate");
     assert!(node_check.is_nil());
 
-    let node_child = dispatch_builtin_pure("treesit-node-child", vec![Value::NIL, Value::fixnum(0)])
-        .expect("builtin treesit-node-child should resolve")
-        .expect("builtin treesit-node-child should evaluate");
+    let node_child =
+        dispatch_builtin_pure("treesit-node-child", vec![Value::NIL, Value::fixnum(0)])
+            .expect("builtin treesit-node-child should resolve")
+            .expect("builtin treesit-node-child should evaluate");
     assert!(node_child.is_nil());
 
     let node_child_by_field = dispatch_builtin_pure(
@@ -5906,8 +5923,9 @@ fn buffer_region_negative_bounds_signal_without_panicking() {
     builtin_insert(&mut eval, vec![Value::string("abc")]).expect("insert should succeed");
     let current = builtin_current_buffer(&mut eval, vec![]).expect("current-buffer should work");
 
-    let substring_err = builtin_buffer_substring(&mut eval, vec![Value::fixnum(-1), Value::fixnum(2)])
-        .expect_err("negative start should signal");
+    let substring_err =
+        builtin_buffer_substring(&mut eval, vec![Value::fixnum(-1), Value::fixnum(2)])
+            .expect_err("negative start should signal");
     match substring_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
@@ -6145,8 +6163,7 @@ fn looking_at_updates_match_data_when_allowed() {
         "match-data should return a non-nil list"
     );
     // Check with INTEGERS flag to get integer positions.
-    let int_md =
-        builtin_match_data(&mut eval, vec![Value::T]).expect("read match-data integers");
+    let int_md = builtin_match_data(&mut eval, vec![Value::T]).expect("read match-data integers");
     // Compare structurally: extract the integer values
     let items =
         crate::emacs_core::value::list_to_vec(&int_md).expect("match-data should be a proper list");
@@ -6751,7 +6768,11 @@ fn internal_labeled_narrow_to_region_clamps_within_current_restriction() {
     dispatch_builtin(
         &mut eval,
         "internal--labeled-narrow-to-region",
-        vec![Value::fixnum(2), Value::fixnum(5), Value::symbol("outer-tag")],
+        vec![
+            Value::fixnum(2),
+            Value::fixnum(5),
+            Value::symbol("outer-tag"),
+        ],
     )
     .expect("outer internal--labeled-narrow-to-region should resolve")
     .expect("outer internal--labeled-narrow-to-region should evaluate");
@@ -6759,7 +6780,11 @@ fn internal_labeled_narrow_to_region_clamps_within_current_restriction() {
     let narrowed = dispatch_builtin(
         &mut eval,
         "internal--labeled-narrow-to-region",
-        vec![Value::fixnum(1), Value::fixnum(7), Value::symbol("inner-tag")],
+        vec![
+            Value::fixnum(1),
+            Value::fixnum(7),
+            Value::symbol("inner-tag"),
+        ],
     )
     .expect("internal--labeled-narrow-to-region should resolve")
     .expect("internal--labeled-narrow-to-region should evaluate");
@@ -6936,7 +6961,10 @@ fn dispatch_builtin_pure_handles_describe_and_delete_terminal_placeholders() {
 
     let seq_err = dispatch_builtin_pure(
         "describe-buffer-bindings",
-        vec![Value::make_buffer(crate::buffer::BufferId(0)), Value::fixnum(1)],
+        vec![
+            Value::make_buffer(crate::buffer::BufferId(0)),
+            Value::fixnum(1),
+        ],
     )
     .expect("describe-buffer-bindings should resolve")
     .unwrap_err();
@@ -7143,10 +7171,12 @@ fn dispatch_builtin_pure_handles_font_face_placeholders() {
     .expect("font-get-glyphs should evaluate");
     assert_eq!(glyphs, Value::NIL);
 
-    let has_char =
-        dispatch_builtin_pure("font-has-char-p", vec![font_spec, Value::fixnum('a' as i64)])
-            .expect("font-has-char-p should resolve")
-            .expect("font-has-char-p should evaluate");
+    let has_char = dispatch_builtin_pure(
+        "font-has-char-p",
+        vec![font_spec, Value::fixnum('a' as i64)],
+    )
+    .expect("font-has-char-p should resolve")
+    .expect("font-has-char-p should evaluate");
     assert_eq!(has_char, Value::NIL);
 
     let match_err = dispatch_builtin_pure("font-match-p", vec![Value::NIL, font_spec])
@@ -7771,7 +7801,10 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
         match negative_char {
             Flow::Signal(sig) => {
                 assert_eq!(sig.symbol_name(), "wrong-type-argument");
-                assert_eq!(sig.data, vec![Value::symbol("characterp"), Value::fixnum(-1)]);
+                assert_eq!(
+                    sig.data,
+                    vec![Value::symbol("characterp"), Value::fixnum(-1)]
+                );
             }
             other => panic!("expected signal, got: {other:?}"),
         }
@@ -8012,9 +8045,12 @@ fn message_eval_triggers_redisplay_with_current_echo_state() {
 
 #[test]
 fn make_string_nonunicode_char_code_bounds_match_oracle() {
-    let overflow = dispatch_builtin_pure("make-string", vec![Value::fixnum(1), Value::fixnum(0x40_0000)])
-        .expect("make-string should resolve")
-        .expect_err("make-string should reject out-of-range character code");
+    let overflow = dispatch_builtin_pure(
+        "make-string",
+        vec![Value::fixnum(1), Value::fixnum(0x40_0000)],
+    )
+    .expect("make-string should resolve")
+    .expect_err("make-string should reject out-of-range character code");
     match overflow {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -8026,9 +8062,12 @@ fn make_string_nonunicode_char_code_bounds_match_oracle() {
         other => panic!("expected signal, got: {other:?}"),
     }
 
-    let repeated = dispatch_builtin_pure("make-string", vec![Value::fixnum(2), Value::fixnum(0x11_0000)])
-        .expect("make-string should resolve")
-        .expect("make-string should evaluate");
+    let repeated = dispatch_builtin_pure(
+        "make-string",
+        vec![Value::fixnum(2), Value::fixnum(0x11_0000)],
+    )
+    .expect("make-string should resolve")
+    .expect("make-string should evaluate");
     let repeated_text = repeated
         .as_str()
         .expect("make-string should return string output");
@@ -8037,9 +8076,12 @@ fn make_string_nonunicode_char_code_bounds_match_oracle() {
         vec![0x11_0000, 0x11_0000]
     );
 
-    let high = dispatch_builtin_pure("make-string", vec![Value::fixnum(1), Value::fixnum(0x20_0000)])
-        .expect("make-string should resolve")
-        .expect("make-string should evaluate");
+    let high = dispatch_builtin_pure(
+        "make-string",
+        vec![Value::fixnum(1), Value::fixnum(0x20_0000)],
+    )
+    .expect("make-string should resolve")
+    .expect("make-string should evaluate");
     let high_text = high
         .as_str()
         .expect("make-string should return string output");
@@ -8048,9 +8090,12 @@ fn make_string_nonunicode_char_code_bounds_match_oracle() {
 
 #[test]
 fn make_string_matches_emacs_ascii_boundary() {
-    let ascii = dispatch_builtin_pure("make-string", vec![Value::fixnum(3), Value::fixnum('a' as i64)])
-        .expect("make-string should resolve")
-        .expect("ascii make-string should evaluate");
+    let ascii = dispatch_builtin_pure(
+        "make-string",
+        vec![Value::fixnum(3), Value::fixnum('a' as i64)],
+    )
+    .expect("make-string should resolve")
+    .expect("ascii make-string should evaluate");
     let byte_200 = dispatch_builtin_pure("make-string", vec![Value::fixnum(2), Value::fixnum(200)])
         .expect("make-string should resolve")
         .expect("byte-200 make-string should evaluate");
@@ -8325,7 +8370,10 @@ fn format_message_and_message_signal_strict_format_errors() {
         match err {
             Flow::Signal(sig) => {
                 assert_eq!(sig.symbol_name(), "wrong-type-argument");
-                assert_eq!(sig.data, vec![Value::symbol("characterp"), Value::fixnum(-1)]);
+                assert_eq!(
+                    sig.data,
+                    vec![Value::symbol("characterp"), Value::fixnum(-1)]
+                );
             }
             other => panic!("expected signal, got: {other:?}"),
         }
@@ -8574,8 +8622,7 @@ fn functionp_eval_resolves_t_and_keyword_symbol_designators() {
     builtin_fset(&mut eval, vec![keyword, Value::symbol("car")])
         .expect("fset should bind keyword function cell");
 
-    let t_result =
-        builtin_functionp(&mut eval, vec![Value::T]).expect("functionp should accept t");
+    let t_result = builtin_functionp(&mut eval, vec![Value::T]).expect("functionp should accept t");
     assert!(t_result.is_truthy());
     let keyword_result = builtin_functionp(&mut eval, vec![keyword])
         .expect("functionp should accept keyword designator");
@@ -8945,7 +8992,10 @@ fn macroexpand_runtime_improper_lists_match_oracle_error_behavior() {
         vec![Value::cons(Value::symbol("foo"), Value::fixnum(1))],
     )
     .expect("non-macro improper forms should pass through unchanged");
-    assert_eq!(not_macro, Value::cons(Value::symbol("foo"), Value::fixnum(1)));
+    assert_eq!(
+        not_macro,
+        Value::cons(Value::symbol("foo"), Value::fixnum(1))
+    );
 
     // Use with-temp-buffer (a real GNU Lisp macro) instead of when.
     let improper_macro = builtin_macroexpand(
@@ -9347,7 +9397,10 @@ fn variable_watchers_observe_set_default_toplevel_value() {
 
     builtin_set_default_toplevel_value(
         &mut eval,
-        vec![Value::symbol("vm-watcher-default-target"), Value::fixnum(23)],
+        vec![
+            Value::symbol("vm-watcher-default-target"),
+            Value::fixnum(23),
+        ],
     )
     .expect("set-default-toplevel-value should trigger watcher");
     let op = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-watcher-last-op")])
@@ -9596,8 +9649,11 @@ fn setplist_runtime_controls_get_put_and_symbol_plist_edges() {
         ])
     );
 
-    builtin_setplist(&mut eval, vec![Value::symbol("vm-setplist"), Value::fixnum(1)])
-        .expect("setplist should accept non-list plist values");
+    builtin_setplist(
+        &mut eval,
+        vec![Value::symbol("vm-setplist"), Value::fixnum(1)],
+    )
+    .expect("setplist should accept non-list plist values");
     let non_list = builtin_symbol_plist_fn(&mut eval, vec![Value::symbol("vm-setplist")])
         .expect("symbol-plist should return raw non-list values");
     assert_eq!(non_list, Value::fixnum(1));
@@ -10269,7 +10325,10 @@ fn get_byte_string_semantics_match_oracle_edges() {
     match negative {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("wholenump"), Value::fixnum(-1)]);
+            assert_eq!(
+                sig.data,
+                vec![Value::symbol("wholenump"), Value::fixnum(-1)]
+            );
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -10294,7 +10353,10 @@ fn get_byte_buffer_semantics_match_oracle_edges() {
     builtin_erase_buffer(&mut eval, vec![]).unwrap();
     builtin_insert(&mut eval, vec![Value::string("abc")]).unwrap();
 
-    assert_eq!(builtin_get_byte(&mut eval, vec![]).unwrap(), Value::fixnum(0));
+    assert_eq!(
+        builtin_get_byte(&mut eval, vec![]).unwrap(),
+        Value::fixnum(0)
+    );
     assert_eq!(
         builtin_get_byte(&mut eval, vec![Value::fixnum(1)]).unwrap(),
         Value::fixnum(97)
@@ -10330,7 +10392,10 @@ fn get_byte_buffer_semantics_match_oracle_edges() {
     match zero {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![Value::fixnum(0), Value::fixnum(1), Value::fixnum(4)]);
+            assert_eq!(
+                sig.data,
+                vec![Value::fixnum(0), Value::fixnum(1), Value::fixnum(4)]
+            );
         }
         other => panic!("unexpected flow: {other:?}"),
     }
@@ -10339,7 +10404,10 @@ fn get_byte_buffer_semantics_match_oracle_edges() {
     match end {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "args-out-of-range");
-            assert_eq!(sig.data, vec![Value::fixnum(4), Value::fixnum(1), Value::fixnum(4)]);
+            assert_eq!(
+                sig.data,
+                vec![Value::fixnum(4), Value::fixnum(1), Value::fixnum(4)]
+            );
         }
         other => panic!("unexpected flow: {other:?}"),
     }

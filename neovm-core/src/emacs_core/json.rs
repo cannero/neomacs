@@ -826,7 +826,7 @@ impl<'a> JsonParser<'a> {
                             vec![Value::string(format!("Invalid number: {}", num_str))],
                         )
                     })?;
-                    Ok(Value::make_float(f))  // TODO(tagged): remove next_float_id()
+                    Ok(Value::make_float(f)) // TODO(tagged): remove next_float_id()
                 }
             }
         }

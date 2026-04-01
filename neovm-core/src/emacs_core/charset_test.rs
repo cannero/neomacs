@@ -1,5 +1,5 @@
 use super::*;
-use crate::emacs_core::value::{ValueKind};
+use crate::emacs_core::value::ValueKind;
 
 // -----------------------------------------------------------------------
 // CharsetRegistry unit tests
@@ -475,7 +475,8 @@ fn find_charset_region_ascii_default() {
             .expect("current buffer must exist");
         buf.insert(&"a".repeat(100));
     }
-    let r = builtin_find_charset_region(&mut eval, vec![Value::fixnum(1), Value::fixnum(100)]).unwrap();
+    let r =
+        builtin_find_charset_region(&mut eval, vec![Value::fixnum(1), Value::fixnum(100)]).unwrap();
     let items = list_to_vec(&r).unwrap();
     assert_eq!(items.len(), 1);
     assert!(items[0].is_symbol_named("ascii"));
@@ -491,9 +492,11 @@ fn find_charset_region_with_table() {
             .expect("current buffer must exist");
         buf.insert(&"a".repeat(100));
     }
-    let r =
-        builtin_find_charset_region(&mut eval, vec![Value::fixnum(1), Value::fixnum(100), Value::NIL])
-            .unwrap();
+    let r = builtin_find_charset_region(
+        &mut eval,
+        vec![Value::fixnum(1), Value::fixnum(100), Value::NIL],
+    )
+    .unwrap();
     let items = list_to_vec(&r).unwrap();
     assert_eq!(items.len(), 1);
 }
@@ -552,8 +555,12 @@ fn find_charset_region_eval_out_of_range_errors() {
             .expect("current buffer must exist");
         buf.insert("abc");
     }
-    assert!(builtin_find_charset_region(&mut eval, vec![Value::fixnum(0), Value::fixnum(2)]).is_err());
-    assert!(builtin_find_charset_region(&mut eval, vec![Value::fixnum(1), Value::fixnum(5)]).is_err());
+    assert!(
+        builtin_find_charset_region(&mut eval, vec![Value::fixnum(0), Value::fixnum(2)]).is_err()
+    );
+    assert!(
+        builtin_find_charset_region(&mut eval, vec![Value::fixnum(1), Value::fixnum(5)]).is_err()
+    );
 }
 
 // -----------------------------------------------------------------------
@@ -728,7 +735,9 @@ fn decode_char_wrong_type() {
 #[test]
 fn decode_char_wrong_arg_count() {
     assert!(builtin_decode_char(vec![Value::symbol("ascii")]).is_err());
-    assert!(builtin_decode_char(vec![Value::symbol("ascii"), Value::fixnum(65), Value::NIL]).is_err());
+    assert!(
+        builtin_decode_char(vec![Value::symbol("ascii"), Value::fixnum(65), Value::NIL]).is_err()
+    );
 }
 
 // -----------------------------------------------------------------------
@@ -832,8 +841,9 @@ fn get_unused_iso_final_char_known_values() {
 
 #[test]
 fn get_unused_iso_final_char_validates_dimension_and_chars() {
-    let bad_dimension = builtin_get_unused_iso_final_char(vec![Value::fixnum(0), Value::fixnum(94)])
-        .expect_err("dimension 0 should error");
+    let bad_dimension =
+        builtin_get_unused_iso_final_char(vec![Value::fixnum(0), Value::fixnum(94)])
+            .expect_err("dimension 0 should error");
     assert!(matches!(bad_dimension, Flow::Signal(_)));
 
     let bad_chars = builtin_get_unused_iso_final_char(vec![Value::fixnum(1), Value::fixnum(0)])
@@ -1032,10 +1042,6 @@ fn charsetp_all_standard() {
         "eight-bit",
     ] {
         let r = builtin_charsetp(vec![Value::symbol(*name)]).unwrap();
-        assert!(
-            r.is_t(),
-            "charsetp should return t for {}",
-            name
-        );
+        assert!(r.is_t(), "charsetp should return t for {}", name);
     }
 }

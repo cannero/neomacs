@@ -1,9 +1,9 @@
 use super::*;
 use crate::emacs_core::intern::intern;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+use crate::emacs_core::value::ValueKind;
 use crate::emacs_core::{format_eval_result, parse_forms};
 use std::sync::{Mutex, OnceLock};
-use crate::emacs_core::value::{ValueKind};
 
 fn tz_test_lock() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -291,7 +291,10 @@ fn builtin_current_time_wrong_arity() {
 fn builtin_float_time_no_args() {
     let result = builtin_float_time(vec![]).unwrap();
     match result.kind() {
-        ValueKind::Float => { let f = result.as_float().unwrap(); assert!(f > 1_000_000_000.0); }
+        ValueKind::Float => {
+            let f = result.as_float().unwrap();
+            assert!(f > 1_000_000_000.0);
+        }
         _ => panic!("expected float"),
     }
 }
@@ -308,7 +311,10 @@ fn builtin_float_time_from_list() {
     ]);
     let result = builtin_float_time(vec![list]).unwrap();
     match result.kind() {
-        ValueKind::Float => { let f = result.as_float().unwrap(); assert!((f - 1_700_000_000.5).abs() < 1e-3); }
+        ValueKind::Float => {
+            let f = result.as_float().unwrap();
+            assert!((f - 1_700_000_000.5).abs() < 1e-3);
+        }
         _ => panic!("expected float"),
     }
 }
@@ -317,7 +323,10 @@ fn builtin_float_time_from_list() {
 fn builtin_float_time_from_integer() {
     let result = builtin_float_time(vec![Value::fixnum(42)]).unwrap();
     match result.kind() {
-        ValueKind::Float => { let f = result.as_float().unwrap(); assert!((f - 42.0).abs() < 1e-9); }
+        ValueKind::Float => {
+            let f = result.as_float().unwrap();
+            assert!((f - 42.0).abs() < 1e-9);
+        }
         _ => panic!("expected float"),
     }
 }
@@ -547,7 +556,10 @@ fn builtin_time_convert_to_integer() {
 fn builtin_time_convert_to_float() {
     let result = builtin_time_convert(vec![Value::fixnum(1000), Value::symbol("float")]).unwrap();
     match result.kind() {
-        ValueKind::Float => { let f = result.as_float().unwrap(); assert!((f - 1000.0).abs() < 1e-9); }
+        ValueKind::Float => {
+            let f = result.as_float().unwrap();
+            assert!((f - 1000.0).abs() < 1e-9);
+        }
         _ => panic!("expected float"),
     }
 }
@@ -575,7 +587,10 @@ fn builtin_set_time_zone_rule_t() {
     let result = builtin_set_time_zone_rule(vec![Value::T]).unwrap();
     assert!(result.is_nil());
     let tz = builtin_current_time_zone(vec![]).unwrap();
-    assert_eq!(tz, Value::list(vec![Value::fixnum(0), Value::string("GMT")]));
+    assert_eq!(
+        tz,
+        Value::list(vec![Value::fixnum(0), Value::string("GMT")])
+    );
     reset_tz_rule();
 }
 
@@ -614,7 +629,10 @@ fn builtin_set_time_zone_rule_string_specs() {
 
     builtin_set_time_zone_rule(vec![Value::string("UTC")]).unwrap();
     let utc = builtin_current_time_zone(vec![]).unwrap();
-    assert_eq!(utc, Value::list(vec![Value::fixnum(0), Value::string("UTC")]));
+    assert_eq!(
+        utc,
+        Value::list(vec![Value::fixnum(0), Value::string("UTC")])
+    );
 
     builtin_set_time_zone_rule(vec![Value::string("JST-9")]).unwrap();
     let jst = builtin_current_time_zone(vec![]).unwrap();
@@ -649,7 +667,10 @@ fn builtin_current_time_zone_with_zone_arg() {
     reset_tz_rule();
 
     let gmt = builtin_current_time_zone(vec![Value::NIL, Value::T]).unwrap();
-    assert_eq!(gmt, Value::list(vec![Value::fixnum(0), Value::string("GMT")]));
+    assert_eq!(
+        gmt,
+        Value::list(vec![Value::fixnum(0), Value::string("GMT")])
+    );
 
     let plus = builtin_current_time_zone(vec![Value::NIL, Value::fixnum(3600)]).unwrap();
     assert_eq!(
@@ -744,7 +765,10 @@ fn time_subtract_with_usec_borrow() {
 fn float_time_nil_arg() {
     let result = builtin_float_time(vec![Value::NIL]).unwrap();
     match result.kind() {
-        ValueKind::Float => { let f = result.as_float().unwrap(); assert!(f > 1_000_000_000.0); }
+        ValueKind::Float => {
+            let f = result.as_float().unwrap();
+            assert!(f > 1_000_000_000.0);
+        }
         _ => panic!("expected float"),
     }
 }

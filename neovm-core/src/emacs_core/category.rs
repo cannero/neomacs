@@ -139,7 +139,9 @@ fn make_empty_category_set() -> EvalResult {
 
 fn clone_vector_value(value: &Value) -> EvalResult {
     match value.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::vector(value.as_vector_data().unwrap().clone())),
+        ValueKind::Veclike(VecLikeType::Vector) => {
+            Ok(Value::vector(value.as_vector_data().unwrap().clone()))
+        }
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("vectorp"), *value],
@@ -190,7 +192,9 @@ pub(crate) fn ensure_standard_category_table_object() -> EvalResult {
 
 fn clone_char_table_object(value: &Value) -> EvalResult {
     match value.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::vector(value.as_vector_data().unwrap().clone())),
+        ValueKind::Veclike(VecLikeType::Vector) => {
+            Ok(Value::vector(value.as_vector_data().unwrap().clone()))
+        }
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("category-table-p"), *value],
@@ -351,7 +355,10 @@ fn category_set_contains(category_set: &Value, category: char) -> Result<bool, F
     };
     let vec = category_set.as_vector_data().unwrap();
     let bit_idx = 2 + (category as usize);
-    Ok(vec.get(bit_idx).and_then(|v| v.as_fixnum()).map_or(false, |n| n != 0))
+    Ok(vec
+        .get(bit_idx)
+        .and_then(|v| v.as_fixnum())
+        .map_or(false, |n| n != 0))
 }
 
 fn set_category_set_member(
@@ -441,9 +448,8 @@ pub(crate) fn builtin_category_set_mnemonics(args: Vec<Value>) -> EvalResult {
     };
 
     let bits = args[0].as_vector_data().unwrap();
-    let valid_shape = bits.len() >= 130
-        && bits[0].is_symbol_named("--bool-vector--")
-        && bits[1].is_fixnum();
+    let valid_shape =
+        bits.len() >= 130 && bits[0].is_symbol_named("--bool-vector--") && bits[1].is_fixnum();
     if !valid_shape {
         return Err(signal(
             "wrong-type-argument",

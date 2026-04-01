@@ -8,7 +8,8 @@ fn compose_region_internal_min_args() {
         let buffer = eval.buffers.current_buffer_mut().expect("current buffer");
         buffer.insert("0123456789");
     }
-    let result = builtin_compose_region_internal(&mut eval, vec![Value::fixnum(1), Value::fixnum(10)]);
+    let result =
+        builtin_compose_region_internal(&mut eval, vec![Value::fixnum(1), Value::fixnum(10)]);
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());
 }
@@ -126,20 +127,32 @@ fn compose_string_internal_type_checks() {
 
 #[test]
 fn compose_string_internal_range_checks() {
-    let ok =
-        builtin_compose_string_internal(vec![Value::string("abc"), Value::fixnum(0), Value::fixnum(0)]);
+    let ok = builtin_compose_string_internal(vec![
+        Value::string("abc"),
+        Value::fixnum(0),
+        Value::fixnum(0),
+    ]);
     assert!(ok.is_ok());
 
-    let start_gt_end =
-        builtin_compose_string_internal(vec![Value::string("abc"), Value::fixnum(2), Value::fixnum(1)]);
+    let start_gt_end = builtin_compose_string_internal(vec![
+        Value::string("abc"),
+        Value::fixnum(2),
+        Value::fixnum(1),
+    ]);
     assert!(start_gt_end.is_err());
 
-    let end_oob =
-        builtin_compose_string_internal(vec![Value::string("abc"), Value::fixnum(0), Value::fixnum(4)]);
+    let end_oob = builtin_compose_string_internal(vec![
+        Value::string("abc"),
+        Value::fixnum(0),
+        Value::fixnum(4),
+    ]);
     assert!(end_oob.is_err());
 
-    let start_neg =
-        builtin_compose_string_internal(vec![Value::string("abc"), Value::fixnum(-1), Value::fixnum(1)]);
+    let start_neg = builtin_compose_string_internal(vec![
+        Value::string("abc"),
+        Value::fixnum(-1),
+        Value::fixnum(1),
+    ]);
     assert!(start_neg.is_err());
 }
 
@@ -190,12 +203,20 @@ fn find_composition_internal_type_checks() {
 
 #[test]
 fn find_composition_internal_position_range_checks() {
-    let zero =
-        builtin_find_composition_internal(vec![Value::fixnum(0), Value::NIL, Value::NIL, Value::NIL]);
+    let zero = builtin_find_composition_internal(vec![
+        Value::fixnum(0),
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+    ]);
     assert!(zero.is_err());
 
-    let negative =
-        builtin_find_composition_internal(vec![Value::fixnum(-1), Value::NIL, Value::NIL, Value::NIL]);
+    let negative = builtin_find_composition_internal(vec![
+        Value::fixnum(-1),
+        Value::NIL,
+        Value::NIL,
+        Value::NIL,
+    ]);
     assert!(negative.is_err());
 }
 

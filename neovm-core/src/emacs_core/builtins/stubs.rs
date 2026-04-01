@@ -1,12 +1,12 @@
 use super::*;
 use crate::buffer::BufferManager;
 use crate::emacs_core::fontset;
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 use crate::window::{FrameManager, WindowId};
 #[cfg(not(target_os = "linux"))]
 use arboard::Clipboard;
 #[cfg(target_os = "linux")]
 use arboard::{Clipboard, GetExtLinux, LinuxClipboardKind, SetExtLinux};
-use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 // =========================================================================
 // fontset.c gap-fill stubs
@@ -575,7 +575,9 @@ fn sqlite_handle_id(value: &Value) -> Option<i64> {
         return None;
     }
     match (items[0].kind(), items[1].kind()) {
-        (ValueKind::Keyword(tag), ValueKind::Fixnum(id)) if resolve_sym(tag) == "sqlite-handle" => Some(id),
+        (ValueKind::Keyword(tag), ValueKind::Fixnum(id)) if resolve_sym(tag) == "sqlite-handle" => {
+            Some(id)
+        }
         _ => None,
     }
 }
@@ -887,7 +889,10 @@ pub(crate) fn builtin_define_fringe_bitmap(args: Vec<Value>) -> EvalResult {
             vec![Value::symbol("symbolp"), args[0]],
         ));
     }
-    if !matches!(args[1].kind(), ValueKind::Veclike(VecLikeType::Vector) | ValueKind::String) {
+    if !matches!(
+        args[1].kind(),
+        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::String
+    ) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("arrayp"), args[1]],
@@ -1092,7 +1097,10 @@ pub(crate) fn builtin_describe_buffer_bindings(args: Vec<Value>) -> EvalResult {
     }
     if let Some(prefixes) = args.get(1) {
         if !prefixes.is_nil()
-            && !(prefixes.is_cons() || prefixes.is_vector() || prefixes.is_string() || prefixes.is_nil())
+            && !(prefixes.is_cons()
+                || prefixes.is_vector()
+                || prefixes.is_string()
+                || prefixes.is_nil())
         {
             return Err(signal(
                 "wrong-type-argument",
@@ -1569,9 +1577,9 @@ fn is_font_spec(value: &Value) -> bool {
     match value.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = value.as_vector_data().unwrap();
-            items.first().is_some_and(|v| {
-                matches!(v.kind(), ValueKind::Keyword(tag) if resolve_sym(tag) == "font-spec")
-            })
+            items.first().is_some_and(
+                |v| matches!(v.kind(), ValueKind::Keyword(tag) if resolve_sym(tag) == "font-spec"),
+            )
         }
         _ => false,
     }

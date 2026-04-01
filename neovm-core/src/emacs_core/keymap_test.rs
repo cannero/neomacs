@@ -473,7 +473,11 @@ fn list_keymap_for_each_binding_stops_before_direct_sparse_parent() {
     let parent = make_sparse_list_keymap();
     let child = make_sparse_list_keymap();
 
-    list_keymap_define(parent, Value::fixnum('a' as i64), Value::symbol("parent-cmd"));
+    list_keymap_define(
+        parent,
+        Value::fixnum('a' as i64),
+        Value::symbol("parent-cmd"),
+    );
     list_keymap_define(child, Value::fixnum('x' as i64), Value::symbol("child-cmd"));
     list_keymap_set_parent(child, parent);
 
@@ -507,7 +511,11 @@ fn list_keymap_copy_preserves_direct_sparse_parent_without_inlining_parent_bindi
     let parent = make_sparse_list_keymap();
     let child = make_sparse_list_keymap();
 
-    list_keymap_define(parent, Value::fixnum('a' as i64), Value::symbol("parent-cmd"));
+    list_keymap_define(
+        parent,
+        Value::fixnum('a' as i64),
+        Value::symbol("parent-cmd"),
+    );
     list_keymap_define(child, Value::fixnum('x' as i64), Value::symbol("child-cmd"));
     list_keymap_set_parent(child, parent);
 

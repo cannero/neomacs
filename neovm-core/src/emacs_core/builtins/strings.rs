@@ -1,5 +1,8 @@
 use super::*;
-use crate::emacs_core::value::{ValueKind, VecLikeType, set_string_text_properties_table_for_value, get_string_text_properties_table_for_value};
+use crate::emacs_core::value::{
+    ValueKind, VecLikeType, get_string_text_properties_table_for_value,
+    set_string_text_properties_table_for_value,
+};
 
 // ===========================================================================
 // String operations
@@ -32,7 +35,8 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
     match args[0].kind() {
         ValueKind::String => {
             let src_props = if preserve_props {
-                get_string_text_properties_table_for_value(args[0]).filter(|table| !table.is_empty())
+                get_string_text_properties_table_for_value(args[0])
+                    .filter(|table| !table.is_empty())
             } else {
                 None
             };
@@ -142,7 +146,9 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
 
             Ok(new_val)
         }
-        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) if name == "substring" => {
+        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record)
+            if name == "substring" =>
+        {
             let items = args[0].as_vector_data().unwrap().clone();
             let len = items.len() as i64;
             let normalize_index = |value: &Value, default: i64| -> Result<i64, Flow> {
@@ -454,7 +460,9 @@ pub(crate) fn builtin_number_to_string(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_upcase(args: Vec<Value>) -> EvalResult {
     expect_args("upcase", &args, 1)?;
     match args[0].kind() {
-        ValueKind::String => Ok(Value::string(upcase_string_emacs_compat(args[0].as_str().unwrap()))),
+        ValueKind::String => Ok(Value::string(upcase_string_emacs_compat(
+            args[0].as_str().unwrap(),
+        ))),
         ValueKind::Char(c) => {
             let mapped = upcase_char_code_emacs_compat(c as i64);
             if let Some(ch) = u32::try_from(mapped).ok().and_then(char::from_u32) {
@@ -610,7 +618,9 @@ pub(super) fn downcase_char_code_emacs_compat(code: i64) -> i64 {
 pub(crate) fn builtin_downcase(args: Vec<Value>) -> EvalResult {
     expect_args("downcase", &args, 1)?;
     match args[0].kind() {
-        ValueKind::String => Ok(Value::string(downcase_string_emacs_compat(args[0].as_str().unwrap()))),
+        ValueKind::String => Ok(Value::string(downcase_string_emacs_compat(
+            args[0].as_str().unwrap(),
+        ))),
         ValueKind::Char(c) => {
             let mapped = downcase_char_code_emacs_compat(c as i64);
             if let Some(ch) = u32::try_from(mapped).ok().and_then(char::from_u32) {

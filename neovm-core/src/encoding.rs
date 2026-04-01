@@ -990,7 +990,10 @@ mod tests {
         match negative {
             Flow::Signal(sig) => {
                 assert_eq!(sig.symbol_name(), "wrong-type-argument");
-                assert_eq!(sig.data, vec![Value::symbol("characterp"), Value::fixnum(-1)]);
+                assert_eq!(
+                    sig.data,
+                    vec![Value::symbol("characterp"), Value::fixnum(-1)]
+                );
             }
             other => panic!("expected signal, got: {other:?}"),
         }
@@ -1223,7 +1226,8 @@ mod tests {
         if !decoded.is_string() {
             panic!("decode-coding-string should return a string");
         };
-        let props = get_string_text_properties_for_value(decoded).expect("decoded string should be propertized");
+        let props = get_string_text_properties_for_value(decoded)
+            .expect("decoded string should be propertized");
         assert_eq!(props.len(), 1);
         assert_eq!(props[0].start, 0);
         assert_eq!(props[0].end, 1);

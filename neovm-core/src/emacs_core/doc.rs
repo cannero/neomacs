@@ -168,7 +168,9 @@ fn function_doc_or_error(func_val: Value) -> EvalResult {
         ValueKind::Subr(id) => Ok(Value::string(
             subr_documentation_stub(resolve_sym(id)).unwrap_or("Built-in function."),
         )),
-        ValueKind::String | ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::string("Keyboard macro.")),
+        ValueKind::String | ValueKind::Veclike(VecLikeType::Vector) => {
+            Ok(Value::string("Keyboard macro."))
+        }
         ValueKind::Veclike(VecLikeType::ByteCode) => {
             let bc = func_val.get_bytecode_data().unwrap();
             Ok(bc

@@ -937,7 +937,10 @@ pub(crate) fn builtin_match_data_with_state(
     if args.len() > 3 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("match-data"), Value::fixnum(args.len() as i64)],
+            vec![
+                Value::symbol("match-data"),
+                Value::fixnum(args.len() as i64),
+            ],
         ));
     }
 

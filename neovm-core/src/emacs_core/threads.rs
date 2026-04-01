@@ -21,7 +21,7 @@ use super::error::{
     EvalResult, Flow, make_signal_binding_value, signal, signal_from_binding_value,
     signal_with_data,
 };
-use super::value::{Value, eq_value, ValueKind};
+use super::value::{Value, ValueKind, eq_value};
 use crate::gc::GcTrace;
 
 // ---------------------------------------------------------------------------
@@ -1000,7 +1000,10 @@ pub(crate) fn builtin_make_mutex(
     if args.len() > 1 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("make-mutex"), Value::fixnum(args.len() as i64)],
+            vec![
+                Value::symbol("make-mutex"),
+                Value::fixnum(args.len() as i64),
+            ],
         ));
     }
     let name = if let Some(v) = args.first() {
@@ -1290,7 +1293,10 @@ pub(crate) fn sf_with_mutex(
     if tail.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::cons(Value::fixnum(1), Value::fixnum(1)), Value::fixnum(0)],
+            vec![
+                Value::cons(Value::fixnum(1), Value::fixnum(1)),
+                Value::fixnum(0),
+            ],
         ));
     }
     let mutex_val = eval.eval(&tail[0])?;

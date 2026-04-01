@@ -3,8 +3,8 @@
 //! Each heap object (except ConsCell) has a `GcHeader` for mark-sweep GC.
 //! ConsCell has no header — GC uses an external mark bitmap in the block allocator.
 
-use crate::emacs_core::value::{LambdaData, LispHashTable, Value};
 use crate::emacs_core::bytecode::ByteCodeFunction;
+use crate::emacs_core::value::{LambdaData, LispHashTable, Value};
 
 // ---------------------------------------------------------------------------
 // GC Header

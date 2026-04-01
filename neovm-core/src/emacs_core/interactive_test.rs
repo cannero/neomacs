@@ -4,10 +4,10 @@ use crate::emacs_core::load::{
     apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state, bootstrap_load_path_entries,
     create_bootstrap_evaluator_cached,
 };
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 use crate::emacs_core::{Context, format_eval_result, parse_forms};
 use std::fs;
 use std::path::PathBuf;
-use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 /// Create evaluator with minimal Elisp shims for interactive testing.
 fn eval_with_interactive_shims() -> Context {
@@ -965,8 +965,7 @@ fn commandp_resolves_aliases_and_symbol_designators() {
         .set_symbol_function("t", Value::symbol("forward-char"));
     ev.obarray
         .set_symbol_function(":vm-command-alias-keyword", Value::symbol("forward-char"));
-    ev.obarray
-        .set_symbol_function("vm-command-alias", Value::T);
+    ev.obarray.set_symbol_function("vm-command-alias", Value::T);
     ev.obarray.set_symbol_function(
         "vm-command-alias-keyword",
         Value::keyword(":vm-command-alias-keyword"),
@@ -1159,8 +1158,7 @@ fn call_interactively_state_resolution_applies_shift_selection_prefix_in_state()
     let _ = ev.buffers.goto_buffer_byte(current, 2);
     ev.obarray
         .set_symbol_value("this-command-keys-shift-translated", Value::T);
-    ev.obarray
-        .set_symbol_value("shift-select-mode", Value::T);
+    ev.obarray.set_symbol_value("shift-select-mode", Value::T);
 
     let lambda_forms = super::super::parser::parse_forms("(lambda (pt) (interactive \"^d\") pt)")
         .expect("parse lambda");
@@ -1417,7 +1415,10 @@ fn this_single_command_keys_prefers_read_command_key_vector() {
 #[test]
 fn this_single_command_raw_keys_tracks_raw_sequence() {
     let mut ev = Context::new();
-    ev.set_command_key_sequences(vec![Value::fixnum('b' as i64)], vec![Value::fixnum('a' as i64)]);
+    ev.set_command_key_sequences(
+        vec![Value::fixnum('b' as i64)],
+        vec![Value::fixnum('a' as i64)],
+    );
 
     let result = builtin_this_single_command_raw_keys(&mut ev, vec![]).unwrap();
     match result.kind() {
@@ -1451,7 +1452,10 @@ fn clear_this_command_keys_clears_read_key_context() {
 #[test]
 fn set_this_command_keys_clears_raw_sequence_history() {
     let mut ev = Context::new();
-    ev.set_command_key_sequences(vec![Value::fixnum('q' as i64)], vec![Value::fixnum('z' as i64)]);
+    ev.set_command_key_sequences(
+        vec![Value::fixnum('q' as i64)],
+        vec![Value::fixnum('z' as i64)],
+    );
     ev.set_this_command_keys_from_string("\u{00f8}foo\r")
         .unwrap();
 
@@ -1460,7 +1464,10 @@ fn set_this_command_keys_clears_raw_sequence_history() {
     match translated.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = translated.as_vector_data().unwrap().clone();
-            assert_eq!(items[0], Value::fixnum(('x' as i64) | ((1u32 << 27) as i64)));
+            assert_eq!(
+                items[0],
+                Value::fixnum(('x' as i64) | ((1u32 << 27) as i64))
+            );
             assert_eq!(items[1], Value::fixnum('f' as i64));
             assert_eq!(items[2], Value::fixnum('o' as i64));
             assert_eq!(items[3], Value::fixnum('o' as i64));
@@ -3300,8 +3307,7 @@ fn interactive_shift_selection_prefix_sets_mark_and_mark_active() {
     }
     ev.obarray
         .set_symbol_value("this-command-keys-shift-translated", Value::T);
-    ev.obarray
-        .set_symbol_value("shift-select-mode", Value::T);
+    ev.obarray.set_symbol_value("shift-select-mode", Value::T);
 
     interactive_apply_shift_selection_prefix(&mut ev);
 

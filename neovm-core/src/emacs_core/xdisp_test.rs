@@ -1,7 +1,7 @@
 use super::*;
 use crate::emacs_core::Context;
 use crate::emacs_core::value::{
-    ValueKind, StringTextPropertyRun, get_string_text_properties_table_for_value,
+    StringTextPropertyRun, ValueKind, get_string_text_properties_table_for_value,
     set_string_text_properties_for_value,
 };
 
@@ -467,7 +467,8 @@ fn test_format_mode_line_propertize_preserves_text_properties() {
 
     assert_eq!(rendered.as_str(), Some("abc"));
     assert!(rendered.is_string(), "expected string result");
-    let props = get_string_text_properties_table_for_value(rendered).expect("mode-line text properties");
+    let props =
+        get_string_text_properties_table_for_value(rendered).expect("mode-line text properties");
     assert_eq!(
         props.get_property(0, "face").copied(),
         Some(Value::symbol("bold"))
@@ -507,7 +508,8 @@ fn test_format_mode_line_percent_specs_preserve_source_string_text_properties() 
     if !rendered.is_string() {
         panic!("expected string result");
     };
-    let props = get_string_text_properties_table_for_value(rendered).expect("mode-line text properties");
+    let props =
+        get_string_text_properties_table_for_value(rendered).expect("mode-line text properties");
     assert_eq!(
         props.get_property(0, "face").copied(),
         Some(Value::symbol("bold"))
@@ -577,7 +579,8 @@ fn test_format_mode_line_face_argument_adds_default_face_and_merges_explicit_fac
 
     assert_eq!(rendered.as_str(), Some("ab"));
     assert!(rendered.is_string(), "expected string result");
-    let props = get_string_text_properties_table_for_value(rendered).expect("mode-line text properties");
+    let props =
+        get_string_text_properties_table_for_value(rendered).expect("mode-line text properties");
     assert_eq!(
         props.get_property(0, "face").copied(),
         Some(Value::list(vec![
@@ -637,7 +640,8 @@ fn test_format_mode_line_fixnum_padding_does_not_inherit_inner_properties() {
 
     assert_eq!(rendered.as_str(), Some("x    "));
     assert!(rendered.is_string(), "expected string result");
-    let props = get_string_text_properties_table_for_value(rendered).expect("mode-line text properties");
+    let props =
+        get_string_text_properties_table_for_value(rendered).expect("mode-line text properties");
     assert_eq!(
         props.get_property(0, "face").copied(),
         Some(Value::symbol("bold"))
@@ -990,14 +994,15 @@ fn test_window_text_pixel_size_eval_window_validation() {
     let frame_id = eval.frames.create_frame("xdisp-test", 80, 24, buf_id);
     let selected_window = eval.frames.get(frame_id).expect("frame").selected_window.0 as i64;
 
-    let ok =
-        builtin_window_text_pixel_size_ctx(&mut eval, vec![Value::fixnum(selected_window)]).unwrap();
+    let ok = builtin_window_text_pixel_size_ctx(&mut eval, vec![Value::fixnum(selected_window)])
+        .unwrap();
     match ok.kind() {
         ValueKind::Cons => {}
         other => panic!("expected cons return, got {other:?}"),
     }
 
-    let err = builtin_window_text_pixel_size_ctx(&mut eval, vec![Value::fixnum(999_999)]).unwrap_err();
+    let err =
+        builtin_window_text_pixel_size_ctx(&mut eval, vec![Value::fixnum(999_999)]).unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
         other => panic!("expected wrong-type-argument, got {:?}", other),
@@ -1039,7 +1044,8 @@ fn test_pos_visible_in_window_p() {
     }
 
     let result =
-        builtin_pos_visible_in_window_p(vec![Value::fixnum(1), Value::NIL, Value::fixnum(1)]).unwrap();
+        builtin_pos_visible_in_window_p(vec![Value::fixnum(1), Value::NIL, Value::fixnum(1)])
+            .unwrap();
     assert!(result.is_nil());
 }
 
@@ -1053,9 +1059,11 @@ fn test_pos_visible_in_window_p_eval_window_validation() {
         other => panic!("expected wrong-type-argument, got {:?}", other),
     }
 
-    let err =
-        builtin_pos_visible_in_window_p_ctx(&mut eval, vec![Value::symbol("left"), Value::fixnum(1)])
-            .unwrap_err();
+    let err = builtin_pos_visible_in_window_p_ctx(
+        &mut eval,
+        vec![Value::symbol("left"), Value::fixnum(1)],
+    )
+    .unwrap_err();
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -1099,7 +1107,11 @@ fn test_pos_visible_in_window_p_eval_returns_partial_geometry_for_live_window() 
 
     let result = builtin_pos_visible_in_window_p_ctx(
         &mut eval,
-        vec![Value::fixnum(5), Value::make_window(selected_window.0), Value::T],
+        vec![
+            Value::fixnum(5),
+            Value::make_window(selected_window.0),
+            Value::T,
+        ],
     )
     .unwrap();
     assert_eq!(super::super::print::print_value(&result), "(0 16)");
@@ -1459,9 +1471,12 @@ fn test_move_point_visually() {
 
 #[test]
 fn test_lookup_image_map() {
-    let result =
-        builtin_lookup_image_map(vec![Value::symbol("map"), Value::fixnum(10), Value::fixnum(20)])
-            .unwrap();
+    let result = builtin_lookup_image_map(vec![
+        Value::symbol("map"),
+        Value::fixnum(10),
+        Value::fixnum(20),
+    ])
+    .unwrap();
     assert!(result.is_nil());
 
     let err = builtin_lookup_image_map(vec![
@@ -1502,9 +1517,10 @@ fn test_current_bidi_paragraph_direction() {
     let result = builtin_current_bidi_paragraph_direction(vec![]).unwrap();
     assert_eq!(result, Value::symbol("left-to-right"));
 
-    let result =
-        builtin_current_bidi_paragraph_direction(vec![Value::make_buffer(crate::buffer::BufferId(1))])
-            .unwrap();
+    let result = builtin_current_bidi_paragraph_direction(vec![Value::make_buffer(
+        crate::buffer::BufferId(1),
+    )])
+    .unwrap();
     assert_eq!(result, Value::symbol("left-to-right"));
 
     let err = builtin_current_bidi_paragraph_direction(vec![Value::symbol("buffer")]).unwrap_err();
@@ -1559,9 +1575,11 @@ fn test_bidi_find_overridden_directionality() {
         .is_nil()
     );
     assert!(
-        builtin_bidi_find_overridden_directionality(
-            vec![Value::fixnum(1), Value::fixnum(2), Value::NIL,]
-        )
+        builtin_bidi_find_overridden_directionality(vec![
+            Value::fixnum(1),
+            Value::fixnum(2),
+            Value::NIL,
+        ])
         .unwrap()
         .is_nil()
     );
@@ -1682,7 +1700,8 @@ fn test_tab_bar_height_eval_reflects_tab_bar_lines_and_pixels() {
     )
     .unwrap();
 
-    let lines = builtin_tab_bar_height_ctx(&mut eval, vec![Value::fixnum(frame_id.0 as i64)]).unwrap();
+    let lines =
+        builtin_tab_bar_height_ctx(&mut eval, vec![Value::fixnum(frame_id.0 as i64)]).unwrap();
     assert_eq!(lines, Value::fixnum(1));
 
     let pixels =

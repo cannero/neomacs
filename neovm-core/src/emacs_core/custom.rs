@@ -209,7 +209,9 @@ pub(crate) fn builtin_local_variable_p(
     let buf = if args.len() > 1 {
         match args[1].kind() {
             ValueKind::Nil => ctx.buffers.current_buffer(),
-            ValueKind::Veclike(VecLikeType::Buffer) => ctx.buffers.get(args[1].as_buffer_id().unwrap()),
+            ValueKind::Veclike(VecLikeType::Buffer) => {
+                ctx.buffers.get(args[1].as_buffer_id().unwrap())
+            }
             other => {
                 return Err(signal(
                     "wrong-type-argument",

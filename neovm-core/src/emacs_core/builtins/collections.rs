@@ -26,8 +26,8 @@ pub(crate) fn builtin_aref(args: Vec<Value>) -> EvalResult {
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
             let idx = idx_fixnum as usize;
             let items = args[0].as_vector_data().unwrap();
-            let is_bool_vector = items.len() >= 2
-                && items[0].as_symbol_name() == Some("--bool-vector--");
+            let is_bool_vector =
+                items.len() >= 2 && items[0].as_symbol_name() == Some("--bool-vector--");
             if is_bool_vector {
                 let len = match items.get(1).map(|v| v.kind()) {
                     Some(ValueKind::Fixnum(n)) if n >= 0 => n as usize,
@@ -142,13 +142,17 @@ pub(crate) fn builtin_aset(args: Vec<Value>) -> EvalResult {
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Vector) if super::chartable::is_char_table(&args[0]) => {
             let ch = expect_char_table_index(&args[1])?;
-            super::chartable::builtin_set_char_table_range(vec![args[0], Value::fixnum(ch), args[2]])
+            super::chartable::builtin_set_char_table_range(vec![
+                args[0],
+                Value::fixnum(ch),
+                args[2],
+            ])
         }
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
             let idx = expect_fixnum(&args[1])? as usize;
             let items = args[0].as_vector_data().unwrap();
-            let is_bool_vector = items.len() >= 2
-                && items[0].as_symbol_name() == Some("--bool-vector--");
+            let is_bool_vector =
+                items.len() >= 2 && items[0].as_symbol_name() == Some("--bool-vector--");
             let bool_len = if is_bool_vector {
                 match items.get(1).map(|v| v.kind()) {
                     Some(ValueKind::Fixnum(n)) if n >= 0 => Some(n as usize),
@@ -234,8 +238,12 @@ pub(crate) fn builtin_vconcat(args: Vec<Value>) -> EvalResult {
             }
             ValueKind::Nil => {}
             ValueKind::Cons => extend_from_proper_list(&mut result, arg)?,
-            ValueKind::Veclike(VecLikeType::Lambda) => result.extend(lambda_to_closure_vector(arg).into_iter()),
-            ValueKind::Veclike(VecLikeType::ByteCode) => result.extend(bytecode_to_closure_vector(arg).into_iter()),
+            ValueKind::Veclike(VecLikeType::Lambda) => {
+                result.extend(lambda_to_closure_vector(arg).into_iter())
+            }
+            ValueKind::Veclike(VecLikeType::ByteCode) => {
+                result.extend(bytecode_to_closure_vector(arg).into_iter())
+            }
             _ => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -458,10 +466,12 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
                 seen_rehash_size = true;
                 if i + 1 >= args.len() {
                     i += 1;
-                } else if args[i + 1].as_keyword_id().is_some_and(|kw| matches!(
-                    resolve_sym(kw),
-                    ":test" | ":size" | ":weakness" | ":rehash-size" | ":rehash-threshold"
-                )) {
+                } else if args[i + 1].as_keyword_id().is_some_and(|kw| {
+                    matches!(
+                        resolve_sym(kw),
+                        ":test" | ":size" | ":weakness" | ":rehash-size" | ":rehash-threshold"
+                    )
+                }) {
                     i += 1;
                 } else {
                     i += 2;
@@ -475,10 +485,12 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
                 seen_rehash_threshold = true;
                 if i + 1 >= args.len() {
                     i += 1;
-                } else if args[i + 1].as_keyword_id().is_some_and(|kw| matches!(
-                    resolve_sym(kw),
-                    ":test" | ":size" | ":weakness" | ":rehash-size" | ":rehash-threshold"
-                )) {
+                } else if args[i + 1].as_keyword_id().is_some_and(|kw| {
+                    matches!(
+                        resolve_sym(kw),
+                        ":test" | ":size" | ":weakness" | ":rehash-size" | ":rehash-threshold"
+                    )
+                }) {
                     i += 1;
                 } else {
                     i += 2;
@@ -574,7 +586,7 @@ pub(crate) fn builtin_hash_table_count(args: Vec<Value>) -> EvalResult {
     expect_args("hash-table-count", &args, 1)?;
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => Ok(Value::fixnum(
-            args[0].as_hash_table().unwrap().data.len() as i64
+            args[0].as_hash_table().unwrap().data.len() as i64,
         )),
         _ => Err(signal(
             "wrong-type-argument",

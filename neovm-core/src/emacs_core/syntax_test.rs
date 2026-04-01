@@ -86,7 +86,6 @@ fn string_to_syntax_string_delim() {
 
 #[test]
 fn string_to_syntax_prefix_class() {
-
     let entry = string_to_syntax("'").unwrap();
     assert_eq!(entry.class, SyntaxClass::Quote);
     let value = syntax_entry_to_value(&entry);
@@ -483,7 +482,6 @@ fn scan_sexps_string_with_escape() {
 
 #[test]
 fn syntax_entry_to_value_simple() {
-
     let entry = SyntaxEntry::simple(SyntaxClass::Word);
     let val = syntax_entry_to_value(&entry);
     // Should be (2 . nil) since Word code = 2
@@ -499,7 +497,6 @@ fn syntax_entry_to_value_simple() {
 
 #[test]
 fn syntax_entry_to_value_with_match() {
-
     let entry = SyntaxEntry::with_match(SyntaxClass::Open, ')');
     let val = syntax_entry_to_value(&entry);
     if val.is_cons() {
@@ -514,7 +511,6 @@ fn syntax_entry_to_value_with_match() {
 
 #[test]
 fn syntax_entry_to_value_with_flags() {
-
     let entry = SyntaxEntry {
         class: SyntaxClass::Punctuation,
         matching_char: None,
@@ -571,7 +567,9 @@ fn copy_syntax_table_returns_fresh_syntax_table() {
     assert_eq!(subtype, Value::symbol("syntax-table"));
 
     match (source.kind(), copied.kind()) {
-        (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector)) => assert_ne!(source, copied),
+        (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector)) => {
+            assert_ne!(source, copied)
+        }
         other => panic!("expected vector-backed char tables, got {other:?}"),
     }
 }
@@ -703,7 +701,9 @@ fn syntax_table_and_standard_default_to_same_object() {
     let current = builtin_syntax_table(&mut eval, vec![]).unwrap();
     let standard = builtin_standard_syntax_table(vec![]).unwrap();
     match (current.kind(), standard.kind()) {
-        (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector)) => assert_eq!(current, standard),
+        (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector)) => {
+            assert_eq!(current, standard)
+        }
         other => panic!("expected syntax-table vectors, got {other:?}"),
     }
 }
@@ -733,7 +733,9 @@ fn set_syntax_table_updates_current_buffer_only() {
     eval.buffers.set_current(other_id);
     let other = builtin_syntax_table(&mut eval, vec![]).unwrap();
     match (other.kind(), custom.kind()) {
-        (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector)) => assert_ne!(other, custom),
+        (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector)) => {
+            assert_ne!(other, custom)
+        }
         pair => panic!("expected syntax-table vectors, got {pair:?}"),
     }
 
@@ -1000,8 +1002,11 @@ fn backward_prefix_chars_validates_arity() {
 #[test]
 fn modify_syntax_entry_at_descriptor_inherits_parent_or_default() {
     let mut eval = crate::emacs_core::eval::Context::new();
-    builtin_modify_syntax_entry(&mut eval, vec![Value::fixnum('x' as i64), Value::string("@")])
-        .unwrap();
+    builtin_modify_syntax_entry(
+        &mut eval,
+        vec![Value::fixnum('x' as i64), Value::string("@")],
+    )
+    .unwrap();
 
     let out = builtin_char_syntax(&mut eval, vec![Value::fixnum('x' as i64)]).unwrap();
     assert_eq!(out, Value::char(' '));
@@ -1053,8 +1058,11 @@ fn scan_lists_basic_and_backward_nil() {
         buf.insert("(a b)");
     }
 
-    let forward =
-        builtin_scan_lists(&mut eval, vec![Value::fixnum(1), Value::fixnum(1), Value::fixnum(0)]).unwrap();
+    let forward = builtin_scan_lists(
+        &mut eval,
+        vec![Value::fixnum(1), Value::fixnum(1), Value::fixnum(0)],
+    )
+    .unwrap();
     assert_eq!(forward, Value::fixnum(6));
 
     let backward = builtin_scan_lists(
@@ -1102,7 +1110,8 @@ fn scan_sexps_basic_and_backward_nil() {
     let forward = builtin_scan_sexps(&mut eval, vec![Value::fixnum(1), Value::fixnum(1)]).unwrap();
     assert_eq!(forward, Value::fixnum(6));
 
-    let backward = builtin_scan_sexps(&mut eval, vec![Value::fixnum(1), Value::fixnum(-1)]).unwrap();
+    let backward =
+        builtin_scan_sexps(&mut eval, vec![Value::fixnum(1), Value::fixnum(-1)]).unwrap();
     assert_eq!(backward, Value::NIL);
 }
 
@@ -1114,7 +1123,8 @@ fn parse_partial_sexp_baseline_shapes() {
         buf.delete_region(buf.point_min(), buf.point_max());
         buf.insert("abc");
     }
-    let state = builtin_parse_partial_sexp(&mut eval, vec![Value::fixnum(1), Value::fixnum(4)]).unwrap();
+    let state =
+        builtin_parse_partial_sexp(&mut eval, vec![Value::fixnum(1), Value::fixnum(4)]).unwrap();
     assert_eq!(
         state,
         Value::list(vec![
@@ -1137,7 +1147,8 @@ fn parse_partial_sexp_baseline_shapes() {
         buf.delete_region(buf.point_min(), buf.point_max());
         buf.insert("(a)");
     }
-    let nested = builtin_parse_partial_sexp(&mut eval, vec![Value::fixnum(1), Value::fixnum(3)]).unwrap();
+    let nested =
+        builtin_parse_partial_sexp(&mut eval, vec![Value::fixnum(1), Value::fixnum(3)]).unwrap();
     assert_eq!(
         nested,
         Value::list(vec![
@@ -1197,7 +1208,8 @@ fn parse_partial_sexp_enters_single_char_line_comment_state() {
         buf.insert(";; x\n");
     }
 
-    let state = builtin_parse_partial_sexp(&mut eval, vec![Value::fixnum(1), Value::fixnum(2)]).unwrap();
+    let state =
+        builtin_parse_partial_sexp(&mut eval, vec![Value::fixnum(1), Value::fixnum(2)]).unwrap();
     assert_eq!(
         state,
         Value::list(vec![

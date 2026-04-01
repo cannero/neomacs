@@ -6,7 +6,7 @@ use super::expr::Expr;
 use super::expr::print_expr;
 use super::intern::{intern, resolve_sym};
 use super::keymap::{is_list_keymap, list_keymap_lookup_one};
-use super::value::{HashKey, Value, list_to_vec, ValueKind};
+use super::value::{HashKey, Value, ValueKind, list_to_vec};
 use std::fs;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
@@ -1280,7 +1280,8 @@ fn record_load_history(eval: &mut super::eval::Context, path: &Path) {
             .into_iter()
             .filter(|existing| {
                 if existing.is_cons() {
-                    existing.cons_car()
+                    existing
+                        .cons_car()
                         .as_str()
                         .is_none_or(|loaded| loaded != path_str)
                 } else {
@@ -1895,8 +1896,7 @@ fn loaded_source_paths(eval: &mut super::eval::Context) -> Vec<PathBuf> {
             if !entry.is_cons() {
                 continue;
             };
-            let Some(path) = entry.cons_car().as_str().map(ToOwned::to_owned)
-            else {
+            let Some(path) = entry.cons_car().as_str().map(ToOwned::to_owned) else {
                 continue;
             };
             let path = PathBuf::from(path);

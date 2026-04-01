@@ -6,7 +6,7 @@ use std::process::{Command, Stdio};
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
-use super::value::{Value, list_to_vec, ValueKind, VecLikeType};
+use super::value::{Value, ValueKind, VecLikeType, list_to_vec};
 use crate::buffer::BufferManager;
 
 fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
@@ -67,7 +67,10 @@ fn signal_wrong_type_string(value: Value) -> Flow {
 }
 
 fn is_file_keyword(value: &Value) -> bool {
-    value.as_keyword_id().map_or(false, |k| { let n = resolve_sym(k); n == ":file" || n == "file" })
+    value.as_keyword_id().map_or(false, |k| {
+        let n = resolve_sym(k);
+        n == ":file" || n == "file"
+    })
 }
 
 fn parse_file_target(items: &[Value]) -> Result<OutputTarget, Flow> {
@@ -111,10 +114,7 @@ fn parse_stderr_destination(value: &Value) -> Result<(StderrTarget, Option<Strin
     match value.kind() {
         ValueKind::Nil => Ok((StderrTarget::Discard, None)),
         ValueKind::T => Ok((StderrTarget::ToStdoutTarget, None)),
-        ValueKind::String => Ok((
-            StderrTarget::File,
-            Some(value.as_str().unwrap().to_owned()),
-        )),
+        ValueKind::String => Ok((StderrTarget::File, Some(value.as_str().unwrap().to_owned()))),
         other => Err(signal_wrong_type_string(*value)),
     }
 }

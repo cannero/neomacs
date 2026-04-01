@@ -20,7 +20,8 @@ fn make_category_table_matches_gnu_shape() {
             .is_truthy()
     );
     let docs =
-        super::super::chartable::builtin_char_table_extra_slot(vec![table, Value::fixnum(0)]).unwrap();
+        super::super::chartable::builtin_char_table_extra_slot(vec![table, Value::fixnum(0)])
+            .unwrap();
     if !docs.is_vector() {
         panic!("expected docstring vector");
     };
@@ -76,9 +77,11 @@ fn copy_category_table_deep_copies_docstrings_and_sets() {
     );
 
     let table_docs =
-        super::super::chartable::builtin_char_table_extra_slot(vec![table, Value::fixnum(0)]).unwrap();
+        super::super::chartable::builtin_char_table_extra_slot(vec![table, Value::fixnum(0)])
+            .unwrap();
     let copy_docs =
-        super::super::chartable::builtin_char_table_extra_slot(vec![copy, Value::fixnum(0)]).unwrap();
+        super::super::chartable::builtin_char_table_extra_slot(vec![copy, Value::fixnum(0)])
+            .unwrap();
     assert!(table_docs.is_vector(), "expected category docstring vector");
     assert!(copy_docs.is_vector(), "expected category docstring vector");
     assert_ne!(table_docs, copy_docs);

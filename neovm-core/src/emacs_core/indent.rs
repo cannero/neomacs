@@ -12,7 +12,7 @@ use super::intern::intern;
 use super::symbol::Obarray;
 use super::value::*;
 use crate::buffer::{Buffer, BufferManager};
-use crate::emacs_core::value::{ValueKind};
+use crate::emacs_core::value::ValueKind;
 
 // ---------------------------------------------------------------------------
 // Argument helpers (local to this module)
@@ -94,7 +94,9 @@ fn tab_width_in_state(
 ) -> usize {
     match dynamic_buffer_or_global_symbol_value(obarray, dynamic, buf, "tab-width") {
         Some(v) if v.is_fixnum() && v.as_fixnum().unwrap() > 0 => v.as_fixnum().unwrap() as usize,
-        Some(v) if v.is_char() && (v.as_char().unwrap() as u32) > 0 => v.as_char().unwrap() as usize,
+        Some(v) if v.is_char() && (v.as_char().unwrap() as u32) > 0 => {
+            v.as_char().unwrap() as usize
+        }
         _ => 8,
     }
 }

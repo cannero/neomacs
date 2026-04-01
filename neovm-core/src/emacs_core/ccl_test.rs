@@ -1,12 +1,14 @@
 use super::*;
-use crate::emacs_core::value::{ValueKind};
+use crate::emacs_core::value::ValueKind;
 
 #[test]
 fn ccl_programp_validates_shape_and_type() {
     let program = Value::vector(vec![Value::fixnum(10), Value::fixnum(0), Value::fixnum(0)]);
     let invalid_program = Value::vector(vec![Value::fixnum(0), Value::fixnum(0)]);
-    let invalid_negative = Value::vector(vec![Value::fixnum(-1), Value::fixnum(0), Value::fixnum(0)]);
-    let invalid_header_mode = Value::vector(vec![Value::fixnum(10), Value::fixnum(4), Value::fixnum(0)]);
+    let invalid_negative =
+        Value::vector(vec![Value::fixnum(-1), Value::fixnum(0), Value::fixnum(0)]);
+    let invalid_header_mode =
+        Value::vector(vec![Value::fixnum(10), Value::fixnum(4), Value::fixnum(0)]);
     assert_eq!(
         builtin_ccl_program_p_impl(vec![program]).expect("valid program"),
         Value::T
@@ -171,9 +173,11 @@ fn ccl_execute_on_string_rejects_over_arity() {
 
 #[test]
 fn register_ccl_program_requires_symbol_name() {
-    let err =
-        builtin_register_ccl_program_impl(vec![Value::fixnum(1), Value::vector(vec![Value::fixnum(10)])])
-            .expect_err("register-ccl-program name must be symbol");
+    let err = builtin_register_ccl_program_impl(vec![
+        Value::fixnum(1),
+        Value::vector(vec![Value::fixnum(10)]),
+    ])
+    .expect_err("register-ccl-program name must be symbol");
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -276,8 +280,9 @@ fn register_code_conversion_map_requires_symbol_name() {
 
 #[test]
 fn register_code_conversion_map_requires_vector_map() {
-    let err = builtin_register_code_conversion_map_impl(vec![Value::symbol("foo"), Value::fixnum(1)])
-        .expect_err("register-code-conversion-map map must be vector");
+    let err =
+        builtin_register_code_conversion_map_impl(vec![Value::symbol("foo"), Value::fixnum(1)])
+            .expect_err("register-code-conversion-map map must be vector");
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");

@@ -1064,7 +1064,11 @@ pub(crate) fn builtin_minibufferp_ctx(
             .buffers
             .get(buffer_id)
             .is_some_and(|buffer| is_minibuffer_buffer_name(&buffer.name));
-    Ok(Value::bool_val(if live_only { is_live } else { is_minibuffer }))
+    Ok(Value::bool_val(if live_only {
+        is_live
+    } else {
+        is_minibuffer
+    }))
 }
 
 pub(crate) fn builtin_minibuffer_innermost_command_loop_p_ctx(
@@ -1106,7 +1110,10 @@ fn validate_minibufferp_args(args: &[Value]) -> Result<(), Flow> {
     if args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("minibufferp"), Value::fixnum(args.len() as i64)],
+            vec![
+                Value::symbol("minibufferp"),
+                Value::fixnum(args.len() as i64),
+            ],
         ));
     }
     if let Some(bufferish) = args.first() {
@@ -1408,7 +1415,9 @@ pub(crate) fn completion_candidates_from_collection_in_state(
         ValueKind::Veclike(VecLikeType::HashTable) => {
             Some(completion_candidates_from_hash_table(*collection))
         }
-        ValueKind::Veclike(VecLikeType::Vector) if is_global_obarray_proxy_in_state(obarray, collection) => {
+        ValueKind::Veclike(VecLikeType::Vector)
+            if is_global_obarray_proxy_in_state(obarray, collection) =>
+        {
             Some(completion_candidates_from_global_obarray_in_state(obarray))
         }
         ValueKind::Veclike(VecLikeType::Vector) => {

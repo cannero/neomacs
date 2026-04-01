@@ -17,7 +17,7 @@ use super::error::{EvalResult, Flow, signal};
 use super::eval::Context;
 use super::intern::{intern, resolve_sym};
 use super::symbol::Obarray;
-use super::value::{OrderedRuntimeBindingMap, Value, list_to_vec, ValueKind, VecLikeType};
+use super::value::{OrderedRuntimeBindingMap, Value, ValueKind, VecLikeType, list_to_vec};
 
 // ===========================================================================
 // Path operations (pure, no evaluator needed)
@@ -1817,7 +1817,10 @@ pub(crate) fn builtin_file_modes_impl(
     if args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("file-modes"), Value::fixnum(args.len() as i64)],
+            vec![
+                Value::symbol("file-modes"),
+                Value::fixnum(args.len() as i64),
+            ],
         ));
     }
     let filename = expect_string_strict(&args[0])?;
@@ -2046,7 +2049,10 @@ pub(crate) fn builtin_delete_file(eval: &mut Context, args: Vec<Value>) -> EvalR
     if args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("delete-file"), Value::fixnum(args.len() as i64)],
+            vec![
+                Value::symbol("delete-file"),
+                Value::fixnum(args.len() as i64),
+            ],
         ));
     }
     let filename = expect_string_strict(&args[0])?;
@@ -2185,7 +2191,10 @@ pub(crate) fn builtin_rename_file_impl(
     if args.len() > 3 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("rename-file"), Value::fixnum(args.len() as i64)],
+            vec![
+                Value::symbol("rename-file"),
+                Value::fixnum(args.len() as i64),
+            ],
         ));
     }
     let from =
@@ -2505,7 +2514,11 @@ fn write_region_content_in_state(
     if start < point_min || start > point_max || end < point_min || end > point_max {
         return Err(signal(
             "args-out-of-range",
-            vec![Value::make_buffer(buf.id), Value::fixnum(start), Value::fixnum(end)],
+            vec![
+                Value::make_buffer(buf.id),
+                Value::fixnum(start),
+                Value::fixnum(end),
+            ],
         ));
     }
     let (char_start, char_end) = if start <= end {
@@ -2569,10 +2582,7 @@ fn decode_insert_file_contents(
     ])?;
 
     match decoded.kind() {
-        ValueKind::String => Ok((
-            decoded.as_str().unwrap().to_owned(),
-            coding.to_string(),
-        )),
+        ValueKind::String => Ok((decoded.as_str().unwrap().to_owned(), coding.to_string())),
         other => Err(signal(
             "error",
             vec![Value::string(format!(
@@ -2627,7 +2637,10 @@ pub(crate) fn builtin_insert_file_contents_impl(
             ));
         }
         if crate::emacs_core::editfns::buffer_read_only_active_in_state(obarray, dynamic, buf) {
-            return Err(signal("buffer-read-only", vec![Value::make_buffer(current_id)]));
+            return Err(signal(
+                "buffer-read-only",
+                vec![Value::make_buffer(current_id)],
+            ));
         }
     }
 

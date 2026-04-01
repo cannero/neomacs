@@ -6,7 +6,7 @@
 use super::error::{EvalResult, Flow, signal};
 use super::intern::intern;
 use super::textprop::lookup_buffer_text_property;
-use super::value::{Value, lexenv_lookup, ValueKind};
+use super::value::{Value, ValueKind, lexenv_lookup};
 use crate::buffer::BufferManager;
 
 // ---------------------------------------------------------------------------
@@ -954,11 +954,7 @@ pub(crate) fn builtin_transient_mark_mode(
             }
             ValueKind::Float => {
                 let truncated = args[0].xfloat() as i64;
-                if truncated > 0 {
-                    Value::T
-                } else {
-                    Value::NIL
-                }
+                if truncated > 0 { Value::T } else { Value::NIL }
             }
             _ => Value::T,
         }

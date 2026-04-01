@@ -514,7 +514,10 @@ pub(crate) fn builtin_read_event_in_runtime(
     if args.len() > 3 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("read-event"), Value::fixnum(args.len() as i64)],
+            vec![
+                Value::symbol("read-event"),
+                Value::fixnum(args.len() as i64),
+            ],
         ));
     }
     expect_optional_prompt_string(args)?;

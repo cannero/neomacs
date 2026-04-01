@@ -9,11 +9,11 @@
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::value::*;
+use crate::emacs_core::value::ValueKind;
 use std::cell::RefCell;
 use std::ffi::{CStr, OsString};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
-use crate::emacs_core::value::{ValueKind};
 
 // ---------------------------------------------------------------------------
 // Argument helpers
@@ -646,7 +646,10 @@ pub(crate) fn builtin_current_time_zone(args: Vec<Value>) -> EvalResult {
     };
 
     let (offset, name) = zone_rule_to_offset_name(&rule, tm.secs);
-    Ok(Value::list(vec![Value::fixnum(offset), Value::string(name)]))
+    Ok(Value::list(vec![
+        Value::fixnum(offset),
+        Value::string(name),
+    ]))
 }
 
 /// `(encode-time TIME &rest OBSOLESCENT-ARGUMENTS)` -> `(HIGH LOW)`
@@ -672,7 +675,10 @@ pub(crate) fn builtin_encode_time(args: Vec<Value>) -> EvalResult {
     } else if args.len() < 6 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("encode-time"), Value::fixnum(args.len() as i64)],
+            vec![
+                Value::symbol("encode-time"),
+                Value::fixnum(args.len() as i64),
+            ],
         ));
     } else {
         (
@@ -718,7 +724,7 @@ pub(crate) fn builtin_decode_time(args: Vec<Value>) -> EvalResult {
         Value::fixnum(dt.month),
         Value::fixnum(dt.year),
         Value::fixnum(dt.dow),
-        Value::NIL,    // DST
+        Value::NIL,       // DST
         Value::fixnum(0), // UTCOFF
     ]))
 }

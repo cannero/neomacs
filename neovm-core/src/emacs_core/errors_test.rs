@@ -1,8 +1,8 @@
 use super::super::intern::intern;
 use super::*;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+use crate::emacs_core::value::ValueKind;
 use crate::emacs_core::{Context, format_eval_result, parse_forms};
-use crate::emacs_core::value::{ValueKind};
 
 fn bootstrap_context() -> Context {
     let mut evaluator = create_bootstrap_evaluator_cached().expect("bootstrap");
@@ -653,7 +653,11 @@ fn builtin_error_message_string_peculiar_error_paths() {
         Some("peculiar error")
     );
 
-    let error_double = Value::list(vec![Value::symbol("error"), Value::fixnum(1), Value::fixnum(2)]);
+    let error_double = Value::list(vec![
+        Value::symbol("error"),
+        Value::fixnum(1),
+        Value::fixnum(2),
+    ]);
     let error_double_result = builtin_error_message_string(&mut evaluator, vec![error_double]);
     assert!(error_double_result.is_ok());
     assert_eq!(

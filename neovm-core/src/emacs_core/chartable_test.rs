@@ -25,7 +25,11 @@ fn make_char_table_with_default() {
 fn char_table_p_predicate() {
     let ct = make_char_table_value(Value::symbol("test"), Value::NIL);
     assert!(builtin_char_table_p(vec![ct]).unwrap().is_t());
-    assert!(builtin_char_table_p(vec![Value::fixnum(5)]).unwrap().is_nil());
+    assert!(
+        builtin_char_table_p(vec![Value::fixnum(5)])
+            .unwrap()
+            .is_nil()
+    );
     assert!(builtin_char_table_p(vec![Value::NIL]).unwrap().is_nil());
 }
 
@@ -122,8 +126,12 @@ fn later_t_write_overrides_prior_specific_entries() {
 #[test]
 fn parent_chain_lookup() {
     let parent = make_char_table_value(Value::symbol("test"), Value::NIL);
-    builtin_set_char_table_range(vec![parent, Value::fixnum(65), Value::symbol("from-parent")])
-        .unwrap();
+    builtin_set_char_table_range(vec![
+        parent,
+        Value::fixnum(65),
+        Value::symbol("from-parent"),
+    ])
+    .unwrap();
     let child = make_char_table_value(Value::symbol("test"), Value::NIL);
     builtin_set_char_table_parent(vec![child, parent]).unwrap();
 
@@ -132,7 +140,8 @@ fn parent_chain_lookup() {
     assert!(val.is_symbol_named("from-parent"));
 
     // Child override takes priority.
-    builtin_set_char_table_range(vec![child, Value::fixnum(65), Value::symbol("child-val")]).unwrap();
+    builtin_set_char_table_range(vec![child, Value::fixnum(65), Value::symbol("child-val")])
+        .unwrap();
     let val = builtin_char_table_range(vec![child, Value::fixnum(65)]).unwrap();
     assert!(val.is_symbol_named("child-val"));
 }
@@ -297,7 +306,8 @@ fn char_table_p_on_plain_vector() {
 fn char_table_wrong_type_signals() {
     let result = builtin_char_table_range(vec![Value::fixnum(5), Value::fixnum(65)]);
     assert!(result.is_err());
-    let result = builtin_set_char_table_range(vec![Value::NIL, Value::fixnum(65), Value::fixnum(1)]);
+    let result =
+        builtin_set_char_table_range(vec![Value::NIL, Value::fixnum(65), Value::fixnum(1)]);
     assert!(result.is_err());
     let result = builtin_char_table_parent(vec![Value::string("not-a-table")]);
     assert!(result.is_err());
@@ -390,7 +400,11 @@ fn make_bool_vector_all_false() {
 fn bool_vector_p_predicate() {
     let bv = builtin_make_bool_vector(vec![Value::fixnum(3), Value::NIL]).unwrap();
     assert!(builtin_bool_vector_p(vec![bv]).unwrap().is_t());
-    assert!(builtin_bool_vector_p(vec![Value::fixnum(0)]).unwrap().is_nil());
+    assert!(
+        builtin_bool_vector_p(vec![Value::fixnum(0)])
+            .unwrap()
+            .is_nil()
+    );
 }
 
 #[test]

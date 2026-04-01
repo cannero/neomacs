@@ -1041,9 +1041,7 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
         ValueKind::Veclike(VecLikeType::Window) => {
             format!("#<window {}>", value.as_window_id().unwrap())
         }
-        ValueKind::Veclike(VecLikeType::Frame) => {
-            format_frame_handle(value.as_frame_id().unwrap())
-        }
+        ValueKind::Veclike(VecLikeType::Frame) => format_frame_handle(value.as_frame_id().unwrap()),
         ValueKind::Veclike(VecLikeType::Timer) => {
             format!("#<timer {}>", value.as_timer_id().unwrap())
         }
@@ -1203,10 +1201,14 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
                 .as_bytes(),
         ),
         ValueKind::Veclike(VecLikeType::Buffer) => {
-            out.extend_from_slice(format!("#<buffer {}>", value.as_buffer_id().unwrap().0).as_bytes());
+            out.extend_from_slice(
+                format!("#<buffer {}>", value.as_buffer_id().unwrap().0).as_bytes(),
+            );
         }
         ValueKind::Veclike(VecLikeType::Window) => {
-            out.extend_from_slice(format!("#<window {}>", value.as_window_id().unwrap()).as_bytes());
+            out.extend_from_slice(
+                format!("#<window {}>", value.as_window_id().unwrap()).as_bytes(),
+            );
         }
         ValueKind::Veclike(VecLikeType::Frame) => {
             out.extend_from_slice(format_frame_handle(value.as_frame_id().unwrap()).as_bytes());

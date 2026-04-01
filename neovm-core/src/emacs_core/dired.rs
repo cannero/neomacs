@@ -118,7 +118,9 @@ fn read_directory_names(dir: &str) -> Result<Vec<String>, Flow> {
 
 fn parse_wholenump_count(arg: Option<&Value>) -> Result<Option<usize>, Flow> {
     match arg {
-        Some(v) if v.is_fixnum() && v.as_fixnum().unwrap() >= 0 => Ok(Some(v.as_fixnum().unwrap() as usize)),
+        Some(v) if v.is_fixnum() && v.as_fixnum().unwrap() >= 0 => {
+            Ok(Some(v.as_fixnum().unwrap() as usize))
+        }
         Some(v) if v.is_fixnum() => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("wholenump"), *v],
@@ -372,8 +374,8 @@ fn build_file_attributes(filename: &str, id_format_string: bool) -> Option<Value
     // Device.
     #[cfg(unix)]
     let device = {
+        use crate::emacs_core::value::ValueKind;
         use std::os::unix::fs::MetadataExt;
-use crate::emacs_core::value::{ValueKind};
         Value::fixnum(sym_meta.dev() as i64)
     };
     #[cfg(not(unix))]

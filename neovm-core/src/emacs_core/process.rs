@@ -1324,7 +1324,11 @@ pub(crate) fn checked_region_bytes(
     if start < point_min || start > point_max || end < point_min || end > point_max {
         return Err(signal(
             "args-out-of-range",
-            vec![Value::make_buffer(buf.id), Value::fixnum(start), Value::fixnum(end)],
+            vec![
+                Value::make_buffer(buf.id),
+                Value::fixnum(start),
+                Value::fixnum(end),
+            ],
         ));
     }
 
@@ -4213,7 +4217,10 @@ pub(crate) fn builtin_kill_process_impl(
     if args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("kill-process"), Value::fixnum(args.len() as i64)],
+            vec![
+                Value::symbol("kill-process"),
+                Value::fixnum(args.len() as i64),
+            ],
         ));
     }
     let (id, ret) =
@@ -4305,7 +4312,10 @@ pub(crate) fn builtin_stop_process_impl(
     if args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("stop-process"), Value::fixnum(args.len() as i64)],
+            vec![
+                Value::symbol("stop-process"),
+                Value::fixnum(args.len() as i64),
+            ],
         ));
     }
     let (id, ret) =
@@ -4339,7 +4349,10 @@ pub(crate) fn builtin_quit_process_impl(
     if args.len() > 2 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("quit-process"), Value::fixnum(args.len() as i64)],
+            vec![
+                Value::symbol("quit-process"),
+                Value::fixnum(args.len() as i64),
+            ],
         ));
     }
     let (id, ret) =
@@ -4381,12 +4394,18 @@ pub(crate) fn builtin_process_attributes_impl(args: Vec<Value>) -> EvalResult {
             Value::symbol("group"),
             Value::string(lookup_group_name(egid).unwrap_or_else(|| egid.to_string())),
         ));
-        attrs.push(Value::cons(Value::symbol("egid"), Value::fixnum(egid as i64)));
+        attrs.push(Value::cons(
+            Value::symbol("egid"),
+            Value::fixnum(egid as i64),
+        ));
         attrs.push(Value::cons(
             Value::symbol("user"),
             Value::string(lookup_user_name(euid).unwrap_or_else(|| euid.to_string())),
         ));
-        attrs.push(Value::cons(Value::symbol("euid"), Value::fixnum(euid as i64)));
+        attrs.push(Value::cons(
+            Value::symbol("euid"),
+            Value::fixnum(euid as i64),
+        ));
     }
 
     let stat = parse_proc_stat_snapshot(pid).unwrap_or_else(|| ProcStatSnapshot::fallback(pid));
@@ -4398,7 +4417,10 @@ pub(crate) fn builtin_process_attributes_impl(args: Vec<Value>) -> EvalResult {
     attrs.push(Value::cons(Value::symbol("ppid"), Value::fixnum(stat.ppid)));
     attrs.push(Value::cons(Value::symbol("pgrp"), Value::fixnum(stat.pgrp)));
     attrs.push(Value::cons(Value::symbol("sess"), Value::fixnum(stat.sess)));
-    attrs.push(Value::cons(Value::symbol("tpgid"), Value::fixnum(stat.tpgid)));
+    attrs.push(Value::cons(
+        Value::symbol("tpgid"),
+        Value::fixnum(stat.tpgid),
+    ));
     attrs.push(Value::cons(
         Value::symbol("minflt"),
         Value::fixnum(stat.minflt),
@@ -4457,7 +4479,10 @@ pub(crate) fn builtin_process_attributes_impl(args: Vec<Value>) -> EvalResult {
         Value::symbol("start"),
         time_list_from_secs_usecs(start_secs, start_usecs),
     ));
-    attrs.push(Value::cons(Value::symbol("vsize"), Value::fixnum(stat.vsize)));
+    attrs.push(Value::cons(
+        Value::symbol("vsize"),
+        Value::fixnum(stat.vsize),
+    ));
     attrs.push(Value::cons(Value::symbol("rss"), Value::fixnum(stat.rss)));
     let elapsed = match (now_epoch_secs_usecs(), start_epoch_time) {
         (Some(now), Some(start)) => nonnegative_time_diff(now, start),
@@ -4683,9 +4708,7 @@ fn parse_accept_process_output_request(
         });
         let ms = args
             .get(2)
-            .and_then(|v| {
-                if !v.is_nil() { v.as_fixnum() } else { None }
-            })
+            .and_then(|v| if !v.is_nil() { v.as_fixnum() } else { None })
             .unwrap_or(0);
         match secs {
             Some(s) => (s * 1000.0) as u64 + ms as u64,
@@ -4987,7 +5010,9 @@ pub(crate) fn builtin_set_process_buffer_impl(
             Some(
                 buffers
                     .get(bid)
-                    .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?
+                    .ok_or_else(|| {
+                        signal("error", vec![Value::string("Selecting deleted buffer")])
+                    })?
                     .name
                     .clone(),
             )
@@ -5783,7 +5808,9 @@ pub(crate) fn builtin_process_contact_impl(
                         Ok(Value::string(proc.name.clone()))
                     }
                     ValueKind::Keyword(k) if resolve_sym(k) == ":server" => Ok(Value::T),
-                    ValueKind::Keyword(k) if resolve_sym(k) == ":service" => Ok(Value::fixnum(port)),
+                    ValueKind::Keyword(k) if resolve_sym(k) == ":service" => {
+                        Ok(Value::fixnum(port))
+                    }
                     ValueKind::Keyword(k) if resolve_sym(k) == ":local" => Ok(local),
                     _ => Ok(Value::NIL),
                 }

@@ -35,7 +35,9 @@ pub(crate) fn builtin_sub(eval: &mut super::super::eval::Context, args: Vec<Valu
     }
     if args.len() == 1 {
         if has_float(&args) {
-            return Ok(Value::make_float(-expect_number_or_marker_f64_eval(eval, &args[0])?));
+            return Ok(Value::make_float(-expect_number_or_marker_f64_eval(
+                eval, &args[0],
+            )?));
         }
         let n = expect_integer_or_marker_after_number_check_eval(eval, &args[0])?;
         return Ok(Value::fixnum(n.wrapping_neg()));
@@ -161,7 +163,7 @@ pub(crate) fn builtin_mod(args: Vec<Value>) -> EvalResult {
                 // Emacs prints negative-NaN for floating mod-by-zero payloads.
                 r = f64::from_bits(f64::NAN.to_bits() | (1_u64 << 63));
             }
-            Ok(Value::make_float(r))  // TODO(tagged): remove next_float_id()
+            Ok(Value::make_float(r)) // TODO(tagged): remove next_float_id()
         }
     }
 }

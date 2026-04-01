@@ -4,7 +4,7 @@ use super::eval::Context;
 use super::intern::{SymId, intern};
 use super::symbol::Obarray;
 use super::value::*;
-use crate::emacs_core::value::{ValueKind};
+use crate::emacs_core::value::ValueKind;
 
 pub(crate) trait HookRuntime {
     fn hook_context(&self) -> &Context;

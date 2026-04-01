@@ -21,9 +21,7 @@ use super::keyboard::pure::{
     KEY_CHAR_MOD_MASK, KEY_CHAR_SHIFT, KEY_CHAR_SUPER,
 };
 use super::symbol::Obarray;
-use super::value::{
-    OrderedRuntimeBindingMap, Value, ValueKind, VecLikeType, list_to_vec,
-};
+use super::value::{OrderedRuntimeBindingMap, Value, ValueKind, VecLikeType, list_to_vec};
 
 // ---------------------------------------------------------------------------
 // Key events
@@ -386,9 +384,7 @@ pub fn make_sparse_list_keymap() -> Value {
 /// Check if a value is a keymap: `(consp x) && (car x) == 'keymap`.
 pub fn is_list_keymap(v: &Value) -> bool {
     match v.kind() {
-        ValueKind::Cons => {
-            v.cons_car().as_symbol_name() == Some("keymap")
-        }
+        ValueKind::Cons => v.cons_car().as_symbol_name() == Some("keymap"),
         _ => false,
     }
 }
@@ -1442,9 +1438,7 @@ fn active_map_position(
         return Ok(Some(default_position));
     }
 
-    if position.is_fixnum() || position.is_char()
-        || position.is_marker()
-    {
+    if position.is_fixnum() || position.is_char() || position.is_marker() {
         let char_pos = expect_integer_or_marker_in_buffers(buffers, position)?;
         let point_min = buffer.point_min_char() as i64 + 1;
         let point_max = buffer.point_max_char() as i64 + 1;
@@ -2621,10 +2615,7 @@ fn copy_char_table_for_keymap(ct: &Value, depth: usize) -> Value {
     // Data pairs start after extra slots (CT_EXTRA_START + n_extras),
     // stored as consecutive (char-code, value) pairs.
     let ct_extra_start = 5; // matches chartable.rs CT_EXTRA_START
-    let n_extras = new_vec
-        .get(4)
-        .and_then(|v| v.as_fixnum())
-        .unwrap_or(0) as usize;
+    let n_extras = new_vec.get(4).and_then(|v| v.as_fixnum()).unwrap_or(0) as usize;
     let data_start = ct_extra_start + n_extras;
     let mut i = data_start;
     while i + 1 < new_vec.len() {

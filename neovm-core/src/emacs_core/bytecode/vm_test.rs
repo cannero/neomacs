@@ -1423,7 +1423,12 @@ fn vm_switch_branches_using_hash_table_jump_table() {
             Op::Constant(3),
             Op::Return,
         ],
-        constants: vec![table, Value::symbol("foo"), Value::fixnum(10), Value::fixnum(20)],
+        constants: vec![
+            table,
+            Value::symbol("foo"),
+            Value::fixnum(10),
+            Value::fixnum(20),
+        ],
         max_stack: 2,
         params: crate::emacs_core::value::LambdaParams::simple(vec![]),
         lexical: false,
@@ -1578,7 +1583,10 @@ fn vm_throw_restores_saved_stack_before_resuming_catch() {
     let mut vm = new_vm(&mut eval);
 
     let result = vm.execute(&func, vec![]).expect("vm catch should execute");
-    assert_eq!(result, Value::list(vec![Value::fixnum(42), Value::fixnum(99)]));
+    assert_eq!(
+        result,
+        Value::list(vec![Value::fixnum(42), Value::fixnum(99)])
+    );
 }
 
 #[test]
@@ -4585,7 +4593,7 @@ fn vm_network_and_serial_process_config_builtins_use_shared_runtime_state() {
                  'error))"#,
         |eval| {
             use crate::emacs_core::process::ProcessKind;
-use crate::emacs_core::value::{ValueKind};
+            use crate::emacs_core::value::ValueKind;
 
             let buffer_id = eval.buffers.create_buffer("*vm-serial-proc*");
             eval.buffers.set_current(buffer_id);
@@ -7145,7 +7153,11 @@ fn vm_aref_aset_error_parity() {
             assert_eq!(
                 data,
                 vec![
-                    Value::vector(vec![Value::fixnum(10), Value::fixnum(20), Value::fixnum(30)]),
+                    Value::vector(vec![
+                        Value::fixnum(10),
+                        Value::fixnum(20),
+                        Value::fixnum(30)
+                    ]),
                     Value::fixnum(-1)
                 ]
             );
@@ -7159,7 +7171,11 @@ fn vm_aref_aset_error_parity() {
             assert_eq!(
                 data,
                 vec![
-                    Value::vector(vec![Value::fixnum(10), Value::fixnum(20), Value::fixnum(30)]),
+                    Value::vector(vec![
+                        Value::fixnum(10),
+                        Value::fixnum(20),
+                        Value::fixnum(30)
+                    ]),
                     Value::fixnum(-1)
                 ]
             );
@@ -7215,7 +7231,10 @@ fn vm_bytecode_wrong_arity_matches_gnu_entry_check() {
             assert_eq!(resolve_sym(symbol), "wrong-number-of-arguments");
             assert_eq!(
                 data,
-                vec![Value::cons(Value::fixnum(2), Value::fixnum(3)), Value::fixnum(1)]
+                vec![
+                    Value::cons(Value::fixnum(2), Value::fixnum(3)),
+                    Value::fixnum(1)
+                ]
             );
         }
         other => panic!("unexpected error: {other:?}"),
@@ -8138,7 +8157,12 @@ fn vm_gnu_arg_descriptor_preserves_optional_and_rest_slots() {
     let result = vm
         .execute(
             &func,
-            vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3), Value::fixnum(4)],
+            vec![
+                Value::fixnum(1),
+                Value::fixnum(2),
+                Value::fixnum(3),
+                Value::fixnum(4),
+            ],
         )
         .expect("vm should preserve GNU descriptor slot layout");
 
@@ -8268,11 +8292,7 @@ fn vm_compiled_require_loads_feature_with_nil_filename_through_shared_runtime() 
 
     assert_eq!(
         result,
-        Value::list(vec![
-            Value::symbol("vm-bytecode-load"),
-            Value::T,
-            Value::T,
-        ])
+        Value::list(vec![Value::symbol("vm-bytecode-load"), Value::T, Value::T,])
     );
     assert!(
         eval.features.contains(&intern("vm-bytecode-load")),

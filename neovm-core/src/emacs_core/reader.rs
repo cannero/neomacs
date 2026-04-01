@@ -258,7 +258,11 @@ fn signal_invalid_read_syntax_in_buffer(
     let column = prefix.rsplit('\n').next().unwrap_or("").chars().count() as i64;
     signal(
         "invalid-read-syntax",
-        vec![Value::string(message), Value::fixnum(line), Value::fixnum(column)],
+        vec![
+            Value::string(message),
+            Value::fixnum(line),
+            Value::fixnum(column),
+        ],
     )
 }
 
@@ -936,7 +940,10 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
         *active_minibuffer_window,
         frames.selected_frame().map(|frame| frame.selected_window)
     );
-    obarray.set_symbol_value("minibuffer-depth", Value::fixnum(minibuffers.depth() as i64));
+    obarray.set_symbol_value(
+        "minibuffer-depth",
+        Value::fixnum(minibuffers.depth() as i64),
+    );
     exit_hook_result?;
 
     // Handle the recursive edit result
@@ -970,7 +977,12 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
 fn minibuffer_history_name(hist_arg: Option<&Value>) -> Option<String> {
     match hist_arg.copied().unwrap_or(Value::NIL).kind() {
         ValueKind::Symbol(id) => Some(resolve_sym(id).to_string()),
-        ValueKind::Cons => hist_arg.copied().unwrap_or(Value::NIL).cons_car().as_symbol_name().map(str::to_string),
+        ValueKind::Cons => hist_arg
+            .copied()
+            .unwrap_or(Value::NIL)
+            .cons_car()
+            .as_symbol_name()
+            .map(str::to_string),
         _ => None,
     }
 }

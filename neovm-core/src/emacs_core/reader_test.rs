@@ -5,10 +5,10 @@ use crate::emacs_core::load::{
     create_bootstrap_evaluator_cached,
 };
 use crate::emacs_core::parse_forms;
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 use crate::emacs_core::{format_eval_result, parse_forms as parse_bootstrap_forms};
 use std::collections::VecDeque;
 use std::time::Duration;
-use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 fn install_mouse_help_echo_snapshot_with_value(eval: &mut Context, help: Value) -> Value {
     let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
@@ -112,7 +112,10 @@ fn read_from_string_symbol() {
         ValueKind::Cons => {
             let pair_car = result.cons_car();
             let pair_cdr = result.cons_cdr();
-            assert!(pair_car.as_symbol_id().is_some() && resolve_sym(pair_car.as_symbol_id().unwrap()) == "hello");
+            assert!(
+                pair_car.as_symbol_id().is_some()
+                    && resolve_sym(pair_car.as_symbol_id().unwrap()) == "hello"
+            );
             assert!(pair_cdr.is_fixnum());
         }
         _ => panic!("Expected cons, got {:?}", result),
@@ -156,7 +159,8 @@ fn read_from_string_with_start() {
     let mut ev = Context::new();
     // "  42 rest" — start at 2
     let result =
-        builtin_read_from_string(&mut ev, vec![Value::string("  42 rest"), Value::fixnum(2)]).unwrap();
+        builtin_read_from_string(&mut ev, vec![Value::string("  42 rest"), Value::fixnum(2)])
+            .unwrap();
     match result.kind() {
         ValueKind::Cons => {
             let pair_car = result.cons_car();
@@ -176,7 +180,10 @@ fn read_from_string_float() {
         ValueKind::Cons => {
             let pair_car = result.cons_car();
             let pair_cdr = result.cons_cdr();
-            assert!(pair_car.as_float().is_some() && (pair_car.as_float().unwrap() - 3.14).abs() < 1e-10);
+            assert!(
+                pair_car.as_float().is_some()
+                    && (pair_car.as_float().unwrap() - 3.14).abs() < 1e-10
+            );
         }
         _ => panic!("Expected cons"),
     }
@@ -277,7 +284,10 @@ fn read_from_string_keyword() {
         ValueKind::Cons => {
             let pair_car = result.cons_car();
             let pair_cdr = result.cons_cdr();
-            assert!(pair_car.as_keyword_id().is_some() && resolve_sym(pair_car.as_keyword_id().unwrap()) == ":test");
+            assert!(
+                pair_car.as_keyword_id().is_some()
+                    && resolve_sym(pair_car.as_keyword_id().unwrap()) == ":test"
+            );
         }
         _ => panic!("Expected cons"),
     }
@@ -342,7 +352,11 @@ fn read_from_string_with_start_and_end() {
     // "xxx42yyy" with start=3, end=5 -> substring "42"
     let result = builtin_read_from_string(
         &mut ev,
-        vec![Value::string("xxx42yyy"), Value::fixnum(3), Value::fixnum(5)],
+        vec![
+            Value::string("xxx42yyy"),
+            Value::fixnum(3),
+            Value::fixnum(5),
+        ],
     )
     .unwrap();
     match result.kind() {
@@ -805,10 +819,7 @@ fn read_number_accepts_numeric_default_and_signals_end_of_file() {
     let mut ev = Context::new();
     let result = builtin_read_number(
         &mut ev,
-        vec![
-            Value::string("Number: "),
-            Value::make_float(1.5),
-        ],
+        vec![Value::string("Number: "), Value::make_float(1.5)],
     );
     assert!(matches!(
         result,
@@ -1110,8 +1121,10 @@ fn y_or_n_p_rejects_list_prompt() {
 #[test]
 fn y_or_n_p_ignores_unread_events_and_eofs() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(121)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(121)]),
+    );
     let result = builtin_y_or_n_p(&mut ev, vec![Value::string("Continue? ")]);
     assert!(matches!(
         result,
@@ -1126,8 +1139,10 @@ fn y_or_n_p_ignores_unread_events_and_eofs() {
 #[test]
 fn y_or_n_p_unread_events_do_not_change() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(110)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(110)]),
+    );
     let result = builtin_y_or_n_p(&mut ev, vec![Value::string("Continue? ")]);
     assert!(matches!(
         result,
@@ -1142,8 +1157,10 @@ fn y_or_n_p_unread_events_do_not_change() {
 #[test]
 fn y_or_n_p_rejects_invalid_character_event() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(48)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(48)]),
+    );
     let result = builtin_y_or_n_p(&mut ev, vec![Value::string("Continue? ")]);
     assert!(matches!(result, Err(Flow::Signal(sig)) if sig.symbol_name() == "end-of-file"));
     assert_eq!(
@@ -1179,8 +1196,10 @@ fn yes_or_no_p_rejects_extra_arg() {
 #[test]
 fn yes_or_no_p_ignores_unread_events_and_eofs() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(89)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(89)]),
+    );
     let result = builtin_yes_or_no_p(&mut ev, vec![Value::string("Confirm? ")]);
     assert!(matches!(
         result,
@@ -1195,8 +1214,10 @@ fn yes_or_no_p_ignores_unread_events_and_eofs() {
 #[test]
 fn yes_or_no_p_unread_events_do_not_change() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(110)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(110)]),
+    );
     let result = builtin_yes_or_no_p(&mut ev, vec![Value::string("Confirm? ")]);
     assert!(matches!(
         result,
@@ -1211,8 +1232,10 @@ fn yes_or_no_p_unread_events_do_not_change() {
 #[test]
 fn yes_or_no_p_rejects_invalid_character_event() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(48)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(48)]),
+    );
     let result = builtin_yes_or_no_p(&mut ev, vec![Value::string("Confirm? ")]);
     assert!(matches!(result, Err(Flow::Signal(sig)) if sig.symbol_name() == "end-of-file"));
     assert_eq!(
@@ -1260,8 +1283,10 @@ fn input_pending_p_returns_nil_without_events() {
 #[test]
 fn input_pending_p_returns_t_with_unread_events() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(97)]),
+    );
     let result = builtin_input_pending_p(&mut ev, vec![]).unwrap();
     assert_eq!(result, Value::T);
 }
@@ -1269,8 +1294,10 @@ fn input_pending_p_returns_t_with_unread_events() {
 #[test]
 fn input_pending_p_uses_dynamic_unread_command_events_binding() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(97)]),
+    );
     let forms = parse_forms("(let ((unread-command-events nil)) (input-pending-p))").unwrap();
     let result = ev.eval_expr(&forms[0]).unwrap();
     assert!(result.is_nil());
@@ -1721,8 +1748,10 @@ fn discard_input_returns_nil() {
 #[test]
 fn discard_input_clears_unread_command_events() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(97)]),
+    );
     let result = builtin_discard_input(&mut ev, vec![]).unwrap();
     assert!(result.is_nil());
     assert_eq!(
@@ -1734,8 +1763,10 @@ fn discard_input_clears_unread_command_events() {
 #[test]
 fn discard_input_uses_dynamic_unread_command_events_binding() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(97)]),
+    );
     let forms = parse_forms(
         "(let ((unread-command-events (list 98))) (discard-input) unread-command-events)",
     )
@@ -1976,8 +2007,10 @@ fn read_char_rejects_non_string_prompt() {
 #[test]
 fn read_char_consumes_unread_command_event() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(97)]),
+    );
     let result = builtin_read_char(&mut ev, vec![]).unwrap();
     assert_eq!(result.as_int(), Some(97));
     assert_eq!(ev.recent_input_events(), &[Value::fixnum(97)]);
@@ -1987,9 +2020,12 @@ fn read_char_consumes_unread_command_event() {
 #[test]
 fn read_char_with_seconds_does_not_set_command_keys_when_empty() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
-    let result = builtin_read_char(&mut ev, vec![Value::NIL, Value::NIL, Value::fixnum(0)]).unwrap();
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(97)]),
+    );
+    let result =
+        builtin_read_char(&mut ev, vec![Value::NIL, Value::NIL, Value::fixnum(0)]).unwrap();
     assert_eq!(result.as_int(), Some(97));
     assert_eq!(ev.read_command_keys(), &[]);
 }
@@ -1997,8 +2033,10 @@ fn read_char_with_seconds_does_not_set_command_keys_when_empty() {
 #[test]
 fn read_char_with_nil_seconds_sets_command_keys_when_empty() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(97)]),
+    );
     let result = builtin_read_char(&mut ev, vec![Value::NIL, Value::NIL, Value::NIL]).unwrap();
     assert_eq!(result.as_int(), Some(97));
     assert_eq!(ev.read_command_keys(), &[Value::fixnum(97)]);
@@ -2026,9 +2064,12 @@ fn read_char_with_interactive_timeout_returns_nil() {
 fn read_char_preserves_existing_command_keys_context() {
     let mut ev = Context::new();
     ev.set_read_command_keys(vec![Value::fixnum(97)]);
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(98)]));
-    let result = builtin_read_char(&mut ev, vec![Value::NIL, Value::NIL, Value::fixnum(0)]).unwrap();
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(98)]),
+    );
+    let result =
+        builtin_read_char(&mut ev, vec![Value::NIL, Value::NIL, Value::fixnum(0)]).unwrap();
     assert_eq!(result.as_int(), Some(98));
     assert_eq!(ev.read_command_keys(), &[Value::fixnum(97)]);
 }
@@ -2126,8 +2167,10 @@ fn read_char_rejects_more_than_three_args() {
 #[test]
 fn read_key_consumes_unread_command_event() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(97)]),
+    );
     let result = builtin_read_key(&mut ev, vec![]).unwrap();
     assert_eq!(result.as_int(), Some(97));
     assert_eq!(ev.read_command_keys(), &[Value::fixnum(97)]);
@@ -2146,8 +2189,10 @@ fn read_key_rejects_non_string_prompt() {
 #[test]
 fn read_key_accepts_second_optional_arg() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(97)]),
+    );
     let result = builtin_read_key(&mut ev, vec![Value::string("key: "), Value::fixnum(1)]).unwrap();
     assert_eq!(result.as_int(), Some(97));
 }
@@ -2220,8 +2265,10 @@ fn read_key_sequence_returns_empty_string() {
 #[test]
 fn read_key_sequence_consumes_unread_command_event() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(97)]),
+    );
     let result = builtin_read_key_sequence(&mut ev, vec![Value::string("key: ")]).unwrap();
     assert!(result.is_string() && result.as_str() == Some("a"));
     assert_eq!(ev.read_command_keys(), &[Value::fixnum(97)]);
@@ -2289,8 +2336,10 @@ fn read_key_sequence_consumes_character_and_preserves_tail() {
 #[test]
 fn read_key_sequence_accepts_nil_prompt() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(97)]),
+    );
     let result = builtin_read_key_sequence(&mut ev, vec![Value::NIL]).unwrap();
     assert!(result.is_string() && result.as_str() == Some("a"));
 }
@@ -2314,8 +2363,10 @@ fn read_key_sequence_treats_host_quit_char_as_ordinary_input() {
 #[test]
 fn read_key_sequence_rejects_more_than_six_args() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(97)]),
+    );
     let result = builtin_read_key_sequence(
         &mut ev,
         vec![
@@ -2339,7 +2390,9 @@ fn read_key_sequence_vector_returns_empty_vector() {
     let mut ev = Context::new();
     let result = builtin_read_key_sequence_vector(&mut ev, vec![Value::string("key: ")]).unwrap();
     match result.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => assert!(result.as_vector_data().unwrap().is_empty()),
+        ValueKind::Veclike(VecLikeType::Vector) => {
+            assert!(result.as_vector_data().unwrap().is_empty())
+        }
         other => panic!("expected vector, got {other:?}"),
     }
 }
@@ -2448,8 +2501,10 @@ fn read_key_sequence_interactive_runtime_passes_prompt_options() {
 #[test]
 fn read_key_sequence_vector_consumes_unread_command_event() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(97)]),
+    );
     let result = builtin_read_key_sequence_vector(&mut ev, vec![Value::string("key: ")]).unwrap();
     match result.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
@@ -2531,8 +2586,10 @@ fn read_key_sequence_vector_consumes_character_and_preserves_tail() {
 #[test]
 fn read_key_sequence_vector_accepts_nil_prompt() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(97)]),
+    );
     let result = builtin_read_key_sequence_vector(&mut ev, vec![Value::NIL]).unwrap();
     match result.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
@@ -2547,8 +2604,10 @@ fn read_key_sequence_vector_accepts_nil_prompt() {
 #[test]
 fn read_key_sequence_vector_rejects_more_than_six_args() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(97)]),
+    );
     let result = builtin_read_key_sequence_vector(
         &mut ev,
         vec![
@@ -3072,7 +3131,10 @@ fn read_from_string_hash_bracket_preserves_vector() {
         ValueKind::Cons => {
             let pair_car = result.cons_car();
             let pair_cdr = result.cons_cdr();
-            assert!(matches!(pair_car.kind(), ValueKind::Veclike(VecLikeType::Vector)));
+            assert!(matches!(
+                pair_car.kind(),
+                ValueKind::Veclike(VecLikeType::Vector)
+            ));
         }
         other => panic!("Expected cons from read-from-string, got {other:?}"),
     }

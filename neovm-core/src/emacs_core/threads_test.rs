@@ -553,8 +553,9 @@ fn test_builtin_make_thread_preserves_caller_current_buffer() {
                 Expr::List(vec![
                     Expr::Symbol(intern("set-buffer")),
                     Expr::OpaqueValueRef(
-                        super::super::eval::OPAQUE_POOL
-                            .with(|pool| pool.borrow_mut().insert(Value::make_buffer(worker_buffer))),
+                        super::super::eval::OPAQUE_POOL.with(|pool| {
+                            pool.borrow_mut().insert(Value::make_buffer(worker_buffer))
+                        }),
                     ),
                 ]),
                 Expr::List(vec![Expr::Symbol(intern("current-buffer"))]),
@@ -784,7 +785,7 @@ fn test_sf_with_mutex_executes_body() {
 #[test]
 fn test_sf_with_mutex_unlocks_on_error() {
     use super::super::expr::Expr;
-use crate::emacs_core::value::{ValueKind};
+    use crate::emacs_core::value::ValueKind;
 
     let mut eval = Context::new();
     let mx = builtin_make_mutex(&mut eval, vec![]).unwrap();
@@ -815,7 +816,10 @@ fn test_sf_with_mutex_wrong_args() {
             assert_eq!(sig.symbol_name(), "wrong-number-of-arguments");
             assert_eq!(
                 sig.data,
-                vec![Value::cons(Value::fixnum(1), Value::fixnum(1)), Value::fixnum(0)]
+                vec![
+                    Value::cons(Value::fixnum(1), Value::fixnum(1)),
+                    Value::fixnum(0)
+                ]
             );
         }
         other => panic!("expected wrong-number-of-arguments signal, got {other:?}"),

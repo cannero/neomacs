@@ -68,25 +68,35 @@ fn extract_rectangle_line_returns_string() {
 
 #[test]
 fn extract_rectangle_line_with_line_argument() {
-    let result =
-        builtin_extract_rectangle_line(vec![Value::fixnum(1), Value::fixnum(3), Value::string("abcdef")])
-            .unwrap();
+    let result = builtin_extract_rectangle_line(vec![
+        Value::fixnum(1),
+        Value::fixnum(3),
+        Value::string("abcdef"),
+    ])
+    .unwrap();
     assert_eq!(result.as_str(), Some("bc"));
 }
 
 #[test]
 fn extract_rectangle_line_swapped_columns() {
-    let result =
-        builtin_extract_rectangle_line(vec![Value::fixnum(3), Value::fixnum(1), Value::string("abcdef")])
-            .unwrap();
+    let result = builtin_extract_rectangle_line(vec![
+        Value::fixnum(3),
+        Value::fixnum(1),
+        Value::string("abcdef"),
+    ])
+    .unwrap();
     assert_eq!(result.as_str(), Some("bc"));
 }
 
 #[test]
 fn extract_rectangle_line_negative_column_errors() {
     assert!(
-        builtin_extract_rectangle_line(vec![Value::fixnum(-1), Value::fixnum(1), Value::string("abc"),])
-            .is_err()
+        builtin_extract_rectangle_line(vec![
+            Value::fixnum(-1),
+            Value::fixnum(1),
+            Value::string("abc"),
+        ])
+        .is_err()
     );
 }
 
@@ -95,7 +105,8 @@ fn extract_rectangle_line_validates_args() {
     assert!(builtin_extract_rectangle_line(vec![]).is_err());
     assert!(builtin_extract_rectangle_line(vec![Value::fixnum(1)]).is_err());
     assert!(
-        builtin_extract_rectangle_line(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]).is_err()
+        builtin_extract_rectangle_line(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)])
+            .is_err()
     );
 }
 

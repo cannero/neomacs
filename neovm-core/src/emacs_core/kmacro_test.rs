@@ -833,7 +833,10 @@ fn test_kmacro_p_builtin_subset() {
         builtin_kmacro_p(vec![Value::string("abc")]).unwrap(),
         Value::T
     );
-    assert_eq!(builtin_kmacro_p(vec![Value::fixnum(1)]).unwrap(), Value::NIL);
+    assert_eq!(
+        builtin_kmacro_p(vec![Value::fixnum(1)]).unwrap(),
+        Value::NIL
+    );
     assert!(builtin_kmacro_p(vec![]).is_err());
     assert!(builtin_kmacro_p(vec![Value::NIL, Value::NIL]).is_err());
 }
@@ -858,7 +861,8 @@ fn test_kmacro_set_counter_builtin() {
     assert!(builtin_kmacro_set_counter(&mut eval, vec![]).is_err());
     assert!(builtin_kmacro_set_counter(&mut eval, vec![Value::NIL]).is_err());
     assert!(
-        builtin_kmacro_set_counter(&mut eval, vec![Value::fixnum(1), Value::NIL, Value::NIL]).is_err()
+        builtin_kmacro_set_counter(&mut eval, vec![Value::fixnum(1), Value::NIL, Value::NIL])
+            .is_err()
     );
 }
 
@@ -975,7 +979,7 @@ fn test_name_last_kbd_macro() {
 #[test]
 fn test_name_last_kbd_macro_wrong_type() {
     use super::super::eval::Context;
-use crate::emacs_core::value::{ValueKind, VecLikeType};
+    use crate::emacs_core::value::{ValueKind, VecLikeType};
 
     let mut eval = Context::new();
 

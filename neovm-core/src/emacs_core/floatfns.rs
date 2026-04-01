@@ -6,7 +6,7 @@
 
 use super::error::{EvalResult, Flow, signal};
 use super::value::*;
-use crate::emacs_core::value::{ValueKind};
+use crate::emacs_core::value::ValueKind;
 
 // ---------------------------------------------------------------------------
 // Argument helpers
@@ -105,19 +105,13 @@ pub(crate) fn builtin_frexp(args: Vec<Value>) -> EvalResult {
         let exp = nexp - 1022 - 52;
         let frac_bits = (sign << 63) | (0x3FE << 52) | nmant;
         let frac = f64::from_bits(frac_bits);
-        return Ok(Value::cons(
-            Value::make_float(frac),
-            Value::fixnum(exp),
-        ));
+        return Ok(Value::cons(Value::make_float(frac), Value::fixnum(exp)));
     }
 
     let exp = exponent_bits - 1022;
     let frac_bits = (sign << 63) | (0x3FE << 52) | mantissa_bits;
     let frac = f64::from_bits(frac_bits);
-    Ok(Value::cons(
-        Value::make_float(frac),
-        Value::fixnum(exp),
-    ))
+    Ok(Value::cons(Value::make_float(frac), Value::fixnum(exp)))
 }
 
 /// (ldexp SIGNIFICAND EXPONENT) -- return SIGNIFICAND * 2^EXPONENT

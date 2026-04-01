@@ -491,7 +491,10 @@ pub(crate) fn builtin_add_timeout(eval: &mut super::eval::Context, args: Vec<Val
     if args.len() > 4 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("add-timeout"), Value::fixnum(args.len() as i64)],
+            vec![
+                Value::symbol("add-timeout"),
+                Value::fixnum(args.len() as i64),
+            ],
         ));
     }
 

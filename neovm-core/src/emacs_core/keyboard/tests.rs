@@ -14,7 +14,8 @@ fn describe_int_key_succeeds() {
 #[test]
 fn key_sequence_values_accept_string_and_list() {
     let string = Value::string("abc");
-    let list: Value = crate::emacs_core::value::Value::list(vec![Value::fixnum(97), Value::fixnum(98)]);
+    let list: Value =
+        crate::emacs_core::value::Value::list(vec![Value::fixnum(97), Value::fixnum(98)]);
     assert_eq!(
         key_sequence_values(&string).unwrap(),
         vec![Value::fixnum(97), Value::fixnum(98), Value::fixnum(99)]

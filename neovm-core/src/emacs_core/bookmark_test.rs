@@ -528,11 +528,7 @@ fn test_builtin_bookmark_save_load() {
     // NO-MSG suppresses the loading message.
     let result = builtin_bookmark_load(
         &mut eval,
-        vec![
-            Value::string(save_file.to_string()),
-            Value::NIL,
-            Value::T,
-        ],
+        vec![Value::string(save_file.to_string()), Value::NIL, Value::T],
     );
     assert!(result.is_ok());
     assert!(result.unwrap().is_nil());

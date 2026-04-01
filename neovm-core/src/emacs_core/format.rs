@@ -276,8 +276,8 @@ pub(crate) fn builtin_format_time_string(args: Vec<Value>) -> EvalResult {
 
 /// Get current Unix timestamp using `std::time::SystemTime`.
 fn current_unix_timestamp() -> i64 {
+    use crate::emacs_core::value::ValueKind;
     use std::time::{SystemTime, UNIX_EPOCH};
-use crate::emacs_core::value::{ValueKind};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)

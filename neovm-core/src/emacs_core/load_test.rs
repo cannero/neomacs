@@ -5,7 +5,9 @@ use crate::emacs_core::fontset::{
     DEFAULT_FONTSET_NAME, FontSpecEntry, matching_entries_for_fontset,
 };
 use crate::emacs_core::intern::{intern, resolve_sym};
-use crate::emacs_core::value::{HashKey, HashTableTest, Value, list_to_vec, ValueKind, VecLikeType};
+use crate::emacs_core::value::{
+    HashKey, HashTableTest, Value, ValueKind, VecLikeType, list_to_vec,
+};
 use crate::emacs_core::{format_eval_result, parse_forms};
 use std::fs;
 use std::path::PathBuf;
@@ -2563,14 +2565,12 @@ fn ensure_startup_compat_variables_backfills_xfaces_bootstrap_state() {
         .symbol_value("face--new-frame-defaults")
         .copied()
         .expect("face hash table backfilled");
-    let ht = table.as_hash_table().expect("face--new-frame-defaults must be a hash table");
+    let ht = table
+        .as_hash_table()
+        .expect("face--new-frame-defaults must be a hash table");
     assert_eq!(ht.test, HashTableTest::Eq);
-    let has_seeded_faces = ht
-        .data
-        .contains_key(&HashKey::Symbol(intern("default")))
-        && ht
-            .data
-            .contains_key(&HashKey::Symbol(intern("mode-line")));
+    let has_seeded_faces = ht.data.contains_key(&HashKey::Symbol(intern("default")))
+        && ht.data.contains_key(&HashKey::Symbol(intern("mode-line")));
     assert!(
         has_seeded_faces,
         "face--new-frame-defaults should be preseeded with GNU face entries"
@@ -4669,7 +4669,10 @@ fn auth_source_backend_exposes_type_slot() {
 
 fn expect_vector_ints(value: Value) -> Vec<i64> {
     match value.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => value.as_vector_data().unwrap().clone()
+        ValueKind::Veclike(VecLikeType::Vector) => value
+            .as_vector_data()
+            .unwrap()
+            .clone()
             .iter()
             .map(|item| match item.kind() {
                 ValueKind::Fixnum(n) => n,
@@ -5780,10 +5783,7 @@ fn macroexp_eager_reload_preserves_symbol_identity() {
         .expect("evaluate symbol identity probe");
     let values =
         crate::emacs_core::value::list_to_vec(&probe_result).expect("probe should return list");
-    assert_eq!(
-        values,
-        vec![Value::NIL, Value::NIL, Value::NIL, Value::T]
-    );
+    assert_eq!(values, vec![Value::NIL, Value::NIL, Value::NIL, Value::T]);
 
     eval.set_variable("macroexp--pending-eager-loads", Value::NIL);
     load(&mut eval, "emacs-lisp/macroexp");

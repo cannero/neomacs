@@ -50,7 +50,8 @@ fn fillarray_char_table_preserves_shape_and_updates_default_slot() {
     ])
     .unwrap();
 
-    let out = crate::emacs_core::builtins::builtin_fillarray(vec![table, Value::fixnum(7)]).unwrap();
+    let out =
+        crate::emacs_core::builtins::builtin_fillarray(vec![table, Value::fixnum(7)]).unwrap();
     assert_eq!(out, table);
     assert_eq!(
         crate::emacs_core::chartable::builtin_char_table_p(vec![table]).unwrap(),
@@ -61,8 +62,11 @@ fn fillarray_char_table_preserves_shape_and_updates_default_slot() {
         Value::symbol("syntax-table")
     );
     assert_eq!(
-        crate::emacs_core::chartable::builtin_char_table_range(vec![table, Value::fixnum('a' as i64)])
-            .unwrap(),
+        crate::emacs_core::chartable::builtin_char_table_range(vec![
+            table,
+            Value::fixnum('a' as i64)
+        ])
+        .unwrap(),
         Value::fixnum(9)
     );
     assert_eq!(
@@ -73,8 +77,9 @@ fn fillarray_char_table_preserves_shape_and_updates_default_slot() {
 
 #[test]
 fn external_debugging_rejects_negative_fixnum() {
-    let err = crate::emacs_core::builtins::builtin_external_debugging_output(vec![Value::fixnum(-1)])
-        .unwrap_err();
+    let err =
+        crate::emacs_core::builtins::builtin_external_debugging_output(vec![Value::fixnum(-1)])
+            .unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "error"),
         other => panic!("expected signal, got {other:?}"),
@@ -139,8 +144,9 @@ fn frame_set_was_invisible_returns_new_state() {
 
 #[test]
 fn frame_bottom_divider_width_rejects_non_frame_designator() {
-    let err = crate::emacs_core::builtins::builtin_frame_bottom_divider_width(vec![Value::fixnum(0)])
-        .unwrap_err();
+    let err =
+        crate::emacs_core::builtins::builtin_frame_bottom_divider_width(vec![Value::fixnum(0)])
+            .unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
         other => panic!("expected signal, got {other:?}"),
@@ -172,11 +178,10 @@ fn gnutls_error_string_zero_is_success() {
 
 #[test]
 fn gnutls_peer_status_warning_describe_rejects_non_symbol() {
-    let err =
-        crate::emacs_core::builtins::builtin_gnutls_peer_status_warning_describe(vec![Value::fixnum(
-            0,
-        )])
-        .unwrap_err();
+    let err = crate::emacs_core::builtins::builtin_gnutls_peer_status_warning_describe(vec![
+        Value::fixnum(0),
+    ])
+    .unwrap_err();
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
         other => panic!("expected signal, got {other:?}"),
@@ -372,8 +377,9 @@ fn inotify_add_watch_requires_string_path_argument() {
 
 #[test]
 fn window_bottom_divider_width_rejects_non_window_designator() {
-    let err = crate::emacs_core::builtins::builtin_window_bottom_divider_width(vec![Value::fixnum(1)])
-        .unwrap_err();
+    let err =
+        crate::emacs_core::builtins::builtin_window_bottom_divider_width(vec![Value::fixnum(1)])
+            .unwrap_err();
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");

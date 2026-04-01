@@ -230,7 +230,10 @@ pub(crate) fn expect_display_designator_in_state(
     frames: &crate::window::FrameManager,
     value: &Value,
 ) -> Result<(), Flow> {
-    if value.is_nil() || terminal_designator_p(value) || live_frame_designator_p_in_state(frames, value) {
+    if value.is_nil()
+        || terminal_designator_p(value)
+        || live_frame_designator_p_in_state(frames, value)
+    {
         return Ok(());
     }
     if value.is_string() {
@@ -383,12 +386,8 @@ pub(crate) fn display_window_system_symbol_eval(
                 .or_else(|| global_window_system_symbol(eval)))
         }
         Some(d) if terminal_designator_p(d) => Ok(None),
-        Some(d) if live_frame_designator_p(eval, d) => {
-            frame_window_system_symbol(eval, Some(d))
-        }
-        Some(d) if d.is_string() => Err(display_does_not_exist_error(
-            d.as_str().unwrap(),
-        )),
+        Some(d) if live_frame_designator_p(eval, d) => frame_window_system_symbol(eval, Some(d)),
+        Some(d) if d.is_string() => Err(display_does_not_exist_error(d.as_str().unwrap())),
         Some(other) => Err(invalid_get_device_terminal_error_eval(eval, other)),
     }
 }
@@ -422,10 +421,10 @@ pub(crate) fn display_window_system_symbol_in_state(
     display: Option<&Value>,
 ) -> Result<Option<Value>, Flow> {
     match display {
-        None => Ok(frame_window_system_symbol_read_only_in_state(
-            frames, display,
-        )?
-        .or_else(|| global_window_system_symbol_in_state(obarray, dynamic))),
+        None => Ok(
+            frame_window_system_symbol_read_only_in_state(frames, display)?
+                .or_else(|| global_window_system_symbol_in_state(obarray, dynamic)),
+        ),
         Some(d) if d.is_nil() => Ok(frame_window_system_symbol_read_only_in_state(
             frames, display,
         )?
@@ -434,9 +433,7 @@ pub(crate) fn display_window_system_symbol_in_state(
         Some(d) if live_frame_designator_p_in_state(frames, d) => {
             frame_window_system_symbol_read_only_in_state(frames, Some(d))
         }
-        Some(d) if d.is_string() => Err(display_does_not_exist_error(
-            d.as_str().unwrap(),
-        )),
+        Some(d) if d.is_string() => Err(display_does_not_exist_error(d.as_str().unwrap())),
         Some(other) => Err(invalid_get_device_terminal_error(other)),
     }
 }
@@ -457,7 +454,8 @@ fn gui_x_query_target_eval(
         return Ok(false);
     }
     Ok(match args.first() {
-        None => true, Some(v) if v.is_nil() => true,
+        None => true,
+        Some(v) if v.is_nil() => true,
         Some(display) => live_frame_designator_p(eval, display),
     })
 }
@@ -476,7 +474,8 @@ fn gui_x_query_target_in_state(
         return Ok(false);
     }
     Ok(match args.first() {
-        None => true, Some(v) if v.is_nil() => true,
+        None => true,
+        Some(v) if v.is_nil() => true,
         Some(display) => live_frame_designator_p_in_state(frames, display),
     })
 }
@@ -496,10 +495,7 @@ fn expect_optional_window_system_frame_arg_in_state(
     frames: &crate::window::FrameManager,
     value: &Value,
 ) -> Result<(), Flow> {
-    if value.is_nil()
-        || value.is_frame()
-        || live_frame_designator_p_in_state(frames, value)
-    {
+    if value.is_nil() || value.is_frame() || live_frame_designator_p_in_state(frames, value) {
         Ok(())
     } else {
         Err(signal(
@@ -817,11 +813,13 @@ pub(crate) fn builtin_display_planes(
     {
         Ok(Value::fixnum(24))
     } else if terminal_runtime_supports_color() {
-        Ok(Value::fixnum(if terminal_runtime_color_cells() >= 16777216 {
-            24
-        } else {
-            8
-        }))
+        Ok(Value::fixnum(
+            if terminal_runtime_color_cells() >= 16777216 {
+                24
+            } else {
+                8
+            },
+        ))
     } else {
         Ok(Value::fixnum(3))
     }
@@ -889,16 +887,13 @@ pub(crate) fn builtin_window_system(
 ) -> EvalResult {
     expect_max_args("window-system", &args, 1)?;
     if args.first().map_or(true, |v| v.is_nil()) {
-        if let Some(window_system) =
-            selected_frame_window_system_symbol_in_state(&mut eval.frames)
+        if let Some(window_system) = selected_frame_window_system_symbol_in_state(&mut eval.frames)
         {
             return Ok(window_system);
         }
-    } else if let Some(window_system) = frame_window_system_symbol_in_state(
-        &mut eval.frames,
-        &mut eval.buffers,
-        args.first(),
-    )? {
+    } else if let Some(window_system) =
+        frame_window_system_symbol_in_state(&mut eval.frames, &mut eval.buffers, args.first())?
+    {
         return Ok(window_system);
     }
     Ok(
@@ -1214,9 +1209,7 @@ pub(crate) fn builtin_x_export_frames(args: Vec<Value>) -> EvalResult {
     expect_max_args("x-export-frames", &args, 2)?;
     match args.first() {
         None => Err(x_window_system_frame_error()),
-        Some(frame) if frame.is_nil() || frame.is_frame() => {
-            Err(x_window_system_frame_error())
-        }
+        Some(frame) if frame.is_nil() || frame.is_frame() => Err(x_window_system_frame_error()),
         Some(other) => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("frame-live-p"), *other],

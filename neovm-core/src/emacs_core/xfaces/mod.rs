@@ -8,7 +8,7 @@
 use crate::emacs_core::error::{EvalResult, signal};
 use crate::emacs_core::intern::resolve_sym;
 use crate::emacs_core::symbol::Obarray;
-use crate::emacs_core::value::{HashKey, HashTableTest, Value, list_to_vec, ValueKind};
+use crate::emacs_core::value::{HashKey, HashTableTest, Value, ValueKind, list_to_vec};
 use crate::face::Face as RuntimeFace;
 
 const FACE_ATTRIBUTES_VECTOR_LEN: usize = 20;

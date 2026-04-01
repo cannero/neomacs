@@ -166,7 +166,12 @@ fn decode_switch_preserves_hash_table_byte_targets() {
     // byte 8: constant target
     // byte 9: return
     let bytecodes = vec![193, 192, 183, 130, 8, 0, 194, 135, 195, 135];
-    let mut constants = vec![table, Value::symbol("foo"), Value::fixnum(10), Value::fixnum(20)];
+    let mut constants = vec![
+        table,
+        Value::symbol("foo"),
+        Value::fixnum(10),
+        Value::fixnum(20),
+    ];
     let (ops, offset_map) =
         decode_gnu_bytecode_with_offset_map(&bytecodes, &mut constants).unwrap();
 
@@ -185,7 +190,9 @@ fn decode_switch_preserves_hash_table_byte_targets() {
     );
 
     let raw_target = {
-        table.as_hash_table().unwrap()
+        table
+            .as_hash_table()
+            .unwrap()
             .data
             .values()
             .next()

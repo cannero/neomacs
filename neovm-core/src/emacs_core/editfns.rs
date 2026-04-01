@@ -13,9 +13,9 @@ use super::intern::intern;
 use super::symbol::Obarray;
 use super::value::*;
 use crate::buffer::{Buffer, BufferManager};
+use crate::emacs_core::value::ValueKind;
 #[cfg(unix)]
 use std::ffi::CStr;
-use crate::emacs_core::value::{ValueKind};
 
 // ---------------------------------------------------------------------------
 // Argument helpers
@@ -647,7 +647,10 @@ pub(crate) fn builtin_delete_region(
         .get(current_id)
         .is_some_and(|buf| buffer_read_only_active_in_state(&ctx.obarray, &[], buf));
     if read_only {
-        return Err(signal("buffer-read-only", vec![Value::make_buffer(current_id)]));
+        return Err(signal(
+            "buffer-read-only",
+            vec![Value::make_buffer(current_id)],
+        ));
     }
 
     let old_len = current_buffer_byte_span_char_len(ctx, start_byte, end_byte);
@@ -682,7 +685,10 @@ pub(crate) fn builtin_delete_and_extract_region(
             return Ok(Value::string(""));
         };
         if buffer_read_only_active_in_state(&ctx.obarray, &[], buf) {
-            return Err(signal("buffer-read-only", vec![Value::make_buffer(current_id)]));
+            return Err(signal(
+                "buffer-read-only",
+                vec![Value::make_buffer(current_id)],
+            ));
         }
         Value::string(buf.buffer_substring(start_byte, end_byte))
     };
@@ -736,7 +742,10 @@ pub(crate) fn erase_buffer_impl(
         !buf.text.is_empty() && buffer_read_only_active_in_state(obarray, dynamic, buf)
     });
     if should_signal_read_only {
-        return Err(signal("buffer-read-only", vec![Value::make_buffer(current_id)]));
+        return Err(signal(
+            "buffer-read-only",
+            vec![Value::make_buffer(current_id)],
+        ));
     }
 
     let _ = buffers.clear_buffer_labeled_restrictions(current_id);

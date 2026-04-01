@@ -7,7 +7,7 @@ use super::symbol::Obarray;
 use super::syntax::forward_word;
 use super::value::*;
 use crate::buffer::Buffer;
-use crate::emacs_core::value::{ValueKind};
+use crate::emacs_core::value::ValueKind;
 
 // ---------------------------------------------------------------------------
 // Argument helpers

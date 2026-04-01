@@ -566,7 +566,9 @@ fn window_configuration_parts_from_value(value: &Value) -> Option<(Value, i64)> 
         return None;
     }
     match (items[1].kind(), items[2].kind()) {
-        (ValueKind::Veclike(VecLikeType::Frame), ValueKind::Fixnum(serial)) => Some((items[1], serial)),
+        (ValueKind::Veclike(VecLikeType::Frame), ValueKind::Fixnum(serial)) => {
+            Some((items[1], serial))
+        }
         _ => None,
     }
 }
@@ -576,8 +578,8 @@ fn window_configuration_frame_from_value(value: &Value) -> Option<Value> {
 }
 
 fn next_window_configuration_serial() -> i64 {
+    use crate::emacs_core::value::{ValueKind, VecLikeType};
     use std::sync::atomic::{AtomicU64, Ordering};
-use crate::emacs_core::value::{ValueKind, VecLikeType};
     static NEXT_WINDOW_CONFIGURATION_ID: AtomicU64 = AtomicU64::new(1);
     NEXT_WINDOW_CONFIGURATION_ID.fetch_add(1, Ordering::Relaxed) as i64
 }

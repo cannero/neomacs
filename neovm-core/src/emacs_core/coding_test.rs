@@ -1,5 +1,5 @@
 use super::*;
-use crate::emacs_core::value::{ValueKind};
+use crate::emacs_core::value::ValueKind;
 
 fn mgr() -> CodingSystemManager {
     CodingSystemManager::new()
@@ -280,7 +280,10 @@ fn coding_system_plist_utf8_core_fields() {
         plist_get(&plist, ":coding-type"),
         Some(Value::symbol("utf-8"))
     );
-    assert_eq!(plist_get(&plist, ":mnemonic"), Some(Value::fixnum('U' as i64)));
+    assert_eq!(
+        plist_get(&plist, ":mnemonic"),
+        Some(Value::fixnum('U' as i64))
+    );
 }
 
 #[test]
@@ -401,7 +404,11 @@ fn coding_system_put_unknown_system_errors() {
     let mut m = mgr();
     let result = builtin_coding_system_put(
         &mut m,
-        vec![Value::symbol("bogus"), Value::symbol(":foo"), Value::fixnum(1)],
+        vec![
+            Value::symbol("bogus"),
+            Value::symbol(":foo"),
+            Value::fixnum(1),
+        ],
     );
     assert!(result.is_err());
 }
@@ -600,8 +607,7 @@ fn change_text_conversion_undecided_eol() {
 #[test]
 fn detect_coding_string_highest() {
     let m = mgr();
-    let result =
-        builtin_detect_coding_string(&m, vec![Value::string("hello"), Value::T]).unwrap();
+    let result = builtin_detect_coding_string(&m, vec![Value::string("hello"), Value::T]).unwrap();
     assert!(result.is_symbol_named("undecided"));
 }
 
@@ -642,7 +648,8 @@ fn detect_coding_region_highest() {
 #[test]
 fn detect_coding_region_list() {
     let m = mgr();
-    let result = builtin_detect_coding_region(&m, vec![Value::fixnum(1), Value::fixnum(100)]).unwrap();
+    let result =
+        builtin_detect_coding_region(&m, vec![Value::fixnum(1), Value::fixnum(100)]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 1);
     assert!(items[0].is_symbol_named("undecided"));
@@ -1114,7 +1121,9 @@ fn check_coding_systems_region_semantics() {
     }
 
     assert!(builtin_check_coding_systems_region(&m, vec![]).is_err());
-    assert!(builtin_check_coding_systems_region(&m, vec![Value::fixnum(1), Value::fixnum(1)]).is_err());
+    assert!(
+        builtin_check_coding_systems_region(&m, vec![Value::fixnum(1), Value::fixnum(1)]).is_err()
+    );
 }
 
 #[test]

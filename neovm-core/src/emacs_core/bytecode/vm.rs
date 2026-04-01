@@ -615,7 +615,10 @@ impl<'a> Vm<'a> {
                     let jump_table = stack.pop().unwrap_or(Value::NIL);
                     let dispatch = stack.pop().unwrap_or(Value::NIL);
 
-                    if !matches!(jump_table.kind(), ValueKind::Veclike(VecLikeType::HashTable)) {
+                    if !matches!(
+                        jump_table.kind(),
+                        ValueKind::Veclike(VecLikeType::HashTable)
+                    ) {
                         self.resume_nonlocal(
                             func,
                             stack,
@@ -1428,7 +1431,11 @@ impl<'a> Vm<'a> {
                     )) {
                         stack.push(result);
                     } else {
-                        stack.push(Value::bool_val(equal_value(&call_args[0], &call_args[1], 0)));
+                        stack.push(Value::bool_val(equal_value(
+                            &call_args[0],
+                            &call_args[1],
+                            0,
+                        )));
                     }
                 }
 
@@ -2243,7 +2250,10 @@ impl<'a> Vm<'a> {
         if args.len() != 2 {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("set-default"), Value::fixnum(args.len() as i64)],
+                vec![
+                    Value::symbol("set-default"),
+                    Value::fixnum(args.len() as i64),
+                ],
             ));
         }
         let symbol = match args[0].kind() {
@@ -2730,11 +2740,7 @@ impl<'a> Vm<'a> {
                 .get("height")
                 .cloned()
                 .unwrap_or(Value::fixnum(frame.lines() as i64))),
-            "visibility" => Ok(if frame.visible {
-                Value::T
-            } else {
-                Value::NIL
-            }),
+            "visibility" => Ok(if frame.visible { Value::T } else { Value::NIL }),
             _ => Ok(frame
                 .parameters
                 .get(&param_name)
@@ -4432,7 +4438,7 @@ fn arith_add(vm: &Vm<'_>, a: &Value, b: &Value) -> EvalResult {
         _ => {
             let a = number_or_marker_as_f64(vm, a)?;
             let b = number_or_marker_as_f64(vm, b)?;
-            Ok(Value::make_float(a + b))  // TODO(tagged): remove next_float_id()
+            Ok(Value::make_float(a + b)) // TODO(tagged): remove next_float_id()
         }
     }
 }
@@ -4443,7 +4449,7 @@ fn arith_sub(vm: &Vm<'_>, a: &Value, b: &Value) -> EvalResult {
         _ => {
             let a = number_or_marker_as_f64(vm, a)?;
             let b = number_or_marker_as_f64(vm, b)?;
-            Ok(Value::make_float(a - b))  // TODO(tagged): remove next_float_id()
+            Ok(Value::make_float(a - b)) // TODO(tagged): remove next_float_id()
         }
     }
 }
@@ -4454,7 +4460,7 @@ fn arith_mul(vm: &Vm<'_>, a: &Value, b: &Value) -> EvalResult {
         _ => {
             let a = number_or_marker_as_f64(vm, a)?;
             let b = number_or_marker_as_f64(vm, b)?;
-            Ok(Value::make_float(a * b))  // TODO(tagged): remove next_float_id()
+            Ok(Value::make_float(a * b)) // TODO(tagged): remove next_float_id()
         }
     }
 }
@@ -4475,7 +4481,7 @@ fn arith_div(vm: &Vm<'_>, a: &Value, b: &Value) -> EvalResult {
                     vec![Value::string("Division by zero")],
                 ));
             }
-            Ok(Value::make_float(a / b))  // TODO(tagged): remove next_float_id()
+            Ok(Value::make_float(a / b)) // TODO(tagged): remove next_float_id()
         }
     }
 }
@@ -4499,11 +4505,8 @@ fn arith_add1(vm: &Vm<'_>, a: &Value) -> EvalResult {
         ValueKind::Fixnum(n) => Ok(Value::fixnum(n.wrapping_add(1))),
         ValueKind::Float => Ok(Value::make_float(a.xfloat() + 1.0)),
         _ if a.is_marker() => Ok(Value::fixnum(
-            crate::emacs_core::marker::marker_position_as_int_with_buffers(
-                &vm.ctx.buffers,
-                a,
-            )?
-            .wrapping_add(1),
+            crate::emacs_core::marker::marker_position_as_int_with_buffers(&vm.ctx.buffers, a)?
+                .wrapping_add(1),
         )),
         _ => Err(signal(
             "wrong-type-argument",
@@ -4517,11 +4520,8 @@ fn arith_sub1(vm: &Vm<'_>, a: &Value) -> EvalResult {
         ValueKind::Fixnum(n) => Ok(Value::fixnum(n.wrapping_sub(1))),
         ValueKind::Float => Ok(Value::make_float(a.xfloat() - 1.0)),
         _ if a.is_marker() => Ok(Value::fixnum(
-            crate::emacs_core::marker::marker_position_as_int_with_buffers(
-                &vm.ctx.buffers,
-                a,
-            )?
-            .wrapping_sub(1),
+            crate::emacs_core::marker::marker_position_as_int_with_buffers(&vm.ctx.buffers, a)?
+                .wrapping_sub(1),
         )),
         _ => Err(signal(
             "wrong-type-argument",
@@ -4535,10 +4535,7 @@ fn arith_negate(vm: &Vm<'_>, a: &Value) -> EvalResult {
         ValueKind::Fixnum(n) => Ok(Value::fixnum(-n)),
         ValueKind::Float => Ok(Value::make_float(-a.xfloat())),
         _ if a.is_marker() => Ok(Value::fixnum(
-            -crate::emacs_core::marker::marker_position_as_int_with_buffers(
-                &vm.ctx.buffers,
-                a,
-            )?,
+            -crate::emacs_core::marker::marker_position_as_int_with_buffers(&vm.ctx.buffers, a)?,
         )),
         _ => Err(signal(
             "wrong-type-argument",
@@ -4594,10 +4591,10 @@ fn number_or_marker_as_f64(vm: &Vm<'_>, value: &Value) -> Result<f64, Flow> {
 fn length_value(val: &Value) -> EvalResult {
     match val.kind() {
         ValueKind::Nil => Ok(Value::fixnum(0)),
-        ValueKind::String => Ok(Value::fixnum(
-            val.as_str().unwrap().chars().count() as i64
-        )),
-        ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::fixnum(val.as_vector_data().unwrap().len() as i64)),
+        ValueKind::String => Ok(Value::fixnum(val.as_str().unwrap().chars().count() as i64)),
+        ValueKind::Veclike(VecLikeType::Vector) => {
+            Ok(Value::fixnum(val.as_vector_data().unwrap().len() as i64))
+        }
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => {
             Ok(Value::fixnum(builtins::closure_vector_length(val).unwrap()))
         }

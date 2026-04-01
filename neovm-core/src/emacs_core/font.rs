@@ -95,7 +95,9 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 fn live_frame_designator_in_state(frames: &FrameManager, value: &Value) -> bool {
     match value.kind() {
         ValueKind::Fixnum(id) if id >= 0 => frames.get(FrameId(id as u64)).is_some(),
-        ValueKind::Veclike(VecLikeType::Frame) => frames.get(FrameId(value.as_frame_id().unwrap())).is_some(),
+        ValueKind::Veclike(VecLikeType::Frame) => {
+            frames.get(FrameId(value.as_frame_id().unwrap())).is_some()
+        }
         _ => false,
     }
 }
@@ -148,9 +150,7 @@ fn live_frame_id_for_face_update(
     frame: Option<&Value>,
 ) -> Result<Option<FrameId>, Flow> {
     match frame {
-        None => {
-            Ok(Some(super::window_cmds::ensure_selected_frame_id(eval)))
-        }
+        None => Ok(Some(super::window_cmds::ensure_selected_frame_id(eval))),
         Some(v) if v.is_nil() || v.as_fixnum() == Some(0) => {
             Ok(Some(super::window_cmds::ensure_selected_frame_id(eval)))
         }
@@ -275,7 +275,10 @@ fn is_tagged_font_vector(val: &Value, tag: &str) -> bool {
     match val.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let elems = val.as_vector_data().unwrap().clone();
-            elems.first().and_then(|v| v.as_keyword_id()).map_or(false, |k| resolve_sym(k) == tag)
+            elems
+                .first()
+                .and_then(|v| v.as_keyword_id())
+                .map_or(false, |k| resolve_sym(k) == tag)
         }
         _ => false,
     }
@@ -828,7 +831,11 @@ pub(crate) fn builtin_font_xlfd_name(args: Vec<Value>) -> EvalResult {
             if is_font_object(&args[0])
                 && font_vector_get_flexible(&elems, "name").map_or(false, |v| v.is_string())
             {
-                let font_name = font_vector_get_flexible(&elems, "name").unwrap().as_str().unwrap().to_owned();
+                let font_name = font_vector_get_flexible(&elems, "name")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_owned();
                 if font_name.starts_with('-') {
                     return Ok(Value::string(
                         if args.get(1).is_some_and(|v| v.is_truthy()) {
@@ -985,10 +992,7 @@ fn resolve_face_layers_from_value(value: &Value) -> Vec<FaceLayer> {
             let Some(items) = list_to_vec(value) else {
                 return Vec::new();
             };
-            if items
-                .first()
-                .is_some_and(|item| item.is_keyword())
-            {
+            if items.first().is_some_and(|item| item.is_keyword()) {
                 vec![FaceLayer::Inline(RuntimeFace::from_plist(
                     "--font-at--",
                     &items,
@@ -1356,9 +1360,12 @@ fn public_live_frame_font_value(font_value: Value) -> Value {
             break;
         }
 
-        let keep = !elems[idx].as_symbol_id().or_else(|| elems[idx].as_keyword_id()).map_or(false, |id_| {
-        resolve_sym(id_).trim_start_matches(':') == "height"
-    });
+        let keep = !elems[idx]
+            .as_symbol_id()
+            .or_else(|| elems[idx].as_keyword_id())
+            .map_or(false, |id_| {
+                resolve_sym(id_).trim_start_matches(':') == "height"
+            });
         if keep {
             filtered.push(elems[idx]);
             filtered.push(elems[idx + 1]);
@@ -3254,9 +3261,15 @@ pub(crate) fn builtin_internal_merge_in_global_face(
 /// value is a relative form for ATTRIBUTE.
 pub(crate) fn builtin_face_attribute_relative_p(args: Vec<Value>) -> EvalResult {
     expect_args("face-attribute-relative-p", &args, 2)?;
-    let value_is_relative_reset = args[1].as_symbol_id().or_else(|| args[1].as_keyword_id()).map_or(false, |id_| {
-        matches!(resolve_sym(id_), "unspecified" | ":ignore-defface" | "ignore-defface")
-    });
+    let value_is_relative_reset = args[1]
+        .as_symbol_id()
+        .or_else(|| args[1].as_keyword_id())
+        .map_or(false, |id_| {
+            matches!(
+                resolve_sym(id_),
+                "unspecified" | ":ignore-defface" | "ignore-defface"
+            )
+        });
     if value_is_relative_reset {
         return Ok(Value::T);
     }
@@ -3272,23 +3285,34 @@ pub(crate) fn builtin_face_attribute_relative_p(args: Vec<Value>) -> EvalResult 
         return Ok(Value::NIL);
     }
 
-    Ok(Value::bool_val(!(args[1].is_fixnum() || args[1].as_char().is_some())))
+    Ok(Value::bool_val(
+        !(args[1].is_fixnum() || args[1].as_char().is_some()),
+    ))
 }
 
 /// `(merge-face-attribute ATTRIBUTE VALUE1 VALUE2)` -- return VALUE1 unless it
 /// is the symbol `unspecified`, in which case return VALUE2.
 pub(crate) fn builtin_merge_face_attribute(args: Vec<Value>) -> EvalResult {
     expect_args("merge-face-attribute", &args, 3)?;
-    let value1_is_relative_reset = args[1].as_symbol_id().or_else(|| args[1].as_keyword_id()).map_or(false, |id_| {
-        matches!(resolve_sym(id_), "unspecified" | ":ignore-defface" | "ignore-defface")
-    });
+    let value1_is_relative_reset = args[1]
+        .as_symbol_id()
+        .or_else(|| args[1].as_keyword_id())
+        .map_or(false, |id_| {
+            matches!(
+                resolve_sym(id_),
+                "unspecified" | ":ignore-defface" | "ignore-defface"
+            )
+        });
     if value1_is_relative_reset {
         return Ok(args[2]);
     }
 
-    let height_attr = args[0].as_symbol_id().or_else(|| args[0].as_keyword_id()).map_or(false, |id_| {
-        matches!(resolve_sym(id_), "height" | ":height")
-    });
+    let height_attr = args[0]
+        .as_symbol_id()
+        .or_else(|| args[0].as_keyword_id())
+        .map_or(false, |id_| {
+            matches!(resolve_sym(id_), "height" | ":height")
+        });
     if height_attr {
         return Ok(match (args[1].kind(), args[2].kind()) {
             (ValueKind::Fixnum(_), _) | (ValueKind::Char(_), _) => args[1],
@@ -3399,7 +3423,9 @@ pub(crate) fn builtin_color_defined_p(args: Vec<Value>) -> EvalResult {
     expect_max_args("color-defined-p", &args, 2)?;
     expect_optional_color_device_arg(&args, 1)?;
     match args[0].kind() {
-        ValueKind::String => Ok(Value::bool_val(!builtin_color_values(vec![args[0]])?.is_nil())),
+        ValueKind::String => Ok(Value::bool_val(
+            !builtin_color_values(vec![args[0]])?.is_nil(),
+        )),
         _ => Ok(Value::NIL),
     }
 }
@@ -3423,7 +3449,9 @@ pub(crate) fn builtin_xw_color_defined_p_ctx(
             ));
         }
     };
-    Ok(Value::bool_val(parse_color_16bit_any(&color_name).is_some()))
+    Ok(Value::bool_val(
+        parse_color_16bit_any(&color_name).is_some(),
+    ))
 }
 
 /// `(color-values COLOR &optional FRAME)` -- resolve COLOR and return a
@@ -4090,7 +4118,10 @@ pub(crate) fn builtin_x_load_color_file(args: Vec<Value>) -> EvalResult {
             Value::string(name_part),
             Value::cons(
                 Value::fixnum(r16),
-                Value::cons(Value::fixnum(g16), Value::cons(Value::fixnum(b16), Value::NIL)),
+                Value::cons(
+                    Value::fixnum(g16),
+                    Value::cons(Value::fixnum(b16), Value::NIL),
+                ),
             ),
         );
         entries.push(color_entry);

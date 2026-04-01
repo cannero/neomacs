@@ -5,7 +5,7 @@
 
 use neovm_core::buffer::Buffer;
 use neovm_core::emacs_core::symbol::Obarray;
-use neovm_core::emacs_core::value::{list_to_vec, ValueKind};
+use neovm_core::emacs_core::value::{ValueKind, list_to_vec};
 use neovm_core::emacs_core::{Context, Value};
 use neovm_core::face::{
     Color as NeoColor, Face as NeoFace, FaceHeight, FaceTable, FontWeight,
@@ -803,7 +803,7 @@ impl<'a> RustTextPropAccess<'a> {
 
         let is_invisible = match invis {
             Some(v) if v.is_nil() => false,
-        None => false,
+            None => false,
             Some(_) => true, // Any non-nil value means invisible
         };
 
@@ -1357,9 +1357,7 @@ impl FaceResolver {
             if entry_car.is_cons() {
                 let mapping_car = entry_car.cons_car();
                 let mapping_cdr = entry_car.cons_cdr();
-                if Self::face_name_from_value(&mapping_car)
-                    .is_some_and(|name| name == face_name)
-                {
+                if Self::face_name_from_value(&mapping_car).is_some_and(|name| name == face_name) {
                     return Some(mapping_cdr);
                 }
             }

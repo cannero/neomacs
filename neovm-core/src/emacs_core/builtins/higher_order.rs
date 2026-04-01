@@ -491,8 +491,8 @@ pub(crate) fn stable_sort_values_with(
     lessp_fn: Value,
     reverse: bool,
 ) -> Result<Vec<Value>, Flow> {
+    use crate::emacs_core::value::{ValueKind, VecLikeType};
     use std::cmp::Ordering;
-use crate::emacs_core::value::{ValueKind, VecLikeType};
 
     if values.len() < 2 {
         return Ok(values.to_vec());

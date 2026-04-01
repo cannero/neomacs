@@ -629,8 +629,7 @@ pub(crate) fn resolve_fontset_name_arg(value: &Value) -> Result<String, Flow> {
     match value.kind() {
         ValueKind::Nil | ValueKind::T => Ok(DEFAULT_FONTSET_NAME.to_string()),
         ValueKind::String => {
-            let requested =
-                normalize_fontset_name(value.as_str().unwrap());
+            let requested = normalize_fontset_name(value.as_str().unwrap());
             Ok(query_fontset_registry(&requested, false).unwrap_or(requested))
         }
         ValueKind::Symbol(id) | ValueKind::Keyword(id) => {
@@ -787,8 +786,7 @@ fn parse_font_spec_entry(
             Ok(FontSpecEntry::Font(spec))
         }
         ValueKind::String => {
-            let mut spec =
-                parse_font_name_string(value.as_str().unwrap());
+            let mut spec = parse_font_name_string(value.as_str().unwrap());
             spec.repertory = resolve_font_repertory(&spec, font_encoding_alist);
             Ok(FontSpecEntry::Font(spec))
         }
@@ -1084,7 +1082,9 @@ fn lookup_charset_script(alist: &Value, charset_name: &str) -> Option<String> {
 fn value_to_range(value: &Value) -> Option<(u32, u32)> {
     match value.kind() {
         ValueKind::Char(ch) => Some((ch as u32, ch as u32)),
-        ValueKind::Fixnum(code) if (0..=0x3F_FFFF).contains(&code) => Some((code as u32, code as u32)),
+        ValueKind::Fixnum(code) if (0..=0x3F_FFFF).contains(&code) => {
+            Some((code as u32, code as u32))
+        }
         ValueKind::Cons => {
             let pair_car = value.cons_car();
             let pair_cdr = value.cons_cdr();
@@ -1140,7 +1140,9 @@ fn font_vector_get_flexible(items: &[Value], prop: &str) -> Option<Value> {
     let mut index = 1usize;
     while index + 1 < items.len() {
         let key_norm = match items[index].kind() {
-            ValueKind::Keyword(id) | ValueKind::Symbol(id) => resolve_sym(id).trim_start_matches(':'),
+            ValueKind::Keyword(id) | ValueKind::Symbol(id) => {
+                resolve_sym(id).trim_start_matches(':')
+            }
             _ => {
                 index += 2;
                 continue;

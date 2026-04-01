@@ -45,7 +45,13 @@ fn remove_watcher() {
     assert!(wl.has_watchers("my-var"));
 
     wl.remove_watcher("my-var", &Value::symbol("watcher1"));
-    let calls = wl.notify_watchers("my-var", &Value::fixnum(1), &Value::fixnum(0), "set", &Value::NIL);
+    let calls = wl.notify_watchers(
+        "my-var",
+        &Value::fixnum(1),
+        &Value::fixnum(0),
+        "set",
+        &Value::NIL,
+    );
     assert_eq!(calls.len(), 1);
     assert!(calls[0].0.is_symbol_named("watcher2"));
 }
@@ -65,7 +71,13 @@ fn no_duplicate_watchers() {
     wl.add_watcher("my-var", Value::symbol("w"));
     wl.add_watcher("my-var", Value::symbol("w"));
 
-    let calls = wl.notify_watchers("my-var", &Value::fixnum(1), &Value::fixnum(0), "set", &Value::NIL);
+    let calls = wl.notify_watchers(
+        "my-var",
+        &Value::fixnum(1),
+        &Value::fixnum(0),
+        "set",
+        &Value::NIL,
+    );
     assert_eq!(calls.len(), 1);
 }
 
@@ -115,7 +127,13 @@ fn no_duplicate_equivalent_lambda_watchers() {
 #[test]
 fn notify_no_watchers_returns_empty() {
     let wl = VariableWatcherList::new();
-    let calls = wl.notify_watchers("no-var", &Value::fixnum(1), &Value::fixnum(0), "set", &Value::NIL);
+    let calls = wl.notify_watchers(
+        "no-var",
+        &Value::fixnum(1),
+        &Value::fixnum(0),
+        "set",
+        &Value::NIL,
+    );
     assert!(calls.is_empty());
 }
 
@@ -126,7 +144,13 @@ fn multiple_watchers_all_notified() {
     wl.add_watcher("v", Value::symbol("w2"));
     wl.add_watcher("v", Value::symbol("w3"));
 
-    let calls = wl.notify_watchers("v", &Value::fixnum(99), &Value::fixnum(0), "set", &Value::NIL);
+    let calls = wl.notify_watchers(
+        "v",
+        &Value::fixnum(99),
+        &Value::fixnum(0),
+        "set",
+        &Value::NIL,
+    );
     assert_eq!(calls.len(), 3);
 }
 

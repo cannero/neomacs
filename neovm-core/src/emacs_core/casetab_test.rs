@@ -129,8 +129,16 @@ fn manager_set_standard() {
 #[test]
 fn builtin_case_table_p_on_non_table() {
     assert!(builtin_case_table_p(vec![Value::NIL]).unwrap().is_nil());
-    assert!(builtin_case_table_p(vec![Value::fixnum(42)]).unwrap().is_nil());
-    assert!(builtin_case_table_p(vec![Value::string("hello")]).unwrap().is_nil());
+    assert!(
+        builtin_case_table_p(vec![Value::fixnum(42)])
+            .unwrap()
+            .is_nil()
+    );
+    assert!(
+        builtin_case_table_p(vec![Value::string("hello")])
+            .unwrap()
+            .is_nil()
+    );
 }
 
 #[test]

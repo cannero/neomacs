@@ -307,9 +307,11 @@ pub(crate) fn builtin_length(args: Vec<Value>) -> EvalResult {
             )),
         },
         ValueKind::String => Ok(Value::fixnum(
-            storage_char_len(args[0].as_str().unwrap()) as i64,
+            storage_char_len(args[0].as_str().unwrap()) as i64
         )),
-        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => Ok(Value::fixnum(vector_sequence_length(&args[0]))),
+        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
+            Ok(Value::fixnum(vector_sequence_length(&args[0])))
+        }
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("sequencep"), args[0]],
@@ -330,7 +332,9 @@ fn sequence_length_less_than(sequence: &Value, target: i64) -> Result<bool, Flow
             Ok(closure_vector_length(sequence).unwrap() < target)
         }
         ValueKind::String => Ok((storage_char_len(sequence.as_str().unwrap()) as i64) < target),
-        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => Ok(vector_sequence_length(sequence) < target),
+        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
+            Ok(vector_sequence_length(sequence) < target)
+        }
         ValueKind::Cons => {
             if target <= 0 {
                 return Ok(false);
@@ -362,7 +366,9 @@ fn sequence_length_equal(sequence: &Value, target: i64) -> Result<bool, Flow> {
             Ok(closure_vector_length(sequence).unwrap() == target)
         }
         ValueKind::String => Ok((storage_char_len(sequence.as_str().unwrap()) as i64) == target),
-        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => Ok(vector_sequence_length(sequence) == target),
+        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
+            Ok(vector_sequence_length(sequence) == target)
+        }
         ValueKind::Cons => {
             if target < 0 {
                 return Ok(false);
@@ -394,7 +400,9 @@ fn sequence_length_greater_than(sequence: &Value, target: i64) -> Result<bool, F
             Ok(closure_vector_length(sequence).unwrap() > target)
         }
         ValueKind::String => Ok((storage_char_len(sequence.as_str().unwrap()) as i64) > target),
-        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => Ok(vector_sequence_length(sequence) > target),
+        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
+            Ok(vector_sequence_length(sequence) > target)
+        }
         ValueKind::Cons => {
             if target < 0 {
                 return Ok(true);
@@ -425,7 +433,9 @@ fn sequence_length_greater_than(sequence: &Value, target: i64) -> Result<bool, F
 pub(crate) fn builtin_length_lt(args: Vec<Value>) -> EvalResult {
     expect_args("length<", &args, 2)?;
     let target = expect_fixnum(&args[1])?;
-    Ok(Value::bool_val(sequence_length_less_than(&args[0], target)?))
+    Ok(Value::bool_val(sequence_length_less_than(
+        &args[0], target,
+    )?))
 }
 
 pub(crate) fn builtin_length_eq(args: Vec<Value>) -> EvalResult {
@@ -437,7 +447,9 @@ pub(crate) fn builtin_length_eq(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_length_gt(args: Vec<Value>) -> EvalResult {
     expect_args("length>", &args, 2)?;
     let target = expect_fixnum(&args[1])?;
-    Ok(Value::bool_val(sequence_length_greater_than(&args[0], target)?))
+    Ok(Value::bool_val(sequence_length_greater_than(
+        &args[0], target,
+    )?))
 }
 
 pub(crate) fn builtin_nth(args: Vec<Value>) -> EvalResult {
@@ -522,8 +534,12 @@ pub(crate) fn builtin_append(args: Vec<Value>) -> EvalResult {
         match arg.kind() {
             ValueKind::Nil => {}
             ValueKind::Cons => extend_from_proper_list(&mut elements, arg)?,
-            ValueKind::Veclike(VecLikeType::Lambda) => elements.extend(lambda_to_closure_vector(arg).into_iter()),
-            ValueKind::Veclike(VecLikeType::ByteCode) => elements.extend(bytecode_to_closure_vector(arg).into_iter()),
+            ValueKind::Veclike(VecLikeType::Lambda) => {
+                elements.extend(lambda_to_closure_vector(arg).into_iter())
+            }
+            ValueKind::Veclike(VecLikeType::ByteCode) => {
+                elements.extend(bytecode_to_closure_vector(arg).into_iter())
+            }
             ValueKind::Veclike(VecLikeType::Vector) => {
                 elements.extend(arg.as_vector_data().unwrap().clone().into_iter())
             }
@@ -1025,8 +1041,12 @@ pub(crate) fn builtin_delq(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_elt(args: Vec<Value>) -> EvalResult {
     expect_args("elt", &args, 2)?;
     match args[0].kind() {
-        ValueKind::Cons | ValueKind::Nil | ValueKind::Veclike(VecLikeType::Lambda) => builtin_nth(vec![args[1], args[0]]),
-        ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) | ValueKind::String => builtin_aref(vec![args[0], args[1]]),
+        ValueKind::Cons | ValueKind::Nil | ValueKind::Veclike(VecLikeType::Lambda) => {
+            builtin_nth(vec![args[1], args[0]])
+        }
+        ValueKind::Veclike(VecLikeType::Vector)
+        | ValueKind::Veclike(VecLikeType::Record)
+        | ValueKind::String => builtin_aref(vec![args[0], args[1]]),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("sequencep"), args[0]],

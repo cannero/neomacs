@@ -50,7 +50,9 @@ pub fn is_char_table(v: &Value) -> bool {
     if v.is_vector() {
         let vec = v.as_vector_data().unwrap();
         vec.len() >= CT_EXTRA_START
-            && vec[0].as_symbol_id().map_or(false, |id| resolve_sym(id) == CHAR_TABLE_TAG)
+            && vec[0]
+                .as_symbol_id()
+                .map_or(false, |id| resolve_sym(id) == CHAR_TABLE_TAG)
     } else {
         false
     }
@@ -61,7 +63,9 @@ pub fn is_bool_vector(v: &Value) -> bool {
     if v.is_vector() {
         let vec = v.as_vector_data().unwrap();
         vec.len() >= 2
-            && vec[0].as_symbol_id().map_or(false, |id| resolve_sym(id) == BOOL_VECTOR_TAG)
+            && vec[0]
+                .as_symbol_id()
+                .map_or(false, |id| resolve_sym(id) == BOOL_VECTOR_TAG)
     } else {
         false
     }
@@ -73,7 +77,10 @@ pub(crate) fn bool_vector_length(v: &Value) -> Option<i64> {
         return None;
     };
     let vec = v.as_vector_data().unwrap();
-    if vec.len() < 2 || !vec[0].as_symbol_id().map_or(false, |id| resolve_sym(id) == BOOL_VECTOR_TAG)
+    if vec.len() < 2
+        || !vec[0]
+            .as_symbol_id()
+            .map_or(false, |id| resolve_sym(id) == BOOL_VECTOR_TAG)
     {
         return None;
     }
@@ -90,7 +97,9 @@ pub(crate) fn char_table_length(v: &Value) -> Option<i64> {
     };
     let vec = v.as_vector_data().unwrap();
     if vec.len() >= CT_EXTRA_START
-        && vec[0].as_symbol_id().map_or(false, |id| resolve_sym(id) == CHAR_TABLE_TAG)
+        && vec[0]
+            .as_symbol_id()
+            .map_or(false, |id| resolve_sym(id) == CHAR_TABLE_TAG)
     {
         Some(CT_LOGICAL_LENGTH)
     } else {
@@ -196,9 +205,9 @@ pub fn make_char_table_value(sub_type: Value, default: Value) -> Value {
 pub fn make_char_table_with_extra_slots(sub_type: Value, default: Value, n_extras: i64) -> Value {
     let mut vec = vec![
         Value::symbol(CHAR_TABLE_TAG),
-        default,              // CT_DEFAULT
-        Value::NIL,           // CT_PARENT
-        sub_type,             // CT_SUBTYPE
+        default,                 // CT_DEFAULT
+        Value::NIL,              // CT_PARENT
+        sub_type,                // CT_SUBTYPE
         Value::fixnum(n_extras), // CT_EXTRA_COUNT
     ];
     // Allocate extra slots initialised to nil.
@@ -1080,7 +1089,11 @@ pub(crate) fn builtin_bool_vector_subsetp(args: Vec<Value>) -> EvalResult {
     if len_a != len_b {
         return Err(signal(
             "wrong-length-argument",
-            vec![Value::fixnum(len_a), Value::fixnum(len_b), Value::fixnum(len_b)],
+            vec![
+                Value::fixnum(len_a),
+                Value::fixnum(len_b),
+                Value::fixnum(len_b),
+            ],
         ));
     }
     let is_subset = bits_a.iter().zip(bits_b.iter()).all(|(&a, &b)| !a || b);
@@ -1099,7 +1112,11 @@ fn store_bv_result_with_expected_lengths(
     let v = dest.as_vector_data().unwrap().clone();
     let len = bv_length(&v) as usize;
     if len != bits.len() {
-        let mut payload: Vec<Value> = expected_lengths.iter().copied().map(Value::fixnum).collect();
+        let mut payload: Vec<Value> = expected_lengths
+            .iter()
+            .copied()
+            .map(Value::fixnum)
+            .collect();
         payload.push(Value::fixnum(len as i64));
         return Err(signal("wrong-length-argument", payload));
     }

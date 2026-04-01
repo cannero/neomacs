@@ -9,7 +9,7 @@
 use super::chartable::make_char_table_value;
 use super::error::{EvalResult, Flow, signal};
 use super::value::*;
-use crate::emacs_core::value::{ValueKind};
+use crate::emacs_core::value::ValueKind;
 
 // ---------------------------------------------------------------------------
 // Argument helpers
@@ -165,7 +165,10 @@ pub(crate) fn builtin_find_composition_internal(args: Vec<Value>) -> EvalResult 
     if let Some(text) = args[2].as_str() {
         let len = text.chars().count() as i64;
         if pos < 0 || pos > len {
-            return Err(signal("args-out-of-range", vec![args[2], Value::fixnum(pos)]));
+            return Err(signal(
+                "args-out-of-range",
+                vec![args[2], Value::fixnum(pos)],
+            ));
         }
     } else if pos <= 0 {
         return Err(signal(

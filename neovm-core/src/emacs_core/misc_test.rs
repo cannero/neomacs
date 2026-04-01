@@ -21,7 +21,6 @@ fn bootstrap_eval(src: &str) -> Vec<String> {
 
 #[test]
 fn copy_alist_basic() {
-
     let alist = Value::list(vec![
         Value::cons(Value::symbol("a"), Value::fixnum(1)),
         Value::cons(Value::symbol("b"), Value::fixnum(2)),
@@ -151,12 +150,14 @@ fn make_list_zero() {
 #[test]
 fn make_list_validates_wholenump_length() {
     let negative = builtin_make_list(vec![Value::fixnum(-1), Value::fixnum(1)]).unwrap_err();
-    let float =
-        builtin_make_list(vec![Value::make_float(3.2), Value::fixnum(1)]).unwrap_err();
+    let float = builtin_make_list(vec![Value::make_float(3.2), Value::fixnum(1)]).unwrap_err();
     match negative {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data, vec![Value::symbol("wholenump"), Value::fixnum(-1)]);
+            assert_eq!(
+                sig.data,
+                vec![Value::symbol("wholenump"), Value::fixnum(-1)]
+            );
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
@@ -165,10 +166,7 @@ fn make_list_validates_wholenump_length() {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![
-                    Value::symbol("wholenump"),
-                    Value::make_float(3.2)
-                ]
+                vec![Value::symbol("wholenump"), Value::make_float(3.2)]
             );
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
@@ -406,7 +404,6 @@ fn locale_info_codeset_returns_utf8() {
 
 #[test]
 fn locale_info_days_months_and_paper_return_oracle_shapes() {
-
     let days = builtin_locale_info(vec![Value::symbol("days")]).unwrap();
     let days_vec = match days.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => days.as_vector_data().unwrap().clone(),
@@ -426,7 +423,10 @@ fn locale_info_days_months_and_paper_return_oracle_shapes() {
     assert_eq!(months_vec[11], Value::string("December"));
 
     let paper = builtin_locale_info(vec![Value::symbol("paper")]).unwrap();
-    assert_eq!(paper, Value::list(vec![Value::fixnum(210), Value::fixnum(297)]));
+    assert_eq!(
+        paper,
+        Value::list(vec![Value::fixnum(210), Value::fixnum(297)])
+    );
 }
 
 #[test]
@@ -624,7 +624,7 @@ fn backtrace_frame_internal_tracks_runtime_funcall_interactively_marker() {
 #[test]
 fn sf_save_current_buffer_restores() {
     use super::super::expr::Expr;
-use crate::emacs_core::value::{ValueKind, VecLikeType};
+    use crate::emacs_core::value::{ValueKind, VecLikeType};
     let mut ev = super::super::eval::Context::new();
     // Create a buffer and make it current
     let buf_id = ev.buffers.create_buffer("*test*");

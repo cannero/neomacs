@@ -11,9 +11,9 @@ use crate::emacs_core::terminal::pure::{
     expect_terminal_designator_in_state,
 };
 use crate::emacs_core::value::*;
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 use crate::window::WindowId;
 use std::cell::{Cell, RefCell};
-use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 // ---------------------------------------------------------------------------
 // Thread-local cursor state
@@ -84,7 +84,10 @@ fn expect_window_designator(value: &Value) -> Result<(), Flow> {
 
 fn live_window_designator_p(eval: &mut crate::emacs_core::eval::Context, value: &Value) -> bool {
     match value.kind() {
-        ValueKind::Veclike(VecLikeType::Window) => eval.frames.find_window_frame_id(WindowId(value.as_window_id().unwrap())).is_some(),
+        ValueKind::Veclike(VecLikeType::Window) => eval
+            .frames
+            .find_window_frame_id(WindowId(value.as_window_id().unwrap()))
+            .is_some(),
         ValueKind::Fixnum(id) if id >= 0 => eval
             .frames
             .find_window_frame_id(WindowId(id as u64))
@@ -109,8 +112,12 @@ fn expect_window_designator_eval(
 
 fn live_window_designator_p_in_state(frames: &crate::window::FrameManager, value: &Value) -> bool {
     match value.kind() {
-        ValueKind::Veclike(VecLikeType::Window) => frames.find_window_frame_id(WindowId(value.as_window_id().unwrap())).is_some(),
-        ValueKind::Fixnum(id) if id >= 0 => frames.find_window_frame_id(WindowId(id as u64)).is_some(),
+        ValueKind::Veclike(VecLikeType::Window) => frames
+            .find_window_frame_id(WindowId(value.as_window_id().unwrap()))
+            .is_some(),
+        ValueKind::Fixnum(id) if id >= 0 => {
+            frames.find_window_frame_id(WindowId(id as u64)).is_some()
+        }
         _ => false,
     }
 }

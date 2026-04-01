@@ -120,8 +120,7 @@ pub(crate) fn builtin_primitive_undo(
 
     // Save and set inhibit-read-only to t during undo.
     let saved_inhibit = ctx.obarray.symbol_value("inhibit-read-only").copied();
-    ctx.obarray
-        .set_symbol_value("inhibit-read-only", Value::T);
+    ctx.obarray.set_symbol_value("inhibit-read-only", Value::T);
 
     // Mark undo as in-progress so that the buffer edits we make
     // do NOT record new undo entries (they are reverse-operations).
@@ -250,7 +249,9 @@ fn primitive_undo_inner(
                             if rest2.is_cons() {
                                 let beg_val = rest2.cons_car();
                                 let end_val = rest2.cons_cdr();
-                                if let (Some(b), Some(e)) = (beg_val.as_fixnum(), end_val.as_fixnum()) {
+                                if let (Some(b), Some(e)) =
+                                    (beg_val.as_fixnum(), end_val.as_fixnum())
+                                {
                                     let byte_beg = (b - 1).max(0) as usize;
                                     let byte_end = (e - 1).max(0) as usize;
                                     if let Some(prop_name) = prop.as_symbol_name() {

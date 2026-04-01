@@ -1,13 +1,17 @@
 use super::*;
-use crate::emacs_core::value::{ValueKind};
+use crate::emacs_core::value::ValueKind;
 
 #[test]
 fn zlib_decompress_region_arity_and_type_validation() {
     let arity = builtin_zlib_decompress_region(vec![]);
     assert!(arity.is_err());
 
-    let too_many =
-        builtin_zlib_decompress_region(vec![Value::fixnum(1), Value::fixnum(1), Value::NIL, Value::NIL]);
+    let too_many = builtin_zlib_decompress_region(vec![
+        Value::fixnum(1),
+        Value::fixnum(1),
+        Value::NIL,
+        Value::NIL,
+    ]);
     assert!(too_many.is_err());
 
     let bad_type = builtin_zlib_decompress_region(vec![Value::string("x"), Value::fixnum(1)]);
@@ -119,7 +123,10 @@ fn libxml_parse_html_region_arity_and_type_subset() {
     );
     assert_eq!(
         builtin_libxml_parse_html_region(vec![Value::fixnum(1), Value::fixnum(2)]).unwrap(),
-        html_parse_fallback("libxml-parse-html-region", &[Value::fixnum(1), Value::fixnum(2)])
+        html_parse_fallback(
+            "libxml-parse-html-region",
+            &[Value::fixnum(1), Value::fixnum(2)]
+        )
     );
 
     let wrong_type =
@@ -134,9 +141,12 @@ fn libxml_parse_html_region_arity_and_type_subset() {
         }
         other => panic!("unexpected flow: {other:?}"),
     }
-    let wrong_base =
-        builtin_libxml_parse_html_region(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(1)])
-            .unwrap_err();
+    let wrong_base = builtin_libxml_parse_html_region(vec![
+        Value::fixnum(1),
+        Value::fixnum(2),
+        Value::fixnum(1),
+    ])
+    .unwrap_err();
     match wrong_base {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");

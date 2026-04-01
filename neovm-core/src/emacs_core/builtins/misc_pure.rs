@@ -43,7 +43,10 @@ pub(crate) fn builtin_message(ctx: &mut super::eval::Context, args: Vec<Value>) 
     // even for a single string argument.  This converts %% -> % and
     // applies text-quoting (curly quotes).
     let msg = match super::strings::builtin_format_message(ctx, args.clone())?.kind() {
-        ValueKind::String => super::strings::builtin_format_message(ctx, args.clone())?.as_str().unwrap().to_owned(),
+        ValueKind::String => super::strings::builtin_format_message(ctx, args.clone())?
+            .as_str()
+            .unwrap()
+            .to_owned(),
         _ => String::new(),
     };
     ctx.set_current_message(Some(msg.clone()));
@@ -59,7 +62,10 @@ pub(crate) fn builtin_message_box(ctx: &mut super::eval::Context, args: Vec<Valu
     }
     // GNU Emacs: always calls format-message, even for single-arg.
     let msg = match super::strings::builtin_format_message(ctx, args.clone())?.kind() {
-        ValueKind::String => super::strings::builtin_format_message(ctx, args.clone())?.as_str().unwrap().to_owned(),
+        ValueKind::String => super::strings::builtin_format_message(ctx, args.clone())?
+            .as_str()
+            .unwrap()
+            .to_owned(),
         _ => String::new(),
     };
     eprintln!("{}", msg);
@@ -76,7 +82,10 @@ pub(crate) fn builtin_message_or_box(
     }
     // GNU Emacs: always calls format-message, even for single-arg.
     let msg = match super::strings::builtin_format_message(ctx, args.clone())?.kind() {
-        ValueKind::String => super::strings::builtin_format_message(ctx, args.clone())?.as_str().unwrap().to_owned(),
+        ValueKind::String => super::strings::builtin_format_message(ctx, args.clone())?
+            .as_str()
+            .unwrap()
+            .to_owned(),
         _ => String::new(),
     };
     eprintln!("{}", msg);
@@ -136,8 +145,8 @@ pub(crate) fn builtin_force_mode_line_update(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_get_internal_run_time(args: Vec<Value>) -> EvalResult {
     expect_args("get-internal-run-time", &args, 0)?;
+    use crate::emacs_core::value::ValueKind;
     use std::time::{SystemTime, UNIX_EPOCH};
-use crate::emacs_core::value::{ValueKind};
     let dur = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();

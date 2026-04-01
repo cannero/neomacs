@@ -4635,7 +4635,10 @@ mod tests {
 
         let (translated, raw) = state.snapshot();
         assert_eq!(translated, vec![Value::fixnum('a' as i64)]);
-        assert_eq!(raw, vec![Value::fixnum('A' as i64), Value::fixnum('B' as i64)]);
+        assert_eq!(
+            raw,
+            vec![Value::fixnum('A' as i64), Value::fixnum('B' as i64)]
+        );
     }
 
     #[test]

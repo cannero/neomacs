@@ -140,7 +140,9 @@ pub(crate) fn builtin_characterp(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_char_uppercase_p(args: Vec<Value>) -> EvalResult {
     expect_args("char-uppercase-p", &args, 1)?;
     let code = expect_character_code(&args[0])?;
-    Ok(Value::bool_val(downcase_char_code_emacs_compat(code) != code))
+    Ok(Value::bool_val(
+        downcase_char_code_emacs_compat(code) != code,
+    ))
 }
 
 pub(super) fn is_lambda_form_list(value: &Value) -> bool {
@@ -204,9 +206,9 @@ pub(crate) fn builtin_functionp(eval: &mut super::eval::Context, args: Vec<Value
         }
     } else {
         match args[0].kind() {
-            ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Subr(_) | ValueKind::Veclike(VecLikeType::ByteCode) => {
-                is_runtime_function_object(&args[0])
-            }
+            ValueKind::Veclike(VecLikeType::Lambda)
+            | ValueKind::Subr(_)
+            | ValueKind::Veclike(VecLikeType::ByteCode) => is_runtime_function_object(&args[0]),
             ValueKind::Cons => !is_macro_marker_list(&args[0]) && is_lambda_form_list(&args[0]),
             _ => false,
         }
@@ -291,7 +293,9 @@ pub(crate) fn builtin_cl_type_of(args: Vec<Value>) -> EvalResult {
         ValueKind::Veclike(VecLikeType::Record) => unreachable!(),
         ValueKind::Veclike(VecLikeType::HashTable) => "hash-table",
         ValueKind::Subr(_) => "primitive-function",
-        ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => "interpreted-function",
+        ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => {
+            "interpreted-function"
+        }
         ValueKind::Veclike(VecLikeType::ByteCode) => "byte-code-function",
         ValueKind::Veclike(VecLikeType::Marker) => "marker",
         ValueKind::Veclike(VecLikeType::Buffer) => "buffer",

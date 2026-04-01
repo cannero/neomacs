@@ -14,8 +14,8 @@ use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::symbol::Obarray;
 use super::value::*;
+use crate::emacs_core::value::ValueKind;
 use crate::gc::GcTrace;
-use crate::emacs_core::value::{ValueKind};
 
 // ---------------------------------------------------------------------------
 // Autoload types
@@ -295,8 +295,7 @@ pub(crate) fn plan_autoload_do_load_in_state(
     let macro_only = args.get(2).copied().unwrap_or(Value::NIL);
     if !macro_only.is_nil() {
         let kind = items.get(4).copied().unwrap_or(Value::NIL);
-        let is_macro_type =
-            kind.is_t() || kind.as_symbol_name().map_or(false, |s| s == "macro");
+        let is_macro_type = kind.is_t() || kind.as_symbol_name().map_or(false, |s| s == "macro");
         if !is_macro_type {
             return Ok(AutoloadDoLoadPlan::Return(*fundef));
         }
@@ -507,7 +506,10 @@ pub(crate) fn builtin_symbol_file(eval: &mut super::eval::Context, args: Vec<Val
     if args.is_empty() || args.len() > 3 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("symbol-file"), Value::fixnum(args.len() as i64)],
+            vec![
+                Value::symbol("symbol-file"),
+                Value::fixnum(args.len() as i64),
+            ],
         ));
     }
 

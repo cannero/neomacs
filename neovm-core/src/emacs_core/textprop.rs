@@ -315,7 +315,9 @@ fn lookup_overlay_property(
     overlay_val: Value,
     prop: &str,
 ) -> Value {
-    let plist = overlay_val.as_overlay_data().map_or(Value::NIL, |d| d.plist);
+    let plist = overlay_val
+        .as_overlay_data()
+        .map_or(Value::NIL, |d| d.plist);
     lookup_char_property_from_direct(
         obarray,
         buffers,
@@ -1908,7 +1910,9 @@ pub(crate) fn builtin_overlay_properties_in_buffers(
 ) -> EvalResult {
     expect_args("overlay-properties", &args, 1)?;
     let overlay = expect_overlay(&args[0])?;
-    builtin_copy_sequence(vec![overlay.as_overlay_data().map_or(Value::NIL, |d| d.plist)])
+    builtin_copy_sequence(vec![
+        overlay.as_overlay_data().map_or(Value::NIL, |d| d.plist),
+    ])
 }
 
 /// (remove-overlays &optional BEG END NAME VAL)

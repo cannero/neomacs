@@ -952,11 +952,12 @@ pub(crate) fn builtin_coding_system_put(
                 ValueKind::Char(c) => Value::fixnum(c as i64),
                 ValueKind::Fixnum(n) if n >= 0 => Value::fixnum(n),
                 ValueKind::String => Value::fixnum(
-                    val.as_str().unwrap()
+                    val.as_str()
+                        .unwrap()
                         .chars()
                         .next()
                         .map(|ch| ch as i64)
-                        .unwrap_or(0)
+                        .unwrap_or(0),
                 ),
                 _ => {
                     return Err(signal(

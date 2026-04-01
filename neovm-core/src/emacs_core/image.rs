@@ -69,7 +69,9 @@ fn expect_frame_designator(_name: &str, value: &Value) -> Result<(), Flow> {
     match value.kind() {
         ValueKind::Nil => Ok(()),
         ValueKind::Fixnum(id) if id >= 0 && (id as u64) >= FRAME_ID_BASE => Ok(()),
-        ValueKind::Veclike(VecLikeType::Frame) if value.as_frame_id().unwrap() >= FRAME_ID_BASE => Ok(()),
+        ValueKind::Veclike(VecLikeType::Frame) if value.as_frame_id().unwrap() >= FRAME_ID_BASE => {
+            Ok(())
+        }
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("frame-live-p"), *value],

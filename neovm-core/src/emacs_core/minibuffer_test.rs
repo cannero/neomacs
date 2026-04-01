@@ -842,7 +842,8 @@ fn builtin_read_file_name_signals_end_of_file() {
 #[test]
 fn builtin_read_file_name_validates_dir_default_and_initial() {
     let mut eval = super::super::eval::Context::new();
-    let bad_dir = builtin_read_file_name(&mut eval, vec![Value::string("File: "), Value::fixnum(1)]);
+    let bad_dir =
+        builtin_read_file_name(&mut eval, vec![Value::string("File: "), Value::fixnum(1)]);
     assert!(matches!(
         bad_dir,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-type-argument"
@@ -930,8 +931,10 @@ fn builtin_read_directory_name_rejects_more_than_five_args() {
 #[test]
 fn builtin_read_directory_name_validates_dir_default_and_initial() {
     let mut eval = super::super::eval::Context::new();
-    let bad_dir =
-        builtin_read_directory_name(&mut eval, vec![Value::string("Directory: "), Value::fixnum(1)]);
+    let bad_dir = builtin_read_directory_name(
+        &mut eval,
+        vec![Value::string("Directory: "), Value::fixnum(1)],
+    );
     assert!(matches!(
         bad_dir,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-type-argument"

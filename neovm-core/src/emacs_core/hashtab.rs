@@ -822,10 +822,11 @@ pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>
             if vec_len == 0 {
                 return Ok(Value::NIL);
             }
-            let bucket_idx =
-                name.bytes()
-                    .fold(0u64, |h, b| h.wrapping_mul(31).wrapping_add(b as u64)) as usize
-                    % vec_len;
+            let bucket_idx = name
+                .bytes()
+                .fold(0u64, |h, b| h.wrapping_mul(31).wrapping_add(b as u64))
+                as usize
+                % vec_len;
             let bucket = vec_data[bucket_idx];
 
             // Walk the bucket chain and rebuild without the matching symbol

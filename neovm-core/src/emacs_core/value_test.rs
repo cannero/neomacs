@@ -233,7 +233,7 @@ fn value_is_copy_and_16_bytes() {
 #[test]
 fn float_equality() {
     use super::equal_value;
-use crate::emacs_core::value::{ValueKind, VecLikeType};
+    use crate::emacs_core::value::{ValueKind, VecLikeType};
     with_test_heap(|| {
         // 1.0 == 1.0
         assert!(equal_value(
@@ -260,18 +260,18 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
             0
         ));
         // Int and Float are not equal under equal_value
-        assert!(!equal_value(
-            &Value::fixnum(1),
-            &Value::make_float(1.0),
-            0
-        ));
+        assert!(!equal_value(&Value::fixnum(1), &Value::make_float(1.0), 0));
     });
 }
 
 #[test]
 fn vector_operations() {
     with_test_heap(|| {
-        let v = Value::vector(vec![Value::fixnum(10), Value::fixnum(20), Value::fixnum(30)]);
+        let v = Value::vector(vec![
+            Value::fixnum(10),
+            Value::fixnum(20),
+            Value::fixnum(30),
+        ]);
         assert!(v.is_vector());
         let items = v.as_vector_data().unwrap().clone();
         assert_eq!(items.len(), 3);
@@ -307,10 +307,7 @@ fn as_int_as_float() {
     assert_eq!(Value::fixnum(42).as_float(), None);
     // as_number_f64 coerces both
     assert_eq!(Value::fixnum(7).as_number_f64(), Some(7.0));
-    assert_eq!(
-        Value::make_float(2.5).as_number_f64(),
-        Some(2.5)
-    );
+    assert_eq!(Value::make_float(2.5).as_number_f64(), Some(2.5));
     assert_eq!(Value::NIL.as_number_f64(), None);
 }
 

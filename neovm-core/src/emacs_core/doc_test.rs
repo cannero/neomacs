@@ -352,11 +352,8 @@ fn documentation_substitutes_command_keys_unless_raw() {
     evaluator.obarray.set_symbol_function("doc-raw-fn", lambda);
 
     let display = builtin_documentation(&mut evaluator, vec![Value::symbol("doc-raw-fn")]).unwrap();
-    let raw = builtin_documentation(
-        &mut evaluator,
-        vec![Value::symbol("doc-raw-fn"), Value::T],
-    )
-    .unwrap();
+    let raw =
+        builtin_documentation(&mut evaluator, vec![Value::symbol("doc-raw-fn"), Value::T]).unwrap();
 
     let display = display.as_str().expect("display documentation string");
     let raw = raw.as_str().expect("raw documentation string");

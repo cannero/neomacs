@@ -156,7 +156,9 @@ fn fire_pending_timers_one_shot() {
     assert_eq!(fired.len(), 1);
     // Check callback is the symbol we set
     match fired[0].0.kind() {
-        ValueKind::Symbol(id) => assert_eq!(crate::emacs_core::intern::resolve_sym(id), "immediate"),
+        ValueKind::Symbol(id) => {
+            assert_eq!(crate::emacs_core::intern::resolve_sym(id), "immediate")
+        }
         other => panic!("Expected Symbol, got {:?}", fired[0].0),
     }
     assert_eq!(fired[0].1.len(), 1);
@@ -511,7 +513,10 @@ fn test_builtin_sleep_for() {
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
     ));
 
-    let result = builtin_sleep_for(&mut eval, vec![Value::fixnum(0), Value::fixnum(0), Value::fixnum(0)]);
+    let result = builtin_sleep_for(
+        &mut eval,
+        vec![Value::fixnum(0), Value::fixnum(0), Value::fixnum(0)],
+    );
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"
@@ -525,10 +530,7 @@ fn test_builtin_sleep_for() {
                 && sig.data == vec![Value::symbol("numberp"), Value::string("1")]
     ));
 
-    let result = builtin_sleep_for(
-        &mut eval,
-        vec![Value::fixnum(0), Value::make_float(0.5)],
-    );
+    let result = builtin_sleep_for(&mut eval, vec![Value::fixnum(0), Value::make_float(0.5)]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig))
@@ -663,7 +665,12 @@ fn test_eval_run_with_idle_timer() {
 
     // The timer should be idle
     if let Some(timer_id) = timer_val.as_timer_id() {
-        let timer = eval.timers.timers.iter().find(|t| t.id == timer_id).unwrap();
+        let timer = eval
+            .timers
+            .timers
+            .iter()
+            .find(|t| t.id == timer_id)
+            .unwrap();
         assert!(timer.idle);
     }
 }
@@ -881,10 +888,8 @@ fn test_eval_run_at_time_invalid_spec_signals_error() {
         Err(Flow::Signal(sig)) if sig.symbol_name() == "error"
     ));
 
-    let invalid_type = builtin_run_at_time(
-        &mut eval,
-        vec![Value::T, Value::NIL, Value::symbol("cb")],
-    );
+    let invalid_type =
+        builtin_run_at_time(&mut eval, vec![Value::T, Value::NIL, Value::symbol("cb")]);
     assert!(matches!(
         invalid_type,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "error"
@@ -921,11 +926,7 @@ fn test_eval_timer_activate() {
     // Create and cancel a timer
     let result = builtin_run_at_time(
         &mut eval,
-        vec![
-            Value::make_float(1.0),
-            Value::NIL,
-            Value::symbol("cb"),
-        ],
+        vec![Value::make_float(1.0), Value::NIL, Value::symbol("cb")],
     );
     let timer_val = result.unwrap();
     builtin_cancel_timer(&mut eval, vec![timer_val]).unwrap();
@@ -975,16 +976,12 @@ fn test_eval_timer_activate_rejects_non_timer_with_error() {
 #[test]
 fn test_eval_timer_activate_optional_delta_must_be_cons_or_nil() {
     use super::super::eval::Context;
-use crate::emacs_core::value::{ValueKind};
+    use crate::emacs_core::value::ValueKind;
 
     let mut eval = Context::new();
     let timer_val = builtin_run_at_time(
         &mut eval,
-        vec![
-            Value::make_float(1.0),
-            Value::NIL,
-            Value::symbol("cb"),
-        ],
+        vec![Value::make_float(1.0), Value::NIL, Value::symbol("cb")],
     )
     .unwrap();
     builtin_cancel_timer(&mut eval, vec![timer_val]).unwrap();

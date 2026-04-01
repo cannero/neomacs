@@ -1952,10 +1952,7 @@ fn macrop_autoload_macro_returns_macro_marker_list() {
         Value::symbol("macro"),
     ]);
     let result = macrop_check(&autoload_macro).unwrap();
-    assert_eq!(
-        result,
-        Value::list(vec![Value::symbol("macro"), Value::T])
-    );
+    assert_eq!(result, Value::list(vec![Value::symbol("macro"), Value::T]));
 }
 
 #[test]

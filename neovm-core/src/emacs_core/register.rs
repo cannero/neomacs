@@ -14,7 +14,7 @@ use std::collections::HashMap;
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
-use super::value::{Value, next_float_id, ValueKind};
+use super::value::{Value, ValueKind, next_float_id};
 use crate::gc::GcTrace;
 
 // ---------------------------------------------------------------------------

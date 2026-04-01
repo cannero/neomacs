@@ -1,5 +1,5 @@
 use super::*;
-use crate::emacs_core::value::{ValueKind};
+use crate::emacs_core::value::ValueKind;
 
 // Helper to make float comparison with epsilon
 fn assert_float_eq(val: &Value, expected: f64, epsilon: f64) {
@@ -28,18 +28,10 @@ fn assert_int_eq(val: &Value, expected: i64) {
 
 #[test]
 fn test_copysign() {
-    let result = builtin_copysign(vec![
-        Value::make_float(5.0),
-        Value::make_float(-1.0),
-    ])
-    .unwrap();
+    let result = builtin_copysign(vec![Value::make_float(5.0), Value::make_float(-1.0)]).unwrap();
     assert_float_eq(&result, -5.0, 1e-10);
 
-    let result = builtin_copysign(vec![
-        Value::make_float(-5.0),
-        Value::make_float(1.0),
-    ])
-    .unwrap();
+    let result = builtin_copysign(vec![Value::make_float(-5.0), Value::make_float(1.0)]).unwrap();
     assert_float_eq(&result, 5.0, 1e-10);
 }
 
@@ -187,39 +179,28 @@ fn test_ftruncate() {
 
 #[test]
 fn test_wrong_type_errors() {
-    assert!(
-        builtin_copysign(vec![Value::string("x"), Value::make_float(1.0)]).is_err()
-    );
+    assert!(builtin_copysign(vec![Value::string("x"), Value::make_float(1.0)]).is_err());
     assert!(builtin_copysign(vec![Value::fixnum(1), Value::make_float(1.0)]).is_err());
     assert!(builtin_fceiling(vec![Value::NIL]).is_err());
     assert!(builtin_fceiling(vec![Value::fixnum(1)]).is_err());
     assert!(builtin_ffloor(vec![Value::fixnum(1)]).is_err());
     assert!(builtin_fround(vec![Value::fixnum(1)]).is_err());
     assert!(builtin_ftruncate(vec![Value::fixnum(1)]).is_err());
-    assert!(
-        builtin_ldexp(vec![
-            Value::make_float(1.0),
-            Value::make_float(2.0)
-        ])
-        .is_err()
-    );
+    assert!(builtin_ldexp(vec![Value::make_float(1.0), Value::make_float(2.0)]).is_err());
     assert!(builtin_logb(vec![Value::T]).is_err());
     assert!(builtin_logb(vec![Value::string("y")]).is_err());
 }
 
 #[test]
 fn test_ldexp_type_check_order_matches_oracle() {
-    let err = builtin_ldexp(vec![
-        Value::symbol("sym"),
-        Value::make_float(2.0),
-    ])
-    .expect_err("ldexp should reject non-fixnum exponent first");
+    let err = builtin_ldexp(vec![Value::symbol("sym"), Value::make_float(2.0)])
+        .expect_err("ldexp should reject non-fixnum exponent first");
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(
                 sig.data,
-                vec![Value::symbol("fixnump"), Value::make_float(2.0)]  // TODO(tagged): remove next_float_id()
+                vec![Value::symbol("fixnump"), Value::make_float(2.0)] // TODO(tagged): remove next_float_id()
             );
         }
         other => panic!("unexpected flow: {other:?}"),
@@ -244,13 +225,7 @@ fn test_ldexp_type_check_order_matches_oracle() {
 #[test]
 fn test_wrong_arity() {
     assert!(builtin_logb(vec![]).is_err());
-    assert!(
-        builtin_logb(vec![
-            Value::make_float(1.0),
-            Value::make_float(2.0)
-        ])
-        .is_err()
-    );
+    assert!(builtin_logb(vec![Value::make_float(1.0), Value::make_float(2.0)]).is_err());
     assert!(builtin_copysign(vec![Value::make_float(1.0)]).is_err());
     assert!(builtin_ldexp(vec![Value::make_float(1.0)]).is_err());
     assert!(builtin_frexp(vec![]).is_err());

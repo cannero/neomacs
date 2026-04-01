@@ -579,7 +579,9 @@ pub(crate) fn symbol_function_impl(obarray: &Obarray, args: Vec<Value>) -> EvalR
         // GNU Emacs exposes this symbol as autoload-shaped in startup state,
         // then subr-shaped after first invocation triggers autoload materialization.
         if name == "kmacro-name-last-macro"
-            && function.as_subr_id().map_or(false, |subr| resolve_sym(subr) == "kmacro-name-last-macro")
+            && function
+                .as_subr_id()
+                .map_or(false, |subr| resolve_sym(subr) == "kmacro-name-last-macro")
             && obarray
                 .get_property_id(symbol, intern("neovm--kmacro-autoload-promoted"))
                 .is_none()
@@ -701,7 +703,10 @@ pub(crate) fn builtin_func_arity(eval: &mut super::eval::Context, args: Vec<Valu
 
 fn has_startup_subr_wrapper_in_obarray(obarray: &Obarray, name: &str) -> bool {
     let wrapper = format!("neovm--startup-subr-wrapper-{name}");
-    obarray.symbol_function(&wrapper).and_then(|v| v.as_subr_id()).map_or(false, |subr_id| resolve_sym(subr_id) == name)
+    obarray
+        .symbol_function(&wrapper)
+        .and_then(|v| v.as_subr_id())
+        .map_or(false, |subr_id| resolve_sym(subr_id) == name)
 }
 
 fn dispatch_symbol_func_arity_override_in_obarray(
@@ -715,8 +720,7 @@ fn dispatch_symbol_func_arity_override_in_obarray(
     }
 
     if super::autoload::is_autoload_value(function)
-        || (function.is_bytecode()
-            && has_startup_subr_wrapper_in_obarray(obarray, name))
+        || (function.is_bytecode() && has_startup_subr_wrapper_in_obarray(obarray, name))
     {
         return Some(super::subr_info::dispatch_subr_arity_value(name));
     }
@@ -974,9 +978,9 @@ pub(super) fn builtin_ccl_program_p(
 ) -> EvalResult {
     let obarray = eval.obarray();
     if args.len() == 1 && args[0].is_symbol() {
-        return Ok(Value::bool_val(symbol_has_valid_ccl_program_idx_in_obarray(
-            obarray, &args[0],
-        )?));
+        return Ok(Value::bool_val(
+            symbol_has_valid_ccl_program_idx_in_obarray(obarray, &args[0])?,
+        ));
     }
     super::ccl::builtin_ccl_program_p_impl(args)
 }
@@ -1164,8 +1168,9 @@ fn macroexpand_once_with_environment<R: MacroexpandRuntime>(
                 if let Some((resolved_id2, global2)) =
                     runtime.resolve_indirect_symbol_by_id(head_id)
                 {
-                    let is_macro2 = matches!(global2.kind(), ValueKind::Veclike(VecLikeType::Macro))
-                        || (global2.is_cons() && global2.cons_car().is_symbol_named("macro"));
+                    let is_macro2 =
+                        matches!(global2.kind(), ValueKind::Veclike(VecLikeType::Macro))
+                            || (global2.is_cons() && global2.cons_car().is_symbol_named("macro"));
                     if is_macro2 {
                         function = Some(if global2.is_cons() {
                             global2.cons_cdr()
@@ -2008,7 +2013,9 @@ pub(crate) fn builtin_native_comp_unit_file(args: Vec<Value>) -> EvalResult {
     let is_native_comp_unit = match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = args[0].as_vector_data().unwrap().clone();
-            items.first().is_some_and(|v| v.as_symbol_name() == Some(":native-comp-unit"))
+            items
+                .first()
+                .is_some_and(|v| v.as_symbol_name() == Some(":native-comp-unit"))
         }
         _ => false,
     };
@@ -2026,7 +2033,9 @@ pub(crate) fn builtin_native_comp_unit_set_file(args: Vec<Value>) -> EvalResult 
     let is_native_comp_unit = match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = args[0].as_vector_data().unwrap().clone();
-            items.first().is_some_and(|v| v.as_symbol_name() == Some(":native-comp-unit"))
+            items
+                .first()
+                .is_some_and(|v| v.as_symbol_name() == Some(":native-comp-unit"))
         }
         _ => false,
     };
@@ -2089,7 +2098,9 @@ pub(crate) fn builtin_open_font(args: Vec<Value>) -> EvalResult {
     let is_font_entity = match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = args[0].as_vector_data().unwrap().clone();
-            items.first().is_some_and(|v| v.as_symbol_name() == Some(":font-entity"))
+            items
+                .first()
+                .is_some_and(|v| v.as_symbol_name() == Some(":font-entity"))
         }
         _ => false,
     };
@@ -2287,10 +2298,14 @@ pub(crate) fn builtin_remove_pos_from_symbol(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_resize_mini_window_internal(args: Vec<Value>) -> EvalResult {
     expect_args("resize-mini-window-internal", &args, 1)?;
     match args[0].kind() {
-        ValueKind::Veclike(VecLikeType::Window) if args[0].as_window_id().unwrap() >= crate::window::MINIBUFFER_WINDOW_ID_BASE => Err(signal(
-            "error",
-            vec![Value::string("Cannot resize mini window")],
-        )),
+        ValueKind::Veclike(VecLikeType::Window)
+            if args[0].as_window_id().unwrap() >= crate::window::MINIBUFFER_WINDOW_ID_BASE =>
+        {
+            Err(signal(
+                "error",
+                vec![Value::string("Cannot resize mini window")],
+            ))
+        }
         ValueKind::Veclike(VecLikeType::Window) => Err(signal(
             "error",
             vec![Value::string("Not a valid minibuffer window")],
@@ -2429,7 +2444,11 @@ pub(crate) fn builtin_set_fringe_bitmap_face(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_set_minibuffer_window(args: Vec<Value>) -> EvalResult {
     expect_args("set-minibuffer-window", &args, 1)?;
     match args[0].kind() {
-        ValueKind::Veclike(VecLikeType::Window) if args[0].as_window_id().unwrap() >= crate::window::MINIBUFFER_WINDOW_ID_BASE => Ok(Value::NIL),
+        ValueKind::Veclike(VecLikeType::Window)
+            if args[0].as_window_id().unwrap() >= crate::window::MINIBUFFER_WINDOW_ID_BASE =>
+        {
+            Ok(Value::NIL)
+        }
         ValueKind::Veclike(VecLikeType::Window) => Err(signal(
             "error",
             vec![Value::string("Window is not a minibuffer window")],
@@ -2709,8 +2728,7 @@ pub(crate) fn compare_value_lt(
         (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector)) => {
             let lv = lhs.as_vector_data().unwrap().clone();
             let rv = rhs.as_vector_data().unwrap().clone();
-            let pairs: Vec<(Value, Value)> =
-                lv.iter().copied().zip(rv.iter().copied()).collect();
+            let pairs: Vec<(Value, Value)> = lv.iter().copied().zip(rv.iter().copied()).collect();
             for (l, r) in &pairs {
                 let cmp = compare_value_lt(l, r)?;
                 if cmp != std::cmp::Ordering::Equal {
@@ -2926,11 +2944,7 @@ fn interactive_form_from_bytecode_value(function: Value) -> Option<Value> {
     spec.map(|s| {
         let spec_val = if s.is_vector() {
             let vec_data = s.as_vector_data().unwrap();
-            if !vec_data.is_empty() {
-                vec_data[0]
-            } else {
-                s
-            }
+            if !vec_data.is_empty() { vec_data[0] } else { s }
         } else {
             s
         };
@@ -3117,7 +3131,9 @@ pub(crate) fn builtin_interactive_form(
         }
 
         // GNU (data.c:1162-1177 for COMPILED_FUNCTION_P): bytecode
-        ValueKind::Veclike(VecLikeType::ByteCode) => Ok(interactive_form_from_bytecode_value(fun).unwrap_or(Value::NIL)),
+        ValueKind::Veclike(VecLikeType::ByteCode) => {
+            Ok(interactive_form_from_bytecode_value(fun).unwrap_or(Value::NIL))
+        }
 
         // GNU (data.c:1188-1189): autoload → load then retry
         ValueKind::Cons if super::autoload::is_autoload_value(&fun) => {
@@ -4158,7 +4174,10 @@ pub(crate) fn builtin_make_closure(args: Vec<Value>) -> EvalResult {
     if args.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("make-closure"), Value::fixnum(args.len() as i64)],
+            vec![
+                Value::symbol("make-closure"),
+                Value::fixnum(args.len() as i64),
+            ],
         ));
     }
 
@@ -4240,7 +4259,7 @@ pub(crate) fn builtin_make_interpreted_closure(args: Vec<Value>) -> EvalResult {
 
 fn parse_lambda_params_from_expr(expr: &super::super::expr::Expr) -> Result<LambdaParams, Flow> {
     use super::super::expr::Expr;
-use crate::emacs_core::value::{ValueKind, VecLikeType};
+    use crate::emacs_core::value::{ValueKind, VecLikeType};
     match expr {
         Expr::Symbol(id) if resolve_sym(*id) == "nil" => Ok(LambdaParams::simple(vec![])),
         Expr::List(items) => {

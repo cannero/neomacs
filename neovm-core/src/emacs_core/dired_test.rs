@@ -1,6 +1,6 @@
 use super::*;
+use crate::emacs_core::value::ValueKind;
 use std::io::Write;
-use crate::emacs_core::value::{ValueKind};
 
 /// Test helper: create a fresh eval context for dired tests.
 fn test_eval_ctx() -> super::super::eval::Context {
@@ -365,7 +365,11 @@ fn test_file_name_completion_predicate_with_eval() {
 
     let bad_pred = builtin_file_name_completion(
         &mut eval,
-        vec![Value::string("a"), Value::string(&dir_str), Value::fixnum(123)],
+        vec![
+            Value::string("a"),
+            Value::string(&dir_str),
+            Value::fixnum(123),
+        ],
     );
     assert!(bad_pred.is_err());
 

@@ -1392,11 +1392,8 @@ fn accept_process_output_integer_just_this_one_suppresses_timers() {
     let after_first = ev
         .eval_symbol("apio-wait-timer-fired")
         .expect("timer flag after timer-suppressed wait");
-    let second = builtin_accept_process_output(
-        &mut ev,
-        vec![Value::NIL, Value::make_float(0.0)],
-    )
-    .expect("accept-process-output should service timers without target restriction");
+    let second = builtin_accept_process_output(&mut ev, vec![Value::NIL, Value::make_float(0.0)])
+        .expect("accept-process-output should service timers without target restriction");
     let after_second = ev
         .eval_symbol("apio-wait-timer-fired")
         .expect("timer flag after unrestricted wait");
@@ -1427,11 +1424,8 @@ fn accept_process_output_timer_preserves_deactivate_mark_like_gnu() {
         false,
     );
 
-    builtin_accept_process_output(
-        &mut ev,
-        vec![Value::NIL, Value::make_float(0.05)],
-    )
-    .expect("accept-process-output should service timer");
+    builtin_accept_process_output(&mut ev, vec![Value::NIL, Value::make_float(0.05)])
+        .expect("accept-process-output should service timer");
 
     assert_eq!(
         ev.eval_symbol("deactivate-mark")
@@ -1476,12 +1470,18 @@ fn accept_process_output_runs_timer_before_filter_and_sentinel_like_gnu() {
         .expect("spawn ordering process");
     builtin_set_process_filter(
         &mut ev,
-        vec![Value::fixnum(pid as i64), Value::symbol("apio-order-filter")],
+        vec![
+            Value::fixnum(pid as i64),
+            Value::symbol("apio-order-filter"),
+        ],
     )
     .expect("install ordering filter");
     builtin_set_process_sentinel(
         &mut ev,
-        vec![Value::fixnum(pid as i64), Value::symbol("apio-order-sentinel")],
+        vec![
+            Value::fixnum(pid as i64),
+            Value::symbol("apio-order-sentinel"),
+        ],
     )
     .expect("install ordering sentinel");
 
@@ -1683,7 +1683,10 @@ fn accept_process_output_restores_current_buffer_and_match_data() {
         .expect("spawn restore process");
     builtin_set_process_filter(
         &mut ev,
-        vec![Value::fixnum(pid as i64), Value::symbol("apio-restore-filter")],
+        vec![
+            Value::fixnum(pid as i64),
+            Value::symbol("apio-restore-filter"),
+        ],
     )
     .expect("install process filter");
 
@@ -1865,7 +1868,10 @@ fn sleep_for_uses_shared_wait_path_for_process_output_and_timers() {
         .expect("spawn sleep-for process");
     builtin_set_process_filter(
         &mut ev,
-        vec![Value::fixnum(pid as i64), Value::symbol("sleep-shared-filter")],
+        vec![
+            Value::fixnum(pid as i64),
+            Value::symbol("sleep-shared-filter"),
+        ],
     )
     .expect("install sleep-for process filter");
     ev.timers
@@ -1912,11 +1918,8 @@ fn accept_process_output_services_pending_resize_from_shared_wait_path() {
     })
     .expect("queue resize event");
 
-    let result = builtin_accept_process_output(
-        &mut ev,
-        vec![Value::NIL, Value::make_float(0.01)],
-    )
-    .expect("accept-process-output should service wait-path special input");
+    let result = builtin_accept_process_output(&mut ev, vec![Value::NIL, Value::make_float(0.01)])
+        .expect("accept-process-output should service wait-path special input");
     drop(tx);
 
     let width = crate::emacs_core::window_cmds::builtin_frame_native_width(&mut ev, vec![])
@@ -1955,11 +1958,8 @@ fn accept_process_output_services_resize_arriving_during_wait() {
             .expect("queue resize event during wait");
     });
 
-    let result = builtin_accept_process_output(
-        &mut ev,
-        vec![Value::NIL, Value::make_float(0.05)],
-    )
-    .expect("accept-process-output should service resize arriving during wait");
+    let result = builtin_accept_process_output(&mut ev, vec![Value::NIL, Value::make_float(0.05)])
+        .expect("accept-process-output should service resize arriving during wait");
     resize_thread.join().expect("resize sender thread");
     drop(tx);
 
@@ -1989,11 +1989,8 @@ fn accept_process_output_window_close_uses_special_event_map_handler_when_loaded
     ev.input_rx = Some(rx);
     ev.command_loop.running = true;
 
-    let result = builtin_accept_process_output(
-        &mut ev,
-        vec![Value::NIL, Value::make_float(0.0)],
-    )
-    .expect("accept-process-output should consume handled window close");
+    let result = builtin_accept_process_output(&mut ev, vec![Value::NIL, Value::make_float(0.0)])
+        .expect("accept-process-output should consume handled window close");
     drop(tx);
 
     assert_eq!(result, Value::NIL);
@@ -2017,11 +2014,8 @@ fn accept_process_output_window_close_quits_without_special_handler() {
         .expect("queue window close");
     ev.input_rx = Some(rx);
 
-    let flow = builtin_accept_process_output(
-        &mut ev,
-        vec![Value::NIL, Value::make_float(0.0)],
-    )
-    .expect_err("unhandled window close should still quit");
+    let flow = builtin_accept_process_output(&mut ev, vec![Value::NIL, Value::make_float(0.0)])
+        .expect_err("unhandled window close should still quit");
     drop(tx);
 
     assert!(matches!(flow, Flow::Signal(ref sig) if sig.symbol_name() == "quit"));
@@ -2037,22 +2031,16 @@ fn accept_process_output_window_close_honors_throw_on_input_before_quit() {
     ev.obarray
         .set_symbol_value("throw-on-input", Value::symbol("tag"));
 
-    let flow = builtin_accept_process_output(
-        &mut ev,
-        vec![Value::NIL, Value::make_float(0.0)],
-    )
-    .expect_err("throw-on-input should interrupt accept-process-output");
+    let flow = builtin_accept_process_output(&mut ev, vec![Value::NIL, Value::make_float(0.0)])
+        .expect_err("throw-on-input should interrupt accept-process-output");
     assert!(matches!(
         flow,
         Flow::Throw { tag, value } if tag == Value::symbol("tag") && value == Value::T
     ));
 
     ev.obarray.set_symbol_value("throw-on-input", Value::NIL);
-    let flow = builtin_accept_process_output(
-        &mut ev,
-        vec![Value::NIL, Value::make_float(0.0)],
-    )
-    .expect_err("window close should still quit afterwards");
+    let flow = builtin_accept_process_output(&mut ev, vec![Value::NIL, Value::make_float(0.0)])
+        .expect_err("window close should still quit afterwards");
     drop(tx);
 
     assert!(matches!(flow, Flow::Signal(ref sig) if sig.symbol_name() == "quit"));

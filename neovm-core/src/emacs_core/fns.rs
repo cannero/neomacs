@@ -465,12 +465,14 @@ pub(crate) fn builtin_md5(eval: &mut super::eval::Context, args: Vec<Value>) -> 
             args.get(1),
             args.get(2),
         )?)),
-        ValueKind::Veclike(VecLikeType::Buffer) => Ok(Value::string(md5_hex_for_buffer_in_manager(
-            &eval.buffers,
-            object.as_buffer_id().unwrap(),
-            args.get(1),
-            args.get(2),
-        )?)),
+        ValueKind::Veclike(VecLikeType::Buffer) => {
+            Ok(Value::string(md5_hex_for_buffer_in_manager(
+                &eval.buffers,
+                object.as_buffer_id().unwrap(),
+                args.get(1),
+                args.get(2),
+            )?))
+        }
         _ => Err(signal(
             "error",
             vec![
@@ -798,9 +800,12 @@ pub(crate) fn builtin_secure_hash(eval: &mut super::eval::Context, args: Vec<Val
     let object = &args[1];
     let input = match object.kind() {
         ValueKind::String => hash_slice_for_string(object, args.get(2), args.get(3))?,
-        ValueKind::Veclike(VecLikeType::Buffer) => {
-            hash_slice_for_buffer_in_manager(&eval.buffers, object.as_buffer_id().unwrap(), args.get(2), args.get(3))?
-        }
+        ValueKind::Veclike(VecLikeType::Buffer) => hash_slice_for_buffer_in_manager(
+            &eval.buffers,
+            object.as_buffer_id().unwrap(),
+            args.get(2),
+            args.get(3),
+        )?,
         _ => {
             return Err(signal(
                 "error",

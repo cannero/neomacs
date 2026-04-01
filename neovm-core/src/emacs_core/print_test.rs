@@ -66,30 +66,18 @@ fn print_uninterned_symbols_support_print_gensym_round_trip_syntax() {
 
 #[test]
 fn print_float_nan_preserves_sign() {
-    assert_eq!(
-        print_value(&Value::make_float(f64::NAN)),
-        "0.0e+NaN"
-    );
+    assert_eq!(print_value(&Value::make_float(f64::NAN)), "0.0e+NaN");
     let neg_nan = f64::from_bits(f64::NAN.to_bits() | (1_u64 << 63));
-    assert_eq!(
-        print_value(&Value::make_float(neg_nan)),
-        "-0.0e+NaN"
-    );
+    assert_eq!(print_value(&Value::make_float(neg_nan)), "-0.0e+NaN");
 }
 
 #[test]
 fn print_float_nan_payload_tag_round_trip_shape() {
     let tagged = f64::from_bits((0x7ffu64 << 52) | (1u64 << 51) | 1u64);
-    assert_eq!(
-        print_value(&Value::make_float(tagged)),
-        "1.0e+NaN"
-    );
+    assert_eq!(print_value(&Value::make_float(tagged)), "1.0e+NaN");
 
     let neg_tagged = f64::from_bits((1u64 << 63) | (0x7ffu64 << 52) | (1u64 << 51) | 2u64);
-    assert_eq!(
-        print_value(&Value::make_float(neg_tagged)),
-        "-2.0e+NaN"
-    );
+    assert_eq!(print_value(&Value::make_float(neg_tagged)), "-2.0e+NaN");
 }
 
 #[test]

@@ -1958,11 +1958,7 @@ fn interactive_event_target_window(event: &Value) -> Option<Value> {
     }
     let position_slots = crate::emacs_core::value::list_to_vec(&position)?;
     let first = *position_slots.first()?;
-    if first.is_window() {
-        Some(first)
-    } else {
-        None
-    }
+    if first.is_window() { Some(first) } else { None }
 }
 
 fn interactive_inactive_minibuffer_target_p(

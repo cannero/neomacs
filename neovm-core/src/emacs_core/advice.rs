@@ -124,7 +124,8 @@ fn watcher_callback_matches(registered: &Value, candidate: &Value) -> bool {
         return true;
     }
     match (registered.kind(), candidate.kind()) {
-        (ValueKind::Veclike(VecLikeType::Lambda), ValueKind::Veclike(VecLikeType::Lambda)) | (ValueKind::Veclike(VecLikeType::Macro), ValueKind::Veclike(VecLikeType::Macro)) => {
+        (ValueKind::Veclike(VecLikeType::Lambda), ValueKind::Veclike(VecLikeType::Lambda))
+        | (ValueKind::Veclike(VecLikeType::Macro), ValueKind::Veclike(VecLikeType::Macro)) => {
             lambda_data_matches(registered, candidate)
         }
         _ => false,

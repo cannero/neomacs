@@ -6,9 +6,9 @@
 //!
 //! This matches GNU Emacs's `Lisp_Object` design exactly.
 
-pub mod value;
-pub mod header;
 pub mod gc;
+pub mod header;
+pub mod value;
 
 #[cfg(test)]
 mod tests;

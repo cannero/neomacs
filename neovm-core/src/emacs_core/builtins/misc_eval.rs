@@ -26,11 +26,7 @@ pub(crate) fn builtin_get_pos_property_impl(
             return Ok(super::textprop::builtin_get_text_property_in_state(
                 obarray,
                 buffers,
-                vec![
-                    Value::fixnum(pos),
-                    Value::symbol(prop.clone()),
-                    *str_val,
-                ],
+                vec![Value::fixnum(pos), Value::symbol(prop.clone()), *str_val],
             )?);
         }
         return Ok(Value::NIL);
@@ -810,9 +806,7 @@ fn assq_cdr(list: &Value, prop: &str) -> Option<Value> {
     let mut cursor = *list;
     while cursor.is_cons() {
         let entry = cursor.cons_car();
-        if entry.is_cons()
-            && entry.cons_car().as_symbol_name() == Some(prop)
-        {
+        if entry.is_cons() && entry.cons_car().as_symbol_name() == Some(prop) {
             return Some(entry.cons_cdr());
         }
         cursor = cursor.cons_cdr();
@@ -996,7 +990,8 @@ fn write_print_output_to_target(
             Ok(())
         }
         _other if super::marker::is_marker(&target) => {
-            let Some((Some(buffer_id), _, _)) = super::marker::marker_logical_fields(&target) else {
+            let Some((Some(buffer_id), _, _)) = super::marker::marker_logical_fields(&target)
+            else {
                 return Err(signal(
                     "error",
                     vec![Value::string("Marker does not point anywhere")],
@@ -1038,7 +1033,11 @@ fn write_print_output_to_target(
                 })?;
             let _ = super::marker::builtin_set_marker_in_buffers(
                 buffers,
-                vec![target, Value::fixnum(new_marker_pos), Value::make_buffer(buffer_id)],
+                vec![
+                    target,
+                    Value::fixnum(new_marker_pos),
+                    Value::make_buffer(buffer_id),
+                ],
             )?;
 
             if let Some(saved_id) = saved_current {
@@ -1059,7 +1058,8 @@ fn write_print_output_to_target(
 }
 
 pub(crate) fn print_target_is_direct(target: Value) -> bool {
-    (target.is_t() || target.is_nil() || target.is_buffer() || target.is_string()) || super::marker::is_marker(&target)
+    (target.is_t() || target.is_nil() || target.is_buffer() || target.is_string())
+        || super::marker::is_marker(&target)
 }
 
 pub(crate) fn dispatch_print_callback_chars(
@@ -1568,7 +1568,10 @@ pub(crate) fn builtin_propertize(args: Vec<Value>) -> EvalResult {
     if args.len().is_multiple_of(2) {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("propertize"), Value::fixnum(args.len() as i64)],
+            vec![
+                Value::symbol("propertize"),
+                Value::fixnum(args.len() as i64),
+            ],
         ));
     }
 
@@ -1615,9 +1618,9 @@ pub(crate) fn builtin_propertize(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_current_cpu_time(args: Vec<Value>) -> EvalResult {
     expect_args("current-cpu-time", &args, 0)?;
+    use crate::emacs_core::value::{ValueKind, VecLikeType};
     use std::sync::OnceLock;
     use std::time::Instant;
-use crate::emacs_core::value::{ValueKind, VecLikeType};
     static CPU_TIME_START: OnceLock<Instant> = OnceLock::new();
     let start = CPU_TIME_START.get_or_init(Instant::now);
     let ticks = start.elapsed().as_micros() as i64;

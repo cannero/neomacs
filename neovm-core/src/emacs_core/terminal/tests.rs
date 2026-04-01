@@ -399,10 +399,7 @@ fn delete_terminal_force_defers_frame_hooks_until_pending_safe_funcalls_flush() 
     assert_eq!(
         eval.eval_expr(&crate::emacs_core::parse_forms("hook-log").expect("parse hook-log")[0])
             .expect("hook-log after delete-terminal"),
-        Value::list(vec![Value::list(vec![
-            Value::symbol("terminal"),
-            Value::T
-        ])])
+        Value::list(vec![Value::list(vec![Value::symbol("terminal"), Value::T])])
     );
 
     eval.flush_pending_safe_funcalls();

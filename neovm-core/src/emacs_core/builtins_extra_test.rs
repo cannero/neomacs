@@ -1,7 +1,7 @@
 use super::*;
 use crate::emacs_core::intern::intern;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
-use crate::emacs_core::value::{LambdaData, LambdaParams, next_float_id, ValueKind};
+use crate::emacs_core::value::{LambdaData, LambdaParams, ValueKind, next_float_id};
 use crate::emacs_core::{format_eval_result, parse_forms};
 
 fn bootstrap_eval(src: &str) -> Vec<String> {
@@ -91,7 +91,11 @@ fn proper_list_p() {
     let list = Value::list(vec![Value::fixnum(1), Value::fixnum(2)]);
     // proper-list-p returns the length of the list (2), not t
     assert_eq!(builtin_proper_list_p(vec![list]).unwrap(), Value::fixnum(2),);
-    assert!(builtin_proper_list_p(vec![Value::fixnum(5)]).unwrap().is_nil(),);
+    assert!(
+        builtin_proper_list_p(vec![Value::fixnum(5)])
+            .unwrap()
+            .is_nil(),
+    );
 }
 
 #[test]
@@ -131,7 +135,11 @@ fn bare_symbol_and_predicate_semantics() {
             .is_truthy()
     );
     assert!(builtin_bare_symbol_p(vec![Value::NIL]).unwrap().is_truthy());
-    assert!(builtin_bare_symbol_p(vec![Value::fixnum(1)]).unwrap().is_nil());
+    assert!(
+        builtin_bare_symbol_p(vec![Value::fixnum(1)])
+            .unwrap()
+            .is_nil()
+    );
 
     let err = builtin_bare_symbol(vec![Value::fixnum(1)]).unwrap_err();
     match err {
@@ -225,9 +233,11 @@ fn assoc_string_and_car_less_than_car_semantics() {
         .is_nil()
     );
 
-    let list_err =
-        builtin_car_less_than_car(vec![Value::fixnum(1), Value::cons(Value::fixnum(2), Value::NIL)])
-            .unwrap_err();
+    let list_err = builtin_car_less_than_car(vec![
+        Value::fixnum(1),
+        Value::cons(Value::fixnum(2), Value::NIL),
+    ])
+    .unwrap_err();
     match list_err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
         other => panic!("expected signal, got {other:?}"),
@@ -349,7 +359,8 @@ fn user_identity_optional_args() {
 
 #[test]
 fn user_identity_arity_contracts() {
-    let login_name_err = builtin_user_login_name(vec![Value::fixnum(1), Value::fixnum(2)]).unwrap_err();
+    let login_name_err =
+        builtin_user_login_name(vec![Value::fixnum(1), Value::fixnum(2)]).unwrap_err();
     match login_name_err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
         other => panic!("expected signal, got {other:?}"),
@@ -361,7 +372,8 @@ fn user_identity_arity_contracts() {
         other => panic!("expected signal, got {other:?}"),
     }
 
-    let full_name_err = builtin_user_full_name(vec![Value::fixnum(1), Value::fixnum(2)]).unwrap_err();
+    let full_name_err =
+        builtin_user_full_name(vec![Value::fixnum(1), Value::fixnum(2)]).unwrap_err();
     match full_name_err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-number-of-arguments"),
         other => panic!("expected signal, got {other:?}"),
@@ -376,7 +388,8 @@ fn user_identity_type_contracts() {
         other => panic!("expected signal, got {other:?}"),
     }
 
-    let full_name_err = builtin_user_full_name(vec![Value::list(vec![Value::fixnum(1)])]).unwrap_err();
+    let full_name_err =
+        builtin_user_full_name(vec![Value::list(vec![Value::fixnum(1)])]).unwrap_err();
     match full_name_err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "error"),
         other => panic!("expected signal, got {other:?}"),
@@ -438,7 +451,9 @@ fn garbage_collect_shape_and_arity() {
         .map(|bucket| {
             let bucket_items = super::super::value::list_to_vec(bucket).expect("bucket list");
             match bucket_items.first() {
-                Some(v) if v.as_symbol_id().is_some() => crate::emacs_core::intern::resolve_sym(v.as_symbol_id().unwrap()).to_owned(),
+                Some(v) if v.as_symbol_id().is_some() => {
+                    crate::emacs_core::intern::resolve_sym(v.as_symbol_id().unwrap()).to_owned()
+                }
                 other => panic!("expected bucket symbol, got {other:?}"),
             }
         })
@@ -461,11 +476,7 @@ fn garbage_collect_shape_and_arity() {
         let bucket_items = super::super::value::list_to_vec(bucket).expect("bucket list");
         assert!(bucket_items.len() >= 2);
         assert!(bucket_items[0].is_symbol());
-        assert!(
-            bucket_items[1..]
-                .iter()
-                .all(|item| item.is_fixnum())
-        );
+        assert!(bucket_items[1..].iter().all(|item| item.is_fixnum()));
     }
 }
 

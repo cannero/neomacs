@@ -455,9 +455,11 @@ impl HelpFormatter {
 
         // Docstring from LambdaData
         let inline_doc = match value.kind() {
-            ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => value
-                .get_lambda_data()
-                .and_then(|lam| lam.docstring.as_deref()),
+            ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => {
+                value
+                    .get_lambda_data()
+                    .and_then(|lam| lam.docstring.as_deref())
+            }
             _ => None,
         };
 

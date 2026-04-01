@@ -6,8 +6,11 @@ use super::*;
 
 use crate::buffer::{BufferId, BufferManager};
 use crate::emacs_core::filelock;
+use crate::emacs_core::value::{
+    ValueKind, VecLikeType, get_string_text_properties_table_for_value,
+    set_string_text_properties_table_for_value,
+};
 use crate::window::FrameManager;
-use crate::emacs_core::value::{ValueKind, VecLikeType, set_string_text_properties_table_for_value, get_string_text_properties_table_for_value};
 
 #[derive(Clone, Copy)]
 pub(crate) struct MakeIndirectBufferPlan {
@@ -643,7 +646,11 @@ pub(crate) fn builtin_buffer_substring(
     if start < point_min || start > point_max || end < point_min || end > point_max {
         return Err(signal(
             "args-out-of-range",
-            vec![Value::make_buffer(buf.id), Value::fixnum(start), Value::fixnum(end)],
+            vec![
+                Value::make_buffer(buf.id),
+                Value::fixnum(start),
+                Value::fixnum(end),
+            ],
         ));
     }
     let start = start as usize;
@@ -1752,13 +1759,20 @@ pub(crate) fn builtin_coordinates_in_window_p(
     };
 
     let window_arg = args[1];
-    let width =
-        match super::window_cmds::window_total_width_impl(frames, buffers, vec![window_arg])?.kind() {
-            ValueKind::Fixnum(n) => n as f64,
-            _ => 0.0,
-        };
+    let width = match super::window_cmds::window_total_width_impl(
+        frames,
+        buffers,
+        vec![window_arg],
+    )?
+    .kind()
+    {
+        ValueKind::Fixnum(n) => n as f64,
+        _ => 0.0,
+    };
     let height =
-        match super::window_cmds::window_total_height_impl(frames, buffers, vec![window_arg])?.kind() {
+        match super::window_cmds::window_total_height_impl(frames, buffers, vec![window_arg])?
+            .kind()
+        {
             ValueKind::Fixnum(n) => n as f64,
             _ => 0.0,
         };
@@ -2417,7 +2431,10 @@ fn insert_pieces_in_state(
         .get(current_id)
         .is_some_and(|buf| super::editfns::buffer_read_only_active_in_state(obarray, dynamic, buf))
     {
-        return Err(signal("buffer-read-only", vec![Value::make_buffer(current_id)]));
+        return Err(signal(
+            "buffer-read-only",
+            vec![Value::make_buffer(current_id)],
+        ));
     }
 
     for piece in pieces {
@@ -2492,7 +2509,10 @@ pub(crate) fn builtin_insert_char(eval: &mut super::eval::Context, args: Vec<Val
     if eval.buffers.get(current_id).is_some_and(|buf| {
         super::editfns::buffer_read_only_active_in_state(&eval.obarray, &[], buf)
     }) {
-        return Err(signal("buffer-read-only", vec![Value::make_buffer(current_id)]));
+        return Err(signal(
+            "buffer-read-only",
+            vec![Value::make_buffer(current_id)],
+        ));
     }
 
     let insert_pos = eval.buffers.get(current_id).map(|buf| buf.pt).unwrap_or(0);
@@ -2539,7 +2559,10 @@ pub(crate) fn builtin_insert_byte(eval: &mut super::eval::Context, args: Vec<Val
     if eval.buffers.get(current_id).is_some_and(|buf| {
         super::editfns::buffer_read_only_active_in_state(&eval.obarray, &[], buf)
     }) {
-        return Err(signal("buffer-read-only", vec![Value::make_buffer(current_id)]));
+        return Err(signal(
+            "buffer-read-only",
+            vec![Value::make_buffer(current_id)],
+        ));
     }
 
     let unit = if !multibyte {
@@ -2643,7 +2666,10 @@ pub(crate) fn builtin_subst_char_in_region(
     if eval.buffers.get(current_id).is_some_and(|buf| {
         super::editfns::buffer_read_only_active_in_state(&eval.obarray, &[], buf)
     }) {
-        return Err(signal("buffer-read-only", vec![Value::make_buffer(current_id)]));
+        return Err(signal(
+            "buffer-read-only",
+            vec![Value::make_buffer(current_id)],
+        ));
     }
 
     // subst-char-in-region replaces characters of the same byte length,
@@ -2980,7 +3006,11 @@ fn other_buffer_designator(
     match v.kind() {
         ValueKind::Veclike(VecLikeType::Buffer) => {
             let id = v.as_buffer_id().unwrap();
-            if buffers.get(id).is_some() { Some(id) } else { None }
+            if buffers.get(id).is_some() {
+                Some(id)
+            } else {
+                None
+            }
         }
         ValueKind::String => {
             let name = v.as_str().unwrap().to_owned();
@@ -3044,7 +3074,11 @@ pub(crate) fn builtin_generate_new_buffer_name(
     expect_min_args("generate-new-buffer-name", &args, 1)?;
     expect_max_args("generate-new-buffer-name", &args, 2)?;
     if args.len() == 2
-        && !(args[1].is_nil() || args[1].is_t() || args[1].is_string() || args[1].is_symbol() || args[1].as_keyword_id().is_some())
+        && !(args[1].is_nil()
+            || args[1].is_t()
+            || args[1].is_string()
+            || args[1].is_symbol()
+            || args[1].as_keyword_id().is_some())
     {
         return Err(signal(
             "wrong-type-argument",

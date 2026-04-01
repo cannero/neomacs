@@ -158,7 +158,7 @@ impl Compiler {
             }
             Expr::Float(f) => {
                 if for_value {
-                    let idx = func.add_constant(Value::make_float(*f));  // TODO(tagged): remove next_float_id()
+                    let idx = func.add_constant(Value::make_float(*f)); // TODO(tagged): remove next_float_id()
                     self.emit_tracked(func, Op::Constant(idx));
                 }
             }

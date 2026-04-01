@@ -4510,7 +4510,9 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
             };
 
             let mut constants: Vec<Value> = match constants_vec.kind() {
-                ValueKind::Veclike(VecLikeType::Vector) => constants_vec.as_vector_data().unwrap().clone(),
+                ValueKind::Veclike(VecLikeType::Vector) => {
+                    constants_vec.as_vector_data().unwrap().clone()
+                }
                 _ => {
                     return Err(super::error::signal(
                         "wrong-type-argument",

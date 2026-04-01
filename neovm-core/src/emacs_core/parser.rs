@@ -966,8 +966,7 @@ impl<'a> Parser<'a> {
                 }
             }
             return Ok(Expr::OpaqueValueRef(
-                super::eval::OPAQUE_POOL
-                    .with(|pool| pool.borrow_mut().insert(ht_value)),
+                super::eval::OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(ht_value)),
             ));
         }
 
@@ -979,8 +978,7 @@ impl<'a> Parser<'a> {
                 let vals: Vec<Value> = items.iter().map(super::eval::quote_to_value).collect();
                 let record_value = Value::make_record(vals);
                 return Ok(Expr::OpaqueValueRef(
-                    super::eval::OPAQUE_POOL
-                        .with(|pool| pool.borrow_mut().insert(record_value)),
+                    super::eval::OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(record_value)),
                 ));
             }
         }

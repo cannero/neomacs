@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
-use super::value::{RuntimeBindingValue, Value, list_to_vec, ValueKind, VecLikeType};
+use super::value::{RuntimeBindingValue, Value, ValueKind, VecLikeType, list_to_vec};
 use crate::buffer::{Buffer, BufferManager};
 
 thread_local! {
@@ -1245,7 +1245,11 @@ fn ensure_standard_syntax_table_object() -> EvalResult {
                 punctuation,
             ])?;
         }
-        super::chartable::builtin_set_char_table_range(vec![table, Value::fixnum(0x7f), punctuation])?;
+        super::chartable::builtin_set_char_table_range(vec![
+            table,
+            Value::fixnum(0x7f),
+            punctuation,
+        ])?;
 
         let standard = SyntaxTable::new_standard();
         for (ch, entry) in &standard.entries {
@@ -1443,8 +1447,8 @@ fn syntax_table_from_chartable(table: Value) -> Result<SyntaxTable, Flow> {
 
 fn syntax_entry_from_syntax_property(prop: Value, ch: char) -> Option<SyntaxEntry> {
     if builtin_syntax_table_p(vec![prop]).ok()?.is_truthy() {
-        let raw =
-            super::chartable::builtin_char_table_range(vec![prop, Value::fixnum(ch as i64)]).ok()?;
+        let raw = super::chartable::builtin_char_table_range(vec![prop, Value::fixnum(ch as i64)])
+            .ok()?;
         syntax_entry_from_chartable_entry(&raw)
     } else {
         syntax_entry_from_chartable_entry(&prop)
@@ -1664,7 +1668,10 @@ pub(crate) fn builtin_syntax_table_in_buffers(
     if !args.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("syntax-table"), Value::fixnum(args.len() as i64)],
+            vec![
+                Value::symbol("syntax-table"),
+                Value::fixnum(args.len() as i64),
+            ],
         ));
     }
     current_buffer_syntax_table_object_in_buffers(buffers)
@@ -1797,7 +1804,10 @@ pub(crate) fn builtin_char_syntax_in_buffers(
     if args.len() != 1 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("char-syntax"), Value::fixnum(args.len() as i64)],
+            vec![
+                Value::symbol("char-syntax"),
+                Value::fixnum(args.len() as i64),
+            ],
         ));
     }
     let ch = match args[0].kind() {
@@ -1838,7 +1848,10 @@ pub(crate) fn builtin_syntax_after_in_buffers(
     if args.len() != 1 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("syntax-after"), Value::fixnum(args.len() as i64)],
+            vec![
+                Value::symbol("syntax-after"),
+                Value::fixnum(args.len() as i64),
+            ],
         ));
     }
 
@@ -2800,7 +2813,10 @@ pub(crate) fn builtin_scan_lists(ctx: &mut super::eval::Context, args: Vec<Value
     if args.len() != 3 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("scan-lists"), Value::fixnum(args.len() as i64)],
+            vec![
+                Value::symbol("scan-lists"),
+                Value::fixnum(args.len() as i64),
+            ],
         ));
     }
 
@@ -2854,7 +2870,10 @@ pub(crate) fn builtin_scan_sexps(ctx: &mut super::eval::Context, args: Vec<Value
     if args.len() != 2 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("scan-sexps"), Value::fixnum(args.len() as i64)],
+            vec![
+                Value::symbol("scan-sexps"),
+                Value::fixnum(args.len() as i64),
+            ],
         ));
     }
 
@@ -2956,10 +2975,7 @@ impl PartialParseState {
             return state;
         };
 
-        state.depth = items
-            .first()
-            .and_then(|v| v.as_fixnum())
-            .unwrap_or(0);
+        state.depth = items.first().and_then(|v| v.as_fixnum()).unwrap_or(0);
 
         if let Some(start) = items.get(8).and_then(|v| v.as_fixnum()) {
             state.comment_or_string_start = Some(start);
@@ -3058,7 +3074,8 @@ impl PartialParseState {
             if self.quoted { Value::T } else { Value::NIL },
             Value::fixnum(self.mindepth),
             Value::NIL,
-            self.comment_or_string_start.map_or(Value::NIL, Value::fixnum),
+            self.comment_or_string_start
+                .map_or(Value::NIL, Value::fixnum),
             stack_value,
             Value::NIL,
         ])
@@ -3476,7 +3493,10 @@ pub(crate) fn builtin_syntax_ppss(eval: &mut super::eval::Context, args: Vec<Val
     if args.len() > 1 {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::symbol("syntax-ppss"), Value::fixnum(args.len() as i64)],
+            vec![
+                Value::symbol("syntax-ppss"),
+                Value::fixnum(args.len() as i64),
+            ],
         ));
     }
 

@@ -167,7 +167,10 @@ fn vector_allocation() {
 
 #[test]
 fn value_size_is_one_word() {
-    assert_eq!(std::mem::size_of::<TaggedValue>(), std::mem::size_of::<usize>());
+    assert_eq!(
+        std::mem::size_of::<TaggedValue>(),
+        std::mem::size_of::<usize>()
+    );
     assert_eq!(std::mem::size_of::<TaggedValue>(), 8); // 64-bit
 }
 

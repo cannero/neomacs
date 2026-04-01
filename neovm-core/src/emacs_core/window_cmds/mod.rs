@@ -10,7 +10,7 @@
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::minibuffer::MinibufferManager;
-use super::value::{Value, list_to_vec, ValueKind, VecLikeType};
+use super::value::{Value, ValueKind, VecLikeType, list_to_vec};
 use crate::buffer::{BufferId, BufferManager};
 use crate::window::{
     FrameId, FrameManager, Rect, SplitDirection, Window, WindowBufferDisplayDefaults, WindowId,
@@ -223,7 +223,11 @@ fn expect_margin_width(value: &Value) -> Result<usize, Flow> {
             if n < 0 || n > MAX_MARGIN {
                 return Err(signal(
                     "args-out-of-range",
-                    vec![Value::fixnum(n), Value::fixnum(0), Value::fixnum(MAX_MARGIN)],
+                    vec![
+                        Value::fixnum(n),
+                        Value::fixnum(0),
+                        Value::fixnum(MAX_MARGIN),
+                    ],
                 ));
             }
             Ok(n as usize)
@@ -233,7 +237,11 @@ fn expect_margin_width(value: &Value) -> Result<usize, Flow> {
             if n > MAX_MARGIN {
                 return Err(signal(
                     "args-out-of-range",
-                    vec![Value::fixnum(n), Value::fixnum(0), Value::fixnum(MAX_MARGIN)],
+                    vec![
+                        Value::fixnum(n),
+                        Value::fixnum(0),
+                        Value::fixnum(MAX_MARGIN),
+                    ],
                 ));
             }
             Ok(n as usize)
@@ -283,9 +291,7 @@ fn buffer_local_optional_dimension(
 }
 
 fn valid_vertical_scroll_bar_type(value: Value) -> bool {
-    value.is_nil()
-        || value == Value::T
-        || matches!(value.as_symbol_name(), Some("left" | "right"))
+    value.is_nil() || value == Value::T || matches!(value.as_symbol_name(), Some("left" | "right"))
 }
 
 fn valid_horizontal_scroll_bar_type(value: Value) -> bool {
@@ -712,7 +718,9 @@ fn ensure_selected_frame_id_in_state_with_policy(
         frame.char_width = 1.0;
         frame.char_height = 1.0;
         frame.font_pixel_size = 1.0;
-        frame.parameters.insert("width".to_string(), Value::fixnum(80));
+        frame
+            .parameters
+            .insert("width".to_string(), Value::fixnum(80));
         frame
             .parameters
             .insert("height".to_string(), Value::fixnum(25));
@@ -2343,7 +2351,11 @@ pub(crate) fn builtin_set_window_fringes(
         Some(i32::try_from(expect_int(&args[1])?).map_err(|_| {
             signal(
                 "args-out-of-range",
-                vec![args[1], Value::fixnum(0), Value::fixnum(i64::from(i32::MAX))],
+                vec![
+                    args[1],
+                    Value::fixnum(0),
+                    Value::fixnum(i64::from(i32::MAX)),
+                ],
             )
         })?)
     };
@@ -2385,16 +2397,9 @@ pub(crate) fn builtin_window_scroll_bars(
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
     let (_fid, wid) =
         resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
-    let (width, columns, vertical_type, height, lines, horizontal_type, persistent) =
-        frames.window_scroll_bars(wid).unwrap_or((
-            Value::NIL,
-            0,
-            Value::T,
-            Value::NIL,
-            0,
-            Value::T,
-            false,
-        ));
+    let (width, columns, vertical_type, height, lines, horizontal_type, persistent) = frames
+        .window_scroll_bars(wid)
+        .unwrap_or((Value::NIL, 0, Value::T, Value::NIL, 0, Value::T, false));
     Ok(Value::list(vec![
         width,
         Value::fixnum(columns),
@@ -3516,8 +3521,14 @@ fn record_buffer_display_in_state(buffers: &mut BufferManager, buffer_id: Buffer
     let Some(buffer) = buffers.get_mut(buffer_id) else {
         return Ok(Value::NIL);
     };
-    if let Some(count) = buffer.buffer_local_value("buffer-display-count").and_then(|v| v.as_fixnum()) {
-        buffer.set_buffer_local("buffer-display-count", Value::fixnum(count.saturating_add(1)));
+    if let Some(count) = buffer
+        .buffer_local_value("buffer-display-count")
+        .and_then(|v| v.as_fixnum())
+    {
+        buffer.set_buffer_local(
+            "buffer-display-count",
+            Value::fixnum(count.saturating_add(1)),
+        );
     }
     buffer.set_buffer_local("buffer-display-time", display_time);
     Ok(Value::NIL)
@@ -4279,9 +4290,10 @@ fn set_frame_text_size(frame: &mut crate::window::Frame, cols: i64, text_lines: 
     frame
         .parameters
         .insert("height".to_string(), Value::fixnum(total_lines));
-    frame
-        .parameters
-        .insert(FRAME_TEXT_LINES_PARAM.to_string(), Value::fixnum(text_lines));
+    frame.parameters.insert(
+        FRAME_TEXT_LINES_PARAM.to_string(),
+        Value::fixnum(text_lines),
+    );
 }
 
 fn resize_live_gui_frame(
@@ -4332,9 +4344,10 @@ fn resize_live_gui_frame(
             set_frame_text_size(frame, cols, text_lines);
         } else {
             frame.resize_pixelwise(total_width_px, total_height_px);
-            frame
-                .parameters
-                .insert(FRAME_TEXT_LINES_PARAM.to_string(), Value::fixnum(text_lines));
+            frame.parameters.insert(
+                FRAME_TEXT_LINES_PARAM.to_string(),
+                Value::fixnum(text_lines),
+            );
         }
     }
 
@@ -4588,7 +4601,7 @@ pub(crate) fn builtin_recenter(eval: &mut super::eval::Context, args: Vec<Value>
                 }
             }
             None if args.first().is_some_and(|v| !v.is_nil()) => wh / 2, // non-integer truthy = center
-            _ => wh / 2,                      // nil or absent = center
+            _ => wh / 2,                                                 // nil or absent = center
         };
 
         // Compute new window-start by moving backward target_line lines from point.
@@ -5838,11 +5851,7 @@ pub(crate) fn builtin_frame_parameter(
                 .unwrap_or(Value::fixnum(frame.lines() as i64)));
         }
         "visibility" => {
-            return Ok(if frame.visible {
-                Value::T
-            } else {
-                Value::NIL
-            });
+            return Ok(if frame.visible { Value::T } else { Value::NIL });
         }
         _ => {}
     }
@@ -5939,14 +5948,18 @@ pub(crate) fn builtin_modify_frame_parameters(
                     "width" => {
                         if let Some(n) = pair_cdr.as_int() {
                             if let Some(frame) = eval.frames.get_mut(fid) {
-                                frame.parameters.insert("width".to_string(), Value::fixnum(n));
+                                frame
+                                    .parameters
+                                    .insert("width".to_string(), Value::fixnum(n));
                             }
                         }
                     }
                     "height" => {
                         if let Some(n) = pair_cdr.as_int() {
                             if let Some(frame) = eval.frames.get_mut(fid) {
-                                frame.parameters.insert("height".to_string(), Value::fixnum(n));
+                                frame
+                                    .parameters
+                                    .insert("height".to_string(), Value::fixnum(n));
                             }
                         }
                     }

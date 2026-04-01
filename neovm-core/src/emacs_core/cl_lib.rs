@@ -290,10 +290,12 @@ fn seq_position_elements(seq: &Value) -> Result<Vec<Value>, Flow> {
         ValueKind::Nil => Ok(Vec::new()),
         ValueKind::Cons => seq_position_list_elements(seq),
         ValueKind::Veclike(VecLikeType::Vector) => Ok(seq.as_vector_data().unwrap().clone()),
-        ValueKind::String => Ok(seq.as_str().unwrap()
-                .chars()
-                .map(|ch| Value::fixnum(ch as i64))
-                .collect()),
+        ValueKind::String => Ok(seq
+            .as_str()
+            .unwrap()
+            .chars()
+            .map(|ch| Value::fixnum(ch as i64))
+            .collect()),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("sequencep"), *seq],
@@ -337,10 +339,12 @@ fn seq_collect_concat_arg(arg: &Value) -> Result<Vec<Value>, Flow> {
             }
         }
         ValueKind::Veclike(VecLikeType::Vector) => Ok(arg.as_vector_data().unwrap().clone()),
-        ValueKind::String => Ok(arg.as_str().unwrap()
-                .chars()
-                .map(|ch| Value::fixnum(ch as i64))
-                .collect()),
+        ValueKind::String => Ok(arg
+            .as_str()
+            .unwrap()
+            .chars()
+            .map(|ch| Value::fixnum(ch as i64))
+            .collect()),
         _ => Err(signal(
             "error",
             vec![Value::string(format!(
@@ -541,7 +545,10 @@ pub(crate) fn builtin_seq_subseq(args: Vec<Value>) -> EvalResult {
     }
 
     match args[0].kind() {
-        ValueKind::Nil | ValueKind::Cons | ValueKind::Veclike(VecLikeType::Vector) | ValueKind::String => {
+        ValueKind::Nil
+        | ValueKind::Cons
+        | ValueKind::Veclike(VecLikeType::Vector)
+        | ValueKind::String => {
             let dropped = builtin_seq_drop(vec![args[0], Value::fixnum(start)])?;
             if let Some(end_idx) = end {
                 let span = end_idx - start;
@@ -624,9 +631,13 @@ pub(crate) fn builtin_seq_empty_p(args: Vec<Value>) -> EvalResult {
     match args[0].kind() {
         ValueKind::Nil => Ok(Value::T),
         ValueKind::Cons => Ok(Value::NIL),
-        ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => Ok(Value::NIL),
+        ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => {
+            Ok(Value::NIL)
+        }
         ValueKind::String => Ok(Value::bool_val(args[0].as_str().unwrap().is_empty())),
-        ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::bool_val(args[0].as_vector_data().unwrap().len() == 0)),
+        ValueKind::Veclike(VecLikeType::Vector) => Ok(Value::bool_val(
+            args[0].as_vector_data().unwrap().len() == 0,
+        )),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("sequencep"), args[0]],
@@ -689,7 +700,10 @@ pub(crate) fn builtin_seq_position(
 ) -> EvalResult {
     expect_min_args("seq-position", &args, 2)?;
     let seq = &args[0];
-    if matches!(seq.kind(), ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode)) {
+    if matches!(
+        seq.kind(),
+        ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode)
+    ) {
         return Ok(Value::NIL);
     }
     let target = args[1];
@@ -997,25 +1011,24 @@ pub(crate) fn builtin_cl_map(eval: &mut super::eval::Context, args: Vec<Value>) 
             })?;
             let mut out = String::new();
             for item in items {
-                let ch =
-                    match item.kind() {
-                        ValueKind::Char(c) => c,
-                        ValueKind::Fixnum(n) => u32::try_from(n)
-                            .ok()
-                            .and_then(char::from_u32)
-                            .ok_or_else(|| {
-                                signal(
-                                    "wrong-type-argument",
-                                    vec![Value::symbol("characterp"), Value::fixnum(n)],
-                                )
-                            })?,
-                        _ => {
-                            return Err(signal(
+                let ch = match item.kind() {
+                    ValueKind::Char(c) => c,
+                    ValueKind::Fixnum(n) => u32::try_from(n)
+                        .ok()
+                        .and_then(char::from_u32)
+                        .ok_or_else(|| {
+                            signal(
                                 "wrong-type-argument",
-                                vec![Value::symbol("characterp"), item],
-                            ));
-                        }
-                    };
+                                vec![Value::symbol("characterp"), Value::fixnum(n)],
+                            )
+                        })?,
+                    _ => {
+                        return Err(signal(
+                            "wrong-type-argument",
+                            vec![Value::symbol("characterp"), item],
+                        ));
+                    }
+                };
                 out.push(ch);
             }
             Ok(Value::string(out))

@@ -1548,7 +1548,10 @@ fn read_key_sequence_defers_switch_frame_until_after_current_key_sequence() {
     );
 
     let (keys, binding) = ev.read_key_sequence().expect("read key sequence");
-    assert_eq!(keys, vec![Value::fixnum('a' as i64), Value::fixnum('b' as i64)]);
+    assert_eq!(
+        keys,
+        vec![Value::fixnum('a' as i64), Value::fixnum('b' as i64)]
+    );
     assert_eq!(
         binding,
         Value::symbol("neomacs-test-switch-frame-deferred-command")
@@ -1775,7 +1778,10 @@ fn read_key_sequence_defers_select_window_until_after_current_key_sequence() {
     );
 
     let (keys, binding) = ev.read_key_sequence().expect("read key sequence");
-    assert_eq!(keys, vec![Value::fixnum('a' as i64), Value::fixnum('b' as i64)]);
+    assert_eq!(
+        keys,
+        vec![Value::fixnum('a' as i64), Value::fixnum('b' as i64)]
+    );
     assert_eq!(
         binding,
         Value::symbol("neomacs-test-select-window-deferred-command")
@@ -1928,7 +1934,10 @@ fn read_char_mouse_press_uses_clicked_window_geometry() {
         Value::cons(Value::fixnum(20), Value::fixnum(10))
     );
     assert_eq!(position_slots[5], Value::fixnum(77));
-    assert_eq!(position_slots[6], Value::cons(Value::fixnum(2), Value::fixnum(0)));
+    assert_eq!(
+        position_slots[6],
+        Value::cons(Value::fixnum(2), Value::fixnum(0))
+    );
     assert_eq!(
         position_slots[9],
         Value::cons(Value::fixnum(8), Value::fixnum(16))
@@ -2178,7 +2187,10 @@ fn read_key_sequence_drops_unbound_down_mouse_without_losing_keyboard_prefix() {
         .expect("read prefixed mouse sequence");
 
     assert_eq!(binding, Value::symbol("neomacs-prefixed-mouse-command"));
-    assert_eq!(keys, vec![Value::fixnum('a' as i64), Value::symbol("mouse-1")]);
+    assert_eq!(
+        keys,
+        vec![Value::fixnum('a' as i64), Value::symbol("mouse-1")]
+    );
 }
 
 #[test]
@@ -6584,7 +6596,10 @@ fn current_window_configuration_saves_selected_window_live_point() {
     let result = ev
         .eval_expr(&forms[0])
         .expect("current-window-configuration round-trip should evaluate");
-    assert_eq!(result, Value::list(vec![Value::fixnum(10), Value::fixnum(10)]));
+    assert_eq!(
+        result,
+        Value::list(vec![Value::fixnum(10), Value::fixnum(10)])
+    );
 }
 
 #[test]

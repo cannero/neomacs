@@ -547,12 +547,18 @@ fn indirect_macro_function(eval: &super::eval::Context, value: &Value) -> Value 
 fn resolve_macro_events(eval: &super::eval::Context, value: &Value) -> Result<Vec<Value>, Flow> {
     match indirect_macro_function(eval, value).kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = indirect_macro_function(eval, value).as_vector_data().unwrap().clone();
+            let items = indirect_macro_function(eval, value)
+                .as_vector_data()
+                .unwrap()
+                .clone();
             Ok(items.clone())
         }
         ValueKind::String => {
             // Each character in the string becomes a Char event.
-            let s = indirect_macro_function(eval, value).as_str().unwrap().to_owned();
+            let s = indirect_macro_function(eval, value)
+                .as_str()
+                .unwrap()
+                .to_owned();
             Ok(s.chars().map(Value::char).collect())
         }
         _ => Err(signal(

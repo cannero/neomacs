@@ -3184,8 +3184,16 @@ pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray)
     //      fontset.c:2158-2160, xdisp.c:31594, keymap.c:3346, syntax.c:3659
     obarray.put_property("case-table", "char-table-extra-slots", Value::fixnum(3));
     obarray.put_property("category-table", "char-table-extra-slots", Value::fixnum(2));
-    obarray.put_property("char-script-table", "char-table-extra-slots", Value::fixnum(1));
-    obarray.put_property("translation-table", "char-table-extra-slots", Value::fixnum(2));
+    obarray.put_property(
+        "char-script-table",
+        "char-table-extra-slots",
+        Value::fixnum(1),
+    );
+    obarray.put_property(
+        "translation-table",
+        "char-table-extra-slots",
+        Value::fixnum(2),
+    );
     obarray.put_property("fontset", "char-table-extra-slots", Value::fixnum(8));
     obarray.put_property("fontset-info", "char-table-extra-slots", Value::fixnum(1));
     obarray.put_property(

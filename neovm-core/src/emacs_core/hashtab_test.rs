@@ -90,10 +90,26 @@ fn hash_table_rehash_options_are_ignored() {
 
 #[test]
 fn sxhash_variants_return_fixnums_and_preserve_hash_contracts() {
-    assert!(builtin_sxhash_eq(vec![Value::symbol("foo")]).unwrap().is_fixnum());
-    assert!(builtin_sxhash_eql(vec![Value::symbol("foo")]).unwrap().is_fixnum());
-    assert!(builtin_sxhash_equal(vec![Value::symbol("foo")]).unwrap().is_fixnum());
-    assert!(builtin_sxhash_equal_including_properties(vec![Value::symbol("foo")]).unwrap().is_fixnum());
+    assert!(
+        builtin_sxhash_eq(vec![Value::symbol("foo")])
+            .unwrap()
+            .is_fixnum()
+    );
+    assert!(
+        builtin_sxhash_eql(vec![Value::symbol("foo")])
+            .unwrap()
+            .is_fixnum()
+    );
+    assert!(
+        builtin_sxhash_equal(vec![Value::symbol("foo")])
+            .unwrap()
+            .is_fixnum()
+    );
+    assert!(
+        builtin_sxhash_equal_including_properties(vec![Value::symbol("foo")])
+            .unwrap()
+            .is_fixnum()
+    );
 
     let left = Value::string("x");
     let right = Value::string("x");
@@ -228,19 +244,11 @@ fn sxhash_float_signed_zero_and_nan_semantics_match_oracle() {
         let table =
             builtin_make_hash_table(vec![Value::keyword(":test"), Value::symbol(test_name)])
                 .expect("hash table");
-        let _ = builtin_puthash(vec![
-            Value::make_float(0.0),
-            Value::symbol("zero"),
-            table,
-        ])
-        .expect("puthash zero");
+        let _ = builtin_puthash(vec![Value::make_float(0.0), Value::symbol("zero"), table])
+            .expect("puthash zero");
         assert_eq!(
-            builtin_gethash(vec![
-                Value::make_float(-0.0),
-                table,
-                Value::symbol("miss")
-            ])
-            .expect("gethash -0.0"),
+            builtin_gethash(vec![Value::make_float(-0.0), table, Value::symbol("miss")])
+                .expect("gethash -0.0"),
             Value::symbol("miss")
         );
 
@@ -396,10 +404,16 @@ fn hash_table_size_tracks_growth_boundaries() {
         .expect("size 1 table");
     let _ = builtin_puthash(vec![Value::fixnum(1), Value::symbol("x"), tiny])
         .expect("puthash for first tiny entry");
-    assert_eq!(builtin_hash_table_size(vec![tiny]).unwrap(), Value::fixnum(1));
+    assert_eq!(
+        builtin_hash_table_size(vec![tiny]).unwrap(),
+        Value::fixnum(1)
+    );
     let _ = builtin_puthash(vec![Value::fixnum(2), Value::symbol("y"), tiny])
         .expect("puthash for second tiny entry");
-    assert_eq!(builtin_hash_table_size(vec![tiny]).unwrap(), Value::fixnum(24));
+    assert_eq!(
+        builtin_hash_table_size(vec![tiny]).unwrap(),
+        Value::fixnum(24)
+    );
 
     let default_table = builtin_make_hash_table(vec![]).expect("default table");
     let _ = builtin_puthash(vec![
@@ -420,7 +434,10 @@ fn hash_table_size_tracks_growth_boundaries() {
         let _ = builtin_puthash(vec![Value::fixnum(i), Value::fixnum(i), mid])
             .expect("puthash while filling size 10 table");
     }
-    assert_eq!(builtin_hash_table_size(vec![mid]).unwrap(), Value::fixnum(40));
+    assert_eq!(
+        builtin_hash_table_size(vec![mid]).unwrap(),
+        Value::fixnum(40)
+    );
 }
 
 #[test]
@@ -660,18 +677,10 @@ fn internal_hash_table_buckets_match_oracle_small_float_hashes() {
             Value::fixnum(3),
         ])
         .expect("hash table");
-        let _ = builtin_puthash(vec![
-            Value::make_float(1.0),
-            Value::fixnum(1),
-            table,
-        ])
-        .expect("puthash 1.0");
-        let _ = builtin_puthash(vec![
-            Value::make_float(2.0),
-            Value::fixnum(2),
-            table,
-        ])
-        .expect("puthash 2.0");
+        let _ = builtin_puthash(vec![Value::make_float(1.0), Value::fixnum(1), table])
+            .expect("puthash 1.0");
+        let _ = builtin_puthash(vec![Value::make_float(2.0), Value::fixnum(2), table])
+            .expect("puthash 2.0");
 
         assert_eq!(collect_float_hashes(table), expected);
     }
@@ -708,18 +717,10 @@ fn internal_hash_table_buckets_match_oracle_float_special_hashes() {
             Value::fixnum(5),
         ])
         .expect("hash table");
-        let _ = builtin_puthash(vec![
-            Value::make_float(-0.0),
-            Value::symbol("neg"),
-            table,
-        ])
-        .expect("puthash -0.0");
-        let _ = builtin_puthash(vec![
-            Value::make_float(0.0),
-            Value::symbol("pos"),
-            table,
-        ])
-        .expect("puthash 0.0");
+        let _ = builtin_puthash(vec![Value::make_float(-0.0), Value::symbol("neg"), table])
+            .expect("puthash -0.0");
+        let _ = builtin_puthash(vec![Value::make_float(0.0), Value::symbol("pos"), table])
+            .expect("puthash 0.0");
         let _ = builtin_puthash(vec![
             Value::make_float(f64::NAN),
             Value::symbol("nan"),

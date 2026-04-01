@@ -11,7 +11,7 @@
 //! - Face merging (overlay face on top of base face)
 
 use crate::emacs_core::intern::resolve_sym;
-use crate::emacs_core::value::{Value, next_float_id, ValueKind};
+use crate::emacs_core::value::{Value, ValueKind, next_float_id};
 use std::collections::{HashMap, HashSet};
 
 // X11 color table generated at compile time from etc/rgb.txt
@@ -843,10 +843,7 @@ impl FaceRemapping {
                         }
                         ValueKind::Cons => {
                             if let Some(sub_items) = list_to_vec(item) {
-                                if sub_items
-                                    .first()
-                                    .is_some_and(|v| v.is_keyword())
-                                {
+                                if sub_items.first().is_some_and(|v| v.is_keyword()) {
                                     let face = Face::from_plist("--remap--", &sub_items);
                                     entries.push(FaceRemapEntry::RemapAttrs(face));
                                 }

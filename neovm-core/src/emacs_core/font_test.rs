@@ -4,12 +4,12 @@ use crate::emacs_core::eval::{
     ResolvedFontMatch, ResolvedFontSpecMatch,
 };
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+use crate::emacs_core::value::{ValueKind, VecLikeType};
 use crate::emacs_core::{format_eval_result, parse_forms};
 use crate::face::{Color, FaceAttrValue};
 use crate::window::FRAME_ID_BASE;
 use std::cell::RefCell;
 use std::rc::Rc;
-use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 fn call_face_font(args: Vec<Value>) -> EvalResult {
     let mut eval = Context::new();
@@ -239,8 +239,12 @@ fn font_get_and_put() {
     assert!(missing.is_nil());
 
     // Put returns VAL and mutates the original spec.
-    let put_size =
-        builtin_font_put(vec![spec, Value::keyword(intern("size")), Value::fixnum(14)]).unwrap();
+    let put_size = builtin_font_put(vec![
+        spec,
+        Value::keyword(intern("size")),
+        Value::fixnum(14),
+    ])
+    .unwrap();
     assert_eq!(put_size.as_int(), Some(14));
     let size = builtin_font_get(vec![spec, Value::keyword(intern("size"))]).unwrap();
     assert_eq!(size.as_int(), Some(14));
@@ -613,7 +617,10 @@ fn font_at_eval_reads_source_style_inline_face_keywords() {
     // float value from the face spec instead of converting to decipoints.
     let height = builtin_font_get(vec![font, Value::keyword("height")]).unwrap();
     match height.kind() {
-        ValueKind::Float => { let v = height.as_float().unwrap(); assert!((v - 1.2).abs() < 1e-9, "expected 1.2, got {v}"); }
+        ValueKind::Float => {
+            let v = height.as_float().unwrap();
+            assert!((v - 1.2).abs() < 1e-9, "expected 1.2, got {v}");
+        }
         other => panic!("expected Float(1.2), got {other:?}"),
     }
 }
@@ -742,9 +749,11 @@ fn internal_lisp_face_p_rejects_non_nil_frame_designator() {
 fn internal_lisp_face_p_with_frame_designator_returns_resolved_vector() {
     clear_font_cache_state();
 
-    let result =
-        builtin_internal_lisp_face_p(vec![Value::symbol("default"), Value::make_frame(FRAME_ID_BASE)])
-            .unwrap();
+    let result = builtin_internal_lisp_face_p(vec![
+        Value::symbol("default"),
+        Value::make_frame(FRAME_ID_BASE),
+    ])
+    .unwrap();
     let values = match result.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => result.as_vector_data().unwrap().clone(),
         _ => panic!("expected vector"),
@@ -1261,7 +1270,8 @@ fn internal_lisp_face_empty_p_defaults_frame_is_empty() {
 
 #[test]
 fn internal_lisp_face_empty_p_rejects_non_nil_non_t_frame_designator() {
-    let result = builtin_internal_lisp_face_empty_p(vec![Value::symbol("default"), Value::fixnum(1)]);
+    let result =
+        builtin_internal_lisp_face_empty_p(vec![Value::symbol("default"), Value::fixnum(1)]);
     assert!(result.is_err());
     let frame_result =
         builtin_internal_lisp_face_empty_p(vec![Value::symbol("default"), Value::make_frame(1)]);
@@ -1477,7 +1487,10 @@ fn merge_face_attribute_height_relative_over_relative() {
     ])
     .unwrap();
     match result.kind() {
-        ValueKind::Float => { let value = result.as_float().unwrap(); assert!((value - 1.8).abs() < 1e-9); }
+        ValueKind::Float => {
+            let value = result.as_float().unwrap();
+            assert!((value - 1.8).abs() < 1e-9);
+        }
         other => panic!("expected float result, got {other:?}"),
     }
 }
@@ -1529,9 +1542,12 @@ fn color_queries_validate_optional_device_arg() {
     assert!(builtin_color_values(vec![Value::string("red"), Value::make_frame(1)]).is_err());
     assert!(builtin_defined_colors(vec![Value::make_frame(1)]).is_err());
     assert!(
-        builtin_color_defined_p(vec![Value::string("red"), Value::make_frame(FRAME_ID_BASE)]).is_ok()
+        builtin_color_defined_p(vec![Value::string("red"), Value::make_frame(FRAME_ID_BASE)])
+            .is_ok()
     );
-    assert!(builtin_color_values(vec![Value::string("red"), Value::make_frame(FRAME_ID_BASE)]).is_ok());
+    assert!(
+        builtin_color_values(vec![Value::string("red"), Value::make_frame(FRAME_ID_BASE)]).is_ok()
+    );
     assert!(builtin_defined_colors(vec![Value::make_frame(FRAME_ID_BASE)]).is_ok());
 }
 
@@ -1941,7 +1957,10 @@ fn color_values_from_color_spec_semantics() {
     let rgb_short =
         list_to_vec(&builtin_color_values_from_color_spec(vec![Value::string("#000")]).unwrap())
             .unwrap();
-    assert_eq!(rgb_short, vec![Value::fixnum(0), Value::fixnum(0), Value::fixnum(0)]);
+    assert_eq!(
+        rgb_short,
+        vec![Value::fixnum(0), Value::fixnum(0), Value::fixnum(0)]
+    );
 
     let rgb_12 = list_to_vec(
         &builtin_color_values_from_color_spec(vec![Value::string("#111122223333")]).unwrap(),
@@ -1949,7 +1968,11 @@ fn color_values_from_color_spec_semantics() {
     .unwrap();
     assert_eq!(
         rgb_12,
-        vec![Value::fixnum(4369), Value::fixnum(8738), Value::fixnum(13107)]
+        vec![
+            Value::fixnum(4369),
+            Value::fixnum(8738),
+            Value::fixnum(13107)
+        ]
     );
 
     assert!(
@@ -1997,8 +2020,8 @@ fn color_gray_and_supported_semantics() {
             .is_truthy()
     );
 
-    let gray_color_type =
-        builtin_color_gray_p(vec![Value::fixnum(1)]).expect_err("color-gray-p should enforce stringp");
+    let gray_color_type = builtin_color_gray_p(vec![Value::fixnum(1)])
+        .expect_err("color-gray-p should enforce stringp");
     match gray_color_type {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
@@ -2146,12 +2169,9 @@ fn color_distance_errors_match_oracle_shape() {
         other => panic!("unexpected flow: {other:?}"),
     }
 
-    let frame_err = builtin_color_distance(vec![
-        Value::string("#000"),
-        Value::string("#fff"),
-        Value::T,
-    ])
-    .expect_err("color-distance should validate optional FRAME");
+    let frame_err =
+        builtin_color_distance(vec![Value::string("#000"), Value::string("#fff"), Value::T])
+            .expect_err("color-distance should validate optional FRAME");
     match frame_err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");

@@ -315,7 +315,9 @@ fn interpreted_closure_env_entries(lexenv: Value) -> Vec<InterpretedClosureEnvEn
                 let pair_cdr = cursor.cons_cdr();
                 match pair_car.kind() {
                     ValueKind::T => entries.push(InterpretedClosureEnvEntry::TopLevelSentinel),
-                    ValueKind::Symbol(sym) => entries.push(InterpretedClosureEnvEntry::Special(sym)),
+                    ValueKind::Symbol(sym) => {
+                        entries.push(InterpretedClosureEnvEntry::Special(sym))
+                    }
                     ValueKind::Cons => {
                         let inner_car = pair_car.cons_car();
                         if let Some(sym) = binding_symbol_id(inner_car) {
@@ -954,8 +956,7 @@ pub struct Context {
     /// temporary lambdas in pcase), its memory can be reused by a new
     /// lambda body, making `tail.as_ptr()` match a stale entry whose
     /// args are completely different.  The fingerprint catches this.
-    pub(crate) macro_expansion_cache:
-        HashMap<(usize, usize, u64), Rc<MacroExpansionCacheEntry>>,
+    pub(crate) macro_expansion_cache: HashMap<(usize, usize, u64), Rc<MacroExpansionCacheEntry>>,
     /// Diagnostic counters for macro expansion cache.
     pub(crate) macro_cache_hits: u64,
     pub(crate) macro_cache_misses: u64,
@@ -1745,7 +1746,10 @@ impl Context {
 
         self.apply(
             hook,
-            vec![Value::from_sym_id(sig.symbol), signal_hook_payload_value(sig)],
+            vec![
+                Value::from_sym_id(sig.symbol),
+                signal_hook_payload_value(sig),
+            ],
         )
         .map(|_| ())
     }
@@ -1866,7 +1870,10 @@ impl Context {
                 if builtins::search::builtin_string_match_p_with_case_fold(
                     false,
                     &[entry, message],
-                )?.as_fixnum().is_some() {
+                )?
+                .as_fixnum()
+                .is_some()
+                {
                     return Ok(true);
                 }
                 continue;
@@ -1997,14 +2004,8 @@ impl Context {
         obarray.set_symbol_value("most-negative-fixnum", Value::fixnum(-(i64::MAX >> 2) - 1));
         obarray.set_constant("most-negative-fixnum");
         // Mathematical constants (defconst in float-sup.el)
-        obarray.set_symbol_value(
-            "float-e",
-            Value::make_float(std::f64::consts::E),
-        );
-        obarray.set_symbol_value(
-            "float-pi",
-            Value::make_float(std::f64::consts::PI),
-        );
+        obarray.set_symbol_value("float-e", Value::make_float(std::f64::consts::E));
+        obarray.set_symbol_value("float-pi", Value::make_float(std::f64::consts::PI));
         obarray.set_symbol_value("pi", Value::make_float(std::f64::consts::PI));
         obarray.set_symbol_value("emacs-version", Value::string("31.0.50"));
         obarray.set_symbol_value("emacs-major-version", Value::fixnum(31));
@@ -4617,7 +4618,10 @@ impl Context {
             .copied()
             .unwrap_or(Value::NIL);
 
-        if flag.as_symbol_id().map_or(false, |sym| sym == self.kill_emacs_symbol) {
+        if flag
+            .as_symbol_id()
+            .map_or(false, |sym| sym == self.kill_emacs_symbol)
+        {
             self.request_shutdown(0, false);
             return Err(signal("quit", vec![]));
         }
@@ -4677,7 +4681,9 @@ impl Context {
     }
 
     pub(crate) fn event_is_quit_char(&self, event: &Value) -> bool {
-        event.as_fixnum().map_or(false, |code| code == self.quit_char)
+        event
+            .as_fixnum()
+            .map_or(false, |code| code == self.quit_char)
     }
 
     pub(crate) fn request_quit_from_keyboard_input(&mut self) {
@@ -5013,9 +5019,7 @@ impl Context {
             Err(_) => Value::NIL,
         };
         match current.kind() {
-            ValueKind::Cons => {
-                Some(current.cons_car())
-            }
+            ValueKind::Cons => Some(current.cons_car()),
             _ => None,
         }
     }
@@ -5648,16 +5652,22 @@ impl Context {
 
     pub(crate) fn function_value_is_callable(&self, function: &Value) -> bool {
         match function.kind() {
-            ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) | ValueKind::Veclike(VecLikeType::Macro) => true,
-            ValueKind::Subr(bound_name) => !super::subr_info::is_special_form(resolve_sym(bound_name)),
+            ValueKind::Veclike(VecLikeType::Lambda)
+            | ValueKind::Veclike(VecLikeType::ByteCode)
+            | ValueKind::Veclike(VecLikeType::Macro) => true,
+            ValueKind::Subr(bound_name) => {
+                !super::subr_info::is_special_form(resolve_sym(bound_name))
+            }
             ValueKind::Cons => {
                 super::autoload::is_autoload_value(function)
                     || function.cons_car().is_symbol_named("lambda")
                     || function.cons_car().is_symbol_named("closure")
                     || function.cons_car().is_symbol_named("macro")
             }
-            ValueKind::Symbol(id) => super::builtins::symbols::resolve_indirect_symbol_by_id(self, id)
-                .is_some_and(|(_, resolved)| self.function_value_is_callable(&resolved)),
+            ValueKind::Symbol(id) => {
+                super::builtins::symbols::resolve_indirect_symbol_by_id(self, id)
+                    .is_some_and(|(_, resolved)| self.function_value_is_callable(&resolved))
+            }
             _ => false,
         }
     }
@@ -5671,8 +5681,10 @@ impl Context {
             ValueKind::Veclike(VecLikeType::ByteCode) => {
                 function.get_bytecode_data().map(|d| d.doc_form).flatten() == advice_type
             }
-            ValueKind::Symbol(id) => super::builtins::symbols::resolve_indirect_symbol_by_id(self, id)
-                .is_some_and(|(_, resolved)| self.function_value_is_advice_wrapper(&resolved)),
+            ValueKind::Symbol(id) => {
+                super::builtins::symbols::resolve_indirect_symbol_by_id(self, id)
+                    .is_some_and(|(_, resolved)| self.function_value_is_advice_wrapper(&resolved))
+            }
             _ => false,
         }
     }
@@ -5858,9 +5870,17 @@ impl Context {
                             }
                             if name == "defmacro" || name == "def-edebug-spec" {
                                 if let Some(ld) = macro_fn.get_lambda_data() {
-                                    eprintln!("[MACRO-EXPAND] name={} macro_fn.env={}", name, ld.env.is_some());
+                                    eprintln!(
+                                        "[MACRO-EXPAND] name={} macro_fn.env={}",
+                                        name,
+                                        ld.env.is_some()
+                                    );
                                 } else {
-                                    eprintln!("[MACRO-EXPAND] name={} macro_fn is NOT lambda: {:?}", name, macro_fn.kind());
+                                    eprintln!(
+                                        "[MACRO-EXPAND] name={} macro_fn is NOT lambda: {:?}",
+                                        name,
+                                        macro_fn.kind()
+                                    );
                                 }
                             }
                             let expanded_value = self.with_macro_expansion_scope(|eval| {
@@ -6134,8 +6154,16 @@ impl Context {
                     return;
                 }
                 let mut ht = value.as_hash_table().unwrap().clone();
-                let old_ptr = if from.is_string() { Some(from.bits()) } else { None };
-                let new_ptr = if to.is_string() { Some(to.bits()) } else { None };
+                let old_ptr = if from.is_string() {
+                    Some(from.bits())
+                } else {
+                    None
+                };
+                let new_ptr = if to.is_string() {
+                    Some(to.bits())
+                } else {
+                    None
+                };
                 if matches!(ht.test, HashTableTest::Eq | HashTableTest::Eql) {
                     if let (Some(old_ptr), Some(new_ptr)) = (old_ptr, new_ptr) {
                         if let Some(existing) = ht.data.remove(&HashKey::Ptr(old_ptr)) {
@@ -7110,7 +7138,9 @@ impl Context {
         };
 
         let mut constants: Vec<Value> = match constants_vec.kind() {
-            ValueKind::Veclike(VecLikeType::Vector) => constants_vec.as_vector_data().unwrap().clone(),
+            ValueKind::Veclike(VecLikeType::Vector) => {
+                constants_vec.as_vector_data().unwrap().clone()
+            }
             _ => Vec::new(),
         };
 
@@ -7268,7 +7298,9 @@ impl Context {
             ValueKind::Symbol(sid) => Some(resolve_sym(sid).to_string()),
             _ => None,
         };
-        let filename_str = filename.as_ref().and_then(|v| v.as_str().map(|s| s.to_string()));
+        let filename_str = filename
+            .as_ref()
+            .and_then(|v| v.as_str().map(|s| s.to_string()));
         match plan_require_in_state(
             &self.obarray,
             &mut self.features,
@@ -8264,7 +8296,10 @@ impl Context {
                 if args.len() != 2 {
                     return Err(signal(
                         "wrong-number-of-arguments",
-                        vec![Value::subr(intern("throw")), Value::fixnum(args.len() as i64)],
+                        vec![
+                            Value::subr(intern("throw")),
+                            Value::fixnum(args.len() as i64),
+                        ],
                     ));
                 }
                 let tag = args[0];
@@ -9302,9 +9337,9 @@ pub(crate) fn value_to_expr(value: &Value) -> Expr {
             let items = value.as_vector_data().unwrap().clone();
             Expr::Vector(items.iter().map(value_to_expr).collect())
         }
-        ValueKind::Subr(id) => Expr::OpaqueValueRef(
-            OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(Value::subr(id))),
-        ),
+        ValueKind::Subr(id) => {
+            Expr::OpaqueValueRef(OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(Value::subr(id))))
+        }
         // Lambda, Macro, ByteCode, HashTable, Buffer, etc. — preserve as
         // opaque values so they survive the Value→Expr→Value round-trip
         // (e.g., closures embedded in defcustom backquote expansions).

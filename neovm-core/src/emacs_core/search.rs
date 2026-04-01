@@ -15,7 +15,7 @@
 use super::error::{EvalResult, Flow, signal};
 use super::intern::intern;
 use super::value::*;
-use crate::emacs_core::value::{ValueKind};
+use crate::emacs_core::value::ValueKind;
 
 // ---------------------------------------------------------------------------
 // Argument helpers
@@ -303,7 +303,7 @@ fn replace_regexp_in_string_core(
     let (subexp, start) = if let Some(so) = start_override {
         let sub = match args.get(5) {
             Some(v) if v.is_nil() => 0i64,
-        None => 0i64,
+            None => 0i64,
             Some(value) => expect_int(value)?,
         };
         (sub, so)

@@ -118,7 +118,8 @@ fn format_time_string_iso_format() {
 #[test]
 fn format_time_string_ampm() {
     // 2000-01-01 15:30:00 UTC = 946684800 + 15*3600 + 30*60 = 946740600
-    let result = builtin_format_time_string(vec![Value::string("%I:%M %p"), Value::fixnum(946740600)]);
+    let result =
+        builtin_format_time_string(vec![Value::string("%I:%M %p"), Value::fixnum(946740600)]);
     assert_eq!(result.unwrap().as_str().unwrap(), "03:30 PM");
 }
 

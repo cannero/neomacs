@@ -997,8 +997,7 @@ impl TaggedValue {
 
     /// Borrow the LispString for a string value.
     pub fn as_lisp_string(self) -> Option<&'static LispString> {
-        self.as_string_ptr()
-            .map(|p| unsafe { &(*p).data })
+        self.as_string_ptr().map(|p| unsafe { &(*p).data })
     }
 
     /// Check if a string is multibyte.
@@ -1391,9 +1390,7 @@ fn equal_value_inner(
         (ValueKind::Fixnum(a), ValueKind::Fixnum(b)) => a == b,
         (ValueKind::Fixnum(a), ValueKind::Char(b)) => a == b as i64,
         (ValueKind::Char(a), ValueKind::Fixnum(b)) => a as i64 == b,
-        (ValueKind::Float, ValueKind::Float) => {
-            left.xfloat().to_bits() == right.xfloat().to_bits()
-        }
+        (ValueKind::Float, ValueKind::Float) => left.xfloat().to_bits() == right.xfloat().to_bits(),
         (ValueKind::Char(a), ValueKind::Char(b)) => a == b,
         (ValueKind::Symbol(a), ValueKind::Symbol(b)) => a == b,
         (ValueKind::Keyword(a), ValueKind::Keyword(b)) => a == b,
@@ -1434,9 +1431,10 @@ fn equal_value_inner(
                 _ => false,
             }
         }
-        (ValueKind::Veclike(VecLikeType::HashTable), ValueKind::Veclike(VecLikeType::HashTable)) => {
-            left.bits() == right.bits()
-        }
+        (
+            ValueKind::Veclike(VecLikeType::HashTable),
+            ValueKind::Veclike(VecLikeType::HashTable),
+        ) => left.bits() == right.bits(),
         (ValueKind::Veclike(VecLikeType::Lambda), ValueKind::Veclike(VecLikeType::Lambda)) => {
             let pair = (left.bits(), right.bits());
             if !seen.insert(pair) {
@@ -1448,18 +1446,12 @@ fn equal_value_inner(
         }
         (ValueKind::Subr(a), ValueKind::Subr(b)) => a == b,
         // For all other same-type veclike comparisons, use identity
-        (ValueKind::Veclike(a), ValueKind::Veclike(b)) if a == b => {
-            left.bits() == right.bits()
-        }
+        (ValueKind::Veclike(a), ValueKind::Veclike(b)) if a == b => left.bits() == right.bits(),
         _ => false,
     }
 }
 
-fn lambda_to_equal_key(
-    lambda: &LambdaData,
-    depth: usize,
-    seen: &mut Vec<usize>,
-) -> HashKey {
+fn lambda_to_equal_key(lambda: &LambdaData, depth: usize, seen: &mut Vec<usize>) -> HashKey {
     if depth > 200 {
         return HashKey::Text("#<lambda-depth-limit>".to_string());
     }

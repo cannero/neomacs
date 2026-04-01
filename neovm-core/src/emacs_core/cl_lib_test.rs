@@ -1,7 +1,7 @@
 use super::*;
 use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+use crate::emacs_core::value::ValueKind;
 use crate::emacs_core::{format_eval_result, parse_forms};
-use crate::emacs_core::value::{ValueKind};
 
 fn bootstrap_eval(src: &str) -> Vec<String> {
     let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
@@ -953,7 +953,10 @@ fn cl_remove_if_not_with_eval() {
         ],
     )
     .unwrap();
-    assert_eq!(result, Value::list(vec![Value::fixnum(1), Value::fixnum(2)]));
+    assert_eq!(
+        result,
+        Value::list(vec![Value::fixnum(1), Value::fixnum(2)])
+    );
 }
 
 #[test]

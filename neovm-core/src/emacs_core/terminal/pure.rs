@@ -5,8 +5,8 @@
 
 use crate::emacs_core::error::{EvalResult, Flow, signal};
 use crate::emacs_core::value::*;
-use std::cell::RefCell;
 use crate::emacs_core::value::{ValueKind, VecLikeType};
+use std::cell::RefCell;
 
 // ---------------------------------------------------------------------------
 // Thread-local terminal state
@@ -485,7 +485,9 @@ pub(crate) fn terminal_designator_in_state_p(
         });
     }
     match value.kind() {
-        ValueKind::Veclike(VecLikeType::Frame) => frames.get(crate::window::FrameId(value.as_frame_id().unwrap())).is_some(),
+        ValueKind::Veclike(VecLikeType::Frame) => frames
+            .get(crate::window::FrameId(value.as_frame_id().unwrap()))
+            .is_some(),
         _ => false,
     }
 }
@@ -961,7 +963,9 @@ pub(crate) fn builtin_tty_display_color_cells(
             vec![Value::symbol("terminal-live-p"), designator],
         ));
     };
-    Ok(Value::fixnum(terminal_runtime_for_id(terminal_id).color_cells))
+    Ok(Value::fixnum(
+        terminal_runtime_for_id(terminal_id).color_cells,
+    ))
 }
 
 /// (tty-no-underline &optional TERMINAL) -> nil

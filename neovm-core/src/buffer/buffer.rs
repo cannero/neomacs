@@ -14,8 +14,8 @@ use super::text_props::TextPropertyTable;
 use super::undo;
 use crate::emacs_core::syntax::SyntaxTable;
 use crate::emacs_core::value::{RuntimeBindingValue, Value, ValueKind};
-use crate::tagged::gc::with_tagged_heap;
 use crate::gc::GcTrace;
+use crate::tagged::gc::with_tagged_heap;
 use crate::window::WindowId;
 
 // ---------------------------------------------------------------------------
@@ -2588,7 +2588,8 @@ mod tests {
 
         let _ = mgr.insert_into_buffer(base_id, "abc");
         {
-            let undo_val = mgr.get(indirect_id)
+            let undo_val = mgr
+                .get(indirect_id)
                 .and_then(|buf| buf.buffer_local_value("buffer-undo-list"));
             assert!(
                 undo_val.is_some() && !undo_val.unwrap().is_nil(),

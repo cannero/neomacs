@@ -6,7 +6,7 @@
 use super::gc::TaggedHeap;
 use super::header::VecLikeType;
 use super::value::{TaggedValue, ValueKind};
-use crate::emacs_core::intern::{intern, SymId};
+use crate::emacs_core::intern::{SymId, intern};
 
 /// Helper: create a proper list (a b c ... nil) from a slice of values.
 fn make_list(heap: &mut TaggedHeap, items: &[TaggedValue]) -> TaggedValue {

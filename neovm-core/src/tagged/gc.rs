@@ -250,7 +250,9 @@ impl TaggedHeap {
         }
         // All blocks full — allocate a new block
         let mut block = ConsBlock::new();
-        let cell = block.alloc(car, cdr).expect("fresh block should have space");
+        let cell = block
+            .alloc(car, cdr)
+            .expect("fresh block should have space");
         self.cons_blocks.push(block);
         self.allocated_count += 1;
         unsafe { TaggedValue::from_cons_ptr(cell) }
@@ -308,10 +310,7 @@ impl TaggedHeap {
     }
 
     /// Allocate a lambda.
-    pub fn alloc_lambda(
-        &mut self,
-        data: crate::emacs_core::value::LambdaData,
-    ) -> TaggedValue {
+    pub fn alloc_lambda(&mut self, data: crate::emacs_core::value::LambdaData) -> TaggedValue {
         let obj = Box::new(LambdaObj {
             header: VecLikeHeader::new(VecLikeType::Lambda),
             data,
@@ -323,10 +322,7 @@ impl TaggedHeap {
     }
 
     /// Allocate a macro.
-    pub fn alloc_macro(
-        &mut self,
-        data: crate::emacs_core::value::LambdaData,
-    ) -> TaggedValue {
+    pub fn alloc_macro(&mut self, data: crate::emacs_core::value::LambdaData) -> TaggedValue {
         let obj = Box::new(MacroObj {
             header: VecLikeHeader::new(VecLikeType::Macro),
             data,
@@ -365,10 +361,7 @@ impl TaggedHeap {
     }
 
     /// Allocate an overlay.
-    pub fn alloc_overlay(
-        &mut self,
-        data: crate::gc::types::OverlayData,
-    ) -> TaggedValue {
+    pub fn alloc_overlay(&mut self, data: crate::gc::types::OverlayData) -> TaggedValue {
         let obj = Box::new(OverlayObj {
             header: VecLikeHeader::new(VecLikeType::Overlay),
             data,
@@ -380,10 +373,7 @@ impl TaggedHeap {
     }
 
     /// Allocate a marker.
-    pub fn alloc_marker(
-        &mut self,
-        data: crate::gc::types::MarkerData,
-    ) -> TaggedValue {
+    pub fn alloc_marker(&mut self, data: crate::gc::types::MarkerData) -> TaggedValue {
         let obj = Box::new(MarkerObj {
             header: VecLikeHeader::new(VecLikeType::Marker),
             data,
@@ -559,16 +549,78 @@ impl TaggedHeap {
                 }
             }
             VecLikeType::HashTable => {
-                // Phase 2: trace hash table keys and values once Value is TaggedValue
+                let obj = ptr as *const HashTableObj;
+                let ht = unsafe { &(*obj).table };
+                // Trace all values in the hash table
+                for val in ht.data.values() {
+                    if val.is_heap_object() {
+                        self.gray_queue.push(*val);
+                    }
+                }
+                // Trace key snapshots (original key objects)
+                for val in ht.key_snapshots.values() {
+                    if val.is_heap_object() {
+                        self.gray_queue.push(*val);
+                    }
+                }
             }
             VecLikeType::Lambda | VecLikeType::Macro => {
-                // Phase 2: trace env, doc_form, interactive once Value is TaggedValue
+                let obj = ptr as *const LambdaObj;
+                let data = unsafe { &(*obj).data };
+                // Trace the captured lexical environment
+                if let Some(env) = data.env {
+                    if env.is_heap_object() {
+                        self.gray_queue.push(env);
+                    }
+                }
+                // Trace doc_form (slot 4 of closure vector)
+                if let Some(doc_form) = data.doc_form {
+                    if doc_form.is_heap_object() {
+                        self.gray_queue.push(doc_form);
+                    }
+                }
+                // Trace interactive spec (slot 5)
+                if let Some(interactive) = data.interactive {
+                    if interactive.is_heap_object() {
+                        self.gray_queue.push(interactive);
+                    }
+                }
             }
             VecLikeType::ByteCode => {
-                // Phase 2: trace constants, env, doc_form, interactive once Value is TaggedValue
+                let obj = ptr as *const ByteCodeObj;
+                let data = unsafe { &(*obj).data };
+                // Trace constants vector
+                for val in &data.constants {
+                    if val.is_heap_object() {
+                        self.gray_queue.push(*val);
+                    }
+                }
+                // Trace captured lexical environment
+                if let Some(env) = data.env {
+                    if env.is_heap_object() {
+                        self.gray_queue.push(env);
+                    }
+                }
+                // Trace doc_form (can be a Value)
+                if let Some(doc_form) = data.doc_form {
+                    if doc_form.is_heap_object() {
+                        self.gray_queue.push(doc_form);
+                    }
+                }
+                // Trace interactive spec
+                if let Some(interactive) = data.interactive {
+                    if interactive.is_heap_object() {
+                        self.gray_queue.push(interactive);
+                    }
+                }
             }
             VecLikeType::Overlay => {
-                // Phase 2: trace plist once Value is TaggedValue
+                let obj = ptr as *const OverlayObj;
+                let data = unsafe { &(*obj).data };
+                // Trace the property list
+                if data.plist.is_heap_object() {
+                    self.gray_queue.push(data.plist);
+                }
             }
             VecLikeType::Buffer
             | VecLikeType::Window
@@ -686,11 +738,15 @@ impl TaggedHeap {
         let stack_top: *const u8;
         #[cfg(target_arch = "x86_64")]
         {
-            unsafe { std::arch::asm!("mov {}, rsp", out(reg) stack_top, options(nomem, nostack)); }
+            unsafe {
+                std::arch::asm!("mov {}, rsp", out(reg) stack_top, options(nomem, nostack));
+            }
         }
         #[cfg(target_arch = "aarch64")]
         {
-            unsafe { std::arch::asm!("mov {}, sp", out(reg) stack_top, options(nomem, nostack)); }
+            unsafe {
+                std::arch::asm!("mov {}, sp", out(reg) stack_top, options(nomem, nostack));
+            }
         }
         #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
         {

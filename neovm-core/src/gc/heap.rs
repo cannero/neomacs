@@ -765,7 +765,11 @@ impl LispHeap {
         };
         let span = (hi as usize).saturating_sub(lo as usize);
         if span == 0 || span > MAX_CONSERVATIVE_STACK_SCAN_BYTES {
-            tracing::warn!(span, max = MAX_CONSERVATIVE_STACK_SCAN_BYTES, "stack scan skipped: span out of range");
+            tracing::warn!(
+                span,
+                max = MAX_CONSERVATIVE_STACK_SCAN_BYTES,
+                "stack scan skipped: span out of range"
+            );
             return None;
         }
         Some((lo, hi))

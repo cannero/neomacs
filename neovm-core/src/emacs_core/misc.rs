@@ -518,7 +518,11 @@ pub(crate) fn builtin_backtrace_frame(
 
     match nframes {
         0 => {
-            let mut frame = vec![Value::T, Value::symbol("backtrace-frame"), Value::fixnum(nframes)];
+            let mut frame = vec![
+                Value::T,
+                Value::symbol("backtrace-frame"),
+                Value::fixnum(nframes),
+            ];
             if args.len() > 1 {
                 frame.push(args[1]);
             }

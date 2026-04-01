@@ -23,7 +23,7 @@ use super::expr::Expr;
 use super::intern::resolve_sym;
 use super::symbol::Obarray;
 use super::value::*;
-use crate::emacs_core::value::{ValueKind};
+use crate::emacs_core::value::ValueKind;
 
 // ---------------------------------------------------------------------------
 // Obarray-based error hierarchy helpers

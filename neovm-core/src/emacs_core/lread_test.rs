@@ -156,7 +156,8 @@ fn eval_region_nil_or_reversed_bounds_are_noop() {
         let buf = ev.buffers.current_buffer_mut().expect("current buffer");
         buf.insert("(setq lread-er-noop 9)");
     }
-    ev.obarray.set_symbol_value("lread-er-noop", Value::fixnum(0));
+    ev.obarray
+        .set_symbol_value("lread-er-noop", Value::fixnum(0));
 
     let nil_bounds = builtin_eval_region(&mut ev, vec![Value::NIL, Value::NIL]).unwrap();
     assert!(nil_bounds.is_nil());
@@ -190,7 +191,8 @@ fn eval_region_reports_type_range_and_arity_errors() {
         buf.text.char_count() as i64 + 1
     };
 
-    let bad_start = builtin_eval_region(&mut ev, vec![Value::string("1"), Value::fixnum(point_max)]);
+    let bad_start =
+        builtin_eval_region(&mut ev, vec![Value::string("1"), Value::fixnum(point_max)]);
     assert!(matches!(
         bad_start,
         Err(Flow::Signal(sig))
@@ -340,8 +342,10 @@ fn read_event_rejects_non_string_prompt() {
 #[test]
 fn read_event_consumes_unread_command_event() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(97)]),
+    );
     let result = builtin_read_event(&mut ev, vec![]).unwrap();
     assert_eq!(result.as_int(), Some(97));
     assert_eq!(ev.recent_input_events(), &[Value::fixnum(97)]);
@@ -350,8 +354,10 @@ fn read_event_consumes_unread_command_event() {
 #[test]
 fn read_event_sets_command_keys_when_empty() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(97)]),
+    );
     let _ = builtin_read_event(&mut ev, vec![]).unwrap();
     assert_eq!(ev.read_command_keys(), &[Value::fixnum(97)]);
 }
@@ -372,8 +378,10 @@ fn read_event_preserves_existing_command_keys_context() {
 #[test]
 fn read_event_with_seconds_does_not_set_command_keys_when_empty() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(97)]),
+    );
     let _ = builtin_read_event(&mut ev, vec![Value::NIL, Value::NIL, Value::fixnum(0)]).unwrap();
     assert_eq!(ev.read_command_keys(), &[]);
 }
@@ -381,8 +389,10 @@ fn read_event_with_seconds_does_not_set_command_keys_when_empty() {
 #[test]
 fn read_event_with_positive_seconds_does_not_set_command_keys_when_empty() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(97)]),
+    );
     let _ = builtin_read_event(&mut ev, vec![Value::NIL, Value::NIL, Value::fixnum(1)]).unwrap();
     assert_eq!(ev.read_command_keys(), &[]);
 }
@@ -390,8 +400,10 @@ fn read_event_with_positive_seconds_does_not_set_command_keys_when_empty() {
 #[test]
 fn read_event_with_float_seconds_does_not_set_command_keys_when_empty() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(97)]),
+    );
     let _ = builtin_read_event(
         &mut ev,
         vec![Value::NIL, Value::NIL, Value::make_float(0.25)],
@@ -422,8 +434,10 @@ fn read_event_with_interactive_timeout_returns_nil() {
 fn read_event_with_non_nil_seconds_preserves_existing_command_keys_context() {
     let mut ev = Context::new();
     ev.set_read_command_keys(vec![Value::fixnum(97)]);
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(98)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(98)]),
+    );
     let _ = builtin_read_event(
         &mut ev,
         vec![Value::NIL, Value::NIL, Value::make_float(0.25)],
@@ -435,8 +449,10 @@ fn read_event_with_non_nil_seconds_preserves_existing_command_keys_context() {
 #[test]
 fn read_event_with_nil_seconds_sets_command_keys_when_empty() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(97)]),
+    );
     let _ = builtin_read_event(&mut ev, vec![Value::NIL, Value::NIL, Value::NIL]).unwrap();
     assert_eq!(ev.read_command_keys(), &[Value::fixnum(97)]);
 }
@@ -522,8 +538,10 @@ fn read_char_exclusive_rejects_non_string_prompt() {
 #[test]
 fn read_char_exclusive_consumes_unread_command_event() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(97)]),
+    );
     let result = builtin_read_char_exclusive(&mut ev, vec![]).unwrap();
     assert_eq!(result.as_int(), Some(97));
     assert_eq!(ev.read_command_keys(), &[Value::fixnum(97)]);
@@ -532,10 +550,13 @@ fn read_char_exclusive_consumes_unread_command_event() {
 #[test]
 fn read_char_exclusive_with_seconds_does_not_set_command_keys_when_empty() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(97)]),
+    );
     let result =
-        builtin_read_char_exclusive(&mut ev, vec![Value::NIL, Value::NIL, Value::fixnum(0)]).unwrap();
+        builtin_read_char_exclusive(&mut ev, vec![Value::NIL, Value::NIL, Value::fixnum(0)])
+            .unwrap();
     assert_eq!(result.as_int(), Some(97));
     assert_eq!(ev.read_command_keys(), &[]);
 }
@@ -543,8 +564,10 @@ fn read_char_exclusive_with_seconds_does_not_set_command_keys_when_empty() {
 #[test]
 fn read_char_exclusive_with_nil_seconds_sets_command_keys_when_empty() {
     let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(97)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(97)]),
+    );
     let result =
         builtin_read_char_exclusive(&mut ev, vec![Value::NIL, Value::NIL, Value::NIL]).unwrap();
     assert_eq!(result.as_int(), Some(97));
@@ -555,10 +578,13 @@ fn read_char_exclusive_with_nil_seconds_sets_command_keys_when_empty() {
 fn read_char_exclusive_preserves_existing_command_keys_context() {
     let mut ev = Context::new();
     ev.set_read_command_keys(vec![Value::fixnum(97)]);
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::list(vec![Value::fixnum(98)]));
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::fixnum(98)]),
+    );
     let result =
-        builtin_read_char_exclusive(&mut ev, vec![Value::NIL, Value::NIL, Value::fixnum(0)]).unwrap();
+        builtin_read_char_exclusive(&mut ev, vec![Value::NIL, Value::NIL, Value::fixnum(0)])
+            .unwrap();
     assert_eq!(result.as_int(), Some(98));
     assert_eq!(ev.read_command_keys(), &[Value::fixnum(97)]);
 }
@@ -604,7 +630,8 @@ fn read_char_exclusive_skips_non_character_and_empty_tail() {
         Value::list(vec![Value::symbol("foo"), Value::fixnum(97)]),
     );
     let result =
-        builtin_read_char_exclusive(&mut ev, vec![Value::NIL, Value::NIL, Value::fixnum(0)]).unwrap();
+        builtin_read_char_exclusive(&mut ev, vec![Value::NIL, Value::NIL, Value::fixnum(0)])
+            .unwrap();
     assert_eq!(result.as_int(), Some(97));
     assert_eq!(
         ev.obarray.symbol_value("unread-command-events"),
@@ -617,10 +644,15 @@ fn read_char_exclusive_skips_non_character_and_leaves_tail() {
     let mut ev = Context::new();
     ev.obarray.set_symbol_value(
         "unread-command-events",
-        Value::list(vec![Value::symbol("foo"), Value::fixnum(97), Value::fixnum(98)]),
+        Value::list(vec![
+            Value::symbol("foo"),
+            Value::fixnum(97),
+            Value::fixnum(98),
+        ]),
     );
     let result =
-        builtin_read_char_exclusive(&mut ev, vec![Value::NIL, Value::NIL, Value::fixnum(0)]).unwrap();
+        builtin_read_char_exclusive(&mut ev, vec![Value::NIL, Value::NIL, Value::fixnum(0)])
+            .unwrap();
     assert_eq!(result.as_int(), Some(97));
     assert_eq!(
         ev.obarray.symbol_value("unread-command-events"),

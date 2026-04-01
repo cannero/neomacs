@@ -3,7 +3,7 @@ use crate::emacs_core::builtins::search::{
     builtin_match_data, builtin_set_match_data, builtin_string_match, builtin_string_match_p,
 };
 use crate::emacs_core::search::builtin_replace_regexp_in_string;
-use crate::emacs_core::value::{ValueKind};
+use crate::emacs_core::value::ValueKind;
 
 fn call_string_match(args: Vec<Value>) -> EvalResult {
     let mut eval = crate::emacs_core::eval::Context::new();
@@ -178,8 +178,11 @@ fn string_match_start_nil_and_negative() {
     .unwrap();
     assert_int(with_negative, 1);
 
-    let out_of_range =
-        call_string_match(vec![Value::string("a"), Value::string("ba"), Value::fixnum(3)]);
+    let out_of_range = call_string_match(vec![
+        Value::string("a"),
+        Value::string("ba"),
+        Value::fixnum(3),
+    ]);
     assert!(out_of_range.is_err());
 }
 
@@ -199,8 +202,8 @@ fn replace_regexp_literal() {
         Value::string("[0-9]+"),
         Value::string("$0"),
         Value::string("abc 123 def"),
-        Value::NIL,  // fixedcase
-        Value::T, // literal
+        Value::NIL, // fixedcase
+        Value::T,   // literal
     ]);
     assert_str(result.unwrap(), "abc $0 def");
 }
@@ -223,9 +226,9 @@ fn replace_regexp_with_start() {
         Value::string("[0-9]+"),
         Value::string("X"),
         Value::string("111 222 333"),
-        Value::NIL,    // fixedcase
-        Value::NIL,    // literal
-        Value::NIL,    // subexp
+        Value::NIL,       // fixedcase
+        Value::NIL,       // literal
+        Value::NIL,       // subexp
         Value::fixnum(4), // start
     ]);
     assert_str(result.unwrap(), "X X");
@@ -239,9 +242,9 @@ fn replace_regexp_with_start_no_subexp() {
         Value::string("[0-9]+"),
         Value::string("X"),
         Value::string("111 222 333"),
-        Value::NIL,    // fixedcase
-        Value::NIL,    // literal
-        Value::NIL,    // subexp (default 0)
+        Value::NIL,       // fixedcase
+        Value::NIL,       // literal
+        Value::NIL,       // subexp (default 0)
         Value::fixnum(4), // start
     ]);
     assert_str(result.unwrap(), "X X");
