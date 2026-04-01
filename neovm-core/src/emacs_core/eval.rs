@@ -1298,6 +1298,13 @@ fn begin_lambda_call_in_state(
 
     let has_lexenv = lambda.env.is_some();
     if let Some(env) = lambda.env {
+        // Debug: detect malformed env (bare t instead of list (t))
+        if env.is_t() {
+            tracing::error!(
+                "Lambda called with env=t (should be (t))! params={:?}",
+                lambda.params
+            );
+        }
         temp_roots.push(env);
         let old = std::mem::replace(lexenv, env);
         temp_roots.push(old);
@@ -8853,6 +8860,14 @@ impl Context {
     pub fn dispatch_subr_id(&mut self, sym_id: SymId, args: Vec<Value>) -> Option<EvalResult> {
         let subr = self.subr_slot(sym_id)?;
         let name = resolve_sym(sym_id);
+        // Debug: trace (cdr t) to find the calling context
+        if name == "cdr" && args.len() == 1 && args[0].is_t() {
+            tracing::error!("(cdr t) called! Lisp backtrace:");
+            for (i, frame) in self.runtime_backtrace.iter().rev().take(10).enumerate() {
+                let func_name = super::print::print_value(&frame.function);
+                tracing::error!("  bt[{}]: {}", i, func_name);
+            }
+        }
         let nargs = args.len();
         if (nargs as u16) < subr.min_args {
             return Some(Err(signal(
