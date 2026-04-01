@@ -226,9 +226,12 @@ impl TaggedValue {
         self.0 & FIXNUM_CHECK_MASK == FIXNUM_CHECK_VALUE
     }
 
+    /// Check if this value is a symbol.
+    /// In GNU Emacs, keywords are symbols (interned with `:` prefix).
+    /// nil and t are also symbols.
     #[inline]
     pub fn is_symbol(self) -> bool {
-        self.0 & TAG_MASK == TAG_SYMBOL
+        (self.0 & TAG_MASK == TAG_SYMBOL) || self.is_keyword()
     }
 
     #[inline]
@@ -304,21 +307,32 @@ impl TaggedValue {
         (self.0 as i64) >> FIXNUM_SHIFT
     }
 
-    /// Extract SymId for a symbol. Returns None if not a symbol.
+    /// Extract SymId for a symbol (including keywords, which are symbols
+    /// in GNU Emacs). Returns None if not a symbol or keyword.
     #[inline]
     pub fn as_symbol_id(self) -> Option<SymId> {
-        if self.is_symbol() {
+        if self.0 & TAG_MASK == TAG_SYMBOL {
+            // Regular symbol (tag 000): SymId is in bits 3+
             Some(SymId((self.0 >> TAG_BITS) as u32))
+        } else if self.is_keyword() {
+            // Keyword (immediate sub-tag): SymId is in bits 8+
+            self.as_keyword_id()
         } else {
             None
         }
     }
 
-    /// Extract SymId without tag check. Caller must ensure `is_symbol()`.
+    /// Extract SymId without tag check. Caller must ensure value is a
+    /// symbol or keyword.
     #[inline]
     pub fn xsymbol_id(self) -> SymId {
         debug_assert!(self.is_symbol());
-        SymId((self.0 >> TAG_BITS) as u32)
+        if self.0 & TAG_MASK == TAG_SYMBOL {
+            SymId((self.0 >> TAG_BITS) as u32)
+        } else {
+            // keyword
+            self.as_keyword_id().unwrap()
+        }
     }
 
     /// Extract char. Returns None if not a char.
@@ -654,9 +668,16 @@ impl TaggedValue {
     }
 
     /// Get symbol name. Returns None if not a symbol.
+    /// For keywords (which are symbols in GNU Emacs), returns the keyword name
+    /// (e.g., ":foo").
     pub fn as_symbol_name(self) -> Option<&'static str> {
-        self.as_symbol_id()
-            .map(|id| crate::emacs_core::intern::resolve_sym(id))
+        if let Some(id) = self.as_symbol_id() {
+            Some(crate::emacs_core::intern::resolve_sym(id))
+        } else if let Some(id) = self.as_keyword_id() {
+            Some(crate::emacs_core::intern::resolve_sym(id))
+        } else {
+            None
+        }
     }
 
     /// Check if this symbol has the given name.
