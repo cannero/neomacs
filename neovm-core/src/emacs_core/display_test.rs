@@ -209,8 +209,8 @@ fn terminal_parameters_lists_mutated_symbol_entries() {
         entry.cons_car() == Value::symbol("k2") && entry.cons_cdr() == Value::fixnum(2)
     }));
 
-    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
-    let via_frame = builtin_terminal_parameters(&mut eval, vec![Value::fixnum(frame_id)])
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
+    let via_frame = builtin_terminal_parameters(&mut eval, vec![Value::make_frame(frame_id)])
         .expect("eval terminal-parameters");
     let eval_entries = list_to_vec(&via_frame).expect("parameter alist");
     assert!(eval_entries.len() >= 4);
@@ -231,11 +231,11 @@ fn set_terminal_parameter_rejects_non_terminal_designator() {
 fn eval_terminal_parameter_accepts_live_frame_designator() {
     clear_terminal_parameters();
     let mut eval = crate::emacs_core::Context::new();
-    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
     builtin_set_terminal_parameter(
         &mut eval,
         vec![
-            Value::fixnum(frame_id),
+            Value::make_frame(frame_id),
             Value::symbol("neovm-frame-param"),
             Value::fixnum(7),
         ],
@@ -243,7 +243,10 @@ fn eval_terminal_parameter_accepts_live_frame_designator() {
     .unwrap();
     let value = builtin_terminal_parameter(
         &mut eval,
-        vec![Value::fixnum(frame_id), Value::symbol("neovm-frame-param")],
+        vec![
+            Value::make_frame(frame_id),
+            Value::symbol("neovm-frame-param"),
+        ],
     )
     .unwrap();
     assert_eq!(value, Value::fixnum(7));
@@ -266,8 +269,8 @@ fn terminal_live_p_reflects_designator_shape() {
 #[test]
 fn eval_terminal_live_p_accepts_live_frame_designator() {
     let mut eval = crate::emacs_core::Context::new();
-    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
-    let live = builtin_terminal_live_p(&mut eval, vec![Value::fixnum(frame_id)]).unwrap();
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
+    let live = builtin_terminal_live_p(&mut eval, vec![Value::make_frame(frame_id)]).unwrap();
     assert_eq!(live, Value::T);
 
     let stale = builtin_terminal_live_p(&mut eval, vec![Value::fixnum(999_999)]).unwrap();
@@ -284,8 +287,8 @@ fn terminal_name_rejects_invalid_designator() {
 #[test]
 fn eval_terminal_name_accepts_live_frame_designator() {
     let mut eval = crate::emacs_core::Context::new();
-    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
-    let result = builtin_terminal_name(&mut eval, vec![Value::fixnum(frame_id)]).unwrap();
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
+    let result = builtin_terminal_name(&mut eval, vec![Value::make_frame(frame_id)]).unwrap();
     assert_eq!(result, Value::string("initial_terminal"));
 }
 
@@ -330,8 +333,8 @@ fn selected_terminal_arity() {
 #[test]
 fn eval_frame_terminal_accepts_live_frame_designator() {
     let mut eval = crate::emacs_core::Context::new();
-    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
-    let handle = builtin_frame_terminal(&mut eval, vec![Value::fixnum(frame_id)]).unwrap();
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
+    let handle = builtin_frame_terminal(&mut eval, vec![Value::make_frame(frame_id)]).unwrap();
     let live = builtin_terminal_live_p(&mut eval, vec![handle]).unwrap();
     assert_eq!(live, Value::T);
 }
@@ -346,8 +349,8 @@ fn redraw_frame_rejects_non_frame_designator() {
 #[test]
 fn eval_redraw_frame_accepts_live_frame_designator() {
     let mut eval = crate::emacs_core::Context::new();
-    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
-    let result = builtin_redraw_frame(&mut eval, vec![Value::fixnum(frame_id)]).unwrap();
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
+    let result = builtin_redraw_frame(&mut eval, vec![Value::make_frame(frame_id)]).unwrap();
     assert!(result.is_nil());
 }
 
@@ -434,10 +437,10 @@ fn send_string_to_terminal_accepts_live_terminal_handle() {
 #[test]
 fn eval_send_string_to_terminal_accepts_live_frame_designator() {
     let mut eval = crate::emacs_core::Context::new();
-    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
     let result = builtin_send_string_to_terminal(
         &mut eval,
-        vec![Value::string(""), Value::fixnum(frame_id)],
+        vec![Value::string(""), Value::make_frame(frame_id)],
     )
     .unwrap();
     assert!(result.is_nil());
@@ -557,19 +560,19 @@ fn tty_queries_reject_invalid_terminal_designator() {
 #[test]
 fn eval_tty_queries_accept_live_frame_designator() {
     let mut eval = crate::emacs_core::Context::new();
-    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
     assert!(
-        builtin_tty_type(&mut eval, vec![Value::fixnum(frame_id)])
+        builtin_tty_type(&mut eval, vec![Value::make_frame(frame_id)])
             .unwrap()
             .is_nil()
     );
     assert!(
-        builtin_tty_top_frame(&mut eval, vec![Value::fixnum(frame_id)])
+        builtin_tty_top_frame(&mut eval, vec![Value::make_frame(frame_id)])
             .unwrap()
             .is_nil()
     );
     assert!(
-        builtin_controlling_tty_p(&mut eval, vec![Value::fixnum(frame_id)])
+        builtin_controlling_tty_p(&mut eval, vec![Value::make_frame(frame_id)])
             .unwrap()
             .is_nil()
     );
@@ -598,9 +601,9 @@ fn suspend_tty_signals_non_text_terminal_error() {
 #[test]
 fn eval_suspend_resume_accept_live_frame_and_signal_non_text_terminal_error() {
     let mut eval = crate::emacs_core::Context::new();
-    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
-    let suspend = builtin_suspend_tty(&mut eval, vec![Value::fixnum(frame_id)]);
-    let resume = builtin_resume_tty(&mut eval, vec![Value::fixnum(frame_id)]);
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
+    let suspend = builtin_suspend_tty(&mut eval, vec![Value::make_frame(frame_id)]);
+    let resume = builtin_resume_tty(&mut eval, vec![Value::make_frame(frame_id)]);
     assert!(suspend.is_err());
     assert!(resume.is_err());
 }
@@ -738,9 +741,9 @@ fn x_close_connection_argument_shape_errors() {
 #[test]
 fn eval_x_close_connection_live_frame_uses_window_system_error() {
     let mut eval = crate::emacs_core::Context::new();
-    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
 
-    let result = builtin_x_close_connection(&mut eval, vec![Value::fixnum(frame_id)]);
+    let result = builtin_x_close_connection(&mut eval, vec![Value::make_frame(frame_id)]);
     match result {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
@@ -796,7 +799,7 @@ fn x_display_pixel_size_errors_match_batch_shapes() {
 fn x_missing_optional_display_queries_match_batch_no_x_shapes() {
     let mut eval = crate::emacs_core::Context::new();
     let term = terminal_handle_value();
-    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
 
     type EvalXQuery = fn(&mut crate::emacs_core::eval::Context, Vec<Value>) -> EvalResult;
     for eval_query in [
@@ -858,7 +861,7 @@ fn x_missing_optional_display_queries_match_batch_no_x_shapes() {
             other => panic!("expected wrong-type-argument signal, got {other:?}"),
         }
 
-        match eval_query(&mut eval, vec![Value::fixnum(frame_id)]) {
+        match eval_query(&mut eval, vec![Value::make_frame(frame_id)]) {
             Err(Flow::Signal(sig)) => {
                 assert_eq!(sig.symbol_name(), "error");
                 assert_eq!(
@@ -1059,14 +1062,14 @@ fn x_display_set_last_user_time_batch_semantics() {
 fn x_display_set_last_user_time_eval_uses_user_time_designator_payloads() {
     let mut eval = crate::emacs_core::Context::new();
     let term = terminal_handle_value();
-    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
 
     for display in [
         Value::NIL,
         Value::string("display"),
         Value::fixnum(1),
         Value::symbol("foo"),
-        Value::fixnum(frame_id),
+        Value::make_frame(frame_id),
         term,
     ] {
         match builtin_x_display_set_last_user_time(&mut eval, vec![display, Value::string("x")]) {
@@ -1079,7 +1082,7 @@ fn x_display_set_last_user_time_eval_uses_user_time_designator_payloads() {
 
         match builtin_x_display_set_last_user_time(
             &mut eval,
-            vec![display, Value::fixnum(frame_id)],
+            vec![display, Value::make_frame(frame_id)],
         ) {
             Err(Flow::Signal(sig)) => {
                 assert_eq!(sig.symbol_name(), "error");
@@ -2544,10 +2547,10 @@ fn x_frame_mouse_and_dnd_batch_semantics() {
 #[test]
 fn eval_x_display_queries_accept_live_frame_designator() {
     let mut eval = crate::emacs_core::Context::new();
-    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
 
-    let width = builtin_x_display_pixel_width(&mut eval, vec![Value::fixnum(frame_id)]);
-    let height = builtin_x_display_pixel_height(&mut eval, vec![Value::fixnum(frame_id)]);
+    let width = builtin_x_display_pixel_width(&mut eval, vec![Value::make_frame(frame_id)]);
+    let height = builtin_x_display_pixel_height(&mut eval, vec![Value::make_frame(frame_id)]);
     assert!(width.is_err());
     assert!(height.is_err());
 }
@@ -2588,14 +2591,16 @@ fn eval_monitor_attributes_include_bootstrapped_frame() {
 #[test]
 fn eval_monitor_queries_accept_live_frame_designator() {
     let mut eval = crate::emacs_core::Context::new();
-    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
 
     let list =
-        builtin_display_monitor_attributes_list(&mut eval, vec![Value::fixnum(frame_id)]).unwrap();
+        builtin_display_monitor_attributes_list(&mut eval, vec![Value::make_frame(frame_id)])
+            .unwrap();
     let monitors = list_to_vec(&list).expect("monitor list");
     assert_eq!(monitors.len(), 1);
 
-    let attrs = builtin_frame_monitor_attributes(&mut eval, vec![Value::fixnum(frame_id)]).unwrap();
+    let attrs =
+        builtin_frame_monitor_attributes(&mut eval, vec![Value::make_frame(frame_id)]).unwrap();
     let attr_list = list_to_vec(&attrs).expect("monitor attrs");
     assert!(!attr_list.is_empty());
 }
@@ -2633,62 +2638,62 @@ fn eval_monitor_queries_accept_frame_handle_designator() {
 #[test]
 fn eval_display_queries_accept_live_frame_designator() {
     let mut eval = crate::emacs_core::Context::new();
-    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
 
     assert!(
-        builtin_display_graphic_p(&mut eval, vec![Value::fixnum(frame_id)])
+        builtin_display_graphic_p(&mut eval, vec![Value::make_frame(frame_id)])
             .unwrap()
             .is_nil()
     );
     assert_eq!(
-        builtin_display_pixel_width(&mut eval, vec![Value::fixnum(frame_id)]).unwrap(),
+        builtin_display_pixel_width(&mut eval, vec![Value::make_frame(frame_id)]).unwrap(),
         Value::fixnum(80)
     );
     assert_eq!(
-        builtin_display_pixel_height(&mut eval, vec![Value::fixnum(frame_id)]).unwrap(),
+        builtin_display_pixel_height(&mut eval, vec![Value::make_frame(frame_id)]).unwrap(),
         Value::fixnum(25)
     );
     assert!(
-        builtin_display_mm_width(&mut eval, vec![Value::fixnum(frame_id)])
+        builtin_display_mm_width(&mut eval, vec![Value::make_frame(frame_id)])
             .unwrap()
             .is_nil()
     );
     assert!(
-        builtin_display_mm_height(&mut eval, vec![Value::fixnum(frame_id)])
+        builtin_display_mm_height(&mut eval, vec![Value::make_frame(frame_id)])
             .unwrap()
             .is_nil()
     );
     assert_eq!(
-        builtin_display_screens(&mut eval, vec![Value::fixnum(frame_id)]).unwrap(),
+        builtin_display_screens(&mut eval, vec![Value::make_frame(frame_id)]).unwrap(),
         Value::fixnum(1)
     );
     assert_eq!(
-        builtin_display_color_cells(&mut eval, vec![Value::fixnum(frame_id)]).unwrap(),
+        builtin_display_color_cells(&mut eval, vec![Value::make_frame(frame_id)]).unwrap(),
         Value::fixnum(0)
     );
     assert_eq!(
-        builtin_display_planes(&mut eval, vec![Value::fixnum(frame_id)]).unwrap(),
+        builtin_display_planes(&mut eval, vec![Value::make_frame(frame_id)]).unwrap(),
         Value::fixnum(3)
     );
     assert_eq!(
-        builtin_display_visual_class(&mut eval, vec![Value::fixnum(frame_id)]).unwrap(),
+        builtin_display_visual_class(&mut eval, vec![Value::make_frame(frame_id)]).unwrap(),
         Value::symbol("static-gray")
     );
     assert_eq!(
-        builtin_display_backing_store(&mut eval, vec![Value::fixnum(frame_id)]).unwrap(),
+        builtin_display_backing_store(&mut eval, vec![Value::make_frame(frame_id)]).unwrap(),
         Value::symbol("not-useful")
     );
     assert_eq!(
-        builtin_display_save_under(&mut eval, vec![Value::fixnum(frame_id)]).unwrap(),
+        builtin_display_save_under(&mut eval, vec![Value::make_frame(frame_id)]).unwrap(),
         Value::symbol("not-useful")
     );
     assert!(
-        builtin_display_selections_p(&mut eval, vec![Value::fixnum(frame_id)])
+        builtin_display_selections_p(&mut eval, vec![Value::make_frame(frame_id)])
             .unwrap()
             .is_nil()
     );
     assert!(
-        builtin_display_images_p(&mut eval, vec![Value::fixnum(frame_id)])
+        builtin_display_images_p(&mut eval, vec![Value::make_frame(frame_id)])
             .unwrap()
             .is_nil()
     );
@@ -3004,24 +3009,24 @@ fn display_optional_capability_queries_match_color_shapes() {
         }
     }
 
-    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0 as i64;
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval).0;
     assert!(
-        builtin_display_grayscale_p(&mut eval, vec![Value::fixnum(frame_id)])
+        builtin_display_grayscale_p(&mut eval, vec![Value::make_frame(frame_id)])
             .unwrap()
             .is_nil()
     );
     assert!(
-        builtin_display_mouse_p(&mut eval, vec![Value::fixnum(frame_id)])
+        builtin_display_mouse_p(&mut eval, vec![Value::make_frame(frame_id)])
             .unwrap()
             .is_nil()
     );
     assert!(
-        builtin_display_popup_menus_p(&mut eval, vec![Value::fixnum(frame_id)])
+        builtin_display_popup_menus_p(&mut eval, vec![Value::make_frame(frame_id)])
             .unwrap()
             .is_nil()
     );
     assert!(
-        builtin_display_symbol_keys_p(&mut eval, vec![Value::fixnum(frame_id)])
+        builtin_display_symbol_keys_p(&mut eval, vec![Value::make_frame(frame_id)])
             .unwrap()
             .is_nil()
     );
