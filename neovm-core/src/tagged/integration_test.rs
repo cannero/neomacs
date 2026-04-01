@@ -125,7 +125,7 @@ fn test_type_dispatch() {
     assert_eq!(results[0], "nil");
     assert_eq!(results[1], "t");
     assert_eq!(results[2], "int:42");
-    assert_eq!(results[3], "char:A");
+    assert_eq!(results[3], "int:65");
     assert_eq!(results[4], "cons");
     assert_eq!(results[5], "float:3.14");
     assert_eq!(results[6], "vector");
@@ -299,8 +299,9 @@ fn test_value_description() {
             ValueKind::Fixnum(n) => n.to_string(),
             ValueKind::Float => format!("{}", val.xfloat()),
             ValueKind::Symbol(id) => format!("sym#{}", id.0),
-            ValueKind::Symbol(id) => format!(":kw#{}", id.0),
-            ValueKind::Veclike(VecLikeType::Subr) => format!("#<subr#{}>", id.0),
+            ValueKind::Veclike(VecLikeType::Subr) => {
+                format!("#<subr#{}>", val.as_subr_id().unwrap().0)
+            }
             ValueKind::Cons => {
                 let car = describe(val.cons_car());
                 let cdr = val.cons_cdr();

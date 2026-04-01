@@ -48,20 +48,19 @@ const TAG_CONS: usize = 0b010;
 const TAG_VECLIKE: usize = 0b011;
 const TAG_STRING: usize = 0b100;
 const TAG_FLOAT: usize = 0b110;
+// Tag 111 was previously used for immediates (char, keyword, subr).
+// All three have been removed:
+// - Characters are fixnums (GNU Emacs compat)
+// - Keywords are symbols (GNU Emacs compat)
+// - Subrs are PVEC_SUBR veclike objects (GNU Emacs compat)
+// Tag 111 is now unused/reserved.
+#[allow(dead_code)]
 const TAG_IMMEDIATE: usize = 0b111;
 
 // Fixnum uses two tags: 001 and 101. Both have (v & 3) == 1.
 const FIXNUM_CHECK_MASK: usize = 0b11;
 const FIXNUM_CHECK_VALUE: usize = 0b01;
 const FIXNUM_SHIFT: u32 = 2; // integer stored in bits 2..63
-
-// Immediate sub-tags (bits 3-7)
-const IMM_SHIFT: u32 = 3;
-const IMM_SUB_MASK: usize = 0b11111 << IMM_SHIFT; // bits 3-7
-const IMM_CHAR: usize = 0b00000 << IMM_SHIFT;
-const IMM_KEYWORD: usize = 0b00001 << IMM_SHIFT;
-const IMM_SUBR: usize = 0b00010 << IMM_SHIFT;
-const IMM_PAYLOAD_SHIFT: u32 = 8; // payload starts at bit 8 for immediates
 
 // ---------------------------------------------------------------------------
 // TaggedValue — the core type
@@ -277,7 +276,9 @@ impl TaggedValue {
         self.0 & TAG_MASK == TAG_VECLIKE
     }
 
+    /// TAG_IMMEDIATE is no longer used (chars=fixnum, keywords=symbol, subrs=veclike).
     #[inline]
+    #[deprecated(note = "No types use TAG_IMMEDIATE anymore")]
     pub fn is_immediate(self) -> bool {
         self.0 & TAG_MASK == TAG_IMMEDIATE
     }

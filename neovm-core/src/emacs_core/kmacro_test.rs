@@ -1077,7 +1077,7 @@ fn test_resolve_macro_events_string() {
     let events = resolve_macro_events(&eval, &s).unwrap();
     assert_eq!(events.len(), 5);
     match events[0].kind() {
-        ValueKind::Char('h') => {}
+        ValueKind::Fixnum(n) if n == 'h' as i64 => {}
         other => panic!("Expected Char('h'), got {:?}", events[0]),
     }
 }

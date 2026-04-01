@@ -77,37 +77,40 @@ fn symbol_encoding() {
 }
 
 #[test]
-fn char_encoding() {
+fn char_is_fixnum() {
     crate::test_utils::init_test_tracing();
+    // In GNU Emacs, characters ARE integers. ?A is just 65.
     let ch = TaggedValue::char('A');
-    assert!(ch.is_char());
-    assert!(ch.is_immediate());
+    assert!(ch.is_fixnum()); // chars are fixnums
+    assert!(ch.is_char()); // characterp checks range
+    assert_eq!(ch.as_fixnum(), Some(65)); // ?A = 65
     assert_eq!(ch.as_char(), Some('A'));
-    assert!(!ch.is_fixnum());
-    assert!(!ch.is_symbol());
+    // (eq ?A 65) must be t
+    assert_eq!(ch.bits(), TaggedValue::fixnum(65).bits());
 
     // Unicode
     let emoji = TaggedValue::char('🦀');
     assert_eq!(emoji.as_char(), Some('🦀'));
+    assert!(emoji.is_fixnum());
 }
 
 #[test]
-fn keyword_encoding() {
+fn keyword_is_symbol() {
     crate::test_utils::init_test_tracing();
+    // In GNU Emacs, keywords are ordinary symbols with : prefix
     let kw = TaggedValue::from_kw_id(SymId(99));
-    assert!(kw.is_keyword());
-    assert!(kw.is_immediate());
-    assert_eq!(kw.as_keyword_id(), Some(SymId(99)));
-    // In GNU Emacs, keywords ARE symbols (interned with : prefix)
-    assert!(kw.is_symbol());
+    assert!(kw.is_symbol()); // keywords are symbols
+    assert_eq!(kw.as_symbol_id(), Some(SymId(99)));
+    // as_keyword_id delegates to as_symbol_id for keyword-named symbols
 }
 
 #[test]
-fn subr_encoding() {
+fn subr_is_veclike() {
     crate::test_utils::init_test_tracing();
+    // In GNU Emacs, subrs are PVEC_SUBR heap objects
     let subr = TaggedValue::subr(SymId(7));
     assert!(subr.is_subr());
-    assert!(subr.is_immediate());
+    assert!(subr.is_veclike()); // subrs are veclike, not immediate
     assert_eq!(subr.as_subr_id(), Some(SymId(7)));
 }
 
@@ -211,7 +214,7 @@ fn value_kind_dispatch() {
     assert!(matches!(sym.kind(), ValueKind::Symbol(SymId(5))));
 
     let ch = TaggedValue::char('x');
-    assert!(matches!(ch.kind(), ValueKind::Char('x')));
+    assert!(matches!(ch.kind(), ValueKind::Fixnum(n) if n == 'x' as i64));
 
     let kw = TaggedValue::from_kw_id(SymId(3));
     assert!(matches!(kw.kind(), ValueKind::Symbol(SymId(3))));
@@ -325,5 +328,5 @@ fn debug_format() {
     assert_eq!(format!("{:?}", TaggedValue::NIL), "nil");
     assert_eq!(format!("{:?}", TaggedValue::T), "t");
     assert_eq!(format!("{:?}", TaggedValue::fixnum(42)), "42");
-    assert_eq!(format!("{:?}", TaggedValue::char('A')), "?A");
+    assert_eq!(format!("{:?}", TaggedValue::char('A')), "65");
 }
