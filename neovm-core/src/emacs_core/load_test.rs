@@ -6527,20 +6527,22 @@ fn bootstrap_pcase_complex_and_pred_guard() {
 fn bootstrap_macroexpand1_vs_all_pcase() {
     crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("emacs-lisp/cl-preloaded", true);
-    // Compare macroexpand-1 vs macroexpand-all
+    // Get macroexpand-1 result and macroexpand-all error as strings
     let forms = parse_forms(
         r#"
 (list
-  (condition-case err
-    (macroexpand-1 '(pcase val
-      ((and type (pred symbolp)) (list 'found type))
-      (_ 'default)))
-    (error (list 'expand1-error err)))
-  (condition-case err
-    (macroexpand-all '(pcase val
-      ((and type (pred symbolp)) (list 'found type))
-      (_ 'default)))
-    (error (list 'expand-all-error err))))
+  (prin1-to-string
+    (condition-case err
+      (macroexpand-1 '(pcase val
+        ((and type (pred symbolp)) (list 'found type))
+        (_ 'default)))
+      (error (list 'expand1-error err))))
+  (prin1-to-string
+    (condition-case err
+      (macroexpand-all '(pcase val
+        ((and type (pred symbolp)) (list 'found type))
+        (_ 'default)))
+      (error (list 'expand-all-error err)))))
 "#,
     )
     .expect("parse");
@@ -6550,8 +6552,8 @@ fn bootstrap_macroexpand1_vs_all_pcase() {
         .map(format_eval_result)
         .collect::<Vec<_>>()
         .join(" ");
-    tracing::info!("macroexpand1 vs all => {rendered}");
-    // Both should succeed
+    tracing::error!("macroexpand1 vs all => {rendered}");
+    // Both should succeed (using error! so it shows even on PASS)
     assert!(
         rendered.starts_with("OK"),
         "macroexpand comparison failed: {rendered}"
