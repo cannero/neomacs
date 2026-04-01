@@ -6429,13 +6429,9 @@ fn bootstrap_cl_generic_generalizers_t() {
 fn bootstrap_macroexpand_all_pcase() {
     crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("emacs-lisp/cl-generic", true);
-    // Test macroexpand-all with a pcase form
-    let forms = parse_forms(
-        r#"
-        (macroexpand-all '(pcase x (1 "one") (2 "two") (_ "other")))
-    "#,
-    )
-    .expect("parse");
+    // Test 1: simple pcase
+    let forms = parse_forms(r#"(macroexpand-all '(pcase x (1 "one") (2 "two") (_ "other")))"#)
+        .expect("parse");
     let result = eval.eval_forms(&forms);
     let rendered = result
         .iter()
@@ -6446,5 +6442,21 @@ fn bootstrap_macroexpand_all_pcase() {
     assert!(
         rendered.starts_with("OK"),
         "macroexpand-all pcase failed: {rendered}"
+    );
+
+    // Test 2: pcase with backquote patterns (like cl-typep uses)
+    let forms2 =
+        parse_forms(r#"(macroexpand-all '(pcase val (`(,x) (list 'single x)) (_ 'default)))"#)
+            .expect("parse pcase backquote");
+    let result2 = eval.eval_forms(&forms2);
+    let rendered2 = result2
+        .iter()
+        .map(format_eval_result)
+        .collect::<Vec<_>>()
+        .join(" ");
+    tracing::info!("macroexpand-all pcase backquote => {rendered2}");
+    assert!(
+        rendered2.starts_with("OK"),
+        "macroexpand-all pcase backquote failed: {rendered2}"
     );
 }
