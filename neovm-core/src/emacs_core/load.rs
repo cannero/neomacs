@@ -794,17 +794,17 @@ pub(crate) fn eager_expand_eval(
         }
     }
 
-    // Step 3+4: full expand then eval —
+    // Step 3+4: deep expand then eval —
     // GNU lread.c:2030: val = eval_sub(calln(Qmacroexpand, val, Qt));
-    // This calls the BUILTIN macroexpand (not internal-macroexpand-for-load)
-    // with Qt as the environment argument. The builtin macroexpand handles
-    // non-list environments gracefully (Fassq returns nil for non-lists).
+    // where Qmacroexpand = Qinternal_macroexpand_for_load (set at line 2184).
+    // Calling internal-macroexpand-for-load(val, t) with full-p=t triggers
+    // macroexpand--all-toplevel (deep/recursive expansion via macroexpand-all).
     let fully_expanded = eval.with_gc_scope(|ctx| {
         ctx.root(val);
+        ctx.root(macroexpand_fn);
         let t3 = std::time::Instant::now();
-        // Call builtin macroexpand directly, matching GNU's calln(Qmacroexpand, val, Qt)
-        let expanded = match super::builtins::symbols::builtin_macroexpand(ctx, vec![val, Value::T])
-        {
+        // Call internal-macroexpand-for-load(val, t) — full-p=t means deep expand
+        let expanded = match ctx.apply(macroexpand_fn, vec![val, Value::T]) {
             Ok(v) => v,
             Err(_) => {
                 // Full expansion failed; use the one-level-expanded form.

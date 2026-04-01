@@ -5847,6 +5847,8 @@ impl Context {
                 }
                 // Handle cons-cell macros: (macro . fn) — used by byte-run.el's
                 // (defalias 'defmacro (cons 'macro #'(lambda ...)))
+                // Matches GNU eval.c lines 2730-2755: bind lexical-binding
+                // and macroexp--dynvars during expansion.
                 if func.is_cons() {
                     let car = func.cons_car();
                     if car.is_symbol_named("macro") {
@@ -5874,6 +5876,33 @@ impl Context {
                             let scope = self.open_gc_scope();
                             let macro_fn = func.cons_cdr();
                             self.push_temp_root(macro_fn);
+
+                            // GNU eval.c: bind lexical-binding during macro expansion
+                            let lexbind_val = if self.lexenv.is_nil() {
+                                Value::NIL
+                            } else {
+                                Value::T
+                            };
+                            let saved_lexbind =
+                                self.obarray().symbol_value("lexical-binding").cloned();
+                            self.set_variable("lexical-binding", lexbind_val);
+
+                            // GNU eval.c: propagate macroexp--dynvars from lexenv
+                            let saved_dynvars =
+                                self.obarray().symbol_value("macroexp--dynvars").cloned();
+                            let mut dynvars = saved_dynvars.unwrap_or(Value::NIL);
+                            {
+                                let mut p = self.lexenv;
+                                while p.is_cons() {
+                                    let e = p.cons_car();
+                                    if e.is_symbol() {
+                                        dynvars = Value::cons(e, dynvars);
+                                    }
+                                    p = p.cons_cdr();
+                                }
+                            }
+                            self.set_variable("macroexp--dynvars", dynvars);
+
                             // Root all arg values during macro expansion to survive GC.
                             let arg_values: Vec<Value> = tail.iter().map(quote_to_value).collect();
                             for v in &arg_values {
@@ -5882,10 +5911,18 @@ impl Context {
                             let expanded_value = self.with_macro_expansion_scope(|eval| {
                                 eval.apply(macro_fn, arg_values)
                             })?;
+
+                            // Restore bindings
+                            if let Some(v) = saved_lexbind {
+                                self.set_variable("lexical-binding", v);
+                            }
+                            if let Some(v) = saved_dynvars {
+                                self.set_variable("macroexp--dynvars", v);
+                            } else {
+                                self.set_variable("macroexp--dynvars", Value::NIL);
+                            }
+
                             // Root expansion result during value_to_expr traversal
-                            // OpaqueValueRef entries are pool-rooted, but the
-                            // expanded_value itself still needs temp-rooting during
-                            // value_to_expr traversal.
                             self.push_temp_root(expanded_value);
                             let expr = value_to_expr(&expanded_value);
                             scope.close(self);
