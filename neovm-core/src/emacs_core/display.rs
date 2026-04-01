@@ -457,7 +457,7 @@ fn gui_x_query_target_eval(
         return Ok(false);
     }
     Ok(match args.first() {
-        None | Some(&Value::NIL) => true,
+        None => true, Some(v) if v.is_nil() => true,
         Some(display) => live_frame_designator_p(eval, display),
     })
 }
@@ -476,7 +476,7 @@ fn gui_x_query_target_in_state(
         return Ok(false);
     }
     Ok(match args.first() {
-        None | Some(&Value::NIL) => true,
+        None => true, Some(v) if v.is_nil() => true,
         Some(display) => live_frame_designator_p_in_state(frames, display),
     })
 }
@@ -888,23 +888,18 @@ pub(crate) fn builtin_window_system(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_max_args("window-system", &args, 1)?;
-    match args.first() {
-        None | Some(&Value::NIL) => {
-            if let Some(window_system) =
-                selected_frame_window_system_symbol_in_state(&mut eval.frames)
-            {
-                return Ok(window_system);
-            }
+    if args.first().map_or(true, |v| v.is_nil()) {
+        if let Some(window_system) =
+            selected_frame_window_system_symbol_in_state(&mut eval.frames)
+        {
+            return Ok(window_system);
         }
-        Some(_) => {
-            if let Some(window_system) = frame_window_system_symbol_in_state(
-                &mut eval.frames,
-                &mut eval.buffers,
-                args.first(),
-            )? {
-                return Ok(window_system);
-            }
-        }
+    } else if let Some(window_system) = frame_window_system_symbol_in_state(
+        &mut eval.frames,
+        &mut eval.buffers,
+        args.first(),
+    )? {
+        return Ok(window_system);
     }
     Ok(
         dynamic_or_global_symbol_value_in_state(&eval.obarray, &[], "window-system")

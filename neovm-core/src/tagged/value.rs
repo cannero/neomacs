@@ -73,9 +73,24 @@ const IMM_PAYLOAD_SHIFT: u32 = 8; // payload starts at bit 8 for immediates
 ///
 /// This is `Copy`, `Eq`, `Hash` — can be freely duplicated and compared.
 /// Heap access is via direct pointer dereference (no ObjId indirection).
-#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, Hash, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct TaggedValue(pub(crate) usize);
+
+/// `PartialEq` uses structural comparison (`equal`) matching GNU Emacs semantics.
+/// For pointer identity (`eq`), use `TaggedValue::bits()` comparison or `eq_value`.
+impl PartialEq for TaggedValue {
+    fn eq(&self, other: &Self) -> bool {
+        // Fast path: same bits = definitely equal
+        if self.0 == other.0 {
+            return true;
+        }
+        // Structural comparison for heap objects
+        crate::emacs_core::value::equal_value(self, other, 0)
+    }
+}
+
+impl Eq for TaggedValue {}
 
 // ---------------------------------------------------------------------------
 // Constructors

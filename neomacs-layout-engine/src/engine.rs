@@ -2604,8 +2604,9 @@ impl LayoutEngine {
                     // while symbol values (e.g. `outline`, `hs`) typically indicate that
                     // ellipsis should be shown (via buffer-invisibility-spec).
                     let show_ellipsis = match text_props.get_property(charpos, "invisible") {
-                        Some(neovm_core::emacs_core::Value::T) => false,
-                        Some(neovm_core::emacs_core::Value::NIL) | None => false,
+                        Some(v) if v.is_t() => false,
+                        Some(v) if v.is_nil() => false,
+                        None => false,
                         Some(_) => true,
                     };
 

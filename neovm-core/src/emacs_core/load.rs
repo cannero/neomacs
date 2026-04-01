@@ -434,7 +434,7 @@ pub fn get_load_path(obarray: &super::symbol::Obarray) -> Vec<String> {
         .unwrap_or_default()
         .into_iter()
         .filter_map(|v| match v {
-            Value::NIL => Some(default_directory.to_string()),
+            v if v.is_nil() => Some(default_directory.to_string()),
             _ => v.as_str().map(|s| s.to_string()),
         })
         .collect()
