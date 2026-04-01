@@ -57,11 +57,11 @@ impl ByteCodeFunction {
             match (value.kind(), existing.kind()) {
                 (ValueKind::Fixnum(a), ValueKind::Fixnum(b)) if a == b => return i as u16,
                 (ValueKind::Symbol(a), ValueKind::Symbol(b)) if a == b => return i as u16,
-                (ValueKind::Symbol(a), ValueKind::Keyword(b)) if a == b => return i as u16,
-                (ValueKind::Keyword(a), ValueKind::Symbol(b)) if a == b => return i as u16,
+                (ValueKind::Symbol(a), ValueKind::Symbol(b)) if a == b => return i as u16,
+                (ValueKind::Symbol(a), ValueKind::Symbol(b)) if a == b => return i as u16,
                 (ValueKind::Nil, ValueKind::Nil) => return i as u16,
                 (ValueKind::T, ValueKind::T) => return i as u16,
-                (ValueKind::Keyword(a), ValueKind::Keyword(b)) if a == b => return i as u16,
+                (ValueKind::Symbol(a), ValueKind::Symbol(b)) if a == b => return i as u16,
                 _ => {}
             }
         }

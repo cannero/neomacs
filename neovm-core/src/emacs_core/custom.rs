@@ -91,7 +91,7 @@ pub(crate) fn builtin_make_variable_buffer_local_with_state(
 ) -> EvalResult {
     expect_args("make-variable-buffer-local", &args, 1)?;
     let name = match args[0].kind() {
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => resolve_sym(id).to_owned(),
+        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         ValueKind::Nil => "nil".to_string(),
         ValueKind::T => "t".to_string(),
         other => {
@@ -126,7 +126,7 @@ pub(crate) fn builtin_make_local_variable(
 ) -> EvalResult {
     expect_args("make-local-variable", &args, 1)?;
     let name = match args[0].kind() {
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => resolve_sym(id).to_owned(),
+        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         ValueKind::Nil => "nil".to_string(),
         ValueKind::T => "t".to_string(),
         other => {
@@ -310,7 +310,7 @@ pub(crate) fn builtin_kill_local_variable_impl(
 ) -> Result<KillLocalVariableOutcome, Flow> {
     expect_args("kill-local-variable", &args, 1)?;
     let name = match args[0].kind() {
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => resolve_sym(id).to_owned(),
+        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         ValueKind::Nil => "nil".to_string(),
         ValueKind::T => "t".to_string(),
         other => {
@@ -349,7 +349,7 @@ pub(crate) fn builtin_default_value(
     let symbol = match args[0].kind() {
         ValueKind::Nil => intern("nil"),
         ValueKind::T => intern("t"),
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => id,
+        ValueKind::Symbol(id) => id,
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -385,7 +385,7 @@ pub(crate) fn builtin_set_default(eval: &mut super::eval::Context, args: Vec<Val
     let symbol = match args[0].kind() {
         ValueKind::Nil => intern("nil"),
         ValueKind::T => intern("t"),
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => id,
+        ValueKind::Symbol(id) => id,
         _ => {
             return Err(signal(
                 "wrong-type-argument",

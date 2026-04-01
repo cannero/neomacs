@@ -632,7 +632,7 @@ pub(crate) fn resolve_fontset_name_arg(value: &Value) -> Result<String, Flow> {
             let requested = normalize_fontset_name(value.as_str().unwrap());
             Ok(query_fontset_registry(&requested, false).unwrap_or(requested))
         }
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => {
+        ValueKind::Symbol(id) => {
             let requested = normalize_fontset_name(resolve_sym(id));
             Ok(query_fontset_registry(&requested, false).unwrap_or(requested))
         }
@@ -928,7 +928,7 @@ fn lookup_font_encoding(font_encoding_alist: &Value, font_name: &str) -> Option<
 
 fn font_encoding_repertory(value: &Value) -> Option<FontRepertory> {
     match value.kind() {
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => {
+        ValueKind::Symbol(id) => {
             let name = resolve_sym(id);
             charset_exists(name).then(|| FontRepertory::Charset(name.to_string()))
         }
@@ -988,7 +988,7 @@ fn expand_target(
             }
             Ok(vec![FontsetTarget::Range(from, to)])
         }
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => {
+        ValueKind::Symbol(id) => {
             let symbol_name = resolve_sym(id).to_string();
             let targets = expand_script_symbol(&symbol_name, char_script_table)
                 .or_else(|| {
@@ -1112,7 +1112,7 @@ fn list_to_vec(value: &Value) -> Vec<Value> {
 fn value_text(value: &Value) -> Option<String> {
     match value.kind() {
         ValueKind::String => Some(value.as_str().unwrap().to_owned()),
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => Some(resolve_sym(id).to_string()),
+        ValueKind::Symbol(id) => Some(resolve_sym(id).to_string()),
         _ => None,
     }
 }
@@ -1122,9 +1122,7 @@ fn font_vector_get_flexible(items: &[Value], prop: &str) -> Option<Value> {
     let mut index = 1usize;
     while index + 1 < items.len() {
         let key_norm = match items[index].kind() {
-            ValueKind::Keyword(id) | ValueKind::Symbol(id) => {
-                resolve_sym(id).trim_start_matches(':')
-            }
+            ValueKind::Symbol(id) => resolve_sym(id).trim_start_matches(':'),
             _ => {
                 index += 2;
                 continue;

@@ -145,7 +145,6 @@ pub(crate) fn decode_emacs_utf8(bytes: &[u8]) -> String {
 fn format_value_for_error(v: &Value) -> String {
     match v.kind() {
         ValueKind::Symbol(sid) => super::intern::resolve_sym(sid).to_string(),
-        ValueKind::Keyword(sid) => super::intern::resolve_sym(sid).to_string(),
         ValueKind::String => {
             format!("\"{}\"", v.as_str().unwrap_or(""))
         }

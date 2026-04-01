@@ -145,7 +145,7 @@ pub(crate) fn expect_symbol_name(value: &Value) -> Result<String, Flow> {
         Some(s) => Ok(s.to_string()),
         None => match value.kind() {
             ValueKind::String => Ok(value.as_str().unwrap().to_string()),
-            ValueKind::Keyword(id) => Ok(resolve_sym(id).to_owned()),
+            ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
             _ => Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("symbolp"), *value],

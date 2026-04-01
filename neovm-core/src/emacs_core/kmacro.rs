@@ -521,7 +521,7 @@ fn indirect_macro_function(eval: &super::eval::Context, value: &Value) -> Value 
 
     loop {
         let Some(symbol_id) = (match current.kind() {
-            ValueKind::Symbol(id) | ValueKind::Keyword(id) => Some(id),
+            ValueKind::Symbol(id) => Some(id),
             _ if current.bits() == Value::T.bits() => Some(super::intern::intern("t")),
             _ => None,
         }) else {

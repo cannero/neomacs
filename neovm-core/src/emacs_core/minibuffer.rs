@@ -1334,7 +1334,7 @@ pub(crate) struct CompletionCandidate {
 fn completion_string_from_value(value: &Value) -> Option<String> {
     match value.kind() {
         ValueKind::String => Some(value.as_str().unwrap().to_owned()),
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => Some(resolve_sym(id).to_owned()),
+        ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
         ValueKind::Nil => Some("nil".to_owned()),
         ValueKind::T => Some("t".to_owned()),
         _ => None,

@@ -114,7 +114,7 @@ fn parse_parse_kwargs(args: &[Value], start_index: usize) -> Result<ParseOpts, F
         let key = &rest[i];
         let value = &rest[i + 1];
         match key.kind() {
-            ValueKind::Keyword(k) if resolve_sym(k) == ":object-type" => match value.kind() {
+            ValueKind::Symbol(k) if resolve_sym(k) == ":object-type" => match value.kind() {
                 ValueKind::Symbol(id) if resolve_sym(id) == "hash-table" => {
                     opts.object_type = ObjectType::HashTable
                 }
@@ -134,7 +134,7 @@ fn parse_parse_kwargs(args: &[Value], start_index: usize) -> Result<ParseOpts, F
                     ));
                 }
             },
-            ValueKind::Keyword(k) if resolve_sym(k) == ":array-type" => match value.kind() {
+            ValueKind::Symbol(k) if resolve_sym(k) == ":array-type" => match value.kind() {
                 ValueKind::Symbol(id) if resolve_sym(id) == "array" => {
                     opts.array_type = ArrayType::Vector
                 }
@@ -151,10 +151,10 @@ fn parse_parse_kwargs(args: &[Value], start_index: usize) -> Result<ParseOpts, F
                     ));
                 }
             },
-            ValueKind::Keyword(k) if resolve_sym(k) == ":null-object" => {
+            ValueKind::Symbol(k) if resolve_sym(k) == ":null-object" => {
                 opts.null_object = *value;
             }
-            ValueKind::Keyword(k) if resolve_sym(k) == ":false-object" => {
+            ValueKind::Symbol(k) if resolve_sym(k) == ":false-object" => {
                 opts.false_object = *value;
             }
             _ => {
@@ -190,10 +190,10 @@ fn parse_serialize_kwargs(args: &[Value], start_index: usize) -> Result<Serializ
         let key = &rest[i];
         let value = &rest[i + 1];
         match key.kind() {
-            ValueKind::Keyword(k) if resolve_sym(k) == ":null-object" => {
+            ValueKind::Symbol(k) if resolve_sym(k) == ":null-object" => {
                 opts.null_object = *value;
             }
-            ValueKind::Keyword(k) if resolve_sym(k) == ":false-object" => {
+            ValueKind::Symbol(k) if resolve_sym(k) == ":false-object" => {
                 opts.false_object = *value;
             }
             _ => {
@@ -224,7 +224,6 @@ fn value_matches(a: &Value, b: &Value) -> bool {
         (ValueKind::Fixnum(x), ValueKind::Fixnum(y)) => x == y,
         (ValueKind::Float, ValueKind::Float) => a.xfloat().to_bits() == b.xfloat().to_bits(),
         (ValueKind::Symbol(x), ValueKind::Symbol(y)) => x == y,
-        (ValueKind::Keyword(x), ValueKind::Keyword(y)) => x == y,
         (ValueKind::String, ValueKind::String) => a.as_str() == b.as_str(),
         _ => false,
     }
@@ -334,8 +333,8 @@ fn serialize_to_json(value: &Value, opts: &SerializeOpts, depth: usize) -> Resul
         ValueKind::Nil => Ok("null".to_string()),
 
         // Keywords that were not matched as false/null sentinels.
-        ValueKind::Keyword(k) if resolve_sym(k) == ":json-false" => Ok("false".to_string()),
-        ValueKind::Keyword(k)
+        ValueKind::Symbol(k) if resolve_sym(k) == ":json-false" => Ok("false".to_string()),
+        ValueKind::Symbol(k)
             if {
                 let n = resolve_sym(k);
                 n == ":null" || n == ":json-null"
@@ -387,7 +386,6 @@ fn hash_key_to_string(key: &HashKey) -> Result<String, Flow> {
 fn symbol_object_key(value: &Value) -> Result<String, Flow> {
     match value.kind() {
         ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
-        ValueKind::Keyword(id) => Ok(resolve_sym(id).to_owned()),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), *value],

@@ -79,7 +79,6 @@ fn symbol_like_name(value: &Value) -> Option<&str> {
         ValueKind::Nil => Some("nil"),
         ValueKind::T => Some("t"),
         ValueKind::Symbol(id) => Some(resolve_sym(id)),
-        ValueKind::Keyword(id) => Some(resolve_sym(id)),
         _ => None,
     }
 }

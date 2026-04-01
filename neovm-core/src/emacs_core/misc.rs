@@ -627,14 +627,6 @@ fn runtime_backtrace_indirect_function(
             .or(Some(function))
         }
         ValueKind::T => runtime_backtrace_indirect_function(eval, Value::symbol("t")),
-        ValueKind::Keyword(symbol) => {
-            super::builtins::symbols::resolve_indirect_symbol_by_id_in_obarray(
-                &eval.obarray,
-                symbol,
-            )
-            .map(|(_, value)| value)
-            .or(Some(function))
-        }
         ValueKind::Nil => None,
         _ => Some(function),
     }

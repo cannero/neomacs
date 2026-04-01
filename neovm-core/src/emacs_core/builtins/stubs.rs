@@ -575,7 +575,7 @@ fn sqlite_handle_id(value: &Value) -> Option<i64> {
         return None;
     }
     match (items[0].kind(), items[1].kind()) {
-        (ValueKind::Keyword(tag), ValueKind::Fixnum(id)) if resolve_sym(tag) == "sqlite-handle" => {
+        (ValueKind::Symbol(tag), ValueKind::Fixnum(id)) if resolve_sym(tag) == "sqlite-handle" => {
             Some(id)
         }
         _ => None,
@@ -1563,9 +1563,9 @@ fn is_font_object(value: &Value) -> bool {
     match value.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = value.as_vector_data().unwrap();
-            items.first().is_some_and(|v| {
-                matches!(v.kind(), ValueKind::Keyword(tag) if resolve_sym(tag) == "font-object")
-            })
+            items.first().is_some_and(
+                |v| matches!(v.kind(), ValueKind::Symbol(tag) if resolve_sym(tag) == "font-object"),
+            )
         }
         _ => false,
     }
@@ -1576,7 +1576,7 @@ fn is_font_spec(value: &Value) -> bool {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = value.as_vector_data().unwrap();
             items.first().is_some_and(
-                |v| matches!(v.kind(), ValueKind::Keyword(tag) if resolve_sym(tag) == "font-spec"),
+                |v| matches!(v.kind(), ValueKind::Symbol(tag) if resolve_sym(tag) == "font-spec"),
             )
         }
         _ => false,

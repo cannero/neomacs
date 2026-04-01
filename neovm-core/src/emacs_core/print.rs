@@ -280,7 +280,6 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
         ValueKind::Fixnum(v) => write!(out, "{}", v).unwrap(),
         ValueKind::Float => out.push_str(&format_float(value.xfloat())),
         ValueKind::Symbol(id) => out.push_str(&format_symbol(id, state.options)),
-        ValueKind::Keyword(id) => out.push_str(resolve_sym(id)),
         ValueKind::String => {
             let s = value.as_str().unwrap().to_owned();
             match get_string_text_properties_for_value(*value) {
@@ -947,7 +946,6 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
         ValueKind::Fixnum(v) => v.to_string(),
         ValueKind::Float => format_float(value.xfloat()),
         ValueKind::Symbol(id) => format_symbol(id, options),
-        ValueKind::Keyword(id) => resolve_sym(id).to_owned(),
         ValueKind::String => {
             let s = value.as_str().unwrap().to_owned();
             match get_string_text_properties_for_value(*value) {
@@ -1075,7 +1073,6 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
         ValueKind::Fixnum(v) => out.extend_from_slice(v.to_string().as_bytes()),
         ValueKind::Float => out.extend_from_slice(format_float(value.xfloat()).as_bytes()),
         ValueKind::Symbol(id) => append_symbol_bytes(id, out, options),
-        ValueKind::Keyword(id) => out.extend_from_slice(resolve_sym(id).as_bytes()),
         ValueKind::String => {
             let s = value.as_str().unwrap().to_owned();
             let str_bytes = format_lisp_string_bytes_inner(&s, &options);

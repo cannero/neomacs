@@ -1377,8 +1377,7 @@ fn expect_process_name_string(value: &Value) -> Result<String, Flow> {
 
 fn keyword_name(value: &Value) -> Option<&str> {
     match value.kind() {
-        ValueKind::Keyword(k) => Some(resolve_sym(k)),
-        ValueKind::Symbol(id) if resolve_sym(id).starts_with(':') => Some(resolve_sym(id)),
+        ValueKind::Symbol(k) => Some(resolve_sym(k)),
         _ => None,
     }
 }
@@ -4550,8 +4549,7 @@ pub(crate) fn builtin_make_process_impl(
         let key = &args[i];
         let value = args.get(i + 1).cloned().unwrap_or(Value::NIL);
         let key_name = match key.kind() {
-            ValueKind::Keyword(k) => Some(resolve_sym(k)),
-            ValueKind::Symbol(id) if resolve_sym(id).starts_with(':') => Some(resolve_sym(id)),
+            ValueKind::Symbol(k) => Some(resolve_sym(k)),
             _ => None,
         };
         match key_name {
@@ -5796,14 +5794,12 @@ pub(crate) fn builtin_process_contact_impl(
                 ]))
             } else {
                 match key.kind() {
-                    ValueKind::Keyword(k) if resolve_sym(k) == ":name" => {
+                    ValueKind::Symbol(k) if resolve_sym(k) == ":name" => {
                         Ok(Value::string(proc.name.clone()))
                     }
-                    ValueKind::Keyword(k) if resolve_sym(k) == ":server" => Ok(Value::T),
-                    ValueKind::Keyword(k) if resolve_sym(k) == ":service" => {
-                        Ok(Value::fixnum(port))
-                    }
-                    ValueKind::Keyword(k) if resolve_sym(k) == ":local" => Ok(local),
+                    ValueKind::Symbol(k) if resolve_sym(k) == ":server" => Ok(Value::T),
+                    ValueKind::Symbol(k) if resolve_sym(k) == ":service" => Ok(Value::fixnum(port)),
+                    ValueKind::Symbol(k) if resolve_sym(k) == ":local" => Ok(local),
                     _ => Ok(Value::NIL),
                 }
             }
@@ -5818,7 +5814,7 @@ pub(crate) fn builtin_process_contact_impl(
                 ]))
             } else {
                 match key.kind() {
-                    ValueKind::Keyword(k) if resolve_sym(k) == ":name" => {
+                    ValueKind::Symbol(k) if resolve_sym(k) == ":name" => {
                         Ok(Value::string(proc.name.clone()))
                     }
                     _ => Ok(Value::NIL),

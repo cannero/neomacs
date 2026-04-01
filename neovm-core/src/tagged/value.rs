@@ -191,9 +191,10 @@ impl TaggedValue {
     }
 
     /// Create a keyword value from a SymId.
+    /// In GNU Emacs, keywords are ordinary symbols with `:` prefix names.
     #[inline]
     pub fn from_kw_id(id: SymId) -> Self {
-        Self(TAG_IMMEDIATE | IMM_KEYWORD | ((id.0 as usize) << IMM_PAYLOAD_SHIFT))
+        Self::from_sym_id(id)
     }
 
     /// Create a subr (builtin function) value from a SymId.
@@ -236,10 +237,11 @@ impl TaggedValue {
 
     /// Check if this value is a symbol.
     /// In GNU Emacs, keywords are symbols (interned with `:` prefix).
-    /// nil and t are also symbols.
+    /// Check if this value is a symbol. Keywords are symbols (name starts
+    /// with `:`). nil and t are also symbols.
     #[inline]
     pub fn is_symbol(self) -> bool {
-        (self.0 & TAG_MASK == TAG_SYMBOL) || self.is_keyword()
+        self.0 & TAG_MASK == TAG_SYMBOL
     }
 
     #[inline]
@@ -279,9 +281,16 @@ impl TaggedValue {
         }
     }
 
+    /// In GNU Emacs, keywords are symbols whose name starts with `:`.
     #[inline]
     pub fn is_keyword(self) -> bool {
-        self.is_immediate() && (self.0 & IMM_SUB_MASK) == IMM_KEYWORD
+        // Keywords are symbols with : prefix name
+        if self.0 & TAG_MASK == TAG_SYMBOL {
+            if let Some(name) = self.as_symbol_name() {
+                return name.starts_with(':');
+            }
+        }
+        false
     }
 
     #[inline]
@@ -323,31 +332,21 @@ impl TaggedValue {
     }
 
     /// Extract SymId for a symbol (including keywords, which are symbols
-    /// in GNU Emacs). Returns None if not a symbol or keyword.
+    /// Extract SymId for a symbol (including keywords). Returns None if not a symbol.
     #[inline]
     pub fn as_symbol_id(self) -> Option<SymId> {
         if self.0 & TAG_MASK == TAG_SYMBOL {
-            // Regular symbol (tag 000): SymId is in bits 3+
             Some(SymId((self.0 >> TAG_BITS) as u32))
-        } else if self.is_keyword() {
-            // Keyword (immediate sub-tag): SymId is in bits 8+
-            self.as_keyword_id()
         } else {
             None
         }
     }
 
-    /// Extract SymId without tag check. Caller must ensure value is a
-    /// symbol or keyword.
+    /// Extract SymId without tag check. Caller must ensure `is_symbol()`.
     #[inline]
     pub fn xsymbol_id(self) -> SymId {
         debug_assert!(self.is_symbol());
-        if self.0 & TAG_MASK == TAG_SYMBOL {
-            SymId((self.0 >> TAG_BITS) as u32)
-        } else {
-            // keyword
-            self.as_keyword_id().unwrap()
-        }
+        SymId((self.0 >> TAG_BITS) as u32)
     }
 
     /// Extract char. Characters are fixnums in the valid codepoint range.
@@ -369,10 +368,11 @@ impl TaggedValue {
     }
 
     /// Extract keyword SymId. Returns None if not a keyword.
+    /// Keywords are symbols with `:` prefix, so this extracts the symbol id.
     #[inline]
     pub fn as_keyword_id(self) -> Option<SymId> {
         if self.is_keyword() {
-            Some(SymId((self.0 >> IMM_PAYLOAD_SHIFT) as u32))
+            self.as_symbol_id()
         } else {
             None
         }
@@ -526,9 +526,7 @@ impl TaggedValue {
             TAG_FLOAT => ValueKind::Float,
             TAG_IMMEDIATE => {
                 let sub = self.0 & IMM_SUB_MASK;
-                if sub == IMM_KEYWORD {
-                    ValueKind::Keyword(self.as_keyword_id().unwrap())
-                } else if sub == IMM_SUBR {
+                if sub == IMM_SUBR {
                     ValueKind::Subr(self.as_subr_id().unwrap())
                 } else {
                     ValueKind::Unknown
@@ -626,7 +624,6 @@ impl TaggedValue {
             ValueKind::Cons => "cons",
             ValueKind::String => "string",
             ValueKind::Float => "float",
-            ValueKind::Keyword(_) => "symbol",
             ValueKind::Subr(_) => "subr",
             ValueKind::Veclike(ty) => match ty {
                 VecLikeType::Vector => "vector",
@@ -692,13 +689,8 @@ impl TaggedValue {
     /// For keywords (which are symbols in GNU Emacs), returns the keyword name
     /// (e.g., ":foo").
     pub fn as_symbol_name(self) -> Option<&'static str> {
-        if let Some(id) = self.as_symbol_id() {
-            Some(crate::emacs_core::intern::resolve_sym(id))
-        } else if let Some(id) = self.as_keyword_id() {
-            Some(crate::emacs_core::intern::resolve_sym(id))
-        } else {
-            None
-        }
+        self.as_symbol_id()
+            .map(|id| crate::emacs_core::intern::resolve_sym(id))
     }
 
     /// Check if this symbol has the given name.
@@ -719,12 +711,13 @@ pub enum ValueKind {
     T,
     /// Integer (fixnum). In GNU Emacs, characters are also integers.
     Fixnum(i64),
+    /// Symbol (including keywords — they're symbols with `:` prefix names).
     Symbol(SymId),
     Cons,
     String,
     Float,
     // NOTE: No Char variant. Characters are Fixnum in GNU Emacs.
-    Keyword(SymId),
+    // NOTE: No Keyword variant. Keywords are Symbol in GNU Emacs.
     Subr(SymId),
     Veclike(VecLikeType),
     Unknown,
@@ -746,7 +739,6 @@ impl fmt::Debug for TaggedValue {
             ValueKind::Float => {
                 write!(f, "Float({})", self.xfloat())
             }
-            ValueKind::Keyword(id) => write!(f, "Keyword({:?})", id),
             ValueKind::Subr(id) => write!(f, "Subr({:?})", id),
             ValueKind::Veclike(ty) => write!(f, "{:?}@{:#x}", ty, self.0 & !TAG_MASK),
             ValueKind::Unknown => write!(f, "Unknown({:#x})", self.0),

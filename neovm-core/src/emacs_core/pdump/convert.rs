@@ -92,7 +92,6 @@ pub(crate) fn dump_value(v: &Value) -> DumpValue {
         ValueKind::Fixnum(n) => DumpValue::Int(n),
         ValueKind::Float => DumpValue::Float(v.xfloat(), 0),
         ValueKind::Symbol(s) => DumpValue::Symbol(dump_sym_id(s)),
-        ValueKind::Keyword(s) => DumpValue::Keyword(dump_sym_id(s)),
         ValueKind::String => DumpValue::Str(dump_obj_id(value_to_obj_id(v))),
         ValueKind::Cons => DumpValue::Cons(dump_obj_id(value_to_obj_id(v))),
         ValueKind::Veclike(VecLikeType::Vector) => {

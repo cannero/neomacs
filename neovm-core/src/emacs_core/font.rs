@@ -113,7 +113,7 @@ fn frame_id_from_designator(value: &Value) -> Option<FrameId> {
 fn font_value_text(value: &Value) -> Option<String> {
     match value.kind() {
         ValueKind::String => Some(value.as_str().unwrap().to_owned()),
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => Some(resolve_sym(id).to_owned()),
+        ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
         _ => None,
     }
 }
@@ -328,7 +328,6 @@ fn font_vector_get_flexible(vec_elems: &[Value], prop: &str) -> Option<Value> {
     while i + 1 < vec_elems.len() {
         let key = &vec_elems[i];
         let key_text = match key.kind() {
-            ValueKind::Keyword(k) => resolve_sym(k),
             ValueKind::Symbol(k) => resolve_sym(k),
             _ => {
                 i += 2;
@@ -347,7 +346,7 @@ fn font_vector_get_flexible(vec_elems: &[Value], prop: &str) -> Option<Value> {
 fn font_spec_field_to_string(value: &Value) -> String {
     match value.kind() {
         ValueKind::String => value.as_str().unwrap().to_owned(),
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => resolve_sym(id).to_owned(),
+        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         _ => "*".to_string(),
     }
 }
@@ -393,7 +392,7 @@ fn normalize_registry_field(value: &Option<Value>) -> String {
                     s
                 }
             }
-            ValueKind::Symbol(id) | ValueKind::Keyword(id) => {
+            ValueKind::Symbol(id) => {
                 let s = resolve_sym(id);
                 if !s.contains('-') {
                     format!("{}-*", s)
@@ -409,10 +408,6 @@ fn normalize_registry_field(value: &Option<Value>) -> String {
 fn sanitize_style_field(value: &Value) -> String {
     match value.kind() {
         ValueKind::Symbol(id) => resolve_sym(id)
-            .chars()
-            .filter(|ch| *ch != '-' && *ch != '?' && *ch != ',' && *ch != '"')
-            .collect(),
-        ValueKind::Keyword(id) => resolve_sym(id)
             .chars()
             .filter(|ch| *ch != '-' && *ch != '?' && *ch != ',' && *ch != '"')
             .collect(),
@@ -450,7 +445,7 @@ fn avg_width_field(value: Option<&Value>) -> String {
         Some(v) => match v.kind() {
             ValueKind::Fixnum(n) => n.to_string(),
             ValueKind::String => v.as_str().unwrap().to_owned(),
-            ValueKind::Symbol(id) | ValueKind::Keyword(id) => resolve_sym(id).to_owned(),
+            ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
             _ => "*".to_string(),
         },
         None => "*".to_string(),
@@ -589,7 +584,6 @@ pub(crate) fn builtin_font_spec(args: Vec<Value>) -> EvalResult {
         let Some(value) = value else {
             if key.is_keyword() || key.is_symbol() || key.is_nil() {
                 let key_name = match key.kind() {
-                    ValueKind::Keyword(k) => format!(":{}", resolve_sym(k)),
                     ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
                     ValueKind::Nil => "nil".to_string(),
                     _ => "nil".to_string(),
@@ -703,14 +697,14 @@ fn font_weight_from_value(value: Value) -> Option<FontWeight> {
         ValueKind::Fixnum(weight) if (0..=u16::MAX as i64).contains(&weight) => {
             Some(FontWeight(weight as u16))
         }
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => FontWeight::from_symbol(resolve_sym(id)),
+        ValueKind::Symbol(id) => FontWeight::from_symbol(resolve_sym(id)),
         _ => None,
     }
 }
 
 fn font_slant_from_value(value: Value) -> Option<FontSlant> {
     match value.kind() {
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => FontSlant::from_symbol(resolve_sym(id)),
+        ValueKind::Symbol(id) => FontSlant::from_symbol(resolve_sym(id)),
         _ => None,
     }
 }
@@ -983,7 +977,7 @@ fn resolve_live_window_for_font_at(
 fn resolve_face_layers_from_value(value: &Value) -> Vec<FaceLayer> {
     match value.kind() {
         ValueKind::Nil => Vec::new(),
-        ValueKind::Symbol(_) | ValueKind::Keyword(_) => value
+        ValueKind::Symbol(_) => value
             .as_symbol_name()
             .filter(|name| *name != "nil")
             .map(|name| vec![FaceLayer::Named(vec![name.to_string()])])
@@ -1283,9 +1277,7 @@ fn font_name_value(font_like: &Value) -> Option<Value> {
             if let Some(value) = font_vector_get_flexible(&elems, "name") {
                 return match value.kind() {
                     ValueKind::String => Some(value),
-                    ValueKind::Symbol(sym) | ValueKind::Keyword(sym) => {
-                        Some(Value::string(resolve_sym(sym).to_owned()))
-                    }
+                    ValueKind::Symbol(sym) => Some(Value::string(resolve_sym(sym).to_owned())),
                     _ => None,
                 };
             }
@@ -2040,14 +2032,6 @@ fn make_lisp_face_vector_for_domain(face_name: &str, defaults_frame: bool) -> Va
 fn normalize_face_attribute_name(attr: &Value) -> Result<String, Flow> {
     let name = match attr.kind() {
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
-        ValueKind::Keyword(id) => {
-            let s = resolve_sym(id);
-            if s.starts_with(':') {
-                s.to_owned()
-            } else {
-                format!(":{s}")
-            }
-        }
         ValueKind::Nil | ValueKind::T => attr.as_symbol_name().unwrap_or_default().to_string(),
         _ => {
             return Err(signal(
@@ -2075,14 +2059,6 @@ fn normalize_face_attribute_name(attr: &Value) -> Result<String, Flow> {
 fn normalize_set_face_attribute_name(attr: &Value) -> Result<String, Flow> {
     let name = match attr.kind() {
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
-        ValueKind::Keyword(id) => {
-            let s = resolve_sym(id);
-            if s.starts_with(':') {
-                s.to_owned()
-            } else {
-                format!(":{s}")
-            }
-        }
         ValueKind::Nil | ValueKind::T => attr.as_symbol_name().unwrap_or_default().to_string(),
         _ => {
             return Err(signal(
@@ -2234,7 +2210,7 @@ fn resolve_known_face_name_for_compare(face: &Value, defaults_frame: bool) -> Re
 
 fn face_attr_value_name(attr: &Value) -> Result<String, Flow> {
     match attr.kind() {
-        ValueKind::Keyword(id) => {
+        ValueKind::Symbol(id) => {
             let s = resolve_sym(id);
             if s.starts_with(':') {
                 Ok(s.to_owned())
@@ -2242,7 +2218,6 @@ fn face_attr_value_name(attr: &Value) -> Result<String, Flow> {
                 Ok(format!(":{s}"))
             }
         }
-        ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
         ValueKind::Nil => Ok("nil".to_string()),
         ValueKind::T => Ok("t".to_string()),
         _ => Err(signal(
@@ -3274,7 +3249,7 @@ pub(crate) fn builtin_face_attribute_relative_p(args: Vec<Value>) -> EvalResult 
     }
 
     let height_attr = match args[0].kind() {
-        ValueKind::Keyword(id) | ValueKind::Symbol(id) => {
+        ValueKind::Symbol(id) => {
             let n = resolve_sym(id);
             n == "height" || n == ":height"
         }

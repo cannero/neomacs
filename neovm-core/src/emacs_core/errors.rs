@@ -138,9 +138,7 @@ pub fn signal_matches_condition_value(
     pattern: &Value,
 ) -> bool {
     match pattern.kind() {
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => {
-            signal_matches_hierarchical(obarray, signal_sym, resolve_sym(id))
-        }
+        ValueKind::Symbol(id) => signal_matches_hierarchical(obarray, signal_sym, resolve_sym(id)),
         ValueKind::T => true,
         ValueKind::Nil => false,
         ValueKind::Cons => list_to_vec(pattern).is_some_and(|items| {

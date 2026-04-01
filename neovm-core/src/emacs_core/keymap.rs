@@ -395,7 +395,7 @@ fn keymap_symbol_id(value: &Value) -> Option<SymId> {
     match value.kind() {
         ValueKind::Nil => Some(intern("nil")),
         ValueKind::T => Some(intern("t")),
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => Some(id),
+        ValueKind::Symbol(id) => Some(id),
         _ => None,
     }
 }

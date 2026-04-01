@@ -731,7 +731,7 @@ fn encode_char_input(value: &Value) -> Result<i64, Flow> {
 fn charset_value_text(value: &Value) -> Option<String> {
     match value.kind() {
         ValueKind::String => Some(value.as_str().unwrap().to_owned()),
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => Some(resolve_sym(id).to_string()),
+        ValueKind::Symbol(id) => Some(resolve_sym(id).to_string()),
         _ => None,
     }
 }
@@ -758,9 +758,7 @@ fn parse_superset_spec(value: &Value) -> Option<Vec<(String, i64)>> {
     let members = items
         .into_iter()
         .map(|item| match item.kind() {
-            ValueKind::Symbol(id) | ValueKind::Keyword(id) => {
-                Some((resolve_sym(id).to_string(), 0))
-            }
+            ValueKind::Symbol(id) => Some((resolve_sym(id).to_string(), 0)),
             ValueKind::Cons => {
                 let car = item.cons_car();
                 let cdr = item.cons_cdr();
@@ -1134,7 +1132,7 @@ pub(crate) fn builtin_define_charset_internal(args: Vec<Value>) -> EvalResult {
     let unify_map = match args[15].kind() {
         ValueKind::Nil => None,
         ValueKind::String => Some(args[15].as_str().unwrap().to_owned()),
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => Some(resolve_sym(id).to_string()),
+        ValueKind::Symbol(id) => Some(resolve_sym(id).to_string()),
         _ => None,
     };
     let plist = parse_plist(&args[16]);

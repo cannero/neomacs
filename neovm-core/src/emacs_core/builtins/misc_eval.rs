@@ -434,7 +434,7 @@ pub(crate) fn plan_defalias_in_obarray(
     let symbol = match args[0].kind() {
         ValueKind::Nil => intern("nil"),
         ValueKind::T => intern("t"),
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => id,
+        ValueKind::Symbol(id) => id,
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -452,7 +452,7 @@ pub(crate) fn plan_defalias_in_obarray(
     let result = match args[0].kind() {
         ValueKind::Nil => Value::NIL,
         ValueKind::T => Value::T,
-        ValueKind::Keyword(_) => args[0],
+        ValueKind::Symbol(_) => args[0],
         _ => Value::from_sym_id(symbol),
     };
     let hook = obarray
@@ -1165,7 +1165,6 @@ pub(super) fn print_value_princ(value: &Value) -> String {
     match value.kind() {
         ValueKind::String => value.as_str().unwrap().to_owned(),
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
-        ValueKind::Keyword(id) => resolve_sym(id).to_owned(),
         ValueKind::Cons => {
             if let Some(shorthand) = print_value_princ_list_shorthand(value, &print_value_princ) {
                 return shorthand;
@@ -1229,7 +1228,6 @@ pub(crate) fn print_value_princ_in_state(
     match value.kind() {
         ValueKind::String => value.as_str().unwrap().to_owned(),
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
-        ValueKind::Keyword(id) => resolve_sym(id).to_owned(),
         ValueKind::Veclike(VecLikeType::Buffer) => {
             let id = value.as_buffer_id().unwrap();
             if let Some(buf) = ctx.buffers.get(id) {
@@ -1603,7 +1601,7 @@ pub(crate) fn builtin_propertize(args: Vec<Value>) -> EvalResult {
                 if let Some(name) = chunk[0].as_symbol_name() {
                     table.put_property(0, byte_len, name, chunk[1]);
                 } else if let Some(name) = match chunk[0].kind() {
-                    ValueKind::Keyword(id) => Some(resolve_sym(id).to_owned()),
+                    ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
                     _ => None,
                 } {
                     table.put_property(0, byte_len, &name, chunk[1]);

@@ -1327,7 +1327,7 @@ impl FaceResolver {
 
     fn face_name_from_value<'a>(value: &'a Value) -> Option<&'a str> {
         match value.kind() {
-            ValueKind::Symbol(_) | ValueKind::Keyword(_) => value.as_symbol_name(),
+            ValueKind::Symbol(_) => value.as_symbol_name(),
             ValueKind::String => value.as_str(),
             _ => None,
         }
@@ -1374,7 +1374,7 @@ impl FaceResolver {
     ) -> Option<ResolvedFace> {
         match val.kind() {
             ValueKind::Nil => None,
-            ValueKind::Symbol(_) | ValueKind::Keyword(_) | ValueKind::String => {
+            ValueKind::Symbol(_) | ValueKind::String => {
                 let name = Self::face_name_from_value(val)?;
                 if name == "nil" {
                     return None;
@@ -1441,7 +1441,7 @@ impl FaceResolver {
     ) -> Option<ResolvedFace> {
         match val.kind() {
             ValueKind::Nil => None,
-            ValueKind::Symbol(_) | ValueKind::Keyword(_) => {
+            ValueKind::Symbol(_) => {
                 let name = val.as_symbol_name()?;
                 (name != "nil").then(|| self.apply_named_face_over(base, name))
             }
@@ -1574,7 +1574,7 @@ impl FaceResolver {
     pub fn resolve_face_value(val: &Value) -> Vec<String> {
         match val.kind() {
             ValueKind::Nil => Vec::new(),
-            ValueKind::Symbol(_) | ValueKind::Keyword(_) => {
+            ValueKind::Symbol(_) => {
                 if let Some(name) = val.as_symbol_name() {
                     if name == "nil" {
                         Vec::new()

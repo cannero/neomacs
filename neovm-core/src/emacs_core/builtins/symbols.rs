@@ -18,7 +18,7 @@ pub(crate) fn symbol_id(value: &Value) -> Option<SymId> {
     match value.kind() {
         ValueKind::Nil => Some(intern("nil")),
         ValueKind::T => Some(intern("t")),
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => Some(id),
+        ValueKind::Symbol(id) => Some(id),
         _ => None,
     }
 }
@@ -616,7 +616,7 @@ pub(crate) fn builtin_function_get(
     let prop = args[1];
     let autoload = args.get(2).copied().unwrap_or(Value::NIL);
     let prop_id = match prop.kind() {
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => id,
+        ValueKind::Symbol(id) => id,
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1434,7 +1434,7 @@ pub(crate) fn intern_soft_impl(obarray: &Obarray, args: Vec<Value>) -> EvalResul
     if let Some(obarray_val) = args.get(1).filter(|v| !v.is_nil() && v.is_vector()) {
         let name = match args[0].kind() {
             ValueKind::String => args[0].as_str().unwrap().to_owned(),
-            ValueKind::Symbol(id) | ValueKind::Keyword(id) => resolve_sym(id).to_owned(),
+            ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
             ValueKind::Nil => "nil".to_owned(),
             ValueKind::T => "t".to_owned(),
             _other => {
@@ -1459,7 +1459,7 @@ pub(crate) fn intern_soft_impl(obarray: &Obarray, args: Vec<Value>) -> EvalResul
         ValueKind::String => args[0].as_str().unwrap().to_owned(),
         ValueKind::Nil => "nil".to_owned(),
         ValueKind::T => "t".to_owned(),
-        ValueKind::Keyword(id) | ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
+        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         _other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -2750,7 +2750,6 @@ fn symbol_name_for_value_lt(value: &Value) -> Option<&str> {
         ValueKind::Nil => Some("nil"),
         ValueKind::T => Some("t"),
         ValueKind::Symbol(id) => Some(resolve_sym(id)),
-        ValueKind::Keyword(id) => Some(resolve_sym(id)),
         _ => None,
     }
 }
@@ -3492,14 +3491,6 @@ pub(crate) fn builtin_internal_set_lisp_face_attribute_from_resource(
 
     let attr_name = match args[1].kind() {
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
-        ValueKind::Keyword(id) => {
-            let s = resolve_sym(id);
-            if s.starts_with(':') {
-                s.to_owned()
-            } else {
-                format!(":{s}")
-            }
-        }
         ValueKind::Nil | ValueKind::T => args[1].as_symbol_name().unwrap_or_default().to_string(),
         _ => {
             return Err(signal(

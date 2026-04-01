@@ -2259,7 +2259,7 @@ impl<'a> Vm<'a> {
         let symbol = match args[0].kind() {
             ValueKind::Nil => intern("nil"),
             ValueKind::T => intern("t"),
-            ValueKind::Symbol(id) | ValueKind::Keyword(id) => id,
+            ValueKind::Symbol(id) => id,
             _ => {
                 return Err(signal(
                     "wrong-type-argument",

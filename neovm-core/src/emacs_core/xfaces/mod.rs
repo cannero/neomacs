@@ -108,7 +108,7 @@ fn face_attributes_vector_slot(attr_name: &str) -> Option<usize> {
 
 fn face_attr_key_name(value: &Value) -> Option<&str> {
     match value.kind() {
-        ValueKind::Keyword(id) | ValueKind::Symbol(id) => Some(resolve_sym(id)),
+        ValueKind::Symbol(id) => Some(resolve_sym(id)),
         _ => None,
     }
 }
@@ -215,7 +215,6 @@ fn upsert_frame_face_hash_entry(table: Value, key: Value, value: Value) {
         let hash_table = table.as_hash_table_mut().unwrap();
         let hash_key = match key.kind() {
             ValueKind::Symbol(id) => HashKey::Symbol(id),
-            ValueKind::Keyword(id) => HashKey::Keyword(id),
             _ => unreachable!("face hash keys are symbols"),
         };
         if !hash_table.data.contains_key(&hash_key) {

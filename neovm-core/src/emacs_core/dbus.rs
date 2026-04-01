@@ -41,7 +41,7 @@ fn expect_range_args(
 
 fn expect_symbolp(value: &Value) -> Result<String, Flow> {
     match value.kind() {
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => Ok(resolve_sym(id).to_owned()),
+        ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), *value],
@@ -96,7 +96,7 @@ pub(crate) fn builtin_dbus_message_internal(args: Vec<Value>) -> EvalResult {
     let _bus_id = expect_wholenump(&args[0])?;
 
     match args[1].kind() {
-        ValueKind::Symbol(_) | ValueKind::Keyword(_) => Ok(Value::NIL),
+        ValueKind::Symbol(_) => Ok(Value::NIL),
         ValueKind::String => {
             let dest = args[1].as_str().unwrap().to_owned();
             if !dest.contains(':') {

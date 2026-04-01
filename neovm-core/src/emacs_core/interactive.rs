@@ -2538,7 +2538,7 @@ fn resolve_command_target_in_state(
     match designator.kind() {
         ValueKind::Subr(id) => Some((resolve_sym(id).to_owned(), *designator)),
         ValueKind::T => Some(("t".to_string(), *designator)),
-        ValueKind::Keyword(id) => Some((resolve_sym(id).to_owned(), *designator)),
+        ValueKind::Symbol(id) => Some((resolve_sym(id).to_owned(), *designator)),
         _ => Some(("<anonymous>".to_string(), *designator)),
     }
 }

@@ -214,7 +214,7 @@ fn value_kind_dispatch() {
     assert!(matches!(ch.kind(), ValueKind::Char('x')));
 
     let kw = TaggedValue::from_kw_id(SymId(3));
-    assert!(matches!(kw.kind(), ValueKind::Keyword(SymId(3))));
+    assert!(matches!(kw.kind(), ValueKind::Symbol(SymId(3))));
 }
 
 #[test]

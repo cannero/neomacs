@@ -731,7 +731,7 @@ pub(crate) enum ConditionFrame {
 
 fn condition_value_contains_debug(value: &Value) -> bool {
     match value.kind() {
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => resolve_sym(id) == "debug",
+        ValueKind::Symbol(id) => resolve_sym(id) == "debug",
         ValueKind::Cons => {
             list_to_vec(value).is_some_and(|items| items.iter().any(condition_value_contains_debug))
         }
@@ -7807,7 +7807,6 @@ impl Context {
             ValueKind::Subr(id) => self.apply_subr_object_by_id(id, args, true),
             ValueKind::Symbol(id) => self.apply_symbol_callable_untraced(id, args, true),
             ValueKind::T => self.apply_symbol_callable_untraced(intern("t"), args, true),
-            ValueKind::Keyword(id) => self.apply_symbol_callable_untraced(id, args, true),
             ValueKind::Nil => Err(signal("void-function", vec![Value::symbol("nil")])),
             ValueKind::Cons => {
                 if super::autoload::is_autoload_value(&function) {
@@ -8433,7 +8432,6 @@ impl Context {
                 ValueKind::T => 1,
                 ValueKind::Fixnum(n) => ((n as u64).wrapping_mul(0x9E37_79B1)) ^ 0x10,
                 ValueKind::Symbol(sym) => ((sym.0 as u64) << 8) ^ 0x20,
-                ValueKind::Keyword(sym) => ((sym.0 as u64) << 8) ^ 0x21,
                 ValueKind::Subr(sym) => ((sym.0 as u64) << 8) ^ 0x22,
                 _ => (value.bits() as u64) ^ 0x30,
             }
@@ -9293,7 +9291,6 @@ pub(crate) fn value_to_expr(value: &Value) -> Expr {
         ValueKind::Fixnum(n) => Expr::Int(n),
         ValueKind::Float => Expr::Float(value.as_float().unwrap()),
         ValueKind::Symbol(id) => Expr::Symbol(id),
-        ValueKind::Keyword(id) => Expr::Keyword(id),
         ValueKind::String => Expr::Str(value.as_str().unwrap().to_owned()),
         ValueKind::Cons => {
             if let Some(items) = list_to_vec(value) {

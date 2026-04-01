@@ -285,10 +285,6 @@ fn hash_value_for_equal(value: &Value, hasher: &mut DefaultHasher, depth: usize)
             4_u8.hash(hasher);
             resolve_sym(id).hash(hasher);
         }
-        ValueKind::Keyword(id) => {
-            5_u8.hash(hasher);
-            resolve_sym(id).hash(hasher);
-        }
         ValueKind::String => {
             6_u8.hash(hasher);
             value.as_str().unwrap().hash(hasher);

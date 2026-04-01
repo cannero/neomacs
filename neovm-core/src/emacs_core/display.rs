@@ -63,7 +63,7 @@ pub(crate) fn expect_range_args(
 
 pub(crate) fn expect_symbol_key(value: &Value) -> Result<Value, Flow> {
     match value.kind() {
-        ValueKind::Nil | ValueKind::T | ValueKind::Symbol(_) | ValueKind::Keyword(_) => Ok(*value),
+        ValueKind::Nil | ValueKind::T | ValueKind::Symbol(_) => Ok(*value),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), *value],

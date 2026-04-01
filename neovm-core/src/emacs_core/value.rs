@@ -1226,7 +1226,6 @@ impl TaggedValue {
                 HashKey::Ptr(self.bits())
             }
             ValueKind::Symbol(id) => HashKey::Symbol(id),
-            ValueKind::Keyword(id) => HashKey::Keyword(id),
             ValueKind::Subr(id) => HashKey::Symbol(id),
             // All heap types: use pointer identity
             ValueKind::Cons | ValueKind::String | ValueKind::Veclike(_) => {
@@ -1259,7 +1258,6 @@ impl TaggedValue {
             ValueKind::Fixnum(n) => HashKey::Int(n),
             ValueKind::Float => HashKey::Float(self.xfloat().to_bits()),
             ValueKind::Symbol(id) => HashKey::Symbol(id),
-            ValueKind::Keyword(id) => HashKey::Keyword(id),
             ValueKind::String => {
                 // Use content for equal hashing
                 if let Some(s) = self.as_str() {
@@ -1376,7 +1374,6 @@ fn equal_value_inner(
         (ValueKind::Fixnum(a), ValueKind::Fixnum(b)) => a == b,
         (ValueKind::Float, ValueKind::Float) => left.xfloat().to_bits() == right.xfloat().to_bits(),
         (ValueKind::Symbol(a), ValueKind::Symbol(b)) => a == b,
-        (ValueKind::Keyword(a), ValueKind::Keyword(b)) => a == b,
         (ValueKind::String, ValueKind::String) => left.as_str() == right.as_str(),
         (ValueKind::Veclike(VecLikeType::Marker), ValueKind::Veclike(VecLikeType::Marker)) => {
             super::marker::marker_logical_fields(left)

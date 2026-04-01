@@ -671,10 +671,6 @@ pub fn builtin_read(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>
             "end-of-file",
             vec![Value::string("End of file during parsing")],
         )),
-        ValueKind::Keyword(id) => Err(signal(
-            "void-function",
-            vec![Value::symbol(resolve_sym(id))],
-        )),
         _ => {
             // Unsupported stream source type for read-char function protocol.
             Err(signal("invalid-function", vec![args[0]]))

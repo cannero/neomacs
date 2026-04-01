@@ -81,7 +81,7 @@ fn expect_frame_designator(_name: &str, value: &Value) -> Result<(), Flow> {
 
 fn normalized_keyword_name(value: &Value) -> Option<&str> {
     match value.kind() {
-        ValueKind::Keyword(id) => {
+        ValueKind::Symbol(id) => {
             let s = resolve_sym(id);
             Some(s.strip_prefix(':').unwrap_or(s))
         }

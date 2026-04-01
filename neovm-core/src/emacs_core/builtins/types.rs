@@ -189,7 +189,7 @@ pub(crate) fn builtin_functionp(eval: &mut super::eval::Context, args: Vec<Value
     let is_function = if let Some(symbol) = match args[0].kind() {
         ValueKind::Nil => Some(intern("nil")),
         ValueKind::T => Some(intern("t")),
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => Some(id),
+        ValueKind::Symbol(id) => Some(id),
         _ => None,
     } {
         if let Some(function) =
@@ -230,9 +230,7 @@ pub(crate) fn builtin_type_of(args: Vec<Value>) -> EvalResult {
     // GNU Emacs `type-of` handles symbol, integer, subr directly,
     // then delegates to `cl-type-of` for everything else.
     match args[0].kind() {
-        ValueKind::Nil | ValueKind::T | ValueKind::Symbol(_) | ValueKind::Keyword(_) => {
-            Ok(Value::symbol("symbol"))
-        }
+        ValueKind::Nil | ValueKind::T | ValueKind::Symbol(_) => Ok(Value::symbol("symbol")),
         ValueKind::Fixnum(_) => Ok(Value::symbol("integer")),
         ValueKind::Subr(_) => Ok(Value::symbol("subr")),
         _ => builtin_cl_type_of(args),
@@ -286,7 +284,7 @@ pub(crate) fn builtin_cl_type_of(args: Vec<Value>) -> EvalResult {
         ValueKind::Fixnum(_) => "fixnum",
         ValueKind::Float => "float",
         ValueKind::String => "string",
-        ValueKind::Symbol(_) | ValueKind::Keyword(_) => "symbol",
+        ValueKind::Symbol(_) => "symbol",
         ValueKind::Cons => "cons",
         ValueKind::Veclike(VecLikeType::Vector) => "vector",
         ValueKind::Veclike(VecLikeType::Record) => unreachable!(),

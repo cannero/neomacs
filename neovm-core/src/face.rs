@@ -470,7 +470,6 @@ impl Face {
 
         while i + 1 < plist.len() {
             let key = match plist[i].kind() {
-                ValueKind::Keyword(id) => resolve_sym(id),
                 ValueKind::Symbol(id) => resolve_sym(id),
                 _ => {
                     i += 2;

@@ -286,7 +286,7 @@ impl Obarray {
     /// re-interns the name and would miss uninterned symbol function cells).
     pub fn symbol_function_of_value(&self, value: &Value) -> Option<&Value> {
         match value.kind() {
-            ValueKind::Symbol(id) | ValueKind::Keyword(id) => self.symbol_function_id(id),
+            ValueKind::Symbol(id) => self.symbol_function_id(id),
             ValueKind::Nil => self.symbol_function("nil"),
             ValueKind::T => self.symbol_function("t"),
             _ => None,

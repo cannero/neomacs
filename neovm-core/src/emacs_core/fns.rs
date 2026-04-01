@@ -680,7 +680,6 @@ fn secure_hash_algorithm_name(val: &Value) -> Result<String, Flow> {
         ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
         ValueKind::Nil => Ok("nil".to_string()),
         ValueKind::T => Ok("t".to_string()),
-        ValueKind::Keyword(id) => Ok(format!(":{}", resolve_sym(id))),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), *val],

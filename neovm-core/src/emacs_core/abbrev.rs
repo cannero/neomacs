@@ -283,7 +283,7 @@ fn obarray_bucket_find(bucket: Value, name: &str) -> Option<Value> {
 
 fn symbol_id(value: Value) -> Option<SymId> {
     match value.kind() {
-        ValueKind::Symbol(id) | ValueKind::Keyword(id) => Some(id),
+        ValueKind::Symbol(id) => Some(id),
         ValueKind::Nil => Some(intern("nil")),
         ValueKind::T => Some(intern("t")),
         _ => None,
