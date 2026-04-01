@@ -442,6 +442,118 @@ impl LambdaParams {
     }
 }
 
+use crate::tagged::header::{
+    CLOSURE_ARGLIST, CLOSURE_CODE, CLOSURE_CONSTANTS, CLOSURE_DOC_STRING, CLOSURE_INTERACTIVE,
+    CLOSURE_MIN_SLOTS, CLOSURE_STACK_DEPTH,
+};
+
+impl LambdaData {
+    /// Convert LambdaData to a GNU-compatible closure slot vector.
+    ///
+    /// Layout: [arglist, body, env, depth, docstring, interactive]
+    /// All slots are GC-managed Values.
+    pub fn to_closure_slots(&self) -> Vec<Value> {
+        // Slot 0: arglist as Lisp list
+        let arglist = crate::emacs_core::builtins::lambda_params_to_value(&self.params);
+
+        // Slot 1: body as Lisp list of forms
+        let body_forms: Vec<Value> = self
+            .body
+            .iter()
+            .map(crate::emacs_core::eval::quote_to_value)
+            .collect();
+        let body = Value::list(body_forms);
+
+        // Slot 2: lexical environment (or nil for dynamic)
+        let env = match self.env {
+            Some(env_val) if env_val.is_nil() => Value::list(vec![Value::T]),
+            Some(env_val) => env_val,
+            None => Value::NIL,
+        };
+
+        // Slot 3: stack depth (nil for interpreted)
+        let depth = Value::NIL;
+
+        // Slot 4: docstring
+        let doc = self
+            .doc_form
+            .or_else(|| self.docstring.as_ref().map(|d| Value::string(d.clone())))
+            .unwrap_or(Value::NIL);
+
+        // Slot 5: interactive spec
+        let interactive = self.interactive.unwrap_or(Value::NIL);
+
+        vec![arglist, body, env, depth, doc, interactive]
+    }
+
+    /// Reconstruct LambdaData from a closure slot vector (bridge for migration).
+    pub fn from_closure_slots(slots: &[Value]) -> Self {
+        let body_value = if slots.len() > CLOSURE_CODE {
+            slots[CLOSURE_CODE]
+        } else {
+            Value::NIL
+        };
+        let env_value = if slots.len() > CLOSURE_CONSTANTS {
+            slots[CLOSURE_CONSTANTS]
+        } else {
+            Value::NIL
+        };
+        let doc_value = if slots.len() > CLOSURE_DOC_STRING {
+            slots[CLOSURE_DOC_STRING]
+        } else {
+            Value::NIL
+        };
+        let interactive_value = if slots.len() > CLOSURE_INTERACTIVE {
+            slots[CLOSURE_INTERACTIVE]
+        } else {
+            Value::NIL
+        };
+
+        // Parse arglist Value → LambdaParams
+        let arglist = if slots.len() > CLOSURE_ARGLIST {
+            slots[CLOSURE_ARGLIST]
+        } else {
+            Value::NIL
+        };
+        let params = crate::emacs_core::builtins::parse_lambda_params_from_value(&arglist)
+            .unwrap_or_else(|_| LambdaParams::simple(vec![]));
+
+        // Convert body Value (Lisp list) → Vec<Expr>
+        let body_items = list_to_vec(&body_value).unwrap_or_default();
+        let body_exprs: Vec<super::expr::Expr> = body_items
+            .iter()
+            .map(crate::emacs_core::eval::value_to_expr)
+            .collect();
+
+        let env = if env_value.is_nil() {
+            None
+        } else {
+            Some(env_value)
+        };
+        let (docstring, doc_form) = if doc_value.is_string() {
+            (doc_value.as_str().map(|s| s.to_owned()), None)
+        } else if doc_value.is_nil() {
+            (None, None)
+        } else {
+            (None, Some(doc_value))
+        };
+        let interactive = if interactive_value.is_nil() {
+            None
+        } else {
+            Some(interactive_value)
+        };
+
+        LambdaData {
+            params,
+            body: body_exprs.into(),
+            env,
+            docstring,
+            doc_form,
+            interactive,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // LispHashTable, HashKey
 // ---------------------------------------------------------------------------
@@ -820,14 +932,14 @@ impl TaggedValue {
         with_tagged_heap(|h| h.alloc_record(values))
     }
 
-    /// Allocate a lambda.
+    /// Allocate a lambda. Converts LambdaData to a Value vector for GC safety.
     pub fn make_lambda(data: LambdaData) -> Self {
-        with_tagged_heap(|h| h.alloc_lambda(data))
+        with_tagged_heap(|h| h.alloc_lambda_from_data(data))
     }
 
-    /// Allocate a macro.
+    /// Allocate a macro. Converts LambdaData to a Value vector for GC safety.
     pub fn make_macro(data: LambdaData) -> Self {
-        with_tagged_heap(|h| h.alloc_macro(data))
+        with_tagged_heap(|h| h.alloc_macro_from_data(data))
     }
 
     /// Allocate a bytecode function.
@@ -1005,8 +1117,8 @@ impl TaggedValue {
         self.as_lisp_string().map_or(false, |s| s.multibyte)
     }
 
-    /// Borrow the LambdaData from a Lambda or Macro value.
-    pub fn get_lambda_data(self) -> Option<&'static LambdaData> {
+    /// Get the closure slot vector for a Lambda or Macro.
+    pub fn closure_slots(self) -> Option<&'static Vec<Value>> {
         match self.veclike_type()? {
             VecLikeType::Lambda => {
                 let ptr = self.as_veclike_ptr().unwrap() as *const LambdaObj;
@@ -1018,6 +1130,29 @@ impl TaggedValue {
             }
             _ => None,
         }
+    }
+
+    /// Get mutable closure slot vector.
+    pub fn closure_slots_mut(self) -> Option<&'static mut Vec<Value>> {
+        match self.veclike_type()? {
+            VecLikeType::Lambda => {
+                let ptr = self.as_veclike_ptr().unwrap() as *mut LambdaObj;
+                Some(unsafe { &mut (*ptr).data })
+            }
+            VecLikeType::Macro => {
+                let ptr = self.as_veclike_ptr().unwrap() as *mut MacroObj;
+                Some(unsafe { &mut (*ptr).data })
+            }
+            _ => None,
+        }
+    }
+
+    /// Reconstruct LambdaData from closure vector slots (bridge for migration).
+    /// Returns an OWNED LambdaData — callers that used `&LambdaData` must
+    /// change to use owned values or call `closure_slots()` directly.
+    pub fn get_lambda_data(self) -> Option<LambdaData> {
+        let slots = self.closure_slots()?;
+        Some(LambdaData::from_closure_slots(slots))
     }
 
     /// Borrow the ByteCodeFunction from a ByteCode value.
@@ -1177,18 +1312,11 @@ impl TaggedValue {
     }
 
     /// Get mutable lambda data reference.
-    pub fn get_lambda_data_mut(self) -> Option<&'static mut LambdaData> {
-        match self.veclike_type()? {
-            VecLikeType::Lambda => {
-                let ptr = self.as_veclike_ptr().unwrap() as *mut LambdaObj;
-                Some(unsafe { &mut (*ptr).data })
-            }
-            VecLikeType::Macro => {
-                let ptr = self.as_veclike_ptr().unwrap() as *mut MacroObj;
-                Some(unsafe { &mut (*ptr).data })
-            }
-            _ => None,
-        }
+    /// Mutate lambda data by modifying closure slots directly.
+    /// Use `closure_slots_mut()` for direct slot access.
+    #[deprecated(note = "Use closure_slots_mut() for direct slot access")]
+    pub fn get_lambda_data_mut(self) -> Option<&'static mut Vec<Value>> {
+        self.closure_slots_mut()
     }
 
     /// Get mutable bytecode data reference.

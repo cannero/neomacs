@@ -455,14 +455,13 @@ impl HelpFormatter {
         }
 
         // Docstring from LambdaData
-        let inline_doc = match value.kind() {
+        let inline_doc_owned = match value.kind() {
             ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => {
-                value
-                    .get_lambda_data()
-                    .and_then(|lam| lam.docstring.as_deref())
+                value.get_lambda_data().and_then(|lam| lam.docstring)
             }
             _ => None,
         };
+        let inline_doc = inline_doc_owned.as_deref();
 
         // Prefer the docstore doc, fall back to inline
         let doc_text = doc.or(inline_doc);

@@ -310,10 +310,12 @@ impl TaggedHeap {
     }
 
     /// Allocate a lambda.
-    pub fn alloc_lambda(&mut self, data: crate::emacs_core::value::LambdaData) -> TaggedValue {
+    /// Allocate a lambda (interpreted closure) as a Value vector.
+    /// Matches GNU Emacs's PVEC_CLOSURE: all slots are GC-traced Values.
+    pub fn alloc_lambda(&mut self, slots: Vec<TaggedValue>) -> TaggedValue {
         let obj = Box::new(LambdaObj {
             header: VecLikeHeader::new(VecLikeType::Lambda),
-            data,
+            data: slots,
         });
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
@@ -321,16 +323,35 @@ impl TaggedHeap {
         unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
-    /// Allocate a macro.
-    pub fn alloc_macro(&mut self, data: crate::emacs_core::value::LambdaData) -> TaggedValue {
+    /// Allocate a lambda from a LambdaData (bridge for migration).
+    /// Converts LambdaData fields to the Value vector layout.
+    pub fn alloc_lambda_from_data(
+        &mut self,
+        data: crate::emacs_core::value::LambdaData,
+    ) -> TaggedValue {
+        let slots = data.to_closure_slots();
+        self.alloc_lambda(slots)
+    }
+
+    /// Allocate a macro as a Value vector.
+    pub fn alloc_macro(&mut self, slots: Vec<TaggedValue>) -> TaggedValue {
         let obj = Box::new(MacroObj {
             header: VecLikeHeader::new(VecLikeType::Macro),
-            data,
+            data: slots,
         });
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
         unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
+    }
+
+    /// Allocate a macro from a LambdaData (bridge for migration).
+    pub fn alloc_macro_from_data(
+        &mut self,
+        data: crate::emacs_core::value::LambdaData,
+    ) -> TaggedValue {
+        let slots = data.to_closure_slots();
+        self.alloc_macro(slots)
     }
 
     /// Allocate a bytecode function.
@@ -565,24 +586,12 @@ impl TaggedHeap {
                 }
             }
             VecLikeType::Lambda | VecLikeType::Macro => {
+                // Closures are plain Value vectors (GNU PVEC_CLOSURE compat).
+                // Trace ALL slots uniformly — no type-specific logic needed.
                 let obj = ptr as *const LambdaObj;
-                let data = unsafe { &(*obj).data };
-                // Trace the captured lexical environment
-                if let Some(env) = data.env {
-                    if env.is_heap_object() {
-                        self.gray_queue.push(env);
-                    }
-                }
-                // Trace doc_form (slot 4 of closure vector)
-                if let Some(doc_form) = data.doc_form {
-                    if doc_form.is_heap_object() {
-                        self.gray_queue.push(doc_form);
-                    }
-                }
-                // Trace interactive spec (slot 5)
-                if let Some(interactive) = data.interactive {
-                    if interactive.is_heap_object() {
-                        self.gray_queue.push(interactive);
+                for val in unsafe { &(*obj).data } {
+                    if val.is_heap_object() {
+                        self.gray_queue.push(*val);
                     }
                 }
             }

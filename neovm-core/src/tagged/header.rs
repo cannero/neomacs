@@ -133,17 +133,40 @@ pub struct HashTableObj {
 }
 
 /// Heap-allocated lambda (interpreted closure).
+///
+/// Matches GNU Emacs's PVEC_CLOSURE: a plain vector of Lisp_Object slots.
+/// The GC traces ALL slots uniformly — no type-specific tracing needed.
+///
+/// Slot layout (GNU Emacs compatible):
+///   [0] CLOSURE_ARGLIST    — parameter list (e.g., (x y &optional z))
+///   [1] CLOSURE_CODE       — body forms as Lisp list (interpreted) or bytecode
+///   [2] CLOSURE_CONSTANTS  — lexical environment (interpreted) or constants vector
+///   [3] CLOSURE_STACK_DEPTH — nil for interpreted, fixnum for bytecode
+///   [4] CLOSURE_DOC_STRING — docstring or doc-form
+///   [5] CLOSURE_INTERACTIVE — interactive spec
+///   [6..] extra slots for oclosures
 #[repr(C)]
 pub struct LambdaObj {
     pub header: VecLikeHeader,
-    pub data: crate::emacs_core::value::LambdaData,
+    /// All closure data as GC-managed Value slots.
+    pub data: Vec<super::value::TaggedValue>,
 }
 
-/// Heap-allocated macro.
+/// Closure slot indices matching GNU Emacs (lisp.h).
+pub const CLOSURE_ARGLIST: usize = 0;
+pub const CLOSURE_CODE: usize = 1;
+pub const CLOSURE_CONSTANTS: usize = 2;
+pub const CLOSURE_STACK_DEPTH: usize = 3;
+pub const CLOSURE_DOC_STRING: usize = 4;
+pub const CLOSURE_INTERACTIVE: usize = 5;
+/// Minimum number of slots in a closure vector.
+pub const CLOSURE_MIN_SLOTS: usize = 6;
+
+/// Heap-allocated macro — same layout as Lambda but with VecLikeType::Macro.
 #[repr(C)]
 pub struct MacroObj {
     pub header: VecLikeHeader,
-    pub data: crate::emacs_core::value::LambdaData,
+    pub data: Vec<super::value::TaggedValue>,
 }
 
 /// Heap-allocated bytecode function.

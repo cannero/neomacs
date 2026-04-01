@@ -397,7 +397,9 @@ mod types;
 
 pub(crate) use arithmetic::*;
 pub(crate) use collections::*;
+pub use cons_list::lambda_params_to_value;
 pub use cons_list::lambda_to_closure_vector;
+pub use cons_list::parse_lambda_params_from_value;
 pub(crate) use cons_list::*;
 pub(crate) use misc_pure::*;
 pub(crate) use strings::*;

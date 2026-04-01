@@ -190,7 +190,49 @@ pub(crate) fn bytecode_to_closure_vector(value: &Value) -> Vec<Value> {
 }
 
 /// Convert LambdaParams to a Lisp list (a b &optional c &rest d).
-fn lambda_params_to_value(params: &LambdaParams) -> Value {
+/// Parse a Lisp arglist Value into LambdaParams.
+pub fn parse_lambda_params_from_value(
+    arglist: &Value,
+) -> Result<LambdaParams, super::super::error::Flow> {
+    use crate::emacs_core::intern::{intern, resolve_sym};
+    let items = list_to_vec(arglist).unwrap_or_default();
+    let mut required = Vec::new();
+    let mut optional = Vec::new();
+    let mut rest = None;
+    let mut mode = 0; // 0=required, 1=optional, 2=rest
+    for item in &items {
+        if let Some(name) = item.as_symbol_name() {
+            match name {
+                "&optional" => {
+                    mode = 1;
+                    continue;
+                }
+                "&rest" => {
+                    mode = 2;
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        let sym_id = item.as_symbol_id().unwrap_or_else(|| intern("_"));
+        match mode {
+            0 => required.push(sym_id),
+            1 => optional.push(sym_id),
+            2 => {
+                rest = Some(sym_id);
+                break;
+            }
+            _ => {}
+        }
+    }
+    Ok(LambdaParams {
+        required,
+        optional,
+        rest,
+    })
+}
+
+pub fn lambda_params_to_value(params: &LambdaParams) -> Value {
     let mut elements = Vec::new();
     for p in &params.required {
         elements.push(Value::from_sym_id(*p));

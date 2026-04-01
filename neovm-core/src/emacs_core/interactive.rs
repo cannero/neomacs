@@ -2388,7 +2388,7 @@ fn resolve_interactive_invocation_args(
             }
         }
         // Fall back to scanning the body
-        if let Some(spec) = parsed_interactive_spec_from_lambda(lambda) {
+        if let Some(spec) = parsed_interactive_spec_from_lambda(&lambda) {
             let maybe_args = match spec {
                 ParsedInteractiveSpec::NoArgs => Some(Vec::new()),
                 ParsedInteractiveSpec::StringCode(code) => {
@@ -2639,7 +2639,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_state(
     }
 
     if let Some(lambda) = func.get_lambda_data()
-        && let Some(spec) = parsed_interactive_spec_from_lambda(lambda)
+        && let Some(spec) = parsed_interactive_spec_from_lambda(&lambda)
     {
         return match spec {
             ParsedInteractiveSpec::NoArgs => Ok(Some((func, Vec::new()))),
@@ -2731,7 +2731,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
     }
 
     if let Some(lambda) = func.get_lambda_data()
-        && let Some(spec) = parsed_interactive_spec_from_lambda(lambda)
+        && let Some(spec) = parsed_interactive_spec_from_lambda(&lambda)
     {
         return match spec {
             ParsedInteractiveSpec::NoArgs => Ok(Some((func, Vec::new()))),

@@ -419,7 +419,7 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
                 || {
                     let lambda = value.get_lambda_data().unwrap();
                     if lambda.env.is_some() {
-                        return format_interpreted_closure(lambda, state.options);
+                        return format_interpreted_closure(&lambda, state.options);
                     }
                     let params = format_params(&lambda.params);
                     let body = lambda
@@ -999,7 +999,7 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
             || {
                 let lambda = value.get_lambda_data().unwrap();
                 if lambda.env.is_some() {
-                    return format_interpreted_closure(lambda, options);
+                    return format_interpreted_closure(&lambda, options);
                 }
                 let params = format_params(&lambda.params);
                 let body = lambda
@@ -1154,7 +1154,7 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
                 || {
                     let lambda = value.get_lambda_data().unwrap();
                     if lambda.env.is_some() {
-                        format_interpreted_closure(lambda, options)
+                        format_interpreted_closure(&lambda, options)
                     } else {
                         let params = format_params(&lambda.params);
                         let body = lambda
