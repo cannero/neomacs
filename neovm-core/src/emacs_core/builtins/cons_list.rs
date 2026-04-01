@@ -245,10 +245,17 @@ fn cdr_value(value: &Value) -> Result<Value, Flow> {
                 _ => Ok(Value::NIL),
             }
         }
-        _ => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("listp"), *value],
-        )),
+        _ => {
+            if value.is_t() {
+                tracing::error!("cdr called on t — stack trace:");
+                let bt = std::backtrace::Backtrace::force_capture();
+                tracing::error!("{bt}");
+            }
+            Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("listp"), *value],
+            ))
+        }
     }
 }
 

@@ -795,15 +795,16 @@ pub(crate) fn eager_expand_eval(
     }
 
     // Step 3+4: full expand then eval —
-    // val = eval_sub(macroexpand(val, t))
-    // IMPORTANT: pass the already-one-level-expanded `val`, not the original
-    // `form_value`.  Real Emacs (lread.c:2030) does:
-    //   val = eval_sub(calln(macroexpand, val, Qt));
+    // GNU lread.c:2030: val = eval_sub(calln(Qmacroexpand, val, Qt));
+    // This calls the BUILTIN macroexpand (not internal-macroexpand-for-load)
+    // with Qt as the environment argument. The builtin macroexpand handles
+    // non-list environments gracefully (Fassq returns nil for non-lists).
     let fully_expanded = eval.with_gc_scope(|ctx| {
         ctx.root(val);
-        ctx.root(macroexpand_fn);
         let t3 = std::time::Instant::now();
-        let expanded = match ctx.apply(macroexpand_fn, vec![val, Value::T]) {
+        // Call builtin macroexpand directly, matching GNU's calln(Qmacroexpand, val, Qt)
+        let expanded = match super::builtins::symbols::builtin_macroexpand(ctx, vec![val, Value::T])
+        {
             Ok(v) => v,
             Err(_) => {
                 // Full expansion failed; use the one-level-expanded form.
