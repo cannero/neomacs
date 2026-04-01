@@ -445,12 +445,12 @@ fn decode_extended_sequence(chars: &mut Peekable<Chars<'_>>) -> Option<Vec<u8>> 
     let mut out = Vec::with_capacity(len);
     for _ in 0..len {
         let b_char = chars.peek().copied()?;
-        let b_code = b_char as u32;
-        if !(EXT_SEQ_BYTE_BASE..=EXT_SEQ_BYTE_BASE + 0xFF).contains(&b_code) {
+        let b = b_char as u32;
+        if !(EXT_SEQ_BYTE_BASE..=EXT_SEQ_BYTE_BASE + 0xFF).contains(&b) {
             return None;
         }
         chars.next();
-        out.push((b_code - EXT_SEQ_BYTE_BASE) as u8);
+        out.push((b - EXT_SEQ_BYTE_BASE) as u8);
     }
     Some(out)
 }

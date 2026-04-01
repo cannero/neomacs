@@ -79,13 +79,7 @@ fn expect_string(val: &Value) -> Result<String, Flow> {
 
 fn expect_char(val: &Value) -> Result<char, Flow> {
     match val.kind() {
-        ValueKind::Char(c) => Ok(c),
-        ValueKind::Fixnum(n) => char::from_u32(n as u32).ok_or_else(|| {
-            signal(
-                "wrong-type-argument",
-                vec![Value::symbol("characterp"), *val],
-            )
-        }),
+        ValueKind::Fixnum(c) => Ok(char::from_u32(c as u32).unwrap_or('\0')),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *val],
@@ -95,8 +89,7 @@ fn expect_char(val: &Value) -> Result<char, Flow> {
 
 fn expect_character_code(val: &Value) -> Result<i64, Flow> {
     match val.kind() {
-        ValueKind::Char(c) => Ok(c as i64),
-        ValueKind::Fixnum(n) if (0..=MAX_EMACS_CHAR).contains(&n) => Ok(n),
+        ValueKind::Fixnum(c) => Ok(c as i64),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *val],

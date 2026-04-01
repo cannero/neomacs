@@ -27,7 +27,6 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
 fn extract_number(val: &Value) -> Result<f64, Flow> {
     match val.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
-        ValueKind::Char(c) => Ok(c as u32 as f64),
         ValueKind::Float => Ok(val.xfloat()),
         other => Err(signal(
             "wrong-type-argument",
@@ -51,7 +50,6 @@ fn extract_float(val: &Value) -> Result<f64, Flow> {
 fn extract_fixnum(val: &Value) -> Result<i64, Flow> {
     match val.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("fixnump"), *val],

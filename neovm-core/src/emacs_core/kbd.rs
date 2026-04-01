@@ -244,15 +244,6 @@ fn decode_encoded_key_events(encoded: &Value) -> Result<Vec<KeyEvent>, String> {
 fn decode_vector_event(item: &Value) -> Result<KeyEvent, String> {
     match item.kind() {
         ValueKind::Fixnum(n) => decode_int_event(n),
-        ValueKind::Char(ch) => Ok(KeyEvent::Char {
-            code: ch,
-            ctrl: false,
-            meta: false,
-            shift: false,
-            super_: false,
-            hyper: false,
-            alt: false,
-        }),
         ValueKind::Symbol(id) => decode_symbol_event(resolve_sym(id)),
         ValueKind::Nil => decode_symbol_event("nil"),
         ValueKind::T => decode_symbol_event("t"),
@@ -308,17 +299,6 @@ fn decode_event_modifier_list(list: &Value) -> Result<KeyEvent, String> {
                         let base = decode_int_event(n)?;
                         return Ok(apply_mods_to_event(base, mods));
                     }
-                    ValueKind::Char(ch) => {
-                        return Ok(KeyEvent::Char {
-                            code: ch,
-                            ctrl: mods.ctrl,
-                            meta: mods.meta,
-                            shift: mods.shift,
-                            super_: mods.super_,
-                            hyper: mods.hyper,
-                            alt: mods.alt,
-                        });
-                    }
                     other => {
                         return Err(format!(
                             "invalid base event in modifier list: {}",
@@ -334,17 +314,6 @@ fn decode_event_modifier_list(list: &Value) -> Result<KeyEvent, String> {
             ValueKind::Fixnum(n) => {
                 let base = decode_int_event(n)?;
                 return Ok(apply_mods_to_event(base, mods));
-            }
-            ValueKind::Char(ch) => {
-                return Ok(KeyEvent::Char {
-                    code: ch,
-                    ctrl: mods.ctrl,
-                    meta: mods.meta,
-                    shift: mods.shift,
-                    super_: mods.super_,
-                    hyper: mods.hyper,
-                    alt: mods.alt,
-                });
             }
             ValueKind::Symbol(id) => {
                 return Ok(apply_mods_to_event(

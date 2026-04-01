@@ -645,7 +645,6 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 fn expect_int_or_marker(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *value],
@@ -721,8 +720,7 @@ fn expect_fixnump(value: &Value) -> Result<i64, Flow> {
 
 fn encode_char_input(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
-        ValueKind::Char(c) => Ok(c as i64),
-        ValueKind::Fixnum(n) if (0..=0x3FFFFF).contains(&n) => Ok(n),
+        ValueKind::Fixnum(c) => Ok(c as i64),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *value],
@@ -934,7 +932,6 @@ pub(crate) fn builtin_charset_id_internal(args: Vec<Value>) -> EvalResult {
 fn int_or_zero(val: &Value) -> i64 {
     match val.kind() {
         ValueKind::Fixnum(n) => n,
-        ValueKind::Char(c) => c as i64,
         _ => 0,
     }
 }
@@ -943,7 +940,6 @@ fn int_or_zero(val: &Value) -> i64 {
 fn opt_int(val: &Value) -> Option<i64> {
     match val.kind() {
         ValueKind::Fixnum(n) => Some(n),
-        ValueKind::Char(c) => Some(c as i64),
         ValueKind::Nil => None,
         _ => None,
     }
@@ -953,7 +949,6 @@ fn opt_int(val: &Value) -> Option<i64> {
 fn decode_code_arg(val: &Value) -> i64 {
     match val.kind() {
         ValueKind::Fixnum(n) => n,
-        ValueKind::Char(c) => c as i64,
         ValueKind::Cons => {
             let pair_car = val.cons_car();
             let pair_cdr = val.cons_cdr();

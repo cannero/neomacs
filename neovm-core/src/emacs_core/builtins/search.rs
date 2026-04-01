@@ -108,7 +108,6 @@ fn search_count_arg(args: &[Value]) -> Result<i64, Flow> {
         Some(v) if v.is_nil() => Ok(1),
         Some(v) => match v.kind() {
             ValueKind::Fixnum(n) => Ok(n),
-            ValueKind::Char(c) => Ok(c as i64),
             _ => Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("fixnump"), *v],
@@ -1047,7 +1046,6 @@ fn expect_match_data_item_in_manager(
 ) -> Result<(i64, Option<crate::buffer::BufferId>), Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok((n, None)),
-        ValueKind::Char(c) => Ok((c as i64, None)),
         _ if super::marker::is_marker(value) => Ok((
             super::marker::marker_position_as_int_with_buffers(buffers, value)?,
             match_data_item_buffer_id_in_manager(buffers, value),

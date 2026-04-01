@@ -130,7 +130,6 @@ pub(crate) fn builtin_characterp(args: Vec<Value>) -> EvalResult {
     // Official Emacs: characterp accepts both Char values and integers
     // in the valid Unicode range (0..MAX_CHAR).
     let is_char = match args[0].kind() {
-        ValueKind::Char(_) => true,
         ValueKind::Fixnum(n) => n >= 0 && n <= 0x3F_FFFF, // MAX_CHAR in Emacs
         _ => false,
     };
@@ -234,7 +233,7 @@ pub(crate) fn builtin_type_of(args: Vec<Value>) -> EvalResult {
         ValueKind::Nil | ValueKind::T | ValueKind::Symbol(_) | ValueKind::Keyword(_) => {
             Ok(Value::symbol("symbol"))
         }
-        ValueKind::Fixnum(_) | ValueKind::Char(_) => Ok(Value::symbol("integer")),
+        ValueKind::Fixnum(_) => Ok(Value::symbol("integer")),
         ValueKind::Subr(_) => Ok(Value::symbol("subr")),
         _ => builtin_cl_type_of(args),
     }
@@ -284,7 +283,7 @@ pub(crate) fn builtin_cl_type_of(args: Vec<Value>) -> EvalResult {
     let name = match args[0].kind() {
         ValueKind::Nil => "null",
         ValueKind::T => "boolean",
-        ValueKind::Fixnum(_) | ValueKind::Char(_) => "fixnum",
+        ValueKind::Fixnum(_) => "fixnum",
         ValueKind::Float => "float",
         ValueKind::String => "string",
         ValueKind::Symbol(_) | ValueKind::Keyword(_) => "symbol",

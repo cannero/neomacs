@@ -902,7 +902,6 @@ fn expect_temp_prefix(value: &Value) -> Result<String, Flow> {
 fn expect_fixnum(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("fixnump"), *value],
@@ -1951,7 +1950,7 @@ fn validate_optional_buffer_arg_in_state(
 
 fn validate_set_visited_file_modtime_arg(arg: &Value) -> Result<(), Flow> {
     match arg.kind() {
-        ValueKind::Fixnum(_) | ValueKind::Char(_) => Err(signal(
+        ValueKind::Fixnum(_) => Err(signal(
             "args-out-of-range",
             vec![*arg, Value::fixnum(-1), Value::fixnum(0)],
         )),
@@ -2396,7 +2395,6 @@ pub(crate) fn builtin_directory_files(eval: &mut Context, args: Vec<Value>) -> E
 fn expect_int(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *value],

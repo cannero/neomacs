@@ -54,7 +54,6 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 fn expect_fixnump(val: &Value) -> Result<i64, Flow> {
     match val.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("fixnump"), *val],
@@ -65,7 +64,6 @@ fn expect_fixnump(val: &Value) -> Result<i64, Flow> {
 fn expect_wholenump(val: &Value) -> Result<usize, Flow> {
     match val.kind() {
         ValueKind::Fixnum(n) if n >= 0 => Ok(n as usize),
-        ValueKind::Char(c) => Ok(c as usize),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("wholenump"), *val],

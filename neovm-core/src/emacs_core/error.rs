@@ -91,6 +91,17 @@ fn signal_internal(
     raw_data: Option<Value>,
     suppress_signal_hook: bool,
 ) -> Flow {
+    // Trace wrong-type-argument listp t to help diagnose bootstrap issues
+    if symbol == "wrong-type-argument"
+        && data.len() >= 2
+        && data[0].is_symbol_named("listp")
+        && data[1].is_t()
+    {
+        tracing::error!("signal wrong-type-argument listp t — backtrace:");
+        // Print a Rust backtrace
+        let bt = std::backtrace::Backtrace::force_capture();
+        tracing::error!("{bt}");
+    }
     Flow::Signal(SignalData {
         symbol: intern(symbol),
         data,

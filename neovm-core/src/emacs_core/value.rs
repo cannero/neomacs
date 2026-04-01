@@ -1227,7 +1227,6 @@ impl TaggedValue {
             }
             ValueKind::Symbol(id) => HashKey::Symbol(id),
             ValueKind::Keyword(id) => HashKey::Keyword(id),
-            ValueKind::Char(c) => HashKey::Int(c as i64),
             ValueKind::Subr(id) => HashKey::Symbol(id),
             // All heap types: use pointer identity
             ValueKind::Cons | ValueKind::String | ValueKind::Veclike(_) => {
@@ -1241,7 +1240,6 @@ impl TaggedValue {
         match self.kind() {
             ValueKind::Fixnum(n) => HashKey::Int(n),
             ValueKind::Float => HashKey::Float(self.xfloat().to_bits()),
-            ValueKind::Char(c) => HashKey::Int(c as i64),
             _ => self.to_eq_key(),
         }
     }
@@ -1270,7 +1268,6 @@ impl TaggedValue {
                     self.to_eq_key()
                 }
             }
-            ValueKind::Char(c) => HashKey::Int(c as i64),
             ValueKind::Cons => {
                 let ptr = self.bits();
                 if let Some(index) = seen.iter().position(|&p| p == ptr) {
@@ -1338,18 +1335,9 @@ impl TaggedValue {
 // ---------------------------------------------------------------------------
 
 /// `eq` — identity comparison (pointer equality for heap types).
+/// Characters are fixnums, so `(eq ?A 65)` is `t` (same bit pattern).
 pub fn eq_value(left: &Value, right: &Value) -> bool {
-    // For tagged pointers, eq is just bitwise comparison,
-    // EXCEPT that Char values should be eq to Fixnums with same numeric value.
-    if left.bits() == right.bits() {
-        return true;
-    }
-    // Cross-type char/int eq
-    match (left.kind(), right.kind()) {
-        (ValueKind::Fixnum(a), ValueKind::Char(b)) => a == b as i64,
-        (ValueKind::Char(a), ValueKind::Fixnum(b)) => a as i64 == b,
-        _ => false,
-    }
+    left.bits() == right.bits()
 }
 
 /// `eql` — like `eq` but also value-equality for numbers of same type.
@@ -1359,8 +1347,6 @@ pub fn eql_value(left: &Value, right: &Value) -> bool {
     }
     match (left.kind(), right.kind()) {
         (ValueKind::Float, ValueKind::Float) => left.xfloat().to_bits() == right.xfloat().to_bits(),
-        (ValueKind::Fixnum(a), ValueKind::Char(b)) => a == b as i64,
-        (ValueKind::Char(a), ValueKind::Fixnum(b)) => a as i64 == b,
         _ => false,
     }
 }
@@ -1388,10 +1374,7 @@ fn equal_value_inner(
         (ValueKind::Nil, ValueKind::Nil) => true,
         (ValueKind::T, ValueKind::T) => true,
         (ValueKind::Fixnum(a), ValueKind::Fixnum(b)) => a == b,
-        (ValueKind::Fixnum(a), ValueKind::Char(b)) => a == b as i64,
-        (ValueKind::Char(a), ValueKind::Fixnum(b)) => a as i64 == b,
         (ValueKind::Float, ValueKind::Float) => left.xfloat().to_bits() == right.xfloat().to_bits(),
-        (ValueKind::Char(a), ValueKind::Char(b)) => a == b,
         (ValueKind::Symbol(a), ValueKind::Symbol(b)) => a == b,
         (ValueKind::Keyword(a), ValueKind::Keyword(b)) => a == b,
         (ValueKind::String, ValueKind::String) => left.as_str() == right.as_str(),

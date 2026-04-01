@@ -251,11 +251,10 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
 
         fn push_concat_element(result: &mut String, value: &Value) -> Result<(), Flow> {
             match value.kind() {
-                ValueKind::Char(c) => {
-                    result.push(c);
+                ValueKind::Fixnum(c) => {
+                    result.push(char::from_u32(c as u32).unwrap_or('\0'));
                     Ok(())
                 }
-                ValueKind::Fixnum(n) => push_concat_int(result, n),
                 other => Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("characterp"), *value],
@@ -463,22 +462,12 @@ pub(crate) fn builtin_upcase(args: Vec<Value>) -> EvalResult {
         ValueKind::String => Ok(Value::string(upcase_string_emacs_compat(
             args[0].as_str().unwrap(),
         ))),
-        ValueKind::Char(c) => {
+        ValueKind::Fixnum(c) => {
             let mapped = upcase_char_code_emacs_compat(c as i64);
             if let Some(ch) = u32::try_from(mapped).ok().and_then(char::from_u32) {
-                Ok(Value::char(ch))
+                Ok(Value::fixnum(ch as i64))
             } else {
-                Ok(Value::char(c))
-            }
-        }
-        ValueKind::Fixnum(n) => {
-            if n < 0 {
-                Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("char-or-string-p"), Value::fixnum(n)],
-                ))
-            } else {
-                Ok(Value::fixnum(upcase_char_code_emacs_compat(n)))
+                Ok(Value::fixnum(c))
             }
         }
         _other => Err(signal(
@@ -621,22 +610,12 @@ pub(crate) fn builtin_downcase(args: Vec<Value>) -> EvalResult {
         ValueKind::String => Ok(Value::string(downcase_string_emacs_compat(
             args[0].as_str().unwrap(),
         ))),
-        ValueKind::Char(c) => {
+        ValueKind::Fixnum(c) => {
             let mapped = downcase_char_code_emacs_compat(c as i64);
             if let Some(ch) = u32::try_from(mapped).ok().and_then(char::from_u32) {
-                Ok(Value::char(ch))
+                Ok(Value::fixnum(ch as i64))
             } else {
-                Ok(Value::char(c))
-            }
-        }
-        ValueKind::Fixnum(n) => {
-            if n < 0 {
-                Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("char-or-string-p"), Value::fixnum(n)],
-                ))
-            } else {
-                Ok(Value::fixnum(downcase_char_code_emacs_compat(n)))
+                Ok(Value::fixnum(c))
             }
         }
         _other => Err(signal(
@@ -1038,7 +1017,6 @@ fn do_format(
             'd' | 'o' | 'x' | 'X' => {
                 let n = match args[arg_idx].kind() {
                     ValueKind::Fixnum(i) => i,
-                    ValueKind::Char(c) => c as i64,
                     ValueKind::Float => args[arg_idx].xfloat() as i64,
                     _ => {
                         return Err(format_spec_type_mismatch_error());
@@ -1141,7 +1119,6 @@ pub(crate) fn builtin_make_string(args: Vec<Value>) -> EvalResult {
             }
             c as u32
         }
-        ValueKind::Char(c) => c as u32,
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1172,25 +1149,7 @@ pub(crate) fn builtin_string(args: Vec<Value>) -> EvalResult {
     let mut result = String::new();
     for arg in args {
         match arg.kind() {
-            ValueKind::Char(c) => result.push(c),
-            ValueKind::Fixnum(code) => {
-                if code < 0 {
-                    return Err(signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("characterp"), Value::fixnum(code)],
-                    ));
-                }
-                if let Some(ch) = char::from_u32(code as u32) {
-                    result.push(ch);
-                } else if let Some(encoded) = encode_nonunicode_char_for_storage(code as u32) {
-                    result.push_str(&encoded);
-                } else {
-                    return Err(signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("characterp"), Value::fixnum(code)],
-                    ));
-                }
-            }
+            ValueKind::Fixnum(c) => result.push(char::from_u32(c as u32).unwrap_or('\0')),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -1208,7 +1167,6 @@ pub(crate) fn builtin_unibyte_string(args: Vec<Value>) -> EvalResult {
     for arg in args {
         let n = match arg.kind() {
             ValueKind::Fixnum(v) => v,
-            ValueKind::Char(c) => c as i64,
             other => {
                 return Err(signal(
                     "wrong-type-argument",

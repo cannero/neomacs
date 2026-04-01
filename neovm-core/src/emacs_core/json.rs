@@ -226,7 +226,6 @@ fn value_matches(a: &Value, b: &Value) -> bool {
         (ValueKind::Symbol(x), ValueKind::Symbol(y)) => x == y,
         (ValueKind::Keyword(x), ValueKind::Keyword(y)) => x == y,
         (ValueKind::String, ValueKind::String) => a.as_str() == b.as_str(),
-        (ValueKind::Char(x), ValueKind::Char(y)) => x == y,
         _ => false,
     }
 }

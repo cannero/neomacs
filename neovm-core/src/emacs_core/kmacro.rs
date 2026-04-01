@@ -59,7 +59,6 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 fn expect_int(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *value],
@@ -72,7 +71,6 @@ fn prefix_numeric_value(value: &Value) -> i64 {
         ValueKind::Nil => 1,
         ValueKind::Symbol(id) if resolve_sym(id) == "-" => -1,
         ValueKind::Fixnum(n) => n,
-        ValueKind::Char(c) => c as i64,
         ValueKind::Cons => value.cons_car().as_int().unwrap_or(1),
         _ => 1,
     }

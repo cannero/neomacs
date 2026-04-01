@@ -187,14 +187,7 @@ fn wrong_type(pred: &str, got: &Value) -> Flow {
 /// Extract a character from a Value (Int or Char), signal otherwise.
 fn expect_char(value: &Value) -> Result<char, Flow> {
     match value.kind() {
-        ValueKind::Char(c) => Ok(c),
-        ValueKind::Fixnum(n) => {
-            if let Some(c) = char::from_u32(n as u32) {
-                Ok(c)
-            } else {
-                Err(wrong_type("characterp", value))
-            }
-        }
+        ValueKind::Fixnum(c) => Ok(char::from_u32(c as u32).unwrap_or('\0')),
         other => Err(wrong_type("characterp", value)),
     }
 }

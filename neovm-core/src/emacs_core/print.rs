@@ -290,7 +290,6 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
                 None => out.push_str(&format_lisp_string_with_options(&s, &state.options)),
             }
         }
-        ValueKind::Char(c) => write!(out, "{}", c as u32).unwrap(),
         ValueKind::Cons => {
             // Level check for containers
             if let Some(level) = state.options.print_level {
@@ -957,7 +956,6 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
             }
         }
         // Emacs chars are integer values, so print as codepoint.
-        ValueKind::Char(c) => (c as u32).to_string(),
         ValueKind::Cons => {
             if let Some(shorthand) = print_list_shorthand(value, options) {
                 return shorthand;
@@ -1097,7 +1095,6 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
                 out.extend_from_slice(&str_bytes);
             }
         }
-        ValueKind::Char(c) => out.extend_from_slice((c as u32).to_string().as_bytes()),
         ValueKind::Cons => {
             if let Some(shorthand) = print_list_shorthand_bytes(value, options) {
                 out.extend_from_slice(&shorthand);

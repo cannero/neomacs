@@ -48,8 +48,6 @@ pub(crate) fn expect_key_events(value: &Value) -> Result<Vec<Value>, Flow> {
                 match item.kind() {
                     // Integer event codes (character + modifier bits)
                     ValueKind::Fixnum(_) => events.push(*item),
-                    // Char values: convert to Int for keymap consistency
-                    ValueKind::Char(c) => events.push(Value::fixnum(c as i64)),
                     // Symbol events (function keys, remap, etc.)
                     ValueKind::Symbol(_) => events.push(*item),
                     // nil and t can appear as events in vectors
@@ -714,10 +712,9 @@ pub(crate) fn builtin_event_convert_list(args: Vec<Value>) -> EvalResult {
     };
 
     match base.kind() {
-        ValueKind::Fixnum(_) | ValueKind::Char(_) => {
+        ValueKind::Fixnum(_) => {
             let mut code = match base.kind() {
                 ValueKind::Fixnum(i) => i,
-                ValueKind::Char(c) => c as i64,
                 _ => unreachable!(),
             };
 
@@ -776,7 +773,6 @@ pub(super) fn builtin_text_char_description(args: Vec<Value>) -> EvalResult {
     expect_args("text-char-description", &args, 1)?;
     let code = match args[0].kind() {
         ValueKind::Fixnum(n) if (0..=KEY_CHAR_CODE_MASK).contains(&n) => n,
-        ValueKind::Char(c) => c as i64,
         _ => {
             return Err(signal(
                 "wrong-type-argument",

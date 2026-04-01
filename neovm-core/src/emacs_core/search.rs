@@ -57,7 +57,6 @@ fn expect_range_args(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 fn expect_int(val: &Value) -> Result<i64, Flow> {
     match val.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *val],
@@ -68,7 +67,6 @@ fn expect_int(val: &Value) -> Result<i64, Flow> {
 fn expect_integer_or_marker(val: &Value) -> Result<i64, Flow> {
     match val.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *val],

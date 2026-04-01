@@ -43,7 +43,6 @@ fn expect_string(val: &Value) -> Result<String, Flow> {
 fn expect_integer_or_marker(val: &Value) -> Result<i64, Flow> {
     match val.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *val],

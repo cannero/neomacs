@@ -297,7 +297,6 @@ fn expect_number(value: &Value) -> Result<f64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
         ValueKind::Float => Ok(value.xfloat()),
-        ValueKind::Char(c) => Ok(c as u32 as f64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("numberp"), *value],
@@ -308,7 +307,6 @@ fn expect_number(value: &Value) -> Result<f64, Flow> {
 fn expect_fixnum_like(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("fixnump"), *value],
@@ -393,7 +391,7 @@ fn parse_spaced_run_at_time_delay(tokens: &[&str]) -> Option<f64> {
 fn parse_run_at_time_delay(value: &Value) -> Result<f64, Flow> {
     match value.kind() {
         ValueKind::Nil => Ok(0.0),
-        ValueKind::Fixnum(_) | ValueKind::Float | ValueKind::Char(_) => expect_number(value),
+        ValueKind::Fixnum(_) | ValueKind::Float => expect_number(value),
         ValueKind::String => {
             let s_str = value.as_str().unwrap();
             let spec = s_str.trim();
@@ -439,7 +437,7 @@ fn parse_run_at_time_delay(value: &Value) -> Result<f64, Flow> {
 fn parse_idle_timer_delay(value: &Value) -> Result<f64, Flow> {
     match value.kind() {
         ValueKind::Nil => Ok(0.0),
-        ValueKind::Fixnum(_) | ValueKind::Float | ValueKind::Char(_) => expect_number(value),
+        ValueKind::Fixnum(_) | ValueKind::Float => expect_number(value),
         _ => Err(signal(
             "error",
             vec![Value::string("Invalid time specification")],

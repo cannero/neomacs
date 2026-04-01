@@ -15,7 +15,6 @@ pub(crate) fn builtin_prefix_numeric_value(args: Vec<Value>) -> EvalResult {
         ValueKind::Nil => 1,
         ValueKind::Symbol(id) if resolve_sym(id) == "-" => -1,
         ValueKind::Fixnum(n) => n,
-        ValueKind::Char(c) => c as i64,
         ValueKind::Cons => args[0].cons_car().as_int().unwrap_or(1),
         _ => 1,
     };

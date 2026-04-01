@@ -78,7 +78,6 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 fn expect_int(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         _ if super::marker::is_marker(value) => super::marker::marker_position_as_int(value),
         _ => Err(signal(
             "wrong-type-argument",
@@ -90,7 +89,6 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
 fn expect_int_eval(eval: &super::eval::Context, value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         _ if super::marker::is_marker(value) => {
             super::marker::marker_position_as_int_eval(eval, value)
         }
@@ -104,7 +102,6 @@ fn expect_int_eval(eval: &super::eval::Context, value: &Value) -> Result<i64, Fl
 fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         _ if super::marker::is_marker(value) => super::marker::marker_position_as_int(value),
         _ => Err(signal(
             "wrong-type-argument",
@@ -116,7 +113,6 @@ fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
 fn expect_integer_or_marker_eval(eval: &super::eval::Context, value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         _ if super::marker::is_marker(value) => {
             super::marker::marker_position_as_int_eval(eval, value)
         }
@@ -133,7 +129,6 @@ fn expect_integer_or_marker_in_buffers(
 ) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         _ if super::marker::is_marker(value) => {
             super::marker::marker_position_as_int_with_buffers(buffers, value)
         }

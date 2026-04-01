@@ -53,7 +53,6 @@ static CL_GENSYM_COUNTER: AtomicU64 = AtomicU64::new(0);
 fn expect_int(val: &Value) -> Result<i64, Flow> {
     match val.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *val],
@@ -65,7 +64,6 @@ fn expect_number_or_marker(val: &Value) -> Result<f64, Flow> {
     match val.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
         ValueKind::Float => Ok(val.xfloat()),
-        ValueKind::Char(c) => Ok(c as i64 as f64),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("number-or-marker-p"), *val],
@@ -308,8 +306,7 @@ fn seq_default_match(left: &Value, right: &Value) -> bool {
         return true;
     }
     match (left.kind(), right.kind()) {
-        (ValueKind::Char(a), ValueKind::Fixnum(b)) => (a as i64) == b,
-        (ValueKind::Fixnum(a), ValueKind::Char(b)) => a == (b as i64),
+        (ValueKind::Fixnum(a), ValueKind::Fixnum(b)) => (a as i64) == b,
         _ => false,
     }
 }
@@ -370,13 +367,7 @@ pub(crate) fn builtin_seq_reverse(args: Vec<Value>) -> EvalResult {
             let mut s = String::new();
             for value in &elems {
                 let ch = match value.kind() {
-                    ValueKind::Char(c) => c,
-                    ValueKind::Fixnum(n) => char::from_u32(n as u32).ok_or_else(|| {
-                        signal(
-                            "wrong-type-argument",
-                            vec![Value::symbol("characterp"), *value],
-                        )
-                    })?,
+                    ValueKind::Fixnum(c) => char::from_u32(c as u32).unwrap_or('\0'),
                     _ => {
                         return Err(signal(
                             "wrong-type-argument",
@@ -603,13 +594,7 @@ pub(crate) fn builtin_seq_concatenate(args: Vec<Value>) -> EvalResult {
             let mut s = String::new();
             for value in &combined {
                 let ch = match value.kind() {
-                    ValueKind::Char(c) => c,
-                    ValueKind::Fixnum(n) => char::from_u32(n as u32).ok_or_else(|| {
-                        signal(
-                            "wrong-type-argument",
-                            vec![Value::symbol("characterp"), *value],
-                        )
-                    })?,
+                    ValueKind::Fixnum(c) => char::from_u32(c as u32).unwrap_or('\0'),
                     _ => {
                         return Err(signal(
                             "wrong-type-argument",
@@ -1012,16 +997,7 @@ pub(crate) fn builtin_cl_map(eval: &mut super::eval::Context, args: Vec<Value>) 
             let mut out = String::new();
             for item in items {
                 let ch = match item.kind() {
-                    ValueKind::Char(c) => c,
-                    ValueKind::Fixnum(n) => u32::try_from(n)
-                        .ok()
-                        .and_then(char::from_u32)
-                        .ok_or_else(|| {
-                            signal(
-                                "wrong-type-argument",
-                                vec![Value::symbol("characterp"), Value::fixnum(n)],
-                            )
-                        })?,
+                    ValueKind::Fixnum(c) => char::from_u32(c as u32).unwrap_or('\0'),
                     _ => {
                         return Err(signal(
                             "wrong-type-argument",

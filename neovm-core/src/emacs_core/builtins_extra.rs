@@ -67,7 +67,6 @@ fn expect_string(val: &Value) -> Result<String, Flow> {
 fn expect_int(val: &Value) -> Result<i64, Flow> {
     match val.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *val],
@@ -88,7 +87,6 @@ fn symbol_like_name(value: &Value) -> Option<&str> {
 fn expect_number_or_marker_f64(value: &Value) -> Result<f64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
-        ValueKind::Char(c) => Ok(c as u32 as f64),
         ValueKind::Float => Ok(value.xfloat()),
         other => Err(signal(
             "wrong-type-argument",

@@ -38,7 +38,6 @@ fn expect_min_max_args(name: &str, args: &[Value], min: usize, max: usize) -> Re
 fn expect_int(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *value],
@@ -437,11 +436,10 @@ pub(crate) fn builtin_capitalize(args: Vec<Value>) -> EvalResult {
             let capitalized = capitalize_string(s);
             Ok(Value::string(capitalized))
         }
-        ValueKind::Char(c) => {
+        ValueKind::Fixnum(c) => {
             let code = c as i64;
             Ok(Value::fixnum(upcase_char(code)))
         }
-        ValueKind::Fixnum(n) => Ok(Value::fixnum(upcase_char(n))),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("char-or-string-p"), args[0]],
@@ -484,11 +482,10 @@ pub(crate) fn builtin_upcase_initials(args: Vec<Value>) -> EvalResult {
             let result = upcase_initials_string(s);
             Ok(Value::string(result))
         }
-        ValueKind::Char(c) => {
+        ValueKind::Fixnum(c) => {
             let code = c as i64;
             Ok(Value::fixnum(upcase_char(code)))
         }
-        ValueKind::Fixnum(n) => Ok(Value::fixnum(upcase_char(n))),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("char-or-string-p"), args[0]],
@@ -671,7 +668,6 @@ pub(crate) fn builtin_char_resolve_modifiers(args: Vec<Value>) -> EvalResult {
 
     let code = match args[0].kind() {
         ValueKind::Fixnum(n) => n,
-        ValueKind::Char(c) => c as i64,
         other => {
             return Err(signal(
                 "wrong-type-argument",

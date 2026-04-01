@@ -2740,7 +2740,6 @@ pub(crate) fn compare_value_lt(
 fn as_number_for_value_lt(value: &Value) -> Option<f64> {
     match value.kind() {
         ValueKind::Fixnum(n) => Some(n as f64),
-        ValueKind::Char(c) => Some(c as u32 as f64),
         ValueKind::Float => Some(value.xfloat()),
         _ => None,
     }
@@ -3202,7 +3201,6 @@ pub(crate) fn builtin_lossage_size(args: Vec<Value>) -> EvalResult {
         if !value.is_nil() {
             let n = match value.kind() {
                 ValueKind::Fixnum(n) => n,
-                ValueKind::Char(c) => c as i64,
                 _ => {
                     return Err(signal(
                         "user-error",

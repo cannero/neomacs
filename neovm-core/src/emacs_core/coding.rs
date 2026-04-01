@@ -949,8 +949,7 @@ pub(crate) fn builtin_coding_system_put(
     if let Some(prop_name) = args[1].as_symbol_name() {
         if matches!(prop_name, ":mnemonic" | "mnemonic") {
             let coerced = match val.kind() {
-                ValueKind::Char(c) => Value::fixnum(c as i64),
-                ValueKind::Fixnum(n) if n >= 0 => Value::fixnum(n),
+                ValueKind::Fixnum(c) => Value::fixnum(c as i64),
                 ValueKind::String => Value::fixnum(
                     val.as_str()
                         .unwrap()
@@ -1338,8 +1337,7 @@ pub(crate) fn builtin_define_coding_system_internal(
 
     // arg[1]: mnemonic (char)
     let mnemonic = match args[1].kind() {
-        ValueKind::Char(c) => c,
-        ValueKind::Fixnum(n) if n > 0 && n <= 0x10FFFF => char::from_u32(n as u32).unwrap_or('?'),
+        ValueKind::Fixnum(c) => char::from_u32(c as u32).unwrap_or('?'),
         _ => '?',
     };
 
@@ -1390,8 +1388,7 @@ pub(crate) fn builtin_define_coding_system_internal(
 
     // arg[9]: default-char
     let default_char = match args[9].kind() {
-        ValueKind::Char(c) => Some(c),
-        ValueKind::Fixnum(n) if n > 0 => char::from_u32(n as u32),
+        ValueKind::Fixnum(c) => char::from_u32(c as u32),
         _ => None,
     };
 

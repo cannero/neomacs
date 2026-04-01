@@ -1470,7 +1470,6 @@ pub(crate) fn builtin_font_at(eval: &mut super::eval::Context, args: Vec<Value>)
             };
             let pos = match args[0].kind() {
                 ValueKind::Fixnum(n) => n,
-                ValueKind::Char(c) => c as i64,
                 _other => {
                     return Err(signal(
                         "wrong-type-argument",
@@ -3315,14 +3314,10 @@ pub(crate) fn builtin_merge_face_attribute(args: Vec<Value>) -> EvalResult {
         });
     if height_attr {
         return Ok(match (args[1].kind(), args[2].kind()) {
-            (ValueKind::Fixnum(_), _) | (ValueKind::Char(_), _) => args[1],
+            (ValueKind::Fixnum(_), _) => args[1],
             (ValueKind::Float, ValueKind::Fixnum(height)) => {
                 let scale = args[1].xfloat();
                 Value::fixnum((scale * height as f64) as i64)
-            }
-            (ValueKind::Float, ValueKind::Char(height)) => {
-                let scale = args[1].xfloat();
-                Value::fixnum((scale * height as u32 as f64) as i64)
             }
             (ValueKind::Float, ValueKind::Float) => {
                 let scale = args[1].xfloat();
@@ -3838,13 +3833,7 @@ pub(crate) fn builtin_face_font(eval: &mut super::eval::Context, args: Vec<Value
     };
     if let Some(character) = args.get(2).filter(|value| !value.is_nil()) {
         let ch = match character.kind() {
-            ValueKind::Char(ch) => ch,
-            ValueKind::Fixnum(code) => char::from_u32(code as u32).ok_or_else(|| {
-                signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("characterp"), *character],
-                )
-            })?,
+            ValueKind::Fixnum(ch) => char::from_u32(ch as u32).unwrap_or('\0'),
             _ => {
                 return Err(signal(
                     "wrong-type-argument",

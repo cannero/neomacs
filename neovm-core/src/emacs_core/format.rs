@@ -48,13 +48,7 @@ fn require_string(_name: &str, val: &Value) -> Result<String, Flow> {
 
 fn require_char(val: &Value) -> Result<char, Flow> {
     match val.kind() {
-        ValueKind::Char(c) => Ok(c),
-        ValueKind::Fixnum(n) => char::from_u32(n as u32).ok_or_else(|| {
-            signal(
-                "wrong-type-argument",
-                vec![Value::symbol("characterp"), *val],
-            )
-        }),
+        ValueKind::Fixnum(c) => Ok(char::from_u32(c as u32).unwrap_or('\0')),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *val],

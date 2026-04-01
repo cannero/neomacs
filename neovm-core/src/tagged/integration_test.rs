@@ -109,7 +109,6 @@ fn test_type_dispatch() {
             ValueKind::Nil => "nil".to_string(),
             ValueKind::T => "t".to_string(),
             ValueKind::Fixnum(n) => format!("int:{}", n),
-            ValueKind::Char(c) => format!("char:{}", c),
             ValueKind::Cons => "cons".to_string(),
             ValueKind::Float => format!("float:{}", value.xfloat()),
             ValueKind::Veclike(VecLikeType::Vector) => "vector".to_string(),
@@ -301,7 +300,6 @@ fn test_value_description() {
             ValueKind::Float => format!("{}", val.xfloat()),
             ValueKind::Symbol(id) => format!("sym#{}", id.0),
             ValueKind::Keyword(id) => format!(":kw#{}", id.0),
-            ValueKind::Char(c) => format!("?{}", c),
             ValueKind::Subr(id) => format!("#<subr#{}>", id.0),
             ValueKind::Cons => {
                 let car = describe(val.cons_car());

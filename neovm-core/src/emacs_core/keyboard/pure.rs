@@ -17,8 +17,7 @@ pub(crate) const KEY_CHAR_CODE_MASK: i64 = 0x3FFFFF;
 
 fn event_char_code(event: &Value) -> Option<i64> {
     match event.kind() {
-        ValueKind::Char(ch) => Some(i64::from(ch as u32)),
-        ValueKind::Fixnum(code) if code >= 0 => Some(code),
+        ValueKind::Fixnum(ch) => Some(i64::from(ch as u32)),
         _ => None,
     }
 }
@@ -215,7 +214,6 @@ fn describe_int_key(code: i64) -> Result<String, Flow> {
 pub(crate) fn describe_single_key_value(value: &Value, no_angles: bool) -> Result<String, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => describe_int_key(n),
-        ValueKind::Char(c) => describe_int_key(c as i64),
         ValueKind::Symbol(id) => Ok(describe_symbol_key(resolve_sym(id), no_angles)),
         ValueKind::T => Ok(describe_symbol_key("t", no_angles)),
         ValueKind::Nil => Ok(describe_symbol_key("nil", no_angles)),
@@ -335,10 +333,9 @@ pub(crate) fn convert_lucid_event_list(items: &[Value]) -> Option<Value> {
     let base = base?;
 
     match base.kind() {
-        ValueKind::Fixnum(_) | ValueKind::Char(_) => {
+        ValueKind::Fixnum(_) => {
             let mut code = match base.kind() {
                 ValueKind::Fixnum(i) => i,
-                ValueKind::Char(c) => c as i64,
                 _ => unreachable!(),
             };
 

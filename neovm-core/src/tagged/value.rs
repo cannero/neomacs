@@ -183,10 +183,11 @@ impl TaggedValue {
 
     // -- Immediates --
 
-    /// Create a char value (Unicode codepoint, no heap allocation).
+    /// Create a char value. In GNU Emacs, characters ARE integers (fixnums).
+    /// `?A` is just the integer 65.
     #[inline]
     pub fn char(c: char) -> Self {
-        Self(TAG_IMMEDIATE | IMM_CHAR | ((c as usize) << IMM_PAYLOAD_SHIFT))
+        Self::fixnum(c as i64)
     }
 
     /// Create a keyword value from a SymId.
@@ -266,9 +267,16 @@ impl TaggedValue {
         self.0 & TAG_MASK == TAG_IMMEDIATE
     }
 
+    /// In GNU Emacs, characters are integers. `characterp` checks if the
+    /// integer is in the valid Unicode codepoint range (0..=0x3FFFFF in GNU,
+    /// 0..=0x10FFFF for valid Unicode).
     #[inline]
     pub fn is_char(self) -> bool {
-        self.is_immediate() && (self.0 & IMM_SUB_MASK) == IMM_CHAR
+        if let Some(n) = self.as_fixnum() {
+            n >= 0 && n <= 0x3F_FFFF // GNU MAX_CHAR
+        } else {
+            false
+        }
     }
 
     #[inline]
@@ -342,12 +350,19 @@ impl TaggedValue {
         }
     }
 
-    /// Extract char. Returns None if not a char.
+    /// Extract char. Characters are fixnums in the valid codepoint range.
+    /// Returns None if not a character (not fixnum or out of range).
     #[inline]
     pub fn as_char(self) -> Option<char> {
-        if self.is_char() {
-            let cp = (self.0 >> IMM_PAYLOAD_SHIFT) as u32;
-            char::from_u32(cp)
+        if let Some(n) = self.as_fixnum() {
+            if n >= 0 && n <= 0x3F_FFFF {
+                // GNU Emacs allows codepoints up to MAX_CHAR (0x3FFFFF)
+                // which includes non-Unicode internal chars. For Rust char,
+                // we can only convert valid Unicode codepoints.
+                char::from_u32(n as u32)
+            } else {
+                None
+            }
         } else {
             None
         }
@@ -511,9 +526,7 @@ impl TaggedValue {
             TAG_FLOAT => ValueKind::Float,
             TAG_IMMEDIATE => {
                 let sub = self.0 & IMM_SUB_MASK;
-                if sub == IMM_CHAR {
-                    ValueKind::Char(self.as_char().unwrap_or('\0'))
-                } else if sub == IMM_KEYWORD {
+                if sub == IMM_KEYWORD {
                     ValueKind::Keyword(self.as_keyword_id().unwrap())
                 } else if sub == IMM_SUBR {
                     ValueKind::Subr(self.as_subr_id().unwrap())
@@ -562,17 +575,17 @@ impl TaggedValue {
     }
 
     /// True for integers.
-    /// In GNU Emacs, characters are integers (same Lisp type).
+    /// True for integers (fixnums). Characters are also integers in GNU Emacs,
+    /// and since chars are now encoded as fixnums, this is just `is_fixnum()`.
     #[inline]
     pub fn is_integer(self) -> bool {
-        self.is_fixnum() || self.is_char()
+        self.is_fixnum()
     }
 
-    /// True for any number (fixnum, char, or float).
-    /// In GNU Emacs, characters are integers.
+    /// True for any number (fixnum or float).
     #[inline]
     pub fn is_number(self) -> bool {
-        self.is_fixnum() || self.is_char() || self.is_float()
+        self.is_fixnum() || self.is_float()
     }
 
     /// True if this value is a vector (veclike with Vector type tag).
@@ -613,7 +626,6 @@ impl TaggedValue {
             ValueKind::Cons => "cons",
             ValueKind::String => "string",
             ValueKind::Float => "float",
-            ValueKind::Char(_) => "character",
             ValueKind::Keyword(_) => "symbol",
             ValueKind::Subr(_) => "subr",
             ValueKind::Veclike(ty) => match ty {
@@ -705,12 +717,13 @@ impl TaggedValue {
 pub enum ValueKind {
     Nil,
     T,
+    /// Integer (fixnum). In GNU Emacs, characters are also integers.
     Fixnum(i64),
     Symbol(SymId),
     Cons,
     String,
     Float,
-    Char(char),
+    // NOTE: No Char variant. Characters are Fixnum in GNU Emacs.
     Keyword(SymId),
     Subr(SymId),
     Veclike(VecLikeType),
@@ -733,7 +746,6 @@ impl fmt::Debug for TaggedValue {
             ValueKind::Float => {
                 write!(f, "Float({})", self.xfloat())
             }
-            ValueKind::Char(c) => write!(f, "?{}", c),
             ValueKind::Keyword(id) => write!(f, "Keyword({:?})", id),
             ValueKind::Subr(id) => write!(f, "Subr({:?})", id),
             ValueKind::Veclike(ty) => write!(f, "{:?}@{:#x}", ty, self.0 & !TAG_MASK),

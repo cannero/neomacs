@@ -38,7 +38,6 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *value],
@@ -401,7 +400,6 @@ pub(crate) fn builtin_eval_region_in_vm_runtime(
 fn event_to_int(event: &Value) -> Option<i64> {
     match event.kind() {
         ValueKind::Fixnum(n) => Some(n),
-        ValueKind::Char(c) => Some(c as i64),
         _ => None,
     }
 }

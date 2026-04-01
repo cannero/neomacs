@@ -108,7 +108,6 @@ pub(crate) fn dump_value(v: &Value) -> DumpValue {
             DumpValue::Lambda(dump_obj_id(value_to_obj_id(v)))
         }
         ValueKind::Veclike(VecLikeType::Macro) => DumpValue::Macro(dump_obj_id(value_to_obj_id(v))),
-        ValueKind::Char(c) => DumpValue::Char(c),
         ValueKind::Subr(s) => DumpValue::Subr(dump_sym_id(s)),
         ValueKind::Veclike(VecLikeType::ByteCode) => {
             DumpValue::ByteCode(dump_obj_id(value_to_obj_id(v)))

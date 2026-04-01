@@ -80,22 +80,7 @@ fn is_category_letter(ch: char) -> bool {
 
 fn extract_char_opt(value: &Value, fn_name: &str) -> Result<Option<char>, Flow> {
     match value.kind() {
-        ValueKind::Char(c) => Ok(Some(c)),
-        ValueKind::Fixnum(n) => {
-            if let Some(c) = char::from_u32(n as u32) {
-                Ok(Some(c))
-            } else if (0..=0x3F_FFFF).contains(&n) {
-                Ok(None)
-            } else {
-                Err(signal(
-                    "error",
-                    vec![Value::string(format!(
-                        "{}: Invalid character code: {}",
-                        fn_name, n
-                    ))],
-                ))
-            }
-        }
+        ValueKind::Fixnum(c) => Ok(Some(char::from_u32(c as u32).unwrap_or('\0'))),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *value],
@@ -117,15 +102,7 @@ fn extract_char(value: &Value, fn_name: &str) -> Result<char, Flow> {
 
 fn extract_char_code(value: &Value, fn_name: &str) -> Result<i64, Flow> {
     match value.kind() {
-        ValueKind::Char(c) => Ok(c as i64),
-        ValueKind::Fixnum(n) if (0..=0x3F_FFFF).contains(&n) => Ok(n),
-        ValueKind::Fixnum(n) => Err(signal(
-            "error",
-            vec![Value::string(format!(
-                "{}: Invalid character code: {}",
-                fn_name, n
-            ))],
-        )),
+        ValueKind::Fixnum(c) => Ok(c as i64),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *value],

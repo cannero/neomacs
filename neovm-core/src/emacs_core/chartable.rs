@@ -156,7 +156,6 @@ fn wrong_type(pred: &str, got: &Value) -> Flow {
 fn expect_int(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         _other => Err(wrong_type("integerp", value)),
     }
 }
@@ -166,7 +165,6 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
 fn expect_wholenump(value: &Value) -> Result<i64, Flow> {
     let n = match value.kind() {
         ValueKind::Fixnum(n) => n,
-        ValueKind::Char(c) => c as i64,
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -287,7 +285,7 @@ pub(crate) fn builtin_set_char_table_range(args: Vec<Value>) -> EvalResult {
             ct_set_range(&mut vec, 0, MAX_CHAR, *value);
         }
         // Single character
-        ValueKind::Fixnum(_) | ValueKind::Char(_) => {
+        ValueKind::Fixnum(_) => {
             let ch = expect_int(range)?;
             ct_set_char(&mut vec, ch, *value);
         }
@@ -383,7 +381,7 @@ pub(crate) fn builtin_char_table_range(args: Vec<Value>) -> EvalResult {
             let vec = table.as_vector_data().unwrap();
             Ok(vec[CT_DEFAULT])
         }
-        ValueKind::Fixnum(_) | ValueKind::Char(_) => {
+        ValueKind::Fixnum(_) => {
             let ch = expect_int(range)?;
             ct_lookup(table, ch)
         }

@@ -221,7 +221,6 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
 fn expect_int(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *value],
@@ -234,18 +233,7 @@ fn expect_int(value: &Value) -> Result<i64, Flow> {
 /// single-character string.
 fn expect_register(value: &Value) -> Result<char, Flow> {
     match value.kind() {
-        ValueKind::Char(c) => Ok(c),
-        ValueKind::Fixnum(n) => {
-            if n >= 0 && n <= 0x10FFFF {
-                if let Some(c) = char::from_u32(n as u32) {
-                    return Ok(c);
-                }
-            }
-            Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("characterp"), *value],
-            ))
-        }
+        ValueKind::Fixnum(c) => Ok(char::from_u32(c as u32).unwrap_or('\0')),
         ValueKind::String => {
             let st = value.as_str().unwrap();
             let mut chars = st.chars();

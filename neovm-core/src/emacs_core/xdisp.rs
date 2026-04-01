@@ -51,7 +51,7 @@ fn expect_args_range(name: &str, args: &[Value], min: usize, max: usize) -> Resu
 
 fn expect_integer_or_marker(arg: &Value) -> Result<(), Flow> {
     match arg.kind() {
-        ValueKind::Fixnum(_) | ValueKind::Char(_) => Ok(()),
+        ValueKind::Fixnum(_) => Ok(()),
         _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *arg],
@@ -61,7 +61,7 @@ fn expect_integer_or_marker(arg: &Value) -> Result<(), Flow> {
 
 fn expect_fixnum_arg(name: &str, arg: &Value) -> Result<(), Flow> {
     match arg.kind() {
-        ValueKind::Fixnum(_) | ValueKind::Char(_) => Ok(()),
+        ValueKind::Fixnum(_) => Ok(()),
         _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol(name), *arg],
@@ -1886,13 +1886,6 @@ pub(crate) fn builtin_invisible_p(args: Vec<Value>) -> EvalResult {
                 Ok(Value::NIL)
             }
         }
-        ValueKind::Char(ch) => {
-            if ch == '\0' {
-                Err(signal("args-out-of-range", vec![Value::char(ch)]))
-            } else {
-                Ok(Value::NIL)
-            }
-        }
         ValueKind::Nil => Ok(Value::NIL),
         _ => Ok(Value::symbol("t")),
     }
@@ -2128,7 +2121,6 @@ fn window_line_height_impl(
                 } else {
                     let line_num = match line_spec.kind() {
                         ValueKind::Fixnum(n) => n,
-                        ValueKind::Char(ch) => ch as i64,
                         _other => {
                             return Err(signal(
                                 "wrong-type-argument",
@@ -2179,7 +2171,6 @@ fn window_line_height_impl(
     } else {
         let line_num = match line_spec.kind() {
             ValueKind::Fixnum(n) => n,
-            ValueKind::Char(ch) => ch as i64,
             _other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -2220,10 +2211,6 @@ pub(crate) fn builtin_move_point_visually(args: Vec<Value>) -> EvalResult {
         ValueKind::Fixnum(v) => Err(signal(
             "args-out-of-range",
             vec![Value::fixnum(v), Value::fixnum(v)],
-        )),
-        ValueKind::Char(ch) => Err(signal(
-            "args-out-of-range",
-            vec![Value::char(ch), Value::char(ch)],
         )),
         _other => Err(signal(
             "wrong-type-argument",
@@ -3064,7 +3051,6 @@ fn posn_at_x_y_impl(
     let x_val = args.first().unwrap();
     let x = match x_val.kind() {
         ValueKind::Fixnum(v) => v,
-        ValueKind::Char(v) => v as i64,
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -3075,7 +3061,6 @@ fn posn_at_x_y_impl(
     let y_val = args.get(1).unwrap();
     let y = match y_val.kind() {
         ValueKind::Fixnum(v) => v,
-        ValueKind::Char(v) => v as i64,
         _ => {
             return Err(signal(
                 "wrong-type-argument",

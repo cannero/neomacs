@@ -1347,7 +1347,6 @@ fn syntax_entry_from_chartable_entry(entry: &Value) -> Option<SyntaxEntry> {
             let class = SyntaxClass::from_code(code)?;
             let matching_char = match pair_cdr.kind() {
                 ValueKind::Fixnum(n) => char::from_u32(n as u32),
-                ValueKind::Char(c) => Some(c),
                 ValueKind::Nil => None,
                 _ => None,
             };
@@ -1379,13 +1378,6 @@ fn apply_compiled_syntax_entry(
                 } else {
                     syntax_table.entries.remove(&ch);
                 }
-            }
-        }
-        ValueKind::Char(ch) => {
-            if let Some(entry) = entry {
-                syntax_table.modify_syntax_entry(ch, entry.clone());
-            } else {
-                syntax_table.entries.remove(&ch);
             }
         }
         ValueKind::Cons => {
@@ -1508,7 +1500,6 @@ pub(crate) fn builtin_syntax_class_to_char(args: Vec<Value>) -> EvalResult {
 
     let class = match args[0].kind() {
         ValueKind::Fixnum(n) => n,
-        ValueKind::Char(c) => c as i64,
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1578,7 +1569,6 @@ pub(crate) fn builtin_matching_paren_in_buffers(
                 vec![Value::symbol("characterp"), args[0]],
             )
         })?,
-        ValueKind::Char(c) => c,
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -1811,13 +1801,7 @@ pub(crate) fn builtin_char_syntax_in_buffers(
         ));
     }
     let ch = match args[0].kind() {
-        ValueKind::Char(c) => c,
-        ValueKind::Fixnum(n) => char::from_u32(n as u32).ok_or_else(|| {
-            signal(
-                "error",
-                vec![Value::string(format!("Invalid character code: {}", n))],
-            )
-        })?,
+        ValueKind::Fixnum(c) => char::from_u32(c as u32).unwrap_or('\0'),
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -3549,7 +3533,7 @@ pub(crate) fn builtin_syntax_ppss_flush_cache(
     }
 
     match args[0].kind() {
-        ValueKind::Fixnum(_) | ValueKind::Char(_) => Ok(Value::NIL),
+        ValueKind::Fixnum(_) => Ok(Value::NIL),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("number-or-marker-p"), args[0]],

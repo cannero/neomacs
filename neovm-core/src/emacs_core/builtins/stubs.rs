@@ -819,7 +819,6 @@ pub(crate) fn builtin_sqlite_load_extension(args: Vec<Value>) -> EvalResult {
 fn fillarray_character_from_value(value: &Value) -> Result<char, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) if n >= 0 => Ok((n as u8) as char),
-        ValueKind::Char(c) => Ok(c),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *value],
@@ -1553,7 +1552,6 @@ fn expect_characterp_from_int(value: &Value) -> Result<char, Flow> {
                 vec![Value::symbol("characterp"), *value],
             )
         }),
-        ValueKind::Char(c) => Ok(c),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *value],

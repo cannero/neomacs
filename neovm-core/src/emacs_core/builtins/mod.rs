@@ -97,7 +97,6 @@ pub(super) fn expect_range_args(
 pub(super) fn expect_int(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *value],
@@ -108,7 +107,6 @@ pub(super) fn expect_int(value: &Value) -> Result<i64, Flow> {
 pub(super) fn expect_fixnum(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("fixnump"), *value],
@@ -131,7 +129,6 @@ pub(super) fn expect_char_table_index(value: &Value) -> Result<i64, Flow> {
 pub(super) fn expect_char_equal_code(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) if (0..=KEY_CHAR_CODE_MASK).contains(&n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         other => {
             maybe_trace_characterp_nil(value, "expect_char_equal_code");
             Err(signal(
@@ -144,8 +141,7 @@ pub(super) fn expect_char_equal_code(value: &Value) -> Result<i64, Flow> {
 
 pub(super) fn expect_character_code(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
-        ValueKind::Char(c) => Ok(c as i64),
-        ValueKind::Fixnum(n) if (0..=0x3FFFFF).contains(&n) => Ok(n),
+        ValueKind::Fixnum(c) => Ok(c as i64),
         other => {
             maybe_trace_characterp_nil(value, "expect_character_code");
             Err(signal(
@@ -180,7 +176,6 @@ pub(super) fn char_equal_folded(code: i64) -> Option<String> {
 pub(super) fn expect_integer_or_marker(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         _ if super::marker::is_marker(value) => super::marker::marker_position_as_int(value),
         _ => Err(signal(
             "wrong-type-argument",
@@ -195,7 +190,6 @@ pub(super) fn expect_integer_or_marker_eval(
 ) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         _ if super::marker::is_marker(value) => {
             super::marker::marker_position_as_int_eval(eval, value)
         }
@@ -210,7 +204,6 @@ pub(super) fn expect_integer_or_marker_eval(
 pub(super) fn expect_wholenump(value: &Value) -> Result<i64, Flow> {
     let n = match value.kind() {
         ValueKind::Fixnum(n) => n,
-        ValueKind::Char(c) => c as i64,
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -235,7 +228,6 @@ pub(super) enum NumberOrMarker {
 pub(super) fn expect_number_or_marker(value: &Value) -> Result<NumberOrMarker, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(NumberOrMarker::Int(n)),
-        ValueKind::Char(c) => Ok(NumberOrMarker::Int(c as i64)),
         ValueKind::Float => Ok(NumberOrMarker::Float(value.xfloat())),
         _ if super::marker::is_marker(value) => Ok(NumberOrMarker::Int(
             super::marker::marker_position_as_int(value)?,
@@ -253,7 +245,6 @@ pub(super) fn expect_number_or_marker_eval(
 ) -> Result<NumberOrMarker, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(NumberOrMarker::Int(n)),
-        ValueKind::Char(c) => Ok(NumberOrMarker::Int(c as i64)),
         ValueKind::Float => Ok(NumberOrMarker::Float(value.xfloat())),
         _ if super::marker::is_marker(value) => Ok(NumberOrMarker::Int(
             super::marker::marker_position_as_int_eval(eval, value)?,
@@ -270,7 +261,6 @@ pub(super) fn expect_number(value: &Value) -> Result<f64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
         ValueKind::Float => Ok(value.xfloat()),
-        ValueKind::Char(c) => Ok(c as u32 as f64),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("numberp"), *value],

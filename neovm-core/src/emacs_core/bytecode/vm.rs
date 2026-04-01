@@ -4471,7 +4471,6 @@ fn arith_div(vm: &Vm<'_>, a: &Value, b: &Value) -> EvalResult {
             "arith-error",
             vec![Value::string("Division by zero")],
         )),
-        (ValueKind::Fixnum(a), ValueKind::Fixnum(b)) => Ok(Value::fixnum(a / b)),
         _ => {
             let a = number_or_marker_as_f64(vm, a)?;
             let b = number_or_marker_as_f64(vm, b)?;
@@ -4492,7 +4491,6 @@ fn arith_rem(a: &Value, b: &Value) -> EvalResult {
             "arith-error",
             vec![Value::string("Division by zero")],
         )),
-        (ValueKind::Fixnum(a), ValueKind::Fixnum(b)) => Ok(Value::fixnum(a % b)),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *a],
@@ -4576,7 +4574,6 @@ fn number_or_marker_as_f64(vm: &Vm<'_>, value: &Value) -> Result<f64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
         ValueKind::Float => Ok(value.xfloat()),
-        ValueKind::Char(c) => Ok(c as u32 as f64),
         _ if value.is_marker() => Ok(
             crate::emacs_core::marker::marker_position_as_int_with_buffers(&vm.ctx.buffers, value)?
                 as f64,

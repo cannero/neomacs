@@ -223,7 +223,6 @@ fn emacs_sxhash_obj(value: &Value, depth: usize) -> Option<u64> {
     }
     match value.kind() {
         ValueKind::Fixnum(n) => Some(n as u64),
-        ValueKind::Char(c) => Some((c as u32) as u64),
         ValueKind::Float => Some(value.xfloat().to_bits()),
         ValueKind::String => Some(emacs_hash_char_array(value.as_str().unwrap().as_bytes())),
         ValueKind::Cons => Some(emacs_sxhash_list(value, depth)),
@@ -277,10 +276,6 @@ fn hash_value_for_equal(value: &Value, hasher: &mut DefaultHasher, depth: usize)
             // `equal` treats chars and ints with same codepoint as equal.
             2_u8.hash(hasher);
             n.hash(hasher);
-        }
-        ValueKind::Char(c) => {
-            2_u8.hash(hasher);
-            (c as i64).hash(hasher);
         }
         ValueKind::Float => {
             3_u8.hash(hasher);
@@ -371,7 +366,6 @@ fn sxhash_emacs_uint_for(value: &Value, test: HashTableTest) -> u64 {
         HashTableTest::Equal => emacs_sxhash_obj_with_fallback(value, 0),
         HashTableTest::Eq | HashTableTest::Eql => match value.kind() {
             ValueKind::Fixnum(n) => sxhash_eq_fixnum_uint(n as u64),
-            ValueKind::Char(c) => sxhash_eq_fixnum_uint((c as u32) as u64),
             ValueKind::Float if matches!(test, HashTableTest::Eql) => value.xfloat().to_bits(),
             _ => fallback_sxhash_emacs_uint(value, test),
         },

@@ -848,9 +848,6 @@ fn events_match(a: &Value, b: &Value) -> bool {
 
     match (a.kind(), b.kind()) {
         (ValueKind::Fixnum(x), ValueKind::Fixnum(y)) => x == y,
-        (ValueKind::Char(x), ValueKind::Char(y)) => x == y,
-        (ValueKind::Fixnum(x), ValueKind::Char(y)) => x == y as i64,
-        (ValueKind::Char(x), ValueKind::Fixnum(y)) => x as i64 == y,
         (ValueKind::Symbol(x), ValueKind::Symbol(y)) => x == y,
         _ => false,
     }
@@ -1709,7 +1706,6 @@ pub(crate) struct ActiveKeyBindingResolution {
 pub(crate) fn is_plain_printable_emacs_event(event: &Value) -> bool {
     let Some(ch) = (match event.kind() {
         ValueKind::Fixnum(code) if (code & KEY_CHAR_MOD_MASK) == 0 => char::from_u32(code as u32),
-        ValueKind::Char(ch) => Some(ch),
         _ => None,
     }) else {
         return false;
@@ -2271,15 +2267,6 @@ pub fn emacs_event_to_key_event(event: &Value) -> Option<KeyEvent> {
                 })
             }
         }
-        ValueKind::Char(c) => Some(KeyEvent::Char {
-            code: c,
-            ctrl: false,
-            meta: false,
-            shift: false,
-            super_: false,
-            hyper: false,
-            alt: false,
-        }),
         ValueKind::Symbol(id) => {
             let name = resolve_sym(id);
             // Parse modifier prefixes

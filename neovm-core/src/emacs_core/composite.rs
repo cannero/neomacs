@@ -50,7 +50,7 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 
 fn expect_integerp(arg: &Value) -> Result<(), Flow> {
     match arg.kind() {
-        ValueKind::Fixnum(_) | ValueKind::Char(_) => Ok(()),
+        ValueKind::Fixnum(_) => Ok(()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *arg],
@@ -60,7 +60,7 @@ fn expect_integerp(arg: &Value) -> Result<(), Flow> {
 
 fn expect_integer_or_marker_p(arg: &Value) -> Result<(), Flow> {
     match arg.kind() {
-        ValueKind::Fixnum(_) | ValueKind::Char(_) => Ok(()),
+        ValueKind::Fixnum(_) => Ok(()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *arg],
@@ -71,7 +71,6 @@ fn expect_integer_or_marker_p(arg: &Value) -> Result<(), Flow> {
 fn integer_value(arg: &Value) -> i64 {
     match arg.kind() {
         ValueKind::Fixnum(n) => n,
-        ValueKind::Char(c) => c as i64,
         _ => 0,
     }
 }
@@ -197,12 +196,10 @@ pub(crate) fn builtin_composition_get_gstring(args: Vec<Value>) -> EvalResult {
     }
     let from = match args[0].kind() {
         ValueKind::Fixnum(n) => n,
-        ValueKind::Char(c) => c as i64,
         _ => unreachable!("validated by expect_integerp"),
     };
     let to = match args[1].kind() {
         ValueKind::Fixnum(n) => n,
-        ValueKind::Char(c) => c as i64,
         _ => unreachable!("validated by expect_integerp"),
     };
     let text = args[3].as_str().expect("validated string");

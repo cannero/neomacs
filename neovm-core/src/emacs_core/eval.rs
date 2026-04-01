@@ -8432,7 +8432,6 @@ impl Context {
                 ValueKind::Nil => 0,
                 ValueKind::T => 1,
                 ValueKind::Fixnum(n) => ((n as u64).wrapping_mul(0x9E37_79B1)) ^ 0x10,
-                ValueKind::Char(c) => (c as u64) ^ 0x11,
                 ValueKind::Symbol(sym) => ((sym.0 as u64) << 8) ^ 0x20,
                 ValueKind::Keyword(sym) => ((sym.0 as u64) << 8) ^ 0x21,
                 ValueKind::Subr(sym) => ((sym.0 as u64) << 8) ^ 0x22,
@@ -9296,7 +9295,6 @@ pub(crate) fn value_to_expr(value: &Value) -> Expr {
         ValueKind::Symbol(id) => Expr::Symbol(id),
         ValueKind::Keyword(id) => Expr::Keyword(id),
         ValueKind::String => Expr::Str(value.as_str().unwrap().to_owned()),
-        ValueKind::Char(c) => Expr::Char(c),
         ValueKind::Cons => {
             if let Some(items) = list_to_vec(value) {
                 Expr::List(items.iter().map(value_to_expr).collect())

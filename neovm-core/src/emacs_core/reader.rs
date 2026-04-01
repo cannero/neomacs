@@ -58,7 +58,7 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
 
 fn expect_number(value: &Value) -> Result<(), Flow> {
     match value.kind() {
-        ValueKind::Fixnum(_) | ValueKind::Float | ValueKind::Char(_) => Ok(()),
+        ValueKind::Fixnum(_) | ValueKind::Float => Ok(()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("numberp"), *value],
@@ -1595,15 +1595,13 @@ pub(crate) fn completing_read_minibuffer_args(obarray: &Obarray, args: &[Value])
 fn event_to_int(event: &Value) -> Option<i64> {
     match event.kind() {
         ValueKind::Fixnum(n) => Some(n),
-        ValueKind::Char(c) => Some(c as i64),
         _ => None,
     }
 }
 
 fn event_to_char(event: &Value) -> Option<char> {
     match event.kind() {
-        ValueKind::Char(c) => Some(c),
-        ValueKind::Fixnum(n) if n >= 0 => char::from_u32(n as u32),
+        ValueKind::Fixnum(c) => char::from_u32(c as u32),
         _ => None,
     }
 }

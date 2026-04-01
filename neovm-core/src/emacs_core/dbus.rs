@@ -52,7 +52,6 @@ fn expect_symbolp(value: &Value) -> Result<String, Flow> {
 fn expect_wholenump(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) if n >= 0 => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("wholenump"), *value],

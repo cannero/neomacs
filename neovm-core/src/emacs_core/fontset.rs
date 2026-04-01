@@ -962,7 +962,7 @@ fn expand_target(
 ) -> Result<Vec<FontsetTarget>, Flow> {
     match target.kind() {
         ValueKind::Nil => Ok(vec![FontsetTarget::Fallback]),
-        ValueKind::Char(ch) => {
+        ValueKind::Fixnum(ch) => {
             let code = ch as u32;
             if enforce_ascii_rules && code < 0x80 {
                 return Err(signal(
@@ -972,20 +972,6 @@ fn expand_target(
             }
             Ok(vec![FontsetTarget::Range(code, code)])
         }
-        ValueKind::Fixnum(code) if (0..=0x3F_FFFF).contains(&code) => {
-            let code = code as u32;
-            if enforce_ascii_rules && code < 0x80 {
-                return Err(signal(
-                    "error",
-                    vec![Value::string("Can't set a font for partial ASCII range")],
-                ));
-            }
-            Ok(vec![FontsetTarget::Range(code, code)])
-        }
-        ValueKind::Fixnum(_) => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("characterp"), *target],
-        )),
         ValueKind::Cons => {
             let pair_car = target.cons_car();
             let pair_cdr = target.cons_cdr();
@@ -1081,10 +1067,7 @@ fn lookup_charset_script(alist: &Value, charset_name: &str) -> Option<String> {
 
 fn value_to_range(value: &Value) -> Option<(u32, u32)> {
     match value.kind() {
-        ValueKind::Char(ch) => Some((ch as u32, ch as u32)),
-        ValueKind::Fixnum(code) if (0..=0x3F_FFFF).contains(&code) => {
-            Some((code as u32, code as u32))
-        }
+        ValueKind::Fixnum(ch) => Some((ch as u32, ch as u32)),
         ValueKind::Cons => {
             let pair_car = value.cons_car();
             let pair_cdr = value.cons_cdr();
@@ -1098,8 +1081,7 @@ fn value_to_range(value: &Value) -> Option<(u32, u32)> {
 
 fn expect_target_char(value: &Value) -> Result<u32, Flow> {
     match value.kind() {
-        ValueKind::Char(ch) => Ok(ch as u32),
-        ValueKind::Fixnum(code) if (0..=0x3F_FFFF).contains(&code) => Ok(code as u32),
+        ValueKind::Fixnum(ch) => Ok(ch as u32),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *value],

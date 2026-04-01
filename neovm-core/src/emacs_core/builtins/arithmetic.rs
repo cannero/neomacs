@@ -174,7 +174,6 @@ pub(crate) fn builtin_add1(args: Vec<Value>) -> EvalResult {
         // Official Emacs uses wrapping arithmetic for 1+ (no overflow error).
         ValueKind::Fixnum(n) => Ok(Value::fixnum(n.wrapping_add(1))),
         ValueKind::Float => Ok(Value::make_float(args[0].xfloat() + 1.0)),
-        ValueKind::Char(c) => Ok(Value::fixnum(c as i64 + 1)),
         _ if args[0].is_marker() => Ok(Value::fixnum(
             super::marker::marker_position_as_int(&args[0])?.wrapping_add(1),
         )),
@@ -191,7 +190,6 @@ pub(crate) fn builtin_sub1(args: Vec<Value>) -> EvalResult {
         // Official Emacs uses wrapping arithmetic for 1- (no overflow error).
         ValueKind::Fixnum(n) => Ok(Value::fixnum(n.wrapping_sub(1))),
         ValueKind::Float => Ok(Value::make_float(args[0].xfloat() - 1.0)),
-        ValueKind::Char(c) => Ok(Value::fixnum(c as i64 - 1)),
         _ if args[0].is_marker() => Ok(Value::fixnum(
             super::marker::marker_position_as_int(&args[0])?.wrapping_sub(1),
         )),
@@ -215,7 +213,6 @@ pub(crate) fn builtin_max(eval: &mut super::eval::Context, args: Vec<Value>) -> 
     }
     match best_value.kind() {
         ValueKind::Fixnum(_) | ValueKind::Float => Ok(best_value),
-        ValueKind::Char(c) => Ok(Value::fixnum(c as i64)),
         _ if best_value.is_marker() => Ok(Value::fixnum(
             super::marker::marker_position_as_int_eval(eval, &best_value)?,
         )),
@@ -236,7 +233,6 @@ pub(crate) fn builtin_min(eval: &mut super::eval::Context, args: Vec<Value>) -> 
     }
     match best_value.kind() {
         ValueKind::Fixnum(_) | ValueKind::Float => Ok(best_value),
-        ValueKind::Char(c) => Ok(Value::fixnum(c as i64)),
         _ if best_value.is_marker() => Ok(Value::fixnum(
             super::marker::marker_position_as_int_eval(eval, &best_value)?,
         )),

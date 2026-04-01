@@ -473,7 +473,6 @@ fn overlay_priority(overlay: &Overlay) -> (i64, i64) {
         None => (0, 0),
         Some(value) => match value.kind() {
             ValueKind::Fixnum(n) => (n, 0),
-            ValueKind::Char(c) => (c as i64, 0),
             ValueKind::Cons => (
                 priority_component(value.cons_car()),
                 priority_component(value.cons_cdr()),
@@ -486,7 +485,6 @@ fn overlay_priority(overlay: &Overlay) -> (i64, i64) {
 fn priority_component(value: Value) -> i64 {
     match value.kind() {
         ValueKind::Fixnum(n) => n,
-        ValueKind::Char(c) => c as i64,
         _ => 0,
     }
 }

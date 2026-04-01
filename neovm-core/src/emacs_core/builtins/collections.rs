@@ -610,25 +610,7 @@ pub(crate) fn builtin_hash_table_count(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_char_to_string(args: Vec<Value>) -> EvalResult {
     expect_args("char-to-string", &args, 1)?;
     match args[0].kind() {
-        ValueKind::Char(c) => Ok(Value::string(c.to_string())),
-        ValueKind::Fixnum(n) => {
-            if n < 0 {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("characterp"), args[0]],
-                ));
-            }
-            if let Some(c) = char::from_u32(n as u32) {
-                Ok(Value::string(c.to_string()))
-            } else if let Some(encoded) = encode_nonunicode_char_for_storage(n as u32) {
-                Ok(Value::string(encoded))
-            } else {
-                Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("characterp"), args[0]],
-                ))
-            }
-        }
+        ValueKind::Fixnum(c) => Ok(Value::string(c.to_string())),
         _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), args[0]],

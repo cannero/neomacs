@@ -81,7 +81,6 @@ fn expect_max_args(name: &str, args: &[Value], max: usize) -> Result<(), Flow> {
 fn expect_int(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *value],
@@ -94,7 +93,6 @@ fn expect_number(value: &Value) -> Result<f64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
         ValueKind::Float => Ok(value.xfloat()),
-        ValueKind::Char(c) => Ok(c as i64 as f64),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("numberp"), *value],
@@ -111,12 +109,10 @@ enum IntegerOrMarkerArg {
 fn parse_integer_or_marker_arg(value: &Value) -> Result<IntegerOrMarkerArg, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(IntegerOrMarkerArg::Int(n)),
-        ValueKind::Char(c) => Ok(IntegerOrMarkerArg::Int(c as i64)),
         _ if value.is_marker() => {
             let position = if let Some(elems) = value.as_vector_data() {
                 match elems.get(2).map(|v| v.kind()) {
                     Some(ValueKind::Fixnum(n)) => Some(n),
-                    Some(ValueKind::Char(c)) => Some(c as i64),
                     _ => None,
                 }
             } else {
@@ -137,7 +133,6 @@ fn parse_integer_or_marker_arg(value: &Value) -> Result<IntegerOrMarkerArg, Flow
 fn expect_number_or_marker_count(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         ValueKind::Float => Ok(value.xfloat().floor() as i64),
         _ if value.is_marker() => match parse_integer_or_marker_arg(value)? {
             IntegerOrMarkerArg::Marker {
@@ -193,7 +188,6 @@ fn clamped_window_position_in_state(
 fn expect_fixnum(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("fixnump"), *value],
@@ -205,7 +199,6 @@ fn expect_fixnum(value: &Value) -> Result<i64, Flow> {
 fn expect_number_or_marker(value: &Value) -> Result<f64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n as f64),
-        ValueKind::Char(c) => Ok(c as i64 as f64),
         ValueKind::Float => Ok(value.xfloat()),
         _ => Err(signal(
             "wrong-type-argument",
@@ -221,20 +214,6 @@ fn expect_margin_width(value: &Value) -> Result<usize, Flow> {
         ValueKind::Nil => Ok(0),
         ValueKind::Fixnum(n) => {
             if n < 0 || n > MAX_MARGIN {
-                return Err(signal(
-                    "args-out-of-range",
-                    vec![
-                        Value::fixnum(n),
-                        Value::fixnum(0),
-                        Value::fixnum(MAX_MARGIN),
-                    ],
-                ));
-            }
-            Ok(n as usize)
-        }
-        ValueKind::Char(c) => {
-            let n = c as i64;
-            if n > MAX_MARGIN {
                 return Err(signal(
                     "args-out-of-range",
                     vec![
@@ -2119,14 +2098,12 @@ fn scroll_prefix_value(value: &Value) -> i64 {
     match value.kind() {
         ValueKind::Fixnum(n) => n,
         ValueKind::Float => value.xfloat() as i64,
-        ValueKind::Char(c) => c as i64,
         ValueKind::Symbol(id) if resolve_sym(id) == "-" => -1,
         ValueKind::Cons => {
             let car = value.cons_car();
             match car.kind() {
                 ValueKind::Fixnum(n) => n,
                 ValueKind::Float => car.xfloat() as i64,
-                ValueKind::Char(c) => c as i64,
                 _ => 1,
             }
         }

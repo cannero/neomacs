@@ -83,7 +83,6 @@ fn require_int_or_marker(val: &Value) -> Result<i64, Flow> {
     }
     match val.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), *val],

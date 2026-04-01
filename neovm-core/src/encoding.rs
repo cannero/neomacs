@@ -662,8 +662,7 @@ fn known_coding_system(name: &str) -> bool {
 pub(crate) fn builtin_char_width(args: Vec<Value>) -> EvalResult {
     expect_args("char-width", &args, 1)?;
     let code = match args[0].kind() {
-        ValueKind::Char(c) => c as i64,
-        ValueKind::Fixnum(n) => n,
+        ValueKind::Fixnum(c) => c as i64,
         other => {
             return Err(signal(
                 "wrong-type-argument",
@@ -814,8 +813,7 @@ pub(crate) fn builtin_decode_coding_string(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_char_or_string_p(args: Vec<Value>) -> EvalResult {
     expect_args("char-or-string-p", &args, 1)?;
     let is_char_or_string = match args[0].kind() {
-        ValueKind::Char(_) | ValueKind::String => true,
-        ValueKind::Fixnum(n) => (0..=MAX_CHAR_CODE).contains(&n),
+        ValueKind::Fixnum(_) | ValueKind::String => true,
         _ => false,
     };
     Ok(Value::bool_val(is_char_or_string))
@@ -825,8 +823,7 @@ pub(crate) fn builtin_char_or_string_p(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_char_displayable_p(args: Vec<Value>) -> EvalResult {
     expect_args("char-displayable-p", &args, 1)?;
     let code = match args[0].kind() {
-        ValueKind::Char(c) => c as i64,
-        ValueKind::Fixnum(n) => n,
+        ValueKind::Fixnum(c) => c as i64,
         other => {
             return Err(signal(
                 "wrong-type-argument",

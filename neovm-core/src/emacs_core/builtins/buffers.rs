@@ -76,7 +76,6 @@ pub(crate) fn expect_integer_or_marker_in_buffers(
 ) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         _other if value.is_marker() => {
             crate::emacs_core::marker::marker_position_as_int_with_buffers(buffers, value)
         }
@@ -1603,7 +1602,6 @@ pub(crate) fn builtin_compute_motion(
         .or_else(|| obarray.symbol_value("tab-width").copied())
         .and_then(|value| match value.kind() {
             ValueKind::Fixnum(n) if n > 0 => Some(n as usize),
-            ValueKind::Char(c) if (c as u32) > 0 => Some(c as usize),
             _ => None,
         })
         .unwrap_or(8);
@@ -2296,34 +2294,10 @@ fn collect_insert_pieces(args: &[Value]) -> Result<Vec<InsertPiece>, Flow> {
                 text: arg.as_str().unwrap().to_owned(),
                 text_props: get_string_text_properties_table_for_value(*arg),
             }),
-            ValueKind::Char(c) => pieces.push(InsertPiece {
+            ValueKind::Fixnum(c) => pieces.push(InsertPiece {
                 text: c.to_string(),
                 text_props: None,
             }),
-            ValueKind::Fixnum(n) => {
-                if !(0..=KEY_CHAR_CODE_MASK).contains(&n) {
-                    return Err(signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("char-or-string-p"), Value::fixnum(n)],
-                    ));
-                }
-                if let Some(c) = char::from_u32(n as u32) {
-                    pieces.push(InsertPiece {
-                        text: c.to_string(),
-                        text_props: None,
-                    });
-                } else if let Some(encoded) = encode_nonunicode_char_for_storage(n as u32) {
-                    pieces.push(InsertPiece {
-                        text: encoded,
-                        text_props: None,
-                    });
-                } else {
-                    return Err(signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("char-or-string-p"), Value::fixnum(n)],
-                    ));
-                }
-            }
             _other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -2466,12 +2440,7 @@ fn insert_pieces_in_state(
 
 pub(super) fn insert_char_code_from_value(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
-        ValueKind::Char(c) => Ok(c as i64),
-        ValueKind::Fixnum(n) if n < 0 || n > KEY_CHAR_CODE_MASK => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("characterp"), *value],
-        )),
-        ValueKind::Fixnum(n) => Ok(n),
+        ValueKind::Fixnum(c) => Ok(c as i64),
         _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), *value],

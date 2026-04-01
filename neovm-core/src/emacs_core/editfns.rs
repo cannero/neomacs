@@ -465,7 +465,6 @@ fn expect_integer_or_marker_in_buffers(
 ) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         _ if value.is_marker() => {
             super::marker::marker_position_as_int_with_buffers(buffers, value)
         }
@@ -520,18 +519,7 @@ pub(crate) fn collect_insert_text(_name: &str, args: &[Value]) -> Result<String,
                 let s = arg.as_str().unwrap().to_owned();
                 text.push_str(&s);
             }
-            ValueKind::Char(c) => text.push(c),
-            ValueKind::Fixnum(n) => {
-                // Emacs treats integers as character codes.
-                if let Some(ch) = char::from_u32(n as u32) {
-                    text.push(ch);
-                } else {
-                    return Err(signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("characterp"), *arg],
-                    ));
-                }
-            }
+            ValueKind::Fixnum(c) => text.push(char::from_u32(c as u32).unwrap_or('\0')),
             other => {
                 return Err(signal(
                     "wrong-type-argument",
@@ -862,7 +850,6 @@ pub(crate) fn builtin_group_name(args: Vec<Value>) -> EvalResult {
     expect_args("group-name", &args, 1)?;
     let gid = match args[0].kind() {
         ValueKind::Fixnum(n) => n,
-        ValueKind::Char(c) => c as i64,
         _ => {
             return Err(signal(
                 "error",
@@ -914,7 +901,6 @@ pub(crate) fn builtin_logcount(args: Vec<Value>) -> EvalResult {
     expect_args("logcount", &args, 1)?;
     let n = match args[0].kind() {
         ValueKind::Fixnum(v) => v,
-        ValueKind::Char(c) => c as i64,
         _ => {
             return Err(signal(
                 "wrong-type-argument",

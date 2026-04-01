@@ -1209,7 +1209,6 @@ fn prefix_numeric_value(value: &Value) -> i64 {
         ValueKind::Nil => 1,
         ValueKind::Fixnum(n) => n,
         ValueKind::Float => value.xfloat() as i64,
-        ValueKind::Char(c) => c as i64,
         ValueKind::Symbol(id) if resolve_sym(id) == "-" => -1,
         ValueKind::Cons => {
             let car = {
@@ -1220,7 +1219,6 @@ fn prefix_numeric_value(value: &Value) -> i64 {
             match car.kind() {
                 ValueKind::Fixnum(n) => n,
                 ValueKind::Float => car.xfloat() as i64,
-                ValueKind::Char(c) => c as i64,
                 _ => 1,
             }
         }
@@ -2817,8 +2815,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_with_vm_fallback(
 fn last_command_event_char(eval: &Context) -> Option<char> {
     let event = dynamic_or_global_symbol_value(eval, "last-command-event")?;
     match event.kind() {
-        ValueKind::Char(c) => Some(c),
-        ValueKind::Fixnum(n) if n >= 0 => char::from_u32(n as u32),
+        ValueKind::Fixnum(c) => char::from_u32(c as u32),
         _ => None,
     }
 }

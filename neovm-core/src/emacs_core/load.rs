@@ -150,7 +150,6 @@ fn format_value_for_error(v: &Value) -> String {
             format!("\"{}\"", v.as_str().unwrap_or(""))
         }
         ValueKind::Fixnum(n) => format!("{}", n),
-        ValueKind::Char(c) => format!("?{}", c),
         ValueKind::Nil => "nil".to_string(),
         ValueKind::T => "t".to_string(),
         ValueKind::Cons => {

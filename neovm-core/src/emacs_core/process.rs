@@ -1254,10 +1254,7 @@ fn signal_wrong_type_character(value: Value) -> Flow {
 
 fn char_from_codepoint_value(value: &Value) -> Result<char, Flow> {
     match value.kind() {
-        ValueKind::Char(c) => Ok(c),
-        ValueKind::Fixnum(n) if n >= 0 => {
-            char::from_u32(n as u32).ok_or_else(|| signal_wrong_type_character(*value))
-        }
+        ValueKind::Fixnum(c) => Ok(char::from_u32(c as u32).unwrap_or('\0')),
         _ => Err(signal_wrong_type_character(*value)),
     }
 }
@@ -1305,7 +1302,6 @@ pub(crate) fn sequence_value_to_env_string(value: &Value) -> Result<String, Flow
 pub(crate) fn expect_int_or_marker(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         ValueKind::Veclike(VecLikeType::Marker) => super::marker::marker_position_as_int(value),
         _ => Err(signal(
             "wrong-type-argument",
@@ -1865,7 +1861,6 @@ fn resolve_signal_process_target_in_state(
 fn parse_signal_number(value: &Value) -> Result<i32, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n as i32),
-        ValueKind::Char(c) => Ok(c as i32),
         ValueKind::String => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), *value],
@@ -2254,7 +2249,6 @@ fn parse_make_process_buffer_in_state(
 fn expect_integer(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(n),
-        ValueKind::Char(c) => Ok(c as i64),
         _ => Err(signal_wrong_type_integerp(*value)),
     }
 }
@@ -2262,7 +2256,6 @@ fn expect_integer(value: &Value) -> Result<i64, Flow> {
 fn value_as_nonnegative_integer(value: &Value) -> Option<i64> {
     match value.kind() {
         ValueKind::Fixnum(n) if n >= 0 => Some(n),
-        ValueKind::Char(c) => Some(c as i64),
         _ => None,
     }
 }
@@ -4381,7 +4374,6 @@ pub(crate) fn builtin_process_attributes_impl(args: Vec<Value>) -> EvalResult {
     expect_args("process-attributes", &args, 1)?;
     let pid = match args[0].kind() {
         ValueKind::Fixnum(n) => n,
-        ValueKind::Char(c) => c as i64,
         _ => return Err(signal_wrong_type_numberp(args[0])),
     };
     if !pid_exists(pid) {
