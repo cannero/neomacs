@@ -4479,6 +4479,10 @@ fn arith_div(vm: &Vm<'_>, a: &Value, b: &Value) -> EvalResult {
             "arith-error",
             vec![Value::string("Division by zero")],
         )),
+        (ValueKind::Fixnum(a), ValueKind::Fixnum(b)) => {
+            // Integer division — matches GNU Emacs and the interpreter's builtin_div
+            Ok(Value::fixnum(a.checked_div(b).unwrap_or(0)))
+        }
         _ => {
             let a = number_or_marker_as_f64(vm, a)?;
             let b = number_or_marker_as_f64(vm, b)?;
@@ -4488,7 +4492,7 @@ fn arith_div(vm: &Vm<'_>, a: &Value, b: &Value) -> EvalResult {
                     vec![Value::string("Division by zero")],
                 ));
             }
-            Ok(Value::make_float(a / b)) // TODO(tagged): remove next_float_id()
+            Ok(Value::make_float(a / b))
         }
     }
 }
@@ -4499,6 +4503,9 @@ fn arith_rem(a: &Value, b: &Value) -> EvalResult {
             "arith-error",
             vec![Value::string("Division by zero")],
         )),
+        (ValueKind::Fixnum(a), ValueKind::Fixnum(b)) => {
+            Ok(Value::fixnum(a.checked_rem(b).unwrap_or(0)))
+        }
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integerp"), *a],
