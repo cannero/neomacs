@@ -27,10 +27,18 @@ impl Default for StringInterner {
 
 impl StringInterner {
     pub fn new() -> Self {
-        Self {
+        let mut interner = Self {
             strings: Vec::new(),
             map: HashMap::new(),
-        }
+        };
+        // Pre-intern "nil" and "t" as SymId(0) and SymId(1) respectively.
+        // TaggedValue::NIL = Symbol(0) and TaggedValue::T = Symbol(1)
+        // rely on these exact assignments.
+        let nil_id = interner.intern("nil");
+        debug_assert_eq!(nil_id, SymId(0));
+        let t_id = interner.intern("t");
+        debug_assert_eq!(t_id, SymId(1));
+        interner
     }
 
     /// Intern a string, returning its unique id.
