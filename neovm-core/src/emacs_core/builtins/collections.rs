@@ -25,7 +25,10 @@ pub(crate) fn builtin_aref(args: Vec<Value>) -> EvalResult {
         }
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
             let idx = idx_fixnum as usize;
-            let items = args[0].as_vector_data().unwrap();
+            let items = args[0]
+                .as_vector_data()
+                .or_else(|| args[0].as_record_data())
+                .unwrap();
             let is_bool_vector =
                 items.len() >= 2 && items[0].as_symbol_name() == Some("--bool-vector--");
             if is_bool_vector {
@@ -150,7 +153,10 @@ pub(crate) fn builtin_aset(args: Vec<Value>) -> EvalResult {
         }
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
             let idx = expect_fixnum(&args[1])? as usize;
-            let items = args[0].as_vector_data().unwrap();
+            let items = args[0]
+                .as_vector_data()
+                .or_else(|| args[0].as_record_data())
+                .unwrap();
             let is_bool_vector =
                 items.len() >= 2 && items[0].as_symbol_name() == Some("--bool-vector--");
             let bool_len = if is_bool_vector {
@@ -180,13 +186,19 @@ pub(crate) fn builtin_aset(args: Vec<Value>) -> EvalResult {
                     return Err(signal("args-out-of-range", vec![args[0], args[1]]));
                 }
                 let val = Value::fixnum(if args[2].is_truthy() { 1 } else { 0 });
-                args[0].as_vector_data_mut().unwrap()[store_idx] = val;
+                args[0]
+                    .as_vector_data_mut()
+                    .or_else(|| args[0].as_record_data_mut())
+                    .unwrap()[store_idx] = val;
                 return Ok(args[2]);
             }
             if idx >= vec_len {
                 return Err(signal("args-out-of-range", vec![args[0], args[1]]));
             }
-            args[0].as_vector_data_mut().unwrap()[idx] = args[2];
+            args[0]
+                .as_vector_data_mut()
+                .or_else(|| args[0].as_record_data_mut())
+                .unwrap()[idx] = args[2];
             Ok(args[2])
         }
         ValueKind::String => {
