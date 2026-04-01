@@ -6401,3 +6401,22 @@ fn contains_opaque_value_detection() {
         "clean dotted list should not contain opaque values"
     );
 }
+
+#[test]
+fn bootstrap_cl_generic_generalizers_t() {
+    crate::test_utils::init_test_tracing();
+    // Load up to BUT NOT INCLUDING cl-generic.el
+    let mut eval = partial_bootstrap_eval_until("emacs-lisp/cl-generic", true);
+    let forms = parse_forms("(cl-generic-generalizers t)").expect("parse");
+    let result = eval.eval_forms(&forms);
+    let rendered = result
+        .iter()
+        .map(format_eval_result)
+        .collect::<Vec<_>>()
+        .join(" ");
+    tracing::info!("(cl-generic-generalizers t) => {rendered}");
+    assert!(
+        rendered.starts_with("OK"),
+        "(cl-generic-generalizers t) should succeed, got: {rendered}"
+    );
+}

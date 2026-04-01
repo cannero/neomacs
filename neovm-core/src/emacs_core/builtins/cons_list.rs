@@ -586,6 +586,14 @@ pub(crate) fn builtin_append(args: Vec<Value>) -> EvalResult {
     }
 
     let last = &args[args.len() - 1];
+    // Debug: trace when append's last arg is t (causes dotted pair ending with t)
+    if last.is_t() && !elements.is_empty() {
+        tracing::error!(
+            "append: last arg is t, will create dotted pair! nargs={} elements={}",
+            args.len(),
+            elements.len()
+        );
+    }
     if elements.is_empty() {
         return Ok(*last);
     }
