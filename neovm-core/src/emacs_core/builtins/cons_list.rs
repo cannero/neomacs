@@ -69,9 +69,10 @@ pub(crate) fn lambda_to_cons_list(value: &Value) -> Option<Value> {
 }
 
 pub(crate) fn lambda_closure_length(value: &Value) -> Option<i64> {
-    let data = value.get_lambda_data()?;
-    let has_doc_slot = data.doc_form.is_some() || data.docstring.is_some();
-    Some(if has_doc_slot { 5 } else { 3 })
+    let _data = value.get_lambda_data()?;
+    // GNU Emacs closures always have 6 slots:
+    // [0]=arglist [1]=body [2]=env [3]=depth [4]=doc [5]=interactive
+    Some(6)
 }
 
 /// Convert a Lambda value to the GNU Emacs closure vector layout:
@@ -109,23 +110,29 @@ pub fn lambda_to_closure_vector(value: &Value) -> Vec<Value> {
         None => Value::NIL,
     };
 
-    let mut result = vec![args, body, env];
-
+    // GNU Emacs closure vector layout (always 6 slots):
+    //   [0] = CLOSURE_ARGLIST — parameter list
+    //   [1] = CLOSURE_CODE — body forms (list)
+    //   [2] = CLOSURE_CONSTANTS — lexical environment
+    //   [3] = CLOSURE_STACK_DEPTH — nil for interpreted closures
+    //   [4] = CLOSURE_DOC_STRING — docstring or doc-form
+    //   [5] = CLOSURE_INTERACTIVE — interactive spec
+    let slot3 = Value::NIL; // stack depth (unused for interpreted)
     let slot4 = data
         .doc_form
-        .or_else(|| data.docstring.as_ref().map(|d| Value::string(d.clone())));
-    if let Some(slot4) = slot4 {
-        result.push(Value::NIL);
-        result.push(slot4);
-    }
+        .or_else(|| data.docstring.as_ref().map(|d| Value::string(d.clone())))
+        .unwrap_or(Value::NIL);
+    let slot5 = data.interactive.unwrap_or(Value::NIL);
+
+    let result = vec![args, body, env, slot3, slot4, slot5];
     crate::emacs_core::eval::restore_scratch_gc_roots(saved_roots);
     result
 }
 
 pub(crate) fn bytecode_closure_length(value: &Value) -> Option<i64> {
-    let bc = value.get_bytecode_data()?;
-    let has_doc_slot = bc.doc_form.is_some() || bc.docstring.is_some();
-    Some(if has_doc_slot { 5 } else { 4 })
+    let _bc = value.get_bytecode_data()?;
+    // GNU Emacs closures always have 6 slots
+    Some(6)
 }
 
 pub(crate) fn closure_vector_length(value: &Value) -> Option<i64> {
@@ -164,14 +171,20 @@ pub(crate) fn bytecode_to_closure_vector(value: &Value) -> Vec<Value> {
     // Slot 3: max stack depth
     let depth = Value::fixnum(bc.max_stack as i64);
 
-    let mut result = vec![args, code, env, depth];
-
+    // GNU Emacs closure vector layout (always 6 slots):
+    //   [0] = CLOSURE_ARGLIST
+    //   [1] = CLOSURE_CODE (bytecode string, nil for NeoVM IR)
+    //   [2] = CLOSURE_CONSTANTS (constants vector or env)
+    //   [3] = CLOSURE_STACK_DEPTH
+    //   [4] = CLOSURE_DOC_STRING
+    //   [5] = CLOSURE_INTERACTIVE
     let slot4 = bc
         .doc_form
-        .or_else(|| bc.docstring.as_ref().map(|d| Value::string(d.clone())));
-    if let Some(slot4) = slot4 {
-        result.push(slot4);
-    }
+        .or_else(|| bc.docstring.as_ref().map(|d| Value::string(d.clone())))
+        .unwrap_or(Value::NIL);
+    let slot5 = bc.interactive.unwrap_or(Value::NIL);
+
+    let result = vec![args, code, env, depth, slot4, slot5];
     crate::emacs_core::eval::restore_scratch_gc_roots(saved_roots);
     result
 }
