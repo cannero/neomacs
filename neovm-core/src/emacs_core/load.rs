@@ -947,6 +947,36 @@ where
                 print_expr(form).chars().take(120).collect::<String>(),
                 err_detail
             );
+            // Dump Lisp backtrace (like GNU's debug-early-backtrace)
+            if !eval.runtime_backtrace.is_empty() {
+                tracing::error!("  Lisp backtrace:");
+                for (j, frame) in eval.runtime_backtrace.iter().rev().enumerate() {
+                    let func_name = super::print::print_value(&frame.function);
+                    let args_str = frame
+                        .args
+                        .iter()
+                        .take(4)
+                        .map(|a| {
+                            let s = super::print::print_value(a);
+                            if s.len() > 40 {
+                                format!("{}...", &s[..37])
+                            } else {
+                                s
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    let ellipsis = if frame.args.len() > 4 { " ..." } else { "" };
+                    tracing::error!("    {j}: ({func_name} {args_str}{ellipsis})");
+                    if j >= 20 {
+                        tracing::error!(
+                            "    ... ({} more frames)",
+                            eval.runtime_backtrace.len() - j - 1
+                        );
+                        break;
+                    }
+                }
+            }
         }
         eval_result?;
         eval.gc_safe_point();
