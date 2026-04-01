@@ -1081,7 +1081,7 @@ fn extract_car_string(_name: &str, val: &Value) -> Result<String, Flow> {
             let pair_car = val.cons_car();
             let pair_cdr = val.cons_cdr();
             match pair_car.kind() {
-                ValueKind::String => Ok(val.as_str().unwrap().to_owned()),
+                ValueKind::String => Ok(pair_car.as_str().unwrap().to_owned()),
                 other => Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("stringp"), *val],
