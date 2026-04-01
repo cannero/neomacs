@@ -587,7 +587,7 @@ fn builtin_set_time_zone_rule_t() {
     let result = builtin_set_time_zone_rule(vec![Value::T]).unwrap();
     assert!(result.is_nil());
     let tz = builtin_current_time_zone(vec![]).unwrap();
-    assert_eq!(
+    assert_val_eq!(
         tz,
         Value::list(vec![Value::fixnum(0), Value::string("GMT")])
     );
@@ -601,21 +601,21 @@ fn builtin_set_time_zone_rule_fixed_offsets() {
 
     builtin_set_time_zone_rule(vec![Value::fixnum(3600)]).unwrap();
     let plus = builtin_current_time_zone(vec![]).unwrap();
-    assert_eq!(
+    assert_val_eq!(
         plus,
         Value::list(vec![Value::fixnum(3600), Value::string("+01")])
     );
 
     builtin_set_time_zone_rule(vec![Value::fixnum(-3600)]).unwrap();
     let minus = builtin_current_time_zone(vec![]).unwrap();
-    assert_eq!(
+    assert_val_eq!(
         minus,
         Value::list(vec![Value::fixnum(-3600), Value::string("-01")])
     );
 
     builtin_set_time_zone_rule(vec![Value::fixnum(1)]).unwrap();
     let one = builtin_current_time_zone(vec![]).unwrap();
-    assert_eq!(
+    assert_val_eq!(
         one,
         Value::list(vec![Value::fixnum(1), Value::string("+000001")])
     );
@@ -629,14 +629,14 @@ fn builtin_set_time_zone_rule_string_specs() {
 
     builtin_set_time_zone_rule(vec![Value::string("UTC")]).unwrap();
     let utc = builtin_current_time_zone(vec![]).unwrap();
-    assert_eq!(
+    assert_val_eq!(
         utc,
         Value::list(vec![Value::fixnum(0), Value::string("UTC")])
     );
 
     builtin_set_time_zone_rule(vec![Value::string("JST-9")]).unwrap();
     let jst = builtin_current_time_zone(vec![]).unwrap();
-    assert_eq!(
+    assert_val_eq!(
         jst,
         Value::list(vec![Value::fixnum(32400), Value::string("JST")])
     );
@@ -667,13 +667,13 @@ fn builtin_current_time_zone_with_zone_arg() {
     reset_tz_rule();
 
     let gmt = builtin_current_time_zone(vec![Value::NIL, Value::T]).unwrap();
-    assert_eq!(
+    assert_val_eq!(
         gmt,
         Value::list(vec![Value::fixnum(0), Value::string("GMT")])
     );
 
     let plus = builtin_current_time_zone(vec![Value::NIL, Value::fixnum(3600)]).unwrap();
-    assert_eq!(
+    assert_val_eq!(
         plus,
         Value::list(vec![Value::fixnum(3600), Value::string("+01")])
     );

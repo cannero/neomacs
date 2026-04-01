@@ -436,7 +436,7 @@ fn read_char_applies_resize_event_before_returning_next_keypress() {
     .unwrap();
 
     let event = ev.read_char().expect("read_char should return a keypress");
-    assert_eq!(event, Value::fixnum('a' as i64));
+    assert_val_eq!(event, Value::fixnum('a' as i64));
 
     let frame = ev.frames.get(fid).expect("frame should still be live");
     assert_eq!(frame.width, 700);
@@ -476,9 +476,9 @@ fn read_char_switches_active_kboard_to_keypress_source_frame_terminal() {
     .unwrap();
 
     let event = ev.read_char().expect("read_char should return a keypress");
-    assert_eq!(event, Value::fixnum('z' as i64));
+    assert_val_eq!(event, Value::fixnum('z' as i64));
     assert_eq!(ev.command_loop.keyboard.active_terminal_id(), 7);
-    assert_eq!(
+    assert_val_eq!(
         ev.command_loop.keyboard.input_decode_map(),
         Value::NIL,
         "raw key ingress should switch to the source frame terminal before key decoding state is used"
@@ -547,15 +547,15 @@ fn read_char_prefers_ready_keypress_over_due_timer_callback() {
     ev.input_rx = Some(rx);
 
     let event = ev.read_char().expect("read_char should return keypress");
-    assert_eq!(event, Value::fixnum('a' as i64));
-    assert_eq!(
+    assert_val_eq!(event, Value::fixnum('a' as i64));
+    assert_val_eq!(
         ev.eval_symbol("read-char-priority-timer-fired")
             .expect("timer callback flag"),
         Value::NIL
     );
 
     ev.fire_pending_timers();
-    assert_eq!(
+    assert_val_eq!(
         ev.eval_symbol("read-char-priority-timer-fired")
             .expect("timer callback flag after explicit service"),
         Value::T
@@ -602,8 +602,8 @@ fn read_char_prefers_ready_keypress_over_process_filter_callback() {
     ev.input_rx = Some(rx);
 
     let event = ev.read_char().expect("read_char should return keypress");
-    assert_eq!(event, Value::fixnum('a' as i64));
-    assert_eq!(
+    assert_val_eq!(event, Value::fixnum('a' as i64));
+    assert_val_eq!(
         ev.eval_symbol("read-char-priority-filter-data")
             .expect("process filter flag"),
         Value::NIL
@@ -614,7 +614,7 @@ fn read_char_prefers_ready_keypress_over_process_filter_callback() {
         vec![Value::fixnum(pid as i64), Value::make_float(0.1)],
     )
     .expect("accept-process-output should service process callback afterwards");
-    assert_eq!(
+    assert_val_eq!(
         ev.eval_symbol("read-char-priority-filter-data")
             .expect("process filter flag after explicit service"),
         Value::string("out\n")
@@ -656,7 +656,7 @@ fn read_char_triggers_redisplay_after_resize_event() {
     .unwrap();
 
     let event = ev.read_char().expect("read_char should return a keypress");
-    assert_eq!(event, Value::fixnum('a' as i64));
+    assert_val_eq!(event, Value::fixnum('a' as i64));
     assert_eq!(*redisplay_calls.borrow(), vec![(700, 800)]);
 }
 
@@ -705,7 +705,7 @@ fn read_char_redisplays_when_resize_arrives_after_pre_block_redisplay() {
     ev.input_rx = Some(rx);
 
     let event = ev.read_char().expect("read_char should return a keypress");
-    assert_eq!(event, Value::fixnum('a' as i64));
+    assert_val_eq!(event, Value::fixnum('a' as i64));
     assert_eq!(*redisplay_calls.borrow(), vec![(960, 640), (700, 800)]);
 }
 
@@ -751,7 +751,7 @@ fn read_char_does_not_redisplay_again_when_monitor_change_arrives_after_pre_bloc
     ev.input_rx = Some(rx);
 
     let event = ev.read_char().expect("read_char should return a keypress");
-    assert_eq!(event, Value::fixnum('a' as i64));
+    assert_val_eq!(event, Value::fixnum('a' as i64));
     assert_eq!(*redisplay_count.borrow(), 1);
 }
 
@@ -838,7 +838,7 @@ fn recursive_edit_runs_top_level_before_outer_command_loop_reads_input() {
     let result = ev
         .recursive_edit_inner()
         .expect("outer command loop should exit cleanly");
-    assert_eq!(result, Value::NIL);
+    assert_val_eq!(result, Value::NIL);
     assert!(
         ev.eval_symbol("neo-top-level-hit")
             .expect("top-level probe should be bound")
@@ -869,7 +869,7 @@ fn read_char_requeues_keypress_and_throws_on_input() {
 
     ev.obarray.set_symbol_value("throw-on-input", Value::NIL);
     let event = ev.read_char().expect("keypress should remain queued");
-    assert_eq!(event, Value::fixnum('a' as i64));
+    assert_val_eq!(event, Value::fixnum('a' as i64));
 }
 
 #[test]
@@ -925,7 +925,7 @@ fn read_char_window_close_uses_special_event_map_handler_when_loaded() {
     let logged = ev
         .eval_symbol("neo-last-delete-frame-event")
         .expect("delete-frame event should be logged");
-    assert_eq!(
+    assert_val_eq!(
         logged,
         Value::list(vec![
             Value::symbol("delete-frame"),
@@ -992,7 +992,7 @@ fn read_char_disconnected_input_uses_noelisp_terminal_teardown() {
         .is_nil(),
         "disconnected input should tear down the display terminal via noelisp delete"
     );
-    assert_eq!(
+    assert_val_eq!(
         ev.eval_expr(&parse_forms("hook-log").expect("parse hook-log")[0])
             .expect("hook-log before flush"),
         Value::NIL
@@ -1031,7 +1031,7 @@ fn eval_list_form_throws_on_pending_host_input() {
 
     ev.obarray.set_symbol_value("throw-on-input", Value::NIL);
     let event = ev.read_char().expect("keypress should remain queued");
-    assert_eq!(event, Value::fixnum('a' as i64));
+    assert_val_eq!(event, Value::fixnum('a' as i64));
 }
 
 #[test]
@@ -1060,8 +1060,8 @@ fn frame_native_width_syncs_pending_resize_without_read_char() {
     let height = crate::emacs_core::window_cmds::builtin_frame_native_height(&mut ev, vec![])
         .expect("frame-native-height should succeed");
 
-    assert_eq!(width, Value::fixnum(700));
-    assert_eq!(height, Value::fixnum(800));
+    assert_val_eq!(width, Value::fixnum(700));
+    assert_val_eq!(height, Value::fixnum(800));
 }
 
 #[test]
@@ -1095,8 +1095,8 @@ fn frame_native_width_syncs_pending_resize_behind_focus_event() {
     let height = crate::emacs_core::window_cmds::builtin_frame_native_height(&mut ev, vec![])
         .expect("frame-native-height should succeed");
 
-    assert_eq!(width, Value::fixnum(700));
-    assert_eq!(height, Value::fixnum(800));
+    assert_val_eq!(width, Value::fixnum(700));
+    assert_val_eq!(height, Value::fixnum(800));
 }
 
 #[test]
@@ -1176,7 +1176,7 @@ fn read_char_preserves_keypress_after_queued_focus_and_resize() {
     );
 
     let event = ev.read_char().expect("read_char should return a keypress");
-    assert_eq!(event, Value::fixnum('a' as i64));
+    assert_val_eq!(event, Value::fixnum('a' as i64));
 
     let frame = ev.frames.get(fid).expect("frame should still be live");
     assert_eq!(frame.width, 700);
@@ -1268,7 +1268,7 @@ fn read_key_sequence_function_translation_receives_prompt() {
         .expect("read translated key sequence");
 
     assert_eq!(keys, vec![Value::symbol("f1")]);
-    assert_eq!(
+    assert_val_eq!(
         binding,
         Value::symbol("neomacs-test-read-key-sequence-command")
     );
@@ -1277,7 +1277,7 @@ fn read_key_sequence_function_translation_receives_prompt() {
     let prompt = ev
         .eval_expr(&prompt_form[0])
         .expect("prompt should evaluate");
-    assert_eq!(prompt, Value::string("Prompt> "));
+    assert_val_eq!(prompt, Value::string("Prompt> "));
 }
 
 #[test]
@@ -1325,7 +1325,7 @@ fn read_key_sequence_continues_through_pending_suffix_translation_prefix() {
         .read_key_sequence()
         .expect("read suffix-translated sequence");
     assert_eq!(keys, vec![Value::fixnum('a' as i64), Value::symbol("f1")]);
-    assert_eq!(
+    assert_val_eq!(
         binding,
         Value::symbol("neomacs-test-suffix-translation-command")
     );
@@ -1359,11 +1359,11 @@ fn read_key_sequence_shift_translates_uppercase_binding() {
     let (keys, binding) = ev.read_key_sequence().expect("read shifted key");
 
     assert_eq!(keys, vec![Value::fixnum('a' as i64)]);
-    assert_eq!(
+    assert_val_eq!(
         binding,
         Value::symbol("neomacs-test-shift-translation-command")
     );
-    assert_eq!(
+    assert_val_eq!(
         ev.eval_symbol("this-command-keys-shift-translated")
             .expect("shift translation flag"),
         Value::T
@@ -1404,11 +1404,11 @@ fn read_key_sequence_dont_downcase_last_restores_original_event() {
         .expect("read shifted key without downcasing");
 
     assert_eq!(keys, vec![Value::fixnum('A' as i64)]);
-    assert_eq!(
+    assert_val_eq!(
         binding,
         Value::symbol("neomacs-test-shift-translation-command")
     );
-    assert_eq!(
+    assert_val_eq!(
         ev.eval_symbol("this-command-keys-shift-translated")
             .expect("shift translation flag"),
         Value::NIL
@@ -1432,8 +1432,8 @@ fn read_key_sequence_undefined_shift_translation_restores_original_event() {
     let (keys, binding) = ev.read_key_sequence().expect("read undefined shifted key");
 
     assert_eq!(keys, vec![Value::fixnum('A' as i64)]);
-    assert_eq!(binding, Value::symbol("self-insert-command"));
-    assert_eq!(
+    assert_val_eq!(binding, Value::symbol("self-insert-command"));
+    assert_val_eq!(
         ev.eval_symbol("this-command-keys-shift-translated")
             .expect("shift translation flag"),
         Value::NIL
@@ -1470,11 +1470,11 @@ fn read_key_sequence_shift_translates_shifted_function_key() {
         .expect("read shifted function-key sequence");
 
     assert_eq!(keys, vec![Value::symbol("f1")]);
-    assert_eq!(
+    assert_val_eq!(
         binding,
         Value::symbol("neomacs-test-shifted-function-command")
     );
-    assert_eq!(
+    assert_val_eq!(
         ev.eval_symbol("this-command-keys-shift-translated")
             .expect("shift translation flag"),
         Value::T
@@ -1501,7 +1501,7 @@ fn read_char_returns_lispy_switch_frame_for_focus_event() {
     let event = ev
         .read_char()
         .expect("read_char should surface switch-frame");
-    assert_eq!(
+    assert_val_eq!(
         event,
         Value::list(vec![
             Value::symbol("switch-frame"),
@@ -1552,7 +1552,7 @@ fn read_key_sequence_defers_switch_frame_until_after_current_key_sequence() {
         keys,
         vec![Value::fixnum('a' as i64), Value::fixnum('b' as i64)]
     );
-    assert_eq!(
+    assert_val_eq!(
         binding,
         Value::symbol("neomacs-test-switch-frame-deferred-command")
     );
@@ -1560,7 +1560,7 @@ fn read_key_sequence_defers_switch_frame_until_after_current_key_sequence() {
     let deferred = ev
         .read_char()
         .expect("deferred switch-frame should be unread first");
-    assert_eq!(
+    assert_val_eq!(
         deferred,
         Value::list(vec![
             Value::symbol("switch-frame"),
@@ -1609,7 +1609,7 @@ fn read_key_sequence_can_return_switch_frame_at_sequence_start() {
             Value::make_frame(target_frame),
         ])]
     );
-    assert_eq!(binding, Value::symbol("handle-switch-frame"));
+    assert_val_eq!(binding, Value::symbol("handle-switch-frame"));
 }
 
 #[test]
@@ -1638,9 +1638,9 @@ fn special_event_map_bootstraps_delete_frame_and_focus_handlers() {
         true,
     );
 
-    assert_eq!(delete_frame, Value::symbol("handle-delete-frame"));
-    assert_eq!(focus_in, Value::symbol("handle-focus-in"));
-    assert_eq!(focus_out, Value::symbol("handle-focus-out"));
+    assert_val_eq!(delete_frame, Value::symbol("handle-delete-frame"));
+    assert_val_eq!(focus_in, Value::symbol("handle-focus-in"));
+    assert_val_eq!(focus_out, Value::symbol("handle-focus-out"));
 }
 
 #[test]
@@ -1680,7 +1680,7 @@ fn read_char_updates_monitor_snapshot_and_runs_display_monitor_hooks() {
     let event = ev
         .read_char()
         .expect("read_char should continue past monitor change event");
-    assert_eq!(event, Value::fixnum('x' as i64));
+    assert_val_eq!(event, Value::fixnum('x' as i64));
 
     let snapshot = crate::emacs_core::builtins::neomacs_monitor_info_snapshot();
     assert_eq!(snapshot.len(), 1);
@@ -1723,7 +1723,7 @@ fn read_char_returns_lispy_select_window_for_transport_event() {
     let event = ev
         .read_char()
         .expect("read_char should surface select-window");
-    assert_eq!(
+    assert_val_eq!(
         event,
         Value::list(vec![
             Value::symbol("select-window"),
@@ -1782,7 +1782,7 @@ fn read_key_sequence_defers_select_window_until_after_current_key_sequence() {
         keys,
         vec![Value::fixnum('a' as i64), Value::fixnum('b' as i64)]
     );
-    assert_eq!(
+    assert_val_eq!(
         binding,
         Value::symbol("neomacs-test-select-window-deferred-command")
     );
@@ -1790,7 +1790,7 @@ fn read_key_sequence_defers_select_window_until_after_current_key_sequence() {
     let deferred = ev
         .read_char()
         .expect("deferred select-window should be unread first");
-    assert_eq!(
+    assert_val_eq!(
         deferred,
         Value::list(vec![
             Value::symbol("select-window"),
@@ -1853,7 +1853,7 @@ fn read_key_sequence_can_return_select_window_at_sequence_start() {
             Value::list(vec![Value::make_window(w2.0)]),
         ])]
     );
-    assert_eq!(binding, Value::symbol("neomacs-test-handle-select-window"));
+    assert_val_eq!(binding, Value::symbol("neomacs-test-handle-select-window"));
 }
 
 #[test]
@@ -1926,19 +1926,19 @@ fn read_char_mouse_press_uses_clicked_window_geometry() {
     let position = event_slots[1];
     let position_slots = crate::emacs_core::value::list_to_vec(&position).expect("mouse posn list");
 
-    assert_eq!(event_slots[0], Value::symbol("down-mouse-1"));
-    assert_eq!(position_slots[0], Value::make_window(w2.0));
-    assert_eq!(position_slots[1], Value::fixnum(77));
-    assert_eq!(
+    assert_val_eq!(event_slots[0], Value::symbol("down-mouse-1"));
+    assert_val_eq!(position_slots[0], Value::make_window(w2.0));
+    assert_val_eq!(position_slots[1], Value::fixnum(77));
+    assert_val_eq!(
         position_slots[2],
         Value::cons(Value::fixnum(20), Value::fixnum(10))
     );
-    assert_eq!(position_slots[5], Value::fixnum(77));
-    assert_eq!(
+    assert_val_eq!(position_slots[5], Value::fixnum(77));
+    assert_val_eq!(
         position_slots[6],
         Value::cons(Value::fixnum(2), Value::fixnum(0))
     );
-    assert_eq!(
+    assert_val_eq!(
         position_slots[9],
         Value::cons(Value::fixnum(8), Value::fixnum(16))
     );
@@ -2030,9 +2030,9 @@ fn read_key_sequence_uses_clicked_window_local_map_for_mouse_event() {
     let position = crate::emacs_core::value::list_to_vec(&keys[0]).expect("event list")[1];
     let position_slots = crate::emacs_core::value::list_to_vec(&position).expect("mouse posn list");
 
-    assert_eq!(binding, Value::symbol("neomacs-mouse-click-target-command"));
-    assert_eq!(position_slots[0], Value::make_window(w2.0));
-    assert_eq!(position_slots[5], Value::fixnum(77));
+    assert_val_eq!(binding, Value::symbol("neomacs-mouse-click-target-command"));
+    assert_val_eq!(position_slots[0], Value::make_window(w2.0));
+    assert_val_eq!(position_slots[5], Value::fixnum(77));
 }
 
 #[test]
@@ -2130,13 +2130,13 @@ fn read_key_sequence_drops_unbound_down_mouse_before_bound_click() {
     let position = crate::emacs_core::value::list_to_vec(&keys[0]).expect("event list")[1];
     let position_slots = crate::emacs_core::value::list_to_vec(&position).expect("mouse posn list");
 
-    assert_eq!(binding, Value::symbol("neomacs-mouse-click-target-command"));
+    assert_val_eq!(binding, Value::symbol("neomacs-mouse-click-target-command"));
     assert_eq!(
         keys,
         vec![Value::list(vec![Value::symbol("mouse-1"), position])]
     );
-    assert_eq!(position_slots[0], Value::make_window(w2.0));
-    assert_eq!(position_slots[5], Value::fixnum(77));
+    assert_val_eq!(position_slots[0], Value::make_window(w2.0));
+    assert_val_eq!(position_slots[5], Value::fixnum(77));
 }
 
 #[test]
@@ -2186,7 +2186,7 @@ fn read_key_sequence_drops_unbound_down_mouse_without_losing_keyboard_prefix() {
         .read_key_sequence()
         .expect("read prefixed mouse sequence");
 
-    assert_eq!(binding, Value::symbol("neomacs-prefixed-mouse-command"));
+    assert_val_eq!(binding, Value::symbol("neomacs-prefixed-mouse-command"));
     assert_eq!(
         keys,
         vec![Value::fixnum('a' as i64), Value::symbol("mouse-1")]
@@ -2221,7 +2221,7 @@ fn read_key_sequence_reduces_unbound_triple_mouse_to_bound_click() {
 
     let (keys, binding) = ev.read_key_sequence().expect("read triple mouse sequence");
 
-    assert_eq!(binding, Value::symbol("neomacs-triple-mouse-command"));
+    assert_val_eq!(binding, Value::symbol("neomacs-triple-mouse-command"));
     assert_eq!(keys, vec![Value::symbol("mouse-1")]);
 }
 
@@ -2324,8 +2324,8 @@ fn read_key_sequence_uses_clicked_window_buffer_local_minor_mode_maps() {
     let position = crate::emacs_core::value::list_to_vec(&keys[0]).expect("event list")[1];
     let position_slots = crate::emacs_core::value::list_to_vec(&position).expect("mouse posn list");
 
-    assert_eq!(binding, Value::symbol("neomacs-mouse-minor-mode-command"));
-    assert_eq!(position_slots[0], Value::make_window(w2.0));
+    assert_val_eq!(binding, Value::symbol("neomacs-mouse-minor-mode-command"));
+    assert_val_eq!(position_slots[0], Value::make_window(w2.0));
     assert_eq!(ev.buffers.current_buffer_id(), Some(original_buffer));
 }
 
@@ -2398,10 +2398,10 @@ fn read_key_sequence_prefixes_mode_line_mouse_click_for_lookup() {
     let position = crate::emacs_core::value::list_to_vec(&keys[1]).expect("event list")[1];
     let position_slots = crate::emacs_core::value::list_to_vec(&position).expect("mouse posn list");
 
-    assert_eq!(binding, Value::symbol("neomacs-mode-line-click-command"));
-    assert_eq!(keys[0], Value::symbol("mode-line"));
-    assert_eq!(position_slots[0], Value::make_window(w2.0));
-    assert_eq!(position_slots[1], Value::symbol("mode-line"));
+    assert_val_eq!(binding, Value::symbol("neomacs-mode-line-click-command"));
+    assert_val_eq!(keys[0], Value::symbol("mode-line"));
+    assert_val_eq!(position_slots[0], Value::make_window(w2.0));
+    assert_val_eq!(position_slots[1], Value::symbol("mode-line"));
 }
 
 #[test]
@@ -2425,13 +2425,13 @@ fn clear_current_message_runs_echo_area_clear_hook_once_when_message_present() {
     assert_eq!(ev.current_message_text(), None);
 
     let count_form = parse_forms("echo-clear-count").expect("parse count");
-    assert_eq!(
+    assert_val_eq!(
         ev.eval_expr(&count_form[0]).expect("echo-clear-count"),
         Value::fixnum(1)
     );
 
     ev.clear_current_message();
-    assert_eq!(
+    assert_val_eq!(
         ev.eval_expr(&count_form[0]).expect("echo-clear-count"),
         Value::fixnum(1)
     );
@@ -2502,7 +2502,7 @@ fn redisplay_preserves_non_resize_input_for_read_char() {
     let event = ev
         .read_char()
         .expect("read_char should return queued keypress");
-    assert_eq!(event, Value::fixnum('a' as i64));
+    assert_val_eq!(event, Value::fixnum('a' as i64));
 }
 
 #[test]
@@ -2537,7 +2537,7 @@ fn fire_pending_timers_executes_lisp_callbacks() {
 
     ev.fire_pending_timers();
 
-    assert_eq!(
+    assert_val_eq!(
         ev.eval_symbol("vm-timer-fired")
             .expect("timer flag should be bound"),
         Value::symbol("done")
@@ -2631,7 +2631,7 @@ fn fire_pending_timers_prefers_more_overdue_ordinary_timer_over_idle_timer() {
 
     ev.fire_pending_timers();
 
-    assert_eq!(
+    assert_val_eq!(
         ev.eval_symbol("vm-timer-order")
             .expect("timer order should be recorded"),
         Value::list(vec![Value::symbol("ordinary"), Value::symbol("idle")])
@@ -2680,7 +2680,7 @@ fn fire_pending_timers_prefers_more_overdue_idle_timer_over_ordinary_timer() {
 
     ev.fire_pending_timers();
 
-    assert_eq!(
+    assert_val_eq!(
         ev.eval_symbol("vm-timer-order")
             .expect("timer order should be recorded"),
         Value::list(vec![Value::symbol("idle"), Value::symbol("ordinary")])
@@ -2768,8 +2768,8 @@ fn read_char_fires_bootstrapped_gnu_run_with_timer_while_waiting_for_input() {
     let event = ev
         .read_char()
         .expect("read_char should return queued keypress");
-    assert_eq!(event, Value::fixnum('a' as i64));
-    assert_eq!(
+    assert_val_eq!(event, Value::fixnum('a' as i64));
+    assert_val_eq!(
         ev.eval_symbol("vm-timer-fired")
             .expect("timer flag should be bound"),
         Value::symbol("done")
@@ -2815,8 +2815,8 @@ fn read_char_fires_bootstrapped_gnu_run_with_idle_timer_while_waiting_for_input(
         .read_char()
         .expect("read_char should return queued keypress");
     eprintln!("idle test: read_char returned {:?}", event);
-    assert_eq!(event, Value::fixnum('a' as i64));
-    assert_eq!(
+    assert_val_eq!(event, Value::fixnum('a' as i64));
+    assert_val_eq!(
         ev.eval_symbol("vm-idle-fired")
             .expect("idle timer flag should be bound"),
         Value::symbol("done")
@@ -2829,7 +2829,7 @@ fn read_char_fires_bootstrapped_gnu_run_with_idle_timer_while_waiting_for_input(
     assert!(idle_parts[0].as_int().is_some());
     assert!(idle_parts[1].as_int().is_some());
     assert!(idle_parts[2].as_int().is_some());
-    assert_eq!(ev.current_idle_time_value(), Value::NIL);
+    assert_val_eq!(ev.current_idle_time_value(), Value::NIL);
 }
 
 #[test]
@@ -3153,7 +3153,7 @@ fn recent_input_events_are_bounded() {
     }
     let recent = ev.recent_input_events();
     assert_eq!(recent.len(), RECENT_INPUT_EVENT_LIMIT);
-    assert_eq!(recent[0], Value::fixnum(1));
+    assert_val_eq!(recent[0], Value::fixnum(1));
     assert_eq!(
         recent.last(),
         Some(&Value::fixnum(RECENT_INPUT_EVENT_LIMIT as i64))
@@ -6596,7 +6596,7 @@ fn current_window_configuration_saves_selected_window_live_point() {
     let result = ev
         .eval_expr(&forms[0])
         .expect("current-window-configuration round-trip should evaluate");
-    assert_eq!(
+    assert_val_eq!(
         result,
         Value::list(vec![Value::fixnum(10), Value::fixnum(10)])
     );
@@ -6742,13 +6742,13 @@ fn input_pending_p_filters_default_ignored_events_like_gnu() {
 
     let filtered = crate::emacs_core::reader::builtin_input_pending_p(&mut ev, vec![])
         .expect("default input-pending-p should succeed");
-    assert_eq!(filtered, Value::NIL);
+    assert_val_eq!(filtered, Value::NIL);
 
     ev.obarray
         .set_symbol_value("input-pending-p-filter-events", Value::NIL);
     let unfiltered = crate::emacs_core::reader::builtin_input_pending_p(&mut ev, vec![])
         .expect("unfiltered input-pending-p should succeed");
-    assert_eq!(unfiltered, Value::T);
+    assert_val_eq!(unfiltered, Value::T);
 }
 
 #[test]

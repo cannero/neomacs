@@ -9,19 +9,19 @@ fn ccl_programp_validates_shape_and_type() {
         Value::vector(vec![Value::fixnum(-1), Value::fixnum(0), Value::fixnum(0)]);
     let invalid_header_mode =
         Value::vector(vec![Value::fixnum(10), Value::fixnum(4), Value::fixnum(0)]);
-    assert_eq!(
+    assert_val_eq!(
         builtin_ccl_program_p_impl(vec![program]).expect("valid program"),
         Value::T
     );
-    assert_eq!(
+    assert_val_eq!(
         builtin_ccl_program_p_impl(vec![invalid_program]).expect("invalid program"),
         Value::NIL
     );
-    assert_eq!(
+    assert_val_eq!(
         builtin_ccl_program_p_impl(vec![invalid_negative]).expect("invalid program"),
         Value::NIL
     );
-    assert_eq!(
+    assert_val_eq!(
         builtin_ccl_program_p_impl(vec![invalid_header_mode]).expect("invalid program"),
         Value::NIL
     );
@@ -29,7 +29,7 @@ fn ccl_programp_validates_shape_and_type() {
 
 #[test]
 fn ccl_programp_accepts_registered_symbol_designator() {
-    assert_eq!(
+    assert_val_eq!(
         builtin_ccl_program_p_impl(vec![Value::symbol("ccl-program-p-unregistered")])
             .expect("unregistered symbol should be nil"),
         Value::NIL
@@ -39,7 +39,7 @@ fn ccl_programp_accepts_registered_symbol_designator() {
         Value::vector(vec![Value::fixnum(10), Value::fixnum(0), Value::fixnum(0)]),
     ])
     .expect("registration should succeed");
-    assert_eq!(
+    assert_val_eq!(
         builtin_ccl_program_p_impl(vec![Value::symbol("ccl-program-p-registered")])
             .expect("registered symbol should be accepted"),
         Value::T
@@ -54,7 +54,7 @@ fn ccl_execute_requires_registers_vector_length_eight() {
     ])
     .expect_err("registers length should be checked");
     match err {
-        Flow::Signal(sig) => assert_eq!(
+        Flow::Signal(sig) => assert_val_eq!(
             sig.data[0],
             Value::string("Length of vector REGISTERS is not 8")
         ),
@@ -79,7 +79,7 @@ fn ccl_execute_reports_invalid_program_before_success() {
     ])
     .expect_err("non-vector program must be rejected");
     match err {
-        Flow::Signal(sig) => assert_eq!(sig.data[0], Value::string("Invalid CCL program")),
+        Flow::Signal(sig) => assert_val_eq!(sig.data[0], Value::string("Invalid CCL program")),
         other => panic!("expected error signal, got {other:?}"),
     }
 }
@@ -98,7 +98,7 @@ fn ccl_execute_on_string_requires_status_vector_length_nine() {
     ])
     .expect_err("status length should be checked");
     match err {
-        Flow::Signal(sig) => assert_eq!(
+        Flow::Signal(sig) => assert_val_eq!(
             sig.data[0],
             Value::string("Length of vector STATUS is not 9")
         ),
@@ -193,8 +193,8 @@ fn register_ccl_program_requires_vector_when_program_non_nil() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data[0], Value::symbol("vectorp"));
-            assert_eq!(sig.data[1], Value::fixnum(1));
+            assert_val_eq!(sig.data[0], Value::symbol("vectorp"));
+            assert_val_eq!(sig.data[1], Value::fixnum(1));
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
@@ -210,7 +210,7 @@ fn register_ccl_program_accepts_nil_program() {
     }
     let programp = builtin_ccl_program_p_impl(vec![Value::symbol("foo-nil")])
         .expect("registered nil program should resolve as valid");
-    assert_eq!(programp, Value::T);
+    assert_val_eq!(programp, Value::T);
 }
 
 #[test]
@@ -222,7 +222,7 @@ fn register_ccl_program_rejects_invalid_program_shape() {
     .expect_err("invalid program must be rejected");
     match err {
         Flow::Signal(sig) => {
-            assert_eq!(sig.data[0], Value::string("Error in CCL program"));
+            assert_val_eq!(sig.data[0], Value::string("Error in CCL program"));
         }
         other => panic!("expected error signal, got {other:?}"),
     }
@@ -238,7 +238,7 @@ fn register_ccl_program_rejects_second_header_out_of_range() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "error");
-            assert_eq!(sig.data[0], Value::string("Error in CCL program"));
+            assert_val_eq!(sig.data[0], Value::string("Error in CCL program"));
         }
         other => panic!("expected error signal, got {other:?}"),
     }
@@ -286,8 +286,8 @@ fn register_code_conversion_map_requires_vector_map() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data[0], Value::symbol("vectorp"));
-            assert_eq!(sig.data[1], Value::fixnum(1));
+            assert_val_eq!(sig.data[0], Value::symbol("vectorp"));
+            assert_val_eq!(sig.data[1], Value::fixnum(1));
         }
         other => panic!("expected wrong-type-argument signal, got {other:?}"),
     }
@@ -376,7 +376,7 @@ fn ccl_execute_accepts_registered_symbol_program_designator() {
     .expect_err("symbol designator should resolve to registered program");
     match err {
         Flow::Signal(sig) => {
-            assert_eq!(
+            assert_val_eq!(
                 sig.data[0],
                 Value::string("Error in CCL program at 6th code")
             );
@@ -415,7 +415,7 @@ fn ccl_execute_on_string_accepts_registered_symbol_program_designator() {
     .expect_err("symbol designator should resolve to registered program");
     match err {
         Flow::Signal(sig) => {
-            assert_eq!(
+            assert_val_eq!(
                 sig.data[0],
                 Value::string("Error in CCL program at 6th code")
             );

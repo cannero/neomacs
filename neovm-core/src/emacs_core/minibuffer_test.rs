@@ -5,14 +5,14 @@ use crate::buffer::BufferId;
 
 #[test]
 fn normalize_symbol_reader_default_uses_list_head_and_symbol_name() {
-    assert_eq!(
+    assert_val_eq!(
         normalize_symbol_reader_default(Value::list(vec![
             Value::symbol("forward-char"),
             Value::symbol("backward-char"),
         ])),
         Value::string("forward-char")
     );
-    assert_eq!(
+    assert_val_eq!(
         normalize_symbol_reader_default(Value::symbol("fill-column")),
         Value::string("fill-column")
     );
@@ -23,14 +23,14 @@ fn normalize_buffer_reader_default_uses_list_head_and_live_buffer_name() {
     let mut eval = crate::emacs_core::eval::Context::new();
     let buf_id = eval.buffers.create_buffer(" minibuffer-default ");
 
-    assert_eq!(
+    assert_val_eq!(
         normalize_buffer_reader_default(
             &eval.buffers,
             Value::list(vec![Value::make_buffer(buf_id), Value::string("fallback")]),
         ),
         Value::string(" minibuffer-default ")
     );
-    assert_eq!(
+    assert_val_eq!(
         normalize_buffer_reader_default(&eval.buffers, Value::make_buffer(buf_id)),
         Value::string(" minibuffer-default ")
     );
@@ -49,10 +49,10 @@ fn read_buffer_completing_args_use_live_buffer_names_and_normalized_default() {
             Value::symbol("predicate"),
         ],
     );
-    assert_eq!(args[0], Value::string("Buffer: "));
-    assert_eq!(args[2], Value::symbol("predicate"));
-    assert_eq!(args[3], Value::T);
-    assert_eq!(args[6], Value::string(" target-buffer "));
+    assert_val_eq!(args[0], Value::string("Buffer: "));
+    assert_val_eq!(args[2], Value::symbol("predicate"));
+    assert_val_eq!(args[3], Value::T);
+    assert_val_eq!(args[6], Value::string(" target-buffer "));
     let names = super::value_to_string_list(&args[1]);
     assert!(names.contains(&" target-buffer ".to_string()));
 }
@@ -83,7 +83,7 @@ fn finish_read_command_with_minibuffer_normalizes_default_and_interns_result() {
         },
     )
     .unwrap();
-    assert_eq!(result, Value::symbol("next-line"));
+    assert_val_eq!(result, Value::symbol("next-line"));
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn finish_read_variable_with_minibuffer_normalizes_default_and_interns_result() 
         },
     )
     .unwrap();
-    assert_eq!(result, Value::symbol("tab-width"));
+    assert_val_eq!(result, Value::symbol("tab-width"));
 }
 
 #[test]
@@ -622,27 +622,27 @@ fn eval_minibuffer_runtime_state_tracks_active_prompt_and_contents() {
         .read_from_minibuffer(minibuf_id, "Prompt: ", Some("value"), None)
         .expect("enter minibuffer");
 
-    assert_eq!(
+    assert_val_eq!(
         builtin_minibuffer_prompt_ctx(&mut eval, vec![]).unwrap(),
         Value::string("Prompt: ")
     );
-    assert_eq!(
+    assert_val_eq!(
         builtin_minibuffer_contents_ctx(&mut eval, vec![]).unwrap(),
         Value::string("value")
     );
-    assert_eq!(
+    assert_val_eq!(
         builtin_minibuffer_contents_no_properties_ctx(&mut eval, vec![]).unwrap(),
         Value::string("value")
     );
-    assert_eq!(
+    assert_val_eq!(
         builtin_minibuffer_depth_ctx(&mut eval, vec![]).unwrap(),
         Value::fixnum(1)
     );
-    assert_eq!(
+    assert_val_eq!(
         builtin_minibufferp_ctx(&mut eval, vec![]).unwrap(),
         Value::T
     );
-    assert_eq!(
+    assert_val_eq!(
         builtin_minibufferp_ctx(&mut eval, vec![Value::NIL, Value::T]).unwrap(),
         Value::T
     );

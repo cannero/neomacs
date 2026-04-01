@@ -465,7 +465,7 @@ fn read_event_consumes_non_character_event_and_preserves_tail() {
         Value::list(vec![Value::symbol("foo"), Value::fixnum(97)]),
     );
     let result = builtin_read_event(&mut ev, vec![]).unwrap();
-    assert_eq!(result, Value::symbol("foo"));
+    assert_val_eq!(result, Value::symbol("foo"));
     assert_eq!(
         ev.obarray.symbol_value("unread-command-events"),
         Some(&Value::list(vec![Value::fixnum(97)]))
@@ -493,7 +493,7 @@ fn read_event_preserves_trailing_events_after_non_character() {
         Value::list(vec![Value::symbol("foo"), Value::char('a')]),
     );
     let result = builtin_read_event(&mut ev, vec![]).unwrap();
-    assert_eq!(result, Value::symbol("foo"));
+    assert_val_eq!(result, Value::symbol("foo"));
     assert_eq!(
         ev.obarray.symbol_value("unread-command-events"),
         Some(&Value::list(vec![Value::char('a')]))

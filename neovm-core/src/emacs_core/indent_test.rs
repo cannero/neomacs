@@ -191,10 +191,10 @@ fn eval_column_and_indentation_subset() {
     .expect("parse forms");
 
     let col = ev.eval(&forms[0]).expect("eval current-column");
-    assert_eq!(col, Value::fixnum(2));
+    assert_val_eq!(col, Value::fixnum(2));
 
     let indent = ev.eval(&forms[1]).expect("eval current-indentation");
-    assert_eq!(indent, Value::fixnum(2));
+    assert_val_eq!(indent, Value::fixnum(2));
 
     let move_result = ev.eval(&forms[2]).expect("eval move-to-column");
     let items = list_to_vec(&move_result).expect("list result");
@@ -236,8 +236,8 @@ fn eval_move_to_column_force_subset() {
 
     let first = ev.eval(&forms[0]).expect("eval first force case");
     let first_items = list_to_vec(&first).expect("first list");
-    assert_eq!(first_items[0], Value::fixnum(10));
-    assert_eq!(first_items[1], Value::fixnum(7));
+    assert_val_eq!(first_items[0], Value::fixnum(10));
+    assert_val_eq!(first_items[1], Value::fixnum(7));
     assert_eq!(
         list_to_vec(&first_items[2]).expect("first buffer bytes"),
         vec![
@@ -252,8 +252,8 @@ fn eval_move_to_column_force_subset() {
 
     let second = ev.eval(&forms[1]).expect("eval second force case");
     let second_items = list_to_vec(&second).expect("second list");
-    assert_eq!(second_items[0], Value::fixnum(5));
-    assert_eq!(second_items[1], Value::fixnum(6));
+    assert_val_eq!(second_items[0], Value::fixnum(5));
+    assert_val_eq!(second_items[1], Value::fixnum(6));
     assert_eq!(
         list_to_vec(&second_items[2]).expect("second buffer bytes"),
         vec![
@@ -363,7 +363,7 @@ fn gnu_indent_region_matches_indent_el() {
     let fourth = ev
         .eval(&forms[3])
         .expect("eval indent-region non-numeric column");
-    assert_eq!(fourth, Value::T);
+    assert_val_eq!(fourth, Value::T);
 }
 
 #[test]
@@ -414,7 +414,7 @@ fn gnu_indent_according_to_mode_matches_indent_el() {
         ),
         Err(err) => panic!("eval indent-according-to-mode point: {err:?}"),
     };
-    assert_eq!(second, Value::fixnum(2));
+    assert_val_eq!(second, Value::fixnum(2));
 }
 
 #[test]

@@ -158,7 +158,7 @@ fn test_eq_semantics() {
     assert_eq!(c1, c3);
 
     // nil eq nil
-    assert_eq!(TaggedValue::NIL, TaggedValue::NIL);
+    assert_val_eq!(TaggedValue::NIL, TaggedValue::NIL);
 
     // Float eq: different allocations = not eq (pointer identity)
     let f1 = heap.alloc_float(3.14);

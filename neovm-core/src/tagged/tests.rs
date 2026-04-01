@@ -6,7 +6,7 @@ use crate::emacs_core::intern::SymId;
 
 #[test]
 fn nil_is_zero() {
-    assert_eq!(TaggedValue::NIL.bits(), 0);
+    assert_val_eq!(TaggedValue::NIL.bits(), 0);
     assert!(TaggedValue::NIL.is_nil());
     assert!(TaggedValue::NIL.is_symbol());
     assert!(TaggedValue::NIL.is_list());
@@ -16,11 +16,11 @@ fn nil_is_zero() {
 
 #[test]
 fn t_is_symbol_1() {
-    assert_eq!(TaggedValue::T.bits(), 8); // 1 << 3
+    assert_val_eq!(TaggedValue::T.bits(), 8); // 1 << 3
     assert!(TaggedValue::T.is_t());
     assert!(TaggedValue::T.is_symbol());
     assert!(!TaggedValue::T.is_nil());
-    assert_eq!(TaggedValue::T.as_symbol_id(), Some(SymId(1)));
+    assert_val_eq!(TaggedValue::T.as_symbol_id(), Some(SymId(1)));
 }
 
 #[test]
@@ -272,7 +272,7 @@ fn equality_identity() {
     assert_ne!(a, c);
 
     // nil == nil
-    assert_eq!(TaggedValue::NIL, TaggedValue::NIL);
+    assert_val_eq!(TaggedValue::NIL, TaggedValue::NIL);
 
     // Symbol identity
     let s1 = TaggedValue::from_sym_id(SymId(5));

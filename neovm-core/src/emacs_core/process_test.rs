@@ -1398,10 +1398,10 @@ fn accept_process_output_integer_just_this_one_suppresses_timers() {
         .eval_symbol("apio-wait-timer-fired")
         .expect("timer flag after unrestricted wait");
 
-    assert_eq!(first, Value::NIL);
-    assert_eq!(after_first, Value::NIL);
-    assert_eq!(second, Value::NIL);
-    assert_eq!(after_second, Value::T);
+    assert_val_eq!(first, Value::NIL);
+    assert_val_eq!(after_first, Value::NIL);
+    assert_val_eq!(second, Value::NIL);
+    assert_val_eq!(after_second, Value::T);
 }
 
 #[test]
@@ -1427,7 +1427,7 @@ fn accept_process_output_timer_preserves_deactivate_mark_like_gnu() {
     builtin_accept_process_output(&mut ev, vec![Value::NIL, Value::make_float(0.05)])
         .expect("accept-process-output should service timer");
 
-    assert_eq!(
+    assert_val_eq!(
         ev.eval_symbol("deactivate-mark")
             .expect("deactivate-mark after timer callback"),
         Value::symbol("keep")
@@ -1502,8 +1502,8 @@ fn accept_process_output_runs_timer_before_filter_and_sentinel_like_gnu() {
         .eval_symbol("apio-order-events")
         .expect("ordering event list");
 
-    assert_eq!(first, Value::T);
-    assert_eq!(second, Value::NIL);
+    assert_val_eq!(first, Value::T);
+    assert_val_eq!(second, Value::NIL);
     assert_eq!(
         format!("{}", events_after_first),
         r#"(timer (filter "out
@@ -1599,7 +1599,7 @@ fn accept_process_output_runs_gnu_timer_then_internal_timer_before_process_callb
         .eval_symbol("apio-full-order")
         .expect("mixed ordering event list");
 
-    assert_eq!(first, Value::T);
+    assert_val_eq!(first, Value::T);
     assert_eq!(
         format!("{}", events_after_first),
         r#"(gnu rust (filter "out
@@ -1623,7 +1623,7 @@ fn accept_process_output_runs_default_process_filter() {
         .spawn_child(pid, false)
         .expect("spawn output process");
 
-    assert_eq!(
+    assert_val_eq!(
         builtin_process_filter(&mut ev, vec![Value::fixnum(pid as i64)]).expect("process-filter"),
         Value::symbol("internal-default-process-filter")
     );
@@ -1648,8 +1648,8 @@ fn accept_process_output_runs_default_process_filter() {
         .expect("process buffer")
         .buffer_string();
 
-    assert_eq!(first, Value::T);
-    assert_eq!(second, Value::NIL);
+    assert_val_eq!(first, Value::T);
+    assert_val_eq!(second, Value::NIL);
     assert_eq!(text, "out\n");
 }
 
@@ -1699,7 +1699,7 @@ fn accept_process_output_restores_current_buffer_and_match_data() {
         .eval_expr(&before_match[0])
         .expect("capture match-data after callback");
 
-    assert_eq!(result, Value::T);
+    assert_val_eq!(result, Value::T);
     assert_eq!(ev.buffers.current_buffer_id(), before_buffer);
     assert_eq!(after_match_data, before_match_data);
 }
@@ -1880,12 +1880,12 @@ fn sleep_for_uses_shared_wait_path_for_process_output_and_timers() {
     crate::emacs_core::timer::builtin_sleep_for(&mut ev, vec![Value::make_float(0.05)])
         .expect("sleep-for should use the shared wait path");
 
-    assert_eq!(
+    assert_val_eq!(
         ev.eval_symbol("sleep-shared-output")
             .expect("sleep-for process output variable"),
         Value::string("out\n")
     );
-    assert_eq!(
+    assert_val_eq!(
         ev.eval_symbol("sleep-shared-timer-fired")
             .expect("sleep-for timer variable"),
         Value::symbol("done")
@@ -1927,9 +1927,9 @@ fn accept_process_output_services_pending_resize_from_shared_wait_path() {
     let height = crate::emacs_core::window_cmds::builtin_frame_native_height(&mut ev, vec![])
         .expect("frame-native-height should succeed");
 
-    assert_eq!(result, Value::NIL);
-    assert_eq!(width, Value::fixnum(700));
-    assert_eq!(height, Value::fixnum(800));
+    assert_val_eq!(result, Value::NIL);
+    assert_val_eq!(width, Value::fixnum(700));
+    assert_val_eq!(height, Value::fixnum(800));
 }
 
 #[test]
@@ -1968,9 +1968,9 @@ fn accept_process_output_services_resize_arriving_during_wait() {
     let height = crate::emacs_core::window_cmds::builtin_frame_native_height(&mut ev, vec![])
         .expect("frame-native-height should succeed");
 
-    assert_eq!(result, Value::NIL);
-    assert_eq!(width, Value::fixnum(710));
-    assert_eq!(height, Value::fixnum(820));
+    assert_val_eq!(result, Value::NIL);
+    assert_val_eq!(width, Value::fixnum(710));
+    assert_val_eq!(height, Value::fixnum(820));
 }
 
 #[test]
@@ -1993,11 +1993,11 @@ fn accept_process_output_window_close_uses_special_event_map_handler_when_loaded
         .expect("accept-process-output should consume handled window close");
     drop(tx);
 
-    assert_eq!(result, Value::NIL);
+    assert_val_eq!(result, Value::NIL);
     let logged = ev
         .eval_symbol("neo-last-delete-frame-event")
         .expect("delete-frame event should be logged");
-    assert_eq!(
+    assert_val_eq!(
         logged,
         Value::list(vec![
             Value::symbol("delete-frame"),

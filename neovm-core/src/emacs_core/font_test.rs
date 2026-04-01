@@ -210,7 +210,7 @@ fn find_font_eval_returns_gnu_canonical_ultra_light_weight_symbol() {
     .unwrap();
     let font = builtin_find_font(&mut eval, vec![spec]).unwrap();
 
-    assert_eq!(
+    assert_val_eq!(
         builtin_font_get(vec![font, Value::keyword("weight")]).unwrap(),
         Value::symbol("ultra-light")
     );
@@ -473,7 +473,7 @@ fn close_font_requires_font_object() {
     match wrong_spec {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data[0], Value::symbol("font-object"));
+            assert_val_eq!(sig.data[0], Value::symbol("font-object"));
         }
         other => panic!("expected wrong-type-argument, got {other:?}"),
     }
@@ -1395,7 +1395,7 @@ fn internal_lisp_face_helpers_accept_frame_handles() {
         ]
     )
     .unwrap();
-    assert_eq!(set, Value::symbol("default"));
+    assert_val_eq!(set, Value::symbol("default"));
 
     let got = call_font_builtin!(
         builtin_internal_get_lisp_face_attribute,
@@ -1475,7 +1475,7 @@ fn merge_face_attribute_height_relative_over_absolute() {
         Value::fixnum(120),
     ])
     .unwrap();
-    assert_eq!(result, Value::fixnum(180));
+    assert_val_eq!(result, Value::fixnum(180));
 }
 
 #[test]
@@ -1701,7 +1701,7 @@ fn internal_get_lisp_face_attribute_eval_reads_live_face_table() {
     )
     .expect("live face attribute");
 
-    assert_eq!(value, Value::string("grey75"));
+    assert_val_eq!(value, Value::string("grey75"));
 }
 
 #[test]
@@ -1731,7 +1731,7 @@ fn internal_merge_in_global_face_eval_updates_live_face_table() {
     )
     .expect("read merged live background");
 
-    assert_eq!(value, Value::string("grey85"));
+    assert_val_eq!(value, Value::string("grey85"));
 }
 
 #[test]
@@ -1758,7 +1758,7 @@ fn internal_get_lisp_face_attribute_eval_prefers_explicit_lisp_face_values() {
     )
     .expect("read selected foreground");
 
-    assert_eq!(value, Value::string("red"));
+    assert_val_eq!(value, Value::string("red"));
 }
 
 #[test]
@@ -2087,13 +2087,13 @@ fn color_distance_semantics() {
         other => panic!("expected integer distance, got {other:?}"),
     }
 
-    assert_eq!(
+    assert_val_eq!(
         builtin_color_distance(vec![Value::string("#000"), Value::string("#000")]).unwrap(),
         Value::fixnum(0)
     );
 
     // Both colors collapse to black in tty-approx mode.
-    assert_eq!(
+    assert_val_eq!(
         builtin_color_distance(vec![Value::string("#000"), Value::string("#111")]).unwrap(),
         Value::fixnum(0)
     );
@@ -2111,7 +2111,7 @@ fn xw_color_primitives_follow_live_gui_frame_state() {
         frame.window_system = Some(Value::symbol("neo"));
     }
 
-    assert_eq!(
+    assert_val_eq!(
         builtin_xw_color_defined_p_ctx(
             &eval,
             vec![Value::string("#123456"), Value::make_frame(frame_id.0)],
@@ -2119,7 +2119,7 @@ fn xw_color_primitives_follow_live_gui_frame_state() {
         .expect("xw-color-defined-p should evaluate"),
         Value::T
     );
-    assert_eq!(
+    assert_val_eq!(
         builtin_xw_color_values_ctx(
             &eval,
             vec![Value::string("#123456"), Value::make_frame(frame_id.0)],
@@ -2131,7 +2131,7 @@ fn xw_color_primitives_follow_live_gui_frame_state() {
             Value::fixnum(0x56 * 257),
         ])
     );
-    assert_eq!(
+    assert_val_eq!(
         crate::emacs_core::builtins::symbols::builtin_xw_display_color_p_ctx(
             &eval,
             vec![Value::make_frame(frame_id.0)],

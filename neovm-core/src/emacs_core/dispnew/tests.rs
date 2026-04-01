@@ -68,7 +68,7 @@ fn internal_show_cursor_tracks_visibility() {
     reset_dispnew_thread_locals();
     let mut eval = crate::emacs_core::eval::Context::new();
     let default_visible = builtin_internal_show_cursor_p(&mut eval, vec![]).unwrap();
-    assert_eq!(default_visible, Value::T);
+    assert_val_eq!(default_visible, Value::T);
 
     builtin_internal_show_cursor(&mut eval, vec![Value::NIL, Value::NIL]).unwrap();
     let hidden = builtin_internal_show_cursor_p(&mut eval, vec![]).unwrap();
@@ -76,7 +76,7 @@ fn internal_show_cursor_tracks_visibility() {
 
     builtin_internal_show_cursor(&mut eval, vec![Value::NIL, Value::T]).unwrap();
     let visible = builtin_internal_show_cursor_p(&mut eval, vec![]).unwrap();
-    assert_eq!(visible, Value::T);
+    assert_val_eq!(visible, Value::T);
 }
 
 #[test]
@@ -89,7 +89,7 @@ fn internal_show_cursor_rejects_non_window() {
 #[test]
 fn force_window_update_no_arg_returns_t() {
     let result = builtin_force_window_update(vec![]).unwrap();
-    assert_eq!(result, Value::T);
+    assert_val_eq!(result, Value::T);
 }
 
 #[test]
@@ -101,7 +101,7 @@ fn force_window_update_with_arg_returns_nil() {
 #[test]
 fn force_window_update_nil_arg_returns_t() {
     let result = builtin_force_window_update(vec![Value::NIL]).unwrap();
-    assert_eq!(result, Value::T);
+    assert_val_eq!(result, Value::T);
 }
 
 #[test]
@@ -120,11 +120,11 @@ fn eval_internal_show_cursor_per_window_state() {
     .unwrap();
 
     // Both start visible
-    assert_eq!(
+    assert_val_eq!(
         builtin_internal_show_cursor_p(&mut eval, vec![selected]).unwrap(),
         Value::T
     );
-    assert_eq!(
+    assert_val_eq!(
         builtin_internal_show_cursor_p(&mut eval, vec![other]).unwrap(),
         Value::T
     );
@@ -136,7 +136,7 @@ fn eval_internal_show_cursor_per_window_state() {
             .unwrap()
             .is_nil()
     );
-    assert_eq!(
+    assert_val_eq!(
         builtin_internal_show_cursor_p(&mut eval, vec![other]).unwrap(),
         Value::T
     );

@@ -151,7 +151,7 @@ fn set_match_data_round_trip() {
     )
     .unwrap();
     let md = builtin_match_data(&mut eval, vec![]).unwrap();
-    assert_eq!(
+    assert_val_eq!(
         md,
         Value::list(vec![
             Value::fixnum(1),

@@ -111,7 +111,7 @@ fn logcount_positive() {
 
     // 7 = 0b111 → 3 bits
     let result = builtin_logcount(vec![Value::fixnum(7)]).unwrap();
-    assert_eq!(result, Value::fixnum(3));
+    assert_val_eq!(result, Value::fixnum(3));
 }
 
 #[test]
@@ -119,7 +119,7 @@ fn logcount_zero() {
     install_test_runtime();
 
     let result = builtin_logcount(vec![Value::fixnum(0)]).unwrap();
-    assert_eq!(result, Value::fixnum(0));
+    assert_val_eq!(result, Value::fixnum(0));
 }
 
 #[test]
@@ -128,11 +128,11 @@ fn logcount_negative() {
 
     // -1 = all 1s → !(-1) = 0 → count_ones = 0
     let result = builtin_logcount(vec![Value::fixnum(-1)]).unwrap();
-    assert_eq!(result, Value::fixnum(0));
+    assert_val_eq!(result, Value::fixnum(0));
 
     // -2 = ...1110 → !(-2) = 1 → count_ones = 1
     let result = builtin_logcount(vec![Value::fixnum(-2)]).unwrap();
-    assert_eq!(result, Value::fixnum(1));
+    assert_val_eq!(result, Value::fixnum(1));
 }
 
 #[test]

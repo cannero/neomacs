@@ -22,8 +22,8 @@ fn trace_values_cons() {
     let obj = HeapObject::Cons { car, cdr };
     let traced = obj.trace_values();
     assert_eq!(traced.len(), 2);
-    assert_eq!(traced[0], Value::fixnum(1));
-    assert_eq!(traced[1], Value::fixnum(2));
+    assert_val_eq!(traced[0], Value::fixnum(1));
+    assert_val_eq!(traced[1], Value::fixnum(2));
 }
 
 #[test]
@@ -32,9 +32,9 @@ fn trace_values_vector() {
     let obj = HeapObject::Vector(items);
     let traced = obj.trace_values();
     assert_eq!(traced.len(), 3);
-    assert_eq!(traced[0], Value::fixnum(10));
-    assert_eq!(traced[1], Value::fixnum(20));
-    assert_eq!(traced[2], Value::fixnum(30));
+    assert_val_eq!(traced[0], Value::fixnum(10));
+    assert_val_eq!(traced[1], Value::fixnum(20));
+    assert_val_eq!(traced[2], Value::fixnum(30));
 }
 
 #[test]

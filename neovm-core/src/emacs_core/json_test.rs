@@ -168,7 +168,7 @@ fn json_parse_buffer_advances_point_after_value() {
     }
 
     let value = builtin_json_parse_buffer(&mut eval, vec![]).expect("parse buffer");
-    assert_eq!(value, Value::fixnum(42));
+    assert_val_eq!(value, Value::fixnum(42));
     assert_eq!(
         eval.buffers
             .current_buffer()
@@ -393,7 +393,7 @@ fn parse_object_as_alist() {
         ValueKind::Cons => {
             let pair_car = items[0].cons_car();
             let pair_cdr = items[0].cons_cdr();
-            assert_eq!(pair_car, Value::symbol("x"));
+            assert_val_eq!(pair_car, Value::symbol("x"));
             assert!(pair_cdr.is_fixnum());
         }
         other => panic!("expected cons, got {:?}", items[0]),

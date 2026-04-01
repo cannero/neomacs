@@ -896,7 +896,7 @@ fn bootstrap_runtime_display_selections_p_is_true_under_neomacs_gui_surface() {
         create_bootstrap_evaluator_cached_with_features(&["x", "neomacs"]).expect("bootstrap");
     let forms = parse_forms("(display-selections-p)").expect("parse display-selections-p");
     let value = eval.eval_expr(&forms[0]).expect("display-selections-p");
-    assert_eq!(value, Value::T);
+    assert_val_eq!(value, Value::T);
 }
 
 #[test]
@@ -1215,7 +1215,7 @@ fn bootstrap_runtime_execute_extended_command_exits_minibuffer_on_ret() {
     let result = eval
         .apply(Value::symbol("execute-extended-command"), vec![Value::NIL])
         .expect("execute-extended-command should return after RET");
-    assert_eq!(result, Value::NIL);
+    assert_val_eq!(result, Value::NIL);
     assert!(
         eval.eval_symbol("neo-ret-probe-ran")
             .expect("probe var should exist")
@@ -1271,7 +1271,7 @@ fn bootstrap_runtime_command_loop_executes_meta_x_command_on_ret() {
     let result = eval
         .recursive_edit_inner()
         .expect("command loop should exit normally");
-    assert_eq!(result, Value::NIL);
+    assert_val_eq!(result, Value::NIL);
     assert!(
         eval.eval_symbol("neo-ret-probe-ran")
             .expect("probe var should exist")
@@ -1320,7 +1320,7 @@ fn bootstrap_runtime_window_close_routes_through_handle_delete_frame() {
     let result = eval
         .recursive_edit_inner()
         .expect("window close should exit command loop normally");
-    assert_eq!(result, Value::NIL);
+    assert_val_eq!(result, Value::NIL);
 
     let forms = parse_forms(
         r#"(prog1 neo-delete-frame-log
@@ -1490,7 +1490,7 @@ fn bootstrap_runtime_read_key_sequence_follows_escape_prefix_command() {
 
     let (keys, binding) = eval.read_key_sequence().expect("read ESC x sequence");
     assert_eq!(keys, vec![Value::fixnum(27), Value::fixnum('x' as i64)]);
-    assert_eq!(binding, Value::symbol("execute-extended-command"));
+    assert_val_eq!(binding, Value::symbol("execute-extended-command"));
 }
 
 #[test]
@@ -1505,7 +1505,7 @@ fn bootstrap_runtime_read_key_sequence_follows_meta_x_command() {
 
     let (keys, binding) = eval.read_key_sequence().expect("read M-x sequence");
     assert_eq!(keys, vec![Value::fixnum(134_217_848)]);
-    assert_eq!(binding, Value::symbol("execute-extended-command"));
+    assert_val_eq!(binding, Value::symbol("execute-extended-command"));
 }
 
 #[test]
@@ -2461,7 +2461,7 @@ fn load_file_records_load_history() {
 
     let mut eval = super::super::eval::Context::new();
     let loaded = load_file(&mut eval, &file).expect("load file");
-    assert_eq!(loaded, Value::T);
+    assert_val_eq!(loaded, Value::T);
 
     let history = eval
         .obarray()
@@ -2599,7 +2599,7 @@ fn nested_load_restores_parent_load_file_name() {
 
     let mut eval = super::super::eval::Context::new();
     let loaded = load_file(&mut eval, &parent).expect("load parent fixture");
-    assert_eq!(loaded, Value::T);
+    assert_val_eq!(loaded, Value::T);
 
     let parent_str = parent.to_string_lossy().to_string();
     let child_str = child.to_string_lossy().to_string();
@@ -2650,7 +2650,7 @@ fn load_file_accepts_shebang_and_honors_second_line_lexical_binding_cookie() {
 
     let mut eval = super::super::eval::Context::new();
     let loaded = load_file(&mut eval, &file).expect("load shebang fixture");
-    assert_eq!(loaded, Value::T);
+    assert_val_eq!(loaded, Value::T);
     assert_eq!(
         eval.obarray()
             .symbol_value("vm-load-shebang-probe")
@@ -2693,7 +2693,7 @@ fn load_file_does_not_enable_lexical_binding_from_non_cookie_second_line_text() 
 
     let mut eval = super::super::eval::Context::new();
     let loaded = load_file(&mut eval, &file).expect("load shebang non-cookie fixture");
-    assert_eq!(loaded, Value::T);
+    assert_val_eq!(loaded, Value::T);
     assert_eq!(
         eval.obarray()
             .symbol_value("vm-load-shebang-false-probe")
@@ -2736,7 +2736,7 @@ fn load_file_accepts_utf8_bom_prefixed_source() {
 
     let mut eval = super::super::eval::Context::new();
     let loaded = load_file(&mut eval, &file).expect("load bom fixture");
-    assert_eq!(loaded, Value::T);
+    assert_val_eq!(loaded, Value::T);
     assert_eq!(
         eval.obarray().symbol_value("vm-load-bom-probe").cloned(),
         Some(Value::symbol("ok")),
@@ -3275,7 +3275,7 @@ fn compiled_cl_preloaded_loads_after_faces() {
     let result = eval
         .eval_expr(&probe[0])
         .expect("evaluate built-in-class constructor probe");
-    assert_eq!(result, Value::T);
+    assert_val_eq!(result, Value::T);
 }
 
 #[test]
@@ -3321,7 +3321,7 @@ fn source_cycle_spacing_form_loads_after_bootstrap_prefix() {
     let result = eval
         .eval_expr(&probe[0])
         .expect("evaluate cycle-spacing probe");
-    assert_eq!(result, Value::list(vec![Value::T, Value::T]));
+    assert_val_eq!(result, Value::list(vec![Value::T, Value::T]));
 }
 
 #[test]
@@ -3524,7 +3524,7 @@ fn set_language_info_alist_reuses_chinese_submenu_like_gnu_emacs() {
     let result = eval
         .eval_expr(&probe[0])
         .expect("evaluate set-language-info-alist submenu probe");
-    assert_eq!(result, Value::T);
+    assert_val_eq!(result, Value::T);
 }
 
 #[test]
@@ -4593,7 +4593,7 @@ conveniently adding tool bar items."
     let result = eval
         .eval_expr(&forms[0])
         .expect("evaluate tool-bar bootstrap probe");
-    assert_eq!(
+    assert_val_eq!(
         result,
         Value::list(vec![Value::NIL, Value::T, Value::T, Value::T])
     );
@@ -6229,7 +6229,7 @@ fn generated_loaddefs_replays_metadata_forms_on_bootstrap_runtime_surface() {
         ],
     )
     .expect("custom-autoload property");
-    assert_eq!(custom_autoload, Value::symbol("noset"));
+    assert_val_eq!(custom_autoload, Value::symbol("noset"));
 
     let custom_loads = crate::emacs_core::builtins::builtin_get(
         &mut eval,
@@ -6251,7 +6251,7 @@ fn generated_loaddefs_replays_metadata_forms_on_bootstrap_runtime_surface() {
         ],
     )
     .expect("safe-local-variable property");
-    assert_eq!(safe_local, Value::symbol("symbolp"));
+    assert_val_eq!(safe_local, Value::symbol("symbolp"));
 
     let interactive_only = crate::emacs_core::builtins::builtin_get(
         &mut eval,
@@ -6261,14 +6261,14 @@ fn generated_loaddefs_replays_metadata_forms_on_bootstrap_runtime_surface() {
         ],
     )
     .expect("interactive-only property");
-    assert_eq!(interactive_only, Value::symbol("vm-generated-target"));
+    assert_val_eq!(interactive_only, Value::symbol("vm-generated-target"));
 
     let old_function = eval
         .obarray()
         .symbol_function("vm-generated-old")
         .copied()
         .expect("obsolete alias function cell");
-    assert_eq!(old_function, Value::symbol("vm-generated-fn"));
+    assert_val_eq!(old_function, Value::symbol("vm-generated-fn"));
 
     let obsolete_info = crate::emacs_core::builtins::builtin_get(
         &mut eval,
@@ -6297,7 +6297,7 @@ fn generated_loaddefs_replays_metadata_forms_on_bootstrap_runtime_surface() {
         ],
     )
     .expect("function-documentation property");
-    assert_eq!(old_doc, Value::string("Old doc."));
+    assert_val_eq!(old_doc, Value::string("Old doc."));
 
     let _ = fs::remove_dir_all(&dir);
 }

@@ -208,10 +208,10 @@ fn lambda_params_arity() {
 fn cons_accessors() {
     with_test_heap(|| {
         let c = Value::cons(Value::fixnum(1), Value::fixnum(2));
-        assert_eq!(c.cons_car(), Value::fixnum(1));
-        assert_eq!(c.cons_cdr(), Value::fixnum(2));
+        assert_val_eq!(c.cons_car(), Value::fixnum(1));
+        assert_val_eq!(c.cons_cdr(), Value::fixnum(2));
         c.set_car(Value::fixnum(10));
-        assert_eq!(c.cons_car(), Value::fixnum(10));
+        assert_val_eq!(c.cons_car(), Value::fixnum(10));
     });
 }
 
@@ -275,9 +275,9 @@ fn vector_operations() {
         assert!(v.is_vector());
         let items = v.as_vector_data().unwrap().clone();
         assert_eq!(items.len(), 3);
-        assert_eq!(items[0], Value::fixnum(10));
-        assert_eq!(items[1], Value::fixnum(20));
-        assert_eq!(items[2], Value::fixnum(30));
+        assert_val_eq!(items[0], Value::fixnum(10));
+        assert_val_eq!(items[1], Value::fixnum(20));
+        assert_val_eq!(items[2], Value::fixnum(30));
     });
 }
 
@@ -301,14 +301,14 @@ fn list_length_dotted() {
 
 #[test]
 fn as_int_as_float() {
-    assert_eq!(Value::fixnum(42).as_int(), Some(42));
-    assert_eq!(Value::make_float(3.14).as_int(), None);
-    assert_eq!(Value::make_float(3.14).as_float(), Some(3.14));
-    assert_eq!(Value::fixnum(42).as_float(), None);
+    assert_val_eq!(Value::fixnum(42).as_int(), Some(42));
+    assert_val_eq!(Value::make_float(3.14).as_int(), None);
+    assert_val_eq!(Value::make_float(3.14).as_float(), Some(3.14));
+    assert_val_eq!(Value::fixnum(42).as_float(), None);
     // as_number_f64 coerces both
-    assert_eq!(Value::fixnum(7).as_number_f64(), Some(7.0));
-    assert_eq!(Value::make_float(2.5).as_number_f64(), Some(2.5));
-    assert_eq!(Value::NIL.as_number_f64(), None);
+    assert_val_eq!(Value::fixnum(7).as_number_f64(), Some(7.0));
+    assert_val_eq!(Value::make_float(2.5).as_number_f64(), Some(2.5));
+    assert_val_eq!(Value::NIL.as_number_f64(), None);
 }
 
 #[test]

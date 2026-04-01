@@ -483,12 +483,12 @@ fn test_builtin_thread_blocker_reads_runtime_state() {
     let current = builtin_current_thread(&mut eval, vec![]).unwrap();
     eval.threads
         .set_thread_blocker(0, Value::symbol("vm-blocked"));
-    assert_eq!(
+    assert_val_eq!(
         builtin_thread_blocker(&mut eval, vec![current]).unwrap(),
         Value::symbol("vm-blocked")
     );
     eval.threads.clear_thread_blocker(0);
-    assert_eq!(
+    assert_val_eq!(
         builtin_thread_blocker(&mut eval, vec![current]).unwrap(),
         Value::NIL
     );
@@ -510,15 +510,15 @@ fn test_builtin_thread_buffer_disposition_round_trips() {
     )
     .unwrap();
 
-    assert_eq!(
+    assert_val_eq!(
         builtin_thread_buffer_disposition(&mut eval, vec![worker]).unwrap(),
         Value::NIL
     );
-    assert_eq!(
+    assert_val_eq!(
         builtin_thread_set_buffer_disposition(&mut eval, vec![worker, Value::T]).unwrap(),
         Value::T
     );
-    assert_eq!(
+    assert_val_eq!(
         builtin_thread_buffer_disposition(&mut eval, vec![worker]).unwrap(),
         Value::T
     );
@@ -573,7 +573,7 @@ fn test_builtin_make_thread_preserves_caller_current_buffer() {
     let thread_id = tagged_object_id(&thread, "thread").expect("thread id");
     let joined = builtin_thread_join(&mut eval, vec![thread]).expect("thread-join");
 
-    assert_eq!(joined, Value::make_buffer(worker_buffer));
+    assert_val_eq!(joined, Value::make_buffer(worker_buffer));
     assert_eq!(eval.buffers.current_buffer_id(), Some(main_buffer));
     assert_eq!(
         eval.threads.thread_current_buffer(thread_id),
@@ -683,7 +683,7 @@ fn test_builtin_condition_name() {
     assert!(unnamed_name.is_nil());
 
     let named_name = builtin_condition_name(&mut eval, vec![named]).unwrap();
-    assert_eq!(named_name, Value::string("cv-compat-name"));
+    assert_val_eq!(named_name, Value::string("cv-compat-name"));
 }
 
 #[test]
@@ -900,7 +900,7 @@ fn test_thread_signal_noncurrent_thread_changes_join_outcome_without_publishing_
     )
     .unwrap();
 
-    assert_eq!(
+    assert_val_eq!(
         builtin_thread_signal(
             &mut eval,
             vec![

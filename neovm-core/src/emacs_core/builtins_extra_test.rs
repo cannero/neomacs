@@ -90,7 +90,7 @@ fn string_search() {
 fn proper_list_p() {
     let list = Value::list(vec![Value::fixnum(1), Value::fixnum(2)]);
     // proper-list-p returns the length of the list (2), not t
-    assert_eq!(builtin_proper_list_p(vec![list]).unwrap(), Value::fixnum(2),);
+    assert_val_eq!(builtin_proper_list_p(vec![list]).unwrap(), Value::fixnum(2),);
     assert!(
         builtin_proper_list_p(vec![Value::fixnum(5)])
             .unwrap()
@@ -114,15 +114,15 @@ fn closurep_true_for_lambda_values() {
 
 #[test]
 fn bare_symbol_and_predicate_semantics() {
-    assert_eq!(
+    assert_val_eq!(
         builtin_bare_symbol(vec![Value::symbol("alpha")]).unwrap(),
         Value::symbol("alpha")
     );
-    assert_eq!(
+    assert_val_eq!(
         builtin_bare_symbol(vec![Value::keyword(":k")]).unwrap(),
         Value::keyword(":k")
     );
-    assert_eq!(builtin_bare_symbol(vec![Value::NIL]).unwrap(), Value::NIL);
+    assert_val_eq!(builtin_bare_symbol(vec![Value::NIL]).unwrap(), Value::NIL);
 
     assert!(
         builtin_bare_symbol_p(vec![Value::symbol("alpha")])
@@ -145,7 +145,7 @@ fn bare_symbol_and_predicate_semantics() {
     match err {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(sig.data[1], Value::fixnum(1));
+            assert_val_eq!(sig.data[1], Value::fixnum(1));
         }
         other => panic!("expected signal, got {other:?}"),
     }
@@ -179,8 +179,8 @@ fn assoc_string_and_car_less_than_car_semantics() {
     };
     let result_pair_car = result.cons_car();
     let result_pair_cdr = result.cons_cdr();
-    assert_eq!(result_pair_car, Value::string("a"));
-    assert_eq!(result_pair_cdr, Value::fixnum(1));
+    assert_val_eq!(result_pair_car, Value::string("a"));
+    assert_val_eq!(result_pair_cdr, Value::fixnum(1));
 
     let symbol_alist = Value::list(vec![
         Value::cons(Value::symbol("foo"), Value::fixnum(1)),
@@ -192,8 +192,8 @@ fn assoc_string_and_car_less_than_car_semantics() {
     };
     let symbol_pair_car = symbol_hit.cons_car();
     let symbol_pair_cdr = symbol_hit.cons_cdr();
-    assert_eq!(symbol_pair_car, Value::symbol("foo"));
-    assert_eq!(symbol_pair_cdr, Value::fixnum(1));
+    assert_val_eq!(symbol_pair_car, Value::symbol("foo"));
+    assert_val_eq!(symbol_pair_cdr, Value::fixnum(1));
 
     let nil_tail = Value::cons(
         Value::cons(Value::string("x"), Value::fixnum(1)),

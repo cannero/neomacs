@@ -199,7 +199,7 @@ fn decode_switch_preserves_hash_table_byte_targets() {
             .copied()
             .expect("switch table target")
     };
-    assert_eq!(raw_target, Value::fixnum(8));
+    assert_val_eq!(raw_target, Value::fixnum(8));
     assert_eq!(offset_map.get(&8), Some(&6));
 }
 

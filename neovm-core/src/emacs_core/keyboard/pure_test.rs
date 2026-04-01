@@ -82,9 +82,9 @@ fn key_sequence_values_string() {
     let val = Value::string("abc");
     let keys = key_sequence_values(&val).unwrap();
     assert_eq!(keys.len(), 3);
-    assert_eq!(keys[0], Value::fixnum('a' as i64));
-    assert_eq!(keys[1], Value::fixnum('b' as i64));
-    assert_eq!(keys[2], Value::fixnum('c' as i64));
+    assert_val_eq!(keys[0], Value::fixnum('a' as i64));
+    assert_val_eq!(keys[1], Value::fixnum('b' as i64));
+    assert_val_eq!(keys[2], Value::fixnum('c' as i64));
 }
 
 #[test]

@@ -450,7 +450,7 @@ fn condition_case_preserves_raw_signal_binding_shape() {
     let value = eval
         .eval_expr(&forms[0])
         .expect("condition-case should catch signal");
-    assert_eq!(value, Value::cons(Value::symbol("error"), Value::fixnum(1)));
+    assert_val_eq!(value, Value::cons(Value::symbol("error"), Value::fixnum(1)));
 }
 
 #[test]

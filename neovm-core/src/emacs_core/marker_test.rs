@@ -68,7 +68,7 @@ fn builtin_marker_buffer_returns_live_buffer() {
     let buffer_id = eval.buffers.current_buffer_id().expect("current buffer");
     let marker = make_marker_value(Some(buffer_id), Some(1), false);
     let buf = builtin_marker_buffer(&mut eval, vec![marker]).unwrap();
-    assert_eq!(buf, Value::make_buffer(buffer_id));
+    assert_val_eq!(buf, Value::make_buffer(buffer_id));
 }
 
 #[test]
@@ -110,8 +110,8 @@ fn builtin_move_marker_matches_set_marker_behavior() {
     )
     .expect("move marker");
     assert!(is_marker(&moved));
-    assert_eq!(call_marker_position(vec![moved]).unwrap(), Value::fixnum(3));
-    assert_eq!(
+    assert_val_eq!(call_marker_position(vec![moved]).unwrap(), Value::fixnum(3));
+    assert_val_eq!(
         call_marker_buffer(vec![moved]).unwrap(),
         Value::make_buffer(eval.buffers.current_buffer_id().unwrap())
     );
@@ -181,11 +181,11 @@ fn point_min_and_max_markers_follow_narrowing() {
     let min_marker = builtin_point_min_marker(&mut eval, vec![]).expect("point-min-marker");
     let max_marker = builtin_point_max_marker(&mut eval, vec![]).expect("point-max-marker");
 
-    assert_eq!(
+    assert_val_eq!(
         call_marker_position(vec![min_marker]).unwrap(),
         Value::fixnum(2)
     );
-    assert_eq!(
+    assert_val_eq!(
         call_marker_position(vec![max_marker]).unwrap(),
         Value::fixnum(4)
     );
@@ -199,7 +199,7 @@ fn mark_marker_follows_cached_mark_char_position() {
     let _ = eval.buffers.set_buffer_mark(buf_id, 'é'.len_utf8());
 
     let marker = builtin_mark_marker(&mut eval, vec![]).expect("mark-marker");
-    assert_eq!(
+    assert_val_eq!(
         call_marker_position(vec![marker]).unwrap(),
         Value::fixnum(2)
     );
