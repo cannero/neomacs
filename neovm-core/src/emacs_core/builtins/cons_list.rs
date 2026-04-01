@@ -696,6 +696,13 @@ pub(crate) fn builtin_member(args: Vec<Value>) -> EvalResult {
     expect_args("member", &args, 2)?;
     let target = &args[0];
     let list = args[1];
+    if list.is_t() {
+        tracing::error!(
+            "(member {} t) — list is bare t! target={:?}",
+            crate::emacs_core::print::print_value(target),
+            target.kind()
+        );
+    }
     let mut cursor = list;
     loop {
         match cursor.kind() {

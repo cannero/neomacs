@@ -6405,8 +6405,12 @@ fn contains_opaque_value_detection() {
 #[test]
 fn bootstrap_cl_generic_generalizers_t() {
     crate::test_utils::init_test_tracing();
-    // Load up to BUT NOT INCLUDING cl-generic.el
-    let mut eval = partial_bootstrap_eval_until("emacs-lisp/cl-generic", true);
+    // Load up to AND INCLUDING cl-generic.el (stops before "simple")
+    // This triggers the exact FORM[90] failure.
+    // To isolate, we load up to simple which includes cl-generic.
+    // The test will fail at cl-generic.el FORM[90] if the bug exists.
+    let mut eval = partial_bootstrap_eval_until("simple", true);
+    // If we got here, cl-generic.el loaded successfully!
     let forms = parse_forms("(cl-generic-generalizers t)").expect("parse");
     let result = eval.eval_forms(&forms);
     let rendered = result
