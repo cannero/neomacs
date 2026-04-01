@@ -5856,6 +5856,13 @@ impl Context {
                             for v in &arg_values {
                                 self.push_temp_root(*v);
                             }
+                            if name == "defmacro" || name == "def-edebug-spec" {
+                                if let Some(ld) = macro_fn.get_lambda_data() {
+                                    eprintln!("[MACRO-EXPAND] name={} macro_fn.env={}", name, ld.env.is_some());
+                                } else {
+                                    eprintln!("[MACRO-EXPAND] name={} macro_fn is NOT lambda: {:?}", name, macro_fn.kind());
+                                }
+                            }
                             let expanded_value = self.with_macro_expansion_scope(|eval| {
                                 eval.apply(macro_fn, arg_values)
                             })?;

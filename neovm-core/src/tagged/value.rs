@@ -77,16 +77,13 @@ const IMM_PAYLOAD_SHIFT: u32 = 8; // payload starts at bit 8 for immediates
 #[repr(transparent)]
 pub struct TaggedValue(pub(crate) usize);
 
-/// `PartialEq` uses structural comparison (`equal`) matching GNU Emacs semantics.
-/// For pointer identity (`eq`), use `TaggedValue::bits()` comparison or `eq_value`.
+/// `PartialEq` is bitwise: same bits = equal. For inline types (fixnum, symbol,
+/// char, keyword, subr, nil, t) this is value equality. For heap types (cons,
+/// string, float, vector, etc.) this is pointer identity — matching GNU Emacs
+/// `eq` semantics. For structural comparison, use `equal_value()`.
 impl PartialEq for TaggedValue {
     fn eq(&self, other: &Self) -> bool {
-        // Fast path: same bits = definitely equal
-        if self.0 == other.0 {
-            return true;
-        }
-        // Structural comparison for heap objects
-        crate::emacs_core::value::equal_value(self, other, 0)
+        self.0 == other.0
     }
 }
 
