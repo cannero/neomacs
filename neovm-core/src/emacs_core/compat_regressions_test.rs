@@ -1,5 +1,5 @@
 use crate::emacs_core::error::Flow;
-use crate::emacs_core::value::{HashTableTest, Value, next_float_id, with_heap};
+use crate::emacs_core::value::{HashTableTest, Value, next_float_id};
 
 #[test]
 fn fillarray_vector_is_in_place() {

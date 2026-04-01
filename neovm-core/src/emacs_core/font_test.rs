@@ -711,9 +711,6 @@ fn font_at_eval_prefers_backend_selected_font_match_when_available() {
 
 #[test]
 fn internal_lisp_face_p_symbol_returns_face_vector() {
-    let mut heap = crate::gc::heap::LispHeap::new();
-    crate::emacs_core::value::set_current_heap(&mut heap);
-
     let result = builtin_internal_lisp_face_p(vec![Value::symbol("default")]).unwrap();
     let values = match result.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => result.as_vector_data().unwrap().clone(),
@@ -743,8 +740,6 @@ fn internal_lisp_face_p_rejects_non_nil_frame_designator() {
 
 #[test]
 fn internal_lisp_face_p_with_frame_designator_returns_resolved_vector() {
-    let mut heap = crate::gc::heap::LispHeap::new();
-    crate::emacs_core::value::set_current_heap(&mut heap);
     clear_font_cache_state();
 
     let result =

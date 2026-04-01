@@ -1,7 +1,5 @@
 use neovm_core::buffer::BufferId;
-use neovm_core::emacs_core::value::set_current_heap;
 use neovm_core::emacs_core::{Context, Value, format_eval_result, parse_forms};
-use neovm_core::gc::LispHeap;
 use neovm_core::window::{FrameManager, SplitDirection, Window};
 
 fn run_neovm_gui_eval(body: &str) -> String {
@@ -151,8 +149,6 @@ fn compat_gui_set_window_buffer_applies_display_defaults() {
 
 #[test]
 fn compat_split_window_copies_window_display_state() {
-    let mut heap = LispHeap::new();
-    set_current_heap(&mut heap);
     let mut frames = FrameManager::new();
     let frame_id = frames.create_frame("F1", 800, 600, BufferId(1));
     let original_window_id = frames.get(frame_id).expect("frame").window_list()[0];

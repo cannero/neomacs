@@ -1,12 +1,7 @@
 use super::*;
 
 fn install_test_runtime() {
-    use super::super::intern::StringInterner;
-
-    let interner = Box::new(StringInterner::new());
-    super::super::intern::set_current_interner(Box::leak(interner));
-    let heap = Box::new(crate::gc::heap::LispHeap::new());
-    super::super::value::set_current_heap(Box::leak(heap));
+    // Tagged heap is auto-created in test mode; no manual setup needed.
 }
 
 #[test]

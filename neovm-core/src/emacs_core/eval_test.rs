@@ -408,15 +408,9 @@ fn evaluator_drop_clears_owned_thread_locals() {
             crate::emacs_core::intern::current_interner_ptr(),
             &mut *ev.interner,
         ));
-        assert!(crate::emacs_core::value::has_current_heap());
-        assert!(std::ptr::eq(
-            crate::emacs_core::value::current_heap_ptr(),
-            &mut *ev.heap,
-        ));
     }
 
     assert!(crate::emacs_core::intern::current_interner_ptr().is_null());
-    assert!(!crate::emacs_core::value::has_current_heap());
 }
 
 #[test]
@@ -7018,9 +7012,9 @@ fn gc_collect_retains_reachable() {
     let mut ev = Context::new();
     let forms = crate::emacs_core::parse_forms("(setq x (cons 1 2))").unwrap();
     ev.eval_forms(&forms);
-    let before = ev.heap.allocated_count();
+    let before = ev.tagged_heap.allocated_count();
     ev.gc_collect();
-    let after = ev.heap.allocated_count();
+    let after = ev.tagged_heap.allocated_count();
     // The cons stored in variable `x` must survive.
     assert!(after >= 1, "reachable cons was collected");
     assert!(after <= before, "gc should not increase count");
@@ -7037,9 +7031,9 @@ fn gc_collect_frees_unreachable() {
     let forms =
         crate::emacs_core::parse_forms("(progn (cons 1 2) (cons 3 4) (cons 5 6) nil)").unwrap();
     ev.eval_forms(&forms);
-    let before = ev.heap.allocated_count();
+    let before = ev.tagged_heap.allocated_count();
     ev.gc_collect();
-    let after = ev.heap.allocated_count();
+    let after = ev.tagged_heap.allocated_count();
     // The orphaned conses should have been freed.
     assert!(
         after < before,
@@ -7064,9 +7058,9 @@ fn gc_collect_handles_cycles() {
     // Now remove the root and collect — the cycle should be freed.
     let forms3 = crate::emacs_core::parse_forms("(setq x nil)").unwrap();
     ev.eval_forms(&forms3);
-    let before = ev.heap.allocated_count();
+    let before = ev.tagged_heap.allocated_count();
     ev.gc_collect();
-    let after = ev.heap.allocated_count();
+    let after = ev.tagged_heap.allocated_count();
     assert!(
         after < before,
         "cyclic cons not freed: before={before}, after={after}"
@@ -7076,7 +7070,7 @@ fn gc_collect_handles_cycles() {
 #[test]
 fn gc_safe_point_collects_when_threshold_reached() {
     let mut ev = Context::new();
-    ev.heap.set_gc_threshold(5);
+    ev.tagged_heap.set_gc_threshold(5);
     // Allocate enough conses to exceed threshold.
     let forms = crate::emacs_core::parse_forms(
         "(progn (cons 1 2) (cons 3 4) (cons 5 6) (cons 7 8) (cons 9 10) nil)",
@@ -7084,7 +7078,7 @@ fn gc_safe_point_collects_when_threshold_reached() {
     .unwrap();
     ev.eval_forms(&forms);
     assert!(
-        ev.gc_count > 0 || ev.gc_pending || ev.heap.is_marking() || ev.heap.should_collect(),
+        ev.gc_count > 0 || ev.gc_pending || ev.tagged_heap.should_collect(),
         "incremental GC should be pending, active, or already finished"
     );
     // With incremental GC, safe point may need multiple calls to finish.
@@ -7093,13 +7087,13 @@ fn gc_safe_point_collects_when_threshold_reached() {
     }
     assert_eq!(ev.gc_count, 1);
     // After collection, threshold adapts and should_collect is false.
-    assert!(!ev.heap.should_collect());
+    assert!(!ev.tagged_heap.should_collect());
 }
 
 #[test]
 fn gc_threshold_adapts_after_collection() {
     let mut ev = Context::new();
-    ev.heap.set_gc_threshold(3);
+    ev.tagged_heap.set_gc_threshold(3);
     // Create 3 conses that are reachable via variables.
     let forms = crate::emacs_core::parse_forms(
         "(progn (setq a (cons 1 2)) (setq b (cons 3 4)) (setq c (cons 5 6)))",
@@ -7108,9 +7102,9 @@ fn gc_threshold_adapts_after_collection() {
     ev.eval_forms(&forms);
     ev.gc_collect();
     // Threshold should adapt to max(8192, alive_count*2).
-    let alive = ev.heap.allocated_count();
+    let alive = ev.tagged_heap.allocated_count();
     assert!(alive >= 3);
-    let threshold = ev.heap.gc_threshold();
+    let threshold = ev.tagged_heap.gc_threshold();
     assert!(
         threshold >= 8192,
         "threshold should be at least 8192, got {threshold}"
@@ -7143,7 +7137,7 @@ fn gc_safe_point_runs_post_gc_hook_when_incremental_collection_finishes() {
     )
     .expect("parse");
     ev.eval_forms(&setup);
-    ev.heap.set_gc_threshold(5);
+    ev.tagged_heap.set_gc_threshold(5);
     let forms = crate::emacs_core::parse_forms(
         "(progn (cons 1 2) (cons 3 4) (cons 5 6) (cons 7 8) (cons 9 10) nil)",
     )
@@ -7168,7 +7162,7 @@ fn eval_stress(src: &str) -> Vec<String> {
     let forms = crate::emacs_core::parse_forms(src).expect("parse");
     ev.gc_stress = true;
     // Force very low threshold so gc_safe_point triggers on every call
-    ev.heap.set_gc_threshold(1);
+    ev.tagged_heap.set_gc_threshold(1);
     let mut results = Vec::new();
     for form in &forms {
         let r = ev.eval_expr(form);
@@ -7241,7 +7235,7 @@ fn gc_stress_lambda_argument_closure_survives_binding_installation() {
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
-    ev.heap.set_gc_threshold(1);
+    ev.tagged_heap.set_gc_threshold(1);
     let forms = parse_forms(
         r#"(let ((payload (list 1 2 3)))
              ((lambda (orig)
@@ -7258,7 +7252,7 @@ fn gc_stress_direct_lambda_head_roots_fresh_closure_during_arg_eval() {
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
-    ev.heap.set_gc_threshold(1);
+    ev.tagged_heap.set_gc_threshold(1);
     let forms = parse_forms(
         r#"((lambda (f value)
               (funcall f value))
@@ -7277,7 +7271,7 @@ fn gc_stress_builtin_apply_roots_closure_function_argument() {
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
-    ev.heap.set_gc_threshold(1);
+    ev.tagged_heap.set_gc_threshold(1);
     let forms = parse_forms(
         r#"(let ((payload (list 7 8 9)))
              (let ((f (lambda () payload)))
@@ -7293,7 +7287,7 @@ fn gc_stress_let_star_lexical_binding_roots_evaluated_values() {
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
-    ev.heap.set_gc_threshold(1);
+    ev.tagged_heap.set_gc_threshold(1);
     let forms = parse_forms(
         r#"(let ((build (lambda () (list 4 5 6))))
              (let* ((x (funcall build))
@@ -7317,7 +7311,7 @@ fn gc_stress_apply_env_expander_closure_capturing_uninterned_symbol() {
     ev.set_lexical_binding(true);
     ev.lexenv = Value::list(vec![Value::T]);
     ev.gc_stress = true;
-    ev.heap.set_gc_threshold(1);
+    ev.tagged_heap.set_gc_threshold(1);
     let forms = parse_forms(
         r#"
         (let ((newenv nil)
@@ -7369,7 +7363,7 @@ fn gc_stress_aref_on_closure_survives_closure_vector_conversion() {
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
-    ev.heap.set_gc_threshold(1);
+    ev.tagged_heap.set_gc_threshold(1);
     let forms = parse_forms(
         r#"(let ((payload (list 1 2 3)))
              (let ((closure (lambda () payload)))
@@ -7385,7 +7379,7 @@ fn gc_stress_cdr_on_lambda_survives_cons_list_conversion() {
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
-    ev.heap.set_gc_threshold(1);
+    ev.tagged_heap.set_gc_threshold(1);
     let forms = parse_forms(
         r#"(let ((payload (list 1 2 3)))
              (let ((closure (lambda () payload)))

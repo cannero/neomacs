@@ -21,8 +21,6 @@ fn bootstrap_eval(src: &str) -> Vec<String> {
 
 #[test]
 fn copy_alist_basic() {
-    let mut heap = crate::gc::heap::LispHeap::new();
-    crate::emacs_core::value::set_current_heap(&mut heap);
 
     let alist = Value::list(vec![
         Value::cons(Value::symbol("a"), Value::fixnum(1)),
@@ -408,8 +406,6 @@ fn locale_info_codeset_returns_utf8() {
 
 #[test]
 fn locale_info_days_months_and_paper_return_oracle_shapes() {
-    let mut heap = crate::gc::heap::LispHeap::new();
-    crate::emacs_core::value::set_current_heap(&mut heap);
 
     let days = builtin_locale_info(vec![Value::symbol("days")]).unwrap();
     let days_vec = match days.kind() {

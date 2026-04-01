@@ -201,9 +201,6 @@ fn find_composition_internal_position_range_checks() {
 
 #[test]
 fn composition_get_gstring_returns_vector_shape() {
-    let mut heap = crate::gc::heap::LispHeap::new();
-    crate::emacs_core::value::set_current_heap(&mut heap);
-
     let result = builtin_composition_get_gstring(vec![
         Value::fixnum(0),
         Value::fixnum(1),

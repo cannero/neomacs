@@ -1,7 +1,6 @@
 use super::*;
 use crate::buffer::BufferText;
 use crate::buffer::buffer::{Buffer, BufferId};
-use crate::emacs_core::value::read_cons;
 use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 /// Helper: create a buffer with given text, point at start, full accessible range.
@@ -87,8 +86,6 @@ fn string_to_syntax_string_delim() {
 
 #[test]
 fn string_to_syntax_prefix_class() {
-    let mut heap = crate::gc::heap::LispHeap::new();
-    crate::emacs_core::value::set_current_heap(&mut heap);
 
     let entry = string_to_syntax("'").unwrap();
     assert_eq!(entry.class, SyntaxClass::Quote);
@@ -486,8 +483,6 @@ fn scan_sexps_string_with_escape() {
 
 #[test]
 fn syntax_entry_to_value_simple() {
-    let mut heap = crate::gc::heap::LispHeap::new();
-    crate::emacs_core::value::set_current_heap(&mut heap);
 
     let entry = SyntaxEntry::simple(SyntaxClass::Word);
     let val = syntax_entry_to_value(&entry);
@@ -504,8 +499,6 @@ fn syntax_entry_to_value_simple() {
 
 #[test]
 fn syntax_entry_to_value_with_match() {
-    let mut heap = crate::gc::heap::LispHeap::new();
-    crate::emacs_core::value::set_current_heap(&mut heap);
 
     let entry = SyntaxEntry::with_match(SyntaxClass::Open, ')');
     let val = syntax_entry_to_value(&entry);
@@ -521,8 +514,6 @@ fn syntax_entry_to_value_with_match() {
 
 #[test]
 fn syntax_entry_to_value_with_flags() {
-    let mut heap = crate::gc::heap::LispHeap::new();
-    crate::emacs_core::value::set_current_heap(&mut heap);
 
     let entry = SyntaxEntry {
         class: SyntaxClass::Punctuation,

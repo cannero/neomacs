@@ -5,7 +5,7 @@ use crate::emacs_core::fontset::{
     DEFAULT_FONTSET_NAME, FontSpecEntry, matching_entries_for_fontset,
 };
 use crate::emacs_core::intern::{intern, resolve_sym};
-use crate::emacs_core::value::{HashKey, HashTableTest, Value, list_to_vec, with_heap, ValueKind, VecLikeType};
+use crate::emacs_core::value::{HashKey, HashTableTest, Value, list_to_vec, ValueKind, VecLikeType};
 use crate::emacs_core::{format_eval_result, parse_forms};
 use std::fs;
 use std::path::PathBuf;

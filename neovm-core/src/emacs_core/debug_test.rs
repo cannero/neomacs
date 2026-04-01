@@ -2,11 +2,8 @@ use super::*;
 use crate::emacs_core::intern::intern;
 use crate::emacs_core::value::{LambdaData, LambdaParams};
 
-/// Create a test heap. Caller MUST call `set_current_heap` on the returned value
-/// after it's been placed in its final stack location.
-fn init_test_heap() -> crate::gc::heap::LispHeap {
-    crate::gc::heap::LispHeap::new()
-}
+/// Placeholder for the removed LispHeap — tagged heap is auto-created for tests.
+fn init_test_heap() {}
 
 // -- Backtrace tests --
 
@@ -327,8 +324,7 @@ fn docstore_remove() {
 
 #[test]
 fn help_describe_function_lambda() {
-    let mut _heap = init_test_heap();
-    crate::emacs_core::value::set_current_heap(&mut _heap);
+    init_test_heap();
     let lam = Value::make_lambda(LambdaData {
         params: LambdaParams {
             required: vec![intern("x"), intern("y")],
@@ -349,8 +345,7 @@ fn help_describe_function_lambda() {
 
 #[test]
 fn help_describe_function_with_docstore() {
-    let mut _heap = init_test_heap();
-    crate::emacs_core::value::set_current_heap(&mut _heap);
+    init_test_heap();
     let lam = Value::make_lambda(LambdaData {
         params: LambdaParams::simple(vec![intern("x")]),
         body: vec![].into(),
@@ -382,8 +377,7 @@ fn help_describe_function_no_doc() {
 
 #[test]
 fn help_describe_function_closure() {
-    let mut _heap = init_test_heap();
-    crate::emacs_core::value::set_current_heap(&mut _heap);
+    init_test_heap();
     let lam = Value::make_lambda(LambdaData {
         params: LambdaParams::simple(vec![intern("x")]),
         body: vec![].into(),
@@ -562,8 +556,7 @@ fn docstore_full_workflow() {
 
 #[test]
 fn help_formatter_with_optional_and_rest() {
-    let mut _heap = init_test_heap();
-    crate::emacs_core::value::set_current_heap(&mut _heap);
+    init_test_heap();
     let lam = Value::make_lambda(LambdaData {
         params: LambdaParams {
             required: vec![intern("x")],
@@ -583,8 +576,7 @@ fn help_formatter_with_optional_and_rest() {
 
 #[test]
 fn help_formatter_macro() {
-    let mut _heap = init_test_heap();
-    crate::emacs_core::value::set_current_heap(&mut _heap);
+    init_test_heap();
     let mac = Value::make_macro(LambdaData {
         params: LambdaParams::simple(vec![intern("body")]),
         body: vec![].into(),

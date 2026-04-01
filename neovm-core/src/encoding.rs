@@ -873,7 +873,7 @@ pub(crate) fn builtin_max_char(args: Vec<Value>) -> EvalResult {
 mod tests {
     use super::*;
     use crate::emacs_core::error::Flow;
-    use crate::emacs_core::value::{get_string_text_properties, get_string_text_properties_for_value};
+    use crate::emacs_core::value::get_string_text_properties_for_value;
 
     #[test]
     fn ascii_width() {

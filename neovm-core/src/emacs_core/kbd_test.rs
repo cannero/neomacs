@@ -37,8 +37,6 @@ fn kbd_ctrl_sequence_returns_string() {
 
 #[test]
 fn kbd_meta_char_returns_vector() {
-    let mut heap = crate::gc::heap::LispHeap::new();
-    crate::emacs_core::value::set_current_heap(&mut heap);
 
     let result = parse_kbd_string("M-x").expect("parse should succeed");
     assert_eq!(expect_vector_ints(result), vec![134_217_848]);
@@ -46,8 +44,6 @@ fn kbd_meta_char_returns_vector() {
 
 #[test]
 fn kbd_ctrl_meta_char_returns_vector() {
-    let mut heap = crate::gc::heap::LispHeap::new();
-    crate::emacs_core::value::set_current_heap(&mut heap);
 
     let result = parse_kbd_string("C-M-a").expect("parse should succeed");
     assert_eq!(expect_vector_ints(result), vec![134_217_729]);
@@ -75,8 +71,6 @@ fn kbd_named_keys_without_modifiers_return_chars() {
 
 #[test]
 fn kbd_named_keys_with_modifiers_return_modifier_encoded_ints() {
-    let mut heap = crate::gc::heap::LispHeap::new();
-    crate::emacs_core::value::set_current_heap(&mut heap);
 
     assert_eq!(
         expect_vector_ints(parse_kbd_string("C-RET").expect("C-RET parse")),
@@ -96,8 +90,6 @@ fn kbd_plain_multi_char_token_expands_into_plain_string() {
 
 #[test]
 fn kbd_mixed_sequence_returns_vector_with_plain_char_codes() {
-    let mut heap = crate::gc::heap::LispHeap::new();
-    crate::emacs_core::value::set_current_heap(&mut heap);
 
     let result = parse_kbd_string("a M-b").expect("parse should succeed");
     assert_eq!(expect_vector_ints(result), vec![97, 134_217_826]);
@@ -105,8 +97,6 @@ fn kbd_mixed_sequence_returns_vector_with_plain_char_codes() {
 
 #[test]
 fn kbd_angle_events_return_symbols() {
-    let mut heap = crate::gc::heap::LispHeap::new();
-    crate::emacs_core::value::set_current_heap(&mut heap);
 
     let result = parse_kbd_string("<f1>").expect("parse should succeed");
     match result.kind() {
@@ -143,8 +133,6 @@ fn kbd_modifier_chain_uses_consumed_prefix_in_error() {
 
 #[test]
 fn key_events_from_designator_accepts_kbd_string_and_vector() {
-    let mut heap = crate::gc::heap::LispHeap::new();
-    crate::emacs_core::value::set_current_heap(&mut heap);
 
     // Raw strings: each character is a key event.
     // For meta-x, use Emacs unibyte encoding: 'x' | 0x80 = 0xF8
@@ -170,8 +158,6 @@ fn key_events_from_designator_accepts_kbd_string_and_vector() {
 
 #[test]
 fn key_events_from_designator_decodes_symbol_events() {
-    let mut heap = crate::gc::heap::LispHeap::new();
-    crate::emacs_core::value::set_current_heap(&mut heap);
 
     let events = key_events_from_designator(&Value::vector(vec![Value::symbol("C-f1")]))
         .expect("decode symbol");
@@ -191,8 +177,6 @@ fn key_events_from_designator_decodes_symbol_events() {
 
 #[test]
 fn key_events_from_designator_decodes_event_modifier_list() {
-    let mut heap = crate::gc::heap::LispHeap::new();
-    crate::emacs_core::value::set_current_heap(&mut heap);
 
     // (control ??) => Ctrl+?
     let list = Value::list(vec![Value::symbol("control"), Value::fixnum('?' as i64)]);

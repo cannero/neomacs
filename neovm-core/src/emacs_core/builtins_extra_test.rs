@@ -157,9 +157,6 @@ fn byteorder_shape_and_arity() {
 
 #[test]
 fn assoc_string_and_car_less_than_car_semantics() {
-    let mut heap = crate::gc::heap::LispHeap::new();
-    crate::emacs_core::value::set_current_heap(&mut heap);
-
     let result = builtin_assoc_string(vec![
         Value::string("A"),
         Value::list(vec![

@@ -1,6 +1,5 @@
 use super::*;
 use crate::buffer::{Buffer, BufferId};
-use crate::emacs_core::value::{with_heap, with_heap_mut};
 use crate::gc::types::LispString;
 
 fn extract_heap_match_string(md: &MatchData, group: usize) -> Option<String> {

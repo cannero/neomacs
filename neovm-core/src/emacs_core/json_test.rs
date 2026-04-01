@@ -285,9 +285,6 @@ fn parse_string_surrogate_pair() {
 
 #[test]
 fn parse_empty_array() {
-    let mut heap = crate::gc::heap::LispHeap::new();
-    crate::emacs_core::value::set_current_heap(&mut heap);
-
     let val = builtin_json_parse_string(vec![Value::string("[]")]).unwrap();
     match val.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => assert!(val.as_vector_data().unwrap().is_empty()),

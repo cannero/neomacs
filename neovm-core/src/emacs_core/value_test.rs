@@ -3,12 +3,10 @@ use crate::emacs_core::Expr;
 use crate::emacs_core::marker::make_marker_value_with_id;
 
 /// Helper: set up a temporary heap for tests that use Value constructors.
+/// With the tagged-pointer runtime the test fallback heap is auto-created,
+/// so this wrapper is now a simple pass-through.
 fn with_test_heap<R>(f: impl FnOnce() -> R) -> R {
-    let mut heap = LispHeap::new();
-    set_current_heap(&mut heap);
-    let result = f();
-    clear_current_heap();
-    result
+    f()
 }
 
 #[test]

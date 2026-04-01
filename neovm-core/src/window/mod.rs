@@ -1975,8 +1975,6 @@ mod tests {
 
     #[test]
     fn split_window_copies_window_display_state() {
-        let mut heap = crate::gc::LispHeap::new();
-        crate::emacs_core::value::set_current_heap(&mut heap);
         let mut mgr = FrameManager::new();
         let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
         {
