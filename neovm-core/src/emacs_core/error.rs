@@ -91,16 +91,10 @@ fn signal_internal(
     raw_data: Option<Value>,
     suppress_signal_hook: bool,
 ) -> Flow {
-    // Trace wrong-type-argument listp t to help diagnose bootstrap issues
-    if symbol == "wrong-type-argument"
-        && data.len() >= 2
-        && data[0].is_symbol_named("listp")
-        && data[1].is_t()
-    {
-        tracing::error!("signal wrong-type-argument listp t — backtrace:");
-        // Print a Rust backtrace
-        let bt = std::backtrace::Backtrace::force_capture();
-        tracing::error!("{bt}");
+    // Log void-variable signals at debug level for investigation
+    if symbol == "void-variable" || symbol == "void-function" {
+        let data_strs: Vec<String> = data.iter().map(|v| super::print::print_value(v)).collect();
+        tracing::debug!("signal {symbol} ({})", data_strs.join(" "));
     }
     Flow::Signal(SignalData {
         symbol: intern(symbol),
