@@ -144,7 +144,7 @@ pub(super) fn expect_char_equal_code(value: &Value) -> Result<i64, Flow> {
 
 pub(super) fn expect_character_code(value: &Value) -> Result<i64, Flow> {
     match value.kind() {
-        ValueKind::Fixnum(c) => Ok(c as i64),
+        ValueKind::Fixnum(c) if (0..=0x3F_FFFF).contains(&c) => Ok(c as i64),
         other => {
             maybe_trace_characterp_nil(value, "expect_character_code");
             Err(signal(

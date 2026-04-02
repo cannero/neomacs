@@ -243,10 +243,12 @@ pub(crate) fn builtin_min(eval: &mut super::eval::Context, args: Vec<Value>) -> 
 pub(crate) fn builtin_abs(args: Vec<Value>) -> EvalResult {
     expect_args("abs", &args, 1)?;
     match args[0].kind() {
-        ValueKind::Fixnum(n) => Ok(Value::fixnum(
-            n.checked_abs()
-                .ok_or_else(|| signal("overflow-error", vec![]))?,
-        )),
+        ValueKind::Fixnum(n) => {
+            if n == Value::MOST_NEGATIVE_FIXNUM {
+                return Err(signal("overflow-error", vec![]));
+            }
+            Ok(Value::fixnum(n.abs()))
+        }
         ValueKind::Float => Ok(Value::make_float(args[0].xfloat().abs())),
         _ => Err(signal(
             "wrong-type-argument",
@@ -296,7 +298,7 @@ pub(crate) fn builtin_ash(args: Vec<Value>) -> EvalResult {
         let shift = u32::try_from(count).unwrap_or(u32::MAX);
         Ok(Value::fixnum(n.checked_shl(shift).unwrap_or(0)))
     } else {
-        let shift = count.unsigned_abs().min(63) as u32;
+        let shift = count.unsigned_abs().min((i64::BITS - 1) as u64) as u32;
         Ok(Value::fixnum(n >> shift))
     }
 }

@@ -626,13 +626,19 @@ pub(crate) fn builtin_hash_table_count(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_char_to_string(args: Vec<Value>) -> EvalResult {
     expect_args("char-to-string", &args, 1)?;
-    match args[0].kind() {
-        ValueKind::Fixnum(c) => Ok(Value::string(c.to_string())),
-        _other => Err(signal(
+    let code = expect_character_code(&args[0])? as u32;
+    let multibyte = code > 0x7f;
+    let encoded = encode_char_code_for_string_storage(code, multibyte).ok_or_else(|| {
+        signal(
             "wrong-type-argument",
             vec![Value::symbol("characterp"), args[0]],
-        )),
-    }
+        )
+    })?;
+    Ok(if multibyte {
+        Value::multibyte_string(encoded)
+    } else {
+        Value::unibyte_string(encoded)
+    })
 }
 
 pub(crate) fn builtin_string_to_char(args: Vec<Value>) -> EvalResult {

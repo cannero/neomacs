@@ -346,23 +346,32 @@ fn pure_dispatch_typed_div_float_zero_uses_ieee_results() {
 #[test]
 fn pure_dispatch_typed_ash_handles_extreme_negative_shift_counts() {
     crate::test_utils::init_test_tracing();
-    let right = dispatch_builtin_pure("ash", vec![Value::fixnum(3), Value::fixnum(i64::MIN)])
-        .expect("builtin ash should resolve")
-        .expect("builtin ash should evaluate");
+    let right = dispatch_builtin_pure(
+        "ash",
+        vec![Value::fixnum(3), Value::fixnum(Value::MOST_NEGATIVE_FIXNUM)],
+    )
+    .expect("builtin ash should resolve")
+    .expect("builtin ash should evaluate");
     assert_eq!(right, Value::fixnum(0));
 
-    let right_neg = dispatch_builtin_pure("ash", vec![Value::fixnum(-3), Value::fixnum(i64::MIN)])
-        .expect("builtin ash should resolve")
-        .expect("builtin ash should evaluate");
+    let right_neg = dispatch_builtin_pure(
+        "ash",
+        vec![
+            Value::fixnum(-3),
+            Value::fixnum(Value::MOST_NEGATIVE_FIXNUM),
+        ],
+    )
+    .expect("builtin ash should resolve")
+    .expect("builtin ash should evaluate");
     assert_eq!(right_neg, Value::fixnum(-1));
 }
 
 #[test]
 fn pure_dispatch_typed_abs_min_fixnum_signals_overflow_error() {
     crate::test_utils::init_test_tracing();
-    let err = dispatch_builtin_pure("abs", vec![Value::fixnum(i64::MIN)])
+    let err = dispatch_builtin_pure("abs", vec![Value::fixnum(Value::MOST_NEGATIVE_FIXNUM)])
         .expect("builtin abs should resolve")
-        .expect_err("abs on i64::MIN should not panic");
+        .expect_err("abs on most-negative-fixnum should not panic");
     match err {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "overflow-error"),
         other => panic!("unexpected flow: {other:?}"),

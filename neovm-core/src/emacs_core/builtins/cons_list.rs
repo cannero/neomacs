@@ -154,20 +154,19 @@ pub(crate) fn bytecode_to_closure_vector(value: &Value) -> Vec<Value> {
     // Slot 3: max stack depth
     let depth = Value::fixnum(bc.max_stack as i64);
 
-    // GNU Emacs closure vector layout (always 6 slots):
-    //   [0] = CLOSURE_ARGLIST
-    //   [1] = CLOSURE_CODE (bytecode string, nil for NeoVM IR)
-    //   [2] = CLOSURE_CONSTANTS (constants vector or env)
-    //   [3] = CLOSURE_STACK_DEPTH
-    //   [4] = CLOSURE_DOC_STRING
-    //   [5] = CLOSURE_INTERACTIVE
     let slot4 = bc
         .doc_form
         .or_else(|| bc.docstring.as_ref().map(|d| Value::string(d.clone())))
         .unwrap_or(Value::NIL);
     let slot5 = bc.interactive.unwrap_or(Value::NIL);
 
-    let result = vec![args, code, env, depth, slot4, slot5];
+    let mut result = vec![args, code, env, depth];
+    if !slot4.is_nil() || !slot5.is_nil() {
+        result.push(slot4);
+    }
+    if !slot5.is_nil() {
+        result.push(slot5);
+    }
     crate::emacs_core::eval::restore_scratch_gc_roots(saved_roots);
     result
 }

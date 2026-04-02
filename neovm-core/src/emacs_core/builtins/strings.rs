@@ -462,7 +462,7 @@ pub(crate) fn builtin_upcase(args: Vec<Value>) -> EvalResult {
         ValueKind::String => Ok(Value::string(upcase_string_emacs_compat(
             args[0].as_str().unwrap(),
         ))),
-        ValueKind::Fixnum(c) => {
+        ValueKind::Fixnum(c) if (0..=0x3F_FFFF).contains(&c) => {
             let mapped = upcase_char_code_emacs_compat(c as i64);
             if let Some(ch) = u32::try_from(mapped).ok().and_then(char::from_u32) {
                 Ok(Value::fixnum(ch as i64))
@@ -470,6 +470,10 @@ pub(crate) fn builtin_upcase(args: Vec<Value>) -> EvalResult {
                 Ok(Value::fixnum(c))
             }
         }
+        ValueKind::Fixnum(_) => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("char-or-string-p"), args[0]],
+        )),
         _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("char-or-string-p"), args[0]],
@@ -610,7 +614,7 @@ pub(crate) fn builtin_downcase(args: Vec<Value>) -> EvalResult {
         ValueKind::String => Ok(Value::string(downcase_string_emacs_compat(
             args[0].as_str().unwrap(),
         ))),
-        ValueKind::Fixnum(c) => {
+        ValueKind::Fixnum(c) if (0..=0x3F_FFFF).contains(&c) => {
             let mapped = downcase_char_code_emacs_compat(c as i64);
             if let Some(ch) = u32::try_from(mapped).ok().and_then(char::from_u32) {
                 Ok(Value::fixnum(ch as i64))
@@ -618,6 +622,10 @@ pub(crate) fn builtin_downcase(args: Vec<Value>) -> EvalResult {
                 Ok(Value::fixnum(c))
             }
         }
+        ValueKind::Fixnum(_) => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("char-or-string-p"), args[0]],
+        )),
         _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("char-or-string-p"), args[0]],
