@@ -298,6 +298,22 @@ fn gc_float_collection() {
 }
 
 #[test]
+fn gc_collect_exact_ignores_configured_stack_scan() {
+    crate::test_utils::init_test_tracing();
+    let mut heap = super::gc::TaggedHeap::new();
+    let marker = 0u8;
+    heap.set_stack_bottom(&marker as *const u8);
+
+    let stack_only = heap.alloc_cons(TaggedValue::fixnum(9), TaggedValue::NIL);
+    let keep_visible = [stack_only];
+    std::hint::black_box(&keep_visible);
+
+    heap.collect_exact(std::iter::empty());
+
+    assert_eq!(heap.allocated_count, 0);
+}
+
+#[test]
 fn equality_identity() {
     crate::test_utils::init_test_tracing();
     // Same tagged value = equal

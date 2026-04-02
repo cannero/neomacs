@@ -23,6 +23,15 @@ use crate::gc::GcTrace;
 use std::alloc::{self, Layout};
 use std::cell::Cell;
 
+/// How GC should discover roots beyond the explicit iterator passed to collect.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RootScanMode {
+    /// Only use the explicit roots supplied by the caller.
+    ExactOnly,
+    /// Also conservatively scan the native stack for tagged values.
+    ConservativeStack,
+}
+
 // ---------------------------------------------------------------------------
 // Thread-local heap access
 // ---------------------------------------------------------------------------
@@ -206,6 +215,9 @@ pub struct TaggedHeap {
     /// Stack bottom for conservative stack scanning.
     stack_bottom: *const u8,
 
+    /// Root discovery policy for full-heap collections.
+    root_scan_mode: RootScanMode,
+
     /// Tracking list of all allocated marker objects for bulk operations
     /// like clearing markers when buffers are killed.
     marker_ptrs: Vec<*mut MarkerObj>,
@@ -220,12 +232,21 @@ impl TaggedHeap {
             gc_threshold: 8192,
             gray_queue: Vec::new(),
             stack_bottom: std::ptr::null(),
+            root_scan_mode: RootScanMode::ConservativeStack,
             marker_ptrs: Vec::new(),
         }
     }
 
     pub fn set_stack_bottom(&mut self, bottom: *const u8) {
         self.stack_bottom = bottom;
+    }
+
+    pub fn set_root_scan_mode(&mut self, mode: RootScanMode) {
+        self.root_scan_mode = mode;
+    }
+
+    pub fn root_scan_mode(&self) -> RootScanMode {
+        self.root_scan_mode
     }
 
     pub fn should_collect(&self) -> bool {
@@ -532,6 +553,20 @@ impl TaggedHeap {
     ///
     /// `roots` must yield every reachable `TaggedValue`.
     pub fn collect(&mut self, roots: impl Iterator<Item = TaggedValue>) {
+        let mode = self.root_scan_mode;
+        self.collect_with_scan_mode(roots, mode);
+    }
+
+    /// Run a full mark-sweep collection using only the explicit roots provided.
+    pub fn collect_exact(&mut self, roots: impl Iterator<Item = TaggedValue>) {
+        self.collect_with_scan_mode(roots, RootScanMode::ExactOnly);
+    }
+
+    fn collect_with_scan_mode(
+        &mut self,
+        roots: impl Iterator<Item = TaggedValue>,
+        mode: RootScanMode,
+    ) {
         // -- Clear marks --
         for block in &mut self.cons_blocks {
             block.clear_marks();
@@ -553,8 +588,9 @@ impl TaggedHeap {
             }
         }
 
-        // -- Conservative stack scan --
-        unsafe { self.conservative_stack_scan() };
+        if matches!(mode, RootScanMode::ConservativeStack) {
+            unsafe { self.conservative_stack_scan() };
+        }
 
         // -- Mark phase: drain gray queue --
         self.mark_all();
