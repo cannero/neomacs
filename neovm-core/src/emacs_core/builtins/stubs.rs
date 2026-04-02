@@ -845,23 +845,26 @@ pub(crate) fn builtin_fillarray(args: Vec<Value>) -> EvalResult {
                 };
                 let available_bits = v.len().saturating_sub(BOOL_VECTOR_BITS_START);
                 let bit_count = logical_len.min(available_bits);
-                let vec = args[0].as_vector_data_mut().unwrap();
-                for bit in vec.iter_mut().skip(BOOL_VECTOR_BITS_START).take(bit_count) {
-                    *bit = Value::fixnum(fill_bit);
-                }
+                let _ = args[0].with_vector_data_mut(|vec| {
+                    for bit in vec.iter_mut().skip(BOOL_VECTOR_BITS_START).take(bit_count) {
+                        *bit = Value::fixnum(fill_bit);
+                    }
+                });
                 return Ok(args[0]);
             }
             if is_char_table {
-                let vec = args[0].as_vector_data_mut().unwrap();
-                if vec.len() > CHAR_TABLE_DEFAULT_SLOT {
-                    vec[CHAR_TABLE_DEFAULT_SLOT] = args[1];
-                }
+                let _ = args[0].with_vector_data_mut(|vec| {
+                    if vec.len() > CHAR_TABLE_DEFAULT_SLOT {
+                        vec[CHAR_TABLE_DEFAULT_SLOT] = args[1];
+                    }
+                });
                 return Ok(args[0]);
             }
-            let vec = args[0].as_vector_data_mut().unwrap();
-            for slot in vec.iter_mut() {
-                *slot = args[1];
-            }
+            let _ = args[0].with_vector_data_mut(|vec| {
+                for slot in vec.iter_mut() {
+                    *slot = args[1];
+                }
+            });
             Ok(args[0])
         }
         ValueKind::String => {
