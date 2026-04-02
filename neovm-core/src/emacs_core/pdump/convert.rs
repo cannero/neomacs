@@ -1,7 +1,7 @@
 //! Conversions between runtime types and pdump snapshot types.
 
 use std::cell::Cell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use super::DumpError;
@@ -613,8 +613,8 @@ pub(crate) fn dump_obarray(ob: &Obarray) -> DumpObarray {
             .iter_symbols()
             .map(|(id, sd)| (id.0, dump_symbol_data(sd)))
             .collect(),
-        global_members: ob.global_members().iter().map(|id| id.0).collect(),
-        function_unbound: ob.function_unbound_set().iter().map(|id| id.0).collect(),
+        global_members: ob.global_member_ids().map(|id| id.0).collect(),
+        function_unbound: ob.function_unbound_ids().map(|id| id.0).collect(),
         function_epoch: ob.function_epoch(),
     }
 }
@@ -2037,29 +2037,27 @@ pub(crate) fn load_symbol_data(sd: &DumpSymbolData) -> SymbolData {
     } else {
         SymbolValue::Plain(load_opt_value(&sd.value))
     };
-    SymbolData {
-        name: load_sym_id(&sd.name),
-        value,
-        function: load_opt_value(&sd.function),
-        plist: sd
-            .plist
-            .iter()
-            .map(|(k, v)| (load_sym_id(k), load_value(v)))
-            .collect(),
-        special: sd.special,
-        constant: sd.constant,
-    }
+    let mut symbol = SymbolData::new(load_sym_id(&sd.name));
+    symbol.value = value;
+    symbol.function = load_opt_value(&sd.function);
+    symbol.plist = sd
+        .plist
+        .iter()
+        .map(|(k, v)| (load_sym_id(k), load_value(v)))
+        .collect();
+    symbol.special = sd.special;
+    symbol.constant = sd.constant;
+    symbol
 }
 
 pub(crate) fn load_obarray(dob: &DumpObarray) -> Obarray {
-    let symbols: HashMap<SymId, SymbolData> = dob
+    let symbols: Vec<(SymId, SymbolData)> = dob
         .symbols
         .iter()
         .map(|(id, sd)| (SymId(*id), load_symbol_data(sd)))
         .collect();
-    let global_members: HashSet<SymId> = dob.global_members.iter().map(|id| SymId(*id)).collect();
-    let function_unbound: HashSet<SymId> =
-        dob.function_unbound.iter().map(|id| SymId(*id)).collect();
+    let global_members: Vec<SymId> = dob.global_members.iter().map(|id| SymId(*id)).collect();
+    let function_unbound: Vec<SymId> = dob.function_unbound.iter().map(|id| SymId(*id)).collect();
     Obarray::from_dump(
         symbols,
         global_members,

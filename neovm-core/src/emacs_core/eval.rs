@@ -1320,7 +1320,6 @@ fn begin_lambda_call_in_state(
 
     let saved_temp_roots_len = temp_roots.len();
     let specpdl_count = specpdl.len();
-    temp_roots.extend(args.iter().copied());
 
     let has_lexenv = env.is_some();
     if let Some(env) = env {
@@ -1350,7 +1349,10 @@ fn begin_lambda_call_in_state(
             }
         }
         if let Some(rest_name) = params.rest {
+            let saved_roots = temp_roots.len();
+            temp_roots.extend(args[arg_idx..].iter().copied());
             let rest_value = Value::list(args[arg_idx..].to_vec());
+            temp_roots.truncate(saved_roots);
             bind_lexical_value_rooted_in_state(lexenv, temp_roots, rest_name, rest_value);
         }
     } else {
@@ -1369,12 +1371,11 @@ fn begin_lambda_call_in_state(
             }
         }
         if let Some(rest_name) = params.rest {
-            specbind_in_state(
-                obarray,
-                specpdl,
-                rest_name,
-                Value::list(args[arg_idx..].to_vec()),
-            );
+            let saved_roots = temp_roots.len();
+            temp_roots.extend(args[arg_idx..].iter().copied());
+            let rest_value = Value::list(args[arg_idx..].to_vec());
+            temp_roots.truncate(saved_roots);
+            specbind_in_state(obarray, specpdl, rest_name, rest_value);
         }
     }
 
@@ -3627,11 +3628,11 @@ impl Context {
         builtins::init_builtins(&mut ev);
         for (sym_id, symbol) in dumped_function_surface.iter_symbols() {
             match symbol.function.as_ref() {
-                Some(function) => ev.obarray.set_symbol_function_id(*sym_id, *function),
-                None if dumped_function_surface.is_function_unbound_id(*sym_id) => {
-                    ev.obarray.fmakunbound_id(*sym_id);
+                Some(function) => ev.obarray.set_symbol_function_id(sym_id, *function),
+                None if dumped_function_surface.is_function_unbound_id(sym_id) => {
+                    ev.obarray.fmakunbound_id(sym_id);
                 }
-                None => ev.obarray.clear_function_silent_id(*sym_id),
+                None => ev.obarray.clear_function_silent_id(sym_id),
             }
         }
 

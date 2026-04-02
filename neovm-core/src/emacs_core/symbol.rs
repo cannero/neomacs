@@ -11,7 +11,7 @@
 use super::intern::{SymId, intern, lookup_interned, resolve_sym};
 use super::value::{Value, ValueKind};
 use crate::gc_trace::GcTrace;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// Describes how a symbol's value cell is stored, matching GNU Emacs's
 /// `symbol_redirect` enum (`SYMBOL_PLAINVAL`, `SYMBOL_VARALIAS`,
@@ -52,6 +52,10 @@ pub struct SymbolData {
     pub special: bool,
     /// Whether this symbol is a constant (defconst).
     pub constant: bool,
+    /// Whether this symbol is interned in the global obarray.
+    interned_global: bool,
+    /// Whether `fmakunbound` explicitly masked the symbol's fallback function.
+    function_unbound: bool,
 }
 
 impl SymbolData {
@@ -63,6 +67,8 @@ impl SymbolData {
             plist: HashMap::new(),
             special: false,
             constant: false,
+            interned_global: false,
+            function_unbound: false,
         }
     }
 }
@@ -73,9 +79,8 @@ impl SymbolData {
 /// ensuring that `(eq 'foo 'foo)` is always true.
 #[derive(Clone, Debug)]
 pub struct Obarray {
-    symbols: HashMap<SymId, SymbolData>,
-    global_members: HashSet<SymId>,
-    function_unbound: HashSet<SymId>,
+    symbols: Vec<Option<SymbolData>>,
+    global_member_count: usize,
     function_epoch: u64,
 }
 
@@ -90,15 +95,63 @@ impl Obarray {
         lookup_interned(resolve_sym(id)).is_some_and(|canonical| canonical == id)
     }
 
-    fn ensure_global_member_if_canonical(&mut self, id: SymId) {
-        if Self::is_canonical_symbol_id(id) {
-            self.global_members.insert(id);
+    fn slot_index(id: SymId) -> usize {
+        id.0 as usize
+    }
+
+    fn slot(&self, id: SymId) -> Option<&SymbolData> {
+        self.symbols
+            .get(Self::slot_index(id))
+            .and_then(Option::as_ref)
+    }
+
+    fn slot_mut(&mut self, id: SymId) -> Option<&mut SymbolData> {
+        self.symbols
+            .get_mut(Self::slot_index(id))
+            .and_then(Option::as_mut)
+    }
+
+    fn ensure_slot(&mut self, id: SymId) -> &mut SymbolData {
+        let idx = Self::slot_index(id);
+        if self.symbols.len() <= idx {
+            self.symbols.resize_with(idx + 1, || None);
+        }
+        self.symbols[idx].get_or_insert_with(|| SymbolData::new(id))
+    }
+
+    fn mark_global_member(&mut self, id: SymId) {
+        let sym = self.ensure_slot(id);
+        if !sym.interned_global {
+            sym.interned_global = true;
+            self.global_member_count += 1;
         }
     }
 
-    fn value_from_symbol_id(id: SymId) -> Value {
-        let name = resolve_sym(id);
+    fn clear_global_member(&mut self, id: SymId) -> bool {
+        let Some(sym) = self.slot_mut(id) else {
+            return false;
+        };
+        if !sym.interned_global {
+            return false;
+        }
+        sym.interned_global = false;
+        self.global_member_count = self.global_member_count.saturating_sub(1);
+        true
+    }
+
+    fn ensure_global_member_if_canonical(&mut self, id: SymId) {
         if Self::is_canonical_symbol_id(id) {
+            self.mark_global_member(id);
+        }
+    }
+
+    fn is_global_member(&self, id: SymId) -> bool {
+        self.slot(id).is_some_and(|sym| sym.interned_global)
+    }
+
+    fn value_from_symbol_id(&self, id: SymId) -> Value {
+        let name = resolve_sym(id);
+        if self.is_global_member(id) {
             if name == "nil" {
                 return Value::NIL;
             }
@@ -114,28 +167,29 @@ impl Obarray {
 
     pub fn new() -> Self {
         let mut ob = Self {
-            symbols: HashMap::new(),
-            global_members: HashSet::new(),
-            function_unbound: HashSet::new(),
+            symbols: Vec::new(),
+            global_member_count: 0,
             function_epoch: 0,
         };
 
         // Pre-intern fundamental symbols
         let t_id = intern("t");
-        let mut t_sym = SymbolData::new(t_id);
-        t_sym.value = SymbolValue::Plain(Some(Value::T));
-        t_sym.constant = true;
-        t_sym.special = true;
-        ob.symbols.insert(t_id, t_sym);
-        ob.global_members.insert(t_id);
+        {
+            let t_sym = ob.ensure_slot(t_id);
+            t_sym.value = SymbolValue::Plain(Some(Value::T));
+            t_sym.constant = true;
+            t_sym.special = true;
+        }
+        ob.mark_global_member(t_id);
 
         let nil_id = intern("nil");
-        let mut nil_sym = SymbolData::new(nil_id);
-        nil_sym.value = SymbolValue::Plain(Some(Value::NIL));
-        nil_sym.constant = true;
-        nil_sym.special = true;
-        ob.symbols.insert(nil_id, nil_sym);
-        ob.global_members.insert(nil_id);
+        {
+            let nil_sym = ob.ensure_slot(nil_id);
+            nil_sym.value = SymbolValue::Plain(Some(Value::NIL));
+            nil_sym.constant = true;
+            nil_sym.special = true;
+        }
+        ob.mark_global_member(nil_id);
 
         ob
     }
@@ -145,59 +199,48 @@ impl Obarray {
     pub fn intern(&mut self, name: &str) -> String {
         let id = intern(name);
         self.ensure_symbol_id(id);
-        self.global_members.insert(id);
+        self.mark_global_member(id);
         name.to_string()
     }
 
     /// Look up a symbol without creating it. Returns None if not interned.
     pub fn intern_soft(&self, name: &str) -> Option<&SymbolData> {
         let id = lookup_interned(name)?;
-        self.global_members
-            .contains(&id)
-            .then(|| self.symbols.get(&id))
-            .flatten()
+        self.slot(id).filter(|sym| sym.interned_global)
     }
 
     /// Get symbol data (mutable). Interns the symbol if needed.
     pub fn get_or_intern(&mut self, name: &str) -> &mut SymbolData {
         let id = intern(name);
-        self.global_members.insert(id);
+        self.mark_global_member(id);
         self.ensure_symbol_id(id)
     }
 
     /// Get symbol data (immutable).
     pub fn get(&self, name: &str) -> Option<&SymbolData> {
         let id = lookup_interned(name)?;
-        self.global_members
-            .contains(&id)
-            .then(|| self.symbols.get(&id))
-            .flatten()
+        self.slot(id).filter(|sym| sym.interned_global)
     }
 
     /// Get symbol data (mutable).
     pub fn get_mut(&mut self, name: &str) -> Option<&mut SymbolData> {
         let id = lookup_interned(name)?;
-        self.global_members
-            .contains(&id)
-            .then(|| self.symbols.get_mut(&id))
-            .flatten()
+        self.slot_mut(id).filter(|sym| sym.interned_global)
     }
 
     /// Ensure symbol storage exists for an arbitrary symbol id.
     pub fn ensure_symbol_id(&mut self, id: SymId) -> &mut SymbolData {
-        self.symbols
-            .entry(id)
-            .or_insert_with(|| SymbolData::new(id))
+        self.ensure_slot(id)
     }
 
     /// Get symbol data by identity.
     pub fn get_by_id(&self, id: SymId) -> Option<&SymbolData> {
-        self.symbols.get(&id)
+        self.slot(id)
     }
 
     /// Get mutable symbol data by identity.
     pub fn get_mut_by_id(&mut self, id: SymId) -> Option<&mut SymbolData> {
-        self.symbols.get_mut(&id)
+        self.slot_mut(id)
     }
 
     /// Get the value cell of a symbol.
@@ -210,7 +253,7 @@ impl Obarray {
     pub fn symbol_value_id(&self, id: SymId) -> Option<&Value> {
         let mut current = id;
         for _ in 0..50 {
-            match self.symbols.get(&current)?.value {
+            match self.slot(current)?.value {
                 SymbolValue::Plain(ref v) => return v.as_ref(),
                 SymbolValue::Alias(target) => current = target,
                 SymbolValue::BufferLocal { ref default, .. } => return default.as_ref(),
@@ -223,7 +266,7 @@ impl Obarray {
     /// Set the value cell of a symbol. Interns if needed.
     pub fn set_symbol_value(&mut self, name: &str, value: Value) {
         let id = intern(name);
-        self.global_members.insert(id);
+        self.mark_global_member(id);
         self.set_symbol_value_id_inner(id, value);
     }
 
@@ -253,7 +296,7 @@ impl Obarray {
 
     /// Visit each stored symbol value cell that currently holds a `Value`.
     pub fn for_each_value_cell_mut(&mut self, mut f: impl FnMut(&mut Value)) {
-        for sym in self.symbols.values_mut() {
+        for sym in self.symbols.iter_mut().flatten() {
             match &mut sym.value {
                 SymbolValue::Plain(Some(value)) => f(value),
                 SymbolValue::BufferLocal {
@@ -273,7 +316,7 @@ impl Obarray {
     fn resolve_alias_for_write(&mut self, id: SymId) -> SymId {
         let mut current = id;
         for _ in 0..50 {
-            match self.symbols.get(&current) {
+            match self.slot(current) {
                 Some(s) => match s.value {
                     SymbolValue::Alias(target) => current = target,
                     _ => return current,
@@ -291,10 +334,11 @@ impl Obarray {
 
     /// Get the function cell of a symbol by identity.
     pub fn symbol_function_id(&self, id: SymId) -> Option<&Value> {
-        if self.function_unbound.contains(&id) {
+        let sym = self.slot(id)?;
+        if sym.function_unbound {
             return None;
         }
-        self.symbols.get(&id).and_then(|s| s.function.as_ref())
+        sym.function.as_ref()
     }
 
     /// Get the function cell of a symbol from its Value representation.
@@ -313,10 +357,10 @@ impl Obarray {
     /// Set the function cell of a symbol (fset). Interns if needed.
     pub fn set_symbol_function(&mut self, name: &str, function: Value) {
         let id = intern(name);
-        self.global_members.insert(id);
+        self.mark_global_member(id);
         let sym = self.ensure_symbol_id(id);
         sym.function = Some(function);
-        self.function_unbound.remove(&id);
+        sym.function_unbound = false;
         self.function_epoch = self.function_epoch.wrapping_add(1);
     }
 
@@ -325,7 +369,7 @@ impl Obarray {
         self.ensure_global_member_if_canonical(id);
         let sym = self.ensure_symbol_id(id);
         sym.function = Some(function);
-        self.function_unbound.remove(&id);
+        sym.function_unbound = false;
         self.function_epoch = self.function_epoch.wrapping_add(1);
     }
 
@@ -337,10 +381,10 @@ impl Obarray {
     /// Remove the function cell by identity.
     pub fn fmakunbound_id(&mut self, id: SymId) {
         self.ensure_global_member_if_canonical(id);
-        let mut changed = self.function_unbound.insert(id);
-        if let Some(sym) = self.symbols.get_mut(&id) {
-            changed |= sym.function.take().is_some();
-        }
+        let sym = self.ensure_symbol_id(id);
+        let mut changed = !sym.function_unbound;
+        sym.function_unbound = true;
+        changed |= sym.function.take().is_some();
         if changed {
             self.function_epoch = self.function_epoch.wrapping_add(1);
         }
@@ -354,7 +398,7 @@ impl Obarray {
 
     /// Remove function cell without marking as explicitly unbound, by identity.
     pub fn clear_function_silent_id(&mut self, id: SymId) {
-        if let Some(sym) = self.symbols.get_mut(&id) {
+        if let Some(sym) = self.slot_mut(id) {
             if sym.function.take().is_some() {
                 self.function_epoch = self.function_epoch.wrapping_add(1);
             }
@@ -371,7 +415,7 @@ impl Obarray {
     pub fn makunbound_id(&mut self, id: SymId) {
         self.ensure_global_member_if_canonical(id);
         let target = self.resolve_alias_for_write(id);
-        if let Some(sym) = self.symbols.get_mut(&target) {
+        if let Some(sym) = self.slot_mut(target) {
             if !sym.constant {
                 match sym.value {
                     SymbolValue::Plain(_) => sym.value = SymbolValue::Plain(None),
@@ -395,7 +439,7 @@ impl Obarray {
     pub fn boundp_id(&self, id: SymId) -> bool {
         let mut current = id;
         for _ in 0..50 {
-            match self.symbols.get(&current) {
+            match self.slot(current) {
                 Some(s) => match &s.value {
                     SymbolValue::Plain(v) => return v.is_some(),
                     SymbolValue::Alias(target) => current = *target,
@@ -415,11 +459,8 @@ impl Obarray {
 
     /// Check if a symbol has a function cell by identity.
     pub fn fboundp_id(&self, id: SymId) -> bool {
-        if self.function_unbound.contains(&id) {
-            return false;
-        }
-        self.symbols
-            .get(&id)
+        self.slot(id)
+            .filter(|sym| !sym.function_unbound)
             .and_then(|s| s.function.as_ref())
             .is_some_and(|f| !f.is_nil())
     }
@@ -431,13 +472,13 @@ impl Obarray {
 
     /// Get a property from the symbol's plist by identity.
     pub fn get_property_id(&self, symbol: SymId, prop: SymId) -> Option<&Value> {
-        self.symbols.get(&symbol).and_then(|s| s.plist.get(&prop))
+        self.slot(symbol).and_then(|s| s.plist.get(&prop))
     }
 
     /// Set a property on the symbol's plist.
     pub fn put_property(&mut self, name: &str, prop: &str, value: Value) {
         let symbol = intern(name);
-        self.global_members.insert(symbol);
+        self.mark_global_member(symbol);
         let sym = self.ensure_symbol_id(symbol);
         sym.plist.insert(intern(prop), value);
     }
@@ -467,11 +508,11 @@ impl Obarray {
 
     /// Get the symbol's full plist as a flat list by identity.
     pub fn symbol_plist_id(&self, id: SymId) -> Value {
-        match self.symbols.get(&id) {
+        match self.slot(id) {
             Some(sym) if !sym.plist.is_empty() => {
                 let mut items = Vec::new();
                 for (k, v) in &sym.plist {
-                    items.push(Self::value_from_symbol_id(*k));
+                    items.push(self.value_from_symbol_id(*k));
                     items.push(*v);
                 }
                 Value::list(items)
@@ -483,7 +524,7 @@ impl Obarray {
     /// Mark a symbol as special (dynamically bound).
     pub fn make_special(&mut self, name: &str) {
         let id = intern(name);
-        self.global_members.insert(id);
+        self.mark_global_member(id);
         self.ensure_symbol_id(id).special = true;
     }
 
@@ -496,7 +537,7 @@ impl Obarray {
     /// Clear the special flag on a symbol.
     pub fn make_non_special(&mut self, name: &str) {
         let id = intern(name);
-        self.global_members.insert(id);
+        self.mark_global_member(id);
         self.ensure_symbol_id(id).special = false;
     }
 
@@ -513,7 +554,7 @@ impl Obarray {
 
     /// Check if a symbol is special by identity.
     pub fn is_special_id(&self, id: SymId) -> bool {
-        self.symbols.get(&id).is_some_and(|s| s.special)
+        self.slot(id).is_some_and(|s| s.special)
     }
 
     /// Check if a symbol is a constant.
@@ -524,7 +565,7 @@ impl Obarray {
     /// Check if a symbol is a constant by identity.
     pub fn is_constant_id(&self, id: SymId) -> bool {
         (Self::is_canonical_symbol_id(id) && resolve_sym(id).starts_with(':'))
-            || self.symbols.get(&id).is_some_and(|s| s.constant)
+            || self.slot(id).is_some_and(|s| s.constant)
     }
 
     /// Mark a symbol as a hard constant (like SYMBOL_NOWRITE in GNU Emacs).
@@ -547,7 +588,7 @@ impl Obarray {
     /// Preserves any existing default value from `Plain` or `BufferLocal`.
     pub fn make_buffer_local(&mut self, name: &str, local_if_set: bool) {
         let id = intern(name);
-        self.global_members.insert(id);
+        self.mark_global_member(id);
         let sym = self.ensure_symbol_id(id);
         let old_default = match &sym.value {
             SymbolValue::Plain(v) => v.clone(),
@@ -573,15 +614,13 @@ impl Obarray {
 
     /// Check whether a symbol is a buffer-local variable by identity.
     pub fn is_buffer_local_id(&self, id: SymId) -> bool {
-        self.symbols
-            .get(&id)
+        self.slot(id)
             .is_some_and(|s| matches!(s.value, SymbolValue::BufferLocal { .. }))
     }
 
     /// Check whether a symbol is an alias by identity.
     pub fn is_alias_id(&self, id: SymId) -> bool {
-        self.symbols
-            .get(&id)
+        self.slot(id)
             .is_some_and(|s| matches!(s.value, SymbolValue::Alias(_)))
     }
 
@@ -591,7 +630,7 @@ impl Obarray {
     pub fn default_value_id(&self, id: SymId) -> Option<&Value> {
         let mut current = id;
         for _ in 0..50 {
-            match self.symbols.get(&current)?.value {
+            match self.slot(current)?.value {
                 SymbolValue::Plain(ref v) => return v.as_ref(),
                 SymbolValue::BufferLocal { ref default, .. } => return default.as_ref(),
                 SymbolValue::Alias(target) => current = target,
@@ -610,7 +649,7 @@ impl Obarray {
             if depth > 100 {
                 return None; // Circular alias chain
             }
-            let func = self.symbols.get(&current_id)?.function.as_ref()?;
+            let func = self.slot(current_id)?.function.as_ref()?;
             match func.kind() {
                 ValueKind::Symbol(id) => {
                     current_id = id;
@@ -623,25 +662,27 @@ impl Obarray {
 
     /// Number of interned symbols.
     pub fn len(&self) -> usize {
-        self.global_members.len()
+        self.global_member_count
     }
 
     pub fn is_empty(&self) -> bool {
-        self.global_members.is_empty()
+        self.global_member_count == 0
     }
 
     /// All interned symbol names.
     pub fn all_symbols(&self) -> Vec<&str> {
-        self.global_members
+        self.symbols
             .iter()
-            .map(|id| resolve_sym(*id))
+            .flatten()
+            .filter(|sym| sym.interned_global)
+            .map(|sym| resolve_sym(sym.name))
             .collect()
     }
 
     /// Remove a symbol from the obarray.  Returns `true` if it was present.
     pub fn unintern(&mut self, name: &str) -> bool {
         let id = intern(name);
-        let removed_symbol = self.global_members.remove(&id);
+        let removed_symbol = self.clear_global_member(id);
         if removed_symbol {
             self.function_epoch = self.function_epoch.wrapping_add(1);
         }
@@ -660,7 +701,7 @@ impl Obarray {
 
     /// True when `fmakunbound` explicitly masked this symbol's fallback function definition.
     pub fn is_function_unbound_id(&self, id: SymId) -> bool {
-        self.function_unbound.contains(&id)
+        self.slot(id).is_some_and(|sym| sym.function_unbound)
     }
 
     // -----------------------------------------------------------------------
@@ -668,39 +709,57 @@ impl Obarray {
     // -----------------------------------------------------------------------
 
     /// Iterate over all (SymId, &SymbolData) pairs (for pdump serialization).
-    pub(crate) fn iter_symbols(&self) -> impl Iterator<Item = (&SymId, &SymbolData)> {
-        self.symbols.iter()
+    pub(crate) fn iter_symbols(&self) -> impl Iterator<Item = (SymId, &SymbolData)> {
+        self.symbols.iter().enumerate().filter_map(|(idx, slot)| {
+            debug_assert!(idx <= u32::MAX as usize, "symbol index overflow");
+            slot.as_ref().map(|sym| (SymId(idx as u32), sym))
+        })
     }
 
-    /// Access the set of ids interned in the global obarray.
-    pub(crate) fn global_members(&self) -> &HashSet<SymId> {
-        &self.global_members
+    /// Iterate over ids interned in the global obarray.
+    pub(crate) fn global_member_ids(&self) -> impl Iterator<Item = SymId> + '_ {
+        self.iter_symbols()
+            .filter(|(_, sym)| sym.interned_global)
+            .map(|(id, _)| id)
     }
 
-    /// Access the set of fmakunbound'd symbol ids (for pdump serialization).
-    pub(crate) fn function_unbound_set(&self) -> &HashSet<SymId> {
-        &self.function_unbound
+    /// Iterate over fmakunbound'd symbol ids (for pdump serialization).
+    pub(crate) fn function_unbound_ids(&self) -> impl Iterator<Item = SymId> + '_ {
+        self.iter_symbols()
+            .filter(|(_, sym)| sym.function_unbound)
+            .map(|(id, _)| id)
     }
 
     /// Reconstruct an Obarray from pdump data.
     pub(crate) fn from_dump(
-        symbols: HashMap<SymId, SymbolData>,
-        global_members: HashSet<SymId>,
-        function_unbound: HashSet<SymId>,
+        symbols: Vec<(SymId, SymbolData)>,
+        global_members: Vec<SymId>,
+        function_unbound: Vec<SymId>,
         function_epoch: u64,
     ) -> Self {
-        Self {
-            symbols,
-            global_members,
-            function_unbound,
+        let mut ob = Self {
+            symbols: Vec::new(),
+            global_member_count: 0,
             function_epoch,
+        };
+        for (id, mut sym) in symbols {
+            sym.interned_global = false;
+            sym.function_unbound = false;
+            *ob.ensure_slot(id) = sym;
         }
+        for id in global_members {
+            ob.mark_global_member(id);
+        }
+        for id in function_unbound {
+            ob.ensure_slot(id).function_unbound = true;
+        }
+        ob
     }
 }
 
 impl GcTrace for Obarray {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
-        for sym in self.symbols.values() {
+        for sym in self.symbols.iter().flatten() {
             match &sym.value {
                 SymbolValue::Plain(Some(v)) => roots.push(*v),
                 SymbolValue::BufferLocal {
