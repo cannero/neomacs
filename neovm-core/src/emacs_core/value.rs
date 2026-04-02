@@ -758,27 +758,11 @@ impl IntoSymbol for &&String {
     }
 }
 
-/// Trait for types that can be converted to a keyword Value.
-pub trait IntoKeyword {
-    fn into_keyword(self) -> Value;
-}
-
-impl IntoKeyword for SymId {
-    fn into_keyword(self) -> Value {
-        TaggedValue::from_kw_id(self)
-    }
-}
-
-impl IntoKeyword for &str {
-    fn into_keyword(self) -> Value {
-        add_wrapping(&SYMBOLS_CONSED, 1);
-        TaggedValue::from_kw_id(intern(self))
-    }
-}
-
-impl IntoKeyword for String {
-    fn into_keyword(self) -> Value {
-        self.as_str().into_keyword()
+fn canonical_keyword_name(name: &str) -> String {
+    if name.starts_with(':') {
+        name.to_owned()
+    } else {
+        format!(":{name}")
     }
 }
 
@@ -797,14 +781,22 @@ impl TaggedValue {
         s.as_ref().into_symbol()
     }
 
-    /// Create a keyword from a string or SymId.
-    pub fn keyword(s: impl IntoKeyword) -> Self {
-        s.into_keyword()
+    /// Create a keyword by interning a canonical `:name` symbol.
+    pub fn keyword(s: impl AsRef<str>) -> Self {
+        add_wrapping(&SYMBOLS_CONSED, 1);
+        TaggedValue::from_kw_id(intern(&canonical_keyword_name(s.as_ref())))
+    }
+
+    /// Wrap an existing interned keyword symbol id.
+    ///
+    /// Callers must only pass SymIds whose canonical names already start with `:`.
+    pub fn keyword_id(id: SymId) -> Self {
+        TaggedValue::from_kw_id(id)
     }
 
     /// Create a keyword by interning a name string.
     pub fn make_keyword(s: impl AsRef<str>) -> Self {
-        s.as_ref().into_keyword()
+        Self::keyword(s)
     }
 
     /// Convert bool to Value (T or NIL).

@@ -53,28 +53,36 @@ fn keyword_identity_is_consistent_across_constructors() {
     with_test_heap(|| {
         let keyword_from_symbol_ctor = Value::symbol(":kw");
         let keyword_from_keyword_ctor = Value::keyword(":kw");
+        let keyword_from_bare_ctor = Value::keyword("kw");
+        let keyword_from_sym_id = Value::keyword_id(intern(":kw"));
 
-        // Value::symbol(":kw") auto-detects the colon and produces Keyword variant
+        // Keywords are ordinary symbols whose canonical names start with `:`.
         assert!(keyword_from_symbol_ctor.is_keyword());
         assert!(eq_value(
             &keyword_from_symbol_ctor,
             &keyword_from_keyword_ctor
         ));
+        assert!(eq_value(
+            &keyword_from_symbol_ctor,
+            &keyword_from_bare_ctor
+        ));
+        assert!(eq_value(
+            &keyword_from_symbol_ctor,
+            &keyword_from_sym_id
+        ));
 
-        // Direct Value::Symbol(intern(":kw")) bypasses auto-detection and produces
-        // a Symbol variant. In GNU Emacs, :kw and kw are different symbols —
-        // Symbol and Keyword variants must NOT be eq.
-        let legacy_symbol_variant = Value::symbol(intern(":kw"));
-        assert!(!eq_value(&keyword_from_symbol_ctor, &legacy_symbol_variant));
+        // Bare `kw` and keyword `:kw` are distinct GNU symbols.
+        let bare_symbol = Value::symbol("kw");
+        assert!(!eq_value(&keyword_from_symbol_ctor, &bare_symbol));
         assert!(!equal_value(
             &keyword_from_symbol_ctor,
-            &legacy_symbol_variant,
+            &bare_symbol,
             0
         ));
 
         for test in [HashTableTest::Eq, HashTableTest::Eql, HashTableTest::Equal] {
             let left = keyword_from_symbol_ctor.to_hash_key(&test);
-            let right = legacy_symbol_variant.to_hash_key(&test);
+            let right = bare_symbol.to_hash_key(&test);
             assert_ne!(left, right);
         }
     });
@@ -238,8 +246,8 @@ fn value_is_copy_and_16_bytes() {
 
     assert_eq!(
         std::mem::size_of::<Value>(),
-        16,
-        "Value should be 16 bytes (discriminant + largest variant)"
+        8,
+        "Value should stay word-sized under the tagged-pointer runtime"
     );
 }
 

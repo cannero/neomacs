@@ -89,6 +89,10 @@ fn normalized_keyword_name(value: &Value) -> Option<&str> {
     }
 }
 
+fn integer_or_marker_p(value: &Value) -> bool {
+    value.as_int().is_some() || value.is_marker()
+}
+
 // ---------------------------------------------------------------------------
 // Property list helpers
 // ---------------------------------------------------------------------------
@@ -107,7 +111,7 @@ fn plist_get(plist: &Value, key: &Value) -> Value {
                     // Next element is the value.
                     match pair_cdr.kind() {
                         ValueKind::Cons => {
-                            return cursor.cons_car();
+                            return pair_cdr.cons_car();
                         }
                         _ => return Value::NIL,
                     }
@@ -390,7 +394,7 @@ pub(crate) fn builtin_put_image(args: Vec<Value>) -> EvalResult {
     }
 
     // Validate POINT is integer-or-marker in batch.
-    if !args[1].is_fixnum() || args[1].is_char() {
+    if !integer_or_marker_p(&args[1]) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), args[1]],
@@ -459,13 +463,13 @@ pub(crate) fn builtin_remove_images(args: Vec<Value>) -> EvalResult {
     expect_max_args("remove-images", &args, 3)?;
 
     // Validate START and END are integer-or-marker in batch.
-    if !args[0].is_fixnum() || args[0].is_char() {
+    if !integer_or_marker_p(&args[0]) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), args[0]],
         ));
     }
-    if !args[1].is_fixnum() || args[1].is_char() {
+    if !integer_or_marker_p(&args[1]) {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("integer-or-marker-p"), args[1]],

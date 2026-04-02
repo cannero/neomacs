@@ -106,7 +106,7 @@ impl Obarray {
                 return Value::T;
             }
             if name.starts_with(':') {
-                return Value::keyword(id);
+                return Value::keyword_id(id);
             }
         }
         Value::symbol(id)

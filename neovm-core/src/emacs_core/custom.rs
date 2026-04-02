@@ -185,7 +185,7 @@ fn runtime_binding_for_make_local_variable(
         return RuntimeBindingValue::Bound(Value::T);
     }
     if super::builtins::is_canonical_symbol_id(resolved) && resolved_name.starts_with(':') {
-        return RuntimeBindingValue::Bound(Value::keyword(resolved));
+        return RuntimeBindingValue::Bound(Value::keyword_id(resolved));
     }
 
     RuntimeBindingValue::Void

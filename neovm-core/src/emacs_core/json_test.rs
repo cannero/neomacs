@@ -1,5 +1,4 @@
 use super::*;
-use crate::emacs_core::intern::intern;
 use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 // -----------------------------------------------------------------------
@@ -23,14 +22,14 @@ fn serialize_true() {
 #[test]
 fn serialize_false_keyword() {
     crate::test_utils::init_test_tracing();
-    let result = builtin_json_serialize(vec![Value::keyword(intern(":false"))]);
+    let result = builtin_json_serialize(vec![Value::keyword(":false")]);
     assert_eq!(result.unwrap().as_str(), Some("false"));
 }
 
 #[test]
 fn serialize_json_false_keyword() {
     crate::test_utils::init_test_tracing();
-    let result = builtin_json_serialize(vec![Value::keyword(intern(":json-false"))]);
+    let result = builtin_json_serialize(vec![Value::keyword(":json-false")]);
     assert_eq!(result.unwrap().as_str(), Some("false"));
 }
 
@@ -162,7 +161,7 @@ fn serialize_custom_false_object() {
     // Use nil as the false-object.
     let result = builtin_json_serialize(vec![
         Value::NIL,
-        Value::keyword(intern(":false-object")),
+        Value::keyword(":false-object"),
         Value::NIL,
     ]);
     // nil matches both null_object (default) and false_object (nil).
@@ -358,7 +357,7 @@ fn parse_array_as_list() {
     crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![
         Value::string("[1, 2]"),
-        Value::keyword(intern(":array-type")),
+        Value::keyword(":array-type"),
         Value::symbol("list"),
     ]);
     let val = result.unwrap();
@@ -422,7 +421,7 @@ fn parse_object_as_alist() {
     crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![
         Value::string("{\"x\": 10}"),
-        Value::keyword(intern(":object-type")),
+        Value::keyword(":object-type"),
         Value::symbol("alist"),
     ]);
     let val = result.unwrap();
@@ -445,7 +444,7 @@ fn parse_object_as_plist() {
     crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![
         Value::string("{\"key\": 42}"),
-        Value::keyword(intern(":object-type")),
+        Value::keyword(":object-type"),
         Value::symbol("plist"),
     ]);
     let val = result.unwrap();
@@ -472,7 +471,7 @@ fn parse_custom_null_object() {
     crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![
         Value::string("null"),
-        Value::keyword(intern(":null-object")),
+        Value::keyword(":null-object"),
         Value::NIL,
     ]);
     assert!(result.unwrap().is_nil());
@@ -483,8 +482,8 @@ fn parse_custom_false_object() {
     crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![
         Value::string("false"),
-        Value::keyword(intern(":false-object")),
-        Value::keyword(intern(":json-false")),
+        Value::keyword(":false-object"),
+        Value::keyword(":json-false"),
     ]);
     let val = result.unwrap();
     assert!(

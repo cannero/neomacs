@@ -1356,7 +1356,7 @@ pub(crate) fn load_value(v: &DumpValue) -> Value {
         DumpValue::Int(n) => Value::fixnum(*n),
         DumpValue::Float(f, _id) => Value::make_float(*f),
         DumpValue::Symbol(s) => Value::symbol(load_sym_id(s)),
-        DumpValue::Keyword(s) => Value::keyword(load_sym_id(s)),
+        DumpValue::Keyword(s) => Value::keyword_id(load_sym_id(s)),
         // TODO(tagged): ObjId -> tagged pointer conversion needed for heap-allocated types
         DumpValue::Str(id) => obj_id_to_value(load_obj_id(id)),
         DumpValue::Cons(id) => obj_id_to_value(load_obj_id(id)),

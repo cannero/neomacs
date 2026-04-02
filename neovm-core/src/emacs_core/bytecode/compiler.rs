@@ -176,7 +176,7 @@ impl Compiler {
             }
             Expr::Keyword(id) => {
                 if for_value {
-                    let idx = func.add_constant(Value::keyword(*id));
+                    let idx = func.add_constant(Value::keyword_id(*id));
                     self.emit_tracked(func, Op::Constant(idx));
                 }
             }
@@ -242,7 +242,7 @@ impl Compiler {
             "nil" => self.emit_tracked(func, Op::Nil),
             "t" => self.emit_tracked(func, Op::True),
             _ if name.starts_with(':') => {
-                let idx = func.add_constant(Value::keyword(intern(name)));
+                let idx = func.add_constant(Value::keyword(name));
                 self.emit_tracked(func, Op::Constant(idx));
             }
             _ => {
@@ -1875,7 +1875,7 @@ fn literal_to_value(expr: &Expr) -> Value {
         Expr::ReaderLoadFileName => Value::symbol("load-file-name"),
         Expr::Str(s) => Value::string(s.clone()),
         Expr::Char(c) => Value::char(*c),
-        Expr::Keyword(id) => Value::keyword(*id),
+        Expr::Keyword(id) => Value::keyword_id(*id),
         Expr::Bool(true) => Value::T,
         Expr::Bool(false) => Value::NIL,
         Expr::Symbol(id) if resolve_sym(*id) == "nil" => Value::NIL,

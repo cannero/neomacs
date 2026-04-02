@@ -1253,7 +1253,7 @@ fn generate_new_buffer_name_optional_arg_matches_expected_types() {
         &mut eval,
         vec![
             Value::string("*gnbn-opt*"),
-            Value::keyword(intern("ignored")),
+            Value::keyword("ignored"),
         ],
     )
     .unwrap();
@@ -9281,7 +9281,7 @@ fn indirect_function_nil_and_non_symbol_behavior() {
 
     let keyword_input = builtin_indirect_function(
         &mut eval,
-        vec![Value::keyword(intern(":vm-indirect-keyword"))],
+        vec![Value::keyword(":vm-indirect-keyword")],
     )
     .expect("indirect-function should treat keywords as symbols and return nil");
     assert!(keyword_input.is_nil());
