@@ -21,20 +21,43 @@
 //! - `nil`  = Symbol(0) = `0x0` (intern "nil" as SymId(0))
 //! - `t`    = Symbol(1) = `0x8` (intern "t" as SymId(1))
 //!
-//! Immediate sub-tags (bits 3-7, 5 bits → 32 sub-types):
-//! ```text
-//! Bits 3-7   Meaning      Payload (bits 8+)
-//! 00000      Char         21-bit Unicode codepoint
-//! 00001      Keyword      SymId index
-//! 00010      Subr         SymId index
-//! 00011      (reserved for future use)
-//! ```
+//! Tag `111` is reserved. Characters are fixnums, keywords are ordinary
+//! symbols, and subrs are `PVEC_SUBR`-like heap objects.
 
+use std::cell::RefCell;
 use std::fmt;
 
-use crate::emacs_core::intern::SymId;
+use crate::emacs_core::intern::{SymId, resolve_sym};
 
 use super::header::{ConsCell, FloatObj, GcHeader, StringObj, VecLikeHeader, VecLikeType};
+
+thread_local! {
+    /// Current thread's canonical subr objects keyed by `SymId`.
+    static CURRENT_SUBRS: RefCell<Vec<Option<TaggedValue>>> = const { RefCell::new(Vec::new()) };
+}
+
+pub(crate) fn reset_current_subrs() {
+    CURRENT_SUBRS.with(|slot| slot.borrow_mut().clear());
+}
+
+pub(crate) fn snapshot_current_subrs() -> Vec<Option<TaggedValue>> {
+    CURRENT_SUBRS.with(|slot| slot.borrow().clone())
+}
+
+pub(crate) fn current_subr_value(id: SymId) -> Option<TaggedValue> {
+    CURRENT_SUBRS.with(|slot| slot.borrow().get(id.0 as usize).copied().flatten())
+}
+
+pub(crate) fn register_current_subr(id: SymId, value: TaggedValue) {
+    CURRENT_SUBRS.with(|slot| {
+        let mut registry = slot.borrow_mut();
+        let index = id.0 as usize;
+        if registry.len() <= index {
+            registry.resize(index + 1, None);
+        }
+        registry[index] = Some(value);
+    });
+}
 
 // ---------------------------------------------------------------------------
 // Tag constants
@@ -200,19 +223,15 @@ impl TaggedValue {
     /// In GNU Emacs, subrs are PVEC_SUBR heap objects. We allocate a SubrObj
     /// on the tagged heap.
     pub fn subr(id: SymId) -> Self {
-        use super::header::{SubrObj, VecLikeHeader, VecLikeType};
-        let obj = Box::new(SubrObj {
-            header: VecLikeHeader::new(VecLikeType::Subr),
-            name: id,
-            min_args: 0,
-            max_args: None,
-        });
-        let ptr = Box::into_raw(obj);
-        // Link into tagged heap for GC management
-        crate::tagged::gc::with_tagged_heap(|h| {
-            h.allocated_count += 1;
-            unsafe { Self::from_veclike_ptr(ptr as *const VecLikeHeader) }
-        })
+        if let Some(value) = current_subr_value(id) {
+            return value;
+        }
+        let (min_args, max_args) =
+            crate::emacs_core::subr_info::lookup_compat_subr_arity(resolve_sym(id))
+                .unwrap_or((0, None));
+        let value = crate::tagged::gc::with_tagged_heap(|h| h.alloc_subr(id, None, min_args, max_args));
+        register_current_subr(id, value);
+        value
     }
 
     // ---------------------------------------------------------------------------

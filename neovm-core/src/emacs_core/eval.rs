@@ -96,6 +96,7 @@ use super::value::*;
 use crate::buffer::{BufferManager, InsertionType};
 use crate::face::{Face as RuntimeFace, FaceTable, FontSlant, FontWeight, FontWidth};
 use crate::gc::GcTrace;
+use crate::tagged::header::SubrObj;
 use crate::window::FrameManager;
 
 const EVAL_STACK_RED_ZONE: usize = 256 * 1024;
@@ -562,7 +563,6 @@ thread_local! {
 /// calls each module's `collect_*_gc_roots` helper to ensure those Values
 /// are marked as live during garbage collection.
 fn collect_thread_local_gc_roots(roots: &mut Vec<Value>) {
-    super::value::collect_string_text_prop_gc_roots(roots);
     super::syntax::collect_syntax_gc_roots(roots);
     super::casetab::collect_casetab_gc_roots(roots);
     super::category::collect_category_gc_roots(roots);
@@ -672,18 +672,6 @@ pub trait DisplayHost {
 // transferred between threads), this is safe.
 unsafe impl Send for Context {}
 
-/// A registered builtin function (equivalent to GNU Emacs's Lisp_Subr).
-///
-/// Each SubrObject stores a function pointer that takes `&mut Context` plus
-/// evaluated arguments, matching GNU Emacs's `defsubr` registration model.
-pub struct SubrObject {
-    pub function: fn(&mut Context, Vec<Value>) -> EvalResult,
-    pub min_args: u16,
-    /// None means MANY (&rest).
-    pub max_args: Option<u16>,
-    pub name: SymId,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
 pub(crate) enum ResumeTarget {
@@ -763,13 +751,13 @@ fn signal_hook_payload_value(sig: &SignalData) -> Value {
 }
 
 pub struct Context {
-    /// Builtin function registry — directly indexed by `SymId`.
+    /// Canonical builtin function objects — directly indexed by `SymId`.
     ///
-    /// GNU Emacs dispatches subrs from the function object itself rather than
-    /// paying an extra hash-table lookup. NeoVM's function cells still store
-    /// `Value::subr(sym_id)`, but the registry backing that value is a direct
-    /// slot table so builtin dispatch follows symbol identity, not name hashing.
-    pub(crate) subr_registry: Vec<Option<SubrObject>>,
+    /// Each slot holds the single heap `PVEC_SUBR` object for that builtin in
+    /// the current evaluator/heap. Function cells point at the same object, so
+    /// identity checks (`eq`) and dispatch both operate on the GNU-compatible
+    /// callable object itself.
+    pub(crate) subr_registry: Vec<Option<Value>>,
     /// String interner for symbol/keyword/subr names (SymId handles).
     pub(crate) interner: Box<StringInterner>,
     /// Tagged pointer heap — sole GC and allocator.
@@ -1483,18 +1471,33 @@ impl Drop for Context {
 
 impl Context {
     #[inline]
-    pub(crate) fn subr_slot(&self, sym_id: SymId) -> Option<&SubrObject> {
+    pub(crate) fn subr_value(&self, sym_id: SymId) -> Option<Value> {
         self.subr_registry
             .get(sym_id.0 as usize)
-            .and_then(|slot| slot.as_ref())
+            .copied()
+            .flatten()
+    }
+
+    #[inline]
+    pub(crate) fn subr_slot(&self, sym_id: SymId) -> Option<&'static SubrObj> {
+        let value = self.subr_value(sym_id)?;
+        let ptr = value.as_veclike_ptr()? as *const SubrObj;
+        Some(unsafe { &*ptr })
+    }
+
+    #[inline]
+    fn subr_slot_mut(&mut self, sym_id: SymId) -> Option<&'static mut SubrObj> {
+        let value = self.subr_value(sym_id)?;
+        let ptr = value.as_veclike_ptr()? as *mut SubrObj;
+        Some(unsafe { &mut *ptr })
     }
 
     #[inline]
     fn has_registered_subr(&self, sym_id: SymId) -> bool {
-        self.subr_slot(sym_id).is_some()
+        self.subr_slot(sym_id).is_some_and(|subr| subr.function.is_some())
     }
 
-    fn register_subr_slot(&mut self, sym_id: SymId, subr: SubrObject) {
+    fn register_subr_slot(&mut self, sym_id: SymId, subr: Value) {
         let index = sym_id.0 as usize;
         if self.subr_registry.len() <= index {
             self.subr_registry.resize_with(index + 1, || None);
@@ -1933,6 +1936,7 @@ impl Context {
             // the full terminal runtime/params which may be pre-
             // configured by tests before Context creation.
             super::terminal::pure::reset_terminal_handle();
+            crate::tagged::value::reset_current_subrs();
             super::value::reset_string_text_properties();
             super::ccl::reset_ccl_registry();
             super::dispnew::pure::reset_dispnew_thread_locals();
@@ -3437,7 +3441,7 @@ impl Context {
             .set_terminal_translation_maps(input_decode_map, local_function_key_map);
 
         let mut ev = Self {
-            subr_registry: Vec::new(),
+            subr_registry: crate::tagged::value::snapshot_current_subrs(),
             interner,
             tagged_heap,
             obarray,
@@ -3572,7 +3576,7 @@ impl Context {
         crate::tagged::gc::set_tagged_heap(&mut tagged_heap);
 
         let mut ev = Self {
-            subr_registry: Vec::new(),
+            subr_registry: crate::tagged::value::snapshot_current_subrs(),
             interner,
             tagged_heap,
             obarray,
@@ -9059,28 +9063,38 @@ impl Context {
         min_args: u16,
         max_args: Option<u16>,
     ) {
+        let (min_args, max_args) =
+            super::subr_info::lookup_compat_subr_arity(name).unwrap_or((min_args, max_args));
         let sym_id = intern(name);
-        self.register_subr_slot(
-            sym_id,
-            SubrObject {
-                function: func,
-                min_args,
-                max_args,
-                name: sym_id,
-            },
-        );
+        let subr_value = if let Some(existing) = self.subr_value(sym_id) {
+            let subr = self
+                .subr_slot_mut(sym_id)
+                .expect("subr registry points to non-subr value");
+            subr.name = sym_id;
+            subr.min_args = min_args;
+            subr.max_args = max_args;
+            subr.function = Some(func);
+            existing
+        } else {
+            let value =
+                crate::tagged::gc::with_tagged_heap(|h| h.alloc_subr(sym_id, Some(func), min_args, max_args));
+            crate::tagged::value::register_current_subr(sym_id, value);
+            value
+        };
+        self.register_subr_slot(sym_id, subr_value);
         // Like GNU Emacs's defsubr: set the symbol's function cell in the
         // obarray so that fboundp, symbol-function, etc. find the builtin
         // without needing a separate name registry.
         self.obarray.intern(name);
-        self.obarray.set_symbol_function(name, Value::subr(sym_id));
+        self.obarray.set_symbol_function(name, subr_value);
     }
 
     /// Look up a builtin in the subr registry and call it directly via
     /// function pointer. Returns None if the name is not registered.
     pub fn dispatch_subr_id(&mut self, sym_id: SymId, args: Vec<Value>) -> Option<EvalResult> {
         let subr = self.subr_slot(sym_id)?;
-        let name = resolve_sym(sym_id);
+        let func = subr.function?;
+        let name = resolve_sym(subr.name);
         // Debug: trace (cdr t) to find the calling context
         if name == "cdr" && args.len() == 1 && args[0].is_t() {
             tracing::error!("(cdr t) called! Lisp backtrace:");
@@ -9104,12 +9118,6 @@ impl Context {
                 )));
             }
         }
-        // SAFETY: we need to call a fn(&mut Context, Vec<Value>) where the
-        // function pointer is stored inside self.subr_registry (which is part
-        // of self). We copy the function pointer out first to avoid borrowing
-        // self immutably (for the lookup) and mutably (for the call) at the
-        // same time.
-        let func = subr.function;
         Some(func(self, args))
     }
 

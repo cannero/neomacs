@@ -12,6 +12,7 @@
 //! macros, bytecode, buffers, markers, overlays, records, etc.
 
 use super::value::TaggedValue;
+use crate::buffer::text_props::TextPropertyTable;
 
 // ---------------------------------------------------------------------------
 // ConsCell — no header, minimal size
@@ -36,18 +37,29 @@ pub struct ConsCell {
 ///
 /// Provides mark bit for garbage collection and an intrusive linked list
 /// pointer for sweep-phase traversal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum HeapObjectKind {
+    String = 0,
+    Float = 1,
+    VecLike = 2,
+}
+
 #[repr(C)]
 pub struct GcHeader {
     /// Mark bit: set during mark phase, cleared before each GC cycle.
     pub marked: bool,
+    /// Exact object category for typed sweep/deallocation.
+    pub kind: HeapObjectKind,
     /// Intrusive linked list of all GC-managed objects (for sweep).
     pub next: *mut GcHeader,
 }
 
 impl GcHeader {
-    pub fn new() -> Self {
+    pub fn new(kind: HeapObjectKind) -> Self {
         Self {
             marked: false,
+            kind,
             next: std::ptr::null_mut(),
         }
     }
@@ -62,6 +74,8 @@ impl GcHeader {
 pub struct StringObj {
     pub header: GcHeader,
     pub data: crate::gc::types::LispString,
+    /// GNU-compatible ownership: string text properties live on the string.
+    pub text_props: TextPropertyTable,
 }
 
 /// Heap-allocated float object.
@@ -110,7 +124,7 @@ pub struct VecLikeHeader {
 impl VecLikeHeader {
     pub fn new(type_tag: VecLikeType) -> Self {
         Self {
-            gc: GcHeader::new(),
+            gc: GcHeader::new(HeapObjectKind::VecLike),
             type_tag,
         }
     }
@@ -227,6 +241,10 @@ pub struct TimerObj {
 
 /// Heap-allocated built-in function (like GNU's PVEC_SUBR).
 /// Contains the function pointer, arity, and name symbol.
+pub type SubrFn =
+    fn(&mut crate::emacs_core::eval::Context, Vec<super::value::TaggedValue>)
+        -> crate::emacs_core::error::EvalResult;
+
 #[repr(C)]
 pub struct SubrObj {
     pub header: VecLikeHeader,
@@ -236,4 +254,6 @@ pub struct SubrObj {
     pub min_args: u16,
     /// Maximum number of arguments (None = unlimited/&rest).
     pub max_args: Option<u16>,
+    /// Native Rust entry point for the builtin, if fully registered.
+    pub function: Option<SubrFn>,
 }

@@ -2,7 +2,7 @@
 
 use super::header::*;
 use super::value::*;
-use crate::emacs_core::intern::SymId;
+use crate::emacs_core::intern::{SymId, intern};
 
 #[test]
 fn nil_is_zero() {
@@ -108,10 +108,11 @@ fn keyword_is_symbol() {
 fn subr_is_veclike() {
     crate::test_utils::init_test_tracing();
     // In GNU Emacs, subrs are PVEC_SUBR heap objects
-    let subr = TaggedValue::subr(SymId(7));
+    let sym = intern("tagged-subr-test");
+    let subr = TaggedValue::subr(sym);
     assert!(subr.is_subr());
     assert!(subr.is_veclike()); // subrs are veclike, not immediate
-    assert_eq!(subr.as_subr_id(), Some(SymId(7)));
+    assert_eq!(subr.as_subr_id(), Some(sym));
 }
 
 #[test]

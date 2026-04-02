@@ -759,15 +759,21 @@ fn test_format_mode_line_remote_at_spec_matches_gnu() {
     eval.buffers.set_current(buffer_id);
 
     // Local directory → "-"
-    eval.obarray
-        .set_symbol_value("default-directory", Value::string("/home/user"));
+    eval.buffers
+        .set_buffer_local_property(buffer_id, "default-directory", Value::string("/home/user"))
+        .expect("set local default-directory");
     let local =
         builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%@")]).expect("local @");
     assert_eq!(local, Value::string("-"));
 
     // Remote (Tramp-style) directory → "@"
-    eval.obarray
-        .set_symbol_value("default-directory", Value::string("/ssh:host:/home/user"));
+    eval.buffers
+        .set_buffer_local_property(
+            buffer_id,
+            "default-directory",
+            Value::string("/ssh:host:/home/user"),
+        )
+        .expect("set remote default-directory");
     let remote =
         builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%@")]).expect("remote @");
     assert_eq!(remote, Value::string("@"));

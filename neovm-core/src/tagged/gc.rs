@@ -18,6 +18,8 @@
 
 use super::header::*;
 use super::value::TaggedValue;
+use crate::buffer::text_props::TextPropertyTable;
+use crate::gc::GcTrace;
 use std::alloc::{self, Layout};
 use std::cell::Cell;
 
@@ -261,8 +263,9 @@ impl TaggedHeap {
     /// Allocate a string object.
     pub fn alloc_string(&mut self, s: crate::gc::types::LispString) -> TaggedValue {
         let obj = Box::new(StringObj {
-            header: GcHeader::new(),
+            header: GcHeader::new(HeapObjectKind::String),
             data: s,
+            text_props: TextPropertyTable::new(),
         });
         let ptr = Box::into_raw(obj);
         self.link_object(unsafe { &mut (*ptr).header });
@@ -273,13 +276,34 @@ impl TaggedHeap {
     /// Allocate a float object.
     pub fn alloc_float(&mut self, value: f64) -> TaggedValue {
         let obj = Box::new(FloatObj {
-            header: GcHeader::new(),
+            header: GcHeader::new(HeapObjectKind::Float),
             value,
         });
         let ptr = Box::into_raw(obj);
         self.link_object(unsafe { &mut (*ptr).header });
         self.allocated_count += 1;
         unsafe { TaggedValue::from_float_ptr(ptr) }
+    }
+
+    /// Allocate a canonical subr object.
+    pub fn alloc_subr(
+        &mut self,
+        name: crate::emacs_core::intern::SymId,
+        function: Option<SubrFn>,
+        min_args: u16,
+        max_args: Option<u16>,
+    ) -> TaggedValue {
+        let obj = Box::new(SubrObj {
+            header: VecLikeHeader::new(VecLikeType::Subr),
+            name,
+            min_args,
+            max_args,
+            function,
+        });
+        let ptr = Box::into_raw(obj);
+        self.link_veclike(ptr as *mut VecLikeHeader);
+        self.allocated_count += 1;
+        unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
     /// Allocate a vector.
@@ -352,6 +376,54 @@ impl TaggedHeap {
     ) -> TaggedValue {
         let slots = data.to_closure_slots();
         self.alloc_macro(slots)
+    }
+
+    /// Allocate a buffer reference.
+    pub fn alloc_buffer(&mut self, id: crate::buffer::BufferId) -> TaggedValue {
+        let obj = Box::new(BufferObj {
+            header: VecLikeHeader::new(VecLikeType::Buffer),
+            id,
+        });
+        let ptr = Box::into_raw(obj);
+        self.link_veclike(ptr as *mut VecLikeHeader);
+        self.allocated_count += 1;
+        unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
+    }
+
+    /// Allocate a window reference.
+    pub fn alloc_window(&mut self, id: u64) -> TaggedValue {
+        let obj = Box::new(WindowObj {
+            header: VecLikeHeader::new(VecLikeType::Window),
+            id,
+        });
+        let ptr = Box::into_raw(obj);
+        self.link_veclike(ptr as *mut VecLikeHeader);
+        self.allocated_count += 1;
+        unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
+    }
+
+    /// Allocate a frame reference.
+    pub fn alloc_frame(&mut self, id: u64) -> TaggedValue {
+        let obj = Box::new(FrameObj {
+            header: VecLikeHeader::new(VecLikeType::Frame),
+            id,
+        });
+        let ptr = Box::into_raw(obj);
+        self.link_veclike(ptr as *mut VecLikeHeader);
+        self.allocated_count += 1;
+        unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
+    }
+
+    /// Allocate a timer reference.
+    pub fn alloc_timer(&mut self, id: u64) -> TaggedValue {
+        let obj = Box::new(TimerObj {
+            header: VecLikeHeader::new(VecLikeType::Timer),
+            id,
+        });
+        let ptr = Box::into_raw(obj);
+        self.link_veclike(ptr as *mut VecLikeHeader);
+        self.allocated_count += 1;
+        unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
     /// Allocate a bytecode function.
@@ -512,9 +584,21 @@ impl TaggedHeap {
                 }
             }
             0b100 => {
-                // String — no children
+                // String — trace object-owned text properties.
                 let ptr = val.as_string_ptr().unwrap() as *mut StringObj;
-                unsafe { (*ptr).header.marked = true };
+                unsafe {
+                    if (*ptr).header.marked {
+                        return;
+                    }
+                    (*ptr).header.marked = true;
+                    let mut roots = Vec::new();
+                    (*ptr).text_props.trace_roots(&mut roots);
+                    for root in roots {
+                        if root.is_heap_object() {
+                            self.gray_queue.push(root);
+                        }
+                    }
+                };
             }
             0b110 => {
                 // Float — no children
@@ -676,26 +760,40 @@ impl TaggedHeap {
     /// Free a GC object by its header pointer.
     /// Must determine the actual type to call the correct Drop and dealloc.
     unsafe fn free_gc_object(&mut self, header: *mut GcHeader) {
-        // Check if this is a VecLikeHeader by checking the memory layout.
-        // VecLikeHeader starts with GcHeader, so we need another way to distinguish.
-        //
-        // Strategy: we know that strings and floats are linked directly via GcHeader,
-        // while veclike objects are linked via VecLikeHeader.gc.
-        // We can distinguish by checking if the header address matches a known type.
-        //
-        // For now, we use a simpler approach: every non-cons object is stored as
-        // a VecLikeHeader, String, or Float. We embed a type discriminator
-        // in the GcHeader itself.
-        //
-        // TODO: In Phase 2, add a type discriminator to GcHeader for clean dispatch.
-        // For now this is a placeholder — the actual sweep will use proper typing.
-        //
-        // SAFETY: This is called during sweep. The object is unreachable.
-        // We drop it by reconstructing the Box.
-
-        // For now, leak rather than corrupt memory. The proper implementation
-        // in Phase 2 will use typed deallocation.
-        let _ = header;
+        let kind = unsafe { (*header).kind };
+        match kind {
+            HeapObjectKind::String => {
+                unsafe { drop(Box::from_raw(header as *mut StringObj)) };
+            }
+            HeapObjectKind::Float => {
+                unsafe { drop(Box::from_raw(header as *mut FloatObj)) };
+            }
+            HeapObjectKind::VecLike => {
+                let ptr = header as *mut VecLikeHeader;
+                let type_tag = unsafe { (*ptr).type_tag };
+                match type_tag {
+                    VecLikeType::Vector => unsafe { drop(Box::from_raw(ptr as *mut VectorObj)) },
+                    VecLikeType::HashTable => {
+                        unsafe { drop(Box::from_raw(ptr as *mut HashTableObj)) }
+                    }
+                    VecLikeType::Lambda => unsafe { drop(Box::from_raw(ptr as *mut LambdaObj)) },
+                    VecLikeType::Macro => unsafe { drop(Box::from_raw(ptr as *mut MacroObj)) },
+                    VecLikeType::ByteCode => {
+                        unsafe { drop(Box::from_raw(ptr as *mut ByteCodeObj)) }
+                    }
+                    VecLikeType::Record => unsafe { drop(Box::from_raw(ptr as *mut RecordObj)) },
+                    VecLikeType::Overlay => {
+                        unsafe { drop(Box::from_raw(ptr as *mut OverlayObj)) }
+                    }
+                    VecLikeType::Marker => unsafe { drop(Box::from_raw(ptr as *mut MarkerObj)) },
+                    VecLikeType::Buffer => unsafe { drop(Box::from_raw(ptr as *mut BufferObj)) },
+                    VecLikeType::Window => unsafe { drop(Box::from_raw(ptr as *mut WindowObj)) },
+                    VecLikeType::Frame => unsafe { drop(Box::from_raw(ptr as *mut FrameObj)) },
+                    VecLikeType::Timer => unsafe { drop(Box::from_raw(ptr as *mut TimerObj)) },
+                    VecLikeType::Subr => unsafe { drop(Box::from_raw(ptr as *mut SubrObj)) },
+                }
+            }
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -806,14 +904,27 @@ impl TaggedHeap {
                 self.cons_blocks.iter().any(|b| b.contains(ptr))
             }
             0b011 | 0b100 | 0b110 => {
-                // Non-cons heap pointer — check if it's in our object list
-                // For performance, we'd use a hash set of known allocations.
-                // For now, accept all non-null aligned pointers (conservative).
                 let ptr = val.heap_ptr().unwrap();
-                !ptr.is_null() && (ptr as usize) & 0b111 == 0
+                self.owns_non_cons_object(ptr)
             }
             _ => false,
         }
+    }
+
+    fn owns_non_cons_object(&self, ptr: *const u8) -> bool {
+        if ptr.is_null() {
+            return false;
+        }
+        let mut current = self.all_objects;
+        while !current.is_null() {
+            if std::ptr::eq(current as *const u8, ptr) {
+                return true;
+            }
+            unsafe {
+                current = (*current).next;
+            }
+        }
+        false
     }
 }
 
@@ -824,7 +935,7 @@ impl Drop for TaggedHeap {
         while !current.is_null() {
             unsafe {
                 let next = (*current).next;
-                // TODO: proper typed deallocation in Phase 2
+                self.free_gc_object(current);
                 current = next;
             }
         }

@@ -161,15 +161,14 @@ fn numeric_comparisons_use_live_marker_positions() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let forms = super::super::parser::parse_forms(
-        r#"(with-temp-buffer
-             (insert "abcdef\n123456\n")
-             (goto-char 9)
-             (let ((m (copy-marker (line-end-position))))
-               (delete-region 1 2)
-               (delete-region 7 8)
-               (list (marker-position m)
-                     (<= (point-max) m)
-                     (<= (1- (point-max)) m))))"#,
+        r#"(insert "abcdef\n123456\n")
+           (goto-char 9)
+           (let ((m (copy-marker (line-end-position))))
+             (delete-region 1 2)
+             (delete-region 7 8)
+             (list (marker-position m)
+                   (<= (point-max) m)
+                   (<= (1- (point-max)) m)))"#,
     )
     .expect("parse marker comparison regression");
     let result = eval
@@ -227,13 +226,12 @@ fn copy_marker_from_integer_tracks_insertions_before_it() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let forms = super::super::parser::parse_forms(
-        r#"(with-temp-buffer
-             (insert "abc")
-             (let ((m (copy-marker (point-max) t)))
-               (goto-char 2)
-               (insert "X")
-               (list (marker-position m)
-                     (buffer-string))))"#,
+        r#"(insert "abc")
+           (let ((m (copy-marker (point-max) t)))
+             (goto-char 2)
+             (insert "X")
+             (list (marker-position m)
+                   (buffer-string)))"#,
     )
     .expect("parse copy-marker insertion regression");
     let result = eval
@@ -253,14 +251,13 @@ fn set_marker_uses_live_source_marker_position_after_insertions() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let forms = super::super::parser::parse_forms(
-        r#"(with-temp-buffer
-             (insert "abc")
-             (let ((src (copy-marker (point-max) t))
-                   (dst (make-marker)))
-               (goto-char 2)
-               (insert "X")
-               (set-marker dst src)
-               (marker-position dst)))"#,
+        r#"(insert "abc")
+           (let ((src (copy-marker (point-max) t))
+                 (dst (make-marker)))
+             (goto-char 2)
+             (insert "X")
+             (set-marker dst src)
+             (marker-position dst))"#,
     )
     .expect("parse set-marker source marker regression");
     let result = eval

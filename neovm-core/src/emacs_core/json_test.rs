@@ -394,23 +394,23 @@ fn parse_object_hash_table() {
                 table
                     .data
                     .get(&HashKey::from_str("a"))
-                    .map(|v| v.as_fixnum()),
+                    .map(|v: &Value| v.as_fixnum()),
                 Some(Some(1))
             );
             assert_eq!(
                 table
                     .data
                     .get(&HashKey::from_str("b"))
-                    .map(|v| v.as_fixnum()),
+                    .map(|v: &Value| v.as_fixnum()),
                 Some(Some(2))
             );
             assert!(matches!(
                 table.key_snapshots.get(&HashKey::from_str("a")),
-                Some(key) if key.as_str() == Some("a")
+                Some(key) if (*key).as_str() == Some("a")
             ));
             assert!(matches!(
                 table.key_snapshots.get(&HashKey::from_str("b")),
-                Some(key) if key.as_str() == Some("b")
+                Some(key) if (*key).as_str() == Some("b")
             ));
         }
         _ => panic!("expected hash-table, got {:?}", val),
@@ -590,7 +590,7 @@ fn round_trip_object() {
                 table
                     .data
                     .get(&HashKey::from_str("key"))
-                    .map(|v| v.as_fixnum()),
+                    .map(|v: &Value| v.as_fixnum()),
                 Some(Some(99))
             );
         }

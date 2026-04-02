@@ -2415,8 +2415,8 @@ fn finalize_cached_bootstrap_eval(
     eval: &mut super::eval::Context,
     project_root: &Path,
 ) -> Result<(), EvalError> {
-    // Register all builtins — pdump doesn't preserve the subr_registry
-    // or obarray function cells for builtins registered via defsubr.
+    // Register all builtins — pdump doesn't preserve live Rust entry-point
+    // pointers on heap subr objects, so the callable surface must be rebuilt.
     super::builtins::init_builtins(eval);
     // Restore the created-lisp-faces set from the face table — pdump
     // doesn't preserve the thread-local CREATED_LISP_FACES HashSet, so

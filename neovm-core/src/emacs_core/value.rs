@@ -11,7 +11,6 @@
 //! - Lexical environment helpers: `lexenv_*`
 //! - String text property helpers
 
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::rc::Rc;
@@ -263,44 +262,31 @@ fn as_neovm_int(value: u64) -> i64 {
 }
 
 // ---------------------------------------------------------------------------
-// String text properties (keyed by pointer address now)
+// String text properties
 // ---------------------------------------------------------------------------
 
-thread_local! {
-    static STRING_TEXT_PROPS: RefCell<HashMap<usize, TextPropertyTable>> =
-        RefCell::new(HashMap::new());
+fn string_text_props(value: Value) -> Option<&'static TextPropertyTable> {
+    let ptr = value.as_string_ptr()? as *const StringObj;
+    Some(unsafe { &(*ptr).text_props })
 }
 
-/// Clear all string text properties (must be called when heap changes,
-/// e.g. when creating a new Context for test isolation).
-pub fn reset_string_text_properties() {
-    STRING_TEXT_PROPS.with(|slot| slot.borrow_mut().clear());
+fn string_text_props_mut(value: Value) -> Option<&'static mut TextPropertyTable> {
+    let ptr = value.as_string_ptr()? as *mut StringObj;
+    Some(unsafe { &mut (*ptr).text_props })
 }
 
-/// Collect GC roots from string text property plists.
-pub fn collect_string_text_prop_gc_roots(roots: &mut Vec<Value>) {
-    STRING_TEXT_PROPS.with(|slot| {
-        for table in slot.borrow().values() {
-            table.trace_roots(roots);
-        }
-    });
-}
+/// String text properties now live on the string object itself.
+///
+/// Heap resets automatically discard them with the owning string, so there is
+/// no side table to clear anymore.
+pub fn reset_string_text_properties() {}
 
-/// Get the text property key for a string value (pointer address).
-fn string_text_prop_key(value: Value) -> Option<usize> {
-    value.as_string_ptr().map(|p| p as usize)
-}
+/// String text property GC roots are traced from `StringObj` during heap mark.
+pub fn collect_string_text_prop_gc_roots(_roots: &mut Vec<Value>) {}
 
 pub fn set_string_text_properties_table_for_value(value: Value, table: TextPropertyTable) {
-    if let Some(key) = string_text_prop_key(value) {
-        STRING_TEXT_PROPS.with(|slot| {
-            let mut props = slot.borrow_mut();
-            if table.is_empty() {
-                props.remove(&key);
-            } else {
-                props.insert(key, table);
-            }
-        });
+    if let Some(props) = string_text_props_mut(value) {
+        *props = table;
     }
 }
 
@@ -321,57 +307,52 @@ pub fn set_string_text_properties_for_value(value: Value, runs: Vec<StringTextPr
 }
 
 pub fn get_string_text_properties_for_value(value: Value) -> Option<Vec<StringTextPropertyRun>> {
-    let key = string_text_prop_key(value)?;
-    STRING_TEXT_PROPS.with(|slot| {
-        let table = slot.borrow();
-        let table = table.get(&key)?;
-        if table.is_empty() {
-            return None;
+    let table = string_text_props(value)?;
+    if table.is_empty() {
+        return None;
+    }
+    let mut runs = Vec::new();
+    for interval in table.intervals_snapshot() {
+        if interval.properties.is_empty() {
+            continue;
         }
-        let mut runs = Vec::new();
-        for interval in table.intervals_snapshot() {
-            if interval.properties.is_empty() {
-                continue;
-            }
-            let mut plist_items = Vec::new();
-            for (key, val) in interval.ordered_properties() {
-                plist_items.push(Value::make_symbol(key.to_string()));
-                plist_items.push(*val);
-            }
-            runs.push(StringTextPropertyRun {
-                start: interval.start,
-                end: interval.end,
-                plist: Value::list(plist_items),
-            });
+        let mut plist_items = Vec::new();
+        for (key, val) in interval.ordered_properties() {
+            plist_items.push(Value::make_symbol(key.to_string()));
+            plist_items.push(*val);
         }
-        if runs.is_empty() { None } else { Some(runs) }
-    })
+        runs.push(StringTextPropertyRun {
+            start: interval.start,
+            end: interval.end,
+            plist: Value::list(plist_items),
+        });
+    }
+    if runs.is_empty() { None } else { Some(runs) }
 }
 
 pub fn get_string_text_properties_table_for_value(value: Value) -> Option<TextPropertyTable> {
-    let key = string_text_prop_key(value)?;
-    STRING_TEXT_PROPS.with(|slot| slot.borrow().get(&key).cloned())
+    let table = string_text_props(value)?;
+    if table.is_empty() {
+        None
+    } else {
+        Some(table.clone())
+    }
 }
 
-/// Snapshot the string text properties table (for pdump serialization).
+/// Snapshot the string text properties table.
+///
+/// Text properties are now owned by strings, so pdump needs heap-aware string
+/// serialization rather than a raw-address side table. Until pdump's tagged
+/// heap serializer exists, return an empty side snapshot.
 pub(crate) fn snapshot_string_text_props() -> Vec<(u64, TextPropertyTable)> {
-    STRING_TEXT_PROPS.with(|slot| {
-        slot.borrow()
-            .iter()
-            .map(|(&key, table)| (key as u64, table.clone()))
-            .collect()
-    })
+    Vec::new()
 }
 
 /// Restore string text properties from a pdump snapshot.
-pub(crate) fn restore_string_text_props(entries: Vec<(u64, TextPropertyTable)>) {
-    STRING_TEXT_PROPS.with(|slot| {
-        let mut props = slot.borrow_mut();
-        props.clear();
-        for (key, table) in entries {
-            props.insert(key as usize, table);
-        }
-    });
+///
+/// This is intentionally a no-op until pdump reconstructs string-owned
+/// properties as part of heap object loading.
+pub(crate) fn restore_string_text_props(_entries: Vec<(u64, TextPropertyTable)>) {
 }
 
 /// A string text property run used by printed propertized-string literals.
@@ -985,58 +966,22 @@ impl TaggedValue {
 
     /// Allocate a buffer reference.
     pub fn make_buffer(id: crate::buffer::BufferId) -> Self {
-        let obj = Box::new(BufferObj {
-            header: VecLikeHeader::new(VecLikeType::Buffer),
-            id,
-        });
-        let ptr = Box::into_raw(obj);
-        with_tagged_heap(|h| {
-            // Link into GC list
-            unsafe {
-                (*ptr).header.gc.next = std::ptr::null_mut();
-            }
-            h.allocated_count += 1;
-            unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
-        })
+        with_tagged_heap(|h| h.alloc_buffer(id))
     }
 
     /// Allocate a window reference.
     pub fn make_window(id: u64) -> Self {
-        let obj = Box::new(WindowObj {
-            header: VecLikeHeader::new(VecLikeType::Window),
-            id,
-        });
-        let ptr = Box::into_raw(obj);
-        with_tagged_heap(|h| {
-            h.allocated_count += 1;
-            unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
-        })
+        with_tagged_heap(|h| h.alloc_window(id))
     }
 
     /// Allocate a frame reference.
     pub fn make_frame(id: u64) -> Self {
-        let obj = Box::new(FrameObj {
-            header: VecLikeHeader::new(VecLikeType::Frame),
-            id,
-        });
-        let ptr = Box::into_raw(obj);
-        with_tagged_heap(|h| {
-            h.allocated_count += 1;
-            unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
-        })
+        with_tagged_heap(|h| h.alloc_frame(id))
     }
 
     /// Allocate a timer reference.
     pub fn make_timer(id: u64) -> Self {
-        let obj = Box::new(TimerObj {
-            header: VecLikeHeader::new(VecLikeType::Timer),
-            id,
-        });
-        let ptr = Box::into_raw(obj);
-        with_tagged_heap(|h| {
-            h.allocated_count += 1;
-            unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
-        })
+        with_tagged_heap(|h| h.alloc_timer(id))
     }
 
     // -- Veclike accessor helpers --
@@ -1354,7 +1299,6 @@ impl TaggedValue {
                 HashKey::Ptr(self.bits())
             }
             ValueKind::Symbol(id) => HashKey::Symbol(id),
-            ValueKind::Veclike(VecLikeType::Subr) => HashKey::Symbol(self.as_subr_id().unwrap()),
             // All heap types: use pointer identity
             ValueKind::Cons | ValueKind::String | ValueKind::Veclike(_) => {
                 HashKey::Ptr(self.bits())
@@ -1551,9 +1495,6 @@ fn equal_value_inner(
             let left_lambda = left.get_lambda_data().unwrap().clone();
             let right_lambda = right.get_lambda_data().unwrap().clone();
             lambda_data_equal(&left_lambda, &right_lambda, depth + 1, seen)
-        }
-        (ValueKind::Veclike(VecLikeType::Subr), ValueKind::Veclike(VecLikeType::Subr)) => {
-            left.as_subr_id().unwrap() == right.as_subr_id().unwrap()
         }
         // For all other same-type veclike comparisons, use identity
         (ValueKind::Veclike(a), ValueKind::Veclike(b)) if a == b => left.bits() == right.bits(),

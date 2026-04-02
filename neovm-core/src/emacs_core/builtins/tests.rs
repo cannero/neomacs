@@ -1757,11 +1757,10 @@ fn subst_char_in_region_replaces_trailing_newline_with_marker_end() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let forms = parse_forms(
-        r#"(with-temp-buffer
-             (insert "a\nb\n")
-             (let ((end (copy-marker (point-max) t)))
-               (subst-char-in-region (point-min) end ?\n ?\s t)
-               (buffer-string)))"#,
+        r#"(insert "a\nb\n")
+           (let ((end (copy-marker (point-max) t)))
+             (subst-char-in-region (point-min) end ?\n ?\s t)
+             (buffer-string))"#,
     )
     .expect("parse marker-ended subst-char-in-region regression");
 
@@ -1780,13 +1779,12 @@ fn subst_char_in_region_uses_live_marker_end_after_insertions() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let forms = parse_forms(
-        r#"(with-temp-buffer
-             (insert "a\n")
-             (let ((end (copy-marker (point-max) t)))
-               (goto-char (point-min))
-               (insert " ")
-               (subst-char-in-region (point-min) end ?\n ?\s t)
-               (buffer-string)))"#,
+        r#"(insert "a\n")
+           (let ((end (copy-marker (point-max) t)))
+             (goto-char (point-min))
+             (insert " ")
+             (subst-char-in-region (point-min) end ?\n ?\s t)
+             (buffer-string))"#,
     )
     .expect("parse live-marker subst-char-in-region regression");
 
@@ -1805,13 +1803,12 @@ fn goto_char_uses_live_marker_position_after_insertions() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let forms = parse_forms(
-        r#"(with-temp-buffer
-             (insert "ab")
-             (let ((m (copy-marker (point-max) t)))
-               (goto-char (point-min))
-               (insert "X")
-               (goto-char m)
-               (point)))"#,
+        r#"(insert "ab")
+           (let ((m (copy-marker (point-max) t)))
+             (goto-char (point-min))
+             (insert "X")
+             (goto-char m)
+             (point))"#,
     )
     .expect("parse live-marker goto-char regression");
 
@@ -1830,14 +1827,13 @@ fn char_queries_use_live_marker_positions_after_insertions() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let forms = parse_forms(
-        r#"(with-temp-buffer
-             (insert "ab")
-             (let ((m (copy-marker 2)))
-               (goto-char 1)
-               (insert "X")
-               (list (marker-position m)
-                     (char-after m)
-                     (char-before m))))"#,
+        r#"(insert "ab")
+           (let ((m (copy-marker 2)))
+             (goto-char 1)
+             (insert "X")
+             (list (marker-position m)
+                   (char-after m)
+                   (char-before m)))"#,
     )
     .expect("parse live-marker char query regression");
 

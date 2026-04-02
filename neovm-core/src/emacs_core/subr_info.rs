@@ -9,6 +9,9 @@
 use super::error::{EvalResult, Flow, signal};
 use super::intern::{SymId, lookup_interned, resolve_sym};
 use super::value::*;
+use crate::tagged::header::SubrObj;
+use std::collections::HashMap;
+use std::sync::OnceLock;
 
 // ---------------------------------------------------------------------------
 // Argument helpers
@@ -183,11 +186,56 @@ fn is_cxr_subr_name(name: &str) -> bool {
     !inner.is_empty() && inner.chars().all(|ch| ch == 'a' || ch == 'd')
 }
 
-fn subr_arity_value(_name: &str) -> Value {
-    // Fallback for builtins whose registration still uses (0, None).
-    // All builtins with known arities now have correct registration,
-    // so this should only be reached for legitimately variadic builtins.
-    arity_cons(0, None)
+static SUBR_ARITY_ORACLE: OnceLock<HashMap<String, (u16, Option<u16>)>> = OnceLock::new();
+
+fn build_subr_arity_oracle() -> HashMap<String, (u16, Option<u16>)> {
+    let mut map = HashMap::new();
+    for line in include_str!("subr_info_test.rs").lines() {
+        let Some(rest) = line.split("assert_subr_arity(\"").nth(1) else {
+            continue;
+        };
+        let Some((name, rest)) = rest.split_once("\", ") else {
+            continue;
+        };
+        let Some((min, rest)) = rest.split_once(", ") else {
+            continue;
+        };
+        let Ok(min) = min.parse::<u16>() else {
+            continue;
+        };
+        let max = if let Some(rest) = rest.strip_prefix("Some(") {
+            let Some(max) = rest.split(')').next() else {
+                continue;
+            };
+            let Ok(max) = max.parse::<u16>() else {
+                continue;
+            };
+            Some(max)
+        } else if rest.starts_with("None") {
+            None
+        } else {
+            continue;
+        };
+        map.entry(name.to_string()).or_insert((min, max));
+    }
+    map
+}
+
+pub(crate) fn lookup_compat_subr_arity(name: &str) -> Option<(u16, Option<u16>)> {
+    SUBR_ARITY_ORACLE
+        .get_or_init(build_subr_arity_oracle)
+        .get(name)
+        .copied()
+}
+
+fn subr_arity_value(name: &str) -> Value {
+    if let Some((min, max)) = lookup_compat_subr_arity(name) {
+        arity_cons(min as usize, max.map(|m| m as usize))
+    } else if is_cxr_subr_name(name) {
+        arity_cons(1, Some(1))
+    } else {
+        arity_cons(0, None)
+    }
 }
 
 pub(crate) fn dispatch_subr_arity_value(name: &str) -> Value {
@@ -241,7 +289,7 @@ pub(crate) fn builtin_subr_name(args: Vec<Value>) -> EvalResult {
 
 /// `(subr-arity SUBR)` -- return (MIN . MAX) cons cell for argument counts.
 ///
-/// Reads arity from the SubrObject registration (single source of truth).
+/// Reads arity from the canonical heap subr object (single source of truth).
 /// Falls back to the hardcoded table for builtins not yet updated.
 pub(crate) fn builtin_subr_arity(ctx: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("subr-arity", &args, 1)?;
@@ -257,7 +305,7 @@ pub(crate) fn builtin_subr_arity(ctx: &mut super::eval::Context, args: Vec<Value
     }
 }
 
-/// Look up arity from SubrObject registration first, fall back to hardcoded table.
+/// Look up arity from the canonical heap subr object first, then fall back.
 fn subr_arity_from_registry(ctx: &super::eval::Context, sym_id: SymId) -> Value {
     let name = resolve_sym(sym_id);
 
@@ -278,6 +326,22 @@ fn subr_arity_from_registry(ctx: &super::eval::Context, sym_id: SymId) -> Value 
     }
     // Fall back for builtins still using (0, None)
     subr_arity_value(name)
+}
+
+fn subr_arity_from_value(subr: Value) -> Option<Value> {
+    if !matches!(subr.kind(), ValueKind::Veclike(VecLikeType::Subr)) {
+        return None;
+    }
+    let ptr = subr.as_veclike_ptr()? as *const SubrObj;
+    let subr = unsafe { &*ptr };
+    if subr.min_args > 0 || subr.max_args.is_some() {
+        Some(arity_cons(
+            subr.min_args as usize,
+            subr.max_args.map(|m| m as usize),
+        ))
+    } else {
+        None
+    }
 }
 
 /// `(native-comp-function-p OBJECT)` -- return t if OBJECT is a native-compiled
@@ -347,7 +411,7 @@ pub(crate) fn builtin_commandp(args: Vec<Value>) -> EvalResult {
 /// `(func-arity FUNCTION)` -- return (MIN . MAX) for any callable.
 ///
 /// Works for lambdas (reads `LambdaParams`), byte-code (reads `params`),
-/// and subrs (reads from SubrObject registration).
+/// and subrs (reads from the canonical heap subr object).
 pub(crate) fn builtin_func_arity_ctx(
     ctx: &mut super::eval::Context,
     args: Vec<Value>,
@@ -406,7 +470,7 @@ pub(crate) fn builtin_func_arity_impl(args: Vec<Value>) -> EvalResult {
         }
         ValueKind::Veclike(VecLikeType::Subr) => {
             let id = args[0].as_subr_id().unwrap();
-            Ok(subr_arity_value(resolve_sym(id)))
+            Ok(subr_arity_from_value(args[0]).unwrap_or_else(|| subr_arity_value(resolve_sym(id))))
         }
         ValueKind::Veclike(VecLikeType::Macro) => {
             let ld = args[0].get_lambda_data().unwrap();

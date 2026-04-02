@@ -179,6 +179,7 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
     super::syntax::reset_syntax_thread_locals();
     super::casetab::reset_casetab_thread_locals();
     super::category::reset_category_thread_locals();
+    crate::tagged::value::reset_current_subrs();
     value::reset_string_text_properties();
     super::ccl::reset_ccl_registry();
     super::dispnew::pure::reset_dispnew_thread_locals();
