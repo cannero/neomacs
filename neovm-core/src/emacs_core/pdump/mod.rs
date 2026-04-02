@@ -29,7 +29,7 @@ use crate::emacs_core::intern;
 use crate::emacs_core::value;
 
 const MAGIC: &[u8; 8] = b"NEOPDUMP";
-const FORMAT_VERSION: u32 = 6;
+const FORMAT_VERSION: u32 = 7;
 
 /// Errors from dump/load operations.
 #[derive(Debug)]
@@ -657,8 +657,6 @@ mod tests {
                 doc_form: None,
                 interactive: None,
             }));
-        snapshot.heap.generations.push(0);
-
         let result = restore_snapshot(&snapshot);
         match result {
             Err(DumpError::DeserializationError(message)) => {

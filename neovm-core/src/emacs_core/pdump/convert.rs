@@ -90,15 +90,12 @@ impl TaggedDumpState {
     }
 
     fn finalize(self) -> DumpLispHeap {
-        let object_count = self.objects.len();
         DumpLispHeap {
             objects: self
                 .objects
                 .into_iter()
                 .map(|obj| obj.unwrap_or(DumpHeapObject::Free))
                 .collect(),
-            generations: vec![0; object_count],
-            free_list: Vec::new(),
         }
     }
 }
@@ -131,10 +128,7 @@ impl TaggedLoadState {
 }
 
 fn dump_obj_id(id: TaggedObjId) -> DumpObjId {
-    DumpObjId {
-        index: id.index,
-        generation: 0,
-    }
+    DumpObjId { index: id.index }
 }
 
 fn tagged_obj_id(id: &DumpObjId) -> TaggedObjId {
@@ -427,7 +421,7 @@ pub(crate) fn dump_hash_key(k: &HashKey) -> DumpHashKey {
             let value = TaggedValue(*p);
             if value.is_heap_object() {
                 let id = value_to_obj_id(&value);
-                DumpHashKey::ObjId(id.index, 0)
+                DumpHashKey::ObjId(id.index)
             } else {
                 DumpHashKey::Ptr(*p as u64)
             }
@@ -1478,8 +1472,6 @@ pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
         interner: dump_interner(),
         heap: DumpLispHeap {
             objects: Vec::new(),
-            generations: Vec::new(),
-            free_list: Vec::new(),
         },
         obarray: dump_obarray(&eval.obarray),
         dynamic: Vec::new(),
@@ -1962,9 +1954,7 @@ pub(crate) fn load_hash_key(k: &DumpHashKey) -> HashKey {
         DumpHashKey::Window(w) => HashKey::Window(*w),
         DumpHashKey::Frame(f) => HashKey::Frame(*f),
         DumpHashKey::Ptr(p) => HashKey::Ptr(*p as usize),
-        DumpHashKey::ObjId(a, _b) => {
-            HashKey::Ptr(obj_id_to_value(TaggedObjId { index: *a }).bits())
-        }
+        DumpHashKey::ObjId(a) => HashKey::Ptr(obj_id_to_value(TaggedObjId { index: *a }).bits()),
         DumpHashKey::EqualCons(a, b) => {
             HashKey::EqualCons(Box::new(load_hash_key(a)), Box::new(load_hash_key(b)))
         }

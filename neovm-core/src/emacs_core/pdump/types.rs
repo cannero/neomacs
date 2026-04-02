@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DumpObjId {
     pub index: u32,
-    pub generation: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -270,7 +269,7 @@ pub enum DumpHashKey {
     Window(u64),
     Frame(u64),
     Ptr(u64),
-    ObjId(u32, u32),
+    ObjId(u32),
     EqualCons(Box<DumpHashKey>, Box<DumpHashKey>),
     EqualVec(Vec<DumpHashKey>),
     Cycle(u32),
@@ -351,8 +350,6 @@ pub struct DumpStringInterner {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpLispHeap {
     pub objects: Vec<DumpHeapObject>,
-    pub generations: Vec<u32>,
-    pub free_list: Vec<u32>,
 }
 
 // ---------------------------------------------------------------------------
