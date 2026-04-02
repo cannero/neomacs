@@ -89,8 +89,8 @@ impl TaggedDumpState {
         }
     }
 
-    fn finalize(self) -> DumpLispHeap {
-        DumpLispHeap {
+    fn finalize(self) -> DumpTaggedHeap {
+        DumpTaggedHeap {
             objects: self
                 .objects
                 .into_iter()
@@ -112,7 +112,7 @@ struct TaggedLoadState {
 }
 
 impl TaggedLoadState {
-    fn new(heap: &DumpLispHeap) -> Self {
+    fn new(heap: &DumpTaggedHeap) -> Self {
         let len = heap.objects.len();
         Self {
             objects: heap.objects.clone(),
@@ -1472,7 +1472,7 @@ pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
 
     let dump = DumpContextState {
         interner: dump_interner(),
-        heap: DumpLispHeap {
+        tagged_heap: DumpTaggedHeap {
             objects: Vec::new(),
         },
         obarray: dump_obarray(&eval.obarray),
@@ -1501,9 +1501,12 @@ pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
     };
 
     PDUMP_DUMP_STATE.with(|state| state.set(std::ptr::null_mut()));
-    let heap = dump_state.finalize();
+    let tagged_heap = dump_state.finalize();
 
-    DumpContextState { heap, ..dump }
+    DumpContextState {
+        tagged_heap,
+        ..dump
+    }
 }
 
 // ===========================================================================
@@ -1714,7 +1717,7 @@ fn load_tagged_object(state: &mut TaggedLoadState, id: TaggedHeapRef) -> Value {
     state.values[id.index as usize].expect("pdump object should exist")
 }
 
-pub(crate) fn preload_tagged_heap(heap: &DumpLispHeap) -> Result<(), DumpError> {
+pub(crate) fn preload_tagged_heap(heap: &DumpTaggedHeap) -> Result<(), DumpError> {
     let mut load_state = Box::new(TaggedLoadState::new(heap));
     let ptr: *mut TaggedLoadState = &mut *load_state;
     PDUMP_LOAD_STATE.with(|state| state.set(ptr));

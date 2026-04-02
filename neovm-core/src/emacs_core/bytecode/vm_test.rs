@@ -781,8 +781,8 @@ fn execute_manual_vm<T>(
 }
 
 /// Like `execute_manual_vm` but builds the ByteCodeFunction AFTER the
-/// evaluator is initialized, avoiding stale SymId/ObjId issues from
-/// the thread-local heap/interner replacement.
+/// evaluator is initialized, avoiding stale symbol/value handles from
+/// thread-local runtime replacement.
 fn execute_manual_vm_built<T>(
     build: impl FnOnce(&mut crate::buffer::BufferManager) -> (ByteCodeFunction, T),
 ) -> (Value, crate::buffer::BufferManager, T) {
@@ -1463,8 +1463,8 @@ fn vm_concat() {
 #[test]
 fn vm_switch_branches_using_hash_table_jump_table() {
     crate::test_utils::init_test_tracing();
-    // Build all Values AFTER the evaluator is initialized to avoid
-    // stale ObjId/SymId from thread-local heap/interner replacement.
+    // Build all Values AFTER the evaluator is initialized to avoid stale
+    // symbol/value handles from thread-local runtime replacement.
     let mut eval = Context::new_minimal_vm_harness();
 
     let table = Value::hash_table(HashTableTest::Eq);

@@ -342,11 +342,11 @@ pub struct DumpStringInterner {
 }
 
 // ---------------------------------------------------------------------------
-// Heap
+// Tagged heap snapshot
 // ---------------------------------------------------------------------------
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct DumpLispHeap {
+pub struct DumpTaggedHeap {
     pub objects: Vec<DumpHeapObject>,
 }
 
@@ -1008,7 +1008,7 @@ pub struct DumpVariableWatcherList {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpContextState {
     pub interner: DumpStringInterner,
-    pub heap: DumpLispHeap,
+    pub tagged_heap: DumpTaggedHeap,
     pub obarray: DumpObarray,
     pub dynamic: Vec<DumpOrderedSymMap>,
     pub lexenv: DumpValue,

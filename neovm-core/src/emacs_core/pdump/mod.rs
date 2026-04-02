@@ -29,7 +29,7 @@ use crate::emacs_core::intern;
 use crate::emacs_core::value;
 
 const MAGIC: &[u8; 8] = b"NEOPDUMP";
-const FORMAT_VERSION: u32 = 9;
+const FORMAT_VERSION: u32 = 10;
 
 /// Errors from dump/load operations.
 #[derive(Debug)]
@@ -176,10 +176,10 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
     load_interner(&state.interner);
 
     // 2. Reconstruct the tagged heap before any heap-backed value/object loads
-    // so dump heap references can resolve directly to live tagged objects.
+    // so tagged dump references can resolve directly to live tagged objects.
     let mut tagged_heap = Box::new(crate::tagged::gc::TaggedHeap::new());
     crate::tagged::gc::set_tagged_heap(&mut tagged_heap);
-    preload_tagged_heap(&state.heap)?;
+    preload_tagged_heap(&state.tagged_heap)?;
 
     // 3. Reset thread-local runtime caches before replaying semantic state.
     reset_runtime_for_new_heap(HeapResetMode::PdumpRestore);
@@ -639,7 +639,7 @@ mod tests {
         crate::test_utils::init_test_tracing();
         let mut snapshot = snapshot_evaluator(&Context::new());
         snapshot
-            .heap
+            .tagged_heap
             .objects
             .push(DumpHeapObject::ByteCode(DumpByteCodeFunction {
                 ops: vec![DumpOp::UnwindProtect(7), DumpOp::Nil, DumpOp::Return],

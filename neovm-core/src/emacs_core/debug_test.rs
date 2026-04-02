@@ -2,7 +2,7 @@ use super::*;
 use crate::emacs_core::intern::intern;
 use crate::emacs_core::value::{LambdaData, LambdaParams};
 
-/// Placeholder for the removed LispHeap — tagged heap is auto-created for tests.
+/// Placeholder retained for old test setup naming — tagged heap is auto-created for tests.
 fn init_test_heap() {}
 
 // -- Backtrace tests --

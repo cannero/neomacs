@@ -974,22 +974,12 @@ impl<'a> RustTextPropAccess<'a> {
 
 /// Helper: extract a string from a Value.
 ///
-/// For `Value::Str`, resolves through the heap to get the string content.
-/// For other Value types, returns None.
+/// Tagged strings can be read directly from the Value. Other types return None.
 fn value_as_string(val: &Value) -> Option<String> {
-    // Value::Str uses ObjId -- need to resolve through the heap.
-    // For now, use the display format as a fallback.
-    // TODO: When the heap is accessible, use with_heap(|h| h.get_str(id))
     match val.kind() {
+        ValueKind::String => val.as_str_owned(),
         ValueKind::Nil => None,
-        _ => {
-            // Try to get the string representation.
-            // This is a temporary approach -- proper string extraction
-            // needs heap access which isn't available through a &Buffer reference.
-            // For overlay/text prop strings, they're typically stored as
-            // interned symbols or heap strings.
-            None // TODO: implement proper string extraction with heap access
-        }
+        _ => None,
     }
 }
 

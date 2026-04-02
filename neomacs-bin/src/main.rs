@@ -652,7 +652,7 @@ fn font_size_px_for_face(face: &neovm_core::face::Face) -> f32 {
 }
 
 fn main() {
-    // Always enable full backtraces for debugging stale ObjId crashes.
+    // Always enable full backtraces for debugging low-level runtime crashes.
     if std::env::var("RUST_BACKTRACE").is_err() {
         unsafe {
             std::env::set_var("RUST_BACKTRACE", "1");
