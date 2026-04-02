@@ -4426,6 +4426,28 @@ fn fset_restoring_subr_object_keeps_callability() {
 }
 
 #[test]
+fn canonical_subr_survives_rebinding_and_gc() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let sym_id = intern("car");
+    let original = Value::subr(sym_id);
+
+    crate::emacs_core::builtins::builtin_fset(
+        &mut ev,
+        vec![Value::symbol("car"), Value::fixnum(1)],
+    )
+    .expect("rebind public function cell");
+
+    ev.gc_collect_exact();
+
+    let after = Value::subr(sym_id);
+    assert_eq!(after.bits(), original.bits());
+
+    crate::emacs_core::builtins::builtin_fset(&mut ev, vec![Value::symbol("car"), original])
+        .expect("restore original subr");
+}
+
+#[test]
 fn funcall_subr_object_ignores_symbol_function_rebinding() {
     crate::test_utils::init_test_tracing();
     // GNU Emacs tree-walking evaluator respects fset: after (fset 'car shadow),

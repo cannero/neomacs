@@ -19,6 +19,7 @@
 use super::header::*;
 use super::value::TaggedValue;
 use crate::buffer::text_props::TextPropertyTable;
+use crate::emacs_core::intern::SymId;
 use crate::gc_trace::GcTrace;
 use std::alloc::{self, Layout};
 use std::cell::Cell;
@@ -221,6 +222,12 @@ pub struct TaggedHeap {
     /// Tracking list of all allocated marker objects for bulk operations
     /// like clearing markers when buffers are killed.
     marker_ptrs: Vec<*mut MarkerObj>,
+
+    /// Canonical subr heap objects keyed by `SymId`.
+    ///
+    /// These are rooted by the heap itself so builtin `PVEC_SUBR` objects
+    /// survive function-cell rebinding, matching GNU's permanent subr objects.
+    subr_registry: Vec<Option<TaggedValue>>,
 }
 
 impl TaggedHeap {
@@ -234,6 +241,7 @@ impl TaggedHeap {
             stack_bottom: std::ptr::null(),
             root_scan_mode: RootScanMode::ExactOnly,
             marker_ptrs: Vec::new(),
+            subr_registry: Vec::new(),
         }
     }
 
@@ -263,6 +271,22 @@ impl TaggedHeap {
 
     pub fn allocated_count(&self) -> usize {
         self.allocated_count
+    }
+
+    pub fn subr_value(&self, id: SymId) -> Option<TaggedValue> {
+        self.subr_registry.get(id.0 as usize).copied().flatten()
+    }
+
+    pub fn register_subr_value(&mut self, id: SymId, value: TaggedValue) {
+        let index = id.0 as usize;
+        if self.subr_registry.len() <= index {
+            self.subr_registry.resize(index + 1, None);
+        }
+        self.subr_registry[index] = Some(value);
+    }
+
+    pub fn clear_subr_registry(&mut self) {
+        self.subr_registry.clear();
     }
 
     // -----------------------------------------------------------------------
@@ -585,6 +609,11 @@ impl TaggedHeap {
         for root in roots {
             if root.is_heap_object() {
                 self.gray_queue.push(root);
+            }
+        }
+        for subr in self.subr_registry.iter().flatten() {
+            if subr.is_heap_object() {
+                self.gray_queue.push(*subr);
             }
         }
 

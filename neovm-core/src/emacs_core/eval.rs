@@ -797,13 +797,6 @@ fn signal_hook_payload_value(sig: &SignalData) -> Value {
 }
 
 pub struct Context {
-    /// Canonical builtin function objects — directly indexed by `SymId`.
-    ///
-    /// Each slot holds the single heap `PVEC_SUBR` object for that builtin in
-    /// the current evaluator/heap. Function cells point at the same object, so
-    /// identity checks (`eq`) and dispatch both operate on the GNU-compatible
-    /// callable object itself.
-    pub(crate) subr_registry: Vec<Option<Value>>,
     /// Tagged pointer heap — sole GC and allocator.
     pub(crate) tagged_heap: Box<crate::tagged::gc::TaggedHeap>,
     /// The obarray — unified symbol table with value cells, function cells, plists.
@@ -1505,7 +1498,7 @@ impl Default for Context {
 impl Context {
     #[inline]
     pub(crate) fn subr_value(&self, sym_id: SymId) -> Option<Value> {
-        self.subr_registry.get(sym_id.0 as usize).copied().flatten()
+        self.tagged_heap.subr_value(sym_id)
     }
 
     #[inline]
@@ -1529,11 +1522,7 @@ impl Context {
     }
 
     fn register_subr_slot(&mut self, sym_id: SymId, subr: Value) {
-        let index = sym_id.0 as usize;
-        if self.subr_registry.len() <= index {
-            self.subr_registry.resize_with(index + 1, || None);
-        }
-        self.subr_registry[index] = Some(subr);
+        self.tagged_heap.register_subr_value(sym_id, subr);
     }
 
     pub fn new() -> Self {
@@ -3436,7 +3425,6 @@ impl Context {
             .set_terminal_translation_maps(input_decode_map, local_function_key_map);
 
         let mut ev = Self {
-            subr_registry: crate::tagged::value::snapshot_current_subrs(),
             tagged_heap,
             obarray,
             specpdl: Vec::new(),
@@ -3553,7 +3541,6 @@ impl Context {
         crate::tagged::gc::set_tagged_heap(&mut tagged_heap);
 
         let mut ev = Self {
-            subr_registry: crate::tagged::value::snapshot_current_subrs(),
             tagged_heap,
             obarray,
             specpdl: Vec::new(),

@@ -24,39 +24,22 @@
 //! Tag `111` is reserved. Characters are fixnums, keywords are ordinary
 //! symbols, and subrs are `PVEC_SUBR`-like heap objects.
 
-use std::cell::RefCell;
 use std::fmt;
 
 use crate::emacs_core::intern::{SymId, resolve_sym};
 
 use super::header::{ConsCell, FloatObj, GcHeader, StringObj, VecLikeHeader, VecLikeType};
 
-thread_local! {
-    /// Current thread's canonical subr objects keyed by `SymId`.
-    static CURRENT_SUBRS: RefCell<Vec<Option<TaggedValue>>> = const { RefCell::new(Vec::new()) };
-}
-
 pub(crate) fn reset_current_subrs() {
-    CURRENT_SUBRS.with(|slot| slot.borrow_mut().clear());
-}
-
-pub(crate) fn snapshot_current_subrs() -> Vec<Option<TaggedValue>> {
-    CURRENT_SUBRS.with(|slot| slot.borrow().clone())
+    crate::tagged::gc::with_tagged_heap(|heap| heap.clear_subr_registry());
 }
 
 pub(crate) fn current_subr_value(id: SymId) -> Option<TaggedValue> {
-    CURRENT_SUBRS.with(|slot| slot.borrow().get(id.0 as usize).copied().flatten())
+    crate::tagged::gc::with_tagged_heap(|heap| heap.subr_value(id))
 }
 
 pub(crate) fn register_current_subr(id: SymId, value: TaggedValue) {
-    CURRENT_SUBRS.with(|slot| {
-        let mut registry = slot.borrow_mut();
-        let index = id.0 as usize;
-        if registry.len() <= index {
-            registry.resize(index + 1, None);
-        }
-        registry[index] = Some(value);
-    });
+    crate::tagged::gc::with_tagged_heap(|heap| heap.register_subr_value(id, value));
 }
 
 // ---------------------------------------------------------------------------

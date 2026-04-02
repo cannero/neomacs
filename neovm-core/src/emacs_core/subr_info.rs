@@ -159,9 +159,45 @@ pub(crate) fn is_evaluator_callable_name(name: &str) -> bool {
 // ---------------------------------------------------------------------------
 // Arity helpers
 // ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// Arity helpers
-// ---------------------------------------------------------------------------
+
+/// GNU Emacs special-form minimum arities.
+///
+/// These come from the C `DEFUN` declarations in:
+/// - `src/eval.c`
+/// - `src/editfns.c`
+/// - `src/callint.c`
+///
+/// They are observable via `(subr-arity ...)`, so we keep them explicit here
+/// instead of inferring them indirectly from tests or registration defaults.
+const GNU_SPECIAL_FORM_MIN_ARITIES: &[(&str, u16)] = &[
+    ("quote", 1),
+    ("function", 1),
+    ("let", 1),
+    ("let*", 1),
+    ("setq", 0),
+    ("if", 2),
+    ("and", 0),
+    ("or", 0),
+    ("cond", 0),
+    ("while", 1),
+    ("progn", 0),
+    ("prog1", 1),
+    ("defvar", 1),
+    ("defconst", 2),
+    ("catch", 1),
+    ("unwind-protect", 1),
+    ("condition-case", 2),
+    ("interactive", 0),
+    ("save-excursion", 0),
+    ("save-restriction", 0),
+    ("save-current-buffer", 0),
+];
+
+fn lookup_special_form_min_arity(name: &str) -> Option<u16> {
+    GNU_SPECIAL_FORM_MIN_ARITIES
+        .iter()
+        .find_map(|(special_name, min)| (*special_name == name).then_some(*min))
+}
 
 /// Build a cons cell `(MIN . MAX)` representing arity.
 /// `max` of `None` means "many" (unbounded &rest), represented by the
@@ -222,6 +258,9 @@ fn build_subr_arity_oracle() -> HashMap<String, (u16, Option<u16>)> {
 }
 
 pub(crate) fn lookup_compat_subr_arity(name: &str) -> Option<(u16, Option<u16>)> {
+    if let Some(min) = lookup_special_form_min_arity(name) {
+        return Some((min, None));
+    }
     SUBR_ARITY_ORACLE
         .get_or_init(build_subr_arity_oracle)
         .get(name)
@@ -312,7 +351,15 @@ fn subr_arity_from_registry(ctx: &super::eval::Context, sym_id: SymId) -> Value 
     // GNU Emacs: special forms (UNEVALLED) return (MIN . unevalled).
     // The Elisp `special-form-p` checks `(eq (cdr (subr-arity x)) 'unevalled)`.
     if is_special_form(name) {
-        return arity_unevalled(0);
+        let min = ctx
+            .subr_slot(sym_id)
+            .map(special_form_min_arity)
+            .unwrap_or_else(|| {
+                lookup_compat_subr_arity(name)
+                    .map(|(min, _)| min as usize)
+                    .unwrap_or(0)
+            });
+        return arity_unevalled(min);
     }
 
     if let Some(subr) = ctx.subr_slot(sym_id) {
@@ -334,6 +381,9 @@ fn subr_arity_from_value(subr: Value) -> Option<Value> {
     }
     let ptr = subr.as_veclike_ptr()? as *const SubrObj;
     let subr = unsafe { &*ptr };
+    if is_special_form(resolve_sym(subr.name)) {
+        return Some(arity_unevalled(special_form_min_arity(subr)));
+    }
     if subr.min_args > 0 || subr.max_args.is_some() {
         Some(arity_cons(
             subr.min_args as usize,
@@ -341,6 +391,17 @@ fn subr_arity_from_value(subr: Value) -> Option<Value> {
         ))
     } else {
         None
+    }
+}
+
+fn special_form_min_arity(subr: &SubrObj) -> usize {
+    if subr.min_args > 0 || subr.max_args.is_some() {
+        subr.min_args as usize
+    } else {
+        lookup_special_form_min_arity(resolve_sym(subr.name))
+            .or_else(|| lookup_compat_subr_arity(resolve_sym(subr.name)).map(|(min, _)| min))
+            .map(|min| min as usize)
+            .unwrap_or(0)
     }
 }
 
