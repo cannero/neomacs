@@ -1,7 +1,6 @@
 mod common;
 
 use common::{oracle_enabled, run_neovm_eval, run_oracle_eval};
-use neovm_core::emacs_core::intern::{StringInterner, set_current_interner};
 use neovm_core::emacs_core::parse_forms;
 
 const EMPTY_OVERLAY_QUERIES_AND_CROSS_BUFFER_MOVE_FORM: &str = r#"(let ((a (get-buffer-create " *compat-overlay-a*"))
@@ -129,8 +128,6 @@ fn compat_overlay_semantics_matches_gnu_emacs() {
 
 #[test]
 fn empty_overlay_cross_buffer_form_parses_in_neovm() {
-    let interner = Box::new(StringInterner::new());
-    set_current_interner(Box::leak(interner));
     let forms = parse_forms(EMPTY_OVERLAY_QUERIES_AND_CROSS_BUFFER_MOVE_FORM)
         .expect("overlay audit form should parse");
     assert_eq!(forms.len(), 1);

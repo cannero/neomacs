@@ -4,6 +4,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
+use std::sync::OnceLock;
 
 /// GC-rooted constant pool for Values embedded in Expr trees.
 /// Replaces Expr::OpaqueValue(Value) with Expr::OpaqueValueRef(u32).
@@ -454,6 +455,11 @@ fn value_from_symbol_id(sym_id: SymId) -> Value {
         }
     }
     Value::from_sym_id(sym_id)
+}
+
+fn hidden_internal_interpreter_environment_symbol() -> SymId {
+    static HIDDEN_SYMBOL: OnceLock<SymId> = OnceLock::new();
+    *HIDDEN_SYMBOL.get_or_init(|| intern_uninterned("internal-interpreter-environment"))
 }
 
 fn is_runtime_dynamically_special(obarray: &Obarray, sym_id: SymId) -> bool {
@@ -2454,7 +2460,7 @@ impl Context {
         // variable for its own lexical-environment bookkeeping.
         obarray.intern("internal-interpreter-environment");
         let internal_interpreter_environment_symbol =
-            intern_uninterned("internal-interpreter-environment");
+            hidden_internal_interpreter_environment_symbol();
         obarray.set_symbol_value_id(internal_interpreter_environment_symbol, Value::NIL);
         obarray.make_special_id(internal_interpreter_environment_symbol);
         obarray.set_symbol_value("internal-make-interpreted-closure-function", Value::NIL);
@@ -3542,7 +3548,7 @@ impl Context {
         let mut obarray = obarray;
         obarray.intern("internal-interpreter-environment");
         let internal_interpreter_environment_symbol =
-            intern_uninterned("internal-interpreter-environment");
+            hidden_internal_interpreter_environment_symbol();
         obarray.set_symbol_value_id(internal_interpreter_environment_symbol, Value::NIL);
         obarray.make_special_id(internal_interpreter_environment_symbol);
         let quit_flag_symbol = intern("quit-flag");

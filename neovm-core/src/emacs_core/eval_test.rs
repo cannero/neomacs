@@ -427,6 +427,14 @@ fn evaluator_drop_leaves_symids_resolvable() {
 }
 
 #[test]
+fn evaluator_reuses_hidden_internal_interpreter_environment_symbol() {
+    crate::test_utils::init_test_tracing();
+    let first = Context::new_minimal_vm_harness().internal_interpreter_environment_symbol;
+    let second = Context::new_minimal_vm_harness().internal_interpreter_environment_symbol;
+    assert_eq!(first, second);
+}
+
+#[test]
 fn read_char_applies_resize_event_before_returning_next_keypress() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

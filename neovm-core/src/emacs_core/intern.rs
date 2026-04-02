@@ -128,27 +128,6 @@ fn global_interner() -> &'static RwLock<StringInterner> {
     GLOBAL_INTERNER.get_or_init(|| RwLock::new(StringInterner::new()))
 }
 
-/// Legacy compatibility shim. The runtime interner is now process-global.
-#[inline]
-pub fn set_current_interner(_interner: &mut StringInterner) {}
-
-/// Legacy compatibility shim. The runtime interner is now process-global.
-#[inline]
-pub fn clear_current_interner() {}
-
-/// Save/restore hook retained for older call sites.
-#[inline]
-pub(crate) fn with_saved_interner<R>(f: impl FnOnce() -> R) -> R {
-    f()
-}
-
-/// The old pointer API is kept only for tests that assert the old lifecycle.
-/// A null pointer now means "no evaluator-owned interner".
-#[inline]
-pub(crate) fn current_interner_ptr() -> *mut StringInterner {
-    std::ptr::null_mut()
-}
-
 pub(crate) fn dump_runtime_interner() -> StringInterner {
     let interner = global_interner()
         .read()
