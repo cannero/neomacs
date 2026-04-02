@@ -439,6 +439,30 @@ fn command_modes_from_expr_body(body: &[Expr]) -> Option<Value> {
     None
 }
 
+fn command_modes_from_value_body(body: &[Value]) -> Option<Value> {
+    let body_index = value_body_metadata_end(body);
+    for form in &body[body_index..] {
+        if !value_is_interactive_form(form) {
+            continue;
+        }
+        let Some(items) = value_list_to_vec(form) else {
+            continue;
+        };
+        let modes = items
+            .iter()
+            .skip(2)
+            .copied()
+            .map(unquote_command_modes_value)
+            .collect::<Vec<_>>();
+        return Some(if modes.is_empty() {
+            Value::NIL
+        } else {
+            Value::list(modes)
+        });
+    }
+    None
+}
+
 fn unquote_command_modes_value(value: Value) -> Value {
     let Some(items) = value_list_to_vec(&value) else {
         return value;
@@ -543,11 +567,13 @@ pub(crate) fn builtin_command_modes_impl(obarray: &Obarray, args: &[Value]) -> E
     match function.kind() {
         ValueKind::Veclike(VecLikeType::Subr) => Ok(Value::NIL),
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => {
-            let Some(lambda) = function.get_lambda_data() else {
+            let Some(body) = function
+                .closure_body_value()
+                .and_then(|body| value_list_to_vec(&body))
+            else {
                 return Ok(Value::NIL);
             };
-            let body = lambda.body.clone();
-            Ok(command_modes_from_expr_body(&body).unwrap_or(Value::NIL))
+            Ok(command_modes_from_value_body(&body).unwrap_or(Value::NIL))
         }
         ValueKind::Veclike(VecLikeType::ByteCode) => {
             let Some(bc) = function.get_bytecode_data() else {
@@ -838,6 +864,22 @@ fn lambda_body_has_interactive_form(body: &[Expr]) -> bool {
     body.get(body_index).is_some_and(expr_is_interactive_form)
 }
 
+fn value_body_metadata_end(body: &[Value]) -> usize {
+    let mut body_index = 0;
+    if body.first().is_some_and(|value| value.is_string()) {
+        body_index = 1;
+    }
+    while body.get(body_index).is_some_and(value_is_declare_form) {
+        body_index += 1;
+    }
+    body_index
+}
+
+fn lambda_body_has_interactive_value(body: &[Value]) -> bool {
+    let body_index = value_body_metadata_end(body);
+    body.get(body_index).is_some_and(value_is_interactive_form)
+}
+
 fn value_list_to_vec(list: &Value) -> Option<Vec<Value>> {
     let mut values = Vec::new();
     let mut cursor = *list;
@@ -938,12 +980,17 @@ fn command_object_p_in_state(
 
     match value.kind() {
         ValueKind::Veclike(VecLikeType::Lambda) => {
-            if let Some(lambda) = value.get_lambda_data() {
+            if let Some(body) = value
+                .closure_body_value()
+                .and_then(|body| value_list_to_vec(&body))
+            {
                 // GNU Emacs checks closure vector size (PVSIZE > CLOSURE_INTERACTIVE)
                 // to detect interactive closures.  We check the dedicated field first,
                 // then fall back to body scanning for closures created without
                 // the field (e.g., dynamically-scoped lambdas, pdump closures).
-                if lambda.interactive.is_some() || lambda_body_has_interactive_form(&lambda.body) {
+                if value.closure_interactive().flatten().is_some()
+                    || lambda_body_has_interactive_value(&body)
+                {
                     return true;
                 }
                 // GNU Emacs (eval.c:2304-2314): For closures where doc_form
@@ -954,8 +1001,9 @@ fn command_object_p_in_state(
                 // if this is an oclosure (doc_form is a symbol), treat it
                 // as potentially interactive if the resolved symbol name
                 // is registered as interactive.
-                if lambda
-                    .doc_form
+                if value
+                    .closure_doc_form()
+                    .flatten()
                     .is_some_and(|v| v.as_symbol_name().is_some())
                 {
                     if let Some(name) = resolved_name {
@@ -2101,9 +2149,27 @@ fn parse_interactive_spec(expr: &Expr) -> Option<ParsedInteractiveSpec> {
     }
 }
 
+fn parse_interactive_spec_from_form_value(form: &Value) -> Option<ParsedInteractiveSpec> {
+    if !value_is_interactive_form(form) {
+        return None;
+    }
+    let items = value_list_to_vec(form)?;
+    match items.get(1) {
+        Some(spec) => parse_interactive_spec_from_value(spec),
+        None => Some(ParsedInteractiveSpec::NoArgs),
+    }
+}
+
 /// Parse interactive spec from a Value (from LambdaData.interactive or bytecode).
 /// The value is the SPEC part (already extracted from `(interactive SPEC)`).
 fn parse_interactive_spec_from_value(spec: &Value) -> Option<ParsedInteractiveSpec> {
+    if value_is_interactive_form(spec) {
+        let items = value_list_to_vec(spec)?;
+        return match items.get(1) {
+            Some(nested_spec) => parse_interactive_spec_from_value(nested_spec),
+            None => Some(ParsedInteractiveSpec::NoArgs),
+        };
+    }
     match spec.kind() {
         ValueKind::Nil => Some(ParsedInteractiveSpec::NoArgs),
         ValueKind::String => {
@@ -2127,6 +2193,11 @@ fn parsed_interactive_spec_from_lambda(lambda: &LambdaData) -> Option<ParsedInte
         .body
         .get(lambda_body_metadata_end(&lambda.body))
         .and_then(parse_interactive_spec)
+}
+
+fn parsed_interactive_spec_from_body_values(body: &[Value]) -> Option<ParsedInteractiveSpec> {
+    body.get(value_body_metadata_end(body))
+        .and_then(parse_interactive_spec_from_form_value)
 }
 
 fn interactive_form_value_to_args(value: Value) -> Result<Vec<Value>, Flow> {
@@ -2362,12 +2433,15 @@ fn resolve_interactive_invocation_args(
         }
     }
 
-    if let Some(lambda) = func.get_lambda_data() {
+    if let Some(closure_body) = func
+        .closure_body_value()
+        .and_then(|body| value_list_to_vec(&body))
+    {
         // Check LambdaData.interactive field first (mirrors GNU closure slot 5).
         // This handles the case where cconv stripped (interactive ...) from the
         // body but preserved it in the iform parameter.
-        if let Some(ref iform_val) = lambda.interactive {
-            let spec = parse_interactive_spec_from_value(iform_val);
+        if let Some(iform_val) = func.closure_interactive().flatten() {
+            let spec = parse_interactive_spec_from_value(&iform_val);
             if let Some(spec) = spec {
                 let maybe_args = match spec {
                     ParsedInteractiveSpec::NoArgs => Some(Vec::new()),
@@ -2388,7 +2462,7 @@ fn resolve_interactive_invocation_args(
             }
         }
         // Fall back to scanning the body
-        if let Some(spec) = parsed_interactive_spec_from_lambda(&lambda) {
+        if let Some(spec) = parsed_interactive_spec_from_body_values(&closure_body) {
             let maybe_args = match spec {
                 ParsedInteractiveSpec::NoArgs => Some(Vec::new()),
                 ParsedInteractiveSpec::StringCode(code) => {
@@ -2638,8 +2712,31 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_state(
         return Ok(None);
     }
 
-    if let Some(lambda) = func.get_lambda_data()
-        && let Some(spec) = parsed_interactive_spec_from_lambda(&lambda)
+    if let Some(iform_val) = func.closure_interactive().flatten() {
+        let Some(spec) = parse_interactive_spec_from_value(&iform_val) else {
+            return Ok(Some((func, Vec::new())));
+        };
+        return match spec {
+            ParsedInteractiveSpec::NoArgs => Ok(Some((func, Vec::new()))),
+            ParsedInteractiveSpec::StringCode(code) => interactive_args_from_string_code_in_state(
+                obarray,
+                dynamic,
+                buffers,
+                custom,
+                specpdl,
+                &code,
+                CommandInvocationKind::CallInteractively,
+                &mut plan.context,
+            )
+            .map(|maybe_args| maybe_args.map(|args| (func, args))),
+            ParsedInteractiveSpec::Form(_) => Ok(None),
+        };
+    }
+
+    if let Some(body) = func
+        .closure_body_value()
+        .and_then(|body| value_list_to_vec(&body))
+        && let Some(spec) = parsed_interactive_spec_from_body_values(&body)
     {
         return match spec {
             ParsedInteractiveSpec::NoArgs => Ok(Some((func, Vec::new()))),
@@ -2730,8 +2827,33 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
         return Ok(None);
     }
 
-    if let Some(lambda) = func.get_lambda_data()
-        && let Some(spec) = parsed_interactive_spec_from_lambda(&lambda)
+    if let Some(iform_val) = func.closure_interactive().flatten() {
+        let Some(spec) = parse_interactive_spec_from_value(&iform_val) else {
+            return Ok(Some((func, Vec::new())));
+        };
+        return match spec {
+            ParsedInteractiveSpec::NoArgs => Ok(Some((func, Vec::new()))),
+            ParsedInteractiveSpec::StringCode(code) => {
+                interactive_args_from_string_code_in_vm_runtime(
+                    shared,
+                    &code,
+                    CommandInvocationKind::CallInteractively,
+                    &mut plan.context,
+                    vm_gc_roots,
+                )
+                .map(|maybe_args| maybe_args.map(|args| (func, args)))
+            }
+            ParsedInteractiveSpec::Form(_) => {
+                eval_interactive_form_value_in_vm_runtime(shared, vm_gc_roots, iform_val)
+                    .map(|args| Some((func, args)))
+            }
+        };
+    }
+
+    if let Some(body) = func
+        .closure_body_value()
+        .and_then(|body| value_list_to_vec(&body))
+        && let Some(spec) = parsed_interactive_spec_from_body_values(&body)
     {
         return match spec {
             ParsedInteractiveSpec::NoArgs => Ok(Some((func, Vec::new()))),

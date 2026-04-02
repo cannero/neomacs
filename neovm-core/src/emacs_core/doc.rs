@@ -159,11 +159,10 @@ fn function_doc_or_error(func_val: Value) -> EvalResult {
 
     match func_val.kind() {
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => {
-            let data = func_val.get_lambda_data().unwrap();
-            match &data.docstring {
-                Some(doc) => Ok(Value::string(doc.clone())),
-                None => Ok(Value::NIL),
-            }
+            Ok(func_val
+                .closure_docstring()
+                .flatten()
+                .map_or(Value::NIL, Value::string))
         }
         ValueKind::Veclike(VecLikeType::Subr) => {
             let id = func_val.as_subr_id().unwrap();

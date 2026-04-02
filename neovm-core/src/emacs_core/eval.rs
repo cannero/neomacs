@@ -7705,7 +7705,14 @@ impl Context {
         if !result.is_lambda() {
             return;
         };
-        let Some(lambda_data) = result.get_lambda_data() else {
+        let Some(trimmed_params) = result.closure_params().cloned() else {
+            return;
+        };
+        let Some(trimmed_body) = result
+            .closure_body_value()
+            .and_then(|body| list_to_vec(&body))
+            .map(|forms| forms.iter().map(value_to_expr).collect::<Vec<_>>())
+        else {
             return;
         };
         let Some(trimmed_env) = result.closure_env().flatten() else {
@@ -7731,8 +7738,8 @@ impl Context {
             body_exprs: body_exprs.to_vec(),
             iform_expr,
             env_shape,
-            params: lambda_data.params,
-            trimmed_body: lambda_data.body,
+            params: trimmed_params,
+            trimmed_body: trimmed_body.into(),
             trimmed_env_template: interpreted_closure_env_entries(trimmed_env),
         });
     }

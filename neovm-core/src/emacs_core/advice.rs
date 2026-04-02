@@ -133,17 +133,24 @@ fn watcher_callback_matches(registered: &Value, candidate: &Value) -> bool {
 }
 
 fn lambda_data_matches(left: &Value, right: &Value) -> bool {
-    match (left.get_lambda_data(), right.get_lambda_data()) {
-        (Some(l), Some(r)) => {
-            l.params.required == r.params.required
-                && l.params.optional == r.params.optional
-                && l.params.rest == r.params.rest
-                && l.body == r.body
-                && lex_envs_equal(&l.env, &r.env)
-                && l.docstring == r.docstring
-        }
-        _ => false,
-    }
+    let (Some(left_params), Some(right_params)) = (left.closure_params(), right.closure_params())
+    else {
+        return false;
+    };
+    left_params.required == right_params.required
+        && left_params.optional == right_params.optional
+        && left_params.rest == right_params.rest
+        && left
+            .closure_body_value()
+            .zip(right.closure_body_value())
+            .is_some_and(|(left_body, right_body)| {
+                super::value::equal_value(&left_body, &right_body, 0)
+            })
+        && lex_envs_equal(
+            &left.closure_env().unwrap_or(None),
+            &right.closure_env().unwrap_or(None),
+        )
+        && left.closure_docstring().flatten() == right.closure_docstring().flatten()
 }
 
 /// Equality for lexical environments (Option<Value>).

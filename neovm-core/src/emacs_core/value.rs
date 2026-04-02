@@ -1143,6 +1143,10 @@ impl TaggedValue {
         })
     }
 
+    pub fn closure_docstring(self) -> Option<Option<&'static str>> {
+        self.closure_doc_value().map(|doc| doc.as_str())
+    }
+
     pub fn closure_interactive(self) -> Option<Option<Value>> {
         self.closure_slot(CLOSURE_INTERACTIVE)
             .map(|interactive| (!interactive.is_nil()).then_some(interactive))

@@ -1019,8 +1019,7 @@ impl<'a> Vm<'a> {
                             }
                             // Closures are cons lists in official Emacs.
                             ValueKind::Veclike(VecLikeType::Lambda) => {
-                                let data = call_args[0].get_lambda_data().unwrap();
-                                stack.push(if data.env.is_some() {
+                                stack.push(if call_args[0].closure_env().flatten().is_some() {
                                     Value::symbol("closure")
                                 } else {
                                     Value::symbol("lambda")

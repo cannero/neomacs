@@ -25,11 +25,10 @@ pub(crate) fn builtin_cons(args: Vec<Value>) -> EvalResult {
 /// Convert a Lambda (or Macro) value to a cons-list representation matching
 /// the official Emacs format.
 pub(crate) fn lambda_to_cons_list(value: &Value) -> Option<Value> {
-    let data = value.get_lambda_data()?.clone();
     let saved_roots = crate::emacs_core::eval::save_scratch_gc_roots();
     let mut elements = Vec::new();
 
-    if let Some(env_val) = data.env {
+    if let Some(env_val) = value.closure_env().flatten() {
         elements.push(Value::symbol("closure"));
         if env_val.is_nil() {
             elements.push(Value::list(vec![Value::T]));
@@ -40,24 +39,24 @@ pub(crate) fn lambda_to_cons_list(value: &Value) -> Option<Value> {
         elements.push(Value::symbol("lambda"));
     }
 
-    let params_value = lambda_params_to_value(&data.params);
+    let params_value = lambda_params_to_value(value.closure_params()?);
     crate::emacs_core::eval::push_scratch_gc_root(params_value);
     elements.push(params_value);
 
-    if let Some(ref doc) = data.docstring {
-        let doc_value = Value::string(doc.clone());
+    if let Some(doc) = value.closure_docstring().flatten() {
+        let doc_value = Value::string(doc);
         crate::emacs_core::eval::push_scratch_gc_root(doc_value);
         elements.push(doc_value);
     }
 
     // Include (:documentation TYPE) form for oclosures
-    if let Some(doc_form) = data.doc_form {
+    if let Some(doc_form) = value.closure_doc_form().flatten() {
         let doc_entry = Value::list(vec![Value::keyword(":documentation"), doc_form]);
         crate::emacs_core::eval::push_scratch_gc_root(doc_entry);
         elements.push(doc_entry);
     }
 
-    if let Some(interactive) = data.interactive {
+    if let Some(interactive) = value.closure_interactive().flatten() {
         let interactive_entry = if interactive.is_cons()
             && interactive.cons_car().as_symbol_name() == Some("interactive")
         {
@@ -75,10 +74,10 @@ pub(crate) fn lambda_to_cons_list(value: &Value) -> Option<Value> {
         elements.push(interactive_entry);
     }
 
-    for expr in data.body.iter() {
-        let quoted = crate::emacs_core::eval::quote_to_value(expr);
-        crate::emacs_core::eval::push_scratch_gc_root(quoted);
-        elements.push(quoted);
+    let body = value.closure_body_value()?;
+    for form in list_to_vec(&body)? {
+        crate::emacs_core::eval::push_scratch_gc_root(form);
+        elements.push(form);
     }
 
     let result = Value::list(elements);
@@ -87,10 +86,7 @@ pub(crate) fn lambda_to_cons_list(value: &Value) -> Option<Value> {
 }
 
 pub(crate) fn lambda_closure_length(value: &Value) -> Option<i64> {
-    let _data = value.get_lambda_data()?;
-    // GNU Emacs closures always have 6 slots:
-    // [0]=arglist [1]=body [2]=env [3]=depth [4]=doc [5]=interactive
-    Some(6)
+    Some(value.closure_slots()?.len() as i64)
 }
 
 /// Convert a Lambda value to the GNU Emacs closure vector layout:
@@ -98,53 +94,7 @@ pub(crate) fn lambda_closure_length(value: &Value) -> Option<i64> {
 /// NeoVM does not currently store the optional interactive slot.
 /// This is used by `aref` on closures for oclosure slot access.
 pub fn lambda_to_closure_vector(value: &Value) -> Vec<Value> {
-    let data = match value.get_lambda_data() {
-        Some(d) => d.clone(),
-        None => return Vec::new(),
-    };
-    let saved_roots = crate::emacs_core::eval::save_scratch_gc_roots();
-
-    let args = lambda_params_to_value(&data.params);
-    crate::emacs_core::eval::push_scratch_gc_root(args);
-
-    // Body: list of body forms
-    let body_forms: Vec<Value> = data
-        .body
-        .iter()
-        .map(|expr| {
-            let quoted = crate::emacs_core::eval::quote_to_value(expr);
-            crate::emacs_core::eval::push_scratch_gc_root(quoted);
-            quoted
-        })
-        .collect();
-    let body = Value::list(body_forms);
-    crate::emacs_core::eval::push_scratch_gc_root(body);
-
-    // Env — already stored as a flat cons alist matching GNU Emacs's
-    // Vinternal_interpreter_environment.
-    let env = match data.env {
-        Some(env_val) if env_val.is_nil() => Value::list(vec![Value::T]),
-        Some(env_val) => env_val,
-        None => Value::NIL,
-    };
-
-    // GNU Emacs closure vector layout (always 6 slots):
-    //   [0] = CLOSURE_ARGLIST — parameter list
-    //   [1] = CLOSURE_CODE — body forms (list)
-    //   [2] = CLOSURE_CONSTANTS — lexical environment
-    //   [3] = CLOSURE_STACK_DEPTH — nil for interpreted closures
-    //   [4] = CLOSURE_DOC_STRING — docstring or doc-form
-    //   [5] = CLOSURE_INTERACTIVE — interactive spec
-    let slot3 = Value::NIL; // stack depth (unused for interpreted)
-    let slot4 = data
-        .doc_form
-        .or_else(|| data.docstring.as_ref().map(|d| Value::string(d.clone())))
-        .unwrap_or(Value::NIL);
-    let slot5 = data.interactive.unwrap_or(Value::NIL);
-
-    let result = vec![args, body, env, slot3, slot4, slot5];
-    crate::emacs_core::eval::restore_scratch_gc_roots(saved_roots);
-    result
+    value.closure_slots().cloned().unwrap_or_default()
 }
 
 pub(crate) fn bytecode_closure_length(value: &Value) -> Option<i64> {
@@ -274,8 +224,7 @@ fn car_value(value: &Value) -> Result<Value, Flow> {
         ValueKind::Cons => Ok(value.cons_car()),
         // In official Emacs, closures are cons lists with car = closure/lambda.
         ValueKind::Veclike(VecLikeType::Lambda) => {
-            let data = value.get_lambda_data().unwrap();
-            if data.env.is_some() {
+            if value.closure_env().flatten().is_some() {
                 Ok(Value::symbol("closure"))
             } else {
                 Ok(Value::symbol("lambda"))

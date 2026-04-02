@@ -425,9 +425,9 @@ pub(crate) fn builtin_func_arity_ctx(
     }
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Lambda) => {
-            let ld = args[0].get_lambda_data().unwrap();
-            let min = ld.params.min_arity();
-            let max = ld.params.max_arity();
+            let params = args[0].closure_params().unwrap();
+            let min = params.min_arity();
+            let max = params.max_arity();
             Ok(arity_cons(min, max))
         }
         ValueKind::Veclike(VecLikeType::ByteCode) => {
@@ -441,9 +441,9 @@ pub(crate) fn builtin_func_arity_ctx(
             Ok(subr_arity_from_registry(ctx, id))
         }
         ValueKind::Veclike(VecLikeType::Macro) => {
-            let ld = args[0].get_lambda_data().unwrap();
-            let min = ld.params.min_arity();
-            let max = ld.params.max_arity();
+            let params = args[0].closure_params().unwrap();
+            let min = params.min_arity();
+            let max = params.max_arity();
             Ok(arity_cons(min, max))
         }
         other => Err(signal("invalid-function", vec![args[0]])),
@@ -461,8 +461,8 @@ pub(crate) fn builtin_func_arity_impl(args: Vec<Value>) -> EvalResult {
     }
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Lambda) => {
-            let ld = args[0].get_lambda_data().unwrap();
-            Ok(arity_cons(ld.params.min_arity(), ld.params.max_arity()))
+            let params = args[0].closure_params().unwrap();
+            Ok(arity_cons(params.min_arity(), params.max_arity()))
         }
         ValueKind::Veclike(VecLikeType::ByteCode) => {
             let bc = args[0].get_bytecode_data().unwrap();
@@ -473,8 +473,8 @@ pub(crate) fn builtin_func_arity_impl(args: Vec<Value>) -> EvalResult {
             Ok(subr_arity_from_value(args[0]).unwrap_or_else(|| subr_arity_value(resolve_sym(id))))
         }
         ValueKind::Veclike(VecLikeType::Macro) => {
-            let ld = args[0].get_lambda_data().unwrap();
-            Ok(arity_cons(ld.params.min_arity(), ld.params.max_arity()))
+            let params = args[0].closure_params().unwrap();
+            Ok(arity_cons(params.min_arity(), params.max_arity()))
         }
         other => Err(signal("invalid-function", vec![args[0]])),
     }

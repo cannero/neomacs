@@ -417,35 +417,33 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
                 PrintObjectRef::Lambda(obj_key),
                 |index| format!("#{index}"),
                 || {
-                    let lambda = value.get_lambda_data().unwrap();
-                    if lambda.env.is_some() {
-                        return format_interpreted_closure(&lambda, state.options);
+                    if value.closure_env().flatten().is_some() {
+                        return format_interpreted_closure(value, state.options);
                     }
                     if let Some(list_form) = crate::emacs_core::builtins::lambda_to_cons_list(value)
                     {
                         return print_value_with_options(&list_form, state.options);
                     }
-                    let params = format_params(&lambda.params);
-                    let body = lambda
-                        .body
-                        .iter()
-                        .map(expr::print_expr)
-                        .collect::<Vec<_>>()
-                        .join(" ");
+                    let params = value
+                        .closure_params()
+                        .map_or_else(|| "nil".to_string(), format_params);
+                    let body = value
+                        .closure_body_value()
+                        .map(|body| format_closure_body_forms(body, state.options))
+                        .unwrap_or_else(|| "nil".to_string());
                     format!("(lambda {} {})", params, body)
                 },
             );
             out.push_str(&text);
         }
         ValueKind::Veclike(VecLikeType::Macro) => {
-            let m = value.get_lambda_data().unwrap();
-            let params = format_params(&m.params);
-            let body = m
-                .body
-                .iter()
-                .map(expr::print_expr)
-                .collect::<Vec<_>>()
-                .join(" ");
+            let params = value
+                .closure_params()
+                .map_or_else(|| "nil".to_string(), format_params);
+            let body = value
+                .closure_body_value()
+                .map(|body| format_closure_body_forms(body, state.options))
+                .unwrap_or_else(|| "nil".to_string());
             write!(out, "(macro {} {})", params, body).unwrap();
         }
         ValueKind::Veclike(VecLikeType::Subr) => {
@@ -1001,32 +999,30 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
             PrintObjectRef::Lambda(value.0),
             |index| format!("#{index}"),
             || {
-                let lambda = value.get_lambda_data().unwrap();
-                if lambda.env.is_some() {
-                    return format_interpreted_closure(&lambda, options);
+                if value.closure_env().flatten().is_some() {
+                    return format_interpreted_closure(value, options);
                 }
                 if let Some(list_form) = crate::emacs_core::builtins::lambda_to_cons_list(value) {
                     return print_value_with_options(&list_form, options);
                 }
-                let params = format_params(&lambda.params);
-                let body = lambda
-                    .body
-                    .iter()
-                    .map(expr::print_expr)
-                    .collect::<Vec<_>>()
-                    .join(" ");
+                let params = value
+                    .closure_params()
+                    .map_or_else(|| "nil".to_string(), format_params);
+                let body = value
+                    .closure_body_value()
+                    .map(|body| format_closure_body_forms(body, options))
+                    .unwrap_or_else(|| "nil".to_string());
                 format!("(lambda {} {})", params, body)
             },
         ),
         ValueKind::Veclike(VecLikeType::Macro) => {
-            let m = value.get_lambda_data().unwrap();
-            let params = format_params(&m.params);
-            let body = m
-                .body
-                .iter()
-                .map(expr::print_expr)
-                .collect::<Vec<_>>()
-                .join(" ");
+            let params = value
+                .closure_params()
+                .map_or_else(|| "nil".to_string(), format_params);
+            let body = value
+                .closure_body_value()
+                .map(|body| format_closure_body_forms(body, options))
+                .unwrap_or_else(|| "nil".to_string());
             format!("(macro {} {})", params, body)
         }
         ValueKind::Veclike(VecLikeType::Subr) => {
@@ -1159,22 +1155,21 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
                 PrintObjectRef::Lambda(value.0),
                 |index| format!("#{index}"),
                 || {
-                    let lambda = value.get_lambda_data().unwrap();
-                    if lambda.env.is_some() {
-                        format_interpreted_closure(&lambda, options)
+                    if value.closure_env().flatten().is_some() {
+                        format_interpreted_closure(value, options)
                     } else {
                         if let Some(list_form) =
                             crate::emacs_core::builtins::lambda_to_cons_list(value)
                         {
                             return print_value_with_options(&list_form, options);
                         }
-                        let params = format_params(&lambda.params);
-                        let body = lambda
-                            .body
-                            .iter()
-                            .map(expr::print_expr)
-                            .collect::<Vec<_>>()
-                            .join(" ");
+                        let params = value
+                            .closure_params()
+                            .map_or_else(|| "nil".to_string(), format_params);
+                        let body = value
+                            .closure_body_value()
+                            .map(|body| format_closure_body_forms(body, options))
+                            .unwrap_or_else(|| "nil".to_string());
                         format!("(lambda {} {})", params, body)
                     }
                 },
@@ -1182,14 +1177,13 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
             out.extend_from_slice(text.as_bytes());
         }
         ValueKind::Veclike(VecLikeType::Macro) => {
-            let m = value.get_lambda_data().unwrap();
-            let params = format_params(&m.params);
-            let body = m
-                .body
-                .iter()
-                .map(expr::print_expr)
-                .collect::<Vec<_>>()
-                .join(" ");
+            let params = value
+                .closure_params()
+                .map_or_else(|| "nil".to_string(), format_params);
+            let body = value
+                .closure_body_value()
+                .map(|body| format_closure_body_forms(body, options))
+                .unwrap_or_else(|| "nil".to_string());
             out.extend_from_slice(format!("(macro {} {})", params, body).as_bytes());
         }
         ValueKind::Veclike(VecLikeType::Subr) => {
@@ -1454,24 +1448,48 @@ fn format_lambda_body_forms(body: &[Expr]) -> String {
     }
 }
 
-fn format_interpreted_closure(lambda: &super::value::LambdaData, options: PrintOptions) -> String {
+fn format_closure_body_forms(body: Value, options: PrintOptions) -> String {
+    let Some(forms) = list_to_vec(&body) else {
+        return print_value_with_options(&body, options);
+    };
+    if forms.is_empty() {
+        "nil".to_string()
+    } else {
+        forms
+            .iter()
+            .map(|form| print_value_with_options(form, options))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
+fn format_interpreted_closure(value: &Value, options: PrintOptions) -> String {
     let mut slots = Vec::with_capacity(5);
-    slots.push(format_params(&lambda.params));
-    slots.push(format_lambda_body_forms(lambda.body.as_ref()));
-    let env = lambda.env.expect("closure env");
+    slots.push(
+        value
+            .closure_params()
+            .map_or_else(|| "nil".to_string(), format_params),
+    );
+    slots.push(
+        value
+            .closure_body_value()
+            .map(|body| print_value_with_options(&body, options))
+            .unwrap_or_else(|| "nil".to_string()),
+    );
+    let env = value.closure_env().flatten().expect("closure env");
     slots.push(if env == Value::NIL {
         "(t)".to_string()
     } else {
         print_value_with_options(&env, options)
     });
-    if lambda.docstring.is_some() || lambda.doc_form.is_some() {
+    if let Some(doc_value) = value.closure_doc_value()
+        && !doc_value.is_nil()
+    {
         slots.push("nil".to_string());
-        slots.push(if let Some(doc_form) = lambda.doc_form {
-            print_value_with_options(&doc_form, options)
-        } else if let Some(docstring) = &lambda.docstring {
-            format_lisp_string(docstring)
+        slots.push(if doc_value.is_string() {
+            format_lisp_string(doc_value.as_str().unwrap())
         } else {
-            "nil".to_string()
+            print_value_with_options(&doc_value, options)
         });
     }
     format!("#[{}]", slots.join(" "))

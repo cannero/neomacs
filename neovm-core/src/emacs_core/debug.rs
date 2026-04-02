@@ -413,12 +413,8 @@ impl HelpFormatter {
 
         let kind = match value.kind() {
             ValueKind::Veclike(VecLikeType::Lambda) => {
-                if let Some(lam) = value.get_lambda_data() {
-                    if lam.env.is_some() {
-                        "a Lisp closure"
-                    } else {
-                        "a Lisp function"
-                    }
+                if value.closure_env().flatten().is_some() {
+                    "a Lisp closure"
                 } else {
                     "a Lisp function"
                 }
@@ -434,8 +430,8 @@ impl HelpFormatter {
         // Signature
         match value.kind() {
             ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => {
-                if let Some(lam) = value.get_lambda_data() {
-                    let params = format_param_list(&lam.params);
+                if let Some(params) = value.closure_params() {
+                    let params = format_param_list(params);
                     out.push_str(&format!("({}{})\n", name, params));
                 }
             }
@@ -457,7 +453,7 @@ impl HelpFormatter {
         // Docstring from LambdaData
         let inline_doc_owned = match value.kind() {
             ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => {
-                value.get_lambda_data().and_then(|lam| lam.docstring)
+                value.closure_docstring().flatten().map(str::to_owned)
             }
             _ => None,
         };
