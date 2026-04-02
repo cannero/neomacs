@@ -5988,16 +5988,57 @@ impl Context {
                 }
 
                 if func.is_macro() {
-                    let expanded = self.expand_macro(func, tail)?;
-                    // OpaqueValueRef entries are rooted by OpaqueValuePool.
-                    return self.with_gc_scope(|ctx| {
-                        let mut opaques = Vec::new();
-                        collect_opaque_values(&expanded, &mut opaques);
-                        for v in &opaques {
-                            ctx.push_temp_root(*v);
+                    // GNU eval.c approach: call macro function with
+                    // unevaluated args, then eval_sub the result directly.
+                    // No value_to_expr round-trip.
+                    let lambda_data = func.get_lambda_data().unwrap().clone();
+
+                    // Bind lexical-binding during expansion (GNU eval.c:2737)
+                    let saved_lexbind = self.obarray().symbol_value("lexical-binding").cloned();
+                    let lexbind_val = if self.lexenv.is_nil() {
+                        Value::NIL
+                    } else {
+                        Value::T
+                    };
+                    self.set_variable("lexical-binding", lexbind_val);
+
+                    // Propagate macroexp--dynvars (GNU eval.c:2741-2750)
+                    let saved_dynvars = self.obarray().symbol_value("macroexp--dynvars").cloned();
+                    let mut dynvars = saved_dynvars.unwrap_or(Value::NIL);
+                    {
+                        let mut p = self.lexenv;
+                        while p.is_cons() {
+                            let e = p.cons_car();
+                            if e.is_symbol() {
+                                dynvars = Value::cons(e, dynvars);
+                            }
+                            p = p.cons_cdr();
                         }
-                        ctx.eval(&expanded)
-                    });
+                    }
+                    self.set_variable("macroexp--dynvars", dynvars);
+
+                    // Convert Expr args to Values for the macro call
+                    let arg_values: Vec<Value> = tail.iter().map(quote_to_value).collect();
+                    for v in &arg_values {
+                        self.push_temp_root(*v);
+                    }
+
+                    let expanded_value = self.with_macro_expansion_scope(|eval| {
+                        eval.apply_lambda(&lambda_data, arg_values, func)
+                    })?;
+
+                    // Restore bindings
+                    if let Some(v) = saved_lexbind {
+                        self.set_variable("lexical-binding", v);
+                    }
+                    if let Some(v) = saved_dynvars {
+                        self.set_variable("macroexp--dynvars", v);
+                    } else {
+                        self.set_variable("macroexp--dynvars", Value::NIL);
+                    }
+
+                    // eval_sub directly — no value_to_expr round-trip
+                    return self.eval_sub(expanded_value);
                 }
                 // Handle cons-cell macros: (macro . fn) — used by byte-run.el's
                 // (defalias 'defmacro (cons 'macro #'(lambda ...)))

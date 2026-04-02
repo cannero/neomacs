@@ -114,7 +114,6 @@ fn test_type_dispatch() {
             ValueKind::Veclike(VecLikeType::Vector) => "vector".to_string(),
             ValueKind::String => "string".to_string(),
             ValueKind::Symbol(_) => "symbol".to_string(),
-            ValueKind::Symbol(_) => "keyword".to_string(),
             ValueKind::Veclike(VecLikeType::Subr) => "subr".to_string(),
             ValueKind::Veclike(_) => "veclike".to_string(),
             ValueKind::Unknown => "unknown".to_string(),
