@@ -187,6 +187,7 @@ fn vector_allocation() {
 fn vector_mutation_helper_updates_elements() {
     crate::test_utils::init_test_tracing();
     let mut heap = super::gc::TaggedHeap::new();
+    super::gc::set_tagged_heap(&mut heap);
 
     let vec = heap.alloc_vector(vec![TaggedValue::fixnum(10), TaggedValue::fixnum(20)]);
     let _ = super::mutate::with_vector_data_mut(vec, |items| {
@@ -196,6 +197,43 @@ fn vector_mutation_helper_updates_elements() {
     let items = unsafe { &(*(vec.as_veclike_ptr().unwrap() as *const VectorObj)).data };
     assert_eq!(items[0].as_fixnum(), Some(10));
     assert_eq!(items[1].as_fixnum(), Some(99));
+}
+
+#[test]
+fn heap_write_tracking_records_unique_mutated_owners() {
+    crate::test_utils::init_test_tracing();
+    let mut heap = super::gc::TaggedHeap::new();
+    super::gc::set_tagged_heap(&mut heap);
+
+    let cons = heap.alloc_cons(TaggedValue::fixnum(1), TaggedValue::NIL);
+    let vec = heap.alloc_vector(vec![TaggedValue::fixnum(10), TaggedValue::fixnum(20)]);
+
+    cons.set_car(TaggedValue::fixnum(2));
+    cons.set_cdr(vec);
+    assert_eq!(heap.dirty_owner_count(), 1);
+    assert!(heap.is_dirty_owner(cons));
+
+    assert!(super::mutate::set_vector_slot(vec, 1, TaggedValue::fixnum(99)));
+    assert_eq!(heap.dirty_owner_count(), 2);
+    assert!(heap.is_dirty_owner(vec));
+}
+
+#[test]
+fn full_collection_clears_dirty_owner_tracking() {
+    crate::test_utils::init_test_tracing();
+    let mut heap = super::gc::TaggedHeap::new();
+    super::gc::set_tagged_heap(&mut heap);
+
+    let reachable = heap.alloc_vector(vec![TaggedValue::fixnum(10), TaggedValue::fixnum(20)]);
+    assert!(super::mutate::set_vector_slot(
+        reachable,
+        0,
+        TaggedValue::fixnum(42),
+    ));
+    assert_eq!(heap.dirty_owner_count(), 1);
+
+    heap.collect_exact(std::iter::once(reachable));
+    assert_eq!(heap.dirty_owner_count(), 0);
 }
 
 #[test]

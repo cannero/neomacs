@@ -83,10 +83,16 @@ pub fn with_tagged_heap<R>(f: impl FnOnce(&mut TaggedHeap) -> R) -> R {
 
 /// Central mutation hook for the tagged heap.
 ///
-/// This is intentionally a no-op today. Future generational or incremental
-/// collectors can attach their remembered-set / write-barrier logic here.
+/// Today this records the mutated owner in a dirty-owner set. Future
+/// generational or incremental collectors can promote this into a remembered
+/// set / write barrier without changing mutation call sites.
 #[inline]
-pub fn note_heap_write(_owner: TaggedValue) {}
+pub fn note_heap_write(owner: TaggedValue) {
+    if !owner.is_heap_object() {
+        return;
+    }
+    with_tagged_heap(|heap| heap.record_dirty_owner(owner));
+}
 
 // ---------------------------------------------------------------------------
 // Cons block allocator
@@ -228,6 +234,13 @@ pub struct TaggedHeap {
     /// These are rooted by the heap itself so builtin `PVEC_SUBR` objects
     /// survive function-cell rebinding, matching GNU's permanent subr objects.
     subr_registry: Vec<Option<TaggedValue>>,
+
+    /// Owners mutated since the last full collection.
+    ///
+    /// This is the minimal remembered-set precursor for future generational
+    /// or incremental GC. We keep owner identity, not child edges, because the
+    /// current collector is still full-heap mark-sweep.
+    dirty_owners: Vec<TaggedValue>,
 }
 
 impl TaggedHeap {
@@ -242,6 +255,7 @@ impl TaggedHeap {
             root_scan_mode: RootScanMode::ExactOnly,
             marker_ptrs: Vec::new(),
             subr_registry: Vec::new(),
+            dirty_owners: Vec::new(),
         }
     }
 
@@ -287,6 +301,29 @@ impl TaggedHeap {
 
     pub fn clear_subr_registry(&mut self) {
         self.subr_registry.clear();
+    }
+
+    pub fn dirty_owner_count(&self) -> usize {
+        self.dirty_owners.len()
+    }
+
+    pub fn is_dirty_owner(&self, owner: TaggedValue) -> bool {
+        self.dirty_owners.contains(&owner)
+    }
+
+    pub fn take_dirty_owners(&mut self) -> Vec<TaggedValue> {
+        std::mem::take(&mut self.dirty_owners)
+    }
+
+    pub fn clear_dirty_owners(&mut self) {
+        self.dirty_owners.clear();
+    }
+
+    fn record_dirty_owner(&mut self, owner: TaggedValue) {
+        if self.dirty_owners.contains(&owner) {
+            return;
+        }
+        self.dirty_owners.push(owner);
     }
 
     // -----------------------------------------------------------------------
@@ -630,6 +667,9 @@ impl TaggedHeap {
 
         // -- Adapt threshold --
         self.gc_threshold = self.allocated_count.saturating_mul(2).max(8192);
+
+        // A full-heap collection subsumes any remembered-set bookkeeping.
+        self.dirty_owners.clear();
     }
 
     /// Drain the gray queue, marking and tracing all reachable objects.
