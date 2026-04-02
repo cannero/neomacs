@@ -23,7 +23,7 @@ use crate::emacs_core::intern::SymId;
 use crate::gc_trace::GcTrace;
 use std::alloc::{self, Layout};
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// How GC should discover roots beyond the explicit iterator passed to collect.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -32,6 +32,64 @@ pub enum RootScanMode {
     ExactOnly,
     /// Also conservatively scan the native stack for tagged values.
     ConservativeStack,
+}
+
+/// Classifies the kind of heap mutation that occurred.
+///
+/// GNU Emacs performs direct object/cell writes (`XSETCAR`, `XSETCDR`, `ASET`,
+/// symbol value writes, etc.).  Neomacs keeps the same Lisp-visible semantics,
+/// but records mutation metadata here so future generational or incremental
+/// collectors have a single write-barrier surface.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HeapWriteKind {
+    ConsCar,
+    ConsCdr,
+    VectorSlot,
+    VectorBulk,
+    RecordSlot,
+    RecordBulk,
+    ClosureSlot,
+    ClosureBulk,
+    StringTextProps,
+    StringData,
+    HashTableData,
+    ByteCodeData,
+    MarkerData,
+    OverlayData,
+}
+
+/// A single heap mutation event.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HeapWriteRecord {
+    pub owner: TaggedValue,
+    pub kind: HeapWriteKind,
+    pub slot: Option<usize>,
+    pub value: Option<TaggedValue>,
+}
+
+impl HeapWriteRecord {
+    pub const fn bulk(owner: TaggedValue, kind: HeapWriteKind) -> Self {
+        Self {
+            owner,
+            kind,
+            slot: None,
+            value: None,
+        }
+    }
+
+    pub const fn slot(
+        owner: TaggedValue,
+        kind: HeapWriteKind,
+        slot: usize,
+        value: TaggedValue,
+    ) -> Self {
+        Self {
+            owner,
+            kind,
+            slot: Some(slot),
+            value: Some(value),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -82,17 +140,29 @@ pub fn with_tagged_heap<R>(f: impl FnOnce(&mut TaggedHeap) -> R) -> R {
     })
 }
 
-/// Central mutation hook for the tagged heap.
-///
-/// Today this records the mutated owner in a dirty-owner set. Future
-/// generational or incremental collectors can promote this into a remembered
-/// set / write barrier without changing mutation call sites.
+/// Central mutation hook for bulk writes to the tagged heap.
 #[inline]
-pub fn note_heap_write(owner: TaggedValue) {
-    if !owner.is_heap_object() {
+pub fn note_heap_write(owner: TaggedValue, kind: HeapWriteKind) {
+    note_heap_write_record(HeapWriteRecord::bulk(owner, kind));
+}
+
+/// Central mutation hook for slot writes to the tagged heap.
+#[inline]
+pub fn note_heap_slot_write(
+    owner: TaggedValue,
+    kind: HeapWriteKind,
+    slot: usize,
+    value: TaggedValue,
+) {
+    note_heap_write_record(HeapWriteRecord::slot(owner, kind, slot, value));
+}
+
+#[inline]
+fn note_heap_write_record(record: HeapWriteRecord) {
+    if !record.owner.is_heap_object() {
         return;
     }
-    with_tagged_heap(|heap| heap.record_dirty_owner(owner));
+    with_tagged_heap(|heap| heap.record_heap_write(record));
 }
 
 // ---------------------------------------------------------------------------
@@ -248,6 +318,8 @@ pub struct TaggedHeap {
     /// or incremental GC. We keep owner identity, not child edges, because the
     /// current collector is still full-heap mark-sweep.
     dirty_owners: Vec<TaggedValue>,
+    dirty_owner_bits: HashSet<usize>,
+    dirty_writes: Vec<HeapWriteRecord>,
 }
 
 impl TaggedHeap {
@@ -267,6 +339,8 @@ impl TaggedHeap {
             frame_registry: HashMap::new(),
             timer_registry: HashMap::new(),
             dirty_owners: Vec::new(),
+            dirty_owner_bits: HashSet::new(),
+            dirty_writes: Vec::new(),
         }
     }
 
@@ -351,22 +425,40 @@ impl TaggedHeap {
     }
 
     pub fn is_dirty_owner(&self, owner: TaggedValue) -> bool {
-        self.dirty_owners.contains(&owner)
+        self.dirty_owner_bits.contains(&owner.bits())
     }
 
     pub fn take_dirty_owners(&mut self) -> Vec<TaggedValue> {
+        self.dirty_owner_bits.clear();
         std::mem::take(&mut self.dirty_owners)
     }
 
     pub fn clear_dirty_owners(&mut self) {
         self.dirty_owners.clear();
+        self.dirty_owner_bits.clear();
     }
 
-    fn record_dirty_owner(&mut self, owner: TaggedValue) {
-        if self.dirty_owners.contains(&owner) {
-            return;
+    pub fn dirty_write_count(&self) -> usize {
+        self.dirty_writes.len()
+    }
+
+    pub fn dirty_writes(&self) -> &[HeapWriteRecord] {
+        &self.dirty_writes
+    }
+
+    pub fn take_dirty_writes(&mut self) -> Vec<HeapWriteRecord> {
+        std::mem::take(&mut self.dirty_writes)
+    }
+
+    pub fn clear_dirty_writes(&mut self) {
+        self.dirty_writes.clear();
+    }
+
+    fn record_heap_write(&mut self, record: HeapWriteRecord) {
+        if self.dirty_owner_bits.insert(record.owner.bits()) {
+            self.dirty_owners.push(record.owner);
         }
-        self.dirty_owners.push(owner);
+        self.dirty_writes.push(record);
     }
 
     // -----------------------------------------------------------------------
@@ -732,7 +824,8 @@ impl TaggedHeap {
         self.gc_threshold = self.allocated_count.saturating_mul(2).max(8192);
 
         // A full-heap collection subsumes any remembered-set bookkeeping.
-        self.dirty_owners.clear();
+        self.clear_dirty_owners();
+        self.clear_dirty_writes();
     }
 
     /// Drain the gray queue, marking and tracing all reachable objects.

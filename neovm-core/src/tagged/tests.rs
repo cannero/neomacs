@@ -1,5 +1,6 @@
 //! Tests for the tagged pointer value system.
 
+use super::gc::{HeapWriteKind, HeapWriteRecord};
 use super::header::*;
 use super::value::*;
 use crate::emacs_core::intern::{SymId, intern};
@@ -200,7 +201,7 @@ fn vector_mutation_helper_updates_elements() {
 }
 
 #[test]
-fn heap_write_tracking_records_unique_mutated_owners() {
+fn heap_write_tracking_records_unique_mutated_owners_and_slot_events() {
     crate::test_utils::init_test_tracing();
     let mut heap = super::gc::TaggedHeap::new();
     super::gc::set_tagged_heap(&mut heap);
@@ -212,6 +213,14 @@ fn heap_write_tracking_records_unique_mutated_owners() {
     cons.set_cdr(vec);
     assert_eq!(heap.dirty_owner_count(), 1);
     assert!(heap.is_dirty_owner(cons));
+    assert_eq!(heap.dirty_write_count(), 2);
+    assert_eq!(
+        heap.dirty_writes(),
+        &[
+            HeapWriteRecord::slot(cons, HeapWriteKind::ConsCar, 0, TaggedValue::fixnum(2)),
+            HeapWriteRecord::slot(cons, HeapWriteKind::ConsCdr, 1, vec),
+        ]
+    );
 
     assert!(super::mutate::set_vector_slot(
         vec,
@@ -220,6 +229,30 @@ fn heap_write_tracking_records_unique_mutated_owners() {
     ));
     assert_eq!(heap.dirty_owner_count(), 2);
     assert!(heap.is_dirty_owner(vec));
+    assert_eq!(heap.dirty_write_count(), 3);
+    assert_eq!(
+        heap.dirty_writes()[2],
+        HeapWriteRecord::slot(vec, HeapWriteKind::VectorSlot, 1, TaggedValue::fixnum(99))
+    );
+}
+
+#[test]
+fn bulk_mutation_helpers_record_bulk_write_kinds() {
+    crate::test_utils::init_test_tracing();
+    let mut heap = super::gc::TaggedHeap::new();
+    super::gc::set_tagged_heap(&mut heap);
+
+    let vec = heap.alloc_vector(vec![TaggedValue::fixnum(10), TaggedValue::fixnum(20)]);
+    let _ = super::mutate::with_vector_data_mut(vec, |items| {
+        items[1] = TaggedValue::fixnum(99);
+    });
+
+    assert_eq!(heap.dirty_owner_count(), 1);
+    assert_eq!(heap.dirty_write_count(), 1);
+    assert_eq!(
+        heap.dirty_writes(),
+        &[HeapWriteRecord::bulk(vec, HeapWriteKind::VectorBulk)]
+    );
 }
 
 #[test]
@@ -235,9 +268,11 @@ fn full_collection_clears_dirty_owner_tracking() {
         TaggedValue::fixnum(42),
     ));
     assert_eq!(heap.dirty_owner_count(), 1);
+    assert_eq!(heap.dirty_write_count(), 1);
 
     heap.collect_exact(std::iter::once(reachable));
     assert_eq!(heap.dirty_owner_count(), 0);
+    assert_eq!(heap.dirty_write_count(), 0);
 }
 
 #[test]
