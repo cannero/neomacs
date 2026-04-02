@@ -93,7 +93,7 @@ use super::timer::TimerManager;
 use super::value::*;
 use crate::buffer::{BufferManager, InsertionType};
 use crate::face::{Face as RuntimeFace, FaceTable, FontSlant, FontWeight, FontWidth};
-use crate::gc::GcTrace;
+use crate::gc_trace::GcTrace;
 use crate::tagged::header::SubrObj;
 use crate::window::FrameManager;
 
@@ -3740,7 +3740,7 @@ impl Context {
         self.buffers.trace_roots(&mut roots);
         self.threads.trace_roots(&mut roots);
         self.kmacro.trace_roots(&mut roots);
-        crate::gc::GcTrace::trace_roots(&self.command_loop, &mut roots);
+        crate::gc_trace::GcTrace::trace_roots(&self.command_loop, &mut roots);
         self.modes.trace_roots(&mut roots);
         self.frames.trace_roots(&mut roots);
         self.coding_systems.trace_roots(&mut roots);

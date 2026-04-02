@@ -10,7 +10,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use crate::emacs_core::value::{Value, equal_value};
-use crate::gc::GcTrace;
+use crate::gc_trace::GcTrace;
 
 // ---------------------------------------------------------------------------
 // PropertyInterval

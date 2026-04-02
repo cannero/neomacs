@@ -16,7 +16,7 @@
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::value::*;
-use crate::gc::GcTrace;
+use crate::gc_trace::GcTrace;
 use std::collections::HashSet;
 
 // ---------------------------------------------------------------------------

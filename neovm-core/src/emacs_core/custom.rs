@@ -7,7 +7,7 @@
 use super::error::{EvalResult, Flow, signal};
 use super::intern::{SymId, intern, resolve_sym};
 use super::value::*;
-use crate::gc::GcTrace;
+use crate::gc_trace::GcTrace;
 
 /// Rust-side registry for automatic buffer-local declarations.
 #[derive(Clone, Debug, Default)]

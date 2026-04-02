@@ -19,7 +19,7 @@
 use super::header::*;
 use super::value::TaggedValue;
 use crate::buffer::text_props::TextPropertyTable;
-use crate::gc::GcTrace;
+use crate::gc_trace::GcTrace;
 use std::alloc::{self, Layout};
 use std::cell::Cell;
 

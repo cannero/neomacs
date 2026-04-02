@@ -10,7 +10,7 @@
 use crate::buffer::BufferId;
 use crate::emacs_core::value::{HashTableTest, Value};
 use crate::face::Face as RuntimeFace;
-use crate::gc::GcTrace;
+use crate::gc_trace::GcTrace;
 use std::collections::{HashMap, HashSet};
 
 mod display;

@@ -22,7 +22,7 @@ use super::error::{
     signal_with_data,
 };
 use super::value::{Value, ValueKind, eq_value};
-use crate::gc::GcTrace;
+use crate::gc_trace::GcTrace;
 
 // ---------------------------------------------------------------------------
 // Thread state

@@ -10,7 +10,7 @@
 
 use super::intern::{SymId, intern, lookup_interned, resolve_sym};
 use super::value::{Value, ValueKind};
-use crate::gc::GcTrace;
+use crate::gc_trace::GcTrace;
 use std::collections::{HashMap, HashSet};
 
 /// Describes how a symbol's value cell is stored, matching GNU Emacs's

@@ -15,7 +15,7 @@ use super::intern::resolve_sym;
 use super::symbol::Obarray;
 use super::value::*;
 use crate::emacs_core::value::ValueKind;
-use crate::gc::GcTrace;
+use crate::gc_trace::GcTrace;
 
 // ---------------------------------------------------------------------------
 // Autoload types

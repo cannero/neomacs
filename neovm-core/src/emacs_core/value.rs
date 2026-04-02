@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::intern::{SymId, intern, resolve_sym};
 use crate::buffer::text_props::TextPropertyTable;
-use crate::gc::GcTrace;
+use crate::gc_trace::GcTrace;
 use crate::heap_types::LispString;
 use crate::tagged::gc::with_tagged_heap;
 use crate::tagged::header::{

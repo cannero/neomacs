@@ -14,7 +14,7 @@ use super::text_props::TextPropertyTable;
 use super::undo;
 use crate::emacs_core::syntax::SyntaxTable;
 use crate::emacs_core::value::{RuntimeBindingValue, Value, ValueKind};
-use crate::gc::GcTrace;
+use crate::gc_trace::GcTrace;
 use crate::tagged::gc::with_tagged_heap;
 use crate::window::WindowId;
 

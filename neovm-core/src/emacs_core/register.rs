@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::value::{Value, ValueKind, next_float_id};
-use crate::gc::GcTrace;
+use crate::gc_trace::GcTrace;
 
 // ---------------------------------------------------------------------------
 // Register content types

@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 
 use super::value::Value;
-use crate::gc::GcTrace;
+use crate::gc_trace::GcTrace;
 
 // ---------------------------------------------------------------------------
 // Font-lock

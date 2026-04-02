@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use super::intern::resolve_sym;
 use super::symbol::Obarray;
 use super::value::{Value, ValueKind, VecLikeType};
-use crate::gc::GcTrace;
+use crate::gc_trace::GcTrace;
 
 // ---------------------------------------------------------------------------
 // Variable watcher system

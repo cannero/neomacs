@@ -992,7 +992,7 @@ impl Default for KBoard {
     }
 }
 
-impl crate::gc::GcTrace for KBoard {
+impl crate::gc_trace::GcTrace for KBoard {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
         if let Some(event) = self.unread_selection_event {
             roots.push(event);
@@ -1347,7 +1347,7 @@ impl Default for KeyboardRuntime {
     }
 }
 
-impl crate::gc::GcTrace for KeyboardRuntime {
+impl crate::gc_trace::GcTrace for KeyboardRuntime {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
         self.kboard.trace_roots(roots);
         for kboard in self.parked_kboards.values() {
@@ -1518,7 +1518,7 @@ impl Default for CommandLoop {
     }
 }
 
-impl crate::gc::GcTrace for CommandLoop {
+impl crate::gc_trace::GcTrace for CommandLoop {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
         self.keyboard.trace_roots(roots);
     }

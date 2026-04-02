@@ -1,0 +1,11 @@
+use crate::emacs_core::value::Value;
+
+/// Trait for types that hold GC-managed `Value` references.
+///
+/// Each runtime subsystem implements this to enumerate all `Value`s it holds,
+/// so the collector can discover every live object reachable from explicit
+/// runtime roots.
+pub trait GcTrace {
+    /// Push all `Value` references held by `self` into `roots`.
+    fn trace_roots(&self, roots: &mut Vec<Value>);
+}

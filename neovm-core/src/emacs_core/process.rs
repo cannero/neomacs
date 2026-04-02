@@ -40,7 +40,7 @@ use super::value::{
     StringTextPropertyRun, Value, ValueKind, VecLikeType, list_to_vec, next_float_id,
 };
 use crate::buffer::BufferManager;
-use crate::gc::GcTrace;
+use crate::gc_trace::GcTrace;
 use crate::window::FrameManager;
 
 // ---------------------------------------------------------------------------

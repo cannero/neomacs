@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use super::error::{EvalResult, Flow, signal};
 use super::value::{Value, ValueKind, VecLikeType};
-use crate::gc::GcTrace;
+use crate::gc_trace::GcTrace;
 
 // ---------------------------------------------------------------------------
 // Timer types

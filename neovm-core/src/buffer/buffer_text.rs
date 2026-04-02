@@ -12,7 +12,7 @@ use std::fmt;
 use std::rc::Rc;
 
 use crate::emacs_core::value::Value;
-use crate::gc::GcTrace;
+use crate::gc_trace::GcTrace;
 
 use super::buffer::{BufferId, InsertionType, MarkerEntry};
 use super::gap_buffer::GapBuffer;
