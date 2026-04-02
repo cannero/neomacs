@@ -232,7 +232,7 @@ impl TaggedHeap {
             gc_threshold: 8192,
             gray_queue: Vec::new(),
             stack_bottom: std::ptr::null(),
-            root_scan_mode: RootScanMode::ConservativeStack,
+            root_scan_mode: RootScanMode::ExactOnly,
             marker_ptrs: Vec::new(),
         }
     }

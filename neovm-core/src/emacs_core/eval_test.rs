@@ -7334,7 +7334,7 @@ fn gc_collect_exact_retains_reachable() {
     let mut ev = Context::new();
     assert_eq!(
         ev.gc_root_scan_mode(),
-        crate::tagged::gc::RootScanMode::ConservativeStack
+        crate::tagged::gc::RootScanMode::ExactOnly
     );
 
     let forms = crate::emacs_core::parse_forms("(setq x (cons 11 22))").unwrap();
