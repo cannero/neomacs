@@ -27,7 +27,7 @@ use crate::emacs_core::intern;
 use crate::emacs_core::value;
 
 const MAGIC: &[u8; 8] = b"NEOPDUMP";
-const FORMAT_VERSION: u32 = 4;
+const FORMAT_VERSION: u32 = 5;
 
 /// Errors from dump/load operations.
 #[derive(Debug)]
@@ -169,11 +169,11 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
     // refer to SymIds are loaded.
     load_interner(&state.interner);
 
-    // 2. Reconstruct heap (phase 1: all objects except hash table entries)
-    let mut heap = Box::new(load_heap(&state.heap)?);
-
-    // 2b. Phase 2: populate hash table entries (requires CURRENT_HEAP for HashKey::Str hashing)
-    load_heap_hash_tables(&mut heap, &state.heap);
+    // 2. Reconstruct the tagged heap before any value/object loads so ObjIds
+    // can resolve directly to live tagged objects.
+    let mut tagged_heap = Box::new(crate::tagged::gc::TaggedHeap::new());
+    crate::tagged::gc::set_tagged_heap(&mut tagged_heap);
+    preload_tagged_heap(&state.heap)?;
 
     // 3. Reset thread-local caches (same as Context::new())
     super::syntax::reset_syntax_thread_locals();
@@ -186,14 +186,6 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
     super::font::clear_font_cache_state();
     super::builtins::reset_builtins_thread_locals();
     super::timefns::reset_timefns_thread_locals();
-
-    // 4. Restore string text properties
-    let stp: Vec<(u64, crate::buffer::text_props::TextPropertyTable)> = state
-        .string_text_props
-        .iter()
-        .map(|(key, runs)| (*key, load_text_property_table(runs)))
-        .collect();
-    value::restore_string_text_props(stp);
 
     // 4b. Restore thread-local registries whose contents are semantic runtime
     // state, not disposable caches.
@@ -211,6 +203,7 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
         .collect();
 
     let eval = Context::from_dump(
+        tagged_heap,
         obarray,
         lexenv,
         features,
@@ -232,6 +225,8 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
         load_bookmark_manager(&state.bookmarks),
         load_watcher_list(&state.watchers),
     );
+
+    finish_preload_tagged_heap();
 
     Ok(eval)
 }

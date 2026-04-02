@@ -64,33 +64,40 @@ impl Default for DumpValue {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum DumpHeapObject {
-    Cons { car: DumpValue, cdr: DumpValue },
+    Cons {
+        car: DumpValue,
+        cdr: DumpValue,
+    },
     Vector(Vec<DumpValue>),
     HashTable(DumpLispHashTable),
-    Str { text: String, multibyte: bool },
-    Lambda(DumpLambdaData),
-    Macro(DumpLambdaData),
+    Str {
+        text: String,
+        multibyte: bool,
+        #[serde(default)]
+        text_props: Vec<DumpStringTextPropertyRun>,
+    },
+    Float(f64),
+    Lambda(Vec<DumpValue>),
+    Macro(Vec<DumpValue>),
     ByteCode(DumpByteCodeFunction),
+    Record(Vec<DumpValue>),
     Marker(DumpMarker),
     Overlay(DumpOverlay),
+    Buffer(DumpBufferId),
+    Window(u64),
+    Frame(u64),
+    Timer(u64),
+    Subr {
+        name: DumpSymId,
+        min_args: u16,
+        max_args: Option<u16>,
+    },
     Free,
 }
 
 // ---------------------------------------------------------------------------
 // Lambda / ByteCode
 // ---------------------------------------------------------------------------
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct DumpLambdaData {
-    pub params: DumpLambdaParams,
-    pub body: Vec<DumpExpr>,
-    pub env: Option<DumpValue>,
-    pub docstring: Option<String>,
-    pub doc_form: Option<DumpValue>,
-    /// Interactive spec (mirrors GNU closure vector slot 5).
-    #[serde(default)]
-    pub interactive: Option<DumpValue>,
-}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpLambdaParams {

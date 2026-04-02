@@ -1,5 +1,6 @@
 //! Conversions between runtime types and pdump snapshot types.
 
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -46,12 +47,99 @@ use crate::emacs_core::value::{
     OrderedRuntimeBindingMap, OrderedSymMap, RuntimeBindingValue, StringTextPropertyRun, Value,
 };
 use crate::emacs_core::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{
+    get_string_text_properties_for_value, set_string_text_properties_for_value,
+};
 use crate::face::{
     BoxBorder, BoxStyle, Color, Face, FaceHeight, FaceTable, FontSlant, FontWeight, FontWidth,
     Underline, UnderlineStyle,
 };
-use crate::gc::heap::LispHeap;
-use crate::gc::types::{HeapObject, ObjId};
+use crate::gc::types::LispString;
+use crate::tagged::gc::with_tagged_heap;
+use crate::tagged::header::{
+    BufferObj, ByteCodeObj, CLOSURE_MIN_SLOTS, FloatObj, FrameObj, HashTableObj, LambdaObj,
+    MacroObj, MarkerObj, OverlayObj, RecordObj, StringObj, SubrObj, TimerObj, VectorObj, WindowObj,
+};
+use crate::tagged::value::TaggedValue;
+
+thread_local! {
+    static PDUMP_DUMP_STATE: Cell<*mut TaggedDumpState> = const { Cell::new(std::ptr::null_mut()) };
+    static PDUMP_LOAD_STATE: Cell<*mut TaggedLoadState> = const { Cell::new(std::ptr::null_mut()) };
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct TaggedObjId {
+    index: u32,
+}
+
+struct TaggedDumpState {
+    objects: Vec<Option<DumpHeapObject>>,
+    object_ids: HashMap<usize, TaggedObjId>,
+    float_ids: HashMap<usize, u32>,
+    next_float_id: u32,
+}
+
+impl TaggedDumpState {
+    fn new() -> Self {
+        Self {
+            objects: Vec::new(),
+            object_ids: HashMap::new(),
+            float_ids: HashMap::new(),
+            next_float_id: 1,
+        }
+    }
+
+    fn finalize(self) -> DumpLispHeap {
+        let object_count = self.objects.len();
+        DumpLispHeap {
+            objects: self
+                .objects
+                .into_iter()
+                .map(|obj| obj.unwrap_or(DumpHeapObject::Free))
+                .collect(),
+            generations: vec![0; object_count],
+            free_list: Vec::new(),
+        }
+    }
+}
+
+struct TaggedLoadState {
+    objects: Vec<DumpHeapObject>,
+    values: Vec<Option<Value>>,
+    populated: Vec<bool>,
+    buffers: HashMap<u64, Value>,
+    windows: HashMap<u64, Value>,
+    frames: HashMap<u64, Value>,
+    timers: HashMap<u64, Value>,
+    floats: HashMap<u32, Value>,
+}
+
+impl TaggedLoadState {
+    fn new(heap: &DumpLispHeap) -> Self {
+        let len = heap.objects.len();
+        Self {
+            objects: heap.objects.clone(),
+            values: vec![None; len],
+            populated: vec![false; len],
+            buffers: HashMap::new(),
+            windows: HashMap::new(),
+            frames: HashMap::new(),
+            timers: HashMap::new(),
+            floats: HashMap::new(),
+        }
+    }
+}
+
+fn dump_obj_id(id: TaggedObjId) -> DumpObjId {
+    DumpObjId {
+        index: id.index,
+        generation: 0,
+    }
+}
+
+fn tagged_obj_id(id: &DumpObjId) -> TaggedObjId {
+    TaggedObjId { index: id.index }
+}
 
 // ===========================================================================
 // Dump direction: Runtime → Dump
@@ -59,30 +147,70 @@ use crate::gc::types::{HeapObject, ObjId};
 
 // --- Primitives ---
 
-pub(crate) fn dump_obj_id(id: ObjId) -> DumpObjId {
-    DumpObjId {
-        index: id.index,
-        generation: id.generation,
-    }
-}
-
 pub(crate) fn dump_sym_id(id: SymId) -> DumpSymId {
     DumpSymId(id.0)
 }
 
-/// TODO(tagged): tagged pointer -> ObjId reverse lookup.
-/// In the tagged-pointer world Values no longer carry an ObjId; a proper
-/// reverse-mapping from heap pointer -> index is needed before pdump can
-/// work end-to-end.  For now this panics at runtime but lets the module compile.
-fn value_to_obj_id(_v: &Value) -> ObjId {
-    todo!("pdump: tagged pointer -> ObjId reverse lookup not yet implemented")
+fn with_dump_state<R>(f: impl FnOnce(&mut TaggedDumpState) -> R) -> R {
+    PDUMP_DUMP_STATE.with(|state| {
+        let ptr = state.get();
+        assert!(!ptr.is_null(), "pdump dump state should be initialized");
+        unsafe { f(&mut *ptr) }
+    })
 }
 
-/// TODO(tagged): ObjId -> tagged pointer Value.
-/// Loads a heap-allocated DumpValue back into a live tagged Value.  Requires
-/// the legacy LispHeap to be populated first.
-fn obj_id_to_value(_id: ObjId) -> Value {
-    todo!("pdump: ObjId -> tagged pointer Value not yet implemented")
+fn with_load_state<R>(f: impl FnOnce(&mut TaggedLoadState) -> R) -> R {
+    PDUMP_LOAD_STATE.with(|state| {
+        let ptr = state.get();
+        assert!(!ptr.is_null(), "pdump load state should be initialized");
+        unsafe { f(&mut *ptr) }
+    })
+}
+
+fn value_to_obj_id(v: &Value) -> TaggedObjId {
+    debug_assert!(v.is_heap_object());
+    let bits = v.bits();
+    with_dump_state(|state| {
+        if let Some(id) = state.object_ids.get(&bits).copied() {
+            return id;
+        }
+
+        let id = TaggedObjId {
+            index: state.objects.len() as u32,
+        };
+        state.object_ids.insert(bits, id);
+        state.objects.push(None);
+        let dumped = dump_heap_object_from_value(*v);
+        state.objects[id.index as usize] = Some(dumped);
+        id
+    })
+}
+
+fn obj_id_to_value(id: TaggedObjId) -> Value {
+    with_load_state(|state| load_tagged_object(state, id))
+}
+
+fn dump_float_id(v: &Value) -> u32 {
+    debug_assert!(v.is_float());
+    let bits = v.bits();
+    with_dump_state(|state| {
+        if let Some(id) = state.float_ids.get(&bits).copied() {
+            return id;
+        }
+        let id = state.next_float_id;
+        state.next_float_id += 1;
+        state.float_ids.insert(bits, id);
+        id
+    })
+}
+
+fn load_float_value(id: u32, value: f64) -> Value {
+    with_load_state(|state| {
+        *state
+            .floats
+            .entry(id)
+            .or_insert_with(|| Value::make_float(value))
+    })
 }
 
 pub(crate) fn dump_value(v: &Value) -> DumpValue {
@@ -90,7 +218,7 @@ pub(crate) fn dump_value(v: &Value) -> DumpValue {
         ValueKind::Nil => DumpValue::Nil,
         ValueKind::T => DumpValue::True,
         ValueKind::Fixnum(n) => DumpValue::Int(n),
-        ValueKind::Float => DumpValue::Float(v.xfloat(), 0),
+        ValueKind::Float => DumpValue::Float(v.xfloat(), dump_float_id(v)),
         ValueKind::Symbol(s) => DumpValue::Symbol(dump_sym_id(s)),
         ValueKind::String => DumpValue::Str(dump_obj_id(value_to_obj_id(v))),
         ValueKind::Cons => DumpValue::Cons(dump_obj_id(value_to_obj_id(v))),
@@ -262,17 +390,6 @@ pub(crate) fn dump_lambda_params(p: &LambdaParams) -> DumpLambdaParams {
     }
 }
 
-pub(crate) fn dump_lambda_data(d: &LambdaData) -> DumpLambdaData {
-    DumpLambdaData {
-        params: dump_lambda_params(&d.params),
-        body: d.body.iter().map(dump_expr).collect(),
-        env: dump_opt_value(&d.env),
-        docstring: d.docstring.clone(),
-        doc_form: dump_opt_value(&d.doc_form),
-        interactive: dump_opt_value(&d.interactive),
-    }
-}
-
 pub(crate) fn dump_bytecode(bc: &ByteCodeFunction) -> DumpByteCodeFunction {
     DumpByteCodeFunction {
         ops: bc.ops.iter().map(dump_op).collect(),
@@ -306,7 +423,15 @@ pub(crate) fn dump_hash_key(k: &HashKey) -> DumpHashKey {
         HashKey::Char(c) => DumpHashKey::Char(*c),
         HashKey::Window(w) => DumpHashKey::Window(*w),
         HashKey::Frame(f) => DumpHashKey::Frame(*f),
-        HashKey::Ptr(p) => DumpHashKey::Ptr(*p as u64),
+        HashKey::Ptr(p) => {
+            let value = TaggedValue(*p);
+            if value.is_heap_object() {
+                let id = value_to_obj_id(&value);
+                DumpHashKey::ObjId(id.index, 0)
+            } else {
+                DumpHashKey::Ptr(*p as u64)
+            }
+        }
         HashKey::EqualCons(a, b) => {
             DumpHashKey::EqualCons(Box::new(dump_hash_key(a)), Box::new(dump_hash_key(b)))
         }
@@ -357,43 +482,90 @@ pub(crate) fn dump_hash_table(ht: &LispHashTable) -> DumpLispHashTable {
 
 // --- Heap objects ---
 
-pub(crate) fn dump_heap_object(obj: &HeapObject) -> DumpHeapObject {
-    match obj {
-        HeapObject::Cons { car, cdr } => DumpHeapObject::Cons {
-            car: dump_value(car),
-            cdr: dump_value(cdr),
-        },
-        HeapObject::Vector(items) => DumpHeapObject::Vector(items.iter().map(dump_value).collect()),
-        HeapObject::HashTable(ht) => DumpHeapObject::HashTable(dump_hash_table(ht)),
-        HeapObject::Str(s) => DumpHeapObject::Str {
-            text: s.as_str().to_owned(),
-            multibyte: s.multibyte,
-        },
-        HeapObject::Lambda(d) => DumpHeapObject::Lambda(dump_lambda_data(d)),
-        HeapObject::Macro(d) => DumpHeapObject::Macro(dump_lambda_data(d)),
-        HeapObject::ByteCode(bc) => DumpHeapObject::ByteCode(dump_bytecode(bc)),
-        HeapObject::Marker(marker) => DumpHeapObject::Marker(dump_marker_object(marker)),
-        HeapObject::Overlay(overlay) => DumpHeapObject::Overlay(dump_overlay(overlay)),
-        HeapObject::Free => DumpHeapObject::Free,
-    }
+fn dump_closure_slots(value: Value) -> Vec<DumpValue> {
+    value
+        .closure_slots()
+        .map(|slots| slots.iter().map(dump_value).collect())
+        .unwrap_or_default()
 }
 
-// --- Heap ---
-
-pub(crate) fn dump_heap(heap: &LispHeap) -> DumpLispHeap {
-    DumpLispHeap {
-        objects: heap.objects().iter().map(dump_heap_object).collect(),
-        generations: heap.generations().to_vec(),
-        free_list: heap.free_list().to_vec(),
-    }
-}
-
-/// Create an empty heap dump (old heap no longer used).
-pub(crate) fn dump_heap_empty() -> DumpLispHeap {
-    DumpLispHeap {
-        objects: Vec::new(),
-        generations: Vec::new(),
-        free_list: Vec::new(),
+fn dump_heap_object_from_value(value: Value) -> DumpHeapObject {
+    match value.kind() {
+        ValueKind::Cons => DumpHeapObject::Cons {
+            car: dump_value(&value.cons_car()),
+            cdr: dump_value(&value.cons_cdr()),
+        },
+        ValueKind::String => {
+            let string = value.as_lisp_string().expect("string");
+            DumpHeapObject::Str {
+                text: string.as_str().to_owned(),
+                multibyte: string.multibyte,
+                text_props: get_string_text_properties_for_value(value)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|run| DumpStringTextPropertyRun {
+                        start: run.start,
+                        end: run.end,
+                        plist: dump_value(&run.plist),
+                    })
+                    .collect(),
+            }
+        }
+        ValueKind::Float => DumpHeapObject::Float(value.xfloat()),
+        ValueKind::Veclike(VecLikeType::Vector) => DumpHeapObject::Vector(
+            value
+                .as_vector_data()
+                .expect("vector")
+                .iter()
+                .map(dump_value)
+                .collect(),
+        ),
+        ValueKind::Veclike(VecLikeType::HashTable) => {
+            DumpHeapObject::HashTable(dump_hash_table(value.as_hash_table().expect("hash-table")))
+        }
+        ValueKind::Veclike(VecLikeType::Lambda) => {
+            DumpHeapObject::Lambda(dump_closure_slots(value))
+        }
+        ValueKind::Veclike(VecLikeType::Macro) => DumpHeapObject::Macro(dump_closure_slots(value)),
+        ValueKind::Veclike(VecLikeType::ByteCode) => {
+            DumpHeapObject::ByteCode(dump_bytecode(value.get_bytecode_data().expect("bytecode")))
+        }
+        ValueKind::Veclike(VecLikeType::Record) => DumpHeapObject::Record(
+            value
+                .as_record_data()
+                .expect("record")
+                .iter()
+                .map(dump_value)
+                .collect(),
+        ),
+        ValueKind::Veclike(VecLikeType::Overlay) => {
+            DumpHeapObject::Overlay(dump_overlay(value.as_overlay_data().expect("overlay")))
+        }
+        ValueKind::Veclike(VecLikeType::Marker) => {
+            DumpHeapObject::Marker(dump_marker_object(value.as_marker_data().expect("marker")))
+        }
+        ValueKind::Veclike(VecLikeType::Buffer) => {
+            DumpHeapObject::Buffer(DumpBufferId(value.as_buffer_id().expect("buffer").0))
+        }
+        ValueKind::Veclike(VecLikeType::Window) => {
+            DumpHeapObject::Window(value.as_window_id().expect("window"))
+        }
+        ValueKind::Veclike(VecLikeType::Frame) => {
+            DumpHeapObject::Frame(value.as_frame_id().expect("frame"))
+        }
+        ValueKind::Veclike(VecLikeType::Timer) => {
+            DumpHeapObject::Timer(value.as_timer_id().expect("timer"))
+        }
+        ValueKind::Veclike(VecLikeType::Subr) => {
+            let ptr = value.as_veclike_ptr().expect("subr") as *const SubrObj;
+            let subr = unsafe { &*ptr };
+            DumpHeapObject::Subr {
+                name: dump_sym_id(subr.name),
+                min_args: subr.min_args,
+                max_args: subr.max_args,
+            }
+        }
+        _ => DumpHeapObject::Free,
     }
 }
 
@@ -1299,10 +1471,16 @@ fn dump_string_text_property_table(table: &TextPropertyTable) -> Vec<DumpPropert
 // --- Top-level dump ---
 
 pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
-    let string_text_props = crate::emacs_core::value::snapshot_string_text_props();
-    DumpContextState {
+    let mut dump_state = TaggedDumpState::new();
+    PDUMP_DUMP_STATE.with(|state| state.set(&mut dump_state));
+
+    let dump = DumpContextState {
         interner: dump_interner(),
-        heap: dump_heap_empty(),
+        heap: DumpLispHeap {
+            objects: Vec::new(),
+            generations: Vec::new(),
+            free_list: Vec::new(),
+        },
         obarray: dump_obarray(&eval.obarray),
         dynamic: Vec::new(),
         lexenv: dump_value(&eval.lexenv),
@@ -1326,11 +1504,13 @@ pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
         registers: dump_register_manager(&eval.registers),
         bookmarks: dump_bookmark_manager(&eval.bookmarks),
         watchers: dump_watcher_list(&eval.watchers),
-        string_text_props: string_text_props
-            .into_iter()
-            .map(|(key, table)| (key, dump_string_text_property_table(&table)))
-            .collect(),
-    }
+        string_text_props: Vec::new(),
+    };
+
+    PDUMP_DUMP_STATE.with(|state| state.set(std::ptr::null_mut()));
+    let heap = dump_state.finalize();
+
+    DumpContextState { heap, ..dump }
 }
 
 // ===========================================================================
@@ -1339,15 +1519,245 @@ pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
 
 // --- Primitives ---
 
-pub(crate) fn load_obj_id(id: &DumpObjId) -> ObjId {
-    ObjId {
-        index: id.index,
-        generation: id.generation,
-    }
-}
-
 pub(crate) fn load_sym_id(id: &DumpSymId) -> SymId {
     SymId(id.0)
+}
+
+fn load_cached_buffer(id: u64) -> Value {
+    with_load_state(|state| {
+        *state
+            .buffers
+            .entry(id)
+            .or_insert_with(|| Value::make_buffer(BufferId(id)))
+    })
+}
+
+fn load_cached_window(id: u64) -> Value {
+    with_load_state(|state| {
+        *state
+            .windows
+            .entry(id)
+            .or_insert_with(|| Value::make_window(id))
+    })
+}
+
+fn load_cached_frame(id: u64) -> Value {
+    with_load_state(|state| {
+        *state
+            .frames
+            .entry(id)
+            .or_insert_with(|| Value::make_frame(id))
+    })
+}
+
+fn load_cached_timer(id: u64) -> Value {
+    with_load_state(|state| {
+        *state
+            .timers
+            .entry(id)
+            .or_insert_with(|| Value::make_timer(id))
+    })
+}
+
+fn allocate_tagged_placeholder(
+    state: &mut TaggedLoadState,
+    id: TaggedObjId,
+) -> Result<Value, DumpError> {
+    if let Some(value) = state.values[id.index as usize] {
+        return Ok(value);
+    }
+    let value = match &state.objects[id.index as usize] {
+        DumpHeapObject::Cons { .. } => Value::cons(Value::NIL, Value::NIL),
+        DumpHeapObject::Vector(items) => Value::make_vector(vec![Value::NIL; items.len()]),
+        DumpHeapObject::HashTable(ht) => with_tagged_heap(|heap| {
+            heap.alloc_hash_table(LispHashTable::new_with_options(
+                load_hash_table_test(&ht.test),
+                ht.size,
+                ht.weakness.as_ref().map(load_hash_table_weakness),
+                ht.rehash_size,
+                ht.rehash_threshold,
+            ))
+        }),
+        DumpHeapObject::Str {
+            text, multibyte, ..
+        } => Value::heap_string(LispString::new(text.clone(), *multibyte)),
+        DumpHeapObject::Float(value) => Value::make_float(*value),
+        DumpHeapObject::Lambda(slots) => with_tagged_heap(|heap| {
+            heap.alloc_lambda(vec![Value::NIL; slots.len().max(CLOSURE_MIN_SLOTS)])
+        }),
+        DumpHeapObject::Macro(slots) => with_tagged_heap(|heap| {
+            heap.alloc_macro(vec![Value::NIL; slots.len().max(CLOSURE_MIN_SLOTS)])
+        }),
+        DumpHeapObject::ByteCode(_) => Value::make_bytecode(ByteCodeFunction {
+            ops: Vec::new(),
+            constants: Vec::new(),
+            max_stack: 0,
+            params: LambdaParams::simple(Vec::new()),
+            lexical: false,
+            env: None,
+            gnu_byte_offset_map: None,
+            docstring: None,
+            doc_form: None,
+            interactive: None,
+        }),
+        DumpHeapObject::Record(items) => Value::make_record(vec![Value::NIL; items.len()]),
+        DumpHeapObject::Marker(marker) => Value::make_marker(crate::gc::types::MarkerData {
+            buffer: marker.buffer.map(|id| BufferId(id.0)),
+            position: marker.position,
+            insertion_type: marker.insertion_type,
+            marker_id: marker.marker_id,
+        }),
+        DumpHeapObject::Overlay(overlay) => Value::make_overlay(crate::gc::types::OverlayData {
+            plist: Value::NIL,
+            buffer: overlay.buffer.map(|id| BufferId(id.0)),
+            start: overlay.start,
+            end: overlay.end,
+            front_advance: overlay.front_advance,
+            rear_advance: overlay.rear_advance,
+        }),
+        DumpHeapObject::Buffer(id) => load_cached_buffer(id.0),
+        DumpHeapObject::Window(id) => load_cached_window(*id),
+        DumpHeapObject::Frame(id) => load_cached_frame(*id),
+        DumpHeapObject::Timer(id) => load_cached_timer(*id),
+        DumpHeapObject::Subr { name, .. } => Value::subr(load_sym_id(name)),
+        DumpHeapObject::Free => Value::NIL,
+    };
+    state.values[id.index as usize] = Some(value);
+    Ok(value)
+}
+
+fn populate_tagged_object(state: &mut TaggedLoadState, id: TaggedObjId) -> Result<(), DumpError> {
+    if state.populated[id.index as usize] {
+        return Ok(());
+    }
+
+    let value = allocate_tagged_placeholder(state, id)?;
+    state.populated[id.index as usize] = true;
+    match state.objects[id.index as usize].clone() {
+        DumpHeapObject::Cons { car, cdr } => {
+            value.set_car(load_value(&car));
+            value.set_cdr(load_value(&cdr));
+        }
+        DumpHeapObject::Vector(items) => {
+            if let Some(data) = value.as_vector_data_mut() {
+                data.clear();
+                data.extend(items.iter().map(load_value));
+            }
+        }
+        DumpHeapObject::HashTable(ht) => {
+            if let Some(table) = value.as_hash_table_mut() {
+                table.test = load_hash_table_test(&ht.test);
+                table.test_name = ht.test_name.map(|s| load_sym_id(&s));
+                table.size = ht.size;
+                table.weakness = ht.weakness.as_ref().map(load_hash_table_weakness);
+                table.rehash_size = ht.rehash_size;
+                table.rehash_threshold = ht.rehash_threshold;
+                table.data = ht
+                    .entries
+                    .iter()
+                    .map(|(k, v)| (load_hash_key(k), load_value(v)))
+                    .collect();
+                table.key_snapshots = ht
+                    .key_snapshots
+                    .iter()
+                    .map(|(k, v)| (load_hash_key(k), load_value(v)))
+                    .collect();
+                table.insertion_order = ht.insertion_order.iter().map(load_hash_key).collect();
+            }
+        }
+        DumpHeapObject::Str { text_props, .. } => {
+            if !text_props.is_empty() {
+                let runs = text_props
+                    .iter()
+                    .map(|run| StringTextPropertyRun {
+                        start: run.start,
+                        end: run.end,
+                        plist: load_value(&run.plist),
+                    })
+                    .collect();
+                set_string_text_properties_for_value(value, runs);
+            }
+        }
+        DumpHeapObject::Float(_) => {}
+        DumpHeapObject::Lambda(slots) | DumpHeapObject::Macro(slots) => {
+            if let Some(data) = value.closure_slots_mut() {
+                data.clear();
+                data.extend(slots.iter().map(load_value));
+            }
+        }
+        DumpHeapObject::ByteCode(bc) => {
+            if let Some(data) = value.get_bytecode_data_mut() {
+                *data = load_bytecode(&bc)?;
+            }
+        }
+        DumpHeapObject::Record(items) => {
+            if let Some(data) = value.as_record_data_mut() {
+                data.clear();
+                data.extend(items.iter().map(load_value));
+            }
+        }
+        DumpHeapObject::Marker(marker) => {
+            if let Some(data) = value.as_marker_data_mut() {
+                data.buffer = marker.buffer.map(|id| BufferId(id.0));
+                data.position = marker.position;
+                data.insertion_type = marker.insertion_type;
+                data.marker_id = marker.marker_id;
+            }
+        }
+        DumpHeapObject::Overlay(overlay) => {
+            if let Some(data) = value.as_overlay_data_mut() {
+                data.plist = load_value(&overlay.plist);
+                data.buffer = overlay.buffer.map(|id| BufferId(id.0));
+                data.start = overlay.start;
+                data.end = overlay.end;
+                data.front_advance = overlay.front_advance;
+                data.rear_advance = overlay.rear_advance;
+            }
+        }
+        DumpHeapObject::Buffer(_)
+        | DumpHeapObject::Window(_)
+        | DumpHeapObject::Frame(_)
+        | DumpHeapObject::Timer(_)
+        | DumpHeapObject::Subr { .. }
+        | DumpHeapObject::Free => {}
+    }
+    Ok(())
+}
+
+fn load_tagged_object(state: &mut TaggedLoadState, id: TaggedObjId) -> Value {
+    allocate_tagged_placeholder(state, id).expect("pdump placeholder allocation should succeed");
+    populate_tagged_object(state, id).expect("pdump object population should succeed");
+    state.values[id.index as usize].expect("pdump object should exist")
+}
+
+pub(crate) fn preload_tagged_heap(heap: &DumpLispHeap) -> Result<(), DumpError> {
+    let mut load_state = Box::new(TaggedLoadState::new(heap));
+    let ptr: *mut TaggedLoadState = &mut *load_state;
+    PDUMP_LOAD_STATE.with(|state| state.set(ptr));
+    for index in 0..load_state.objects.len() {
+        if let Err(err) = populate_tagged_object(
+            &mut load_state,
+            TaggedObjId {
+                index: index as u32,
+            },
+        ) {
+            PDUMP_LOAD_STATE.with(|state| state.set(std::ptr::null_mut()));
+            return Err(err);
+        }
+    }
+    std::mem::forget(load_state);
+    Ok(())
+}
+
+pub(crate) fn finish_preload_tagged_heap() {
+    PDUMP_LOAD_STATE.with(|state| {
+        let ptr = state.replace(std::ptr::null_mut());
+        if !ptr.is_null() {
+            unsafe {
+                drop(Box::from_raw(ptr));
+            }
+        }
+    });
 }
 
 pub(crate) fn load_value(v: &DumpValue) -> Value {
@@ -1355,26 +1765,25 @@ pub(crate) fn load_value(v: &DumpValue) -> Value {
         DumpValue::Nil => Value::NIL,
         DumpValue::True => Value::T,
         DumpValue::Int(n) => Value::fixnum(*n),
-        DumpValue::Float(f, _id) => Value::make_float(*f),
+        DumpValue::Float(f, id) => load_float_value(*id, *f),
         DumpValue::Symbol(s) => Value::symbol(load_sym_id(s)),
         DumpValue::Keyword(s) => Value::keyword_id(load_sym_id(s)),
-        // TODO(tagged): ObjId -> tagged pointer conversion needed for heap-allocated types
-        DumpValue::Str(id) => obj_id_to_value(load_obj_id(id)),
-        DumpValue::Cons(id) => obj_id_to_value(load_obj_id(id)),
-        DumpValue::Vector(id) => obj_id_to_value(load_obj_id(id)),
-        DumpValue::Record(id) => obj_id_to_value(load_obj_id(id)),
-        DumpValue::HashTable(id) => obj_id_to_value(load_obj_id(id)),
-        DumpValue::Lambda(id) => obj_id_to_value(load_obj_id(id)),
-        DumpValue::Macro(id) => obj_id_to_value(load_obj_id(id)),
+        DumpValue::Str(id) => obj_id_to_value(tagged_obj_id(id)),
+        DumpValue::Cons(id) => obj_id_to_value(tagged_obj_id(id)),
+        DumpValue::Vector(id) => obj_id_to_value(tagged_obj_id(id)),
+        DumpValue::Record(id) => obj_id_to_value(tagged_obj_id(id)),
+        DumpValue::HashTable(id) => obj_id_to_value(tagged_obj_id(id)),
+        DumpValue::Lambda(id) => obj_id_to_value(tagged_obj_id(id)),
+        DumpValue::Macro(id) => obj_id_to_value(tagged_obj_id(id)),
         DumpValue::Char(c) => Value::char(*c),
         DumpValue::Subr(s) => Value::subr(load_sym_id(s)),
-        DumpValue::ByteCode(id) => obj_id_to_value(load_obj_id(id)),
-        DumpValue::Marker(id) => obj_id_to_value(load_obj_id(id)),
-        DumpValue::Overlay(id) => obj_id_to_value(load_obj_id(id)),
-        DumpValue::Buffer(bid) => Value::make_buffer(BufferId(bid.0)),
-        DumpValue::Window(w) => Value::make_window(*w),
-        DumpValue::Frame(f) => Value::make_frame(*f),
-        DumpValue::Timer(t) => Value::make_timer(*t),
+        DumpValue::ByteCode(id) => obj_id_to_value(tagged_obj_id(id)),
+        DumpValue::Marker(id) => obj_id_to_value(tagged_obj_id(id)),
+        DumpValue::Overlay(id) => obj_id_to_value(tagged_obj_id(id)),
+        DumpValue::Buffer(bid) => load_cached_buffer(bid.0),
+        DumpValue::Window(w) => load_cached_window(*w),
+        DumpValue::Frame(f) => load_cached_frame(*f),
+        DumpValue::Timer(t) => load_cached_timer(*t),
     }
 }
 
@@ -1518,17 +1927,6 @@ pub(crate) fn load_lambda_params(p: &DumpLambdaParams) -> LambdaParams {
     }
 }
 
-pub(crate) fn load_lambda_data(d: &DumpLambdaData) -> LambdaData {
-    LambdaData {
-        params: load_lambda_params(&d.params),
-        body: Rc::new(d.body.iter().map(load_expr).collect()),
-        env: load_opt_value(&d.env),
-        docstring: d.docstring.clone(),
-        doc_form: load_opt_value(&d.doc_form),
-        interactive: load_opt_value(&d.interactive),
-    }
-}
-
 pub(crate) fn load_bytecode(bc: &DumpByteCodeFunction) -> Result<ByteCodeFunction, DumpError> {
     Ok(ByteCodeFunction {
         ops: bc.ops.iter().map(load_op).collect::<Result<Vec<_>, _>>()?,
@@ -1560,17 +1958,14 @@ pub(crate) fn load_hash_key(k: &DumpHashKey) -> HashKey {
         DumpHashKey::FloatEq(bits, id) => HashKey::FloatEq(*bits, *id),
         DumpHashKey::Symbol(s) => HashKey::Symbol(load_sym_id(s)),
         DumpHashKey::Keyword(s) => HashKey::Keyword(load_sym_id(s)),
-        // TODO(tagged): legacy DumpHashKey::Str carried an ObjId; need heap access
-        // to resolve the string content.  Map to Ptr as a placeholder.
-        DumpHashKey::Str(id) => {
-            HashKey::Ptr(((id.index as usize) << 32) | (id.generation as usize))
-        }
+        DumpHashKey::Str(id) => HashKey::Ptr(obj_id_to_value(tagged_obj_id(id)).bits()),
         DumpHashKey::Char(c) => HashKey::Char(*c),
         DumpHashKey::Window(w) => HashKey::Window(*w),
         DumpHashKey::Frame(f) => HashKey::Frame(*f),
         DumpHashKey::Ptr(p) => HashKey::Ptr(*p as usize),
-        // TODO(tagged): legacy DumpHashKey::ObjId no longer exists in HashKey.
-        DumpHashKey::ObjId(a, b) => HashKey::Ptr(((*a as usize) << 32) | (*b as usize)),
+        DumpHashKey::ObjId(a, _b) => {
+            HashKey::Ptr(obj_id_to_value(TaggedObjId { index: *a }).bits())
+        }
         DumpHashKey::EqualCons(a, b) => {
             HashKey::EqualCons(Box::new(load_hash_key(a)), Box::new(load_hash_key(b)))
         }
@@ -1620,101 +2015,6 @@ pub(crate) fn load_hash_table(ht: &DumpLispHashTable) -> LispHashTable {
         data,
         key_snapshots,
         insertion_order,
-    }
-}
-
-// --- Heap objects ---
-
-/// Load a heap object, but defer hash table population.
-/// Hash tables need CURRENT_HEAP set for HashKey::Str hashing,
-/// so we create empty placeholders first, then populate after heap is set.
-fn load_heap_object_phase1(obj: &DumpHeapObject) -> Result<HeapObject, DumpError> {
-    let object = match obj {
-        DumpHeapObject::Cons { car, cdr } => HeapObject::Cons {
-            car: load_value(car),
-            cdr: load_value(cdr),
-        },
-        DumpHeapObject::Vector(items) => HeapObject::Vector(items.iter().map(load_value).collect()),
-        DumpHeapObject::HashTable(ht) => {
-            // Create empty hash table with correct metadata; entries populated in phase 2
-            HeapObject::HashTable(LispHashTable {
-                test: load_hash_table_test(&ht.test),
-                test_name: ht.test_name.map(|s| load_sym_id(&s)),
-                size: ht.size,
-                weakness: ht.weakness.as_ref().map(load_hash_table_weakness),
-                rehash_size: ht.rehash_size,
-                rehash_threshold: ht.rehash_threshold,
-                data: HashMap::new(),
-                key_snapshots: HashMap::new(),
-                insertion_order: Vec::new(),
-            })
-        }
-        DumpHeapObject::Str { text, multibyte } => {
-            HeapObject::Str(crate::gc::types::LispString::new(text.clone(), *multibyte))
-        }
-        DumpHeapObject::Lambda(d) => HeapObject::Lambda(load_lambda_data(d)),
-        DumpHeapObject::Macro(d) => HeapObject::Macro(load_lambda_data(d)),
-        DumpHeapObject::ByteCode(bc) => HeapObject::ByteCode(load_bytecode(bc)?),
-        DumpHeapObject::Marker(marker) => HeapObject::Marker(crate::gc::types::MarkerData {
-            buffer: marker.buffer.map(|id| BufferId(id.0)),
-            position: marker.position,
-            insertion_type: marker.insertion_type,
-            marker_id: marker.marker_id,
-        }),
-        DumpHeapObject::Overlay(o) => HeapObject::Overlay(crate::gc::types::OverlayData {
-            plist: load_value(&o.plist),
-            buffer: o.buffer.map(|id| BufferId(id.0)),
-            start: o.start,
-            end: o.end,
-            front_advance: o.front_advance,
-            rear_advance: o.rear_advance,
-        }),
-        DumpHeapObject::Free => HeapObject::Free,
-    };
-    Ok(object)
-}
-
-// --- Heap ---
-
-/// Load heap in two phases:
-/// Phase 1: Create all objects with empty hash tables (no heap access needed)
-/// Phase 2: After CURRENT_HEAP is set, populate hash table entries
-///          (HashKey::Str hashing requires heap access)
-pub(crate) fn load_heap(dh: &DumpLispHeap) -> Result<LispHeap, DumpError> {
-    let objects: Vec<HeapObject> = dh
-        .objects
-        .iter()
-        .map(load_heap_object_phase1)
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(LispHeap::from_dump(
-        objects,
-        dh.generations.clone(),
-        dh.free_list.clone(),
-    ))
-}
-
-/// Phase 2: Populate hash table entries after CURRENT_HEAP is set.
-pub(crate) fn load_heap_hash_tables(heap: &mut LispHeap, dh: &DumpLispHeap) {
-    for (i, obj) in dh.objects.iter().enumerate() {
-        if let DumpHeapObject::HashTable(ht) = obj {
-            let data: HashMap<HashKey, Value> = ht
-                .entries
-                .iter()
-                .map(|(k, v)| (load_hash_key(k), load_value(v)))
-                .collect();
-            let key_snapshots: HashMap<HashKey, Value> = ht
-                .key_snapshots
-                .iter()
-                .map(|(k, v)| (load_hash_key(k), load_value(v)))
-                .collect();
-            let insertion_order: Vec<HashKey> =
-                ht.insertion_order.iter().map(load_hash_key).collect();
-            if let HeapObject::HashTable(ref mut table) = heap.objects_mut()[i] {
-                table.data = data;
-                table.key_snapshots = key_snapshots;
-                table.insertion_order = insertion_order;
-            }
-        }
     }
 }
 
