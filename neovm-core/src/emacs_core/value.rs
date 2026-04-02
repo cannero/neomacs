@@ -987,11 +987,6 @@ impl TaggedValue {
         }
     }
 
-    /// Get mutable closure slot vector.
-    pub fn closure_slots_mut(self) -> Option<&'static mut Vec<Value>> {
-        mutate::closure_slots_mut_ref(self)
-    }
-
     /// Mutate closure slots through the centralized tagged-runtime write path.
     pub fn with_closure_slots_mut<R>(self, f: impl FnOnce(&mut Vec<Value>) -> R) -> Option<R> {
         let data = mutate::closure_slots_mut_ref(self)?;
@@ -1164,11 +1159,6 @@ impl TaggedValue {
         }
     }
 
-    /// Get mutable vector elements.
-    pub fn as_vector_data_mut(self) -> Option<&'static mut Vec<Value>> {
-        mutate::vector_data_mut_ref(self)
-    }
-
     /// Mutate vector elements through the centralized tagged-runtime write path.
     pub fn with_vector_data_mut<R>(self, f: impl FnOnce(&mut Vec<Value>) -> R) -> Option<R> {
         let data = mutate::vector_data_mut_ref(self)?;
@@ -1193,11 +1183,6 @@ impl TaggedValue {
         } else {
             None
         }
-    }
-
-    /// Get mutable record elements.
-    pub fn as_record_data_mut(self) -> Option<&'static mut Vec<Value>> {
-        mutate::record_data_mut_ref(self)
     }
 
     /// Mutate record elements through the centralized tagged-runtime write path.
@@ -1238,14 +1223,6 @@ impl TaggedValue {
     /// Get mutable hash table reference.
     pub fn as_hash_table_mut(self) -> Option<&'static mut LispHashTable> {
         mutate::hash_table_mut_ref(self)
-    }
-
-    /// Get mutable lambda data reference.
-    /// Mutate lambda data by modifying closure slots directly.
-    /// Use `closure_slots_mut()` for direct slot access.
-    #[deprecated(note = "Use closure_slots_mut() for direct slot access")]
-    pub fn get_lambda_data_mut(self) -> Option<&'static mut Vec<Value>> {
-        self.closure_slots_mut()
     }
 
     /// Get mutable bytecode data reference.
