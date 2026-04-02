@@ -1136,13 +1136,7 @@ impl TaggedValue {
 
     /// Get mutable marker data from a marker value.
     pub fn as_marker_data_mut(self) -> Option<&'static mut crate::heap_types::MarkerData> {
-        if self.is_marker() {
-            crate::tagged::gc::note_heap_write(self);
-            let ptr = self.as_veclike_ptr().unwrap() as *mut MarkerObj;
-            Some(unsafe { &mut (*ptr).data })
-        } else {
-            None
-        }
+        mutate::marker_data_mut_ref(self)
     }
 
     /// Get the overlay data from an overlay value.
@@ -1157,13 +1151,7 @@ impl TaggedValue {
 
     /// Get mutable overlay data.
     pub fn as_overlay_data_mut(self) -> Option<&'static mut crate::heap_types::OverlayData> {
-        if self.is_overlay() {
-            crate::tagged::gc::note_heap_write(self);
-            let ptr = self.as_veclike_ptr().unwrap() as *mut OverlayObj;
-            Some(unsafe { &mut (*ptr).data })
-        } else {
-            None
-        }
+        mutate::overlay_data_mut_ref(self)
     }
 
     /// Get vector elements.
@@ -1249,13 +1237,7 @@ impl TaggedValue {
 
     /// Get mutable hash table reference.
     pub fn as_hash_table_mut(self) -> Option<&'static mut LispHashTable> {
-        if self.is_hash_table() {
-            crate::tagged::gc::note_heap_write(self);
-            let ptr = self.as_veclike_ptr().unwrap() as *mut HashTableObj;
-            Some(unsafe { &mut (*ptr).table })
-        } else {
-            None
-        }
+        mutate::hash_table_mut_ref(self)
     }
 
     /// Get mutable lambda data reference.
@@ -1268,21 +1250,12 @@ impl TaggedValue {
 
     /// Get mutable bytecode data reference.
     pub fn get_bytecode_data_mut(self) -> Option<&'static mut super::bytecode::ByteCodeFunction> {
-        if self.veclike_type()? == VecLikeType::ByteCode {
-            crate::tagged::gc::note_heap_write(self);
-            let ptr = self.as_veclike_ptr().unwrap() as *mut ByteCodeObj;
-            Some(unsafe { &mut (*ptr).data })
-        } else {
-            None
-        }
+        mutate::bytecode_data_mut_ref(self)
     }
 
     /// Get mutable string data reference.
     pub fn as_lisp_string_mut(self) -> Option<&'static mut LispString> {
-        self.as_string_ptr().map(|p| {
-            crate::tagged::gc::note_heap_write(self);
-            unsafe { &mut (*(p as *mut StringObj)).data }
-        })
+        mutate::lisp_string_mut_ref(self)
     }
 
     /// Convert to hash key based on the hash table test.

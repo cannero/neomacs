@@ -2635,13 +2635,9 @@ impl<'a> Vm<'a> {
 
                 if options.in_place {
                     if is_record {
-                        if let Some(data) = sequence.as_record_data_mut() {
-                            *data = sorted_values;
-                        }
+                        let _ = sequence.replace_record_data(sorted_values);
                     } else {
-                        if let Some(data) = sequence.as_vector_data_mut() {
-                            *data = sorted_values;
-                        }
+                        let _ = sequence.replace_vector_data(sorted_values);
                     }
                     Ok(sequence)
                 } else {

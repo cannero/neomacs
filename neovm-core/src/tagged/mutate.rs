@@ -4,9 +4,15 @@
 //! incremental write barriers into the tagged runtime.
 
 use crate::buffer::text_props::TextPropertyTable;
+use crate::emacs_core::bytecode::ByteCodeFunction;
+use crate::emacs_core::value::LispHashTable;
+use crate::heap_types::{LispString, MarkerData, OverlayData};
 
 use super::gc::note_heap_write;
-use super::header::{ConsCell, LambdaObj, MacroObj, RecordObj, StringObj, VecLikeType, VectorObj};
+use super::header::{
+    ByteCodeObj, ConsCell, HashTableObj, LambdaObj, MacroObj, MarkerObj, OverlayObj, RecordObj,
+    StringObj, VecLikeType, VectorObj,
+};
 use super::value::TaggedValue;
 
 #[inline]
@@ -154,4 +160,51 @@ pub fn string_text_props_mut_ref(value: TaggedValue) -> Option<&'static mut Text
     let ptr = value.as_string_ptr()? as *mut StringObj;
     note_heap_write(value);
     Some(unsafe { &mut (*ptr).text_props })
+}
+
+#[inline]
+pub fn lisp_string_mut_ref(value: TaggedValue) -> Option<&'static mut LispString> {
+    let ptr = value.as_string_ptr()? as *mut StringObj;
+    note_heap_write(value);
+    Some(unsafe { &mut (*ptr).data })
+}
+
+#[inline]
+pub fn hash_table_mut_ref(value: TaggedValue) -> Option<&'static mut LispHashTable> {
+    if value.veclike_type()? != VecLikeType::HashTable {
+        return None;
+    }
+    note_heap_write(value);
+    let ptr = value.as_veclike_ptr().unwrap() as *mut HashTableObj;
+    Some(unsafe { &mut (*ptr).table })
+}
+
+#[inline]
+pub fn bytecode_data_mut_ref(value: TaggedValue) -> Option<&'static mut ByteCodeFunction> {
+    if value.veclike_type()? != VecLikeType::ByteCode {
+        return None;
+    }
+    note_heap_write(value);
+    let ptr = value.as_veclike_ptr().unwrap() as *mut ByteCodeObj;
+    Some(unsafe { &mut (*ptr).data })
+}
+
+#[inline]
+pub fn marker_data_mut_ref(value: TaggedValue) -> Option<&'static mut MarkerData> {
+    if value.veclike_type()? != VecLikeType::Marker {
+        return None;
+    }
+    note_heap_write(value);
+    let ptr = value.as_veclike_ptr().unwrap() as *mut MarkerObj;
+    Some(unsafe { &mut (*ptr).data })
+}
+
+#[inline]
+pub fn overlay_data_mut_ref(value: TaggedValue) -> Option<&'static mut OverlayData> {
+    if value.veclike_type()? != VecLikeType::Overlay {
+        return None;
+    }
+    note_heap_write(value);
+    let ptr = value.as_veclike_ptr().unwrap() as *mut OverlayObj;
+    Some(unsafe { &mut (*ptr).data })
 }
