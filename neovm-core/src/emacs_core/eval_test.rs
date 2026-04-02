@@ -7457,6 +7457,34 @@ fn gc_collect_obeys_context_root_scan_mode() {
 }
 
 #[test]
+fn gc_safe_point_obeys_context_root_scan_mode() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
+    ev.tagged_heap.set_gc_threshold(5);
+
+    let forms = crate::emacs_core::parse_forms(
+        "(progn
+           (setq mode-safe-root (cons 7 8))
+           (cons 1 2)
+           (cons 3 4)
+           (cons 5 6)
+           (cons 9 10)
+           nil)",
+    )
+    .unwrap();
+    ev.eval_forms(&forms);
+
+    while ev.gc_count == 0 {
+        ev.gc_safe_point();
+    }
+
+    let forms2 = crate::emacs_core::parse_forms("(car mode-safe-root)").unwrap();
+    let results = ev.eval_forms(&forms2);
+    assert_eq!(format_eval_result(&results[0]), "OK 7");
+}
+
+#[test]
 fn gc_collect_runs_post_gc_hook() {
     crate::test_utils::init_test_tracing();
     let result = eval_one(

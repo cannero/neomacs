@@ -4612,12 +4612,11 @@ impl Context {
         if self.gc_inhibit_depth > 0 {
             return;
         }
-        // Always do full STW collection with conservative stack scan.
-        // The incremental approach had correctness issues where objects
-        // reachable only through the Rust call stack could be swept
-        // if the marking phase didn't see them.
+        // For now safe points still perform full STW collections. The only
+        // variable is whether root discovery uses the configured exact-root
+        // mode or conservative stack scanning.
         if self.gc_pending || self.tagged_heap.should_collect() {
-            self.gc_collect();
+            self.gc_collect_with_mode(self.tagged_heap.root_scan_mode());
         }
     }
 
