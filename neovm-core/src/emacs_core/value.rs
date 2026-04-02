@@ -1430,8 +1430,7 @@ impl TaggedValue {
                     return HashKey::Cycle(index as u32);
                 }
                 seen.push(ptr);
-                let lambda = self.get_lambda_data().unwrap().clone();
-                let key = lambda_to_equal_key(&lambda, depth + 1, seen);
+                let key = closure_to_equal_key(*self, depth + 1, seen);
                 seen.pop();
                 key
             }
@@ -1544,9 +1543,7 @@ fn equal_value_inner(
             if !seen.insert(pair) {
                 return true;
             }
-            let left_lambda = left.get_lambda_data().unwrap().clone();
-            let right_lambda = right.get_lambda_data().unwrap().clone();
-            lambda_data_equal(&left_lambda, &right_lambda, depth + 1, seen)
+            closure_equal(left, right, depth + 1, seen)
         }
         // For all other same-type veclike comparisons, use identity
         (ValueKind::Veclike(a), ValueKind::Veclike(b)) if a == b => left.bits() == right.bits(),
@@ -1554,52 +1551,54 @@ fn equal_value_inner(
     }
 }
 
-fn lambda_to_equal_key(lambda: &LambdaData, depth: usize, seen: &mut Vec<usize>) -> HashKey {
+fn closure_params_to_equal_key(params: &LambdaParams) -> HashKey {
+    let mut values = Vec::with_capacity(params.required.len() + params.optional.len() + 3);
+    values.push(HashKey::Text("params".to_string()));
+    for sym in &params.required {
+        values.push(HashKey::Symbol(*sym));
+    }
+    if !params.optional.is_empty() {
+        values.push(HashKey::Text("&optional".to_string()));
+        for sym in &params.optional {
+            values.push(HashKey::Symbol(*sym));
+        }
+    }
+    if let Some(rest) = params.rest {
+        values.push(HashKey::Text("&rest".to_string()));
+        values.push(HashKey::Symbol(rest));
+    }
+    HashKey::EqualVec(values)
+}
+
+fn closure_to_equal_key(value: Value, depth: usize, seen: &mut Vec<usize>) -> HashKey {
     if depth > 200 {
         return HashKey::Text("#<lambda-depth-limit>".to_string());
     }
 
-    let mut params =
-        Vec::with_capacity(lambda.params.required.len() + lambda.params.optional.len() + 3);
-    params.push(HashKey::Text("params".to_string()));
-    for sym in &lambda.params.required {
-        params.push(HashKey::Symbol(*sym));
-    }
-    if !lambda.params.optional.is_empty() {
-        params.push(HashKey::Text("&optional".to_string()));
-        for sym in &lambda.params.optional {
-            params.push(HashKey::Symbol(*sym));
-        }
-    }
-    if let Some(rest) = lambda.params.rest {
-        params.push(HashKey::Text("&rest".to_string()));
-        params.push(HashKey::Symbol(rest));
-    }
+    let Some(params) = value.closure_params() else {
+        return HashKey::Text("#<invalid-lambda>".to_string());
+    };
 
     let mut slots = vec![
         HashKey::Text("lambda".to_string()),
-        HashKey::EqualVec(params),
-        HashKey::EqualVec(
-            lambda
-                .body
-                .iter()
-                .map(|expr| HashKey::Text(super::expr::print_expr(expr)))
-                .collect(),
-        ),
-        match lambda.env {
+        closure_params_to_equal_key(params),
+        value
+            .closure_body_value()
+            .map_or(HashKey::Nil, |body| body.to_equal_key_depth(0, seen)),
+        match value.closure_env().unwrap_or(None) {
             Some(env) => env.to_equal_key_depth(0, seen),
             None => HashKey::Text("dynamic".to_string()),
         },
     ];
 
-    if lambda.docstring.is_some() || lambda.doc_form.is_some() {
+    if let Some(doc_value) = value.closure_doc_value()
+        && !doc_value.is_nil()
+    {
         slots.push(HashKey::Nil);
-        let doc = if let Some(doc_form) = lambda.doc_form {
-            doc_form.to_equal_key_depth(0, seen)
-        } else if let Some(docstring) = &lambda.docstring {
-            HashKey::Text(docstring.clone())
+        let doc = if doc_value.is_string() {
+            HashKey::Text(doc_value.as_str().unwrap().to_owned())
         } else {
-            HashKey::Nil
+            doc_value.to_equal_key_depth(0, seen)
         };
         slots.push(doc);
     }
@@ -1607,26 +1606,47 @@ fn lambda_to_equal_key(lambda: &LambdaData, depth: usize, seen: &mut Vec<usize>)
     HashKey::EqualVec(slots)
 }
 
-fn lambda_data_equal(
-    left: &LambdaData,
-    right: &LambdaData,
+fn closure_equal(
+    left: &Value,
+    right: &Value,
     depth: usize,
     seen: &mut HashSet<(usize, usize)>,
 ) -> bool {
-    if left.params != right.params || left.body.as_ref() != right.body.as_ref() {
+    let (Some(left_params), Some(right_params)) = (left.closure_params(), right.closure_params())
+    else {
+        return false;
+    };
+    if left_params != right_params {
         return false;
     }
 
-    let env_equal = match (left.env, right.env) {
+    let body_equal = match (left.closure_body_value(), right.closure_body_value()) {
+        (Some(left_body), Some(right_body)) => {
+            equal_value_inner(&left_body, &right_body, depth + 1, seen)
+        }
+        (None, None) => true,
+        _ => false,
+    };
+    if !body_equal {
+        return false;
+    }
+
+    let env_equal = match (
+        left.closure_env().unwrap_or(None),
+        right.closure_env().unwrap_or(None),
+    ) {
         (None, None) => true,
         (Some(l), Some(r)) => equal_value_inner(&l, &r, depth + 1, seen),
         _ => false,
     };
-    if !env_equal || left.docstring != right.docstring {
+    if !env_equal || left.closure_docstring().flatten() != right.closure_docstring().flatten() {
         return false;
     }
 
-    match (left.doc_form, right.doc_form) {
+    match (
+        left.closure_doc_form().flatten(),
+        right.closure_doc_form().flatten(),
+    ) {
         (None, None) => true,
         (Some(l), Some(r)) => equal_value_inner(&l, &r, depth + 1, seen),
         _ => false,

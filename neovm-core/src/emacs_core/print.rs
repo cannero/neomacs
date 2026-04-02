@@ -1434,20 +1434,6 @@ fn format_params(params: &super::value::LambdaParams) -> String {
     }
 }
 
-fn format_lambda_body_forms(body: &[Expr]) -> String {
-    if body.is_empty() {
-        "nil".to_string()
-    } else {
-        format!(
-            "({})",
-            body.iter()
-                .map(expr::print_expr)
-                .collect::<Vec<_>>()
-                .join(" ")
-        )
-    }
-}
-
 fn format_closure_body_forms(body: Value, options: PrintOptions) -> String {
     let Some(forms) = list_to_vec(&body) else {
         return print_value_with_options(&body, options);
