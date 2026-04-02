@@ -179,14 +179,20 @@ fn note_heap_write_record(record: HeapWriteRecord) {
 /// Number of cons cells per block. 4096 cells × 16 bytes = 64 KB per block.
 const CONS_BLOCK_SIZE: usize = 4096;
 
+#[derive(Clone, Copy)]
+struct ConsFreeCell {
+    block_index: usize,
+    cell_index: u16,
+}
+
 /// A block of cons cells with an external mark bitmap.
 struct ConsBlock {
     /// The cons cells. Allocated as a contiguous array.
     cells: *mut ConsCell,
     /// Mark bitmap: one bit per cell.
     marks: Vec<bool>,
-    /// Free list: indices of unallocated cells within this block.
-    free_list: Vec<u16>,
+    /// Index of the first never-allocated cell in this block.
+    next_index: u16,
     /// How many cells are in use (allocated and not freed).
     used: usize,
 }
@@ -198,19 +204,27 @@ impl ConsBlock {
         if cells.is_null() {
             alloc::handle_alloc_error(layout);
         }
-        // Initialize free list (all cells available, in reverse order for LIFO)
-        let free_list: Vec<u16> = (0..CONS_BLOCK_SIZE as u16).rev().collect();
         Self {
             cells,
             marks: vec![false; CONS_BLOCK_SIZE],
-            free_list,
+            next_index: 0,
             used: 0,
         }
     }
 
-    /// Allocate a cons cell from this block. Returns None if full.
-    fn alloc(&mut self, car: TaggedValue, cdr: TaggedValue) -> Option<*mut ConsCell> {
-        let idx = self.free_list.pop()?;
+    #[inline]
+    fn cell_ptr(&self, idx: u16) -> *mut ConsCell {
+        unsafe { self.cells.add(idx as usize) }
+    }
+
+    /// Allocate a fresh cons cell from this block's bump cursor.
+    /// Returns None if the block has no never-used cells left.
+    fn alloc_bump(&mut self, car: TaggedValue, cdr: TaggedValue) -> Option<*mut ConsCell> {
+        if self.next_index as usize >= CONS_BLOCK_SIZE {
+            return None;
+        }
+        let idx = self.next_index;
+        self.next_index += 1;
         let cell = unsafe { self.cells.add(idx as usize) };
         unsafe {
             (*cell).car = car;
@@ -248,27 +262,28 @@ impl ConsBlock {
 
     /// Clear all marks.
     fn clear_marks(&mut self) {
-        for m in &mut self.marks {
+        for m in &mut self.marks[..self.next_index as usize] {
             *m = false;
         }
     }
 
-    /// Sweep: free unmarked cells, return count of freed cells.
-    fn sweep(&mut self) -> usize {
+    /// Sweep: return reclaimed cells to the global cons free list.
+    fn sweep(&mut self, block_index: usize, free_list: &mut Vec<ConsFreeCell>) -> usize {
         let old_used = self.used;
         let mut new_used = 0;
-        self.free_list.clear();
 
-        // Rebuild the free list from the mark bitmap in one linear pass.
-        // This matches GNU's sweep shape more closely than probing the
-        // existing free list for every cell, which turns sweep into an
-        // O(n^2) scan on heavily fragmented blocks.
-        for i in (0..CONS_BLOCK_SIZE).rev() {
+        // Rebuild the free list from the live prefix of the block only.
+        // GNU Emacs allocates new conses from the current block via a bump
+        // index and only reuses reclaimed cells through a separate free list.
+        for i in (0..self.next_index as usize).rev() {
             if self.marks[i] {
                 self.marks[i] = false;
                 new_used += 1;
             } else {
-                self.free_list.push(i as u16);
+                free_list.push(ConsFreeCell {
+                    block_index,
+                    cell_index: i as u16,
+                });
             }
         }
 
@@ -312,6 +327,9 @@ pub struct TaggedHeap {
     /// Root discovery policy for full-heap collections.
     root_scan_mode: RootScanMode,
 
+    /// Reclaimed cons cells, rebuilt on each sweep like GNU's cons_free_list.
+    cons_free_list: Vec<ConsFreeCell>,
+
     /// Tracking list of all allocated marker objects for bulk operations
     /// like clearing markers when buffers are killed.
     marker_ptrs: Vec<*mut MarkerObj>,
@@ -349,6 +367,7 @@ impl TaggedHeap {
             gray_queue: Vec::new(),
             stack_bottom: std::ptr::null(),
             root_scan_mode: RootScanMode::ExactOnly,
+            cons_free_list: Vec::new(),
             marker_ptrs: Vec::new(),
             subr_registry: Vec::new(),
             buffer_registry: HashMap::new(),
@@ -502,17 +521,31 @@ impl TaggedHeap {
 
     /// Allocate a cons cell. Returns a tagged Value.
     pub fn alloc_cons(&mut self, car: TaggedValue, cdr: TaggedValue) -> TaggedValue {
-        // Try existing blocks first
-        for block in &mut self.cons_blocks {
-            if let Some(cell) = block.alloc(car, cdr) {
-                self.allocated_count += 1;
-                return unsafe { TaggedValue::from_cons_ptr(cell) };
+        if let Some(free_cell) = self.cons_free_list.pop() {
+            let block = &mut self.cons_blocks[free_cell.block_index];
+            let cell = block.cell_ptr(free_cell.cell_index);
+            unsafe {
+                (*cell).car = car;
+                (*cell).cdr = cdr;
             }
+            block.used += 1;
+            self.allocated_count += 1;
+            return unsafe { TaggedValue::from_cons_ptr(cell) };
         }
-        // All blocks full — allocate a new block
+
+        if let Some(block) = self.cons_blocks.last_mut()
+            && let Some(cell) = block.alloc_bump(car, cdr)
+        {
+            self.allocated_count += 1;
+            return unsafe { TaggedValue::from_cons_ptr(cell) };
+        }
+
+        // All existing blocks are exhausted and there are no reclaimed cells,
+        // so allocate a fresh current block and bump from it, matching GNU's
+        // cons_block/cons_block_index path.
         let mut block = ConsBlock::new();
         let cell = block
-            .alloc(car, cdr)
+            .alloc_bump(car, cdr)
             .expect("fresh block should have space");
         self.cons_blocks.push(block);
         self.allocated_count += 1;
@@ -1036,8 +1069,9 @@ impl TaggedHeap {
     /// Sweep unmarked cons cells back to free lists.
     fn sweep_cons(&mut self) {
         let mut total_freed = 0;
-        for block in &mut self.cons_blocks {
-            total_freed += block.sweep();
+        self.cons_free_list.clear();
+        for (block_index, block) in self.cons_blocks.iter_mut().enumerate() {
+            total_freed += block.sweep(block_index, &mut self.cons_free_list);
         }
         self.allocated_count = self.allocated_count.saturating_sub(total_freed);
     }
