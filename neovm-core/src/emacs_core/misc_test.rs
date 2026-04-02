@@ -1,15 +1,33 @@
 use super::*;
-use crate::emacs_core::load::{
-    create_bootstrap_evaluator_cached, create_runtime_startup_evaluator_cached,
-    create_runtime_startup_evaluator_cached_at_path,
-};
+use crate::emacs_core::load::{find_file_in_load_path, get_load_path, load_file};
 use crate::emacs_core::string_escape;
-use crate::emacs_core::{format_eval_result, parse_forms};
+use crate::emacs_core::{Context, format_eval_result, parse_forms};
+
+fn load_minimal_gnu_backquote_runtime(eval: &mut Context) {
+    eval.set_lexical_binding(true);
+    eval.set_variable(
+        "load-path",
+        Value::list(vec![
+            Value::string(concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp/emacs-lisp")),
+            Value::string(concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp")),
+        ]),
+    );
+    let load_path = get_load_path(&eval.obarray());
+    for name in &[
+        "emacs-lisp/debug-early",
+        "emacs-lisp/byte-run",
+        "emacs-lisp/backquote",
+        "subr",
+    ] {
+        let path = find_file_in_load_path(name, &load_path)
+            .unwrap_or_else(|| panic!("cannot find {name}"));
+        load_file(eval, &path).unwrap_or_else(|err| panic!("load {name}: {err:?}"));
+    }
+}
 
 fn bootstrap_eval(src: &str) -> Vec<String> {
-    let dump_path = std::env::temp_dir().join("neovm-advice-stack-misc-test.pdump");
-    let mut ev =
-        create_runtime_startup_evaluator_cached_at_path(&[], &dump_path).expect("bootstrap");
+    let mut ev = Context::new();
+    load_minimal_gnu_backquote_runtime(&mut ev);
     let forms = parse_forms(src).expect("parse");
     ev.eval_forms(&forms)
         .iter()
@@ -691,8 +709,8 @@ fn sf_save_current_buffer_restores() {
 #[test]
 fn sf_with_syntax_table_evaluates_body() {
     crate::test_utils::init_test_tracing();
-    // with-syntax-table is an Elisp macro in GNU. Test through bootstrap.
-    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
+    let mut ev = Context::new();
+    load_minimal_gnu_backquote_runtime(&mut ev);
     let forms = parse_forms("(with-syntax-table (make-syntax-table) 30)").expect("parse");
     let result = ev.eval_expr(&forms[0]).expect("eval");
     assert!(eq_value(&result, &Value::fixnum(30)));
@@ -701,8 +719,8 @@ fn sf_with_syntax_table_evaluates_body() {
 #[test]
 fn sf_with_syntax_table_restores_original_table_on_success() {
     crate::test_utils::init_test_tracing();
-    // with-syntax-table is an Elisp macro in GNU. Test through bootstrap.
-    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
+    let mut ev = Context::new();
+    load_minimal_gnu_backquote_runtime(&mut ev);
     let original = crate::emacs_core::syntax::builtin_syntax_table(&mut ev, vec![]).unwrap();
     let forms = parse_forms("(with-syntax-table (make-syntax-table) 1)").expect("parse");
     ev.eval_expr(&forms[0]).expect("eval");
@@ -713,7 +731,8 @@ fn sf_with_syntax_table_restores_original_table_on_success() {
 #[test]
 fn with_syntax_table_restores_original_table_on_error() {
     crate::test_utils::init_test_tracing();
-    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
+    let mut ev = Context::new();
+    load_minimal_gnu_backquote_runtime(&mut ev);
     let original = crate::emacs_core::syntax::builtin_syntax_table(&mut ev, vec![]).unwrap();
     let forms = parse_forms("(ignore-errors (with-syntax-table (make-syntax-table) missing-var))")
         .expect("parse");
