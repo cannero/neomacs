@@ -1,8 +1,7 @@
 use super::*;
 use crate::emacs_core::intern::intern;
-use crate::emacs_core::load::create_runtime_startup_evaluator_cached;
 use crate::emacs_core::value::ValueKind;
-use crate::emacs_core::{format_eval_result, parse_forms};
+use crate::test_utils::runtime_startup_eval_all;
 use std::sync::{Mutex, OnceLock};
 
 fn tz_test_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -17,12 +16,7 @@ fn reset_tz_rule() {
 }
 
 fn bootstrap_eval(src: &str) -> Vec<String> {
-    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
-    let forms = parse_forms(src).expect("parse");
-    ev.eval_forms(&forms)
-        .iter()
-        .map(format_eval_result)
-        .collect()
+    runtime_startup_eval_all(src)
 }
 
 // -----------------------------------------------------------------------
