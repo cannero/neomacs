@@ -2447,79 +2447,66 @@ impl<'a> Vm<'a> {
         builtins::expect_args("mapcar", args, 2)?;
         let func = args[0];
         let sequence = args[1];
-        let saved_roots = self.ctx.vm_gc_roots.len();
-        self.ctx.vm_gc_roots.push(func);
-        self.ctx.vm_gc_roots.push(sequence);
+        self.with_extra_roots(&[func, sequence], |vm| {
+            let mut results = Vec::new();
+            let map_result = crate::emacs_core::builtins::higher_order::for_each_sequence_element(
+                &sequence,
+                |item| {
+                    let value = vm.with_extra_roots(&results, |vm| {
+                        vm.with_extra_roots(&[item], |vm| vm.call_function(func, vec![item]))
+                    })?;
+                    results.push(value);
+                    Ok(())
+                },
+            );
 
-        let mut results = Vec::new();
-        let map_result = crate::emacs_core::builtins::higher_order::for_each_sequence_element(
-            &sequence,
-            |item| {
-                let value =
-                    self.with_extra_roots(&[item], |vm| vm.call_function(func, vec![item]))?;
-                results.push(value);
-                self.ctx.vm_gc_roots.push(value);
-                Ok(())
-            },
-        );
-
-        let out = match map_result {
-            Ok(()) => self.with_extra_roots(&results, |_| Ok(Value::list(results.clone()))),
-            Err(flow) => Err(flow),
-        };
-        self.ctx.vm_gc_roots.truncate(saved_roots);
-        out
+            match map_result {
+                Ok(()) => vm.with_extra_roots(&results, |_| Ok(Value::list(results.clone()))),
+                Err(flow) => Err(flow),
+            }
+        })
     }
 
     fn builtin_mapc_fast(&mut self, args: &[Value]) -> EvalResult {
         builtins::expect_args("mapc", args, 2)?;
         let func = args[0];
         let sequence = args[1];
-        let saved_roots = self.ctx.vm_gc_roots.len();
-        self.ctx.vm_gc_roots.push(func);
-        self.ctx.vm_gc_roots.push(sequence);
-
-        let map_result = crate::emacs_core::builtins::higher_order::for_each_sequence_element(
-            &sequence,
-            |item| {
-                self.with_extra_roots(&[item], |vm| vm.call_function(func, vec![item]))?;
-                Ok(())
-            },
-        );
-
-        self.ctx.vm_gc_roots.truncate(saved_roots);
-        map_result?;
-        Ok(sequence)
+        self.with_extra_roots(&[func, sequence], |vm| {
+            crate::emacs_core::builtins::higher_order::for_each_sequence_element(
+                &sequence,
+                |item| {
+                    vm.with_extra_roots(&[item], |vm| vm.call_function(func, vec![item]))?;
+                    Ok(())
+                },
+            )?;
+            Ok(sequence)
+        })
     }
 
     fn builtin_mapcan_fast(&mut self, args: &[Value]) -> EvalResult {
         builtins::expect_args("mapcan", args, 2)?;
         let func = args[0];
         let sequence = args[1];
-        let saved_roots = self.ctx.vm_gc_roots.len();
-        self.ctx.vm_gc_roots.push(func);
-        self.ctx.vm_gc_roots.push(sequence);
+        self.with_extra_roots(&[func, sequence], |vm| {
+            let mut mapped = Vec::new();
+            let map_result = crate::emacs_core::builtins::higher_order::for_each_sequence_element(
+                &sequence,
+                |item| {
+                    let value = vm.with_extra_roots(&mapped, |vm| {
+                        vm.with_extra_roots(&[item], |vm| vm.call_function(func, vec![item]))
+                    })?;
+                    mapped.push(value);
+                    Ok(())
+                },
+            );
 
-        let mut mapped = Vec::new();
-        let map_result = crate::emacs_core::builtins::higher_order::for_each_sequence_element(
-            &sequence,
-            |item| {
-                let value =
-                    self.with_extra_roots(&[item], |vm| vm.call_function(func, vec![item]))?;
-                mapped.push(value);
-                self.ctx.vm_gc_roots.push(value);
-                Ok(())
-            },
-        );
-
-        let out = match map_result {
-            Ok(()) => self.with_extra_roots(&mapped, |_| {
-                crate::emacs_core::builtins::builtin_nconc(mapped.clone())
-            }),
-            Err(flow) => Err(flow),
-        };
-        self.ctx.vm_gc_roots.truncate(saved_roots);
-        out
+            match map_result {
+                Ok(()) => vm.with_extra_roots(&mapped, |_| {
+                    crate::emacs_core::builtins::builtin_nconc(mapped.clone())
+                }),
+                Err(flow) => Err(flow),
+            }
+        })
     }
 
     fn builtin_mapconcat_fast(&mut self, args: &[Value]) -> EvalResult {
@@ -2527,135 +2514,124 @@ impl<'a> Vm<'a> {
         let func = args[0];
         let sequence = args[1];
         let separator = args.get(2).copied().unwrap_or_else(|| Value::string(""));
-        let saved_roots = self.ctx.vm_gc_roots.len();
-        self.ctx.vm_gc_roots.push(func);
-        self.ctx.vm_gc_roots.push(sequence);
-        self.ctx.vm_gc_roots.push(separator);
+        self.with_extra_roots(&[func, sequence, separator], |vm| {
+            let mut parts = Vec::new();
+            let map_result = crate::emacs_core::builtins::higher_order::for_each_sequence_element(
+                &sequence,
+                |item| {
+                    let value = vm.with_extra_roots(&parts, |vm| {
+                        vm.with_extra_roots(&[item], |vm| vm.call_function(func, vec![item]))
+                    })?;
+                    parts.push(value);
+                    Ok(())
+                },
+            );
 
-        let mut parts = Vec::new();
-        let map_result = crate::emacs_core::builtins::higher_order::for_each_sequence_element(
-            &sequence,
-            |item| {
-                let value =
-                    self.with_extra_roots(&[item], |vm| vm.call_function(func, vec![item]))?;
-                parts.push(value);
-                self.ctx.vm_gc_roots.push(value);
-                Ok(())
-            },
-        );
-
-        let out = match map_result {
-            Ok(()) if parts.is_empty() => Ok(Value::string("")),
-            Ok(()) => {
-                let mut concat_args = Vec::with_capacity(parts.len() * 2 - 1);
-                for (index, part) in parts.iter().copied().enumerate() {
-                    if index > 0 {
-                        concat_args.push(separator);
+            match map_result {
+                Ok(()) if parts.is_empty() => Ok(Value::string("")),
+                Ok(()) => {
+                    let mut concat_args = Vec::with_capacity(parts.len() * 2 - 1);
+                    for (index, part) in parts.iter().copied().enumerate() {
+                        if index > 0 {
+                            concat_args.push(separator);
+                        }
+                        concat_args.push(part);
                     }
-                    concat_args.push(part);
+                    vm.with_extra_roots(&parts, |vm| {
+                        vm.with_extra_roots(&concat_args, |_| {
+                            crate::emacs_core::builtins::builtin_concat(concat_args.clone())
+                        })
+                    })
                 }
-                self.with_extra_roots(&concat_args, |_| {
-                    crate::emacs_core::builtins::builtin_concat(concat_args.clone())
-                })
+                Err(flow) => Err(flow),
             }
-            Err(flow) => Err(flow),
-        };
-        self.ctx.vm_gc_roots.truncate(saved_roots);
-        out
+        })
     }
 
     fn builtin_sort_fast(&mut self, args: &[Value]) -> EvalResult {
-        let options = crate::emacs_core::builtins::higher_order::parse_sort_options(args)?;
+        let crate::emacs_core::builtins::higher_order::SortOptions {
+            key_fn,
+            lessp_fn,
+            reverse,
+            in_place,
+        } = crate::emacs_core::builtins::higher_order::parse_sort_options(args)?;
         let sequence = args[0];
-        let saved_roots = self.ctx.vm_gc_roots.len();
-        self.ctx.vm_gc_roots.push(sequence);
-        self.ctx.vm_gc_roots.push(options.key_fn);
-        self.ctx.vm_gc_roots.push(options.lessp_fn);
-
-        let out = match sequence.kind() {
-            ValueKind::Nil => Ok(Value::NIL),
-            ValueKind::Cons => {
-                let mut cons_cells = Vec::new();
-                let mut values = Vec::new();
-                let mut cursor = sequence;
-                loop {
-                    match cursor.kind() {
-                        ValueKind::Nil => break,
-                        ValueKind::Cons => {
-                            values.push(cursor.cons_car());
-                            cons_cells.push(cursor);
-                            cursor = cursor.cons_cdr();
-                        }
-                        _tail => {
-                            return Err(signal(
-                                "wrong-type-argument",
-                                vec![Value::symbol("listp"), cursor],
-                            ));
+        self.with_extra_roots(&[sequence, key_fn, lessp_fn], |vm| {
+            let saved_sort_roots = vm.ctx.vm_gc_roots.len();
+            let out = (|| match sequence.kind() {
+                ValueKind::Nil => Ok(Value::NIL),
+                ValueKind::Cons => {
+                    let mut cons_cells = Vec::new();
+                    let mut values = Vec::new();
+                    let mut cursor = sequence;
+                    loop {
+                        match cursor.kind() {
+                            ValueKind::Nil => break,
+                            ValueKind::Cons => {
+                                values.push(cursor.cons_car());
+                                cons_cells.push(cursor);
+                                cursor = cursor.cons_cdr();
+                            }
+                            _tail => {
+                                return Err(signal(
+                                    "wrong-type-argument",
+                                    vec![Value::symbol("listp"), cursor],
+                                ));
+                            }
                         }
                     }
+                    vm.with_extra_roots(&values, |vm| {
+                        let mut sorted_values =
+                            crate::emacs_core::builtins::higher_order::stable_sort_values_with(
+                                vm, &values, key_fn, lessp_fn, reverse,
+                            )?;
+                        if in_place {
+                            for (cell, value) in cons_cells.iter().zip(sorted_values.into_iter()) {
+                                cell.set_car(value);
+                            }
+                            Ok(sequence)
+                        } else {
+                            Ok(Value::list(std::mem::take(&mut sorted_values)))
+                        }
+                    })
                 }
-                for value in &values {
-                    self.ctx.vm_gc_roots.push(*value);
-                }
-                let mut sorted_values =
-                    crate::emacs_core::builtins::higher_order::stable_sort_values_with(
-                        self,
-                        &values,
-                        options.key_fn,
-                        options.lessp_fn,
-                        options.reverse,
-                    )?;
-                if options.in_place {
-                    for (cell, value) in cons_cells.iter().zip(sorted_values.into_iter()) {
-                        cell.set_car(value);
-                    }
-                    Ok(sequence)
-                } else {
-                    Ok(Value::list(std::mem::take(&mut sorted_values)))
-                }
-            }
-            ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
-                let is_record = matches!(sequence.kind(), ValueKind::Veclike(VecLikeType::Record));
-                let values = if is_record {
-                    sequence.as_record_data().unwrap().clone()
-                } else {
-                    sequence.as_vector_data().unwrap().clone()
-                };
-                for value in &values {
-                    self.ctx.vm_gc_roots.push(*value);
-                }
-                let sorted_values =
-                    crate::emacs_core::builtins::higher_order::stable_sort_values_with(
-                        self,
-                        &values,
-                        options.key_fn,
-                        options.lessp_fn,
-                        options.reverse,
-                    )?;
-
-                if options.in_place {
-                    if is_record {
-                        let _ = sequence.replace_record_data(sorted_values);
+                ValueKind::Veclike(VecLikeType::Vector)
+                | ValueKind::Veclike(VecLikeType::Record) => {
+                    let is_record =
+                        matches!(sequence.kind(), ValueKind::Veclike(VecLikeType::Record));
+                    let values = if is_record {
+                        sequence.as_record_data().unwrap().clone()
                     } else {
-                        let _ = sequence.replace_vector_data(sorted_values);
-                    }
-                    Ok(sequence)
-                } else {
-                    if is_record {
-                        Ok(Value::make_record(sorted_values))
-                    } else {
-                        Ok(Value::vector(sorted_values))
-                    }
-                }
-            }
-            _other => Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("list-or-vector-p"), sequence],
-            )),
-        };
+                        sequence.as_vector_data().unwrap().clone()
+                    };
+                    vm.with_extra_roots(&values, |vm| {
+                        let sorted_values =
+                            crate::emacs_core::builtins::higher_order::stable_sort_values_with(
+                                vm, &values, key_fn, lessp_fn, reverse,
+                            )?;
 
-        self.ctx.vm_gc_roots.truncate(saved_roots);
-        out
+                        if in_place {
+                            if is_record {
+                                let _ = sequence.replace_record_data(sorted_values);
+                            } else {
+                                let _ = sequence.replace_vector_data(sorted_values);
+                            }
+                            Ok(sequence)
+                        } else if is_record {
+                            Ok(Value::make_record(sorted_values))
+                        } else {
+                            Ok(Value::vector(sorted_values))
+                        }
+                    })
+                }
+                _other => Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("list-or-vector-p"), sequence],
+                )),
+            })();
+            vm.ctx.vm_gc_roots.truncate(saved_sort_roots);
+            out
+        })
     }
 
     fn builtin_frame_list_fast(&mut self, args: &[Value]) -> EvalResult {
