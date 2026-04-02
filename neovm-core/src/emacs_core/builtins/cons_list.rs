@@ -690,7 +690,9 @@ pub(crate) fn builtin_nreverse(args: Vec<Value>) -> EvalResult {
             }
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
-            args[0].with_vector_data_mut(|data| data.reverse()).unwrap();
+            let mut data = args[0].as_vector_data().cloned().unwrap_or_default();
+            data.reverse();
+            let _ = args[0].replace_vector_data(data);
             Ok(args[0])
         }
         ValueKind::String => builtin_reverse(args),

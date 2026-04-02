@@ -210,9 +210,7 @@ fn closure_slot_mutation_invalidates_cached_params() {
         );
 
         let new_arglist = Value::list(vec![Value::symbol("y"), Value::symbol("z")]);
-        closure
-            .with_closure_slots_mut(|slots| slots[CLOSURE_ARGLIST] = new_arglist)
-            .unwrap();
+        assert!(closure.set_closure_slot(CLOSURE_ARGLIST, new_arglist));
 
         assert_eq!(
             closure
