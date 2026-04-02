@@ -78,7 +78,7 @@ use super::doc::{STARTUP_VARIABLE_DOC_STRING_PROPERTIES, STARTUP_VARIABLE_DOC_ST
 use super::error::*;
 use super::expr::Expr;
 use super::interactive::InteractiveRegistry;
-use super::intern::{SymId, intern, intern_uninterned, is_canonical_id, resolve_sym};
+use super::intern::{SymId, intern, intern_uninterned, resolve_sym, resolve_sym_metadata};
 use super::keymap::{
     list_keymap_define, list_keymap_set_parent, make_list_keymap, make_sparse_list_keymap,
 };
@@ -135,12 +135,66 @@ pub(crate) enum SpecBinding {
     },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
+pub(crate) enum RuntimeBacktraceArgs {
+    Borrowed { ptr: *const Value, len: usize },
+    Owned(LispArgVec),
+}
+
+impl RuntimeBacktraceArgs {
+    fn borrowed(args: &[Value]) -> Self {
+        Self::Borrowed {
+            ptr: args.as_ptr(),
+            len: args.len(),
+        }
+    }
+
+    fn owned_from_slice(args: &[Value]) -> Self {
+        Self::Owned(args.iter().copied().collect())
+    }
+
+    fn as_slice(&self) -> &[Value] {
+        match self {
+            Self::Borrowed { ptr, len } => unsafe { std::slice::from_raw_parts(*ptr, *len) },
+            Self::Owned(values) => values.as_slice(),
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Self::Borrowed { len, .. } => *len,
+            Self::Owned(values) => values.len(),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub(crate) struct RuntimeBacktraceFrame {
     pub(crate) function: Value,
-    pub(crate) args: LispArgVec,
+    pub(crate) args: RuntimeBacktraceArgs,
     pub(crate) evaluated: bool,
     pub(crate) debug_on_exit: bool,
+}
+
+impl Clone for RuntimeBacktraceFrame {
+    fn clone(&self) -> Self {
+        Self {
+            function: self.function,
+            args: RuntimeBacktraceArgs::owned_from_slice(self.args.as_slice()),
+            evaluated: self.evaluated,
+            debug_on_exit: self.debug_on_exit,
+        }
+    }
+}
+
+impl RuntimeBacktraceFrame {
+    pub(crate) fn args(&self) -> &[Value] {
+        self.args.as_slice()
+    }
+
+    pub(crate) fn args_len(&self) -> usize {
+        self.args.len()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -446,8 +500,8 @@ impl InterpretedClosureTrimCacheEntry {
 }
 
 fn value_from_symbol_id(sym_id: SymId) -> Value {
-    let name = resolve_sym(sym_id);
-    if is_canonical_id(sym_id) {
+    let (name, is_canonical) = resolve_sym_metadata(sym_id);
+    if is_canonical {
         if name == "nil" {
             return Value::NIL;
         }
@@ -464,6 +518,16 @@ fn value_from_symbol_id(sym_id: SymId) -> Value {
 fn hidden_internal_interpreter_environment_symbol() -> SymId {
     static HIDDEN_SYMBOL: OnceLock<SymId> = OnceLock::new();
     *HIDDEN_SYMBOL.get_or_init(|| intern_uninterned("internal-interpreter-environment"))
+}
+
+fn lexical_binding_symbol() -> SymId {
+    static SYMBOL: OnceLock<SymId> = OnceLock::new();
+    *SYMBOL.get_or_init(|| intern("lexical-binding"))
+}
+
+fn macroexp_dynvars_symbol() -> SymId {
+    static SYMBOL: OnceLock<SymId> = OnceLock::new();
+    *SYMBOL.get_or_init(|| intern("macroexp--dynvars"))
 }
 
 struct CoreEvalSymbols {
@@ -1174,7 +1238,7 @@ pub(crate) fn parse_eval_lexical_arg(arg: Option<Value>) -> Result<(bool, Option
 
 fn lexical_binding_in_obarray(obarray: &Obarray) -> bool {
     obarray
-        .symbol_value("lexical-binding")
+        .symbol_value_id(lexical_binding_symbol())
         .is_some_and(|v| v.is_truthy())
 }
 
@@ -1191,7 +1255,7 @@ pub(crate) fn begin_eval_with_lexical_arg_in_state(
 ) -> Result<ActiveEvalLexicalArgState, Flow> {
     let (use_lexical, lexenv_value) = parse_eval_lexical_arg(lexical_arg)?;
     let saved_lexical_mode = lexical_binding_in_obarray(obarray);
-    obarray.set_symbol_value("lexical-binding", Value::bool_val(use_lexical));
+    obarray.set_symbol_value_id(lexical_binding_symbol(), Value::bool_val(use_lexical));
     let has_saved_lexenv = if let Some(env) = lexenv_value {
         saved_lexenvs.push(*lexenv);
         *lexenv = env;
@@ -1214,7 +1278,10 @@ pub(crate) fn finish_eval_with_lexical_arg_in_state(
     if state.has_saved_lexenv {
         *lexenv = saved_lexenvs.pop().expect("saved_lexenvs underflow");
     }
-    obarray.set_symbol_value("lexical-binding", Value::bool_val(state.saved_lexical_mode));
+    obarray.set_symbol_value_id(
+        lexical_binding_symbol(),
+        Value::bool_val(state.saved_lexical_mode),
+    );
 }
 
 pub(crate) fn builtin_eval_in_vm_runtime(
@@ -1349,10 +1416,7 @@ fn begin_lambda_call_in_state(
             }
         }
         if let Some(rest_name) = params.rest {
-            let saved_roots = temp_roots.len();
-            temp_roots.extend(args[arg_idx..].iter().copied());
-            let rest_value = Value::list(args[arg_idx..].to_vec());
-            temp_roots.truncate(saved_roots);
+            let rest_value = Value::list_from_slice(&args[arg_idx..]);
             bind_lexical_value_rooted_in_state(lexenv, temp_roots, rest_name, rest_value);
         }
     } else {
@@ -1371,19 +1435,16 @@ fn begin_lambda_call_in_state(
             }
         }
         if let Some(rest_name) = params.rest {
-            let saved_roots = temp_roots.len();
-            temp_roots.extend(args[arg_idx..].iter().copied());
-            let rest_value = Value::list(args[arg_idx..].to_vec());
-            temp_roots.truncate(saved_roots);
+            let rest_value = Value::list_from_slice(&args[arg_idx..]);
             specbind_in_state(obarray, specpdl, rest_name, rest_value);
         }
     }
 
     let saved_lexical_mode = if has_lexenv {
         let old = obarray
-            .symbol_value("lexical-binding")
+            .symbol_value_id(lexical_binding_symbol())
             .is_some_and(|value| value.is_truthy());
-        obarray.set_symbol_value("lexical-binding", Value::T);
+        obarray.set_symbol_value_id(lexical_binding_symbol(), Value::T);
         Some(old)
     } else {
         None
@@ -1406,7 +1467,7 @@ fn finish_lambda_call_in_state(
     state: ActiveLambdaCallState,
 ) {
     if let Some(old_mode) = state.saved_lexical_mode {
-        obarray.set_symbol_value("lexical-binding", Value::bool_val(old_mode));
+        obarray.set_symbol_value_id(lexical_binding_symbol(), Value::bool_val(old_mode));
     }
     if state.has_lexenv {
         let old_lexenv = saved_lexenvs.pop().expect("saved_lexenvs underflow");
@@ -1427,10 +1488,10 @@ fn begin_macro_expansion_scope_in_state(
 ) -> ActiveMacroExpansionScopeState {
     let saved_temp_roots_len = temp_roots.len();
     let old_lexical = obarray
-        .symbol_value("lexical-binding")
+        .symbol_value_id(lexical_binding_symbol())
         .is_some_and(|value| value.is_truthy());
     let old_dynvars = obarray
-        .symbol_value("macroexp--dynvars")
+        .symbol_value_id(macroexp_dynvars_symbol())
         .cloned()
         .unwrap_or(Value::NIL);
     temp_roots.push(old_dynvars);
@@ -1457,13 +1518,13 @@ fn begin_macro_expansion_scope_in_state(
         dynvars = Value::cons(Value::from_sym_id(*sym_id), dynvars);
     }
 
-    obarray.set_symbol_value("lexical-binding", Value::bool_val(!lexenv.is_nil()));
+    obarray.set_symbol_value_id(lexical_binding_symbol(), Value::bool_val(!lexenv.is_nil()));
     set_runtime_binding(
         obarray,
         buffers,
         custom,
         specpdl,
-        intern("macroexp--dynvars"),
+        macroexp_dynvars_symbol(),
         dynvars,
     );
 
@@ -1487,10 +1548,10 @@ fn finish_macro_expansion_scope_in_state(
         buffers,
         custom,
         specpdl,
-        intern("macroexp--dynvars"),
+        macroexp_dynvars_symbol(),
         state.old_dynvars,
     );
-    obarray.set_symbol_value("lexical-binding", Value::bool_val(state.old_lexical));
+    obarray.set_symbol_value_id(lexical_binding_symbol(), Value::bool_val(state.old_lexical));
     temp_roots.truncate(state.saved_temp_roots_len);
 }
 
@@ -2179,7 +2240,7 @@ impl Context {
         // file-coding-system-alist: needed by jka-cmpr-hook.el and others.
         obarray.set_symbol_value("file-coding-system-alist", Value::NIL);
         obarray.set_symbol_value("features", Value::NIL);
-        obarray.set_symbol_value("lexical-binding", Value::NIL);
+        obarray.set_symbol_value_id(lexical_binding_symbol(), Value::NIL);
         obarray.set_symbol_value("load-prefer-newer", Value::NIL);
         obarray.set_symbol_value("load-file-name", Value::NIL);
         obarray.make_special("load-file-name");
@@ -3728,7 +3789,7 @@ impl Context {
         }
         for frame in &self.runtime_backtrace {
             roots.push(frame.function);
-            roots.extend(frame.args.iter().copied());
+            roots.extend(frame.args().iter().copied());
         }
         for funcall in &self.pending_safe_funcalls {
             roots.push(funcall.function);
@@ -5068,7 +5129,7 @@ impl Context {
     /// Whether lexical-binding is currently enabled.
     pub fn lexical_binding(&self) -> bool {
         self.obarray
-            .symbol_value("lexical-binding")
+            .symbol_value_id(lexical_binding_symbol())
             .is_some_and(|v| v.is_truthy())
     }
 
@@ -5164,7 +5225,7 @@ impl Context {
     /// Enable or disable lexical binding.
     pub fn set_lexical_binding(&mut self, enabled: bool) {
         self.obarray
-            .set_symbol_value("lexical-binding", Value::bool_val(enabled));
+            .set_symbol_value_id(lexical_binding_symbol(), Value::bool_val(enabled));
     }
 
     /// Reset transient evaluator state at a completed top-level boundary.
@@ -5494,10 +5555,9 @@ impl Context {
 
         // Check for special forms (GNU eval.c UNEVALLED subrs)
         if let Some(name) = name {
-            // Convert args to Expr for special form handling.
-            // This is a shallow conversion — only the immediate args,
-            // not the deep tree. Special forms handle their own
-            // sub-evaluation.
+            if let Some(result) = self.try_special_form_value(name, original_args) {
+                return result;
+            }
             let args_exprs = value_list_to_exprs(&original_args);
             if let Some(result) = self.try_special_form(name, &args_exprs) {
                 return result;
@@ -5559,15 +5619,22 @@ impl Context {
             let macro_fn = func.cons_cdr();
 
             // GNU eval.c:2737-2750: bind lexical-binding and macroexp--dynvars
-            let saved_lexbind = self.obarray().symbol_value("lexical-binding").cloned();
+            let saved_lexbind = self
+                .obarray()
+                .symbol_value_id(lexical_binding_symbol())
+                .cloned();
             let lexbind_val = if self.lexenv.is_nil() {
                 Value::NIL
             } else {
                 Value::T
             };
-            self.set_variable("lexical-binding", lexbind_val);
+            self.obarray
+                .set_symbol_value_id(lexical_binding_symbol(), lexbind_val);
 
-            let saved_dynvars = self.obarray().symbol_value("macroexp--dynvars").cloned();
+            let saved_dynvars = self
+                .obarray()
+                .symbol_value_id(macroexp_dynvars_symbol())
+                .cloned();
             let mut dynvars = saved_dynvars.unwrap_or(Value::NIL);
             {
                 let mut p = self.lexenv;
@@ -5579,7 +5646,8 @@ impl Context {
                     p = p.cons_cdr();
                 }
             }
-            self.set_variable("macroexp--dynvars", dynvars);
+            self.obarray
+                .set_symbol_value_id(macroexp_dynvars_symbol(), dynvars);
 
             // GNU eval.c:2752: exp = apply1(Fcdr(fun), original_args)
             let arg_values = value_list_to_values(&original_args);
@@ -5587,12 +5655,15 @@ impl Context {
 
             // Restore bindings
             if let Some(v) = saved_lexbind {
-                self.set_variable("lexical-binding", v);
+                self.obarray
+                    .set_symbol_value_id(lexical_binding_symbol(), v);
             }
             if let Some(v) = saved_dynvars {
-                self.set_variable("macroexp--dynvars", v);
+                self.obarray
+                    .set_symbol_value_id(macroexp_dynvars_symbol(), v);
             } else {
-                self.set_variable("macroexp--dynvars", Value::NIL);
+                self.obarray
+                    .set_symbol_value_id(macroexp_dynvars_symbol(), Value::NIL);
             }
 
             // GNU eval.c:2754: val = eval_sub(exp)
@@ -5757,8 +5828,7 @@ impl Context {
     /// lookup (preserving uninterned symbol identity, like Emacs's EQ-based
     /// Fassq on Vinternal_interpreter_environment).
     pub(crate) fn eval_symbol_by_id(&self, sym_id: SymId) -> EvalResult {
-        let symbol = resolve_sym(sym_id);
-        let symbol_is_canonical = is_canonical_id(sym_id);
+        let (symbol, symbol_is_canonical) = resolve_sym_metadata(sym_id);
         // Keywords evaluate to themselves
         if symbol_is_canonical && symbol.starts_with(':') {
             return Ok(Value::from_kw_id(sym_id));
@@ -5779,7 +5849,7 @@ impl Context {
         }
 
         let resolved = super::builtins::resolve_variable_alias_id(self, sym_id)?;
-        let resolved_name = resolve_sym(resolved);
+        let (resolved_name, resolved_is_canonical) = resolve_sym_metadata(resolved);
 
         // Also check the lexenv for the resolved alias (rare but possible).
         if resolved != sym_id
@@ -5801,7 +5871,6 @@ impl Context {
             return Ok(Value::T);
         }
 
-        let resolved_is_canonical = is_canonical_id(resolved);
         if resolved_is_canonical && resolved_name == "nil" {
             return Ok(Value::NIL);
         }
@@ -6078,16 +6147,23 @@ impl Context {
                     // unevaluated args, then eval_sub the result directly.
                     // No value_to_expr round-trip.
                     // Bind lexical-binding during expansion (GNU eval.c:2737)
-                    let saved_lexbind = self.obarray().symbol_value("lexical-binding").cloned();
+                    let saved_lexbind = self
+                        .obarray()
+                        .symbol_value_id(lexical_binding_symbol())
+                        .cloned();
                     let lexbind_val = if self.lexenv.is_nil() {
                         Value::NIL
                     } else {
                         Value::T
                     };
-                    self.set_variable("lexical-binding", lexbind_val);
+                    self.obarray
+                        .set_symbol_value_id(lexical_binding_symbol(), lexbind_val);
 
                     // Propagate macroexp--dynvars (GNU eval.c:2741-2750)
-                    let saved_dynvars = self.obarray().symbol_value("macroexp--dynvars").cloned();
+                    let saved_dynvars = self
+                        .obarray()
+                        .symbol_value_id(macroexp_dynvars_symbol())
+                        .cloned();
                     let mut dynvars = saved_dynvars.unwrap_or(Value::NIL);
                     {
                         let mut p = self.lexenv;
@@ -6099,7 +6175,8 @@ impl Context {
                             p = p.cons_cdr();
                         }
                     }
-                    self.set_variable("macroexp--dynvars", dynvars);
+                    self.obarray
+                        .set_symbol_value_id(macroexp_dynvars_symbol(), dynvars);
 
                     // Convert Expr args to Values for the macro call
                     let arg_values: Vec<Value> = tail.iter().map(quote_to_value).collect();
@@ -6112,12 +6189,15 @@ impl Context {
 
                     // Restore bindings
                     if let Some(v) = saved_lexbind {
-                        self.set_variable("lexical-binding", v);
+                        self.obarray
+                            .set_symbol_value_id(lexical_binding_symbol(), v);
                     }
                     if let Some(v) = saved_dynvars {
-                        self.set_variable("macroexp--dynvars", v);
+                        self.obarray
+                            .set_symbol_value_id(macroexp_dynvars_symbol(), v);
                     } else {
-                        self.set_variable("macroexp--dynvars", Value::NIL);
+                        self.obarray
+                            .set_symbol_value_id(macroexp_dynvars_symbol(), Value::NIL);
                     }
 
                     // eval_sub directly — no value_to_expr round-trip
@@ -6161,13 +6241,18 @@ impl Context {
                             } else {
                                 Value::T
                             };
-                            let saved_lexbind =
-                                self.obarray().symbol_value("lexical-binding").cloned();
-                            self.set_variable("lexical-binding", lexbind_val);
+                            let saved_lexbind = self
+                                .obarray()
+                                .symbol_value_id(lexical_binding_symbol())
+                                .cloned();
+                            self.obarray
+                                .set_symbol_value_id(lexical_binding_symbol(), lexbind_val);
 
                             // GNU eval.c: propagate macroexp--dynvars from lexenv
-                            let saved_dynvars =
-                                self.obarray().symbol_value("macroexp--dynvars").cloned();
+                            let saved_dynvars = self
+                                .obarray()
+                                .symbol_value_id(macroexp_dynvars_symbol())
+                                .cloned();
                             let mut dynvars = saved_dynvars.unwrap_or(Value::NIL);
                             {
                                 let mut p = self.lexenv;
@@ -6179,7 +6264,8 @@ impl Context {
                                     p = p.cons_cdr();
                                 }
                             }
-                            self.set_variable("macroexp--dynvars", dynvars);
+                            self.obarray
+                                .set_symbol_value_id(macroexp_dynvars_symbol(), dynvars);
 
                             // Root all arg values during macro expansion to survive GC.
                             let arg_values: Vec<Value> = tail.iter().map(quote_to_value).collect();
@@ -6192,12 +6278,15 @@ impl Context {
 
                             // Restore bindings
                             if let Some(v) = saved_lexbind {
-                                self.set_variable("lexical-binding", v);
+                                self.obarray
+                                    .set_symbol_value_id(lexical_binding_symbol(), v);
                             }
                             if let Some(v) = saved_dynvars {
-                                self.set_variable("macroexp--dynvars", v);
+                                self.obarray
+                                    .set_symbol_value_id(macroexp_dynvars_symbol(), v);
                             } else {
-                                self.set_variable("macroexp--dynvars", Value::NIL);
+                                self.obarray
+                                    .set_symbol_value_id(macroexp_dynvars_symbol(), Value::NIL);
                             }
 
                             scope.close(self);
@@ -6476,6 +6565,41 @@ impl Context {
     // Special forms
     // -----------------------------------------------------------------------
 
+    fn try_special_form_value(&mut self, name: &str, tail: Value) -> Option<EvalResult> {
+        let saved_depth = self.depth;
+        let result = self.try_special_form_inner_value(name, tail);
+        self.depth = saved_depth;
+        result
+    }
+
+    fn try_special_form_inner_value(&mut self, name: &str, tail: Value) -> Option<EvalResult> {
+        Some(match name {
+            "quote" => self.sf_quote_value(tail),
+            "function" => self.sf_function_value(tail),
+            "let" => self.sf_let_value(tail),
+            "let*" => self.sf_let_star_value(tail),
+            "setq" => self.sf_setq_value(tail),
+            "if" => self.sf_if_value(tail),
+            "and" => self.sf_and_value(tail),
+            "or" => self.sf_or_value(tail),
+            "cond" => self.sf_cond_value(tail),
+            "while" => self.sf_while_value(tail),
+            "progn" => self.sf_progn_value(tail),
+            "prog1" => self.sf_prog1_value(tail),
+            "defvar" => self.sf_defvar_value(tail),
+            "defconst" => self.sf_defconst_value(tail),
+            "catch" => self.sf_catch_value(tail),
+            "unwind-protect" => self.sf_unwind_protect_value(tail),
+            "condition-case" => self.sf_condition_case_value(tail),
+            "save-excursion" => self.sf_save_excursion_value(tail),
+            "save-current-buffer" => self.sf_save_current_buffer_value(tail),
+            "save-restriction" => self.sf_save_restriction_value(tail),
+            "interactive" => Ok(Value::NIL),
+            "lambda" => self.sf_lambda_value(tail),
+            _ => return None,
+        })
+    }
+
     fn try_special_form(&mut self, name: &str, tail: &[Expr]) -> Option<EvalResult> {
         // GNU Emacs handles special forms inline in eval_sub without
         // re-incrementing lisp_eval_depth for each subform. Save and
@@ -6520,6 +6644,872 @@ impl Context {
             "byte-code" => self.sf_byte_code(tail),
             _ => return None,
         })
+    }
+
+    fn listp_error(&self, value: Value) -> Flow {
+        signal("wrong-type-argument", vec![Value::symbol("listp"), value])
+    }
+
+    fn value_list_len_or_error(&self, list: Value) -> Result<usize, Flow> {
+        list_length(&list).ok_or_else(|| self.listp_error(list))
+    }
+
+    fn one_unevalled_arg(&self, name: &str, tail: Value) -> Result<Value, Flow> {
+        let mut cursor = tail;
+        if !cursor.is_cons() {
+            return if cursor.is_nil() {
+                Err(signal(
+                    "wrong-number-of-arguments",
+                    vec![Value::symbol(name), Value::fixnum(0)],
+                ))
+            } else {
+                Err(self.listp_error(tail))
+            };
+        }
+        let arg = cursor.cons_car();
+        cursor = cursor.cons_cdr();
+        if !cursor.is_nil() {
+            return Err(signal(
+                "wrong-number-of-arguments",
+                vec![
+                    Value::symbol(name),
+                    Value::fixnum(self.value_list_len_or_error(tail)? as i64),
+                ],
+            ));
+        }
+        Ok(arg)
+    }
+
+    fn sf_quote_value(&mut self, tail: Value) -> EvalResult {
+        Ok(self.one_unevalled_arg("quote", tail)?)
+    }
+
+    fn sf_function_value(&mut self, tail: Value) -> EvalResult {
+        let arg = self.one_unevalled_arg("function", tail)?;
+        if arg.is_cons() && arg.cons_car().is_symbol_named("lambda") {
+            let lambda_tail = arg.cons_cdr();
+            let args_exprs = value_list_to_exprs(&lambda_tail);
+            return self.eval_lambda(&args_exprs);
+        }
+        Ok(arg)
+    }
+
+    fn sf_lambda_value(&mut self, tail: Value) -> EvalResult {
+        let args_exprs = value_list_to_exprs(&tail);
+        self.eval_lambda(&args_exprs)
+    }
+
+    fn sf_let_value(&mut self, tail: Value) -> EvalResult {
+        if tail.is_nil() {
+            return Err(signal(
+                "wrong-number-of-arguments",
+                vec![Value::symbol("let"), Value::fixnum(0)],
+            ));
+        }
+        if !tail.is_cons() {
+            return Err(self.listp_error(tail));
+        }
+
+        let varlist = tail.cons_car();
+        let body = tail.cons_cdr();
+        let mut lexical_bindings: Vec<(SymId, Value)> = Vec::new();
+        let mut dynamic_sym_ids: Vec<(SymId, Value)> = Vec::new();
+        let use_lexical = self.lexical_binding();
+        let mut constant_binding_error: Option<String> = None;
+        let saved_roots = self.temp_roots.len();
+        let mut bindings = varlist;
+
+        while bindings.is_cons() {
+            let binding = bindings.cons_car();
+            bindings = bindings.cons_cdr();
+            if let Some(id) = binding.as_symbol_id() {
+                if let Some(name) = symbol_sets_constant_error(id) {
+                    if constant_binding_error.is_none() {
+                        constant_binding_error = Some(name.to_owned());
+                    }
+                    continue;
+                }
+                if use_lexical
+                    && !self.obarray.is_special_id(id)
+                    && !lexenv_declares_special(self.lexenv, id)
+                {
+                    lexical_bindings.push((id, Value::NIL));
+                } else {
+                    dynamic_sym_ids.push((id, Value::NIL));
+                }
+                continue;
+            }
+            if !binding.is_cons() {
+                self.temp_roots.truncate(saved_roots);
+                return Err(signal("wrong-type-argument", vec![]));
+            }
+            let head = binding.cons_car();
+            let Some(id) = head.as_symbol_id() else {
+                self.temp_roots.truncate(saved_roots);
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("symbolp"), head],
+                ));
+            };
+            let mut value_tail = binding.cons_cdr();
+            let value = if value_tail.is_nil() {
+                Value::NIL
+            } else if value_tail.is_cons() {
+                let init_form = value_tail.cons_car();
+                value_tail = value_tail.cons_cdr();
+                if !value_tail.is_nil() {
+                    self.temp_roots.truncate(saved_roots);
+                    return Err(signal(
+                        "error",
+                        vec![
+                            Value::string("`let' bindings can have only one value-form"),
+                            binding,
+                        ],
+                    ));
+                }
+                match self.eval_sub(init_form) {
+                    Ok(value) => value,
+                    Err(err) => {
+                        self.temp_roots.truncate(saved_roots);
+                        return Err(err);
+                    }
+                }
+            } else {
+                self.temp_roots.truncate(saved_roots);
+                return Err(self.listp_error(binding));
+            };
+            self.temp_roots.push(value);
+            if let Some(name) = symbol_sets_constant_error(id) {
+                if constant_binding_error.is_none() {
+                    constant_binding_error = Some(name.to_owned());
+                }
+                continue;
+            }
+            if use_lexical
+                && !self.obarray.is_special_id(id)
+                && !lexenv_declares_special(self.lexenv, id)
+            {
+                lexical_bindings.push((id, value));
+            } else {
+                dynamic_sym_ids.push((id, value));
+            }
+        }
+        if !bindings.is_nil() {
+            self.temp_roots.truncate(saved_roots);
+            return Err(self.listp_error(varlist));
+        }
+        self.temp_roots.truncate(saved_roots);
+        if let Some(name) = constant_binding_error {
+            return Err(signal("setting-constant", vec![Value::symbol(name)]));
+        }
+
+        let specpdl_count = self.specpdl.len();
+        let saved_lexenv = if !lexical_bindings.is_empty() {
+            let saved = self.lexenv;
+            self.saved_lexenvs.push(saved);
+            for (sym_id, val) in &lexical_bindings {
+                self.lexenv = lexenv_prepend(self.lexenv, *sym_id, *val);
+            }
+            true
+        } else {
+            false
+        };
+        for (sym_id, value) in &dynamic_sym_ids {
+            self.specbind(*sym_id, *value);
+        }
+
+        let result = self.sf_progn_value(body);
+        self.unbind_to(specpdl_count);
+        if saved_lexenv {
+            self.lexenv = self.saved_lexenvs.pop().unwrap();
+        }
+        result
+    }
+
+    fn sf_let_star_value(&mut self, tail: Value) -> EvalResult {
+        if tail.is_nil() {
+            return Err(signal(
+                "wrong-number-of-arguments",
+                vec![Value::symbol("let*"), Value::fixnum(0)],
+            ));
+        }
+        if !tail.is_cons() {
+            return Err(self.listp_error(tail));
+        }
+
+        let varlist = tail.cons_car();
+        let body = tail.cons_cdr();
+        let use_lexical = self.lexical_binding();
+        let specpdl_count = self.specpdl.len();
+        let saved_lexenv = if use_lexical {
+            let saved = self.lexenv;
+            self.saved_lexenvs.push(saved);
+            true
+        } else {
+            false
+        };
+
+        let init_result: Result<(), Flow> = (|| {
+            let mut bindings = varlist;
+            while bindings.is_cons() {
+                let binding = bindings.cons_car();
+                bindings = bindings.cons_cdr();
+                let (id, value) = if let Some(id) = binding.as_symbol_id() {
+                    (id, Value::NIL)
+                } else if binding.is_cons() {
+                    let head = binding.cons_car();
+                    let Some(id) = head.as_symbol_id() else {
+                        return Err(signal(
+                            "wrong-type-argument",
+                            vec![Value::symbol("symbolp"), head],
+                        ));
+                    };
+                    let mut value_tail = binding.cons_cdr();
+                    let value = if value_tail.is_nil() {
+                        Value::NIL
+                    } else if value_tail.is_cons() {
+                        let init_form = value_tail.cons_car();
+                        value_tail = value_tail.cons_cdr();
+                        if !value_tail.is_nil() {
+                            return Err(signal(
+                                "error",
+                                vec![
+                                    Value::string("`let' bindings can have only one value-form"),
+                                    binding,
+                                ],
+                            ));
+                        }
+                        self.eval_sub(init_form)?
+                    } else {
+                        return Err(self.listp_error(binding));
+                    };
+                    (id, value)
+                } else {
+                    return Err(signal("wrong-type-argument", vec![]));
+                };
+
+                if let Some(name) = symbol_sets_constant_error(id) {
+                    return Err(signal("setting-constant", vec![Value::symbol(name)]));
+                }
+                if use_lexical
+                    && !self.obarray.is_special_id(id)
+                    && !lexenv_declares_special(self.lexenv, id)
+                {
+                    self.bind_lexical_value_rooted(id, value);
+                } else {
+                    self.specbind(id, value);
+                }
+            }
+            if !bindings.is_nil() {
+                return Err(self.listp_error(varlist));
+            }
+            Ok(())
+        })();
+        if let Err(error) = init_result {
+            if saved_lexenv {
+                self.lexenv = self.saved_lexenvs.pop().unwrap();
+            }
+            self.unbind_to(specpdl_count);
+            return Err(error);
+        }
+
+        let result = self.sf_progn_value(body);
+        self.unbind_to(specpdl_count);
+        if saved_lexenv {
+            self.lexenv = self.saved_lexenvs.pop().unwrap();
+        }
+        result
+    }
+
+    fn sf_setq_value(&mut self, tail: Value) -> EvalResult {
+        if tail.is_nil() {
+            return Ok(Value::NIL);
+        }
+        let mut cursor = tail;
+        let mut last = Value::NIL;
+        let mut nargs: usize = 0;
+        while cursor.is_cons() {
+            let symbol = cursor.cons_car();
+            cursor = cursor.cons_cdr();
+            nargs += 1;
+            if cursor.is_nil() {
+                return Err(signal(
+                    "wrong-number-of-arguments",
+                    vec![Value::symbol("setq"), Value::fixnum(nargs as i64)],
+                ));
+            }
+            if !cursor.is_cons() {
+                return Err(self.listp_error(tail));
+            }
+            let value_form = cursor.cons_car();
+            cursor = cursor.cons_cdr();
+            nargs += 1;
+            let Some(sym_id) = symbol.as_symbol_id() else {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("symbolp"), symbol],
+                ));
+            };
+            let name = resolve_sym(sym_id);
+            let value = self.eval_sub(value_form)?;
+            let resolved = super::builtins::resolve_variable_alias_name(self, name)?;
+            let resolved_id = intern(&resolved);
+            if self.obarray.is_constant_id(resolved_id)
+                && !self.has_local_binding_by_id(sym_id)
+                && (resolved_id == sym_id || !self.has_local_binding_by_id(resolved_id))
+            {
+                return Err(signal("setting-constant", vec![Value::symbol(name)]));
+            }
+            if resolved != name {
+                self.assign_with_watchers(&resolved, value, "set")?;
+            } else {
+                self.assign_with_watchers_by_id(sym_id, value, "set")?;
+            }
+            last = value;
+        }
+        if !cursor.is_nil() {
+            return Err(self.listp_error(tail));
+        }
+        Ok(last)
+    }
+
+    fn sf_if_value(&mut self, tail: Value) -> EvalResult {
+        if tail.is_nil() {
+            return Err(signal(
+                "wrong-number-of-arguments",
+                vec![Value::symbol("if"), Value::fixnum(0)],
+            ));
+        }
+        if !tail.is_cons() {
+            return Err(self.listp_error(tail));
+        }
+        let cond_form = tail.cons_car();
+        let mut rest = tail.cons_cdr();
+        if rest.is_nil() {
+            return Err(signal(
+                "wrong-number-of-arguments",
+                vec![Value::symbol("if"), Value::fixnum(1)],
+            ));
+        }
+        if !rest.is_cons() {
+            return Err(self.listp_error(tail));
+        }
+        let then_form = rest.cons_car();
+        rest = rest.cons_cdr();
+        if self.eval_sub(cond_form)?.is_truthy() {
+            self.eval_sub(then_form)
+        } else {
+            self.sf_progn_value(rest)
+        }
+    }
+
+    fn sf_and_value(&mut self, tail: Value) -> EvalResult {
+        let mut cursor = tail;
+        let mut last = Value::T;
+        while cursor.is_cons() {
+            last = self.eval_sub(cursor.cons_car())?;
+            if last.is_nil() {
+                return Ok(Value::NIL);
+            }
+            cursor = cursor.cons_cdr();
+        }
+        if !cursor.is_nil() {
+            return Err(self.listp_error(tail));
+        }
+        Ok(last)
+    }
+
+    fn sf_or_value(&mut self, tail: Value) -> EvalResult {
+        let mut cursor = tail;
+        while cursor.is_cons() {
+            let value = self.eval_sub(cursor.cons_car())?;
+            if value.is_truthy() {
+                return Ok(value);
+            }
+            cursor = cursor.cons_cdr();
+        }
+        if !cursor.is_nil() {
+            return Err(self.listp_error(tail));
+        }
+        Ok(Value::NIL)
+    }
+
+    fn sf_cond_value(&mut self, tail: Value) -> EvalResult {
+        let mut clauses = tail;
+        while clauses.is_cons() {
+            let clause = clauses.cons_car();
+            clauses = clauses.cons_cdr();
+            if clause.is_nil() {
+                continue;
+            }
+            if !clause.is_cons() {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("listp"), clause],
+                ));
+            }
+            let test = clause.cons_car();
+            let body = clause.cons_cdr();
+            let test_value = self.eval_sub(test)?;
+            if test_value.is_truthy() {
+                if body.is_nil() {
+                    return Ok(test_value);
+                }
+                return self.sf_progn_value(body);
+            }
+        }
+        if !clauses.is_nil() {
+            return Err(self.listp_error(tail));
+        }
+        Ok(Value::NIL)
+    }
+
+    fn sf_while_value(&mut self, tail: Value) -> EvalResult {
+        if tail.is_nil() {
+            return Err(signal(
+                "wrong-number-of-arguments",
+                vec![Value::symbol("while"), Value::fixnum(0)],
+            ));
+        }
+        if !tail.is_cons() {
+            return Err(self.listp_error(tail));
+        }
+        let test_form = tail.cons_car();
+        let body = tail.cons_cdr();
+        let mut iters: u64 = 0;
+        loop {
+            if self.eval_sub(test_form)?.is_nil() {
+                return Ok(Value::NIL);
+            }
+            self.sf_progn_value(body)?;
+            iters += 1;
+            if iters == 1_000_000 {
+                let cond_str = super::print::print_value(&test_form);
+                tracing::warn!(
+                    "while loop exceeded 1M iterations, cond: {}",
+                    &cond_str[..cond_str.len().min(300)]
+                );
+            }
+            self.maybe_quit()?;
+        }
+    }
+
+    fn sf_progn_value(&mut self, forms: Value) -> EvalResult {
+        let mut cursor = forms;
+        let mut last = Value::NIL;
+        while cursor.is_cons() {
+            last = self.eval_sub(cursor.cons_car())?;
+            cursor = cursor.cons_cdr();
+        }
+        if !cursor.is_nil() {
+            return Err(self.listp_error(forms));
+        }
+        Ok(last)
+    }
+
+    fn sf_prog1_value(&mut self, tail: Value) -> EvalResult {
+        if tail.is_nil() {
+            return Err(signal(
+                "wrong-number-of-arguments",
+                vec![Value::symbol("prog1"), Value::fixnum(0)],
+            ));
+        }
+        if !tail.is_cons() {
+            return Err(self.listp_error(tail));
+        }
+        let first_form = tail.cons_car();
+        let rest = tail.cons_cdr();
+        let first = self.eval_sub(first_form)?;
+        let scope = self.open_gc_scope();
+        self.push_temp_root(first);
+        let result = self.sf_progn_value(rest);
+        scope.close(self);
+        result?;
+        Ok(first)
+    }
+
+    fn sf_defvar_value(&mut self, tail: Value) -> EvalResult {
+        if tail.is_nil() {
+            return Err(signal(
+                "wrong-number-of-arguments",
+                vec![Value::symbol("defvar"), Value::fixnum(0)],
+            ));
+        }
+        if !tail.is_cons() {
+            return Err(self.listp_error(tail));
+        }
+
+        let symbol = tail.cons_car();
+        let Some(sym_id) = symbol.as_symbol_id() else {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("symbolp"), symbol],
+            ));
+        };
+        let mut rest = tail.cons_cdr();
+
+        if rest.is_nil() {
+            if self.lexical_binding()
+                && !self.lexenv.is_nil()
+                && !self.obarray.is_special_id(sym_id)
+            {
+                self.lexenv = Value::cons(Value::from_sym_id(sym_id), self.lexenv);
+            }
+            return Ok(Value::from_sym_id(sym_id));
+        }
+        if !rest.is_cons() {
+            return Err(self.listp_error(tail));
+        }
+        let init_form = rest.cons_car();
+        rest = rest.cons_cdr();
+        let documentation = if rest.is_nil() {
+            Value::NIL
+        } else if rest.is_cons() {
+            let doc = rest.cons_car();
+            rest = rest.cons_cdr();
+            if !rest.is_nil() {
+                return Err(signal("error", vec![Value::string("Too many arguments")]));
+            }
+            doc
+        } else {
+            return Err(self.listp_error(tail));
+        };
+
+        let mut define_args = vec![symbol];
+        if !documentation.is_nil() {
+            define_args.push(documentation);
+        }
+        super::builtins::symbols::builtin_internal_define_uninitialized_variable(
+            self,
+            define_args,
+        )?;
+
+        let was_bound =
+            default_toplevel_value_in_state(&self.obarray, self.specpdl.as_slice(), sym_id)
+                .is_some()
+                || self.obarray.is_constant_id(sym_id);
+        if !was_bound {
+            let value = self.eval_sub(init_form)?;
+            super::builtins::symbols::builtin_set_default_toplevel_value(
+                self,
+                vec![symbol, value],
+            )?;
+        }
+
+        Ok(Value::from_sym_id(sym_id))
+    }
+
+    fn sf_defconst_value(&mut self, tail: Value) -> EvalResult {
+        if tail.is_nil() {
+            return Err(signal(
+                "wrong-number-of-arguments",
+                vec![Value::symbol("defconst"), Value::fixnum(0)],
+            ));
+        }
+        if !tail.is_cons() {
+            return Err(self.listp_error(tail));
+        }
+        let symbol = tail.cons_car();
+        let Some(sym_id) = symbol.as_symbol_id() else {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("symbolp"), symbol],
+            ));
+        };
+        let mut rest = tail.cons_cdr();
+        if rest.is_nil() {
+            return Err(signal(
+                "wrong-number-of-arguments",
+                vec![Value::symbol("defconst"), Value::fixnum(1)],
+            ));
+        }
+        if !rest.is_cons() {
+            return Err(self.listp_error(tail));
+        }
+        let init_form = rest.cons_car();
+        rest = rest.cons_cdr();
+        let documentation = if rest.is_nil() {
+            Value::NIL
+        } else if rest.is_cons() {
+            let doc = rest.cons_car();
+            rest = rest.cons_cdr();
+            if !rest.is_nil() {
+                return Err(signal("error", vec![Value::string("Too many arguments")]));
+            }
+            doc
+        } else {
+            return Err(self.listp_error(tail));
+        };
+
+        let mut define_args = vec![symbol];
+        if !documentation.is_nil() {
+            define_args.push(documentation);
+        }
+        super::builtins::symbols::builtin_internal_define_uninitialized_variable(
+            self,
+            define_args,
+        )?;
+
+        let value = self.eval_sub(init_form)?;
+        super::custom::builtin_set_default(self, vec![symbol, value])?;
+        self.obarray.make_special_id(sym_id);
+        self.obarray
+            .put_property_id(sym_id, intern("risky-local-variable"), Value::T);
+        Ok(Value::from_sym_id(sym_id))
+    }
+
+    fn sf_catch_value(&mut self, tail: Value) -> EvalResult {
+        if tail.is_nil() {
+            return Err(signal(
+                "wrong-number-of-arguments",
+                vec![Value::symbol("catch"), Value::fixnum(0)],
+            ));
+        }
+        if !tail.is_cons() {
+            return Err(self.listp_error(tail));
+        }
+        let tag = self.eval_sub(tail.cons_car())?;
+        self.temp_roots.push(tag);
+        self.push_condition_frame(ConditionFrame::Catch {
+            tag,
+            resume: ResumeTarget::InterpreterCatch,
+        });
+        let result = match self.sf_progn_value(tail.cons_cdr()) {
+            Ok(value) => Ok(value),
+            Err(Flow::Throw {
+                tag: thrown_tag,
+                value,
+            }) if eq_value(&tag, &thrown_tag) => Ok(value),
+            Err(flow) => Err(flow),
+        };
+        self.pop_condition_frame();
+        self.temp_roots.pop();
+        result
+    }
+
+    fn sf_unwind_protect_value(&mut self, tail: Value) -> EvalResult {
+        if tail.is_nil() {
+            return Err(signal(
+                "wrong-number-of-arguments",
+                vec![Value::symbol("unwind-protect"), Value::fixnum(0)],
+            ));
+        }
+        if !tail.is_cons() {
+            return Err(self.listp_error(tail));
+        }
+        let primary = self.eval_sub(tail.cons_car());
+        let scope = self.open_gc_scope();
+        match &primary {
+            Ok(val) => self.push_temp_root(*val),
+            Err(Flow::Signal(sig)) => {
+                for v in &sig.data {
+                    self.push_temp_root(*v);
+                }
+                if let Some(raw) = &sig.raw_data {
+                    self.push_temp_root(*raw);
+                }
+            }
+            Err(Flow::Throw { tag, value }) => {
+                self.push_temp_root(*tag);
+                self.push_temp_root(*value);
+            }
+        }
+        let cleanup = self.sf_progn_value(tail.cons_cdr());
+        scope.close(self);
+        match cleanup {
+            Ok(_) => primary,
+            Err(flow) => Err(flow),
+        }
+    }
+
+    fn sf_condition_case_value(&mut self, tail: Value) -> EvalResult {
+        let nargs = self.value_list_len_or_error(tail)?;
+        if nargs < 3 {
+            return Err(signal(
+                "wrong-number-of-arguments",
+                vec![Value::symbol("condition-case"), Value::fixnum(nargs as i64)],
+            ));
+        }
+        let var = tail.cons_car();
+        let Some(var_id) = var.as_symbol_id() else {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("symbolp"), var],
+            ));
+        };
+        let rest = tail.cons_cdr();
+        if !rest.is_cons() {
+            return Err(self.listp_error(tail));
+        }
+        let body = rest.cons_car();
+        let handlers = rest.cons_cdr();
+
+        let mut handlers_vec = Vec::new();
+        let mut success_handler_idx: Option<usize> = None;
+        let mut cursor = handlers;
+        while cursor.is_cons() {
+            let handler = cursor.cons_car();
+            let handler_index = handlers_vec.len();
+            handlers_vec.push(handler);
+            cursor = cursor.cons_cdr();
+            if handler.is_nil() {
+                continue;
+            }
+            if !handler.is_cons() {
+                return Err(signal(
+                    "error",
+                    vec![Value::string(format!(
+                        "Invalid condition handler: {}",
+                        super::print::print_value(&handler)
+                    ))],
+                ));
+            }
+            let head = handler.cons_car();
+            if !(head.is_symbol() || head.is_cons()) {
+                return Err(signal(
+                    "error",
+                    vec![Value::string(format!(
+                        "Invalid condition handler: {}",
+                        super::print::print_value(&handler)
+                    ))],
+                ));
+            }
+            if head.is_symbol_named(":success") {
+                success_handler_idx = Some(handler_index);
+            }
+        }
+        if !cursor.is_nil() {
+            return Err(self.listp_error(handlers));
+        }
+
+        let condition_stack_base = self.condition_stack_len();
+        for (idx, handler) in handlers_vec.iter().enumerate().rev() {
+            if success_handler_idx == Some(idx) || handler.is_nil() {
+                continue;
+            }
+            if !handler.is_cons() {
+                continue;
+            }
+            let conditions = handler.cons_car();
+            self.push_condition_frame(ConditionFrame::ConditionCase {
+                conditions,
+                resume: ResumeTarget::InterpreterConditionCase {
+                    handler_index: idx,
+                    condition_stack_base,
+                },
+            });
+        }
+
+        match self.eval_sub(body) {
+            Ok(value) => {
+                self.truncate_condition_stack(condition_stack_base);
+                if let Some(idx) = success_handler_idx {
+                    let handler = handlers_vec[idx];
+                    let bind_var = !var.is_nil();
+                    let specpdl_count = self.specpdl.len();
+                    if bind_var {
+                        self.specbind(var_id, value);
+                    }
+                    let result = self.sf_progn_value(handler.cons_cdr());
+                    self.unbind_to(specpdl_count);
+                    return result;
+                }
+                Ok(value)
+            }
+            Err(Flow::Signal(sig)) => {
+                let sig = match self.dispatch_signal_if_needed(sig) {
+                    Ok(dispatched) => dispatched,
+                    Err(flow) => {
+                        self.truncate_condition_stack(condition_stack_base);
+                        return Err(flow);
+                    }
+                };
+                self.truncate_condition_stack(condition_stack_base);
+                if let Some(ResumeTarget::InterpreterConditionCase {
+                    handler_index,
+                    condition_stack_base: selected_stack_base,
+                }) = sig.selected_resume.clone()
+                    && selected_stack_base == condition_stack_base
+                {
+                    let handler = handlers_vec[handler_index];
+                    let bind_var = !var.is_nil();
+                    let binding_value = make_signal_binding_value(&sig);
+                    let use_lexical_binding = bind_var
+                        && self.lexical_binding()
+                        && !is_runtime_dynamically_special(&self.obarray, var_id)
+                        && !lexenv_declares_special(self.lexenv, var_id);
+
+                    let specpdl_count = self.specpdl.len();
+                    let pushed_lexenv = if use_lexical_binding {
+                        let saved = self.lexenv;
+                        self.saved_lexenvs.push(saved);
+                        self.bind_lexical_value_rooted(var_id, binding_value);
+                        true
+                    } else {
+                        if bind_var {
+                            self.specbind(var_id, binding_value);
+                        }
+                        false
+                    };
+                    let result = self.sf_progn_value(handler.cons_cdr());
+                    self.unbind_to(specpdl_count);
+                    if pushed_lexenv {
+                        self.lexenv = self.saved_lexenvs.pop().unwrap();
+                    }
+                    return result;
+                }
+                Err(Flow::Signal(sig))
+            }
+            Err(flow @ Flow::Throw { .. }) => {
+                self.truncate_condition_stack(condition_stack_base);
+                Err(flow)
+            }
+        }
+    }
+
+    fn sf_save_excursion_value(&mut self, tail: Value) -> EvalResult {
+        let saved_buf = self.buffers.current_buffer().map(|b| b.id);
+        let saved_marker = saved_buf.and_then(|buf_id| {
+            let point = self.buffers.get(buf_id).map(|buf| buf.pt)?;
+            Some(
+                self.buffers
+                    .create_marker(buf_id, point, InsertionType::Before),
+            )
+        });
+        let result = self.sf_progn_value(tail);
+        if let Some(buf_id) = saved_buf {
+            self.restore_current_buffer_if_live(buf_id);
+            if let Some(marker_id) = saved_marker {
+                if let Some(saved_pt) = self.buffers.marker_position(buf_id, marker_id) {
+                    let _ = self.buffers.goto_buffer_byte(buf_id, saved_pt);
+                }
+                self.buffers.remove_marker(marker_id);
+            }
+        }
+        result
+    }
+
+    fn sf_save_current_buffer_value(&mut self, tail: Value) -> EvalResult {
+        let saved_buf = self.buffers.current_buffer().map(|b| b.id);
+        let result = self.sf_progn_value(tail);
+        if let Some(saved_id) = saved_buf {
+            self.restore_current_buffer_if_live(saved_id);
+        }
+        result
+    }
+
+    fn sf_save_restriction_value(&mut self, tail: Value) -> EvalResult {
+        let saved = self.buffers.save_current_restriction_state();
+        let saved_roots_len = self.temp_roots.len();
+        if let Some(saved) = &saved {
+            saved.trace_roots(&mut self.temp_roots);
+        }
+        let result = self.sf_progn_value(tail);
+        if let Some(saved) = saved {
+            self.buffers.restore_saved_restriction_state(saved);
+        }
+        self.temp_roots.truncate(saved_roots_len);
+        result
     }
 
     fn sf_quote(&mut self, tail: &[Expr]) -> EvalResult {
@@ -8021,7 +9011,7 @@ impl Context {
     pub(crate) fn push_runtime_backtrace_frame(&mut self, function: Value, args: &[Value]) {
         self.runtime_backtrace.push(RuntimeBacktraceFrame {
             function,
-            args: args.iter().copied().collect(),
+            args: RuntimeBacktraceArgs::borrowed(args),
             evaluated: true,
             debug_on_exit: false,
         });
@@ -8034,11 +9024,11 @@ impl Context {
     pub(crate) fn with_runtime_backtrace_frame(
         &mut self,
         function: Value,
-        args: &[Value],
-        f: impl FnOnce(&mut Self) -> EvalResult,
+        args: Vec<Value>,
+        f: impl FnOnce(&mut Self, Vec<Value>) -> EvalResult,
     ) -> EvalResult {
-        self.push_runtime_backtrace_frame(function, args);
-        let result = f(self);
+        self.push_runtime_backtrace_frame(function, &args);
+        let result = f(self, args);
         self.pop_runtime_backtrace_frame();
         result
     }
@@ -8080,8 +9070,7 @@ impl Context {
     /// Called by both the tree-walking interpreter (via apply) and the
     /// bytecode VM (via Vm::call_function).
     pub(crate) fn funcall_general(&mut self, function: Value, args: Vec<Value>) -> EvalResult {
-        let frame_args = args.clone();
-        self.with_runtime_backtrace_frame(function, &frame_args, |eval| {
+        self.with_runtime_backtrace_frame(function, args, |eval, args| {
             eval.funcall_general_untraced(function, args)
         })
     }
@@ -8147,7 +9136,7 @@ impl Context {
                 };
                 let env_value = if self
                     .obarray
-                    .symbol_value("lexical-binding")
+                    .symbol_value_id(lexical_binding_symbol())
                     .is_some_and(|value| value.is_truthy())
                     || !self.lexenv.is_nil()
                 {
@@ -8394,8 +9383,7 @@ impl Context {
         invalid_fn: Value,
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
-        let frame_args = args.clone();
-        self.with_runtime_backtrace_frame(Value::from_sym_id(sym_id), &frame_args, |eval| {
+        self.with_runtime_backtrace_frame(Value::from_sym_id(sym_id), args, |eval, args| {
             eval.apply_named_callable_by_id_core(
                 sym_id,
                 args,
@@ -8414,8 +9402,7 @@ impl Context {
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
         let frame_function = Value::symbol(name);
-        let frame_args = args.clone();
-        self.with_runtime_backtrace_frame(frame_function, &frame_args, |eval| {
+        self.with_runtime_backtrace_frame(frame_function, args, |eval, args| {
             eval.apply_named_callable_core(name, args, invalid_fn, rewrite_builtin_wrong_arity)
         })
     }
@@ -9405,8 +10392,7 @@ impl Context {
         &self,
         resolved: SymId,
     ) -> Option<Value> {
-        let resolved_name = resolve_sym(resolved);
-        let resolved_is_canonical = builtins::is_canonical_symbol_id(resolved);
+        let (resolved_name, resolved_is_canonical) = resolve_sym_metadata(resolved);
 
         if resolved_is_canonical
             && let Some(buf) = self.buffers.current_buffer()

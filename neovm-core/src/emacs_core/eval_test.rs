@@ -242,6 +242,26 @@ fn condition_case_leaves_shared_condition_stack_balanced() {
 }
 
 #[test]
+fn condition_case_value_path_catches_default_toplevel_value_signal() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let forms = parse_forms(
+        "(condition-case nil
+            (default-toplevel-value 'vm-unbound-value-path)
+          (error 'caught))",
+    )
+    .expect("parse");
+    let form = quote_to_value(&forms[0]);
+    let result = ev.eval_sub(form);
+    assert_eq!(
+        format_eval_result(&result.map_err(crate::emacs_core::error::map_flow)),
+        "OK caught"
+    );
+    assert_eq!(ev.condition_stack_depth_for_test(), 0);
+    assert!(ev.top_level_eval_state_is_clean());
+}
+
+#[test]
 fn handler_bind_1_leaves_shared_condition_stack_balanced() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

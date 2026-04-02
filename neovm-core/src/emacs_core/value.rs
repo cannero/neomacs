@@ -795,11 +795,23 @@ impl TaggedValue {
     }
 
     /// Build a proper list from a Vec.
-    pub fn list(values: Vec<Value>) -> Self {
-        values
-            .into_iter()
-            .rev()
-            .fold(Value::NIL, |acc, item| Value::cons(item, acc))
+    pub fn list(mut values: Vec<Value>) -> Self {
+        let mut acc = Value::NIL;
+        while let Some(item) = values.pop() {
+            acc = Value::cons(item, acc);
+        }
+        acc
+    }
+
+    /// Build a proper list from a slice without first cloning into a `Vec`.
+    pub fn list_from_slice(values: &[Value]) -> Self {
+        let mut acc = Value::NIL;
+        let mut idx = values.len();
+        while idx > 0 {
+            idx -= 1;
+            acc = Value::cons(values[idx], acc);
+        }
+        acc
     }
 
     /// Allocate a vector (old API name).
@@ -1697,18 +1709,14 @@ pub fn lexenv_assq(lexenv: Value, sym_id: SymId) -> Option<Value> {
 fn lexenv_binding_symbol_id(value: Value) -> Option<SymId> {
     match value.kind() {
         ValueKind::Symbol(sym) => Some(sym),
-        ValueKind::T => Some(intern("t")),
-        ValueKind::Nil => Some(intern("nil")),
+        ValueKind::T => Some(SymId(1)),
+        ValueKind::Nil => Some(SymId(0)),
         _ => None,
     }
 }
 
 fn lexenv_binding_symbol_value(sym_id: SymId) -> Value {
-    match resolve_sym(sym_id) {
-        "t" => Value::T,
-        "nil" => Value::NIL,
-        _ => TaggedValue::from_sym_id(sym_id),
-    }
+    TaggedValue::from_sym_id(sym_id)
 }
 
 /// Look up symbol value in a cons-alist lexenv.

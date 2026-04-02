@@ -205,8 +205,13 @@ fn eval_generated_form_args(
     args: &[Expr],
 ) -> Result<Vec<Value>, EvalError> {
     args.iter()
-        .map(|expr| eval.eval(expr).map_err(map_flow))
+        .map(|expr| eval_runtime_form(eval, expr))
         .collect()
+}
+
+fn eval_runtime_form(eval: &mut super::eval::Context, form: &Expr) -> Result<Value, EvalError> {
+    let form_value = eval.quote_to_runtime_value(form);
+    eval.eval_sub(form_value).map_err(map_flow)
 }
 
 fn generated_defalias(eval: &mut super::eval::Context, args: &[Expr]) -> Result<Value, EvalError> {
@@ -283,7 +288,7 @@ fn eval_generated_loaddefs_form(
     if let Some(value) = try_eval_generated_loaddefs_form(eval, form)? {
         return Ok(value);
     }
-    eval.eval_expr(form)
+    eval_runtime_form(eval, form)
 }
 
 fn has_load_suffix(name: &str) -> bool {
@@ -957,7 +962,7 @@ where
                 for (j, frame) in eval.runtime_backtrace.iter().rev().enumerate() {
                     let func_name = super::print::print_value(&frame.function);
                     let args_str = frame
-                        .args
+                        .args()
                         .iter()
                         .take(4)
                         .map(|a| {
@@ -970,7 +975,7 @@ where
                         })
                         .collect::<Vec<_>>()
                         .join(" ");
-                    let ellipsis = if frame.args.len() > 4 { " ..." } else { "" };
+                    let ellipsis = if frame.args_len() > 4 { " ..." } else { "" };
                     tracing::error!("    {j}: ({func_name} {args_str}{ellipsis})");
                     if j >= 20 {
                         tracing::error!(
@@ -1140,7 +1145,7 @@ fn load_file_body(
                     for form in &loaded.forms {
                         match form {
                             super::file_compile_format::LoadedForm::Eval(expr) => {
-                                eval.eval_expr(expr)?;
+                                eval_runtime_form(eval, expr)?;
                             }
                             super::file_compile_format::LoadedForm::Constant(_) => {
                                 // eval-when-compile constant -- already evaluated, skip.
@@ -1223,7 +1228,7 @@ fn load_file_body(
                 let reified = eval
                     .reify_byte_code_literals(form)
                     .map_err(crate::emacs_core::error::map_flow)?;
-                eval.eval_expr(&reified)
+                eval_runtime_form(eval, &reified)
             })?;
             record_load_history(eval, path);
             return Ok(Value::T);
@@ -1237,7 +1242,7 @@ fn load_file_body(
             })?;
         } else {
             readevalloop(eval, &file_name, &forms, &[], |eval, _i, form| {
-                eval.eval_expr(form)
+                eval_runtime_form(eval, form)
             })?;
         }
 
@@ -2156,7 +2161,7 @@ fn normalize_bootstrap_runtime_surface(
         .iter()
         .chain(runtime_loaddefs_state.property_forms.iter())
     {
-        eval.eval_expr(form)?;
+        eval_runtime_form(eval, form)?;
     }
 
     Ok(())
@@ -2290,7 +2295,7 @@ fn eval_first_form_after_marker(
         ))],
         raw_data: None,
     })?;
-    eval.eval_expr(form)?;
+    eval_runtime_form(eval, form)?;
     Ok(())
 }
 
@@ -2406,7 +2411,7 @@ fn repair_runtime_global_prefix_links(
             if resolve_sym(*map_id) != "global-map" {
                 continue;
             }
-            eval.eval_expr(form)?;
+            eval_runtime_form(eval, form)?;
         }
     }
 

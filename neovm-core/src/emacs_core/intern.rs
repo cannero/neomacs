@@ -195,6 +195,14 @@ pub fn is_canonical_id(id: SymId) -> bool {
     interner.is_canonical_id(id)
 }
 
+#[inline]
+pub fn resolve_sym_metadata(id: SymId) -> (&'static str, bool) {
+    let interner = global_interner()
+        .read()
+        .expect("global interner poisoned during metadata lookup");
+    (interner.resolve(id), interner.is_canonical_id(id))
+}
+
 /// Resolve a SymId to its string using the global runtime interner.
 ///
 #[inline]
