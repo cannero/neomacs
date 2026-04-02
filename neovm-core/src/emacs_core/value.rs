@@ -272,10 +272,6 @@ fn string_text_props(value: Value) -> Option<&'static TextPropertyTable> {
     Some(unsafe { &(*ptr).text_props })
 }
 
-fn string_text_props_mut(value: Value) -> Option<&'static mut TextPropertyTable> {
-    mutate::string_text_props_mut_ref(value)
-}
-
 /// String text properties now live on the string object itself.
 ///
 /// Heap resets automatically discard them with the owning string, so there is
@@ -286,9 +282,9 @@ pub fn reset_string_text_properties() {}
 pub fn collect_string_text_prop_gc_roots(_roots: &mut Vec<Value>) {}
 
 pub fn set_string_text_properties_table_for_value(value: Value, table: TextPropertyTable) {
-    if let Some(props) = string_text_props_mut(value) {
+    let _ = mutate::with_string_text_props_mut(value, |props| {
         *props = table;
-    }
+    });
 }
 
 pub fn set_string_text_properties_for_value(value: Value, runs: Vec<StringTextPropertyRun>) {
@@ -989,8 +985,7 @@ impl TaggedValue {
 
     /// Mutate closure slots through the centralized tagged-runtime write path.
     pub fn with_closure_slots_mut<R>(self, f: impl FnOnce(&mut Vec<Value>) -> R) -> Option<R> {
-        let data = mutate::closure_slots_mut_ref(self)?;
-        Some(f(data))
+        mutate::with_closure_slots_mut(self, f)
     }
 
     /// Replace the entire closure slot vector through the centralized write path.
@@ -1134,8 +1129,7 @@ impl TaggedValue {
         self,
         f: impl FnOnce(&mut crate::heap_types::MarkerData) -> R,
     ) -> Option<R> {
-        let data = mutate::marker_data_mut_ref(self)?;
-        Some(f(data))
+        mutate::with_marker_data_mut(self, f)
     }
 
     /// Get the overlay data from an overlay value.
@@ -1153,8 +1147,7 @@ impl TaggedValue {
         self,
         f: impl FnOnce(&mut crate::heap_types::OverlayData) -> R,
     ) -> Option<R> {
-        let data = mutate::overlay_data_mut_ref(self)?;
-        Some(f(data))
+        mutate::with_overlay_data_mut(self, f)
     }
 
     /// Get vector elements.
@@ -1169,8 +1162,7 @@ impl TaggedValue {
 
     /// Mutate vector elements through the centralized tagged-runtime write path.
     pub fn with_vector_data_mut<R>(self, f: impl FnOnce(&mut Vec<Value>) -> R) -> Option<R> {
-        let data = mutate::vector_data_mut_ref(self)?;
-        Some(f(data))
+        mutate::with_vector_data_mut(self, f)
     }
 
     /// Replace the entire contents of a vector value.
@@ -1195,8 +1187,7 @@ impl TaggedValue {
 
     /// Mutate record elements through the centralized tagged-runtime write path.
     pub fn with_record_data_mut<R>(self, f: impl FnOnce(&mut Vec<Value>) -> R) -> Option<R> {
-        let data = mutate::record_data_mut_ref(self)?;
-        Some(f(data))
+        mutate::with_record_data_mut(self, f)
     }
 
     /// Replace the entire contents of a record value.
@@ -1230,8 +1221,7 @@ impl TaggedValue {
 
     /// Mutate a hash table through the centralized tagged-runtime write path.
     pub fn with_hash_table_mut<R>(self, f: impl FnOnce(&mut LispHashTable) -> R) -> Option<R> {
-        let table = mutate::hash_table_mut_ref(self)?;
-        Some(f(table))
+        mutate::with_hash_table_mut(self, f)
     }
 
     /// Replace the entire contents of a hash table value.
@@ -1245,14 +1235,12 @@ impl TaggedValue {
         self,
         f: impl FnOnce(&mut super::bytecode::ByteCodeFunction) -> R,
     ) -> Option<R> {
-        let data = mutate::bytecode_data_mut_ref(self)?;
-        Some(f(data))
+        mutate::with_bytecode_data_mut(self, f)
     }
 
     /// Mutate string data through the centralized tagged-runtime write path.
     pub fn with_lisp_string_mut<R>(self, f: impl FnOnce(&mut LispString) -> R) -> Option<R> {
-        let string = mutate::lisp_string_mut_ref(self)?;
-        Some(f(string))
+        mutate::with_lisp_string_mut(self, f)
     }
 
     /// Convert to hash key based on the hash table test.

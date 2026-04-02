@@ -40,75 +40,72 @@ pub fn set_cons_cdr(cell: TaggedValue, value: TaggedValue) -> bool {
 }
 
 #[inline]
-pub fn vector_data_mut_ref(value: TaggedValue) -> Option<&'static mut Vec<TaggedValue>> {
+pub fn with_vector_data_mut<R>(
+    value: TaggedValue,
+    f: impl FnOnce(&mut Vec<TaggedValue>) -> R,
+) -> Option<R> {
     if value.veclike_type()? != VecLikeType::Vector {
         return None;
     }
     note_heap_write(value);
     let ptr = value.as_veclike_ptr().unwrap() as *mut VectorObj;
-    Some(unsafe { &mut (*ptr).data })
+    Some(f(unsafe { &mut (*ptr).data }))
 }
 
 #[inline]
 pub fn replace_vector_data(value: TaggedValue, items: Vec<TaggedValue>) -> bool {
-    let data = match vector_data_mut_ref(value) {
-        Some(data) => data,
-        None => return false,
-    };
-    *data = items;
-    true
+    with_vector_data_mut(value, |data| *data = items).is_some()
 }
 
 #[inline]
 pub fn set_vector_slot(value: TaggedValue, index: usize, item: TaggedValue) -> bool {
-    let data = match vector_data_mut_ref(value) {
-        Some(data) => data,
-        None => return false,
-    };
-    let slot = match data.get_mut(index) {
-        Some(slot) => slot,
-        None => return false,
-    };
-    *slot = item;
-    true
+    with_vector_data_mut(value, |data| {
+        let slot = match data.get_mut(index) {
+            Some(slot) => slot,
+            None => return false,
+        };
+        *slot = item;
+        true
+    })
+    .unwrap_or(false)
 }
 
 #[inline]
-pub fn record_data_mut_ref(value: TaggedValue) -> Option<&'static mut Vec<TaggedValue>> {
+pub fn with_record_data_mut<R>(
+    value: TaggedValue,
+    f: impl FnOnce(&mut Vec<TaggedValue>) -> R,
+) -> Option<R> {
     if value.veclike_type()? != VecLikeType::Record {
         return None;
     }
     note_heap_write(value);
     let ptr = value.as_veclike_ptr().unwrap() as *mut RecordObj;
-    Some(unsafe { &mut (*ptr).data })
+    Some(f(unsafe { &mut (*ptr).data }))
 }
 
 #[inline]
 pub fn replace_record_data(value: TaggedValue, items: Vec<TaggedValue>) -> bool {
-    let data = match record_data_mut_ref(value) {
-        Some(data) => data,
-        None => return false,
-    };
-    *data = items;
-    true
+    with_record_data_mut(value, |data| *data = items).is_some()
 }
 
 #[inline]
 pub fn set_record_slot(value: TaggedValue, index: usize, item: TaggedValue) -> bool {
-    let data = match record_data_mut_ref(value) {
-        Some(data) => data,
-        None => return false,
-    };
-    let slot = match data.get_mut(index) {
-        Some(slot) => slot,
-        None => return false,
-    };
-    *slot = item;
-    true
+    with_record_data_mut(value, |data| {
+        let slot = match data.get_mut(index) {
+            Some(slot) => slot,
+            None => return false,
+        };
+        *slot = item;
+        true
+    })
+    .unwrap_or(false)
 }
 
 #[inline]
-pub fn closure_slots_mut_ref(value: TaggedValue) -> Option<&'static mut Vec<TaggedValue>> {
+pub fn with_closure_slots_mut<R>(
+    value: TaggedValue,
+    f: impl FnOnce(&mut Vec<TaggedValue>) -> R,
+) -> Option<R> {
     note_heap_write(value);
     match value.veclike_type()? {
         VecLikeType::Lambda => {
@@ -116,7 +113,7 @@ pub fn closure_slots_mut_ref(value: TaggedValue) -> Option<&'static mut Vec<Tagg
             unsafe {
                 let obj = &mut *ptr;
                 let _ = obj.parsed_params.take();
-                Some(&mut obj.data)
+                Some(f(&mut obj.data))
             }
         }
         VecLikeType::Macro => {
@@ -124,7 +121,7 @@ pub fn closure_slots_mut_ref(value: TaggedValue) -> Option<&'static mut Vec<Tagg
             unsafe {
                 let obj = &mut *ptr;
                 let _ = obj.parsed_params.take();
-                Some(&mut obj.data)
+                Some(f(&mut obj.data))
             }
         }
         _ => None,
@@ -133,78 +130,90 @@ pub fn closure_slots_mut_ref(value: TaggedValue) -> Option<&'static mut Vec<Tagg
 
 #[inline]
 pub fn replace_closure_slots(value: TaggedValue, slots: Vec<TaggedValue>) -> bool {
-    let data = match closure_slots_mut_ref(value) {
-        Some(data) => data,
-        None => return false,
-    };
-    *data = slots;
-    true
+    with_closure_slots_mut(value, |data| *data = slots).is_some()
 }
 
 #[inline]
 pub fn set_closure_slot(value: TaggedValue, index: usize, item: TaggedValue) -> bool {
-    let data = match closure_slots_mut_ref(value) {
-        Some(data) => data,
-        None => return false,
-    };
-    let slot = match data.get_mut(index) {
-        Some(slot) => slot,
-        None => return false,
-    };
-    *slot = item;
-    true
+    with_closure_slots_mut(value, |data| {
+        let slot = match data.get_mut(index) {
+            Some(slot) => slot,
+            None => return false,
+        };
+        *slot = item;
+        true
+    })
+    .unwrap_or(false)
 }
 
 #[inline]
-pub fn string_text_props_mut_ref(value: TaggedValue) -> Option<&'static mut TextPropertyTable> {
+pub fn with_string_text_props_mut<R>(
+    value: TaggedValue,
+    f: impl FnOnce(&mut TextPropertyTable) -> R,
+) -> Option<R> {
     let ptr = value.as_string_ptr()? as *mut StringObj;
     note_heap_write(value);
-    Some(unsafe { &mut (*ptr).text_props })
+    Some(f(unsafe { &mut (*ptr).text_props }))
 }
 
 #[inline]
-pub fn lisp_string_mut_ref(value: TaggedValue) -> Option<&'static mut LispString> {
+pub fn with_lisp_string_mut<R>(
+    value: TaggedValue,
+    f: impl FnOnce(&mut LispString) -> R,
+) -> Option<R> {
     let ptr = value.as_string_ptr()? as *mut StringObj;
     note_heap_write(value);
-    Some(unsafe { &mut (*ptr).data })
+    Some(f(unsafe { &mut (*ptr).data }))
 }
 
 #[inline]
-pub fn hash_table_mut_ref(value: TaggedValue) -> Option<&'static mut LispHashTable> {
+pub fn with_hash_table_mut<R>(
+    value: TaggedValue,
+    f: impl FnOnce(&mut LispHashTable) -> R,
+) -> Option<R> {
     if value.veclike_type()? != VecLikeType::HashTable {
         return None;
     }
     note_heap_write(value);
     let ptr = value.as_veclike_ptr().unwrap() as *mut HashTableObj;
-    Some(unsafe { &mut (*ptr).table })
+    Some(f(unsafe { &mut (*ptr).table }))
 }
 
 #[inline]
-pub fn bytecode_data_mut_ref(value: TaggedValue) -> Option<&'static mut ByteCodeFunction> {
+pub fn with_bytecode_data_mut<R>(
+    value: TaggedValue,
+    f: impl FnOnce(&mut ByteCodeFunction) -> R,
+) -> Option<R> {
     if value.veclike_type()? != VecLikeType::ByteCode {
         return None;
     }
     note_heap_write(value);
     let ptr = value.as_veclike_ptr().unwrap() as *mut ByteCodeObj;
-    Some(unsafe { &mut (*ptr).data })
+    Some(f(unsafe { &mut (*ptr).data }))
 }
 
 #[inline]
-pub fn marker_data_mut_ref(value: TaggedValue) -> Option<&'static mut MarkerData> {
+pub fn with_marker_data_mut<R>(
+    value: TaggedValue,
+    f: impl FnOnce(&mut MarkerData) -> R,
+) -> Option<R> {
     if value.veclike_type()? != VecLikeType::Marker {
         return None;
     }
     note_heap_write(value);
     let ptr = value.as_veclike_ptr().unwrap() as *mut MarkerObj;
-    Some(unsafe { &mut (*ptr).data })
+    Some(f(unsafe { &mut (*ptr).data }))
 }
 
 #[inline]
-pub fn overlay_data_mut_ref(value: TaggedValue) -> Option<&'static mut OverlayData> {
+pub fn with_overlay_data_mut<R>(
+    value: TaggedValue,
+    f: impl FnOnce(&mut OverlayData) -> R,
+) -> Option<R> {
     if value.veclike_type()? != VecLikeType::Overlay {
         return None;
     }
     note_heap_write(value);
     let ptr = value.as_veclike_ptr().unwrap() as *mut OverlayObj;
-    Some(unsafe { &mut (*ptr).data })
+    Some(f(unsafe { &mut (*ptr).data }))
 }

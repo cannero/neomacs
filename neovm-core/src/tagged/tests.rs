@@ -189,7 +189,9 @@ fn vector_mutation_helper_updates_elements() {
     let mut heap = super::gc::TaggedHeap::new();
 
     let vec = heap.alloc_vector(vec![TaggedValue::fixnum(10), TaggedValue::fixnum(20)]);
-    super::mutate::vector_data_mut_ref(vec).unwrap()[1] = TaggedValue::fixnum(99);
+    let _ = super::mutate::with_vector_data_mut(vec, |items| {
+        items[1] = TaggedValue::fixnum(99);
+    });
 
     let items = unsafe { &(*(vec.as_veclike_ptr().unwrap() as *const VectorObj)).data };
     assert_eq!(items[0].as_fixnum(), Some(10));
