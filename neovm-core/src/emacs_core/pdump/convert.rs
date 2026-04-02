@@ -3,8 +3,8 @@
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use super::types::*;
 use super::DumpError;
+use super::types::*;
 use crate::buffer::buffer::{Buffer, BufferId, BufferManager, InsertionType, MarkerEntry};
 use crate::buffer::buffer_text::BufferText;
 use crate::buffer::overlay::{Overlay, OverlayList};
@@ -18,16 +18,16 @@ use crate::emacs_core::bookmark::{Bookmark, BookmarkManager};
 use crate::emacs_core::bytecode::chunk::ByteCodeFunction;
 use crate::emacs_core::bytecode::opcode::Op;
 use crate::emacs_core::charset::{
-    restore_charset_registry, snapshot_charset_registry, CharsetInfoSnapshot,
-    CharsetMethodSnapshot, CharsetRegistrySnapshot,
+    CharsetInfoSnapshot, CharsetMethodSnapshot, CharsetRegistrySnapshot, restore_charset_registry,
+    snapshot_charset_registry,
 };
 use crate::emacs_core::coding::{CodingSystemInfo, CodingSystemManager, EolType};
 use crate::emacs_core::custom::CustomManager;
 use crate::emacs_core::eval::Context;
 use crate::emacs_core::expr::Expr;
 use crate::emacs_core::fontset::{
-    restore_fontset_registry, snapshot_fontset_registry, FontRepertory, FontSpecEntry,
-    FontsetDataSnapshot, FontsetRangeEntrySnapshot, FontsetRegistrySnapshot, StoredFontSpec,
+    FontRepertory, FontSpecEntry, FontsetDataSnapshot, FontsetRangeEntrySnapshot,
+    FontsetRegistrySnapshot, StoredFontSpec, restore_fontset_registry, snapshot_fontset_registry,
 };
 use crate::emacs_core::interactive::{InteractiveRegistry, InteractiveSpec};
 use crate::emacs_core::intern::{self, SymId};

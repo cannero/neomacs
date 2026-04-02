@@ -62,23 +62,13 @@ fn keyword_identity_is_consistent_across_constructors() {
             &keyword_from_symbol_ctor,
             &keyword_from_keyword_ctor
         ));
-        assert!(eq_value(
-            &keyword_from_symbol_ctor,
-            &keyword_from_bare_ctor
-        ));
-        assert!(eq_value(
-            &keyword_from_symbol_ctor,
-            &keyword_from_sym_id
-        ));
+        assert!(eq_value(&keyword_from_symbol_ctor, &keyword_from_bare_ctor));
+        assert!(eq_value(&keyword_from_symbol_ctor, &keyword_from_sym_id));
 
         // Bare `kw` and keyword `:kw` are distinct GNU symbols.
         let bare_symbol = Value::symbol("kw");
         assert!(!eq_value(&keyword_from_symbol_ctor, &bare_symbol));
-        assert!(!equal_value(
-            &keyword_from_symbol_ctor,
-            &bare_symbol,
-            0
-        ));
+        assert!(!equal_value(&keyword_from_symbol_ctor, &bare_symbol, 0));
 
         for test in [HashTableTest::Eq, HashTableTest::Eql, HashTableTest::Equal] {
             let left = keyword_from_symbol_ctor.to_hash_key(&test);

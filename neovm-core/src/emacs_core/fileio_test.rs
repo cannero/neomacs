@@ -1872,16 +1872,20 @@ fn test_builtin_file_predicates_strict_types() {
     assert!(call_fileio_builtin!(builtin_file_regular_p, vec![Value::NIL]).is_err());
     assert!(call_fileio_builtin!(builtin_file_symlink_p, vec![Value::NIL]).is_err());
     assert!(call_fileio_builtin!(builtin_file_name_case_insensitive_p, vec![Value::NIL]).is_err());
-    assert!(call_fileio_builtin!(
-        builtin_file_newer_than_file_p,
-        vec![Value::NIL, Value::string("/tmp")]
-    )
-    .is_err());
-    assert!(call_fileio_builtin!(
-        builtin_file_newer_than_file_p,
-        vec![Value::string("/tmp"), Value::NIL]
-    )
-    .is_err());
+    assert!(
+        call_fileio_builtin!(
+            builtin_file_newer_than_file_p,
+            vec![Value::NIL, Value::string("/tmp")]
+        )
+        .is_err()
+    );
+    assert!(
+        call_fileio_builtin!(
+            builtin_file_newer_than_file_p,
+            vec![Value::string("/tmp"), Value::NIL]
+        )
+        .is_err()
+    );
 }
 
 #[test]
