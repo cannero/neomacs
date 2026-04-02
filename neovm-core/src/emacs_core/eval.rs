@@ -75,10 +75,7 @@ use super::doc::{STARTUP_VARIABLE_DOC_STRING_PROPERTIES, STARTUP_VARIABLE_DOC_ST
 use super::error::*;
 use super::expr::Expr;
 use super::interactive::InteractiveRegistry;
-use super::intern::{
-    StringInterner, SymId, clear_current_interner, current_interner_ptr, intern, intern_uninterned,
-    lookup_interned, resolve_sym, set_current_interner,
-};
+use super::intern::{SymId, intern, intern_uninterned, lookup_interned, resolve_sym};
 use super::keymap::{
     list_keymap_define, list_keymap_set_parent, make_list_keymap, make_sparse_list_keymap,
 };
@@ -662,9 +659,9 @@ pub trait DisplayHost {
 /// The Elisp evaluator.
 ///
 /// # Safety: Send
-/// Evaluator is inherently single-threaded (uses thread-local heap + interner).
+/// Evaluator is inherently single-threaded (uses thread-local heap and caches).
 /// # Safety: Send
-/// Context is inherently single-threaded (uses thread-local heap + interner).
+/// Context is inherently single-threaded (uses thread-local heap and caches).
 /// `neovm-worker` moves the Context to a worker thread inside
 /// `Arc<Mutex<..>>`, which ensures exclusive access.
 // SAFETY: Rc is !Send only because it uses non-atomic refcounting.
@@ -758,8 +755,6 @@ pub struct Context {
     /// identity checks (`eq`) and dispatch both operate on the GNU-compatible
     /// callable object itself.
     pub(crate) subr_registry: Vec<Option<Value>>,
-    /// String interner for symbol/keyword/subr names (SymId handles).
-    pub(crate) interner: Box<StringInterner>,
     /// Tagged pointer heap — sole GC and allocator.
     pub(crate) tagged_heap: Box<crate::tagged::gc::TaggedHeap>,
     /// The obarray — unified symbol table with value cells, function cells, plists.
@@ -1461,21 +1456,10 @@ impl Default for Context {
     }
 }
 
-impl Drop for Context {
-    fn drop(&mut self) {
-        if std::ptr::eq(current_interner_ptr(), &mut *self.interner) {
-            clear_current_interner();
-        }
-    }
-}
-
 impl Context {
     #[inline]
     pub(crate) fn subr_value(&self, sym_id: SymId) -> Option<Value> {
-        self.subr_registry
-            .get(sym_id.0 as usize)
-            .copied()
-            .flatten()
+        self.subr_registry.get(sym_id.0 as usize).copied().flatten()
     }
 
     #[inline]
@@ -1494,7 +1478,8 @@ impl Context {
 
     #[inline]
     fn has_registered_subr(&self, sym_id: SymId) -> bool {
-        self.subr_slot(sym_id).is_some_and(|subr| subr.function.is_some())
+        self.subr_slot(sym_id)
+            .is_some_and(|subr| subr.function.is_some())
     }
 
     fn register_subr_slot(&mut self, sym_id: SymId, subr: Value) {
@@ -1918,10 +1903,8 @@ impl Context {
     }
 
     fn new_inner(reset_thread_locals: bool) -> Self {
-        // Create the interner and heap, set thread-locals so that Value
-        // constructors (symbol, keyword, cons, list, etc.) work during init.
-        let mut interner = Box::new(StringInterner::new());
-        set_current_interner(&mut interner);
+        // Create the heap and set thread-locals so tagged constructors work
+        // during evaluator initialization.
         let mut tagged_heap = Box::new(crate::tagged::gc::TaggedHeap::new());
         crate::tagged::gc::set_tagged_heap(&mut tagged_heap);
 
@@ -3442,7 +3425,6 @@ impl Context {
 
         let mut ev = Self {
             subr_registry: crate::tagged::value::snapshot_current_subrs(),
-            interner,
             tagged_heap,
             obarray,
             specpdl: Vec::new(),
@@ -3515,9 +3497,8 @@ impl Context {
             interpreted_closure_filter_fn: None,
             interpreted_closure_trim_cache: HashMap::new(),
         };
-        // The heap and interner are boxed so their addresses are stable across moves.
-        // Re-point anyway to be explicit about thread-local state.
-        set_current_interner(&mut ev.interner);
+        // The heap is boxed so its address is stable across moves. Re-point
+        // anyway to be explicit about thread-local state.
         crate::tagged::gc::set_tagged_heap(&mut ev.tagged_heap);
         super::syntax::restore_standard_syntax_table_object(ev.standard_syntax_table);
         super::category::restore_standard_category_table_object(ev.standard_category_table);
@@ -3532,11 +3513,10 @@ impl Context {
 
     /// Reconstruct an Context from pdump data.
     ///
-    /// Thread-local pointers (CURRENT_INTERNER, CURRENT_HEAP) and caches
-    /// must already be set by the caller before calling this.
+    /// Thread-local heap pointers and caches must already be set by the caller
+    /// before calling this.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn from_dump(
-        interner: Box<StringInterner>,
         obarray: Obarray,
         lexenv: Value,
         features: Vec<SymId>,
@@ -3577,7 +3557,6 @@ impl Context {
 
         let mut ev = Self {
             subr_registry: crate::tagged::value::snapshot_current_subrs(),
-            interner,
             tagged_heap,
             obarray,
             specpdl: Vec::new(),
@@ -3650,8 +3629,7 @@ impl Context {
             interpreted_closure_filter_fn: None,
             interpreted_closure_trim_cache: HashMap::new(),
         };
-        // Re-point thread-local pointers to the evaluator's owned boxes.
-        set_current_interner(&mut ev.interner);
+        // Re-point thread-local heap pointer to the evaluator's owned box.
         crate::tagged::gc::set_tagged_heap(&mut ev.tagged_heap);
         // Set stack bottom for conservative GC stack scanning (same as Context::new).
         #[cfg(target_os = "linux")]
@@ -3805,12 +3783,11 @@ impl Context {
         self.max_depth = depth;
     }
 
-    /// Set the thread-local interner and heap pointers for the current thread.
+    /// Set the thread-local heap pointers for the current thread.
     ///
     /// Must be called when using an Context from a thread other than the one
     /// that created it (e.g., in worker thread pools).
     pub fn setup_thread_locals(&mut self) {
-        set_current_interner(&mut self.interner);
         crate::tagged::gc::set_tagged_heap(&mut self.tagged_heap);
         super::syntax::restore_standard_syntax_table_object(self.standard_syntax_table);
         super::category::restore_standard_category_table_object(self.standard_category_table);
@@ -9076,8 +9053,9 @@ impl Context {
             subr.function = Some(func);
             existing
         } else {
-            let value =
-                crate::tagged::gc::with_tagged_heap(|h| h.alloc_subr(sym_id, Some(func), min_args, max_args));
+            let value = crate::tagged::gc::with_tagged_heap(|h| {
+                h.alloc_subr(sym_id, Some(func), min_args, max_args)
+            });
             crate::tagged::value::register_current_subr(sym_id, value);
             value
         };

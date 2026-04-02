@@ -414,17 +414,16 @@ fn signal_nil_error_object_with_invalid_symbol_reports_generic_invalid_error() {
 }
 
 #[test]
-fn evaluator_drop_clears_owned_thread_locals() {
+fn evaluator_drop_leaves_symids_resolvable() {
     crate::test_utils::init_test_tracing();
-    {
-        let mut ev = Context::new_minimal_vm_harness();
-        assert!(std::ptr::eq(
-            crate::emacs_core::intern::current_interner_ptr(),
-            &mut *ev.interner,
-        ));
-    }
-
-    assert!(crate::emacs_core::intern::current_interner_ptr().is_null());
+    let sym = {
+        let _ev = Context::new_minimal_vm_harness();
+        crate::emacs_core::intern::intern("drop-stable-symbol")
+    };
+    assert_eq!(
+        crate::emacs_core::intern::resolve_sym(sym),
+        "drop-stable-symbol"
+    );
 }
 
 #[test]

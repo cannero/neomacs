@@ -16,8 +16,8 @@ fn bootstrap_eval(src: &str) -> Vec<String> {
 }
 
 thread_local! {
-    /// Keep the last test Context alive so its interner remains valid
-    /// for error message formatting after the builtin call returns.
+    /// Keep the last test Context alive so heap-backed return values remain
+    /// valid while the assertion code inspects them.
     static LAST_TEST_CTX: std::cell::RefCell<Option<Context>> = const { std::cell::RefCell::new(None) };
 }
 
@@ -25,8 +25,6 @@ macro_rules! call_fileio_builtin {
     ($builtin:ident, $args:expr) => {{
         let mut eval = Context::new();
         let result = $builtin(&mut eval, $args);
-        // Keep the Context (and its interner) alive in a thread-local
-        // so that SymId resolution works when examining the result.
         LAST_TEST_CTX.with(|slot| *slot.borrow_mut() = Some(eval));
         result
     }};
@@ -1874,20 +1872,16 @@ fn test_builtin_file_predicates_strict_types() {
     assert!(call_fileio_builtin!(builtin_file_regular_p, vec![Value::NIL]).is_err());
     assert!(call_fileio_builtin!(builtin_file_symlink_p, vec![Value::NIL]).is_err());
     assert!(call_fileio_builtin!(builtin_file_name_case_insensitive_p, vec![Value::NIL]).is_err());
-    assert!(
-        call_fileio_builtin!(
-            builtin_file_newer_than_file_p,
-            vec![Value::NIL, Value::string("/tmp")]
-        )
-        .is_err()
-    );
-    assert!(
-        call_fileio_builtin!(
-            builtin_file_newer_than_file_p,
-            vec![Value::string("/tmp"), Value::NIL]
-        )
-        .is_err()
-    );
+    assert!(call_fileio_builtin!(
+        builtin_file_newer_than_file_p,
+        vec![Value::NIL, Value::string("/tmp")]
+    )
+    .is_err());
+    assert!(call_fileio_builtin!(
+        builtin_file_newer_than_file_p,
+        vec![Value::string("/tmp"), Value::NIL]
+    )
+    .is_err());
 }
 
 #[test]

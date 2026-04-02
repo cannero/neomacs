@@ -14,9 +14,9 @@ fn intern_dedup() {
 }
 
 #[test]
-fn thread_local_intern() {
+fn runtime_intern() {
     crate::test_utils::init_test_tracing();
-    // Uses fallback interner in test mode
+    // Uses the process-wide runtime interner.
     let a = intern("hello");
     let b = intern("hello");
     let c = intern("world");

@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 use self::convert::*;
 use self::types::DumpContextState;
 use crate::emacs_core::eval::Context;
-use crate::emacs_core::intern::{self, set_current_interner};
+use crate::emacs_core::intern;
 use crate::emacs_core::value;
 
 const MAGIC: &[u8; 8] = b"NEOPDUMP";
@@ -165,9 +165,9 @@ pub fn clone_evaluator(eval: &Context) -> Result<Context, DumpError> {
 
 /// Reconstruct an `Context` from deserialized dump state.
 fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError> {
-    // 1. Reconstruct interner and set thread-local
-    let mut interner = Box::new(load_interner(&state.interner));
-    set_current_interner(&mut interner);
+    // 1. Reconstruct the global append-only symbol table before any values that
+    // refer to SymIds are loaded.
+    load_interner(&state.interner);
 
     // 2. Reconstruct heap (phase 1: all objects except hash table entries)
     let mut heap = Box::new(load_heap(&state.heap)?);
@@ -211,7 +211,6 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
         .collect();
 
     let eval = Context::from_dump(
-        interner,
         obarray,
         lexenv,
         features,

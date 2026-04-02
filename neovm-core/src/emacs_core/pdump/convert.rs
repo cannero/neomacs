@@ -3,8 +3,8 @@
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use super::DumpError;
 use super::types::*;
+use super::DumpError;
 use crate::buffer::buffer::{Buffer, BufferId, BufferManager, InsertionType, MarkerEntry};
 use crate::buffer::buffer_text::BufferText;
 use crate::buffer::overlay::{Overlay, OverlayList};
@@ -18,19 +18,19 @@ use crate::emacs_core::bookmark::{Bookmark, BookmarkManager};
 use crate::emacs_core::bytecode::chunk::ByteCodeFunction;
 use crate::emacs_core::bytecode::opcode::Op;
 use crate::emacs_core::charset::{
-    CharsetInfoSnapshot, CharsetMethodSnapshot, CharsetRegistrySnapshot, restore_charset_registry,
-    snapshot_charset_registry,
+    restore_charset_registry, snapshot_charset_registry, CharsetInfoSnapshot,
+    CharsetMethodSnapshot, CharsetRegistrySnapshot,
 };
 use crate::emacs_core::coding::{CodingSystemInfo, CodingSystemManager, EolType};
 use crate::emacs_core::custom::CustomManager;
 use crate::emacs_core::eval::Context;
 use crate::emacs_core::expr::Expr;
 use crate::emacs_core::fontset::{
-    FontRepertory, FontSpecEntry, FontsetDataSnapshot, FontsetRangeEntrySnapshot,
-    FontsetRegistrySnapshot, StoredFontSpec, restore_fontset_registry, snapshot_fontset_registry,
+    restore_fontset_registry, snapshot_fontset_registry, FontRepertory, FontSpecEntry,
+    FontsetDataSnapshot, FontsetRangeEntrySnapshot, FontsetRegistrySnapshot, StoredFontSpec,
 };
 use crate::emacs_core::interactive::{InteractiveRegistry, InteractiveSpec};
-use crate::emacs_core::intern::{self, StringInterner, SymId};
+use crate::emacs_core::intern::{self, SymId};
 use crate::emacs_core::kmacro::KmacroManager;
 use crate::emacs_core::mode::{
     self, CustomGroup as ModeCustomGroup, CustomType as ModeCustomType,
@@ -399,9 +399,10 @@ pub(crate) fn dump_heap_empty() -> DumpLispHeap {
 
 // --- Interner ---
 
-pub(crate) fn dump_interner(interner: &StringInterner) -> DumpStringInterner {
+pub(crate) fn dump_interner() -> DumpStringInterner {
+    let interner = intern::dump_runtime_interner();
     DumpStringInterner {
-        strings: interner.strings().to_vec(),
+        strings: interner.strings().iter().map(|s| (*s).to_owned()).collect(),
     }
 }
 
@@ -1300,7 +1301,7 @@ fn dump_string_text_property_table(table: &TextPropertyTable) -> Vec<DumpPropert
 pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
     let string_text_props = crate::emacs_core::value::snapshot_string_text_props();
     DumpContextState {
-        interner: dump_interner(&eval.interner),
+        interner: dump_interner(),
         heap: dump_heap_empty(),
         obarray: dump_obarray(&eval.obarray),
         dynamic: Vec::new(),
@@ -1719,8 +1720,8 @@ pub(crate) fn load_heap_hash_tables(heap: &mut LispHeap, dh: &DumpLispHeap) {
 
 // --- Interner ---
 
-pub(crate) fn load_interner(di: &DumpStringInterner) -> StringInterner {
-    StringInterner::from_strings(di.strings.clone())
+pub(crate) fn load_interner(di: &DumpStringInterner) {
+    intern::ensure_runtime_interner(&di.strings);
 }
 
 // --- Symbol / Obarray ---
