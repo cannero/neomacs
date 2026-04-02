@@ -1251,10 +1251,7 @@ fn generate_new_buffer_name_optional_arg_matches_expected_types() {
     .unwrap();
     let with_keyword = builtin_generate_new_buffer_name(
         &mut eval,
-        vec![
-            Value::string("*gnbn-opt*"),
-            Value::keyword("ignored"),
-        ],
+        vec![Value::string("*gnbn-opt*"), Value::keyword("ignored")],
     )
     .unwrap();
     let with_string = builtin_generate_new_buffer_name(
@@ -9225,6 +9222,14 @@ fn macroexpand_runtime_environment_type_and_payload_edges_match_oracle() {
 fn macroexpand_runtime_improper_lists_match_oracle_error_behavior() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
+    let setup = crate::emacs_core::parser::parse_forms(
+        r#"(fset 'vm-improper-macro
+                 (cons 'macro
+                       (lambda (&rest body)
+                         (cons 'progn body))))"#,
+    )
+    .expect("parse local macro");
+    let _ = eval.eval_forms(&setup);
 
     let not_macro = builtin_macroexpand(
         &mut eval,
@@ -9236,11 +9241,10 @@ fn macroexpand_runtime_improper_lists_match_oracle_error_behavior() {
         Value::cons(Value::symbol("foo"), Value::fixnum(1))
     );
 
-    // Use with-temp-buffer (a real GNU Lisp macro) instead of when.
     let improper_macro = builtin_macroexpand(
         &mut eval,
         vec![Value::cons(
-            Value::symbol("with-temp-buffer"),
+            Value::symbol("vm-improper-macro"),
             Value::fixnum(1),
         )],
     )
@@ -9279,11 +9283,9 @@ fn indirect_function_nil_and_non_symbol_behavior() {
         .expect("indirect-function should treat t as a symbol and return nil");
     assert!(true_input.is_nil());
 
-    let keyword_input = builtin_indirect_function(
-        &mut eval,
-        vec![Value::keyword(":vm-indirect-keyword")],
-    )
-    .expect("indirect-function should treat keywords as symbols and return nil");
+    let keyword_input =
+        builtin_indirect_function(&mut eval, vec![Value::keyword(":vm-indirect-keyword")])
+            .expect("indirect-function should treat keywords as symbols and return nil");
     assert!(keyword_input.is_nil());
 
     let passthrough = builtin_indirect_function(&mut eval, vec![Value::fixnum(42)])

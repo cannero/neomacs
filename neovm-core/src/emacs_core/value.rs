@@ -14,6 +14,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::rc::Rc;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::intern::{SymId, intern, resolve_sym};
@@ -352,8 +353,7 @@ pub(crate) fn snapshot_string_text_props() -> Vec<(u64, TextPropertyTable)> {
 ///
 /// This is intentionally a no-op until pdump reconstructs string-owned
 /// properties as part of heap object loading.
-pub(crate) fn restore_string_text_props(_entries: Vec<(u64, TextPropertyTable)>) {
-}
+pub(crate) fn restore_string_text_props(_entries: Vec<(u64, TextPropertyTable)>) {}
 
 /// A string text property run used by printed propertized-string literals.
 #[derive(Clone, Debug, PartialEq)]
@@ -1090,6 +1090,62 @@ impl TaggedValue {
     pub fn get_lambda_data(self) -> Option<LambdaData> {
         let slots = self.closure_slots()?;
         Some(LambdaData::from_closure_slots(slots))
+    }
+
+    fn closure_parsed_params_cell(self) -> Option<&'static OnceLock<LambdaParams>> {
+        match self.veclike_type()? {
+            VecLikeType::Lambda => {
+                let ptr = self.as_veclike_ptr().unwrap() as *const LambdaObj;
+                Some(unsafe { &(*ptr).parsed_params })
+            }
+            VecLikeType::Macro => {
+                let ptr = self.as_veclike_ptr().unwrap() as *const MacroObj;
+                Some(unsafe { &(*ptr).parsed_params })
+            }
+            _ => None,
+        }
+    }
+
+    pub fn closure_slot(self, index: usize) -> Option<Value> {
+        self.closure_slots()
+            .and_then(|slots| slots.get(index).copied())
+    }
+
+    pub fn closure_params(self) -> Option<&'static LambdaParams> {
+        let cell = self.closure_parsed_params_cell()?;
+        Some(cell.get_or_init(|| {
+            let arglist = self.closure_slot(CLOSURE_ARGLIST).unwrap_or(Value::NIL);
+            crate::emacs_core::builtins::parse_lambda_params_from_value(&arglist)
+                .unwrap_or_else(|_| LambdaParams::simple(vec![]))
+        }))
+    }
+
+    pub fn closure_body_value(self) -> Option<Value> {
+        self.closure_slot(CLOSURE_CODE)
+    }
+
+    pub fn closure_env(self) -> Option<Option<Value>> {
+        self.closure_slot(CLOSURE_CONSTANTS)
+            .map(|env| (!env.is_nil()).then_some(env))
+    }
+
+    pub fn closure_doc_value(self) -> Option<Value> {
+        self.closure_slot(CLOSURE_DOC_STRING)
+    }
+
+    pub fn closure_doc_form(self) -> Option<Option<Value>> {
+        self.closure_doc_value().map(|doc| {
+            if doc.is_nil() || doc.is_string() {
+                None
+            } else {
+                Some(doc)
+            }
+        })
+    }
+
+    pub fn closure_interactive(self) -> Option<Option<Value>> {
+        self.closure_slot(CLOSURE_INTERACTIVE)
+            .map(|interactive| (!interactive.is_nil()).then_some(interactive))
     }
 
     /// Borrow the ByteCodeFunction from a ByteCode value.

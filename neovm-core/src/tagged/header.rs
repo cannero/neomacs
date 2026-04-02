@@ -111,6 +111,8 @@ pub enum VecLikeType {
     Subr = 12,
 }
 
+use std::sync::OnceLock;
+
 /// Header for all vectorlike heap objects.
 ///
 /// Extends `GcHeader` with a type tag. The type-specific data follows
@@ -164,6 +166,8 @@ pub struct LambdaObj {
     pub header: VecLikeHeader,
     /// All closure data as GC-managed Value slots.
     pub data: Vec<super::value::TaggedValue>,
+    /// Parsed lambda params cached from slot 0 for fast calls/arity checks.
+    pub parsed_params: OnceLock<crate::emacs_core::value::LambdaParams>,
 }
 
 /// Closure slot indices matching GNU Emacs (lisp.h).
@@ -181,6 +185,8 @@ pub const CLOSURE_MIN_SLOTS: usize = 6;
 pub struct MacroObj {
     pub header: VecLikeHeader,
     pub data: Vec<super::value::TaggedValue>,
+    /// Parsed lambda params cached from slot 0 for fast calls/arity checks.
+    pub parsed_params: OnceLock<crate::emacs_core::value::LambdaParams>,
 }
 
 /// Heap-allocated bytecode function.
@@ -241,9 +247,10 @@ pub struct TimerObj {
 
 /// Heap-allocated built-in function (like GNU's PVEC_SUBR).
 /// Contains the function pointer, arity, and name symbol.
-pub type SubrFn =
-    fn(&mut crate::emacs_core::eval::Context, Vec<super::value::TaggedValue>)
-        -> crate::emacs_core::error::EvalResult;
+pub type SubrFn = fn(
+    &mut crate::emacs_core::eval::Context,
+    Vec<super::value::TaggedValue>,
+) -> crate::emacs_core::error::EvalResult;
 
 #[repr(C)]
 pub struct SubrObj {

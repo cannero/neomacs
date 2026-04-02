@@ -462,6 +462,49 @@ fn hidden_internal_interpreter_environment_symbol() -> SymId {
     *HIDDEN_SYMBOL.get_or_init(|| intern_uninterned("internal-interpreter-environment"))
 }
 
+struct CoreEvalSymbols {
+    internal_interpreter_environment_symbol: SymId,
+    quit_flag_symbol: SymId,
+    inhibit_quit_symbol: SymId,
+    throw_on_input_symbol: SymId,
+    kill_emacs_symbol: SymId,
+}
+
+fn install_core_eval_symbols(obarray: &mut Obarray, reset_runtime_values: bool) -> CoreEvalSymbols {
+    obarray.intern("internal-interpreter-environment");
+    let internal_interpreter_environment_symbol = hidden_internal_interpreter_environment_symbol();
+    obarray.set_symbol_value_id(internal_interpreter_environment_symbol, Value::NIL);
+    obarray.make_special_id(internal_interpreter_environment_symbol);
+
+    let quit_flag_symbol = intern("quit-flag");
+    if reset_runtime_values {
+        obarray.set_symbol_value_id(quit_flag_symbol, Value::NIL);
+    }
+    obarray.make_special_id(quit_flag_symbol);
+
+    let inhibit_quit_symbol = intern("inhibit-quit");
+    if reset_runtime_values {
+        obarray.set_symbol_value_id(inhibit_quit_symbol, Value::NIL);
+    }
+    obarray.make_special_id(inhibit_quit_symbol);
+
+    let throw_on_input_symbol = intern("throw-on-input");
+    if reset_runtime_values {
+        obarray.set_symbol_value_id(throw_on_input_symbol, Value::NIL);
+    }
+    obarray.make_special_id(throw_on_input_symbol);
+
+    let kill_emacs_symbol = intern("kill-emacs");
+
+    CoreEvalSymbols {
+        internal_interpreter_environment_symbol,
+        quit_flag_symbol,
+        inhibit_quit_symbol,
+        throw_on_input_symbol,
+        kill_emacs_symbol,
+    }
+}
+
 fn is_runtime_dynamically_special(obarray: &Obarray, sym_id: SymId) -> bool {
     obarray.is_special_id(sym_id) && !obarray.is_constant_id(sym_id)
 }
@@ -1251,19 +1294,16 @@ fn begin_lambda_call_in_state(
     lexenv: &mut Value,
     saved_lexenvs: &mut Vec<Value>,
     temp_roots: &mut Vec<Value>,
-    lambda: &LambdaData,
+    params: &LambdaParams,
+    env: Option<Value>,
     args: &[Value],
-    func_value: Value,
 ) -> Result<ActiveLambdaCallState, Flow> {
-    let params = &lambda.params;
-
     if args.len() < params.min_arity() {
         tracing::warn!(
-            "wrong-number-of-arguments (lambda call too few): got {} args, min={}, params={:?}, docstring={:?}",
+            "wrong-number-of-arguments (lambda call too few): got {} args, min={}, params={:?}",
             args.len(),
             params.min_arity(),
             params,
-            lambda.docstring
         );
         let arity_val = lambda_arity_cons(params);
         return Err(signal(
@@ -1285,13 +1325,13 @@ fn begin_lambda_call_in_state(
     let specpdl_count = specpdl.len();
     temp_roots.extend(args.iter().copied());
 
-    let has_lexenv = lambda.env.is_some();
-    if let Some(env) = lambda.env {
+    let has_lexenv = env.is_some();
+    if let Some(env) = env {
         // Debug: detect malformed env (bare t instead of list (t))
         if env.is_t() {
             tracing::error!(
                 "Lambda called with env=t (should be (t))! params={:?}",
-                lambda.params
+                params
             );
         }
         temp_roots.push(env);
@@ -2428,16 +2468,7 @@ impl Context {
         obarray.set_symbol_value("macroexp--dynvars", Value::NIL);
         obarray.make_special("macroexp--dynvars");
         // GNU DEFVAR_LISP variables from eval.c / keyboard.c.
-        let quit_flag_symbol = intern("quit-flag");
-        obarray.set_symbol_value_id(quit_flag_symbol, Value::NIL);
-        obarray.make_special_id(quit_flag_symbol);
-        let inhibit_quit_symbol = intern("inhibit-quit");
-        obarray.set_symbol_value_id(inhibit_quit_symbol, Value::NIL);
-        obarray.make_special_id(inhibit_quit_symbol);
-        let throw_on_input_symbol = intern("throw-on-input");
-        obarray.set_symbol_value_id(throw_on_input_symbol, Value::NIL);
-        obarray.make_special_id(throw_on_input_symbol);
-        let kill_emacs_symbol = intern("kill-emacs");
+        let core_eval_symbols = install_core_eval_symbols(&mut obarray, true);
         obarray.set_symbol_value("inhibit-debugger", Value::NIL);
         obarray.make_special("inhibit-debugger");
         obarray.set_symbol_value("debug-on-error", Value::NIL);
@@ -2458,11 +2489,6 @@ impl Context {
         // immediately `Funintern`s that symbol, so Lisp-visible lookup sees a
         // separate ordinary symbol while the evaluator keeps a hidden special
         // variable for its own lexical-environment bookkeeping.
-        obarray.intern("internal-interpreter-environment");
-        let internal_interpreter_environment_symbol =
-            hidden_internal_interpreter_environment_symbol();
-        obarray.set_symbol_value_id(internal_interpreter_environment_symbol, Value::NIL);
-        obarray.make_special_id(internal_interpreter_environment_symbol);
         obarray.set_symbol_value("internal-make-interpreted-closure-function", Value::NIL);
         obarray.make_special("internal-make-interpreted-closure-function");
         // GNU seeds `debugger` from eval.c before Lisp startup.
@@ -3435,11 +3461,12 @@ impl Context {
             obarray,
             specpdl: Vec::new(),
             lexenv: Value::NIL,
-            internal_interpreter_environment_symbol,
-            quit_flag_symbol,
-            inhibit_quit_symbol,
-            throw_on_input_symbol,
-            kill_emacs_symbol,
+            internal_interpreter_environment_symbol: core_eval_symbols
+                .internal_interpreter_environment_symbol,
+            quit_flag_symbol: core_eval_symbols.quit_flag_symbol,
+            inhibit_quit_symbol: core_eval_symbols.inhibit_quit_symbol,
+            throw_on_input_symbol: core_eval_symbols.throw_on_input_symbol,
+            kill_emacs_symbol: core_eval_symbols.kill_emacs_symbol,
             features: Vec::new(),
             require_stack: Vec::new(),
             loads_in_progress: Vec::new(),
@@ -3546,18 +3573,7 @@ impl Context {
     ) -> Self {
         let dumped_function_surface = obarray.clone();
         let mut obarray = obarray;
-        obarray.intern("internal-interpreter-environment");
-        let internal_interpreter_environment_symbol =
-            hidden_internal_interpreter_environment_symbol();
-        obarray.set_symbol_value_id(internal_interpreter_environment_symbol, Value::NIL);
-        obarray.make_special_id(internal_interpreter_environment_symbol);
-        let quit_flag_symbol = intern("quit-flag");
-        obarray.make_special_id(quit_flag_symbol);
-        let inhibit_quit_symbol = intern("inhibit-quit");
-        obarray.make_special_id(inhibit_quit_symbol);
-        let throw_on_input_symbol = intern("throw-on-input");
-        obarray.make_special_id(throw_on_input_symbol);
-        let kill_emacs_symbol = intern("kill-emacs");
+        let core_eval_symbols = install_core_eval_symbols(&mut obarray, false);
         let mut tagged_heap = Box::new(crate::tagged::gc::TaggedHeap::new());
         crate::tagged::gc::set_tagged_heap(&mut tagged_heap);
 
@@ -3567,11 +3583,12 @@ impl Context {
             obarray,
             specpdl: Vec::new(),
             lexenv,
-            internal_interpreter_environment_symbol,
-            quit_flag_symbol,
-            inhibit_quit_symbol,
-            throw_on_input_symbol,
-            kill_emacs_symbol,
+            internal_interpreter_environment_symbol: core_eval_symbols
+                .internal_interpreter_environment_symbol,
+            quit_flag_symbol: core_eval_symbols.quit_flag_symbol,
+            inhibit_quit_symbol: core_eval_symbols.inhibit_quit_symbol,
+            throw_on_input_symbol: core_eval_symbols.throw_on_input_symbol,
+            kill_emacs_symbol: core_eval_symbols.kill_emacs_symbol,
             features,
             require_stack,
             loads_in_progress: Vec::new(),
@@ -5128,11 +5145,32 @@ impl Context {
         })
     }
 
+    pub(crate) fn eval_lambda_body_value(&mut self, body: Value) -> EvalResult {
+        stacker::maybe_grow(EVAL_STACK_RED_ZONE, EVAL_STACK_SEGMENT, || {
+            let scope = self.open_gc_scope();
+            self.push_temp_root(body);
+            let mut cursor = body;
+            let mut last = Value::NIL;
+            while cursor.is_cons() {
+                match self.eval_sub(cursor.cons_car()) {
+                    Ok(value) => last = value,
+                    Err(err) => {
+                        scope.close(self);
+                        return Err(err);
+                    }
+                }
+                cursor = cursor.cons_cdr();
+            }
+            scope.close(self);
+            Ok(last)
+        })
+    }
+
     pub(crate) fn begin_lambda_call(
         &mut self,
-        lambda: &LambdaData,
+        params: &LambdaParams,
+        env: Option<Value>,
         args: &[Value],
-        func_value: Value,
     ) -> Result<ActiveLambdaCallState, Flow> {
         begin_lambda_call_in_state(
             &mut self.obarray,
@@ -5140,9 +5178,9 @@ impl Context {
             &mut self.lexenv,
             &mut self.saved_lexenvs,
             &mut self.temp_roots,
-            lambda,
+            params,
+            env,
             args,
-            func_value,
         )
     }
 
@@ -5342,19 +5380,13 @@ impl Context {
 
         // Check for special forms (GNU eval.c UNEVALLED subrs)
         if let Some(name) = name {
-            if super::subr_info::is_special_form(name) {
-                if let Some(func) = self.obarray.symbol_function(name) {
-                    if func.is_subr() {
-                        // Convert args to Expr for special form handling.
-                        // This is a shallow conversion — only the immediate args,
-                        // not the deep tree. Special forms handle their own
-                        // sub-evaluation.
-                        let args_exprs = value_list_to_exprs(&original_args);
-                        if let Some(result) = self.try_special_form(name, &args_exprs) {
-                            return result;
-                        }
-                    }
-                }
+            // Convert args to Expr for special form handling.
+            // This is a shallow conversion — only the immediate args,
+            // not the deep tree. Special forms handle their own
+            // sub-evaluation.
+            let args_exprs = value_list_to_exprs(&original_args);
+            if let Some(result) = self.try_special_form(name, &args_exprs) {
+                return result;
             }
         }
 
@@ -5402,11 +5434,9 @@ impl Context {
 
         // Check for macro (GNU eval.c:2730-2755)
         if func.is_macro() {
-            let lambda_data = func.get_lambda_data().unwrap().clone();
             let arg_values = value_list_to_values(&original_args);
-            let expanded = self.with_macro_expansion_scope(|eval| {
-                eval.apply_lambda(&lambda_data, arg_values, func)
-            })?;
+            let expanded =
+                self.with_macro_expansion_scope(|eval| eval.apply_lambda(func, arg_values))?;
             // Evaluate expansion DIRECTLY — no value_to_expr round-trip!
             return self.eval_sub(expanded);
         }
@@ -5828,7 +5858,7 @@ impl Context {
         let advice_type = Some(Value::symbol("advice"));
         match function.kind() {
             ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => {
-                function.get_lambda_data().map(|d| d.doc_form).flatten() == advice_type
+                function.closure_doc_form().flatten() == advice_type
             }
             ValueKind::Veclike(VecLikeType::ByteCode) => {
                 function.get_bytecode_data().map(|d| d.doc_form).flatten() == advice_type
@@ -5978,8 +6008,6 @@ impl Context {
                     // GNU eval.c approach: call macro function with
                     // unevaluated args, then eval_sub the result directly.
                     // No value_to_expr round-trip.
-                    let lambda_data = func.get_lambda_data().unwrap().clone();
-
                     // Bind lexical-binding during expansion (GNU eval.c:2737)
                     let saved_lexbind = self.obarray().symbol_value("lexical-binding").cloned();
                     let lexbind_val = if self.lexenv.is_nil() {
@@ -6010,9 +6038,8 @@ impl Context {
                         self.push_temp_root(*v);
                     }
 
-                    let expanded_value = self.with_macro_expansion_scope(|eval| {
-                        eval.apply_lambda(&lambda_data, arg_values, func)
-                    })?;
+                    let expanded_value = self
+                        .with_macro_expansion_scope(|eval| eval.apply_lambda(func, arg_values))?;
 
                     // Restore bindings
                     if let Some(v) = saved_lexbind {
@@ -7678,11 +7705,10 @@ impl Context {
         if !result.is_lambda() {
             return;
         };
-        let Some(lambda_data_ref) = result.get_lambda_data() else {
+        let Some(lambda_data) = result.get_lambda_data() else {
             return;
         };
-        let lambda_data = lambda_data_ref.clone();
-        let Some(trimmed_env) = lambda_data.env else {
+        let Some(trimmed_env) = result.closure_env().flatten() else {
             return;
         };
 
@@ -8015,14 +8041,8 @@ impl Context {
                 self.sync_features_variable();
                 result
             }
-            ValueKind::Veclike(VecLikeType::Lambda) => {
-                let lambda_data = function.get_lambda_data().unwrap().clone();
-                self.apply_lambda(&lambda_data, args, function)
-            }
-            ValueKind::Veclike(VecLikeType::Macro) => {
-                let lambda_data = function.get_lambda_data().unwrap().clone();
-                self.apply_lambda(&lambda_data, args, function)
-            }
+            ValueKind::Veclike(VecLikeType::Lambda) => self.apply_lambda(function, args),
+            ValueKind::Veclike(VecLikeType::Macro) => self.apply_lambda(function, args),
             ValueKind::Veclike(VecLikeType::Subr) => {
                 let id = function.as_subr_id().unwrap();
                 self.apply_subr_object_by_id(id, args, true)
@@ -8128,8 +8148,16 @@ impl Context {
             }
         }
 
+        let mut iform_value = Value::NIL;
+        if items.get(body_start).is_some_and(|value| {
+            value.is_cons() && value.cons_car().as_symbol_name() == Some("interactive")
+        }) {
+            iform_value = items[body_start];
+            body_start += 1;
+        }
+
         let body_value = if body_start >= items.len() {
-            Value::NIL
+            Value::list(vec![Value::NIL])
         } else {
             Value::list(items[body_start..].to_vec())
         };
@@ -8138,7 +8166,6 @@ impl Context {
         } else {
             docstring_value
         };
-        let iform_value = Value::NIL;
 
         let scope = self.open_gc_scope();
         self.push_temp_root(function);
@@ -8536,15 +8563,27 @@ impl Context {
         self.apply_evaluator_callable(resolve_sym(sym_id), args)
     }
 
-    fn apply_lambda(
-        &mut self,
-        lambda: &LambdaData,
-        args: Vec<Value>,
-        func_value: Value,
-    ) -> EvalResult {
-        let call_state = self.begin_lambda_call(lambda, &args, func_value)?;
-        let result = self.eval_lambda_body(&lambda.body);
+    fn apply_lambda(&mut self, func_value: Value, args: Vec<Value>) -> EvalResult {
+        let Some(params) = func_value.closure_params() else {
+            return Err(signal("invalid-function", vec![func_value]));
+        };
+        let Some(body) = func_value.closure_body_value() else {
+            return Err(signal("invalid-function", vec![func_value]));
+        };
+        let env = func_value.closure_env().unwrap_or(None);
+
+        let scope = self.open_gc_scope();
+        self.push_temp_root(func_value);
+        let call_state = match self.begin_lambda_call(params, env, &args) {
+            Ok(state) => state,
+            Err(err) => {
+                scope.close(self);
+                return Err(err);
+            }
+        };
+        let result = self.eval_lambda_body_value(body);
         self.finish_lambda_call(call_state);
+        scope.close(self);
         result
     }
 
@@ -8586,9 +8625,6 @@ impl Context {
         }
 
         let expand_start = std::time::Instant::now();
-        // Clone the macro data before calling self.apply_lambda
-        let lambda_data = macro_val.get_lambda_data().unwrap().clone();
-
         // Root arg values during macro expansion to survive GC.
         // Use cached source-literal materialization so that the same Expr
         // pointer (from a shared Rc<Vec<Expr>> lambda body) produces the same
@@ -8602,9 +8638,8 @@ impl Context {
             self.push_temp_root(*v);
         }
 
-        let expanded_value = self.with_macro_expansion_scope(|eval| {
-            eval.apply_lambda(&lambda_data, arg_values, macro_val)
-        })?;
+        let expanded_value =
+            self.with_macro_expansion_scope(|eval| eval.apply_lambda(macro_val, arg_values))?;
         // Root expansion result during value_to_expr traversal
         self.push_temp_root(expanded_value);
 

@@ -57,6 +57,24 @@ pub(crate) fn lambda_to_cons_list(value: &Value) -> Option<Value> {
         elements.push(doc_entry);
     }
 
+    if let Some(interactive) = data.interactive {
+        let interactive_entry = if interactive.is_cons()
+            && interactive.cons_car().as_symbol_name() == Some("interactive")
+        {
+            interactive
+        } else if interactive.is_vector() {
+            let items = interactive.as_vector_data().cloned().unwrap_or_default();
+            let mut list_items = Vec::with_capacity(items.len() + 1);
+            list_items.push(Value::symbol("interactive"));
+            list_items.extend(items);
+            Value::list(list_items)
+        } else {
+            Value::list(vec![Value::symbol("interactive"), interactive])
+        };
+        crate::emacs_core::eval::push_scratch_gc_root(interactive_entry);
+        elements.push(interactive_entry);
+    }
+
     for expr in data.body.iter() {
         let quoted = crate::emacs_core::eval::quote_to_value(expr);
         crate::emacs_core::eval::push_scratch_gc_root(quoted);

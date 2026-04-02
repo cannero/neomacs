@@ -340,6 +340,7 @@ impl TaggedHeap {
         let obj = Box::new(LambdaObj {
             header: VecLikeHeader::new(VecLikeType::Lambda),
             data: slots,
+            parsed_params: std::sync::OnceLock::new(),
         });
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
@@ -362,6 +363,7 @@ impl TaggedHeap {
         let obj = Box::new(MacroObj {
             header: VecLikeHeader::new(VecLikeType::Macro),
             data: slots,
+            parsed_params: std::sync::OnceLock::new(),
         });
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
@@ -773,18 +775,16 @@ impl TaggedHeap {
                 let type_tag = unsafe { (*ptr).type_tag };
                 match type_tag {
                     VecLikeType::Vector => unsafe { drop(Box::from_raw(ptr as *mut VectorObj)) },
-                    VecLikeType::HashTable => {
-                        unsafe { drop(Box::from_raw(ptr as *mut HashTableObj)) }
-                    }
+                    VecLikeType::HashTable => unsafe {
+                        drop(Box::from_raw(ptr as *mut HashTableObj))
+                    },
                     VecLikeType::Lambda => unsafe { drop(Box::from_raw(ptr as *mut LambdaObj)) },
                     VecLikeType::Macro => unsafe { drop(Box::from_raw(ptr as *mut MacroObj)) },
-                    VecLikeType::ByteCode => {
-                        unsafe { drop(Box::from_raw(ptr as *mut ByteCodeObj)) }
-                    }
+                    VecLikeType::ByteCode => unsafe {
+                        drop(Box::from_raw(ptr as *mut ByteCodeObj))
+                    },
                     VecLikeType::Record => unsafe { drop(Box::from_raw(ptr as *mut RecordObj)) },
-                    VecLikeType::Overlay => {
-                        unsafe { drop(Box::from_raw(ptr as *mut OverlayObj)) }
-                    }
+                    VecLikeType::Overlay => unsafe { drop(Box::from_raw(ptr as *mut OverlayObj)) },
                     VecLikeType::Marker => unsafe { drop(Box::from_raw(ptr as *mut MarkerObj)) },
                     VecLikeType::Buffer => unsafe { drop(Box::from_raw(ptr as *mut BufferObj)) },
                     VecLikeType::Window => unsafe { drop(Box::from_raw(ptr as *mut WindowObj)) },

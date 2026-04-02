@@ -1117,6 +1117,16 @@ fn macroexpand_once_with_environment<R: MacroexpandRuntime>(
     };
     let head_name = resolve_sym(head_id);
 
+    if let Some(env) = environment
+        && !env.is_nil()
+        && !env.is_cons()
+    {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("listp"), *env],
+        ));
+    }
+
     // Reserved for evaluator-owned forms that must bypass macro shadowing.
     // The current source-compatible path keeps this empty.
     if super::subr_info::is_evaluator_sf_skip_macroexpand(head_name) {
@@ -1126,8 +1136,6 @@ fn macroexpand_once_with_environment<R: MacroexpandRuntime>(
     let mut env_bound = false;
     let mut function = None;
     if let Some(env) = environment {
-        // GNU Emacs does NOT validate the env — Fassq just walks cons cells
-        // until nil. A non-list env (like `t`) simply means "no match found".
         if let Some(binding) = macroexpand_environment_binding_by_id(env, head_id) {
             env_bound = true;
             if !binding.is_nil() {

@@ -280,16 +280,25 @@ fn test_start_with_append_reexecutes_last_macro_when_no_exec_is_nil() {
     let setup = parse_forms(
         "(progn
            (setq kmacro-append-count 0)
-           (fset 'kmacro-append-bump
+           (setq kmacro-append-ignore-direct-called nil)
+           (fset 'command-execute
+                 (lambda (cmd &optional _record _keys _special)
+                   (funcall cmd)))
+           (fset 'ignore
                  (lambda ()
-                   (setq kmacro-append-count (1+ kmacro-append-count)))))",
+                   (setq kmacro-append-ignore-direct-called t)))
+           (let ((g (make-sparse-keymap)))
+             (use-global-map g)
+             (define-key g [ignore]
+               (lambda ()
+                 (interactive)
+                 (setq kmacro-append-count (1+ kmacro-append-count))))))",
     )
     .expect("parse setup");
     let _ = eval.eval_forms(&setup);
 
     builtin_start_kbd_macro(&mut eval, vec![]).expect("start");
-    builtin_store_kbd_macro_event(&mut eval, vec![Value::symbol("kmacro-append-bump")])
-        .expect("store");
+    builtin_store_kbd_macro_event(&mut eval, vec![Value::symbol("ignore")]).expect("store");
     eval.finalize_kbd_macro_runtime_chars();
     builtin_end_kbd_macro(&mut eval, vec![]).expect("end");
 
@@ -307,12 +316,17 @@ fn test_start_with_append_reexecutes_last_macro_when_no_exec_is_nil() {
     );
     assert_eq!(
         eval.command_loop.keyboard.kboard.kbd_macro_events,
-        vec![Value::symbol("kmacro-append-bump")]
+        vec![Value::symbol("ignore")]
+    );
+    assert_eq!(
+        eval.eval_symbol("kmacro-append-ignore-direct-called")
+            .expect("kmacro-append-ignore-direct-called"),
+        Value::NIL
     );
     builtin_end_kbd_macro(&mut eval, vec![]).expect("end append");
     assert_eq!(
         eval.command_loop.last_kbd_macro(),
-        Some([Value::symbol("kmacro-append-bump")].as_slice())
+        Some([Value::symbol("ignore")].as_slice())
     );
 }
 

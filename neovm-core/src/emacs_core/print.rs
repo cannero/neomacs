@@ -421,6 +421,10 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
                     if lambda.env.is_some() {
                         return format_interpreted_closure(&lambda, state.options);
                     }
+                    if let Some(list_form) = crate::emacs_core::builtins::lambda_to_cons_list(value)
+                    {
+                        return print_value_with_options(&list_form, state.options);
+                    }
                     let params = format_params(&lambda.params);
                     let body = lambda
                         .body
@@ -1001,6 +1005,9 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
                 if lambda.env.is_some() {
                     return format_interpreted_closure(&lambda, options);
                 }
+                if let Some(list_form) = crate::emacs_core::builtins::lambda_to_cons_list(value) {
+                    return print_value_with_options(&list_form, options);
+                }
                 let params = format_params(&lambda.params);
                 let body = lambda
                     .body
@@ -1156,6 +1163,11 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
                     if lambda.env.is_some() {
                         format_interpreted_closure(&lambda, options)
                     } else {
+                        if let Some(list_form) =
+                            crate::emacs_core::builtins::lambda_to_cons_list(value)
+                        {
+                            return print_value_with_options(&list_form, options);
+                        }
                         let params = format_params(&lambda.params);
                         let body = lambda
                             .body

@@ -258,7 +258,7 @@ fn try_eval_generated_loaddefs_form(
                 super::autoload::builtin_autoload(eval, values).map_err(map_flow)?,
             ))
         }
-        "put" => {
+        "put" | "function-put" => {
             let values = eval_generated_form_args(eval, tail)?;
             Ok(Some(
                 super::builtins::builtin_put(eval, values).map_err(map_flow)?,
