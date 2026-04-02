@@ -8,20 +8,8 @@ use crate::emacs_core::textprop::builtin_make_overlay;
 use crate::emacs_core::value::{LambdaData, LambdaParams, ValueKind, VecLikeType};
 use crate::emacs_core::{format_eval_result, parse_forms};
 
-/// Test-only shim: creates an evaluator context and delegates to
-/// `dispatch_builtin`, preserving the old `dispatch_builtin_pure` signature
-/// so that hundreds of existing tests continue to compile unchanged.
 fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<EvalResult> {
-    use crate::emacs_core::eval::Context;
-    thread_local! {
-        static CTX: std::cell::RefCell<Context> = std::cell::RefCell::new(
-            Context::new()
-        );
-    }
-    CTX.with(|cell| {
-        let ctx = &mut *cell.borrow_mut();
-        dispatch_builtin(ctx, name, args)
-    })
+    super::dispatch_builtin_without_eval_state(name, args)
 }
 
 fn install_variable_watcher_probe(eval: &mut crate::emacs_core::eval::Context, callback: &str) {
@@ -3876,11 +3864,15 @@ fn define_hash_table_test_alias_redefinition_updates_mapping() {
     crate::test_utils::init_test_tracing();
     let alias_name = "neovm--eq-test-alias-redefined";
 
-    builtin_define_hash_table_test(vec![
-        Value::symbol(alias_name),
-        Value::symbol("eq"),
-        Value::symbol("sxhash-eq"),
-    ])
+    dispatch_builtin_pure(
+        "define-hash-table-test",
+        vec![
+            Value::symbol(alias_name),
+            Value::symbol("eq"),
+            Value::symbol("sxhash-eq"),
+        ],
+    )
+    .expect("initial define-hash-table-test should resolve")
     .expect("initial define-hash-table-test should evaluate");
     let first = dispatch_builtin_pure(
         "make-hash-table",
@@ -3900,11 +3892,15 @@ fn define_hash_table_test_alias_redefinition_updates_mapping() {
         HashTableTest::Eq
     ));
 
-    builtin_define_hash_table_test(vec![
-        Value::symbol(alias_name),
-        Value::symbol("equal"),
-        Value::symbol("sxhash-equal"),
-    ])
+    dispatch_builtin_pure(
+        "define-hash-table-test",
+        vec![
+            Value::symbol(alias_name),
+            Value::symbol("equal"),
+            Value::symbol("sxhash-equal"),
+        ],
+    )
+    .expect("redefined hash-table test should resolve")
     .expect("redefined hash-table test should evaluate");
     let second = dispatch_builtin_pure(
         "make-hash-table",

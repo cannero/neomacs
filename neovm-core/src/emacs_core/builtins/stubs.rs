@@ -1566,9 +1566,10 @@ fn is_font_object(value: &Value) -> bool {
     match value.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = value.as_vector_data().unwrap();
-            items.first().is_some_and(
-                |v| matches!(v.kind(), ValueKind::Symbol(tag) if resolve_sym(tag) == "font-object"),
-            )
+            items
+                .first()
+                .and_then(|value| value.as_symbol_name())
+                .is_some_and(|name| name == "font-object" || name == ":font-object")
         }
         _ => false,
     }
@@ -1578,9 +1579,10 @@ fn is_font_spec(value: &Value) -> bool {
     match value.kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = value.as_vector_data().unwrap();
-            items.first().is_some_and(
-                |v| matches!(v.kind(), ValueKind::Symbol(tag) if resolve_sym(tag) == "font-spec"),
-            )
+            items
+                .first()
+                .and_then(|value| value.as_symbol_name())
+                .is_some_and(|name| name == "font-spec" || name == ":font-spec")
         }
         _ => false,
     }

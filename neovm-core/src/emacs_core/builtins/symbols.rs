@@ -1854,19 +1854,19 @@ pub(crate) fn builtin_marker_last_position(args: Vec<Value>) -> EvalResult {
         ));
     }
     match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Marker) => {
+            let marker = args[0].as_marker_data().unwrap();
+            Ok(Value::fixnum(marker.position.unwrap_or(0)))
+        }
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = args[0].as_vector_data().unwrap().clone();
-            if let Some(pos_val) = items.get(2) {
-                if let Some(pos) = pos_val.as_fixnum() {
-                    Ok(Value::fixnum(pos))
-                } else {
-                    Ok(Value::fixnum(0))
-                }
-            } else {
-                Ok(Value::fixnum(0))
-            }
+            Ok(items
+                .get(2)
+                .and_then(|value| value.as_fixnum())
+                .map(Value::fixnum)
+                .unwrap_or_else(|| Value::fixnum(0)))
         }
-        _ => unreachable!("markerp check above guarantees marker vector"),
+        _ => unreachable!("markerp check above guarantees a tagged marker object"),
     }
 }
 

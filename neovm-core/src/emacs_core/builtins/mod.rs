@@ -3,7 +3,10 @@
 //! All functions here take pre-evaluated `Vec<Value>` arguments and return `EvalResult`.
 //! The evaluator dispatches here after evaluating the argument expressions.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{
+    Mutex, OnceLock,
+    atomic::{AtomicBool, Ordering},
+};
 
 /// Debug flag: when true, log every dispatch_builtin call name.
 /// Activated after window-setup-hook completes during startup.
@@ -479,6 +482,95 @@ pub(crate) fn dispatch_builtin_by_id(
     eval.dispatch_subr_id(sym_id, args)
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BuiltinNoEvalPlaceholder {
+    Nil,
+    FixnumZero,
+    WindowLineHeight,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BuiltinNoEvalPolicy {
+    Native,
+    RequiresEvalState,
+    Placeholder(BuiltinNoEvalPlaceholder),
+}
+
+static BUILTIN_NO_EVAL_POLICIES: OnceLock<Mutex<Vec<Option<BuiltinNoEvalPolicy>>>> =
+    OnceLock::new();
+
+fn builtin_no_eval_policies() -> &'static Mutex<Vec<Option<BuiltinNoEvalPolicy>>> {
+    BUILTIN_NO_EVAL_POLICIES.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn record_builtin_no_eval_policy(name: &str, policy: BuiltinNoEvalPolicy) {
+    let sym_id = intern(name);
+    let mut policies = builtin_no_eval_policies()
+        .lock()
+        .expect("builtin no-eval policy registry poisoned");
+    let index = sym_id.0 as usize;
+    if policies.len() <= index {
+        policies.resize(index + 1, None);
+    }
+    policies[index] = Some(policy);
+}
+
+fn builtin_no_eval_policy(sym_id: SymId) -> BuiltinNoEvalPolicy {
+    builtin_no_eval_policies()
+        .lock()
+        .expect("builtin no-eval policy registry poisoned")
+        .get(sym_id.0 as usize)
+        .copied()
+        .flatten()
+        .unwrap_or(BuiltinNoEvalPolicy::Native)
+}
+
+fn dispatch_builtin_stateless_placeholder(
+    policy: BuiltinNoEvalPolicy,
+    args: &[Value],
+) -> Option<EvalResult> {
+    let value = match policy {
+        BuiltinNoEvalPolicy::Placeholder(BuiltinNoEvalPlaceholder::Nil) => Value::NIL,
+        BuiltinNoEvalPolicy::Placeholder(BuiltinNoEvalPlaceholder::FixnumZero) => {
+            Value::fixnum(0)
+        }
+        BuiltinNoEvalPolicy::Placeholder(BuiltinNoEvalPlaceholder::WindowLineHeight) => {
+            if args.len() == 2 && args[1].as_symbol_name() == Some("window") {
+                Value::NIL
+            } else {
+                return None;
+            }
+        }
+        BuiltinNoEvalPolicy::Native | BuiltinNoEvalPolicy::RequiresEvalState => return None,
+    };
+    Some(Ok(value))
+}
+
+#[cfg(test)]
+pub(crate) fn dispatch_builtin_without_eval_state(
+    name: &str,
+    args: Vec<Value>,
+) -> Option<EvalResult> {
+    use crate::emacs_core::eval::Context;
+
+    thread_local! {
+        static CTX: std::cell::RefCell<Context> = std::cell::RefCell::new(Context::new());
+    }
+
+    CTX.with(|cell| {
+        let ctx = &mut *cell.borrow_mut();
+        let sym_id = intern(name);
+        let policy = builtin_no_eval_policy(sym_id);
+        if let Some(result) = dispatch_builtin_stateless_placeholder(policy, &args) {
+            return Some(result);
+        }
+        if policy == BuiltinNoEvalPolicy::RequiresEvalState {
+            return None;
+        }
+        dispatch_builtin_by_id(ctx, sym_id, args)
+    })
+}
+
 #[cfg(test)]
 mod tests;
 
@@ -617,6 +709,61 @@ fn defsubr_set_terminal_coding_system_internal(
     super::coding::builtin_set_terminal_coding_system_internal(&mut eval.coding_systems, args)
 }
 
+type BuiltinFn = fn(&mut super::eval::Context, Vec<Value>) -> EvalResult;
+
+fn defsubr_eval_state(
+    ctx: &mut super::eval::Context,
+    name: &str,
+    func: BuiltinFn,
+    min_args: u16,
+    max_args: Option<u16>,
+) {
+    record_builtin_no_eval_policy(name, BuiltinNoEvalPolicy::RequiresEvalState);
+    ctx.defsubr(name, func, min_args, max_args);
+}
+
+fn defsubr_placeholder_nil(
+    ctx: &mut super::eval::Context,
+    name: &str,
+    func: BuiltinFn,
+    min_args: u16,
+    max_args: Option<u16>,
+) {
+    record_builtin_no_eval_policy(
+        name,
+        BuiltinNoEvalPolicy::Placeholder(BuiltinNoEvalPlaceholder::Nil),
+    );
+    ctx.defsubr(name, func, min_args, max_args);
+}
+
+fn defsubr_placeholder_fixnum_zero(
+    ctx: &mut super::eval::Context,
+    name: &str,
+    func: BuiltinFn,
+    min_args: u16,
+    max_args: Option<u16>,
+) {
+    record_builtin_no_eval_policy(
+        name,
+        BuiltinNoEvalPolicy::Placeholder(BuiltinNoEvalPlaceholder::FixnumZero),
+    );
+    ctx.defsubr(name, func, min_args, max_args);
+}
+
+fn defsubr_placeholder_window_line_height(
+    ctx: &mut super::eval::Context,
+    name: &str,
+    func: BuiltinFn,
+    min_args: u16,
+    max_args: Option<u16>,
+) {
+    record_builtin_no_eval_policy(
+        name,
+        BuiltinNoEvalPolicy::Placeholder(BuiltinNoEvalPlaceholder::WindowLineHeight),
+    );
+    ctx.defsubr(name, func, min_args, max_args);
+}
+
 /// Register all builtins via defsubr — function pointer dispatch.
 ///
 /// This replaces the giant match-by-name block in dispatch_builtin.
@@ -648,8 +795,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("mapc", builtin_mapc, 2, Some(2));
     ctx.defsubr("mapconcat", builtin_mapconcat, 2, Some(3));
     ctx.defsubr("sort", builtin_sort, 1, None);
-    ctx.defsubr("functionp", builtin_functionp, 1, Some(1));
-    ctx.defsubr("defvaralias", builtin_defvaralias, 2, Some(3));
+    defsubr_eval_state(ctx, "functionp", builtin_functionp, 1, Some(1));
+    defsubr_eval_state(ctx, "defvaralias", builtin_defvaralias, 2, Some(3));
     ctx.defsubr("boundp", builtin_boundp, 1, Some(1));
     ctx.defsubr("default-boundp", builtin_default_boundp, 1, Some(1));
     ctx.defsubr(
@@ -665,8 +812,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         1,
         Some(1),
     );
-    ctx.defsubr("indirect-variable", builtin_indirect_variable, 1, Some(1));
-    ctx.defsubr("handler-bind-1", builtin_handler_bind_1, 1, None);
+    defsubr_eval_state(ctx, "indirect-variable", builtin_indirect_variable, 1, Some(1));
+    defsubr_eval_state(ctx, "handler-bind-1", builtin_handler_bind_1, 1, None);
     ctx.defsubr("symbol-value", builtin_symbol_value, 1, Some(1));
     ctx.defsubr("symbol-function", builtin_symbol_function, 1, Some(1));
     ctx.defsubr("function-get", builtin_function_get, 0, None);
@@ -674,10 +821,10 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("fset", builtin_fset, 2, Some(2));
     ctx.defsubr("makunbound", builtin_makunbound, 1, Some(1));
     ctx.defsubr("fmakunbound", builtin_fmakunbound, 1, Some(1));
-    ctx.defsubr("macroexpand", builtin_macroexpand, 1, Some(2));
+    defsubr_eval_state(ctx, "macroexpand", builtin_macroexpand, 1, Some(2));
     ctx.defsubr("get", builtin_get, 2, Some(2));
     ctx.defsubr("put", builtin_put, 3, Some(3));
-    ctx.defsubr("setplist", builtin_setplist, 2, Some(2));
+    defsubr_eval_state(ctx, "setplist", builtin_setplist, 2, Some(2));
     ctx.defsubr("symbol-plist", builtin_symbol_plist_fn, 1, Some(1));
     ctx.defsubr("indirect-function", builtin_indirect_function, 1, Some(2));
     ctx.defsubr("signal", super::errors::builtin_signal, 2, Some(2));
@@ -721,7 +868,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("eval", builtin_eval, 1, Some(2));
     ctx.defsubr("get-buffer-create", builtin_get_buffer_create, 1, Some(2));
     ctx.defsubr("get-buffer", builtin_get_buffer, 1, Some(1));
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "make-indirect-buffer",
         builtin_make_indirect_buffer,
         2,
@@ -806,14 +954,16 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr("constrain-to-field", builtin_constrain_to_field, 2, Some(5));
     ctx.defsubr("insert", builtin_insert, 0, None);
-    ctx.defsubr("insert-and-inherit", builtin_insert_and_inherit, 0, None);
-    ctx.defsubr(
+    defsubr_eval_state(ctx, "insert-and-inherit", builtin_insert_and_inherit, 0, None);
+    defsubr_eval_state(
+        ctx,
         "insert-before-markers-and-inherit",
         builtin_insert_before_markers_and_inherit,
         0,
         None,
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "insert-buffer-substring",
         builtin_insert_buffer_substring,
         1,
@@ -827,13 +977,15 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         3,
         Some(6),
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "set-buffer-multibyte",
         builtin_set_buffer_multibyte,
         1,
         Some(1),
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "kill-all-local-variables",
         builtin_kill_all_local_variables,
         0,
@@ -875,13 +1027,15 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("buffer-size", builtin_buffer_size, 0, Some(1));
     ctx.defsubr("narrow-to-region", builtin_narrow_to_region, 2, Some(2));
     ctx.defsubr("widen", builtin_widen, 0, Some(0));
-    ctx.defsubr(
+    defsubr_placeholder_nil(
+        ctx,
         "internal--labeled-narrow-to-region",
         builtin_internal_labeled_narrow_to_region,
         3,
         Some(3),
     );
-    ctx.defsubr(
+    defsubr_placeholder_nil(
+        ctx,
         "internal--labeled-widen",
         builtin_internal_labeled_widen,
         1,
@@ -951,7 +1105,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("match-beginning", builtin_match_beginning, 1, Some(1));
     ctx.defsubr("match-end", builtin_match_end, 1, Some(1));
     ctx.defsubr("match-data", builtin_match_data, 0, Some(3));
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "match-data--translate",
         builtin_match_data_translate,
         1,
@@ -977,7 +1132,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         1,
         Some(4),
     );
-    ctx.defsubr(
+    defsubr_placeholder_window_line_height(
+        ctx,
         "window-line-height",
         super::xdisp::builtin_window_line_height,
         0,
@@ -1017,8 +1173,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         Some(1),
     );
     ctx.defsubr("font-info", super::font::builtin_font_info, 1, Some(2));
-    ctx.defsubr("new-fontset", builtin_new_fontset, 2, Some(2));
-    ctx.defsubr("set-fontset-font", builtin_set_fontset_font, 3, Some(5));
+    defsubr_eval_state(ctx, "new-fontset", builtin_new_fontset, 2, Some(2));
+    defsubr_eval_state(ctx, "set-fontset-font", builtin_set_fontset_font, 3, Some(5));
     ctx.defsubr(
         "insert-file-contents",
         super::fileio::builtin_insert_file_contents,
@@ -1070,8 +1226,9 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("set-keymap-parent", builtin_set_keymap_parent, 2, Some(2));
     ctx.defsubr("keymapp", builtin_keymapp, 1, Some(1));
     ctx.defsubr("accessible-keymaps", builtin_accessible_keymaps, 1, Some(2));
-    ctx.defsubr("map-keymap", builtin_map_keymap, 2, Some(3));
-    ctx.defsubr(
+    defsubr_eval_state(ctx, "map-keymap", builtin_map_keymap, 2, Some(3));
+    defsubr_eval_state(
+        ctx,
         "map-keymap-internal",
         builtin_map_keymap_internal,
         2,
@@ -1429,19 +1586,22 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     // timer-list / timer-idle-list and calls timer-event-handler.
     // Registering them as Rust builtins would shadow the Elisp definitions
     // and create an incompatible parallel timer system.
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "add-variable-watcher",
         super::advice::builtin_add_variable_watcher,
         2,
         Some(2),
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "remove-variable-watcher",
         super::advice::builtin_remove_variable_watcher,
         2,
         Some(2),
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "get-variable-watchers",
         super::advice::builtin_get_variable_watchers,
         1,
@@ -1952,7 +2112,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         Some(0),
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "old-selected-window",
         super::window_cmds::builtin_old_selected_window,
         0,
@@ -1994,25 +2155,29 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         Some(1),
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "window-left-child",
         super::window_cmds::builtin_window_left_child,
         0,
         Some(1),
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "window-next-sibling",
         super::window_cmds::builtin_window_next_sibling,
         0,
         Some(1),
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "window-prev-sibling",
         super::window_cmds::builtin_window_prev_sibling,
         0,
         Some(1),
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "window-normal-size",
         super::window_cmds::builtin_window_normal_size,
         0,
@@ -2060,7 +2225,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         Some(1),
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "window-bump-use-time",
         super::window_cmds::builtin_window_bump_use_time,
         0,
@@ -2222,7 +2388,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         Some(3),
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "window-list-1",
         super::window_cmds::builtin_window_list_1,
         0,
@@ -2246,7 +2413,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         None,
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "window-at",
         super::window_cmds::builtin_window_at,
         2,
@@ -2294,7 +2462,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         2,
         Some(2),
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "split-window-internal",
         super::window_cmds::builtin_split_window_internal,
         4,
@@ -2355,7 +2524,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         Some(2),
     );
     ctx.defsubr("recenter", super::window_cmds::builtin_recenter, 0, Some(2));
-    ctx.defsubr("vertical-motion", builtin_vertical_motion, 1, Some(3));
+    defsubr_eval_state(ctx, "vertical-motion", builtin_vertical_motion, 1, Some(3));
     ctx.defsubr(
         "next-window",
         super::window_cmds::builtin_next_window,
@@ -2386,7 +2555,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         1,
         Some(3),
     );
-    ctx.defsubr("old-selected-frame", builtin_old_selected_frame, 0, Some(0));
+    defsubr_placeholder_nil(ctx, "old-selected-frame", builtin_old_selected_frame, 0, Some(0));
     ctx.defsubr(
         "selected-frame",
         super::window_cmds::builtin_selected_frame,
@@ -2400,8 +2569,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         Some(0),
     );
     ctx.defsubr("mouse-position", builtin_mouse_position, 0, Some(0));
-    ctx.defsubr("next-frame", builtin_next_frame, 0, Some(2));
-    ctx.defsubr("previous-frame", builtin_previous_frame, 0, Some(2));
+    defsubr_placeholder_nil(ctx, "next-frame", builtin_next_frame, 0, Some(2));
+    defsubr_placeholder_nil(ctx, "previous-frame", builtin_previous_frame, 0, Some(2));
     ctx.defsubr(
         "select-frame",
         super::window_cmds::builtin_select_frame,
@@ -2622,7 +2791,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         1,
         Some(5),
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "window-system",
         super::display::builtin_window_system,
         0,
@@ -2727,8 +2897,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr("format", builtin_format, 1, None);
     ctx.defsubr("format-message", builtin_format_message, 1, None);
-    ctx.defsubr("message-box", builtin_message_box, 1, None);
-    ctx.defsubr("message-or-box", builtin_message_or_box, 1, None);
+    defsubr_eval_state(ctx, "message-box", builtin_message_box, 1, None);
+    defsubr_eval_state(ctx, "message-or-box", builtin_message_or_box, 1, None);
     ctx.defsubr("current-message", builtin_current_message, 0, Some(0));
     ctx.defsubr(
         "read-from-string",
@@ -2864,12 +3034,12 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         Some(0),
     );
-    ctx.defsubr("princ", builtin_princ, 1, Some(2));
-    ctx.defsubr("prin1", builtin_prin1, 1, Some(3));
-    ctx.defsubr("prin1-to-string", builtin_prin1_to_string, 1, Some(3));
-    ctx.defsubr("print", builtin_print, 1, Some(2));
-    ctx.defsubr("terpri", builtin_terpri, 0, Some(2));
-    ctx.defsubr("write-char", builtin_write_char, 1, Some(2));
+    defsubr_eval_state(ctx, "princ", builtin_princ, 1, Some(2));
+    defsubr_eval_state(ctx, "prin1", builtin_prin1, 1, Some(3));
+    defsubr_eval_state(ctx, "prin1-to-string", builtin_prin1_to_string, 1, Some(3));
+    defsubr_eval_state(ctx, "print", builtin_print, 1, Some(2));
+    defsubr_eval_state(ctx, "terpri", builtin_terpri, 0, Some(2));
+    defsubr_eval_state(ctx, "write-char", builtin_write_char, 1, Some(2));
     ctx.defsubr(
         "backtrace--locals",
         super::misc::builtin_backtrace_locals,
@@ -2900,7 +3070,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         Some(0),
     );
-    ctx.defsubr("kill-emacs", builtin_kill_emacs, 0, Some(2));
+    defsubr_eval_state(ctx, "kill-emacs", builtin_kill_emacs, 0, Some(2));
     ctx.defsubr(
         "exit-recursive-edit",
         super::minibuffer::builtin_exit_recursive_edit,
@@ -3014,7 +3184,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         1,
         Some(2),
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "undo-boundary",
         super::undo::builtin_undo_boundary,
         0,
@@ -3139,8 +3310,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         2,
         Some(2),
     );
-    ctx.defsubr("assoc", builtin_assoc, 2, Some(3));
-    ctx.defsubr("plist-member", builtin_plist_member, 2, Some(3));
+    defsubr_eval_state(ctx, "assoc", builtin_assoc, 2, Some(3));
+    defsubr_eval_state(ctx, "plist-member", builtin_plist_member, 2, Some(3));
     ctx.defsubr(
         "json-parse-buffer",
         super::json::builtin_json_parse_buffer,
@@ -3230,13 +3401,14 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         1,
         Some(1),
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "rename-file",
         super::fileio::builtin_rename_file,
         2,
         Some(3),
     );
-    ctx.defsubr("copy-file", super::fileio::builtin_copy_file, 2, Some(6));
+    defsubr_eval_state(ctx, "copy-file", super::fileio::builtin_copy_file, 2, Some(6));
     ctx.defsubr(
         "add-name-to-file",
         super::fileio::builtin_add_name_to_file,
@@ -3391,13 +3563,15 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         1,
         Some(2),
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "terminal-name",
         super::terminal::pure::builtin_terminal_name,
         0,
         Some(1),
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "terminal-live-p",
         super::terminal::pure::builtin_terminal_live_p,
         1,
@@ -3482,7 +3656,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         None,
     );
     ctx.defsubr("read-char", super::reader::builtin_read_char, 0, Some(3));
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "minibuffer-innermost-command-loop-p",
         super::minibuffer::builtin_minibuffer_innermost_command_loop_p_ctx,
         0,
@@ -3494,7 +3669,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         Some(0),
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "find-coding-systems-region-internal",
         super::coding::builtin_find_coding_systems_region_internal,
         2,
@@ -3515,7 +3691,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("read-event", super::lread::builtin_read_event, 0, Some(3));
     ctx.defsubr("run-hooks", defsubr_run_hooks, 0, None);
     ctx.defsubr("load", defsubr_load, 1, Some(5));
-    ctx.defsubr("message", defsubr_message, 1, None);
+    defsubr_eval_state(ctx, "message", defsubr_message, 1, None);
     ctx.defsubr(
         "coding-system-aliases",
         defsubr_coding_system_aliases,
@@ -4702,7 +4878,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         2,
         Some(5),
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "mapbacktrace",
         super::misc::builtin_mapbacktrace,
         1,
@@ -4900,7 +5077,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         1,
         Some(2),
     );
-    ctx.defsubr(
+    defsubr_placeholder_nil(
+        ctx,
         "raise-frame",
         |_ctx, args| builtin_raise_frame(args),
         0,
@@ -5077,13 +5255,15 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         1,
         Some(1),
     );
-    ctx.defsubr(
+    defsubr_placeholder_nil(
+        ctx,
         "suspend-emacs",
         |_ctx, args| builtin_suspend_emacs(args),
         0,
         Some(1),
     );
-    ctx.defsubr(
+    defsubr_placeholder_nil(
+        ctx,
         "thread--blocker",
         super::threads::builtin_thread_blocker,
         1,
@@ -5216,7 +5396,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         Some(1),
     );
-    ctx.defsubr(
+    defsubr_placeholder_nil(
+        ctx,
         "xw-color-defined-p",
         |ctx, args| super::font::builtin_xw_color_defined_p_ctx(ctx, args),
         1,
@@ -5228,7 +5409,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         None,
     );
-    ctx.defsubr(
+    defsubr_placeholder_nil(
+        ctx,
         "xw-color-values",
         |ctx, args| super::font::builtin_xw_color_values_ctx(ctx, args),
         1,
@@ -5240,7 +5422,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         None,
     );
-    ctx.defsubr(
+    defsubr_placeholder_nil(
+        ctx,
         "xw-display-color-p",
         |ctx, args| builtin_xw_display_color_p_ctx(ctx, args),
         0,
@@ -5326,7 +5509,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         Some(1),
     );
-    ctx.defsubr(
+    defsubr_placeholder_fixnum_zero(
+        ctx,
         "window-old-body-pixel-height",
         |_ctx, args| super::window_cmds::builtin_window_old_body_pixel_height(args),
         0,
@@ -6229,7 +6413,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         1,
         Some(1),
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "internal--define-uninitialized-variable",
         symbols::builtin_internal_define_uninitialized_variable,
         1,
@@ -6439,7 +6624,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         None,
     );
-    ctx.defsubr(
+    defsubr_placeholder_fixnum_zero(
+        ctx,
         "window-tab-line-height",
         super::window_cmds::builtin_window_tab_line_height,
         0,
@@ -6535,13 +6721,15 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         None,
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "frame-old-selected-window",
         super::window_cmds::builtin_frame_old_selected_window,
         0,
         None,
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "set-frame-selected-window",
         super::window_cmds::builtin_set_frame_selected_window,
         2,
@@ -6613,13 +6801,15 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         Some(0),
     );
-    ctx.defsubr(
+    defsubr_placeholder_nil(
+        ctx,
         "this-single-command-keys",
         super::interactive::builtin_this_single_command_keys,
         0,
         Some(0),
     );
-    ctx.defsubr(
+    defsubr_placeholder_nil(
+        ctx,
         "this-single-command-raw-keys",
         super::interactive::builtin_this_single_command_raw_keys,
         0,
@@ -6643,13 +6833,15 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         Some(0),
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "minibuffer-prompt-end",
         super::minibuffer::builtin_minibuffer_prompt_end_ctx,
         0,
         Some(0),
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "innermost-minibuffer-p",
         super::minibuffer::builtin_innermost_minibuffer_p_ctx,
         0,
@@ -7832,7 +8024,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         3,
         Some(3),
     );
-    ctx.defsubr(
+    defsubr_eval_state(
+        ctx,
         "define-coding-system-internal",
         defsubr_define_coding_system_internal,
         13,
@@ -7910,8 +8103,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
 
     // -- Eval builtins (eval-dependent) --
-    ctx.defsubr("defconst-1", builtin_defconst_1, 2, Some(3));
-    ctx.defsubr("defvar-1", builtin_defvar_1, 2, Some(3));
+    defsubr_eval_state(ctx, "defconst-1", builtin_defconst_1, 2, Some(3));
+    defsubr_eval_state(ctx, "defvar-1", builtin_defvar_1, 2, Some(3));
     ctx.defsubr(
         "yes-or-no-p",
         super::reader::builtin_yes_or_no_p,

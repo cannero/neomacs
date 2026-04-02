@@ -86,7 +86,16 @@ pub(crate) fn lambda_to_cons_list(value: &Value) -> Option<Value> {
 }
 
 pub(crate) fn lambda_closure_length(value: &Value) -> Option<i64> {
-    Some(value.closure_slots()?.len() as i64)
+    let slots = value.closure_slots()?;
+    let mut logical_len = slots.len();
+    while logical_len > 3
+        && slots
+            .get(logical_len - 1)
+            .is_some_and(|value| value.is_nil())
+    {
+        logical_len -= 1;
+    }
+    Some(logical_len as i64)
 }
 
 /// Convert a Lambda value to the GNU Emacs closure vector layout:
@@ -98,9 +107,15 @@ pub fn lambda_to_closure_vector(value: &Value) -> Vec<Value> {
 }
 
 pub(crate) fn bytecode_closure_length(value: &Value) -> Option<i64> {
-    let _bc = value.get_bytecode_data()?;
-    // GNU Emacs closures always have 6 slots
-    Some(6)
+    let bc = value.get_bytecode_data()?;
+    let mut logical_len = 4;
+    if bc.docstring.is_some() || bc.doc_form.is_some() {
+        logical_len = 5;
+    }
+    if bc.interactive.is_some() {
+        logical_len = 6;
+    }
+    Some(logical_len)
 }
 
 pub(crate) fn closure_vector_length(value: &Value) -> Option<i64> {
