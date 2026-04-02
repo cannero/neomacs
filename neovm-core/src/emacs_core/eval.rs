@@ -5322,16 +5322,170 @@ impl Context {
     /// Evaluate a Value as code (like Elisp's `eval`).
     /// Converts Value to Expr, then evaluates.  OpaqueValueRef entries
     /// are rooted by the OpaqueValuePool automatically.
-    pub fn eval_value(&mut self, value: &Value) -> EvalResult {
-        let expr = value_to_expr(value);
-        self.with_gc_scope(|ctx| {
-            let mut opaques = Vec::new();
-            collect_opaque_values(&expr, &mut opaques);
-            for v in &opaques {
-                ctx.push_temp_root(*v);
+    /// Evaluate a runtime Value form, matching GNU Emacs's `eval_sub` in eval.c.
+    ///
+    /// This is the Value-based evaluator that works directly on `Value` (Lisp_Object
+    /// equivalent) WITHOUT converting to `Expr` first. This eliminates the
+    /// `value_to_expr` round-trip that was the primary performance bottleneck
+    /// in macro expansion (50-100x slowdown vs GNU).
+    ///
+    /// Dispatch order (matching GNU eval.c:2552-2766):
+    /// 1. Symbol → lexenv lookup or symbol-value
+    /// 2. Non-cons → self-evaluating (return as-is)
+    /// 3. Cons → special form / macro / function call
+    pub fn eval_sub(&mut self, form: Value) -> EvalResult {
+        // 1. Symbol → variable lookup (GNU eval.c:2554-2562)
+        if let Some(sym_id) = form.as_symbol_id() {
+            return self.eval_symbol_by_id(sym_id);
+        }
+
+        // 2. Non-cons → self-evaluating (GNU eval.c:2564-2565)
+        if !form.is_cons() {
+            return Ok(form);
+        }
+
+        self.maybe_gc_and_quit()?;
+
+        let original_fun = form.cons_car();
+        let original_args = form.cons_cdr();
+
+        // Resolve function (GNU eval.c:2600-2605)
+        let sym_id = original_fun.as_symbol_id();
+        let name = sym_id.map(|id| resolve_sym(id));
+
+        // Check for special forms (GNU eval.c UNEVALLED subrs)
+        if let Some(name) = name {
+            if super::subr_info::is_special_form(name) {
+                if let Some(func) = self.obarray.symbol_function(name) {
+                    if func.is_subr() {
+                        // Convert args to Expr for special form handling.
+                        // This is a shallow conversion — only the immediate args,
+                        // not the deep tree. Special forms handle their own
+                        // sub-evaluation.
+                        let args_exprs = value_list_to_exprs(&original_args);
+                        if let Some(result) = self.try_special_form(name, &args_exprs) {
+                            return result;
+                        }
+                    }
+                }
             }
-            ctx.eval(&expr)
-        })
+        }
+
+        // Resolve function value
+        let func = if let Some(sym_id) = sym_id {
+            match self.obarray.symbol_function_id(sym_id) {
+                Some(f) if !f.is_nil() => {
+                    let mut f = *f;
+                    // Follow symbol indirection (GNU eval.c:2604)
+                    if let Some(alias_id) = f.as_symbol_id() {
+                        if let Some(resolved) =
+                            self.obarray.indirect_function(resolve_sym(alias_id))
+                        {
+                            f = resolved;
+                        }
+                    }
+                    // Handle autoload
+                    if super::autoload::is_autoload_value(&f) {
+                        let _ = super::autoload::builtin_autoload_do_load(
+                            self,
+                            vec![f, Value::from_sym_id(sym_id), Value::NIL],
+                        )?;
+                        match self.obarray.symbol_function_id(sym_id) {
+                            Some(reloaded) if !reloaded.is_nil() => *reloaded,
+                            _ => {
+                                return Err(signal(
+                                    "void-function",
+                                    vec![Value::from_sym_id(sym_id)],
+                                ));
+                            }
+                        }
+                    } else {
+                        f
+                    }
+                }
+                _ => return Err(signal("void-function", vec![Value::from_sym_id(sym_id)])),
+            }
+        } else if original_fun.is_cons() {
+            // Car is a list — could be (lambda ...) form
+            // Evaluate it to get the function
+            self.eval_sub(original_fun)?
+        } else {
+            return Err(signal("invalid-function", vec![original_fun]));
+        };
+
+        // Check for macro (GNU eval.c:2730-2755)
+        if func.is_macro() {
+            let lambda_data = func.get_lambda_data().unwrap().clone();
+            let arg_values = value_list_to_values(&original_args);
+            let expanded = self.with_macro_expansion_scope(|eval| {
+                eval.apply_lambda(&lambda_data, arg_values, func)
+            })?;
+            // Evaluate expansion DIRECTLY — no value_to_expr round-trip!
+            return self.eval_sub(expanded);
+        }
+        if func.is_cons() && func.cons_car().is_symbol_named("macro") {
+            // Cons-cell macro: (macro . fn) — GNU eval.c:2730
+            let macro_fn = func.cons_cdr();
+
+            // GNU eval.c:2737-2750: bind lexical-binding and macroexp--dynvars
+            let saved_lexbind = self.obarray().symbol_value("lexical-binding").cloned();
+            let lexbind_val = if self.lexenv.is_nil() {
+                Value::NIL
+            } else {
+                Value::T
+            };
+            self.set_variable("lexical-binding", lexbind_val);
+
+            let saved_dynvars = self.obarray().symbol_value("macroexp--dynvars").cloned();
+            let mut dynvars = saved_dynvars.unwrap_or(Value::NIL);
+            {
+                let mut p = self.lexenv;
+                while p.is_cons() {
+                    let e = p.cons_car();
+                    if e.is_symbol() {
+                        dynvars = Value::cons(e, dynvars);
+                    }
+                    p = p.cons_cdr();
+                }
+            }
+            self.set_variable("macroexp--dynvars", dynvars);
+
+            // GNU eval.c:2752: exp = apply1(Fcdr(fun), original_args)
+            let arg_values = value_list_to_values(&original_args);
+            let expanded = self.apply(macro_fn, arg_values)?;
+
+            // Restore bindings
+            if let Some(v) = saved_lexbind {
+                self.set_variable("lexical-binding", v);
+            }
+            if let Some(v) = saved_dynvars {
+                self.set_variable("macroexp--dynvars", v);
+            } else {
+                self.set_variable("macroexp--dynvars", Value::NIL);
+            }
+
+            // GNU eval.c:2754: val = eval_sub(exp)
+            return self.eval_sub(expanded);
+        }
+
+        // Regular function call: evaluate args, then apply
+        // (GNU eval.c:2625-2715)
+        let mut args = Vec::new();
+        let mut cursor = original_args;
+        while cursor.is_cons() {
+            let arg_form = cursor.cons_car();
+            let arg_val = self.eval_sub(arg_form)?;
+            self.push_temp_root(arg_val);
+            args.push(arg_val);
+            cursor = cursor.cons_cdr();
+        }
+
+        self.apply(func, args)
+    }
+
+    /// Legacy eval_value: delegates to eval_sub.
+    pub fn eval_value(&mut self, value: &Value) -> EvalResult {
+        self.eval_sub(*value)
     }
 
     pub fn eval_forms(&mut self, forms: &[Expr]) -> Vec<Result<Value, EvalError>> {
@@ -5872,7 +6026,7 @@ impl Context {
                         }
 
                         let expand_start = std::time::Instant::now();
-                        let expanded_expr = {
+                        let expanded_value = {
                             let scope = self.open_gc_scope();
                             let macro_fn = func.cons_cdr();
                             self.push_temp_root(macro_fn);
@@ -5922,31 +6076,20 @@ impl Context {
                                 self.set_variable("macroexp--dynvars", Value::NIL);
                             }
 
-                            // Root expansion result during value_to_expr traversal
-                            self.push_temp_root(expanded_value);
-                            let expr = value_to_expr(&expanded_value);
                             scope.close(self);
-                            expr
+                            expanded_value
                         };
 
-                        // Cache the expansion as Rc<Expr>.  The Rc keeps the
-                        // expansion alive in the cache, ensuring inner Vec
-                        // addresses remain stable for future cache key lookups.
                         let expand_elapsed = expand_start.elapsed();
                         self.macro_cache_misses += 1;
                         self.macro_expand_total_us += expand_elapsed.as_micros() as u64;
-
-                        let expanded_rc = Rc::new(expanded_expr);
-                        let expanded_cache_entry = Rc::new(MacroExpansionCacheEntry::new(
-                            expanded_rc.clone(),
-                            current_fp,
-                        ));
-                        if !self.macro_cache_disabled {
-                            self.macro_expansion_cache
-                                .insert(cache_key, expanded_cache_entry);
+                        if expand_elapsed.as_millis() > 50 {
+                            tracing::debug!("cons-macro expand took {expand_elapsed:.2?}");
                         }
 
-                        return self.eval(&expanded_rc);
+                        // Evaluate expansion DIRECTLY via eval_sub — no
+                        // value_to_expr round-trip. Matches GNU eval.c:2754.
+                        return self.eval_sub(expanded_value);
                     }
                 }
 
@@ -9366,6 +9509,30 @@ fn format_startup_value(value: Option<&Value>) -> String {
     value
         .map(super::print::print_value)
         .unwrap_or_else(|| "<unbound>".to_string())
+}
+
+/// Convert a Value cons list to a Vec<Value> (for eval_sub arg passing).
+fn value_list_to_values(list: &Value) -> Vec<Value> {
+    let mut result = Vec::new();
+    let mut cursor = *list;
+    while cursor.is_cons() {
+        result.push(cursor.cons_car());
+        cursor = cursor.cons_cdr();
+    }
+    result
+}
+
+/// Convert a Value cons list to Vec<Expr> for special form dispatch.
+/// This is a SHALLOW conversion — each element becomes a single Expr node.
+/// Used by eval_sub to interface with Expr-based special form handlers.
+fn value_list_to_exprs(list: &Value) -> Vec<Expr> {
+    let mut result = Vec::new();
+    let mut cursor = *list;
+    while cursor.is_cons() {
+        result.push(value_to_expr(&cursor.cons_car()));
+        cursor = cursor.cons_cdr();
+    }
+    result
 }
 
 /// Convert a Value back to an Expr (for macro expansion).

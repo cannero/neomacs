@@ -806,9 +806,11 @@ pub(crate) fn eager_expand_eval(
         // Call internal-macroexpand-for-load(val, t) — full-p=t means deep expand
         let expanded = match ctx.apply(macroexpand_fn, vec![val, Value::T]) {
             Ok(v) => v,
-            Err(_) => {
+            Err(e) => {
                 // Full expansion failed; use the one-level-expanded form.
-                tracing::debug!("eager_expand step3 failed, using partially expanded form");
+                let form_str = super::print::print_value(&val);
+                let form_preview: String = form_str.chars().take(200).collect();
+                tracing::debug!("eager_expand step3 failed: {e:?} form={form_preview}");
                 val
             }
         };
