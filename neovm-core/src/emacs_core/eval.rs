@@ -1538,14 +1538,7 @@ impl Context {
 
     pub fn new() -> Self {
         let mut ctx = Self::new_inner(true);
-        // Capture stack bottom for conservative GC stack scanning.
-        // Read the thread's stack upper bound from /proc/self/maps.
-        #[cfg(target_os = "linux")]
-        {
-            if let Some(stack_end) = crate::tagged::gc::read_stack_end_from_proc() {
-                ctx.tagged_heap.set_stack_bottom(stack_end as *const u8);
-            }
-        }
+        ctx.initialize_gc_stack_bottom();
         // Register builtins AFTER new_inner returns — the function is too
         // large (1500+ lines) for reliable codegen in debug mode when
         // combined with init_builtins (1162 defsubr calls in the same frame).
@@ -1623,8 +1616,7 @@ impl Context {
         ev.interpreted_closure_filter_fn = None;
         ev.interpreted_closure_trim_cache.clear();
         ev.materialize_public_evaluator_function_cells();
-        ev.sync_thread_runtime_bindings();
-        ev.sync_current_thread_buffer_state();
+        ev.finish_runtime_activation(false);
         ev
     }
 
@@ -3530,13 +3522,7 @@ impl Context {
             interpreted_closure_filter_fn: None,
             interpreted_closure_trim_cache: HashMap::new(),
         };
-        // The heap is boxed so its address is stable across moves. Re-point
-        // anyway to be explicit about thread-local state.
-        crate::tagged::gc::set_tagged_heap(&mut ev.tagged_heap);
-        super::syntax::restore_standard_syntax_table_object(ev.standard_syntax_table);
-        super::category::restore_standard_category_table_object(ev.standard_category_table);
-        ev.sync_thread_runtime_bindings();
-        ev.sync_current_thread_buffer_state();
+        ev.finish_runtime_activation(false);
         ev
     }
 
@@ -3653,17 +3639,8 @@ impl Context {
             interpreted_closure_filter_fn: None,
             interpreted_closure_trim_cache: HashMap::new(),
         };
-        // Re-point thread-local heap pointer to the evaluator's owned box.
-        crate::tagged::gc::set_tagged_heap(&mut ev.tagged_heap);
-        // Set stack bottom for conservative GC stack scanning (same as Context::new).
-        #[cfg(target_os = "linux")]
-        {
-            if let Some(stack_end) = crate::tagged::gc::read_stack_end_from_proc() {
-                ev.tagged_heap.set_stack_bottom(stack_end as *const u8);
-            }
-        }
-        super::syntax::restore_standard_syntax_table_object(ev.standard_syntax_table);
-        super::category::restore_standard_category_table_object(ev.standard_category_table);
+        ev.initialize_gc_stack_bottom();
+        ev.setup_thread_locals();
 
         // Rebuild the builtin subr registry after pdump restore. The dumped
         // obarray already carries the authoritative runtime function-cell
@@ -3679,9 +3656,7 @@ impl Context {
             }
         }
 
-        ev.sync_keyboard_runtime_from_obarray();
-        ev.sync_thread_runtime_bindings();
-        ev.sync_current_thread_buffer_state();
+        ev.finish_runtime_activation(true);
 
         ev
     }
@@ -3815,6 +3790,24 @@ impl Context {
         crate::tagged::gc::set_tagged_heap(&mut self.tagged_heap);
         super::syntax::restore_standard_syntax_table_object(self.standard_syntax_table);
         super::category::restore_standard_category_table_object(self.standard_category_table);
+    }
+
+    fn initialize_gc_stack_bottom(&mut self) {
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(stack_end) = crate::tagged::gc::read_stack_end_from_proc() {
+                self.tagged_heap.set_stack_bottom(stack_end as *const u8);
+            }
+        }
+    }
+
+    fn finish_runtime_activation(&mut self, sync_keyboard: bool) {
+        self.setup_thread_locals();
+        if sync_keyboard {
+            self.sync_keyboard_runtime_from_obarray();
+        }
+        self.sync_thread_runtime_bindings();
+        self.sync_current_thread_buffer_state();
     }
 
     pub(crate) fn sync_current_thread_buffer_state(&mut self) {
