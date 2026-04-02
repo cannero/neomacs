@@ -3,11 +3,11 @@
 //! Provides shared helpers used across all test modules.
 
 use crate::emacs_core::load::{
-    apply_ldefs_boot_autoloads_for_names, bootstrap_load_path_entries, find_file_in_load_path,
-    get_load_path, load_file,
+    apply_ldefs_boot_autoloads_for_names, bootstrap_load_path_entries,
+    create_runtime_startup_evaluator_cached, find_file_in_load_path, get_load_path, load_file,
 };
 use crate::emacs_core::value::Value;
-use crate::emacs_core::Context;
+use crate::emacs_core::{format_eval_result, parse_forms, Context};
 use std::path::PathBuf;
 
 /// Initialize the tracing subscriber for test output.
@@ -79,4 +79,15 @@ pub fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Context {
     }
     apply_ldefs_boot_autoloads_for_names(&mut eval, names).expect("ldefs-boot autoload restore");
     eval
+}
+
+/// Evaluate FORMS in a cached runtime-startup evaluator and return formatted
+/// results, matching the common bootstrap test pattern.
+pub fn runtime_startup_eval_all(src: &str) -> Vec<String> {
+    let mut eval = create_runtime_startup_evaluator_cached().expect("bootstrap");
+    let forms = parse_forms(src).expect("parse");
+    eval.eval_forms(&forms)
+        .iter()
+        .map(format_eval_result)
+        .collect()
 }

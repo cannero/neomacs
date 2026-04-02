@@ -1,10 +1,8 @@
 use super::*;
 use crate::emacs_core::eval::Context;
-use crate::emacs_core::load::create_runtime_startup_evaluator_cached;
 use crate::emacs_core::parse_forms;
 use crate::emacs_core::value::{ValueKind, VecLikeType};
-use crate::emacs_core::{format_eval_result, parse_forms as parse_bootstrap_forms};
-use crate::test_utils::eval_with_ldefs_boot_autoloads;
+use crate::test_utils::{eval_with_ldefs_boot_autoloads, runtime_startup_eval_all};
 use std::collections::VecDeque;
 use std::time::Duration;
 
@@ -64,12 +62,7 @@ fn install_mouse_help_echo_snapshot(eval: &mut Context, help: &str) -> Value {
 }
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
-    let mut eval = create_runtime_startup_evaluator_cached().expect("bootstrap");
-    let forms = parse_bootstrap_forms(src).expect("parse");
-    eval.eval_forms(&forms)
-        .iter()
-        .map(format_eval_result)
-        .collect()
+    runtime_startup_eval_all(src)
 }
 
 // ===================================================================

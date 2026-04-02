@@ -1,16 +1,9 @@
 use super::*;
 use crate::emacs_core::autoload::is_autoload_value;
-use crate::emacs_core::load::create_runtime_startup_evaluator_cached;
-use crate::emacs_core::{format_eval_result, parse_forms};
-use crate::test_utils::eval_with_ldefs_boot_autoloads;
+use crate::test_utils::{eval_with_ldefs_boot_autoloads, runtime_startup_eval_all};
 
 fn bootstrap_eval(src: &str) -> Vec<String> {
-    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
-    let forms = parse_forms(src).expect("parse");
-    ev.eval_forms(&forms)
-        .iter()
-        .map(format_eval_result)
-        .collect()
+    runtime_startup_eval_all(src)
 }
 
 // ===================================================================

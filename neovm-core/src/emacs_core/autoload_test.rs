@@ -1,7 +1,6 @@
 use super::*;
-use crate::emacs_core::load::create_runtime_startup_evaluator_cached;
 use crate::emacs_core::{Context, format_eval_result, parse_forms};
-use crate::test_utils::load_minimal_gnu_backquote_runtime;
+use crate::test_utils::{load_minimal_gnu_backquote_runtime, runtime_startup_eval_all};
 use std::fs;
 use std::path::PathBuf;
 
@@ -30,12 +29,7 @@ fn eval_all_with(ev: &mut Context, src: &str) -> Vec<String> {
 }
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
-    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
-    let forms = parse_forms(src).expect("parse");
-    ev.eval_forms(&forms)
-        .iter()
-        .map(format_eval_result)
-        .collect()
+    runtime_startup_eval_all(src)
 }
 
 fn bootstrap_eval_one(src: &str) -> String {

@@ -6,7 +6,7 @@ use crate::emacs_core::load::{
 };
 use crate::emacs_core::value::{ValueKind, VecLikeType};
 use crate::emacs_core::{Context, format_eval_result, parse_forms};
-use crate::test_utils::eval_with_ldefs_boot_autoloads;
+use crate::test_utils::{eval_with_ldefs_boot_autoloads, runtime_startup_eval_all};
 use std::fs;
 use std::path::PathBuf;
 
@@ -57,8 +57,7 @@ fn eval_all_with(ev: &mut Context, src: &str) -> Vec<String> {
 }
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
-    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
-    eval_all_with(&mut ev, src)
+    runtime_startup_eval_all(src)
 }
 
 fn bootstrap_eval_one(src: &str) -> String {
