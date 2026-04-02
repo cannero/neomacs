@@ -112,6 +112,36 @@ fn minimal_autoload_eval_one(src: &str) -> String {
         .expect("minimal autoload eval result")
 }
 
+fn load_minimal_gnu_backquote_runtime(eval: &mut Context) {
+    use crate::emacs_core::load::{find_file_in_load_path, get_load_path, load_file};
+
+    eval.set_lexical_binding(true);
+    eval.set_variable(
+        "load-path",
+        Value::list(vec![
+            Value::string(concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp/emacs-lisp")),
+            Value::string(concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp")),
+        ]),
+    );
+    let load_path = get_load_path(&eval.obarray());
+    for name in &[
+        "emacs-lisp/debug-early",
+        "emacs-lisp/byte-run",
+        "emacs-lisp/backquote",
+        "subr",
+    ] {
+        let path = find_file_in_load_path(name, &load_path)
+            .unwrap_or_else(|| panic!("cannot find {name}"));
+        load_file(eval, &path).unwrap_or_else(|err| panic!("load {name}: {err:?}"));
+    }
+}
+
+fn minimal_backquote_runtime_eval_all(src: &str) -> Vec<String> {
+    let mut ev = Context::new();
+    load_minimal_gnu_backquote_runtime(&mut ev);
+    eval_all_with(&mut ev, src)
+}
+
 // -----------------------------------------------------------------------
 // AutoloadManager unit tests
 // -----------------------------------------------------------------------
@@ -565,7 +595,7 @@ fn autoload_registers_in_autoload_manager() {
 }
 
 // -----------------------------------------------------------------------
-// eval-after-load / provide integration (bootstrap required)
+// eval-after-load / provide integration
 // -----------------------------------------------------------------------
 
 #[test]
@@ -573,7 +603,7 @@ fn eval_after_load_deferred_fires_on_provide() {
     crate::test_utils::init_test_tracing();
     // Register eval-after-load BEFORE providing the feature.
     // When provide is called, the deferred callback should fire.
-    let results = bootstrap_eval_all(
+    let results = minimal_backquote_runtime_eval_all(
         r#"(defvar neovm--eal-test-log nil)
            (eval-after-load 'neovm--eal-test-feat
              '(setq neovm--eal-test-log (cons 'deferred neovm--eal-test-log)))
@@ -592,7 +622,7 @@ fn eval_after_load_immediate_fires_when_already_provided() {
     crate::test_utils::init_test_tracing();
     // When eval-after-load is called for an already-provided feature,
     // the callback should fire immediately.
-    let results = bootstrap_eval_all(
+    let results = minimal_backquote_runtime_eval_all(
         r#"(defvar neovm--eal-imm-log nil)
            (provide 'neovm--eal-imm-feat)
            (eval-after-load 'neovm--eal-imm-feat
@@ -607,7 +637,7 @@ fn eval_after_load_immediate_fires_when_already_provided() {
 fn with_eval_after_load_fires_when_already_provided() {
     crate::test_utils::init_test_tracing();
     // with-eval-after-load macro wraps body in a lambda and calls eval-after-load.
-    let results = bootstrap_eval_all(
+    let results = minimal_backquote_runtime_eval_all(
         r#"(defvar neovm--weal-test-result nil)
            (provide 'neovm--weal-test-feat)
            (with-eval-after-load 'neovm--weal-test-feat
