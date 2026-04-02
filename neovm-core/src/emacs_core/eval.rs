@@ -4946,6 +4946,15 @@ impl Context {
         Ok(())
     }
 
+    /// Exact-root variant for call paths that already hold all live Values in
+    /// temp roots or haven't materialized any heap-backed Values yet.
+    fn maybe_gc_and_quit_exact(&mut self) -> Result<(), Flow> {
+        self.poll_pending_input_for_throw_on_input();
+        self.maybe_quit()?;
+        self.gc_safe_point_exact();
+        Ok(())
+    }
+
     /// Save the current length of temp_roots for later restoration.
     pub(crate) fn save_temp_roots(&self) -> usize {
         self.temp_roots.len()
@@ -5458,8 +5467,14 @@ impl Context {
             return Ok(form);
         }
 
-        self.maybe_gc_and_quit()?;
+        self.with_gc_scope_result(|ctx| {
+            ctx.root(form);
+            ctx.maybe_gc_and_quit_exact()?;
+            ctx.eval_sub_cons(form)
+        })
+    }
 
+    fn eval_sub_cons(&mut self, form: Value) -> EvalResult {
         let original_fun = form.cons_car();
         let original_args = form.cons_cdr();
 
@@ -5691,7 +5706,7 @@ impl Context {
 
     fn eval_inner(&mut self, expr: &Expr) -> EvalResult {
         if matches!(expr, Expr::List(_) | Expr::DottedList(_, _)) {
-            self.maybe_gc_and_quit()?;
+            self.maybe_gc_and_quit_exact()?;
         }
 
         match expr {
@@ -8072,7 +8087,7 @@ impl Context {
             for &arg in &args {
                 ctx.root(arg);
             }
-            ctx.maybe_gc_and_quit()?;
+            ctx.maybe_gc_and_quit_exact()?;
             // Deep interpreted expansion can recurse many frames.
             // Grow the stack at the function-application boundary.
             stacker::maybe_grow(EVAL_STACK_RED_ZONE, EVAL_STACK_SEGMENT, || {

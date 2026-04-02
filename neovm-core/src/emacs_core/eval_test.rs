@@ -7524,6 +7524,44 @@ fn gc_safe_point_exact_with_extra_roots_retains_explicit_slice() {
 }
 
 #[test]
+fn eval_sub_exact_gc_retains_cons_form() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.tagged_heap.set_gc_threshold(1);
+
+    let form = Value::list(vec![
+        Value::symbol("car"),
+        Value::list(vec![
+            Value::symbol("quote"),
+            Value::cons(Value::fixnum(9), Value::fixnum(10)),
+        ]),
+    ]);
+    let result = ev.eval_sub(form);
+
+    assert_eq!(
+        format_eval_result(&result.map_err(crate::emacs_core::error::map_flow)),
+        "OK 9"
+    );
+    assert!(ev.gc_count > 0, "exact eval_sub path should trigger GC");
+}
+
+#[test]
+fn apply_exact_gc_retains_rooted_args() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.tagged_heap.set_gc_threshold(1);
+
+    let arg = Value::cons(Value::fixnum(12), Value::fixnum(13));
+    let result = ev.apply(Value::symbol("car"), vec![arg]);
+
+    assert_eq!(
+        format_eval_result(&result.map_err(crate::emacs_core::error::map_flow)),
+        "OK 12"
+    );
+    assert!(ev.gc_count > 0, "exact apply path should trigger GC");
+}
+
+#[test]
 fn gc_collect_runs_post_gc_hook() {
     crate::test_utils::init_test_tracing();
     let result = eval_one(
