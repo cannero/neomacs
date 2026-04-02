@@ -3760,12 +3760,7 @@ fn lambda_captures_docstring_metadata() {
     let mut ev = Context::new();
     let forms = parse_forms("(lambda nil \"lambda-doc\" nil)").expect("parse");
     let value = ev.eval_expr(&forms[0]).expect("eval");
-    let docstring = value
-        .get_lambda_data()
-        .expect("expected lambda value")
-        .docstring
-        .clone();
-    assert_eq!(docstring.as_deref(), Some("lambda-doc"));
+    assert_eq!(value.closure_docstring().flatten(), Some("lambda-doc"));
 }
 
 #[test]
@@ -3774,9 +3769,12 @@ fn lambda_single_string_body_is_a_return_value_not_a_docstring() {
     let mut ev = Context::new();
     let forms = parse_forms("(lambda nil \"ok-1\")").expect("parse");
     let value = ev.eval_expr(&forms[0]).expect("eval");
-    let lambda = value.get_lambda_data().expect("expected lambda value");
-    assert_eq!(lambda.docstring, None);
-    assert_eq!(lambda.body.as_ref(), &vec![Expr::Str("ok-1".to_string())]);
+    assert_eq!(value.closure_docstring().flatten(), None);
+    let body = value
+        .closure_body_value()
+        .and_then(|body| crate::emacs_core::value::list_to_vec(&body))
+        .expect("expected lambda body");
+    assert_eq!(body, vec![Value::string("ok-1")]);
     assert_eq!(eval_one("(funcall (lambda nil \"ok-1\"))"), "OK \"ok-1\"");
 }
 
@@ -3797,12 +3795,7 @@ fn defmacro_captures_docstring_metadata() {
         .expect("macro function cell");
     // The value is (macro . lambda), extract the lambda for docstring.
     let lambda_val = macro_val.cons_cdr();
-    let docstring = lambda_val
-        .get_lambda_data()
-        .expect("expected lambda value")
-        .docstring
-        .clone();
-    assert_eq!(docstring.as_deref(), Some("macro-doc"));
+    assert_eq!(lambda_val.closure_docstring().flatten(), Some("macro-doc"));
 }
 
 #[test]

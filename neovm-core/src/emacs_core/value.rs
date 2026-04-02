@@ -466,73 +466,6 @@ impl LambdaData {
 
         vec![arglist, body, env, depth, doc, interactive]
     }
-
-    /// Reconstruct LambdaData from a closure slot vector (bridge for migration).
-    pub fn from_closure_slots(slots: &[Value]) -> Self {
-        let body_value = if slots.len() > CLOSURE_CODE {
-            slots[CLOSURE_CODE]
-        } else {
-            Value::NIL
-        };
-        let env_value = if slots.len() > CLOSURE_CONSTANTS {
-            slots[CLOSURE_CONSTANTS]
-        } else {
-            Value::NIL
-        };
-        let doc_value = if slots.len() > CLOSURE_DOC_STRING {
-            slots[CLOSURE_DOC_STRING]
-        } else {
-            Value::NIL
-        };
-        let interactive_value = if slots.len() > CLOSURE_INTERACTIVE {
-            slots[CLOSURE_INTERACTIVE]
-        } else {
-            Value::NIL
-        };
-
-        // Parse arglist Value → LambdaParams
-        let arglist = if slots.len() > CLOSURE_ARGLIST {
-            slots[CLOSURE_ARGLIST]
-        } else {
-            Value::NIL
-        };
-        let params = crate::emacs_core::builtins::parse_lambda_params_from_value(&arglist)
-            .unwrap_or_else(|_| LambdaParams::simple(vec![]));
-
-        // Convert body Value (Lisp list) → Vec<Expr>
-        let body_items = list_to_vec(&body_value).unwrap_or_default();
-        let body_exprs: Vec<super::expr::Expr> = body_items
-            .iter()
-            .map(crate::emacs_core::eval::value_to_expr)
-            .collect();
-
-        let env = if env_value.is_nil() {
-            None
-        } else {
-            Some(env_value)
-        };
-        let (docstring, doc_form) = if doc_value.is_string() {
-            (doc_value.as_str().map(|s| s.to_owned()), None)
-        } else if doc_value.is_nil() {
-            (None, None)
-        } else {
-            (None, Some(doc_value))
-        };
-        let interactive = if interactive_value.is_nil() {
-            None
-        } else {
-            Some(interactive_value)
-        };
-
-        LambdaData {
-            params,
-            body: body_exprs.into(),
-            env,
-            docstring,
-            doc_form,
-            interactive,
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1082,14 +1015,6 @@ impl TaggedValue {
             }
             _ => None,
         }
-    }
-
-    /// Reconstruct LambdaData from closure vector slots (bridge for migration).
-    /// Returns an OWNED LambdaData — callers that used `&LambdaData` must
-    /// change to use owned values or call `closure_slots()` directly.
-    pub fn get_lambda_data(self) -> Option<LambdaData> {
-        let slots = self.closure_slots()?;
-        Some(LambdaData::from_closure_slots(slots))
     }
 
     fn closure_parsed_params_cell(self) -> Option<&'static OnceLock<LambdaParams>> {

@@ -745,7 +745,6 @@ fn normalize_neovm_oracle_value(value: Value) -> Value {
 }
 
 fn normalize_interpreted_function_for_oracle(value: Value) -> Option<Value> {
-    let lambda = value.get_lambda_data()?.clone();
     let closure_vec = neovm_core::emacs_core::builtins::lambda_to_closure_vector(&value);
     if closure_vec.len() < 3 {
         return None;
@@ -758,7 +757,7 @@ fn normalize_interpreted_function_for_oracle(value: Value) -> Option<Value> {
         neovm_core::emacs_core::value::list_to_vec(&closure_vec[1]).unwrap_or_default();
     let mut elements = Vec::with_capacity(body_forms.len() + 3);
 
-    if lambda.env.is_some() {
+    if value.closure_env().flatten().is_some() {
         elements.push(Value::symbol("closure"));
         let env = normalize_neovm_oracle_value(closure_vec[2]);
         neovm_core::emacs_core::eval::push_scratch_gc_root(env);
