@@ -4,6 +4,7 @@ use super::types::{HeapObject, MarkerData, ObjId, OverlayData};
 use crate::buffer::BufferId;
 use crate::emacs_core::bytecode::ByteCodeFunction;
 use crate::emacs_core::value::{HashTableTest, LambdaData, LispHashTable, Value, ValueKind};
+use crate::heap_types::LispString;
 use std::collections::HashSet;
 
 /// GC collection phase (tri-color incremental).
@@ -147,18 +148,14 @@ impl LispHeap {
 
     pub fn alloc_string(&mut self, s: String) -> ObjId {
         let multibyte = crate::encoding::is_multibyte_string(&s);
-        self.alloc(HeapObject::Str(crate::gc::types::LispString::new(
-            s, multibyte,
-        )))
+        self.alloc(HeapObject::Str(LispString::new(s, multibyte)))
     }
 
     pub fn alloc_string_with_flag(&mut self, s: String, multibyte: bool) -> ObjId {
-        self.alloc(HeapObject::Str(crate::gc::types::LispString::new(
-            s, multibyte,
-        )))
+        self.alloc(HeapObject::Str(LispString::new(s, multibyte)))
     }
 
-    pub fn alloc_lisp_string(&mut self, s: crate::gc::types::LispString) -> ObjId {
+    pub fn alloc_lisp_string(&mut self, s: LispString) -> ObjId {
         self.alloc(HeapObject::Str(s))
     }
 
@@ -447,7 +444,7 @@ impl LispHeap {
         }
     }
 
-    pub fn get_lisp_string(&self, id: ObjId) -> &crate::gc::types::LispString {
+    pub fn get_lisp_string(&self, id: ObjId) -> &LispString {
         match self.get(id) {
             HeapObject::Str(s) => s,
             _ => panic!("get_lisp_string on non-string"),

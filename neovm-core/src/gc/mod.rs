@@ -1,15 +1,21 @@
 //! Garbage Collector for the NeoVM Elisp runtime.
 //!
 //! The primary GC is now the tagged pointer system in `crate::tagged::gc`.
-//! The old LispHeap/ObjId system in `heap.rs`/`types.rs` is retained for
-//! pdump compatibility but is no longer used at runtime.
+//! The old LispHeap/ObjId system in `heap.rs`/`types.rs` is retained only for
+//! legacy unit tests and is no longer part of the runtime surface.
 
+#[cfg(test)]
 pub(crate) mod heap;
+#[cfg(test)]
 pub(crate) mod objects;
+#[cfg(test)]
 pub(crate) mod types;
 
+#[cfg(test)]
 pub(crate) use heap::LispHeap;
+#[cfg(test)]
 pub(crate) use objects::*;
+#[cfg(test)]
 pub(crate) use types::{HeapObject, ObjId};
 
 use crate::emacs_core::value::Value;

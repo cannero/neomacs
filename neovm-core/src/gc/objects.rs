@@ -5,6 +5,7 @@
 
 use crate::emacs_core::bytecode::ByteCodeFunction;
 use crate::emacs_core::value::{LambdaData, LispHashTable, Value};
+use crate::heap_types::{LispString, MarkerData, OverlayData};
 
 // ---------------------------------------------------------------------------
 // GC Header
@@ -48,7 +49,7 @@ pub struct ConsCell {
 #[repr(C)]
 pub struct StringObj {
     pub header: GcHeader,
-    pub data: crate::gc::types::LispString,
+    pub data: LispString,
 }
 
 /// Heap-allocated float.
@@ -104,12 +105,12 @@ pub struct RecordObj {
 #[repr(C)]
 pub struct OverlayObj {
     pub header: GcHeader,
-    pub data: super::types::OverlayData,
+    pub data: OverlayData,
 }
 
 /// Heap-allocated marker.
 #[repr(C)]
 pub struct MarkerObj {
     pub header: GcHeader,
-    pub data: super::types::MarkerData,
+    pub data: MarkerData,
 }
