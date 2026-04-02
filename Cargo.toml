@@ -88,6 +88,7 @@ gstreamer-allocators = "0.23"
 alacritty_terminal = "0.25"
 parking_lot = "0.12"
 portable-pty = "0.9"
+smallvec = "1.13"
 
 # Build dependencies
 cbindgen = "0.27"

@@ -2086,6 +2086,7 @@ dependencies = [
  "serde",
  "sha1",
  "sha2",
+ "smallvec",
  "stacker",
  "strum",
  "tempfile",

@@ -710,7 +710,7 @@ fn apply_backtrace_callback(
         vec![
             Value::bool_val(frame.evaluated),
             frame.function,
-            Value::list(frame.args.clone()),
+            Value::list(frame.args.iter().copied().collect()),
             runtime_backtrace_frame_flags(frame),
         ],
     )

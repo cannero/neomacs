@@ -248,16 +248,25 @@ impl ConsBlock {
 
     /// Sweep: free unmarked cells, return count of freed cells.
     fn sweep(&mut self) -> usize {
-        let mut freed = 0;
-        for i in 0..CONS_BLOCK_SIZE {
-            if !self.marks[i] && !self.free_list.contains(&(i as u16)) {
-                // Cell was in use but not marked — free it
+        let old_used = self.used;
+        let mut new_used = 0;
+        self.free_list.clear();
+
+        // Rebuild the free list from the mark bitmap in one linear pass.
+        // This matches GNU's sweep shape more closely than probing the
+        // existing free list for every cell, which turns sweep into an
+        // O(n^2) scan on heavily fragmented blocks.
+        for i in (0..CONS_BLOCK_SIZE).rev() {
+            if self.marks[i] {
+                self.marks[i] = false;
+                new_used += 1;
+            } else {
                 self.free_list.push(i as u16);
-                self.used -= 1;
-                freed += 1;
             }
         }
-        freed
+
+        self.used = new_used;
+        old_used.saturating_sub(new_used)
     }
 }
 

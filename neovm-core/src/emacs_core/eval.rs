@@ -6,6 +6,8 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::sync::OnceLock;
 
+use smallvec::SmallVec;
+
 /// GC-rooted constant pool for Values embedded in Expr trees.
 /// Replaces Expr::OpaqueValue(Value) with Expr::OpaqueValueRef(u32).
 /// Values in this pool are always traced by GC — no stale references.
@@ -136,7 +138,7 @@ pub(crate) enum SpecBinding {
 #[derive(Clone, Debug)]
 pub(crate) struct RuntimeBacktraceFrame {
     pub(crate) function: Value,
-    pub(crate) args: Vec<Value>,
+    pub(crate) args: LispArgVec,
     pub(crate) evaluated: bool,
     pub(crate) debug_on_exit: bool,
 }
@@ -144,8 +146,10 @@ pub(crate) struct RuntimeBacktraceFrame {
 #[derive(Clone, Debug)]
 pub(crate) struct PendingSafeFuncall {
     pub(crate) function: Value,
-    pub(crate) args: Vec<Value>,
+    pub(crate) args: LispArgVec,
 }
+
+pub(crate) type LispArgVec = SmallVec<[Value; 8]>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct GnuTimerTimestamp {
@@ -4428,8 +4432,10 @@ impl Context {
     }
 
     pub(crate) fn queue_pending_safe_funcall(&mut self, function: Value, args: Vec<Value>) {
-        self.pending_safe_funcalls
-            .push(PendingSafeFuncall { function, args });
+        self.pending_safe_funcalls.push(PendingSafeFuncall {
+            function,
+            args: args.into_iter().collect(),
+        });
     }
 
     pub(crate) fn queue_pending_safe_hook(&mut self, hook_name: &str, args: &[Value]) {
@@ -4443,7 +4449,7 @@ impl Context {
 
     pub(crate) fn flush_pending_safe_funcalls(&mut self) {
         while let Some(funcall) = self.pending_safe_funcalls.pop() {
-            let _ = self.apply(funcall.function, funcall.args);
+            let _ = self.apply(funcall.function, funcall.args.into_iter().collect());
         }
     }
 
@@ -5938,42 +5944,6 @@ impl Context {
             }
             _ => false,
         }
-    }
-
-    fn function_value_is_advice_wrapper(&self, function: &Value) -> bool {
-        let advice_type = Some(Value::symbol("advice"));
-        match function.kind() {
-            ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => {
-                function.closure_doc_form().flatten() == advice_type
-            }
-            ValueKind::Veclike(VecLikeType::ByteCode) => {
-                function.get_bytecode_data().map(|d| d.doc_form).flatten() == advice_type
-            }
-            ValueKind::Symbol(id) => {
-                super::builtins::symbols::resolve_indirect_symbol_by_id(self, id)
-                    .is_some_and(|(_, resolved)| self.function_value_is_advice_wrapper(&resolved))
-            }
-            _ => false,
-        }
-    }
-
-    fn advice_wrapper_frame_function(&self, function: Value) -> Value {
-        if self.function_value_is_advice_wrapper(&function)
-            && let Some(symbol) = self.advice_wrapper_symbol_alias(&function)
-        {
-            return Value::from_sym_id(symbol);
-        }
-        function
-    }
-
-    fn advice_wrapper_symbol_alias(&self, function: &Value) -> Option<SymId> {
-        self.obarray.all_symbols().into_iter().find_map(|name| {
-            let symbol = intern(name);
-            self.obarray
-                .symbol_function_id(symbol)
-                .filter(|bound| eq_value(bound, function))
-                .map(|_| symbol)
-        })
     }
 
     /// Evaluate a slice of expressions into a Vec, rooting intermediate results
@@ -8035,8 +8005,8 @@ impl Context {
 
     pub(crate) fn push_runtime_backtrace_frame(&mut self, function: Value, args: &[Value]) {
         self.runtime_backtrace.push(RuntimeBacktraceFrame {
-            function: self.advice_wrapper_frame_function(function),
-            args: args.to_vec(),
+            function,
+            args: args.iter().copied().collect(),
             evaluated: true,
             debug_on_exit: false,
         });
@@ -8096,8 +8066,7 @@ impl Context {
     /// bytecode VM (via Vm::call_function).
     pub(crate) fn funcall_general(&mut self, function: Value, args: Vec<Value>) -> EvalResult {
         let frame_args = args.clone();
-        let frame_function = self.advice_wrapper_frame_function(function);
-        self.with_runtime_backtrace_frame(frame_function, &frame_args, |eval| {
+        self.with_runtime_backtrace_frame(function, &frame_args, |eval| {
             eval.funcall_general_untraced(function, args)
         })
     }
