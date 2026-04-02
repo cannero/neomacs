@@ -1,9 +1,9 @@
 use crate::emacs_core::eval::GuiFrameHostSize;
-use crate::emacs_core::load::create_runtime_startup_evaluator_cached;
 use crate::emacs_core::value::{ValueKind, VecLikeType};
 use crate::emacs_core::{
     Context, DisplayHost, GuiFrameHostRequest, Value, format_eval_result, parse_forms,
 };
+use crate::test_utils::{runtime_startup_context, runtime_startup_eval_all};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -43,12 +43,7 @@ fn eval_with_gui_frame(src: &str) -> Vec<String> {
 }
 
 fn bootstrap_eval_with_frame(src: &str) -> Vec<String> {
-    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
-    let forms = parse_forms(src).expect("parse");
-    ev.eval_forms(&forms)
-        .iter()
-        .map(format_eval_result)
-        .collect()
+    runtime_startup_eval_all(src)
 }
 
 fn bootstrap_eval_one_with_frame(src: &str) -> String {
@@ -582,7 +577,7 @@ def
 #[test]
 fn set_window_start_point_and_group_start_accept_marker_positions() {
     crate::test_utils::init_test_tracing();
-    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
+    let mut ev = runtime_startup_context();
     let forms = parse_forms(
         "(let* ((w (selected-window))
                 (m (with-current-buffer (window-buffer w)
@@ -1511,7 +1506,7 @@ fn other_window_enforces_max_arity() {
 #[test]
 fn other_window_without_selected_frame_returns_nil() {
     crate::test_utils::init_test_tracing();
-    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
+    let mut ev = runtime_startup_context();
     let forms = parse_forms("(other-window 1)").expect("parse");
     let results = ev.eval_forms(&forms);
     assert_eq!(format_eval_result(&results[0]), "OK nil");
@@ -2714,7 +2709,7 @@ fn set_frame_selected_window_matches_selection_and_error_semantics() {
 #[test]
 fn old_selected_window_matches_stable_and_stale_window_semantics() {
     crate::test_utils::init_test_tracing();
-    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
+    let mut ev = runtime_startup_context();
     let forms = parse_forms(
         "(windowp (old-selected-window))
          (let* ((w1 (selected-window))
@@ -2761,7 +2756,7 @@ fn old_selected_window_matches_stable_and_stale_window_semantics() {
 #[test]
 fn frame_old_selected_window_matches_batch_and_arity_semantics() {
     crate::test_utils::init_test_tracing();
-    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
+    let mut ev = runtime_startup_context();
     let forms = parse_forms(
         "(condition-case err (frame-old-selected-window 999999) (error err))
          (condition-case err (frame-old-selected-window 'foo) (error err))

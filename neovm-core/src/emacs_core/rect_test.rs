@@ -1,9 +1,10 @@
 use super::*;
 use crate::emacs_core::autoload::is_autoload_value;
 use crate::emacs_core::bytecode::opcode::Op;
-use crate::emacs_core::load::create_runtime_startup_evaluator_cached;
 use crate::emacs_core::{format_eval_result, parse_forms};
-use crate::test_utils::{eval_with_ldefs_boot_autoloads, runtime_startup_eval_all};
+use crate::test_utils::{
+    eval_with_ldefs_boot_autoloads, runtime_startup_context, runtime_startup_eval_all,
+};
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
     runtime_startup_eval_all(src)
@@ -199,7 +200,7 @@ fn yank_rectangle_loaded_rejects_non_list_killed_rectangle() {
 #[test]
 fn yank_rectangle_loaded_function_is_simple_bytecode_call() {
     crate::test_utils::init_test_tracing();
-    let mut eval = create_runtime_startup_evaluator_cached().expect("bootstrap");
+    let mut eval = runtime_startup_context();
     let forms = parse_forms(r#"(load "rect")"#).expect("parse rect load");
     let results = eval.eval_forms(&forms);
     assert!(

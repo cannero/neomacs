@@ -1,7 +1,6 @@
 use super::super::eval::Context;
 use super::super::value::{Value, ValueKind};
-use crate::emacs_core::load::create_runtime_startup_evaluator_cached;
-use crate::test_utils::eval_with_ldefs_boot_autoloads;
+use crate::test_utils::{eval_with_ldefs_boot_autoloads, runtime_startup_context};
 use std::fs;
 use std::path::PathBuf;
 
@@ -18,7 +17,7 @@ fn eval_with_text(text: &str) -> Context {
 }
 
 fn bootstrap_eval_with_text(text: &str) -> Context {
-    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
+    let mut ev = runtime_startup_context();
     {
         let buf = ev.buffers.current_buffer_mut().unwrap();
         buf.insert(text);
@@ -635,7 +634,7 @@ fn test_region_beginning_and_end() {
 fn test_use_region_p_is_available_after_bootstrap() {
     crate::test_utils::init_test_tracing();
     // use-region-p is a defun in simple.el, not autoloaded in GNU Emacs.
-    let ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
+    let ev = runtime_startup_context();
     let function = ev
         .obarray
         .symbol_function("use-region-p")

@@ -1,8 +1,8 @@
 use super::*;
 use crate::emacs_core::error::Flow;
 use crate::emacs_core::eval::{ConditionFrame, ResumeTarget};
-use crate::emacs_core::load::create_runtime_startup_evaluator_cached;
 use crate::emacs_core::{format_eval_result, parse_forms};
+use crate::test_utils::{runtime_startup_context, runtime_startup_eval_all};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::thread;
@@ -45,12 +45,7 @@ fn eval_all_with_subr(src: &str) -> Vec<String> {
 }
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
-    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
-    let forms = parse_forms(src).expect("parse");
-    ev.eval_forms(&forms)
-        .iter()
-        .map(format_eval_result)
-        .collect()
+    runtime_startup_eval_all(src)
 }
 
 fn bootstrap_eval_one(src: &str) -> String {
@@ -2817,7 +2812,7 @@ fn next_input_wait_timeout_accounts_for_gnu_idle_timer_list_when_idle() {
 #[test]
 fn read_char_fires_bootstrapped_gnu_run_with_timer_while_waiting_for_input() {
     crate::test_utils::init_test_tracing();
-    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
+    let mut ev = runtime_startup_context();
 
     let forms = parse_forms(
         "(progn
@@ -2854,7 +2849,7 @@ fn read_char_fires_bootstrapped_gnu_run_with_timer_while_waiting_for_input() {
 fn read_char_fires_bootstrapped_gnu_run_with_idle_timer_while_waiting_for_input() {
     crate::test_utils::init_test_tracing();
     eprintln!("idle test: bootstrap");
-    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
+    let mut ev = runtime_startup_context();
 
     eprintln!("idle test: parse forms");
     let forms = parse_forms(
