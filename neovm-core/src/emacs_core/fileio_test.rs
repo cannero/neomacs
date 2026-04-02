@@ -1,13 +1,12 @@
 use super::*;
 use crate::emacs_core::eval::Context;
-use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+use crate::emacs_core::load::create_runtime_startup_evaluator_cached;
 use crate::emacs_core::value::list_to_vec;
 use crate::emacs_core::{format_eval_result, parse_forms};
 use std::io::Write;
 
 fn bootstrap_eval(src: &str) -> Vec<String> {
-    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
-    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
+    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
     let forms = parse_forms(src).expect("parse");
     ev.eval_forms(&forms)
         .iter()

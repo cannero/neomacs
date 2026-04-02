@@ -3,10 +3,11 @@ use crate::emacs_core::editfns::{
     builtin_delete_and_extract_region, builtin_delete_region, builtin_erase_buffer,
 };
 use crate::emacs_core::expr::Expr;
-use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+use crate::emacs_core::load::create_runtime_startup_evaluator_cached;
 use crate::emacs_core::textprop::builtin_make_overlay;
 use crate::emacs_core::value::{LambdaData, LambdaParams, ValueKind, VecLikeType};
-use crate::emacs_core::{format_eval_result, parse_forms};
+use crate::emacs_core::{Context, format_eval_result, parse_forms};
+use std::fs;
 
 fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<EvalResult> {
     super::dispatch_builtin_without_eval_state(name, args)
@@ -72,9 +73,70 @@ fn create_unique_test_buffer(eval: &mut crate::emacs_core::eval::Context, name: 
     Value::make_buffer(eval.buffers.create_buffer(&unique_name))
 }
 
+fn load_minimal_gnu_backquote_runtime(eval: &mut Context) {
+    use crate::emacs_core::load::{find_file_in_load_path, get_load_path, load_file};
+
+    eval.set_lexical_binding(true);
+    eval.set_variable(
+        "load-path",
+        Value::list(vec![
+            Value::string(concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp/emacs-lisp")),
+            Value::string(concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp")),
+        ]),
+    );
+    let load_path = get_load_path(&eval.obarray());
+    for name in &[
+        "emacs-lisp/debug-early",
+        "emacs-lisp/byte-run",
+        "emacs-lisp/backquote",
+        "subr",
+    ] {
+        let path = find_file_in_load_path(name, &load_path)
+            .unwrap_or_else(|| panic!("cannot find {name}"));
+        load_file(eval, &path).unwrap_or_else(|err| panic!("load {name}: {err:?}"));
+    }
+}
+
+fn eval_first_gnu_form_after_marker(eval: &mut Context, source: &str, marker: &str) {
+    let start = source
+        .find(marker)
+        .unwrap_or_else(|| panic!("missing GNU Lisp marker: {marker}"));
+    let forms = parse_forms(&source[start..])
+        .unwrap_or_else(|err| panic!("parse GNU Lisp from {marker} failed: {err:?}"));
+    let form = forms
+        .first()
+        .unwrap_or_else(|| panic!("no GNU Lisp form found after marker: {marker}"));
+    eval.eval_expr(form)
+        .unwrap_or_else(|err| panic!("evaluate GNU Lisp form {marker} failed: {err:?}"));
+}
+
+fn load_gnu_save_selected_window_runtime(eval: &mut Context) {
+    let shim_forms = parse_forms(
+        r#"
+        (defalias 'frames-on-display-list
+          #'(lambda (&optional _device)
+              (frame-list)))
+        "#,
+    )
+    .expect("parse save-selected-window support shim");
+    for form in &shim_forms {
+        eval.eval_expr(form)
+            .unwrap_or_else(|err| panic!("install save-selected-window shim failed: {err:?}"));
+    }
+
+    let window_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp/window.el");
+    let window_source = fs::read_to_string(window_path).expect("read GNU window.el");
+    for marker in [
+        "(defun internal--before-save-selected-window ()",
+        "(defun internal--after-save-selected-window (state)",
+        "(defmacro save-selected-window (&rest body)",
+    ] {
+        eval_first_gnu_form_after_marker(eval, &window_source, marker);
+    }
+}
+
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
-    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
-    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
+    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
     let forms = parse_forms(src).expect("parse");
     ev.eval_forms(&forms)
         .iter()
@@ -6014,7 +6076,9 @@ fn match_data_round_trip_with_nil_groups() {
 #[test]
 fn bootstrap_runtime_set_match_data_restores_multibyte_buffer_positions_like_gnu() {
     crate::test_utils::init_test_tracing();
-    let result = bootstrap_eval_all(
+    let mut eval = Context::new();
+    load_minimal_gnu_backquote_runtime(&mut eval);
+    let forms = parse_forms(
         r#"(with-temp-buffer
              (insert "a—b")
              (goto-char (point-min))
@@ -6028,7 +6092,13 @@ fn bootstrap_runtime_set_match_data_restores_multibyte_buffer_positions_like_gnu
                        (match-beginning 0)
                        (match-end 0)
                        (match-string 0)))))"#,
-    );
+    )
+    .expect("parse");
+    let result = eval
+        .eval_forms(&forms)
+        .iter()
+        .map(format_eval_result)
+        .collect::<Vec<_>>();
 
     assert_eq!(result[0], r#"OK (t t 2 3 "t")"#);
 }
@@ -8369,7 +8439,9 @@ fn text_char_description_nonunicode_char_code_bounds_match_oracle() {
 #[test]
 fn assoc_delete_all_supports_default_equal_and_optional_test() {
     crate::test_utils::init_test_tracing();
-    let results = bootstrap_eval_all(
+    let mut eval = Context::new();
+    load_minimal_gnu_backquote_runtime(&mut eval);
+    let forms = parse_forms(
         r#"
         (assoc-delete-all "foo" '(("foo" . 1) ignored ("bar" . 2) ("foo" . 3)))
         (let* ((key "foo")
@@ -8377,7 +8449,13 @@ fn assoc_delete_all_supports_default_equal_and_optional_test() {
           (assoc-delete-all key alist 'eq))
         (condition-case err (assoc-delete-all nil nil nil nil) (error (car err)))
         "#,
-    );
+    )
+    .expect("parse");
+    let results = eval
+        .eval_forms(&forms)
+        .iter()
+        .map(format_eval_result)
+        .collect::<Vec<_>>();
     assert_eq!(results[0], r#"OK (ignored ("bar" . 2))"#);
     assert_eq!(results[1], r#"OK (("foo" . 10))"#);
     assert_eq!(results[2], "OK wrong-number-of-arguments");
@@ -8649,8 +8727,8 @@ fn format_message_and_message_signal_strict_format_errors() {
 #[test]
 fn user_error_signals_user_error_symbol_and_formatted_message() {
     crate::test_utils::init_test_tracing();
-    let mut eval = crate::emacs_core::load::create_bootstrap_evaluator_cached().expect("bootstrap");
-    crate::emacs_core::load::apply_runtime_startup_state(&mut eval).expect("startup");
+    let mut eval = Context::new();
+    load_minimal_gnu_backquote_runtime(&mut eval);
     let forms = crate::emacs_core::parse_forms(
         r#"(condition-case err (user-error "oops %s" "now") (user-error err))"#,
     )
@@ -8663,8 +8741,8 @@ fn user_error_signals_user_error_symbol_and_formatted_message() {
 #[test]
 fn user_error_requires_message_argument() {
     crate::test_utils::init_test_tracing();
-    let mut eval = crate::emacs_core::load::create_bootstrap_evaluator_cached().expect("bootstrap");
-    crate::emacs_core::load::apply_runtime_startup_state(&mut eval).expect("startup");
+    let mut eval = Context::new();
+    load_minimal_gnu_backquote_runtime(&mut eval);
     let forms =
         crate::emacs_core::parse_forms(r#"(condition-case err (user-error) (error (car err)))"#)
             .expect("parse");
@@ -8676,13 +8754,12 @@ fn user_error_requires_message_argument() {
 #[test]
 fn internal_save_selected_window_helpers_restore_selected_window() {
     crate::test_utils::init_test_tracing();
-    // internal--before/after-save-selected-window are Elisp in GNU
-    // (window.el). Test through bootstrap evaluator.
-    let mut eval = crate::emacs_core::load::create_bootstrap_evaluator_cached().expect("bootstrap");
-    crate::emacs_core::load::apply_runtime_startup_state(&mut eval).expect("startup");
+    let mut eval = Context::new();
+    load_minimal_gnu_backquote_runtime(&mut eval);
+    load_gnu_save_selected_window_runtime(&mut eval);
     let forms = crate::emacs_core::parse_forms(
         r#"(let* ((orig (selected-window))
-                  (new (split-window)))
+                  (new (split-window-internal (selected-window) nil nil nil)))
              (select-window new)
              (save-selected-window
                (select-window orig)

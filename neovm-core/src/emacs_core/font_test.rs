@@ -3,7 +3,7 @@ use crate::emacs_core::eval::{
     Context, DisplayHost, FontResolveRequest, FontSpecResolveRequest, GuiFrameHostRequest,
     ResolvedFontMatch, ResolvedFontSpecMatch,
 };
-use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+use crate::emacs_core::load::create_runtime_startup_evaluator_cached;
 use crate::emacs_core::value::{ValueKind, VecLikeType};
 use crate::emacs_core::{format_eval_result, parse_forms};
 use crate::face::{Color, FaceAttrValue};
@@ -101,8 +101,7 @@ impl DisplayHost for CapturingFindFontDisplayHost {
 }
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
-    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
-    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let mut eval = create_runtime_startup_evaluator_cached().expect("bootstrap");
     let forms = parse_forms(src).expect("parse");
     eval.eval_forms(&forms)
         .iter()

@@ -1,5 +1,5 @@
 use super::*;
-use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+use crate::emacs_core::load::create_runtime_startup_evaluator_cached;
 use crate::emacs_core::{Context, format_eval_result, parse_forms};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -53,16 +53,14 @@ fn install_minimal_special_event_command_runtime(ev: &mut Context) {
 }
 
 fn eval_one(src: &str) -> String {
-    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
-    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
+    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
     let forms = parse_forms(src).expect("parse");
     let result = ev.eval_expr(&forms[0]);
     format_eval_result(&result)
 }
 
 fn eval_all(src: &str) -> Vec<String> {
-    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
-    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
+    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
     let forms = parse_forms(src).expect("parse");
     ev.eval_forms(&forms)
         .iter()
@@ -71,16 +69,14 @@ fn eval_all(src: &str) -> Vec<String> {
 }
 
 fn bootstrap_eval_one(src: &str) -> String {
-    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
-    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
+    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
     let forms = parse_forms(src).expect("parse");
     let result = ev.eval_expr(&forms[0]);
     format_eval_result(&result)
 }
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
-    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
-    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
+    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
     let forms = parse_forms(src).expect("parse");
     ev.eval_forms(&forms)
         .iter()

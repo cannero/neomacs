@@ -1,7 +1,7 @@
 use super::*;
 use crate::emacs_core::builtins::symbols::{builtin_set, builtin_symbol_value};
 use crate::emacs_core::intern::{intern, intern_uninterned};
-use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+use crate::emacs_core::load::create_runtime_startup_evaluator_cached;
 use crate::emacs_core::{Context, format_eval_result, parse_forms};
 
 fn eval_all(src: &str) -> Vec<String> {
@@ -14,9 +14,7 @@ fn eval_all(src: &str) -> Vec<String> {
 }
 
 fn bootstrap_context() -> Context {
-    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
-    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
-    ev
+    create_runtime_startup_evaluator_cached().expect("bootstrap")
 }
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {

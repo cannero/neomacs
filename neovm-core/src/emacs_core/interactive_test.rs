@@ -2,7 +2,7 @@ use super::*;
 use crate::emacs_core::keymap::make_list_keymap;
 use crate::emacs_core::load::{
     apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state, bootstrap_load_path_entries,
-    create_bootstrap_evaluator_cached,
+    create_bootstrap_evaluator_cached, create_runtime_startup_evaluator_cached,
 };
 use crate::emacs_core::value::{ValueKind, VecLikeType};
 use crate::emacs_core::{Context, format_eval_result, parse_forms};
@@ -56,8 +56,7 @@ fn eval_all_with(ev: &mut Context, src: &str) -> Vec<String> {
 }
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
-    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
-    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
+    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
     eval_all_with(&mut ev, src)
 }
 

@@ -1,15 +1,15 @@
 use super::*;
 use crate::emacs_core::load::{
-    apply_runtime_startup_state, create_bootstrap_evaluator_cached,
-    create_bootstrap_evaluator_cached_at_path,
+    create_bootstrap_evaluator_cached, create_runtime_startup_evaluator_cached,
+    create_runtime_startup_evaluator_cached_at_path,
 };
 use crate::emacs_core::string_escape;
 use crate::emacs_core::{format_eval_result, parse_forms};
 
 fn bootstrap_eval(src: &str) -> Vec<String> {
     let dump_path = std::env::temp_dir().join("neovm-advice-stack-misc-test.pdump");
-    let mut ev = create_bootstrap_evaluator_cached_at_path(&[], &dump_path).expect("bootstrap");
-    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
+    let mut ev =
+        create_runtime_startup_evaluator_cached_at_path(&[], &dump_path).expect("bootstrap");
     let forms = parse_forms(src).expect("parse");
     ev.eval_forms(&forms)
         .iter()
@@ -692,8 +692,7 @@ fn sf_save_current_buffer_restores() {
 fn sf_with_syntax_table_evaluates_body() {
     crate::test_utils::init_test_tracing();
     // with-syntax-table is an Elisp macro in GNU. Test through bootstrap.
-    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
-    apply_runtime_startup_state(&mut ev).expect("startup");
+    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
     let forms = parse_forms("(with-syntax-table (make-syntax-table) 30)").expect("parse");
     let result = ev.eval_expr(&forms[0]).expect("eval");
     assert!(eq_value(&result, &Value::fixnum(30)));
@@ -703,8 +702,7 @@ fn sf_with_syntax_table_evaluates_body() {
 fn sf_with_syntax_table_restores_original_table_on_success() {
     crate::test_utils::init_test_tracing();
     // with-syntax-table is an Elisp macro in GNU. Test through bootstrap.
-    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
-    apply_runtime_startup_state(&mut ev).expect("startup");
+    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
     let original = crate::emacs_core::syntax::builtin_syntax_table(&mut ev, vec![]).unwrap();
     let forms = parse_forms("(with-syntax-table (make-syntax-table) 1)").expect("parse");
     ev.eval_expr(&forms[0]).expect("eval");
@@ -715,8 +713,7 @@ fn sf_with_syntax_table_restores_original_table_on_success() {
 #[test]
 fn with_syntax_table_restores_original_table_on_error() {
     crate::test_utils::init_test_tracing();
-    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
-    apply_runtime_startup_state(&mut ev).expect("startup");
+    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
     let original = crate::emacs_core::syntax::builtin_syntax_table(&mut ev, vec![]).unwrap();
     let forms = parse_forms("(ignore-errors (with-syntax-table (make-syntax-table) missing-var))")
         .expect("parse");

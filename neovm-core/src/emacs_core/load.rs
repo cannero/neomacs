@@ -7,6 +7,7 @@ use super::expr::print_expr;
 use super::intern::{intern, resolve_sym};
 use super::keymap::{is_list_keymap, list_keymap_lookup_one};
 use super::value::{HashKey, Value, ValueKind, list_to_vec};
+use std::collections::HashMap;
 use std::fs;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
@@ -2776,6 +2777,45 @@ pub fn create_bootstrap_evaluator_with_features(
 /// version changes. Set `NEOVM_DISABLE_PDUMP=1` to force fresh bootstrap.
 pub fn create_bootstrap_evaluator_cached() -> Result<super::eval::Context, EvalError> {
     create_bootstrap_evaluator_cached_with_features(&[])
+}
+
+pub fn create_runtime_startup_evaluator() -> Result<super::eval::Context, EvalError> {
+    create_runtime_startup_evaluator_with_features(&[])
+}
+
+pub(crate) fn create_runtime_startup_evaluator_at_path(
+    extra_features: &[&str],
+    dump_path: &Path,
+) -> Result<super::eval::Context, EvalError> {
+    let mut eval = create_bootstrap_evaluator_cached_at_path(extra_features, dump_path)?;
+    apply_runtime_startup_state(&mut eval)?;
+
+    Ok(eval)
+}
+
+pub fn create_runtime_startup_evaluator_with_features(
+    extra_features: &[&str],
+) -> Result<super::eval::Context, EvalError> {
+    let project_root = runtime_project_root();
+    let dump_path = bootstrap_dump_path(&project_root, extra_features);
+    create_runtime_startup_evaluator_at_path(extra_features, &dump_path)
+}
+
+pub fn create_runtime_startup_evaluator_cached() -> Result<super::eval::Context, EvalError> {
+    create_runtime_startup_evaluator()
+}
+
+pub(crate) fn create_runtime_startup_evaluator_cached_at_path(
+    extra_features: &[&str],
+    dump_path: &Path,
+) -> Result<super::eval::Context, EvalError> {
+    create_runtime_startup_evaluator_at_path(extra_features, dump_path)
+}
+
+pub fn create_runtime_startup_evaluator_cached_with_features(
+    extra_features: &[&str],
+) -> Result<super::eval::Context, EvalError> {
+    create_runtime_startup_evaluator_with_features(extra_features)
 }
 
 pub fn create_bootstrap_evaluator_cached_with_features(

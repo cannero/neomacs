@@ -1,6 +1,8 @@
 use super::*;
-use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+use crate::emacs_core::load::create_runtime_startup_evaluator_cached;
 use crate::emacs_core::{Context, format_eval_result, parse_forms};
+use std::fs;
+use std::path::PathBuf;
 
 fn eval_one(src: &str) -> String {
     let mut ev = Context::new();
@@ -27,8 +29,7 @@ fn eval_all_with(ev: &mut Context, src: &str) -> Vec<String> {
 }
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
-    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
-    apply_runtime_startup_state(&mut ev).expect("startup");
+    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
     let forms = parse_forms(src).expect("parse");
     ev.eval_forms(&forms)
         .iter()
@@ -41,6 +42,74 @@ fn bootstrap_eval_one(src: &str) -> String {
         .into_iter()
         .last()
         .expect("bootstrap eval result")
+}
+
+fn eval_first_gnu_form_after_marker(eval: &mut Context, source: &str, marker: &str) {
+    let start = source
+        .find(marker)
+        .unwrap_or_else(|| panic!("missing GNU source marker: {marker}"));
+    let forms = parse_forms(&source[start..])
+        .unwrap_or_else(|err| panic!("parse GNU source from {marker} failed: {:?}", err));
+    let form = forms
+        .first()
+        .unwrap_or_else(|| panic!("no GNU form found after marker: {marker}"));
+    eval.eval_expr(form)
+        .unwrap_or_else(|err| panic!("evaluate GNU form {marker} failed: {:?}", err));
+}
+
+fn install_bare_elisp_shims(ev: &mut Context) {
+    let shims = r#"
+(defalias 'defun (cons 'macro #'(lambda (name arglist &rest body)
+  (list 'defalias (list 'quote name) (cons 'function (list (cons 'lambda (cons arglist body))))))))
+(defalias 'defmacro (cons 'macro #'(lambda (name arglist &rest body)
+  (list 'defalias (list 'quote name)
+        (list 'cons ''macro (cons 'function (list (cons 'lambda (cons arglist body)))))))))
+(defalias 'when (cons 'macro #'(lambda (cond &rest body)
+  (list 'if cond (cons 'progn body)))))
+(defalias 'unless (cons 'macro #'(lambda (cond &rest body)
+  (cons 'if (cons cond (cons nil body))))))
+"#;
+    let forms = parse_forms(shims).expect("parse bare elisp shims");
+    for form in &forms {
+        ev.eval_expr(form).expect("install bare elisp shim");
+    }
+}
+
+fn load_minimal_autoload_runtime(ev: &mut Context) {
+    install_bare_elisp_shims(ev);
+
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+
+    let subr_source =
+        fs::read_to_string(project_root.join("lisp/subr.el")).expect("read GNU subr.el");
+    eval_first_gnu_form_after_marker(ev, &subr_source, "(defun special-form-p (object)");
+
+    let byte_run_source = fs::read_to_string(project_root.join("lisp/emacs-lisp/byte-run.el"))
+        .expect("read GNU byte-run.el");
+    eval_first_gnu_form_after_marker(
+        ev,
+        &byte_run_source,
+        "(defmacro eval-when-compile (&rest body)",
+    );
+    eval_first_gnu_form_after_marker(
+        ev,
+        &byte_run_source,
+        "(defmacro eval-and-compile (&rest body)",
+    );
+}
+
+fn minimal_autoload_eval_all(src: &str) -> Vec<String> {
+    let mut ev = Context::new();
+    load_minimal_autoload_runtime(&mut ev);
+    eval_all_with(&mut ev, src)
+}
+
+fn minimal_autoload_eval_one(src: &str) -> String {
+    minimal_autoload_eval_all(src)
+        .into_iter()
+        .last()
+        .expect("minimal autoload eval result")
 }
 
 // -----------------------------------------------------------------------
@@ -268,7 +337,7 @@ fn autoload_with_type() {
 #[test]
 fn autoload_is_callable_subr_surface() {
     crate::test_utils::init_test_tracing();
-    let results = bootstrap_eval_all(
+    let results = minimal_autoload_eval_all(
         r#"(fboundp 'autoload)
            (special-form-p 'autoload)
            (subrp (symbol-function 'autoload))
@@ -312,21 +381,21 @@ fn autoload_funcall_type_checks_first_argument() {
 #[test]
 fn eval_when_compile_evaluates_body() {
     crate::test_utils::init_test_tracing();
-    let result = bootstrap_eval_one("(eval-when-compile (+ 1 2))");
+    let result = minimal_autoload_eval_one("(eval-when-compile (+ 1 2))");
     assert_eq!(result, "OK 3");
 }
 
 #[test]
 fn eval_when_compile_multiple_forms() {
     crate::test_utils::init_test_tracing();
-    let result = bootstrap_eval_one("(eval-when-compile 1 2 (+ 3 4))");
+    let result = minimal_autoload_eval_one("(eval-when-compile 1 2 (+ 3 4))");
     assert_eq!(result, "OK 7");
 }
 
 #[test]
 fn eval_when_compile_propagates_errors() {
     crate::test_utils::init_test_tracing();
-    let result = bootstrap_eval_one(
+    let result = minimal_autoload_eval_one(
         r#"(condition-case err
               (eval-when-compile (signal 'error '("boom")))
             (error (list (car err) (cdr err))))"#,
@@ -337,7 +406,7 @@ fn eval_when_compile_propagates_errors() {
 #[test]
 fn eval_and_compile_evaluates_body() {
     crate::test_utils::init_test_tracing();
-    let result = bootstrap_eval_one("(eval-and-compile (+ 10 20))");
+    let result = minimal_autoload_eval_one("(eval-and-compile (+ 10 20))");
     assert_eq!(result, "OK 30");
 }
 
@@ -345,7 +414,7 @@ fn eval_and_compile_evaluates_body() {
 fn eval_and_compile_multiple_forms() {
     crate::test_utils::init_test_tracing();
     // Should return the last form's value
-    let result = bootstrap_eval_one("(eval-and-compile (setq x 1) (setq y 2) (+ x y))");
+    let result = minimal_autoload_eval_one("(eval-and-compile (setq x 1) (setq y 2) (+ x y))");
     assert_eq!(result, "OK 3");
 }
 

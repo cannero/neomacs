@@ -1,12 +1,11 @@
 use super::super::eval::Context;
 use super::*;
-use crate::emacs_core::load::{apply_runtime_startup_state, create_bootstrap_evaluator_cached};
+use crate::emacs_core::load::create_runtime_startup_evaluator_cached;
 use std::fs;
 use std::path::PathBuf;
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
-    let mut ev = create_bootstrap_evaluator_cached().expect("bootstrap");
-    apply_runtime_startup_state(&mut ev).expect("runtime startup state");
+    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
     let forms = super::super::parser::parse_forms(src).expect("parse forms");
     ev.eval_forms(&forms)
         .iter()

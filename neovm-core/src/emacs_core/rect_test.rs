@@ -3,14 +3,12 @@ use crate::emacs_core::autoload::is_autoload_value;
 use crate::emacs_core::bytecode::opcode::Op;
 use crate::emacs_core::eval::Context;
 use crate::emacs_core::load::{
-    apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state,
-    create_bootstrap_evaluator_cached,
+    apply_ldefs_boot_autoloads_for_names, create_runtime_startup_evaluator_cached,
 };
 use crate::emacs_core::{format_eval_result, parse_forms};
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
-    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
-    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let mut eval = create_runtime_startup_evaluator_cached().expect("bootstrap");
     let forms = parse_forms(src).expect("parse");
     eval.eval_forms(&forms)
         .iter()
@@ -217,8 +215,7 @@ fn yank_rectangle_loaded_rejects_non_list_killed_rectangle() {
 #[test]
 fn yank_rectangle_loaded_function_is_simple_bytecode_call() {
     crate::test_utils::init_test_tracing();
-    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
-    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let mut eval = create_runtime_startup_evaluator_cached().expect("bootstrap");
     let forms = parse_forms(r#"(load "rect")"#).expect("parse rect load");
     let results = eval.eval_forms(&forms);
     assert!(

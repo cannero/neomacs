@@ -213,7 +213,11 @@ fn heap_write_tracking_records_unique_mutated_owners() {
     assert_eq!(heap.dirty_owner_count(), 1);
     assert!(heap.is_dirty_owner(cons));
 
-    assert!(super::mutate::set_vector_slot(vec, 1, TaggedValue::fixnum(99)));
+    assert!(super::mutate::set_vector_slot(
+        vec,
+        1,
+        TaggedValue::fixnum(99)
+    ));
     assert_eq!(heap.dirty_owner_count(), 2);
     assert!(heap.is_dirty_owner(vec));
 }
