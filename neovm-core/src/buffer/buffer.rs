@@ -1583,6 +1583,17 @@ impl BufferManager {
         Some(())
     }
 
+    fn refresh_shared_buffer_state_cache(
+        &mut self,
+        buffer_id: BufferId,
+        update_state_fields: bool,
+    ) -> Option<()> {
+        if !update_state_fields && self.buffer_has_state_markers(buffer_id) {
+            self.fetch_buffer_state_markers(buffer_id)?;
+        }
+        Some(())
+    }
+
     /// Centralized structural text mutations.
     ///
     /// Indirect buffers will eventually share a single text object.  When that
@@ -1629,6 +1640,7 @@ impl BufferManager {
                 update_state_fields,
                 false,
             );
+            self.refresh_shared_buffer_state_cache(sibling_id, update_state_fields)?;
         }
         self.sync_shared_undo_binding_cache(root_id)?;
         Some(())
@@ -1664,6 +1676,7 @@ impl BufferManager {
                 update_state_fields,
                 true,
             );
+            self.refresh_shared_buffer_state_cache(sibling_id, update_state_fields)?;
         }
         self.sync_shared_undo_binding_cache(root_id)?;
         Some(())
@@ -1696,6 +1709,7 @@ impl BufferManager {
                 end_char,
                 update_state_fields,
             );
+            self.refresh_shared_buffer_state_cache(sibling_id, update_state_fields)?;
         }
         self.sync_shared_undo_binding_cache(root_id)?;
         Some(())

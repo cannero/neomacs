@@ -872,22 +872,54 @@ impl TaggedValue {
 
     /// Allocate a buffer reference.
     pub fn make_buffer(id: crate::buffer::BufferId) -> Self {
-        with_tagged_heap(|h| h.alloc_buffer(id))
+        with_tagged_heap(|h| {
+            if let Some(value) = h.buffer_value(id) {
+                value
+            } else {
+                let value = h.alloc_buffer(id);
+                h.register_buffer_value(id, value);
+                value
+            }
+        })
     }
 
     /// Allocate a window reference.
     pub fn make_window(id: u64) -> Self {
-        with_tagged_heap(|h| h.alloc_window(id))
+        with_tagged_heap(|h| {
+            if let Some(value) = h.window_value(id) {
+                value
+            } else {
+                let value = h.alloc_window(id);
+                h.register_window_value(id, value);
+                value
+            }
+        })
     }
 
     /// Allocate a frame reference.
     pub fn make_frame(id: u64) -> Self {
-        with_tagged_heap(|h| h.alloc_frame(id))
+        with_tagged_heap(|h| {
+            if let Some(value) = h.frame_value(id) {
+                value
+            } else {
+                let value = h.alloc_frame(id);
+                h.register_frame_value(id, value);
+                value
+            }
+        })
     }
 
     /// Allocate a timer reference.
     pub fn make_timer(id: u64) -> Self {
-        with_tagged_heap(|h| h.alloc_timer(id))
+        with_tagged_heap(|h| {
+            if let Some(value) = h.timer_value(id) {
+                value
+            } else {
+                let value = h.alloc_timer(id);
+                h.register_timer_value(id, value);
+                value
+            }
+        })
     }
 
     // -- Veclike accessor helpers --

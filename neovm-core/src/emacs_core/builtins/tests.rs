@@ -1005,8 +1005,10 @@ fn eval_get_file_buffer_matches_visited_paths() {
 
     let default_dir = format!("{}/", path.parent().unwrap().to_string_lossy());
     let basename = path.file_name().unwrap().to_string_lossy().to_string();
-    eval.obarray
-        .set_symbol_value("default-directory", Value::string(default_dir));
+    eval.buffers
+        .current_buffer_mut()
+        .unwrap()
+        .set_buffer_local("default-directory", Value::string(default_dir));
     let relative = builtin_get_file_buffer(&mut eval, vec![Value::string(basename)]).unwrap();
     assert_eq!(relative, Value::make_buffer(id));
 

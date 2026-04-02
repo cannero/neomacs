@@ -23,6 +23,7 @@ use crate::emacs_core::intern::SymId;
 use crate::gc_trace::GcTrace;
 use std::alloc::{self, Layout};
 use std::cell::Cell;
+use std::collections::HashMap;
 
 /// How GC should discover roots beyond the explicit iterator passed to collect.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -235,6 +236,12 @@ pub struct TaggedHeap {
     /// survive function-cell rebinding, matching GNU's permanent subr objects.
     subr_registry: Vec<Option<TaggedValue>>,
 
+    /// Canonical runtime handle wrappers keyed by their underlying object id.
+    buffer_registry: HashMap<crate::buffer::BufferId, TaggedValue>,
+    window_registry: HashMap<u64, TaggedValue>,
+    frame_registry: HashMap<u64, TaggedValue>,
+    timer_registry: HashMap<u64, TaggedValue>,
+
     /// Owners mutated since the last full collection.
     ///
     /// This is the minimal remembered-set precursor for future generational
@@ -255,6 +262,10 @@ impl TaggedHeap {
             root_scan_mode: RootScanMode::ExactOnly,
             marker_ptrs: Vec::new(),
             subr_registry: Vec::new(),
+            buffer_registry: HashMap::new(),
+            window_registry: HashMap::new(),
+            frame_registry: HashMap::new(),
+            timer_registry: HashMap::new(),
             dirty_owners: Vec::new(),
         }
     }
@@ -301,6 +312,38 @@ impl TaggedHeap {
 
     pub fn clear_subr_registry(&mut self) {
         self.subr_registry.clear();
+    }
+
+    pub fn buffer_value(&self, id: crate::buffer::BufferId) -> Option<TaggedValue> {
+        self.buffer_registry.get(&id).copied()
+    }
+
+    pub fn register_buffer_value(&mut self, id: crate::buffer::BufferId, value: TaggedValue) {
+        self.buffer_registry.insert(id, value);
+    }
+
+    pub fn window_value(&self, id: u64) -> Option<TaggedValue> {
+        self.window_registry.get(&id).copied()
+    }
+
+    pub fn register_window_value(&mut self, id: u64, value: TaggedValue) {
+        self.window_registry.insert(id, value);
+    }
+
+    pub fn frame_value(&self, id: u64) -> Option<TaggedValue> {
+        self.frame_registry.get(&id).copied()
+    }
+
+    pub fn register_frame_value(&mut self, id: u64, value: TaggedValue) {
+        self.frame_registry.insert(id, value);
+    }
+
+    pub fn timer_value(&self, id: u64) -> Option<TaggedValue> {
+        self.timer_registry.get(&id).copied()
+    }
+
+    pub fn register_timer_value(&mut self, id: u64, value: TaggedValue) {
+        self.timer_registry.insert(id, value);
     }
 
     pub fn dirty_owner_count(&self) -> usize {
@@ -651,6 +694,26 @@ impl TaggedHeap {
         for subr in self.subr_registry.iter().flatten() {
             if subr.is_heap_object() {
                 self.gray_queue.push(*subr);
+            }
+        }
+        for value in self.buffer_registry.values() {
+            if value.is_heap_object() {
+                self.gray_queue.push(*value);
+            }
+        }
+        for value in self.window_registry.values() {
+            if value.is_heap_object() {
+                self.gray_queue.push(*value);
+            }
+        }
+        for value in self.frame_registry.values() {
+            if value.is_heap_object() {
+                self.gray_queue.push(*value);
+            }
+        }
+        for value in self.timer_registry.values() {
+            if value.is_heap_object() {
+                self.gray_queue.push(*value);
             }
         }
 
