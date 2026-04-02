@@ -4,13 +4,13 @@
 //! The old LispHeap/ObjId system in `heap.rs`/`types.rs` is retained for
 //! pdump compatibility but is no longer used at runtime.
 
-pub mod heap;
-pub mod objects;
-pub mod types;
+pub(crate) mod heap;
+pub(crate) mod objects;
+pub(crate) mod types;
 
-pub use heap::LispHeap;
-pub use objects::*;
-pub use types::{HeapObject, ObjId};
+pub(crate) use heap::LispHeap;
+pub(crate) use objects::*;
+pub(crate) use types::{HeapObject, ObjId};
 
 use crate::emacs_core::value::Value;
 
