@@ -1036,15 +1036,9 @@ fn store_in_keymap(keymap: Value, event: Value, def: Value, remove: bool) {
             if let Some(code) = event.as_fixnum() {
                 let idx = code as usize;
                 let updated = entry_car
-                    .with_vector_data_mut(|vec_data| {
-                        if idx < vec_data.len() {
-                            vec_data[idx] = def;
-                            true
-                        } else {
-                            false
-                        }
-                    })
-                    .unwrap();
+                    .as_vector_data()
+                    .is_some_and(|vec_data| idx < vec_data.len())
+                    && entry_car.set_vector_slot(idx, def);
                 if updated {
                     return;
                 }
