@@ -277,15 +277,15 @@ fn is_tagged_font_vector(val: &Value, tag: &str) -> bool {
             let elems = val.as_vector_data().unwrap().clone();
             elems
                 .first()
-                .and_then(|v| v.as_keyword_id())
-                .map_or(false, |k| resolve_sym(k) == tag)
+                .and_then(|v| v.as_symbol_name())
+                .is_some_and(|name| name.trim_start_matches(':') == tag)
         }
         _ => false,
     }
 }
 
 /// Check whether a Value is a font-spec (a vector whose first element is
-/// the keyword `:font-spec`).
+/// the tag symbol/keyword `font-spec` / `:font-spec`.
 fn is_font_spec(val: &Value) -> bool {
     is_tagged_font_vector(val, FONT_SPEC_TAG)
 }
