@@ -6359,7 +6359,7 @@ impl Context {
                 for item in values.iter_mut() {
                     Self::replace_alias_refs_in_value(item, from, to, visited);
                 }
-                *value.as_vector_data_mut().unwrap() = values;
+                let _ = value.with_vector_data_mut(|slots| *slots = values);
             }
             ValueKind::Veclike(VecLikeType::HashTable) => {
                 let key = value.bits() ^ 0x4;

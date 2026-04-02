@@ -257,11 +257,12 @@ fn set_category_docstring_in_table(
             vec![Value::symbol("vectorp"), docs],
         ));
     };
-    let vec = docs.as_vector_data_mut().unwrap();
     let idx = category_doc_index(category);
-    if idx < vec.len() {
-        vec[idx] = docstring;
-    }
+    let _ = docs.with_vector_data_mut(|vec| {
+        if idx < vec.len() {
+            vec[idx] = docstring;
+        }
+    });
     Ok(())
 }
 
@@ -349,11 +350,12 @@ fn set_category_set_member(
             vec![Value::symbol("categorysetp"), *category_set],
         ));
     };
-    let vec = category_set.as_vector_data_mut().unwrap();
     let bit_idx = 2 + (category as usize);
-    if bit_idx < vec.len() {
-        vec[bit_idx] = Value::fixnum(if present { 1 } else { 0 });
-    }
+    let _ = category_set.with_vector_data_mut(|vec| {
+        if bit_idx < vec.len() {
+            vec[bit_idx] = Value::fixnum(if present { 1 } else { 0 });
+        }
+    });
     Ok(())
 }
 

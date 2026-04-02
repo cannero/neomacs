@@ -1406,7 +1406,7 @@ pub(crate) fn builtin_intern_fn(eval: &mut super::eval::Context, args: Vec<Value
         // Not found: create symbol and prepend to bucket chain
         let sym = Value::from_sym_id(intern_uninterned(&name));
         let new_bucket = Value::cons(sym, bucket);
-        obarray_val.as_vector_data_mut().unwrap()[bucket_idx] = new_bucket;
+        let _ = obarray_val.with_vector_data_mut(|slots| slots[bucket_idx] = new_bucket);
         return Ok(sym);
     }
 
@@ -1516,10 +1516,11 @@ pub(crate) fn expect_obarray_vector_id(value: &Value) -> Result<Value, Flow> {
 pub(crate) fn builtin_obarray_clear(args: Vec<Value>) -> EvalResult {
     expect_args("obarray-clear", &args, 1)?;
     let obarray_val = expect_obarray_vector_id(&args[0])?;
-    let vec = obarray_val.as_vector_data_mut().unwrap();
-    for slot in vec.iter_mut() {
-        *slot = Value::NIL;
-    }
+    let _ = obarray_val.with_vector_data_mut(|vec| {
+        for slot in vec.iter_mut() {
+            *slot = Value::NIL;
+        }
+    });
     Ok(Value::NIL)
 }
 

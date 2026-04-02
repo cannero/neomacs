@@ -852,7 +852,7 @@ pub(crate) fn builtin_unintern(eval: &mut super::eval::Context, args: Vec<Value>
                     .into_iter()
                     .rev()
                     .fold(Value::NIL, |acc, sym| Value::cons(sym, acc));
-                custom_obarray.as_vector_data_mut().unwrap()[bucket_idx] = new_bucket;
+                let _ = custom_obarray.with_vector_data_mut(|slots| slots[bucket_idx] = new_bucket);
                 return Ok(Value::T);
             }
             return Ok(Value::NIL);

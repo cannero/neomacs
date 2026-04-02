@@ -219,8 +219,7 @@ pub fn make_char_table_with_extra_slots(sub_type: Value, default: Value, n_extra
 /// Panics if `table` is not a char-table Vector.
 pub fn ct_set_single(table: &Value, ch: i64, value: Value) {
     if table.is_vector() {
-        let vec = table.as_vector_data_mut().unwrap();
-        ct_set_char(vec, ch, value);
+        let _ = table.with_vector_data_mut(|vec| ct_set_char(vec, ch, value));
     } else {
         panic!("ct_set_single: expected char-table Vector");
     }
@@ -311,7 +310,7 @@ pub(crate) fn builtin_set_char_table_range(args: Vec<Value>) -> EvalResult {
         }
     }
 
-    *table.as_vector_data_mut().unwrap() = vec;
+    let _ = table.with_vector_data_mut(|slots| *slots = vec);
 
     Ok(*value)
 }
@@ -520,7 +519,7 @@ pub(crate) fn builtin_set_char_table_parent(args: Vec<Value>) -> EvalResult {
         }
     }
 
-    table.as_vector_data_mut().unwrap()[CT_PARENT] = *parent;
+    let _ = table.with_vector_data_mut(|slots| slots[CT_PARENT] = *parent);
     Ok(*parent)
 }
 
@@ -829,7 +828,8 @@ pub(crate) fn builtin_set_char_table_extra_slot(args: Vec<Value>) -> EvalResult 
         return Err(signal("args-out-of-range", vec![args[0], args[1]]));
     }
 
-    table.as_vector_data_mut().unwrap()[CT_EXTRA_START + n as usize] = *value;
+    let slot_idx = CT_EXTRA_START + n as usize;
+    let _ = table.with_vector_data_mut(|slots| slots[slot_idx] = *value);
     Ok(*value)
 }
 
@@ -1118,10 +1118,11 @@ fn store_bv_result_with_expected_lengths(
         payload.push(Value::fixnum(len as i64));
         return Err(signal("wrong-length-argument", payload));
     }
-    let v_mut = dest.as_vector_data_mut().unwrap();
-    for (i, &b) in bits.iter().enumerate() {
-        v_mut[2 + i] = Value::fixnum(if b { 1 } else { 0 });
-    }
+    let _ = dest.with_vector_data_mut(|slots| {
+        for (i, &b) in bits.iter().enumerate() {
+            slots[2 + i] = Value::fixnum(if b { 1 } else { 0 });
+        }
+    });
     Ok(())
 }
 
