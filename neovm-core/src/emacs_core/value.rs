@@ -1177,6 +1177,11 @@ impl TaggedValue {
         Some(f(data))
     }
 
+    /// Replace the entire contents of a vector value.
+    pub fn replace_vector_data(self, values: Vec<Value>) -> bool {
+        self.with_vector_data_mut(|data| *data = values).is_some()
+    }
+
     /// Get record elements.
     pub fn as_record_data(self) -> Option<&'static Vec<Value>> {
         if self.is_record() {
@@ -1196,6 +1201,20 @@ impl TaggedValue {
     pub fn with_record_data_mut<R>(self, f: impl FnOnce(&mut Vec<Value>) -> R) -> Option<R> {
         let data = mutate::record_data_mut_ref(self)?;
         Some(f(data))
+    }
+
+    /// Replace the entire contents of a record value.
+    pub fn replace_record_data(self, values: Vec<Value>) -> bool {
+        self.with_record_data_mut(|data| *data = values).is_some()
+    }
+
+    /// Replace the contents of either a vector or record.
+    pub fn replace_vectorlike_sequence_data(self, values: Vec<Value>) -> bool {
+        match self.veclike_type() {
+            Some(VecLikeType::Vector) => self.replace_vector_data(values),
+            Some(VecLikeType::Record) => self.replace_record_data(values),
+            _ => false,
+        }
     }
 
     /// Get hash table reference.

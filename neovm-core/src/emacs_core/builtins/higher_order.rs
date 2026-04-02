@@ -438,7 +438,7 @@ pub(crate) fn builtin_sort(eval: &mut super::eval::Context, args: Vec<Value>) ->
             let mut sorted_values = sorted_values?;
             if in_place {
                 for (cell, value) in cons_cells.iter().zip(sorted_values.into_iter()) {
-                    args[0].set_car(value);
+                    cell.set_car(value);
                 }
                 Ok(args[0])
             } else {
@@ -446,7 +446,15 @@ pub(crate) fn builtin_sort(eval: &mut super::eval::Context, args: Vec<Value>) ->
             }
         }
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
-            let values = args[0].as_vector_data().unwrap().clone();
+            let values = match args[0].kind() {
+                ValueKind::Veclike(VecLikeType::Vector) => {
+                    args[0].as_vector_data().unwrap().clone()
+                }
+                ValueKind::Veclike(VecLikeType::Record) => {
+                    args[0].as_record_data().unwrap().clone()
+                }
+                _ => unreachable!(),
+            };
             let sorted_values = eval.with_gc_scope(|ctx| {
                 ctx.root(args[0]);
                 ctx.root(lessp_fn);
@@ -459,7 +467,7 @@ pub(crate) fn builtin_sort(eval: &mut super::eval::Context, args: Vec<Value>) ->
             let sorted_values = sorted_values?;
 
             if in_place {
-                *args[0].as_vector_data_mut().unwrap() = sorted_values;
+                assert!(args[0].replace_vectorlike_sequence_data(sorted_values));
                 Ok(args[0])
             } else {
                 match args[0].kind() {
