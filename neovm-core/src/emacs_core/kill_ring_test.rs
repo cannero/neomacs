@@ -1,5 +1,5 @@
-use crate::emacs_core::load::create_runtime_startup_evaluator_cached;
 use crate::emacs_core::{Context, format_eval_result, parse_forms};
+use crate::test_utils::{runtime_startup_eval_all, runtime_startup_eval_one};
 
 fn eval_one(src: &str) -> String {
     let mut ev = Context::new();
@@ -18,16 +18,11 @@ fn eval_all(src: &str) -> Vec<String> {
 }
 
 fn bootstrap_eval_one(src: &str) -> String {
-    bootstrap_eval_all(src).into_iter().next().expect("result")
+    runtime_startup_eval_one(src)
 }
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
-    let mut ev = create_runtime_startup_evaluator_cached().expect("bootstrap");
-    let forms = parse_forms(src).expect("parse");
-    ev.eval_forms(&forms)
-        .iter()
-        .map(format_eval_result)
-        .collect()
+    runtime_startup_eval_all(src)
 }
 
 // -- kill/yank tests loaded from GNU simple.el --

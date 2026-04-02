@@ -1,21 +1,15 @@
 use super::super::intern::intern;
 use super::*;
-use crate::emacs_core::load::create_runtime_startup_evaluator_cached;
 use crate::emacs_core::value::ValueKind;
-use crate::emacs_core::{Context, format_eval_result, parse_forms};
+use crate::emacs_core::parse_forms;
+use crate::test_utils::{runtime_startup_context, runtime_startup_eval_all};
 
-fn bootstrap_context() -> Context {
-    create_runtime_startup_evaluator_cached().expect("bootstrap")
+fn bootstrap_context() -> crate::emacs_core::Context {
+    runtime_startup_context()
 }
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
-    let mut evaluator = bootstrap_context();
-    let forms = parse_forms(src).expect("parse");
-    evaluator
-        .eval_forms(&forms)
-        .iter()
-        .map(format_eval_result)
-        .collect()
+    runtime_startup_eval_all(src)
 }
 
 // =======================================================================

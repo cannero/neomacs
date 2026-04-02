@@ -81,13 +81,28 @@ pub fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Context {
     eval
 }
 
+/// Create a cached runtime-startup evaluator for tests that need the full
+/// GNU bootstrap surface.
+pub fn runtime_startup_context() -> Context {
+    create_runtime_startup_evaluator_cached().expect("bootstrap")
+}
+
 /// Evaluate FORMS in a cached runtime-startup evaluator and return formatted
 /// results, matching the common bootstrap test pattern.
 pub fn runtime_startup_eval_all(src: &str) -> Vec<String> {
-    let mut eval = create_runtime_startup_evaluator_cached().expect("bootstrap");
+    let mut eval = runtime_startup_context();
     let forms = parse_forms(src).expect("parse");
     eval.eval_forms(&forms)
         .iter()
         .map(format_eval_result)
         .collect()
+}
+
+/// Evaluate the first form from SRC in a cached runtime-startup evaluator and
+/// return the formatted result.
+pub fn runtime_startup_eval_one(src: &str) -> String {
+    let mut eval = runtime_startup_context();
+    let forms = parse_forms(src).expect("parse");
+    let result = eval.eval_expr(&forms[0]);
+    format_eval_result(&result)
 }
