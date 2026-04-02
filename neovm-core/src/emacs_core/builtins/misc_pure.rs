@@ -30,11 +30,13 @@ pub(crate) fn builtin_message(ctx: &mut super::eval::Context, args: Vec<Value>) 
     // GNU Emacs: nil or empty string clears the echo area and returns as-is.
     if args[0].is_nil() {
         ctx.clear_current_message();
+        ctx.redisplay();
         return Ok(Value::NIL);
     }
     if args[0].is_string() {
         if args[0].as_str().unwrap().is_empty() {
             ctx.clear_current_message();
+            ctx.redisplay();
             return Ok(args[0]);
         }
     }

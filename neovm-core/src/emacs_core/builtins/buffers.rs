@@ -2294,10 +2294,25 @@ fn collect_insert_pieces(args: &[Value]) -> Result<Vec<InsertPiece>, Flow> {
                 text: arg.as_str().unwrap().to_owned(),
                 text_props: get_string_text_properties_table_for_value(*arg),
             }),
-            ValueKind::Fixnum(c) => pieces.push(InsertPiece {
-                text: c.to_string(),
-                text_props: None,
-            }),
+            ValueKind::Fixnum(c) => {
+                let code = u32::try_from(c).ok();
+                let text = code
+                    .and_then(|code| {
+                        char::from_u32(code)
+                            .map(|ch| ch.to_string())
+                            .or_else(|| encode_nonunicode_char_for_storage(code))
+                    })
+                    .ok_or_else(|| {
+                        signal(
+                            "wrong-type-argument",
+                            vec![Value::symbol("char-or-string-p"), *arg],
+                        )
+                    })?;
+                pieces.push(InsertPiece {
+                    text,
+                    text_props: None,
+                });
+            }
             _other => {
                 return Err(signal(
                     "wrong-type-argument",

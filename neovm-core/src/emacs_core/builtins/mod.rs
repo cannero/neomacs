@@ -3549,7 +3549,15 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         Some(0),
     );
-    ctx.defsubr("font-at", super::font::builtin_font_at, 1, Some(3));
+    register_builtin(
+        ctx,
+        BuiltinRegistration::requires_eval_state(
+            "font-at",
+            super::font::builtin_font_at,
+            1,
+            Some(3),
+        ),
+    );
     ctx.defsubr("face-font", super::font::builtin_face_font, 1, Some(3));
     ctx.defsubr(
         "access-file",

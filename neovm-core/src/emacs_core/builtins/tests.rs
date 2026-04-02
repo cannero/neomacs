@@ -201,12 +201,11 @@ fn eval_dispatch_typed_max_uses_live_marker_position_after_insertions() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let forms = parse_forms(
-        r#"(with-temp-buffer
-             (insert "abc")
-             (let ((m (copy-marker (point-max) t)))
-               (goto-char 2)
-               (insert "XYZ")
-               (max 1 m)))"#,
+        r#"(insert "abc")
+           (let ((m (copy-marker (point-max) t)))
+             (goto-char 2)
+             (insert "XYZ")
+             (max 1 m))"#,
     )
     .expect("parse max marker regression");
     let result = eval
@@ -223,12 +222,11 @@ fn eval_dispatch_typed_min_uses_live_marker_position_after_insertions() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
     let forms = parse_forms(
-        r#"(with-temp-buffer
-             (insert "abc")
-             (let ((m (copy-marker (point-max) t)))
-               (goto-char 2)
-               (insert "XYZ")
-               (min 10 m)))"#,
+        r#"(insert "abc")
+           (let ((m (copy-marker (point-max) t)))
+             (goto-char 2)
+             (insert "XYZ")
+             (min 10 m))"#,
     )
     .expect("parse min marker regression");
     let result = eval
@@ -1935,8 +1933,11 @@ fn insert_inherit_variants_reuse_insert_semantics() {
         Value::NIL
     );
     assert_eq!(
-        builtin_buffer_string(&mut eval, vec![]).unwrap(),
-        Value::string("abcd")
+        builtin_buffer_string(&mut eval, vec![])
+            .unwrap()
+            .as_str()
+            .map(str::to_owned),
+        Some("abcd".to_string())
     );
 
     let type_error =
@@ -7388,13 +7389,10 @@ fn dispatch_builtin_pure_handles_font_face_placeholders() {
         other => panic!("expected signal, got {other:?}"),
     }
 
-    let at_err = dispatch_builtin_pure("font-at", vec![Value::fixnum(1)])
-        .expect("font-at should resolve")
-        .unwrap_err();
-    match at_err {
-        Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "error"),
-        other => panic!("expected signal, got {other:?}"),
-    }
+    assert!(
+        dispatch_builtin_pure("font-at", vec![Value::fixnum(1)]).is_none(),
+        "font-at should require evaluator state"
+    );
 }
 
 #[test]

@@ -575,7 +575,9 @@ fn sqlite_handle_id(value: &Value) -> Option<i64> {
         return None;
     }
     match (items[0].kind(), items[1].kind()) {
-        (ValueKind::Symbol(tag), ValueKind::Fixnum(id)) if resolve_sym(tag) == "sqlite-handle" => {
+        (ValueKind::Symbol(tag), ValueKind::Fixnum(id))
+            if matches!(resolve_sym(tag), "sqlite-handle" | ":sqlite-handle") =>
+        {
             Some(id)
         }
         _ => None,
