@@ -1037,9 +1037,4 @@ pub struct DumpContextState {
     pub registers: DumpRegisterManager,
     pub bookmarks: DumpBookmarkManager,
     pub watchers: DumpVariableWatcherList,
-    /// Legacy field retained for backward compatibility with older pdumps
-    /// produced before string-owned text properties were serialized as part of
-    /// tagged string heap objects.
-    #[serde(default)]
-    pub string_text_props: Vec<(u64, Vec<DumpPropertyInterval>)>,
 }

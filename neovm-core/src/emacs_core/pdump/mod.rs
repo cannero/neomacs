@@ -29,7 +29,7 @@ use crate::emacs_core::intern;
 use crate::emacs_core::value;
 
 const MAGIC: &[u8; 8] = b"NEOPDUMP";
-const FORMAT_VERSION: u32 = 5;
+const FORMAT_VERSION: u32 = 6;
 
 /// Errors from dump/load operations.
 #[derive(Debug)]

@@ -1504,7 +1504,6 @@ pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
         registers: dump_register_manager(&eval.registers),
         bookmarks: dump_bookmark_manager(&eval.bookmarks),
         watchers: dump_watcher_list(&eval.watchers),
-        string_text_props: Vec::new(),
     };
 
     PDUMP_DUMP_STATE.with(|state| state.set(std::ptr::null_mut()));
