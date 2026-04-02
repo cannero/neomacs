@@ -84,6 +84,17 @@ impl<'a> Vm<'a> {
         self.ctx.depth
     }
 
+    fn with_dynamic_vm_roots<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        let saved_len = self.ctx.vm_gc_roots.len();
+        let result = f(self);
+        self.ctx.vm_gc_roots.truncate(saved_len);
+        result
+    }
+
+    fn push_dynamic_vm_root(&mut self, value: Value) {
+        self.ctx.vm_gc_roots.push(value);
+    }
+
     fn with_frame_roots<T>(
         &mut self,
         func: &ByteCodeFunction,
@@ -93,23 +104,21 @@ impl<'a> Vm<'a> {
         extra: &[Value],
         f: impl FnOnce(&mut Self) -> T,
     ) -> T {
-        let saved_len = self.ctx.vm_gc_roots.len();
-        self.ctx.vm_gc_roots.extend(func.constants.iter().copied());
-        self.ctx.vm_gc_roots.extend(stack.iter().copied());
-        Self::collect_handler_roots(handlers, &mut self.ctx.vm_gc_roots);
-        Self::collect_specpdl_roots(specpdl, &mut self.ctx.vm_gc_roots);
-        self.ctx.vm_gc_roots.extend(extra.iter().copied());
-        let result = f(self);
-        self.ctx.vm_gc_roots.truncate(saved_len);
-        result
+        self.with_dynamic_vm_roots(|vm| {
+            vm.ctx.vm_gc_roots.extend(func.constants.iter().copied());
+            vm.ctx.vm_gc_roots.extend(stack.iter().copied());
+            Self::collect_handler_roots(handlers, &mut vm.ctx.vm_gc_roots);
+            Self::collect_specpdl_roots(specpdl, &mut vm.ctx.vm_gc_roots);
+            vm.ctx.vm_gc_roots.extend(extra.iter().copied());
+            f(vm)
+        })
     }
 
     fn with_extra_roots<T>(&mut self, extra: &[Value], f: impl FnOnce(&mut Self) -> T) -> T {
-        let saved_len = self.ctx.vm_gc_roots.len();
-        self.ctx.vm_gc_roots.extend(extra.iter().copied());
-        let result = f(self);
-        self.ctx.vm_gc_roots.truncate(saved_len);
-        result
+        self.with_dynamic_vm_roots(|vm| {
+            vm.ctx.vm_gc_roots.extend(extra.iter().copied());
+            f(vm)
+        })
     }
 
     fn with_macro_expansion_scope<T>(
@@ -2557,8 +2566,7 @@ impl<'a> Vm<'a> {
         } = crate::emacs_core::builtins::higher_order::parse_sort_options(args)?;
         let sequence = args[0];
         self.with_extra_roots(&[sequence, key_fn, lessp_fn], |vm| {
-            let saved_sort_roots = vm.ctx.vm_gc_roots.len();
-            let out = (|| match sequence.kind() {
+            vm.with_dynamic_vm_roots(|vm| match sequence.kind() {
                 ValueKind::Nil => Ok(Value::NIL),
                 ValueKind::Cons => {
                     let mut cons_cells = Vec::new();
@@ -2628,9 +2636,7 @@ impl<'a> Vm<'a> {
                     "wrong-type-argument",
                     vec![Value::symbol("list-or-vector-p"), sequence],
                 )),
-            })();
-            vm.ctx.vm_gc_roots.truncate(saved_sort_roots);
-            out
+            })
         })
     }
 
@@ -3759,7 +3765,7 @@ impl<'a> Vm<'a> {
 
     fn builtin_garbage_collect_shared(&mut self, args: &[Value]) -> EvalResult {
         builtins::expect_args("garbage-collect", args, 0)?;
-        self.ctx.gc_collect();
+        self.ctx.gc_collect_exact();
         crate::emacs_core::builtins_extra::builtin_garbage_collect_stats()
     }
 
@@ -4327,7 +4333,7 @@ impl crate::emacs_core::builtins::higher_order::SortRuntime for Vm<'_> {
     }
 
     fn root_sort_value(&mut self, value: Value) {
-        self.ctx.vm_gc_roots.push(value);
+        self.push_dynamic_vm_root(value);
     }
 }
 

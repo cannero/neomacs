@@ -518,7 +518,7 @@ pub(super) fn builtin_garbage_collect(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("garbage-collect", &args, 0)?;
-    eval.gc_collect();
+    eval.gc_collect_exact();
     // Return GC stats.
     super::builtins_extra::builtin_garbage_collect_stats()
 }
