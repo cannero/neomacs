@@ -210,7 +210,7 @@ fn test_cons_mutation() {
     // NEW:
     let cons = heap.alloc_cons(TaggedValue::fixnum(1), TaggedValue::fixnum(2));
 
-    // OLD: with_heap_mut(|h| h.set_car(id, Value::Int(10)));
+    // Cons mutation now goes through the tagged mutation helpers directly.
     // NEW: direct mutation
     cons.set_car(TaggedValue::fixnum(10));
     cons.set_cdr(TaggedValue::fixnum(20));

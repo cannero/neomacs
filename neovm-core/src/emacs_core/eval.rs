@@ -4939,16 +4939,11 @@ impl Context {
     }
 
     /// Match GNU `eval_sub` / `funcall_general`: quit check first, then GC.
+    ///
+    /// The remaining evaluator entry points either root their live Values
+    /// explicitly or run before materializing heap-backed Values, so this path
+    /// now uses exact roots rather than conservative stack scanning.
     fn maybe_gc_and_quit(&mut self) -> Result<(), Flow> {
-        self.poll_pending_input_for_throw_on_input();
-        self.maybe_quit()?;
-        self.gc_safe_point();
-        Ok(())
-    }
-
-    /// Exact-root variant for call paths that already hold all live Values in
-    /// temp roots or haven't materialized any heap-backed Values yet.
-    fn maybe_gc_and_quit_exact(&mut self) -> Result<(), Flow> {
         self.poll_pending_input_for_throw_on_input();
         self.maybe_quit()?;
         self.gc_safe_point_exact();
@@ -5469,7 +5464,7 @@ impl Context {
 
         self.with_gc_scope_result(|ctx| {
             ctx.root(form);
-            ctx.maybe_gc_and_quit_exact()?;
+            ctx.maybe_gc_and_quit()?;
             ctx.eval_sub_cons(form)
         })
     }
@@ -5706,7 +5701,7 @@ impl Context {
 
     fn eval_inner(&mut self, expr: &Expr) -> EvalResult {
         if matches!(expr, Expr::List(_) | Expr::DottedList(_, _)) {
-            self.maybe_gc_and_quit_exact()?;
+            self.maybe_gc_and_quit()?;
         }
 
         match expr {
@@ -8087,7 +8082,7 @@ impl Context {
             for &arg in &args {
                 ctx.root(arg);
             }
-            ctx.maybe_gc_and_quit_exact()?;
+            ctx.maybe_gc_and_quit()?;
             // Deep interpreted expansion can recurse many frames.
             // Grow the stack at the function-application boundary.
             stacker::maybe_grow(EVAL_STACK_RED_ZONE, EVAL_STACK_SEGMENT, || {
