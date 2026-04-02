@@ -2,6 +2,10 @@
 //!
 //! Provides shared helpers used across all test modules.
 
+use crate::emacs_core::load::{find_file_in_load_path, get_load_path, load_file};
+use crate::emacs_core::value::Value;
+use crate::emacs_core::Context;
+
 /// Initialize the tracing subscriber for test output.
 ///
 /// Reads `RUST_LOG` env var for filter level (default: `info`).
@@ -28,4 +32,29 @@ pub fn init_test_tracing() {
         )
         .with_test_writer()
         .try_init();
+}
+
+/// Load a small GNU Lisp runtime that is sufficient for tests that need
+/// `byte-run`, backquote expansion, and the basic `subr.el` support layer,
+/// without paying for full `loadup.el` startup.
+pub fn load_minimal_gnu_backquote_runtime(eval: &mut Context) {
+    eval.set_lexical_binding(true);
+    eval.set_variable(
+        "load-path",
+        Value::list(vec![
+            Value::string(concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp/emacs-lisp")),
+            Value::string(concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp")),
+        ]),
+    );
+    let load_path = get_load_path(&eval.obarray());
+    for name in &[
+        "emacs-lisp/debug-early",
+        "emacs-lisp/byte-run",
+        "emacs-lisp/backquote",
+        "subr",
+    ] {
+        let path = find_file_in_load_path(name, &load_path)
+            .unwrap_or_else(|| panic!("cannot find {name}"));
+        load_file(eval, &path).unwrap_or_else(|err| panic!("load {name}: {err:?}"));
+    }
 }

@@ -1,29 +1,7 @@
 use super::*;
-use crate::emacs_core::load::{find_file_in_load_path, get_load_path, load_file};
 use crate::emacs_core::string_escape;
 use crate::emacs_core::{Context, format_eval_result, parse_forms};
-
-fn load_minimal_gnu_backquote_runtime(eval: &mut Context) {
-    eval.set_lexical_binding(true);
-    eval.set_variable(
-        "load-path",
-        Value::list(vec![
-            Value::string(concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp/emacs-lisp")),
-            Value::string(concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp")),
-        ]),
-    );
-    let load_path = get_load_path(&eval.obarray());
-    for name in &[
-        "emacs-lisp/debug-early",
-        "emacs-lisp/byte-run",
-        "emacs-lisp/backquote",
-        "subr",
-    ] {
-        let path = find_file_in_load_path(name, &load_path)
-            .unwrap_or_else(|| panic!("cannot find {name}"));
-        load_file(eval, &path).unwrap_or_else(|err| panic!("load {name}: {err:?}"));
-    }
-}
+use crate::test_utils::load_minimal_gnu_backquote_runtime;
 
 fn bootstrap_eval(src: &str) -> Vec<String> {
     let mut ev = Context::new();

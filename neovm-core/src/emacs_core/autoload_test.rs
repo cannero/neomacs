@@ -1,6 +1,7 @@
 use super::*;
 use crate::emacs_core::load::create_runtime_startup_evaluator_cached;
 use crate::emacs_core::{Context, format_eval_result, parse_forms};
+use crate::test_utils::load_minimal_gnu_backquote_runtime;
 use std::fs;
 use std::path::PathBuf;
 
@@ -110,30 +111,6 @@ fn minimal_autoload_eval_one(src: &str) -> String {
         .into_iter()
         .last()
         .expect("minimal autoload eval result")
-}
-
-fn load_minimal_gnu_backquote_runtime(eval: &mut Context) {
-    use crate::emacs_core::load::{find_file_in_load_path, get_load_path, load_file};
-
-    eval.set_lexical_binding(true);
-    eval.set_variable(
-        "load-path",
-        Value::list(vec![
-            Value::string(concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp/emacs-lisp")),
-            Value::string(concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp")),
-        ]),
-    );
-    let load_path = get_load_path(&eval.obarray());
-    for name in &[
-        "emacs-lisp/debug-early",
-        "emacs-lisp/byte-run",
-        "emacs-lisp/backquote",
-        "subr",
-    ] {
-        let path = find_file_in_load_path(name, &load_path)
-            .unwrap_or_else(|| panic!("cannot find {name}"));
-        load_file(eval, &path).unwrap_or_else(|err| panic!("load {name}: {err:?}"));
-    }
 }
 
 fn minimal_backquote_runtime_eval_all(src: &str) -> Vec<String> {

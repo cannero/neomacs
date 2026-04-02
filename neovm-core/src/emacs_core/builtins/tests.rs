@@ -7,6 +7,7 @@ use crate::emacs_core::load::create_runtime_startup_evaluator_cached;
 use crate::emacs_core::textprop::builtin_make_overlay;
 use crate::emacs_core::value::{LambdaData, LambdaParams, ValueKind, VecLikeType};
 use crate::emacs_core::{Context, format_eval_result, parse_forms};
+use crate::test_utils::load_minimal_gnu_backquote_runtime;
 use std::fs;
 
 fn dispatch_builtin_pure(name: &str, args: Vec<Value>) -> Option<EvalResult> {
@@ -71,30 +72,6 @@ fn install_noarg_hook_probe(
 fn create_unique_test_buffer(eval: &mut crate::emacs_core::eval::Context, name: &str) -> Value {
     let unique_name = eval.buffers.generate_new_buffer_name(name);
     Value::make_buffer(eval.buffers.create_buffer(&unique_name))
-}
-
-fn load_minimal_gnu_backquote_runtime(eval: &mut Context) {
-    use crate::emacs_core::load::{find_file_in_load_path, get_load_path, load_file};
-
-    eval.set_lexical_binding(true);
-    eval.set_variable(
-        "load-path",
-        Value::list(vec![
-            Value::string(concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp/emacs-lisp")),
-            Value::string(concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp")),
-        ]),
-    );
-    let load_path = get_load_path(&eval.obarray());
-    for name in &[
-        "emacs-lisp/debug-early",
-        "emacs-lisp/byte-run",
-        "emacs-lisp/backquote",
-        "subr",
-    ] {
-        let path = find_file_in_load_path(name, &load_path)
-            .unwrap_or_else(|| panic!("cannot find {name}"));
-        load_file(eval, &path).unwrap_or_else(|err| panic!("load {name}: {err:?}"));
-    }
 }
 
 fn eval_first_gnu_form_after_marker(eval: &mut Context, source: &str, marker: &str) {
