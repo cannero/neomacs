@@ -902,7 +902,7 @@ fn build_kmp_table(needle: &[u8]) -> Vec<usize> {
 }
 
 fn literal_find_lisp_string(
-    text: &crate::gc::types::LispString,
+    text: &crate::heap_types::LispString,
     literal: &str,
     start: usize,
     case_fold: bool,
@@ -1356,7 +1356,7 @@ pub fn string_match_full_with_case_fold(
 
 pub(crate) fn string_match_full_with_case_fold_source_lisp(
     pattern: &str,
-    string: &crate::gc::types::LispString,
+    string: &crate::heap_types::LispString,
     searched_string: SearchedString,
     start: usize,
     case_fold: bool,

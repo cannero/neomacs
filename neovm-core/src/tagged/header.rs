@@ -73,7 +73,7 @@ impl GcHeader {
 #[repr(C)]
 pub struct StringObj {
     pub header: GcHeader,
-    pub data: crate::gc::types::LispString,
+    pub data: crate::heap_types::LispString,
     /// GNU-compatible ownership: string text properties live on the string.
     pub text_props: TextPropertyTable,
 }
@@ -207,14 +207,14 @@ pub struct RecordObj {
 #[repr(C)]
 pub struct OverlayObj {
     pub header: VecLikeHeader,
-    pub data: crate::gc::types::OverlayData,
+    pub data: crate::heap_types::OverlayData,
 }
 
 /// Heap-allocated marker.
 #[repr(C)]
 pub struct MarkerObj {
     pub header: VecLikeHeader,
-    pub data: crate::gc::types::MarkerData,
+    pub data: crate::heap_types::MarkerData,
 }
 
 /// Heap-allocated buffer reference (wraps a BufferId).

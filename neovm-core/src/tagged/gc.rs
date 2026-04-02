@@ -289,7 +289,7 @@ impl TaggedHeap {
     }
 
     /// Allocate a string object.
-    pub fn alloc_string(&mut self, s: crate::gc::types::LispString) -> TaggedValue {
+    pub fn alloc_string(&mut self, s: crate::heap_types::LispString) -> TaggedValue {
         let obj = Box::new(StringObj {
             header: GcHeader::new(HeapObjectKind::String),
             data: s,
@@ -484,7 +484,7 @@ impl TaggedHeap {
     }
 
     /// Allocate an overlay.
-    pub fn alloc_overlay(&mut self, data: crate::gc::types::OverlayData) -> TaggedValue {
+    pub fn alloc_overlay(&mut self, data: crate::heap_types::OverlayData) -> TaggedValue {
         let obj = Box::new(OverlayObj {
             header: VecLikeHeader::new(VecLikeType::Overlay),
             data,
@@ -496,7 +496,7 @@ impl TaggedHeap {
     }
 
     /// Allocate a marker.
-    pub fn alloc_marker(&mut self, data: crate::gc::types::MarkerData) -> TaggedValue {
+    pub fn alloc_marker(&mut self, data: crate::heap_types::MarkerData) -> TaggedValue {
         let obj = Box::new(MarkerObj {
             header: VecLikeHeader::new(VecLikeType::Marker),
             data,

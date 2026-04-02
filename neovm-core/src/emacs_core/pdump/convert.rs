@@ -54,7 +54,7 @@ use crate::face::{
     BoxBorder, BoxStyle, Color, Face, FaceHeight, FaceTable, FontSlant, FontWeight, FontWidth,
     Underline, UnderlineStyle,
 };
-use crate::gc::types::LispString;
+use crate::heap_types::LispString;
 use crate::tagged::gc::with_tagged_heap;
 use crate::tagged::header::{
     BufferObj, ByteCodeObj, CLOSURE_MIN_SLOTS, FloatObj, FrameObj, HashTableObj, LambdaObj,
@@ -694,7 +694,7 @@ fn dump_overlay(o: &Overlay) -> DumpOverlay {
     }
 }
 
-fn dump_marker_object(marker: &crate::gc::types::MarkerData) -> DumpMarker {
+fn dump_marker_object(marker: &crate::heap_types::MarkerData) -> DumpMarker {
     DumpMarker {
         buffer: marker.buffer.map(|id| DumpBufferId(id.0)),
         position: marker.position,
@@ -1592,13 +1592,13 @@ fn allocate_tagged_placeholder(
             interactive: None,
         }),
         DumpHeapObject::Record(items) => Value::make_record(vec![Value::NIL; items.len()]),
-        DumpHeapObject::Marker(marker) => Value::make_marker(crate::gc::types::MarkerData {
+        DumpHeapObject::Marker(marker) => Value::make_marker(crate::heap_types::MarkerData {
             buffer: marker.buffer.map(|id| BufferId(id.0)),
             position: marker.position,
             insertion_type: marker.insertion_type,
             marker_id: marker.marker_id,
         }),
-        DumpHeapObject::Overlay(overlay) => Value::make_overlay(crate::gc::types::OverlayData {
+        DumpHeapObject::Overlay(overlay) => Value::make_overlay(crate::heap_types::OverlayData {
             plist: Value::NIL,
             buffer: overlay.buffer.map(|id| BufferId(id.0)),
             start: overlay.start,
@@ -2256,7 +2256,7 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
                 .overlays
                 .iter()
                 .map(|d| {
-                    Value::make_overlay(crate::gc::types::OverlayData {
+                    Value::make_overlay(crate::heap_types::OverlayData {
                         plist: load_value(&d.plist),
                         buffer: d.buffer.map(|id| BufferId(id.0)),
                         start: d.start,

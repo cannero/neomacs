@@ -1,6 +1,6 @@
 use super::*;
 use crate::buffer::{Buffer, BufferId};
-use crate::gc::types::LispString;
+use crate::heap_types::LispString;
 
 fn extract_heap_match_string(md: &MatchData, group: usize) -> Option<String> {
     let searched = match md.searched_string.as_ref()? {

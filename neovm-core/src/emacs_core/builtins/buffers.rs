@@ -2219,7 +2219,7 @@ pub(crate) fn builtin_clear_string(args: Vec<Value>) -> EvalResult {
             let len = lisp_str.as_str().chars().count();
             // Fill with len null bytes (same as GNU Emacs memset 0)
             let nulls = "\0".repeat(len);
-            *lisp_str = crate::gc::types::LispString::new(nulls, lisp_str.multibyte);
+            *lisp_str = crate::heap_types::LispString::new(nulls, lisp_str.multibyte);
         }
     }
     Ok(Value::NIL)

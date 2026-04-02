@@ -78,7 +78,7 @@ pub(crate) fn make_marker_value_with_id(
     insertion_type: bool,
     marker_id: Option<u64>,
 ) -> Value {
-    Value::make_marker(crate::gc::types::MarkerData {
+    Value::make_marker(crate::heap_types::MarkerData {
         buffer: buffer_id,
         position,
         insertion_type,

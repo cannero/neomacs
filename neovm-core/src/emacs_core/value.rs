@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use super::intern::{SymId, intern, resolve_sym};
 use crate::buffer::text_props::TextPropertyTable;
 use crate::gc::GcTrace;
-use crate::gc::types::LispString;
+use crate::heap_types::LispString;
 use crate::tagged::gc::with_tagged_heap;
 use crate::tagged::header::{
     BufferObj, ByteCodeObj, FloatObj, FrameObj, HashTableObj, LambdaObj, MacroObj, MarkerObj,
@@ -865,12 +865,12 @@ impl TaggedValue {
     }
 
     /// Allocate a marker.
-    pub fn make_marker(data: crate::gc::types::MarkerData) -> Self {
+    pub fn make_marker(data: crate::heap_types::MarkerData) -> Self {
         with_tagged_heap(|h| h.alloc_marker(data))
     }
 
     /// Allocate an overlay.
-    pub fn make_overlay(data: crate::gc::types::OverlayData) -> Self {
+    pub fn make_overlay(data: crate::heap_types::OverlayData) -> Self {
         with_tagged_heap(|h| h.alloc_overlay(data))
     }
 
@@ -1115,7 +1115,7 @@ impl TaggedValue {
     }
 
     /// Get the marker data from a marker value.
-    pub fn as_marker_data(self) -> Option<&'static crate::gc::types::MarkerData> {
+    pub fn as_marker_data(self) -> Option<&'static crate::heap_types::MarkerData> {
         if self.is_marker() {
             let ptr = self.as_veclike_ptr().unwrap() as *const MarkerObj;
             Some(unsafe { &(*ptr).data })
@@ -1125,7 +1125,7 @@ impl TaggedValue {
     }
 
     /// Get mutable marker data from a marker value.
-    pub fn as_marker_data_mut(self) -> Option<&'static mut crate::gc::types::MarkerData> {
+    pub fn as_marker_data_mut(self) -> Option<&'static mut crate::heap_types::MarkerData> {
         if self.is_marker() {
             crate::tagged::gc::note_heap_write(self);
             let ptr = self.as_veclike_ptr().unwrap() as *mut MarkerObj;
@@ -1136,7 +1136,7 @@ impl TaggedValue {
     }
 
     /// Get the overlay data from an overlay value.
-    pub fn as_overlay_data(self) -> Option<&'static crate::gc::types::OverlayData> {
+    pub fn as_overlay_data(self) -> Option<&'static crate::heap_types::OverlayData> {
         if self.is_overlay() {
             let ptr = self.as_veclike_ptr().unwrap() as *const OverlayObj;
             Some(unsafe { &(*ptr).data })
@@ -1146,7 +1146,7 @@ impl TaggedValue {
     }
 
     /// Get mutable overlay data.
-    pub fn as_overlay_data_mut(self) -> Option<&'static mut crate::gc::types::OverlayData> {
+    pub fn as_overlay_data_mut(self) -> Option<&'static mut crate::heap_types::OverlayData> {
         if self.is_overlay() {
             crate::tagged::gc::note_heap_write(self);
             let ptr = self.as_veclike_ptr().unwrap() as *mut OverlayObj;

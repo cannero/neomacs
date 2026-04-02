@@ -12,7 +12,7 @@ use std::ops::Bound::{Excluded, Unbounded};
 
 use crate::emacs_core::value::{Value, ValueKind, eq_value};
 use crate::gc::GcTrace;
-use crate::gc::types::OverlayData;
+use crate::heap_types::OverlayData;
 
 pub type Overlay = OverlayData;
 

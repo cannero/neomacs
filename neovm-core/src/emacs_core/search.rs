@@ -126,7 +126,7 @@ fn normalize_string_start_arg(string: &str, start: Option<&Value>) -> Result<usi
 }
 
 pub(crate) fn normalize_lisp_string_start_arg(
-    string: &crate::gc::types::LispString,
+    string: &crate::heap_types::LispString,
     start: Option<&Value>,
 ) -> Result<usize, Flow> {
     let Some(start_val) = start else {

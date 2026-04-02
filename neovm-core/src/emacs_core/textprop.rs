@@ -1591,7 +1591,7 @@ pub(crate) fn builtin_make_overlay_in_buffers(
 
     let byte_beg = elisp_pos_to_byte(buf, beg);
     let byte_end = elisp_pos_to_byte(buf, end);
-    let overlay = Value::make_overlay(crate::gc::types::OverlayData {
+    let overlay = Value::make_overlay(crate::heap_types::OverlayData {
         plist: Value::NIL,
         buffer: Some(buf_id),
         start: byte_beg,

@@ -3,6 +3,7 @@ pub mod emacs_core;
 pub mod encoding;
 pub mod face;
 pub mod gc;
+pub mod heap_types;
 pub mod keyboard;
 pub mod tagged;
 #[cfg(test)]

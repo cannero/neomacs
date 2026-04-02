@@ -276,7 +276,7 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
                         multibyte |= string.multibyte;
                     }
                 }
-                let result = crate::gc::types::LispString::from_parts(parts, multibyte);
+                let result = crate::heap_types::LispString::from_parts(parts, multibyte);
                 return Ok(Value::heap_string(result));
             }
         }
