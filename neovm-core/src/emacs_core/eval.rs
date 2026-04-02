@@ -3760,6 +3760,16 @@ impl Context {
         self.tagged_heap.gc_threshold()
     }
 
+    /// Get the current tagged-heap root scan mode.
+    pub fn gc_root_scan_mode(&self) -> crate::tagged::gc::RootScanMode {
+        self.tagged_heap.root_scan_mode()
+    }
+
+    /// Set how the tagged heap discovers roots during full collections.
+    pub fn set_gc_root_scan_mode(&mut self, mode: crate::tagged::gc::RootScanMode) {
+        self.tagged_heap.set_root_scan_mode(mode);
+    }
+
     /// Set the GC threshold. Use usize::MAX to effectively disable GC.
     pub fn set_gc_threshold(&mut self, threshold: usize) {
         self.tagged_heap.set_gc_threshold(threshold);
@@ -4544,6 +4554,16 @@ impl Context {
     /// Perform a full mark-and-sweep garbage collection.
     #[tracing::instrument(level = "debug", skip(self))]
     pub fn gc_collect(&mut self) {
+        self.gc_collect_with_mode(self.tagged_heap.root_scan_mode());
+    }
+
+    /// Perform a full mark-and-sweep garbage collection using only explicit roots.
+    #[tracing::instrument(level = "debug", skip(self))]
+    pub fn gc_collect_exact(&mut self) {
+        self.gc_collect_with_mode(crate::tagged::gc::RootScanMode::ExactOnly);
+    }
+
+    fn gc_collect_with_mode(&mut self, mode: crate::tagged::gc::RootScanMode) {
         // Clear source_literal_cache before GC — it uses *const Expr raw
         // pointers as keys which can alias after Rc<Vec<Expr>> bodies are
         // freed, causing ABA: a new lambda body at the same address gets
@@ -4551,8 +4571,14 @@ impl Context {
         self.source_literal_cache.clear();
         self.macro_expansion_cache.clear();
         let roots = self.collect_roots();
-        // Use the new tagged heap for GC collection
-        self.tagged_heap.collect(roots.into_iter());
+        match mode {
+            crate::tagged::gc::RootScanMode::ExactOnly => {
+                self.tagged_heap.collect_exact(roots.into_iter());
+            }
+            crate::tagged::gc::RootScanMode::ConservativeStack => {
+                self.tagged_heap.collect(roots.into_iter());
+            }
+        }
         self.gc_pending = false;
         self.gc_count += 1;
         self.run_post_gc_hook();

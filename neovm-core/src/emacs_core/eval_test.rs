@@ -7329,6 +7329,24 @@ fn gc_collect_retains_reachable() {
 }
 
 #[test]
+fn gc_collect_exact_retains_reachable() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    assert_eq!(
+        ev.gc_root_scan_mode(),
+        crate::tagged::gc::RootScanMode::ConservativeStack
+    );
+
+    let forms = crate::emacs_core::parse_forms("(setq x (cons 11 22))").unwrap();
+    ev.eval_forms(&forms);
+    ev.gc_collect_exact();
+
+    let forms2 = crate::emacs_core::parse_forms("(car x)").unwrap();
+    let results = ev.eval_forms(&forms2);
+    assert_eq!(format_eval_result(&results[0]), "OK 11");
+}
+
+#[test]
 fn gc_collect_frees_unreachable() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
@@ -7417,6 +7435,25 @@ fn gc_threshold_adapts_after_collection() {
         threshold >= 8192,
         "threshold should be at least 8192, got {threshold}"
     );
+}
+
+#[test]
+fn gc_collect_obeys_context_root_scan_mode() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
+    assert_eq!(
+        ev.gc_root_scan_mode(),
+        crate::tagged::gc::RootScanMode::ExactOnly
+    );
+
+    let forms = crate::emacs_core::parse_forms("(setq mode-root (cons 7 8))").unwrap();
+    ev.eval_forms(&forms);
+    ev.gc_collect();
+
+    let forms2 = crate::emacs_core::parse_forms("(car mode-root)").unwrap();
+    let results = ev.eval_forms(&forms2);
+    assert_eq!(format_eval_result(&results[0]), "OK 7");
 }
 
 #[test]
