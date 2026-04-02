@@ -1,11 +1,12 @@
 use super::*;
 use crate::emacs_core::keymap::make_list_keymap;
 use crate::emacs_core::load::{
-    apply_ldefs_boot_autoloads_for_names, apply_runtime_startup_state, bootstrap_load_path_entries,
-    create_bootstrap_evaluator_cached, create_runtime_startup_evaluator_cached,
+    apply_runtime_startup_state, bootstrap_load_path_entries, create_bootstrap_evaluator_cached,
+    create_runtime_startup_evaluator_cached,
 };
 use crate::emacs_core::value::{ValueKind, VecLikeType};
 use crate::emacs_core::{Context, format_eval_result, parse_forms};
+use crate::test_utils::eval_with_ldefs_boot_autoloads;
 use std::fs;
 use std::path::PathBuf;
 
@@ -65,22 +66,6 @@ fn bootstrap_eval_one(src: &str) -> String {
         .into_iter()
         .next()
         .expect("at least one form")
-}
-
-fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Context {
-    let mut ev = Context::new();
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let project_root = manifest.parent().expect("project root");
-    let lisp_dir = project_root.join("lisp");
-    ev.set_variable(
-        "load-path",
-        Value::list(bootstrap_load_path_entries(&lisp_dir)),
-    );
-    for name in names {
-        ev.obarray_mut().fmakunbound(name);
-    }
-    apply_ldefs_boot_autoloads_for_names(&mut ev, names).expect("ldefs-boot autoload restore");
-    ev
 }
 
 fn eval_first_form_after_marker(eval: &mut Context, source: &str, marker: &str) {

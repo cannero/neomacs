@@ -1,8 +1,7 @@
 use super::super::eval::Context;
 use super::super::value::{Value, ValueKind};
-use crate::emacs_core::load::{
-    apply_ldefs_boot_autoloads_for_names, create_runtime_startup_evaluator_cached,
-};
+use crate::emacs_core::load::create_runtime_startup_evaluator_cached;
+use crate::test_utils::eval_with_ldefs_boot_autoloads;
 use std::fs;
 use std::path::PathBuf;
 
@@ -25,15 +24,6 @@ fn bootstrap_eval_with_text(text: &str) -> Context {
         buf.insert(text);
         buf.goto_char(0);
     }
-    ev
-}
-
-fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Context {
-    let mut ev = Context::new();
-    for name in names {
-        ev.obarray_mut().fmakunbound(name);
-    }
-    apply_ldefs_boot_autoloads_for_names(&mut ev, names).expect("ldefs-boot autoload restore");
     ev
 }
 

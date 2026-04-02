@@ -1,11 +1,9 @@
 use super::*;
 use crate::emacs_core::autoload::is_autoload_value;
 use crate::emacs_core::bytecode::opcode::Op;
-use crate::emacs_core::eval::Context;
-use crate::emacs_core::load::{
-    apply_ldefs_boot_autoloads_for_names, create_runtime_startup_evaluator_cached,
-};
+use crate::emacs_core::load::create_runtime_startup_evaluator_cached;
 use crate::emacs_core::{format_eval_result, parse_forms};
+use crate::test_utils::eval_with_ldefs_boot_autoloads;
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
     let mut eval = create_runtime_startup_evaluator_cached().expect("bootstrap");
@@ -14,15 +12,6 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
         .iter()
         .map(format_eval_result)
         .collect()
-}
-
-fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Context {
-    let mut eval = Context::new();
-    for name in names {
-        eval.obarray_mut().fmakunbound(name);
-    }
-    apply_ldefs_boot_autoloads_for_names(&mut eval, names).expect("ldefs-boot autoload restore");
-    eval
 }
 
 #[test]

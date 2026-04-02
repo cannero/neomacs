@@ -2,9 +2,13 @@
 //!
 //! Provides shared helpers used across all test modules.
 
-use crate::emacs_core::load::{find_file_in_load_path, get_load_path, load_file};
+use crate::emacs_core::load::{
+    apply_ldefs_boot_autoloads_for_names, bootstrap_load_path_entries, find_file_in_load_path,
+    get_load_path, load_file,
+};
 use crate::emacs_core::value::Value;
 use crate::emacs_core::Context;
+use std::path::PathBuf;
 
 /// Initialize the tracing subscriber for test output.
 ///
@@ -57,4 +61,22 @@ pub fn load_minimal_gnu_backquote_runtime(eval: &mut Context) {
             .unwrap_or_else(|| panic!("cannot find {name}"));
         load_file(eval, &path).unwrap_or_else(|err| panic!("load {name}: {err:?}"));
     }
+}
+
+/// Create a bare evaluator with GNU `ldefs-boot.el` autoload cells restored
+/// for the named symbols and a bootstrap-compatible `load-path`.
+pub fn eval_with_ldefs_boot_autoloads(names: &[&str]) -> Context {
+    let mut eval = Context::new();
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let lisp_dir = project_root.join("lisp");
+    eval.set_variable(
+        "load-path",
+        Value::list(bootstrap_load_path_entries(&lisp_dir)),
+    );
+    for name in names {
+        eval.obarray_mut().fmakunbound(name);
+    }
+    apply_ldefs_boot_autoloads_for_names(&mut eval, names).expect("ldefs-boot autoload restore");
+    eval
 }
