@@ -6292,38 +6292,9 @@ impl Context {
             }
         }
 
-        let symbols: Vec<String> = self
-            .obarray
-            .all_symbols()
-            .into_iter()
-            .map(str::to_string)
-            .collect();
-        for name in symbols {
-            if let Some(symbol) = self.obarray.get_mut(&name) {
-                match &mut symbol.value {
-                    super::symbol::SymbolValue::Plain(Some(value)) => {
-                        Self::replace_alias_refs_in_value(
-                            value,
-                            first_arg,
-                            &replacement,
-                            &mut visited,
-                        );
-                    }
-                    super::symbol::SymbolValue::BufferLocal {
-                        default: Some(value),
-                        ..
-                    } => {
-                        Self::replace_alias_refs_in_value(
-                            value,
-                            first_arg,
-                            &replacement,
-                            &mut visited,
-                        );
-                    }
-                    _ => {}
-                }
-            }
-        }
+        self.obarray.for_each_value_cell_mut(|value| {
+            Self::replace_alias_refs_in_value(value, first_arg, &replacement, &mut visited);
+        });
     }
 
     fn replace_alias_refs_in_value(

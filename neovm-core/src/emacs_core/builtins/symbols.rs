@@ -244,23 +244,21 @@ pub(crate) fn visible_symbol_plist_snapshot_in_obarray(obarray: &Obarray, symbol
     }
 }
 
-fn sync_visible_symbol_plist_entries(
-    sym: &mut crate::emacs_core::symbol::SymbolData,
-    plist: Value,
-) {
+fn visible_symbol_plist_entries(plist: Value) -> Vec<(SymId, Value)> {
+    let mut entries = Vec::new();
     let mut cursor = plist;
     loop {
         match cursor.kind() {
-            ValueKind::Nil => return,
+            ValueKind::Nil => return entries,
             ValueKind::Cons => {
                 let key = cursor.cons_car();
                 let rest = cursor.cons_cdr();
 
                 let Some(key_id) = symbol_id(&key) else {
-                    return;
+                    return entries;
                 };
                 if !rest.is_cons() {
-                    return;
+                    return entries;
                 };
 
                 let value = rest.cons_car();
@@ -269,9 +267,9 @@ fn sync_visible_symbol_plist_entries(
                 if is_internal_symbol_plist_property(resolve_sym(key_id)) {
                     continue;
                 }
-                sym.plist.insert(key_id, value);
+                entries.push((key_id, value));
             }
-            _ => return,
+            _ => return entries,
         }
     }
 }
@@ -288,13 +286,10 @@ pub(crate) fn set_symbol_raw_plist_in_obarray(obarray: &mut Obarray, symbol: Sym
         })
         .unwrap_or_default();
 
-    let sym = obarray.ensure_symbol_id(symbol);
-    sym.plist.clear();
-    for (key, value) in preserved_internal {
-        sym.plist.insert(key, value);
-    }
-    sym.plist.insert(intern(RAW_SYMBOL_PLIST_PROPERTY), plist);
-    sync_visible_symbol_plist_entries(sym, plist);
+    let mut entries = preserved_internal;
+    entries.push((intern(RAW_SYMBOL_PLIST_PROPERTY), plist));
+    entries.extend(visible_symbol_plist_entries(plist));
+    obarray.replace_symbol_plist_id(symbol, entries);
 }
 
 fn set_symbol_raw_plist(eval: &mut super::eval::Context, symbol: SymId, plist: Value) {
@@ -498,12 +493,10 @@ pub(crate) fn defvaralias_impl(
         return Err(signal("cyclic-variable-indirection", vec![args[1]]));
     }
     let previous_target = resolve_variable_alias_name_in_obarray(&ctx.obarray, &new_name)?;
-    {
-        let sym = ctx.obarray.ensure_symbol_id(new_symbol);
-        sym.special = true;
-        // Keep the plist entry for backward compatibility during transition.
-        sym.plist.insert(intern(VARIABLE_ALIAS_PROPERTY), args[1]);
-    }
+    ctx.obarray.make_special_id(new_symbol);
+    // Keep the plist entry for backward compatibility during transition.
+    ctx.obarray
+        .put_property_id(new_symbol, intern(VARIABLE_ALIAS_PROPERTY), args[1]);
     // Primary mechanism: set the SymbolValue::Alias variant.
     ctx.obarray.make_alias(new_symbol, old_symbol);
     ctx.obarray.make_special_id(old_symbol);
@@ -855,7 +848,7 @@ pub(crate) fn builtin_defconst_1(eval: &mut super::eval::Context, args: Vec<Valu
     let resolved = resolve_variable_alias_id(eval, symbol)?;
     let value = args[1];
     eval.obarray_mut().set_symbol_value_id(resolved, value);
-    eval.obarray_mut().ensure_symbol_id(resolved).constant = true;
+    eval.obarray_mut().set_constant_id(resolved);
     eval.obarray_mut()
         .put_property_id(resolved, intern("risky-local-variable"), Value::T);
 

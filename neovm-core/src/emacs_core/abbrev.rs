@@ -560,20 +560,19 @@ pub(crate) fn builtin_define_abbrev(
     let hook = if args.len() > 3 { args[3] } else { Value::NIL };
     eval.obarray_mut().set_symbol_function_id(sym_id, hook);
 
-    {
-        let sym_data = eval.obarray_mut().ensure_symbol_id(sym_id);
-        sym_data.plist.clear();
-        for chunk in props.chunks_exact(2) {
-            if let Some(prop_name) = chunk[0].as_symbol_name() {
-                let value = if prop_name == ":system" && system_is_force {
-                    Value::T
-                } else {
-                    chunk[1]
-                };
-                sym_data.plist.insert(intern(prop_name), value);
-            }
+    let mut plist_entries = Vec::new();
+    for chunk in props.chunks_exact(2) {
+        if let Some(prop_name) = chunk[0].as_symbol_name() {
+            let value = if prop_name == ":system" && system_is_force {
+                Value::T
+            } else {
+                chunk[1]
+            };
+            plist_entries.push((intern(prop_name), value));
         }
     }
+    eval.obarray_mut()
+        .replace_symbol_plist_id(sym_id, plist_entries);
 
     let changed = existing_expansion != Some(expansion) || existing_hook != Some(hook);
     if changed && system_flag.is_nil() {

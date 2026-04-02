@@ -251,6 +251,23 @@ impl Obarray {
         }
     }
 
+    /// Visit each stored symbol value cell that currently holds a `Value`.
+    pub fn for_each_value_cell_mut(&mut self, mut f: impl FnMut(&mut Value)) {
+        for sym in self.symbols.values_mut() {
+            match &mut sym.value {
+                SymbolValue::Plain(Some(value)) => f(value),
+                SymbolValue::BufferLocal {
+                    default: Some(value),
+                    ..
+                } => f(value),
+                SymbolValue::Plain(None)
+                | SymbolValue::BufferLocal { default: None, .. }
+                | SymbolValue::Alias(_)
+                | SymbolValue::Forwarded => {}
+            }
+        }
+    }
+
     /// Follow alias chain for a mutable write, returning the resolved SymId.
     /// Max 50 hops to prevent infinite loops.
     fn resolve_alias_for_write(&mut self, id: SymId) -> SymId {
@@ -432,6 +449,17 @@ impl Obarray {
         sym.plist.insert(prop, value);
     }
 
+    /// Replace the complete plist for a symbol by identity.
+    pub fn replace_symbol_plist_id<I>(&mut self, symbol: SymId, entries: I)
+    where
+        I: IntoIterator<Item = (SymId, Value)>,
+    {
+        self.ensure_global_member_if_canonical(symbol);
+        let sym = self.ensure_symbol_id(symbol);
+        sym.plist.clear();
+        sym.plist.extend(entries);
+    }
+
     /// Get the symbol's full plist as a flat list.
     pub fn symbol_plist(&self, name: &str) -> Value {
         self.symbol_plist_id(intern(name))
@@ -502,10 +530,13 @@ impl Obarray {
     /// Mark a symbol as a hard constant (like SYMBOL_NOWRITE in GNU Emacs).
     pub fn set_constant(&mut self, name: &str) {
         let id = intern(name);
+        self.set_constant_id(id);
+    }
+
+    /// Mark a symbol as a hard constant (like SYMBOL_NOWRITE in GNU Emacs) by identity.
+    pub fn set_constant_id(&mut self, id: SymId) {
         self.ensure_global_member_if_canonical(id);
-        if let Some(sym) = self.symbols.get_mut(&id) {
-            sym.constant = true;
-        }
+        self.ensure_symbol_id(id).constant = true;
     }
 
     // ------------------------------------------------------------------

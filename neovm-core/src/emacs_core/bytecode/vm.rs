@@ -1920,39 +1920,9 @@ impl<'a> Vm<'a> {
             }
         }
 
-        let symbols: Vec<String> = self
-            .ctx
-            .obarray
-            .all_symbols()
-            .into_iter()
-            .map(str::to_string)
-            .collect();
-        for name in symbols {
-            if let Some(symbol) = self.ctx.obarray.get_mut(&name) {
-                match &mut symbol.value {
-                    crate::emacs_core::symbol::SymbolValue::Plain(Some(value)) => {
-                        Self::replace_alias_refs_in_value(
-                            value,
-                            first_arg,
-                            &replacement,
-                            &mut visited,
-                        );
-                    }
-                    crate::emacs_core::symbol::SymbolValue::BufferLocal {
-                        default: Some(value),
-                        ..
-                    } => {
-                        Self::replace_alias_refs_in_value(
-                            value,
-                            first_arg,
-                            &replacement,
-                            &mut visited,
-                        );
-                    }
-                    _ => {}
-                }
-            }
-        }
+        self.ctx.obarray.for_each_value_cell_mut(|value| {
+            Self::replace_alias_refs_in_value(value, first_arg, &replacement, &mut visited);
+        });
     }
 
     fn replace_alias_refs_in_value(
@@ -3628,9 +3598,8 @@ impl<'a> Vm<'a> {
                 if args.len() >= 2 {
                     let sym_name = args[1].as_symbol_name().unwrap_or("nil").to_string();
                     self.ctx.obarray.set_symbol_value(&sym_name, args[0]);
-                    let sym = self.ctx.obarray.get_or_intern(&sym_name);
-                    sym.constant = true;
-                    sym.special = true;
+                    self.ctx.obarray.set_constant(&sym_name);
+                    self.ctx.obarray.make_special(&sym_name);
                     return Ok(Value::symbol(sym_name));
                 }
                 return Ok(Value::NIL);
