@@ -141,7 +141,7 @@ pub(crate) fn decode_emacs_utf8(bytes: &[u8]) -> String {
     out
 }
 
-/// Format a Value for human-readable error messages, resolving SymIds and ObjIds.
+/// Format a Value for human-readable error messages, resolving SymIds and heap-backed values.
 fn format_value_for_error(v: &Value) -> String {
     match v.kind() {
         ValueKind::Symbol(sid) => super::intern::resolve_sym(sid).to_string(),

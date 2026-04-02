@@ -98,7 +98,7 @@ fn string_equality() {
         let a = Value::string("hello");
         let b = Value::string("hello");
         assert!(equal_value(&a, &b, 0));
-        // eq compares ObjId identity — different allocations
+        // eq compares heap object identity — different allocations
         assert!(!eq_value(&a, &b));
     });
 }

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 // ---------------------------------------------------------------------------
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DumpObjId {
+pub struct DumpHeapRef {
     pub index: u32,
 }
 
@@ -32,17 +32,17 @@ pub enum DumpValue {
     Int(i64),
     Float(f64, u32),
     Symbol(DumpSymId),
-    Str(DumpObjId),
-    Cons(DumpObjId),
-    Vector(DumpObjId),
-    Record(DumpObjId),
-    HashTable(DumpObjId),
-    Lambda(DumpObjId),
-    Macro(DumpObjId),
+    Str(DumpHeapRef),
+    Cons(DumpHeapRef),
+    Vector(DumpHeapRef),
+    Record(DumpHeapRef),
+    HashTable(DumpHeapRef),
+    Lambda(DumpHeapRef),
+    Macro(DumpHeapRef),
     Subr(DumpSymId),
-    ByteCode(DumpObjId),
-    Marker(DumpObjId),
-    Overlay(DumpObjId),
+    ByteCode(DumpHeapRef),
+    Marker(DumpHeapRef),
+    Overlay(DumpHeapRef),
     Buffer(DumpBufferId),
     Window(u64),
     Frame(u64),
@@ -262,12 +262,12 @@ pub enum DumpHashKey {
     FloatEq(u64, u32),
     Symbol(DumpSymId),
     Keyword(DumpSymId),
-    Str(DumpObjId),
+    Str(DumpHeapRef),
     Char(char),
     Window(u64),
     Frame(u64),
     Ptr(u64),
-    ObjId(u32),
+    HeapRef(u32),
     EqualCons(Box<DumpHashKey>, Box<DumpHashKey>),
     EqualVec(Vec<DumpHashKey>),
     Cycle(u32),

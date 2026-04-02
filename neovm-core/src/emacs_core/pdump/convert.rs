@@ -68,13 +68,13 @@ thread_local! {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-struct TaggedObjId {
+struct TaggedHeapRef {
     index: u32,
 }
 
 struct TaggedDumpState {
     objects: Vec<Option<DumpHeapObject>>,
-    object_ids: HashMap<usize, TaggedObjId>,
+    object_ids: HashMap<usize, TaggedHeapRef>,
     float_ids: HashMap<usize, u32>,
     next_float_id: u32,
 }
@@ -127,12 +127,12 @@ impl TaggedLoadState {
     }
 }
 
-fn dump_obj_id(id: TaggedObjId) -> DumpObjId {
-    DumpObjId { index: id.index }
+fn dump_heap_ref(id: TaggedHeapRef) -> DumpHeapRef {
+    DumpHeapRef { index: id.index }
 }
 
-fn tagged_obj_id(id: &DumpObjId) -> TaggedObjId {
-    TaggedObjId { index: id.index }
+fn tagged_heap_ref(id: &DumpHeapRef) -> TaggedHeapRef {
+    TaggedHeapRef { index: id.index }
 }
 
 // ===========================================================================
@@ -161,7 +161,7 @@ fn with_load_state<R>(f: impl FnOnce(&mut TaggedLoadState) -> R) -> R {
     })
 }
 
-fn value_to_obj_id(v: &Value) -> TaggedObjId {
+fn value_to_heap_ref(v: &Value) -> TaggedHeapRef {
     debug_assert!(v.is_heap_object());
     let bits = v.bits();
     with_dump_state(|state| {
@@ -169,7 +169,7 @@ fn value_to_obj_id(v: &Value) -> TaggedObjId {
             return id;
         }
 
-        let id = TaggedObjId {
+        let id = TaggedHeapRef {
             index: state.objects.len() as u32,
         };
         state.object_ids.insert(bits, id);
@@ -180,7 +180,7 @@ fn value_to_obj_id(v: &Value) -> TaggedObjId {
     })
 }
 
-fn obj_id_to_value(id: TaggedObjId) -> Value {
+fn heap_ref_to_value(id: TaggedHeapRef) -> Value {
     with_load_state(|state| load_tagged_object(state, id))
 }
 
@@ -214,33 +214,35 @@ pub(crate) fn dump_value(v: &Value) -> DumpValue {
         ValueKind::Fixnum(n) => DumpValue::Int(n),
         ValueKind::Float => DumpValue::Float(v.xfloat(), dump_float_id(v)),
         ValueKind::Symbol(s) => DumpValue::Symbol(dump_sym_id(s)),
-        ValueKind::String => DumpValue::Str(dump_obj_id(value_to_obj_id(v))),
-        ValueKind::Cons => DumpValue::Cons(dump_obj_id(value_to_obj_id(v))),
+        ValueKind::String => DumpValue::Str(dump_heap_ref(value_to_heap_ref(v))),
+        ValueKind::Cons => DumpValue::Cons(dump_heap_ref(value_to_heap_ref(v))),
         ValueKind::Veclike(VecLikeType::Vector) => {
-            DumpValue::Vector(dump_obj_id(value_to_obj_id(v)))
+            DumpValue::Vector(dump_heap_ref(value_to_heap_ref(v)))
         }
         ValueKind::Veclike(VecLikeType::Record) => {
-            DumpValue::Record(dump_obj_id(value_to_obj_id(v)))
+            DumpValue::Record(dump_heap_ref(value_to_heap_ref(v)))
         }
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            DumpValue::HashTable(dump_obj_id(value_to_obj_id(v)))
+            DumpValue::HashTable(dump_heap_ref(value_to_heap_ref(v)))
         }
         ValueKind::Veclike(VecLikeType::Lambda) => {
-            DumpValue::Lambda(dump_obj_id(value_to_obj_id(v)))
+            DumpValue::Lambda(dump_heap_ref(value_to_heap_ref(v)))
         }
-        ValueKind::Veclike(VecLikeType::Macro) => DumpValue::Macro(dump_obj_id(value_to_obj_id(v))),
+        ValueKind::Veclike(VecLikeType::Macro) => {
+            DumpValue::Macro(dump_heap_ref(value_to_heap_ref(v)))
+        }
         ValueKind::Veclike(VecLikeType::Subr) => {
             let s = v.as_subr_id().unwrap();
             DumpValue::Subr(dump_sym_id(s))
         }
         ValueKind::Veclike(VecLikeType::ByteCode) => {
-            DumpValue::ByteCode(dump_obj_id(value_to_obj_id(v)))
+            DumpValue::ByteCode(dump_heap_ref(value_to_heap_ref(v)))
         }
         ValueKind::Veclike(VecLikeType::Marker) => {
-            DumpValue::Marker(dump_obj_id(value_to_obj_id(v)))
+            DumpValue::Marker(dump_heap_ref(value_to_heap_ref(v)))
         }
         ValueKind::Veclike(VecLikeType::Overlay) => {
-            DumpValue::Overlay(dump_obj_id(value_to_obj_id(v)))
+            DumpValue::Overlay(dump_heap_ref(value_to_heap_ref(v)))
         }
         ValueKind::Veclike(VecLikeType::Buffer) => {
             DumpValue::Buffer(DumpBufferId(v.as_buffer_id().unwrap().0))
@@ -420,8 +422,8 @@ pub(crate) fn dump_hash_key(k: &HashKey) -> DumpHashKey {
         HashKey::Ptr(p) => {
             let value = TaggedValue(*p);
             if value.is_heap_object() {
-                let id = value_to_obj_id(&value);
-                DumpHashKey::ObjId(id.index)
+                let id = value_to_heap_ref(&value);
+                DumpHashKey::HeapRef(id.index)
             } else {
                 DumpHashKey::Ptr(*p as u64)
             }
@@ -1552,7 +1554,7 @@ fn load_cached_timer(id: u64) -> Value {
 
 fn allocate_tagged_placeholder(
     state: &mut TaggedLoadState,
-    id: TaggedObjId,
+    id: TaggedHeapRef,
 ) -> Result<Value, DumpError> {
     if let Some(value) = state.values[id.index as usize] {
         return Ok(value);
@@ -1617,7 +1619,7 @@ fn allocate_tagged_placeholder(
     Ok(value)
 }
 
-fn populate_tagged_object(state: &mut TaggedLoadState, id: TaggedObjId) -> Result<(), DumpError> {
+fn populate_tagged_object(state: &mut TaggedLoadState, id: TaggedHeapRef) -> Result<(), DumpError> {
     if state.populated[id.index as usize] {
         return Ok(());
     }
@@ -1715,7 +1717,7 @@ fn populate_tagged_object(state: &mut TaggedLoadState, id: TaggedObjId) -> Resul
     Ok(())
 }
 
-fn load_tagged_object(state: &mut TaggedLoadState, id: TaggedObjId) -> Value {
+fn load_tagged_object(state: &mut TaggedLoadState, id: TaggedHeapRef) -> Value {
     allocate_tagged_placeholder(state, id).expect("pdump placeholder allocation should succeed");
     populate_tagged_object(state, id).expect("pdump object population should succeed");
     state.values[id.index as usize].expect("pdump object should exist")
@@ -1728,7 +1730,7 @@ pub(crate) fn preload_tagged_heap(heap: &DumpLispHeap) -> Result<(), DumpError> 
     for index in 0..load_state.objects.len() {
         if let Err(err) = populate_tagged_object(
             &mut load_state,
-            TaggedObjId {
+            TaggedHeapRef {
                 index: index as u32,
             },
         ) {
@@ -1758,17 +1760,17 @@ pub(crate) fn load_value(v: &DumpValue) -> Value {
         DumpValue::Int(n) => Value::fixnum(*n),
         DumpValue::Float(f, id) => load_float_value(*id, *f),
         DumpValue::Symbol(s) => Value::symbol(load_sym_id(s)),
-        DumpValue::Str(id) => obj_id_to_value(tagged_obj_id(id)),
-        DumpValue::Cons(id) => obj_id_to_value(tagged_obj_id(id)),
-        DumpValue::Vector(id) => obj_id_to_value(tagged_obj_id(id)),
-        DumpValue::Record(id) => obj_id_to_value(tagged_obj_id(id)),
-        DumpValue::HashTable(id) => obj_id_to_value(tagged_obj_id(id)),
-        DumpValue::Lambda(id) => obj_id_to_value(tagged_obj_id(id)),
-        DumpValue::Macro(id) => obj_id_to_value(tagged_obj_id(id)),
+        DumpValue::Str(id) => heap_ref_to_value(tagged_heap_ref(id)),
+        DumpValue::Cons(id) => heap_ref_to_value(tagged_heap_ref(id)),
+        DumpValue::Vector(id) => heap_ref_to_value(tagged_heap_ref(id)),
+        DumpValue::Record(id) => heap_ref_to_value(tagged_heap_ref(id)),
+        DumpValue::HashTable(id) => heap_ref_to_value(tagged_heap_ref(id)),
+        DumpValue::Lambda(id) => heap_ref_to_value(tagged_heap_ref(id)),
+        DumpValue::Macro(id) => heap_ref_to_value(tagged_heap_ref(id)),
         DumpValue::Subr(s) => Value::subr(load_sym_id(s)),
-        DumpValue::ByteCode(id) => obj_id_to_value(tagged_obj_id(id)),
-        DumpValue::Marker(id) => obj_id_to_value(tagged_obj_id(id)),
-        DumpValue::Overlay(id) => obj_id_to_value(tagged_obj_id(id)),
+        DumpValue::ByteCode(id) => heap_ref_to_value(tagged_heap_ref(id)),
+        DumpValue::Marker(id) => heap_ref_to_value(tagged_heap_ref(id)),
+        DumpValue::Overlay(id) => heap_ref_to_value(tagged_heap_ref(id)),
         DumpValue::Buffer(bid) => load_cached_buffer(bid.0),
         DumpValue::Window(w) => load_cached_window(*w),
         DumpValue::Frame(f) => load_cached_frame(*f),
@@ -1947,12 +1949,14 @@ pub(crate) fn load_hash_key(k: &DumpHashKey) -> HashKey {
         DumpHashKey::FloatEq(bits, id) => HashKey::FloatEq(*bits, *id),
         DumpHashKey::Symbol(s) => HashKey::Symbol(load_sym_id(s)),
         DumpHashKey::Keyword(s) => HashKey::Keyword(load_sym_id(s)),
-        DumpHashKey::Str(id) => HashKey::Ptr(obj_id_to_value(tagged_obj_id(id)).bits()),
+        DumpHashKey::Str(id) => HashKey::Ptr(heap_ref_to_value(tagged_heap_ref(id)).bits()),
         DumpHashKey::Char(c) => HashKey::Char(*c),
         DumpHashKey::Window(w) => HashKey::Window(*w),
         DumpHashKey::Frame(f) => HashKey::Frame(*f),
         DumpHashKey::Ptr(p) => HashKey::Ptr(*p as usize),
-        DumpHashKey::ObjId(a) => HashKey::Ptr(obj_id_to_value(TaggedObjId { index: *a }).bits()),
+        DumpHashKey::HeapRef(a) => {
+            HashKey::Ptr(heap_ref_to_value(TaggedHeapRef { index: *a }).bits())
+        }
         DumpHashKey::EqualCons(a, b) => {
             HashKey::EqualCons(Box::new(load_hash_key(a)), Box::new(load_hash_key(b)))
         }
