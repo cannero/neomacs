@@ -269,7 +269,7 @@ fn configure_gnu_startup_state_marks_bootstrap_gui_frame_as_initial_frame() {
         .obarray()
         .symbol_value("terminal-frame")
         .expect("terminal-frame");
-    let Value::Frame(terminal_frame_id) = terminal_frame else {
+    let Some(terminal_frame_id) = terminal_frame.as_frame_id() else {
         panic!("GUI startup should seed a hidden terminal frame, got {terminal_frame:?}");
     };
     let terminal_frame_id = FrameId(terminal_frame_id);
@@ -295,8 +295,10 @@ fn configure_gnu_startup_state_marks_bootstrap_gui_frame_as_initial_frame() {
         "hidden startup terminal frame must not inherit GUI face parameters"
     );
     assert_eq!(
-        eval.obarray().symbol_value("frame-initial-frame"),
-        Some(&Value::Frame(frame_id.0))
+        eval.obarray()
+            .symbol_value("frame-initial-frame")
+            .and_then(|value| value.as_frame_id()),
+        Some(frame_id.0)
     );
     assert_eq!(
         eval.obarray().symbol_value("frame-initial-frame-alist"),
@@ -306,8 +308,10 @@ fn configure_gnu_startup_state_marks_bootstrap_gui_frame_as_initial_frame() {
         )]))
     );
     assert_eq!(
-        eval.obarray().symbol_value("default-minibuffer-frame"),
-        Some(&Value::Frame(frame_id.0))
+        eval.obarray()
+            .symbol_value("default-minibuffer-frame")
+            .and_then(|value| value.as_frame_id()),
+        Some(frame_id.0)
     );
 }
 
@@ -857,7 +861,7 @@ fn gnu_startup_keeps_single_row_minibuffer() {
     let result = eval
         .eval_expr(&forms[0])
         .expect("minibuffer height probe should evaluate");
-    assert_eq!(result, Value::Int(1));
+    assert_eq!(result, Value::fixnum(1));
 }
 
 #[test]
@@ -1068,10 +1072,10 @@ fn gnu_startup_split_window_right_succeeds_on_opening_frame() {
         .eval_expr(&forms[0])
         .expect("startup split-window probe should evaluate");
     let items = list_to_vec(&result).expect("split-window result list");
-    assert_eq!(items[0], Value::Int(expected_width));
-    assert_eq!(items[1], Value::Int(expected_height));
-    assert_eq!(items[2], Value::Int(10));
-    assert_eq!(items[3], Value::Int(4));
+    assert_eq!(items[0], Value::fixnum(expected_width));
+    assert_eq!(items[1], Value::fixnum(expected_height));
+    assert_eq!(items[2], Value::fixnum(10));
+    assert_eq!(items[3], Value::fixnum(4));
     assert!(items[4].is_nil());
     assert!(items[5].is_nil());
     assert_eq!(items[6], Value::symbol("ok"));
@@ -1123,10 +1127,10 @@ fn gnu_startup_split_window_below_succeeds_on_opening_frame() {
         .eval_expr(&forms[0])
         .expect("startup split-window probe should evaluate");
     let items = list_to_vec(&result).expect("split-window result list");
-    assert_eq!(items[0], Value::Int(expected_width));
-    assert_eq!(items[1], Value::Int(expected_height));
-    assert_eq!(items[2], Value::Int(10));
-    assert_eq!(items[3], Value::Int(4));
+    assert_eq!(items[0], Value::fixnum(expected_width));
+    assert_eq!(items[1], Value::fixnum(expected_height));
+    assert_eq!(items[2], Value::fixnum(10));
+    assert_eq!(items[3], Value::fixnum(4));
     assert!(items[4].is_nil());
     assert!(items[5].is_nil());
     assert_eq!(items[6], Value::symbol("ok"));
@@ -1184,19 +1188,19 @@ fn gnu_startup_window_pixel_queries_use_live_frame_pixels() {
     assert_eq!(
         outer_edges,
         vec![
-            Value::Int(0),
-            Value::Int(0),
-            Value::Int(pixel_width),
-            Value::Int(pixel_height)
+            Value::fixnum(0),
+            Value::fixnum(0),
+            Value::fixnum(pixel_width),
+            Value::fixnum(pixel_height)
         ]
     );
     assert_eq!(
         inner_edges,
         vec![
-            Value::Int(left_fringe),
-            Value::Int(0),
-            Value::Int(pixel_width - right_fringe),
-            Value::Int(body_height)
+            Value::fixnum(left_fringe),
+            Value::fixnum(0),
+            Value::fixnum(pixel_width - right_fringe),
+            Value::fixnum(body_height)
         ]
     );
 }
@@ -1393,7 +1397,7 @@ fn gnu_startup_next_line_moves_point_on_live_gui_frame() {
     let result = eval
         .eval_expr(&forms[0])
         .expect("startup next-line should evaluate");
-    assert_eq!(result, Value::Int(5));
+    assert_eq!(result, Value::fixnum(5));
 }
 
 #[test]

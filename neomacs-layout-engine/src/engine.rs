@@ -9937,7 +9937,7 @@ mod tests {
                 Value::keyword("family"),
                 Value::string("JetBrains Mono"),
                 Value::keyword("height"),
-                Value::Float(1.6, neovm_core::emacs_core::value::next_float_id()),
+                Value::make_float(1.6),
                 Value::keyword("weight"),
                 Value::symbol("extra-bold"),
             ]);
@@ -10119,7 +10119,7 @@ mod tests {
                 Value::keyword("family"),
                 Value::string("Noto Sans Mono"),
                 Value::keyword("height"),
-                Value::Float(0.9, neovm_core::emacs_core::value::next_float_id()),
+                Value::make_float(0.9),
                 Value::keyword("weight"),
                 Value::symbol("normal"),
             ]);
@@ -10249,7 +10249,7 @@ mod tests {
                 Value::keyword("family"),
                 Value::string("Noto Sans Mono"),
                 Value::keyword("height"),
-                Value::Float(0.9, neovm_core::emacs_core::value::next_float_id()),
+                Value::make_float(0.9),
                 Value::keyword("weight"),
                 Value::symbol("normal"),
             ]);
@@ -10404,10 +10404,7 @@ mod tests {
                         Value::keyword("family"),
                         Value::string("JetBrains Mono"),
                         Value::keyword("height"),
-                        Value::Float(
-                            height as f64,
-                            neovm_core::emacs_core::value::next_float_id(),
-                        ),
+                        Value::make_float(height as f64),
                         Value::keyword("weight"),
                         Value::symbol(weight_name),
                     ]);
@@ -10635,10 +10632,7 @@ mod tests {
                             Value::keyword("family"),
                             Value::string(family),
                             Value::keyword("height"),
-                            Value::Float(
-                                height as f64,
-                                neovm_core::emacs_core::value::next_float_id(),
-                            ),
+                            Value::make_float(height as f64),
                             Value::keyword("weight"),
                             Value::symbol(weight_name),
                         ]);
@@ -11748,7 +11742,7 @@ mod tests {
         )
         .expect("parse tab-bar forms");
         eval.obarray_mut()
-            .set_symbol_value("layout-target-frame", Value::Frame(frame_id.0));
+            .set_symbol_value("layout-target-frame", Value::make_frame(frame_id.0));
         for expr in forms {
             let expr_text = format!("{expr:?}");
             if let Err(err) = eval.eval_expr(&expr) {
@@ -11757,7 +11751,7 @@ mod tests {
         }
         eval.eval_expr(&Expr::List(vec![
             Expr::Symbol(intern("select-frame")),
-            Expr::OpaqueValueRef(opaque_pool_insert(Value::Frame(frame_id.0))),
+            Expr::OpaqueValueRef(opaque_pool_insert(Value::make_frame(frame_id.0))),
             Expr::OpaqueValueRef(opaque_pool_insert(Value::NIL)),
         ]))
         .expect("select target frame for tab-bar debug");
@@ -11796,7 +11790,7 @@ mod tests {
             .unwrap_or_else(|| "<unavailable>".to_string());
         eval.eval_expr(&Expr::List(vec![
             Expr::Symbol(intern("select-frame")),
-            Expr::OpaqueValueRef(opaque_pool_insert(Value::Frame(selected_frame.0))),
+            Expr::OpaqueValueRef(opaque_pool_insert(Value::make_frame(selected_frame.0))),
             Expr::OpaqueValueRef(opaque_pool_insert(Value::NIL)),
         ]))
         .expect("restore selected frame");

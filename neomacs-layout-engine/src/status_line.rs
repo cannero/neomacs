@@ -1262,7 +1262,9 @@ mod tests {
     use neomacs_display_protocol::frame_glyphs::FrameGlyph;
     use neomacs_display_protocol::types::Color;
     use neovm_core::emacs_core::eval::Context;
-    use neovm_core::emacs_core::value::{StringTextPropertyRun, set_string_text_properties};
+    use neovm_core::emacs_core::value::{
+        StringTextPropertyRun, set_string_text_properties_for_value,
+    };
 
     // ---------------------------------------------------------------
     // Helper: build a 14-byte face run record (native-endian)
@@ -2064,11 +2066,9 @@ mod tests {
         let resolver = FaceResolver::new(eval.face_table(), 0x000000, 0x00ffffff, 14.0);
         let base_face = resolver.resolve_named_face("header-line");
         let rendered = Value::string("ABC");
-        let Value::Str(id) = rendered else {
-            panic!("expected string");
-        };
-        set_string_text_properties(
-            id,
+        assert!(rendered.is_string(), "expected string");
+        set_string_text_properties_for_value(
+            rendered,
             vec![StringTextPropertyRun {
                 start: 1,
                 end: 2,

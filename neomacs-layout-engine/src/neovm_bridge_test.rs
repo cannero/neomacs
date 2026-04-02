@@ -3,15 +3,6 @@ use neovm_core::buffer::BufferManager;
 use neovm_core::emacs_core::value::Value;
 use neovm_core::window::{FrameManager, Rect as NeoRect, WindowId};
 
-fn install_test_runtime() {
-    use neovm_core::emacs_core::intern::StringInterner;
-
-    let interner = Box::new(StringInterner::new());
-    neovm_core::emacs_core::intern::set_current_interner(Box::leak(interner));
-    let heap = Box::new(neovm_core::gc::heap::LispHeap::new());
-    neovm_core::emacs_core::value::set_current_heap(Box::leak(heap));
-}
-
 fn eval_lisp(eval: &mut neovm_core::emacs_core::Context, source: &str) -> Value {
     let forms = neovm_core::emacs_core::parse_forms(source).expect("parse form");
     assert_eq!(forms.len(), 1, "expected a single form");
@@ -69,7 +60,7 @@ fn test_collect_layout_params_basic() {
 
 #[test]
 fn test_frame_params_from_neovm() {
-    install_test_runtime();
+    let _runtime = neovm_core::emacs_core::Context::new();
 
     let mut buf_mgr = BufferManager::new();
     let buf_id = buf_mgr.create_buffer("*scratch*");
@@ -141,8 +132,6 @@ fn test_window_params_from_neovm_internal_returns_none() {
 
 #[test]
 fn window_params_from_neovm_uses_default_header_line_and_tab_line_values() {
-    install_test_runtime();
-
     let mut evaluator = neovm_core::emacs_core::Context::new();
     let buf_id = evaluator.buffer_manager_mut().create_buffer("*test*");
     let frame_id = evaluator
@@ -243,7 +232,7 @@ fn test_effective_cursor_spec_prefers_window_cursor_type() {
         buffer,
         true,
         false,
-        Value::cons(Value::symbol("bar"), Value::Int(5)),
+        Value::cons(Value::symbol("bar"), Value::fixnum(5)),
     )
     .unwrap();
 
@@ -296,7 +285,7 @@ fn test_window_params_buffer_locals() {
     // Set buffer-local variables.
     if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
         buf.set_buffer_local("truncate-lines", Value::T);
-        buf.set_buffer_local("tab-width", Value::Int(4));
+        buf.set_buffer_local("tab-width", Value::fixnum(4));
         buf.set_buffer_local("word-wrap", Value::NIL);
     }
 
@@ -506,7 +495,7 @@ fn test_text_prop_check_display() {
         buf.zv_char = buf.text.char_count();
         // Set a display property on positions 2..4
         buf.text
-            .text_props_put_property(2, 4, "display", Value::Int(42));
+            .text_props_put_property(2, 4, "display", Value::fixnum(42));
     }
 
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();
@@ -519,7 +508,7 @@ fn test_text_prop_check_display() {
     // Position 2: has display prop
     let (dp, _next) = access.check_display_prop(2);
     assert!(dp.is_some());
-    assert!(matches!(dp, Some(Value::Int(42))));
+    assert_eq!(dp.and_then(Value::as_fixnum), Some(42));
 }
 
 #[test]
@@ -532,7 +521,7 @@ fn test_text_prop_line_spacing() {
         buf.zv_char = buf.text.char_count();
         // Set line-spacing on "line2" area
         buf.text
-            .text_props_put_property(6, 11, "line-spacing", Value::Int(4));
+            .text_props_put_property(6, 11, "line-spacing", Value::fixnum(4));
     }
 
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();
@@ -577,14 +566,14 @@ fn test_text_prop_get_property() {
         buf.zv = buf.text.len();
         buf.zv_char = buf.text.char_count();
         buf.text
-            .text_props_put_property(0, 4, "face", Value::Int(5));
+            .text_props_put_property(0, 4, "face", Value::fixnum(5));
     }
 
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();
     let access = RustTextPropAccess::new(buf);
 
     let face = access.get_property(0, "face");
-    assert!(matches!(face, Some(Value::Int(5))));
+    assert_eq!(face.and_then(Value::as_fixnum), Some(5));
 
     let none = access.get_property(0, "nonexistent");
     assert!(none.is_none());
@@ -599,14 +588,14 @@ fn test_text_prop_access_multibyte_positions_use_byte_offsets() {
         buf.zv = buf.text.len();
         buf.zv_char = buf.text.char_count();
         buf.text
-            .text_props_put_property(4, 5, "face", Value::Int(9));
+            .text_props_put_property(4, 5, "face", Value::fixnum(9));
     }
 
     let buf = evaluator.buffer_manager().get(buf_id).unwrap();
     let access = RustTextPropAccess::new(buf);
 
     let face = access.get_property(2, "face");
-    assert!(matches!(face, Some(Value::Int(9))));
+    assert_eq!(face.and_then(Value::as_fixnum), Some(9));
 
     let next = access.next_property_change(1);
     assert_eq!(next, 2);
@@ -1046,7 +1035,7 @@ fn test_face_from_plist_realizes_relative_height_family_and_weight() {
         Value::keyword("family"),
         Value::string("DejaVu Sans Mono"),
         Value::keyword("height"),
-        Value::Float(1.6, neovm_core::emacs_core::value::next_float_id()),
+        Value::make_float(1.6),
         Value::keyword("weight"),
         Value::symbol("extra-bold"),
     ]);
