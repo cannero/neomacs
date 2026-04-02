@@ -1,8 +1,8 @@
-//! Shared heap payload types used by both the tagged runtime and legacy dump code.
+//! Shared heap payload types used by both the tagged runtime and pdump code.
 //!
-//! These types are not specific to the old `gc::heap` implementation. Keeping
-//! them behind a neutral module boundary lets the tagged runtime depend on them
-//! without importing the legacy GC namespace.
+//! Keeping them behind a neutral module boundary lets the tagged runtime and
+//! dump/load code share the same payload structs without reviving old heap
+//! module boundaries.
 
 use crate::buffer::BufferId;
 use std::sync::{Arc, OnceLock};
