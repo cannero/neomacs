@@ -448,9 +448,10 @@ fn run_neovm_eval_in_temp_buffer(
         buf.goto_byte(0);
     }
 
-    let mut result = Ok(Value::Nil);
+    let mut result = Ok(Value::NIL);
     loop {
-        match neovm_core::emacs_core::reader::builtin_read(eval, vec![Value::Buffer(temp_id)]) {
+        match neovm_core::emacs_core::reader::builtin_read(eval, vec![Value::make_buffer(temp_id)])
+        {
             Ok(read_form) => {
                 result = eval
                     .eval_value(&read_form)
@@ -716,31 +717,29 @@ pub(crate) fn assert_err_kind(oracle: &str, neovm: &str, err_kind: &str) {
 }
 
 fn normalize_neovm_oracle_value(value: Value) -> Value {
-    match value {
-        Value::Lambda(_) => normalize_interpreted_function_for_oracle(value).unwrap_or(value),
-        Value::Cons(cell) => {
-            let pair = neovm_core::emacs_core::value::read_cons(cell);
-            let car = normalize_neovm_oracle_value(pair.car);
-            neovm_core::emacs_core::eval::push_scratch_gc_root(car);
-            let cdr = normalize_neovm_oracle_value(pair.cdr);
-            neovm_core::emacs_core::eval::push_scratch_gc_root(cdr);
-            let out = Value::cons(car, cdr);
-            neovm_core::emacs_core::eval::push_scratch_gc_root(out);
-            out
+    if value.is_lambda() {
+        normalize_interpreted_function_for_oracle(value).unwrap_or(value)
+    } else if value.is_cons() {
+        let car = normalize_neovm_oracle_value(value.cons_car());
+        neovm_core::emacs_core::eval::push_scratch_gc_root(car);
+        let cdr = normalize_neovm_oracle_value(value.cons_cdr());
+        neovm_core::emacs_core::eval::push_scratch_gc_root(cdr);
+        let out = Value::cons(car, cdr);
+        neovm_core::emacs_core::eval::push_scratch_gc_root(out);
+        out
+    } else if value.is_vector() {
+        let items = value.as_vector_data().cloned().unwrap_or_default();
+        let mut normalized = Vec::with_capacity(items.len());
+        for item in items {
+            let item = normalize_neovm_oracle_value(item);
+            neovm_core::emacs_core::eval::push_scratch_gc_root(item);
+            normalized.push(item);
         }
-        Value::Vector(id) => {
-            let items = neovm_core::emacs_core::value::with_heap(|h| h.get_vector(id).clone());
-            let mut normalized = Vec::with_capacity(items.len());
-            for item in items {
-                let item = normalize_neovm_oracle_value(item);
-                neovm_core::emacs_core::eval::push_scratch_gc_root(item);
-                normalized.push(item);
-            }
-            let out = Value::vector(normalized);
-            neovm_core::emacs_core::eval::push_scratch_gc_root(out);
-            out
-        }
-        _ => value,
+        let out = Value::vector(normalized);
+        neovm_core::emacs_core::eval::push_scratch_gc_root(out);
+        out
+    } else {
+        value
     }
 }
 
@@ -785,9 +784,9 @@ fn render_neovm_oracle_result(eval: &Context, result: Result<Value, EvalError>) 
             let value = normalize_neovm_oracle_value(value);
             format!("OK {}", print_value_with_buffers(&value, &eval.buffers))
         }
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             let mut values = Vec::with_capacity(data.len() + 1);
-            values.push(Value::Symbol(symbol));
+            values.push(Value::symbol(symbol));
             values.extend(data);
             let payload = normalize_neovm_oracle_value(Value::list(values));
             format!("ERR {}", print_value_with_buffers(&payload, &eval.buffers))
@@ -809,9 +808,9 @@ fn render_neovm_oracle_result(eval: &Context, result: Result<Value, EvalError>) 
 fn render_neovm_raw_oracle_result(eval: &Context, result: Result<Value, EvalError>) -> String {
     match result {
         Ok(value) => format!("OK {}", print_value_with_buffers(&value, &eval.buffers)),
-        Err(EvalError::Signal { symbol, data }) => {
+        Err(EvalError::Signal { symbol, data, .. }) => {
             let mut values = Vec::with_capacity(data.len() + 1);
-            values.push(Value::Symbol(symbol));
+            values.push(Value::symbol(symbol));
             values.extend(data);
             format!(
                 "ERR {}",
