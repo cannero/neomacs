@@ -1035,9 +1035,17 @@ fn store_in_keymap(keymap: Value, event: Value, def: Value, remove: bool) {
         if entry_car.is_vector() {
             if let Some(code) = event.as_fixnum() {
                 let idx = code as usize;
-                let vec_data = entry_car.as_vector_data_mut().unwrap();
-                if idx < vec_data.len() {
-                    vec_data[idx] = def;
+                let updated = entry_car
+                    .with_vector_data_mut(|vec_data| {
+                        if idx < vec_data.len() {
+                            vec_data[idx] = def;
+                            true
+                        } else {
+                            false
+                        }
+                    })
+                    .unwrap();
+                if updated {
                     return;
                 }
             }

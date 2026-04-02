@@ -186,19 +186,37 @@ pub(crate) fn builtin_aset(args: Vec<Value>) -> EvalResult {
                     return Err(signal("args-out-of-range", vec![args[0], args[1]]));
                 }
                 let val = Value::fixnum(if args[2].is_truthy() { 1 } else { 0 });
-                args[0]
-                    .as_vector_data_mut()
-                    .or_else(|| args[0].as_record_data_mut())
-                    .unwrap()[store_idx] = val;
+                match args[0].veclike_type() {
+                    Some(VecLikeType::Vector) => {
+                        args[0]
+                            .with_vector_data_mut(|data| data[store_idx] = val)
+                            .unwrap();
+                    }
+                    Some(VecLikeType::Record) => {
+                        args[0]
+                            .with_record_data_mut(|data| data[store_idx] = val)
+                            .unwrap();
+                    }
+                    _ => unreachable!("vector/record path should only reach vectorlike arrays"),
+                }
                 return Ok(args[2]);
             }
             if idx >= vec_len {
                 return Err(signal("args-out-of-range", vec![args[0], args[1]]));
             }
-            args[0]
-                .as_vector_data_mut()
-                .or_else(|| args[0].as_record_data_mut())
-                .unwrap()[idx] = args[2];
+            match args[0].veclike_type() {
+                Some(VecLikeType::Vector) => {
+                    args[0]
+                        .with_vector_data_mut(|data| data[idx] = args[2])
+                        .unwrap();
+                }
+                Some(VecLikeType::Record) => {
+                    args[0]
+                        .with_record_data_mut(|data| data[idx] = args[2])
+                        .unwrap();
+                }
+                _ => unreachable!("vector/record path should only reach vectorlike arrays"),
+            }
             Ok(args[2])
         }
         ValueKind::String => {

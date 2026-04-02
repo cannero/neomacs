@@ -1,6 +1,8 @@
 use super::*;
 use crate::emacs_core::Expr;
+use crate::emacs_core::intern::resolve_sym;
 use crate::emacs_core::marker::make_marker_value_with_id;
+use crate::tagged::header::CLOSURE_ARGLIST;
 
 /// Helper: set up a temporary heap for tests that use Value constructors.
 /// With the tagged-pointer runtime the test fallback heap is auto-created,
@@ -179,6 +181,48 @@ fn recursive_closure_equal_and_hash_are_structural() {
         assert_eq!(
             left.to_hash_key(&HashTableTest::Equal),
             right.to_hash_key(&HashTableTest::Equal)
+        );
+    });
+}
+
+#[test]
+fn closure_slot_mutation_invalidates_cached_params() {
+    crate::test_utils::init_test_tracing();
+    with_test_heap(|| {
+        let closure = Value::make_lambda(LambdaData {
+            params: LambdaParams::simple(vec![intern("x")]),
+            body: vec![Expr::Symbol(intern("x"))].into(),
+            env: None,
+            docstring: None,
+            doc_form: None,
+            interactive: None,
+        });
+
+        assert_eq!(
+            closure
+                .closure_params()
+                .unwrap()
+                .required
+                .iter()
+                .map(|sym| resolve_sym(*sym))
+                .collect::<Vec<_>>(),
+            vec!["x"]
+        );
+
+        let new_arglist = Value::list(vec![Value::symbol("y"), Value::symbol("z")]);
+        closure
+            .with_closure_slots_mut(|slots| slots[CLOSURE_ARGLIST] = new_arglist)
+            .unwrap();
+
+        assert_eq!(
+            closure
+                .closure_params()
+                .unwrap()
+                .required
+                .iter()
+                .map(|sym| resolve_sym(*sym))
+                .collect::<Vec<_>>(),
+            vec!["y", "z"]
         );
     });
 }

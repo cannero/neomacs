@@ -1630,10 +1630,10 @@ fn populate_tagged_object(state: &mut TaggedLoadState, id: TaggedObjId) -> Resul
             value.set_cdr(load_value(&cdr));
         }
         DumpHeapObject::Vector(items) => {
-            if let Some(data) = value.as_vector_data_mut() {
+            let _ = value.with_vector_data_mut(|data| {
                 data.clear();
                 data.extend(items.iter().map(load_value));
-            }
+            });
         }
         DumpHeapObject::HashTable(ht) => {
             if let Some(table) = value.as_hash_table_mut() {
@@ -1671,10 +1671,10 @@ fn populate_tagged_object(state: &mut TaggedLoadState, id: TaggedObjId) -> Resul
         }
         DumpHeapObject::Float(_) => {}
         DumpHeapObject::Lambda(slots) | DumpHeapObject::Macro(slots) => {
-            if let Some(data) = value.closure_slots_mut() {
+            let _ = value.with_closure_slots_mut(|data| {
                 data.clear();
                 data.extend(slots.iter().map(load_value));
-            }
+            });
         }
         DumpHeapObject::ByteCode(bc) => {
             if let Some(data) = value.get_bytecode_data_mut() {
@@ -1682,10 +1682,10 @@ fn populate_tagged_object(state: &mut TaggedLoadState, id: TaggedObjId) -> Resul
             }
         }
         DumpHeapObject::Record(items) => {
-            if let Some(data) = value.as_record_data_mut() {
+            let _ = value.with_record_data_mut(|data| {
                 data.clear();
                 data.extend(items.iter().map(load_value));
-            }
+            });
         }
         DumpHeapObject::Marker(marker) => {
             if let Some(data) = value.as_marker_data_mut() {

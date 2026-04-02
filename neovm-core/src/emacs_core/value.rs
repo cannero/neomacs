@@ -26,6 +26,7 @@ use crate::tagged::header::{
     BufferObj, ByteCodeObj, FloatObj, FrameObj, HashTableObj, LambdaObj, MacroObj, MarkerObj,
     OverlayObj, RecordObj, StringObj, TimerObj, VecLikeHeader, VectorObj, WindowObj,
 };
+use crate::tagged::mutate;
 use crate::tagged::value::TaggedValue;
 
 // ---------------------------------------------------------------------------
@@ -272,8 +273,7 @@ fn string_text_props(value: Value) -> Option<&'static TextPropertyTable> {
 }
 
 fn string_text_props_mut(value: Value) -> Option<&'static mut TextPropertyTable> {
-    let ptr = value.as_string_ptr()? as *mut StringObj;
-    Some(unsafe { &mut (*ptr).text_props })
+    mutate::string_text_props_mut_ref(value)
 }
 
 /// String text properties now live on the string object itself.
@@ -989,17 +989,13 @@ impl TaggedValue {
 
     /// Get mutable closure slot vector.
     pub fn closure_slots_mut(self) -> Option<&'static mut Vec<Value>> {
-        match self.veclike_type()? {
-            VecLikeType::Lambda => {
-                let ptr = self.as_veclike_ptr().unwrap() as *mut LambdaObj;
-                Some(unsafe { &mut (*ptr).data })
-            }
-            VecLikeType::Macro => {
-                let ptr = self.as_veclike_ptr().unwrap() as *mut MacroObj;
-                Some(unsafe { &mut (*ptr).data })
-            }
-            _ => None,
-        }
+        mutate::closure_slots_mut_ref(self)
+    }
+
+    /// Mutate closure slots through the centralized tagged-runtime write path.
+    pub fn with_closure_slots_mut<R>(self, f: impl FnOnce(&mut Vec<Value>) -> R) -> Option<R> {
+        let data = mutate::closure_slots_mut_ref(self)?;
+        Some(f(data))
     }
 
     fn closure_parsed_params_cell(self) -> Option<&'static OnceLock<LambdaParams>> {
@@ -1131,6 +1127,7 @@ impl TaggedValue {
     /// Get mutable marker data from a marker value.
     pub fn as_marker_data_mut(self) -> Option<&'static mut crate::gc::types::MarkerData> {
         if self.is_marker() {
+            crate::tagged::gc::note_heap_write(self);
             let ptr = self.as_veclike_ptr().unwrap() as *mut MarkerObj;
             Some(unsafe { &mut (*ptr).data })
         } else {
@@ -1151,6 +1148,7 @@ impl TaggedValue {
     /// Get mutable overlay data.
     pub fn as_overlay_data_mut(self) -> Option<&'static mut crate::gc::types::OverlayData> {
         if self.is_overlay() {
+            crate::tagged::gc::note_heap_write(self);
             let ptr = self.as_veclike_ptr().unwrap() as *mut OverlayObj;
             Some(unsafe { &mut (*ptr).data })
         } else {
@@ -1170,12 +1168,13 @@ impl TaggedValue {
 
     /// Get mutable vector elements.
     pub fn as_vector_data_mut(self) -> Option<&'static mut Vec<Value>> {
-        if self.is_vector() {
-            let ptr = self.as_veclike_ptr().unwrap() as *mut VectorObj;
-            Some(unsafe { &mut (*ptr).data })
-        } else {
-            None
-        }
+        mutate::vector_data_mut_ref(self)
+    }
+
+    /// Mutate vector elements through the centralized tagged-runtime write path.
+    pub fn with_vector_data_mut<R>(self, f: impl FnOnce(&mut Vec<Value>) -> R) -> Option<R> {
+        let data = mutate::vector_data_mut_ref(self)?;
+        Some(f(data))
     }
 
     /// Get record elements.
@@ -1190,12 +1189,13 @@ impl TaggedValue {
 
     /// Get mutable record elements.
     pub fn as_record_data_mut(self) -> Option<&'static mut Vec<Value>> {
-        if self.is_record() {
-            let ptr = self.as_veclike_ptr().unwrap() as *mut RecordObj;
-            Some(unsafe { &mut (*ptr).data })
-        } else {
-            None
-        }
+        mutate::record_data_mut_ref(self)
+    }
+
+    /// Mutate record elements through the centralized tagged-runtime write path.
+    pub fn with_record_data_mut<R>(self, f: impl FnOnce(&mut Vec<Value>) -> R) -> Option<R> {
+        let data = mutate::record_data_mut_ref(self)?;
+        Some(f(data))
     }
 
     /// Get hash table reference.
@@ -1211,6 +1211,7 @@ impl TaggedValue {
     /// Get mutable hash table reference.
     pub fn as_hash_table_mut(self) -> Option<&'static mut LispHashTable> {
         if self.is_hash_table() {
+            crate::tagged::gc::note_heap_write(self);
             let ptr = self.as_veclike_ptr().unwrap() as *mut HashTableObj;
             Some(unsafe { &mut (*ptr).table })
         } else {
@@ -1229,6 +1230,7 @@ impl TaggedValue {
     /// Get mutable bytecode data reference.
     pub fn get_bytecode_data_mut(self) -> Option<&'static mut super::bytecode::ByteCodeFunction> {
         if self.veclike_type()? == VecLikeType::ByteCode {
+            crate::tagged::gc::note_heap_write(self);
             let ptr = self.as_veclike_ptr().unwrap() as *mut ByteCodeObj;
             Some(unsafe { &mut (*ptr).data })
         } else {
@@ -1238,8 +1240,10 @@ impl TaggedValue {
 
     /// Get mutable string data reference.
     pub fn as_lisp_string_mut(self) -> Option<&'static mut LispString> {
-        self.as_string_ptr()
-            .map(|p| unsafe { &mut (*(p as *mut StringObj)).data })
+        self.as_string_ptr().map(|p| {
+            crate::tagged::gc::note_heap_write(self);
+            unsafe { &mut (*(p as *mut StringObj)).data }
+        })
     }
 
     /// Convert to hash key based on the hash table test.

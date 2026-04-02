@@ -502,13 +502,13 @@ impl TaggedValue {
     /// Set the car of a cons cell. Panics if not a cons.
     #[inline]
     pub fn set_car(self, val: Self) {
-        unsafe { (*(self.xcons_ptr() as *mut ConsCell)).car = val }
+        assert!(crate::tagged::mutate::set_cons_car(self, val));
     }
 
     /// Set the cdr of a cons cell. Panics if not a cons.
     #[inline]
     pub fn set_cdr(self, val: Self) {
-        unsafe { (*(self.xcons_ptr() as *mut ConsCell)).cdr = val }
+        assert!(crate::tagged::mutate::set_cons_cdr(self, val));
     }
 
     // ---------------------------------------------------------------------------

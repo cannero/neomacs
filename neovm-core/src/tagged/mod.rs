@@ -8,6 +8,7 @@
 
 pub mod gc;
 pub mod header;
+pub mod mutate;
 pub mod value;
 
 #[cfg(test)]

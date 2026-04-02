@@ -71,6 +71,13 @@ pub fn with_tagged_heap<R>(f: impl FnOnce(&mut TaggedHeap) -> R) -> R {
     })
 }
 
+/// Central mutation hook for the tagged heap.
+///
+/// This is intentionally a no-op today. Future generational or incremental
+/// collectors can attach their remembered-set / write-barrier logic here.
+#[inline]
+pub fn note_heap_write(_owner: TaggedValue) {}
+
 // ---------------------------------------------------------------------------
 // Cons block allocator
 // ---------------------------------------------------------------------------

@@ -1984,11 +1984,11 @@ impl<'a> Vm<'a> {
                 if !visited.insert(key) {
                     return;
                 }
-                if let Some(data) = value.as_vector_data_mut() {
+                let _ = value.with_vector_data_mut(|data| {
                     for item in data.iter_mut() {
                         Self::replace_alias_refs_in_value(item, from, to, visited);
                     }
-                }
+                });
             }
             ValueKind::Veclike(VecLikeType::HashTable) => {
                 let key = value.bits() ^ 0x4;
