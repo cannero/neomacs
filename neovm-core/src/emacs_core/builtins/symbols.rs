@@ -2200,7 +2200,7 @@ pub(crate) fn builtin_profiler_memory_stop(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_pdumper_stats(args: Vec<Value>) -> EvalResult {
     expect_args("pdumper-stats", &args, 0)?;
-    Ok(Value::NIL)
+    Ok(crate::emacs_core::pdump::runtime::pdumper_stats_value().unwrap_or(Value::NIL))
 }
 
 pub(crate) fn builtin_position_symbol(args: Vec<Value>) -> EvalResult {

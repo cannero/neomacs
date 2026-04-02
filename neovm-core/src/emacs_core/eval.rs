@@ -1950,21 +1950,9 @@ impl Context {
         // previous heap. Critical for test isolation when multiple Contexts
         // are created sequentially on the same thread.
         if reset_thread_locals {
-            super::syntax::reset_syntax_thread_locals();
-            super::casetab::reset_casetab_thread_locals();
-            super::category::reset_category_thread_locals();
-            // Only reset the terminal handle (stale reference), not
-            // the full terminal runtime/params which may be pre-
-            // configured by tests before Context creation.
-            super::terminal::pure::reset_terminal_handle();
-            crate::tagged::value::reset_current_subrs();
-            super::value::reset_string_text_properties();
-            super::ccl::reset_ccl_registry();
-            super::dispnew::pure::reset_dispnew_thread_locals();
-            super::font::clear_font_cache_state();
-            super::builtins::reset_builtins_thread_locals();
-            super::charset::reset_charset_registry();
-            super::timefns::reset_timefns_thread_locals();
+            super::pdump::runtime::reset_runtime_for_new_heap(
+                super::pdump::runtime::HeapResetMode::FreshContext,
+            );
         }
 
         let mut obarray = Obarray::new();

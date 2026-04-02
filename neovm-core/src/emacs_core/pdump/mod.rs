@@ -13,6 +13,7 @@
 //! ```
 
 pub mod convert;
+pub mod runtime;
 pub mod types;
 
 use std::io::{Read, Write};
@@ -21,6 +22,7 @@ use std::path::Path;
 use sha2::{Digest, Sha256};
 
 use self::convert::*;
+use self::runtime::*;
 use self::types::DumpContextState;
 use crate::emacs_core::eval::Context;
 use crate::emacs_core::intern;
@@ -99,6 +101,7 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
 /// This reconstructs a full `Context` from the serialized state,
 /// setting up thread-local pointers and resetting caches.
 pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
+    let load_start = std::time::Instant::now();
     let mut file = std::fs::File::open(path)?;
 
     // Read and validate header
@@ -138,7 +141,10 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
         .map_err(|e| DumpError::DeserializationError(e.to_string()))?;
 
     // Reconstruct evaluator
-    reconstruct_evaluator(&state)
+    let mut eval = reconstruct_evaluator(&state)?;
+    record_loaded_dump(path, load_start.elapsed());
+    run_after_pdump_load_hook(&mut eval);
+    Ok(eval)
 }
 
 /// Clone a live evaluator through the pdump conversion pipeline.
@@ -175,17 +181,8 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
     crate::tagged::gc::set_tagged_heap(&mut tagged_heap);
     preload_tagged_heap(&state.heap)?;
 
-    // 3. Reset thread-local caches (same as Context::new())
-    super::syntax::reset_syntax_thread_locals();
-    super::casetab::reset_casetab_thread_locals();
-    super::category::reset_category_thread_locals();
-    crate::tagged::value::reset_current_subrs();
-    value::reset_string_text_properties();
-    super::ccl::reset_ccl_registry();
-    super::dispnew::pure::reset_dispnew_thread_locals();
-    super::font::clear_font_cache_state();
-    super::builtins::reset_builtins_thread_locals();
-    super::timefns::reset_timefns_thread_locals();
+    // 3. Reset thread-local runtime caches before replaying semantic state.
+    reset_runtime_for_new_heap(HeapResetMode::PdumpRestore);
 
     // 4b. Restore thread-local registries whose contents are semantic runtime
     // state, not disposable caches.
@@ -261,6 +258,58 @@ mod tests {
         assert_eq!(
             loaded.obarray.symbol_value("test-pdump-var"),
             Some(&Value::fixnum(42))
+        );
+    }
+
+    #[test]
+    fn test_file_load_records_pdumper_stats_and_runs_after_pdump_load_hook() {
+        crate::test_utils::init_test_tracing();
+        let mut eval = Context::new();
+        let setup = crate::emacs_core::parser::parse_forms(
+            "(progn
+               (setq compat-pdump-hook-fired nil)
+               (setq after-pdump-load-hook
+                     (list (lambda () (setq compat-pdump-hook-fired t)))))",
+        )
+        .unwrap();
+        eval.eval_expr(&setup[0])
+            .expect("setup hook should evaluate");
+
+        let dir = tempfile::tempdir().unwrap();
+        let dump_path = dir.path().join("stats-and-hook.pdump");
+        dump_to_file(&eval, &dump_path).expect("dump should succeed");
+        drop(eval);
+
+        let mut loaded = load_from_dump(&dump_path).expect("load should succeed");
+        assert_eq!(
+            loaded.obarray.symbol_value("compat-pdump-hook-fired"),
+            Some(&Value::T)
+        );
+
+        let forms = crate::emacs_core::parser::parse_forms("(pdumper-stats)").unwrap();
+        let stats = loaded
+            .eval_expr(&forms[0])
+            .expect("pdumper-stats should evaluate");
+        assert!(stats.is_cons(), "pdumper-stats should return an alist");
+
+        let dumped_with = stats.cons_car();
+        assert_eq!(dumped_with.cons_car(), Value::symbol("dumped-with-pdumper"));
+        assert_eq!(dumped_with.cons_cdr(), Value::T);
+
+        let load_time = stats.cons_cdr().cons_car();
+        assert_eq!(load_time.cons_car(), Value::symbol("load-time"));
+        assert!(load_time.cons_cdr().is_float());
+
+        let dump_file = stats.cons_cdr().cons_cdr().cons_car();
+        assert_eq!(dump_file.cons_car(), Value::symbol("dump-file-name"));
+        let expected = dump_path
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(
+            dump_file.cons_cdr().as_str_owned().as_deref(),
+            Some(expected.as_str())
         );
     }
 
@@ -531,6 +580,37 @@ mod tests {
             crate::emacs_core::print_value_with_buffers(&result, &restored.buffers),
             "((1 . 2) (1 2 3) compat-pdump-subr-probe \"pdump-ok\")"
         );
+    }
+
+    #[test]
+    fn test_restore_snapshot_does_not_report_file_based_pdump_session() {
+        crate::test_utils::init_test_tracing();
+        let mut template = Context::new();
+        let setup = crate::emacs_core::parser::parse_forms(
+            "(progn
+               (setq compat-pdump-snapshot-hook-fired nil)
+               (setq after-pdump-load-hook
+                     (list (lambda () (setq compat-pdump-snapshot-hook-fired t)))))",
+        )
+        .unwrap();
+        template
+            .eval_expr(&setup[0])
+            .expect("setup hook should evaluate");
+        let snapshot = snapshot_evaluator(&template);
+
+        let mut restored = restore_snapshot(&snapshot).expect("restored snapshot should succeed");
+        assert_eq!(
+            restored
+                .obarray
+                .symbol_value("compat-pdump-snapshot-hook-fired"),
+            Some(&Value::NIL)
+        );
+
+        let forms = crate::emacs_core::parser::parse_forms("(pdumper-stats)").unwrap();
+        let stats = restored
+            .eval_expr(&forms[0])
+            .expect("pdumper-stats should evaluate");
+        assert!(stats.is_nil());
     }
 
     #[test]

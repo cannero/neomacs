@@ -340,21 +340,6 @@ pub fn get_string_text_properties_table_for_value(value: Value) -> Option<TextPr
     }
 }
 
-/// Snapshot the string text properties table.
-///
-/// Text properties are now owned by strings, so pdump needs heap-aware string
-/// serialization rather than a raw-address side table. Until pdump's tagged
-/// heap serializer exists, return an empty side snapshot.
-pub(crate) fn snapshot_string_text_props() -> Vec<(u64, TextPropertyTable)> {
-    Vec::new()
-}
-
-/// Restore string text properties from a pdump snapshot.
-///
-/// This is intentionally a no-op until pdump reconstructs string-owned
-/// properties as part of heap object loading.
-pub(crate) fn restore_string_text_props(_entries: Vec<(u64, TextPropertyTable)>) {}
-
 /// A string text property run used by printed propertized-string literals.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StringTextPropertyRun {
