@@ -209,11 +209,11 @@ impl TaggedValue {
         if let Some(value) = current_subr_value(id) {
             return value;
         }
-        let (min_args, max_args) =
-            crate::emacs_core::subr_info::lookup_compat_subr_arity(resolve_sym(id))
-                .unwrap_or((0, None));
-        let value =
-            crate::tagged::gc::with_tagged_heap(|h| h.alloc_subr(id, None, min_args, max_args));
+        let (min_args, max_args, dispatch_kind) =
+            crate::emacs_core::subr_info::lookup_compat_subr_metadata(resolve_sym(id), 0, None);
+        let value = crate::tagged::gc::with_tagged_heap(|h| {
+            h.alloc_subr(id, None, min_args, max_args, dispatch_kind)
+        });
         register_current_subr(id, value);
         value
     }

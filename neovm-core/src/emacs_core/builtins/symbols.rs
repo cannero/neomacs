@@ -675,11 +675,10 @@ pub(crate) fn builtin_func_arity(eval: &mut super::eval::Context, args: Vec<Valu
             if function.is_nil() {
                 return Err(signal("void-function", vec![Value::symbol(name)]));
             }
-            if super::subr_info::is_special_form(name) {
-                return super::subr_info::builtin_func_arity_ctx(
-                    eval,
-                    vec![Value::subr(intern(name))],
-                );
+            if super::subr_info::subr_dispatch_kind_from_value(&function)
+                .is_some_and(|kind| kind == crate::tagged::header::SubrDispatchKind::SpecialForm)
+            {
+                return super::subr_info::builtin_func_arity_ctx(eval, vec![function]);
             }
             if let Some(arity) =
                 dispatch_symbol_func_arity_override_in_obarray(obarray, name, &function)

@@ -171,8 +171,7 @@ fn is_runtime_function_object(value: &Value) -> bool {
     match value.kind() {
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => true,
         ValueKind::Veclike(VecLikeType::Subr) => {
-            let id = value.as_subr_id().unwrap();
-            !super::subr_info::is_special_form(resolve_sym(id))
+            super::subr_info::subr_is_callable_function_value(value)
         }
         _ => false,
     }

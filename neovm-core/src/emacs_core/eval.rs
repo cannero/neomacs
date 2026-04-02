@@ -96,7 +96,7 @@ use super::value::*;
 use crate::buffer::{BufferManager, InsertionType};
 use crate::face::{Face as RuntimeFace, FaceTable, FontSlant, FontWeight, FontWidth};
 use crate::gc_trace::GcTrace;
-use crate::tagged::header::SubrObj;
+use crate::tagged::header::{SubrDispatchKind, SubrObj};
 use crate::window::FrameManager;
 
 const EVAL_STACK_RED_ZONE: usize = 256 * 1024;
@@ -1518,6 +1518,27 @@ impl Context {
         let value = self.subr_value(sym_id)?;
         let ptr = value.as_veclike_ptr()? as *mut SubrObj;
         Some(unsafe { &mut *ptr })
+    }
+
+    #[inline]
+    pub(crate) fn subr_dispatch_kind(&self, sym_id: SymId) -> Option<SubrDispatchKind> {
+        self.subr_slot(sym_id).map(|subr| subr.dispatch_kind)
+    }
+
+    #[inline]
+    pub(crate) fn subr_dispatch_kind_or_compat(&self, sym_id: SymId) -> SubrDispatchKind {
+        self.subr_dispatch_kind(sym_id)
+            .unwrap_or_else(|| super::subr_info::compat_subr_dispatch_kind(resolve_sym(sym_id)))
+    }
+
+    #[inline]
+    fn subr_is_special_form_id(&self, sym_id: SymId) -> bool {
+        self.subr_dispatch_kind_or_compat(sym_id) == SubrDispatchKind::SpecialForm
+    }
+
+    #[inline]
+    fn subr_is_context_callable_id(&self, sym_id: SymId) -> bool {
+        self.subr_dispatch_kind_or_compat(sym_id) == SubrDispatchKind::ContextCallable
     }
 
     #[inline]
@@ -5822,8 +5843,7 @@ impl Context {
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
         if super::builtins::is_canonical_symbol_id(sym_id) {
-            let name = resolve_sym(sym_id);
-            let invalid_fn = if super::subr_info::is_special_form(name) {
+            let invalid_fn = if self.subr_is_special_form_id(sym_id) {
                 Value::subr(sym_id)
             } else {
                 value_from_symbol_id(sym_id)
@@ -5876,8 +5896,7 @@ impl Context {
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
         if super::builtins::is_canonical_symbol_id(sym_id) {
-            let name = resolve_sym(sym_id);
-            let invalid_fn = if super::subr_info::is_special_form(name) {
+            let invalid_fn = if self.subr_is_special_form_id(sym_id) {
                 Value::subr(sym_id)
             } else {
                 value_from_symbol_id(sym_id)
@@ -5926,8 +5945,7 @@ impl Context {
             | ValueKind::Veclike(VecLikeType::ByteCode)
             | ValueKind::Veclike(VecLikeType::Macro) => true,
             ValueKind::Veclike(VecLikeType::Subr) => {
-                let bound_name = function.as_subr_id().unwrap();
-                !super::subr_info::is_special_form(resolve_sym(bound_name))
+                super::subr_info::subr_is_callable_function_value(function)
             }
             ValueKind::Cons => {
                 super::autoload::is_autoload_value(function)
@@ -6202,7 +6220,10 @@ impl Context {
                 }
 
                 if let Some(bound_name) = func.as_subr_id() {
-                    if resolve_sym(bound_name) == name && super::subr_info::is_special_form(name) {
+                    if resolve_sym(bound_name) == name
+                        && super::subr_info::subr_dispatch_kind_from_value(&func)
+                            .is_some_and(|kind| kind == SubrDispatchKind::SpecialForm)
+                    {
                         if let Some(result) = self.try_special_form(name, tail) {
                             return result;
                         }
@@ -6235,8 +6256,7 @@ impl Context {
             // because they are not public GNU subrs. Public special forms are
             // materialized into the function cell during init and should not be
             // recreated here.
-            if !self.obarray.is_function_unbound_id(sym_id)
-                && !super::subr_info::is_special_form(name)
+            if !self.obarray.is_function_unbound_id(sym_id) && !self.subr_is_special_form_id(sym_id)
             {
                 if let Some(result) = self.try_special_form(name, tail) {
                     return result;
@@ -8257,10 +8277,10 @@ impl Context {
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
         let name = resolve_sym(sym_id);
-        if super::subr_info::is_special_form(name) {
+        if self.subr_is_special_form_id(sym_id) {
             return Err(signal("invalid-function", vec![Value::subr(sym_id)]));
         }
-        if super::subr_info::is_evaluator_callable_name(name) {
+        if self.subr_is_context_callable_id(sym_id) {
             return self.apply_evaluator_callable_by_id(sym_id, args);
         }
         if let Some(result) = builtins::dispatch_builtin_by_id(self, sym_id, args) {
@@ -8304,12 +8324,12 @@ impl Context {
                 ValueKind::Veclike(VecLikeType::Subr)
                     if resolve_sym(func.as_subr_id().unwrap()) == name =>
                 {
-                    if super::subr_info::is_evaluator_callable_name(name) {
-                        NamedCallTarget::ContextCallable
-                    } else if super::subr_info::is_special_form(name) {
-                        NamedCallTarget::SpecialForm
-                    } else {
-                        NamedCallTarget::Builtin
+                    match super::subr_info::subr_dispatch_kind_from_value(&func)
+                        .unwrap_or_else(|| super::subr_info::compat_subr_dispatch_kind(name))
+                    {
+                        SubrDispatchKind::Builtin => NamedCallTarget::Builtin,
+                        SubrDispatchKind::ContextCallable => NamedCallTarget::ContextCallable,
+                        SubrDispatchKind::SpecialForm => NamedCallTarget::SpecialForm,
                     }
                 }
                 _ => NamedCallTarget::Obarray(func),
@@ -9122,8 +9142,8 @@ impl Context {
         min_args: u16,
         max_args: Option<u16>,
     ) {
-        let (min_args, max_args) =
-            super::subr_info::lookup_compat_subr_arity(name).unwrap_or((min_args, max_args));
+        let (min_args, max_args, dispatch_kind) =
+            super::subr_info::lookup_compat_subr_metadata(name, min_args, max_args);
         let sym_id = intern(name);
         let subr_value = if let Some(existing) = self.subr_value(sym_id) {
             let subr = self
@@ -9132,11 +9152,12 @@ impl Context {
             subr.name = sym_id;
             subr.min_args = min_args;
             subr.max_args = max_args;
+            subr.dispatch_kind = dispatch_kind;
             subr.function = Some(func);
             existing
         } else {
             let value = crate::tagged::gc::with_tagged_heap(|h| {
-                h.alloc_subr(sym_id, Some(func), min_args, max_args)
+                h.alloc_subr(sym_id, Some(func), min_args, max_args, dispatch_kind)
             });
             crate::tagged::value::register_current_subr(sym_id, value);
             value

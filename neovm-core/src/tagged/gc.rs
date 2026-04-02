@@ -551,12 +551,14 @@ impl TaggedHeap {
         function: Option<SubrFn>,
         min_args: u16,
         max_args: Option<u16>,
+        dispatch_kind: SubrDispatchKind,
     ) -> TaggedValue {
         let obj = Box::new(SubrObj {
             header: VecLikeHeader::new(VecLikeType::Subr),
             name,
             min_args,
             max_args,
+            dispatch_kind,
             function,
         });
         let ptr = Box::into_raw(obj);

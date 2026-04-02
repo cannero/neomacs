@@ -252,6 +252,14 @@ pub type SubrFn = fn(
     Vec<super::value::TaggedValue>,
 ) -> crate::emacs_core::error::EvalResult;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum SubrDispatchKind {
+    Builtin,
+    ContextCallable,
+    SpecialForm,
+}
+
 #[repr(C)]
 pub struct SubrObj {
     pub header: VecLikeHeader,
@@ -261,6 +269,8 @@ pub struct SubrObj {
     pub min_args: u16,
     /// Maximum number of arguments (None = unlimited/&rest).
     pub max_args: Option<u16>,
+    /// How the evaluator should dispatch this public subr surface.
+    pub dispatch_kind: SubrDispatchKind,
     /// Native Rust entry point for the builtin, if fully registered.
     pub function: Option<SubrFn>,
 }

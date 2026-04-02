@@ -9,7 +9,7 @@
 use super::error::{EvalResult, Flow, signal};
 use super::intern::{SymId, lookup_interned, resolve_sym};
 use super::value::*;
-use crate::tagged::header::SubrObj;
+use crate::tagged::header::{SubrDispatchKind, SubrObj};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
@@ -156,6 +156,16 @@ pub(crate) fn is_evaluator_callable_name(name: &str) -> bool {
     PUBLIC_EVALUATOR_CALLABLE_NAMES.contains(&name)
 }
 
+pub(crate) fn compat_subr_dispatch_kind(name: &str) -> SubrDispatchKind {
+    if is_public_special_form_name(name) {
+        SubrDispatchKind::SpecialForm
+    } else if is_evaluator_callable_name(name) {
+        SubrDispatchKind::ContextCallable
+    } else {
+        SubrDispatchKind::Builtin
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Arity helpers
 // ---------------------------------------------------------------------------
@@ -267,8 +277,22 @@ pub(crate) fn lookup_compat_subr_arity(name: &str) -> Option<(u16, Option<u16>)>
         .copied()
 }
 
+pub(crate) fn lookup_compat_subr_metadata(
+    name: &str,
+    declared_min: u16,
+    declared_max: Option<u16>,
+) -> (u16, Option<u16>, SubrDispatchKind) {
+    let (min, max) = lookup_compat_subr_arity(name).unwrap_or((declared_min, declared_max));
+    (min, max, compat_subr_dispatch_kind(name))
+}
+
 fn subr_arity_value(name: &str) -> Value {
-    if let Some((min, max)) = lookup_compat_subr_arity(name) {
+    if compat_subr_dispatch_kind(name) == SubrDispatchKind::SpecialForm {
+        let min = lookup_special_form_min_arity(name)
+            .or_else(|| lookup_compat_subr_arity(name).map(|(min, _)| min))
+            .unwrap_or(0);
+        arity_unevalled(min as usize)
+    } else if let Some((min, max)) = lookup_compat_subr_arity(name) {
         arity_cons(min as usize, max.map(|m| m as usize))
     } else if is_cxr_subr_name(name) {
         arity_cons(1, Some(1))
@@ -350,7 +374,7 @@ fn subr_arity_from_registry(ctx: &super::eval::Context, sym_id: SymId) -> Value 
 
     // GNU Emacs: special forms (UNEVALLED) return (MIN . unevalled).
     // The Elisp `special-form-p` checks `(eq (cdr (subr-arity x)) 'unevalled)`.
-    if is_special_form(name) {
+    if ctx.subr_dispatch_kind_or_compat(sym_id) == SubrDispatchKind::SpecialForm {
         let min = ctx
             .subr_slot(sym_id)
             .map(special_form_min_arity)
@@ -381,7 +405,7 @@ fn subr_arity_from_value(subr: Value) -> Option<Value> {
     }
     let ptr = subr.as_veclike_ptr()? as *const SubrObj;
     let subr = unsafe { &*ptr };
-    if is_special_form(resolve_sym(subr.name)) {
+    if subr.dispatch_kind == SubrDispatchKind::SpecialForm {
         return Some(arity_unevalled(special_form_min_arity(subr)));
     }
     if subr.min_args > 0 || subr.max_args.is_some() {
@@ -440,13 +464,23 @@ pub(crate) fn builtin_special_form_p(args: Vec<Value>) -> EvalResult {
     expect_args("special-form-p", &args, 1)?;
     let result = match args[0].kind() {
         ValueKind::Symbol(id) => is_public_special_form_name(resolve_sym(id)),
-        ValueKind::Veclike(VecLikeType::Subr) => {
-            let id = args[0].as_subr_id().unwrap();
-            is_public_special_form_name(resolve_sym(id))
-        }
+        ValueKind::Veclike(VecLikeType::Subr) => subr_dispatch_kind_from_value(&args[0])
+            .is_some_and(|kind| kind == SubrDispatchKind::SpecialForm),
         _ => false,
     };
     Ok(Value::bool_val(result))
+}
+
+pub(crate) fn subr_dispatch_kind_from_value(value: &Value) -> Option<SubrDispatchKind> {
+    if !matches!(value.kind(), ValueKind::Veclike(VecLikeType::Subr)) {
+        return None;
+    }
+    let ptr = value.as_veclike_ptr()? as *const SubrObj;
+    Some(unsafe { (*ptr).dispatch_kind })
+}
+
+pub(crate) fn subr_is_callable_function_value(value: &Value) -> bool {
+    subr_dispatch_kind_from_value(value).is_some_and(|kind| kind != SubrDispatchKind::SpecialForm)
 }
 
 /// Check if a single value is a macro.  Shared by `builtin_macrop` and tests.

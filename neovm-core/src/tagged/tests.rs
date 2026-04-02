@@ -117,6 +117,32 @@ fn subr_is_veclike() {
 }
 
 #[test]
+fn subr_materializes_gnu_dispatch_kind_metadata() {
+    crate::test_utils::init_test_tracing();
+
+    let ordinary = TaggedValue::subr(intern("car"));
+    let special = TaggedValue::subr(intern("if"));
+    let context_callable = TaggedValue::subr(intern("throw"));
+
+    let ordinary_ptr = ordinary.as_veclike_ptr().expect("ordinary subr") as *const SubrObj;
+    let special_ptr = special.as_veclike_ptr().expect("special subr") as *const SubrObj;
+    let context_ptr = context_callable
+        .as_veclike_ptr()
+        .expect("context callable subr") as *const SubrObj;
+
+    let ordinary = unsafe { &*ordinary_ptr };
+    let special = unsafe { &*special_ptr };
+    let context_callable = unsafe { &*context_ptr };
+
+    assert_eq!(ordinary.dispatch_kind, SubrDispatchKind::Builtin);
+    assert_eq!(special.dispatch_kind, SubrDispatchKind::SpecialForm);
+    assert_eq!(
+        context_callable.dispatch_kind,
+        SubrDispatchKind::ContextCallable
+    );
+}
+
+#[test]
 fn cons_allocation_and_access() {
     crate::test_utils::init_test_tracing();
     let mut heap = super::gc::TaggedHeap::new();
