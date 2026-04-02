@@ -204,6 +204,7 @@ fn vector_mutation_helper_updates_elements() {
 fn heap_write_tracking_records_unique_mutated_owners_and_slot_events() {
     crate::test_utils::init_test_tracing();
     let mut heap = super::gc::TaggedHeap::new();
+    heap.set_write_tracking_mode(super::gc::WriteTrackingMode::OwnersAndRecords);
     super::gc::set_tagged_heap(&mut heap);
 
     let cons = heap.alloc_cons(TaggedValue::fixnum(1), TaggedValue::NIL);
@@ -240,6 +241,7 @@ fn heap_write_tracking_records_unique_mutated_owners_and_slot_events() {
 fn bulk_mutation_helpers_record_bulk_write_kinds() {
     crate::test_utils::init_test_tracing();
     let mut heap = super::gc::TaggedHeap::new();
+    heap.set_write_tracking_mode(super::gc::WriteTrackingMode::OwnersAndRecords);
     super::gc::set_tagged_heap(&mut heap);
 
     let vec = heap.alloc_vector(vec![TaggedValue::fixnum(10), TaggedValue::fixnum(20)]);
@@ -259,6 +261,7 @@ fn bulk_mutation_helpers_record_bulk_write_kinds() {
 fn full_collection_clears_dirty_owner_tracking() {
     crate::test_utils::init_test_tracing();
     let mut heap = super::gc::TaggedHeap::new();
+    heap.set_write_tracking_mode(super::gc::WriteTrackingMode::OwnersAndRecords);
     super::gc::set_tagged_heap(&mut heap);
 
     let reachable = heap.alloc_vector(vec![TaggedValue::fixnum(10), TaggedValue::fixnum(20)]);

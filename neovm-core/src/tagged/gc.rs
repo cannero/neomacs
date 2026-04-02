@@ -34,6 +34,13 @@ pub enum RootScanMode {
     ConservativeStack,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WriteTrackingMode {
+    Disabled,
+    OwnersOnly,
+    OwnersAndRecords,
+}
+
 /// Classifies the kind of heap mutation that occurred.
 ///
 /// GNU Emacs performs direct object/cell writes (`XSETCAR`, `XSETCDR`, `ASET`,
@@ -326,6 +333,7 @@ pub struct TaggedHeap {
     /// This is the minimal remembered-set precursor for future generational
     /// or incremental GC. We keep owner identity, not child edges, because the
     /// current collector is still full-heap mark-sweep.
+    write_tracking_mode: WriteTrackingMode,
     dirty_owners: Vec<TaggedValue>,
     dirty_owner_bits: HashSet<usize>,
     dirty_writes: Vec<HeapWriteRecord>,
@@ -347,6 +355,7 @@ impl TaggedHeap {
             window_registry: HashMap::new(),
             frame_registry: HashMap::new(),
             timer_registry: HashMap::new(),
+            write_tracking_mode: WriteTrackingMode::Disabled,
             dirty_owners: Vec::new(),
             dirty_owner_bits: HashSet::new(),
             dirty_writes: Vec::new(),
@@ -363,6 +372,18 @@ impl TaggedHeap {
 
     pub fn root_scan_mode(&self) -> RootScanMode {
         self.root_scan_mode
+    }
+
+    pub fn set_write_tracking_mode(&mut self, mode: WriteTrackingMode) {
+        self.write_tracking_mode = mode;
+        if mode == WriteTrackingMode::Disabled {
+            self.clear_dirty_owners();
+            self.clear_dirty_writes();
+        }
+    }
+
+    pub fn write_tracking_mode(&self) -> WriteTrackingMode {
+        self.write_tracking_mode
     }
 
     pub fn should_collect(&self) -> bool {
@@ -464,10 +485,15 @@ impl TaggedHeap {
     }
 
     fn record_heap_write(&mut self, record: HeapWriteRecord) {
+        if self.write_tracking_mode == WriteTrackingMode::Disabled {
+            return;
+        }
         if self.dirty_owner_bits.insert(record.owner.bits()) {
             self.dirty_owners.push(record.owner);
         }
-        self.dirty_writes.push(record);
+        if self.write_tracking_mode == WriteTrackingMode::OwnersAndRecords {
+            self.dirty_writes.push(record);
+        }
     }
 
     // -----------------------------------------------------------------------

@@ -5662,16 +5662,12 @@ impl Context {
                 vec![Value::fixnum(overflow_depth)],
             ));
         }
-        // Use stacker to dynamically grow the call stack when nearing
-        // exhaustion.  The red-zone (256 KB) must be larger than the
-        // combined stack frames between successive eval() calls (through
-        // eval_list → apply → apply_lambda → bytecode VM).  When the
-        // remaining stack falls below the red-zone a new segment is allocated
-        // on the heap. GNU bootstrap/source-load recursion can legitimately
-        // exceed a 2 MB segment long before max-lisp-eval-depth is reached.
-        let result = match stacker::maybe_grow(EVAL_STACK_RED_ZONE, EVAL_STACK_SEGMENT, || {
-            self.eval_inner(expr)
-        }) {
+        // Keep stack growth on coarse recursion boundaries (`apply`,
+        // `eval_subform`, lambda bodies, and loader entry points), not on
+        // every individual eval step. GNU's `eval_sub` does not probe stack
+        // space for each form, and doing so here makes debug/source bootstrap
+        // pay `stacker` overhead on every cons cell evaluation.
+        let result = match self.eval_inner(expr) {
             Err(Flow::Signal(sig)) => self
                 .dispatch_signal_if_needed(sig)
                 .map_or_else(|flow| Err(flow), |dispatched| Err(Flow::Signal(dispatched))),
