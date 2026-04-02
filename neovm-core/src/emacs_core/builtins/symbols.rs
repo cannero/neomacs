@@ -1,6 +1,6 @@
 use super::*;
 use crate::emacs_core::fontset;
-use crate::emacs_core::intern::lookup_interned;
+use crate::emacs_core::intern::is_canonical_id;
 use crate::emacs_core::symbol::Obarray;
 
 // ===========================================================================
@@ -25,7 +25,7 @@ pub(crate) fn symbol_id(value: &Value) -> Option<SymId> {
 
 fn value_from_symbol_id(id: SymId) -> Value {
     let name = resolve_sym(id);
-    if lookup_interned(name).is_some_and(|canonical| canonical == id) {
+    if is_canonical_id(id) {
         if name == "nil" {
             return Value::NIL;
         }
@@ -109,7 +109,7 @@ pub(crate) fn expect_symbol_id(value: &Value) -> Result<SymId, Flow> {
 }
 
 pub(crate) fn is_canonical_symbol_id(id: SymId) -> bool {
-    lookup_interned(resolve_sym(id)).is_some_and(|canonical| canonical == id)
+    is_canonical_id(id)
 }
 
 pub(crate) fn resolve_variable_alias_id_in_obarray(

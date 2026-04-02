@@ -78,7 +78,7 @@ use super::doc::{STARTUP_VARIABLE_DOC_STRING_PROPERTIES, STARTUP_VARIABLE_DOC_ST
 use super::error::*;
 use super::expr::Expr;
 use super::interactive::InteractiveRegistry;
-use super::intern::{SymId, intern, intern_uninterned, lookup_interned, resolve_sym};
+use super::intern::{SymId, intern, intern_uninterned, is_canonical_id, resolve_sym};
 use super::keymap::{
     list_keymap_define, list_keymap_set_parent, make_list_keymap, make_sparse_list_keymap,
 };
@@ -447,7 +447,7 @@ impl InterpretedClosureTrimCacheEntry {
 
 fn value_from_symbol_id(sym_id: SymId) -> Value {
     let name = resolve_sym(sym_id);
-    if lookup_interned(name).is_some_and(|canonical| canonical == sym_id) {
+    if is_canonical_id(sym_id) {
         if name == "nil" {
             return Value::NIL;
         }
@@ -5758,8 +5758,7 @@ impl Context {
     /// Fassq on Vinternal_interpreter_environment).
     pub(crate) fn eval_symbol_by_id(&self, sym_id: SymId) -> EvalResult {
         let symbol = resolve_sym(sym_id);
-        let symbol_is_canonical =
-            lookup_interned(symbol).is_some_and(|canonical| canonical == sym_id);
+        let symbol_is_canonical = is_canonical_id(sym_id);
         // Keywords evaluate to themselves
         if symbol_is_canonical && symbol.starts_with(':') {
             return Ok(Value::from_kw_id(sym_id));
@@ -5802,8 +5801,7 @@ impl Context {
             return Ok(Value::T);
         }
 
-        let resolved_is_canonical =
-            lookup_interned(resolved_name).is_some_and(|canonical| canonical == resolved);
+        let resolved_is_canonical = is_canonical_id(resolved);
         if resolved_is_canonical && resolved_name == "nil" {
             return Ok(Value::NIL);
         }

@@ -16,7 +16,7 @@ use std::path::Path;
 use super::eval::{quote_to_value, value_to_expr};
 use super::expr::Expr;
 use super::file_compile::CompiledForm;
-use super::intern::{SymId, intern, intern_uninterned, lookup_interned, resolve_sym};
+use super::intern::{SymId, intern, intern_uninterned, is_canonical_id, resolve_sym};
 use super::value::Value;
 
 /// Magic bytes identifying a `.neobc` file.
@@ -78,7 +78,7 @@ struct ExprDecoder {
 }
 
 fn is_canonical_symbol_id(id: SymId) -> bool {
-    lookup_interned(resolve_sym(id)).is_some_and(|canonical| canonical == id)
+    is_canonical_id(id)
 }
 
 impl ExprEncoder {

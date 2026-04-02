@@ -17,6 +17,7 @@ pub struct SymId(pub(crate) u32);
 pub struct StringInterner {
     strings: Vec<&'static str>,
     map: HashMap<&'static str, u32>,
+    canonical: Vec<bool>,
 }
 
 impl Default for StringInterner {
@@ -30,6 +31,7 @@ impl StringInterner {
         let mut interner = Self {
             strings: Vec::new(),
             map: HashMap::new(),
+            canonical: Vec::new(),
         };
         // Pre-intern "nil" and "t" as SymId(0) and SymId(1) respectively.
         // TaggedValue::NIL = Symbol(0) and TaggedValue::T = Symbol(1)
@@ -51,6 +53,7 @@ impl StringInterner {
         let leaked = Box::leak(s.to_owned().into_boxed_str()) as &'static str;
         self.strings.push(leaked);
         self.map.insert(leaked, idx);
+        self.canonical.push(true);
         SymId(idx)
     }
 
@@ -64,12 +67,18 @@ impl StringInterner {
         let leaked = Box::leak(s.to_owned().into_boxed_str()) as &'static str;
         self.strings.push(leaked);
         // Deliberately NOT inserting into self.map
+        self.canonical.push(false);
         SymId(idx)
     }
 
     /// Look up the canonical interned id for a string without interning it.
     pub fn lookup(&self, s: &str) -> Option<SymId> {
         self.map.get(s).copied().map(SymId)
+    }
+
+    #[inline]
+    pub fn is_canonical_id(&self, id: SymId) -> bool {
+        self.canonical.get(id.0 as usize).copied().unwrap_or(false)
     }
 
     /// Resolve a SymId back to its string. Panics if id is invalid.
@@ -90,6 +99,7 @@ impl StringInterner {
         let mut interner = Self {
             strings: Vec::with_capacity(strings.len()),
             map: HashMap::with_capacity(strings.len()),
+            canonical: Vec::with_capacity(strings.len()),
         };
         for s in strings {
             interner.push_preserving_slot(s);
@@ -118,7 +128,14 @@ impl StringInterner {
         let idx = self.strings.len() as u32;
         let leaked = Box::leak(s.into_boxed_str()) as &'static str;
         self.strings.push(leaked);
-        self.map.entry(leaked).or_insert(idx);
+        let canonical = match self.map.entry(leaked) {
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(idx);
+                true
+            }
+            std::collections::hash_map::Entry::Occupied(_) => false,
+        };
+        self.canonical.push(canonical);
         SymId(idx)
     }
 }
@@ -168,6 +185,14 @@ pub fn lookup_interned(s: &str) -> Option<SymId> {
         .read()
         .expect("global interner poisoned during lookup");
     interner.lookup(s)
+}
+
+#[inline]
+pub fn is_canonical_id(id: SymId) -> bool {
+    let interner = global_interner()
+        .read()
+        .expect("global interner poisoned during canonical-id lookup");
+    interner.is_canonical_id(id)
 }
 
 /// Resolve a SymId to its string using the global runtime interner.

@@ -8,7 +8,7 @@
 //! - A property list (plist)
 //! - A `special` flag (for dynamic binding in lexical scope)
 
-use super::intern::{SymId, intern, lookup_interned, resolve_sym};
+use super::intern::{SymId, intern, is_canonical_id, lookup_interned, resolve_sym};
 use super::value::{Value, ValueKind};
 use crate::gc_trace::GcTrace;
 use std::collections::HashMap;
@@ -92,7 +92,7 @@ impl Default for Obarray {
 
 impl Obarray {
     fn is_canonical_symbol_id(id: SymId) -> bool {
-        lookup_interned(resolve_sym(id)).is_some_and(|canonical| canonical == id)
+        is_canonical_id(id)
     }
 
     fn slot_index(id: SymId) -> usize {

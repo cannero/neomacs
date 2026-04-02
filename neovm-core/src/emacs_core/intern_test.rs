@@ -88,3 +88,30 @@ fn resolve_sym_stable_across_growth() {
     // Early id still resolves correctly
     assert_eq!(interner.resolve(early), "early");
 }
+
+#[test]
+fn canonical_id_distinguishes_interned_from_uninterned_duplicates() {
+    crate::test_utils::init_test_tracing();
+    let mut interner = StringInterner::new();
+    let canonical = interner.intern("dup");
+    let uninterned = interner.intern_uninterned("dup");
+
+    assert!(interner.is_canonical_id(canonical));
+    assert!(!interner.is_canonical_id(uninterned));
+    assert_eq!(interner.lookup("dup"), Some(canonical));
+}
+
+#[test]
+fn canonical_id_survives_dump_style_reconstruction() {
+    crate::test_utils::init_test_tracing();
+    let interner = StringInterner::from_strings(vec![
+        "nil".to_owned(),
+        "t".to_owned(),
+        "dup".to_owned(),
+        "dup".to_owned(),
+    ]);
+
+    assert!(interner.is_canonical_id(SymId(2)));
+    assert!(!interner.is_canonical_id(SymId(3)));
+    assert_eq!(interner.lookup("dup"), Some(SymId(2)));
+}
