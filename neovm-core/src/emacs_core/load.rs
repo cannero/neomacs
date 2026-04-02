@@ -897,6 +897,7 @@ fn readevalloop<F>(
     eval: &mut super::eval::Context,
     file_name: &str,
     forms: &[Expr],
+    extra_gc_roots: &[Value],
     mut eval_one: F,
 ) -> Result<(), EvalError>
 where
@@ -981,7 +982,7 @@ where
             }
         }
         eval_result?;
-        eval.gc_safe_point();
+        eval.gc_safe_point_exact_with_extra_roots(extra_gc_roots);
     }
     Ok(())
 }
@@ -1144,7 +1145,7 @@ fn load_file_body(
                                 // eval-when-compile constant -- already evaluated, skip.
                             }
                         }
-                        eval.gc_safe_point();
+                        eval.gc_safe_point_exact();
                     }
                     record_load_history(eval, path);
                     Ok(Value::T)
@@ -1171,7 +1172,7 @@ fn load_file_body(
                 );
                 for form in &forms {
                     eval_generated_loaddefs_form(eval, form)?;
-                    eval.gc_safe_point();
+                    eval.gc_safe_point_exact();
                 }
                 record_load_history(eval, path);
                 return Ok(Value::T);
@@ -1217,7 +1218,7 @@ fn load_file_body(
 
         // --- .elc path: reify byte-code literals + eval via shared readevalloop ---
         if is_elc {
-            readevalloop(eval, &file_name, &forms, |eval, _i, form| {
+            readevalloop(eval, &file_name, &forms, &[], |eval, _i, form| {
                 let reified = eval
                     .reify_byte_code_literals(form)
                     .map_err(crate::emacs_core::error::map_flow)?;
@@ -1229,12 +1230,12 @@ fn load_file_body(
 
         // --- .el path: parse forms, macroexpand+eval each form, record history ---
         if let Some(mexp_fn) = macroexpand_fn {
-            readevalloop(eval, &file_name, &forms, |eval, _i, form| {
+            readevalloop(eval, &file_name, &forms, &[mexp_fn], |eval, _i, form| {
                 let form_value = eval.quote_to_runtime_value(form);
                 eager_expand_eval(eval, form_value, mexp_fn)
             })?;
         } else {
-            readevalloop(eval, &file_name, &forms, |eval, _i, form| {
+            readevalloop(eval, &file_name, &forms, &[], |eval, _i, form| {
                 eval.eval_expr(form)
             })?;
         }

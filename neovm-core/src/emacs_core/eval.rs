@@ -3755,6 +3755,16 @@ impl Context {
         roots
     }
 
+    fn collect_roots_with_extra_root_slices(&self, extra_root_slices: &[&[Value]]) -> Vec<Value> {
+        let extra_len: usize = extra_root_slices.iter().map(|roots| roots.len()).sum();
+        let mut roots = self.collect_roots();
+        roots.reserve(extra_len);
+        for extra_roots in extra_root_slices {
+            roots.extend_from_slice(extra_roots);
+        }
+        roots
+    }
+
     /// Get the current GC threshold.
     pub fn gc_threshold(&self) -> usize {
         self.tagged_heap.gc_threshold()
@@ -3768,6 +3778,23 @@ impl Context {
     /// Set how the tagged heap discovers roots during full collections.
     pub fn set_gc_root_scan_mode(&mut self, mode: crate::tagged::gc::RootScanMode) {
         self.tagged_heap.set_root_scan_mode(mode);
+    }
+
+    /// Run a closure with a temporary tagged-heap root scan mode.
+    ///
+    /// This is useful when a call path can prove its live roots explicitly and
+    /// wants to avoid conservative stack scanning without changing the
+    /// evaluator-wide default policy.
+    pub(crate) fn with_gc_root_scan_mode<T>(
+        &mut self,
+        mode: crate::tagged::gc::RootScanMode,
+        f: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let old_mode = self.tagged_heap.root_scan_mode();
+        self.tagged_heap.set_root_scan_mode(mode);
+        let result = f(self);
+        self.tagged_heap.set_root_scan_mode(old_mode);
+        result
     }
 
     /// Set the GC threshold. Use usize::MAX to effectively disable GC.
@@ -4560,17 +4587,43 @@ impl Context {
     /// Perform a full mark-and-sweep garbage collection using only explicit roots.
     #[tracing::instrument(level = "debug", skip(self))]
     pub fn gc_collect_exact(&mut self) {
-        self.gc_collect_with_mode(crate::tagged::gc::RootScanMode::ExactOnly);
+        self.with_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly, |ctx| {
+            ctx.gc_collect();
+        });
+    }
+
+    /// Perform an exact-root collection while retaining additional caller-owned roots.
+    pub(crate) fn gc_collect_exact_with_extra_root_slices(
+        &mut self,
+        extra_root_slices: &[&[Value]],
+    ) {
+        self.with_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly, |ctx| {
+            let mode = ctx.tagged_heap.root_scan_mode();
+            ctx.gc_collect_with_mode_and_extra_root_slices(mode, extra_root_slices);
+        });
+    }
+
+    /// Convenience wrapper for a single additional root slice.
+    pub(crate) fn gc_collect_exact_with_extra_roots(&mut self, extra_roots: &[Value]) {
+        self.gc_collect_exact_with_extra_root_slices(&[extra_roots]);
     }
 
     fn gc_collect_with_mode(&mut self, mode: crate::tagged::gc::RootScanMode) {
+        self.gc_collect_with_mode_and_extra_root_slices(mode, &[]);
+    }
+
+    fn gc_collect_with_mode_and_extra_root_slices(
+        &mut self,
+        mode: crate::tagged::gc::RootScanMode,
+        extra_root_slices: &[&[Value]],
+    ) {
         // Clear source_literal_cache before GC — it uses *const Expr raw
         // pointers as keys which can alias after Rc<Vec<Expr>> bodies are
         // freed, causing ABA: a new lambda body at the same address gets
         // a stale cached Value from a collected lambda's expression.
         self.source_literal_cache.clear();
         self.macro_expansion_cache.clear();
-        let roots = self.collect_roots();
+        let roots = self.collect_roots_with_extra_root_slices(extra_root_slices);
         match mode {
             crate::tagged::gc::RootScanMode::ExactOnly => {
                 self.tagged_heap.collect_exact(roots.into_iter());
@@ -4609,6 +4662,35 @@ impl Context {
     ///   Idle → (threshold?) → begin_marking → Marking
     ///   Marking → mark_some(LIMIT) → (done?) → sweep → Idle
     pub fn gc_safe_point(&mut self) {
+        self.gc_safe_point_with_mode_and_extra_root_slices(self.tagged_heap.root_scan_mode(), &[]);
+    }
+
+    /// Trigger a safe-point collection using exact roots plus explicit caller roots.
+    pub(crate) fn gc_safe_point_exact_with_extra_root_slices(
+        &mut self,
+        extra_root_slices: &[&[Value]],
+    ) {
+        self.with_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly, |ctx| {
+            let mode = ctx.tagged_heap.root_scan_mode();
+            ctx.gc_safe_point_with_mode_and_extra_root_slices(mode, extra_root_slices);
+        });
+    }
+
+    /// Convenience wrapper for a single extra-root slice at an exact safe point.
+    pub(crate) fn gc_safe_point_exact_with_extra_roots(&mut self, extra_roots: &[Value]) {
+        self.gc_safe_point_exact_with_extra_root_slices(&[extra_roots]);
+    }
+
+    /// Trigger a safe-point collection using only explicit evaluator roots.
+    pub(crate) fn gc_safe_point_exact(&mut self) {
+        self.gc_safe_point_exact_with_extra_root_slices(&[]);
+    }
+
+    fn gc_safe_point_with_mode_and_extra_root_slices(
+        &mut self,
+        mode: crate::tagged::gc::RootScanMode,
+        extra_root_slices: &[&[Value]],
+    ) {
         if self.gc_inhibit_depth > 0 {
             return;
         }
@@ -4616,7 +4698,7 @@ impl Context {
         // variable is whether root discovery uses the configured exact-root
         // mode or conservative stack scanning.
         if self.gc_pending || self.tagged_heap.should_collect() {
-            self.gc_collect_with_mode(self.tagged_heap.root_scan_mode());
+            self.gc_collect_with_mode_and_extra_root_slices(mode, extra_root_slices);
         }
     }
 

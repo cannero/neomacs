@@ -7347,6 +7347,24 @@ fn gc_collect_exact_retains_reachable() {
 }
 
 #[test]
+fn gc_collect_exact_with_extra_roots_retains_explicit_slice() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let rooted = Value::cons(Value::fixnum(11), Value::fixnum(22));
+    let _unreachable = Value::cons(Value::fixnum(1), Value::fixnum(2));
+    let before = ev.tagged_heap.allocated_count();
+
+    ev.gc_collect_exact_with_extra_roots(&[rooted]);
+
+    let after = ev.tagged_heap.allocated_count();
+    assert_eq!(rooted.cons_car(), Value::fixnum(11));
+    assert!(
+        after < before,
+        "exact collection with explicit roots should free unrelated garbage: before={before}, after={after}"
+    );
+}
+
+#[test]
 fn gc_collect_frees_unreachable() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
@@ -7482,6 +7500,27 @@ fn gc_safe_point_obeys_context_root_scan_mode() {
     let forms2 = crate::emacs_core::parse_forms("(car mode-safe-root)").unwrap();
     let results = ev.eval_forms(&forms2);
     assert_eq!(format_eval_result(&results[0]), "OK 7");
+}
+
+#[test]
+fn gc_safe_point_exact_with_extra_roots_retains_explicit_slice() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.tagged_heap.set_gc_threshold(2);
+    let rooted = Value::cons(Value::fixnum(21), Value::fixnum(22));
+    let _unreachable = Value::cons(Value::fixnum(1), Value::fixnum(2));
+    let before = ev.tagged_heap.allocated_count();
+
+    while ev.gc_count == 0 {
+        ev.gc_safe_point_exact_with_extra_roots(&[rooted]);
+    }
+
+    let after = ev.tagged_heap.allocated_count();
+    assert_eq!(rooted.cons_car(), Value::fixnum(21));
+    assert!(
+        after < before,
+        "exact safe point with explicit roots should free unrelated garbage: before={before}, after={after}"
+    );
 }
 
 #[test]
