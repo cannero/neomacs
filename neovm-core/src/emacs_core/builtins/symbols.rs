@@ -4176,23 +4176,24 @@ fn try_convert_hash_table_literal(val: Value) -> Option<Value> {
     };
 
     {
-        let table = table_value.as_hash_table_mut().unwrap();
-        table.test_name = test_name;
-        if let Some(data) = data_value.and_then(|value| list_to_vec(&value)) {
-            let mut idx = 0_usize;
-            while idx + 1 < data.len() {
-                let key_value = try_convert_nested_compiled_literal(data[idx]);
-                let val_value = try_convert_nested_compiled_literal(data[idx + 1]);
-                let key = key_value.to_hash_key(&table.test);
-                let inserting_new_key = !table.data.contains_key(&key);
-                table.data.insert(key.clone(), val_value);
-                if inserting_new_key {
-                    table.key_snapshots.insert(key.clone(), key_value);
-                    table.insertion_order.push(key);
+        let _ = table_value.with_hash_table_mut(|table| {
+            table.test_name = test_name;
+            if let Some(data) = data_value.and_then(|value| list_to_vec(&value)) {
+                let mut idx = 0_usize;
+                while idx + 1 < data.len() {
+                    let key_value = try_convert_nested_compiled_literal(data[idx]);
+                    let val_value = try_convert_nested_compiled_literal(data[idx + 1]);
+                    let key = key_value.to_hash_key(&table.test);
+                    let inserting_new_key = !table.data.contains_key(&key);
+                    table.data.insert(key.clone(), val_value);
+                    if inserting_new_key {
+                        table.key_snapshots.insert(key.clone(), key_value);
+                        table.insertion_order.push(key);
+                    }
+                    idx += 2;
                 }
-                idx += 2;
             }
-        }
+        });
     }
 
     Some(table_value)

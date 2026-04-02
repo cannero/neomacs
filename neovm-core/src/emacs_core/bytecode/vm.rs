@@ -1973,7 +1973,7 @@ impl<'a> Vm<'a> {
                     ValueKind::String => Some(to.bits()),
                     _ => None,
                 };
-                if let Some(ht) = value.as_hash_table_mut() {
+                let _ = value.with_hash_table_mut(|ht| {
                     if matches!(ht.test, HashTableTest::Eq | HashTableTest::Eql) {
                         if let (Some(old_ptr), Some(new_ptr)) = (old_ptr, new_ptr) {
                             if let Some(existing) = ht.data.remove(&HashKey::Ptr(old_ptr)) {
@@ -1992,7 +1992,7 @@ impl<'a> Vm<'a> {
                     for item in ht.data.values_mut() {
                         Self::replace_alias_refs_in_value(item, from, to, visited);
                     }
-                }
+                });
             }
             _ => {}
         }

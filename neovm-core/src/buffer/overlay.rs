@@ -56,17 +56,20 @@ impl OverlayList {
         if !self.detach_overlay(overlay) {
             return false;
         }
-        if let Some(data) = overlay.as_overlay_data_mut() {
+        let _ = overlay.with_overlay_data_mut(|data| {
             data.buffer = None;
-        }
+        });
         true
     }
 
     pub fn overlay_put(&mut self, overlay: Value, prop: Value, value: Value) -> bool {
-        let data = overlay.as_overlay_data_mut().unwrap();
-        let (plist, changed) = plist_put_eq(data.plist, prop, value);
-        data.plist = plist;
-        changed
+        overlay
+            .with_overlay_data_mut(|data| {
+                let (plist, changed) = plist_put_eq(data.plist, prop, value);
+                data.plist = plist;
+                changed
+            })
+            .unwrap()
     }
 
     pub fn overlay_get(&self, overlay: Value, prop: &Value) -> Option<Value> {
@@ -102,9 +105,10 @@ impl OverlayList {
         let Some((old_start, old_end)) = overlay_range(overlay) else {
             return;
         };
-        let data = overlay.as_overlay_data_mut().unwrap();
-        data.start = start;
-        data.end = end;
+        let _ = overlay.with_overlay_data_mut(|data| {
+            data.start = start;
+            data.end = end;
+        });
         Self::remove_index_entry(&mut self.by_start, old_start, overlay);
         Self::remove_index_entry(&mut self.by_end, old_end, overlay);
         Self::insert_index_entry(&mut self.by_start, start, overlay);
@@ -177,30 +181,31 @@ impl OverlayList {
         }
         let live: Vec<Value> = self.overlays.iter().copied().collect();
         for overlay in &live {
-            let object = overlay.as_overlay_data_mut().unwrap();
-            let start = object.start;
-            let end = object.end;
-            let empty = start == end;
+            let _ = overlay.with_overlay_data_mut(|object| {
+                let start = object.start;
+                let end = object.end;
+                let empty = start == end;
 
-            if before_markers {
-                if start >= pos {
+                if before_markers {
+                    if start >= pos {
+                        object.start += len;
+                    }
+                    if end >= pos {
+                        object.end += len;
+                    }
+                    return;
+                }
+
+                if start > pos
+                    || (start == pos && object.front_advance && (!empty || object.rear_advance))
+                {
                     object.start += len;
                 }
-                if end >= pos {
+
+                if end > pos || (end == pos && object.rear_advance) {
                     object.end += len;
                 }
-                continue;
-            }
-
-            if start > pos
-                || (start == pos && object.front_advance && (!empty || object.rear_advance))
-            {
-                object.start += len;
-            }
-
-            if end > pos || (end == pos && object.rear_advance) {
-                object.end += len;
-            }
+            });
         }
         self.rebuild_indexes();
     }
@@ -213,24 +218,32 @@ impl OverlayList {
         let live: Vec<Value> = self.overlays.iter().copied().collect();
         let mut evaporated = Vec::new();
         for overlay in &live {
-            let object = overlay.as_overlay_data_mut().unwrap();
-            if object.start >= end {
-                object.start -= len;
-            } else if object.start > start {
-                object.start = start;
-            }
+            let should_evaporate = overlay
+                .with_overlay_data_mut(|object| {
+                    if object.start >= end {
+                        object.start -= len;
+                    } else if object.start > start {
+                        object.start = start;
+                    }
 
-            if object.end >= end {
-                object.end -= len;
-            } else if object.end > start {
-                object.end = start;
-            }
+                    if object.end >= end {
+                        object.end -= len;
+                    } else if object.end > start {
+                        object.end = start;
+                    }
 
-            if object.start == object.end
-                && plist_get_eq(object.plist, &Value::symbol("evaporate"))
-                    .is_some_and(|v| v.is_truthy())
-            {
-                object.buffer = None;
+                    if object.start == object.end
+                        && plist_get_eq(object.plist, &Value::symbol("evaporate"))
+                            .is_some_and(|v| v.is_truthy())
+                    {
+                        object.buffer = None;
+                        true
+                    } else {
+                        false
+                    }
+                })
+                .unwrap_or(false);
+            if should_evaporate {
                 evaporated.push(*overlay);
             }
         }
@@ -242,11 +255,15 @@ impl OverlayList {
     }
 
     pub fn set_front_advance(&mut self, overlay: Value, advance: bool) {
-        overlay.as_overlay_data_mut().unwrap().front_advance = advance;
+        let _ = overlay.with_overlay_data_mut(|data| {
+            data.front_advance = advance;
+        });
     }
 
     pub fn set_rear_advance(&mut self, overlay: Value, advance: bool) {
-        overlay.as_overlay_data_mut().unwrap().rear_advance = advance;
+        let _ = overlay.with_overlay_data_mut(|data| {
+            data.rear_advance = advance;
+        });
     }
 
     pub fn get(&self, overlay: Value) -> Option<Overlay> {

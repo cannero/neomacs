@@ -134,9 +134,11 @@ pub(crate) fn aset_string_replacement(
         rebuilt.push_str(&encoded);
     }
     // Modify the string in-place on the heap so identity (eq) is preserved.
-    let s = array.as_lisp_string_mut().unwrap().make_mut();
-    s.clear();
-    s.push_str(&rebuilt);
+    let _ = array.with_lisp_string_mut(|s| {
+        let s = s.make_mut();
+        s.clear();
+        s.push_str(&rebuilt);
+    });
     Ok(*array)
 }
 
@@ -524,7 +526,9 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
     }
     let table = Value::hash_table_with_options(test, size, weakness, 1.5, 0.8125);
     if table.is_hash_table() {
-        table.as_hash_table_mut().unwrap().test_name = test_name;
+        let _ = table.with_hash_table_mut(|ht| {
+            ht.test_name = test_name;
+        });
     }
     Ok(table)
 }
@@ -551,14 +555,15 @@ pub(crate) fn builtin_puthash(args: Vec<Value>) -> EvalResult {
         ValueKind::Veclike(VecLikeType::HashTable) => {
             let test = args[2].as_hash_table().unwrap().test.clone();
             let key = args[0].to_hash_key(&test);
-            let ht = args[2].as_hash_table_mut().unwrap();
-            let inserting_new_key = !ht.data.contains_key(&key);
-            maybe_resize_hash_table_for_insert(ht, inserting_new_key);
-            ht.data.insert(key.clone(), args[1]);
-            if inserting_new_key {
-                ht.key_snapshots.insert(key.clone(), args[0]);
-                ht.insertion_order.push(key);
-            }
+            let _ = args[2].with_hash_table_mut(|ht| {
+                let inserting_new_key = !ht.data.contains_key(&key);
+                maybe_resize_hash_table_for_insert(ht, inserting_new_key);
+                ht.data.insert(key.clone(), args[1]);
+                if inserting_new_key {
+                    ht.key_snapshots.insert(key.clone(), args[0]);
+                    ht.insertion_order.push(key);
+                }
+            });
             Ok(args[1])
         }
         _ => Err(signal(
@@ -574,10 +579,11 @@ pub(crate) fn builtin_remhash(args: Vec<Value>) -> EvalResult {
         ValueKind::Veclike(VecLikeType::HashTable) => {
             let test = args[1].as_hash_table().unwrap().test.clone();
             let key = args[0].to_hash_key(&test);
-            let ht = args[1].as_hash_table_mut().unwrap();
-            ht.data.remove(&key);
-            ht.key_snapshots.remove(&key);
-            ht.insertion_order.retain(|k| k != &key);
+            let _ = args[1].with_hash_table_mut(|ht| {
+                ht.data.remove(&key);
+                ht.key_snapshots.remove(&key);
+                ht.insertion_order.retain(|k| k != &key);
+            });
             Ok(Value::NIL)
         }
         _ => Err(signal(
@@ -591,10 +597,11 @@ pub(crate) fn builtin_clrhash(args: Vec<Value>) -> EvalResult {
     expect_args("clrhash", &args, 1)?;
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let ht = args[0].as_hash_table_mut().unwrap();
-            ht.data.clear();
-            ht.key_snapshots.clear();
-            ht.insertion_order.clear();
+            let _ = args[0].with_hash_table_mut(|ht| {
+                ht.data.clear();
+                ht.key_snapshots.clear();
+                ht.insertion_order.clear();
+            });
             Ok(Value::NIL)
         }
         _ => Err(signal(

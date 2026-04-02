@@ -8,8 +8,7 @@ fn hash_table_keys_values_basics() {
     crate::test_utils::init_test_tracing();
     let table = Value::hash_table(HashTableTest::Equal);
     if table.is_hash_table() {
-        {
-            let raw = table.as_hash_table_mut().unwrap();
+        let _ = table.with_hash_table_mut(|raw| {
             let test = raw.test.clone();
             let key_alpha = Value::symbol("alpha").to_hash_key(&test);
             raw.data.insert(key_alpha.clone(), Value::fixnum(1));
@@ -17,7 +16,7 @@ fn hash_table_keys_values_basics() {
             let key_beta = Value::symbol("beta").to_hash_key(&test);
             raw.data.insert(key_beta.clone(), Value::fixnum(2));
             raw.insertion_order.push(key_beta);
-        }
+        });
     } else {
         panic!("expected hash table");
     }
@@ -465,8 +464,7 @@ fn internal_hash_table_buckets_report_hash_diagnostics() {
     ])
     .expect("hash table");
     if table.is_hash_table() {
-        {
-            let raw = table.as_hash_table_mut().unwrap();
+        let _ = table.with_hash_table_mut(|raw| {
             let test = raw.test.clone();
             let key_a = Value::string("a").to_hash_key(&test);
             raw.data.insert(key_a.clone(), Value::symbol("value-a"));
@@ -474,7 +472,7 @@ fn internal_hash_table_buckets_report_hash_diagnostics() {
             let key_b = Value::string("b").to_hash_key(&test);
             raw.data.insert(key_b.clone(), Value::symbol("value-b"));
             raw.insertion_order.push(key_b);
-        }
+        });
     } else {
         panic!("expected hash table");
     }

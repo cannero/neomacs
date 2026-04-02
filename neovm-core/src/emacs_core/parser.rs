@@ -949,21 +949,21 @@ impl<'a> Parser<'a> {
             use super::value::Value;
             let ht_value = Value::hash_table(test);
             if size > 0 {
-                if let Some(ht) = ht_value.as_hash_table_mut() {
+                let _ = ht_value.with_hash_table_mut(|ht| {
                     ht.size = size;
-                }
+                });
             }
             // Insert key-value pairs
             for (k_expr, v_expr) in &data_pairs {
                 let key = super::eval::quote_to_value(k_expr);
                 let val = super::eval::quote_to_value(v_expr);
-                if let Some(ht) = ht_value.as_hash_table_mut() {
+                let _ = ht_value.with_hash_table_mut(|ht| {
                     let ht_test = ht.test.clone();
                     let hash_key = key.to_hash_key(&ht_test);
                     ht.data.insert(hash_key.clone(), val);
                     ht.key_snapshots.insert(hash_key.clone(), key);
                     ht.insertion_order.push(hash_key);
-                }
+                });
             }
             return Ok(Expr::OpaqueValueRef(
                 super::eval::OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(ht_value)),

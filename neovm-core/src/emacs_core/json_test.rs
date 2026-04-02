@@ -112,12 +112,11 @@ fn serialize_vector() {
 fn serialize_hash_table() {
     crate::test_utils::init_test_tracing();
     let ht = Value::hash_table(HashTableTest::Equal);
-    {
-        let table = ht.as_hash_table_mut().unwrap();
+    let _ = ht.with_hash_table_mut(|table| {
         table
             .data
             .insert(HashKey::from_str("name"), Value::string("Alice"));
-    }
+    });
     let result = builtin_json_serialize(vec![ht]);
     assert_eq!(result.unwrap().as_str(), Some("{\"name\":\"Alice\"}"));
 }
@@ -574,12 +573,11 @@ fn round_trip_array() {
 fn round_trip_object() {
     crate::test_utils::init_test_tracing();
     let ht = Value::hash_table(HashTableTest::Equal);
-    {
-        let table = ht.as_hash_table_mut().unwrap();
+    let _ = ht.with_hash_table_mut(|table| {
         table
             .data
             .insert(HashKey::from_str("key"), Value::fixnum(99));
-    }
+    });
     let serialized = builtin_json_serialize(vec![ht]).unwrap();
     let parsed = builtin_json_parse_string(vec![serialized]).unwrap();
     match parsed.kind() {

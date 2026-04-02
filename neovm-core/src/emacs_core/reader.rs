@@ -502,7 +502,7 @@ fn first_form_hash_table_literal_value(
 
     let table_value =
         Value::hash_table_with_options(test, size, weakness, rehash_size, rehash_threshold);
-    if let Some(table) = table_value.as_hash_table_mut() {
+    let _ = table_value.with_hash_table_mut(|table| {
         table.test_name = test_name;
         if let Some(Expr::List(data_items)) = data_expr {
             let mut idx = 0_usize;
@@ -525,7 +525,7 @@ fn first_form_hash_table_literal_value(
                 idx += 2;
             }
         }
-    }
+    });
     Some(table_value)
 }
 

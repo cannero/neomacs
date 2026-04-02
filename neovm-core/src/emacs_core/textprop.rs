@@ -1642,12 +1642,13 @@ pub(crate) fn builtin_overlay_put_in_buffers(
             .overlays
             .overlay_put(overlay, args[1], val)
     } else {
-        {
-            let object = overlay.as_overlay_data_mut().unwrap();
-            let (plist, changed) = plist_put_eq(object.plist, args[1], val);
-            object.plist = plist;
-            changed
-        }
+        overlay
+            .with_overlay_data_mut(|object| {
+                let (plist, changed) = plist_put_eq(object.plist, args[1], val);
+                object.plist = plist;
+                changed
+            })
+            .unwrap()
     };
     if let Some(buf_id) = resolve_overlay_buffer_id(overlay) {
         if changed {
@@ -1807,12 +1808,11 @@ pub(crate) fn builtin_move_overlay_in_buffers(
             .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
         let byte_beg = elisp_pos_to_byte(new_buf, beg);
         let byte_end = elisp_pos_to_byte(new_buf, end);
-        {
-            let object = overlay.as_overlay_data_mut().unwrap();
+        let _ = overlay.with_overlay_data_mut(|object| {
             object.buffer = Some(new_buf_id);
             object.start = byte_beg;
             object.end = byte_end;
-        }
+        });
         new_buf.overlays.insert_overlay(overlay);
         Ok(args[0])
     }

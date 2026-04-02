@@ -1638,7 +1638,7 @@ fn populate_tagged_object(state: &mut TaggedLoadState, id: TaggedHeapRef) -> Res
             let _ = value.replace_vector_data(items.iter().map(load_value).collect());
         }
         DumpHeapObject::HashTable(ht) => {
-            if let Some(table) = value.as_hash_table_mut() {
+            let _ = value.with_hash_table_mut(|table| {
                 table.test = load_hash_table_test(&ht.test);
                 table.test_name = ht.test_name.map(|s| load_sym_id(&s));
                 table.size = ht.size;
@@ -1656,7 +1656,7 @@ fn populate_tagged_object(state: &mut TaggedLoadState, id: TaggedHeapRef) -> Res
                     .map(|(k, v)| (load_hash_key(k), load_value(v)))
                     .collect();
                 table.insertion_order = ht.insertion_order.iter().map(load_hash_key).collect();
-            }
+            });
         }
         DumpHeapObject::Str { text_props, .. } => {
             if !text_props.is_empty() {
@@ -1676,30 +1676,33 @@ fn populate_tagged_object(state: &mut TaggedLoadState, id: TaggedHeapRef) -> Res
             let _ = value.replace_closure_slots(slots.iter().map(load_value).collect());
         }
         DumpHeapObject::ByteCode(bc) => {
-            if let Some(data) = value.get_bytecode_data_mut() {
-                *data = load_bytecode(&bc)?;
-            }
+            let _ = value
+                .with_bytecode_data_mut(|data| {
+                    *data = load_bytecode(&bc)?;
+                    Ok::<(), DumpError>(())
+                })
+                .transpose()?;
         }
         DumpHeapObject::Record(items) => {
             let _ = value.replace_record_data(items.iter().map(load_value).collect());
         }
         DumpHeapObject::Marker(marker) => {
-            if let Some(data) = value.as_marker_data_mut() {
+            let _ = value.with_marker_data_mut(|data| {
                 data.buffer = marker.buffer.map(|id| BufferId(id.0));
                 data.position = marker.position;
                 data.insertion_type = marker.insertion_type;
                 data.marker_id = marker.marker_id;
-            }
+            });
         }
         DumpHeapObject::Overlay(overlay) => {
-            if let Some(data) = value.as_overlay_data_mut() {
+            let _ = value.with_overlay_data_mut(|data| {
                 data.plist = load_value(&overlay.plist);
                 data.buffer = overlay.buffer.map(|id| BufferId(id.0));
                 data.start = overlay.start;
                 data.end = overlay.end;
                 data.front_advance = overlay.front_advance;
                 data.rear_advance = overlay.rear_advance;
-            }
+            });
         }
         DumpHeapObject::Buffer(_)
         | DumpHeapObject::Window(_)

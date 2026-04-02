@@ -2215,12 +2215,12 @@ pub(crate) fn builtin_clear_string(args: Vec<Value>) -> EvalResult {
     expect_args("clear-string", &args, 1)?;
     let _ = expect_strict_string(&args[0])?;
     if args[0].is_string() {
-        if let Some(lisp_str) = args[0].as_lisp_string_mut() {
+        let _ = args[0].with_lisp_string_mut(|lisp_str| {
             let len = lisp_str.as_str().chars().count();
             // Fill with len null bytes (same as GNU Emacs memset 0)
             let nulls = "\0".repeat(len);
             *lisp_str = crate::heap_types::LispString::new(nulls, lisp_str.multibyte);
-        }
+        });
     }
     Ok(Value::NIL)
 }

@@ -6494,7 +6494,7 @@ impl Context {
                 for item in ht.data.values_mut() {
                     Self::replace_alias_refs_in_value(item, from, to, visited);
                 }
-                *value.as_hash_table_mut().unwrap() = ht;
+                let _ = value.replace_hash_table(ht);
             }
             _ => {}
         }

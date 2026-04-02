@@ -146,9 +146,9 @@ fn is_mark_marker(v: &Value) -> bool {
 
 fn set_marker_id(v: &Value, mid: u64) {
     if v.is_marker() {
-        if let Some(data) = v.as_marker_data_mut() {
+        let _ = v.with_marker_data_mut(|data| {
             data.marker_id = Some(mid);
-        }
+        });
     }
 }
 
@@ -355,9 +355,9 @@ pub(crate) fn builtin_set_marker_insertion_type_in_buffers(
     expect_marker("set-marker-insertion-type", &args[0])?;
     let new_type = args[1].is_truthy();
     if args[0].is_marker() {
-        if let Some(data) = args[0].as_marker_data_mut() {
+        let _ = args[0].with_marker_data_mut(|data| {
             data.insertion_type = new_type;
-        }
+        });
     }
 
     if let Some(mid) = marker_id_value(&args[0]) {
@@ -509,10 +509,10 @@ pub(crate) fn builtin_set_marker_in_buffers(
     register_marker_in_buffers(buffers, &args[0], buffer_id, position);
 
     if args[0].is_marker() {
-        if let Some(data) = args[0].as_marker_data_mut() {
+        let _ = args[0].with_marker_data_mut(|data| {
             data.buffer = buffer_id;
             data.position = position;
-        }
+        });
     }
 
     if targets_current_mark {

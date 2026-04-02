@@ -869,9 +869,11 @@ pub(crate) fn builtin_fillarray(args: Vec<Value>) -> EvalResult {
             let fill = fillarray_character_from_value(&args[1])?;
             let len = args[0].as_str().unwrap().chars().count();
             let new_str = fill.to_string().repeat(len);
-            let lisp_str = args[0].as_lisp_string_mut().unwrap().make_mut();
-            lisp_str.clear();
-            lisp_str.push_str(&new_str);
+            let _ = args[0].with_lisp_string_mut(|lisp_str| {
+                let lisp_str = lisp_str.make_mut();
+                lisp_str.clear();
+                lisp_str.push_str(&new_str);
+            });
             Ok(args[0])
         }
         _ => Err(signal(

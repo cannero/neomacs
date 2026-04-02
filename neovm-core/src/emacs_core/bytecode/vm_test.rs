@@ -1471,13 +1471,12 @@ fn vm_switch_branches_using_hash_table_jump_table() {
     if !table.is_hash_table() {
         panic!("expected hash table constant");
     };
-    {
-        let ht = table.as_hash_table_mut().unwrap();
+    let _ = table.with_hash_table_mut(|ht| {
         let key = Value::symbol("foo").to_hash_key(&ht.test);
         ht.data.insert(key.clone(), Value::fixnum(8));
         ht.key_snapshots.insert(key.clone(), Value::symbol("foo"));
         ht.insertion_order.push(key);
-    }
+    });
 
     let func = ByteCodeFunction {
         ops: vec![

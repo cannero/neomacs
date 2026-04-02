@@ -897,13 +897,14 @@ impl<'a> JsonParser<'a> {
             {
                 let key_val = Value::string(&key);
                 let hash_key = HashKey::Text(key);
-                let table = ht.as_hash_table_mut().unwrap();
-                let inserting_new_key = !table.data.contains_key(&hash_key);
-                table.data.insert(hash_key.clone(), val);
-                if inserting_new_key {
-                    table.key_snapshots.insert(hash_key.clone(), key_val);
-                    table.insertion_order.push(hash_key);
-                }
+                let _ = ht.with_hash_table_mut(|table| {
+                    let inserting_new_key = !table.data.contains_key(&hash_key);
+                    table.data.insert(hash_key.clone(), val);
+                    if inserting_new_key {
+                        table.key_snapshots.insert(hash_key.clone(), key_val);
+                        table.insertion_order.push(hash_key);
+                    }
+                });
             }
 
             self.skip_ws();

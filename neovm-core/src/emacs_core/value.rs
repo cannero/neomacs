@@ -1129,9 +1129,13 @@ impl TaggedValue {
         }
     }
 
-    /// Get mutable marker data from a marker value.
-    pub fn as_marker_data_mut(self) -> Option<&'static mut crate::heap_types::MarkerData> {
-        mutate::marker_data_mut_ref(self)
+    /// Mutate marker data through the centralized tagged-runtime write path.
+    pub fn with_marker_data_mut<R>(
+        self,
+        f: impl FnOnce(&mut crate::heap_types::MarkerData) -> R,
+    ) -> Option<R> {
+        let data = mutate::marker_data_mut_ref(self)?;
+        Some(f(data))
     }
 
     /// Get the overlay data from an overlay value.
@@ -1144,9 +1148,13 @@ impl TaggedValue {
         }
     }
 
-    /// Get mutable overlay data.
-    pub fn as_overlay_data_mut(self) -> Option<&'static mut crate::heap_types::OverlayData> {
-        mutate::overlay_data_mut_ref(self)
+    /// Mutate overlay data through the centralized tagged-runtime write path.
+    pub fn with_overlay_data_mut<R>(
+        self,
+        f: impl FnOnce(&mut crate::heap_types::OverlayData) -> R,
+    ) -> Option<R> {
+        let data = mutate::overlay_data_mut_ref(self)?;
+        Some(f(data))
     }
 
     /// Get vector elements.
@@ -1220,19 +1228,31 @@ impl TaggedValue {
         }
     }
 
-    /// Get mutable hash table reference.
-    pub fn as_hash_table_mut(self) -> Option<&'static mut LispHashTable> {
-        mutate::hash_table_mut_ref(self)
+    /// Mutate a hash table through the centralized tagged-runtime write path.
+    pub fn with_hash_table_mut<R>(self, f: impl FnOnce(&mut LispHashTable) -> R) -> Option<R> {
+        let table = mutate::hash_table_mut_ref(self)?;
+        Some(f(table))
     }
 
-    /// Get mutable bytecode data reference.
-    pub fn get_bytecode_data_mut(self) -> Option<&'static mut super::bytecode::ByteCodeFunction> {
-        mutate::bytecode_data_mut_ref(self)
+    /// Replace the entire contents of a hash table value.
+    pub fn replace_hash_table(self, table: LispHashTable) -> bool {
+        self.with_hash_table_mut(|current| *current = table)
+            .is_some()
     }
 
-    /// Get mutable string data reference.
-    pub fn as_lisp_string_mut(self) -> Option<&'static mut LispString> {
-        mutate::lisp_string_mut_ref(self)
+    /// Mutate bytecode data through the centralized tagged-runtime write path.
+    pub fn with_bytecode_data_mut<R>(
+        self,
+        f: impl FnOnce(&mut super::bytecode::ByteCodeFunction) -> R,
+    ) -> Option<R> {
+        let data = mutate::bytecode_data_mut_ref(self)?;
+        Some(f(data))
+    }
+
+    /// Mutate string data through the centralized tagged-runtime write path.
+    pub fn with_lisp_string_mut<R>(self, f: impl FnOnce(&mut LispString) -> R) -> Option<R> {
+        let string = mutate::lisp_string_mut_ref(self)?;
+        Some(f(string))
     }
 
     /// Convert to hash key based on the hash table test.
