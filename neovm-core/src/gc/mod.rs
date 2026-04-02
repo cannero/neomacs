@@ -10,10 +10,3 @@ pub(crate) mod heap;
 pub(crate) mod objects;
 #[cfg(test)]
 pub(crate) mod types;
-
-#[cfg(test)]
-pub(crate) use heap::LispHeap;
-#[cfg(test)]
-pub(crate) use objects::*;
-#[cfg(test)]
-pub(crate) use types::{HeapObject, ObjId};
