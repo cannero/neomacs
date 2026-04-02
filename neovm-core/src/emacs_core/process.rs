@@ -902,7 +902,7 @@ impl super::eval::Context {
         while let Some(timer) = self.next_due_gnu_timer_snapshot() {
             fired_any = true;
             if timer.is_vector() {
-                let _ = timer.with_vector_data_mut(|slots| slots[0] = Value::T);
+                let _ = timer.set_vector_slot(0, Value::T);
             }
             self.run_timer_callback_preserving_state(
                 Value::symbol("timer-event-handler"),

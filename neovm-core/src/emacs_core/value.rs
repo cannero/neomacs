@@ -998,6 +998,16 @@ impl TaggedValue {
         Some(f(data))
     }
 
+    /// Replace the entire closure slot vector through the centralized write path.
+    pub fn replace_closure_slots(self, slots: Vec<Value>) -> bool {
+        mutate::replace_closure_slots(self, slots)
+    }
+
+    /// Update a single closure slot through the centralized write path.
+    pub fn set_closure_slot(self, index: usize, value: Value) -> bool {
+        mutate::set_closure_slot(self, index, value)
+    }
+
     fn closure_parsed_params_cell(self) -> Option<&'static OnceLock<LambdaParams>> {
         match self.veclike_type()? {
             VecLikeType::Lambda => {
@@ -1179,7 +1189,12 @@ impl TaggedValue {
 
     /// Replace the entire contents of a vector value.
     pub fn replace_vector_data(self, values: Vec<Value>) -> bool {
-        self.with_vector_data_mut(|data| *data = values).is_some()
+        mutate::replace_vector_data(self, values)
+    }
+
+    /// Update a single vector slot through the centralized write path.
+    pub fn set_vector_slot(self, index: usize, value: Value) -> bool {
+        mutate::set_vector_slot(self, index, value)
     }
 
     /// Get record elements.
@@ -1205,7 +1220,12 @@ impl TaggedValue {
 
     /// Replace the entire contents of a record value.
     pub fn replace_record_data(self, values: Vec<Value>) -> bool {
-        self.with_record_data_mut(|data| *data = values).is_some()
+        mutate::replace_record_data(self, values)
+    }
+
+    /// Update a single record slot through the centralized write path.
+    pub fn set_record_slot(self, index: usize, value: Value) -> bool {
+        mutate::set_record_slot(self, index, value)
     }
 
     /// Replace the contents of either a vector or record.

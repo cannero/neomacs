@@ -302,7 +302,7 @@ fn obarray_insert_symbol(vec_val: Value, sym: Value) {
     let bucket_idx = obarray_hash(name, vec_len);
     let bucket = vec_data[bucket_idx];
     let new_bucket = Value::cons(sym, bucket);
-    let _ = vec_val.with_vector_data_mut(|slots| slots[bucket_idx] = new_bucket);
+    let _ = vec_val.set_vector_slot(bucket_idx, new_bucket);
 }
 
 /// Intern a symbol into a custom obarray (vector). Returns the symbol Value.
@@ -678,11 +678,10 @@ pub(crate) fn builtin_clear_abbrev_table(
     let vec_val = expect_abbrev_table(eval, &args[0])?;
     let header = table_header_symbol(vec_val)
         .unwrap_or_else(|| Value::symbol(intern_uninterned(ABBREV_TABLE_HEADER_NAME)));
-    let _ = vec_val.with_vector_data_mut(|vec_data| {
-        for slot in vec_data.iter_mut() {
-            *slot = Value::NIL;
-        }
-    });
+    let vec_len = vec_val
+        .as_vector_data()
+        .map_or(0, |vec_data| vec_data.len());
+    let _ = vec_val.replace_vector_data(vec![Value::NIL; vec_len]);
     obarray_insert_symbol(vec_val, header);
     if let Some(header_id) = symbol_id(header) {
         eval.obarray_mut()

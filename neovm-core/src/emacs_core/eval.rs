@@ -6346,7 +6346,7 @@ impl Context {
                 value.set_car(new_car);
                 value.set_cdr(new_cdr);
             }
-            ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
+            ValueKind::Veclike(VecLikeType::Vector) => {
                 let key = value.bits() ^ 0x2;
                 if !visited.insert(key) {
                     return;
@@ -6355,7 +6355,18 @@ impl Context {
                 for item in values.iter_mut() {
                     Self::replace_alias_refs_in_value(item, from, to, visited);
                 }
-                let _ = value.with_vector_data_mut(|slots| *slots = values);
+                let _ = value.replace_vector_data(values);
+            }
+            ValueKind::Veclike(VecLikeType::Record) => {
+                let key = value.bits() ^ 0x2;
+                if !visited.insert(key) {
+                    return;
+                }
+                let mut values = value.as_record_data().unwrap().clone();
+                for item in values.iter_mut() {
+                    Self::replace_alias_refs_in_value(item, from, to, visited);
+                }
+                let _ = value.replace_record_data(values);
             }
             ValueKind::Veclike(VecLikeType::HashTable) => {
                 let key = value.bits() ^ 0x4;

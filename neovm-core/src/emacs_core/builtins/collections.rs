@@ -188,14 +188,10 @@ pub(crate) fn builtin_aset(args: Vec<Value>) -> EvalResult {
                 let val = Value::fixnum(if args[2].is_truthy() { 1 } else { 0 });
                 match args[0].veclike_type() {
                     Some(VecLikeType::Vector) => {
-                        args[0]
-                            .with_vector_data_mut(|data| data[store_idx] = val)
-                            .unwrap();
+                        args[0].set_vector_slot(store_idx, val);
                     }
                     Some(VecLikeType::Record) => {
-                        args[0]
-                            .with_record_data_mut(|data| data[store_idx] = val)
-                            .unwrap();
+                        args[0].set_record_slot(store_idx, val);
                     }
                     _ => unreachable!("vector/record path should only reach vectorlike arrays"),
                 }
@@ -206,14 +202,10 @@ pub(crate) fn builtin_aset(args: Vec<Value>) -> EvalResult {
             }
             match args[0].veclike_type() {
                 Some(VecLikeType::Vector) => {
-                    args[0]
-                        .with_vector_data_mut(|data| data[idx] = args[2])
-                        .unwrap();
+                    args[0].set_vector_slot(idx, args[2]);
                 }
                 Some(VecLikeType::Record) => {
-                    args[0]
-                        .with_record_data_mut(|data| data[idx] = args[2])
-                        .unwrap();
+                    args[0].set_record_slot(idx, args[2]);
                 }
                 _ => unreachable!("vector/record path should only reach vectorlike arrays"),
             }

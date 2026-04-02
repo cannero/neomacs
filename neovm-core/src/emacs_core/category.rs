@@ -258,11 +258,9 @@ fn set_category_docstring_in_table(
         ));
     };
     let idx = category_doc_index(category);
-    let _ = docs.with_vector_data_mut(|vec| {
-        if idx < vec.len() {
-            vec[idx] = docstring;
-        }
-    });
+    if docs.as_vector_data().is_some_and(|vec| idx < vec.len()) {
+        let _ = docs.set_vector_slot(idx, docstring);
+    }
     Ok(())
 }
 
@@ -351,11 +349,12 @@ fn set_category_set_member(
         ));
     };
     let bit_idx = 2 + (category as usize);
-    let _ = category_set.with_vector_data_mut(|vec| {
-        if bit_idx < vec.len() {
-            vec[bit_idx] = Value::fixnum(if present { 1 } else { 0 });
-        }
-    });
+    if category_set
+        .as_vector_data()
+        .is_some_and(|vec| bit_idx < vec.len())
+    {
+        let _ = category_set.set_vector_slot(bit_idx, Value::fixnum(if present { 1 } else { 0 }));
+    }
     Ok(())
 }
 

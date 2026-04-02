@@ -310,7 +310,7 @@ pub(crate) fn builtin_set_char_table_range(args: Vec<Value>) -> EvalResult {
         }
     }
 
-    let _ = table.with_vector_data_mut(|slots| *slots = vec);
+    let _ = table.replace_vector_data(vec);
 
     Ok(*value)
 }
@@ -519,7 +519,7 @@ pub(crate) fn builtin_set_char_table_parent(args: Vec<Value>) -> EvalResult {
         }
     }
 
-    let _ = table.with_vector_data_mut(|slots| slots[CT_PARENT] = *parent);
+    let _ = table.set_vector_slot(CT_PARENT, *parent);
     Ok(*parent)
 }
 
@@ -829,7 +829,7 @@ pub(crate) fn builtin_set_char_table_extra_slot(args: Vec<Value>) -> EvalResult 
     }
 
     let slot_idx = CT_EXTRA_START + n as usize;
-    let _ = table.with_vector_data_mut(|slots| slots[slot_idx] = *value);
+    let _ = table.set_vector_slot(slot_idx, *value);
     Ok(*value)
 }
 
