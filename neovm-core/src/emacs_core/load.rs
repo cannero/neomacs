@@ -1693,12 +1693,19 @@ impl BootstrapCacheWriteLock {
 
             // Serialize cache creation/repair across processes while keeping
             // ordinary pdump reads lock-free.
-            let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+            let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
             if rc != 0 {
+                let err = std::io::Error::last_os_error();
+                if matches!(err.raw_os_error(), Some(libc::EWOULDBLOCK)) {
+                    return Err(format!(
+                        "bootstrap cache lock busy at {}",
+                        lock_path.display()
+                    ));
+                }
                 return Err(format!(
                     "bootstrap cache lock: failed locking {}: {}",
                     lock_path.display(),
-                    std::io::Error::last_os_error()
+                    err
                 ));
             }
 

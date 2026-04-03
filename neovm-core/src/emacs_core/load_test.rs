@@ -719,6 +719,75 @@ fn bootstrap_runtime_matches_gnu_oclosure_advice_surface() {
 const BOOTSTRAP_CACHE_RACE_DUMP_ENV: &str = "NEOVM_BOOTSTRAP_RACE_DUMP_PATH";
 const BOOTSTRAP_CACHE_RACE_WORKER_TEST: &str =
     "emacs_core::load::tests::bootstrap_cache_parallel_creation_worker";
+const BOOTSTRAP_CACHE_LOCK_HOLDER_ENV: &str = "NEOVM_BOOTSTRAP_CACHE_LOCK_HOLDER";
+const BOOTSTRAP_CACHE_LOCK_READY_ENV: &str = "NEOVM_BOOTSTRAP_CACHE_LOCK_READY";
+const BOOTSTRAP_CACHE_LOCK_HOLDER_TEST: &str =
+    "emacs_core::load::tests::bootstrap_cache_lock_holder_worker";
+
+#[test]
+fn bootstrap_cache_lock_holder_worker() {
+    crate::test_utils::init_test_tracing();
+    let Some(lock_path) = std::env::var_os(BOOTSTRAP_CACHE_LOCK_HOLDER_ENV) else {
+        return;
+    };
+    let ready_path = PathBuf::from(
+        std::env::var_os(BOOTSTRAP_CACHE_LOCK_READY_ENV).expect("lock ready marker path"),
+    );
+
+    let _lock =
+        BootstrapCacheWriteLock::acquire(&PathBuf::from(lock_path)).expect("acquire held lock");
+    fs::write(&ready_path, b"ready").expect("write lock-ready marker");
+    std::thread::sleep(std::time::Duration::from_secs(3));
+}
+
+#[test]
+fn bootstrap_cache_write_lock_reports_busy_without_blocking() {
+    crate::test_utils::init_test_tracing();
+    let dir = tempdir().expect("tempdir");
+    let lock_path = dir.path().join("bootstrap.lock");
+    let ready_path = dir.path().join("bootstrap.lock.ready");
+    let exe = std::env::current_exe().expect("current test binary");
+
+    let mut holder = Command::new(&exe);
+    holder
+        .env(BOOTSTRAP_CACHE_LOCK_HOLDER_ENV, &lock_path)
+        .env(BOOTSTRAP_CACHE_LOCK_READY_ENV, &ready_path)
+        .arg("--exact")
+        .arg(BOOTSTRAP_CACHE_LOCK_HOLDER_TEST)
+        .arg("--nocapture");
+    let mut child = holder.spawn().expect("spawn lock holder");
+
+    let ready_deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !ready_path.exists() {
+        if let Some(status) = child.try_wait().expect("poll lock holder") {
+            panic!("lock holder exited before signaling readiness: {status}");
+        }
+        assert!(
+            std::time::Instant::now() < ready_deadline,
+            "timed out waiting for lock holder readiness marker at {}",
+            ready_path.display()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+
+    let start = std::time::Instant::now();
+    let err = match BootstrapCacheWriteLock::acquire(&lock_path) {
+        Ok(_) => panic!("lock should be busy"),
+        Err(err) => err,
+    };
+    let elapsed = start.elapsed();
+    assert!(
+        err.contains("lock busy"),
+        "expected busy-lock error, got: {err}"
+    );
+    assert!(
+        elapsed < std::time::Duration::from_millis(500),
+        "busy lock acquisition should fail fast, took {elapsed:?}"
+    );
+
+    let status = child.wait().expect("wait for lock holder");
+    assert!(status.success(), "lock holder failed: {status}");
+}
 
 #[test]
 fn bootstrap_cache_parallel_creation_worker() {
