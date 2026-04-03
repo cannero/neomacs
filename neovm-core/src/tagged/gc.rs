@@ -24,6 +24,7 @@ use crate::gc_trace::GcTrace;
 use std::alloc::{self, Layout};
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
+use std::mem::size_of;
 
 /// How GC should discover roots beyond the explicit iterator passed to collect.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -310,8 +311,15 @@ pub struct TaggedHeap {
     /// Total number of allocated objects (cons + non-cons).
     pub allocated_count: usize,
 
-    /// GC threshold: collect when allocated_count exceeds this.
+    /// GC threshold in approximate Lisp heap bytes.
     gc_threshold: usize,
+    /// When true, `gc_threshold` was explicitly overridden by tests or host
+    /// code and should not be recomputed from Lisp-visible GC variables.
+    gc_threshold_overridden: bool,
+    /// Approximate Lisp heap bytes allocated since the last full collection.
+    bytes_since_gc: usize,
+    /// Approximate bytes retained by the live heap after the last sweep.
+    live_bytes: usize,
 
     /// Gray worklist for mark phase.
     gray_queue: Vec<TaggedValue>,
@@ -361,7 +369,10 @@ impl TaggedHeap {
             cons_blocks: Vec::new(),
             all_objects: std::ptr::null_mut(),
             allocated_count: 0,
-            gc_threshold: 8192,
+            gc_threshold: 100_000 * size_of::<usize>(),
+            gc_threshold_overridden: false,
+            bytes_since_gc: 0,
+            live_bytes: 0,
             gray_queue: Vec::new(),
             stack_bottom: std::ptr::null(),
             root_scan_mode: RootScanMode::ExactOnly,
@@ -406,7 +417,7 @@ impl TaggedHeap {
     }
 
     pub fn should_collect(&self) -> bool {
-        self.allocated_count >= self.gc_threshold
+        self.bytes_since_gc >= self.gc_threshold
     }
 
     pub fn gc_threshold(&self) -> usize {
@@ -414,11 +425,34 @@ impl TaggedHeap {
     }
 
     pub fn set_gc_threshold(&mut self, threshold: usize) {
-        self.gc_threshold = threshold;
+        self.gc_threshold = threshold.max(1);
+        self.gc_threshold_overridden = true;
+    }
+
+    pub fn set_gc_threshold_from_runtime(&mut self, threshold: usize) {
+        if !self.gc_threshold_overridden {
+            self.gc_threshold = threshold.max(1);
+        }
+    }
+
+    pub fn clear_gc_threshold_override(&mut self) {
+        self.gc_threshold_overridden = false;
+    }
+
+    pub fn gc_threshold_is_overridden(&self) -> bool {
+        self.gc_threshold_overridden
     }
 
     pub fn allocated_count(&self) -> usize {
         self.allocated_count
+    }
+
+    pub fn bytes_since_gc(&self) -> usize {
+        self.bytes_since_gc
+    }
+
+    pub fn live_bytes(&self) -> usize {
+        self.live_bytes
     }
 
     pub fn subr_value(&self, id: SymId) -> Option<TaggedValue> {
@@ -515,6 +549,106 @@ impl TaggedHeap {
         }
     }
 
+    fn note_allocation_bytes(&mut self, bytes: usize) {
+        self.bytes_since_gc = self.bytes_since_gc.saturating_add(bytes);
+        self.live_bytes = self.live_bytes.saturating_add(bytes);
+    }
+
+    fn vector_storage_bytes<T>(values: &Vec<T>) -> usize {
+        values.capacity().saturating_mul(size_of::<T>())
+    }
+
+    fn hash_map_storage_bytes<K, V>(values: &HashMap<K, V>) -> usize {
+        values.capacity().saturating_mul(size_of::<(K, V)>())
+    }
+
+    fn string_object_bytes(obj: &StringObj) -> usize {
+        size_of::<StringObj>().saturating_add(obj.data.byte_len())
+    }
+
+    fn hash_table_object_bytes(obj: &HashTableObj) -> usize {
+        size_of::<HashTableObj>()
+            .saturating_add(Self::hash_map_storage_bytes(&obj.table.data))
+            .saturating_add(Self::hash_map_storage_bytes(&obj.table.key_snapshots))
+            .saturating_add(Self::vector_storage_bytes(&obj.table.insertion_order))
+    }
+
+    fn lambda_object_bytes(obj: &LambdaObj) -> usize {
+        size_of::<LambdaObj>().saturating_add(Self::vector_storage_bytes(&obj.data))
+    }
+
+    fn macro_object_bytes(obj: &MacroObj) -> usize {
+        size_of::<MacroObj>().saturating_add(Self::vector_storage_bytes(&obj.data))
+    }
+
+    fn bytecode_object_bytes(obj: &ByteCodeObj) -> usize {
+        let data = &obj.data;
+        size_of::<ByteCodeObj>()
+            .saturating_add(Self::vector_storage_bytes(&data.ops))
+            .saturating_add(Self::vector_storage_bytes(&data.constants))
+            .saturating_add(
+                data.params
+                    .required
+                    .capacity()
+                    .saturating_mul(size_of::<SymId>()),
+            )
+            .saturating_add(
+                data.params
+                    .optional
+                    .capacity()
+                    .saturating_mul(size_of::<SymId>()),
+            )
+            .saturating_add(
+                data.gnu_byte_offset_map
+                    .as_ref()
+                    .map_or(0, Self::hash_map_storage_bytes),
+            )
+            .saturating_add(data.docstring.as_ref().map_or(0, |doc| doc.capacity()))
+    }
+
+    fn record_object_bytes(obj: &RecordObj) -> usize {
+        size_of::<RecordObj>().saturating_add(Self::vector_storage_bytes(&obj.data))
+    }
+
+    fn object_bytes_from_header(header: *const GcHeader) -> usize {
+        unsafe {
+            match (*header).kind {
+                HeapObjectKind::String => Self::string_object_bytes(&*(header as *const StringObj)),
+                HeapObjectKind::Float => size_of::<FloatObj>(),
+                HeapObjectKind::VecLike => {
+                    let ptr = header as *const VecLikeHeader;
+                    match (*ptr).type_tag {
+                        VecLikeType::Vector => {
+                            let obj = &*(ptr as *const VectorObj);
+                            size_of::<VectorObj>()
+                                .saturating_add(Self::vector_storage_bytes(&obj.data))
+                        }
+                        VecLikeType::HashTable => {
+                            Self::hash_table_object_bytes(&*(ptr as *const HashTableObj))
+                        }
+                        VecLikeType::Lambda => {
+                            Self::lambda_object_bytes(&*(ptr as *const LambdaObj))
+                        }
+                        VecLikeType::Macro => Self::macro_object_bytes(&*(ptr as *const MacroObj)),
+                        VecLikeType::ByteCode => {
+                            Self::bytecode_object_bytes(&*(ptr as *const ByteCodeObj))
+                        }
+                        VecLikeType::Record => {
+                            Self::record_object_bytes(&*(ptr as *const RecordObj))
+                        }
+                        VecLikeType::Overlay => size_of::<OverlayObj>(),
+                        VecLikeType::Marker => size_of::<MarkerObj>(),
+                        VecLikeType::Buffer => size_of::<BufferObj>(),
+                        VecLikeType::Window => size_of::<WindowObj>(),
+                        VecLikeType::Frame => size_of::<FrameObj>(),
+                        VecLikeType::Timer => size_of::<TimerObj>(),
+                        VecLikeType::Subr => size_of::<SubrObj>(),
+                    }
+                }
+            }
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Allocation
     // -----------------------------------------------------------------------
@@ -530,6 +664,7 @@ impl TaggedHeap {
             }
             self.allocated_count += 1;
             self.cons_live_count += 1;
+            self.note_allocation_bytes(size_of::<ConsCell>());
             return unsafe { TaggedValue::from_cons_ptr(cell) };
         }
 
@@ -538,6 +673,7 @@ impl TaggedHeap {
         {
             self.allocated_count += 1;
             self.cons_live_count += 1;
+            self.note_allocation_bytes(size_of::<ConsCell>());
             return unsafe { TaggedValue::from_cons_ptr(cell) };
         }
 
@@ -551,6 +687,7 @@ impl TaggedHeap {
         self.cons_blocks.push(block);
         self.allocated_count += 1;
         self.cons_live_count += 1;
+        self.note_allocation_bytes(size_of::<ConsCell>());
         unsafe { TaggedValue::from_cons_ptr(cell) }
     }
 
@@ -564,6 +701,7 @@ impl TaggedHeap {
         let ptr = Box::into_raw(obj);
         self.link_object(unsafe { &mut (*ptr).header });
         self.allocated_count += 1;
+        self.note_allocation_bytes(unsafe { Self::string_object_bytes(&*ptr) });
         unsafe { TaggedValue::from_string_ptr(ptr) }
     }
 
@@ -576,6 +714,7 @@ impl TaggedHeap {
         let ptr = Box::into_raw(obj);
         self.link_object(unsafe { &mut (*ptr).header });
         self.allocated_count += 1;
+        self.note_allocation_bytes(size_of::<FloatObj>());
         unsafe { TaggedValue::from_float_ptr(ptr) }
     }
 
@@ -599,6 +738,7 @@ impl TaggedHeap {
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
+        self.note_allocation_bytes(size_of::<SubrObj>());
         unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
@@ -611,6 +751,10 @@ impl TaggedHeap {
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
+        self.note_allocation_bytes(
+            size_of::<VectorObj>()
+                .saturating_add(Self::vector_storage_bytes(unsafe { &(*ptr).data })),
+        );
         unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
@@ -626,6 +770,7 @@ impl TaggedHeap {
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
+        self.note_allocation_bytes(unsafe { Self::hash_table_object_bytes(&*ptr) });
         unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
@@ -641,6 +786,7 @@ impl TaggedHeap {
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
+        self.note_allocation_bytes(unsafe { Self::lambda_object_bytes(&*ptr) });
         unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
@@ -664,6 +810,7 @@ impl TaggedHeap {
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
+        self.note_allocation_bytes(unsafe { Self::macro_object_bytes(&*ptr) });
         unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
@@ -685,6 +832,7 @@ impl TaggedHeap {
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
+        self.note_allocation_bytes(size_of::<BufferObj>());
         unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
@@ -697,6 +845,7 @@ impl TaggedHeap {
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
+        self.note_allocation_bytes(size_of::<WindowObj>());
         unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
@@ -709,6 +858,7 @@ impl TaggedHeap {
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
+        self.note_allocation_bytes(size_of::<FrameObj>());
         unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
@@ -721,6 +871,7 @@ impl TaggedHeap {
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
+        self.note_allocation_bytes(size_of::<TimerObj>());
         unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
@@ -736,6 +887,7 @@ impl TaggedHeap {
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
+        self.note_allocation_bytes(unsafe { Self::bytecode_object_bytes(&*ptr) });
         unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
@@ -748,6 +900,7 @@ impl TaggedHeap {
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
+        self.note_allocation_bytes(unsafe { Self::record_object_bytes(&*ptr) });
         unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
@@ -760,6 +913,7 @@ impl TaggedHeap {
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
+        self.note_allocation_bytes(size_of::<OverlayObj>());
         unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
@@ -773,6 +927,7 @@ impl TaggedHeap {
         self.marker_ptrs.push(ptr);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
+        self.note_allocation_bytes(size_of::<MarkerObj>());
         unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
@@ -889,11 +1044,10 @@ impl TaggedHeap {
         self.mark_all();
 
         // -- Sweep phase --
-        self.sweep_cons();
-        self.sweep_objects();
-
-        // -- Adapt threshold --
-        self.gc_threshold = self.allocated_count.saturating_mul(2).max(8192);
+        let cons_live_bytes = self.sweep_cons();
+        let object_live_bytes = self.sweep_objects();
+        self.live_bytes = cons_live_bytes.saturating_add(object_live_bytes);
+        self.bytes_since_gc = 0;
 
         // A full-heap collection subsumes any remembered-set bookkeeping.
         self.clear_dirty_owners();
@@ -1069,7 +1223,7 @@ impl TaggedHeap {
     }
 
     /// Sweep unmarked cons cells back to free lists.
-    fn sweep_cons(&mut self) {
+    fn sweep_cons(&mut self) -> usize {
         let old_live = self.cons_live_count;
         let mut new_live = 0;
         self.cons_free_list = std::ptr::null_mut();
@@ -1081,17 +1235,20 @@ impl TaggedHeap {
             .allocated_count
             .saturating_sub(old_live)
             .saturating_add(new_live);
+        new_live.saturating_mul(size_of::<ConsCell>())
     }
 
     /// Sweep non-cons objects: walk intrusive list, free unmarked, rebuild list.
-    fn sweep_objects(&mut self) {
+    fn sweep_objects(&mut self) -> usize {
         let mut prev: *mut *mut GcHeader = &mut self.all_objects;
         let mut current = self.all_objects;
+        let mut live_bytes = 0usize;
         while !current.is_null() {
             unsafe {
                 let next = (*current).next;
                 if (*current).marked {
                     // Keep it — advance prev
+                    live_bytes = live_bytes.saturating_add(Self::object_bytes_from_header(current));
                     prev = &mut (*current).next;
                     current = next;
                 } else {
@@ -1103,6 +1260,7 @@ impl TaggedHeap {
                 }
             }
         }
+        live_bytes
     }
 
     /// Free a GC object by its header pointer.

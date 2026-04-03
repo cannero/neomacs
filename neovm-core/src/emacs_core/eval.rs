@@ -105,6 +105,9 @@ const STACK_GROWTH_PROBE_START_DEPTH: usize = 16;
 const STACK_GROWTH_PROBE_INTERVAL: usize = 16;
 const NAMED_CALL_CACHE_CAPACITY: usize = 8;
 const LEXENV_ASSQ_CACHE_CAPACITY: usize = 8;
+const GC_DEFAULT_THRESHOLD_BYTES: usize = 100_000 * std::mem::size_of::<usize>();
+const GC_THRESHOLD_FLOOR_BYTES: usize = GC_DEFAULT_THRESHOLD_BYTES / 10;
+const GC_HI_THRESHOLD_BYTES: usize = (i64::MAX as usize) / 2;
 
 #[derive(Clone, Debug)]
 struct ExecutingKbdMacroRuntimeScope {
@@ -575,6 +578,11 @@ cached_symbol_id!(closure_symbol, "closure");
 cached_symbol_id!(macro_symbol, "macro");
 cached_symbol_id!(byte_code_literal_symbol, "byte-code-literal");
 cached_symbol_id!(byte_code_symbol, "byte-code");
+cached_symbol_id!(gc_cons_threshold_symbol, "gc-cons-threshold");
+cached_symbol_id!(gc_cons_percentage_symbol, "gc-cons-percentage");
+cached_symbol_id!(memory_full_symbol, "memory-full");
+cached_symbol_id!(gc_elapsed_symbol, "gc-elapsed");
+cached_symbol_id!(gcs_done_symbol, "gcs-done");
 
 fn is_lambda_like_symbol_id(id: SymId) -> bool {
     id == lambda_symbol() || id == closure_symbol()
@@ -3958,6 +3966,71 @@ impl Context {
         self.tagged_heap.gc_threshold()
     }
 
+    fn gc_cons_threshold_bytes(&self) -> usize {
+        self.obarray
+            .symbol_value_id(gc_cons_threshold_symbol())
+            .copied()
+            .and_then(|value| value.as_fixnum())
+            .and_then(|n| usize::try_from(n).ok())
+            .unwrap_or(GC_DEFAULT_THRESHOLD_BYTES)
+    }
+
+    fn gc_cons_percentage(&self) -> Option<f64> {
+        let value = self
+            .obarray
+            .symbol_value_id(gc_cons_percentage_symbol())
+            .copied()
+            .unwrap_or(Value::NIL);
+        value
+            .as_number_f64()
+            .filter(|float| float.is_finite() && *float > 0.0)
+    }
+
+    fn effective_gc_threshold_bytes(&self) -> usize {
+        if !self
+            .obarray
+            .symbol_value_id(memory_full_symbol())
+            .copied()
+            .unwrap_or(Value::NIL)
+            .is_nil()
+        {
+            return self.tagged_heap.gc_threshold();
+        }
+
+        let mut threshold = self.gc_cons_threshold_bytes().max(GC_THRESHOLD_FLOOR_BYTES);
+        if let Some(percentage) = self.gc_cons_percentage() {
+            let live_estimate = self
+                .tagged_heap
+                .live_bytes()
+                .saturating_add(self.tagged_heap.bytes_since_gc() / 2);
+            let pct_threshold = (percentage * live_estimate as f64)
+                .clamp(0.0, GC_HI_THRESHOLD_BYTES as f64) as usize;
+            threshold = threshold.max(pct_threshold);
+        }
+        threshold.clamp(1, GC_HI_THRESHOLD_BYTES)
+    }
+
+    fn sync_gc_threshold_from_runtime_settings(&mut self) {
+        let threshold = self.effective_gc_threshold_bytes();
+        self.tagged_heap.set_gc_threshold_from_runtime(threshold);
+    }
+
+    fn update_gc_runtime_stats(&mut self, elapsed: std::time::Duration) {
+        self.obarray
+            .set_symbol_value_id(gcs_done_symbol(), Value::fixnum(self.gc_count as i64));
+
+        let old_elapsed = self
+            .obarray
+            .symbol_value_id(gc_elapsed_symbol())
+            .copied()
+            .and_then(|value| value.as_number_f64())
+            .unwrap_or(0.0);
+        self.obarray.set_symbol_value_id(
+            gc_elapsed_symbol(),
+            Value::make_float(old_elapsed + elapsed.as_secs_f64()),
+        );
+    }
+
     /// Get the current tagged-heap root scan mode.
     pub fn gc_root_scan_mode(&self) -> crate::tagged::gc::RootScanMode {
         self.tagged_heap.root_scan_mode()
@@ -4820,6 +4893,7 @@ impl Context {
         mode: crate::tagged::gc::RootScanMode,
         extra_root_slices: &[&[Value]],
     ) {
+        let start = std::time::Instant::now();
         // Clear source_literal_cache before GC — it uses *const Expr raw
         // pointers as keys which can alias after Rc<Vec<Expr>> bodies are
         // freed, causing ABA: a new lambda body at the same address gets
@@ -4838,6 +4912,8 @@ impl Context {
         }
         self.gc_pending = false;
         self.gc_count += 1;
+        self.update_gc_runtime_stats(start.elapsed());
+        self.sync_gc_threshold_from_runtime_settings();
         self.run_post_gc_hook();
     }
 
@@ -4901,7 +4977,8 @@ impl Context {
         // For now safe points still perform full STW collections. The only
         // variable is whether root discovery uses the configured exact-root
         // mode or conservative stack scanning.
-        if self.gc_pending || self.tagged_heap.should_collect() {
+        self.sync_gc_threshold_from_runtime_settings();
+        if self.gc_stress || self.gc_pending || self.tagged_heap.should_collect() {
             self.gc_collect_with_mode_and_extra_root_slices(mode, extra_root_slices);
         }
     }
