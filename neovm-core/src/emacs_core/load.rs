@@ -1434,56 +1434,62 @@ fn elc_has_lexical_binding(raw_bytes: &[u8]) -> bool {
 fn record_load_history(eval: &mut super::eval::Context, path: &Path) {
     let path_str = path.to_string_lossy().to_string();
     tracing::info!("record_load_history: {}", path_str);
-    let entry = Value::cons(Value::string(path_str.clone()), Value::NIL);
-    let history = eval
-        .obarray()
-        .symbol_value("load-history")
-        .cloned()
-        .unwrap_or(Value::NIL);
-    let filtered_history = Value::list(
-        list_to_vec(&history)
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|existing| {
-                if existing.is_cons() {
-                    existing
-                        .cons_car()
-                        .as_str()
-                        .is_none_or(|loaded| loaded != path_str)
-                } else {
-                    true
-                }
-            })
-            .collect(),
-    );
-    eval.set_variable("load-history", Value::cons(entry, filtered_history));
+    eval.with_gc_scope(|eval| {
+        // GNU protects the same post-load temporaries with GCPRO/specpdl roots
+        // in lread.c. Exact GC needs explicit rooting here as well.
+        let path_value = eval.root(Value::string(path_str.clone()));
+        let entry = eval.root(Value::cons(path_value, Value::NIL));
+        let history = eval
+            .obarray()
+            .symbol_value("load-history")
+            .cloned()
+            .unwrap_or(Value::NIL);
+        let filtered_history = eval.root(Value::list(
+            list_to_vec(&history)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|existing| {
+                    if existing.is_cons() {
+                        existing
+                            .cons_car()
+                            .as_str()
+                            .is_none_or(|loaded| loaded != path_str)
+                    } else {
+                        true
+                    }
+                })
+                .collect(),
+        ));
+        let updated_history = eval.root(Value::cons(entry, filtered_history));
+        eval.set_variable("load-history", updated_history);
 
-    // GNU Emacs lread.c:1540-1541: after loading a file, call
-    // (do-after-load-evaluation FILENAME) to run eval-after-load hooks.
-    let dale_id = super::intern::intern("do-after-load-evaluation");
-    let is_fboundp = eval
-        .obarray()
-        .symbol_function_id(dale_id)
-        .is_some_and(|f| !f.is_nil());
-    if is_fboundp {
-        let abs_path = Value::string(path_str.clone());
-        if let Err(e) = eval.apply(Value::symbol(dale_id), vec![abs_path]) {
-            let err_msg = match &e {
-                super::error::Flow::Signal(sig) => {
-                    let sym = super::intern::resolve_sym(sig.symbol);
-                    let data: Vec<String> =
-                        sig.data.iter().map(|v| format_value_for_error(v)).collect();
-                    format!("({} {})", sym, data.join(" "))
-                }
-                other => format!("{other:?}"),
-            };
-            tracing::warn!(
-                "do-after-load-evaluation error for {}: {}",
-                path_str,
-                err_msg
-            );
+        // GNU Emacs lread.c:1540-1541: after loading a file, call
+        // (do-after-load-evaluation FILENAME) to run eval-after-load hooks.
+        let dale_id = super::intern::intern("do-after-load-evaluation");
+        let is_fboundp = eval
+            .obarray()
+            .symbol_function_id(dale_id)
+            .is_some_and(|f| !f.is_nil());
+        if is_fboundp {
+            let abs_path = eval.root(Value::string(path_str.clone()));
+            if let Err(e) = eval.apply(Value::symbol(dale_id), vec![abs_path]) {
+                let err_msg = match &e {
+                    super::error::Flow::Signal(sig) => {
+                        let sym = super::intern::resolve_sym(sig.symbol);
+                        let data: Vec<String> =
+                            sig.data.iter().map(|v| format_value_for_error(v)).collect();
+                        format!("({} {})", sym, data.join(" "))
+                    }
+                    other => format!("{other:?}"),
+                };
+                tracing::warn!(
+                    "do-after-load-evaluation error for {}: {}",
+                    path_str,
+                    err_msg
+                );
+            }
         }
-    }
+    });
 }
 
 /// Register bootstrap variables owned by the file-loading subsystem.

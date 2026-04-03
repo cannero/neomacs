@@ -2880,6 +2880,63 @@ fn load_file_records_load_history() {
 }
 
 #[test]
+fn load_file_exact_gc_roots_load_history_and_after_load_filename() {
+    crate::test_utils::init_test_tracing();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock before epoch")
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("neovm-load-history-exact-{unique}"));
+    fs::create_dir_all(&dir).expect("create temp fixture dir");
+    let file = dir.join("probe.el");
+    fs::write(&file, "(setq vm-load-history-probe t)\n").expect("write fixture");
+
+    let mut eval = super::super::eval::Context::new();
+    eval.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
+    eval.tagged_heap.set_gc_threshold(1);
+
+    let forms = crate::emacs_core::parser::parse_forms(
+        "(progn
+           (setq vm-after-load-filename nil)
+           (fset 'do-after-load-evaluation
+                 (lambda (file)
+                   (setq vm-after-load-filename file))))",
+    )
+    .expect("parse do-after-load-evaluation setup");
+    eval.eval_expr(&forms[0])
+        .expect("install do-after-load-evaluation probe");
+
+    let loaded = load_file(&mut eval, &file).expect("load file under exact gc");
+    assert_eq!(loaded, Value::T);
+    assert!(eval.gc_count > 0, "exact GC should have run during load");
+
+    let history = eval
+        .obarray()
+        .symbol_value("load-history")
+        .cloned()
+        .unwrap_or(Value::NIL);
+    let entries = super::super::value::list_to_vec(&history).expect("load-history is a list");
+    assert!(
+        !entries.is_empty(),
+        "load-history should have at least one entry"
+    );
+    let first = super::super::value::list_to_vec(&entries[0]).expect("entry is a list");
+    let path_str = file.to_string_lossy().to_string();
+    assert_eq!(
+        first.first().and_then(|v| v.as_str()),
+        Some(path_str.as_str())
+    );
+    assert_eq!(
+        eval.obarray()
+            .symbol_value("vm-after-load-filename")
+            .and_then(|v| v.as_str()),
+        Some(path_str.as_str())
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn ensure_startup_compat_variables_backfills_xfaces_bootstrap_state() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
