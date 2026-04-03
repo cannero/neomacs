@@ -3814,6 +3814,31 @@ fn source_cycle_spacing_form_loads_after_bootstrap_prefix() {
 }
 
 #[test]
+fn neobc_candidate_paths_prefer_current_cache_dir_and_keep_legacy_fallback() {
+    crate::test_utils::init_test_tracing();
+
+    let source = compile_time_project_root().join("lisp/loadup.el");
+    let candidates = neobc_candidate_paths(&source);
+    let rendered: Vec<String> = candidates
+        .iter()
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect();
+
+    assert!(
+        rendered
+            .first()
+            .is_some_and(|path| path.contains("target/neobc-v3/lisp/loadup.neobc")),
+        "expected current cache dir first, got {rendered:?}"
+    );
+    assert!(
+        rendered
+            .iter()
+            .any(|path| path.contains("target/neobc-v2/lisp/loadup.neobc")),
+        "expected legacy cache dir fallback, got {rendered:?}"
+    );
+}
+
+#[test]
 fn partial_bootstrap_footer_local_variables_error_is_catchable() {
     crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("emacs-lisp/macroexp", false);

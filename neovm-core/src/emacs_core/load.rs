@@ -1217,36 +1217,46 @@ pub(crate) fn eval_decoded_source_file_in_context(
 ) -> Result<Value, EvalError> {
     let source_hash = super::file_compile_format::source_sha256(content);
     for neobc_path in neobc_candidate_paths(path) {
-        if neobc_path.exists()
-            && let Ok(loaded) = super::file_compile_format::read_neobc(&neobc_path, &source_hash)
-        {
-            tracing::info!(
-                "neobc cache hit for {} via {} ({} forms)",
-                path.display(),
-                neobc_path.display(),
-                loaded.forms.len()
-            );
-            for form in &loaded.forms {
-                match form {
-                    super::file_compile_format::LoadedForm::Eval(expr) => {
-                        eval_runtime_form(eval, expr)?;
-                    }
-                    super::file_compile_format::LoadedForm::EagerEval(expr) => {
-                        let form_value = eval.quote_to_runtime_value(expr);
-                        if let Some(macroexpand_fn) = get_eager_macroexpand_fn(eval) {
-                            eager_expand_eval(eval, form_value, macroexpand_fn)?;
-                        } else {
-                            eval.eval_sub(form_value).map_err(map_flow)?;
+        if neobc_path.exists() {
+            match super::file_compile_format::read_neobc(&neobc_path, &source_hash) {
+                Ok(loaded) => {
+                    tracing::info!(
+                        "neobc cache hit for {} via {} ({} forms)",
+                        path.display(),
+                        neobc_path.display(),
+                        loaded.forms.len()
+                    );
+                    for form in &loaded.forms {
+                        match form {
+                            super::file_compile_format::LoadedForm::Eval(expr) => {
+                                eval_runtime_form(eval, expr)?;
+                            }
+                            super::file_compile_format::LoadedForm::EagerEval(expr) => {
+                                let form_value = eval.quote_to_runtime_value(expr);
+                                if let Some(macroexpand_fn) = get_eager_macroexpand_fn(eval) {
+                                    eager_expand_eval(eval, form_value, macroexpand_fn)?;
+                                } else {
+                                    eval.eval_sub(form_value).map_err(map_flow)?;
+                                }
+                            }
+                            super::file_compile_format::LoadedForm::Constant(_) => {
+                                // eval-when-compile constant -- already evaluated, skip.
+                            }
                         }
+                        eval.gc_safe_point_exact();
                     }
-                    super::file_compile_format::LoadedForm::Constant(_) => {
-                        // eval-when-compile constant -- already evaluated, skip.
-                    }
+                    record_load_history(eval, path);
+                    return Ok(Value::T);
                 }
-                eval.gc_safe_point_exact();
+                Err(err) => {
+                    tracing::debug!(
+                        "neobc cache rejected for {} via {}: {}",
+                        path.display(),
+                        neobc_path.display(),
+                        err
+                    );
+                }
             }
-            record_load_history(eval, path);
-            return Ok(Value::T);
         }
     }
 
@@ -1553,7 +1563,8 @@ impl RuntimeImageRole {
         }
     }
 }
-const NEOBC_CACHE_VERSION: u32 = 2;
+const NEOBC_CACHE_VERSION: u32 = 3;
+const LEGACY_NEOBC_CACHE_VERSIONS: &[u32] = &[2];
 const RUNTIME_ROOT_ENV: &str = "NEOMACS_RUNTIME_ROOT";
 const BOOTSTRAP_CACHE_DIR_ENV: &str = "NEOVM_BOOTSTRAP_CACHE_DIR";
 
@@ -1725,21 +1736,34 @@ fn bootstrap_dump_lock_path(dump_path: &Path) -> PathBuf {
     dump_path.with_file_name(lock_name)
 }
 
-fn runtime_neobc_cache_path(source_path: &Path) -> Option<PathBuf> {
+fn runtime_neobc_cache_path_for_version(source_path: &Path, version: u32) -> Option<PathBuf> {
     let runtime_root = runtime_project_root();
     let rel = source_path.strip_prefix(&runtime_root).ok()?;
     Some(
         bootstrap_cache_dir(&runtime_root)
-            .join(format!("neobc-v{NEOBC_CACHE_VERSION}"))
+            .join(format!("neobc-v{version}"))
             .join(rel)
             .with_extension("neobc"),
     )
+}
+
+fn runtime_neobc_cache_path(source_path: &Path) -> Option<PathBuf> {
+    runtime_neobc_cache_path_for_version(source_path, NEOBC_CACHE_VERSION)
 }
 
 fn neobc_candidate_paths(source_path: &Path) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     if let Some(runtime_cache) = runtime_neobc_cache_path(source_path) {
         candidates.push(runtime_cache);
+    }
+    for version in LEGACY_NEOBC_CACHE_VERSIONS {
+        if let Some(legacy_cache) = runtime_neobc_cache_path_for_version(source_path, *version)
+            && !candidates
+                .iter()
+                .any(|candidate| candidate == &legacy_cache)
+        {
+            candidates.push(legacy_cache);
+        }
     }
     let sibling = source_path.with_extension("neobc");
     if !candidates.iter().any(|candidate| candidate == &sibling) {
