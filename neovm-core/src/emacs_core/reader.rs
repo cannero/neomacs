@@ -500,33 +500,29 @@ fn first_form_hash_table_literal_value(
         i += 2;
     }
 
-    let table_value =
-        Value::hash_table_with_options(test, size, weakness, rehash_size, rehash_threshold);
-    let _ = table_value.with_hash_table_mut(|table| {
-        table.test_name = test_name;
-        if let Some(Expr::List(data_items)) = data_expr {
-            let mut idx = 0_usize;
-            while idx + 1 < data_items.len() {
-                let key_value = super::eval::Context::quote_to_runtime_value_in_state(
-                    obarray,
-                    &data_items[idx],
-                );
-                let val_value = super::eval::Context::quote_to_runtime_value_in_state(
-                    obarray,
-                    &data_items[idx + 1],
-                );
-                let key = key_value.to_hash_key(&table.test);
-                let inserting_new_key = !table.data.contains_key(&key);
-                table.data.insert(key.clone(), val_value);
-                if inserting_new_key {
-                    table.key_snapshots.insert(key.clone(), key_value);
-                    table.insertion_order.push(key);
-                }
-                idx += 2;
-            }
+    let mut entries = Vec::new();
+    if let Some(Expr::List(data_items)) = data_expr {
+        let mut idx = 0_usize;
+        while idx + 1 < data_items.len() {
+            let key_value =
+                super::eval::Context::quote_to_runtime_value_in_state(obarray, &data_items[idx]);
+            let val_value = super::eval::Context::quote_to_runtime_value_in_state(
+                obarray,
+                &data_items[idx + 1],
+            );
+            entries.push((key_value, val_value));
+            idx += 2;
         }
-    });
-    Some(table_value)
+    }
+    Some(super::value::build_hash_table_literal_value(
+        test,
+        test_name,
+        size,
+        weakness,
+        rehash_size,
+        rehash_threshold,
+        entries,
+    ))
 }
 
 fn starts_with_hash_skip_dispatch(input: &str) -> bool {

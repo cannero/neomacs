@@ -620,6 +620,32 @@ impl LispHashTable {
     }
 }
 
+pub(crate) fn build_hash_table_literal_value(
+    test: HashTableTest,
+    test_name: Option<SymId>,
+    size: i64,
+    weakness: Option<HashTableWeakness>,
+    rehash_size: f64,
+    rehash_threshold: f64,
+    entries: Vec<(Value, Value)>,
+) -> Value {
+    let table_value =
+        Value::hash_table_with_options(test, size, weakness, rehash_size, rehash_threshold);
+    let _ = table_value.with_hash_table_mut(|table| {
+        table.test_name = test_name;
+        for (key_value, val_value) in entries {
+            let key = key_value.to_hash_key(&table.test);
+            let inserting_new_key = !table.data.contains_key(&key);
+            table.data.insert(key.clone(), val_value);
+            if inserting_new_key {
+                table.key_snapshots.insert(key.clone(), key_value);
+                table.insertion_order.push(key);
+            }
+        }
+    });
+    table_value
+}
+
 // ---------------------------------------------------------------------------
 // Conversion traits for flexible constructors
 // ---------------------------------------------------------------------------

@@ -17,7 +17,9 @@ use super::eval::{OPAQUE_POOL, quote_to_value};
 use super::expr::Expr;
 use super::file_compile::CompiledForm;
 use super::intern::{SymId, intern, intern_uninterned, is_canonical_id, resolve_sym};
-use super::value::Value;
+use super::value::{
+    HashKey, HashTableTest, HashTableWeakness, Value, build_hash_table_literal_value,
+};
 use crate::tagged::header::VecLikeType;
 
 /// Magic bytes identifying a `.neobc` file.
@@ -40,8 +42,35 @@ enum CachedExpr {
     List(Vec<CachedExpr>),
     Vector(Vec<CachedExpr>),
     Record(Vec<CachedExpr>),
+    HashTable(CachedHashTable),
     DottedList(Vec<CachedExpr>, Box<CachedExpr>),
     Bool(bool),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+enum CachedHashTableTest {
+    Eq,
+    Eql,
+    Equal,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+enum CachedHashTableWeakness {
+    Key,
+    Value,
+    KeyOrValue,
+    KeyAndValue,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct CachedHashTable {
+    test: CachedHashTableTest,
+    test_name: Option<String>,
+    size: i64,
+    weakness: Option<CachedHashTableWeakness>,
+    rehash_size: f64,
+    rehash_threshold: f64,
+    entries: Vec<(CachedExpr, CachedExpr)>,
 }
 
 /// A single serializable compiled form.
@@ -106,7 +135,94 @@ fn is_canonical_symbol_id(id: SymId) -> bool {
     is_canonical_id(id)
 }
 
+fn encode_hash_table_test(test: &HashTableTest) -> CachedHashTableTest {
+    match test {
+        HashTableTest::Eq => CachedHashTableTest::Eq,
+        HashTableTest::Eql => CachedHashTableTest::Eql,
+        HashTableTest::Equal => CachedHashTableTest::Equal,
+    }
+}
+
+fn decode_hash_table_test(test: &CachedHashTableTest) -> HashTableTest {
+    match test {
+        CachedHashTableTest::Eq => HashTableTest::Eq,
+        CachedHashTableTest::Eql => HashTableTest::Eql,
+        CachedHashTableTest::Equal => HashTableTest::Equal,
+    }
+}
+
+fn encode_hash_table_weakness(weakness: &HashTableWeakness) -> CachedHashTableWeakness {
+    match weakness {
+        HashTableWeakness::Key => CachedHashTableWeakness::Key,
+        HashTableWeakness::Value => CachedHashTableWeakness::Value,
+        HashTableWeakness::KeyOrValue => CachedHashTableWeakness::KeyOrValue,
+        HashTableWeakness::KeyAndValue => CachedHashTableWeakness::KeyAndValue,
+    }
+}
+
+fn decode_hash_table_weakness(weakness: &CachedHashTableWeakness) -> HashTableWeakness {
+    match weakness {
+        CachedHashTableWeakness::Key => HashTableWeakness::Key,
+        CachedHashTableWeakness::Value => HashTableWeakness::Value,
+        CachedHashTableWeakness::KeyOrValue => HashTableWeakness::KeyOrValue,
+        CachedHashTableWeakness::KeyAndValue => HashTableWeakness::KeyAndValue,
+    }
+}
+
+fn portable_hash_key_value(key: &HashKey) -> Option<Value> {
+    Some(match key {
+        HashKey::Nil => Value::NIL,
+        HashKey::True => Value::T,
+        HashKey::Int(n) => Value::fixnum(*n),
+        HashKey::Float(bits) | HashKey::FloatEq(bits, _) => {
+            Value::make_float(f64::from_bits(*bits))
+        }
+        HashKey::Symbol(id) => Value::from_sym_id(*id),
+        HashKey::Keyword(id) => Value::keyword_id(*id),
+        HashKey::Char(c) => Value::char(*c),
+        HashKey::EqualCons(car, cdr) => {
+            Value::cons(portable_hash_key_value(car)?, portable_hash_key_value(cdr)?)
+        }
+        HashKey::EqualVec(items) => Value::vector(
+            items
+                .iter()
+                .map(portable_hash_key_value)
+                .collect::<Option<Vec<_>>>()?,
+        ),
+        HashKey::Text(text) => Value::string(text.clone()),
+        HashKey::Window(_) | HashKey::Frame(_) | HashKey::Ptr(_) | HashKey::Cycle(_) => {
+            return None;
+        }
+    })
+}
+
 impl ExprEncoder {
+    fn encode_hash_table(&mut self, value: Value) -> Option<CachedHashTable> {
+        let table = value.as_hash_table()?;
+        let mut entries = Vec::with_capacity(table.insertion_order.len());
+        for key in &table.insertion_order {
+            let key_value = table
+                .key_snapshots
+                .get(key)
+                .copied()
+                .or_else(|| portable_hash_key_value(key))?;
+            let entry_value = table.data.get(key)?;
+            entries.push((
+                self.encode_value(&key_value)?,
+                self.encode_value(entry_value)?,
+            ));
+        }
+        Some(CachedHashTable {
+            test: encode_hash_table_test(&table.test),
+            test_name: table.test_name.map(|id| resolve_sym(id).to_owned()),
+            size: table.size,
+            weakness: table.weakness.as_ref().map(encode_hash_table_weakness),
+            rehash_size: table.rehash_size,
+            rehash_threshold: table.rehash_threshold,
+            entries,
+        })
+    }
+
     fn encode(&mut self, expr: &Expr) -> Option<CachedExpr> {
         Some(match expr {
             Expr::Int(n) => CachedExpr::Int(*n),
@@ -159,6 +275,9 @@ impl ExprEncoder {
                                 .map(|item| self.encode_value(item))
                                 .collect::<Option<Vec<_>>>()?,
                         )
+                    }
+                    super::value::ValueKind::Veclike(VecLikeType::HashTable) => {
+                        CachedExpr::HashTable(self.encode_hash_table(value)?)
                     }
                     _ => return None,
                 }
@@ -235,6 +354,9 @@ impl ExprEncoder {
                         .map(|item| self.encode_value(item))
                         .collect::<Option<Vec<_>>>()?,
                 )
+            }
+            super::value::ValueKind::Veclike(super::value::VecLikeType::HashTable) => {
+                CachedExpr::HashTable(self.encode_hash_table(*value)?)
             }
             _ => return None,
         })
@@ -342,6 +464,40 @@ fn diagnose_unsupported_value(value: &Value, path: &str) -> UnsupportedValue {
                 UnsupportedValue::new(path, "record payload unavailable")
             }
         }
+        super::value::ValueKind::Veclike(super::value::VecLikeType::HashTable) => {
+            if let Some(table) = value.as_hash_table() {
+                for (idx, key) in table.insertion_order.iter().enumerate() {
+                    let Some(key_value) = table
+                        .key_snapshots
+                        .get(key)
+                        .copied()
+                        .or_else(|| portable_hash_key_value(key))
+                    else {
+                        return UnsupportedValue::new(
+                            push_path(path, &format!(".data[{idx}].key")),
+                            "hash-table key requires runtime-only identity",
+                        );
+                    };
+                    if ExprEncoder::default().encode_value(&key_value).is_none() {
+                        return diagnose_unsupported_value(
+                            &key_value,
+                            &push_path(path, &format!(".data[{idx}].key")),
+                        );
+                    }
+                    if let Some(entry_value) = table.data.get(key) {
+                        if ExprEncoder::default().encode_value(entry_value).is_none() {
+                            return diagnose_unsupported_value(
+                                entry_value,
+                                &push_path(path, &format!(".data[{idx}].value")),
+                            );
+                        }
+                    }
+                }
+                UnsupportedValue::new(path, "hash-table value failed serialization")
+            } else {
+                UnsupportedValue::new(path, "hash-table payload unavailable")
+            }
+        }
         _ => UnsupportedValue::new(path, summarize_value(value)),
     }
 }
@@ -424,6 +580,28 @@ impl NeobcBuilder {
 }
 
 impl ExprDecoder {
+    fn decode_hash_table(&mut self, table: &CachedHashTable) -> Value {
+        let entries = table
+            .entries
+            .iter()
+            .map(|(key, value)| {
+                (
+                    quote_to_value(&self.decode(key)),
+                    quote_to_value(&self.decode(value)),
+                )
+            })
+            .collect();
+        build_hash_table_literal_value(
+            decode_hash_table_test(&table.test),
+            table.test_name.as_deref().map(intern),
+            table.size,
+            table.weakness.as_ref().map(decode_hash_table_weakness),
+            table.rehash_size,
+            table.rehash_threshold,
+            entries,
+        )
+    }
+
     fn decode(&mut self, expr: &CachedExpr) -> Expr {
         match expr {
             CachedExpr::Int(n) => Expr::Int(*n),
@@ -453,6 +631,9 @@ impl ExprDecoder {
                     OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(Value::make_record(values))),
                 )
             }
+            CachedExpr::HashTable(table) => Expr::OpaqueValueRef(
+                OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(self.decode_hash_table(table))),
+            ),
             CachedExpr::DottedList(items, tail) => Expr::DottedList(
                 items.iter().map(|item| self.decode(item)).collect(),
                 Box::new(self.decode(tail)),
@@ -952,6 +1133,78 @@ mod tests {
                 assert_eq!(items[0].as_symbol_name(), Some("cl-slot-descriptor"));
                 assert_eq!(items[1].as_symbol_name(), Some("foo"));
                 assert_eq!(items[2], Value::fixnum(1));
+            }
+            LoadedForm::Constant(_) => panic!("expected Eval form"),
+        }
+    }
+
+    #[test]
+    fn test_roundtrip_hash_table_literal_expr() {
+        crate::test_utils::init_test_tracing();
+        let src = "#s(hash-table size 3 test equal data (\"a\" 1 \"b\" 2))";
+        let forms = parse_forms(src).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("hash-table.neobc");
+        let hash = source_sha256(src);
+
+        write_neobc_exprs(&path, &hash, false, &forms).unwrap();
+
+        let loaded = read_neobc(&path, &hash).unwrap();
+        match &loaded.forms[0] {
+            LoadedForm::Eval(expr) => {
+                let mut eval = Context::new();
+                let value = eval.eval(expr).unwrap();
+                let table = value.as_hash_table().unwrap();
+                assert_eq!(table.test, crate::emacs_core::value::HashTableTest::Equal);
+                assert_eq!(table.size, 3);
+                assert_eq!(table.data.len(), 2);
+            }
+            LoadedForm::Constant(_) => panic!("expected Eval form"),
+        }
+    }
+
+    #[test]
+    fn test_roundtrip_record_with_nested_hash_table_runtime_value() {
+        crate::test_utils::init_test_tracing();
+        let table = Value::hash_table_with_options(
+            crate::emacs_core::value::HashTableTest::Eq,
+            2,
+            None,
+            1.5,
+            0.8125,
+        );
+        let _ = table.with_hash_table_mut(|ht| {
+            ht.test_name = Some(intern("eq"));
+            let alpha = Value::symbol("alpha");
+            let beta = Value::symbol("beta");
+            let alpha_key = alpha.to_hash_key(&ht.test);
+            let beta_key = beta.to_hash_key(&ht.test);
+            ht.data.insert(alpha_key.clone(), Value::fixnum(1));
+            ht.key_snapshots.insert(alpha_key.clone(), alpha);
+            ht.insertion_order.push(alpha_key);
+            ht.data.insert(beta_key.clone(), Value::fixnum(2));
+            ht.key_snapshots.insert(beta_key.clone(), beta);
+            ht.insertion_order.push(beta_key);
+        });
+        let record = Value::make_record(vec![Value::symbol("class"), Value::fixnum(7), table]);
+
+        let mut builder = NeobcBuilder::new("hash", false);
+        builder.push_eval_value_detailed(&record).unwrap();
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested-record.neobc");
+        builder.write(&path).unwrap();
+
+        let loaded = read_neobc(&path, "hash").unwrap();
+        match &loaded.forms[0] {
+            LoadedForm::Eval(expr) => {
+                let mut eval = Context::new();
+                let value = eval.eval(expr).unwrap();
+                let items = value.as_record_data().unwrap();
+                let table = items[2].as_hash_table().unwrap();
+                assert_eq!(table.test, crate::emacs_core::value::HashTableTest::Eq);
+                assert_eq!(table.data.len(), 2);
+                assert_eq!(table.test_name.map(resolve_sym), Some("eq"));
             }
             LoadedForm::Constant(_) => panic!("expected Eval form"),
         }
