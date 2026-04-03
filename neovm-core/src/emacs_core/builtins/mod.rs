@@ -4933,7 +4933,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "dump-emacs-portable",
-        |_ctx, args| builtin_dump_emacs_portable(args),
+        builtin_dump_emacs_portable,
         1,
         Some(2),
     );

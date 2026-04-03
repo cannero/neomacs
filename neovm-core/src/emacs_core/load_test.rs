@@ -48,6 +48,28 @@ fn cached_bootstrap_evaluator_clears_top_level_eval_state() {
 }
 
 #[test]
+fn dump_emacs_portable_writes_reloadable_snapshot() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_source_bootstrap_context();
+    eval.set_variable("dump-portable-test-var", Value::fixnum(42));
+
+    let dir = tempdir().expect("dump tempdir");
+    let dump_path = dir.path().join("portable-test.pdump");
+    crate::emacs_core::builtins::builtin_dump_emacs_portable(
+        &mut eval,
+        vec![Value::string(dump_path.to_string_lossy().into_owned())],
+    )
+    .expect("dump-emacs-portable should succeed");
+
+    let loaded = crate::emacs_core::pdump::load_from_dump(&dump_path)
+        .expect("reloading dumped snapshot should succeed");
+    assert_eq!(
+        loaded.obarray().symbol_value("dump-portable-test-var"),
+        Some(&Value::fixnum(42))
+    );
+}
+
+#[test]
 fn bootstrap_source_fingerprint_tracks_lisp_files_only() {
     let temp = tempdir().expect("temp runtime root");
     let runtime_root = temp.path();

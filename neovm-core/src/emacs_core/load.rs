@@ -1511,6 +1511,21 @@ fn normalized_bootstrap_features(extra_features: &[&str]) -> Vec<String> {
 // represent correctly. V16 invalidates older caches because category-table
 // ownership moved from a parallel manager into dumped Lisp objects.
 const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 16;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoadupDumpMode {
+    Pbootstrap,
+    Pdump,
+}
+
+impl LoadupDumpMode {
+    pub const fn as_gnu_string(self) -> &'static str {
+        match self {
+            Self::Pbootstrap => "pbootstrap",
+            Self::Pdump => "pdump",
+        }
+    }
+}
 const NEOBC_CACHE_VERSION: u32 = 2;
 const RUNTIME_ROOT_ENV: &str = "NEOMACS_RUNTIME_ROOT";
 const BOOTSTRAP_CACHE_DIR_ENV: &str = "NEOVM_BOOTSTRAP_CACHE_DIR";
@@ -2807,8 +2822,22 @@ pub fn create_source_bootstrap_context() -> super::eval::Context {
     eval
 }
 
+fn set_loadup_dump_mode(eval: &mut super::eval::Context, dump_mode: Option<LoadupDumpMode>) {
+    match dump_mode {
+        Some(mode) => eval.set_variable("dump-mode", Value::string(mode.as_gnu_string())),
+        None => eval.set_variable("dump-mode", Value::NIL),
+    }
+}
+
 pub fn create_bootstrap_evaluator_with_features(
     extra_features: &[&str],
+) -> Result<super::eval::Context, EvalError> {
+    create_bootstrap_evaluator_with_dump_mode(extra_features, None)
+}
+
+pub fn create_bootstrap_evaluator_with_dump_mode(
+    extra_features: &[&str],
+    dump_mode: Option<LoadupDumpMode>,
 ) -> Result<super::eval::Context, EvalError> {
     // Discover the runtime root (contains lisp/ and etc/).
     let project_root = runtime_project_root();
@@ -2851,10 +2880,11 @@ pub fn create_bootstrap_evaluator_with_features(
         maybe_trace_bootstrap_step(format!(
             "create_bootstrap_evaluator_with_features: seeded-batch-bootstrap-frame={bootstrap_frame_id:?}"
         ));
-        // loadup.el line 60: (null dump-mode) triggers load-path setup.
-        // Setting to nil skips the dump section (line 604) entirely —
-        // NeoVM handles pdump in Rust after loadup.el returns.
-        eval.set_variable("dump-mode", Value::NIL);
+        // GNU loadup.el uses a string-valued dump-mode (`pdump` /
+        // `pbootstrap`) to decide whether Lisp should call
+        // `dump-emacs-portable`. Keep ordinary cached bootstrap on nil, but
+        // let explicit temacs-style flows seed the real GNU value here.
+        set_loadup_dump_mode(&mut eval, dump_mode);
         eval.set_variable("purify-flag", Value::NIL);
         // NeoVM counts depth more aggressively than GNU (see eval.rs comment).
         eval.set_variable("max-lisp-eval-depth", Value::fixnum(2400));

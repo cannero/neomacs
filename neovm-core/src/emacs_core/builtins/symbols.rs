@@ -3706,8 +3706,22 @@ pub(crate) fn builtin_module_load(args: Vec<Value>) -> EvalResult {
     Ok(Value::T)
 }
 
-pub(crate) fn builtin_dump_emacs_portable(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_dump_emacs_portable(
+    ctx: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_range_args("dump-emacs-portable", &args, 1, 2)?;
+    let path = expect_strict_string(&args[0])?;
+    crate::emacs_core::pdump::dump_to_file(ctx, std::path::Path::new(&path)).map_err(|err| {
+        signal(
+            "file-error",
+            vec![
+                Value::string("dump-emacs-portable"),
+                Value::string(path),
+                Value::string(err.to_string()),
+            ],
+        )
+    })?;
     Ok(Value::NIL)
 }
 
