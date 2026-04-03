@@ -2081,6 +2081,7 @@ dependencies = [
  "portable-pty",
  "proptest",
  "regex",
+ "rustc-hash 2.1.1",
  "rustls",
  "rustls-pki-types",
  "serde",

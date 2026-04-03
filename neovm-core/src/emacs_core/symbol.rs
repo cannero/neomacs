@@ -11,7 +11,7 @@
 use super::intern::{SymId, intern, is_canonical_id, lookup_interned, resolve_sym};
 use super::value::{Value, ValueKind};
 use crate::gc_trace::GcTrace;
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 /// Describes how a symbol's value cell is stored, matching GNU Emacs's
 /// `symbol_redirect` enum (`SYMBOL_PLAINVAL`, `SYMBOL_VARALIAS`,
@@ -47,7 +47,7 @@ pub struct SymbolData {
     /// Function cell (None = void-function).
     pub function: Option<Value>,
     /// Property list (flat alternating key-value pairs stored as HashMap).
-    pub plist: HashMap<SymId, Value>,
+    pub plist: FxHashMap<SymId, Value>,
     /// Whether this symbol is declared `special` (always dynamically bound).
     pub special: bool,
     /// Whether this symbol is a constant (defconst).
@@ -64,7 +64,7 @@ impl SymbolData {
             name,
             value: SymbolValue::Plain(None),
             function: None,
-            plist: HashMap::new(),
+            plist: FxHashMap::default(),
             special: false,
             constant: false,
             interned_global: false,

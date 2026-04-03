@@ -6,7 +6,7 @@
 //! single append-only process interner, while tests can still instantiate local
 //! `StringInterner`s directly for unit coverage.
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::sync::{OnceLock, RwLock};
 
 /// A compact handle to an interned string. Copy, 4 bytes.
@@ -19,7 +19,7 @@ pub const T_SYM_ID: SymId = SymId(1);
 /// Append-only string interner. Guarantees: same string → same SymId.
 pub struct StringInterner {
     strings: Vec<&'static str>,
-    map: HashMap<&'static str, u32>,
+    map: FxHashMap<&'static str, u32>,
     canonical: Vec<bool>,
 }
 
@@ -33,7 +33,7 @@ impl StringInterner {
     pub fn new() -> Self {
         let mut interner = Self {
             strings: Vec::new(),
-            map: HashMap::new(),
+            map: FxHashMap::default(),
             canonical: Vec::new(),
         };
         // Pre-intern "nil" and "t" as SymId(0) and SymId(1) respectively.
@@ -101,7 +101,7 @@ impl StringInterner {
     pub(crate) fn from_strings(strings: Vec<String>) -> Self {
         let mut interner = Self {
             strings: Vec::with_capacity(strings.len()),
-            map: HashMap::with_capacity(strings.len()),
+            map: FxHashMap::with_capacity_and_hasher(strings.len(), Default::default()),
             canonical: Vec::with_capacity(strings.len()),
         };
         for s in strings {
