@@ -13,6 +13,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tempfile::tempdir;
 
 fn isolated_runtime_bootstrap_eval() -> Context {
     let dump_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -43,6 +44,49 @@ fn cached_bootstrap_evaluator_clears_top_level_eval_state() {
     assert!(
         eval.top_level_eval_state_is_clean(),
         "cached bootstrap evaluator should not retain stale lexenv/specpdl state"
+    );
+}
+
+#[test]
+fn bootstrap_source_fingerprint_tracks_lisp_files_only() {
+    let temp = tempdir().expect("temp runtime root");
+    let runtime_root = temp.path();
+    fs::create_dir_all(runtime_root.join("lisp")).expect("create lisp dir");
+    fs::create_dir_all(runtime_root.join("etc")).expect("create etc dir");
+
+    fs::write(runtime_root.join("lisp/loadup.el"), "(message \"one\")").expect("write loadup");
+    fs::write(runtime_root.join("README.md"), "ignored").expect("write readme");
+
+    let original = bootstrap_source_fingerprint(runtime_root);
+
+    fs::write(runtime_root.join("README.md"), "still ignored").expect("rewrite readme");
+    let after_non_lisp_change = bootstrap_source_fingerprint(runtime_root);
+    assert_eq!(original, after_non_lisp_change);
+
+    fs::write(runtime_root.join("lisp/loadup.el"), "(message \"two\")").expect("rewrite loadup");
+    let after_lisp_change = bootstrap_source_fingerprint(runtime_root);
+    assert_ne!(original, after_lisp_change);
+}
+
+#[test]
+fn bootstrap_dump_path_changes_when_runtime_lisp_changes() {
+    let temp = tempdir().expect("temp runtime root");
+    let runtime_root = temp.path();
+    fs::create_dir_all(runtime_root.join("lisp")).expect("create lisp dir");
+    fs::create_dir_all(runtime_root.join("etc")).expect("create etc dir");
+    fs::write(runtime_root.join("lisp/loadup.el"), "(message \"one\")").expect("write loadup");
+
+    let first = bootstrap_dump_path(runtime_root, &["neomacs"]);
+
+    fs::write(runtime_root.join("lisp/loadup.el"), "(message \"two\")").expect("rewrite loadup");
+    let second = bootstrap_dump_path(runtime_root, &["neomacs"]);
+
+    assert_ne!(first, second);
+    assert!(
+        first
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with("-neomacs.pdump"))
     );
 }
 

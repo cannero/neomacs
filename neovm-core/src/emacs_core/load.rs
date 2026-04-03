@@ -7,7 +7,9 @@ use super::expr::print_expr;
 use super::intern::{intern, resolve_sym};
 use super::keymap::{is_list_keymap, list_keymap_lookup_one};
 use super::value::{HashKey, Value, ValueKind, list_to_vec};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::fs;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
@@ -1383,10 +1385,6 @@ fn normalized_bootstrap_features(extra_features: &[&str]) -> Vec<String> {
 // represent correctly. V16 invalidates older caches because category-table
 // ownership moved from a parallel manager into dumped Lisp objects.
 const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 16;
-const BOOTSTRAP_CACHE_SEED: &str = match option_env!("NEOVM_BOOTSTRAP_CACHE_SEED") {
-    Some(seed) => seed,
-    None => "dev",
-};
 const RUNTIME_ROOT_ENV: &str = "NEOMACS_RUNTIME_ROOT";
 const BOOTSTRAP_CACHE_DIR_ENV: &str = "NEOVM_BOOTSTRAP_CACHE_DIR";
 
@@ -1461,6 +1459,66 @@ fn bootstrap_cache_dir(runtime_root: &Path) -> PathBuf {
     std::env::temp_dir().join("neomacs")
 }
 
+fn should_hash_bootstrap_source_file(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(OsStr::to_str),
+        Some("el") | Some("elc")
+    )
+}
+
+fn collect_bootstrap_source_files(path: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(metadata) = fs::metadata(path) else {
+        return;
+    };
+
+    if metadata.is_file() {
+        if should_hash_bootstrap_source_file(path) {
+            out.push(path.to_path_buf());
+        }
+        return;
+    }
+
+    let Ok(entries) = fs::read_dir(path) else {
+        return;
+    };
+
+    let mut children = entries
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .collect::<Vec<_>>();
+    children.sort();
+    for child in children {
+        collect_bootstrap_source_files(&child, out);
+    }
+}
+
+fn bootstrap_source_fingerprint(runtime_root: &Path) -> String {
+    let mut files = Vec::new();
+    collect_bootstrap_source_files(&runtime_root.join("lisp"), &mut files);
+    files.sort();
+
+    let mut hasher = Sha256::new();
+    hasher.update(b"neomacs-bootstrap-source-fingerprint-v1\0");
+    for path in files {
+        let rel = path.strip_prefix(runtime_root).unwrap_or(&path);
+        hasher.update(rel.as_os_str().as_encoded_bytes());
+        hasher.update([0]);
+        match fs::read(&path) {
+            Ok(bytes) => {
+                hasher.update([1]);
+                hasher.update(bytes);
+            }
+            Err(err) => {
+                hasher.update([0]);
+                hasher.update(err.to_string().as_bytes());
+            }
+        }
+        hasher.update([0xff]);
+    }
+
+    let digest = hasher.finalize();
+    format!("{:x}", digest)[..16].to_string()
+}
+
 fn bootstrap_dump_path(runtime_root: &Path, extra_features: &[&str]) -> PathBuf {
     let features = normalized_bootstrap_features(extra_features);
     let suffix = if features.is_empty() {
@@ -1468,8 +1526,9 @@ fn bootstrap_dump_path(runtime_root: &Path, extra_features: &[&str]) -> PathBuf 
     } else {
         format!("-{}", features.join("-"))
     };
+    let source_fingerprint = bootstrap_source_fingerprint(runtime_root);
     bootstrap_cache_dir(runtime_root).join(format!(
-        "neovm-bootstrap-v{BOOTSTRAP_IMAGE_SCHEMA_VERSION}-{BOOTSTRAP_CACHE_SEED}{suffix}.pdump"
+        "neovm-bootstrap-v{BOOTSTRAP_IMAGE_SCHEMA_VERSION}-{source_fingerprint}{suffix}.pdump"
     ))
 }
 
@@ -2778,8 +2837,9 @@ pub fn create_bootstrap_evaluator_with_features(
 /// `.pdump` file next to the `lisp/` directory. On subsequent calls,
 /// loads from the dump file (~10-50ms vs 3-5s bootstrap).
 ///
-/// The dump file is automatically invalidated when the pdump format
-/// version changes. Set `NEOVM_DISABLE_PDUMP=1` to force fresh bootstrap.
+/// The dump file is invalidated by the bootstrap image schema version and
+/// by a fingerprint of the runtime root's Lisp sources. Set
+/// `NEOVM_DISABLE_PDUMP=1` to force fresh bootstrap.
 pub fn create_bootstrap_evaluator_cached() -> Result<super::eval::Context, EvalError> {
     create_bootstrap_evaluator_cached_with_features(&[])
 }

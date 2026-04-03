@@ -38,9 +38,6 @@ default = []
 tracing-subscriber.workspace = true
 proptest.workspace = true
 
-[build-dependencies]
-sha2.workspace = true
-
 [lints.rust]
 unused_imports = "allow"
 unused_variables = "allow"

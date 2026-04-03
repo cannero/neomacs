@@ -1,8 +1,5 @@
-use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
-
-use sha2::{Digest, Sha256};
 
 #[path = "build_support/unicode_gen.rs"]
 mod unicode_gen;
@@ -13,67 +10,18 @@ fn main() {
 
     unicode_gen::ensure_generated_unicode_lisp(&manifest_dir, project_root);
     generate_x11_color_table(project_root, &manifest_dir);
-
-    let tracked_roots = [
-        manifest_dir.join("src"),
-        manifest_dir.join("unicode-data"),
-        manifest_dir.join("Cargo.toml"),
-        manifest_dir.join("build.rs"),
-        project_root.join("lisp"),
-    ];
-
-    for root in &tracked_roots {
-        println!("cargo:rerun-if-changed={}", root.display());
-    }
-
-    let mut files = Vec::new();
-    collect_files(&tracked_roots, &mut files);
-    files.sort();
-
-    let mut hasher = Sha256::new();
-    for path in &files {
-        println!("cargo:rerun-if-changed={}", path.display());
-        let rel = path.strip_prefix(project_root).unwrap_or(path);
-        hasher.update(rel.as_os_str().as_encoded_bytes());
-        hasher.update([0]);
-        hasher.update(fs::read(path).unwrap_or_default());
-        hasher.update([0xff]);
-    }
-
-    let digest = hasher.finalize();
-    let seed = format!("{:x}", digest);
-    println!("cargo:rustc-env=NEOVM_BOOTSTRAP_CACHE_SEED={}", &seed[..16]);
-}
-
-fn collect_files(roots: &[PathBuf], out: &mut Vec<PathBuf>) {
-    for root in roots {
-        collect_path(root, out);
-    }
-}
-
-fn collect_path(path: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(metadata) = fs::metadata(path) else {
-        return;
-    };
-
-    if metadata.is_file() {
-        if should_hash_file(path) {
-            out.push(path.to_path_buf());
-        }
-        return;
-    }
-
-    let Ok(entries) = fs::read_dir(path) else {
-        return;
-    };
-
-    let mut children = entries
-        .filter_map(|entry| entry.ok().map(|e| e.path()))
-        .collect::<Vec<_>>();
-    children.sort();
-    for child in children {
-        collect_path(&child, out);
-    }
+    println!(
+        "cargo:rerun-if-changed={}",
+        manifest_dir.join("unicode-data").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        project_root.join("etc/rgb.txt").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        manifest_dir.join("build_support/unicode_gen.rs").display()
+    );
 }
 
 /// Parse etc/rgb.txt and generate a Rust source file with a static
@@ -143,20 +91,4 @@ fn generate_x11_color_table(project_root: &Path, manifest_dir: &Path) {
         colors.len(),
         rgb_path.display()
     );
-}
-
-fn should_hash_file(path: &Path) -> bool {
-    let Some(ext) = path.extension().and_then(OsStr::to_str) else {
-        return false;
-    };
-    match ext {
-        "rs" => {
-            let stem = path.file_stem().and_then(OsStr::to_str).unwrap_or_default();
-            // Test-only Rust files don't affect the dumped runtime surface and
-            // should not invalidate bootstrap caches.
-            !stem.ends_with("_test")
-        }
-        "el" | "elc" | "toml" => true,
-        _ => false,
-    }
 }
