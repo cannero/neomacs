@@ -51,6 +51,17 @@ fn gui_startup_with_args(args: &[&str]) -> StartupOptions {
     }
 }
 
+fn tty_batch_startup_with_args(args: &[&str]) -> StartupOptions {
+    let mut forwarded_args = vec!["neomacs".to_string()];
+    forwarded_args.extend(args.iter().map(|arg| (*arg).to_string()));
+    StartupOptions {
+        frontend: FrontendKind::Tty,
+        forwarded_args,
+        terminal_device: None,
+        noninteractive: true,
+    }
+}
+
 fn bootstrap_runtime_gui_startup(eval: &mut Context) -> FrameId {
     let _bootstrap = bootstrap_buffers(eval, 960, 640, gui_display());
     let frame_id = eval
@@ -1306,6 +1317,54 @@ fn recursive_edit_processes_load_option_from_forwarded_args_before_first_input()
     assert_eq!(
         print_value_with_eval(&mut eval, &items[2]),
         "\"*Neomacs Face Test*\""
+    );
+}
+
+#[test]
+fn bootstrap_batch_eval_exits_outer_command_loop_like_gnu() {
+    let mut eval = create_bootstrap_evaluator_cached_with_features(BOOTSTRAP_CORE_FEATURES)
+        .expect("bootstrap evaluator");
+    let _bootstrap = bootstrap_buffers(
+        &mut eval,
+        80,
+        24,
+        bootstrap_display_config(FrontendKind::Tty),
+    );
+    let frame_id = eval
+        .frame_manager()
+        .selected_frame()
+        .expect("selected frame after bootstrap")
+        .id;
+    let startup = tty_batch_startup_with_args(&["-Q", "--eval", "(setq neomacs--batch-probe 42)"]);
+    configure_gnu_startup_state(&mut eval, frame_id, &startup);
+
+    let (_tx, rx) = crossbeam_channel::unbounded();
+    let mut wake_pipe = [0; 2];
+    let pipe_result = unsafe { libc::pipe(wake_pipe.as_mut_ptr()) };
+    assert_eq!(pipe_result, 0, "pipe should initialize");
+    eval.init_input_system(rx, wake_pipe[0]);
+
+    let result = eval.recursive_edit();
+    unsafe {
+        libc::close(wake_pipe[0]);
+        libc::close(wake_pipe[1]);
+    }
+    result.expect("batch recursive edit should exit cleanly");
+
+    assert_eq!(
+        eval.shutdown_request(),
+        Some(neovm_core::emacs_core::eval::ShutdownRequest {
+            exit_code: 0,
+            restart: false,
+        })
+    );
+    assert_eq!(
+        eval.obarray().symbol_value("neomacs--batch-probe"),
+        Some(&Value::fixnum(42))
+    );
+    assert_eq!(
+        eval.obarray().symbol_value("command-line-processed"),
+        Some(&Value::T)
     );
 }
 

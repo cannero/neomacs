@@ -539,6 +539,23 @@ pub(crate) fn reset_charset_registry() {
     }
 }
 
+/// Collect GC roots from charset runtime state.
+///
+/// GNU Emacs keeps charset Lisp attributes reachable from `Vcharset_hash_table`
+/// and also marks `charset_table[i].attributes` in `mark_charset`.  Neomacs's
+/// Rust-side charset registry stores the plist values directly, so those Lisp
+/// values must be surfaced explicitly as GC roots.
+pub(crate) fn collect_charset_gc_roots(roots: &mut Vec<Value>) {
+    CHARSET_REGISTRY.with(|slot| {
+        let reg = slot.borrow();
+        for info in reg.charsets.values() {
+            for (_, value) in &info.plist {
+                roots.push(*value);
+            }
+        }
+    });
+}
+
 pub(crate) fn snapshot_charset_registry() -> CharsetRegistrySnapshot {
     CHARSET_REGISTRY.with(|slot| slot.borrow().snapshot())
 }

@@ -692,6 +692,7 @@ fn collect_thread_local_gc_roots(roots: &mut Vec<Value>) {
     super::category::collect_category_gc_roots(roots);
     super::terminal::pure::collect_terminal_gc_roots(roots);
     super::font::collect_font_gc_roots(roots);
+    super::charset::collect_charset_gc_roots(roots);
     super::ccl::collect_ccl_gc_roots(roots);
     SCRATCH_GC_ROOTS.with(|scratch| roots.extend(scratch.borrow().iter().copied()));
 }
@@ -4098,10 +4099,22 @@ impl Context {
                 Err(Flow::Throw { ref tag, .. }) if tag.is_symbol_named("top-level") => {
                     continue;
                 }
+                Ok(value) if outermost_command_loop && self.command_loop_noninteractive() => {
+                    super::builtins::symbols::builtin_kill_emacs(self, vec![Value::T])?;
+                    return Ok(value);
+                }
                 // Any other result propagates up
                 other => return other,
             }
         }
+    }
+
+    fn command_loop_noninteractive(&self) -> bool {
+        self.obarray
+            .symbol_value("noninteractive")
+            .copied()
+            .unwrap_or(Value::NIL)
+            .is_truthy()
     }
 
     fn command_loop_top_level_1(&mut self) -> EvalResult {
@@ -4319,6 +4332,11 @@ impl Context {
 
             // Read a complete key sequence (may be multi-key, e.g. C-x C-f).
             let (keys, binding) = self.read_key_sequence()?;
+
+            if keys.is_empty() && binding.is_nil() {
+                self.assign("this-command", Value::NIL);
+                return Ok(Value::NIL);
+            }
 
             if binding.is_nil() {
                 // Undefined key sequence — reset prefix arg
@@ -4963,6 +4981,14 @@ impl Context {
     }
 
     fn poll_pending_input_for_throw_on_input(&mut self) {
+        // GNU's keyboard/input path treats batch mode as a separate path and
+        // does not poll window-system input while `noninteractive` is set.
+        // Neomacs should likewise skip resize/input syncing during batch
+        // bootstrap and batch command loops.
+        if self.command_loop_noninteractive() {
+            return;
+        }
+
         self.sync_pending_resize_events();
 
         let throw_on_input = self
@@ -5601,11 +5627,12 @@ impl Context {
         let sym_id = original_fun.as_symbol_id();
         let name = sym_id.map(|id| resolve_sym(id));
 
-        // Keep evaluator-only literal forms on the internal fast path.
-        // Public special forms are dispatched from the resolved subr surface
-        // below so aliases to special forms behave like GNU Emacs.
+        // Keep only evaluator-internal literal forms on the pre-resolution
+        // fast path. GNU decides public special-form dispatch from the
+        // function cell's UNEVALLED subr, so user-visible special forms
+        // should flow through the resolved subr surface below.
         if let Some(name) = name {
-            if !super::subr_info::is_special_form(name) {
+            if matches!(name, "lambda" | "byte-code-literal" | "byte-code") {
                 if let Some(result) = self.try_special_form_value(name, original_args) {
                     return result;
                 }

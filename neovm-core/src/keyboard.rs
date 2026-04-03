@@ -2418,8 +2418,15 @@ impl crate::emacs_core::eval::Context {
                 replay_current_sequence = false;
                 tracing::debug!("read_key_sequence: replaying buffered sequence");
             } else {
-                let emacs_event = match self.read_char() {
-                    Ok(event) => event,
+                let emacs_event = match self.read_char_with_timeout(None) {
+                    Ok(Some(event)) => event,
+                    Ok(None) => {
+                        self.restore_delayed_selection_event(&mut delayed_selection_event);
+                        self.restore_key_sequence_current_buffer(&mut saved_current_buffer);
+                        self.command_loop
+                            .set_command_key_sequences(Vec::new(), Vec::new());
+                        return Ok((Vec::new(), Value::NIL));
+                    }
                     Err(err) => {
                         self.restore_delayed_selection_event(&mut delayed_selection_event);
                         self.restore_key_sequence_current_buffer(&mut saved_current_buffer);
@@ -2873,6 +2880,17 @@ impl crate::emacs_core::eval::Context {
             }
             if self.shutdown_request.is_some() {
                 return Err(crate::emacs_core::error::signal("quit", vec![]));
+            }
+
+            if self
+                .obarray
+                .symbol_value("noninteractive")
+                .copied()
+                .unwrap_or(Value::NIL)
+                .is_truthy()
+            {
+                self.timer_stop_idle();
+                return Ok(None);
             }
 
             if deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {

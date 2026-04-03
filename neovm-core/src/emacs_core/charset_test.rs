@@ -1,4 +1,6 @@
 use super::*;
+use crate::emacs_core::eval::Context;
+use crate::emacs_core::pdump::dump_to_file;
 use crate::emacs_core::value::ValueKind;
 
 // -----------------------------------------------------------------------
@@ -497,6 +499,32 @@ fn charset_superset_supports_offsets_membership_and_ranges() {
             .iter()
             .any(|(from, to)| ('ก' as u32) >= *from && ('ก' as u32) <= *to)
     );
+}
+
+#[test]
+fn charset_registry_plist_values_survive_exact_gc_and_pdump_dump() {
+    crate::test_utils::init_test_tracing();
+    reset_charset_registry();
+
+    let mut eval = Context::new();
+
+    let mut args = vec![Value::NIL; 17];
+    args[0] = Value::symbol("charset-pdump-root-test");
+    args[1] = Value::fixnum(1);
+    args[2] = Value::vector(vec![Value::fixnum(0), Value::fixnum(127)]);
+    args[16] = Value::list(vec![
+        Value::symbol("doc"),
+        Value::string("charset plist string should stay live"),
+    ]);
+    builtin_define_charset_internal(args).unwrap();
+
+    eval.gc_collect_exact();
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let dump_path = dir.path().join("charset-registry-root-test.pdump");
+    dump_to_file(&eval, &dump_path).expect("pdump dump should keep charset plist strings alive");
+
+    reset_charset_registry();
 }
 
 // -----------------------------------------------------------------------

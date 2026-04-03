@@ -701,7 +701,9 @@ fn main() {
 
     let bootstrap_display = bootstrap_display_config(startup.frontend);
     let (width, height) = startup_dimensions(startup.frontend, bootstrap_frame_metrics());
-    // 2. Initialize the evaluator from the canonical core bootstrap.
+    // 2. Initialize the evaluator from the canonical bootstrap surface.
+    //    GNU loads the dumped bootstrap image here, then lets the outer
+    //    command loop evaluate `top-level`/`normal-top-level`.
     let mut evaluator =
         neovm_core::emacs_core::load::create_bootstrap_evaluator_cached_with_features(
             BOOTSTRAP_CORE_FEATURES,
