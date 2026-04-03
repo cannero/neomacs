@@ -48,8 +48,8 @@ fn collect_hook_functions_impl(
             let mut cursor = hook_value;
             let mut saw_global_marker = false;
             while cursor.is_cons() {
-                let pair_car = hook_value.cons_car();
-                let pair_cdr = hook_value.cons_cdr();
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
                 if pair_car.as_symbol_name() == Some("t") {
                     saw_global_marker = true;
                 } else {

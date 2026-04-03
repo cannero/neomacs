@@ -7,7 +7,7 @@ use crate::emacs_core::load::{
     create_runtime_startup_evaluator_cached, find_file_in_load_path, get_load_path, load_file,
 };
 use crate::emacs_core::value::Value;
-use crate::emacs_core::{format_eval_result, parse_forms, Context};
+use crate::emacs_core::{Context, format_eval_result, parse_forms};
 use std::path::PathBuf;
 
 /// Initialize the tracing subscriber for test output.
