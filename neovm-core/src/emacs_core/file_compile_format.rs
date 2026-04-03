@@ -30,8 +30,14 @@ use crate::tagged::header::{
     VecLikeType,
 };
 
+/// Monotonic on-disk `.neobc` schema version.
+///
+/// Keep this aligned with `NEOBC_MAGIC` and the runtime cache directory
+/// version in `load.rs`. Any incompatible bincode layout change must bump it.
+pub(crate) const NEOBC_FORMAT_VERSION: u32 = 4;
+
 /// Magic bytes identifying a `.neobc` file.
-const NEOBC_MAGIC: &[u8] = b"NEOVM-BC-V3\n";
+const NEOBC_MAGIC: &[u8] = b"NEOVM-BC-V4\n";
 
 // ---------------------------------------------------------------------------
 // Serializable expression type (mirrors load.rs CachedExpr, which is private)
@@ -1125,6 +1131,25 @@ mod tests {
             hash,
             "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
         );
+    }
+
+    #[test]
+    fn test_neobc_magic_matches_format_version() {
+        crate::test_utils::init_test_tracing();
+        let magic = std::str::from_utf8(NEOBC_MAGIC).expect("valid utf8 magic");
+        assert!(
+            magic.starts_with("NEOVM-BC-V"),
+            "unexpected neobc magic prefix: {magic:?}"
+        );
+        assert!(
+            magic.ends_with('\n'),
+            "unexpected neobc magic terminator: {magic:?}"
+        );
+        let version = magic
+            .trim_end()
+            .strip_prefix("NEOVM-BC-V")
+            .expect("version prefix");
+        assert_eq!(version, NEOBC_FORMAT_VERSION.to_string());
     }
 
     #[test]

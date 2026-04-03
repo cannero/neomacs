@@ -3814,7 +3814,7 @@ fn source_cycle_spacing_form_loads_after_bootstrap_prefix() {
 }
 
 #[test]
-fn neobc_candidate_paths_prefer_current_cache_dir_and_keep_legacy_fallback() {
+fn neobc_candidate_paths_use_current_format_cache_dir_only() {
     crate::test_utils::init_test_tracing();
 
     let source = compile_time_project_root().join("lisp/loadup.el");
@@ -3827,14 +3827,19 @@ fn neobc_candidate_paths_prefer_current_cache_dir_and_keep_legacy_fallback() {
     assert!(
         rendered
             .first()
-            .is_some_and(|path| path.contains("target/neobc-v3/lisp/loadup.neobc")),
+            .is_some_and(|path| path.contains("target/neobc-v4/lisp/loadup.neobc")),
         "expected current cache dir first, got {rendered:?}"
     );
     assert!(
-        rendered
-            .iter()
-            .any(|path| path.contains("target/neobc-v2/lisp/loadup.neobc")),
-        "expected legacy cache dir fallback, got {rendered:?}"
+        rendered.last().is_some_and(
+            |path| path.ends_with("/lisp/loadup.neobc") || path.ends_with("/lisp/loadup.el")
+        ),
+        "expected source fallback after cache candidate, got {rendered:?}"
+    );
+    assert_eq!(
+        rendered.len(),
+        2,
+        "expected current cache candidate plus source fallback, got {rendered:?}"
     );
 }
 

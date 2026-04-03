@@ -1563,8 +1563,8 @@ impl RuntimeImageRole {
         }
     }
 }
-const NEOBC_CACHE_VERSION: u32 = 3;
-const LEGACY_NEOBC_CACHE_VERSIONS: &[u32] = &[2];
+const NEOBC_CACHE_VERSION: u32 = super::file_compile_format::NEOBC_FORMAT_VERSION;
+const LEGACY_NEOBC_CACHE_VERSIONS: &[u32] = &[];
 const RUNTIME_ROOT_ENV: &str = "NEOMACS_RUNTIME_ROOT";
 const BOOTSTRAP_CACHE_DIR_ENV: &str = "NEOVM_BOOTSTRAP_CACHE_DIR";
 
