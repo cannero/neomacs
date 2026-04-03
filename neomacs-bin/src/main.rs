@@ -36,6 +36,7 @@ use neovm_core::emacs_core::eval::{
     FontResolveRequest, FontSpecResolveRequest, GuiFrameHostSize, ResolvedFontMatch,
     ResolvedFontSpecMatch,
 };
+use neovm_core::emacs_core::load::LoadupDumpMode;
 #[cfg(test)]
 use neovm_core::emacs_core::print_value_with_eval;
 use neovm_core::emacs_core::terminal::pure::{
@@ -95,6 +96,7 @@ struct StartupOptions {
     forwarded_args: Vec<String>,
     terminal_device: Option<String>,
     noninteractive: bool,
+    temacs_mode: Option<LoadupDumpMode>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -239,6 +241,7 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
     let mut frontend = FrontendKind::Gui;
     let mut terminal_device = None;
     let mut noninteractive = false;
+    let mut temacs_mode = None;
     let mut index = 0usize;
 
     while index < args.len() {
@@ -257,6 +260,24 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
         if matches!(arg.as_str(), "--batch" | "-batch") {
             noninteractive = true;
             frontend = FrontendKind::Tty;
+            index += 1;
+            continue;
+        }
+
+        if arg == "-temacs" || arg == "--temacs" {
+            let Some(value) = args.get(index + 1) else {
+                return Err(format!("neomacs: option `{arg}` requires an argument"));
+            };
+            temacs_mode = Some(parse_temacs_mode(value)?);
+            forwarded_args.push(arg.clone());
+            forwarded_args.push(value.clone());
+            index += 2;
+            continue;
+        }
+
+        if let Some(value) = arg.strip_prefix("--temacs=") {
+            temacs_mode = Some(parse_temacs_mode(value)?);
+            forwarded_args.push(arg.clone());
             index += 1;
             continue;
         }
@@ -300,7 +321,16 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
         forwarded_args,
         terminal_device,
         noninteractive,
+        temacs_mode,
     })
+}
+
+fn parse_temacs_mode(value: &str) -> Result<LoadupDumpMode, String> {
+    match value {
+        "pbootstrap" => Ok(LoadupDumpMode::Pbootstrap),
+        "pdump" => Ok(LoadupDumpMode::Pdump),
+        other => Err(format!("neomacs: invalid --temacs mode `{other}`")),
+    }
 }
 
 fn bootstrap_display_config(frontend: FrontendKind) -> BootstrapDisplayConfig {
@@ -727,6 +757,13 @@ pub fn run(mode: RuntimeMode) {
         std::process::exit(1);
     });
 
+    if mode == RuntimeMode::Raw
+        && let Some(temacs_mode) = startup.temacs_mode
+    {
+        run_temacs_dump_mode(temacs_mode);
+        return;
+    }
+
     // 1. Initialize logging
     neomacs_display_runtime::init_logging();
 
@@ -910,6 +947,29 @@ pub fn run(mode: RuntimeMode) {
         if request.exit_code != 0 {
             std::process::exit(request.exit_code);
         }
+    }
+}
+
+fn run_temacs_dump_mode(dump_mode: LoadupDumpMode) {
+    neomacs_display_runtime::init_logging();
+    tracing::info!(
+        "{} {} starting raw loadup dump (dump-mode={}, pid={})",
+        RuntimeMode::Raw.binary_name(),
+        neomacs_display_runtime::VERSION,
+        dump_mode.as_gnu_string(),
+        std::process::id()
+    );
+
+    let eval = neovm_core::emacs_core::load::create_bootstrap_evaluator_with_dump_mode(
+        BOOTSTRAP_CORE_FEATURES,
+        Some(dump_mode),
+    )
+    .expect("temacs bootstrap dump should succeed");
+
+    if let Some(request) = eval.shutdown_request()
+        && request.exit_code != 0
+    {
+        std::process::exit(request.exit_code);
     }
 }
 

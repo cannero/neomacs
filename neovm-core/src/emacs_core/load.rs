@@ -2985,6 +2985,10 @@ pub fn create_bootstrap_evaluator_with_dump_mode(
             }
         }
 
+        if dump_mode.is_some() && eval.shutdown_request.is_some() {
+            return Ok(eval);
+        }
+
         // If loadup.el set a shutdown request (via kill-emacs at the end
         // of the dump flow), clear it so the caller gets a usable evaluator.
         eval.shutdown_request = None;

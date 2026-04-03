@@ -11,7 +11,8 @@ use neovm_core::emacs_core::Context;
 use neovm_core::emacs_core::GuiFrameHostRequest;
 use neovm_core::emacs_core::Value;
 use neovm_core::emacs_core::load::{
-    create_bootstrap_evaluator_cached_with_features, create_bootstrap_evaluator_with_features,
+    LoadupDumpMode, create_bootstrap_evaluator_cached_with_features,
+    create_bootstrap_evaluator_with_features,
 };
 use neovm_core::emacs_core::parse_forms;
 use neovm_core::emacs_core::print_value_with_eval;
@@ -57,6 +58,7 @@ fn gui_startup() -> StartupOptions {
         forwarded_args: vec!["neomacs".to_string()],
         terminal_device: None,
         noninteractive: false,
+        temacs_mode: None,
     }
 }
 
@@ -68,6 +70,7 @@ fn gui_startup_with_args(args: &[&str]) -> StartupOptions {
         forwarded_args,
         terminal_device: None,
         noninteractive: false,
+        temacs_mode: None,
     }
 }
 
@@ -79,7 +82,27 @@ fn tty_batch_startup_with_args(args: &[&str]) -> StartupOptions {
         forwarded_args,
         terminal_device: None,
         noninteractive: true,
+        temacs_mode: None,
     }
+}
+
+#[test]
+fn parse_startup_options_accepts_gnu_temacs_modes() {
+    let startup = parse_startup_options([
+        "neomacs-temacs".to_string(),
+        "--temacs=pbootstrap".to_string(),
+        "--batch".to_string(),
+    ])
+    .expect("startup options should parse");
+    assert_eq!(startup.temacs_mode, Some(LoadupDumpMode::Pbootstrap));
+
+    let startup = parse_startup_options([
+        "neomacs-temacs".to_string(),
+        "--temacs".to_string(),
+        "pdump".to_string(),
+    ])
+    .expect("startup options should parse");
+    assert_eq!(startup.temacs_mode, Some(LoadupDumpMode::Pdump));
 }
 
 fn bootstrap_runtime_gui_startup(eval: &mut Context) -> FrameId {
@@ -435,6 +458,7 @@ fn configure_gnu_startup_state_clears_window_system_for_tty_boots() {
         forwarded_args: vec!["neomacs".to_string(), "-q".to_string()],
         terminal_device: Some("/dev/tty".to_string()),
         noninteractive: false,
+        temacs_mode: None,
     };
     configure_gnu_startup_state(&mut eval, FrameId(7), &startup);
 
@@ -472,6 +496,7 @@ fn configure_gnu_startup_state_marks_batch_mode_noninteractive() {
         ],
         terminal_device: None,
         noninteractive: true,
+        temacs_mode: None,
     };
     configure_gnu_startup_state(&mut eval, FrameId(9), &startup);
 
