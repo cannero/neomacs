@@ -8,11 +8,13 @@
 
 use std::path::Path;
 
+use super::builtins::parse_lambda_params_from_value;
+use super::bytecode::Compiler;
 use super::error::Flow;
 use super::eval::{Context, quote_to_value};
 use super::expr::Expr;
 use super::intern::resolve_sym;
-use super::value::Value;
+use super::value::{Value, list_to_vec};
 
 /// A single compiled top-level form.
 #[derive(Clone, Debug)]
@@ -41,6 +43,42 @@ pub fn compile_file_forms(eval: &mut Context, forms: &[Expr]) -> Result<Vec<Comp
         compile_toplevel_file_form(eval, form, &mut compiled)?;
     }
     Ok(compiled)
+}
+
+fn compile_toplevel_defun(eval: &Context, items: &[Expr]) -> Option<Value> {
+    if items.len() < 4 {
+        return None;
+    }
+
+    let Expr::Symbol(name_id) = items.get(1)? else {
+        return None;
+    };
+
+    let arglist = items.get(2)?;
+    let docstring = match items.get(3) {
+        Some(Expr::Str(text)) => Some(text.clone()),
+        _ => None,
+    };
+    let body_start = if docstring.is_some() { 4 } else { 3 };
+    let body = items.get(body_start..)?;
+    if body.is_empty() {
+        return None;
+    }
+
+    let params = parse_lambda_params_from_value(&quote_to_value(arglist)).ok()?;
+    let mut compiler = Compiler::new(eval.lexical_binding());
+    let mut bytecode = compiler.compile_lambda(&params, body);
+    bytecode.docstring = docstring.clone();
+
+    let mut form = vec![
+        Value::symbol("defalias"),
+        Value::list(vec![Value::symbol("quote"), Value::from_sym_id(*name_id)]),
+        Value::make_bytecode(bytecode),
+    ];
+    if let Some(doc) = docstring {
+        form.push(Value::string(doc));
+    }
+    Some(Value::list(form))
 }
 
 /// Process a single top-level form, appending results to `out`.
@@ -75,6 +113,13 @@ fn compile_toplevel_file_form(
                         eval.sf_progn(&items[1..])?;
                         out.push(CompiledForm::Eval(quote_to_value(form)));
                         return Ok(());
+                    }
+                    "defun" => {
+                        if let Some(compiled_form) = compile_toplevel_defun(eval, items) {
+                            eval.eval_value(&compiled_form)?;
+                            out.push(CompiledForm::Eval(compiled_form));
+                            return Ok(());
+                        }
                     }
                     _ => {}
                 }
@@ -166,6 +211,7 @@ pub fn compile_el_to_neobc(eval: &mut Context, el_path: &Path) -> Result<(), Com
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::emacs_core::file_compile_format::{LoadedForm, read_neobc};
     use crate::emacs_core::parser::parse_forms;
 
     #[test]
@@ -244,6 +290,22 @@ mod tests {
     }
 
     #[test]
+    fn test_compile_defun_emits_compiled_defalias_form() {
+        crate::test_utils::init_test_tracing();
+        let mut eval = Context::new();
+        let forms = parse_forms("(defun test-fc-byte (x) \"doc\" (+ x 1))").unwrap();
+        let compiled = compile_file_forms(&mut eval, &forms).unwrap();
+        assert_eq!(compiled.len(), 1);
+        let CompiledForm::Eval(value) = &compiled[0] else {
+            panic!("expected Eval form");
+        };
+        let items = list_to_vec(value).expect("compiled top-level form should be a list");
+        assert_eq!(items[0].as_symbol_name(), Some("defalias"));
+        assert!(items[2].get_bytecode_data().is_some());
+        assert_eq!(items[3].as_str(), Some("doc"));
+    }
+
+    #[test]
     fn test_compile_multiple_forms() {
         crate::test_utils::init_test_tracing();
         let mut eval = Context::new();
@@ -294,6 +356,42 @@ mod tests {
         let loaded = read_neobc(&neobc_path, "").unwrap();
         assert!(!loaded.lexical_binding);
         assert_eq!(loaded.forms.len(), 2);
+    }
+
+    #[test]
+    fn test_compile_el_to_neobc_round_trips_compiled_defun() {
+        crate::test_utils::init_test_tracing();
+
+        let dir = tempfile::tempdir().unwrap();
+        let el_path = dir.path().join("compiled-defun.el");
+        let source = ";; -*- lexical-binding: nil -*-\n\
+                      (defun test-compiled-neobc (x) \"doc\" (+ x 1))\n";
+        std::fs::write(&el_path, source).unwrap();
+
+        let mut compiler_eval = Context::new();
+        compile_el_to_neobc(&mut compiler_eval, &el_path).unwrap();
+
+        let neobc_path = el_path.with_extension("neobc");
+        let loaded = read_neobc(&neobc_path, "").unwrap();
+        assert_eq!(loaded.forms.len(), 1);
+
+        let mut runtime_eval = Context::new();
+        for form in &loaded.forms {
+            match form {
+                LoadedForm::Eval(expr) => {
+                    let value = runtime_eval.quote_to_runtime_value(expr);
+                    runtime_eval.eval_sub(value).unwrap();
+                }
+                LoadedForm::Constant(_) | LoadedForm::EagerEval(_) => {}
+            }
+        }
+
+        let func = runtime_eval
+            .obarray()
+            .symbol_function("test-compiled-neobc")
+            .copied()
+            .expect("compiled function should be installed");
+        assert!(func.get_bytecode_data().is_some());
     }
 
     #[test]
