@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use super::intern::resolve_sym;
+use super::intern::SymId;
 use super::symbol::Obarray;
 use super::value::{Value, ValueKind, VecLikeType};
 use crate::gc_trace::GcTrace;
@@ -23,8 +23,8 @@ pub struct VariableWatcher {
 
 /// Registry of variable watchers.
 pub struct VariableWatcherList {
-    /// Map from variable name → list of watcher callbacks.
-    watchers: HashMap<String, Vec<VariableWatcher>>,
+    /// Map from resolved variable symbol → list of watcher callbacks.
+    watchers: HashMap<SymId, Vec<VariableWatcher>>,
 }
 
 impl VariableWatcherList {
@@ -35,8 +35,8 @@ impl VariableWatcherList {
     }
 
     /// Add a watcher callback for a variable.
-    pub fn add_watcher(&mut self, var_name: &str, callback: Value) {
-        let entry = self.watchers.entry(var_name.to_string()).or_default();
+    pub fn add_watcher(&mut self, var_id: SymId, callback: Value) {
+        let entry = self.watchers.entry(var_id).or_default();
         // Don't add duplicate watchers.
         let already_exists = entry
             .iter()
@@ -47,31 +47,31 @@ impl VariableWatcherList {
     }
 
     /// Remove a watcher callback for a variable.
-    pub fn remove_watcher(&mut self, var_name: &str, callback: &Value) {
-        if let Some(list) = self.watchers.get_mut(var_name) {
+    pub fn remove_watcher(&mut self, var_id: SymId, callback: &Value) {
+        if let Some(list) = self.watchers.get_mut(&var_id) {
             list.retain(|w| !watcher_callback_matches(&w.callback, callback));
             if list.is_empty() {
-                self.watchers.remove(var_name);
+                self.watchers.remove(&var_id);
             }
         }
     }
 
     /// Remove all watcher callbacks for a variable.
-    pub fn clear_watchers(&mut self, var_name: &str) {
-        self.watchers.remove(var_name);
+    pub fn clear_watchers(&mut self, var_id: SymId) {
+        self.watchers.remove(&var_id);
     }
 
     /// Check if a variable has any watchers.
-    pub fn has_watchers(&self, var_name: &str) -> bool {
+    pub fn has_watchers(&self, var_id: SymId) -> bool {
         self.watchers
-            .get(var_name)
+            .get(&var_id)
             .is_some_and(|list| !list.is_empty())
     }
 
     /// Return registered watcher callbacks for a variable in insertion order.
-    pub fn get_watchers(&self, var_name: &str) -> Vec<Value> {
+    pub fn get_watchers(&self, var_id: SymId) -> Vec<Value> {
         self.watchers
-            .get(var_name)
+            .get(&var_id)
             .map(|list| list.iter().map(|watcher| watcher.callback).collect())
             .unwrap_or_default()
     }
@@ -89,17 +89,17 @@ impl VariableWatcherList {
     /// - WHERE: location designator (`nil` for global, buffer for buffer-local)
     pub fn notify_watchers(
         &self,
-        var_name: &str,
+        var_id: SymId,
         new_val: &Value,
         _old_val: &Value,
         operation: &str,
         where_val: &Value,
     ) -> Vec<(Value, Vec<Value>)> {
         let mut calls = Vec::new();
-        if let Some(list) = self.watchers.get(var_name) {
+        if let Some(list) = self.watchers.get(&var_id) {
             for watcher in list {
                 let args = vec![
-                    Value::symbol(var_name),
+                    Value::from_sym_id(var_id),
                     *new_val,
                     Value::symbol(operation),
                     *where_val,
@@ -111,10 +111,10 @@ impl VariableWatcherList {
     }
 
     // pdump accessors
-    pub(crate) fn dump_watchers(&self) -> &HashMap<String, Vec<VariableWatcher>> {
+    pub(crate) fn dump_watchers(&self) -> &HashMap<SymId, Vec<VariableWatcher>> {
         &self.watchers
     }
-    pub(crate) fn from_dump(watchers: HashMap<String, Vec<VariableWatcher>>) -> Self {
+    pub(crate) fn from_dump(watchers: HashMap<SymId, Vec<VariableWatcher>>) -> Self {
         Self { watchers }
     }
 }
@@ -192,19 +192,6 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     }
 }
 
-/// Extract a symbol name from a Value.
-fn expect_symbol_name(value: &Value) -> Result<String, Flow> {
-    match value.kind() {
-        ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
-        ValueKind::Nil => Ok("nil".to_string()),
-        ValueKind::T => Ok("t".to_string()),
-        other => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("symbolp"), *value],
-        )),
-    }
-}
-
 /// `(add-variable-watcher SYMBOL WATCH-FUNCTION)`
 ///
 /// Arrange to call WATCH-FUNCTION when SYMBOL is set.
@@ -214,12 +201,12 @@ pub(crate) fn builtin_add_variable_watcher(
 ) -> EvalResult {
     expect_args("add-variable-watcher", &args, 2)?;
 
-    let var_name = expect_symbol_name(&args[0])?;
+    let symbol = super::builtins::symbols::expect_symbol_id(&args[0])?;
     let resolved =
-        super::builtins::resolve_variable_alias_name_in_obarray(&eval.obarray, &var_name)?;
+        super::builtins::symbols::resolve_variable_alias_id_in_obarray(&eval.obarray, symbol)?;
     let callback = args[1];
 
-    eval.watchers.add_watcher(&resolved, callback);
+    eval.watchers.add_watcher(resolved, callback);
     Ok(Value::NIL)
 }
 
@@ -232,12 +219,12 @@ pub(crate) fn builtin_remove_variable_watcher(
 ) -> EvalResult {
     expect_args("remove-variable-watcher", &args, 2)?;
 
-    let var_name = expect_symbol_name(&args[0])?;
+    let symbol = super::builtins::symbols::expect_symbol_id(&args[0])?;
     let resolved =
-        super::builtins::resolve_variable_alias_name_in_obarray(&eval.obarray, &var_name)?;
+        super::builtins::symbols::resolve_variable_alias_id_in_obarray(&eval.obarray, symbol)?;
     let callback = args[1];
 
-    eval.watchers.remove_watcher(&resolved, &callback);
+    eval.watchers.remove_watcher(resolved, &callback);
     Ok(Value::NIL)
 }
 
@@ -250,10 +237,10 @@ pub(crate) fn builtin_get_variable_watchers(
 ) -> EvalResult {
     expect_args("get-variable-watchers", &args, 1)?;
 
-    let var_name = expect_symbol_name(&args[0])?;
+    let symbol = super::builtins::symbols::expect_symbol_id(&args[0])?;
     let resolved =
-        super::builtins::resolve_variable_alias_name_in_obarray(&eval.obarray, &var_name)?;
-    Ok(Value::list(eval.watchers.get_watchers(&resolved)))
+        super::builtins::symbols::resolve_variable_alias_id_in_obarray(&eval.obarray, symbol)?;
+    Ok(Value::list(eval.watchers.get_watchers(resolved)))
 }
 
 // ---------------------------------------------------------------------------

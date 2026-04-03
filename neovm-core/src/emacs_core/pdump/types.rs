@@ -998,7 +998,7 @@ pub struct DumpBookmarkManager {
 // Variable watchers
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpVariableWatcherList {
-    pub watchers: Vec<(String, Vec<DumpValue>)>,
+    pub watchers: Vec<(u32, Vec<DumpValue>)>,
 }
 
 // ---------------------------------------------------------------------------

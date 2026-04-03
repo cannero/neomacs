@@ -7,11 +7,10 @@ use crate::emacs_core::symbol::Obarray;
 // Symbol operations (need evaluator for obarray access)
 // ===========================================================================
 
-pub(crate) const VARIABLE_ALIAS_PROPERTY: &str = "neovm--variable-alias";
 pub(crate) const RAW_SYMBOL_PLIST_PROPERTY: &str = "neovm--raw-symbol-plist";
 
 pub(crate) fn is_internal_symbol_plist_property(property: &str) -> bool {
-    property == VARIABLE_ALIAS_PROPERTY || property == RAW_SYMBOL_PLIST_PROPERTY
+    property == RAW_SYMBOL_PLIST_PROPERTY
 }
 
 pub(crate) fn symbol_id(value: &Value) -> Option<SymId> {
@@ -118,36 +117,49 @@ pub(crate) fn resolve_variable_alias_id_in_obarray(
 ) -> Result<SymId, Flow> {
     use crate::emacs_core::symbol::SymbolValue;
 
-    let mut current = symbol;
-    let mut seen = HashSet::new();
+    let alias_target = |id| match obarray.get_by_id(id) {
+        Some(sym) => match sym.value {
+            SymbolValue::Alias(target) => Some(target),
+            _ => None,
+        },
+        None => None,
+    };
+
+    // GNU Emacs follows `SYMBOL_VARALIAS` directly from the symbol redirect
+    // field in `find_symbol_value`/`Fdefvaralias`; there is no plist fallback.
+    // Keep a cycle check here as a guard against corrupted runtime state, but
+    // avoid heap allocation on the hot lookup path.
+    let mut slow = symbol;
+    let mut fast = symbol;
 
     loop {
-        if !seen.insert(current) {
+        let Some(next_slow) = alias_target(slow) else {
+            break;
+        };
+        slow = next_slow;
+
+        let Some(next_fast) = alias_target(fast) else {
+            break;
+        };
+        let Some(next_fast) = alias_target(next_fast) else {
+            break;
+        };
+        fast = next_fast;
+
+        if slow == fast {
             return Err(signal(
                 "cyclic-variable-indirection",
                 vec![Value::from_sym_id(symbol)],
             ));
         }
-        // Primary: check SymbolValue::Alias variant.
-        match obarray.get_by_id(current) {
-            Some(sym) => match &sym.value {
-                SymbolValue::Alias(target) => current = *target,
-                _ => {
-                    // Fallback: also check plist for backward compatibility
-                    // with symbols that were aliased before the enum refactor.
-                    let next = sym
-                        .plist
-                        .get(&intern(VARIABLE_ALIAS_PROPERTY))
-                        .and_then(symbol_id);
-                    match next {
-                        Some(next_id) => current = next_id,
-                        None => return Ok(current),
-                    }
-                }
-            },
-            None => return Ok(current),
-        }
     }
+
+    let mut current = symbol;
+    while let Some(next) = alias_target(current) {
+        current = next;
+    }
+
+    Ok(current)
 }
 
 pub(crate) fn resolve_variable_alias_id(
@@ -183,30 +195,15 @@ pub(crate) fn would_create_variable_alias_cycle_in_obarray(
     use crate::emacs_core::symbol::SymbolValue;
 
     let mut current = old_symbol;
-    let mut seen = HashSet::new();
 
     loop {
         if current == new_symbol {
             return true;
         }
-        if !seen.insert(current) {
-            return true;
-        }
-        // Primary: check SymbolValue::Alias variant.
         match obarray.get_by_id(current) {
-            Some(sym) => match &sym.value {
-                SymbolValue::Alias(target) => current = *target,
-                _ => {
-                    // Fallback: plist for backward compatibility.
-                    let next = sym
-                        .plist
-                        .get(&intern(VARIABLE_ALIAS_PROPERTY))
-                        .and_then(symbol_id);
-                    match next {
-                        Some(next_id) => current = next_id,
-                        None => return false,
-                    }
-                }
+            Some(sym) => match sym.value {
+                SymbolValue::Alias(target) => current = target,
+                _ => return false,
             },
             None => return false,
         }
@@ -412,11 +409,10 @@ pub(crate) fn builtin_set_default_toplevel_value(
     set_default_toplevel_value_impl(eval, args.clone())?;
     let symbol = expect_symbol_id(&args[0])?;
     let resolved = resolve_variable_alias_id(eval, symbol)?;
-    let resolved_name = resolve_sym(resolved);
     let value = args[1];
-    eval.run_variable_watchers(resolved_name, &value, &Value::NIL, "set")?;
+    eval.run_variable_watchers_by_id(resolved, &value, &Value::NIL, "set")?;
     if resolved != symbol {
-        eval.run_variable_watchers(resolved_name, &value, &Value::NIL, "set")?;
+        eval.run_variable_watchers_by_id(resolved, &value, &Value::NIL, "set")?;
     }
     Ok(Value::NIL)
 }
@@ -444,13 +440,13 @@ pub(crate) fn set_default_toplevel_value_impl(
 
 pub(crate) fn builtin_defvaralias(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let state_change = defvaralias_impl(eval, args.clone())?;
-    eval.run_variable_watchers(
-        &state_change.previous_target,
+    eval.run_variable_watchers_by_id(
+        state_change.previous_target_id,
         &state_change.base_variable,
         &Value::NIL,
         "defvaralias",
     )?;
-    eval.watchers.clear_watchers(&state_change.alias_name);
+    eval.watchers.clear_watchers(state_change.alias_id);
     // GNU Emacs updates `variable-documentation` through plist machinery after
     // installing alias state, so malformed raw plists still raise
     // `(wrong-type-argument plistp ...)` with the alias edge retained.
@@ -466,8 +462,8 @@ pub(crate) fn builtin_defvaralias(eval: &mut super::eval::Context, args: Vec<Val
 }
 
 pub(crate) struct DefvaraliasStateChange {
-    pub(crate) alias_name: String,
-    pub(crate) previous_target: String,
+    pub(crate) alias_id: SymId,
+    pub(crate) previous_target_id: SymId,
     pub(crate) base_variable: Value,
     pub(crate) docstring: Value,
     pub(crate) result: Value,
@@ -492,19 +488,15 @@ pub(crate) fn defvaralias_impl(
     if would_create_variable_alias_cycle_in_obarray(&ctx.obarray, new_symbol, old_symbol) {
         return Err(signal("cyclic-variable-indirection", vec![args[1]]));
     }
-    let previous_target = resolve_variable_alias_name_in_obarray(&ctx.obarray, &new_name)?;
+    let previous_target_id = resolve_variable_alias_id_in_obarray(&ctx.obarray, new_symbol)?;
     ctx.obarray.make_special_id(new_symbol);
-    // Keep the plist entry for backward compatibility during transition.
-    ctx.obarray
-        .put_property_id(new_symbol, intern(VARIABLE_ALIAS_PROPERTY), args[1]);
-    // Primary mechanism: set the SymbolValue::Alias variant.
     ctx.obarray.make_alias(new_symbol, old_symbol);
     ctx.obarray.make_special_id(old_symbol);
     preflight_symbol_plist_put_in_obarray(&mut ctx.obarray, new_symbol, "variable-documentation")?;
     let docstring = args.get(2).cloned().unwrap_or(Value::NIL);
     Ok(DefvaraliasStateChange {
-        alias_name: new_name,
-        previous_target,
+        alias_id: new_symbol,
+        previous_target_id,
         base_variable: args[1],
         docstring,
         result: args[1],
@@ -733,8 +725,8 @@ pub(crate) fn builtin_set(eval: &mut super::eval::Context, args: Vec<Value>) -> 
         .set_runtime_binding_by_id(resolved, value)
         .map(Value::make_buffer)
         .unwrap_or(Value::NIL);
-    eval.run_variable_watchers_with_where(
-        resolve_sym(resolved),
+    eval.run_variable_watchers_by_id_with_where(
+        resolved,
         &value,
         &Value::NIL,
         "set",
@@ -805,12 +797,7 @@ pub(crate) fn builtin_makunbound(eval: &mut super::eval::Context, args: Vec<Valu
         return Err(signal("setting-constant", vec![args[0]]));
     }
     eval.makunbound_runtime_binding_by_id(resolved);
-    eval.run_variable_watchers(
-        resolve_sym(resolved),
-        &Value::NIL,
-        &Value::NIL,
-        "makunbound",
-    )?;
+    eval.run_variable_watchers_by_id(resolved, &Value::NIL, &Value::NIL, "makunbound")?;
     Ok(args[0])
 }
 

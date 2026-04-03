@@ -2,7 +2,9 @@ use super::*;
 use crate::emacs_core::error::Flow;
 use crate::emacs_core::eval::{ConditionFrame, ResumeTarget};
 use crate::emacs_core::{format_eval_result, parse_forms};
-use crate::test_utils::{runtime_startup_context, runtime_startup_eval_all};
+use crate::test_utils::{
+    load_minimal_gnu_backquote_runtime, runtime_startup_context, runtime_startup_eval_all,
+};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::thread;
@@ -36,12 +38,16 @@ fn eval_one_with_frame(src: &str) -> String {
 
 fn eval_all_with_subr(src: &str) -> Vec<String> {
     let mut ev = Context::new();
-    load_minimal_backquote_runtime(&mut ev);
+    load_minimal_gnu_backquote_runtime(&mut ev);
     let forms = parse_forms(src).expect("parse");
     ev.eval_forms(&forms)
         .iter()
         .map(format_eval_result)
         .collect()
+}
+
+fn eval_one_with_subr(src: &str) -> String {
+    eval_all_with_subr(src).into_iter().next().expect("result")
 }
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
@@ -193,30 +199,6 @@ fn eval_with_explicit_lexenv_restores_outer_lexenv() {
         eval_one("(let ((x 41)) (list (eval 'x '((x . 7))) x))"),
         "OK (7 41)"
     );
-}
-
-fn load_minimal_backquote_runtime(eval: &mut Context) {
-    use crate::emacs_core::load::{find_file_in_load_path, get_load_path, load_file};
-
-    eval.set_lexical_binding(true);
-    eval.set_variable(
-        "load-path",
-        Value::list(vec![
-            Value::string(concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp/emacs-lisp")),
-            Value::string(concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp")),
-        ]),
-    );
-    let load_path = get_load_path(&eval.obarray());
-    for name in &[
-        "emacs-lisp/debug-early",
-        "emacs-lisp/byte-run",
-        "emacs-lisp/backquote",
-        "subr",
-    ] {
-        let path = find_file_in_load_path(name, &load_path)
-            .unwrap_or_else(|| panic!("cannot find {name}"));
-        load_file(eval, &path).unwrap_or_else(|e| panic!("load {name}: {e:?}"));
-    }
 }
 
 #[test]
@@ -3555,7 +3537,7 @@ fn setq_local_alias_to_constant_preserves_error_payload_and_rhs_skip() {
 #[test]
 fn setq_local_alias_triggers_single_watcher_callback_on_resolved_target() {
     crate::test_utils::init_test_tracing();
-    let result = eval_one(
+    let result = eval_one_with_subr(
         "(progn
            (setq vm-setq-local-watch-events nil)
            (fset 'vm-setq-local-watch-rec
@@ -4007,6 +3989,30 @@ fn setq_follows_variable_alias_resolution() {
          (list (symbol-value 'vm-setq-base) (symbol-value 'vm-setq-alias))",
     );
     assert_eq!(results[2], "OK (3 3)");
+}
+
+#[test]
+fn special_form_aliases_dispatch_like_gnu_emacs() {
+    crate::test_utils::init_test_tracing();
+    let results = eval_all(
+        "(defalias 'vm-special-if 'if)
+         (fset 'vm-special-progn (symbol-function 'progn))
+         (list (vm-special-if t 1 2)
+               (vm-special-progn 1 2 3))",
+    );
+    assert_eq!(results[2], "OK (1 3)");
+}
+
+#[test]
+fn special_form_alias_wrong_arity_mentions_surface_symbol() {
+    crate::test_utils::init_test_tracing();
+    let results = eval_all(
+        "(defalias 'vm-special-if 'if)
+         (condition-case err
+             (vm-special-if t)
+           (wrong-number-of-arguments err))",
+    );
+    assert_eq!(results[1], "OK (wrong-number-of-arguments vm-special-if 1)");
 }
 
 #[test]
@@ -8143,7 +8149,7 @@ fn closure_inside_real_backquote_with_fn_call_captures_outer_param() {
     // The inner lambda is inside a REAL backquote (macro), after a function call.
     // This requires loading backquote.el.
     let mut eval = Context::new();
-    load_minimal_backquote_runtime(&mut eval);
+    load_minimal_gnu_backquote_runtime(&mut eval);
 
     let forms = parse_forms(
         r#"(progn
@@ -8165,7 +8171,7 @@ fn closure_inside_real_backquote_with_fn_call_captures_outer_param() {
 fn real_backquote_computed_symbols_match_runtime_macro_semantics() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
-    load_minimal_backquote_runtime(&mut eval);
+    load_minimal_gnu_backquote_runtime(&mut eval);
 
     let forms = parse_forms(
         r#"(let ((prefix "neovm-bqc-test")
@@ -8208,7 +8214,7 @@ fn real_backquote_macroexpand_preserves_debug_head_before_splice() {
 fn loaded_subr_condition_case_unless_debug_calls_debugger_before_handler() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
-    load_minimal_backquote_runtime(&mut eval);
+    load_minimal_gnu_backquote_runtime(&mut eval);
 
     let forms = parse_forms(
         "(progn
@@ -8233,7 +8239,7 @@ fn loaded_subr_condition_case_unless_debug_calls_debugger_before_handler() {
 fn loaded_subr_condition_case_unless_debug_macroexpand_includes_debug_marker() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
-    load_minimal_backquote_runtime(&mut eval);
+    load_minimal_gnu_backquote_runtime(&mut eval);
 
     let forms = parse_forms(
         "(equal
@@ -8278,7 +8284,7 @@ fn lexical_condition_case_debug_marker_calls_debugger_before_handler() {
 fn real_backquote_nested_eval_chain_matches_gnu_error_shape() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
-    load_minimal_backquote_runtime(&mut eval);
+    load_minimal_gnu_backquote_runtime(&mut eval);
 
     let forms = parse_forms(
         r#"(let ((x 10))

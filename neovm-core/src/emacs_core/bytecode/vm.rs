@@ -29,12 +29,10 @@ enum Handler {
 #[derive(Clone, Debug)]
 enum VmUnwindEntry {
     DynamicBinding {
-        name: String,
-        restored_value: Value,
         specpdl_count: usize,
     },
     LexicalBinding {
-        name: String,
+        sym_id: SymId,
         restored_value: Value,
         old_lexenv: Value,
     },
@@ -136,7 +134,7 @@ impl<'a> Vm<'a> {
     fn collect_specpdl_roots(specpdl: &[VmUnwindEntry], out: &mut Vec<Value>) {
         for entry in specpdl {
             match entry {
-                VmUnwindEntry::DynamicBinding { restored_value, .. } => out.push(*restored_value),
+                VmUnwindEntry::DynamicBinding { .. } => {}
                 VmUnwindEntry::LexicalBinding {
                     restored_value,
                     old_lexenv,
@@ -475,7 +473,7 @@ impl<'a> Vm<'a> {
                         let old_lexenv = self.ctx.lexenv;
                         self.ctx.lexenv = lexenv_prepend(self.ctx.lexenv, name_id, val);
                         specpdl.push(VmUnwindEntry::LexicalBinding {
-                            name: name.clone(),
+                            sym_id: name_id,
                             restored_value: old_value,
                             old_lexenv,
                         });
@@ -486,17 +484,8 @@ impl<'a> Vm<'a> {
                         // only handles plain Let bindings, which causes bugs when
                         // let-binding buffer-local variables like `mode-name`.
                         self.ctx.specbind(name_id, val);
-                        specpdl.push(VmUnwindEntry::DynamicBinding {
-                            name: name.clone(),
-                            restored_value: old_value,
-                            specpdl_count,
-                        });
+                        specpdl.push(VmUnwindEntry::DynamicBinding { specpdl_count });
                     }
-                    let extra = [val];
-                    vm_try!(
-                        self.with_frame_roots(func, stack, handlers, specpdl, &extra, |vm| vm
-                            .run_variable_watchers(&name, &val, &Value::NIL, "let"),)
-                    );
                 }
                 Op::Unbind(n) => {
                     let mut unwind_roots = Vec::new();
@@ -2007,7 +1996,7 @@ impl<'a> Vm<'a> {
         }
     }
 
-    fn lookup_var(&self, name: &str) -> EvalResult {
+    fn lookup_var(&mut self, name: &str) -> EvalResult {
         if name.starts_with(':') {
             return Ok(Value::keyword(name));
         }
@@ -2033,11 +2022,11 @@ impl<'a> Vm<'a> {
         // GNU Emacs resolves declared-special vars dynamically even when
         // lexical binding is active; the interpreter path already does this.
         if !is_special && !resolved_is_special && !locally_special {
-            if let Some(val) = lexenv_lookup(self.ctx.lexenv, name_id) {
+            if let Some(val) = self.ctx.lexenv_lookup_cached_in(self.ctx.lexenv, name_id) {
                 return Ok(val);
             }
             if resolved != name_id
-                && let Some(val) = lexenv_lookup(self.ctx.lexenv, resolved)
+                && let Some(val) = self.ctx.lexenv_lookup_cached_in(self.ctx.lexenv, resolved)
             {
                 return Ok(val);
             }
@@ -2105,12 +2094,12 @@ impl<'a> Vm<'a> {
                     ));
 
         if !is_special && !resolved_is_special && !locally_special {
-            if let Some(cell_id) = lexenv_assq(self.ctx.lexenv, name_id) {
+            if let Some(cell_id) = self.ctx.lexenv_assq_cached_in(self.ctx.lexenv, name_id) {
                 lexenv_set(cell_id, value);
                 return Ok(());
             }
             if resolved != name_id
-                && let Some(cell_id) = lexenv_assq(self.ctx.lexenv, resolved)
+                && let Some(cell_id) = self.ctx.lexenv_assq_cached_in(self.ctx.lexenv, resolved)
             {
                 lexenv_set(cell_id, value);
                 return Ok(());
@@ -2125,7 +2114,44 @@ impl<'a> Vm<'a> {
         }
 
         crate::emacs_core::eval::set_runtime_binding_in_state(&mut *self.ctx, resolved, value);
-        self.run_variable_watchers(resolve_sym(resolved), &value, &Value::NIL, "set")
+        self.run_variable_watchers_by_id(resolved, &value, &Value::NIL, "set")
+    }
+
+    fn run_variable_watchers_by_id(
+        &mut self,
+        sym_id: SymId,
+        new_value: &Value,
+        old_value: &Value,
+        operation: &str,
+    ) -> Result<(), Flow> {
+        self.run_variable_watchers_by_id_with_where(
+            sym_id,
+            new_value,
+            old_value,
+            operation,
+            &Value::NIL,
+        )
+    }
+
+    fn run_variable_watchers_by_id_with_where(
+        &mut self,
+        sym_id: SymId,
+        new_value: &Value,
+        old_value: &Value,
+        operation: &str,
+        where_value: &Value,
+    ) -> Result<(), Flow> {
+        if !self.ctx.watchers.has_watchers(sym_id) {
+            return Ok(());
+        }
+        let calls =
+            self.ctx
+                .watchers
+                .notify_watchers(sym_id, new_value, old_value, operation, where_value);
+        for (callback, args) in calls {
+            let _ = self.call_function_with_roots(callback, &args)?;
+        }
+        Ok(())
     }
 
     fn run_variable_watchers(
@@ -2135,7 +2161,7 @@ impl<'a> Vm<'a> {
         old_value: &Value,
         operation: &str,
     ) -> Result<(), Flow> {
-        self.run_variable_watchers_with_where(name, new_value, old_value, operation, &Value::NIL)
+        self.run_variable_watchers_by_id(intern(name), new_value, old_value, operation)
     }
 
     fn run_variable_watchers_with_where(
@@ -2146,17 +2172,13 @@ impl<'a> Vm<'a> {
         operation: &str,
         where_value: &Value,
     ) -> Result<(), Flow> {
-        if !self.ctx.watchers.has_watchers(name) {
-            return Ok(());
-        }
-        let calls =
-            self.ctx
-                .watchers
-                .notify_watchers(name, new_value, old_value, operation, where_value);
-        for (callback, args) in calls {
-            let _ = self.call_function_with_roots(callback, &args)?;
-        }
-        Ok(())
+        self.run_variable_watchers_by_id_with_where(
+            intern(name),
+            new_value,
+            old_value,
+            operation,
+            where_value,
+        )
     }
 
     fn call_function_with_roots(&mut self, function: Value, args: &[Value]) -> EvalResult {
@@ -2220,8 +2242,8 @@ impl<'a> Vm<'a> {
             crate::emacs_core::eval::set_runtime_binding_in_state(&mut *self.ctx, resolved, value)
                 .map(Value::make_buffer)
                 .unwrap_or(Value::NIL);
-        self.run_variable_watchers_with_where(
-            resolve_sym(resolved),
+        self.run_variable_watchers_by_id_with_where(
+            resolved,
             &value,
             &Value::NIL,
             "set",
@@ -2271,7 +2293,7 @@ impl<'a> Vm<'a> {
         }
 
         // Fire watchers AFTER the write.
-        self.run_variable_watchers(resolved_name, &value, &Value::NIL, "set")?;
+        self.run_variable_watchers_by_id(resolved, &value, &Value::NIL, "set")?;
         Ok(value)
     }
 
@@ -2285,11 +2307,10 @@ impl<'a> Vm<'a> {
             &self.ctx.obarray,
             symbol,
         )?;
-        let resolved_name = resolve_sym(resolved);
         let value = args[1];
-        self.run_variable_watchers(resolved_name, &value, &Value::NIL, "set")?;
+        self.run_variable_watchers_by_id(resolved, &value, &Value::NIL, "set")?;
         if resolved != symbol {
-            self.run_variable_watchers(resolved_name, &value, &Value::NIL, "set")?;
+            self.run_variable_watchers_by_id(resolved, &value, &Value::NIL, "set")?;
         }
         Ok(Value::NIL)
     }
@@ -2325,13 +2346,13 @@ impl<'a> Vm<'a> {
     fn builtin_defvaralias_shared(&mut self, args: &[Value]) -> EvalResult {
         let state_change =
             crate::emacs_core::builtins::symbols::defvaralias_impl(&mut *self.ctx, args.to_vec())?;
-        self.run_variable_watchers(
-            &state_change.previous_target,
+        self.run_variable_watchers_by_id(
+            state_change.previous_target_id,
             &state_change.base_variable,
             &Value::NIL,
             "defvaralias",
         )?;
-        self.ctx.watchers.clear_watchers(&state_change.alias_name);
+        self.ctx.watchers.clear_watchers(state_change.alias_id);
         crate::emacs_core::builtins::symbols::builtin_put(
             &mut *self.ctx,
             vec![
@@ -2360,12 +2381,7 @@ impl<'a> Vm<'a> {
             &[],
             resolved,
         );
-        self.run_variable_watchers(
-            resolve_sym(resolved),
-            &Value::NIL,
-            &Value::NIL,
-            "makunbound",
-        )?;
+        self.run_variable_watchers_by_id(resolved, &Value::NIL, &Value::NIL, "makunbound")?;
         Ok(args[0])
     }
 
@@ -2387,8 +2403,8 @@ impl<'a> Vm<'a> {
         if outcome.removed
             && let Some(buffer_id) = outcome.buffer_id
         {
-            self.run_variable_watchers_with_where(
-                &outcome.resolved_name,
+            self.run_variable_watchers_by_id_with_where(
+                outcome.resolved_id,
                 &Value::NIL,
                 &Value::NIL,
                 "makunbound",
@@ -3120,7 +3136,7 @@ impl<'a> Vm<'a> {
         crate::emacs_core::indent::builtin_move_to_column(&mut *self.ctx, args.to_vec())
     }
 
-    fn case_fold_search_enabled(&self) -> bool {
+    fn case_fold_search_enabled(&mut self) -> bool {
         self.lookup_var("case-fold-search")
             .map(|value| !value.is_nil())
             .unwrap_or(true)
@@ -3478,23 +3494,17 @@ impl<'a> Vm<'a> {
 
     fn restore_unwind_entry(&mut self, entry: VmUnwindEntry) -> Result<(), Flow> {
         match entry {
-            VmUnwindEntry::DynamicBinding {
-                name,
-                restored_value,
-                specpdl_count,
-            } => {
+            VmUnwindEntry::DynamicBinding { specpdl_count } => {
                 // Use full unbind_to which handles LetLocal (buffer-local)
                 // and LetDefault bindings, not just plain Let bindings.
                 self.ctx.unbind_to(specpdl_count);
-                self.run_variable_watchers(&name, &restored_value, &Value::NIL, "unlet")?;
             }
             VmUnwindEntry::LexicalBinding {
-                name,
-                restored_value,
+                sym_id: _sym_id,
+                restored_value: _restored_value,
                 old_lexenv,
             } => {
                 self.ctx.lexenv = old_lexenv;
-                self.run_variable_watchers(&name, &restored_value, &Value::NIL, "unlet")?;
             }
             VmUnwindEntry::Cleanup { cleanup } => {
                 let cleanup_root = [cleanup];

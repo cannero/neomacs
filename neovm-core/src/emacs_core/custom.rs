@@ -285,8 +285,8 @@ pub(crate) fn builtin_kill_local_variable(
     let outcome = builtin_kill_local_variable_impl(ctx, &args)?;
     if outcome.removed {
         if let Some(buffer_id) = outcome.buffer_id {
-            ctx.run_variable_watchers_with_where(
-                &outcome.resolved_name,
+            ctx.run_variable_watchers_by_id_with_where(
+                outcome.resolved_id,
                 &Value::NIL,
                 &Value::NIL,
                 "makunbound",
@@ -300,7 +300,7 @@ pub(crate) fn builtin_kill_local_variable(
 pub(crate) struct KillLocalVariableOutcome {
     pub result: Value,
     pub removed: bool,
-    pub resolved_name: String,
+    pub resolved_id: SymId,
     pub buffer_id: Option<crate::buffer::BufferId>,
 }
 
@@ -309,11 +309,11 @@ pub(crate) fn builtin_kill_local_variable_impl(
     args: &[Value],
 ) -> Result<KillLocalVariableOutcome, Flow> {
     expect_args("kill-local-variable", &args, 1)?;
-    let name = match args[0].kind() {
-        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
-        ValueKind::Nil => "nil".to_string(),
-        ValueKind::T => "t".to_string(),
-        other => {
+    let symbol = match args[0].kind() {
+        ValueKind::Symbol(id) => id,
+        ValueKind::Nil => intern("nil"),
+        ValueKind::T => intern("t"),
+        _ => {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("symbolp"), args[0]],
@@ -321,13 +321,14 @@ pub(crate) fn builtin_kill_local_variable_impl(
         }
     };
 
-    let resolved = super::builtins::resolve_variable_alias_name_in_obarray(&ctx.obarray, &name)?;
+    let resolved = super::builtins::resolve_variable_alias_id_in_obarray(&ctx.obarray, symbol)?;
+    let resolved_name = resolve_sym(resolved);
     let mut removed = false;
     let buffer_id = ctx.buffers.current_buffer_id();
     if let Some(buffer_id) = buffer_id {
         removed = ctx
             .buffers
-            .remove_buffer_local_property(buffer_id, &resolved)
+            .remove_buffer_local_property(buffer_id, resolved_name)
             .flatten()
             .is_some();
     }
@@ -335,7 +336,7 @@ pub(crate) fn builtin_kill_local_variable_impl(
     Ok(KillLocalVariableOutcome {
         result: args[0],
         removed,
-        resolved_name: resolved,
+        resolved_id: resolved,
         buffer_id,
     })
 }
@@ -394,7 +395,6 @@ pub(crate) fn builtin_set_default(eval: &mut super::eval::Context, args: Vec<Val
         }
     };
     let resolved = super::builtins::resolve_variable_alias_id(eval, symbol)?;
-    let resolved_name = resolve_sym(resolved);
     if eval.obarray().is_constant_id(resolved) {
         return Err(signal("setting-constant", vec![args[0]]));
     }
@@ -411,9 +411,9 @@ pub(crate) fn builtin_set_default(eval: &mut super::eval::Context, args: Vec<Val
     // Fire watchers AFTER the write with operation="set".
     // When the symbol was resolved through an alias, fire watchers twice
     // (matching GNU where both set_default_internal and set_internal notify).
-    eval.run_variable_watchers(resolved_name, &value, &Value::NIL, "set")?;
+    eval.run_variable_watchers_by_id(resolved, &value, &Value::NIL, "set")?;
     if resolved != symbol {
-        eval.run_variable_watchers(resolved_name, &value, &Value::NIL, "set")?;
+        eval.run_variable_watchers_by_id(resolved, &value, &Value::NIL, "set")?;
     }
     Ok(value)
 }

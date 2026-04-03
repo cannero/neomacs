@@ -101,7 +101,10 @@ use crate::window::FrameManager;
 
 const EVAL_STACK_RED_ZONE: usize = 256 * 1024;
 const EVAL_STACK_SEGMENT: usize = 32 * 1024 * 1024;
+const STACK_GROWTH_PROBE_START_DEPTH: usize = 16;
+const STACK_GROWTH_PROBE_INTERVAL: usize = 16;
 const NAMED_CALL_CACHE_CAPACITY: usize = 8;
+const LEXENV_ASSQ_CACHE_CAPACITY: usize = 8;
 
 #[derive(Clone, Debug)]
 struct ExecutingKbdMacroRuntimeScope {
@@ -449,6 +452,13 @@ struct NamedCallCache {
     symbol: SymId,
     function_epoch: u64,
     target: NamedCallTarget,
+}
+
+#[derive(Clone, Debug)]
+struct LexenvAssqCacheEntry {
+    lexenv_bits: usize,
+    symbol: SymId,
+    cell: Value,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -1031,6 +1041,8 @@ pub struct Context {
     saved_lexenvs: Vec<Value>,
     /// Small hot cache for named callable resolution in `funcall`/`apply`.
     named_call_cache: Vec<NamedCallCache>,
+    /// Small hot cache for GNU-shaped lexical env alist lookups.
+    lexenv_assq_cache: RefCell<Vec<LexenvAssqCacheEntry>>,
     /// Cache for source-literal materialization keyed on `Expr` pointer
     /// identity. This is generic reader/runtime support: repeated evaluation
     /// of the same source literal node should reuse the same runtime object
@@ -3576,6 +3588,7 @@ impl Context {
             pending_safe_funcalls: Vec::new(),
             saved_lexenvs: Vec::new(),
             named_call_cache: Vec::with_capacity(NAMED_CALL_CACHE_CAPACITY),
+            lexenv_assq_cache: RefCell::new(Vec::with_capacity(LEXENV_ASSQ_CACHE_CAPACITY)),
             source_literal_cache: HashMap::new(),
             macro_expansion_cache: HashMap::new(),
             macro_cache_hits: 0,
@@ -3692,6 +3705,7 @@ impl Context {
             pending_safe_funcalls: Vec::new(),
             saved_lexenvs: Vec::new(),
             named_call_cache: Vec::with_capacity(NAMED_CALL_CACHE_CAPACITY),
+            lexenv_assq_cache: RefCell::new(Vec::with_capacity(LEXENV_ASSQ_CACHE_CAPACITY)),
             source_literal_cache: HashMap::new(),
             macro_expansion_cache: HashMap::new(),
             macro_cache_hits: 0,
@@ -4699,6 +4713,7 @@ impl Context {
         // a stale cached Value from a collected lambda's expression.
         self.source_literal_cache.clear();
         self.macro_expansion_cache.clear();
+        self.lexenv_assq_cache.borrow_mut().clear();
         let roots = self.collect_roots_with_extra_root_slices(extra_root_slices);
         match mode {
             crate::tagged::gc::RootScanMode::ExactOnly => {
@@ -5126,6 +5141,17 @@ impl HandleScope {
 }
 
 impl Context {
+    #[inline]
+    fn maybe_grow_eval_stack<R>(&mut self, callback: impl FnOnce(&mut Self) -> R) -> R {
+        let depth = self.depth;
+        if depth < STACK_GROWTH_PROBE_START_DEPTH
+            || !depth.is_multiple_of(STACK_GROWTH_PROBE_INTERVAL)
+        {
+            return callback(self);
+        }
+        stacker::maybe_grow(EVAL_STACK_RED_ZONE, EVAL_STACK_SEGMENT, || callback(self))
+    }
+
     /// Whether lexical-binding is currently enabled.
     pub fn lexical_binding(&self) -> bool {
         self.obarray
@@ -5309,28 +5335,26 @@ impl Context {
     }
 
     pub(crate) fn eval_lambda_body(&mut self, body: &[Expr]) -> EvalResult {
-        stacker::maybe_grow(EVAL_STACK_RED_ZONE, EVAL_STACK_SEGMENT, || {
-            self.sf_progn(body)
-        })
+        self.maybe_grow_eval_stack(|ctx| ctx.sf_progn(body))
     }
 
     pub(crate) fn eval_lambda_body_value(&mut self, body: Value) -> EvalResult {
-        stacker::maybe_grow(EVAL_STACK_RED_ZONE, EVAL_STACK_SEGMENT, || {
-            let scope = self.open_gc_scope();
-            self.push_temp_root(body);
+        self.maybe_grow_eval_stack(|ctx| {
+            let scope = ctx.open_gc_scope();
+            ctx.push_temp_root(body);
             let mut cursor = body;
             let mut last = Value::NIL;
             while cursor.is_cons() {
-                match self.eval_sub(cursor.cons_car()) {
+                match ctx.eval_sub(cursor.cons_car()) {
                     Ok(value) => last = value,
                     Err(err) => {
-                        scope.close(self);
+                        scope.close(ctx);
                         return Err(err);
                     }
                 }
                 cursor = cursor.cons_cdr();
             }
-            scope.close(self);
+            scope.close(ctx);
             Ok(last)
         })
     }
@@ -5538,11 +5562,35 @@ impl Context {
             return Ok(form);
         }
 
-        self.with_gc_scope_result(|ctx| {
-            ctx.root(form);
-            ctx.maybe_gc_and_quit()?;
-            ctx.eval_sub_cons(form)
-        })
+        self.depth += 1;
+        if self.depth > self.max_depth {
+            if let Some(v) = self.obarray.symbol_value("max-lisp-eval-depth") {
+                if let Some(n) = v.as_fixnum() {
+                    let new_max = n.max(100) as usize;
+                    if new_max != self.max_depth {
+                        self.max_depth = new_max;
+                    }
+                }
+            }
+        }
+        if self.depth > self.max_depth {
+            let overflow_depth = self.depth as i64;
+            self.depth -= 1;
+            return Err(signal(
+                "excessive-lisp-nesting",
+                vec![Value::fixnum(overflow_depth)],
+            ));
+        }
+
+        let result = self.maybe_grow_eval_stack(|ctx| {
+            ctx.with_gc_scope_result(|ctx| {
+                ctx.root(form);
+                ctx.maybe_gc_and_quit()?;
+                ctx.eval_sub_cons(form)
+            })
+        });
+        self.depth -= 1;
+        result
     }
 
     fn eval_sub_cons(&mut self, form: Value) -> EvalResult {
@@ -5553,14 +5601,18 @@ impl Context {
         let sym_id = original_fun.as_symbol_id();
         let name = sym_id.map(|id| resolve_sym(id));
 
-        // Check for special forms (GNU eval.c UNEVALLED subrs)
+        // Keep evaluator-only literal forms on the internal fast path.
+        // Public special forms are dispatched from the resolved subr surface
+        // below so aliases to special forms behave like GNU Emacs.
         if let Some(name) = name {
-            if let Some(result) = self.try_special_form_value(name, original_args) {
-                return result;
-            }
-            let args_exprs = value_list_to_exprs(&original_args);
-            if let Some(result) = self.try_special_form(name, &args_exprs) {
-                return result;
+            if !super::subr_info::is_special_form(name) {
+                if let Some(result) = self.try_special_form_value(name, original_args) {
+                    return result;
+                }
+                let args_exprs = value_list_to_exprs(&original_args);
+                if let Some(result) = self.try_special_form(name, &args_exprs) {
+                    return result;
+                }
             }
         }
 
@@ -5605,6 +5657,23 @@ impl Context {
         } else {
             return Err(signal("invalid-function", vec![original_fun]));
         };
+
+        if let Some(surface_sym_id) = sym_id
+            && let Some(target_sym_id) = func.as_subr_id()
+            && self.subr_is_special_form_id(target_sym_id)
+        {
+            let surface_name = resolve_sym(surface_sym_id);
+            let target_name = resolve_sym(target_sym_id);
+            if surface_name == target_name {
+                if let Some(result) = self.try_special_form_value(surface_name, original_args) {
+                    return result;
+                }
+            } else if let Some(result) =
+                self.try_aliased_special_form_value(surface_name, target_name, original_args)
+            {
+                return result;
+            }
+        }
 
         // Check for macro (GNU eval.c:2730-2755)
         if func.is_macro() {
@@ -5776,9 +5845,7 @@ impl Context {
     /// handlers (if, let, while, progn, etc.) to match GNU Emacs behavior
     /// where special form body evaluation doesn't re-enter eval_sub.
     pub(crate) fn eval_subform(&mut self, expr: &Expr) -> EvalResult {
-        stacker::maybe_grow(EVAL_STACK_RED_ZONE, EVAL_STACK_SEGMENT, || {
-            self.eval_inner(expr)
-        })
+        self.maybe_grow_eval_stack(|ctx| ctx.eval_inner(expr))
     }
 
     fn eval_inner(&mut self, expr: &Expr) -> EvalResult {
@@ -5843,7 +5910,7 @@ impl Context {
         // GNU `eval_sub` only checks the lexical alist here; bare-symbol
         // special declarations affect binding, not ordinary reads.
         if self.lexical_binding() && !is_runtime_dynamically_special(&self.obarray, sym_id) {
-            if let Some(value) = lexenv_lookup(self.lexenv, sym_id) {
+            if let Some(value) = self.lexenv_lookup_cached_in(self.lexenv, sym_id) {
                 return Ok(value);
             }
         }
@@ -5856,7 +5923,7 @@ impl Context {
             && self.lexical_binding()
             && !is_runtime_dynamically_special(&self.obarray, resolved)
         {
-            if let Some(value) = lexenv_lookup(self.lexenv, resolved) {
+            if let Some(value) = self.lexenv_lookup_cached_in(self.lexenv, resolved) {
                 return Ok(value);
             }
         }
@@ -6306,14 +6373,32 @@ impl Context {
                     }
                 }
 
-                if let Some(bound_name) = func.as_subr_id() {
-                    if resolve_sym(bound_name) == name
-                        && super::subr_info::subr_dispatch_kind_from_value(&func)
-                            .is_some_and(|kind| kind == SubrDispatchKind::SpecialForm)
-                    {
+                let special_form_subr = if let Some(bound_name) = func.as_subr_id() {
+                    super::subr_info::subr_dispatch_kind_from_value(&func)
+                        .is_some_and(|kind| kind == SubrDispatchKind::SpecialForm)
+                        .then_some(bound_name)
+                } else if let Some(alias_id) = func.as_symbol_id() {
+                    self.obarray
+                        .indirect_function(resolve_sym(alias_id))
+                        .and_then(|resolved| {
+                            let bound_name = resolved.as_subr_id()?;
+                            self.subr_is_special_form_id(bound_name)
+                                .then_some(bound_name)
+                        })
+                } else {
+                    None
+                };
+
+                if let Some(bound_name) = special_form_subr {
+                    let target_name = resolve_sym(bound_name);
+                    if target_name == name {
                         if let Some(result) = self.try_special_form(name, tail) {
                             return result;
                         }
+                    } else if let Some(result) =
+                        self.try_aliased_special_form(name, target_name, tail)
+                    {
+                        return result;
                     }
                 }
 
@@ -6572,6 +6657,41 @@ impl Context {
         result
     }
 
+    fn try_aliased_special_form_value(
+        &mut self,
+        surface_name: &str,
+        target_name: &str,
+        tail: Value,
+    ) -> Option<EvalResult> {
+        let saved_depth = self.depth;
+        let result = Some(match target_name {
+            "quote" => self.sf_quote_value_named(surface_name, tail),
+            "function" => self.sf_function_value_named(surface_name, tail),
+            "let" => self.sf_let_value_named(surface_name, tail),
+            "let*" => self.sf_let_star_value_named(surface_name, tail),
+            "setq" => self.sf_setq_value_named(surface_name, tail),
+            "if" => self.sf_if_value_named(surface_name, tail),
+            "and" => self.sf_and_value(tail),
+            "or" => self.sf_or_value(tail),
+            "cond" => self.sf_cond_value(tail),
+            "while" => self.sf_while_value_named(surface_name, tail),
+            "progn" => self.sf_progn_value(tail),
+            "prog1" => self.sf_prog1_value_named(surface_name, tail),
+            "defvar" => self.sf_defvar_value_named(surface_name, tail),
+            "defconst" => self.sf_defconst_value_named(surface_name, tail),
+            "catch" => self.sf_catch_value_named(surface_name, tail),
+            "unwind-protect" => self.sf_unwind_protect_value_named(surface_name, tail),
+            "condition-case" => self.sf_condition_case_value_named(surface_name, tail),
+            "save-excursion" => self.sf_save_excursion_value(tail),
+            "save-current-buffer" => self.sf_save_current_buffer_value(tail),
+            "save-restriction" => self.sf_save_restriction_value(tail),
+            "interactive" => Ok(Value::NIL),
+            _ => return None,
+        });
+        self.depth = saved_depth;
+        result
+    }
+
     fn try_special_form_inner_value(&mut self, name: &str, tail: Value) -> Option<EvalResult> {
         Some(match name {
             "quote" => self.sf_quote_value(tail),
@@ -6607,6 +6727,41 @@ impl Context {
         // accumulate depth beyond the initial call's increment.
         let saved_depth = self.depth;
         let result = self.try_special_form_inner(name, tail);
+        self.depth = saved_depth;
+        result
+    }
+
+    fn try_aliased_special_form(
+        &mut self,
+        surface_name: &str,
+        target_name: &str,
+        tail: &[Expr],
+    ) -> Option<EvalResult> {
+        let saved_depth = self.depth;
+        let result = Some(match target_name {
+            "quote" => self.sf_quote_named(surface_name, tail),
+            "function" => self.sf_function_named(surface_name, tail),
+            "let" => self.sf_let_named(surface_name, tail),
+            "let*" => self.sf_let_star_named(surface_name, tail),
+            "setq" => self.sf_setq_named(surface_name, tail),
+            "if" => self.sf_if_named(surface_name, tail),
+            "and" => self.sf_and(tail),
+            "or" => self.sf_or(tail),
+            "cond" => self.sf_cond(tail),
+            "while" => self.sf_while_named(surface_name, tail),
+            "progn" => self.sf_progn(tail),
+            "prog1" => self.sf_prog1_named(surface_name, tail),
+            "defvar" => self.sf_defvar_named(surface_name, tail),
+            "defconst" => self.sf_defconst_named(surface_name, tail),
+            "catch" => self.sf_catch_named(surface_name, tail),
+            "unwind-protect" => self.sf_unwind_protect_named(surface_name, tail),
+            "condition-case" => self.sf_condition_case_named(surface_name, tail),
+            "save-excursion" => self.sf_save_excursion(tail),
+            "save-current-buffer" => super::misc::sf_save_current_buffer(self, tail),
+            "save-restriction" => self.sf_save_restriction(tail),
+            "interactive" => Ok(Value::NIL),
+            _ => return None,
+        });
         self.depth = saved_depth;
         result
     }
@@ -6681,11 +6836,19 @@ impl Context {
     }
 
     fn sf_quote_value(&mut self, tail: Value) -> EvalResult {
-        Ok(self.one_unevalled_arg("quote", tail)?)
+        self.sf_quote_value_named("quote", tail)
+    }
+
+    fn sf_quote_value_named(&mut self, call_name: &str, tail: Value) -> EvalResult {
+        Ok(self.one_unevalled_arg(call_name, tail)?)
     }
 
     fn sf_function_value(&mut self, tail: Value) -> EvalResult {
-        let arg = self.one_unevalled_arg("function", tail)?;
+        self.sf_function_value_named("function", tail)
+    }
+
+    fn sf_function_value_named(&mut self, call_name: &str, tail: Value) -> EvalResult {
+        let arg = self.one_unevalled_arg(call_name, tail)?;
         if arg.is_cons() && arg.cons_car().is_symbol_named("lambda") {
             let lambda_tail = arg.cons_cdr();
             let args_exprs = value_list_to_exprs(&lambda_tail);
@@ -6700,10 +6863,14 @@ impl Context {
     }
 
     fn sf_let_value(&mut self, tail: Value) -> EvalResult {
+        self.sf_let_value_named("let", tail)
+    }
+
+    fn sf_let_value_named(&mut self, call_name: &str, tail: Value) -> EvalResult {
         if tail.is_nil() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("let"), Value::fixnum(0)],
+                vec![Value::symbol(call_name), Value::fixnum(0)],
             ));
         }
         if !tail.is_cons() {
@@ -6827,10 +6994,14 @@ impl Context {
     }
 
     fn sf_let_star_value(&mut self, tail: Value) -> EvalResult {
+        self.sf_let_star_value_named("let*", tail)
+    }
+
+    fn sf_let_star_value_named(&mut self, call_name: &str, tail: Value) -> EvalResult {
         if tail.is_nil() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("let*"), Value::fixnum(0)],
+                vec![Value::symbol(call_name), Value::fixnum(0)],
             ));
         }
         if !tail.is_cons() {
@@ -6922,6 +7093,10 @@ impl Context {
     }
 
     fn sf_setq_value(&mut self, tail: Value) -> EvalResult {
+        self.sf_setq_value_named("setq", tail)
+    }
+
+    fn sf_setq_value_named(&mut self, call_name: &str, tail: Value) -> EvalResult {
         if tail.is_nil() {
             return Ok(Value::NIL);
         }
@@ -6935,7 +7110,7 @@ impl Context {
             if cursor.is_nil() {
                 return Err(signal(
                     "wrong-number-of-arguments",
-                    vec![Value::symbol("setq"), Value::fixnum(nargs as i64)],
+                    vec![Value::symbol(call_name), Value::fixnum(nargs as i64)],
                 ));
             }
             if !cursor.is_cons() {
@@ -6974,10 +7149,14 @@ impl Context {
     }
 
     fn sf_if_value(&mut self, tail: Value) -> EvalResult {
+        self.sf_if_value_named("if", tail)
+    }
+
+    fn sf_if_value_named(&mut self, call_name: &str, tail: Value) -> EvalResult {
         if tail.is_nil() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("if"), Value::fixnum(0)],
+                vec![Value::symbol(call_name), Value::fixnum(0)],
             ));
         }
         if !tail.is_cons() {
@@ -6988,7 +7167,7 @@ impl Context {
         if rest.is_nil() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("if"), Value::fixnum(1)],
+                vec![Value::symbol(call_name), Value::fixnum(1)],
             ));
         }
         if !rest.is_cons() {
@@ -7065,10 +7244,14 @@ impl Context {
     }
 
     fn sf_while_value(&mut self, tail: Value) -> EvalResult {
+        self.sf_while_value_named("while", tail)
+    }
+
+    fn sf_while_value_named(&mut self, call_name: &str, tail: Value) -> EvalResult {
         if tail.is_nil() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("while"), Value::fixnum(0)],
+                vec![Value::symbol(call_name), Value::fixnum(0)],
             ));
         }
         if !tail.is_cons() {
@@ -7108,10 +7291,14 @@ impl Context {
     }
 
     fn sf_prog1_value(&mut self, tail: Value) -> EvalResult {
+        self.sf_prog1_value_named("prog1", tail)
+    }
+
+    fn sf_prog1_value_named(&mut self, call_name: &str, tail: Value) -> EvalResult {
         if tail.is_nil() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("prog1"), Value::fixnum(0)],
+                vec![Value::symbol(call_name), Value::fixnum(0)],
             ));
         }
         if !tail.is_cons() {
@@ -7129,10 +7316,14 @@ impl Context {
     }
 
     fn sf_defvar_value(&mut self, tail: Value) -> EvalResult {
+        self.sf_defvar_value_named("defvar", tail)
+    }
+
+    fn sf_defvar_value_named(&mut self, call_name: &str, tail: Value) -> EvalResult {
         if tail.is_nil() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("defvar"), Value::fixnum(0)],
+                vec![Value::symbol(call_name), Value::fixnum(0)],
             ));
         }
         if !tail.is_cons() {
@@ -7200,10 +7391,14 @@ impl Context {
     }
 
     fn sf_defconst_value(&mut self, tail: Value) -> EvalResult {
+        self.sf_defconst_value_named("defconst", tail)
+    }
+
+    fn sf_defconst_value_named(&mut self, call_name: &str, tail: Value) -> EvalResult {
         if tail.is_nil() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("defconst"), Value::fixnum(0)],
+                vec![Value::symbol(call_name), Value::fixnum(0)],
             ));
         }
         if !tail.is_cons() {
@@ -7220,7 +7415,7 @@ impl Context {
         if rest.is_nil() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("defconst"), Value::fixnum(1)],
+                vec![Value::symbol(call_name), Value::fixnum(1)],
             ));
         }
         if !rest.is_cons() {
@@ -7259,10 +7454,14 @@ impl Context {
     }
 
     fn sf_catch_value(&mut self, tail: Value) -> EvalResult {
+        self.sf_catch_value_named("catch", tail)
+    }
+
+    fn sf_catch_value_named(&mut self, call_name: &str, tail: Value) -> EvalResult {
         if tail.is_nil() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("catch"), Value::fixnum(0)],
+                vec![Value::symbol(call_name), Value::fixnum(0)],
             ));
         }
         if !tail.is_cons() {
@@ -7288,10 +7487,14 @@ impl Context {
     }
 
     fn sf_unwind_protect_value(&mut self, tail: Value) -> EvalResult {
+        self.sf_unwind_protect_value_named("unwind-protect", tail)
+    }
+
+    fn sf_unwind_protect_value_named(&mut self, call_name: &str, tail: Value) -> EvalResult {
         if tail.is_nil() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("unwind-protect"), Value::fixnum(0)],
+                vec![Value::symbol(call_name), Value::fixnum(0)],
             ));
         }
         if !tail.is_cons() {
@@ -7323,11 +7526,15 @@ impl Context {
     }
 
     fn sf_condition_case_value(&mut self, tail: Value) -> EvalResult {
+        self.sf_condition_case_value_named("condition-case", tail)
+    }
+
+    fn sf_condition_case_value_named(&mut self, call_name: &str, tail: Value) -> EvalResult {
         let nargs = self.value_list_len_or_error(tail)?;
         if nargs < 3 {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("condition-case"), Value::fixnum(nargs as i64)],
+                vec![Value::symbol(call_name), Value::fixnum(nargs as i64)],
             ));
         }
         let var = tail.cons_car();
@@ -7513,20 +7720,28 @@ impl Context {
     }
 
     fn sf_quote(&mut self, tail: &[Expr]) -> EvalResult {
+        self.sf_quote_named("quote", tail)
+    }
+
+    fn sf_quote_named(&mut self, call_name: &str, tail: &[Expr]) -> EvalResult {
         if tail.len() != 1 {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("quote"), Value::fixnum(tail.len() as i64)],
+                vec![Value::symbol(call_name), Value::fixnum(tail.len() as i64)],
             ));
         }
         Ok(self.quote_to_runtime_value(&tail[0]))
     }
 
     fn sf_function(&mut self, tail: &[Expr]) -> EvalResult {
+        self.sf_function_named("function", tail)
+    }
+
+    fn sf_function_named(&mut self, call_name: &str, tail: &[Expr]) -> EvalResult {
         if tail.len() != 1 {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("function"), Value::fixnum(tail.len() as i64)],
+                vec![Value::symbol(call_name), Value::fixnum(tail.len() as i64)],
             ));
         }
         match &tail[0] {
@@ -7544,10 +7759,14 @@ impl Context {
     }
 
     fn sf_let(&mut self, tail: &[Expr]) -> EvalResult {
+        self.sf_let_named("let", tail)
+    }
+
+    fn sf_let_named(&mut self, call_name: &str, tail: &[Expr]) -> EvalResult {
         if tail.is_empty() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("let"), Value::fixnum(tail.len() as i64)],
+                vec![Value::symbol(call_name), Value::fixnum(tail.len() as i64)],
             ));
         }
 
@@ -7676,10 +7895,14 @@ impl Context {
     }
 
     fn sf_let_star(&mut self, tail: &[Expr]) -> EvalResult {
+        self.sf_let_star_named("let*", tail)
+    }
+
+    fn sf_let_star_named(&mut self, call_name: &str, tail: &[Expr]) -> EvalResult {
         if tail.is_empty() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("let*"), Value::fixnum(tail.len() as i64)],
+                vec![Value::symbol(call_name), Value::fixnum(tail.len() as i64)],
             ));
         }
 
@@ -7775,13 +7998,17 @@ impl Context {
     }
 
     fn sf_setq(&mut self, tail: &[Expr]) -> EvalResult {
+        self.sf_setq_named("setq", tail)
+    }
+
+    fn sf_setq_named(&mut self, call_name: &str, tail: &[Expr]) -> EvalResult {
         if tail.is_empty() {
             return Ok(Value::NIL);
         }
         if !tail.len().is_multiple_of(2) {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("setq"), Value::fixnum(tail.len() as i64)],
+                vec![Value::symbol(call_name), Value::fixnum(tail.len() as i64)],
             ));
         }
 
@@ -7821,10 +8048,14 @@ impl Context {
     }
 
     fn sf_if(&mut self, tail: &[Expr]) -> EvalResult {
+        self.sf_if_named("if", tail)
+    }
+
+    fn sf_if_named(&mut self, call_name: &str, tail: &[Expr]) -> EvalResult {
         if tail.len() < 2 {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("if"), Value::fixnum(tail.len() as i64)],
+                vec![Value::symbol(call_name), Value::fixnum(tail.len() as i64)],
             ));
         }
         let cond = self.eval(&tail[0])?;
@@ -7879,10 +8110,14 @@ impl Context {
     }
 
     fn sf_while(&mut self, tail: &[Expr]) -> EvalResult {
+        self.sf_while_named("while", tail)
+    }
+
+    fn sf_while_named(&mut self, call_name: &str, tail: &[Expr]) -> EvalResult {
         if tail.is_empty() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("while"), Value::fixnum(tail.len() as i64)],
+                vec![Value::symbol(call_name), Value::fixnum(tail.len() as i64)],
             ));
         }
         let mut iters: u64 = 0;
@@ -7913,10 +8148,14 @@ impl Context {
     }
 
     fn sf_prog1(&mut self, tail: &[Expr]) -> EvalResult {
+        self.sf_prog1_named("prog1", tail)
+    }
+
+    fn sf_prog1_named(&mut self, call_name: &str, tail: &[Expr]) -> EvalResult {
         if tail.is_empty() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("prog1"), Value::fixnum(tail.len() as i64)],
+                vec![Value::symbol(call_name), Value::fixnum(tail.len() as i64)],
             ));
         }
         let first = self.eval(&tail[0])?;
@@ -7933,10 +8172,14 @@ impl Context {
     }
 
     fn sf_defvar(&mut self, tail: &[Expr]) -> EvalResult {
+        self.sf_defvar_named("defvar", tail)
+    }
+
+    fn sf_defvar_named(&mut self, call_name: &str, tail: &[Expr]) -> EvalResult {
         if tail.is_empty() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("defvar"), Value::fixnum(tail.len() as i64)],
+                vec![Value::symbol(call_name), Value::fixnum(tail.len() as i64)],
             ));
         }
         if tail.len() > 3 {
@@ -7968,10 +8211,14 @@ impl Context {
     }
 
     fn sf_defconst(&mut self, tail: &[Expr]) -> EvalResult {
+        self.sf_defconst_named("defconst", tail)
+    }
+
+    fn sf_defconst_named(&mut self, call_name: &str, tail: &[Expr]) -> EvalResult {
         if tail.len() < 2 {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("defconst"), Value::fixnum(tail.len() as i64)],
+                vec![Value::symbol(call_name), Value::fixnum(tail.len() as i64)],
             ));
         }
         if tail.len() > 3 {
@@ -8012,10 +8259,14 @@ impl Context {
     }
 
     fn sf_catch(&mut self, tail: &[Expr]) -> EvalResult {
+        self.sf_catch_named("catch", tail)
+    }
+
+    fn sf_catch_named(&mut self, call_name: &str, tail: &[Expr]) -> EvalResult {
         if tail.is_empty() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![Value::symbol("catch"), Value::fixnum(tail.len() as i64)],
+                vec![Value::symbol(call_name), Value::fixnum(tail.len() as i64)],
             ));
         }
         let tag = self.eval(&tail[0])?;
@@ -8039,13 +8290,14 @@ impl Context {
     }
 
     fn sf_unwind_protect(&mut self, tail: &[Expr]) -> EvalResult {
+        self.sf_unwind_protect_named("unwind-protect", tail)
+    }
+
+    fn sf_unwind_protect_named(&mut self, call_name: &str, tail: &[Expr]) -> EvalResult {
         if tail.is_empty() {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![
-                    Value::symbol("unwind-protect"),
-                    Value::fixnum(tail.len() as i64),
-                ],
+                vec![Value::symbol(call_name), Value::fixnum(tail.len() as i64)],
             ));
         }
         let primary = self.eval(&tail[0]);
@@ -8080,13 +8332,14 @@ impl Context {
     }
 
     fn sf_condition_case(&mut self, tail: &[Expr]) -> EvalResult {
+        self.sf_condition_case_named("condition-case", tail)
+    }
+
+    fn sf_condition_case_named(&mut self, call_name: &str, tail: &[Expr]) -> EvalResult {
         if tail.len() < 3 {
             return Err(signal(
                 "wrong-number-of-arguments",
-                vec![
-                    Value::symbol("condition-case"),
-                    Value::fixnum(tail.len() as i64),
-                ],
+                vec![Value::symbol(call_name), Value::fixnum(tail.len() as i64)],
             ));
         }
 
@@ -9045,9 +9298,11 @@ impl Context {
                 ctx.root(arg);
             }
             ctx.maybe_gc_and_quit()?;
-            // Deep interpreted expansion can recurse many frames.
-            // Grow the stack at the function-application boundary.
-            stacker::maybe_grow(EVAL_STACK_RED_ZONE, EVAL_STACK_SEGMENT, || {
+            // GNU does not probe stack space for every funcall. Keep growth
+            // checks at the function-application boundary, but only on coarse
+            // depth intervals so normal startup is not dominated by TLS lookups
+            // in stacker::maybe_grow.
+            ctx.maybe_grow_eval_stack(|ctx| {
                 if record_backtrace {
                     ctx.funcall_general(function, args)
                 } else {
@@ -9805,8 +10060,13 @@ impl Context {
                             old_value: old_val,
                             buffer_id: buf_id,
                         });
-                        if self.watchers.has_watchers(name) {
-                            let _ = self.run_variable_watchers(name, &value, &Value::NIL, "let");
+                        if self.watchers.has_watchers(resolved) {
+                            let _ = self.run_variable_watchers_by_id(
+                                resolved,
+                                &value,
+                                &Value::NIL,
+                                "let",
+                            );
                         }
                         let _ = self.buffers.set_buffer_local_property(buf_id, name, value);
                         return;
@@ -9821,8 +10081,8 @@ impl Context {
                 sym_id: resolved,
                 old_value: old_default,
             });
-            if self.watchers.has_watchers(name) {
-                let _ = self.run_variable_watchers(name, &value, &Value::NIL, "let");
+            if self.watchers.has_watchers(resolved) {
+                let _ = self.run_variable_watchers_by_id(resolved, &value, &Value::NIL, "let");
             }
             self.obarray.set_symbol_value_id(resolved, value);
             return;
@@ -9834,8 +10094,8 @@ impl Context {
             sym_id: resolved,
             old_value,
         });
-        if self.watchers.has_watchers(name) {
-            let _ = self.run_variable_watchers(name, &value, &Value::NIL, "let");
+        if self.watchers.has_watchers(resolved) {
+            let _ = self.run_variable_watchers_by_id(resolved, &value, &Value::NIL, "let");
         }
         self.obarray.set_symbol_value_id(resolved, value);
     }
@@ -9859,10 +10119,14 @@ impl Context {
             match binding {
                 SpecBinding::Let { sym_id, old_value } => {
                     let name = resolve_sym(sym_id);
-                    if self.watchers.has_watchers(name) {
+                    if self.watchers.has_watchers(sym_id) {
                         let restore_val = old_value.unwrap_or(Value::NIL);
-                        let _ =
-                            self.run_variable_watchers(name, &restore_val, &Value::NIL, "unlet");
+                        let _ = self.run_variable_watchers_by_id(
+                            sym_id,
+                            &restore_val,
+                            &Value::NIL,
+                            "unlet",
+                        );
                     }
                     match old_value {
                         Some(val) => self.obarray.set_symbol_value_id(sym_id, val),
@@ -9875,8 +10139,13 @@ impl Context {
                     buffer_id,
                 } => {
                     let name = resolve_sym(sym_id);
-                    if self.watchers.has_watchers(name) {
-                        let _ = self.run_variable_watchers(name, &old_value, &Value::NIL, "unlet");
+                    if self.watchers.has_watchers(sym_id) {
+                        let _ = self.run_variable_watchers_by_id(
+                            sym_id,
+                            &old_value,
+                            &Value::NIL,
+                            "unlet",
+                        );
                     }
                     // Restore only if the buffer is still live
                     // (GNU: check Flocal_variable_p before restoring)
@@ -9889,10 +10158,14 @@ impl Context {
                 SpecBinding::LetDefault { sym_id, old_value } => {
                     // Restore the default value (GNU: set_default_internal)
                     let name = resolve_sym(sym_id);
-                    if self.watchers.has_watchers(name) {
+                    if self.watchers.has_watchers(sym_id) {
                         let restore_val = old_value.unwrap_or(Value::NIL);
-                        let _ =
-                            self.run_variable_watchers(name, &restore_val, &Value::NIL, "unlet");
+                        let _ = self.run_variable_watchers_by_id(
+                            sym_id,
+                            &restore_val,
+                            &Value::NIL,
+                            "unlet",
+                        );
                     }
                     match old_value {
                         Some(val) => self.obarray.set_symbol_value_id(sym_id, val),
@@ -10278,6 +10551,36 @@ impl Context {
 
     // -----------------------------------------------------------------------
 
+    pub(crate) fn lexenv_assq_cached_in(&self, lexenv: Value, sym_id: SymId) -> Option<Value> {
+        let lexenv_bits = lexenv.bits();
+        if let Some(entry) = self
+            .lexenv_assq_cache
+            .borrow()
+            .iter()
+            .rev()
+            .find(|entry| entry.lexenv_bits == lexenv_bits && entry.symbol == sym_id)
+        {
+            return Some(entry.cell);
+        }
+
+        let cell = lexenv_assq(lexenv, sym_id)?;
+        let mut cache = self.lexenv_assq_cache.borrow_mut();
+        cache.push(LexenvAssqCacheEntry {
+            lexenv_bits,
+            symbol: sym_id,
+            cell,
+        });
+        if cache.len() > LEXENV_ASSQ_CACHE_CAPACITY {
+            cache.remove(0);
+        }
+        Some(cell)
+    }
+
+    pub(crate) fn lexenv_lookup_cached_in(&self, lexenv: Value, sym_id: SymId) -> Option<Value> {
+        self.lexenv_assq_cached_in(lexenv, sym_id)
+            .map(|cell| cell.cons_cdr())
+    }
+
     /// Assign a value to a variable identified by SymId.
     /// Uses the SymId directly for lexenv/dynamic lookup, preserving
     /// uninterned symbol identity (like Emacs's EQ-based setq).
@@ -10290,13 +10593,12 @@ impl Context {
         sym_id: SymId,
         value: Value,
     ) -> Option<crate::buffer::BufferId> {
-        let name = resolve_sym(sym_id);
         // If lexical binding and not special, check lexenv first
         // GNU `setq` follows the same rule as `eval_sub`: if a lexical binding
         // cell exists, mutate it directly; don't rescan bare-symbol dynvar
         // declarations at assignment time.
         if self.lexical_binding() && !is_runtime_dynamically_special(&self.obarray, sym_id) {
-            if let Some(cell_id) = lexenv_assq(self.lexenv, sym_id) {
+            if let Some(cell_id) = self.lexenv_assq_cached_in(self.lexenv, sym_id) {
                 lexenv_set(cell_id, value);
                 return None;
             }
@@ -10347,7 +10649,7 @@ impl Context {
     }
 
     fn has_local_binding_by_id(&self, sym_id: SymId) -> bool {
-        lexenv_assq(self.lexenv, sym_id).is_some()
+        self.lexenv_assq_cached_in(self.lexenv, sym_id).is_some()
             || self
                 .specpdl
                 .iter()
@@ -10425,6 +10727,42 @@ impl Context {
         Ok(())
     }
 
+    pub(crate) fn run_variable_watchers_by_id(
+        &mut self,
+        sym_id: SymId,
+        new_value: &Value,
+        old_value: &Value,
+        operation: &str,
+    ) -> Result<(), Flow> {
+        self.run_variable_watchers_by_id_with_where(
+            sym_id,
+            new_value,
+            old_value,
+            operation,
+            &Value::NIL,
+        )
+    }
+
+    pub(crate) fn run_variable_watchers_by_id_with_where(
+        &mut self,
+        sym_id: SymId,
+        new_value: &Value,
+        old_value: &Value,
+        operation: &str,
+        where_value: &Value,
+    ) -> Result<(), Flow> {
+        if !self.watchers.has_watchers(sym_id) {
+            return Ok(());
+        }
+        let calls =
+            self.watchers
+                .notify_watchers(sym_id, new_value, old_value, operation, where_value);
+        for (callback, args) in calls {
+            let _ = self.apply(callback, args)?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn run_variable_watchers(
         &mut self,
         name: &str,
@@ -10432,7 +10770,7 @@ impl Context {
         old_value: &Value,
         operation: &str,
     ) -> Result<(), Flow> {
-        self.run_variable_watchers_with_where(name, new_value, old_value, operation, &Value::NIL)
+        self.run_variable_watchers_by_id(intern(name), new_value, old_value, operation)
     }
 
     pub(crate) fn run_variable_watchers_with_where(
@@ -10443,16 +10781,13 @@ impl Context {
         operation: &str,
         where_value: &Value,
     ) -> Result<(), Flow> {
-        if !self.watchers.has_watchers(name) {
-            return Ok(());
-        }
-        let calls =
-            self.watchers
-                .notify_watchers(name, new_value, old_value, operation, where_value);
-        for (callback, args) in calls {
-            let _ = self.apply(callback, args)?;
-        }
-        Ok(())
+        self.run_variable_watchers_by_id_with_where(
+            intern(name),
+            new_value,
+            old_value,
+            operation,
+            where_value,
+        )
     }
 
     pub(crate) fn assign_with_watchers(
@@ -10461,12 +10796,7 @@ impl Context {
         value: Value,
         operation: &str,
     ) -> EvalResult {
-        let where_value = self
-            .assign_by_id_with_locus(intern(name), value)
-            .map(Value::make_buffer)
-            .unwrap_or(Value::NIL);
-        self.run_variable_watchers_with_where(name, &value, &Value::NIL, operation, &where_value)?;
-        Ok(value)
+        self.assign_with_watchers_by_id(intern(name), value, operation)
     }
 
     pub(crate) fn assign_with_watchers_by_id(
@@ -10479,8 +10809,13 @@ impl Context {
             .assign_by_id_with_locus(sym_id, value)
             .map(Value::make_buffer)
             .unwrap_or(Value::NIL);
-        let name = resolve_sym(sym_id);
-        self.run_variable_watchers_with_where(name, &value, &Value::NIL, operation, &where_value)?;
+        self.run_variable_watchers_by_id_with_where(
+            sym_id,
+            &value,
+            &Value::NIL,
+            operation,
+            &where_value,
+        )?;
         Ok(value)
     }
 

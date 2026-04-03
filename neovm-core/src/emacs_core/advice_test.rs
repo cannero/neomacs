@@ -11,13 +11,14 @@ use super::*;
 fn add_and_notify_watcher() {
     crate::test_utils::init_test_tracing();
     let mut wl = VariableWatcherList::new();
-    assert!(!wl.has_watchers("my-var"));
+    let var_id = intern("my-var");
+    assert!(!wl.has_watchers(var_id));
 
-    wl.add_watcher("my-var", Value::symbol("my-watcher"));
-    assert!(wl.has_watchers("my-var"));
+    wl.add_watcher(var_id, Value::symbol("my-watcher"));
+    assert!(wl.has_watchers(var_id));
 
     let calls = wl.notify_watchers(
-        "my-var",
+        var_id,
         &Value::fixnum(42),
         &Value::fixnum(0),
         "set",
@@ -42,13 +43,14 @@ fn add_and_notify_watcher() {
 fn remove_watcher() {
     crate::test_utils::init_test_tracing();
     let mut wl = VariableWatcherList::new();
-    wl.add_watcher("my-var", Value::symbol("watcher1"));
-    wl.add_watcher("my-var", Value::symbol("watcher2"));
-    assert!(wl.has_watchers("my-var"));
+    let var_id = intern("my-var");
+    wl.add_watcher(var_id, Value::symbol("watcher1"));
+    wl.add_watcher(var_id, Value::symbol("watcher2"));
+    assert!(wl.has_watchers(var_id));
 
-    wl.remove_watcher("my-var", &Value::symbol("watcher1"));
+    wl.remove_watcher(var_id, &Value::symbol("watcher1"));
     let calls = wl.notify_watchers(
-        "my-var",
+        var_id,
         &Value::fixnum(1),
         &Value::fixnum(0),
         "set",
@@ -62,21 +64,23 @@ fn remove_watcher() {
 fn remove_all_watchers_cleans_up() {
     crate::test_utils::init_test_tracing();
     let mut wl = VariableWatcherList::new();
-    wl.add_watcher("my-var", Value::symbol("w1"));
+    let var_id = intern("my-var");
+    wl.add_watcher(var_id, Value::symbol("w1"));
 
-    wl.remove_watcher("my-var", &Value::symbol("w1"));
-    assert!(!wl.has_watchers("my-var"));
+    wl.remove_watcher(var_id, &Value::symbol("w1"));
+    assert!(!wl.has_watchers(var_id));
 }
 
 #[test]
 fn no_duplicate_watchers() {
     crate::test_utils::init_test_tracing();
     let mut wl = VariableWatcherList::new();
-    wl.add_watcher("my-var", Value::symbol("w"));
-    wl.add_watcher("my-var", Value::symbol("w"));
+    let var_id = intern("my-var");
+    wl.add_watcher(var_id, Value::symbol("w"));
+    wl.add_watcher(var_id, Value::symbol("w"));
 
     let calls = wl.notify_watchers(
-        "my-var",
+        var_id,
         &Value::fixnum(1),
         &Value::fixnum(0),
         "set",
@@ -89,6 +93,7 @@ fn no_duplicate_watchers() {
 fn no_duplicate_equivalent_lambda_watchers() {
     crate::test_utils::init_test_tracing();
     let mut wl = VariableWatcherList::new();
+    let var_id = intern("my-var");
     let callback_a = Value::make_lambda(LambdaData {
         params: LambdaParams {
             required: vec![
@@ -124,17 +129,18 @@ fn no_duplicate_equivalent_lambda_watchers() {
         interactive: None,
     });
 
-    wl.add_watcher("my-var", callback_a);
-    wl.add_watcher("my-var", callback_b);
-    assert_eq!(wl.get_watchers("my-var"), vec![callback_a]);
+    wl.add_watcher(var_id, callback_a);
+    wl.add_watcher(var_id, callback_b);
+    assert_eq!(wl.get_watchers(var_id), vec![callback_a]);
 }
 
 #[test]
 fn notify_no_watchers_returns_empty() {
     crate::test_utils::init_test_tracing();
     let wl = VariableWatcherList::new();
+    let var_id = intern("no-var");
     let calls = wl.notify_watchers(
-        "no-var",
+        var_id,
         &Value::fixnum(1),
         &Value::fixnum(0),
         "set",
@@ -147,12 +153,13 @@ fn notify_no_watchers_returns_empty() {
 fn multiple_watchers_all_notified() {
     crate::test_utils::init_test_tracing();
     let mut wl = VariableWatcherList::new();
-    wl.add_watcher("v", Value::symbol("w1"));
-    wl.add_watcher("v", Value::symbol("w2"));
-    wl.add_watcher("v", Value::symbol("w3"));
+    let var_id = intern("v");
+    wl.add_watcher(var_id, Value::symbol("w1"));
+    wl.add_watcher(var_id, Value::symbol("w2"));
+    wl.add_watcher(var_id, Value::symbol("w3"));
 
     let calls = wl.notify_watchers(
-        "v",
+        var_id,
         &Value::fixnum(99),
         &Value::fixnum(0),
         "set",
@@ -165,12 +172,14 @@ fn multiple_watchers_all_notified() {
 fn get_watchers_returns_callbacks_in_registration_order() {
     crate::test_utils::init_test_tracing();
     let mut wl = VariableWatcherList::new();
-    wl.add_watcher("v", Value::symbol("w1"));
-    wl.add_watcher("v", Value::symbol("w2"));
+    let var_id = intern("v");
+    let missing_id = intern("missing");
+    wl.add_watcher(var_id, Value::symbol("w1"));
+    wl.add_watcher(var_id, Value::symbol("w2"));
 
-    let watchers = wl.get_watchers("v");
+    let watchers = wl.get_watchers(var_id);
     assert_eq!(watchers, vec![Value::symbol("w1"), Value::symbol("w2")]);
-    assert!(wl.get_watchers("missing").is_empty());
+    assert!(wl.get_watchers(missing_id).is_empty());
 }
 
 #[test]

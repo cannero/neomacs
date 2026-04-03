@@ -1426,7 +1426,7 @@ pub(crate) fn dump_watcher_list(wl: &VariableWatcherList) -> DumpVariableWatcher
             .iter()
             .map(|(k, watchers)| {
                 (
-                    k.clone(),
+                    k.0,
                     watchers.iter().map(|w| dump_value(&w.callback)).collect(),
                 )
             })
@@ -2842,12 +2842,12 @@ pub(crate) fn load_interactive_registry(dir: &DumpInteractiveRegistry) -> Intera
 }
 
 pub(crate) fn load_watcher_list(dwl: &DumpVariableWatcherList) -> VariableWatcherList {
-    let watchers: HashMap<String, Vec<VariableWatcher>> = dwl
+    let watchers: HashMap<SymId, Vec<VariableWatcher>> = dwl
         .watchers
         .iter()
         .map(|(k, callbacks)| {
             (
-                k.clone(),
+                SymId(*k),
                 callbacks
                     .iter()
                     .map(|v| VariableWatcher {
