@@ -387,6 +387,81 @@ fn partial_bootstrap_eval_until(stop_before: &str, prefer_compiled: bool) -> Con
     eval
 }
 
+fn minimal_eager_macroexpand_eval() -> Context {
+    crate::test_utils::init_test_tracing();
+
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let lisp_dir = project_root.join("lisp");
+    assert!(
+        lisp_dir.is_dir(),
+        "lisp/ directory not found at {}",
+        lisp_dir.display()
+    );
+
+    let mut eval = Context::new();
+    let subdirs = ["", "emacs-lisp"];
+    let mut load_path_entries = Vec::new();
+    for sub in &subdirs {
+        let dir = if sub.is_empty() {
+            lisp_dir.clone()
+        } else {
+            lisp_dir.join(sub)
+        };
+        if dir.is_dir() {
+            load_path_entries.push(Value::string(dir.to_string_lossy().to_string()));
+        }
+    }
+    eval.set_variable("load-path", Value::list(load_path_entries));
+    eval.set_variable("dump-mode", Value::symbol("pbootstrap"));
+    eval.set_variable("purify-flag", Value::NIL);
+    eval.set_variable("max-lisp-eval-depth", Value::fixnum(1600));
+    eval.set_variable(
+        "macroexp--pending-eager-loads",
+        Value::list(vec![Value::symbol("skip")]),
+    );
+
+    let load_path = get_load_path(&eval.obarray());
+    for name in &[
+        "emacs-lisp/debug-early",
+        "emacs-lisp/byte-run",
+        "emacs-lisp/backquote",
+        "subr",
+        "emacs-lisp/macroexp",
+        "emacs-lisp/pcase",
+    ] {
+        let path = bootstrap_fixture_path(&load_path, name, false)
+            .unwrap_or_else(|| panic!("bootstrap file not found: {name}"));
+        load_file(&mut eval, &path).unwrap_or_else(|err| {
+            panic!(
+                "failed loading {name} from {}: {}",
+                path.display(),
+                format_eval_error(&eval, &err)
+            )
+        });
+    }
+
+    eval.require_value(Value::symbol("gv"), None, None)
+        .expect("require gv for eager macroexpansion");
+    eval.set_variable("macroexp--pending-eager-loads", Value::NIL);
+    let macroexp_path = bootstrap_fixture_path(&load_path, "emacs-lisp/macroexp", false)
+        .expect("macroexp source fixture path");
+    load_file(&mut eval, &macroexp_path).unwrap_or_else(|err| {
+        panic!(
+            "failed reloading emacs-lisp/macroexp from {}: {}",
+            macroexp_path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+
+    assert!(
+        get_eager_macroexpand_fn(&eval).is_some(),
+        "minimal eager bootstrap should expose internal-macroexpand-for-load"
+    );
+
+    eval
+}
+
 #[test]
 fn bootstrap_lambda_parameters_bind_special_symbols_like_gnu_emacs() {
     crate::test_utils::init_test_tracing();
@@ -3428,6 +3503,72 @@ fn compiled_cl_preloaded_loads_after_faces() {
 }
 
 #[test]
+fn neobc_cache_replays_eval_and_compile_load_side_effects() {
+    crate::test_utils::init_test_tracing();
+    let temp = tempdir().expect("temp eval-and-compile cache dir");
+    let path = temp.path().join("eval-and-compile-cache.el");
+    fs::write(
+        &path,
+        ";; -*- lexical-binding: nil -*-\n\
+         (eval-and-compile\n\
+           (defalias 'neovm--eval-and-compile-id #'(lambda (x) x)))\n\
+         (neovm--eval-and-compile-id 42)\n",
+    )
+    .expect("write eval-and-compile source");
+
+    let mut source_eval = minimal_eager_macroexpand_eval();
+    let source_result = load_file(&mut source_eval, &path).unwrap_or_else(|err| {
+        panic!(
+            "source load {}: {}",
+            path.display(),
+            format_eval_error(&source_eval, &err)
+        )
+    });
+    assert_eq!(source_result, Value::T);
+    let probe = crate::emacs_core::parser::parse_forms(
+        "(and (fboundp 'neovm--eval-and-compile-id) (neovm--eval-and-compile-id 42))",
+    )
+    .expect("parse eval-and-compile probe");
+    assert_eq!(
+        source_eval
+            .eval_expr(&probe[0])
+            .expect("evaluate source eager replay probe"),
+        Value::fixnum(42)
+    );
+
+    let mut cached_eval = minimal_eager_macroexpand_eval();
+    let cached_result = load_file(&mut cached_eval, &path).unwrap_or_else(|err| {
+        panic!(
+            "cached load {}: {}",
+            path.display(),
+            format_eval_error(&cached_eval, &err)
+        )
+    });
+    assert_eq!(cached_result, Value::T);
+    assert_eq!(
+        cached_eval
+            .eval_expr(&probe[0])
+            .expect("evaluate cached eager replay probe"),
+        Value::fixnum(42)
+    );
+
+    let cache_path =
+        runtime_neobc_cache_path(&path).unwrap_or_else(|| path.with_extension("neobc"));
+    let source = fs::read_to_string(&path).expect("read eval-and-compile source");
+    let hash = crate::emacs_core::file_compile_format::source_sha256(&source);
+    let loaded = crate::emacs_core::file_compile_format::read_neobc(&cache_path, &hash)
+        .unwrap_or_else(|err| panic!("read {}: {err}", cache_path.display()));
+    assert!(
+        loaded.forms.iter().any(|form| matches!(
+            form,
+            crate::emacs_core::file_compile_format::LoadedForm::EagerEval(_)
+        )),
+        "expected {} to preserve eager source replay forms",
+        cache_path.display()
+    );
+}
+
+#[test]
 fn source_cycle_spacing_form_loads_after_bootstrap_prefix() {
     crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("simple", false);
@@ -6028,14 +6169,19 @@ fn eager_expand_toplevel_forms_keeps_recursive_progn_forms_alive_under_exact_gc(
     let form_value = quote_to_value(&invoke_forms[0]);
     let macroexpand_fn = get_eager_macroexpand_fn(&eval).expect("eager macroexpand fn");
     let mut expanded = Vec::new();
-    eager_expand_toplevel_forms(&mut eval, form_value, macroexpand_fn, &mut |ctx, form| {
-        expanded.push(crate::emacs_core::print::print_value_with_buffers(
-            &form,
-            &ctx.buffers,
-        ));
-        ctx.gc_collect_exact_with_extra_roots(&[form]);
-        ctx.eval_value(&form).map_err(map_flow)
-    })
+    eager_expand_toplevel_forms(
+        &mut eval,
+        form_value,
+        macroexpand_fn,
+        &mut |ctx, _original, form| {
+            expanded.push(crate::emacs_core::print::print_value_with_buffers(
+                &form,
+                &ctx.buffers,
+            ));
+            ctx.gc_collect_exact_with_extra_roots(&[form]);
+            ctx.eval_value(&form).map_err(map_flow)
+        },
+    )
     .expect("eager expand progn macro");
 
     assert_eq!(

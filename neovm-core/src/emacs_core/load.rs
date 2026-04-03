@@ -216,6 +216,14 @@ fn eval_runtime_form(eval: &mut super::eval::Context, form: &Expr) -> Result<Val
     eval.eval_sub(form_value).map_err(map_flow)
 }
 
+fn cached_form_requires_eager_replay(form: Value) -> bool {
+    form.is_cons()
+        && form
+            .cons_car()
+            .as_symbol_name()
+            .is_some_and(|name| matches!(name, "eval-and-compile" | "eval-when-compile"))
+}
+
 fn generated_defalias(eval: &mut super::eval::Context, args: &[Expr]) -> Result<Value, EvalError> {
     if !(2..=3).contains(&args.len()) {
         return Err(EvalError::Signal {
@@ -762,8 +770,9 @@ pub(crate) fn eager_expand_toplevel_forms(
     eval: &mut super::eval::Context,
     form_value: Value,
     macroexpand_fn: Value,
-    sink: &mut impl FnMut(&mut super::eval::Context, Value) -> Result<Value, EvalError>,
+    sink: &mut impl FnMut(&mut super::eval::Context, Value, Value) -> Result<Value, EvalError>,
 ) -> Result<Value, EvalError> {
+    let original_form = form_value;
     // Step 1: one-level expand — val = (internal-macroexpand-for-load val nil)
     // Note: real Emacs mutates `val` here; we shadow it.
     let val = eval.with_gc_scope(|ctx| {
@@ -780,7 +789,7 @@ pub(crate) fn eager_expand_toplevel_forms(
             tracing::debug!("eager_expand step1 failed, falling back to plain eval");
             return eval.with_gc_scope(|ctx| {
                 ctx.root(form_value);
-                sink(ctx, form_value)
+                sink(ctx, original_form, form_value)
             });
         }
     };
@@ -814,6 +823,7 @@ pub(crate) fn eager_expand_toplevel_forms(
     eval.with_gc_scope(|ctx| {
         ctx.root(val);
         ctx.root(macroexpand_fn);
+        ctx.root(original_form);
         let t3 = std::time::Instant::now();
         // Call internal-macroexpand-for-load(val, t) — full-p=t means deep expand
         let expanded = match ctx.apply(macroexpand_fn, vec![val, Value::T]) {
@@ -831,7 +841,7 @@ pub(crate) fn eager_expand_toplevel_forms(
             tracing::warn!("eager_expand step3 (full-expand) took {d3:.2?}");
         }
         ctx.root(expanded);
-        sink(ctx, expanded)
+        sink(ctx, original_form, expanded)
     })
 }
 
@@ -841,18 +851,23 @@ pub(crate) fn eager_expand_eval(
     form_value: Value,
     macroexpand_fn: Value,
 ) -> Result<Value, EvalError> {
-    eager_expand_toplevel_forms(eval, form_value, macroexpand_fn, &mut |ctx, expanded| {
-        ctx.with_gc_scope(|ctx| {
-            ctx.root(expanded);
-            let t4 = std::time::Instant::now();
-            let value = ctx.eval_value(&expanded).map_err(map_flow)?;
-            let d4 = t4.elapsed();
-            if d4.as_millis() > 200 {
-                tracing::warn!("eager_expand step4 (eval) took {d4:.2?}");
-            }
-            Ok(value)
-        })
-    })
+    eager_expand_toplevel_forms(
+        eval,
+        form_value,
+        macroexpand_fn,
+        &mut |ctx, _original, expanded| {
+            ctx.with_gc_scope(|ctx| {
+                ctx.root(expanded);
+                let t4 = std::time::Instant::now();
+                let value = ctx.eval_value(&expanded).map_err(map_flow)?;
+                let d4 = t4.elapsed();
+                if d4.as_millis() > 200 {
+                    tracing::warn!("eager_expand step4 (eval) took {d4:.2?}");
+                }
+                Ok(value)
+            })
+        },
+    )
 }
 
 /// Shared context save/restore for file loading.
@@ -1216,6 +1231,14 @@ pub(crate) fn eval_decoded_source_file_in_context(
                     super::file_compile_format::LoadedForm::Eval(expr) => {
                         eval_runtime_form(eval, expr)?;
                     }
+                    super::file_compile_format::LoadedForm::EagerEval(expr) => {
+                        let form_value = eval.quote_to_runtime_value(expr);
+                        if let Some(macroexpand_fn) = get_eager_macroexpand_fn(eval) {
+                            eager_expand_eval(eval, form_value, macroexpand_fn)?;
+                        } else {
+                            eval.eval_sub(form_value).map_err(map_flow)?;
+                        }
+                    }
                     super::file_compile_format::LoadedForm::Constant(_) => {
                         // eval-when-compile constant -- already evaluated, skip.
                     }
@@ -1260,30 +1283,40 @@ pub(crate) fn eval_decoded_source_file_in_context(
         ));
         readevalloop(eval, &file_name, &forms, |eval, i, form| {
             let form_value = eval.quote_to_runtime_value(form);
-            eager_expand_toplevel_forms(eval, form_value, mexp_fn, &mut |ctx, expanded| {
-                if let Some(builder) = neobc_builder.as_mut() {
-                    if let Err(err) = builder.push_eval_value_detailed(&expanded) {
-                        tracing::debug!(
-                            "neobc cache save skipped for {} at source form {}: unsupported value at {} ({})",
-                            path.display(),
-                            i,
-                            err.path(),
-                            err.detail()
-                        );
-                        neobc_builder = None;
+            eager_expand_toplevel_forms(
+                eval,
+                form_value,
+                mexp_fn,
+                &mut |ctx, original, expanded| {
+                    if let Some(builder) = neobc_builder.as_mut() {
+                        let push_result = if cached_form_requires_eager_replay(original) {
+                            builder.push_eager_eval_value_detailed(&original)
+                        } else {
+                            builder.push_eval_value_detailed(&expanded)
+                        };
+                        if let Err(err) = push_result {
+                            tracing::debug!(
+                                "neobc cache save skipped for {} at source form {}: unsupported value at {} ({})",
+                                path.display(),
+                                i,
+                                err.path(),
+                                err.detail()
+                            );
+                            neobc_builder = None;
+                        }
                     }
-                }
-                ctx.with_gc_scope(|ctx| {
-                    ctx.root(expanded);
-                    let t4 = std::time::Instant::now();
-                    let value = ctx.eval_value(&expanded).map_err(map_flow)?;
-                    let d4 = t4.elapsed();
-                    if d4.as_millis() > 200 {
-                        tracing::warn!("eager_expand step4 (eval) took {d4:.2?}");
-                    }
-                    Ok(value)
-                })
-            })
+                    ctx.with_gc_scope(|ctx| {
+                        ctx.root(expanded);
+                        let t4 = std::time::Instant::now();
+                        let value = ctx.eval_value(&expanded).map_err(map_flow)?;
+                        let d4 = t4.elapsed();
+                        if d4.as_millis() > 200 {
+                            tracing::warn!("eager_expand step4 (eval) took {d4:.2?}");
+                        }
+                        Ok(value)
+                    })
+                },
+            )
         })?;
         if let Some(neobc_builder) = neobc_builder {
             if let Some(parent) = auto_neobc_cache_path.parent() {
@@ -1478,7 +1511,7 @@ fn normalized_bootstrap_features(extra_features: &[&str]) -> Vec<String> {
 // represent correctly. V16 invalidates older caches because category-table
 // ownership moved from a parallel manager into dumped Lisp objects.
 const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 16;
-const NEOBC_CACHE_VERSION: u32 = 1;
+const NEOBC_CACHE_VERSION: u32 = 2;
 const RUNTIME_ROOT_ENV: &str = "NEOMACS_RUNTIME_ROOT";
 const BOOTSTRAP_CACHE_DIR_ENV: &str = "NEOVM_BOOTSTRAP_CACHE_DIR";
 

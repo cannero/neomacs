@@ -23,7 +23,7 @@ use super::value::{
 use crate::tagged::header::VecLikeType;
 
 /// Magic bytes identifying a `.neobc` file.
-const NEOBC_MAGIC: &[u8] = b"NEOVM-BC-V1\n";
+const NEOBC_MAGIC: &[u8] = b"NEOVM-BC-V2\n";
 
 // ---------------------------------------------------------------------------
 // Serializable expression type (mirrors load.rs CachedExpr, which is private)
@@ -78,6 +78,9 @@ struct CachedHashTable {
 enum SerializedForm {
     /// An expression to evaluate at load time.
     Eval(CachedExpr),
+    /// A source form that must go back through eager macroexpansion at load time
+    /// to preserve GNU `eval-and-compile` / `eval-when-compile` side effects.
+    EagerEval(CachedExpr),
     /// A constant result from `eval-when-compile`.
     Constant(CachedExpr),
 }
@@ -543,6 +546,18 @@ impl NeobcBuilder {
         Ok(())
     }
 
+    pub(crate) fn push_eager_eval_value_detailed(
+        &mut self,
+        value: &Value,
+    ) -> Result<(), UnsupportedValue> {
+        let cached = self
+            .encoder
+            .encode_value(value)
+            .ok_or_else(|| self.encoder.unsupported_value(value))?;
+        self.forms.push(SerializedForm::EagerEval(cached));
+        Ok(())
+    }
+
     pub(crate) fn push_constant_value(&mut self, value: &Value) -> Option<()> {
         let cached = self.encoder.encode_value(value)?;
         self.forms.push(SerializedForm::Constant(cached));
@@ -738,6 +753,8 @@ pub struct LoadedNeobc {
 pub enum LoadedForm {
     /// Re-evaluate this expression at load time.
     Eval(Expr),
+    /// Re-run eager macroexpansion for this source form at load time.
+    EagerEval(Expr),
     /// A pre-computed constant (result of `eval-when-compile`).
     Constant(Value),
 }
@@ -797,6 +814,7 @@ pub fn read_neobc(path: &Path, expected_hash: &str) -> std::io::Result<LoadedNeo
         .iter()
         .map(|sf| match sf {
             SerializedForm::Eval(cached) => LoadedForm::Eval(decoder.decode(cached)),
+            SerializedForm::EagerEval(cached) => LoadedForm::EagerEval(decoder.decode(cached)),
             SerializedForm::Constant(cached) => {
                 let expr = decoder.decode(cached);
                 LoadedForm::Constant(quote_to_value(&expr))
@@ -849,10 +867,13 @@ mod tests {
         let loaded = read_neobc(&path, &hash).unwrap();
         assert!(!loaded.lexical_binding);
         assert_eq!(loaded.forms.len(), 1);
-        assert!(matches!(&loaded.forms[0], LoadedForm::Eval(_)));
+        assert!(matches!(
+            &loaded.forms[0],
+            LoadedForm::Eval(_) | LoadedForm::EagerEval(_)
+        ));
 
         // Re-evaluate the loaded form and check result.
-        if let LoadedForm::Eval(expr) = &loaded.forms[0] {
+        if let LoadedForm::Eval(expr) | LoadedForm::EagerEval(expr) = &loaded.forms[0] {
             let mut eval2 = Context::new();
             let result = eval2.eval(expr).unwrap();
             assert_eq!(result, Value::fixnum(3));
@@ -903,9 +924,15 @@ mod tests {
 
         let loaded = read_neobc(&path, &hash).unwrap();
         assert_eq!(loaded.forms.len(), 3);
-        assert!(matches!(&loaded.forms[0], LoadedForm::Eval(_)));
+        assert!(matches!(
+            &loaded.forms[0],
+            LoadedForm::Eval(_) | LoadedForm::EagerEval(_)
+        ));
         assert!(matches!(&loaded.forms[1], LoadedForm::Constant(_)));
-        assert!(matches!(&loaded.forms[2], LoadedForm::Eval(_)));
+        assert!(matches!(
+            &loaded.forms[2],
+            LoadedForm::Eval(_) | LoadedForm::EagerEval(_)
+        ));
     }
 
     #[test]
@@ -1003,7 +1030,9 @@ mod tests {
         assert!(!loaded.lexical_binding);
         assert_eq!(loaded.forms.len(), 1);
         match &loaded.forms[0] {
-            LoadedForm::Eval(expr) => assert!(matches!(expr, Expr::List(_))),
+            LoadedForm::Eval(expr) | LoadedForm::EagerEval(expr) => {
+                assert!(matches!(expr, Expr::List(_)))
+            }
             LoadedForm::Constant(_) => panic!("expected Eval form"),
         }
     }
@@ -1124,7 +1153,7 @@ mod tests {
 
         let loaded = read_neobc(&path, &hash).unwrap();
         match &loaded.forms[0] {
-            LoadedForm::Eval(expr) => {
+            LoadedForm::Eval(expr) | LoadedForm::EagerEval(expr) => {
                 let mut eval = Context::new();
                 let value = eval.eval(expr).unwrap();
                 assert!(value.is_record());
@@ -1151,7 +1180,7 @@ mod tests {
 
         let loaded = read_neobc(&path, &hash).unwrap();
         match &loaded.forms[0] {
-            LoadedForm::Eval(expr) => {
+            LoadedForm::Eval(expr) | LoadedForm::EagerEval(expr) => {
                 let mut eval = Context::new();
                 let value = eval.eval(expr).unwrap();
                 let table = value.as_hash_table().unwrap();
@@ -1197,7 +1226,7 @@ mod tests {
 
         let loaded = read_neobc(&path, "hash").unwrap();
         match &loaded.forms[0] {
-            LoadedForm::Eval(expr) => {
+            LoadedForm::Eval(expr) | LoadedForm::EagerEval(expr) => {
                 let mut eval = Context::new();
                 let value = eval.eval(expr).unwrap();
                 let items = value.as_record_data().unwrap();
