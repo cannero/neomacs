@@ -4,8 +4,10 @@
 //! This is easier to work with during compilation. A future optimization
 //! pass can serialize to a compact byte stream.
 
+use serde::{Deserialize, Serialize};
+
 /// A single bytecode instruction.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Op {
     // -- Constants and stack --------------------------------------------------
     /// Push a constant from the constant pool.

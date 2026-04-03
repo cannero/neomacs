@@ -15,13 +15,15 @@ use std::path::Path;
 use std::rc::Rc;
 
 use super::builtins::parse_lambda_params_from_value;
+use super::bytecode::chunk::ByteCodeFunction;
+use super::bytecode::opcode::Op;
 use super::eval::{OPAQUE_POOL, quote_to_value, value_to_expr};
 use super::expr::Expr;
 use super::file_compile::CompiledForm;
 use super::intern::{SymId, intern, intern_uninterned, is_canonical_id, resolve_sym};
 use super::value::{
-    HashKey, HashTableTest, HashTableWeakness, LambdaData, Value, build_hash_table_literal_value,
-    list_to_vec,
+    HashKey, HashTableTest, HashTableWeakness, LambdaData, LambdaParams, Value,
+    build_hash_table_literal_value, list_to_vec,
 };
 use crate::tagged::header::{
     CLOSURE_ARGLIST, CLOSURE_CODE, CLOSURE_CONSTANTS, CLOSURE_DOC_STRING, CLOSURE_INTERACTIVE,
@@ -50,9 +52,37 @@ enum CachedExpr {
     Record(Vec<CachedExpr>),
     Lambda(Vec<CachedExpr>),
     Macro(Vec<CachedExpr>),
+    ByteCode(Box<CachedByteCodeFunction>),
     HashTable(CachedHashTable),
     DottedList(Vec<CachedExpr>, Box<CachedExpr>),
     Bool(bool),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+enum CachedSymRef {
+    Symbol(String),
+    UninternedSymbol { slot: u32, name: String },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct CachedLambdaParams {
+    required: Vec<CachedSymRef>,
+    optional: Vec<CachedSymRef>,
+    rest: Option<CachedSymRef>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct CachedByteCodeFunction {
+    ops: Vec<Op>,
+    constants: Vec<CachedExpr>,
+    max_stack: u16,
+    params: CachedLambdaParams,
+    lexical: bool,
+    env: Option<CachedExpr>,
+    gnu_byte_offset_map: Option<Vec<(u32, u32)>>,
+    docstring: Option<String>,
+    doc_form: Option<CachedExpr>,
+    interactive: Option<CachedExpr>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -208,6 +238,68 @@ fn portable_hash_key_value(key: &HashKey) -> Option<Value> {
 }
 
 impl ExprEncoder {
+    fn encode_sym_ref(&mut self, id: SymId) -> CachedSymRef {
+        let name = resolve_sym(id).to_owned();
+        if is_canonical_symbol_id(id) {
+            CachedSymRef::Symbol(name)
+        } else {
+            let slot = *self.uninterned_slots.entry(id).or_insert_with(|| {
+                let slot = self.next_slot;
+                self.next_slot += 1;
+                slot
+            });
+            CachedSymRef::UninternedSymbol { slot, name }
+        }
+    }
+
+    fn encode_lambda_params(&mut self, params: &LambdaParams) -> CachedLambdaParams {
+        CachedLambdaParams {
+            required: params
+                .required
+                .iter()
+                .map(|id| self.encode_sym_ref(*id))
+                .collect(),
+            optional: params
+                .optional
+                .iter()
+                .map(|id| self.encode_sym_ref(*id))
+                .collect(),
+            rest: params.rest.map(|id| self.encode_sym_ref(id)),
+        }
+    }
+
+    fn encode_bytecode(&mut self, bc: &ByteCodeFunction) -> Option<CachedByteCodeFunction> {
+        Some(CachedByteCodeFunction {
+            ops: bc.ops.clone(),
+            constants: bc
+                .constants
+                .iter()
+                .map(|value| self.encode_value(value))
+                .collect::<Option<Vec<_>>>()?,
+            max_stack: bc.max_stack,
+            params: self.encode_lambda_params(&bc.params),
+            lexical: bc.lexical,
+            env: match bc.env.as_ref() {
+                Some(value) => Some(self.encode_value(value)?),
+                None => None,
+            },
+            gnu_byte_offset_map: bc.gnu_byte_offset_map.as_ref().map(|map| {
+                map.iter()
+                    .map(|(byte_off, instr_idx)| (*byte_off as u32, *instr_idx as u32))
+                    .collect()
+            }),
+            docstring: bc.docstring.clone(),
+            doc_form: match bc.doc_form.as_ref() {
+                Some(value) => Some(self.encode_value(value)?),
+                None => None,
+            },
+            interactive: match bc.interactive.as_ref() {
+                Some(value) => Some(self.encode_value(value)?),
+                None => None,
+            },
+        })
+    }
+
     fn encode_closure_slots(&mut self, value: Value) -> Option<Vec<CachedExpr>> {
         value
             .closure_slots()?
@@ -366,6 +458,9 @@ impl ExprEncoder {
             super::value::ValueKind::Veclike(super::value::VecLikeType::Macro) => {
                 CachedExpr::Macro(self.encode_closure_slots(*value)?)
             }
+            super::value::ValueKind::Veclike(super::value::VecLikeType::ByteCode) => {
+                CachedExpr::ByteCode(Box::new(self.encode_bytecode(value.get_bytecode_data()?)?))
+            }
             super::value::ValueKind::Veclike(super::value::VecLikeType::HashTable) => {
                 CachedExpr::HashTable(self.encode_hash_table(*value)?)
             }
@@ -489,6 +584,21 @@ fn diagnose_unsupported_value(value: &Value, path: &str) -> UnsupportedValue {
                 UnsupportedValue::new(path, "closure value failed serialization")
             } else {
                 UnsupportedValue::new(path, "closure payload unavailable")
+            }
+        }
+        super::value::ValueKind::Veclike(super::value::VecLikeType::ByteCode) => {
+            if let Some(bytecode) = value.get_bytecode_data() {
+                for (idx, item) in bytecode.constants.iter().enumerate() {
+                    if ExprEncoder::default().encode_value(item).is_none() {
+                        return diagnose_unsupported_value(
+                            item,
+                            &push_path(path, &format!(".constants[{idx}]")),
+                        );
+                    }
+                }
+                UnsupportedValue::new(path, "bytecode value failed serialization")
+            } else {
+                UnsupportedValue::new(path, "bytecode payload unavailable")
             }
         }
         super::value::ValueKind::Veclike(super::value::VecLikeType::HashTable) => {
@@ -619,6 +729,66 @@ impl NeobcBuilder {
 }
 
 impl ExprDecoder {
+    fn decode_sym_ref(&mut self, sym: &CachedSymRef) -> SymId {
+        match sym {
+            CachedSymRef::Symbol(name) => intern(name),
+            CachedSymRef::UninternedSymbol { slot, name } => *self
+                .uninterned_slots
+                .entry(*slot)
+                .or_insert_with(|| intern_uninterned(name)),
+        }
+    }
+
+    fn decode_lambda_params(&mut self, params: &CachedLambdaParams) -> LambdaParams {
+        LambdaParams {
+            required: params
+                .required
+                .iter()
+                .map(|sym| self.decode_sym_ref(sym))
+                .collect(),
+            optional: params
+                .optional
+                .iter()
+                .map(|sym| self.decode_sym_ref(sym))
+                .collect(),
+            rest: params.rest.as_ref().map(|sym| self.decode_sym_ref(sym)),
+        }
+    }
+
+    fn decode_bytecode_value(&mut self, bytecode: &CachedByteCodeFunction) -> Value {
+        let constants = bytecode
+            .constants
+            .iter()
+            .map(|item| quote_to_value(&self.decode(item)))
+            .collect();
+        Value::make_bytecode(ByteCodeFunction {
+            ops: bytecode.ops.clone(),
+            constants,
+            max_stack: bytecode.max_stack,
+            params: self.decode_lambda_params(&bytecode.params),
+            lexical: bytecode.lexical,
+            env: bytecode
+                .env
+                .as_ref()
+                .map(|value| quote_to_value(&self.decode(value))),
+            gnu_byte_offset_map: bytecode.gnu_byte_offset_map.as_ref().map(|pairs| {
+                pairs
+                    .iter()
+                    .map(|(byte_off, instr_idx)| (*byte_off as usize, *instr_idx as usize))
+                    .collect()
+            }),
+            docstring: bytecode.docstring.clone(),
+            doc_form: bytecode
+                .doc_form
+                .as_ref()
+                .map(|value| quote_to_value(&self.decode(value))),
+            interactive: bytecode
+                .interactive
+                .as_ref()
+                .map(|value| quote_to_value(&self.decode(value))),
+        })
+    }
+
     fn decode_closure_value(&mut self, kind: VecLikeType, slots: &[CachedExpr]) -> Value {
         let slot_values: Vec<Value> = slots
             .iter()
@@ -728,6 +898,10 @@ impl ExprDecoder {
             }
             CachedExpr::Macro(slots) => {
                 let value = self.decode_closure_value(VecLikeType::Macro, slots);
+                Expr::OpaqueValueRef(OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(value)))
+            }
+            CachedExpr::ByteCode(bytecode) => {
+                let value = self.decode_bytecode_value(bytecode);
                 Expr::OpaqueValueRef(OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(value)))
             }
             CachedExpr::HashTable(table) => {
@@ -920,6 +1094,7 @@ pub fn read_neobc(path: &Path, expected_hash: &str) -> std::io::Result<LoadedNeo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::emacs_core::bytecode::Compiler;
     use crate::emacs_core::eval::Context;
     use crate::emacs_core::file_compile::compile_file_forms;
     use crate::emacs_core::intern::intern;
@@ -1451,6 +1626,69 @@ mod tests {
                 let value = eval.eval(expr).unwrap();
                 assert!(value.is_lambda());
                 assert_eq!(value.closure_docstring(), Some(Some("sample closure")));
+            }
+            LoadedForm::Constant(_) => panic!("expected Eval form"),
+        }
+    }
+
+    #[test]
+    fn test_roundtrip_bytecode_runtime_value() {
+        crate::test_utils::init_test_tracing();
+        let body = parse_forms("(+ x 1)").unwrap();
+        let bytecode = Value::make_bytecode(
+            Compiler::new(false).compile_lambda(&LambdaParams::simple(vec![intern("x")]), &body),
+        );
+        let mut builder = NeobcBuilder::new("hash", false);
+        builder.push_eval_value_detailed(&bytecode).unwrap();
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bytecode.neobc");
+        builder.write(&path).unwrap();
+
+        let loaded = read_neobc(&path, "hash").unwrap();
+        match &loaded.forms[0] {
+            LoadedForm::Eval(expr) | LoadedForm::EagerEval(expr) => {
+                let mut eval = Context::new();
+                let value = eval.eval(expr).unwrap();
+                assert!(value.is_bytecode());
+                let bytecode = value.get_bytecode_data().expect("bytecode payload");
+                assert_eq!(bytecode.params.required, vec![intern("x")]);
+                assert!(!bytecode.ops.is_empty());
+            }
+            LoadedForm::Constant(_) => panic!("expected Eval form"),
+        }
+    }
+
+    #[test]
+    fn test_write_neobc_exprs_round_trips_opaque_bytecode_refs() {
+        crate::test_utils::init_test_tracing();
+        let body = parse_forms("(+ x 1)").unwrap();
+        let bytecode = Value::make_bytecode(
+            Compiler::new(false).compile_lambda(&LambdaParams::simple(vec![intern("x")]), &body),
+        );
+        let exprs = vec![Expr::OpaqueValueRef(
+            OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(bytecode)),
+        )];
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("opaque-bytecode.neobc");
+        let hash = source_sha256("opaque-bytecode");
+
+        write_neobc_exprs(&path, &hash, false, &exprs).unwrap();
+
+        let loaded = read_neobc(&path, &hash).unwrap();
+        match &loaded.forms[0] {
+            LoadedForm::Eval(expr) | LoadedForm::EagerEval(expr) => {
+                let mut eval = Context::new();
+                let value = eval.eval(expr).unwrap();
+                assert!(value.is_bytecode());
+                assert_eq!(
+                    value
+                        .get_bytecode_data()
+                        .expect("bytecode payload")
+                        .params
+                        .required,
+                    vec![intern("x")]
+                );
             }
             LoadedForm::Constant(_) => panic!("expected Eval form"),
         }
