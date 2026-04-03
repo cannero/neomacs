@@ -3757,6 +3757,33 @@ fn lambda_captures_docstring_metadata() {
 }
 
 #[test]
+fn function_special_form_evaluates_dynamic_documentation_form() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let forms =
+        parse_forms("(function (lambda nil (:documentation (if t \"dyn-doc\" \"bad\")) nil))")
+            .expect("parse");
+    let value = ev.eval_expr(&forms[0]).expect("eval");
+    assert_eq!(value.closure_docstring().flatten(), Some("dyn-doc"));
+    let body = value
+        .closure_body_value()
+        .and_then(|body| crate::emacs_core::value::list_to_vec(&body))
+        .expect("expected lambda body");
+    assert_eq!(body, vec![Value::NIL]);
+}
+
+#[test]
+fn quoted_lambda_funcall_strips_dynamic_documentation_form() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        eval_one(
+            "(let ((f '(lambda nil (:documentation (if t \"dyn-doc\" \"bad\")) 7))) (funcall f))"
+        ),
+        "OK 7"
+    );
+}
+
+#[test]
 fn lambda_single_string_body_is_a_return_value_not_a_docstring() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

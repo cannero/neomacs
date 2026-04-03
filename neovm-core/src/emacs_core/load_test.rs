@@ -6462,6 +6462,22 @@ fn bootstrap_macroexpand_all_pcase() {
 }
 
 #[test]
+fn bootstrap_load_uniquify_after_float_sup() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = partial_bootstrap_eval_until("uniquify", true);
+    let load_path = get_load_path(&eval.obarray());
+    let path = bootstrap_fixture_path(&load_path, "uniquify", true)
+        .expect("bootstrap file not found: uniquify");
+    load_file(&mut eval, &path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading uniquify from {}: {}",
+            path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+}
+
+#[test]
 fn bootstrap_macroexpand_all_pcase_and_pred() {
     crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("emacs-lisp/cl-preloaded", true);

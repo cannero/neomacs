@@ -9057,21 +9057,8 @@ impl Context {
         // Check for (:documentation FORM) in the body — used by oclosures
         // to store the type symbol in slot 4 of the closure vector.
         let (doc_form, body_start) = if let Some(expr) = tail.get(body_start) {
-            if let Expr::List(items) = expr {
-                if items.len() == 2 {
-                    if let Some(Expr::Keyword(kw)) = items.first() {
-                        if resolve_sym(*kw) == ":documentation" {
-                            let form_val = self.eval(&items[1])?;
-                            (Some(form_val), body_start + 1)
-                        } else {
-                            (None, body_start)
-                        }
-                    } else {
-                        (None, body_start)
-                    }
-                } else {
-                    (None, body_start)
-                }
+            if let Some(doc_form) = self.eval_dynamic_documentation_expr(expr)? {
+                (Some(doc_form), body_start + 1)
             } else {
                 (None, body_start)
             }
@@ -9198,6 +9185,47 @@ impl Context {
 
         scope.close(self);
         result
+    }
+
+    fn eval_dynamic_documentation_expr(&mut self, expr: &Expr) -> Result<Option<Value>, Flow> {
+        let Expr::List(items) = expr else {
+            return Ok(None);
+        };
+        let Some(head) = items.first() else {
+            return Ok(None);
+        };
+        let is_doc_form = match head {
+            Expr::Keyword(id) | Expr::Symbol(id) => resolve_sym(*id) == ":documentation",
+            _ => false,
+        };
+        if !is_doc_form {
+            return Ok(None);
+        }
+
+        if let Some(form) = items.get(1) {
+            self.eval(form).map(Some)
+        } else {
+            Ok(Some(Value::NIL))
+        }
+    }
+
+    fn eval_dynamic_documentation_value(&mut self, value: Value) -> Result<Option<Value>, Flow> {
+        if !value.is_cons() || value.cons_car().as_symbol_name() != Some(":documentation") {
+            return Ok(None);
+        }
+
+        let tail = value.cons_cdr();
+        if tail.is_nil() {
+            return Ok(Some(Value::NIL));
+        }
+        if !tail.is_cons() {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("listp"), value],
+            ));
+        }
+
+        self.eval_value(&tail.cons_car()).map(Some)
     }
 
     fn parse_lambda_params(&self, expr: &Expr) -> Result<LambdaParams, Flow> {
@@ -9416,6 +9444,9 @@ impl Context {
             _ => return Err(signal("invalid-function", vec![function])),
         };
 
+        let scope = self.open_gc_scope();
+        self.push_temp_root(function);
+
         let docstring_value = if items.get(body_start).is_some_and(|v| v.is_string())
             && items.get(body_start + 1).is_some()
         {
@@ -9427,12 +9458,10 @@ impl Context {
         };
 
         let mut doc_form_value = Value::NIL;
-        if let Some(item) = items.get(body_start)
-            && let Some(entry) = list_to_vec(item)
-            && entry.len() == 2
-            && entry[0].as_symbol_name() == Some(":documentation")
+        if let Some(item) = items.get(body_start).copied()
+            && let Some(doc_form) = self.eval_dynamic_documentation_value(item)?
         {
-            doc_form_value = entry[1];
+            doc_form_value = doc_form;
             body_start += 1;
         }
 
@@ -9470,8 +9499,6 @@ impl Context {
             docstring_value
         };
 
-        let scope = self.open_gc_scope();
-        self.push_temp_root(function);
         self.push_temp_root(params_value);
         self.push_temp_root(body_value);
         self.push_temp_root(env_value);
