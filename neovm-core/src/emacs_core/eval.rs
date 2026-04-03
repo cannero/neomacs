@@ -8902,29 +8902,45 @@ impl Context {
                 .cloned()
                 .unwrap_or(Value::NIL),
             Expr::List(items) => {
-                let quoted = items
-                    .iter()
-                    .map(|item| Self::quote_to_runtime_value_in_state(obarray, item))
-                    .collect::<Vec<_>>();
-                Value::list(quoted)
+                let saved_roots = save_scratch_gc_roots();
+                let mut quoted = Vec::with_capacity(items.len());
+                for item in items {
+                    let value = Self::quote_to_runtime_value_in_state(obarray, item);
+                    push_scratch_gc_root(value);
+                    quoted.push(value);
+                }
+                let result = Value::list(quoted);
+                restore_scratch_gc_roots(saved_roots);
+                result
             }
             Expr::DottedList(items, last) => {
-                let head_vals: Vec<Value> = items
-                    .iter()
-                    .map(|item| Self::quote_to_runtime_value_in_state(obarray, item))
-                    .collect();
+                let saved_roots = save_scratch_gc_roots();
+                let mut head_vals = Vec::with_capacity(items.len());
+                for item in items {
+                    let value = Self::quote_to_runtime_value_in_state(obarray, item);
+                    push_scratch_gc_root(value);
+                    head_vals.push(value);
+                }
                 let tail_val = Self::quote_to_runtime_value_in_state(obarray, last);
-                head_vals
+                push_scratch_gc_root(tail_val);
+                let result = head_vals
                     .into_iter()
                     .rev()
-                    .fold(tail_val, |acc, item| Value::cons(item, acc))
+                    .fold(tail_val, |acc, item| Value::cons(item, acc));
+                restore_scratch_gc_roots(saved_roots);
+                result
             }
             Expr::Vector(items) => {
-                let vals = items
-                    .iter()
-                    .map(|item| Self::quote_to_runtime_value_in_state(obarray, item))
-                    .collect();
-                Value::vector(vals)
+                let saved_roots = save_scratch_gc_roots();
+                let mut vals = Vec::with_capacity(items.len());
+                for item in items {
+                    let value = Self::quote_to_runtime_value_in_state(obarray, item);
+                    push_scratch_gc_root(value);
+                    vals.push(value);
+                }
+                let result = Value::vector(vals);
+                restore_scratch_gc_roots(saved_roots);
+                result
             }
             _ => quote_to_value(expr),
         }
@@ -11425,29 +11441,45 @@ impl Context {
         // For compound types, recursively cache children too
         let value = match expr {
             Expr::List(items) => {
-                let quoted: Vec<Value> = items
-                    .iter()
-                    .map(|e| self.cached_source_literal_to_value(e))
-                    .collect();
-                Value::list(quoted)
+                let saved_roots = save_scratch_gc_roots();
+                let mut quoted = Vec::with_capacity(items.len());
+                for item in items {
+                    let value = self.cached_source_literal_to_value(item);
+                    push_scratch_gc_root(value);
+                    quoted.push(value);
+                }
+                let result = Value::list(quoted);
+                restore_scratch_gc_roots(saved_roots);
+                result
             }
             Expr::DottedList(items, last) => {
-                let head_vals: Vec<Value> = items
-                    .iter()
-                    .map(|e| self.cached_source_literal_to_value(e))
-                    .collect();
+                let saved_roots = save_scratch_gc_roots();
+                let mut head_vals = Vec::with_capacity(items.len());
+                for item in items {
+                    let value = self.cached_source_literal_to_value(item);
+                    push_scratch_gc_root(value);
+                    head_vals.push(value);
+                }
                 let tail_val = self.cached_source_literal_to_value(last);
-                head_vals
+                push_scratch_gc_root(tail_val);
+                let result = head_vals
                     .into_iter()
                     .rev()
-                    .fold(tail_val, |acc, item| Value::cons(item, acc))
+                    .fold(tail_val, |acc, item| Value::cons(item, acc));
+                restore_scratch_gc_roots(saved_roots);
+                result
             }
             Expr::Vector(items) => {
-                let vals: Vec<Value> = items
-                    .iter()
-                    .map(|e| self.cached_source_literal_to_value(e))
-                    .collect();
-                Value::vector(vals)
+                let saved_roots = save_scratch_gc_roots();
+                let mut vals = Vec::with_capacity(items.len());
+                for item in items {
+                    let value = self.cached_source_literal_to_value(item);
+                    push_scratch_gc_root(value);
+                    vals.push(value);
+                }
+                let result = Value::vector(vals);
+                restore_scratch_gc_roots(saved_roots);
+                result
             }
             _ => self.quote_to_runtime_value(expr),
         };
@@ -11519,20 +11551,45 @@ pub fn quote_to_value(expr: &Expr) -> Value {
         Expr::Symbol(id) if resolve_sym(*id) == "t" => Value::T,
         Expr::Symbol(id) => Value::from_sym_id(*id),
         Expr::List(items) => {
-            let quoted = items.iter().map(quote_to_value).collect::<Vec<_>>();
-            Value::list(quoted)
+            let saved_roots = save_scratch_gc_roots();
+            let mut quoted = Vec::with_capacity(items.len());
+            for item in items {
+                let value = quote_to_value(item);
+                push_scratch_gc_root(value);
+                quoted.push(value);
+            }
+            let result = Value::list(quoted);
+            restore_scratch_gc_roots(saved_roots);
+            result
         }
         Expr::DottedList(items, last) => {
-            let head_vals: Vec<Value> = items.iter().map(quote_to_value).collect();
+            let saved_roots = save_scratch_gc_roots();
+            let mut head_vals = Vec::with_capacity(items.len());
+            for item in items {
+                let value = quote_to_value(item);
+                push_scratch_gc_root(value);
+                head_vals.push(value);
+            }
             let tail_val = quote_to_value(last);
-            head_vals
+            push_scratch_gc_root(tail_val);
+            let result = head_vals
                 .into_iter()
                 .rev()
-                .fold(tail_val, |acc, item| Value::cons(item, acc))
+                .fold(tail_val, |acc, item| Value::cons(item, acc));
+            restore_scratch_gc_roots(saved_roots);
+            result
         }
         Expr::Vector(items) => {
-            let vals = items.iter().map(quote_to_value).collect();
-            Value::vector(vals)
+            let saved_roots = save_scratch_gc_roots();
+            let mut vals = Vec::with_capacity(items.len());
+            for item in items {
+                let value = quote_to_value(item);
+                push_scratch_gc_root(value);
+                vals.push(value);
+            }
+            let result = Value::vector(vals);
+            restore_scratch_gc_roots(saved_roots);
+            result
         }
         Expr::OpaqueValueRef(idx) => OPAQUE_POOL.with(|pool| pool.borrow().get(*idx)),
     }
