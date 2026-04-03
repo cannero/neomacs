@@ -908,7 +908,7 @@ where
 /// in lread.c.
 ///
 /// Iterates over `forms`, logging each form and its timing, reporting errors
-/// with human-readable detail, and calling `gc_safe_point` between forms.
+/// with human-readable detail.
 /// The `eval_one` closure controls per-form evaluation semantics (e.g. whether
 /// to reify byte-code literals, apply eager macro expansion, or collect expanded
 /// forms for caching).
@@ -919,7 +919,6 @@ fn readevalloop<F>(
     eval: &mut super::eval::Context,
     file_name: &str,
     forms: &[Expr],
-    extra_gc_roots: &[Value],
     mut eval_one: F,
 ) -> Result<(), EvalError>
 where
@@ -1004,7 +1003,6 @@ where
             }
         }
         eval_result?;
-        eval.gc_safe_point_exact_with_extra_roots(extra_gc_roots);
     }
     Ok(())
 }
@@ -1183,7 +1181,7 @@ fn load_file_body(
 
         // --- .elc path: reify byte-code literals + eval via shared readevalloop ---
         if is_elc {
-            readevalloop(eval, &file_name, &forms, &[], |eval, _i, form| {
+            readevalloop(eval, &file_name, &forms, |eval, _i, form| {
                 let reified = eval
                     .reify_byte_code_literals(form)
                     .map_err(crate::emacs_core::error::map_flow)?;
@@ -1257,7 +1255,7 @@ pub(crate) fn eval_decoded_source_file_in_context(
 
     if let Some(mexp_fn) = macroexpand_fn {
         let mut cached_expanded_forms = Vec::new();
-        readevalloop(eval, &file_name, &forms, &[mexp_fn], |eval, _i, form| {
+        readevalloop(eval, &file_name, &forms, |eval, _i, form| {
             let form_value = eval.quote_to_runtime_value(form);
             eager_expand_toplevel_forms(eval, form_value, mexp_fn, &mut |ctx, expanded| {
                 cached_expanded_forms.push(super::eval::value_to_expr(&expanded));
@@ -1301,7 +1299,7 @@ pub(crate) fn eval_decoded_source_file_in_context(
         }
     } else {
         let mut cached_forms = Vec::new();
-        readevalloop(eval, &file_name, &forms, &[], |eval, _i, form| {
+        readevalloop(eval, &file_name, &forms, |eval, _i, form| {
             cached_forms.push(form.clone());
             eval_runtime_form(eval, form)
         })?;

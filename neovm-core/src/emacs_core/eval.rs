@@ -105,6 +105,7 @@ const STACK_GROWTH_PROBE_START_DEPTH: usize = 16;
 const STACK_GROWTH_PROBE_INTERVAL: usize = 16;
 const NAMED_CALL_CACHE_CAPACITY: usize = 8;
 const LEXENV_ASSQ_CACHE_CAPACITY: usize = 8;
+const LEXENV_SPECIAL_CACHE_CAPACITY: usize = 8;
 const GC_DEFAULT_THRESHOLD_BYTES: usize = 100_000 * std::mem::size_of::<usize>();
 const GC_THRESHOLD_FLOOR_BYTES: usize = GC_DEFAULT_THRESHOLD_BYTES / 10;
 const GC_HI_THRESHOLD_BYTES: usize = (i64::MAX as usize) / 2;
@@ -462,6 +463,13 @@ struct LexenvAssqCacheEntry {
     lexenv_bits: usize,
     symbol: SymId,
     cell: Value,
+}
+
+#[derive(Clone, Debug)]
+struct LexenvSpecialCacheEntry {
+    lexenv_bits: usize,
+    symbol: SymId,
+    declared_special: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -1097,6 +1105,8 @@ pub struct Context {
     named_call_cache: Vec<NamedCallCache>,
     /// Small hot cache for GNU-shaped lexical env alist lookups.
     lexenv_assq_cache: RefCell<Vec<LexenvAssqCacheEntry>>,
+    /// Small hot cache for GNU-shaped lexical special declarations.
+    lexenv_special_cache: RefCell<Vec<LexenvSpecialCacheEntry>>,
     /// Cache for source-literal materialization keyed on `Expr` pointer
     /// identity. This is generic reader/runtime support: repeated evaluation
     /// of the same source literal node should reuse the same runtime object
@@ -3690,6 +3700,7 @@ impl Context {
             saved_lexenvs: Vec::new(),
             named_call_cache: Vec::with_capacity(NAMED_CALL_CACHE_CAPACITY),
             lexenv_assq_cache: RefCell::new(Vec::with_capacity(LEXENV_ASSQ_CACHE_CAPACITY)),
+            lexenv_special_cache: RefCell::new(Vec::with_capacity(LEXENV_SPECIAL_CACHE_CAPACITY)),
             source_literal_cache: HashMap::new(),
             macro_expansion_cache: HashMap::new(),
             macro_cache_hits: 0,
@@ -3814,6 +3825,7 @@ impl Context {
             saved_lexenvs: Vec::new(),
             named_call_cache: Vec::with_capacity(NAMED_CALL_CACHE_CAPACITY),
             lexenv_assq_cache: RefCell::new(Vec::with_capacity(LEXENV_ASSQ_CACHE_CAPACITY)),
+            lexenv_special_cache: RefCell::new(Vec::with_capacity(LEXENV_SPECIAL_CACHE_CAPACITY)),
             source_literal_cache: HashMap::new(),
             macro_expansion_cache: HashMap::new(),
             macro_cache_hits: 0,
@@ -4901,6 +4913,7 @@ impl Context {
         self.source_literal_cache.clear();
         self.macro_expansion_cache.clear();
         self.lexenv_assq_cache.borrow_mut().clear();
+        self.lexenv_special_cache.borrow_mut().clear();
         let roots = self.collect_roots_with_extra_root_slices(extra_root_slices);
         match mode {
             crate::tagged::gc::RootScanMode::ExactOnly => {
@@ -7142,7 +7155,7 @@ impl Context {
                 }
                 if use_lexical
                     && !self.obarray.is_special_id(id)
-                    && !lexenv_declares_special(self.lexenv, id)
+                    && !self.lexenv_declares_special_cached_in(self.lexenv, id)
                 {
                     lexical_bindings.push((id, Value::NIL));
                 } else {
@@ -7198,7 +7211,7 @@ impl Context {
             }
             if use_lexical
                 && !self.obarray.is_special_id(id)
-                && !lexenv_declares_special(self.lexenv, id)
+                && !self.lexenv_declares_special_cached_in(self.lexenv, id)
             {
                 lexical_bindings.push((id, value));
             } else {
@@ -7308,7 +7321,7 @@ impl Context {
                 }
                 if use_lexical
                     && !self.obarray.is_special_id(id)
-                    && !lexenv_declares_special(self.lexenv, id)
+                    && !self.lexenv_declares_special_cached_in(self.lexenv, id)
                 {
                     self.bind_lexical_value_rooted(id, value);
                 } else {
@@ -7888,7 +7901,7 @@ impl Context {
                     let use_lexical_binding = bind_var
                         && self.lexical_binding()
                         && !is_runtime_dynamically_special(&self.obarray, var_id)
-                        && !lexenv_declares_special(self.lexenv, var_id);
+                        && !self.lexenv_declares_special_cached_in(self.lexenv, var_id);
 
                     let specpdl_count = self.specpdl.len();
                     let pushed_lexenv = if use_lexical_binding {
@@ -8035,7 +8048,7 @@ impl Context {
                             }
                             if use_lexical
                                 && !self.obarray.is_special_id(*id)
-                                && !lexenv_declares_special(self.lexenv, *id)
+                                && !self.lexenv_declares_special_cached_in(self.lexenv, *id)
                             {
                                 lexical_bindings.push((*id, Value::NIL));
                             } else {
@@ -8070,7 +8083,7 @@ impl Context {
                             }
                             if use_lexical
                                 && !self.obarray.is_special_id(*id)
-                                && !lexenv_declares_special(self.lexenv, *id)
+                                && !self.lexenv_declares_special_cached_in(self.lexenv, *id)
                             {
                                 lexical_bindings.push((*id, value));
                             } else {
@@ -8188,7 +8201,7 @@ impl Context {
                         }
                         if use_lexical
                             && !self.obarray.is_special_id(*id)
-                            && !lexenv_declares_special(self.lexenv, *id)
+                            && !self.lexenv_declares_special_cached_in(self.lexenv, *id)
                         {
                             self.bind_lexical_value_rooted(*id, Value::NIL);
                         } else {
@@ -8212,7 +8225,7 @@ impl Context {
                         }
                         if use_lexical
                             && !self.obarray.is_special_id(*id)
-                            && !lexenv_declares_special(self.lexenv, *id)
+                            && !self.lexenv_declares_special_cached_in(self.lexenv, *id)
                         {
                             self.bind_lexical_value_rooted(*id, value);
                         } else {
@@ -8689,7 +8702,7 @@ impl Context {
                     let use_lexical_binding = bind_var
                         && self.lexical_binding()
                         && !is_runtime_dynamically_special(&self.obarray, var)
-                        && !lexenv_declares_special(self.lexenv, var);
+                        && !self.lexenv_declares_special_cached_in(self.lexenv, var);
 
                     let specpdl_count = self.specpdl.len();
                     let pushed_lexenv = if use_lexical_binding {
@@ -10942,6 +10955,31 @@ impl Context {
             .map(|cell| cell.cons_cdr())
     }
 
+    pub(crate) fn lexenv_declares_special_cached_in(&self, lexenv: Value, sym_id: SymId) -> bool {
+        let lexenv_bits = lexenv.bits();
+        if let Some(entry) = self
+            .lexenv_special_cache
+            .borrow()
+            .iter()
+            .rev()
+            .find(|entry| entry.lexenv_bits == lexenv_bits && entry.symbol == sym_id)
+        {
+            return entry.declared_special;
+        }
+
+        let declared_special = lexenv_declares_special(lexenv, sym_id);
+        let mut cache = self.lexenv_special_cache.borrow_mut();
+        cache.push(LexenvSpecialCacheEntry {
+            lexenv_bits,
+            symbol: sym_id,
+            declared_special,
+        });
+        if cache.len() > LEXENV_SPECIAL_CACHE_CAPACITY {
+            cache.remove(0);
+        }
+        declared_special
+    }
+
     /// Assign a value to a variable identified by SymId.
     /// Uses the SymId directly for lexenv/dynamic lookup, preserving
     /// uninterned symbol identity (like Emacs's EQ-based setq).
@@ -11028,7 +11066,7 @@ impl Context {
 
     pub(crate) fn visible_variable_value_or_nil(&self, name: &str) -> Value {
         let name_id = intern(name);
-        if let Some(value) = lexenv_lookup(self.lexenv, name_id) {
+        if let Some(value) = self.lexenv_lookup_cached_in(self.lexenv, name_id) {
             return value;
         }
         // specbind writes directly to obarray, so no dynamic stack lookup needed.

@@ -465,10 +465,9 @@ impl<'a> Vm<'a> {
                     let lexical_bind = func.lexical
                         && !self.ctx.obarray.is_constant_id(name_id)
                         && !self.ctx.obarray.is_special_id(name_id)
-                        && !crate::emacs_core::value::lexenv_declares_special(
-                            self.ctx.lexenv,
-                            name_id,
-                        );
+                        && !self
+                            .ctx
+                            .lexenv_declares_special_cached_in(self.ctx.lexenv, name_id);
                     if lexical_bind {
                         let old_lexenv = self.ctx.lexenv;
                         self.ctx.lexenv = lexenv_prepend(self.ctx.lexenv, name_id, val);
@@ -3282,7 +3281,7 @@ impl<'a> Vm<'a> {
 
     fn visible_variable_value_or_nil(&self, name: &str) -> Value {
         let name_id = intern(name);
-        if let Some(value) = lexenv_lookup(self.ctx.lexenv, name_id) {
+        if let Some(value) = self.ctx.lexenv_lookup_cached_in(self.ctx.lexenv, name_id) {
             return value;
         }
         // specbind writes directly to obarray, so no dynamic stack lookup needed.
