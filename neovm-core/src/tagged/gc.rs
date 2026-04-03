@@ -105,6 +105,8 @@ impl HeapWriteRecord {
 
 thread_local! {
     static TAGGED_HEAP: Cell<*mut TaggedHeap> = const { Cell::new(std::ptr::null_mut()) };
+    static TAGGED_HEAP_WRITE_TRACKING_MODE: Cell<WriteTrackingMode> =
+        const { Cell::new(WriteTrackingMode::Disabled) };
     /// Auto-allocated heap for tests that construct Values without a Context.
     #[cfg(test)]
     static TEST_FALLBACK_TAGGED_HEAP: std::cell::RefCell<Option<Box<TaggedHeap>>> =
@@ -114,6 +116,7 @@ thread_local! {
 /// Set the thread-local tagged heap pointer.
 pub fn set_tagged_heap(heap: &mut TaggedHeap) {
     TAGGED_HEAP.with(|h| h.set(heap as *mut TaggedHeap));
+    TAGGED_HEAP_WRITE_TRACKING_MODE.with(|mode| mode.set(heap.write_tracking_mode()));
 }
 
 /// Access the thread-local tagged heap.
@@ -167,6 +170,9 @@ pub fn note_heap_slot_write(
 #[inline]
 fn note_heap_write_record(record: HeapWriteRecord) {
     if !record.owner.is_heap_object() {
+        return;
+    }
+    if TAGGED_HEAP_WRITE_TRACKING_MODE.with(|mode| mode.get()) == WriteTrackingMode::Disabled {
         return;
     }
     with_tagged_heap(|heap| heap.record_heap_write(record));
@@ -388,6 +394,7 @@ impl TaggedHeap {
 
     pub fn set_write_tracking_mode(&mut self, mode: WriteTrackingMode) {
         self.write_tracking_mode = mode;
+        TAGGED_HEAP_WRITE_TRACKING_MODE.with(|current| current.set(mode));
         if mode == WriteTrackingMode::Disabled {
             self.clear_dirty_owners();
             self.clear_dirty_writes();
