@@ -209,12 +209,8 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
 
     let compile_first_sources =
         parse_compile_first_sources(&paths.makefile_in, &paths.lisp_root, options.native_comp)?;
-    if !compile_first_sources.is_empty() {
-        let mut compile_first_args = vec![OsString::from("--batch")];
-        for source in compile_first_sources {
-            compile_first_args.push(OsString::from("-l"));
-            compile_first_args.push(source.as_os_str().to_os_string());
-        }
+    for source in compile_first_sources {
+        let compile_first_args = compile_first_args_for_source(options.native_comp, &source);
         run_command(
             options,
             &options.repo_root,
@@ -431,6 +427,18 @@ fn parse_compile_first_sources_from_str(
     out.into_iter().filter(|path| path.is_file()).collect()
 }
 
+fn compile_first_args_for_source(native_comp: bool, source: &Path) -> Vec<OsString> {
+    let mut args = vec![OsString::from("--batch")];
+    if native_comp {
+        args.push(OsString::from("-l"));
+        args.push(OsString::from("comp"));
+    }
+    args.push(OsString::from("-f"));
+    args.push(OsString::from("batch-byte-compile"));
+    args.push(source.as_os_str().to_os_string());
+    args
+}
+
 fn strip_compile_first_assignment(line: &str) -> Option<&str> {
     for prefix in [
         "COMPILE_FIRST +=",
@@ -585,6 +593,36 @@ COMPILE_FIRST += $(lisp)/emacs-lisp/early.elc
 ";
         let output = inject_no_byte_compile(input);
         assert!(output.contains(";; Local Variables:\n;; no-byte-compile: t\n"));
+    }
+
+    #[test]
+    fn compile_first_args_match_gnu_non_native_shape() {
+        let args = compile_first_args_for_source(false, Path::new("/tmp/macroexp.el"));
+        assert_eq!(
+            args,
+            vec![
+                OsString::from("--batch"),
+                OsString::from("-f"),
+                OsString::from("batch-byte-compile"),
+                OsString::from("/tmp/macroexp.el"),
+            ]
+        );
+    }
+
+    #[test]
+    fn compile_first_args_match_gnu_native_shape() {
+        let args = compile_first_args_for_source(true, Path::new("/tmp/macroexp.el"));
+        assert_eq!(
+            args,
+            vec![
+                OsString::from("--batch"),
+                OsString::from("-l"),
+                OsString::from("comp"),
+                OsString::from("-f"),
+                OsString::from("batch-byte-compile"),
+                OsString::from("/tmp/macroexp.el"),
+            ]
+        );
     }
 
     fn tempdir() -> PathBuf {
