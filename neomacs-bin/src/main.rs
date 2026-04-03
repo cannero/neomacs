@@ -37,6 +37,7 @@ use neovm_core::emacs_core::eval::{
     ResolvedFontSpecMatch,
 };
 use neovm_core::emacs_core::load::LoadupDumpMode;
+use neovm_core::emacs_core::load::LoadupStartupSurface;
 use neovm_core::emacs_core::load::RuntimeImageRole;
 #[cfg(test)]
 use neovm_core::emacs_core::print_value_with_eval;
@@ -321,14 +322,17 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
         }
 
         if arg == "-d" || arg == "--display" {
-            if args.get(index + 1).is_none() {
+            let Some(value) = args.get(index + 1) else {
                 return Err(format!("neomacs: option `{arg}` requires an argument"));
-            }
+            };
+            forwarded_args.push(arg.clone());
+            forwarded_args.push(value.clone());
             index += 2;
             continue;
         }
 
         if arg.starts_with("--display=") {
+            forwarded_args.push(arg.clone());
             index += 1;
             continue;
         }
@@ -737,10 +741,13 @@ fn font_size_px_for_face(face: &neovm_core::face::Face) -> f32 {
 fn create_startup_evaluator_for_mode(mode: RuntimeMode, startup: &StartupOptions) -> Context {
     match mode {
         RuntimeMode::Raw => {
-            neovm_core::emacs_core::load::create_bootstrap_evaluator_cached_with_features(
+            let startup_surface = raw_loadup_startup_surface(startup, None);
+            neovm_core::emacs_core::load::create_bootstrap_evaluator_with_startup_surface(
                 BOOTSTRAP_CORE_FEATURES,
+                None,
+                Some(&startup_surface),
             )
-            .expect("core bootstrap should succeed")
+            .expect("raw bootstrap should succeed")
         }
         RuntimeMode::BootstrapUse => {
             neovm_core::emacs_core::load::load_runtime_image_with_features(
@@ -756,6 +763,44 @@ fn create_startup_evaluator_for_mode(mode: RuntimeMode, startup: &StartupOptions
             startup.dump_file_override.as_deref(),
         )
         .expect("final image should load"),
+    }
+}
+
+fn raw_loadup_command_line(
+    startup: &StartupOptions,
+    dump_mode: Option<LoadupDumpMode>,
+) -> Vec<String> {
+    let mut args = startup.forwarded_args.clone();
+    if args.is_empty() {
+        args.push(RuntimeMode::Raw.binary_name().to_string());
+    }
+
+    let has_internal_loadup_marker =
+        matches!(args.get(1).map(String::as_str), Some("-l" | "--load"))
+            && args.get(2).map(String::as_str) == Some("loadup");
+    if !has_internal_loadup_marker {
+        args.splice(1..1, ["-l".to_string(), "loadup".to_string()]);
+    }
+
+    if let Some(dump_mode) = dump_mode {
+        let has_temacs_mode = args
+            .iter()
+            .any(|arg| arg == "-temacs" || arg == "--temacs" || arg.starts_with("--temacs="));
+        if !has_temacs_mode {
+            args.push(format!("--temacs={}", dump_mode.as_gnu_string()));
+        }
+    }
+
+    args
+}
+
+fn raw_loadup_startup_surface(
+    startup: &StartupOptions,
+    dump_mode: Option<LoadupDumpMode>,
+) -> LoadupStartupSurface {
+    LoadupStartupSurface {
+        command_line_args: raw_loadup_command_line(startup, dump_mode),
+        noninteractive: startup.noninteractive || dump_mode.is_some(),
     }
 }
 
@@ -793,7 +838,7 @@ pub fn run(mode: RuntimeMode) {
     if mode == RuntimeMode::Raw
         && let Some(temacs_mode) = startup.temacs_mode
     {
-        run_temacs_dump_mode(temacs_mode);
+        run_temacs_dump_mode(temacs_mode, &startup);
         return;
     }
 
@@ -983,7 +1028,7 @@ pub fn run(mode: RuntimeMode) {
     }
 }
 
-fn run_temacs_dump_mode(dump_mode: LoadupDumpMode) {
+fn run_temacs_dump_mode(dump_mode: LoadupDumpMode, startup: &StartupOptions) {
     neomacs_display_runtime::init_logging();
     tracing::info!(
         "{} {} starting raw loadup dump (dump-mode={}, pid={})",
@@ -993,9 +1038,11 @@ fn run_temacs_dump_mode(dump_mode: LoadupDumpMode) {
         std::process::id()
     );
 
-    let eval = neovm_core::emacs_core::load::create_bootstrap_evaluator_with_dump_mode(
+    let startup_surface = raw_loadup_startup_surface(startup, Some(dump_mode));
+    let eval = neovm_core::emacs_core::load::create_bootstrap_evaluator_with_startup_surface(
         BOOTSTRAP_CORE_FEATURES,
         Some(dump_mode),
+        Some(&startup_surface),
     )
     .expect("temacs bootstrap dump should succeed");
 

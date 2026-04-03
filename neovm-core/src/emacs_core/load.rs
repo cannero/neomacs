@@ -1527,6 +1527,12 @@ impl LoadupDumpMode {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LoadupStartupSurface {
+    pub command_line_args: Vec<String>,
+    pub noninteractive: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeImageRole {
     Bootstrap,
@@ -2859,6 +2865,29 @@ fn set_loadup_dump_mode(eval: &mut super::eval::Context, dump_mode: Option<Loadu
     }
 }
 
+fn apply_loadup_startup_surface(
+    eval: &mut super::eval::Context,
+    startup_surface: &LoadupStartupSurface,
+) {
+    let argv = startup_surface
+        .command_line_args
+        .iter()
+        .cloned()
+        .map(Value::string)
+        .collect::<Vec<_>>();
+    eval.set_variable("command-line-args", Value::list(argv));
+    eval.set_variable("command-line-args-left", Value::NIL);
+    eval.set_variable("command-line-processed", Value::NIL);
+    eval.set_variable(
+        "noninteractive",
+        if startup_surface.noninteractive {
+            Value::T
+        } else {
+            Value::NIL
+        },
+    );
+}
+
 pub fn create_bootstrap_evaluator_with_features(
     extra_features: &[&str],
 ) -> Result<super::eval::Context, EvalError> {
@@ -2868,6 +2897,14 @@ pub fn create_bootstrap_evaluator_with_features(
 pub fn create_bootstrap_evaluator_with_dump_mode(
     extra_features: &[&str],
     dump_mode: Option<LoadupDumpMode>,
+) -> Result<super::eval::Context, EvalError> {
+    create_bootstrap_evaluator_with_startup_surface(extra_features, dump_mode, None)
+}
+
+pub fn create_bootstrap_evaluator_with_startup_surface(
+    extra_features: &[&str],
+    dump_mode: Option<LoadupDumpMode>,
+    startup_surface: Option<&LoadupStartupSurface>,
 ) -> Result<super::eval::Context, EvalError> {
     // Discover the runtime root (contains lisp/ and etc/).
     let project_root = runtime_project_root();
@@ -2910,6 +2947,12 @@ pub fn create_bootstrap_evaluator_with_dump_mode(
         maybe_trace_bootstrap_step(format!(
             "create_bootstrap_evaluator_with_features: seeded-batch-bootstrap-frame={bootstrap_frame_id:?}"
         ));
+        if let Some(startup_surface) = startup_surface {
+            apply_loadup_startup_surface(&mut eval, startup_surface);
+            maybe_trace_bootstrap_step(
+                "create_bootstrap_evaluator_with_features: applied-loadup-startup-surface",
+            );
+        }
         // GNU loadup.el uses a string-valued dump-mode (`pdump` /
         // `pbootstrap`) to decide whether Lisp should call
         // `dump-emacs-portable`. Keep ordinary cached bootstrap on nil, but

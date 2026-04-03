@@ -3,8 +3,8 @@ use super::{
     PrimaryWindowDisplayHost, PrimaryWindowSize, RuntimeMode, StartupOptions, TtyTerminalHost,
     bootstrap_buffers, bootstrap_default_font_name, bootstrap_display_config,
     bootstrap_frame_metrics, classify_early_cli_action, configure_gnu_startup_state,
-    current_layout_frame_id, face_height_to_pixels, parse_startup_options, render_help_text,
-    render_version_text, run_gnu_startup,
+    current_layout_frame_id, face_height_to_pixels, parse_startup_options, raw_loadup_command_line,
+    raw_loadup_startup_surface, render_help_text, render_version_text, run_gnu_startup,
 };
 use neomacs_display_runtime::thread_comm::RenderCommand;
 use neovm_core::emacs_core::Context;
@@ -118,6 +118,69 @@ fn parse_startup_options_accepts_dump_file_override() {
     assert_eq!(
         startup.dump_file_override,
         Some(std::path::PathBuf::from("/tmp/custom.pdump"))
+    );
+}
+
+#[test]
+fn parse_startup_options_preserves_display_args_for_gnu_lisp_processing() {
+    let startup = parse_startup_options([
+        "neomacs".to_string(),
+        "--display=:1".to_string(),
+        "-Q".to_string(),
+    ])
+    .expect("startup options should parse");
+
+    assert_eq!(
+        startup.forwarded_args,
+        vec![
+            "neomacs".to_string(),
+            "--display=:1".to_string(),
+            "-Q".to_string()
+        ]
+    );
+}
+
+#[test]
+fn raw_loadup_command_line_inserts_internal_loadup_marker() {
+    let startup = parse_startup_options([
+        "neomacs-temacs".to_string(),
+        "--temacs=pdump".to_string(),
+        "--dump-file=/tmp/custom.pdump".to_string(),
+        "-Q".to_string(),
+    ])
+    .expect("startup options should parse");
+
+    assert_eq!(
+        raw_loadup_command_line(&startup, Some(LoadupDumpMode::Pdump)),
+        vec![
+            "neomacs-temacs".to_string(),
+            "-l".to_string(),
+            "loadup".to_string(),
+            "--temacs=pdump".to_string(),
+            "--dump-file=/tmp/custom.pdump".to_string(),
+            "-Q".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn raw_loadup_startup_surface_forces_noninteractive_dump_bootstrap() {
+    let startup = parse_startup_options([
+        "neomacs-temacs".to_string(),
+        "--temacs=pbootstrap".to_string(),
+    ])
+    .expect("startup options should parse");
+
+    let surface = raw_loadup_startup_surface(&startup, Some(LoadupDumpMode::Pbootstrap));
+    assert!(surface.noninteractive);
+    assert_eq!(
+        surface.command_line_args,
+        vec![
+            "neomacs-temacs".to_string(),
+            "-l".to_string(),
+            "loadup".to_string(),
+            "--temacs=pbootstrap".to_string(),
+        ]
     );
 }
 

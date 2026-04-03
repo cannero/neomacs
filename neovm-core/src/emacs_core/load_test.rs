@@ -137,6 +137,50 @@ fn runtime_image_path_for_executable_uses_role_specific_names() {
 }
 
 #[test]
+fn loadup_startup_surface_seeds_pre_startup_command_line_state() {
+    let mut eval = create_source_bootstrap_context();
+    apply_loadup_startup_surface(
+        &mut eval,
+        &LoadupStartupSurface {
+            command_line_args: vec![
+                "neomacs-temacs".to_string(),
+                "-l".to_string(),
+                "loadup".to_string(),
+                "--temacs=pdump".to_string(),
+            ],
+            noninteractive: true,
+        },
+    );
+
+    assert_eq!(
+        list_to_vec(
+            eval.obarray()
+                .symbol_value("command-line-args")
+                .expect("command-line-args seeded")
+        )
+        .expect("command-line-args list"),
+        vec![
+            Value::string("neomacs-temacs"),
+            Value::string("-l"),
+            Value::string("loadup"),
+            Value::string("--temacs=pdump"),
+        ]
+    );
+    assert_eq!(
+        eval.obarray().symbol_value("command-line-args-left"),
+        Some(&Value::NIL)
+    );
+    assert_eq!(
+        eval.obarray().symbol_value("command-line-processed"),
+        Some(&Value::NIL)
+    );
+    assert_eq!(
+        eval.obarray().symbol_value("noninteractive"),
+        Some(&Value::T)
+    );
+}
+
+#[test]
 fn runtime_startup_state_clears_top_level_eval_state() {
     crate::test_utils::init_test_tracing();
     let mut eval =
