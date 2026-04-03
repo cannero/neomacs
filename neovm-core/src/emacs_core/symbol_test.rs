@@ -98,6 +98,19 @@ fn t_and_nil_are_preinterned() {
 }
 
 #[test]
+fn interning_keyword_materializes_gnu_self_evaluating_symbol_state() {
+    crate::test_utils::init_test_tracing();
+    let mut ob = Obarray::new();
+    ob.intern(":vm-keyword");
+    assert!(ob.is_constant(":vm-keyword"));
+    assert!(ob.is_special(":vm-keyword"));
+    assert_eq!(
+        ob.symbol_value(":vm-keyword"),
+        Some(&Value::keyword(":vm-keyword"))
+    );
+}
+
+#[test]
 fn makunbound_doesnt_touch_constants() {
     crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();

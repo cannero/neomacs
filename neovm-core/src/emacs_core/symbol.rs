@@ -120,9 +120,26 @@ impl Obarray {
     }
 
     fn mark_global_member(&mut self, id: SymId) {
-        let sym = self.ensure_slot(id);
-        if !sym.interned_global {
+        let added = {
+            let sym = self.ensure_slot(id);
+            if sym.interned_global {
+                return;
+            }
             sym.interned_global = true;
+            let name = resolve_sym(id);
+            if name.starts_with(':') {
+                // Match GNU lread.c intern_sym: keywords interned in the
+                // initial obarray are self-evaluating constants and are marked
+                // declared-special.
+                sym.special = true;
+                sym.constant = true;
+                if matches!(sym.value, SymbolValue::Plain(None)) {
+                    sym.value = SymbolValue::Plain(Some(Value::keyword_id(id)));
+                }
+            }
+            true
+        };
+        if added {
             self.global_member_count += 1;
         }
     }
@@ -201,6 +218,16 @@ impl Obarray {
         self.ensure_symbol_id(id);
         self.mark_global_member(id);
         name.to_string()
+    }
+
+    /// Materialize a canonical symbol in the global obarray.
+    ///
+    /// GNU does this as part of interning into the initial obarray. Neomacs
+    /// keeps string interning separate from obarray storage, so runtime paths
+    /// that operate on canonical symbols can explicitly request the same
+    /// initial-obarray semantics here.
+    pub fn ensure_interned_global_id(&mut self, id: SymId) {
+        self.ensure_global_member_if_canonical(id);
     }
 
     /// Look up a symbol without creating it. Returns None if not interned.

@@ -342,11 +342,13 @@ pub(crate) fn builtin_special_variable_p(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("special-variable-p", &args, 1)?;
-    let obarray = eval.obarray();
-    let resolved = resolve_variable_alias_id_in_obarray(obarray, expect_symbol_id(&args[0])?)?;
-    Ok(Value::bool_val(
-        obarray.is_special_id(resolved) || obarray.is_constant_id(resolved),
-    ))
+    let symbol = expect_symbol_id(&args[0])?;
+    // Match GNU eval.c Fspecial_variable_p: this is a direct declared-special
+    // bit test on the symbol itself, not an alias walk and not a constant
+    // check.  Canonical keywords become special when materialized in the
+    // initial obarray, mirroring lread.c intern_sym.
+    eval.obarray_mut().ensure_interned_global_id(symbol);
+    Ok(Value::bool_val(eval.obarray().is_special_id(symbol)))
 }
 
 pub(crate) fn builtin_default_boundp(
