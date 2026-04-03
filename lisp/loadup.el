@@ -548,11 +548,11 @@ directory got moved.  This is set to be a pair in the form of:
                   nil)
               (error nil))))))
   (if dump-mode
-      (let ((output (cond ((equal dump-mode "pdump") "emacs.pdmp")
+      (let ((output (cond ((equal dump-mode "pdump") "neomacs.pdump")
                           ((equal dump-mode "pbootstrap")
                            (if (eq system-type 'ms-dos)
-                               "b-emacs.pdmp"
-                             "bootstrap-emacs.pdmp"))
+                              "b-emacs.pdmp"
+                             "bootstrap-neomacs.pdump"))
                           (t (error "Unrecognized dump mode %s" dump-mode)))))
         (when (and (featurep 'native-compile)
                    (equal dump-mode "pdump"))
@@ -604,14 +604,14 @@ directory got moved.  This is set to be a pair in the form of:
               (message "Adding name %s" (concat name exe))
               ;; When this runs on Windows, invocation-directory is not
               ;; necessarily the current directory.
-              (add-name-to-file (expand-file-name (concat "emacs" exe)
+              (add-name-to-file (expand-file-name (concat "neomacs" exe)
                                                   invocation-directory)
                                 (expand-file-name (concat name exe)
                                                   invocation-directory)
                                 t)
               (when (equal dump-mode "pdump")
                 (message "Adding name %s" (concat name ".pdmp"))
-                (add-name-to-file (expand-file-name "emacs.pdmp"
+                (add-name-to-file (expand-file-name "neomacs.pdump"
                                                     invocation-directory)
                                   (expand-file-name (concat name ".pdmp")
                                                     invocation-directory)

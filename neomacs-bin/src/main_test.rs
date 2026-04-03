@@ -59,6 +59,7 @@ fn gui_startup() -> StartupOptions {
         terminal_device: None,
         noninteractive: false,
         temacs_mode: None,
+        dump_file_override: None,
     }
 }
 
@@ -71,6 +72,7 @@ fn gui_startup_with_args(args: &[&str]) -> StartupOptions {
         terminal_device: None,
         noninteractive: false,
         temacs_mode: None,
+        dump_file_override: None,
     }
 }
 
@@ -83,6 +85,7 @@ fn tty_batch_startup_with_args(args: &[&str]) -> StartupOptions {
         terminal_device: None,
         noninteractive: true,
         temacs_mode: None,
+        dump_file_override: None,
     }
 }
 
@@ -103,6 +106,19 @@ fn parse_startup_options_accepts_gnu_temacs_modes() {
     ])
     .expect("startup options should parse");
     assert_eq!(startup.temacs_mode, Some(LoadupDumpMode::Pdump));
+}
+
+#[test]
+fn parse_startup_options_accepts_dump_file_override() {
+    let startup = parse_startup_options([
+        "neomacs".to_string(),
+        "--dump-file=/tmp/custom.pdump".to_string(),
+    ])
+    .expect("startup options should parse");
+    assert_eq!(
+        startup.dump_file_override,
+        Some(std::path::PathBuf::from("/tmp/custom.pdump"))
+    );
 }
 
 fn bootstrap_runtime_gui_startup(eval: &mut Context) -> FrameId {
@@ -459,6 +475,7 @@ fn configure_gnu_startup_state_clears_window_system_for_tty_boots() {
         terminal_device: Some("/dev/tty".to_string()),
         noninteractive: false,
         temacs_mode: None,
+        dump_file_override: None,
     };
     configure_gnu_startup_state(&mut eval, FrameId(7), &startup);
 
@@ -497,6 +514,7 @@ fn configure_gnu_startup_state_marks_batch_mode_noninteractive() {
         terminal_device: None,
         noninteractive: true,
         temacs_mode: None,
+        dump_file_override: None,
     };
     configure_gnu_startup_state(&mut eval, FrameId(9), &startup);
 

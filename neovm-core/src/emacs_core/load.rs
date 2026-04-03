@@ -1526,6 +1526,21 @@ impl LoadupDumpMode {
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeImageRole {
+    Bootstrap,
+    Final,
+}
+
+impl RuntimeImageRole {
+    pub const fn image_file_name(self) -> &'static str {
+        match self {
+            Self::Bootstrap => "bootstrap-neomacs.pdump",
+            Self::Final => "neomacs.pdump",
+        }
+    }
+}
 const NEOBC_CACHE_VERSION: u32 = 2;
 const RUNTIME_ROOT_ENV: &str = "NEOMACS_RUNTIME_ROOT";
 const BOOTSTRAP_CACHE_DIR_ENV: &str = "NEOVM_BOOTSTRAP_CACHE_DIR";
@@ -1672,6 +1687,21 @@ fn bootstrap_dump_path(runtime_root: &Path, extra_features: &[&str]) -> PathBuf 
     bootstrap_cache_dir(runtime_root).join(format!(
         "neovm-bootstrap-v{BOOTSTRAP_IMAGE_SCHEMA_VERSION}-{source_fingerprint}{suffix}.pdump"
     ))
+}
+
+pub fn runtime_image_path_for_executable(executable: &Path, role: RuntimeImageRole) -> PathBuf {
+    executable
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(role.image_file_name())
+}
+
+pub fn default_runtime_image_path(role: RuntimeImageRole) -> PathBuf {
+    let executable = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.canonicalize().ok().or(Some(path)))
+        .unwrap_or_else(|| PathBuf::from(role.image_file_name()));
+    runtime_image_path_for_executable(&executable, role)
 }
 
 fn bootstrap_dump_lock_path(dump_path: &Path) -> PathBuf {
@@ -3072,6 +3102,41 @@ pub fn create_runtime_startup_evaluator_cached_with_features(
     extra_features: &[&str],
 ) -> Result<super::eval::Context, EvalError> {
     create_runtime_startup_evaluator_with_features(extra_features)
+}
+
+pub fn load_runtime_image_with_features(
+    role: RuntimeImageRole,
+    extra_features: &[&str],
+    dump_path: Option<&Path>,
+) -> Result<super::eval::Context, EvalError> {
+    use super::pdump;
+
+    let project_root = runtime_project_root();
+    let dump_path = dump_path
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| default_runtime_image_path(role));
+    let mut eval = pdump::load_from_dump(&dump_path).map_err(|err| EvalError::Signal {
+        symbol: intern("error"),
+        data: vec![Value::string(format!(
+            "failed to load {} image {}: {err}",
+            match role {
+                RuntimeImageRole::Bootstrap => "bootstrap",
+                RuntimeImageRole::Final => "final",
+            },
+            dump_path.display()
+        ))],
+        raw_data: None,
+    })?;
+
+    if !extra_features.is_empty() {
+        let bootstrap_features = normalized_bootstrap_features(extra_features);
+        for feature in &bootstrap_features {
+            let _ = eval.provide_value(Value::symbol(feature), None);
+        }
+    }
+
+    finalize_cached_bootstrap_eval(&mut eval, &project_root)?;
+    Ok(eval)
 }
 
 pub fn create_bootstrap_evaluator_cached_with_features(

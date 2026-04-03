@@ -37,6 +37,7 @@ use neovm_core::emacs_core::eval::{
     ResolvedFontSpecMatch,
 };
 use neovm_core::emacs_core::load::LoadupDumpMode;
+use neovm_core::emacs_core::load::RuntimeImageRole;
 #[cfg(test)]
 use neovm_core::emacs_core::print_value_with_eval;
 use neovm_core::emacs_core::terminal::pure::{
@@ -97,6 +98,7 @@ struct StartupOptions {
     terminal_device: Option<String>,
     noninteractive: bool,
     temacs_mode: Option<LoadupDumpMode>,
+    dump_file_override: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -242,6 +244,7 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
     let mut terminal_device = None;
     let mut noninteractive = false;
     let mut temacs_mode = None;
+    let mut dump_file_override = None;
     let mut index = 0usize;
 
     while index < args.len() {
@@ -277,6 +280,24 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
 
         if let Some(value) = arg.strip_prefix("--temacs=") {
             temacs_mode = Some(parse_temacs_mode(value)?);
+            forwarded_args.push(arg.clone());
+            index += 1;
+            continue;
+        }
+
+        if arg == "-dump-file" || arg == "--dump-file" {
+            let Some(value) = args.get(index + 1) else {
+                return Err(format!("neomacs: option `{arg}` requires an argument"));
+            };
+            dump_file_override = Some(PathBuf::from(value));
+            forwarded_args.push(arg.clone());
+            forwarded_args.push(value.clone());
+            index += 2;
+            continue;
+        }
+
+        if let Some(value) = arg.strip_prefix("--dump-file=") {
+            dump_file_override = Some(PathBuf::from(value));
             forwarded_args.push(arg.clone());
             index += 1;
             continue;
@@ -322,6 +343,7 @@ fn parse_startup_options(args: impl IntoIterator<Item = String>) -> Result<Start
         terminal_device,
         noninteractive,
         temacs_mode,
+        dump_file_override,
     })
 }
 
@@ -712,17 +734,28 @@ fn font_size_px_for_face(face: &neovm_core::face::Face) -> f32 {
     }
 }
 
-fn create_startup_evaluator_for_mode(mode: RuntimeMode) -> Context {
+fn create_startup_evaluator_for_mode(mode: RuntimeMode, startup: &StartupOptions) -> Context {
     match mode {
-        // The first pipeline refactor slice only makes startup role-aware.
-        // All roles still share the current bootstrap image path until the
-        // next slice restores GNU `--temacs` / `dump-mode` semantics.
-        RuntimeMode::Raw | RuntimeMode::BootstrapUse | RuntimeMode::FinalRun => {
+        RuntimeMode::Raw => {
             neovm_core::emacs_core::load::create_bootstrap_evaluator_cached_with_features(
                 BOOTSTRAP_CORE_FEATURES,
             )
             .expect("core bootstrap should succeed")
         }
+        RuntimeMode::BootstrapUse => {
+            neovm_core::emacs_core::load::load_runtime_image_with_features(
+                RuntimeImageRole::Bootstrap,
+                BOOTSTRAP_CORE_FEATURES,
+                startup.dump_file_override.as_deref(),
+            )
+            .expect("bootstrap image should load")
+        }
+        RuntimeMode::FinalRun => neovm_core::emacs_core::load::load_runtime_image_with_features(
+            RuntimeImageRole::Final,
+            BOOTSTRAP_CORE_FEATURES,
+            startup.dump_file_override.as_deref(),
+        )
+        .expect("final image should load"),
     }
 }
 
@@ -789,7 +822,7 @@ pub fn run(mode: RuntimeMode) {
     // 2. Initialize the evaluator from the canonical bootstrap surface.
     //    GNU loads the dumped bootstrap image here, then lets the outer
     //    command loop evaluate `top-level`/`normal-top-level`.
-    let mut evaluator = create_startup_evaluator_for_mode(mode);
+    let mut evaluator = create_startup_evaluator_for_mode(mode, &startup);
     evaluator.setup_thread_locals();
     evaluator.set_max_depth(1600);
     match startup.frontend {

@@ -113,6 +113,30 @@ fn bootstrap_dump_path_changes_when_runtime_lisp_changes() {
 }
 
 #[test]
+fn runtime_image_role_names_match_neomacs_pipeline() {
+    assert_eq!(
+        RuntimeImageRole::Bootstrap.image_file_name(),
+        "bootstrap-neomacs.pdump"
+    );
+    assert_eq!(RuntimeImageRole::Final.image_file_name(), "neomacs.pdump");
+}
+
+#[test]
+fn runtime_image_path_for_executable_uses_role_specific_names() {
+    let bootstrap = runtime_image_path_for_executable(
+        PathBuf::from("/tmp/bootstrap-neomacs").as_path(),
+        RuntimeImageRole::Bootstrap,
+    );
+    let final_image = runtime_image_path_for_executable(
+        PathBuf::from("/tmp/neomacs").as_path(),
+        RuntimeImageRole::Final,
+    );
+
+    assert_eq!(bootstrap, PathBuf::from("/tmp/bootstrap-neomacs.pdump"));
+    assert_eq!(final_image, PathBuf::from("/tmp/neomacs.pdump"));
+}
+
+#[test]
 fn runtime_startup_state_clears_top_level_eval_state() {
     crate::test_utils::init_test_tracing();
     let mut eval =
