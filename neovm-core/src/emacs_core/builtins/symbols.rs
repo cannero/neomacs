@@ -1,6 +1,6 @@
 use super::*;
 use crate::emacs_core::fontset;
-use crate::emacs_core::intern::is_canonical_id;
+use crate::emacs_core::intern::{NIL_SYM_ID, T_SYM_ID, is_canonical_id};
 use crate::emacs_core::symbol::Obarray;
 
 // ===========================================================================
@@ -15,22 +15,22 @@ pub(crate) fn is_internal_symbol_plist_property(property: &str) -> bool {
 
 pub(crate) fn symbol_id(value: &Value) -> Option<SymId> {
     match value.kind() {
-        ValueKind::Nil => Some(intern("nil")),
-        ValueKind::T => Some(intern("t")),
+        ValueKind::Nil => Some(NIL_SYM_ID),
+        ValueKind::T => Some(T_SYM_ID),
         ValueKind::Symbol(id) => Some(id),
         _ => None,
     }
 }
 
 fn value_from_symbol_id(id: SymId) -> Value {
-    let name = resolve_sym(id);
     if is_canonical_id(id) {
-        if name == "nil" {
+        if id == NIL_SYM_ID {
             return Value::NIL;
         }
-        if name == "t" {
+        if id == T_SYM_ID {
             return Value::T;
         }
+        let name = resolve_sym(id);
         if name.starts_with(':') {
             return Value::from_kw_id(id);
         }
@@ -39,7 +39,7 @@ fn value_from_symbol_id(id: SymId) -> Value {
 }
 
 pub(crate) trait MacroexpandRuntime {
-    fn resolve_indirect_symbol_by_id(&self, symbol: SymId) -> Option<(SymId, Value)>;
+    fn symbol_function_by_id(&self, symbol: SymId) -> Option<Value>;
     fn autoload_do_load_macro(&mut self, autoload: Value, head: Value) -> Result<(), Flow>;
     fn apply_macro_function(
         &mut self,
@@ -50,8 +50,8 @@ pub(crate) trait MacroexpandRuntime {
 }
 
 impl MacroexpandRuntime for super::eval::Context {
-    fn resolve_indirect_symbol_by_id(&self, symbol: SymId) -> Option<(SymId, Value)> {
-        resolve_indirect_symbol_by_id(self, symbol)
+    fn symbol_function_by_id(&self, symbol: SymId) -> Option<Value> {
+        symbol_function_cell_in_obarray(self.obarray(), symbol)
     }
 
     fn autoload_do_load_macro(&mut self, autoload: Value, head: Value) -> Result<(), Flow> {
@@ -1080,6 +1080,21 @@ fn macroexpand_environment_callable(binding: &Value) -> Result<Value, Flow> {
     Ok(*binding)
 }
 
+#[inline]
+fn macroexpand_definition_is_macro(definition: &Value) -> bool {
+    matches!(definition.kind(), ValueKind::Veclike(VecLikeType::Macro))
+        || (definition.is_cons() && definition.cons_car().is_symbol_named("macro"))
+}
+
+#[inline]
+fn macroexpand_expander_from_definition(definition: Value) -> Value {
+    if definition.is_cons() {
+        definition.cons_cdr()
+    } else {
+        definition
+    }
+}
+
 #[tracing::instrument(level = "trace", skip(runtime, environment), fields(head))]
 fn macroexpand_once_with_environment<R: MacroexpandRuntime>(
     runtime: &mut R,
@@ -1096,8 +1111,6 @@ fn macroexpand_once_with_environment<R: MacroexpandRuntime>(
     let Some(head_id) = symbol_id(&head) else {
         return Ok((form, false));
     };
-    let head_name = resolve_sym(head_id);
-
     if let Some(env) = environment
         && !env.is_nil()
         && !env.is_cons()
@@ -1108,65 +1121,53 @@ fn macroexpand_once_with_environment<R: MacroexpandRuntime>(
         ));
     }
 
-    // Reserved for evaluator-owned forms that must bypass macro shadowing.
-    // The current source-compatible path keeps this empty.
-    if super::subr_info::is_evaluator_sf_skip_macroexpand(head_name) {
-        return Ok((form, false));
+    // Match GNU `eval.c:Fmacroexpand`: walk symbol aliases one hop at a time,
+    // consulting ENVIRONMENT at each hop before following the function cell.
+    let mut current_definition = head;
+    let mut current_symbol = head_id;
+    let mut environment_binding = None;
+    while let Some(definition_symbol) = symbol_id(&current_definition) {
+        current_symbol = definition_symbol;
+        if let Some(env) = environment {
+            if let Some(binding) = macroexpand_environment_binding_by_id(env, definition_symbol) {
+                environment_binding = Some(binding);
+                break;
+            }
+        }
+
+        let Some(function) = runtime.symbol_function_by_id(definition_symbol) else {
+            current_definition = Value::NIL;
+            break;
+        };
+        current_definition = function;
+        if !function.is_nil() {
+            continue;
+        }
+        break;
     }
 
-    let mut env_bound = false;
-    let mut function = None;
-    if let Some(env) = environment {
-        if let Some(binding) = macroexpand_environment_binding_by_id(env, head_id) {
-            env_bound = true;
-            if !binding.is_nil() {
-                function = Some(macroexpand_environment_callable(&binding)?);
-            }
+    let function = if let Some(binding) = environment_binding {
+        if binding.is_nil() {
+            None
+        } else {
+            Some(macroexpand_environment_callable(&binding)?)
         }
-    }
-    if env_bound && function.is_none() {
-        return Ok((form, false));
-    }
-    if function.is_none() {
-        if let Some((resolved_id, global)) = runtime.resolve_indirect_symbol_by_id(head_id) {
-            // Check for Value::Macro (native macros) AND cons-cell macros
-            // `(macro . fn)` — matches real Emacs eval.c which checks
-            // `EQ (XCAR (def), Qmacro)`.
-            let is_macro = matches!(global.kind(), ValueKind::Veclike(VecLikeType::Macro))
-                || (global.is_cons() && global.cons_car().is_symbol_named("macro"));
-            if is_macro {
-                function = Some(if global.is_cons() {
-                    // Extract the function from (macro . fn)
-                    global.cons_cdr()
-                } else {
-                    global
-                });
-            } else if super::autoload::is_autoload_value(&global) {
-                // Like Emacs eval.c macroexpand: if the function cell is an
-                // autoload, trigger the load and retry — the loaded file may
-                // define a macro for this symbol.
-                // Pass macro_only=Qmacro so we only load if the autoload's
-                // TYPE field is `t` or `macro`.  This matches GNU Emacs
-                // eval.c which calls Fautoload_do_load(def, sym, Qmacro).
-                runtime.autoload_do_load_macro(global, value_from_symbol_id(head_id))?;
-                // Re-check the function cell after loading
-                if let Some((resolved_id2, global2)) =
-                    runtime.resolve_indirect_symbol_by_id(head_id)
-                {
-                    let is_macro2 =
-                        matches!(global2.kind(), ValueKind::Veclike(VecLikeType::Macro))
-                            || (global2.is_cons() && global2.cons_car().is_symbol_named("macro"));
-                    if is_macro2 {
-                        function = Some(if global2.is_cons() {
-                            global2.cons_cdr()
-                        } else {
-                            global2
-                        });
-                    }
-                }
-            }
+    } else {
+        let mut global = current_definition;
+        if super::autoload::is_autoload_value(&global) {
+            runtime.autoload_do_load_macro(global, value_from_symbol_id(current_symbol))?;
+            global = runtime
+                .symbol_function_by_id(current_symbol)
+                .unwrap_or(Value::NIL);
         }
-    }
+
+        if macroexpand_definition_is_macro(&global) {
+            Some(macroexpand_expander_from_definition(global))
+        } else {
+            None
+        }
+    };
+
     let Some(function) = function else {
         return Ok((form, false));
     };
@@ -1259,16 +1260,10 @@ pub(crate) fn resolve_indirect_symbol_by_id_in_obarray(
     symbol: SymId,
 ) -> Option<(SymId, Value)> {
     let mut current = symbol;
-    let mut seen = HashSet::new();
-
-    loop {
-        if !seen.insert(current) {
-            return None;
-        }
-
+    for _ in 0..128 {
         let function = symbol_function_cell_in_obarray(obarray, current)?;
         if let Some(next) = symbol_id(&function) {
-            if next == intern("nil") {
+            if next == NIL_SYM_ID {
                 return Some((next, Value::NIL));
             }
             current = next;
@@ -1276,6 +1271,7 @@ pub(crate) fn resolve_indirect_symbol_by_id_in_obarray(
         }
         return Some((current, function));
     }
+    None
 }
 
 pub(crate) fn resolve_indirect_symbol_by_id(

@@ -8298,6 +8298,23 @@ fn loaded_subr_condition_case_unless_debug_macroexpand_includes_debug_marker() {
 }
 
 #[test]
+fn macroexpand_environment_shadows_alias_targets_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        eval_all(
+            "(let* ((alias-target (make-symbol \"ma-target\"))
+                    (alias-head (make-symbol \"ma-head\")))
+               (fset alias-target (cons 'macro (lambda (x) (list 'global x))))
+               (fset alias-head alias-target)
+               (macroexpand (list alias-head 42)
+                            (list (cons alias-target
+                                        (lambda (x) (list 'env x))))))"
+        )[0],
+        "OK (env 42)"
+    );
+}
+
+#[test]
 fn lexical_condition_case_debug_marker_calls_debugger_before_handler() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();

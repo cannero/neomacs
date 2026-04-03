@@ -13,6 +13,9 @@ use std::sync::{OnceLock, RwLock};
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct SymId(pub(crate) u32);
 
+pub const NIL_SYM_ID: SymId = SymId(0);
+pub const T_SYM_ID: SymId = SymId(1);
+
 /// Append-only string interner. Guarantees: same string → same SymId.
 pub struct StringInterner {
     strings: Vec<&'static str>,
@@ -37,9 +40,9 @@ impl StringInterner {
         // TaggedValue::NIL = Symbol(0) and TaggedValue::T = Symbol(1)
         // rely on these exact assignments.
         let nil_id = interner.intern("nil");
-        debug_assert_eq!(nil_id, SymId(0));
+        debug_assert_eq!(nil_id, NIL_SYM_ID);
         let t_id = interner.intern("t");
-        debug_assert_eq!(t_id, SymId(1));
+        debug_assert_eq!(t_id, T_SYM_ID);
         interner
     }
 
