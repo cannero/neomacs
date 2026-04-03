@@ -684,6 +684,14 @@ fn is_lambda_like_symbol_id(id: SymId) -> bool {
     id == lambda_symbol() || id == closure_symbol()
 }
 
+fn cons_head_symbol_id(value: &Value) -> Option<SymId> {
+    if value.is_cons() {
+        value.cons_car().as_symbol_id()
+    } else {
+        None
+    }
+}
+
 struct CoreEvalSymbols {
     internal_interpreter_environment_symbol: SymId,
     quit_flag_symbol: SymId,
@@ -5933,21 +5941,25 @@ impl Context {
 
         // Resolve function (GNU eval.c:2600-2605)
         let sym_id = original_fun.as_symbol_id();
-        let name = sym_id.map(|id| resolve_sym(id));
 
         // Keep only evaluator-internal literal forms on the pre-resolution
         // fast path. GNU decides public special-form dispatch from the
         // function cell's UNEVALLED subr, so user-visible special forms
         // should flow through the resolved subr surface below.
-        if let Some(name) = name {
-            if matches!(name, "lambda" | "byte-code-literal" | "byte-code") {
-                if let Some(result) = self.try_special_form_value(name, original_args) {
-                    return result;
-                }
-                let args_exprs = value_list_to_exprs(&original_args);
-                if let Some(result) = self.try_special_form(name, &args_exprs) {
-                    return result;
-                }
+        if let Some(sym_id) = sym_id
+            && matches!(
+                sym_id,
+                id if id == lambda_symbol()
+                    || id == byte_code_literal_symbol()
+                    || id == byte_code_symbol()
+            )
+        {
+            if let Some(result) = self.try_special_form_value_id(sym_id, original_args) {
+                return result;
+            }
+            let args_exprs = value_list_to_exprs(&original_args);
+            if let Some(result) = self.try_special_form_id(sym_id, &args_exprs) {
+                return result;
             }
         }
 
@@ -5958,9 +5970,7 @@ impl Context {
                     let mut f = *f;
                     // Follow symbol indirection (GNU eval.c:2604)
                     if let Some(alias_id) = f.as_symbol_id() {
-                        if let Some(resolved) =
-                            self.obarray.indirect_function(resolve_sym(alias_id))
-                        {
+                        if let Some(resolved) = self.obarray.indirect_function_id(alias_id) {
                             f = resolved;
                         }
                     }
@@ -5997,14 +6007,13 @@ impl Context {
             && let Some(target_sym_id) = func.as_subr_id()
             && self.subr_is_special_form_id(target_sym_id)
         {
-            let surface_name = resolve_sym(surface_sym_id);
-            let target_name = resolve_sym(target_sym_id);
-            if surface_name == target_name {
-                if let Some(result) = self.try_special_form_value(surface_name, original_args) {
+            if surface_sym_id == target_sym_id {
+                if let Some(result) = self.try_special_form_value_id(surface_sym_id, original_args)
+                {
                     return result;
                 }
             } else if let Some(result) =
-                self.try_aliased_special_form_value(surface_name, target_name, original_args)
+                self.try_aliased_special_form_value_id(surface_sym_id, target_sym_id, original_args)
             {
                 return result;
             }
@@ -6018,7 +6027,7 @@ impl Context {
             // Evaluate expansion DIRECTLY — no value_to_expr round-trip!
             return self.eval_sub(expanded);
         }
-        if func.is_cons() && func.cons_car().is_symbol_named("macro") {
+        if cons_head_symbol_id(&func) == Some(macro_symbol()) {
             // Cons-cell macro: (macro . fn) — GNU eval.c:2730
             let macro_fn = func.cons_cdr();
 
@@ -6419,9 +6428,10 @@ impl Context {
             }
             ValueKind::Cons => {
                 super::autoload::is_autoload_value(function)
-                    || function.cons_car().is_symbol_named("lambda")
-                    || function.cons_car().is_symbol_named("closure")
-                    || function.cons_car().is_symbol_named("macro")
+                    || matches!(
+                        cons_head_symbol_id(function),
+                        Some(id) if is_lambda_like_symbol_id(id) || id == macro_symbol()
+                    )
             }
             ValueKind::Symbol(id) => {
                 super::builtins::symbols::resolve_indirect_symbol_by_id(self, id)
@@ -6504,7 +6514,7 @@ impl Context {
                 if let Some(alias_id) = func.as_symbol_id() {
                     if let Some(resolved) = self.obarray.indirect_function_id(alias_id) {
                         let is_macro = resolved.is_macro()
-                            || (resolved.is_cons() && resolved.cons_car().is_symbol_named("macro"));
+                            || cons_head_symbol_id(&resolved) == Some(macro_symbol());
                         if is_macro {
                             func = resolved;
                         }
@@ -6526,8 +6536,7 @@ impl Context {
                     )?;
                     if let Some(loaded_macro) = self.obarray.symbol_function_id(sym_id).cloned() {
                         let is_loaded_macro = loaded_macro.is_macro()
-                            || (loaded_macro.is_cons()
-                                && loaded_macro.cons_car().is_symbol_named("macro"));
+                            || cons_head_symbol_id(&loaded_macro) == Some(macro_symbol());
                         if is_loaded_macro {
                             func = loaded_macro;
                         }
@@ -6600,8 +6609,7 @@ impl Context {
                 // Matches GNU eval.c lines 2730-2755: bind lexical-binding
                 // and macroexp--dynvars during expansion.
                 if func.is_cons() {
-                    let car = func.cons_car();
-                    if car.is_symbol_named("macro") {
+                    if cons_head_symbol_id(&func) == Some(macro_symbol()) {
                         let cache_key = (
                             func.bits(),
                             tail.as_ptr() as usize,
@@ -6704,7 +6712,7 @@ impl Context {
                         .then_some(bound_name)
                 } else if let Some(alias_id) = func.as_symbol_id() {
                     self.obarray
-                        .indirect_function(resolve_sym(alias_id))
+                        .indirect_function_id(alias_id)
                         .and_then(|resolved| {
                             let bound_name = resolved.as_subr_id()?;
                             self.subr_is_special_form_id(bound_name)
@@ -6719,11 +6727,9 @@ impl Context {
                         if let Some(result) = self.try_special_form_id(sym_id, tail) {
                             return result;
                         }
-                    } else if let Some(result) = self.try_aliased_special_form(
-                        resolve_sym(sym_id),
-                        resolve_sym(bound_name),
-                        tail,
-                    ) {
+                    } else if let Some(result) =
+                        self.try_aliased_special_form_id(sym_id, bound_name, tail)
+                    {
                         return result;
                     }
                 }
@@ -6991,85 +6997,83 @@ impl Context {
     // Special forms
     // -----------------------------------------------------------------------
 
-    fn try_special_form_value(&mut self, name: &str, tail: Value) -> Option<EvalResult> {
+    fn try_special_form_value_id(&mut self, sym_id: SymId, tail: Value) -> Option<EvalResult> {
         let saved_depth = self.depth;
-        let result = self.try_special_form_inner_value(name, tail);
+        let result = self.try_special_form_inner_value_id(sym_id, tail);
         self.depth = saved_depth;
         result
     }
 
-    fn try_aliased_special_form_value(
+    fn try_aliased_special_form_value_id(
         &mut self,
-        surface_name: &str,
-        target_name: &str,
+        surface_id: SymId,
+        target_id: SymId,
         tail: Value,
     ) -> Option<EvalResult> {
         let saved_depth = self.depth;
-        let result = Some(match target_name {
-            "quote" => self.sf_quote_value_named(surface_name, tail),
-            "function" => self.sf_function_value_named(surface_name, tail),
-            "let" => self.sf_let_value_named(surface_name, tail),
-            "let*" => self.sf_let_star_value_named(surface_name, tail),
-            "setq" => self.sf_setq_value_named(surface_name, tail),
-            "if" => self.sf_if_value_named(surface_name, tail),
-            "and" => self.sf_and_value(tail),
-            "or" => self.sf_or_value(tail),
-            "cond" => self.sf_cond_value(tail),
-            "while" => self.sf_while_value_named(surface_name, tail),
-            "progn" => self.sf_progn_value(tail),
-            "prog1" => self.sf_prog1_value_named(surface_name, tail),
-            "defvar" => self.sf_defvar_value_named(surface_name, tail),
-            "defconst" => self.sf_defconst_value_named(surface_name, tail),
-            "catch" => self.sf_catch_value_named(surface_name, tail),
-            "unwind-protect" => self.sf_unwind_protect_value_named(surface_name, tail),
-            "condition-case" => self.sf_condition_case_value_named(surface_name, tail),
-            "save-excursion" => self.sf_save_excursion_value(tail),
-            "save-current-buffer" => self.sf_save_current_buffer_value(tail),
-            "save-restriction" => self.sf_save_restriction_value(tail),
-            "interactive" => Ok(Value::NIL),
+        let surface_name = resolve_sym(surface_id);
+        let result = Some(match target_id {
+            id if id == quote_symbol() => self.sf_quote_value_named(surface_name, tail),
+            id if id == function_symbol() => self.sf_function_value_named(surface_name, tail),
+            id if id == let_symbol() => self.sf_let_value_named(surface_name, tail),
+            id if id == let_star_symbol() => self.sf_let_star_value_named(surface_name, tail),
+            id if id == setq_symbol() => self.sf_setq_value_named(surface_name, tail),
+            id if id == if_symbol() => self.sf_if_value_named(surface_name, tail),
+            id if id == and_symbol() => self.sf_and_value(tail),
+            id if id == or_symbol() => self.sf_or_value(tail),
+            id if id == cond_symbol() => self.sf_cond_value(tail),
+            id if id == while_symbol() => self.sf_while_value_named(surface_name, tail),
+            id if id == progn_symbol() => self.sf_progn_value(tail),
+            id if id == prog1_symbol() => self.sf_prog1_value_named(surface_name, tail),
+            id if id == defvar_symbol() => self.sf_defvar_value_named(surface_name, tail),
+            id if id == defconst_symbol() => self.sf_defconst_value_named(surface_name, tail),
+            id if id == catch_symbol() => self.sf_catch_value_named(surface_name, tail),
+            id if id == unwind_protect_symbol() => {
+                self.sf_unwind_protect_value_named(surface_name, tail)
+            }
+            id if id == condition_case_symbol() => {
+                self.sf_condition_case_value_named(surface_name, tail)
+            }
+            id if id == save_excursion_symbol() => self.sf_save_excursion_value(tail),
+            id if id == save_current_buffer_symbol() => self.sf_save_current_buffer_value(tail),
+            id if id == save_restriction_symbol() => self.sf_save_restriction_value(tail),
+            id if id == interactive_symbol_id() => Ok(Value::NIL),
             _ => return None,
         });
         self.depth = saved_depth;
         result
     }
 
-    fn try_special_form_inner_value(&mut self, name: &str, tail: Value) -> Option<EvalResult> {
-        Some(match name {
-            "quote" => self.sf_quote_value(tail),
-            "function" => self.sf_function_value(tail),
-            "let" => self.sf_let_value(tail),
-            "let*" => self.sf_let_star_value(tail),
-            "setq" => self.sf_setq_value(tail),
-            "if" => self.sf_if_value(tail),
-            "and" => self.sf_and_value(tail),
-            "or" => self.sf_or_value(tail),
-            "cond" => self.sf_cond_value(tail),
-            "while" => self.sf_while_value(tail),
-            "progn" => self.sf_progn_value(tail),
-            "prog1" => self.sf_prog1_value(tail),
-            "defvar" => self.sf_defvar_value(tail),
-            "defconst" => self.sf_defconst_value(tail),
-            "catch" => self.sf_catch_value(tail),
-            "unwind-protect" => self.sf_unwind_protect_value(tail),
-            "condition-case" => self.sf_condition_case_value(tail),
-            "save-excursion" => self.sf_save_excursion_value(tail),
-            "save-current-buffer" => self.sf_save_current_buffer_value(tail),
-            "save-restriction" => self.sf_save_restriction_value(tail),
-            "interactive" => Ok(Value::NIL),
-            "lambda" => self.sf_lambda_value(tail),
+    fn try_special_form_inner_value_id(
+        &mut self,
+        sym_id: SymId,
+        tail: Value,
+    ) -> Option<EvalResult> {
+        Some(match sym_id {
+            id if id == quote_symbol() => self.sf_quote_value(tail),
+            id if id == function_symbol() => self.sf_function_value(tail),
+            id if id == let_symbol() => self.sf_let_value(tail),
+            id if id == let_star_symbol() => self.sf_let_star_value(tail),
+            id if id == setq_symbol() => self.sf_setq_value(tail),
+            id if id == if_symbol() => self.sf_if_value(tail),
+            id if id == and_symbol() => self.sf_and_value(tail),
+            id if id == or_symbol() => self.sf_or_value(tail),
+            id if id == cond_symbol() => self.sf_cond_value(tail),
+            id if id == while_symbol() => self.sf_while_value(tail),
+            id if id == progn_symbol() => self.sf_progn_value(tail),
+            id if id == prog1_symbol() => self.sf_prog1_value(tail),
+            id if id == defvar_symbol() => self.sf_defvar_value(tail),
+            id if id == defconst_symbol() => self.sf_defconst_value(tail),
+            id if id == catch_symbol() => self.sf_catch_value(tail),
+            id if id == unwind_protect_symbol() => self.sf_unwind_protect_value(tail),
+            id if id == condition_case_symbol() => self.sf_condition_case_value(tail),
+            id if id == save_excursion_symbol() => self.sf_save_excursion_value(tail),
+            id if id == save_current_buffer_symbol() => self.sf_save_current_buffer_value(tail),
+            id if id == save_restriction_symbol() => self.sf_save_restriction_value(tail),
+            id if id == interactive_symbol_id() => Ok(Value::NIL),
+            id if id == lambda_symbol() => self.sf_lambda_value(tail),
             _ => return None,
         })
-    }
-
-    fn try_special_form(&mut self, name: &str, tail: &[Expr]) -> Option<EvalResult> {
-        // GNU Emacs handles special forms inline in eval_sub without
-        // re-incrementing lisp_eval_depth for each subform. Save and
-        // restore depth so special form body evaluation doesn't
-        // accumulate depth beyond the initial call's increment.
-        let saved_depth = self.depth;
-        let result = self.try_special_form_inner(name, tail);
-        self.depth = saved_depth;
-        result
     }
 
     fn try_special_form_id(&mut self, sym_id: SymId, tail: &[Expr]) -> Option<EvalResult> {
@@ -7079,74 +7083,42 @@ impl Context {
         result
     }
 
-    fn try_aliased_special_form(
+    fn try_aliased_special_form_id(
         &mut self,
-        surface_name: &str,
-        target_name: &str,
+        surface_id: SymId,
+        target_id: SymId,
         tail: &[Expr],
     ) -> Option<EvalResult> {
         let saved_depth = self.depth;
-        let result = Some(match target_name {
-            "quote" => self.sf_quote_named(surface_name, tail),
-            "function" => self.sf_function_named(surface_name, tail),
-            "let" => self.sf_let_named(surface_name, tail),
-            "let*" => self.sf_let_star_named(surface_name, tail),
-            "setq" => self.sf_setq_named(surface_name, tail),
-            "if" => self.sf_if_named(surface_name, tail),
-            "and" => self.sf_and(tail),
-            "or" => self.sf_or(tail),
-            "cond" => self.sf_cond(tail),
-            "while" => self.sf_while_named(surface_name, tail),
-            "progn" => self.sf_progn(tail),
-            "prog1" => self.sf_prog1_named(surface_name, tail),
-            "defvar" => self.sf_defvar_named(surface_name, tail),
-            "defconst" => self.sf_defconst_named(surface_name, tail),
-            "catch" => self.sf_catch_named(surface_name, tail),
-            "unwind-protect" => self.sf_unwind_protect_named(surface_name, tail),
-            "condition-case" => self.sf_condition_case_named(surface_name, tail),
-            "save-excursion" => self.sf_save_excursion(tail),
-            "save-current-buffer" => super::misc::sf_save_current_buffer(self, tail),
-            "save-restriction" => self.sf_save_restriction(tail),
-            "interactive" => Ok(Value::NIL),
+        let surface_name = resolve_sym(surface_id);
+        let result = Some(match target_id {
+            id if id == quote_symbol() => self.sf_quote_named(surface_name, tail),
+            id if id == function_symbol() => self.sf_function_named(surface_name, tail),
+            id if id == let_symbol() => self.sf_let_named(surface_name, tail),
+            id if id == let_star_symbol() => self.sf_let_star_named(surface_name, tail),
+            id if id == setq_symbol() => self.sf_setq_named(surface_name, tail),
+            id if id == if_symbol() => self.sf_if_named(surface_name, tail),
+            id if id == and_symbol() => self.sf_and(tail),
+            id if id == or_symbol() => self.sf_or(tail),
+            id if id == cond_symbol() => self.sf_cond(tail),
+            id if id == while_symbol() => self.sf_while_named(surface_name, tail),
+            id if id == progn_symbol() => self.sf_progn(tail),
+            id if id == prog1_symbol() => self.sf_prog1_named(surface_name, tail),
+            id if id == defvar_symbol() => self.sf_defvar_named(surface_name, tail),
+            id if id == defconst_symbol() => self.sf_defconst_named(surface_name, tail),
+            id if id == catch_symbol() => self.sf_catch_named(surface_name, tail),
+            id if id == unwind_protect_symbol() => self.sf_unwind_protect_named(surface_name, tail),
+            id if id == condition_case_symbol() => self.sf_condition_case_named(surface_name, tail),
+            id if id == save_excursion_symbol() => self.sf_save_excursion(tail),
+            id if id == save_current_buffer_symbol() => {
+                super::misc::sf_save_current_buffer(self, tail)
+            }
+            id if id == save_restriction_symbol() => self.sf_save_restriction(tail),
+            id if id == interactive_symbol_id() => Ok(Value::NIL),
             _ => return None,
         });
         self.depth = saved_depth;
         result
-    }
-
-    fn try_special_form_inner(&mut self, name: &str, tail: &[Expr]) -> Option<EvalResult> {
-        Some(match name {
-            // ---- GNU Emacs C special forms (eval.c UNEVALLED) ----
-            "quote" => self.sf_quote(tail),
-            "function" => self.sf_function(tail),
-            "let" => self.sf_let(tail),
-            "let*" => self.sf_let_star(tail),
-            "setq" => self.sf_setq(tail),
-            "if" => self.sf_if(tail),
-            "and" => self.sf_and(tail),
-            "or" => self.sf_or(tail),
-            "cond" => self.sf_cond(tail),
-            "while" => self.sf_while(tail),
-            "progn" => self.sf_progn(tail),
-            "prog1" => self.sf_prog1(tail),
-            "defvar" => self.sf_defvar(tail),
-            "defconst" => self.sf_defconst(tail),
-            "catch" => self.sf_catch(tail),
-            "unwind-protect" => self.sf_unwind_protect(tail),
-            "condition-case" => self.sf_condition_case(tail),
-            // ---- GNU Emacs C special forms (editfns.c) ----
-            "save-excursion" => self.sf_save_excursion(tail),
-            "save-current-buffer" => super::misc::sf_save_current_buffer(self, tail),
-            "save-restriction" => self.sf_save_restriction(tail),
-            // ---- GNU Emacs C special form stub (callint.c) ----
-            "interactive" => Ok(Value::NIL),
-            // ---- Context-internal (not a special form in GNU) ----
-            "lambda" => self.eval_lambda(tail),
-            // ---- NeoVM-specific ----
-            "byte-code-literal" => self.sf_byte_code_literal(tail),
-            "byte-code" => self.sf_byte_code(tail),
-            _ => return None,
-        })
     }
 
     fn try_special_form_inner_id(&mut self, sym_id: SymId, tail: &[Expr]) -> Option<EvalResult> {
@@ -7229,7 +7201,7 @@ impl Context {
 
     fn sf_function_value_named(&mut self, call_name: &str, tail: Value) -> EvalResult {
         let arg = self.one_unevalled_arg(call_name, tail)?;
-        if arg.is_cons() && arg.cons_car().is_symbol_named("lambda") {
+        if cons_head_symbol_id(&arg) == Some(lambda_symbol()) {
             let lambda_tail = arg.cons_cdr();
             let args_exprs = value_list_to_exprs(&lambda_tail);
             return self.eval_lambda(&args_exprs);
@@ -9767,9 +9739,10 @@ impl Context {
                         "wrong-type-argument",
                         vec![Value::symbol("symbolp"), function],
                     ))
-                } else if function.cons_car().is_symbol_named("lambda")
-                    || function.cons_car().is_symbol_named("closure")
-                {
+                } else if matches!(
+                    cons_head_symbol_id(&function),
+                    Some(id) if is_lambda_like_symbol_id(id)
+                ) {
                     match self.instantiate_callable_cons_form(function) {
                         Ok(callable) => self.apply(callable, args),
                         Err(_) => Err(signal("invalid-function", vec![function])),
@@ -10120,7 +10093,14 @@ impl Context {
                     result
                 }
             }
-            NamedCallTarget::ContextCallable => self.apply_evaluator_callable_by_id(sym_id, args),
+            NamedCallTarget::ContextCallable => {
+                let wrong_arity_callee = if rewrite_builtin_wrong_arity {
+                    Value::subr(sym_id)
+                } else {
+                    Value::symbol(name)
+                };
+                self.apply_evaluator_callable(name, args, wrong_arity_callee)
+            }
             NamedCallTarget::Builtin => {
                 if let Some(result) = builtins::dispatch_builtin_by_id(self, sym_id, args) {
                     let result = result.map_err(|flow| self.validate_throw(flow));
@@ -10189,7 +10169,14 @@ impl Context {
                     result
                 }
             }
-            NamedCallTarget::ContextCallable => self.apply_evaluator_callable(name, args),
+            NamedCallTarget::ContextCallable => {
+                let wrong_arity_callee = if rewrite_builtin_wrong_arity {
+                    Value::subr(intern(name))
+                } else {
+                    Value::symbol(name)
+                };
+                self.apply_evaluator_callable(name, args, wrong_arity_callee)
+            }
             NamedCallTarget::Builtin => {
                 if let Some(result) = builtins::dispatch_builtin(self, name, args) {
                     let result = result.map_err(|flow| self.validate_throw(flow));
@@ -10243,16 +10230,18 @@ impl Context {
         }
     }
 
-    fn apply_evaluator_callable(&mut self, name: &str, args: Vec<Value>) -> EvalResult {
+    fn apply_evaluator_callable(
+        &mut self,
+        name: &str,
+        args: Vec<Value>,
+        wrong_arity_callee: Value,
+    ) -> EvalResult {
         match name {
             "throw" => {
                 if args.len() != 2 {
                     return Err(signal(
                         "wrong-number-of-arguments",
-                        vec![
-                            Value::subr(intern("throw")),
-                            Value::fixnum(args.len() as i64),
-                        ],
+                        vec![wrong_arity_callee, Value::fixnum(args.len() as i64)],
                     ));
                 }
                 let tag = args[0];
@@ -10268,7 +10257,7 @@ impl Context {
     }
 
     fn apply_evaluator_callable_by_id(&mut self, sym_id: SymId, args: Vec<Value>) -> EvalResult {
-        self.apply_evaluator_callable(resolve_sym(sym_id), args)
+        self.apply_evaluator_callable(resolve_sym(sym_id), args, Value::subr(sym_id))
     }
 
     fn apply_lambda(&mut self, func_value: Value, args: Vec<Value>) -> EvalResult {

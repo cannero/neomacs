@@ -4432,6 +4432,19 @@ fn funcall_throw_is_callable_and_preserves_throw_semantics() {
 }
 
 #[test]
+fn throw_alias_wrong_arity_mentions_surface_symbol() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        eval_one(
+            "(progn
+               (defalias 'vm-throw-alias 'throw)
+               (condition-case err (vm-throw-alias) (error err)))"
+        ),
+        "OK (wrong-number-of-arguments vm-throw-alias 0)"
+    );
+}
+
+#[test]
 fn funcall_throw_uses_shared_condition_stack_without_catch_tag_mirror() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
