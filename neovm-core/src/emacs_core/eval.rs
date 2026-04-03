@@ -540,6 +540,46 @@ fn macroexp_dynvars_symbol() -> SymId {
     *SYMBOL.get_or_init(|| intern("macroexp--dynvars"))
 }
 
+macro_rules! cached_symbol_id {
+    ($fn_name:ident, $name:literal) => {
+        fn $fn_name() -> SymId {
+            static SYMBOL: OnceLock<SymId> = OnceLock::new();
+            *SYMBOL.get_or_init(|| intern($name))
+        }
+    };
+}
+
+cached_symbol_id!(quote_symbol, "quote");
+cached_symbol_id!(function_symbol, "function");
+cached_symbol_id!(let_symbol, "let");
+cached_symbol_id!(let_star_symbol, "let*");
+cached_symbol_id!(setq_symbol, "setq");
+cached_symbol_id!(if_symbol, "if");
+cached_symbol_id!(and_symbol, "and");
+cached_symbol_id!(or_symbol, "or");
+cached_symbol_id!(cond_symbol, "cond");
+cached_symbol_id!(while_symbol, "while");
+cached_symbol_id!(progn_symbol, "progn");
+cached_symbol_id!(prog1_symbol, "prog1");
+cached_symbol_id!(defvar_symbol, "defvar");
+cached_symbol_id!(defconst_symbol, "defconst");
+cached_symbol_id!(catch_symbol, "catch");
+cached_symbol_id!(unwind_protect_symbol, "unwind-protect");
+cached_symbol_id!(condition_case_symbol, "condition-case");
+cached_symbol_id!(save_excursion_symbol, "save-excursion");
+cached_symbol_id!(save_current_buffer_symbol, "save-current-buffer");
+cached_symbol_id!(save_restriction_symbol, "save-restriction");
+cached_symbol_id!(interactive_symbol_id, "interactive");
+cached_symbol_id!(lambda_symbol, "lambda");
+cached_symbol_id!(closure_symbol, "closure");
+cached_symbol_id!(macro_symbol, "macro");
+cached_symbol_id!(byte_code_literal_symbol, "byte-code-literal");
+cached_symbol_id!(byte_code_symbol, "byte-code");
+
+fn is_lambda_like_symbol_id(id: SymId) -> bool {
+    id == lambda_symbol() || id == closure_symbol()
+}
+
 struct CoreEvalSymbols {
     internal_interpreter_environment_symbol: SymId,
     quit_flag_symbol: SymId,
@@ -1358,6 +1398,19 @@ fn bind_lexical_value_rooted_in_state(
     temp_roots.truncate(saved_roots);
 }
 
+fn prepend_lexical_binding_in_rooted_env(
+    lexenv: &mut Value,
+    temp_roots: &mut Vec<Value>,
+    env_root_index: usize,
+    sym: SymId,
+    value: Value,
+) {
+    let current_env = temp_roots[env_root_index];
+    let new_env = lexenv_prepend(current_env, sym, value);
+    temp_roots[env_root_index] = new_env;
+    *lexenv = new_env;
+}
+
 /// Build a `(MIN . MAX)` cons cell representing the arity of a lambda/closure,
 /// matching the format GNU Emacs uses in `wrong-number-of-arguments` errors.
 /// `MAX` is the symbol `many` when the function accepts `&rest`.
@@ -1405,6 +1458,7 @@ fn begin_lambda_call_in_state(
 
     let saved_temp_roots_len = temp_roots.len();
     let specpdl_count = specpdl.len();
+    temp_roots.extend_from_slice(args);
 
     let has_lexenv = env.is_some();
     if let Some(env) = env {
@@ -1415,27 +1469,53 @@ fn begin_lambda_call_in_state(
                 params
             );
         }
-        temp_roots.push(env);
         let old = std::mem::replace(lexenv, env);
-        temp_roots.push(old);
         saved_lexenvs.push(old);
+        let env_root_index = temp_roots.len();
+        temp_roots.push(env);
 
         let mut arg_idx = 0;
         for param in &params.required {
-            bind_lexical_value_rooted_in_state(lexenv, temp_roots, *param, args[arg_idx]);
+            prepend_lexical_binding_in_rooted_env(
+                lexenv,
+                temp_roots,
+                env_root_index,
+                *param,
+                args[arg_idx],
+            );
             arg_idx += 1;
         }
         for param in &params.optional {
             if arg_idx < args.len() {
-                bind_lexical_value_rooted_in_state(lexenv, temp_roots, *param, args[arg_idx]);
+                prepend_lexical_binding_in_rooted_env(
+                    lexenv,
+                    temp_roots,
+                    env_root_index,
+                    *param,
+                    args[arg_idx],
+                );
                 arg_idx += 1;
             } else {
-                bind_lexical_value_rooted_in_state(lexenv, temp_roots, *param, Value::NIL);
+                prepend_lexical_binding_in_rooted_env(
+                    lexenv,
+                    temp_roots,
+                    env_root_index,
+                    *param,
+                    Value::NIL,
+                );
             }
         }
         if let Some(rest_name) = params.rest {
             let rest_value = Value::list_from_slice(&args[arg_idx..]);
-            bind_lexical_value_rooted_in_state(lexenv, temp_roots, rest_name, rest_value);
+            temp_roots.push(rest_value);
+            prepend_lexical_binding_in_rooted_env(
+                lexenv,
+                temp_roots,
+                env_root_index,
+                rest_name,
+                rest_value,
+            );
+            temp_roots.pop();
         }
     } else {
         // Dynamic binding: use specbind to write directly to obarray.
@@ -6171,7 +6251,7 @@ impl Context {
                                 if matches!(
                                     items.first(),
                                     Some(Expr::Symbol(id))
-                                        if resolve_sym(*id) == "lambda" || resolve_sym(*id) == "closure"
+                                        if is_lambda_like_symbol_id(*id)
                                 )
                         ) =>
                 {
@@ -6197,26 +6277,11 @@ impl Context {
 
         if let Expr::Symbol(id) = head {
             let sym_id = *id;
-            let name = resolve_sym(sym_id);
-
-            // Reserved for evaluator-owned forms that must bypass macro
-            // shadowing. The current source-compatible path keeps this empty.
-            if super::subr_info::is_evaluator_sf_skip_macroexpand(name) {
-                if let Some(func) = self.obarray.symbol_function(name) {
-                    let is_macro = func.is_macro()
-                        || (func.is_cons() && func.cons_car().is_symbol_named("macro"));
-                    if is_macro {
-                        if let Some(result) = self.try_special_form(name, tail) {
-                            return result;
-                        }
-                    }
-                }
-            }
 
             // Check for macro expansion (from obarray function cell)
             if let Some(mut func) = self.obarray.symbol_function_id(sym_id).cloned() {
                 if func.is_nil() {
-                    return Err(signal("void-function", vec![Value::symbol(name)]));
+                    return Err(signal("void-function", vec![value_from_symbol_id(sym_id)]));
                 }
 
                 // Follow symbol indirection chain to detect macros behind
@@ -6224,7 +6289,7 @@ impl Context {
                 // macro).  Only replace `func` when the target is a macro
                 // — non-macro aliases are handled by the apply path below.
                 if let Some(alias_id) = func.as_symbol_id() {
-                    if let Some(resolved) = self.obarray.indirect_function(resolve_sym(alias_id)) {
+                    if let Some(resolved) = self.obarray.indirect_function_id(alias_id) {
                         let is_macro = resolved.is_macro()
                             || (resolved.is_cons() && resolved.cons_car().is_symbol_named("macro"));
                         if is_macro {
@@ -6240,7 +6305,11 @@ impl Context {
                     // with the freshly installed definition.
                     let _ = super::autoload::builtin_autoload_do_load(
                         self,
-                        vec![func, Value::symbol(name), Value::symbol("macro")],
+                        vec![
+                            func,
+                            value_from_symbol_id(sym_id),
+                            Value::from_sym_id(macro_symbol()),
+                        ],
                     )?;
                     if let Some(loaded_macro) = self.obarray.symbol_function_id(sym_id).cloned() {
                         let is_loaded_macro = loaded_macro.is_macro()
@@ -6433,14 +6502,15 @@ impl Context {
                 };
 
                 if let Some(bound_name) = special_form_subr {
-                    let target_name = resolve_sym(bound_name);
-                    if target_name == name {
-                        if let Some(result) = self.try_special_form(name, tail) {
+                    if bound_name == sym_id {
+                        if let Some(result) = self.try_special_form_id(sym_id, tail) {
                             return result;
                         }
-                    } else if let Some(result) =
-                        self.try_aliased_special_form(name, target_name, tail)
-                    {
+                    } else if let Some(result) = self.try_aliased_special_form(
+                        resolve_sym(sym_id),
+                        resolve_sym(bound_name),
+                        tail,
+                    ) {
                         return result;
                     }
                 }
@@ -6453,7 +6523,12 @@ impl Context {
                         self.apply_named_callable_by_id(sym_id, args, Value::subr(sym_id), false);
                     scope.close(self);
                     if let Ok(value) = &result {
-                        self.maybe_writeback_mutating_first_arg(name, None, &writeback_args, value);
+                        self.maybe_writeback_mutating_first_arg(
+                            resolve_sym(sym_id),
+                            None,
+                            &writeback_args,
+                            value,
+                        );
                     }
                     return result;
                 }
@@ -6462,7 +6537,12 @@ impl Context {
                     self.apply_named_callable_by_id(sym_id, args, Value::subr(sym_id), false);
                 scope.close(self);
                 if let Ok(value) = &result {
-                    self.maybe_writeback_mutating_first_arg(name, None, &writeback_args, value);
+                    self.maybe_writeback_mutating_first_arg(
+                        resolve_sym(sym_id),
+                        None,
+                        &writeback_args,
+                        value,
+                    );
                 }
                 return result;
             }
@@ -6473,14 +6553,14 @@ impl Context {
             // recreated here.
             if !self.obarray.is_function_unbound_id(sym_id) && !self.subr_is_special_form_id(sym_id)
             {
-                if let Some(result) = self.try_special_form(name, tail) {
+                if let Some(result) = self.try_special_form_id(sym_id, tail) {
                     return result;
                 }
             }
 
             match self.resolve_named_call_target_by_id(sym_id) {
                 NamedCallTarget::Void => {
-                    return Err(signal("void-function", vec![Value::symbol(name)]));
+                    return Err(signal("void-function", vec![value_from_symbol_id(sym_id)]));
                 }
                 NamedCallTarget::SpecialForm => {
                     return Err(signal("invalid-function", vec![Value::subr(sym_id)]));
@@ -6497,7 +6577,12 @@ impl Context {
             let result = self.apply_named_callable_by_id(sym_id, args, Value::subr(sym_id), false);
             scope.close(self);
             if let Ok(value) = &result {
-                self.maybe_writeback_mutating_first_arg(name, None, &writeback_args, value);
+                self.maybe_writeback_mutating_first_arg(
+                    resolve_sym(sym_id),
+                    None,
+                    &writeback_args,
+                    value,
+                );
             }
             return result;
         }
@@ -6505,7 +6590,7 @@ impl Context {
         // Head is a list (possibly a lambda expression)
         if let Expr::List(lambda_form) = head {
             if let Some(Expr::Symbol(id)) = lambda_form.first() {
-                if resolve_sym(*id) == "lambda" {
+                if *id == lambda_symbol() {
                     let func = self.eval_lambda(&lambda_form[1..])?;
                     self.push_temp_root(func);
                     let (args, scope) = self.eval_args(tail)?;
@@ -6774,6 +6859,13 @@ impl Context {
         result
     }
 
+    fn try_special_form_id(&mut self, sym_id: SymId, tail: &[Expr]) -> Option<EvalResult> {
+        let saved_depth = self.depth;
+        let result = self.try_special_form_inner_id(sym_id, tail);
+        self.depth = saved_depth;
+        result
+    }
+
     fn try_aliased_special_form(
         &mut self,
         surface_name: &str,
@@ -6840,6 +6932,38 @@ impl Context {
             // ---- NeoVM-specific ----
             "byte-code-literal" => self.sf_byte_code_literal(tail),
             "byte-code" => self.sf_byte_code(tail),
+            _ => return None,
+        })
+    }
+
+    fn try_special_form_inner_id(&mut self, sym_id: SymId, tail: &[Expr]) -> Option<EvalResult> {
+        Some(match sym_id {
+            id if id == quote_symbol() => self.sf_quote(tail),
+            id if id == function_symbol() => self.sf_function(tail),
+            id if id == let_symbol() => self.sf_let(tail),
+            id if id == let_star_symbol() => self.sf_let_star(tail),
+            id if id == setq_symbol() => self.sf_setq(tail),
+            id if id == if_symbol() => self.sf_if(tail),
+            id if id == and_symbol() => self.sf_and(tail),
+            id if id == or_symbol() => self.sf_or(tail),
+            id if id == cond_symbol() => self.sf_cond(tail),
+            id if id == while_symbol() => self.sf_while(tail),
+            id if id == progn_symbol() => self.sf_progn(tail),
+            id if id == prog1_symbol() => self.sf_prog1(tail),
+            id if id == defvar_symbol() => self.sf_defvar(tail),
+            id if id == defconst_symbol() => self.sf_defconst(tail),
+            id if id == catch_symbol() => self.sf_catch(tail),
+            id if id == unwind_protect_symbol() => self.sf_unwind_protect(tail),
+            id if id == condition_case_symbol() => self.sf_condition_case(tail),
+            id if id == save_excursion_symbol() => self.sf_save_excursion(tail),
+            id if id == save_current_buffer_symbol() => {
+                super::misc::sf_save_current_buffer(self, tail)
+            }
+            id if id == save_restriction_symbol() => self.sf_save_restriction(tail),
+            id if id == interactive_symbol_id() => Ok(Value::NIL),
+            id if id == lambda_symbol() => self.eval_lambda(tail),
+            id if id == byte_code_literal_symbol() => self.sf_byte_code_literal(tail),
+            id if id == byte_code_symbol() => self.sf_byte_code(tail),
             _ => return None,
         })
     }
@@ -10502,6 +10626,53 @@ impl Context {
         min_args: u16,
         max_args: Option<u16>,
     ) {
+        self.defsubr_with_entry(
+            name,
+            crate::tagged::header::SubrFn::Many(func),
+            min_args,
+            max_args,
+        );
+    }
+
+    pub fn defsubr_0(&mut self, name: &str, func: fn(&mut Context) -> EvalResult) {
+        self.defsubr_with_entry(name, crate::tagged::header::SubrFn::A0(func), 0, Some(0));
+    }
+
+    pub fn defsubr_1(
+        &mut self,
+        name: &str,
+        func: fn(&mut Context, Value) -> EvalResult,
+        min_args: u16,
+    ) {
+        self.defsubr_with_entry(
+            name,
+            crate::tagged::header::SubrFn::A1(func),
+            min_args,
+            Some(1),
+        );
+    }
+
+    pub fn defsubr_2(
+        &mut self,
+        name: &str,
+        func: fn(&mut Context, Value, Value) -> EvalResult,
+        min_args: u16,
+    ) {
+        self.defsubr_with_entry(
+            name,
+            crate::tagged::header::SubrFn::A2(func),
+            min_args,
+            Some(2),
+        );
+    }
+
+    fn defsubr_with_entry(
+        &mut self,
+        name: &str,
+        func: crate::tagged::header::SubrFn,
+        min_args: u16,
+        max_args: Option<u16>,
+    ) {
         let (min_args, max_args, dispatch_kind) =
             super::subr_info::lookup_compat_subr_metadata(name, min_args, max_args);
         let sym_id = intern(name);
@@ -10559,7 +10730,18 @@ impl Context {
                 )));
             }
         }
-        Some(func(self, args))
+        Some(match func {
+            crate::tagged::header::SubrFn::Many(func) => func(self, args),
+            crate::tagged::header::SubrFn::A0(func) => func(self),
+            crate::tagged::header::SubrFn::A1(func) => {
+                func(self, args.first().copied().unwrap_or(Value::NIL))
+            }
+            crate::tagged::header::SubrFn::A2(func) => func(
+                self,
+                args.first().copied().unwrap_or(Value::NIL),
+                args.get(1).copied().unwrap_or(Value::NIL),
+            ),
+        })
     }
 
     pub fn dispatch_subr(&mut self, name: &str, args: Vec<Value>) -> Option<EvalResult> {

@@ -287,9 +287,17 @@ pub(crate) fn builtin_car(args: Vec<Value>) -> EvalResult {
     car_value(&args[0])
 }
 
+pub(crate) fn builtin_car_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    car_value(&arg)
+}
+
 pub(crate) fn builtin_cdr(args: Vec<Value>) -> EvalResult {
     expect_args("cdr", &args, 1)?;
     cdr_value(&args[0])
+}
+
+pub(crate) fn builtin_cdr_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    cdr_value(&arg)
 }
 
 pub(crate) fn builtin_car_safe(args: Vec<Value>) -> EvalResult {
@@ -300,10 +308,24 @@ pub(crate) fn builtin_car_safe(args: Vec<Value>) -> EvalResult {
     }
 }
 
+pub(crate) fn builtin_car_safe_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    match arg.kind() {
+        ValueKind::Cons => Ok(arg.cons_car()),
+        _ => Ok(Value::NIL),
+    }
+}
+
 pub(crate) fn builtin_cdr_safe(args: Vec<Value>) -> EvalResult {
     expect_args("cdr-safe", &args, 1)?;
     match args[0].kind() {
         ValueKind::Cons => Ok(args[0].cons_cdr()),
+        _ => Ok(Value::NIL),
+    }
+}
+
+pub(crate) fn builtin_cdr_safe_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    match arg.kind() {
+        ValueKind::Cons => Ok(arg.cons_cdr()),
         _ => Ok(Value::NIL),
     }
 }

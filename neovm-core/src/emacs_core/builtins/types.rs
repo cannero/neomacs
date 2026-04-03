@@ -1,6 +1,73 @@
 use super::*;
 use crate::emacs_core::value::{ValueKind, VecLikeType};
 
+pub(crate) fn builtin_null_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    Ok(Value::bool_val(arg.is_nil()))
+}
+
+pub(crate) fn builtin_not_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    Ok(Value::bool_val(arg.is_nil()))
+}
+
+pub(crate) fn builtin_atom_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    Ok(Value::bool_val(!arg.is_cons()))
+}
+
+pub(crate) fn builtin_consp_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    Ok(Value::bool_val(arg.is_cons()))
+}
+
+pub(crate) fn builtin_listp_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    Ok(Value::bool_val(arg.is_list()))
+}
+
+pub(crate) fn builtin_nlistp_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    Ok(Value::bool_val(!arg.is_list()))
+}
+
+pub(crate) fn builtin_symbolp_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    Ok(Value::bool_val(arg.is_symbol()))
+}
+
+pub(crate) fn builtin_booleanp_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    Ok(Value::bool_val(arg.is_nil() || arg.is_t()))
+}
+
+pub(crate) fn builtin_numberp_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    Ok(Value::bool_val(arg.is_number()))
+}
+
+pub(crate) fn builtin_integerp_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    Ok(Value::bool_val(arg.is_integer()))
+}
+
+pub(crate) fn builtin_floatp_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    Ok(Value::bool_val(arg.is_float()))
+}
+
+pub(crate) fn builtin_stringp_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    Ok(Value::bool_val(arg.is_string()))
+}
+
+pub(crate) fn builtin_vectorp_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    let is_vec = arg.is_vector()
+        && !super::chartable::is_char_table(&arg)
+        && !super::chartable::is_bool_vector(&arg);
+    Ok(Value::bool_val(is_vec))
+}
+
+pub(crate) fn builtin_keywordp_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    Ok(Value::bool_val(arg.is_keyword()))
+}
+
+pub(crate) fn builtin_eq_2(
+    _eval: &mut super::eval::Context,
+    left: Value,
+    right: Value,
+) -> EvalResult {
+    Ok(Value::bool_val(eq_value(&left, &right)))
+}
+
 // ===========================================================================
 // Type predicates
 // ===========================================================================

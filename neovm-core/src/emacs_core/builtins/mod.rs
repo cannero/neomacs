@@ -7244,22 +7244,22 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("/=", builtin_num_ne, 2, Some(2));
 
     // -- Type predicates --
-    ctx.defsubr("null", |_ctx, args| builtin_null(args), 1, Some(1));
-    ctx.defsubr("not", |_ctx, args| builtin_not(args), 1, Some(1));
-    ctx.defsubr("atom", |_ctx, args| builtin_atom(args), 1, Some(1));
-    ctx.defsubr("consp", |_ctx, args| builtin_consp(args), 1, Some(1));
-    ctx.defsubr("listp", |_ctx, args| builtin_listp(args), 1, Some(1));
+    ctx.defsubr_1("null", builtin_null_1, 1);
+    ctx.defsubr_1("not", builtin_not_1, 1);
+    ctx.defsubr_1("atom", builtin_atom_1, 1);
+    ctx.defsubr_1("consp", builtin_consp_1, 1);
+    ctx.defsubr_1("listp", builtin_listp_1, 1);
     ctx.defsubr(
         "list-of-strings-p",
         |_ctx, args| builtin_list_of_strings_p(args),
         0,
         None,
     );
-    ctx.defsubr("nlistp", |_ctx, args| builtin_nlistp(args), 1, Some(1));
-    ctx.defsubr("symbolp", |_ctx, args| builtin_symbolp(args), 1, Some(1));
-    ctx.defsubr("booleanp", |_ctx, args| builtin_booleanp(args), 1, Some(1));
-    ctx.defsubr("numberp", |_ctx, args| builtin_numberp(args), 1, Some(1));
-    ctx.defsubr("integerp", |_ctx, args| builtin_integerp(args), 1, Some(1));
+    ctx.defsubr_1("nlistp", builtin_nlistp_1, 1);
+    ctx.defsubr_1("symbolp", builtin_symbolp_1, 1);
+    ctx.defsubr_1("booleanp", builtin_booleanp_1, 1);
+    ctx.defsubr_1("numberp", builtin_numberp_1, 1);
+    ctx.defsubr_1("integerp", builtin_integerp_1, 1);
     ctx.defsubr(
         "integer-or-null-p",
         |_ctx, args| builtin_integer_or_null_p(args),
@@ -7272,9 +7272,9 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         None,
     );
-    ctx.defsubr("floatp", |_ctx, args| builtin_floatp(args), 1, Some(1));
-    ctx.defsubr("stringp", |_ctx, args| builtin_stringp(args), 1, Some(1));
-    ctx.defsubr("vectorp", |_ctx, args| builtin_vectorp(args), 1, Some(1));
+    ctx.defsubr_1("floatp", builtin_floatp_1, 1);
+    ctx.defsubr_1("stringp", builtin_stringp_1, 1);
+    ctx.defsubr_1("vectorp", builtin_vectorp_1, 1);
     ctx.defsubr(
         "characterp",
         |_ctx, args| builtin_characterp(args),
@@ -7287,7 +7287,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         None,
     );
-    ctx.defsubr("keywordp", |_ctx, args| builtin_keywordp(args), 1, Some(1));
+    ctx.defsubr_1("keywordp", builtin_keywordp_1, 1);
     ctx.defsubr(
         "hash-table-p",
         |_ctx, args| builtin_hash_table_p(args),
@@ -7317,16 +7317,16 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
 
     // -- Equality --
-    ctx.defsubr("eq", |_ctx, args| builtin_eq(args), 2, Some(2));
+    ctx.defsubr_2("eq", builtin_eq_2, 2);
     ctx.defsubr("eql", |_ctx, args| builtin_eql(args), 2, Some(2));
     ctx.defsubr("equal", |_ctx, args| builtin_equal(args), 2, Some(2));
 
     // -- Cons / List --
     ctx.defsubr("cons", |_ctx, args| builtin_cons(args), 2, Some(2));
-    ctx.defsubr("car", |_ctx, args| builtin_car(args), 1, Some(1));
-    ctx.defsubr("cdr", |_ctx, args| builtin_cdr(args), 1, Some(1));
-    ctx.defsubr("car-safe", |_ctx, args| builtin_car_safe(args), 1, Some(1));
-    ctx.defsubr("cdr-safe", |_ctx, args| builtin_cdr_safe(args), 1, Some(1));
+    ctx.defsubr_1("car", builtin_car_1, 1);
+    ctx.defsubr_1("cdr", builtin_cdr_1, 1);
+    ctx.defsubr_1("car-safe", builtin_car_safe_1, 1);
+    ctx.defsubr_1("cdr-safe", builtin_cdr_safe_1, 1);
     ctx.defsubr("setcar", |_ctx, args| builtin_setcar(args), 2, Some(2));
     ctx.defsubr("setcdr", |_ctx, args| builtin_setcdr(args), 2, Some(2));
     ctx.defsubr("list", |_ctx, args| builtin_list(args), 0, None);

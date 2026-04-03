@@ -281,11 +281,31 @@ pub struct TimerObj {
 }
 
 /// Heap-allocated built-in function (like GNU's PVEC_SUBR).
-/// Contains the function pointer, arity, and name symbol.
-pub type SubrFn = fn(
+/// Contains a GNU-shaped fixed-arity or variadic entry point together with
+/// arity metadata stored on the SubrObj itself.
+pub type SubrFnMany = fn(
     &mut crate::emacs_core::eval::Context,
     Vec<super::value::TaggedValue>,
 ) -> crate::emacs_core::error::EvalResult;
+pub type SubrFn0 =
+    fn(&mut crate::emacs_core::eval::Context) -> crate::emacs_core::error::EvalResult;
+pub type SubrFn1 = fn(
+    &mut crate::emacs_core::eval::Context,
+    super::value::TaggedValue,
+) -> crate::emacs_core::error::EvalResult;
+pub type SubrFn2 = fn(
+    &mut crate::emacs_core::eval::Context,
+    super::value::TaggedValue,
+    super::value::TaggedValue,
+) -> crate::emacs_core::error::EvalResult;
+
+#[derive(Clone, Copy)]
+pub enum SubrFn {
+    Many(SubrFnMany),
+    A0(SubrFn0),
+    A1(SubrFn1),
+    A2(SubrFn2),
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]

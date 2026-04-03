@@ -643,7 +643,13 @@ impl Obarray {
     /// Follow function indirection (defalias chains).
     /// Returns the final function value, following symbol aliases.
     pub fn indirect_function(&self, name: &str) -> Option<Value> {
-        let mut current_id = intern(name);
+        self.indirect_function_id(intern(name))
+    }
+
+    /// Follow function indirection (defalias chains) by canonical symbol id.
+    /// Returns the final function value, following symbol aliases.
+    pub fn indirect_function_id(&self, id: SymId) -> Option<Value> {
+        let mut current_id = id;
         let mut depth = 0;
         loop {
             if depth > 100 {
