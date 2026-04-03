@@ -24,9 +24,44 @@ use crate::buffer::text_props::TextPropertyTable;
 /// in the block allocator, not via an in-object flag.
 #[derive(Clone, Copy)]
 #[repr(C)]
+pub union ConsCdrOrNext {
+    pub cdr: TaggedValue,
+    pub next_free: *mut ConsCell,
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
 pub struct ConsCell {
     pub car: TaggedValue,
-    pub cdr: TaggedValue,
+    pub cdr_or_next: ConsCdrOrNext,
+}
+
+impl ConsCell {
+    #[inline]
+    pub unsafe fn cdr(&self) -> TaggedValue {
+        unsafe { self.cdr_or_next.cdr }
+    }
+
+    #[inline]
+    pub unsafe fn set_car(&mut self, value: TaggedValue) {
+        self.car = value;
+    }
+
+    #[inline]
+    pub unsafe fn set_cdr(&mut self, value: TaggedValue) {
+        self.cdr_or_next.cdr = value;
+    }
+
+    #[inline]
+    pub unsafe fn free_next(&self) -> *mut ConsCell {
+        unsafe { self.cdr_or_next.next_free }
+    }
+
+    #[inline]
+    pub unsafe fn set_free_next(&mut self, next: *mut ConsCell) {
+        self.car = TaggedValue::NIL;
+        self.cdr_or_next.next_free = next;
+    }
 }
 
 // ---------------------------------------------------------------------------

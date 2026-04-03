@@ -22,7 +22,7 @@ pub fn set_cons_car(cell: TaggedValue, value: TaggedValue) -> bool {
     }
     note_heap_slot_write(cell, HeapWriteKind::ConsCar, 0, value);
     unsafe {
-        (*(cell.xcons_ptr() as *mut ConsCell)).car = value;
+        (*(cell.xcons_ptr() as *mut ConsCell)).set_car(value);
     }
     true
 }
@@ -34,7 +34,7 @@ pub fn set_cons_cdr(cell: TaggedValue, value: TaggedValue) -> bool {
     }
     note_heap_slot_write(cell, HeapWriteKind::ConsCdr, 1, value);
     unsafe {
-        (*(cell.xcons_ptr() as *mut ConsCell)).cdr = value;
+        (*(cell.xcons_ptr() as *mut ConsCell)).set_cdr(value);
     }
     true
 }

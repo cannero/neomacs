@@ -479,7 +479,7 @@ impl TaggedValue {
     /// Get the cdr of a cons cell. Panics if not a cons.
     #[inline]
     pub fn cons_cdr(self) -> Self {
-        unsafe { (*self.xcons_ptr()).cdr }
+        unsafe { (*self.xcons_ptr()).cdr() }
     }
 
     /// Set the car of a cons cell. Panics if not a cons.

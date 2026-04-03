@@ -179,12 +179,6 @@ fn note_heap_write_record(record: HeapWriteRecord) {
 /// Number of cons cells per block. 4096 cells × 16 bytes = 64 KB per block.
 const CONS_BLOCK_SIZE: usize = 4096;
 
-#[derive(Clone, Copy)]
-struct ConsFreeCell {
-    block_index: usize,
-    cell_index: u16,
-}
-
 /// A block of cons cells with an external mark bitmap.
 struct ConsBlock {
     /// The cons cells. Allocated as a contiguous array.
@@ -193,8 +187,6 @@ struct ConsBlock {
     marks: Vec<bool>,
     /// Index of the first never-allocated cell in this block.
     next_index: u16,
-    /// How many cells are in use (allocated and not freed).
-    used: usize,
 }
 
 impl ConsBlock {
@@ -208,7 +200,6 @@ impl ConsBlock {
             cells,
             marks: vec![false; CONS_BLOCK_SIZE],
             next_index: 0,
-            used: 0,
         }
     }
 
@@ -227,10 +218,9 @@ impl ConsBlock {
         self.next_index += 1;
         let cell = unsafe { self.cells.add(idx as usize) };
         unsafe {
-            (*cell).car = car;
-            (*cell).cdr = cdr;
+            (*cell).set_car(car);
+            (*cell).set_cdr(cdr);
         }
-        self.used += 1;
         Some(cell)
     }
 
@@ -267,28 +257,27 @@ impl ConsBlock {
         }
     }
 
-    /// Sweep: return reclaimed cells to the global cons free list.
-    fn sweep(&mut self, block_index: usize, free_list: &mut Vec<ConsFreeCell>) -> usize {
-        let old_used = self.used;
-        let mut new_used = 0;
+    /// Sweep: thread reclaimed cells into the global intrusive free list and
+    /// return the number of live cells in this block.
+    fn sweep(&mut self, free_list: &mut *mut ConsCell) -> usize {
+        let mut live = 0;
 
-        // Rebuild the free list from the live prefix of the block only.
-        // GNU Emacs allocates new conses from the current block via a bump
-        // index and only reuses reclaimed cells through a separate free list.
+        // Match GNU alloc.c: reclaimed conses are linked through the dead
+        // cells themselves instead of rebuilding an external index vector.
         for i in (0..self.next_index as usize).rev() {
+            let cell = unsafe { self.cells.add(i) };
             if self.marks[i] {
                 self.marks[i] = false;
-                new_used += 1;
+                live += 1;
             } else {
-                free_list.push(ConsFreeCell {
-                    block_index,
-                    cell_index: i as u16,
-                });
+                unsafe {
+                    (*cell).set_free_next(*free_list);
+                }
+                *free_list = cell;
             }
         }
 
-        self.used = new_used;
-        old_used.saturating_sub(new_used)
+        live
     }
 }
 
@@ -327,8 +316,11 @@ pub struct TaggedHeap {
     /// Root discovery policy for full-heap collections.
     root_scan_mode: RootScanMode,
 
-    /// Reclaimed cons cells, rebuilt on each sweep like GNU's cons_free_list.
-    cons_free_list: Vec<ConsFreeCell>,
+    /// Reclaimed cons cells threaded through the dead cells themselves,
+    /// matching GNU alloc.c's `cons_free_list`.
+    cons_free_list: *mut ConsCell,
+    /// Number of live cons cells currently included in `allocated_count`.
+    cons_live_count: usize,
 
     /// Tracking list of all allocated marker objects for bulk operations
     /// like clearing markers when buffers are killed.
@@ -367,7 +359,8 @@ impl TaggedHeap {
             gray_queue: Vec::new(),
             stack_bottom: std::ptr::null(),
             root_scan_mode: RootScanMode::ExactOnly,
-            cons_free_list: Vec::new(),
+            cons_free_list: std::ptr::null_mut(),
+            cons_live_count: 0,
             marker_ptrs: Vec::new(),
             subr_registry: Vec::new(),
             buffer_registry: HashMap::new(),
@@ -521,15 +514,15 @@ impl TaggedHeap {
 
     /// Allocate a cons cell. Returns a tagged Value.
     pub fn alloc_cons(&mut self, car: TaggedValue, cdr: TaggedValue) -> TaggedValue {
-        if let Some(free_cell) = self.cons_free_list.pop() {
-            let block = &mut self.cons_blocks[free_cell.block_index];
-            let cell = block.cell_ptr(free_cell.cell_index);
+        if !self.cons_free_list.is_null() {
+            let cell = self.cons_free_list;
             unsafe {
-                (*cell).car = car;
-                (*cell).cdr = cdr;
+                self.cons_free_list = (*cell).free_next();
+                (*cell).set_car(car);
+                (*cell).set_cdr(cdr);
             }
-            block.used += 1;
             self.allocated_count += 1;
+            self.cons_live_count += 1;
             return unsafe { TaggedValue::from_cons_ptr(cell) };
         }
 
@@ -537,6 +530,7 @@ impl TaggedHeap {
             && let Some(cell) = block.alloc_bump(car, cdr)
         {
             self.allocated_count += 1;
+            self.cons_live_count += 1;
             return unsafe { TaggedValue::from_cons_ptr(cell) };
         }
 
@@ -549,6 +543,7 @@ impl TaggedHeap {
             .expect("fresh block should have space");
         self.cons_blocks.push(block);
         self.allocated_count += 1;
+        self.cons_live_count += 1;
         unsafe { TaggedValue::from_cons_ptr(cell) }
     }
 
@@ -914,7 +909,7 @@ impl TaggedHeap {
                 if self.mark_cons(ptr) {
                     // Newly marked — trace children
                     let car = unsafe { (*ptr).car };
-                    let cdr = unsafe { (*ptr).cdr };
+                    let cdr = unsafe { (*ptr).cdr() };
                     if car.is_heap_object() {
                         self.gray_queue.push(car);
                     }
@@ -1068,12 +1063,17 @@ impl TaggedHeap {
 
     /// Sweep unmarked cons cells back to free lists.
     fn sweep_cons(&mut self) {
-        let mut total_freed = 0;
-        self.cons_free_list.clear();
-        for (block_index, block) in self.cons_blocks.iter_mut().enumerate() {
-            total_freed += block.sweep(block_index, &mut self.cons_free_list);
+        let old_live = self.cons_live_count;
+        let mut new_live = 0;
+        self.cons_free_list = std::ptr::null_mut();
+        for block in &mut self.cons_blocks {
+            new_live += block.sweep(&mut self.cons_free_list);
         }
-        self.allocated_count = self.allocated_count.saturating_sub(total_freed);
+        self.cons_live_count = new_live;
+        self.allocated_count = self
+            .allocated_count
+            .saturating_sub(old_live)
+            .saturating_add(new_live);
     }
 
     /// Sweep non-cons objects: walk intrusive list, free unmarked, rebuild list.
