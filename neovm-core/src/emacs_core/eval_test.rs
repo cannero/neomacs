@@ -296,6 +296,42 @@ fn handler_bind_1_runs_inside_signal_dynamic_extent() {
 }
 
 #[test]
+fn set_lexical_binding_syncs_top_level_lexenv_sentinel() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+
+    assert!(ev.lexenv.is_nil());
+    assert!(!ev.lexical_binding());
+
+    ev.set_lexical_binding(true);
+    assert!(ev.lexical_binding());
+    assert!(ev.lexenv.is_cons());
+    assert!(ev.lexenv.cons_car().is_t());
+    assert!(ev.lexenv.cons_cdr().is_nil());
+
+    ev.set_lexical_binding(false);
+    assert!(!ev.lexical_binding());
+    assert!(ev.lexenv.is_nil());
+}
+
+#[test]
+fn clear_top_level_eval_state_restores_top_level_lexenv_mode() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.set_lexical_binding(true);
+    ev.saved_lexenvs.push(Value::NIL);
+    ev.lexenv = Value::list(vec![Value::symbol("vm-temp"), Value::T]);
+
+    ev.clear_top_level_eval_state();
+
+    assert!(ev.lexical_binding());
+    assert!(ev.lexenv.is_cons());
+    assert!(ev.lexenv.cons_car().is_t());
+    assert!(ev.lexenv.cons_cdr().is_nil());
+    assert!(ev.top_level_eval_state_is_clean());
+}
+
+#[test]
 fn handler_bind_1_mutes_lower_condition_handlers() {
     crate::test_utils::init_test_tracing();
     assert_eq!(

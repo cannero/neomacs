@@ -1318,6 +1318,21 @@ fn lexical_binding_in_obarray(obarray: &Obarray) -> bool {
         .is_some_and(|v| v.is_truthy())
 }
 
+#[inline]
+fn top_level_lexenv_sentinel() -> Value {
+    Value::list(vec![Value::T])
+}
+
+#[inline]
+fn lexenv_is_active(lexenv: Value) -> bool {
+    !lexenv.is_nil()
+}
+
+#[inline]
+fn is_top_level_lexenv_sentinel(lexenv: Value) -> bool {
+    lexenv.is_cons() && lexenv.cons_car().is_t() && lexenv.cons_cdr().is_nil()
+}
+
 pub(crate) struct ActiveEvalLexicalArgState {
     saved_lexical_mode: bool,
     has_saved_lexenv: bool,
@@ -5365,9 +5380,7 @@ impl Context {
 
     /// Whether lexical-binding is currently enabled.
     pub fn lexical_binding(&self) -> bool {
-        self.obarray
-            .symbol_value_id(lexical_binding_symbol())
-            .is_some_and(|v| v.is_truthy())
+        lexenv_is_active(self.lexenv)
     }
 
     pub(crate) fn current_input_mode_tuple(&self) -> (bool, bool, bool, i64) {
@@ -5463,6 +5476,13 @@ impl Context {
     pub fn set_lexical_binding(&mut self, enabled: bool) {
         self.obarray
             .set_symbol_value_id(lexical_binding_symbol(), Value::bool_val(enabled));
+        if enabled {
+            if self.lexenv.is_nil() {
+                self.lexenv = top_level_lexenv_sentinel();
+            }
+        } else if is_top_level_lexenv_sentinel(self.lexenv) {
+            self.lexenv = Value::NIL;
+        }
     }
 
     /// Reset transient evaluator state at a completed top-level boundary.
@@ -5478,7 +5498,11 @@ impl Context {
         while let Some(saved) = self.saved_lexenvs.pop() {
             self.lexenv = saved;
         }
-        self.lexenv = Value::NIL;
+        self.lexenv = if lexical_binding_in_obarray(&self.obarray) {
+            top_level_lexenv_sentinel()
+        } else {
+            Value::NIL
+        };
         self.temp_roots.clear();
         self.condition_stack.clear();
         self.depth = 0;
@@ -5486,8 +5510,10 @@ impl Context {
 
     #[cfg(test)]
     pub(crate) fn top_level_eval_state_is_clean(&self) -> bool {
+        let clean_lexenv = self.lexenv.is_nil()
+            || (self.lexical_binding() && is_top_level_lexenv_sentinel(self.lexenv));
         self.specpdl.is_empty()
-            && self.lexenv.is_nil()
+            && clean_lexenv
             && self.saved_lexenvs.is_empty()
             && self.temp_roots.is_empty()
             && self.condition_stack.is_empty()
