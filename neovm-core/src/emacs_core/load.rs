@@ -1150,99 +1150,25 @@ fn load_file_body(
         )?
     };
 
-    let source_hash = if !is_elc {
-        Some(super::file_compile_format::source_sha256(&content))
-    } else {
-        None
-    };
-    let auto_neobc_cache_path = if !is_elc {
-        runtime_neobc_cache_path(path)
-    } else {
-        None
-    };
-
-    // --- .el-only: check for pre-compiled .neobc cache before setting up context ---
-    if !is_elc {
-        let expected_hash = source_hash
-            .as_deref()
-            .expect("source hash must exist for .el loads");
-        for neobc_path in neobc_candidate_paths(path) {
-            if neobc_path.exists() {
-                if let Ok(loaded) =
-                    super::file_compile_format::read_neobc(&neobc_path, expected_hash)
-                {
-                    tracing::info!(
-                        "neobc cache hit for {} via {} ({} forms)",
-                        path.display(),
-                        neobc_path.display(),
-                        loaded.forms.len()
-                    );
-                    return with_load_context(eval, path, loaded.lexical_binding, |eval| {
-                        for form in &loaded.forms {
-                            match form {
-                                super::file_compile_format::LoadedForm::Eval(expr) => {
-                                    eval_runtime_form(eval, expr)?;
-                                }
-                                super::file_compile_format::LoadedForm::Constant(_) => {
-                                    // eval-when-compile constant -- already evaluated, skip.
-                                }
-                            }
-                            eval.gc_safe_point_exact();
-                        }
-                        record_load_history(eval, path);
-                        Ok(Value::T)
-                    });
-                }
-            }
-        }
-    }
-
     // --- Shared context setup via with_load_context ---
     with_load_context(eval, path, lexical_binding, |eval| {
-        // .el-only: generated loaddefs fast path
         if !is_elc {
             // Clear pointer-identity caches before each source file.
             eval.macro_expansion_cache.clear();
             eval.source_literal_cache.clear();
-
-            let generated_loaddefs = is_generated_loaddefs_source(&content);
-            if generated_loaddefs {
-                let forms = parse_source_forms(path, &content)?;
-                tracing::info!(
-                    "generated loaddefs replay for {} ({} forms)",
-                    path.display(),
-                    forms.len()
-                );
-                for form in &forms {
-                    eval_generated_loaddefs_form(eval, form)?;
-                    eval.gc_safe_point_exact();
-                }
-                record_load_history(eval, path);
-                return Ok(Value::T);
-            }
+            return eval_decoded_source_file_in_context(eval, path, &content, lexical_binding);
         }
 
-        // Eager macro expansion guard (.el only -- .elc has macros compiled away).
-        let macroexpand_fn: Option<Value> = if !is_elc {
-            get_eager_macroexpand_fn(eval)
-        } else {
-            None
-        };
-
         // --- Parse forms ---
-        let forms = if is_elc {
-            super::parser::parse_forms(&content).map_err(|e| EvalError::Signal {
-                symbol: intern("error"),
-                data: vec![Value::string(format!(
-                    "Parse error in {}: {}",
-                    path.display(),
-                    e
-                ))],
-                raw_data: None,
-            })?
-        } else {
-            parse_source_forms(path, &content)?
-        };
+        let forms = super::parser::parse_forms(&content).map_err(|e| EvalError::Signal {
+            symbol: intern("error"),
+            data: vec![Value::string(format!(
+                "Parse error in {}: {}",
+                path.display(),
+                e
+            ))],
+            raw_data: None,
+        })?;
 
         let file_name = path
             .file_name()
@@ -1270,98 +1196,153 @@ fn load_file_body(
             record_load_history(eval, path);
             return Ok(Value::T);
         }
+        unreachable!("non-.elc loads should return earlier");
+    })
+}
 
-        // --- .el path: parse forms, macroexpand+eval each form, record history ---
-        if let Some(mexp_fn) = macroexpand_fn {
-            let mut cached_expanded_forms = Vec::new();
-            readevalloop(eval, &file_name, &forms, &[mexp_fn], |eval, _i, form| {
-                let form_value = eval.quote_to_runtime_value(form);
-                let expanded_forms = eager_expand_toplevel_forms(eval, form_value, mexp_fn)?;
-                let mut result = Value::NIL;
-                for expanded in expanded_forms {
-                    cached_expanded_forms.push(super::eval::value_to_expr(&expanded));
-                    result = eval.with_gc_scope(|ctx| {
-                        ctx.root(expanded);
-                        let t4 = std::time::Instant::now();
-                        let value = ctx.eval_value(&expanded).map_err(map_flow)?;
-                        let d4 = t4.elapsed();
-                        if d4.as_millis() > 200 {
-                            tracing::warn!("eager_expand step4 (eval) took {d4:.2?}");
-                        }
-                        Ok(value)
-                    })?;
-                }
-                Ok(result)
-            })?;
-            if let (Some(cache_path), Some(source_hash)) = (&auto_neobc_cache_path, &source_hash) {
-                if let Some(parent) = cache_path.parent() {
-                    let _ = fs::create_dir_all(parent);
-                }
-                match super::file_compile_format::write_neobc_exprs(
-                    cache_path,
-                    source_hash,
-                    lexical_binding,
-                    &cached_expanded_forms,
-                ) {
-                    Ok(()) => {
-                        tracing::info!(
-                            "neobc cache saved for {} to {} ({} forms)",
-                            path.display(),
-                            cache_path.display(),
-                            cached_expanded_forms.len()
-                        );
+pub(crate) fn eval_decoded_source_file_in_context(
+    eval: &mut super::eval::Context,
+    path: &Path,
+    content: &str,
+    lexical_binding: bool,
+) -> Result<Value, EvalError> {
+    let source_hash = super::file_compile_format::source_sha256(content);
+    for neobc_path in neobc_candidate_paths(path) {
+        if neobc_path.exists()
+            && let Ok(loaded) = super::file_compile_format::read_neobc(&neobc_path, &source_hash)
+        {
+            tracing::info!(
+                "neobc cache hit for {} via {} ({} forms)",
+                path.display(),
+                neobc_path.display(),
+                loaded.forms.len()
+            );
+            for form in &loaded.forms {
+                match form {
+                    super::file_compile_format::LoadedForm::Eval(expr) => {
+                        eval_runtime_form(eval, expr)?;
                     }
-                    Err(err) => {
-                        tracing::debug!(
-                            "neobc cache save skipped for {} at {}: {}",
-                            path.display(),
-                            cache_path.display(),
-                            err
-                        );
+                    super::file_compile_format::LoadedForm::Constant(_) => {
+                        // eval-when-compile constant -- already evaluated, skip.
                     }
                 }
+                eval.gc_safe_point_exact();
             }
-        } else {
-            let mut cached_forms = Vec::new();
-            readevalloop(eval, &file_name, &forms, &[], |eval, _i, form| {
-                cached_forms.push(form.clone());
-                eval_runtime_form(eval, form)
-            })?;
-            if let (Some(cache_path), Some(source_hash)) = (&auto_neobc_cache_path, &source_hash) {
-                if let Some(parent) = cache_path.parent() {
-                    let _ = fs::create_dir_all(parent);
-                }
-                match super::file_compile_format::write_neobc_exprs(
-                    cache_path,
-                    source_hash,
-                    lexical_binding,
-                    &cached_forms,
-                ) {
-                    Ok(()) => {
-                        tracing::info!(
-                            "neobc cache saved for {} to {} ({} forms)",
-                            path.display(),
-                            cache_path.display(),
-                            cached_forms.len()
-                        );
+            record_load_history(eval, path);
+            return Ok(Value::T);
+        }
+    }
+
+    let generated_loaddefs = is_generated_loaddefs_source(content);
+    if generated_loaddefs {
+        let forms = parse_source_forms(path, content)?;
+        tracing::info!(
+            "generated loaddefs replay for {} ({} forms)",
+            path.display(),
+            forms.len()
+        );
+        for form in &forms {
+            eval_generated_loaddefs_form(eval, form)?;
+            eval.gc_safe_point_exact();
+        }
+        record_load_history(eval, path);
+        return Ok(Value::T);
+    }
+
+    let macroexpand_fn = get_eager_macroexpand_fn(eval);
+    let forms = parse_source_forms(path, content)?;
+    let file_name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+    let auto_neobc_cache_path =
+        runtime_neobc_cache_path(path).unwrap_or_else(|| path.with_extension("neobc"));
+
+    if let Some(mexp_fn) = macroexpand_fn {
+        let mut cached_expanded_forms = Vec::new();
+        readevalloop(eval, &file_name, &forms, &[mexp_fn], |eval, _i, form| {
+            let form_value = eval.quote_to_runtime_value(form);
+            let expanded_forms = eager_expand_toplevel_forms(eval, form_value, mexp_fn)?;
+            let mut result = Value::NIL;
+            for expanded in expanded_forms {
+                cached_expanded_forms.push(super::eval::value_to_expr(&expanded));
+                result = eval.with_gc_scope(|ctx| {
+                    ctx.root(expanded);
+                    let t4 = std::time::Instant::now();
+                    let value = ctx.eval_value(&expanded).map_err(map_flow)?;
+                    let d4 = t4.elapsed();
+                    if d4.as_millis() > 200 {
+                        tracing::warn!("eager_expand step4 (eval) took {d4:.2?}");
                     }
-                    Err(err) => {
-                        tracing::debug!(
-                            "neobc cache save skipped for {} at {}: {}",
-                            path.display(),
-                            cache_path.display(),
-                            err
-                        );
-                    }
-                }
+                    Ok(value)
+                })?;
+            }
+            Ok(result)
+        })?;
+        if let Some(parent) = auto_neobc_cache_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        match super::file_compile_format::write_neobc_exprs(
+            &auto_neobc_cache_path,
+            &source_hash,
+            lexical_binding,
+            &cached_expanded_forms,
+        ) {
+            Ok(()) => {
+                tracing::info!(
+                    "neobc cache saved for {} to {} ({} forms)",
+                    path.display(),
+                    auto_neobc_cache_path.display(),
+                    cached_expanded_forms.len()
+                );
+            }
+            Err(err) => {
+                tracing::debug!(
+                    "neobc cache save skipped for {} at {}: {}",
+                    path.display(),
+                    auto_neobc_cache_path.display(),
+                    err
+                );
             }
         }
+    } else {
+        let mut cached_forms = Vec::new();
+        readevalloop(eval, &file_name, &forms, &[], |eval, _i, form| {
+            cached_forms.push(form.clone());
+            eval_runtime_form(eval, form)
+        })?;
+        if let Some(parent) = auto_neobc_cache_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        match super::file_compile_format::write_neobc_exprs(
+            &auto_neobc_cache_path,
+            &source_hash,
+            lexical_binding,
+            &cached_forms,
+        ) {
+            Ok(()) => {
+                tracing::info!(
+                    "neobc cache saved for {} to {} ({} forms)",
+                    path.display(),
+                    auto_neobc_cache_path.display(),
+                    cached_forms.len()
+                );
+            }
+            Err(err) => {
+                tracing::debug!(
+                    "neobc cache save skipped for {} at {}: {}",
+                    path.display(),
+                    auto_neobc_cache_path.display(),
+                    err
+                );
+            }
+        }
+    }
 
-        record_load_history(eval, path);
+    record_load_history(eval, path);
 
-        // Emacs `load` returns non-nil on success (typically `t`).
-        Ok(Value::T)
-    })
+    Ok(Value::T)
 }
 
 /// Skip the `;ELC` magic header in a byte-compiled Elisp file.

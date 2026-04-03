@@ -133,6 +133,24 @@ pub(crate) fn eval_forms_from_source(eval: &mut super::eval::Context, source: &s
     })
 }
 
+fn map_eval_error_to_flow(err: super::error::EvalError) -> Flow {
+    match err {
+        super::error::EvalError::Signal {
+            symbol,
+            data,
+            raw_data,
+        } => Flow::Signal(super::error::SignalData {
+            symbol,
+            data,
+            raw_data,
+            suppress_signal_hook: false,
+            selected_resume: None,
+            search_complete: false,
+        }),
+        super::error::EvalError::UncaughtThrow { tag, value } => Flow::Throw { tag, value },
+    }
+}
+
 pub(crate) fn eval_buffer_source_text_in_state(
     buffers: &crate::buffer::BufferManager,
     arg: Option<&Value>,
@@ -316,25 +334,7 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
         } else {
             match super::load::source_lexical_binding_for_load(ctx, &source, Some(buffer_value)) {
                 Ok(enabled) => enabled,
-                Err(err) => match err {
-                    super::error::EvalError::Signal {
-                        symbol,
-                        data,
-                        raw_data,
-                    } => {
-                        return Err(super::error::Flow::Signal(super::error::SignalData {
-                            symbol,
-                            data,
-                            raw_data,
-                            suppress_signal_hook: false,
-                            selected_resume: None,
-                            search_complete: false,
-                        }));
-                    }
-                    super::error::EvalError::UncaughtThrow { tag, value } => {
-                        return Err(super::error::Flow::Throw { tag, value });
-                    }
-                },
+                Err(err) => return Err(map_eval_error_to_flow(err)),
             }
         };
         ctx.set_lexical_binding(lexical_binding);
@@ -344,13 +344,27 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
             Value::NIL
         };
 
-        let result = eval_forms_from_source(ctx, &source);
-
-        if result.is_ok()
-            && let Some(filename) = filename.as_deref()
-        {
-            record_eval_buffer_load_history(ctx, filename);
-        }
+        let loading_source_file = ctx
+            .visible_variable_value_or_nil("load-in-progress")
+            .is_truthy()
+            && filename.is_some();
+        let result = if loading_source_file {
+            let path = Path::new(
+                filename
+                    .as_deref()
+                    .expect("load-in-progress eval-buffer must have filename"),
+            );
+            super::load::eval_decoded_source_file_in_context(ctx, path, &source, lexical_binding)
+                .map_err(map_eval_error_to_flow)
+        } else {
+            let result = eval_forms_from_source(ctx, &source);
+            if result.is_ok()
+                && let Some(filename) = filename.as_deref()
+            {
+                record_eval_buffer_load_history(ctx, filename);
+            }
+            result
+        };
 
         ctx.set_lexical_binding(old_lexical);
         ctx.lexenv = old_lexenv;
