@@ -1,6 +1,6 @@
 use super::{
-    BOOTSTRAP_CORE_FEATURES, BootstrapDisplayConfig, EarlyCliAction, FrontendKind,
-    PrimaryWindowDisplayHost, PrimaryWindowSize, StartupOptions, TtyTerminalHost,
+    BOOTSTRAP_CORE_FEATURES, BootstrapDisplayConfig, DumpImageKind, EarlyCliAction, FrontendKind,
+    PrimaryWindowDisplayHost, PrimaryWindowSize, RuntimeMode, StartupOptions, TtyTerminalHost,
     bootstrap_buffers, bootstrap_default_font_name, bootstrap_display_config,
     bootstrap_frame_metrics, classify_early_cli_action, configure_gnu_startup_state,
     current_layout_frame_id, face_height_to_pixels, parse_startup_options, render_help_text,
@@ -24,6 +24,26 @@ use std::sync::{Arc, Mutex};
 
 fn gui_display() -> BootstrapDisplayConfig {
     bootstrap_display_config(FrontendKind::Gui)
+}
+
+#[test]
+fn runtime_mode_binary_names_match_gnu_shaped_roles() {
+    assert_eq!(RuntimeMode::Raw.binary_name(), "neomacs-temacs");
+    assert_eq!(RuntimeMode::BootstrapUse.binary_name(), "bootstrap-neomacs");
+    assert_eq!(RuntimeMode::FinalRun.binary_name(), "neomacs");
+}
+
+#[test]
+fn runtime_mode_dump_image_kinds_match_pipeline_roles() {
+    assert_eq!(RuntimeMode::Raw.dump_image_kind(), None);
+    assert_eq!(
+        RuntimeMode::BootstrapUse.dump_image_kind(),
+        Some(DumpImageKind::Bootstrap)
+    );
+    assert_eq!(
+        RuntimeMode::FinalRun.dump_image_kind(),
+        Some(DumpImageKind::Final)
+    );
 }
 
 #[test]

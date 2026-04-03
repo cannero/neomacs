@@ -58,6 +58,37 @@ enum FrontendKind {
     Tty,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeMode {
+    Raw,
+    BootstrapUse,
+    FinalRun,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DumpImageKind {
+    Bootstrap,
+    Final,
+}
+
+impl RuntimeMode {
+    pub const fn binary_name(self) -> &'static str {
+        match self {
+            Self::Raw => "neomacs-temacs",
+            Self::BootstrapUse => "bootstrap-neomacs",
+            Self::FinalRun => "neomacs",
+        }
+    }
+
+    pub const fn dump_image_kind(self) -> Option<DumpImageKind> {
+        match self {
+            Self::Raw => None,
+            Self::BootstrapUse => Some(DumpImageKind::Bootstrap),
+            Self::FinalRun => Some(DumpImageKind::Final),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct StartupOptions {
     frontend: FrontendKind,
@@ -651,7 +682,21 @@ fn font_size_px_for_face(face: &neovm_core::face::Face) -> f32 {
     }
 }
 
-fn main() {
+fn create_startup_evaluator_for_mode(mode: RuntimeMode) -> Context {
+    match mode {
+        // The first pipeline refactor slice only makes startup role-aware.
+        // All roles still share the current bootstrap image path until the
+        // next slice restores GNU `--temacs` / `dump-mode` semantics.
+        RuntimeMode::Raw | RuntimeMode::BootstrapUse | RuntimeMode::FinalRun => {
+            neovm_core::emacs_core::load::create_bootstrap_evaluator_cached_with_features(
+                BOOTSTRAP_CORE_FEATURES,
+            )
+            .expect("core bootstrap should succeed")
+        }
+    }
+}
+
+pub fn run(mode: RuntimeMode) {
     // Always enable full backtraces for debugging low-level runtime crashes.
     if std::env::var("RUST_BACKTRACE").is_err() {
         unsafe {
@@ -686,10 +731,13 @@ fn main() {
     neomacs_display_runtime::init_logging();
 
     tracing::info!(
-        "Neomacs {} starting (pure Rust, backend={}, pid={})",
+        "{} {} starting (pure Rust, backend={}, pid={}, mode={:?}, image={:?})",
+        mode.binary_name(),
         neomacs_display_runtime::VERSION,
         neomacs_display_runtime::CORE_BACKEND,
-        std::process::id()
+        std::process::id(),
+        mode,
+        mode.dump_image_kind()
     );
     tracing::info!("Startup frontend: {:?}", startup.frontend);
     if let Some(device) = startup.terminal_device.as_deref() {
@@ -704,11 +752,7 @@ fn main() {
     // 2. Initialize the evaluator from the canonical bootstrap surface.
     //    GNU loads the dumped bootstrap image here, then lets the outer
     //    command loop evaluate `top-level`/`normal-top-level`.
-    let mut evaluator =
-        neovm_core::emacs_core::load::create_bootstrap_evaluator_cached_with_features(
-            BOOTSTRAP_CORE_FEATURES,
-        )
-        .expect("core bootstrap should succeed");
+    let mut evaluator = create_startup_evaluator_for_mode(mode);
     evaluator.setup_thread_locals();
     evaluator.set_max_depth(1600);
     match startup.frontend {
@@ -867,6 +911,11 @@ fn main() {
             std::process::exit(request.exit_code);
         }
     }
+}
+
+#[allow(dead_code)]
+fn main() {
+    run(RuntimeMode::FinalRun);
 }
 
 // ---------------------------------------------------------------------------

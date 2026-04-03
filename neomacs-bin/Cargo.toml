@@ -13,6 +13,17 @@ neo-term = ["neomacs-display-runtime/neo-term"]
 [[bin]]
 name = "neomacs"
 path = "src/main.rs"
+test = false
+
+[[bin]]
+name = "neomacs-temacs"
+path = "src/bin/neomacs-temacs.rs"
+test = false
+
+[[bin]]
+name = "bootstrap-neomacs"
+path = "src/bin/bootstrap-neomacs.rs"
+test = false
 
 [dependencies]
 neomacs-display-runtime = { workspace = true, default-features = false }
