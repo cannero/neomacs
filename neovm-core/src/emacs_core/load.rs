@@ -1258,17 +1258,20 @@ pub(crate) fn eval_decoded_source_file_in_context(
             &source_hash,
             lexical_binding,
         ));
-        readevalloop(eval, &file_name, &forms, |eval, _i, form| {
+        readevalloop(eval, &file_name, &forms, |eval, i, form| {
             let form_value = eval.quote_to_runtime_value(form);
             eager_expand_toplevel_forms(eval, form_value, mexp_fn, &mut |ctx, expanded| {
-                if let Some(builder) = neobc_builder.as_mut()
-                    && builder.push_eval_value(&expanded).is_none()
-                {
-                    tracing::debug!(
-                        "neobc cache save skipped for {}: expanded forms contain non-serializable runtime values",
-                        path.display()
-                    );
-                    neobc_builder = None;
+                if let Some(builder) = neobc_builder.as_mut() {
+                    if let Err(err) = builder.push_eval_value_detailed(&expanded) {
+                        tracing::debug!(
+                            "neobc cache save skipped for {} at source form {}: unsupported value at {} ({})",
+                            path.display(),
+                            i,
+                            err.path(),
+                            err.detail()
+                        );
+                        neobc_builder = None;
+                    }
                 }
                 ctx.with_gc_scope(|ctx| {
                     ctx.root(expanded);

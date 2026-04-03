@@ -327,6 +327,10 @@ pub fn get_string_text_properties_for_value(value: Value) -> Option<Vec<StringTe
     if runs.is_empty() { None } else { Some(runs) }
 }
 
+pub fn string_has_text_properties_for_value(value: Value) -> bool {
+    string_text_props(value).is_some_and(|table| !table.is_empty())
+}
+
 pub fn get_string_text_properties_table_for_value(value: Value) -> Option<TextPropertyTable> {
     let table = string_text_props(value)?;
     if table.is_empty() {

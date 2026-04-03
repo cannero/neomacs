@@ -13,11 +13,12 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::Path;
 
-use super::eval::quote_to_value;
+use super::eval::{OPAQUE_POOL, quote_to_value};
 use super::expr::Expr;
 use super::file_compile::CompiledForm;
 use super::intern::{SymId, intern, intern_uninterned, is_canonical_id, resolve_sym};
 use super::value::Value;
+use crate::tagged::header::VecLikeType;
 
 /// Magic bytes identifying a `.neobc` file.
 const NEOBC_MAGIC: &[u8] = b"NEOVM-BC-V1\n";
@@ -38,6 +39,7 @@ enum CachedExpr {
     Char(char),
     List(Vec<CachedExpr>),
     Vector(Vec<CachedExpr>),
+    Record(Vec<CachedExpr>),
     DottedList(Vec<CachedExpr>, Box<CachedExpr>),
     Bool(bool),
 }
@@ -75,6 +77,29 @@ struct ExprEncoder {
 #[derive(Default)]
 struct ExprDecoder {
     uninterned_slots: HashMap<u32, SymId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct UnsupportedValue {
+    path: String,
+    detail: String,
+}
+
+impl UnsupportedValue {
+    fn new(path: impl Into<String>, detail: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            detail: detail.into(),
+        }
+    }
+
+    pub(crate) fn path(&self) -> &str {
+        &self.path
+    }
+
+    pub(crate) fn detail(&self) -> &str {
+        &self.detail
+    }
 }
 
 fn is_canonical_symbol_id(id: SymId) -> bool {
@@ -123,8 +148,21 @@ impl ExprEncoder {
                 Box::new(self.encode(tail)?),
             ),
             Expr::Bool(b) => CachedExpr::Bool(*b),
-            // OpaqueValueRef (lambdas, subrs, etc.) cannot be serialized.
-            Expr::OpaqueValueRef(_) => return None,
+            Expr::OpaqueValueRef(idx) => {
+                let value = OPAQUE_POOL.with(|pool| pool.borrow().get(*idx));
+                match value.kind() {
+                    super::value::ValueKind::Veclike(VecLikeType::Record) => {
+                        let items = value.as_record_data()?;
+                        CachedExpr::Record(
+                            items
+                                .iter()
+                                .map(|item| self.encode_value(item))
+                                .collect::<Option<Vec<_>>>()?,
+                        )
+                    }
+                    _ => return None,
+                }
+            }
         })
     }
 
@@ -147,7 +185,12 @@ impl ExprEncoder {
                     CachedExpr::UninternedSymbol { slot, name }
                 }
             }
-            super::value::ValueKind::String => CachedExpr::Str(value.as_str()?.to_owned()),
+            super::value::ValueKind::String => {
+                if super::value::string_has_text_properties_for_value(*value) {
+                    return None;
+                }
+                CachedExpr::Str(value.as_str()?.to_owned())
+            }
             super::value::ValueKind::Cons => {
                 if let Some(items) = super::value::list_to_vec(value) {
                     CachedExpr::List(
@@ -184,8 +227,122 @@ impl ExprEncoder {
                         .collect::<Option<Vec<_>>>()?,
                 )
             }
+            super::value::ValueKind::Veclike(super::value::VecLikeType::Record) => {
+                let items = value.as_record_data()?;
+                CachedExpr::Record(
+                    items
+                        .iter()
+                        .map(|item| self.encode_value(item))
+                        .collect::<Option<Vec<_>>>()?,
+                )
+            }
             _ => return None,
         })
+    }
+
+    fn unsupported_value(&self, value: &Value) -> UnsupportedValue {
+        diagnose_unsupported_value(value, "root")
+    }
+}
+
+fn push_path(base: &str, segment: &str) -> String {
+    if base.is_empty() {
+        segment.to_owned()
+    } else {
+        format!("{base}{segment}")
+    }
+}
+
+fn summarize_value(value: &Value) -> String {
+    match value.kind() {
+        super::value::ValueKind::Nil => "nil".to_owned(),
+        super::value::ValueKind::T => "t".to_owned(),
+        super::value::ValueKind::Fixnum(n) => format!("fixnum {n}"),
+        super::value::ValueKind::Float => format!("float {}", value.as_float().unwrap_or(0.0)),
+        super::value::ValueKind::Symbol(id) => format!("symbol {}", resolve_sym(id)),
+        super::value::ValueKind::String => {
+            if super::value::string_has_text_properties_for_value(*value) {
+                "string with text properties".to_owned()
+            } else {
+                "plain string".to_owned()
+            }
+        }
+        super::value::ValueKind::Cons => "cons".to_owned(),
+        super::value::ValueKind::Veclike(ty) => format!("vectorlike {ty:?}"),
+        super::value::ValueKind::Unknown => format!("unknown tagged value {value:?}"),
+    }
+}
+
+fn diagnose_unsupported_value(value: &Value, path: &str) -> UnsupportedValue {
+    match value.kind() {
+        super::value::ValueKind::Nil
+        | super::value::ValueKind::T
+        | super::value::ValueKind::Fixnum(_)
+        | super::value::ValueKind::Float
+        | super::value::ValueKind::Symbol(_) => {
+            UnsupportedValue::new(path, "value was expected to be serializable")
+        }
+        super::value::ValueKind::String => {
+            if super::value::string_has_text_properties_for_value(*value) {
+                UnsupportedValue::new(path, "string with text properties")
+            } else {
+                UnsupportedValue::new(path, "string value failed plain-string serialization")
+            }
+        }
+        super::value::ValueKind::Cons => {
+            if let Some(items) = super::value::list_to_vec(value) {
+                for (idx, item) in items.iter().enumerate() {
+                    if !ExprEncoder::default().encode_value(item).is_some() {
+                        return diagnose_unsupported_value(
+                            item,
+                            &push_path(path, &format!("[{idx}]")),
+                        );
+                    }
+                }
+                UnsupportedValue::new(path, "list value failed serialization")
+            } else {
+                let car = value.cons_car();
+                if ExprEncoder::default().encode_value(&car).is_none() {
+                    return diagnose_unsupported_value(&car, &push_path(path, ".car"));
+                }
+                let cdr = value.cons_cdr();
+                if ExprEncoder::default().encode_value(&cdr).is_none() {
+                    return diagnose_unsupported_value(&cdr, &push_path(path, ".cdr"));
+                }
+                UnsupportedValue::new(path, "dotted list failed serialization")
+            }
+        }
+        super::value::ValueKind::Veclike(super::value::VecLikeType::Vector) => {
+            if let Some(items) = value.as_vector_data() {
+                for (idx, item) in items.iter().enumerate() {
+                    if ExprEncoder::default().encode_value(item).is_none() {
+                        return diagnose_unsupported_value(
+                            item,
+                            &push_path(path, &format!("[{idx}]")),
+                        );
+                    }
+                }
+                UnsupportedValue::new(path, "vector value failed serialization")
+            } else {
+                UnsupportedValue::new(path, "vector payload unavailable")
+            }
+        }
+        super::value::ValueKind::Veclike(super::value::VecLikeType::Record) => {
+            if let Some(items) = value.as_record_data() {
+                for (idx, item) in items.iter().enumerate() {
+                    if ExprEncoder::default().encode_value(item).is_none() {
+                        return diagnose_unsupported_value(
+                            item,
+                            &push_path(path, &format!("[{idx}]")),
+                        );
+                    }
+                }
+                UnsupportedValue::new(path, "record value failed serialization")
+            } else {
+                UnsupportedValue::new(path, "record payload unavailable")
+            }
+        }
+        _ => UnsupportedValue::new(path, summarize_value(value)),
     }
 }
 
@@ -216,6 +373,18 @@ impl NeobcBuilder {
         let cached = self.encoder.encode_value(value)?;
         self.forms.push(SerializedForm::Eval(cached));
         Some(())
+    }
+
+    pub(crate) fn push_eval_value_detailed(
+        &mut self,
+        value: &Value,
+    ) -> Result<(), UnsupportedValue> {
+        let cached = self
+            .encoder
+            .encode_value(value)
+            .ok_or_else(|| self.encoder.unsupported_value(value))?;
+        self.forms.push(SerializedForm::Eval(cached));
+        Ok(())
     }
 
     pub(crate) fn push_constant_value(&mut self, value: &Value) -> Option<()> {
@@ -276,6 +445,13 @@ impl ExprDecoder {
             }
             CachedExpr::Vector(items) => {
                 Expr::Vector(items.iter().map(|item| self.decode(item)).collect())
+            }
+            CachedExpr::Record(items) => {
+                let expr_items: Vec<Expr> = items.iter().map(|item| self.decode(item)).collect();
+                let values: Vec<Value> = expr_items.iter().map(quote_to_value).collect();
+                Expr::OpaqueValueRef(
+                    OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(Value::make_record(values))),
+                )
             }
             CachedExpr::DottedList(items, tail) => Expr::DottedList(
                 items.iter().map(|item| self.decode(item)).collect(),
@@ -722,5 +898,62 @@ mod tests {
         std::fs::write(&path, &bytes).unwrap();
         let loaded = read_neobc(&path, &hash).unwrap();
         assert!(!loaded.lexical_binding);
+    }
+
+    #[test]
+    fn test_neobc_rejects_propertized_string_runtime_values() {
+        crate::test_utils::init_test_tracing();
+        let value = Value::string_with_text_properties(
+            "x",
+            vec![super::super::value::StringTextPropertyRun {
+                start: 0,
+                end: 1,
+                plist: Value::list(vec![
+                    Value::keyword("face"),
+                    Value::make_symbol("bold".to_owned()),
+                ]),
+            }],
+        );
+        let mut builder = NeobcBuilder::new("hash", false);
+        let err = builder.push_eval_value_detailed(&value).unwrap_err();
+        assert_eq!(err.path(), "root");
+        assert_eq!(err.detail(), "string with text properties");
+    }
+
+    #[test]
+    fn test_neobc_reports_nested_unsupported_runtime_value_path() {
+        crate::test_utils::init_test_tracing();
+        let value = Value::vector(vec![Value::fixnum(1), Value::subr(intern("car"))]);
+        let mut builder = NeobcBuilder::new("hash", false);
+        let err = builder.push_eval_value_detailed(&value).unwrap_err();
+        assert_eq!(err.path(), "root[1]");
+        assert!(err.detail().contains("Subr"));
+    }
+
+    #[test]
+    fn test_roundtrip_record_literal_expr() {
+        crate::test_utils::init_test_tracing();
+        let src = "#s(cl-slot-descriptor foo 1)";
+        let forms = parse_forms(src).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("record.neobc");
+        let hash = source_sha256(src);
+
+        write_neobc_exprs(&path, &hash, false, &forms).unwrap();
+
+        let loaded = read_neobc(&path, &hash).unwrap();
+        match &loaded.forms[0] {
+            LoadedForm::Eval(expr) => {
+                let mut eval = Context::new();
+                let value = eval.eval(expr).unwrap();
+                assert!(value.is_record());
+                let items = value.as_record_data().unwrap();
+                assert_eq!(items.len(), 3);
+                assert_eq!(items[0].as_symbol_name(), Some("cl-slot-descriptor"));
+                assert_eq!(items[1].as_symbol_name(), Some("foo"));
+                assert_eq!(items[2], Value::fixnum(1));
+            }
+            LoadedForm::Constant(_) => panic!("expected Eval form"),
+        }
     }
 }
