@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::Path;
 
-use super::eval::{quote_to_value, value_to_expr};
+use super::eval::quote_to_value;
 use super::expr::Expr;
 use super::file_compile::CompiledForm;
 use super::intern::{SymId, intern, intern_uninterned, is_canonical_id, resolve_sym};
@@ -127,6 +127,131 @@ impl ExprEncoder {
             Expr::OpaqueValueRef(_) => return None,
         })
     }
+
+    fn encode_value(&mut self, value: &Value) -> Option<CachedExpr> {
+        Some(match value.kind() {
+            super::value::ValueKind::Nil => CachedExpr::Symbol("nil".to_owned()),
+            super::value::ValueKind::T => CachedExpr::Symbol("t".to_owned()),
+            super::value::ValueKind::Fixnum(n) => CachedExpr::Int(n),
+            super::value::ValueKind::Float => CachedExpr::Float(value.as_float()?),
+            super::value::ValueKind::Symbol(id) => {
+                let name = resolve_sym(id).to_owned();
+                if is_canonical_symbol_id(id) {
+                    CachedExpr::Symbol(name)
+                } else {
+                    let slot = *self.uninterned_slots.entry(id).or_insert_with(|| {
+                        let slot = self.next_slot;
+                        self.next_slot += 1;
+                        slot
+                    });
+                    CachedExpr::UninternedSymbol { slot, name }
+                }
+            }
+            super::value::ValueKind::String => CachedExpr::Str(value.as_str()?.to_owned()),
+            super::value::ValueKind::Cons => {
+                if let Some(items) = super::value::list_to_vec(value) {
+                    CachedExpr::List(
+                        items
+                            .iter()
+                            .map(|item| self.encode_value(item))
+                            .collect::<Option<Vec<_>>>()?,
+                    )
+                } else {
+                    let mut items = Vec::new();
+                    let mut cursor = *value;
+                    loop {
+                        match cursor.kind() {
+                            super::value::ValueKind::Cons => {
+                                items.push(self.encode_value(&cursor.cons_car())?);
+                                cursor = cursor.cons_cdr();
+                            }
+                            _ => {
+                                break CachedExpr::DottedList(
+                                    items,
+                                    Box::new(self.encode_value(&cursor)?),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            super::value::ValueKind::Veclike(super::value::VecLikeType::Vector) => {
+                let items = value.as_vector_data()?;
+                CachedExpr::Vector(
+                    items
+                        .iter()
+                        .map(|item| self.encode_value(item))
+                        .collect::<Option<Vec<_>>>()?,
+                )
+            }
+            _ => return None,
+        })
+    }
+}
+
+pub(crate) struct NeobcBuilder {
+    source_hash: String,
+    lexical_binding: bool,
+    encoder: ExprEncoder,
+    forms: Vec<SerializedForm>,
+}
+
+impl NeobcBuilder {
+    pub(crate) fn new(source_hash: &str, lexical_binding: bool) -> Self {
+        Self {
+            source_hash: source_hash.to_owned(),
+            lexical_binding,
+            encoder: ExprEncoder::default(),
+            forms: Vec::new(),
+        }
+    }
+
+    pub(crate) fn push_eval_expr(&mut self, expr: &Expr) -> Option<()> {
+        let cached = self.encoder.encode(expr)?;
+        self.forms.push(SerializedForm::Eval(cached));
+        Some(())
+    }
+
+    pub(crate) fn push_eval_value(&mut self, value: &Value) -> Option<()> {
+        let cached = self.encoder.encode_value(value)?;
+        self.forms.push(SerializedForm::Eval(cached));
+        Some(())
+    }
+
+    pub(crate) fn push_constant_value(&mut self, value: &Value) -> Option<()> {
+        let cached = self.encoder.encode_value(value)?;
+        self.forms.push(SerializedForm::Constant(cached));
+        Some(())
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.forms.len()
+    }
+
+    fn finish_bytes(self) -> Option<Vec<u8>> {
+        let file = NeobcFile {
+            source_hash: self.source_hash,
+            lexical_binding: self.lexical_binding,
+            forms: self.forms,
+        };
+
+        let payload = bincode::serialize(&file).ok()?;
+        let mut out = Vec::with_capacity(NEOBC_MAGIC.len() + 4 + payload.len());
+        out.extend_from_slice(NEOBC_MAGIC);
+        out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        out.extend_from_slice(&payload);
+        Some(out)
+    }
+
+    pub(crate) fn write(self, path: &Path) -> std::io::Result<()> {
+        let bytes = self.finish_bytes().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "forms contain non-serializable runtime values",
+            )
+        })?;
+        std::fs::write(path, bytes)
+    }
 }
 
 impl ExprDecoder {
@@ -181,37 +306,14 @@ pub fn serialize_neobc(
     lexical_binding: bool,
     compiled_forms: &[CompiledForm],
 ) -> Option<Vec<u8>> {
-    let mut encoder = ExprEncoder::default();
-    let mut forms = Vec::with_capacity(compiled_forms.len());
-
+    let mut builder = NeobcBuilder::new(source_hash, lexical_binding);
     for form in compiled_forms {
         match form {
-            CompiledForm::Eval(value) => {
-                let expr = value_to_expr(value);
-                let cached = encoder.encode(&expr)?;
-                forms.push(SerializedForm::Eval(cached));
-            }
-            CompiledForm::Constant(value) => {
-                let expr = value_to_expr(value);
-                let cached = encoder.encode(&expr)?;
-                forms.push(SerializedForm::Constant(cached));
-            }
+            CompiledForm::Eval(value) => builder.push_eval_value(value)?,
+            CompiledForm::Constant(value) => builder.push_constant_value(value)?,
         }
     }
-
-    let file = NeobcFile {
-        source_hash: source_hash.to_owned(),
-        lexical_binding,
-        forms,
-    };
-
-    let payload = bincode::serialize(&file).ok()?;
-
-    let mut out = Vec::with_capacity(NEOBC_MAGIC.len() + 4 + payload.len());
-    out.extend_from_slice(NEOBC_MAGIC);
-    out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
-    out.extend_from_slice(&payload);
-    Some(out)
+    builder.finish_bytes()
 }
 
 /// Serialize already-expanded top-level expressions to `.neobc`.
@@ -220,26 +322,11 @@ pub fn serialize_neobc_exprs(
     lexical_binding: bool,
     forms: &[Expr],
 ) -> Option<Vec<u8>> {
-    let mut encoder = ExprEncoder::default();
-    let mut serialized_forms = Vec::with_capacity(forms.len());
+    let mut builder = NeobcBuilder::new(source_hash, lexical_binding);
     for form in forms {
-        let cached = encoder.encode(form)?;
-        serialized_forms.push(SerializedForm::Eval(cached));
+        builder.push_eval_expr(form)?;
     }
-
-    let file = NeobcFile {
-        source_hash: source_hash.to_owned(),
-        lexical_binding,
-        forms: serialized_forms,
-    };
-
-    let payload = bincode::serialize(&file).ok()?;
-
-    let mut out = Vec::with_capacity(NEOBC_MAGIC.len() + 4 + payload.len());
-    out.extend_from_slice(NEOBC_MAGIC);
-    out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
-    out.extend_from_slice(&payload);
-    Some(out)
+    builder.finish_bytes()
 }
 
 /// Write compiled forms to a `.neobc` file on disk.

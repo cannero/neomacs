@@ -1254,11 +1254,22 @@ pub(crate) fn eval_decoded_source_file_in_context(
         runtime_neobc_cache_path(path).unwrap_or_else(|| path.with_extension("neobc"));
 
     if let Some(mexp_fn) = macroexpand_fn {
-        let mut cached_expanded_forms = Vec::new();
+        let mut neobc_builder = Some(super::file_compile_format::NeobcBuilder::new(
+            &source_hash,
+            lexical_binding,
+        ));
         readevalloop(eval, &file_name, &forms, |eval, _i, form| {
             let form_value = eval.quote_to_runtime_value(form);
             eager_expand_toplevel_forms(eval, form_value, mexp_fn, &mut |ctx, expanded| {
-                cached_expanded_forms.push(super::eval::value_to_expr(&expanded));
+                if let Some(builder) = neobc_builder.as_mut()
+                    && builder.push_eval_value(&expanded).is_none()
+                {
+                    tracing::debug!(
+                        "neobc cache save skipped for {}: expanded forms contain non-serializable runtime values",
+                        path.display()
+                    );
+                    neobc_builder = None;
+                }
                 ctx.with_gc_scope(|ctx| {
                     ctx.root(expanded);
                     let t4 = std::time::Instant::now();
@@ -1271,30 +1282,28 @@ pub(crate) fn eval_decoded_source_file_in_context(
                 })
             })
         })?;
-        if let Some(parent) = auto_neobc_cache_path.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        match super::file_compile_format::write_neobc_exprs(
-            &auto_neobc_cache_path,
-            &source_hash,
-            lexical_binding,
-            &cached_expanded_forms,
-        ) {
-            Ok(()) => {
-                tracing::info!(
-                    "neobc cache saved for {} to {} ({} forms)",
-                    path.display(),
-                    auto_neobc_cache_path.display(),
-                    cached_expanded_forms.len()
-                );
+        if let Some(neobc_builder) = neobc_builder {
+            if let Some(parent) = auto_neobc_cache_path.parent() {
+                let _ = fs::create_dir_all(parent);
             }
-            Err(err) => {
-                tracing::debug!(
-                    "neobc cache save skipped for {} at {}: {}",
-                    path.display(),
-                    auto_neobc_cache_path.display(),
-                    err
-                );
+            let cached_form_count = neobc_builder.len();
+            match neobc_builder.write(&auto_neobc_cache_path) {
+                Ok(()) => {
+                    tracing::info!(
+                        "neobc cache saved for {} to {} ({} forms)",
+                        path.display(),
+                        auto_neobc_cache_path.display(),
+                        cached_form_count
+                    );
+                }
+                Err(err) => {
+                    tracing::debug!(
+                        "neobc cache save skipped for {} at {}: {}",
+                        path.display(),
+                        auto_neobc_cache_path.display(),
+                        err
+                    );
+                }
             }
         }
     } else {
