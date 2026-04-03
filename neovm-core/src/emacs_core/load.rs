@@ -1282,7 +1282,7 @@ pub(crate) fn eval_decoded_source_file_in_context(
             lexical_binding,
         ));
         readevalloop(eval, &file_name, &forms, |eval, i, form| {
-            let form_value = eval.quote_to_runtime_value(form);
+            let form_value = eval.source_literal_to_runtime_value(form);
             eager_expand_toplevel_forms(
                 eval,
                 form_value,

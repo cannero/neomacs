@@ -218,6 +218,23 @@ fn eval_with_explicit_lexenv_shadows_special_reads_and_setq() {
 }
 
 #[test]
+fn source_literal_to_runtime_value_reuses_compound_literal_nodes() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let forms = parse_forms("'(alpha beta gamma)").expect("parse");
+
+    let first = ev.source_literal_to_runtime_value(&forms[0]);
+    let second = ev.source_literal_to_runtime_value(&forms[0]);
+
+    assert_eq!(first, second);
+    assert_eq!(
+        first.bits(),
+        second.bits(),
+        "compound source literals should reuse one runtime object per parsed node"
+    );
+}
+
+#[test]
 fn catch_leaves_shared_condition_stack_balanced() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

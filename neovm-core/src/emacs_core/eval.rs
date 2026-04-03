@@ -11297,6 +11297,10 @@ impl Context {
         self.source_literal_cache.insert(key, value);
         value
     }
+
+    pub(crate) fn source_literal_to_runtime_value(&mut self, expr: &Expr) -> Value {
+        self.cached_source_literal_to_value(expr)
+    }
 }
 
 fn rewrite_wrong_arity_function_object(flow: Flow, name: &str) -> Flow {
