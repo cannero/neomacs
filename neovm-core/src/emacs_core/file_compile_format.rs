@@ -12,18 +12,24 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::Path;
+use std::rc::Rc;
 
-use super::eval::{OPAQUE_POOL, quote_to_value};
+use super::builtins::parse_lambda_params_from_value;
+use super::eval::{OPAQUE_POOL, quote_to_value, value_to_expr};
 use super::expr::Expr;
 use super::file_compile::CompiledForm;
 use super::intern::{SymId, intern, intern_uninterned, is_canonical_id, resolve_sym};
 use super::value::{
-    HashKey, HashTableTest, HashTableWeakness, Value, build_hash_table_literal_value,
+    HashKey, HashTableTest, HashTableWeakness, LambdaData, Value, build_hash_table_literal_value,
+    list_to_vec,
 };
-use crate::tagged::header::VecLikeType;
+use crate::tagged::header::{
+    CLOSURE_ARGLIST, CLOSURE_CODE, CLOSURE_CONSTANTS, CLOSURE_DOC_STRING, CLOSURE_INTERACTIVE,
+    VecLikeType,
+};
 
 /// Magic bytes identifying a `.neobc` file.
-const NEOBC_MAGIC: &[u8] = b"NEOVM-BC-V2\n";
+const NEOBC_MAGIC: &[u8] = b"NEOVM-BC-V3\n";
 
 // ---------------------------------------------------------------------------
 // Serializable expression type (mirrors load.rs CachedExpr, which is private)
@@ -42,6 +48,8 @@ enum CachedExpr {
     List(Vec<CachedExpr>),
     Vector(Vec<CachedExpr>),
     Record(Vec<CachedExpr>),
+    Lambda(Vec<CachedExpr>),
+    Macro(Vec<CachedExpr>),
     HashTable(CachedHashTable),
     DottedList(Vec<CachedExpr>, Box<CachedExpr>),
     Bool(bool),
@@ -200,6 +208,14 @@ fn portable_hash_key_value(key: &HashKey) -> Option<Value> {
 }
 
 impl ExprEncoder {
+    fn encode_closure_slots(&mut self, value: Value) -> Option<Vec<CachedExpr>> {
+        value
+            .closure_slots()?
+            .iter()
+            .map(|item| self.encode_value(item))
+            .collect::<Option<Vec<_>>>()
+    }
+
     fn encode_hash_table(&mut self, value: Value) -> Option<CachedHashTable> {
         let table = value.as_hash_table()?;
         let mut entries = Vec::with_capacity(table.insertion_order.len());
@@ -269,21 +285,7 @@ impl ExprEncoder {
             Expr::Bool(b) => CachedExpr::Bool(*b),
             Expr::OpaqueValueRef(idx) => {
                 let value = OPAQUE_POOL.with(|pool| pool.borrow().get(*idx));
-                match value.kind() {
-                    super::value::ValueKind::Veclike(VecLikeType::Record) => {
-                        let items = value.as_record_data()?;
-                        CachedExpr::Record(
-                            items
-                                .iter()
-                                .map(|item| self.encode_value(item))
-                                .collect::<Option<Vec<_>>>()?,
-                        )
-                    }
-                    super::value::ValueKind::Veclike(VecLikeType::HashTable) => {
-                        CachedExpr::HashTable(self.encode_hash_table(value)?)
-                    }
-                    _ => return None,
-                }
+                self.encode_value(&value)?
             }
         })
     }
@@ -357,6 +359,12 @@ impl ExprEncoder {
                         .map(|item| self.encode_value(item))
                         .collect::<Option<Vec<_>>>()?,
                 )
+            }
+            super::value::ValueKind::Veclike(super::value::VecLikeType::Lambda) => {
+                CachedExpr::Lambda(self.encode_closure_slots(*value)?)
+            }
+            super::value::ValueKind::Veclike(super::value::VecLikeType::Macro) => {
+                CachedExpr::Macro(self.encode_closure_slots(*value)?)
             }
             super::value::ValueKind::Veclike(super::value::VecLikeType::HashTable) => {
                 CachedExpr::HashTable(self.encode_hash_table(*value)?)
@@ -465,6 +473,22 @@ fn diagnose_unsupported_value(value: &Value, path: &str) -> UnsupportedValue {
                 UnsupportedValue::new(path, "record value failed serialization")
             } else {
                 UnsupportedValue::new(path, "record payload unavailable")
+            }
+        }
+        super::value::ValueKind::Veclike(super::value::VecLikeType::Lambda)
+        | super::value::ValueKind::Veclike(super::value::VecLikeType::Macro) => {
+            if let Some(slots) = value.closure_slots() {
+                for (idx, item) in slots.iter().enumerate() {
+                    if ExprEncoder::default().encode_value(item).is_none() {
+                        return diagnose_unsupported_value(
+                            item,
+                            &push_path(path, &format!("[{idx}]")),
+                        );
+                    }
+                }
+                UnsupportedValue::new(path, "closure value failed serialization")
+            } else {
+                UnsupportedValue::new(path, "closure payload unavailable")
             }
         }
         super::value::ValueKind::Veclike(super::value::VecLikeType::HashTable) => {
@@ -595,6 +619,58 @@ impl NeobcBuilder {
 }
 
 impl ExprDecoder {
+    fn decode_closure_value(&mut self, kind: VecLikeType, slots: &[CachedExpr]) -> Value {
+        let slot_values: Vec<Value> = slots
+            .iter()
+            .map(|item| quote_to_value(&self.decode(item)))
+            .collect();
+        let arglist = slot_values
+            .get(CLOSURE_ARGLIST)
+            .copied()
+            .unwrap_or(Value::NIL);
+        let body_value = slot_values.get(CLOSURE_CODE).copied().unwrap_or(Value::NIL);
+        let env_value = slot_values
+            .get(CLOSURE_CONSTANTS)
+            .copied()
+            .unwrap_or(Value::NIL);
+        let doc_value = slot_values
+            .get(CLOSURE_DOC_STRING)
+            .copied()
+            .unwrap_or(Value::NIL);
+        let interactive = slot_values
+            .get(CLOSURE_INTERACTIVE)
+            .copied()
+            .filter(|value| !value.is_nil());
+        let params = parse_lambda_params_from_value(&arglist)
+            .unwrap_or_else(|_| crate::emacs_core::value::LambdaParams::simple(Vec::new()));
+        let body = list_to_vec(&body_value)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|item| value_to_expr(&item))
+            .collect();
+        let env = (!env_value.is_nil()).then_some(env_value);
+        let (docstring, doc_form) = if doc_value.is_nil() {
+            (None, None)
+        } else if let Some(doc) = doc_value.as_str() {
+            (Some(doc.to_owned()), None)
+        } else {
+            (None, Some(doc_value))
+        };
+        let data = LambdaData {
+            params,
+            body: Rc::new(body),
+            env,
+            docstring,
+            doc_form,
+            interactive,
+        };
+        match kind {
+            VecLikeType::Lambda => Value::make_lambda(data),
+            VecLikeType::Macro => Value::make_macro(data),
+            _ => Value::NIL,
+        }
+    }
+
     fn decode_hash_table(&mut self, table: &CachedHashTable) -> Value {
         let entries = table
             .entries
@@ -646,6 +722,14 @@ impl ExprDecoder {
                     OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(Value::make_record(values))),
                 )
             }
+            CachedExpr::Lambda(slots) => Expr::OpaqueValueRef(OPAQUE_POOL.with(|pool| {
+                pool.borrow_mut()
+                    .insert(self.decode_closure_value(VecLikeType::Lambda, slots))
+            })),
+            CachedExpr::Macro(slots) => Expr::OpaqueValueRef(OPAQUE_POOL.with(|pool| {
+                pool.borrow_mut()
+                    .insert(self.decode_closure_value(VecLikeType::Macro, slots))
+            })),
             CachedExpr::HashTable(table) => Expr::OpaqueValueRef(
                 OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(self.decode_hash_table(table))),
             ),
@@ -837,7 +921,24 @@ mod tests {
     use super::*;
     use crate::emacs_core::eval::Context;
     use crate::emacs_core::file_compile::compile_file_forms;
+    use crate::emacs_core::intern::intern;
     use crate::emacs_core::parser::parse_forms;
+    use crate::emacs_core::value::{LambdaData, LambdaParams};
+    use std::rc::Rc;
+
+    fn sample_lambda_data() -> LambdaData {
+        LambdaData {
+            params: LambdaParams::simple(vec![intern("x")]),
+            body: Rc::new(parse_forms("(+ x 1)").unwrap()),
+            env: Some(Value::list(vec![Value::cons(
+                Value::symbol("x"),
+                Value::fixnum(41),
+            )])),
+            docstring: Some("sample closure".to_owned()),
+            doc_form: None,
+            interactive: Some(Value::string("p".to_owned())),
+        }
+    }
 
     #[test]
     fn test_source_sha256() {
@@ -1234,6 +1335,85 @@ mod tests {
                 assert_eq!(table.test, crate::emacs_core::value::HashTableTest::Eq);
                 assert_eq!(table.data.len(), 2);
                 assert_eq!(table.test_name.map(resolve_sym), Some("eq"));
+            }
+            LoadedForm::Constant(_) => panic!("expected Eval form"),
+        }
+    }
+
+    #[test]
+    fn test_roundtrip_lambda_runtime_value() {
+        crate::test_utils::init_test_tracing();
+        let lambda = Value::make_lambda(sample_lambda_data());
+        let mut builder = NeobcBuilder::new("hash", false);
+        builder.push_eval_value_detailed(&lambda).unwrap();
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("lambda.neobc");
+        builder.write(&path).unwrap();
+
+        let loaded = read_neobc(&path, "hash").unwrap();
+        match &loaded.forms[0] {
+            LoadedForm::Eval(expr) | LoadedForm::EagerEval(expr) => {
+                let mut eval = Context::new();
+                let value = eval.eval(expr).unwrap();
+                assert!(value.is_lambda());
+                assert_eq!(value.closure_docstring(), Some(Some("sample closure")));
+                assert_eq!(value.closure_interactive(), Some(Some(Value::string("p"))));
+                assert_eq!(
+                    value
+                        .closure_params()
+                        .map(|params| params.required.clone())
+                        .unwrap_or_default(),
+                    vec![intern("x")]
+                );
+            }
+            LoadedForm::Constant(_) => panic!("expected Eval form"),
+        }
+    }
+
+    #[test]
+    fn test_roundtrip_macro_runtime_value() {
+        crate::test_utils::init_test_tracing();
+        let macro_value = Value::make_macro(sample_lambda_data());
+        let mut builder = NeobcBuilder::new("hash", false);
+        builder.push_eval_value_detailed(&macro_value).unwrap();
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("macro.neobc");
+        builder.write(&path).unwrap();
+
+        let loaded = read_neobc(&path, "hash").unwrap();
+        match &loaded.forms[0] {
+            LoadedForm::Eval(expr) | LoadedForm::EagerEval(expr) => {
+                let mut eval = Context::new();
+                let value = eval.eval(expr).unwrap();
+                assert!(value.is_macro());
+                assert_eq!(value.closure_docstring(), Some(Some("sample closure")));
+            }
+            LoadedForm::Constant(_) => panic!("expected Eval form"),
+        }
+    }
+
+    #[test]
+    fn test_write_neobc_exprs_round_trips_opaque_lambda_refs() {
+        crate::test_utils::init_test_tracing();
+        let lambda = Value::make_lambda(sample_lambda_data());
+        let exprs = vec![Expr::OpaqueValueRef(
+            OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(lambda)),
+        )];
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("opaque-lambda.neobc");
+        let hash = source_sha256("opaque-lambda");
+
+        write_neobc_exprs(&path, &hash, false, &exprs).unwrap();
+
+        let loaded = read_neobc(&path, &hash).unwrap();
+        match &loaded.forms[0] {
+            LoadedForm::Eval(expr) | LoadedForm::EagerEval(expr) => {
+                let mut eval = Context::new();
+                let value = eval.eval(expr).unwrap();
+                assert!(value.is_lambda());
+                assert_eq!(value.closure_docstring(), Some(Some("sample closure")));
             }
             LoadedForm::Constant(_) => panic!("expected Eval form"),
         }
