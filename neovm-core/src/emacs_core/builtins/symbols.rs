@@ -68,6 +68,12 @@ impl MacroexpandRuntime for super::eval::Context {
         function: Value,
         args: Vec<Value>,
     ) -> Result<Value, Flow> {
+        let tail = form.cons_cdr();
+        if let Some(cached) = self.lookup_runtime_macro_expansion(function, tail, &args) {
+            return Ok(self.source_literal_to_runtime_value(cached.as_ref()));
+        }
+        let args_for_cache = args.clone();
+        let expand_start = std::time::Instant::now();
         self.with_gc_scope_result(|ctx| {
             ctx.push_temp_root(form);
             ctx.push_temp_root(function);
@@ -75,6 +81,14 @@ impl MacroexpandRuntime for super::eval::Context {
                 ctx.push_temp_root(*arg);
             }
             let expanded = ctx.with_macro_expansion_scope(|eval| eval.apply(function, args))?;
+            let expand_elapsed = expand_start.elapsed();
+            ctx.store_runtime_macro_expansion(
+                function,
+                tail,
+                &args_for_cache,
+                &expanded,
+                expand_elapsed,
+            );
             Ok(expanded)
         })
     }

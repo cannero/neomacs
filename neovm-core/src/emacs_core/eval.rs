@@ -336,6 +336,94 @@ fn tail_fingerprint(tail: &[Expr]) -> u64 {
     hasher.finish()
 }
 
+fn runtime_tail_fingerprint(tail: &[Value]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    let mut seen = std::collections::HashSet::new();
+    tail.len().hash(&mut hasher);
+    for (i, value) in tail.iter().enumerate() {
+        i.hash(&mut hasher);
+        value_fingerprint(*value, &mut hasher, 3, &mut seen);
+    }
+    hasher.finish()
+}
+
+fn value_fingerprint(
+    value: Value,
+    hasher: &mut impl std::hash::Hasher,
+    depth: usize,
+    seen: &mut std::collections::HashSet<usize>,
+) {
+    use std::hash::Hash;
+    match value.kind() {
+        ValueKind::Nil => 0u8.hash(hasher),
+        ValueKind::T => 1u8.hash(hasher),
+        ValueKind::Fixnum(n) => {
+            2u8.hash(hasher);
+            n.hash(hasher);
+        }
+        ValueKind::Float => {
+            3u8.hash(hasher);
+            value.as_float().unwrap().to_bits().hash(hasher);
+        }
+        ValueKind::Symbol(id) => {
+            4u8.hash(hasher);
+            id.0.hash(hasher);
+        }
+        ValueKind::String => {
+            5u8.hash(hasher);
+            let key = value.bits() as usize;
+            if depth == 0 || !seen.insert(key) {
+                key.hash(hasher);
+                return;
+            }
+            let s = value.as_str().unwrap();
+            s.len().hash(hasher);
+            for byte in s.as_bytes().iter().take(32) {
+                byte.hash(hasher);
+            }
+        }
+        ValueKind::Cons => {
+            6u8.hash(hasher);
+            let key = value.bits() as usize;
+            if depth == 0 || !seen.insert(key) {
+                key.hash(hasher);
+                return;
+            }
+            let mut cursor = value;
+            let mut count = 0usize;
+            while count < 4 && cursor.is_cons() {
+                count.hash(hasher);
+                value_fingerprint(cursor.cons_car(), hasher, depth - 1, seen);
+                cursor = cursor.cons_cdr();
+                count += 1;
+            }
+            value_fingerprint(cursor, hasher, depth - 1, seen);
+        }
+        ValueKind::Veclike(VecLikeType::Vector) => {
+            7u8.hash(hasher);
+            let key = value.bits() as usize;
+            if depth == 0 || !seen.insert(key) {
+                key.hash(hasher);
+                return;
+            }
+            let items = value.as_vector_data().unwrap();
+            items.len().hash(hasher);
+            for item in items.iter().take(4) {
+                value_fingerprint(*item, hasher, depth - 1, seen);
+            }
+        }
+        ValueKind::Veclike(VecLikeType::Subr) => {
+            8u8.hash(hasher);
+            value.as_subr_id().unwrap().0.hash(hasher);
+        }
+        _ => {
+            9u8.hash(hasher);
+            value.bits().hash(hasher);
+        }
+    }
+}
+
 fn expr_fingerprint(expr: &Expr, hasher: &mut impl std::hash::Hasher, depth: usize) {
     use std::hash::Hash;
     std::mem::discriminant(expr).hash(hasher);
@@ -1132,6 +1220,11 @@ pub struct Context {
     pub(crate) macro_expand_total_us: u64,
     /// When true, skip cache lookups (still populate cache for timing).
     pub(crate) macro_cache_disabled: bool,
+    /// Value-side eager-load macro cache used by `macroexpand`/
+    /// `internal-macroexpand-for-load`. Stores expansions as `Expr` trees so
+    /// exact GC does not need to root cached Value graphs.
+    pub(crate) runtime_macro_expansion_cache:
+        HashMap<(usize, usize, u64), Rc<MacroExpansionCacheEntry>>,
     /// Bootstrapped standard interpreted-closure filter function object.
     /// Used to memoize the GNU cconv closure-trimming path without changing
     /// semantics when users later rebind/advice the hook.
@@ -1816,6 +1909,7 @@ impl Context {
         ev.named_call_cache.clear();
         ev.source_literal_cache.clear();
         ev.macro_expansion_cache.clear();
+        ev.runtime_macro_expansion_cache.clear();
         ev.macro_cache_hits = 0;
         ev.macro_cache_misses = 0;
         ev.macro_expand_total_us = 0;
@@ -3722,6 +3816,7 @@ impl Context {
             macro_cache_misses: 0,
             macro_expand_total_us: 0,
             macro_cache_disabled: false,
+            runtime_macro_expansion_cache: HashMap::new(),
             interpreted_closure_filter_fn: None,
             interpreted_closure_trim_cache: HashMap::new(),
         };
@@ -3847,6 +3942,7 @@ impl Context {
             macro_cache_misses: 0,
             macro_expand_total_us: 0,
             macro_cache_disabled: false,
+            runtime_macro_expansion_cache: HashMap::new(),
             interpreted_closure_filter_fn: None,
             interpreted_closure_trim_cache: HashMap::new(),
         };
@@ -4927,6 +5023,7 @@ impl Context {
         // a stale cached Value from a collected lambda's expression.
         self.source_literal_cache.clear();
         self.macro_expansion_cache.clear();
+        self.runtime_macro_expansion_cache.clear();
         self.lexenv_assq_cache.borrow_mut().clear();
         self.lexenv_special_cache.borrow_mut().clear();
         let roots = self.collect_roots_with_extra_root_slices(extra_root_slices);
@@ -10326,6 +10423,77 @@ impl Context {
                 .copied()
                 .unwrap_or(Value::NIL),
         )
+    }
+
+    fn runtime_macro_expansion_cache_enabled(&self) -> bool {
+        !self.macro_cache_disabled
+            && self
+                .visible_variable_value_or_nil("load-in-progress")
+                .is_truthy()
+    }
+
+    fn runtime_macro_expansion_cache_key(
+        &self,
+        function: Value,
+        tail: Value,
+    ) -> (usize, usize, u64) {
+        (
+            function.bits() ^ 0x9E37_79B1usize,
+            tail.bits() as usize,
+            self.macro_expansion_context_key(),
+        )
+    }
+
+    pub(crate) fn lookup_runtime_macro_expansion(
+        &mut self,
+        function: Value,
+        tail: Value,
+        args: &[Value],
+    ) -> Option<Rc<Expr>> {
+        if !self.runtime_macro_expansion_cache_enabled() {
+            return None;
+        }
+        let cache_key = self.runtime_macro_expansion_cache_key(function, tail);
+        let current_fp = runtime_tail_fingerprint(args);
+        let cached = self
+            .runtime_macro_expansion_cache
+            .get(&cache_key)
+            .cloned()?;
+        if cached.fingerprint == current_fp {
+            self.macro_cache_hits += 1;
+            return Some(cached.expanded.clone());
+        }
+        None
+    }
+
+    pub(crate) fn store_runtime_macro_expansion(
+        &mut self,
+        function: Value,
+        tail: Value,
+        args: &[Value],
+        expanded_value: &Value,
+        expand_elapsed: std::time::Duration,
+    ) {
+        if !self.runtime_macro_expansion_cache_enabled() {
+            return;
+        }
+        self.macro_cache_misses += 1;
+        self.macro_expand_total_us += expand_elapsed.as_micros() as u64;
+        let cache_key = self.runtime_macro_expansion_cache_key(function, tail);
+        let current_fp = runtime_tail_fingerprint(args);
+        let cache_entry = Rc::new(MacroExpansionCacheEntry::new(
+            Rc::new(value_to_expr(expanded_value)),
+            current_fp,
+        ));
+        if expand_elapsed.as_millis() > 50 {
+            tracing::warn!(
+                "runtime_macro_cache MISS macro={:#x} tail={:#x} took {expand_elapsed:.2?}",
+                function.bits(),
+                tail.bits()
+            );
+        }
+        self.runtime_macro_expansion_cache
+            .insert(cache_key, cache_entry);
     }
 
     // -----------------------------------------------------------------------

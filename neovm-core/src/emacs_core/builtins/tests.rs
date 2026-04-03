@@ -9312,6 +9312,37 @@ fn macroexpand_runtime_improper_lists_match_oracle_error_behavior() {
 }
 
 #[test]
+fn macroexpand_runtime_cache_tracks_load_forms_without_stale_hits() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let setup = crate::emacs_core::parser::parse_forms(
+        r#"(fset 'vm-cache-macro
+                 (cons 'macro
+                       (lambda (x)
+                         x)))"#,
+    )
+    .expect("parse macro");
+    let _ = eval.eval_forms(&setup);
+    eval.set_variable("load-in-progress", Value::T);
+
+    let tail = Value::cons(Value::fixnum(1), Value::NIL);
+    let form = Value::cons(Value::symbol("vm-cache-macro"), tail);
+
+    let first = builtin_macroexpand(&mut eval, vec![form]).expect("first expansion");
+    let second = builtin_macroexpand(&mut eval, vec![form]).expect("second expansion");
+    assert_eq!(first, Value::fixnum(1));
+    assert_eq!(second, Value::fixnum(1));
+    assert_eq!(eval.macro_cache_misses, 1);
+    assert_eq!(eval.macro_cache_hits, 1);
+
+    tail.set_car(Value::fixnum(2));
+    let third = builtin_macroexpand(&mut eval, vec![form]).expect("mutated expansion");
+    assert_eq!(third, Value::fixnum(2));
+    assert_eq!(eval.macro_cache_misses, 2);
+    assert_eq!(eval.macro_cache_hits, 1);
+}
+
+#[test]
 fn indirect_function_nil_and_non_symbol_behavior() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();

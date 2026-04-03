@@ -4284,12 +4284,30 @@ impl<'a> crate::emacs_core::builtins::symbols::MacroexpandRuntime for Vm<'a> {
         function: Value,
         args: Vec<Value>,
     ) -> Result<Value, Flow> {
+        let tail = form.cons_cdr();
+        if let Some(cached) = self
+            .ctx
+            .lookup_runtime_macro_expansion(function, tail, &args)
+        {
+            return Ok(self.ctx.source_literal_to_runtime_value(cached.as_ref()));
+        }
+        let args_for_cache = args.clone();
+        let expand_start = std::time::Instant::now();
         let mut extra_roots = Vec::with_capacity(args.len() + 2);
         extra_roots.push(form);
         extra_roots.push(function);
         extra_roots.extend(args.iter().copied());
         self.with_extra_roots(&extra_roots, move |vm| {
-            vm.with_macro_expansion_scope(|vm| vm.call_function(function, args))
+            let expanded = vm.with_macro_expansion_scope(|vm| vm.call_function(function, args))?;
+            let expand_elapsed = expand_start.elapsed();
+            vm.ctx.store_runtime_macro_expansion(
+                function,
+                tail,
+                &args_for_cache,
+                &expanded,
+                expand_elapsed,
+            );
+            Ok(expanded)
         })
     }
 }
