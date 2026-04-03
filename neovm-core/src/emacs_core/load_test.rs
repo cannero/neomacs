@@ -5892,6 +5892,97 @@ fn macroexp_eager_reload_preserves_symbol_identity() {
 }
 
 #[test]
+fn eager_expand_toplevel_forms_keeps_recursive_progn_forms_alive_under_exact_gc() {
+    crate::test_utils::init_test_tracing();
+
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("root");
+    let lisp_dir = project_root.join("lisp");
+    assert!(lisp_dir.is_dir());
+    let subdirs = ["", "emacs-lisp"];
+    let mut load_path_entries = Vec::new();
+    for sub in &subdirs {
+        let dir = if sub.is_empty() {
+            lisp_dir.clone()
+        } else {
+            lisp_dir.join(sub)
+        };
+        if dir.is_dir() {
+            load_path_entries.push(Value::string(dir.to_string_lossy().to_string()));
+        }
+    }
+    eval.set_variable("load-path", Value::list(load_path_entries));
+    eval.set_variable("dump-mode", Value::symbol("pbootstrap"));
+    eval.set_variable("purify-flag", Value::NIL);
+    eval.set_variable("max-lisp-eval-depth", Value::fixnum(1600));
+
+    let load_path = get_load_path(&eval.obarray());
+    let load_and_report =
+        |eval: &mut crate::emacs_core::eval::Context, name: &str, load_path: &[String]| {
+            let path = find_file_in_load_path(name, load_path).expect(name);
+            load_file(eval, &path).unwrap_or_else(|e| {
+                let msg = match &e {
+                    EvalError::Signal { symbol, data, .. } => {
+                        let sym = crate::emacs_core::intern::resolve_sym(*symbol);
+                        let data_strs: Vec<String> = data.iter().map(|v| format!("{v}")).collect();
+                        format!("({sym} {})", data_strs.join(" "))
+                    }
+                    other => format!("{other:?}"),
+                };
+                panic!("Failed to load {name}: {msg}");
+            });
+        };
+
+    for name in &[
+        "emacs-lisp/debug-early",
+        "emacs-lisp/byte-run",
+        "emacs-lisp/backquote",
+        "subr",
+        "emacs-lisp/macroexp",
+        "emacs-lisp/pcase",
+    ] {
+        load_and_report(&mut eval, name, &load_path);
+    }
+
+    let setup_forms = parse_forms(
+        r#"(defmacro neomacs-test-progn-macro ()
+             '(progn
+                (defvar neomacs-test-progn-var 42)
+                (defun neomacs-test-progn-fn ()
+                  neomacs-test-progn-var)))"#,
+    )
+    .expect("parse progn macro");
+    eval.eval_expr(&setup_forms[0]).expect("define progn macro");
+
+    let invoke_forms = parse_forms("(neomacs-test-progn-macro)").expect("parse progn invoke");
+    let form_value = quote_to_value(&invoke_forms[0]);
+    let macroexpand_fn = get_eager_macroexpand_fn(&eval).expect("eager macroexpand fn");
+    let mut expanded = Vec::new();
+    eager_expand_toplevel_forms(&mut eval, form_value, macroexpand_fn, &mut |ctx, form| {
+        expanded.push(crate::emacs_core::print::print_value_with_buffers(
+            &form,
+            &ctx.buffers,
+        ));
+        ctx.gc_collect_exact_with_extra_roots(&[form]);
+        ctx.eval_value(&form).map_err(map_flow)
+    })
+    .expect("eager expand progn macro");
+
+    assert_eq!(
+        expanded,
+        vec![
+            "(defvar neomacs-test-progn-var 42)".to_string(),
+            "(defalias 'neomacs-test-progn-fn #'(lambda nil neomacs-test-progn-var))".to_string(),
+        ]
+    );
+
+    let call_forms = parse_forms("(neomacs-test-progn-fn)").expect("parse call");
+    let result = eval.eval_expr(&call_forms[0]).expect("call progn fn");
+    assert_eq!(result, Value::fixnum(42));
+}
+
+#[test]
 fn function_get_only_exposes_cxxr_compiler_macro_on_cxxr_symbols() {
     crate::test_utils::init_test_tracing();
     let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));

@@ -757,12 +757,13 @@ pub(crate) fn get_eager_macroexpand_fn(eval: &super::eval::Context) -> Option<Va
 /// .elc files don't need eager expansion. When expansion fails (cycle
 /// detection, missing macros, etc.), we fall back to evaluating the form
 /// without eager expansion — matching the behavior of loading .elc files.
-#[tracing::instrument(level = "debug", skip(eval, form_value, macroexpand_fn))]
+#[tracing::instrument(level = "debug", skip(eval, form_value, macroexpand_fn, sink))]
 pub(crate) fn eager_expand_toplevel_forms(
     eval: &mut super::eval::Context,
     form_value: Value,
     macroexpand_fn: Value,
-) -> Result<Vec<Value>, EvalError> {
+    sink: &mut impl FnMut(&mut super::eval::Context, Value) -> Result<Value, EvalError>,
+) -> Result<Value, EvalError> {
     // Step 1: one-level expand — val = (internal-macroexpand-for-load val nil)
     // Note: real Emacs mutates `val` here; we shadow it.
     let val = eval.with_gc_scope(|ctx| {
@@ -777,7 +778,10 @@ pub(crate) fn eager_expand_toplevel_forms(
             // Fall back to evaluating the original form without expansion.
             // This matches .elc behavior where forms are already compiled.
             tracing::debug!("eager_expand step1 failed, falling back to plain eval");
-            return Ok(vec![form_value]);
+            return eval.with_gc_scope(|ctx| {
+                ctx.root(form_value);
+                sink(ctx, form_value)
+            });
         }
     };
 
@@ -790,18 +794,14 @@ pub(crate) fn eager_expand_toplevel_forms(
         if car.is_symbol_named("progn") {
             return eval.with_gc_scope(|ctx| {
                 ctx.root(val);
-                let mut expanded_forms = Vec::new();
+                let mut result = Value::NIL;
                 let mut tail = cdr;
                 while tail.is_cons() {
                     let sub_form = tail.cons_car();
                     tail = tail.cons_cdr();
-                    expanded_forms.extend(eager_expand_toplevel_forms(
-                        ctx,
-                        sub_form,
-                        macroexpand_fn,
-                    )?);
+                    result = eager_expand_toplevel_forms(ctx, sub_form, macroexpand_fn, sink)?;
                 }
-                Ok(expanded_forms)
+                Ok(result)
             });
         }
     }
@@ -811,7 +811,7 @@ pub(crate) fn eager_expand_toplevel_forms(
     // where Qmacroexpand = Qinternal_macroexpand_for_load (set at line 2184).
     // Calling internal-macroexpand-for-load(val, t) with full-p=t triggers
     // macroexpand--all-toplevel (deep/recursive expansion via macroexpand-all).
-    let fully_expanded = eval.with_gc_scope(|ctx| {
+    eval.with_gc_scope(|ctx| {
         ctx.root(val);
         ctx.root(macroexpand_fn);
         let t3 = std::time::Instant::now();
@@ -830,10 +830,9 @@ pub(crate) fn eager_expand_toplevel_forms(
         if d3.as_millis() > 200 {
             tracing::warn!("eager_expand step3 (full-expand) took {d3:.2?}");
         }
-        expanded
-    });
-
-    Ok(vec![fully_expanded])
+        ctx.root(expanded);
+        sink(ctx, expanded)
+    })
 }
 
 #[tracing::instrument(level = "debug", skip(eval, form_value, macroexpand_fn))]
@@ -842,10 +841,8 @@ pub(crate) fn eager_expand_eval(
     form_value: Value,
     macroexpand_fn: Value,
 ) -> Result<Value, EvalError> {
-    let expanded_forms = eager_expand_toplevel_forms(eval, form_value, macroexpand_fn)?;
-    let mut result = Value::NIL;
-    for expanded in expanded_forms {
-        result = eval.with_gc_scope(|ctx| {
+    eager_expand_toplevel_forms(eval, form_value, macroexpand_fn, &mut |ctx, expanded| {
+        ctx.with_gc_scope(|ctx| {
             ctx.root(expanded);
             let t4 = std::time::Instant::now();
             let value = ctx.eval_value(&expanded).map_err(map_flow)?;
@@ -854,9 +851,8 @@ pub(crate) fn eager_expand_eval(
                 tracing::warn!("eager_expand step4 (eval) took {d4:.2?}");
             }
             Ok(value)
-        })?;
-    }
-    Ok(result)
+        })
+    })
 }
 
 /// Shared context save/restore for file loading.
@@ -1263,11 +1259,9 @@ pub(crate) fn eval_decoded_source_file_in_context(
         let mut cached_expanded_forms = Vec::new();
         readevalloop(eval, &file_name, &forms, &[mexp_fn], |eval, _i, form| {
             let form_value = eval.quote_to_runtime_value(form);
-            let expanded_forms = eager_expand_toplevel_forms(eval, form_value, mexp_fn)?;
-            let mut result = Value::NIL;
-            for expanded in expanded_forms {
+            eager_expand_toplevel_forms(eval, form_value, mexp_fn, &mut |ctx, expanded| {
                 cached_expanded_forms.push(super::eval::value_to_expr(&expanded));
-                result = eval.with_gc_scope(|ctx| {
+                ctx.with_gc_scope(|ctx| {
                     ctx.root(expanded);
                     let t4 = std::time::Instant::now();
                     let value = ctx.eval_value(&expanded).map_err(map_flow)?;
@@ -1276,9 +1270,8 @@ pub(crate) fn eval_decoded_source_file_in_context(
                         tracing::warn!("eager_expand step4 (eval) took {d4:.2?}");
                     }
                     Ok(value)
-                })?;
-            }
-            Ok(result)
+                })
+            })
         })?;
         if let Some(parent) = auto_neobc_cache_path.parent() {
             let _ = fs::create_dir_all(parent);
