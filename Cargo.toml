@@ -9,6 +9,7 @@ members = [
     "neovm-host-abi",
     "neovm-oracle-tests",
     "neovm-worker",
+    "xtask",
 ]
 default-members = ["neomacs-bin"]
 resolver = "2"
