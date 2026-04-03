@@ -546,6 +546,7 @@ struct CoreEvalSymbols {
     inhibit_quit_symbol: SymId,
     throw_on_input_symbol: SymId,
     kill_emacs_symbol: SymId,
+    noninteractive_symbol: SymId,
 }
 
 fn install_core_eval_symbols(obarray: &mut Obarray, reset_runtime_values: bool) -> CoreEvalSymbols {
@@ -573,6 +574,7 @@ fn install_core_eval_symbols(obarray: &mut Obarray, reset_runtime_values: bool) 
     obarray.make_special_id(throw_on_input_symbol);
 
     let kill_emacs_symbol = intern("kill-emacs");
+    let noninteractive_symbol = intern("noninteractive");
 
     CoreEvalSymbols {
         internal_interpreter_environment_symbol,
@@ -580,6 +582,7 @@ fn install_core_eval_symbols(obarray: &mut Obarray, reset_runtime_values: bool) 
         inhibit_quit_symbol,
         throw_on_input_symbol,
         kill_emacs_symbol,
+        noninteractive_symbol,
     }
 }
 
@@ -902,6 +905,8 @@ pub struct Context {
     inhibit_quit_symbol: SymId,
     throw_on_input_symbol: SymId,
     kill_emacs_symbol: SymId,
+    noninteractive_symbol: SymId,
+    noninteractive: bool,
     /// Features list (for require/provide).
     pub(crate) features: Vec<SymId>,
     /// Features currently being resolved through `require`.
@@ -3523,6 +3528,11 @@ impl Context {
         command_loop
             .keyboard
             .set_terminal_translation_maps(input_decode_map, local_function_key_map);
+        let noninteractive = obarray
+            .symbol_value_id(core_eval_symbols.noninteractive_symbol)
+            .copied()
+            .unwrap_or(Value::NIL)
+            .is_truthy();
 
         let mut ev = Self {
             tagged_heap,
@@ -3535,6 +3545,8 @@ impl Context {
             inhibit_quit_symbol: core_eval_symbols.inhibit_quit_symbol,
             throw_on_input_symbol: core_eval_symbols.throw_on_input_symbol,
             kill_emacs_symbol: core_eval_symbols.kill_emacs_symbol,
+            noninteractive_symbol: core_eval_symbols.noninteractive_symbol,
+            noninteractive,
             features: Vec::new(),
             require_stack: Vec::new(),
             loads_in_progress: Vec::new(),
@@ -3640,6 +3652,11 @@ impl Context {
         let core_eval_symbols = install_core_eval_symbols(&mut obarray, false);
         let mut tagged_heap = tagged_heap;
         crate::tagged::gc::set_tagged_heap(&mut tagged_heap);
+        let noninteractive = obarray
+            .symbol_value_id(core_eval_symbols.noninteractive_symbol)
+            .copied()
+            .unwrap_or(Value::NIL)
+            .is_truthy();
 
         let mut ev = Self {
             tagged_heap,
@@ -3652,6 +3669,8 @@ impl Context {
             inhibit_quit_symbol: core_eval_symbols.inhibit_quit_symbol,
             throw_on_input_symbol: core_eval_symbols.throw_on_input_symbol,
             kill_emacs_symbol: core_eval_symbols.kill_emacs_symbol,
+            noninteractive_symbol: core_eval_symbols.noninteractive_symbol,
+            noninteractive,
             features,
             require_stack,
             loads_in_progress: Vec::new(),
@@ -4110,11 +4129,7 @@ impl Context {
     }
 
     fn command_loop_noninteractive(&self) -> bool {
-        self.obarray
-            .symbol_value("noninteractive")
-            .copied()
-            .unwrap_or(Value::NIL)
-            .is_truthy()
+        self.noninteractive
     }
 
     fn command_loop_top_level_1(&mut self) -> EvalResult {
@@ -5804,7 +5819,15 @@ impl Context {
 
     /// Set a global variable.
     pub fn set_variable(&mut self, name: &str, value: Value) {
+        if name == "noninteractive" {
+            self.noninteractive = value.is_truthy();
+        }
         self.obarray.set_symbol_value(name, value);
+    }
+
+    #[inline]
+    pub(crate) fn noninteractive(&self) -> bool {
+        self.noninteractive
     }
 
     pub(crate) fn sync_thread_runtime_bindings(&mut self) {
@@ -10116,6 +10139,9 @@ impl Context {
                             );
                         }
                         let _ = self.buffers.set_buffer_local_property(buf_id, name, value);
+                        if resolved == self.noninteractive_symbol {
+                            self.noninteractive = value.is_truthy();
+                        }
                         return;
                     }
                 }
@@ -10132,6 +10158,9 @@ impl Context {
                 let _ = self.run_variable_watchers_by_id(resolved, &value, &Value::NIL, "let");
             }
             self.obarray.set_symbol_value_id(resolved, value);
+            if resolved == self.noninteractive_symbol {
+                self.noninteractive = value.is_truthy();
+            }
             return;
         }
 
@@ -10145,6 +10174,9 @@ impl Context {
             let _ = self.run_variable_watchers_by_id(resolved, &value, &Value::NIL, "let");
         }
         self.obarray.set_symbol_value_id(resolved, value);
+        if resolved == self.noninteractive_symbol {
+            self.noninteractive = value.is_truthy();
+        }
     }
 
     /// Check if a `let` is currently shadowing a buffer-local variable's
@@ -10176,8 +10208,18 @@ impl Context {
                         );
                     }
                     match old_value {
-                        Some(val) => self.obarray.set_symbol_value_id(sym_id, val),
-                        None => self.obarray.makunbound_id(sym_id),
+                        Some(val) => {
+                            self.obarray.set_symbol_value_id(sym_id, val);
+                            if sym_id == self.noninteractive_symbol {
+                                self.noninteractive = val.is_truthy();
+                            }
+                        }
+                        None => {
+                            self.obarray.makunbound_id(sym_id);
+                            if sym_id == self.noninteractive_symbol {
+                                self.noninteractive = false;
+                            }
+                        }
                     }
                 }
                 SpecBinding::LetLocal {
@@ -10200,6 +10242,9 @@ impl Context {
                         let _ = self
                             .buffers
                             .set_buffer_local_property(buffer_id, name, old_value);
+                        if sym_id == self.noninteractive_symbol {
+                            self.noninteractive = old_value.is_truthy();
+                        }
                     }
                 }
                 SpecBinding::LetDefault { sym_id, old_value } => {
@@ -10215,8 +10260,18 @@ impl Context {
                         );
                     }
                     match old_value {
-                        Some(val) => self.obarray.set_symbol_value_id(sym_id, val),
-                        None => self.obarray.makunbound_id(sym_id),
+                        Some(val) => {
+                            self.obarray.set_symbol_value_id(sym_id, val);
+                            if sym_id == self.noninteractive_symbol {
+                                self.noninteractive = val.is_truthy();
+                            }
+                        }
+                        None => {
+                            self.obarray.makunbound_id(sym_id);
+                            if sym_id == self.noninteractive_symbol {
+                                self.noninteractive = false;
+                            }
+                        }
                     }
                 }
             }
@@ -10658,6 +10713,9 @@ impl Context {
             sym_id,
             value,
         );
+        if sym_id == self.noninteractive_symbol {
+            self.noninteractive = value.is_truthy();
+        }
         self.sync_keyboard_runtime_binding_by_id(sym_id, value);
         locus
     }
@@ -10679,6 +10737,9 @@ impl Context {
             sym_id,
             value,
         );
+        if sym_id == self.noninteractive_symbol {
+            self.noninteractive = value.is_truthy();
+        }
         self.sync_keyboard_runtime_binding_by_id(sym_id, value);
         locus
     }
@@ -10691,6 +10752,9 @@ impl Context {
             &[],
             sym_id,
         );
+        if sym_id == self.noninteractive_symbol {
+            self.noninteractive = false;
+        }
         self.sync_keyboard_runtime_binding_by_id(sym_id, Value::NIL);
     }
 

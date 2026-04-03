@@ -2882,13 +2882,7 @@ impl crate::emacs_core::eval::Context {
                 return Err(crate::emacs_core::error::signal("quit", vec![]));
             }
 
-            if self
-                .obarray
-                .symbol_value("noninteractive")
-                .copied()
-                .unwrap_or(Value::NIL)
-                .is_truthy()
-            {
+            if self.noninteractive() {
                 self.timer_stop_idle();
                 return Ok(None);
             }
