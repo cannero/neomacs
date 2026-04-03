@@ -137,6 +137,57 @@ fn runtime_image_path_for_executable_uses_role_specific_names() {
 }
 
 #[test]
+fn missing_runtime_image_reports_heapless_startup_error() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock before epoch")
+        .as_nanos();
+    let missing =
+        std::env::temp_dir().join(format!("neomacs-missing-runtime-image-{unique}.pdump"));
+
+    let err = match load_runtime_image_with_features(
+        RuntimeImageRole::Bootstrap,
+        &[],
+        Some(missing.as_path()),
+    ) {
+        Ok(_) => panic!("missing image should report startup error"),
+        Err(err) => err,
+    };
+
+    match err {
+        EvalError::Signal {
+            symbol,
+            data,
+            raw_data,
+        } => {
+            assert_eq!(resolve_sym(symbol), "error");
+            assert_eq!(
+                data.len(),
+                1,
+                "startup image load should report one payload value"
+            );
+            let raw = raw_data.expect("startup image load should preserve raw payload");
+            assert_eq!(
+                raw, data[0],
+                "raw startup payload should match normalized data"
+            );
+            let payload = raw
+                .as_symbol_name()
+                .expect("startup image load payload should stay heapless");
+            assert!(
+                payload.contains("failed to load bootstrap image"),
+                "unexpected startup payload: {payload}"
+            );
+            assert!(
+                payload.contains(missing.to_string_lossy().as_ref()),
+                "startup payload should include dump path: {payload}"
+            );
+        }
+        other => panic!("unexpected error: {other:?}"),
+    }
+}
+
+#[test]
 fn loadup_startup_surface_seeds_pre_startup_command_line_state() {
     let mut eval = create_source_bootstrap_context();
     apply_loadup_startup_surface(

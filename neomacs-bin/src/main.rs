@@ -755,14 +755,14 @@ fn create_startup_evaluator_for_mode(mode: RuntimeMode, startup: &StartupOptions
                 BOOTSTRAP_CORE_FEATURES,
                 startup.dump_file_override.as_deref(),
             )
-            .expect("bootstrap image should load")
+            .unwrap_or_else(|_| panic!("bootstrap image should load; see log for details"))
         }
         RuntimeMode::FinalRun => neovm_core::emacs_core::load::load_runtime_image_with_features(
             RuntimeImageRole::Final,
             BOOTSTRAP_CORE_FEATURES,
             startup.dump_file_override.as_deref(),
         )
-        .expect("final image should load"),
+        .unwrap_or_else(|_| panic!("final image should load; see log for details")),
     }
 }
 

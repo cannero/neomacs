@@ -3158,17 +3158,25 @@ pub fn load_runtime_image_with_features(
     let dump_path = dump_path
         .map(Path::to_path_buf)
         .unwrap_or_else(|| default_runtime_image_path(role));
-    let mut eval = pdump::load_from_dump(&dump_path).map_err(|err| EvalError::Signal {
-        symbol: intern("error"),
-        data: vec![Value::string(format!(
-            "failed to load {} image {}: {err}",
-            match role {
-                RuntimeImageRole::Bootstrap => "bootstrap",
-                RuntimeImageRole::Final => "final",
-            },
+    let mut eval = pdump::load_from_dump(&dump_path).map_err(|err| {
+        let image_kind = match role {
+            RuntimeImageRole::Bootstrap => "bootstrap",
+            RuntimeImageRole::Final => "final",
+        };
+        let message = format!(
+            "failed to load {image_kind} image {}: {err}",
             dump_path.display()
-        ))],
-        raw_data: None,
+        );
+        tracing::error!("{message}");
+        let payload = Value::symbol(intern(&message));
+        // Early runtime-image load happens before a tagged heap is installed on
+        // the current thread. Represent the startup failure with an interned
+        // raw symbol payload instead of allocating a Lisp string or list here.
+        EvalError::Signal {
+            symbol: intern("error"),
+            data: vec![payload],
+            raw_data: Some(payload),
+        }
     })?;
 
     if !extra_features.is_empty() {
