@@ -202,6 +202,22 @@ fn eval_with_explicit_lexenv_restores_outer_lexenv() {
 }
 
 #[test]
+fn eval_with_explicit_lexenv_shadows_special_reads_and_setq() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        eval_one(
+            "(progn
+               (defvar ev-explicit-special 1)
+               (list
+                 (eval '(progn (setq ev-explicit-special 9) ev-explicit-special)
+                       '((ev-explicit-special . 7)))
+                 ev-explicit-special))"
+        ),
+        "OK (9 1)"
+    );
+}
+
+#[test]
 fn catch_leaves_shared_condition_stack_balanced() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

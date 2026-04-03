@@ -5928,15 +5928,11 @@ impl Context {
             return Ok(Value::from_kw_id(sym_id));
         }
 
-        // GNU Emacs eval.c checks the lexenv for the ORIGINAL symbol
-        // BEFORE resolving variable aliases.  This ensures that local
-        // lexical bindings (let/lambda parameters) shadow variable aliases
-        // even when the alias target is a special (dynamically scoped)
-        // variable.  E.g. `argv` aliases to `command-line-args-left` (special),
-        // but `(let ((argv (make-vector 10 nil))) argv)` must return the vector.
-        // GNU `eval_sub` only checks the lexical alist here; bare-symbol
-        // special declarations affect binding, not ordinary reads.
-        if self.lexical_binding() && !is_runtime_dynamically_special(&self.obarray, sym_id) {
+        // GNU eval.c checks the lexenv for the ORIGINAL symbol BEFORE
+        // resolving variable aliases and does not rescan declared-special
+        // flags on ordinary reads. Declared-special affects how bindings are
+        // created, not whether an existing lexical cell is readable.
+        if self.lexical_binding() {
             if let Some(value) = self.lexenv_lookup_cached_in(self.lexenv, sym_id) {
                 return Ok(value);
             }
@@ -5946,10 +5942,7 @@ impl Context {
         let (resolved_name, resolved_is_canonical) = resolve_sym_metadata(resolved);
 
         // Also check the lexenv for the resolved alias (rare but possible).
-        if resolved != sym_id
-            && self.lexical_binding()
-            && !is_runtime_dynamically_special(&self.obarray, resolved)
-        {
+        if resolved != sym_id && self.lexical_binding() {
             if let Some(value) = self.lexenv_lookup_cached_in(self.lexenv, resolved) {
                 return Ok(value);
             }
@@ -10647,11 +10640,10 @@ impl Context {
         sym_id: SymId,
         value: Value,
     ) -> Option<crate::buffer::BufferId> {
-        // If lexical binding and not special, check lexenv first
         // GNU `setq` follows the same rule as `eval_sub`: if a lexical binding
-        // cell exists, mutate it directly; don't rescan bare-symbol dynvar
-        // declarations at assignment time.
-        if self.lexical_binding() && !is_runtime_dynamically_special(&self.obarray, sym_id) {
+        // cell exists, mutate it directly. Declared-special affects whether
+        // that cell was created, not whether assignment should reuse it.
+        if self.lexical_binding() {
             if let Some(cell_id) = self.lexenv_assq_cached_in(self.lexenv, sym_id) {
                 lexenv_set(cell_id, value);
                 return None;
@@ -10713,9 +10705,7 @@ impl Context {
 
     pub(crate) fn visible_variable_value_or_nil(&self, name: &str) -> Value {
         let name_id = intern(name);
-        if !is_runtime_dynamically_special(&self.obarray, name_id)
-            && let Some(value) = lexenv_lookup(self.lexenv, name_id)
-        {
+        if let Some(value) = lexenv_lookup(self.lexenv, name_id) {
             return value;
         }
         // specbind writes directly to obarray, so no dynamic stack lookup needed.

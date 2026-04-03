@@ -2007,29 +2007,15 @@ impl<'a> Vm<'a> {
             name_id,
         )?;
         let resolved_name = resolve_sym(resolved);
-        let is_special =
-            self.ctx.obarray.is_special_id(name_id) && !self.ctx.obarray.is_constant_id(name_id);
-        let resolved_is_special =
-            self.ctx.obarray.is_special_id(resolved) && !self.ctx.obarray.is_constant_id(resolved);
-        let locally_special =
-            crate::emacs_core::value::lexenv_declares_special(self.ctx.lexenv, name_id)
-                || (resolved != name_id
-                    && crate::emacs_core::value::lexenv_declares_special(
-                        self.ctx.lexenv,
-                        resolved,
-                    ));
-
-        // GNU Emacs resolves declared-special vars dynamically even when
-        // lexical binding is active; the interpreter path already does this.
-        if !is_special && !resolved_is_special && !locally_special {
-            if let Some(val) = self.ctx.lexenv_lookup_cached_in(self.ctx.lexenv, name_id) {
-                return Ok(val);
-            }
-            if resolved != name_id
-                && let Some(val) = self.ctx.lexenv_lookup_cached_in(self.ctx.lexenv, resolved)
-            {
-                return Ok(val);
-            }
+        // Match GNU eval_sub: lexical environment lookup happens before alias
+        // resolution fallback and does not rescan declared-special flags.
+        if let Some(val) = self.ctx.lexenv_lookup_cached_in(self.ctx.lexenv, name_id) {
+            return Ok(val);
+        }
+        if resolved != name_id
+            && let Some(val) = self.ctx.lexenv_lookup_cached_in(self.ctx.lexenv, resolved)
+        {
+            return Ok(val);
         }
 
         // specbind writes directly to obarray, so dynamic stack lookup is
@@ -2081,29 +2067,15 @@ impl<'a> Vm<'a> {
             &self.ctx.obarray,
             name_id,
         )?;
-        let is_special =
-            self.ctx.obarray.is_special_id(name_id) && !self.ctx.obarray.is_constant_id(name_id);
-        let resolved_is_special =
-            self.ctx.obarray.is_special_id(resolved) && !self.ctx.obarray.is_constant_id(resolved);
-        let locally_special =
-            crate::emacs_core::value::lexenv_declares_special(self.ctx.lexenv, name_id)
-                || (resolved != name_id
-                    && crate::emacs_core::value::lexenv_declares_special(
-                        self.ctx.lexenv,
-                        resolved,
-                    ));
-
-        if !is_special && !resolved_is_special && !locally_special {
-            if let Some(cell_id) = self.ctx.lexenv_assq_cached_in(self.ctx.lexenv, name_id) {
-                lexenv_set(cell_id, value);
-                return Ok(());
-            }
-            if resolved != name_id
-                && let Some(cell_id) = self.ctx.lexenv_assq_cached_in(self.ctx.lexenv, resolved)
-            {
-                lexenv_set(cell_id, value);
-                return Ok(());
-            }
+        if let Some(cell_id) = self.ctx.lexenv_assq_cached_in(self.ctx.lexenv, name_id) {
+            lexenv_set(cell_id, value);
+            return Ok(());
+        }
+        if resolved != name_id
+            && let Some(cell_id) = self.ctx.lexenv_assq_cached_in(self.ctx.lexenv, resolved)
+        {
+            lexenv_set(cell_id, value);
+            return Ok(());
         }
 
         // specbind writes directly to obarray, so dynamic stack mutation
@@ -3310,12 +3282,7 @@ impl<'a> Vm<'a> {
 
     fn visible_variable_value_or_nil(&self, name: &str) -> Value {
         let name_id = intern(name);
-        let is_dynamically_special =
-            self.ctx.obarray.is_special_id(name_id) && !self.ctx.obarray.is_constant_id(name_id);
-        if !is_dynamically_special
-            && !lexenv_declares_special(self.ctx.lexenv, name_id)
-            && let Some(value) = lexenv_lookup(self.ctx.lexenv, name_id)
-        {
+        if let Some(value) = lexenv_lookup(self.ctx.lexenv, name_id) {
             return value;
         }
         // specbind writes directly to obarray, so no dynamic stack lookup needed.
