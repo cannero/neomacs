@@ -722,17 +722,18 @@ impl ExprDecoder {
                     OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(Value::make_record(values))),
                 )
             }
-            CachedExpr::Lambda(slots) => Expr::OpaqueValueRef(OPAQUE_POOL.with(|pool| {
-                pool.borrow_mut()
-                    .insert(self.decode_closure_value(VecLikeType::Lambda, slots))
-            })),
-            CachedExpr::Macro(slots) => Expr::OpaqueValueRef(OPAQUE_POOL.with(|pool| {
-                pool.borrow_mut()
-                    .insert(self.decode_closure_value(VecLikeType::Macro, slots))
-            })),
-            CachedExpr::HashTable(table) => Expr::OpaqueValueRef(
-                OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(self.decode_hash_table(table))),
-            ),
+            CachedExpr::Lambda(slots) => {
+                let value = self.decode_closure_value(VecLikeType::Lambda, slots);
+                Expr::OpaqueValueRef(OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(value)))
+            }
+            CachedExpr::Macro(slots) => {
+                let value = self.decode_closure_value(VecLikeType::Macro, slots);
+                Expr::OpaqueValueRef(OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(value)))
+            }
+            CachedExpr::HashTable(table) => {
+                let value = self.decode_hash_table(table);
+                Expr::OpaqueValueRef(OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(value)))
+            }
             CachedExpr::DottedList(items, tail) => Expr::DottedList(
                 items.iter().map(|item| self.decode(item)).collect(),
                 Box::new(self.decode(tail)),
@@ -1366,6 +1367,42 @@ mod tests {
                         .unwrap_or_default(),
                     vec![intern("x")]
                 );
+            }
+            LoadedForm::Constant(_) => panic!("expected Eval form"),
+        }
+    }
+
+    #[test]
+    fn test_roundtrip_lambda_runtime_value_with_nested_lambda_env() {
+        crate::test_utils::init_test_tracing();
+        let nested = Value::make_lambda(sample_lambda_data());
+        let outer = Value::make_lambda(LambdaData {
+            params: LambdaParams::simple(vec![intern("y")]),
+            body: Rc::new(parse_forms("(list y)").unwrap()),
+            env: Some(Value::list(vec![nested])),
+            docstring: Some("outer closure".to_owned()),
+            doc_form: None,
+            interactive: None,
+        });
+        let mut builder = NeobcBuilder::new("hash", false);
+        builder.push_eval_value_detailed(&outer).unwrap();
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested-lambda-env.neobc");
+        builder.write(&path).unwrap();
+
+        let loaded = read_neobc(&path, "hash").unwrap();
+        match &loaded.forms[0] {
+            LoadedForm::Eval(expr) | LoadedForm::EagerEval(expr) => {
+                let mut eval = Context::new();
+                let value = eval.eval(expr).unwrap();
+                assert!(value.is_lambda());
+                assert_eq!(value.closure_docstring(), Some(Some("outer closure")));
+                let env = value.closure_env().unwrap().unwrap();
+                let items = crate::emacs_core::value::list_to_vec(&env).unwrap();
+                assert_eq!(items.len(), 1);
+                assert!(items[0].is_lambda());
+                assert_eq!(items[0].closure_docstring(), Some(Some("sample closure")));
             }
             LoadedForm::Constant(_) => panic!("expected Eval form"),
         }
