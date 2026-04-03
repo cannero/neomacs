@@ -2,9 +2,11 @@
 //!
 //! # Design
 //!
-//! - **Cons cells**: block allocator with external mark bitmap.
-//!   Each `ConsBlock` holds a fixed-size array of `ConsCell` plus a
-//!   bitmap for marking and a free list.
+//! - **Cons cells**: GNU-shaped aligned block allocator.
+//!   Each `ConsBlock` stores a fixed-size array of `ConsCell` at the front of
+//!   a 64KB-aligned block, followed by packed mark bits. This lets the GC
+//!   derive a cons's owning block/index directly from the pointer, matching the
+//!   structure GNU Emacs uses in `alloc.c`.
 //!
 //! - **All other heap objects** (string, float, vectorlike): allocated
 //!   via the system allocator, linked via intrusive `GcHeader.next` list.
@@ -21,9 +23,9 @@ use super::value::TaggedValue;
 use crate::buffer::text_props::TextPropertyTable;
 use crate::emacs_core::intern::SymId;
 use crate::gc_trace::GcTrace;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::alloc::{self, Layout};
 use std::cell::Cell;
-use std::collections::{HashMap, HashSet};
 use std::mem::size_of;
 
 /// How GC should discover roots beyond the explicit iterator passed to collect.
@@ -183,36 +185,126 @@ fn note_heap_write_record(record: HeapWriteRecord) {
 // Cons block allocator
 // ---------------------------------------------------------------------------
 
-/// Number of cons cells per block. 4096 cells × 16 bytes = 64 KB per block.
-const CONS_BLOCK_SIZE: usize = 4096;
+/// GNU Emacs keeps conses in fixed-size aligned blocks and derives the owning
+/// block/index directly from the cons pointer. Keep the same shape here so
+/// mark/ownership checks stay O(1) instead of linearly scanning `cons_blocks`.
+const CONS_BLOCK_BYTES: usize = 64 * 1024;
+const CONS_BLOCK_ALIGN: usize = CONS_BLOCK_BYTES;
+const CONS_MARK_BITS_PER_WORD: usize = usize::BITS as usize;
 
-/// A block of cons cells with an external mark bitmap.
+const fn cons_mark_words(cell_count: usize) -> usize {
+    cell_count.div_ceil(CONS_MARK_BITS_PER_WORD)
+}
+
+const fn cons_block_cell_count() -> usize {
+    let cons_size = size_of::<ConsCell>();
+    let mark_word_size = size_of::<usize>();
+    let mut cells = CONS_BLOCK_BYTES / cons_size;
+    while cells > 0 {
+        let marks_bytes = cons_mark_words(cells) * mark_word_size;
+        if cells * cons_size + marks_bytes <= CONS_BLOCK_BYTES {
+            return cells;
+        }
+        cells -= 1;
+    }
+    0
+}
+
+const CONS_BLOCK_SIZE: usize = cons_block_cell_count();
+const CONS_MARK_WORDS: usize = cons_mark_words(CONS_BLOCK_SIZE);
+const CONS_CELLS_BYTES: usize = CONS_BLOCK_SIZE * size_of::<ConsCell>();
+const CONS_MARKS_OFFSET: usize = CONS_CELLS_BYTES;
+
+/// A GNU-shaped cons block with cells at the front of a fixed-size aligned
+/// storage area, followed by packed mark bits.
 struct ConsBlock {
-    /// The cons cells. Allocated as a contiguous array.
-    cells: *mut ConsCell,
-    /// Mark bitmap: one bit per cell.
-    marks: Vec<bool>,
+    /// Aligned raw storage for cons cells plus mark bits.
+    storage: *mut u8,
     /// Index of the first never-allocated cell in this block.
     next_index: u16,
 }
 
 impl ConsBlock {
+    fn layout() -> Layout {
+        Layout::from_size_align(CONS_BLOCK_BYTES, CONS_BLOCK_ALIGN).expect("cons block layout")
+    }
+
     fn new() -> Self {
-        let layout = Layout::array::<ConsCell>(CONS_BLOCK_SIZE).unwrap();
-        let cells = unsafe { alloc::alloc_zeroed(layout) as *mut ConsCell };
-        if cells.is_null() {
+        let layout = Self::layout();
+        let storage = unsafe { alloc::alloc_zeroed(layout) };
+        if storage.is_null() {
             alloc::handle_alloc_error(layout);
         }
         Self {
-            cells,
-            marks: vec![false; CONS_BLOCK_SIZE],
+            storage,
             next_index: 0,
         }
     }
 
     #[inline]
-    fn cell_ptr(&self, idx: u16) -> *mut ConsCell {
-        unsafe { self.cells.add(idx as usize) }
+    fn base_addr(&self) -> usize {
+        self.storage as usize
+    }
+
+    #[inline]
+    fn cells_ptr(&self) -> *mut ConsCell {
+        self.storage.cast()
+    }
+
+    #[inline]
+    fn mark_words_ptr(&self) -> *mut usize {
+        unsafe { self.storage.add(CONS_MARKS_OFFSET).cast() }
+    }
+
+    #[inline]
+    fn block_base_for_ptr(ptr: *const ConsCell) -> usize {
+        (ptr as usize) & !(CONS_BLOCK_ALIGN - 1)
+    }
+
+    #[inline]
+    fn ptr_offset(ptr: *const ConsCell) -> usize {
+        (ptr as usize).saturating_sub(Self::block_base_for_ptr(ptr))
+    }
+
+    #[inline]
+    fn ptr_is_cell_aligned(ptr: *const ConsCell) -> bool {
+        let offset = Self::ptr_offset(ptr);
+        offset < CONS_CELLS_BYTES && offset.is_multiple_of(size_of::<ConsCell>())
+    }
+
+    #[inline]
+    fn index_of_ptr(ptr: *const ConsCell) -> usize {
+        Self::ptr_offset(ptr) / size_of::<ConsCell>()
+    }
+
+    #[inline]
+    fn mark_bit(index: usize) -> (usize, usize) {
+        let word = index / CONS_MARK_BITS_PER_WORD;
+        let bit = index % CONS_MARK_BITS_PER_WORD;
+        (word, 1usize << bit)
+    }
+
+    #[inline]
+    fn owns_ptr(&self, ptr: *const ConsCell) -> bool {
+        Self::block_base_for_ptr(ptr) == self.base_addr() && Self::ptr_is_cell_aligned(ptr)
+    }
+
+    #[inline]
+    fn is_marked_ptr(&self, ptr: *const ConsCell) -> bool {
+        let index = Self::index_of_ptr(ptr);
+        let (word, mask) = Self::mark_bit(index);
+        debug_assert!(word < CONS_MARK_WORDS);
+        unsafe { (*self.mark_words_ptr().add(word) & mask) != 0 }
+    }
+
+    #[inline]
+    fn mark_ptr(&mut self, ptr: *const ConsCell) {
+        let index = Self::index_of_ptr(ptr);
+        let (word, mask) = Self::mark_bit(index);
+        debug_assert!(word < CONS_MARK_WORDS);
+        unsafe {
+            *self.mark_words_ptr().add(word) |= mask;
+        }
     }
 
     /// Allocate a fresh cons cell from this block's bump cursor.
@@ -223,7 +315,7 @@ impl ConsBlock {
         }
         let idx = self.next_index;
         self.next_index += 1;
-        let cell = unsafe { self.cells.add(idx as usize) };
+        let cell = unsafe { self.cells_ptr().add(idx as usize) };
         unsafe {
             (*cell).set_car(car);
             (*cell).set_cdr(cdr);
@@ -231,36 +323,14 @@ impl ConsBlock {
         Some(cell)
     }
 
-    /// Check if a pointer falls within this block's cell array.
-    fn contains(&self, ptr: *const ConsCell) -> bool {
-        let base = self.cells as usize;
-        let end = base + CONS_BLOCK_SIZE * std::mem::size_of::<ConsCell>();
-        let p = ptr as usize;
-        p >= base && p < end && (p - base) % std::mem::size_of::<ConsCell>() == 0
-    }
-
-    /// Get the index of a cell within this block.
-    fn index_of(&self, ptr: *const ConsCell) -> usize {
-        let offset = (ptr as usize) - (self.cells as usize);
-        offset / std::mem::size_of::<ConsCell>()
-    }
-
-    /// Mark a cell by pointer.
-    fn mark(&mut self, ptr: *const ConsCell) {
-        let idx = self.index_of(ptr);
-        self.marks[idx] = true;
-    }
-
-    /// Check if a cell is marked.
-    fn is_marked(&self, ptr: *const ConsCell) -> bool {
-        let idx = self.index_of(ptr);
-        self.marks[idx]
-    }
-
-    /// Clear all marks.
+    /// Clear all mark bits used by this block.
     fn clear_marks(&mut self) {
-        for m in &mut self.marks[..self.next_index as usize] {
-            *m = false;
+        let used_words = cons_mark_words(self.next_index as usize);
+        if used_words == 0 {
+            return;
+        }
+        unsafe {
+            std::ptr::write_bytes(self.mark_words_ptr(), 0, used_words);
         }
     }
 
@@ -272,9 +342,10 @@ impl ConsBlock {
         // Match GNU alloc.c: reclaimed conses are linked through the dead
         // cells themselves instead of rebuilding an external index vector.
         for i in (0..self.next_index as usize).rev() {
-            let cell = unsafe { self.cells.add(i) };
-            if self.marks[i] {
-                self.marks[i] = false;
+            let cell = unsafe { self.cells_ptr().add(i) };
+            let (word, mask) = Self::mark_bit(i);
+            let marked = unsafe { (*self.mark_words_ptr().add(word) & mask) != 0 };
+            if marked {
                 live += 1;
             } else {
                 unsafe {
@@ -290,8 +361,7 @@ impl ConsBlock {
 
 impl Drop for ConsBlock {
     fn drop(&mut self) {
-        let layout = Layout::array::<ConsCell>(CONS_BLOCK_SIZE).unwrap();
-        unsafe { alloc::dealloc(self.cells as *mut u8, layout) };
+        unsafe { alloc::dealloc(self.storage, Self::layout()) };
     }
 }
 
@@ -303,6 +373,8 @@ impl Drop for ConsBlock {
 pub struct TaggedHeap {
     /// Cons cell block allocator.
     cons_blocks: Vec<ConsBlock>,
+    /// Base-address lookup for O(1) cons block ownership and marking.
+    cons_block_index_by_base: FxHashMap<usize, usize>,
 
     /// Intrusive linked list of all non-cons heap objects.
     /// Points to the GcHeader of the first object; follow `next` to traverse.
@@ -347,10 +419,10 @@ pub struct TaggedHeap {
     subr_registry: Vec<Option<TaggedValue>>,
 
     /// Canonical runtime handle wrappers keyed by their underlying object id.
-    buffer_registry: HashMap<crate::buffer::BufferId, TaggedValue>,
-    window_registry: HashMap<u64, TaggedValue>,
-    frame_registry: HashMap<u64, TaggedValue>,
-    timer_registry: HashMap<u64, TaggedValue>,
+    buffer_registry: FxHashMap<crate::buffer::BufferId, TaggedValue>,
+    window_registry: FxHashMap<u64, TaggedValue>,
+    frame_registry: FxHashMap<u64, TaggedValue>,
+    timer_registry: FxHashMap<u64, TaggedValue>,
 
     /// Owners mutated since the last full collection.
     ///
@@ -359,7 +431,7 @@ pub struct TaggedHeap {
     /// current collector is still full-heap mark-sweep.
     write_tracking_mode: WriteTrackingMode,
     dirty_owners: Vec<TaggedValue>,
-    dirty_owner_bits: HashSet<usize>,
+    dirty_owner_bits: FxHashSet<usize>,
     dirty_writes: Vec<HeapWriteRecord>,
 }
 
@@ -367,6 +439,7 @@ impl TaggedHeap {
     pub fn new() -> Self {
         Self {
             cons_blocks: Vec::new(),
+            cons_block_index_by_base: FxHashMap::default(),
             all_objects: std::ptr::null_mut(),
             allocated_count: 0,
             gc_threshold: 100_000 * size_of::<usize>(),
@@ -380,13 +453,13 @@ impl TaggedHeap {
             cons_live_count: 0,
             marker_ptrs: Vec::new(),
             subr_registry: Vec::new(),
-            buffer_registry: HashMap::new(),
-            window_registry: HashMap::new(),
-            frame_registry: HashMap::new(),
-            timer_registry: HashMap::new(),
+            buffer_registry: FxHashMap::default(),
+            window_registry: FxHashMap::default(),
+            frame_registry: FxHashMap::default(),
+            timer_registry: FxHashMap::default(),
             write_tracking_mode: WriteTrackingMode::Disabled,
             dirty_owners: Vec::new(),
-            dirty_owner_bits: HashSet::new(),
+            dirty_owner_bits: FxHashSet::default(),
             dirty_writes: Vec::new(),
         }
     }
@@ -558,7 +631,7 @@ impl TaggedHeap {
         values.capacity().saturating_mul(size_of::<T>())
     }
 
-    fn hash_map_storage_bytes<K, V>(values: &HashMap<K, V>) -> usize {
+    fn hash_map_storage_bytes<K, V, S>(values: &std::collections::HashMap<K, V, S>) -> usize {
         values.capacity().saturating_mul(size_of::<(K, V)>())
     }
 
@@ -681,10 +754,14 @@ impl TaggedHeap {
         // so allocate a fresh current block and bump from it, matching GNU's
         // cons_block/cons_block_index path.
         let mut block = ConsBlock::new();
+        let block_base = block.base_addr();
         let cell = block
             .alloc_bump(car, cdr)
             .expect("fresh block should have space");
         self.cons_blocks.push(block);
+        let block_index = self.cons_blocks.len() - 1;
+        self.cons_block_index_by_base
+            .insert(block_base, block_index);
         self.allocated_count += 1;
         self.cons_live_count += 1;
         self.note_allocation_bytes(size_of::<ConsCell>());
@@ -937,10 +1014,12 @@ impl TaggedHeap {
 
     /// Clear buffer association for all markers belonging to any of the
     /// killed buffers.
-    pub fn clear_markers_for_buffers(
+    pub fn clear_markers_for_buffers<S>(
         &mut self,
-        killed: &std::collections::HashSet<crate::buffer::BufferId>,
-    ) {
+        killed: &std::collections::HashSet<crate::buffer::BufferId, S>,
+    ) where
+        S: std::hash::BuildHasher,
+    {
         for ptr in &self.marker_ptrs {
             let marker = unsafe { &mut (**ptr).data };
             if marker.buffer.is_some_and(|b| killed.contains(&b)) {
@@ -1118,16 +1197,20 @@ impl TaggedHeap {
 
     /// Mark a cons cell. Returns true if newly marked (not previously marked).
     fn mark_cons(&mut self, ptr: *const ConsCell) -> bool {
-        for block in &mut self.cons_blocks {
-            if block.contains(ptr) {
-                if block.is_marked(ptr) {
-                    return false; // Already marked
-                }
-                block.mark(ptr);
-                return true;
-            }
+        if !self.owns_cons_ptr(ptr) {
+            return false;
         }
-        false // Not found in any block (shouldn't happen)
+        let block_base = ConsBlock::block_base_for_ptr(ptr);
+        let block_index = *self
+            .cons_block_index_by_base
+            .get(&block_base)
+            .expect("owned cons pointer should resolve to a block");
+        let block = &mut self.cons_blocks[block_index];
+        if block.is_marked_ptr(ptr) {
+            return false;
+        }
+        block.mark_ptr(ptr);
+        true
     }
 
     /// Trace children of a vectorlike object, pushing them onto the gray queue.
@@ -1402,11 +1485,7 @@ impl TaggedHeap {
     /// Check if a tagged value points to a valid heap object we own.
     fn is_valid_heap_pointer(&self, val: TaggedValue) -> bool {
         match val.tag() {
-            0b010 => {
-                // Cons — check if pointer falls in any cons block
-                let ptr = val.xcons_ptr();
-                self.cons_blocks.iter().any(|b| b.contains(ptr))
-            }
+            0b010 => self.owns_cons_ptr(val.xcons_ptr()),
             0b011 | 0b100 | 0b110 => {
                 let ptr = val.heap_ptr().unwrap();
                 self.owns_non_cons_object(ptr)
@@ -1429,6 +1508,15 @@ impl TaggedHeap {
             }
         }
         false
+    }
+
+    #[inline]
+    fn owns_cons_ptr(&self, ptr: *const ConsCell) -> bool {
+        if ptr.is_null() || !ConsBlock::ptr_is_cell_aligned(ptr) {
+            return false;
+        }
+        self.cons_block_index_by_base
+            .contains_key(&ConsBlock::block_base_for_ptr(ptr))
     }
 }
 

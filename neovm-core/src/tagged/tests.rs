@@ -422,6 +422,29 @@ fn gc_collect_exact_ignores_configured_stack_scan() {
 }
 
 #[test]
+fn gc_collect_exact_preserves_roots_across_multiple_cons_blocks() {
+    crate::test_utils::init_test_tracing();
+    let mut heap = super::gc::TaggedHeap::new();
+
+    let mut first_block_root = TaggedValue::NIL;
+    let mut later_block_root = TaggedValue::NIL;
+    for i in 0..10_000 {
+        let cell = heap.alloc_cons(TaggedValue::fixnum(i), TaggedValue::NIL);
+        if i == 10 {
+            first_block_root = cell;
+        }
+        if i == 9_500 {
+            later_block_root = cell;
+        }
+    }
+
+    heap.collect_exact([first_block_root, later_block_root].into_iter());
+
+    assert_eq!(first_block_root.cons_car().as_fixnum(), Some(10));
+    assert_eq!(later_block_root.cons_car().as_fixnum(), Some(9_500));
+}
+
+#[test]
 fn equality_identity() {
     crate::test_utils::init_test_tracing();
     // Same tagged value = equal
