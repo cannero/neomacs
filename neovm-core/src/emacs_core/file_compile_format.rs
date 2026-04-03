@@ -214,6 +214,34 @@ pub fn serialize_neobc(
     Some(out)
 }
 
+/// Serialize already-expanded top-level expressions to `.neobc`.
+pub fn serialize_neobc_exprs(
+    source_hash: &str,
+    lexical_binding: bool,
+    forms: &[Expr],
+) -> Option<Vec<u8>> {
+    let mut encoder = ExprEncoder::default();
+    let mut serialized_forms = Vec::with_capacity(forms.len());
+    for form in forms {
+        let cached = encoder.encode(form)?;
+        serialized_forms.push(SerializedForm::Eval(cached));
+    }
+
+    let file = NeobcFile {
+        source_hash: source_hash.to_owned(),
+        lexical_binding,
+        forms: serialized_forms,
+    };
+
+    let payload = bincode::serialize(&file).ok()?;
+
+    let mut out = Vec::with_capacity(NEOBC_MAGIC.len() + 4 + payload.len());
+    out.extend_from_slice(NEOBC_MAGIC);
+    out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+    out.extend_from_slice(&payload);
+    Some(out)
+}
+
 /// Write compiled forms to a `.neobc` file on disk.
 ///
 /// Returns `Err` if the forms cannot be serialized (e.g., contains opaque
@@ -228,6 +256,22 @@ pub fn write_neobc(
         std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             "compiled forms contain non-serializable values",
+        )
+    })?;
+    std::fs::write(path, bytes)
+}
+
+/// Write already-expanded top-level expressions to a `.neobc` file on disk.
+pub fn write_neobc_exprs(
+    path: &Path,
+    source_hash: &str,
+    lexical_binding: bool,
+    forms: &[Expr],
+) -> std::io::Result<()> {
+    let bytes = serialize_neobc_exprs(source_hash, lexical_binding, forms).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "expanded forms contain non-serializable values",
         )
     })?;
     std::fs::write(path, bytes)
@@ -499,6 +543,25 @@ mod tests {
 
         let loaded = read_neobc(&path, &hash).unwrap();
         assert_eq!(loaded.forms.len(), 1);
+    }
+
+    #[test]
+    fn test_write_neobc_exprs_round_trip() {
+        crate::test_utils::init_test_tracing();
+        let forms = parse_forms("(progn (setq x 1) x)").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("exprs.neobc");
+        let hash = source_sha256("(progn (setq x 1) x)");
+
+        write_neobc_exprs(&path, &hash, false, &forms).unwrap();
+
+        let loaded = read_neobc(&path, &hash).unwrap();
+        assert!(!loaded.lexical_binding);
+        assert_eq!(loaded.forms.len(), 1);
+        match &loaded.forms[0] {
+            LoadedForm::Eval(expr) => assert!(matches!(expr, Expr::List(_))),
+            LoadedForm::Constant(_) => panic!("expected Eval form"),
+        }
     }
 
     #[test]
