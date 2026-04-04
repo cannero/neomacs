@@ -994,11 +994,18 @@ pub fn run(mode: RuntimeMode) {
             evaluator.redisplay_fn = Some(Box::new(move |eval: &mut Context| {
                 eval.setup_thread_locals();
                 run_layout(eval, &mut frame_glyphs);
-                // Bridge: wrap the FrameGlyphBuffer in a FrameDisplayState
-                // (passthrough mode).  The render thread calls materialize()
-                // to recover the original FrameGlyphBuffer.
-                let display_state =
-                    FrameDisplayState::from_frame_glyph_buffer(&frame_glyphs);
+                // Take the complete FrameDisplayState produced by the layout
+                // engine's GlyphMatrixBuilder.  Falls back to decomposing
+                // the FrameGlyphBuffer if the builder produced no state.
+                let display_state = LAYOUT_ENGINE.with(|engine| {
+                    engine
+                        .borrow_mut()
+                        .last_frame_display_state
+                        .take()
+                        .unwrap_or_else(|| {
+                            FrameDisplayState::from_frame_glyph_buffer(&frame_glyphs)
+                        })
+                });
                 let _ = frame_tx.try_send(display_state);
             }));
         }

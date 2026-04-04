@@ -414,20 +414,6 @@ pub struct FrameDisplayState {
     pub stipple_patterns: HashMap<i32, StipplePattern>,
     /// Effect hints for the renderer.
     pub effect_hints: Vec<WindowEffectHint>,
-
-    // -- Passthrough bridge fields (migration period) --
-    // When `passthrough_glyphs` is `Some`, `materialize()` bypasses grid
-    // conversion and returns a `FrameGlyphBuffer` built from these glyphs.
-    // This allows the channel type to change to `FrameDisplayState` while the
-    // layout engine still produces `FrameGlyphBuffer` internally.
-
-    /// Pre-materialized glyphs from `FrameGlyphBuffer`. When present,
-    /// `materialize()` uses these directly instead of converting the grid.
-    pub passthrough_glyphs: Option<Vec<FrameGlyph>>,
-    /// Passthrough transition hints (from `FrameGlyphBuffer`).
-    pub passthrough_transition_hints: Option<Vec<WindowTransitionHint>>,
-    /// Passthrough effect hints (from `FrameGlyphBuffer`).
-    pub passthrough_effect_hints: Option<Vec<WindowEffectHint>>,
 }
 
 impl FrameDisplayState {
@@ -460,19 +446,14 @@ impl FrameDisplayState {
             cursor_inverse: None,
             stipple_patterns: HashMap::new(),
             effect_hints: Vec::new(),
-            passthrough_glyphs: None,
-            passthrough_transition_hints: None,
-            passthrough_effect_hints: None,
         }
     }
 
     /// Create a `FrameDisplayState` from an existing `FrameGlyphBuffer`.
     ///
-    /// This is a bridge conversion for the migration period: the layout
-    /// engine still produces `FrameGlyphBuffer`, but the channel now
-    /// carries `FrameDisplayState`.  The original glyphs are stored in
-    /// `passthrough_glyphs` so that `materialize()` can return an
-    /// equivalent `FrameGlyphBuffer` without lossy grid decomposition.
+    /// Decomposes the flat glyph list into structured non-grid item
+    /// vectors (backgrounds, borders, cursors, images, videos, webkits,
+    /// scroll bars) and copies metadata (faces, window_infos, hints).
     pub fn from_frame_glyph_buffer(buf: &FrameGlyphBuffer) -> Self {
         let frame_cols = (buf.width / buf.char_width.max(1.0)) as usize;
         let frame_rows = (buf.height / buf.char_height.max(1.0)) as usize;
@@ -490,20 +471,156 @@ impl FrameDisplayState {
         state.window_infos = buf.window_infos.clone();
         state.cursor_inverse = buf.cursor_inverse.clone();
         state.stipple_patterns = buf.stipple_patterns.clone();
+        state.transition_hints = buf.transition_hints.clone();
+        state.effect_hints = buf.effect_hints.clone();
 
-        // Store the original glyphs for passthrough materialization
-        state.passthrough_glyphs = Some(buf.glyphs.clone());
-        state.passthrough_transition_hints = Some(buf.transition_hints.clone());
-        state.passthrough_effect_hints = Some(buf.effect_hints.clone());
+        // Decompose glyphs into structured non-grid item vectors
+        for glyph in &buf.glyphs {
+            match glyph {
+                FrameGlyph::Background { bounds, color } => {
+                    state.backgrounds.push(BackgroundItem {
+                        bounds: *bounds,
+                        color: *color,
+                    });
+                }
+                FrameGlyph::Border {
+                    window_id,
+                    x,
+                    y,
+                    width,
+                    height,
+                    color,
+                    ..
+                } => {
+                    state.borders.push(BorderItem {
+                        window_id: *window_id,
+                        x: *x,
+                        y: *y,
+                        width: *width,
+                        height: *height,
+                        color: *color,
+                    });
+                }
+                FrameGlyph::Cursor {
+                    window_id,
+                    x,
+                    y,
+                    width,
+                    height,
+                    style,
+                    color,
+                } => {
+                    state.cursors.push(CursorItem {
+                        window_id: *window_id,
+                        x: *x,
+                        y: *y,
+                        width: *width,
+                        height: *height,
+                        style: *style,
+                        color: *color,
+                    });
+                }
+                FrameGlyph::Image {
+                    window_id,
+                    row_role,
+                    clip_rect,
+                    image_id,
+                    x,
+                    y,
+                    width,
+                    height,
+                } => {
+                    state.images.push(ImageItem {
+                        window_id: *window_id,
+                        row_role: *row_role,
+                        clip_rect: *clip_rect,
+                        image_id: *image_id,
+                        x: *x,
+                        y: *y,
+                        width: *width,
+                        height: *height,
+                    });
+                }
+                FrameGlyph::Video {
+                    window_id,
+                    row_role,
+                    clip_rect,
+                    video_id,
+                    x,
+                    y,
+                    width,
+                    height,
+                    loop_count,
+                    autoplay,
+                } => {
+                    state.videos.push(VideoItem {
+                        window_id: *window_id,
+                        row_role: *row_role,
+                        clip_rect: *clip_rect,
+                        video_id: *video_id,
+                        x: *x,
+                        y: *y,
+                        width: *width,
+                        height: *height,
+                        loop_count: *loop_count,
+                        autoplay: *autoplay,
+                    });
+                }
+                FrameGlyph::WebKit {
+                    window_id,
+                    row_role,
+                    clip_rect,
+                    webkit_id,
+                    x,
+                    y,
+                    width,
+                    height,
+                } => {
+                    state.webkits.push(WebKitItem {
+                        window_id: *window_id,
+                        row_role: *row_role,
+                        clip_rect: *clip_rect,
+                        webkit_id: *webkit_id,
+                        x: *x,
+                        y: *y,
+                        width: *width,
+                        height: *height,
+                    });
+                }
+                FrameGlyph::ScrollBar {
+                    horizontal,
+                    x,
+                    y,
+                    width,
+                    height,
+                    thumb_start,
+                    thumb_size,
+                    track_color,
+                    thumb_color,
+                } => {
+                    state.scroll_bars.push(ScrollBarItem {
+                        horizontal: *horizontal,
+                        x: *x,
+                        y: *y,
+                        width: *width,
+                        height: *height,
+                        thumb_start: *thumb_start,
+                        thumb_size: *thumb_size,
+                        track_color: *track_color,
+                        thumb_color: *thumb_color,
+                    });
+                }
+                // Char, Stretch, Terminal — grid content, not decomposed here
+                _ => {}
+            }
+        }
 
         state
     }
 
     /// Convert this `FrameDisplayState` into a `FrameGlyphBuffer`.
     ///
-    /// When `passthrough_glyphs` is present (bridge mode), the original
-    /// glyphs are copied directly into the buffer without grid conversion.
-    /// Otherwise, materializes the `GlyphMatrix` grid into pixel-positioned
+    /// Materializes the `GlyphMatrix` grid into pixel-positioned
     /// `FrameGlyph` entries and appends all non-grid items (backgrounds,
     /// borders, cursors, etc.).
     pub fn materialize(&self) -> FrameGlyphBuffer {
@@ -534,19 +651,7 @@ impl FrameDisplayState {
         // Copy cursor inverse
         buf.cursor_inverse = self.cursor_inverse.clone();
 
-        // --- Passthrough mode: use pre-materialized glyphs directly ---
-        if let Some(ref glyphs) = self.passthrough_glyphs {
-            buf.glyphs = glyphs.clone();
-            if let Some(ref hints) = self.passthrough_transition_hints {
-                buf.transition_hints = hints.clone();
-            }
-            if let Some(ref hints) = self.passthrough_effect_hints {
-                buf.effect_hints = hints.clone();
-            }
-            return buf;
-        }
-
-        // --- Normal mode: grid conversion ---
+        // --- Grid conversion ---
 
         // Copy effect hints
         buf.effect_hints = self.effect_hints.clone();

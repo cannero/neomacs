@@ -14,10 +14,9 @@ impl RenderApp {
             let parent_id = display_state.parent_id;
 
             // Materialize FrameDisplayState → FrameGlyphBuffer for the
-            // existing rendering code.  During the migration the layout
-            // engine sends passthrough data, so this is essentially a
-            // clone; once the layout fills the grid directly, this will
-            // do the actual grid→pixel conversion.
+            // existing rendering code.  The layout engine populates
+            // the grid and non-grid items; materialize() converts the
+            // grid into pixel-positioned glyphs and appends non-grid items.
             let frame = display_state.materialize();
 
             if frame_id != 0 && parent_id == 0 && self.multi_windows.windows.contains_key(&frame_id)
