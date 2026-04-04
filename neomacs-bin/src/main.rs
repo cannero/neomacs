@@ -484,7 +484,6 @@ fn query_terminal_size_cells() -> Option<(u16, u16)> {
 
 enum FrontendHandle {
     Gui(RenderThread),
-    Tty(tty_frontend::TtyFrontend),
     /// Single-thread TTY path: input reader only, rendering via TtyRif on eval thread.
     TtyRifInput(tty_frontend::TtyInputReader),
 }
@@ -493,7 +492,6 @@ impl FrontendHandle {
     fn join(self) {
         match self {
             Self::Gui(handle) => handle.join(),
-            Self::Tty(handle) => handle.join(),
             Self::TtyRifInput(handle) => handle.join(),
         }
     }

@@ -4,11 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use crossbeam_channel::{Receiver, select, unbounded};
-use neomacs_display_runtime::DisplayBackend;
-use neomacs_display_runtime::FrameGlyphBuffer;
-use neomacs_display_runtime::backend::tty::TtyBackend;
-use neomacs_display_runtime::core::Scene;
+use crossbeam_channel::{select, unbounded};
 use neomacs_display_runtime::thread_comm::{InputEvent, RenderCommand, RenderComms};
 use neovm_core::keyboard::{
     RENDER_CTRL_MASK, RENDER_META_MASK, RENDER_SHIFT_MASK, XK_BACKSPACE, XK_DELETE, XK_DOWN,
@@ -18,120 +14,6 @@ use neovm_core::keyboard::{
 
 const ESC_SEQUENCE_TIMEOUT_MS: i32 = 25;
 const INPUT_POLL_INTERVAL_MS: i32 = 100;
-
-pub struct TtyFrontend {
-    handle: Option<JoinHandle<()>>,
-}
-
-impl TtyFrontend {
-    pub fn spawn(comms: RenderComms) -> Self {
-        let handle = thread::spawn(move || run_tty_frontend(comms));
-        Self {
-            handle: Some(handle),
-        }
-    }
-
-    pub fn join(mut self) {
-        if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
-        }
-    }
-}
-
-fn run_tty_frontend(comms: RenderComms) {
-    let mut backend = TtyBackend::new();
-    if let Err(err) = backend.init() {
-        tracing::error!("failed to initialize tty backend: {err}");
-        return;
-    }
-
-    let stop_input = Arc::new(AtomicBool::new(false));
-    let pause_input = Arc::new(AtomicBool::new(false));
-    let (input_tx, input_rx) = unbounded();
-    let input_stop = Arc::clone(&stop_input);
-    let input_pause = Arc::clone(&pause_input);
-    let input_handle = thread::Builder::new()
-        .name("tty-input".to_string())
-        .spawn(move || read_tty_input(input_tx, input_stop, input_pause))
-        .ok();
-    let mut suspended = false;
-    let mut suspended_frame: Option<FrameGlyphBuffer> = None;
-
-    loop {
-        select! {
-            recv(comms.cmd_rx) -> msg => {
-                match msg {
-                    Ok(RenderCommand::Shutdown) | Err(_) => break,
-                    Ok(RenderCommand::SuspendTty) => {
-                        if !suspended {
-                            pause_input.store(true, Ordering::Relaxed);
-                            backend.shutdown();
-                            suspended = true;
-                        }
-                    }
-                    Ok(RenderCommand::ResumeTty) => {
-                        if suspended {
-                            if let Err(err) = backend.init() {
-                                tracing::error!("failed to resume tty backend: {err}");
-                                break;
-                            }
-                            suspended = false;
-                            pause_input.store(false, Ordering::Relaxed);
-                            if let Some(frame) = suspended_frame.take()
-                                && let Err(err) = render_frame(&mut backend, frame)
-                            {
-                                tracing::error!("tty resume render failed: {err}");
-                                break;
-                            }
-                        }
-                    }
-                    Ok(_) => {}
-                }
-            }
-            recv(comms.frame_rx) -> msg => {
-                let Ok(first_frame) = msg else {
-                    break;
-                };
-                let frame = latest_frame(first_frame, &comms.frame_rx);
-                if suspended {
-                    suspended_frame = Some(frame);
-                } else if let Err(err) = render_frame(&mut backend, frame) {
-                    tracing::error!("tty render failed: {err}");
-                    break;
-                }
-            }
-            recv(input_rx) -> msg => {
-                match msg {
-                    Ok(event) if !suspended => comms.send_input(event),
-                    Ok(_) => {}
-                    Err(_) => break,
-                }
-            }
-            default(Duration::from_millis(50)) => {}
-        }
-    }
-
-    stop_input.store(true, Ordering::Relaxed);
-    if let Some(handle) = input_handle {
-        let _ = handle.join();
-    }
-}
-
-fn latest_frame(mut frame: FrameGlyphBuffer, rx: &Receiver<FrameGlyphBuffer>) -> FrameGlyphBuffer {
-    while let Ok(next) = rx.try_recv() {
-        frame = next;
-    }
-    frame
-}
-
-fn render_frame(backend: &mut TtyBackend, frame: FrameGlyphBuffer) -> Result<(), String> {
-    let mut scene = Scene::new(frame.width, frame.height);
-    scene.background = frame.background;
-    backend.set_frame_glyphs(frame);
-    backend.render(&scene).map_err(|err| err.to_string())?;
-    backend.present().map_err(|err| err.to_string())?;
-    Ok(())
-}
 
 fn read_tty_input(
     tx: crossbeam_channel::Sender<InputEvent>,
