@@ -770,9 +770,10 @@ pub(crate) fn eager_expand_toplevel_forms(
     eval: &mut super::eval::Context,
     form_value: Value,
     macroexpand_fn: Value,
-    sink: &mut impl FnMut(&mut super::eval::Context, Value, Value) -> Result<Value, EvalError>,
+    sink: &mut impl FnMut(&mut super::eval::Context, Value, Value, bool) -> Result<Value, EvalError>,
 ) -> Result<Value, EvalError> {
     let original_form = form_value;
+    let mutation_epoch_before = eval.macro_expansion_mutation_epoch();
     // Step 1: one-level expand — val = (internal-macroexpand-for-load val nil)
     // Note: real Emacs mutates `val` here; we shadow it.
     let val = eval.with_gc_scope(|ctx| {
@@ -789,7 +790,7 @@ pub(crate) fn eager_expand_toplevel_forms(
             tracing::debug!("eager_expand step1 failed, falling back to plain eval");
             return eval.with_gc_scope(|ctx| {
                 ctx.root(form_value);
-                sink(ctx, original_form, form_value)
+                sink(ctx, original_form, form_value, false)
             });
         }
     };
@@ -840,8 +841,12 @@ pub(crate) fn eager_expand_toplevel_forms(
         if d3.as_millis() > 200 {
             tracing::warn!("eager_expand step3 (full-expand) took {d3:.2?}");
         }
+        let requires_eager_replay = ctx.macro_expansion_mutation_epoch() != mutation_epoch_before
+            || cached_form_requires_eager_replay(original_form)
+            || cached_form_requires_eager_replay(val)
+            || cached_form_requires_eager_replay(expanded);
         ctx.root(expanded);
-        sink(ctx, original_form, expanded)
+        sink(ctx, original_form, expanded, requires_eager_replay)
     })
 }
 
@@ -855,7 +860,7 @@ pub(crate) fn eager_expand_eval(
         eval,
         form_value,
         macroexpand_fn,
-        &mut |ctx, _original, expanded| {
+        &mut |ctx, _original, expanded, _requires_eager_replay| {
             ctx.with_gc_scope(|ctx| {
                 ctx.root(expanded);
                 let t4 = std::time::Instant::now();
@@ -1297,9 +1302,9 @@ pub(crate) fn eval_decoded_source_file_in_context(
                 eval,
                 form_value,
                 mexp_fn,
-                &mut |ctx, original, expanded| {
+                &mut |ctx, original, expanded, requires_eager_replay| {
                     if let Some(builder) = neobc_builder.as_mut() {
-                        let push_result = if cached_form_requires_eager_replay(original) {
+                        let push_result = if requires_eager_replay {
                             builder.push_eager_eval_value_detailed(&original)
                         } else {
                             builder.push_eval_value_detailed(&expanded)

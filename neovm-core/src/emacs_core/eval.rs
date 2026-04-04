@@ -1209,6 +1209,12 @@ pub struct Context {
     /// where GNU Lisp expects `eq` identity to remain stable across calls.
     /// GC-rooted via `collect_roots`.
     pub(crate) source_literal_cache: HashMap<*const Expr, Value>,
+    /// Nested depth of active macro-expansion scopes.
+    macro_expansion_scope_depth: usize,
+    /// Monotonic counter for Lisp-visible mutations performed while a macro
+    /// expander is running. Eager-load caches use this to preserve GNU
+    /// `eval-and-compile` side effects during replay.
+    macro_expansion_mutation_epoch: u64,
     /// Cache for macro expansion results.
     ///
     /// Key: `(macro_heap_id, args_slice_ptr)` — the macro's tagged pointer plus the
@@ -3822,6 +3828,8 @@ impl Context {
             lexenv_assq_cache: RefCell::new(Vec::with_capacity(LEXENV_ASSQ_CACHE_CAPACITY)),
             lexenv_special_cache: RefCell::new(Vec::with_capacity(LEXENV_SPECIAL_CACHE_CAPACITY)),
             source_literal_cache: HashMap::new(),
+            macro_expansion_scope_depth: 0,
+            macro_expansion_mutation_epoch: 0,
             macro_expansion_cache: HashMap::new(),
             macro_cache_hits: 0,
             macro_cache_misses: 0,
@@ -3948,6 +3956,8 @@ impl Context {
             lexenv_assq_cache: RefCell::new(Vec::with_capacity(LEXENV_ASSQ_CACHE_CAPACITY)),
             lexenv_special_cache: RefCell::new(Vec::with_capacity(LEXENV_SPECIAL_CACHE_CAPACITY)),
             source_literal_cache: HashMap::new(),
+            macro_expansion_scope_depth: 0,
+            macro_expansion_mutation_epoch: 0,
             macro_expansion_cache: HashMap::new(),
             macro_cache_hits: 0,
             macro_cache_misses: 0,
@@ -6127,6 +6137,7 @@ impl Context {
         if name == "noninteractive" {
             self.noninteractive = value.is_truthy();
         }
+        self.note_macro_expansion_mutation();
         self.obarray.set_symbol_value(name, value);
     }
 
@@ -6143,6 +6154,7 @@ impl Context {
 
     /// Set a function binding.
     pub fn set_function(&mut self, name: &str, value: Value) {
+        self.note_macro_expansion_mutation();
         self.obarray.set_symbol_function(name, value);
     }
 
@@ -9106,6 +9118,7 @@ impl Context {
         let builtins::DefaliasPlan { action, result, .. } = plan;
         match action {
             builtins::DefaliasAction::SetFunction { symbol, definition } => {
+                self.note_macro_expansion_mutation();
                 self.obarray.set_symbol_function_id(symbol, definition);
             }
             builtins::DefaliasAction::CallHook {
@@ -9125,6 +9138,7 @@ impl Context {
         feature: Value,
         subfeatures: Option<Value>,
     ) -> EvalResult {
+        self.note_macro_expansion_mutation();
         provide_value_in_state(&mut self.obarray, &mut self.features, feature, subfeatures)?;
         // GNU Emacs Fprovide (fns.c): after adding the feature, run any
         // load-hooks registered in `after-load-alist`.
@@ -10390,6 +10404,7 @@ impl Context {
         &mut self,
         f: impl FnOnce(&mut Self) -> Result<T, Flow>,
     ) -> Result<T, Flow> {
+        self.macro_expansion_scope_depth += 1;
         let state = begin_macro_expansion_scope_in_state(
             &mut self.obarray,
             &self.specpdl,
@@ -10407,7 +10422,21 @@ impl Context {
             &mut self.temp_roots,
             state,
         );
+        self.macro_expansion_scope_depth = self.macro_expansion_scope_depth.saturating_sub(1);
         result
+    }
+
+    #[inline]
+    pub(crate) fn macro_expansion_mutation_epoch(&self) -> u64 {
+        self.macro_expansion_mutation_epoch
+    }
+
+    #[inline]
+    pub(crate) fn note_macro_expansion_mutation(&mut self) {
+        if self.macro_expansion_scope_depth > 0 {
+            self.macro_expansion_mutation_epoch =
+                self.macro_expansion_mutation_epoch.wrapping_add(1);
+        }
     }
 
     fn macro_expansion_context_key(&self) -> u64 {
@@ -11084,6 +11113,7 @@ impl Context {
     }
 
     pub(crate) fn begin_macro_expansion_scope(&mut self) -> ActiveMacroExpansionScopeState {
+        self.macro_expansion_scope_depth += 1;
         begin_macro_expansion_scope_in_state(
             &mut self.obarray,
             &self.specpdl,
@@ -11103,6 +11133,7 @@ impl Context {
             &mut self.temp_roots,
             state,
         );
+        self.macro_expansion_scope_depth = self.macro_expansion_scope_depth.saturating_sub(1);
     }
 
     pub(crate) fn kmacro_mut(&mut self) -> &mut KmacroManager {

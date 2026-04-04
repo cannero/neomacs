@@ -400,6 +400,7 @@ pub(crate) fn builtin_internal_define_uninitialized_variable(
     let symbol = expect_symbol_id(&args[0])?;
     let documentation = args.get(1).copied().unwrap_or(Value::NIL);
 
+    eval.note_macro_expansion_mutation();
     eval.obarray_mut().make_special_id(symbol);
 
     if !documentation.is_nil() {
@@ -437,6 +438,7 @@ pub(crate) fn set_default_toplevel_value_impl(
         return Err(signal("setting-constant", vec![args[0]]));
     }
     let value = args[1];
+    ctx.note_macro_expansion_mutation();
     if !crate::emacs_core::eval::set_default_toplevel_value_in_state(
         ctx.specpdl.as_mut_slice(),
         resolved,
@@ -498,6 +500,7 @@ pub(crate) fn defvaralias_impl(
         return Err(signal("cyclic-variable-indirection", vec![args[1]]));
     }
     let previous_target_id = resolve_variable_alias_id_in_obarray(&ctx.obarray, new_symbol)?;
+    ctx.note_macro_expansion_mutation();
     ctx.obarray.make_special_id(new_symbol);
     ctx.obarray.make_alias(new_symbol, old_symbol);
     ctx.obarray.make_special_id(old_symbol);
@@ -746,16 +749,20 @@ pub(crate) fn builtin_set(eval: &mut super::eval::Context, args: Vec<Value>) -> 
 
 pub(crate) fn builtin_fset(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("fset", &args, 2)?;
-    let obarray = eval.obarray_mut();
     let symbol = expect_symbol_id(&args[0])?;
     if symbol == intern("nil") && !args[1].is_nil() {
         return Err(signal("setting-constant", vec![Value::symbol("nil")]));
     }
     let def = args[1];
-    if would_create_function_alias_cycle_in_obarray(obarray, symbol, &def) {
+    let would_cycle = {
+        let obarray = eval.obarray_mut();
+        would_create_function_alias_cycle_in_obarray(obarray, symbol, &def)
+    };
+    if would_cycle {
         return Err(signal("cyclic-function-indirection", vec![args[0]]));
     }
-    obarray.set_symbol_function_id(symbol, def);
+    eval.note_macro_expansion_mutation();
+    eval.obarray_mut().set_symbol_function_id(symbol, def);
     Ok(def)
 }
 
@@ -805,6 +812,7 @@ pub(crate) fn builtin_makunbound(eval: &mut super::eval::Context, args: Vec<Valu
     if eval.obarray().is_constant_id(resolved) {
         return Err(signal("setting-constant", vec![args[0]]));
     }
+    eval.note_macro_expansion_mutation();
     eval.makunbound_runtime_binding_by_id(resolved);
     eval.run_variable_watchers_by_id(resolved, &Value::NIL, &Value::NIL, "makunbound")?;
     Ok(args[0])
@@ -842,6 +850,7 @@ pub(crate) fn builtin_defconst_1(eval: &mut super::eval::Context, args: Vec<Valu
 
     let resolved = resolve_variable_alias_id(eval, symbol)?;
     let value = args[1];
+    eval.note_macro_expansion_mutation();
     eval.obarray_mut().set_symbol_value_id(resolved, value);
     eval.obarray_mut().set_constant_id(resolved);
     eval.obarray_mut()
@@ -852,12 +861,12 @@ pub(crate) fn builtin_defconst_1(eval: &mut super::eval::Context, args: Vec<Valu
 
 pub(crate) fn builtin_fmakunbound(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("fmakunbound", &args, 1)?;
-    let obarray = eval.obarray_mut();
     let symbol = expect_symbol_id(&args[0])?;
     if symbol == intern("nil") || symbol == intern("t") {
         return Err(signal("setting-constant", vec![args[0]]));
     }
-    obarray.fmakunbound_id(symbol);
+    eval.note_macro_expansion_mutation();
+    eval.obarray_mut().fmakunbound_id(symbol);
     Ok(args[0])
 }
 
@@ -882,6 +891,7 @@ pub(crate) fn builtin_put(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
+    ctx.note_macro_expansion_mutation();
     put_in_obarray(&mut ctx.obarray, args)
 }
 

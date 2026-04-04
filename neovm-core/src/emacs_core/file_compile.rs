@@ -10,7 +10,7 @@ use std::path::Path;
 
 use super::builtins::parse_lambda_params_from_value;
 use super::bytecode::Compiler;
-use super::error::Flow;
+use super::error::{EvalError, Flow, map_flow};
 use super::eval::{Context, quote_to_value};
 use super::expr::Expr;
 use super::intern::resolve_sym;
@@ -21,9 +21,74 @@ use super::value::{Value, list_to_vec};
 pub enum CompiledForm {
     /// A form to evaluate at load time (already macro-expanded).
     Eval(Value),
+    /// A source form that must go back through eager macroexpansion at load
+    /// time to preserve GNU `eval-and-compile` / macro-expansion side effects.
+    EagerEval(Value),
     /// A constant produced by `eval-when-compile` — body was evaluated at
     /// compile time and only the result value is retained.
     Constant(Value),
+}
+
+impl CompiledForm {
+    fn root_value(&self) -> Value {
+        match self {
+            CompiledForm::Eval(value)
+            | CompiledForm::EagerEval(value)
+            | CompiledForm::Constant(value) => *value,
+        }
+    }
+}
+
+fn eval_error_to_flow(err: EvalError) -> Flow {
+    match err {
+        EvalError::Signal {
+            symbol,
+            data,
+            raw_data,
+        } => Flow::Signal(super::error::SignalData {
+            symbol,
+            data,
+            raw_data,
+            suppress_signal_hook: false,
+            selected_resume: None,
+            search_complete: false,
+        }),
+        EvalError::UncaughtThrow { tag, value } => Flow::Throw { tag, value },
+    }
+}
+
+fn compile_replayable_toplevel_form(
+    eval: &mut Context,
+    form: &Expr,
+    out: &mut Vec<CompiledForm>,
+) -> Result<(), Flow> {
+    let form_value = quote_to_value(form);
+    let Some(macroexpand_fn) = super::load::get_eager_macroexpand_fn(eval) else {
+        eval.eval(form)?;
+        out.push(CompiledForm::Eval(form_value));
+        return Ok(());
+    };
+
+    super::load::eager_expand_toplevel_forms(
+        eval,
+        form_value,
+        macroexpand_fn,
+        &mut |ctx, original, expanded, requires_eager_replay| {
+            ctx.with_gc_scope_result(|ctx| {
+                ctx.root(expanded);
+                ctx.eval_value(&expanded)?;
+                out.push(if requires_eager_replay {
+                    CompiledForm::EagerEval(original)
+                } else {
+                    CompiledForm::Eval(expanded)
+                });
+                Ok(Value::NIL)
+            })
+            .map_err(map_flow)
+        },
+    )
+    .map(|_| ())
+    .map_err(eval_error_to_flow)
 }
 
 /// Compile a sequence of top-level forms from a `.el` file.
@@ -40,7 +105,13 @@ pub enum CompiledForm {
 pub fn compile_file_forms(eval: &mut Context, forms: &[Expr]) -> Result<Vec<CompiledForm>, Flow> {
     let mut compiled = Vec::new();
     for form in forms {
-        compile_toplevel_file_form(eval, form, &mut compiled)?;
+        let compiled_roots: Vec<Value> = compiled.iter().map(CompiledForm::root_value).collect();
+        eval.with_gc_scope_result(|ctx| {
+            for root in &compiled_roots {
+                ctx.root(*root);
+            }
+            compile_toplevel_file_form(ctx, form, &mut compiled)
+        })?;
     }
     Ok(compiled)
 }
@@ -108,10 +179,9 @@ fn compile_toplevel_file_form(
                         return Ok(());
                     }
                     "eval-and-compile" => {
-                        // Evaluate body NOW (compile-time side effects) and
-                        // ALSO emit it so it runs again at load time.
-                        eval.sf_progn(&items[1..])?;
-                        out.push(CompiledForm::Eval(quote_to_value(form)));
+                        // Evaluate body NOW and preserve the GNU eager-load
+                        // replay policy for the load-time execution.
+                        compile_replayable_toplevel_form(eval, form, out)?;
                         return Ok(());
                     }
                     "defun" => {
@@ -128,10 +198,7 @@ fn compile_toplevel_file_form(
         _ => {}
     }
 
-    // Default: evaluate for side effects, emit as Eval form.
-    eval.eval(form)?;
-    out.push(CompiledForm::Eval(quote_to_value(form)));
-    Ok(())
+    compile_replayable_toplevel_form(eval, form, out)
 }
 
 /// Errors that can occur during file compilation.
@@ -202,8 +269,12 @@ pub fn compile_el_to_neobc(eval: &mut Context, el_path: &Path) -> Result<(), Com
 
     // 8. Write .neobc alongside the source.
     let neobc_path = el_path.with_extension("neobc");
-    super::file_compile_format::write_neobc(&neobc_path, &source_hash, lexical, &compiled)
-        .map_err(CompileFileError::Io)?;
+    let bytes =
+        super::file_compile_format::serialize_neobc_detailed(&source_hash, lexical, &compiled)
+            .map_err(|err| {
+                CompileFileError::Serialize(format!("{}: {}", err.path(), err.detail()))
+            })?;
+    std::fs::write(&neobc_path, bytes).map_err(CompileFileError::Io)?;
 
     Ok(())
 }

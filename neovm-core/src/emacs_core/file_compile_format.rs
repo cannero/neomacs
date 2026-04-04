@@ -20,7 +20,9 @@ use super::bytecode::opcode::Op;
 use super::eval::{OPAQUE_POOL, quote_to_value, value_to_expr};
 use super::expr::Expr;
 use super::file_compile::CompiledForm;
-use super::intern::{SymId, intern, intern_uninterned, is_canonical_id, resolve_sym};
+use super::intern::{
+    SymId, intern, intern_uninterned, is_canonical_id, resolve_sym, try_resolve_sym,
+};
 use super::value::{
     HashKey, HashTableTest, HashTableWeakness, LambdaData, LambdaParams, Value,
     build_hash_table_literal_value, list_to_vec,
@@ -33,11 +35,13 @@ use crate::tagged::header::{
 /// Monotonic on-disk `.neobc` schema version.
 ///
 /// Keep this aligned with `NEOBC_MAGIC` and the runtime cache directory
-/// version in `load.rs`. Any incompatible bincode layout change must bump it.
-pub(crate) const NEOBC_FORMAT_VERSION: u32 = 4;
+/// version in `load.rs`. Any change that makes previously emitted cached
+/// forms semantically unsafe to replay must bump it, even if the bincode
+/// layout itself stays readable.
+pub(crate) const NEOBC_FORMAT_VERSION: u32 = 5;
 
 /// Magic bytes identifying a `.neobc` file.
-const NEOBC_MAGIC: &[u8] = b"NEOVM-BC-V4\n";
+const NEOBC_MAGIC: &[u8] = b"NEOVM-BC-V5\n";
 
 // ---------------------------------------------------------------------------
 // Serializable expression type (mirrors load.rs CachedExpr, which is private)
@@ -176,6 +180,21 @@ impl UnsupportedValue {
     pub(crate) fn detail(&self) -> &str {
         &self.detail
     }
+
+    pub(crate) fn with_path_prefix(self, prefix: impl AsRef<str>) -> Self {
+        let prefix = prefix.as_ref();
+        let path = if self.path.is_empty() {
+            prefix.to_owned()
+        } else if prefix.is_empty() {
+            self.path
+        } else {
+            format!("{prefix}.{}", self.path)
+        };
+        Self {
+            path,
+            detail: self.detail,
+        }
+    }
 }
 
 fn is_canonical_symbol_id(id: SymId) -> bool {
@@ -244,9 +263,9 @@ fn portable_hash_key_value(key: &HashKey) -> Option<Value> {
 }
 
 impl ExprEncoder {
-    fn encode_sym_ref(&mut self, id: SymId) -> CachedSymRef {
-        let name = resolve_sym(id).to_owned();
-        if is_canonical_symbol_id(id) {
+    fn encode_sym_ref(&mut self, id: SymId) -> Option<CachedSymRef> {
+        let name = try_resolve_sym(id)?.to_owned();
+        Some(if is_canonical_symbol_id(id) {
             CachedSymRef::Symbol(name)
         } else {
             let slot = *self.uninterned_slots.entry(id).or_insert_with(|| {
@@ -255,23 +274,26 @@ impl ExprEncoder {
                 slot
             });
             CachedSymRef::UninternedSymbol { slot, name }
-        }
+        })
     }
 
-    fn encode_lambda_params(&mut self, params: &LambdaParams) -> CachedLambdaParams {
-        CachedLambdaParams {
+    fn encode_lambda_params(&mut self, params: &LambdaParams) -> Option<CachedLambdaParams> {
+        Some(CachedLambdaParams {
             required: params
                 .required
                 .iter()
                 .map(|id| self.encode_sym_ref(*id))
-                .collect(),
+                .collect::<Option<Vec<_>>>()?,
             optional: params
                 .optional
                 .iter()
                 .map(|id| self.encode_sym_ref(*id))
-                .collect(),
-            rest: params.rest.map(|id| self.encode_sym_ref(id)),
-        }
+                .collect::<Option<Vec<_>>>()?,
+            rest: match params.rest {
+                Some(id) => Some(self.encode_sym_ref(id)?),
+                None => None,
+            },
+        })
     }
 
     fn encode_bytecode(&mut self, bc: &ByteCodeFunction) -> Option<CachedByteCodeFunction> {
@@ -283,7 +305,7 @@ impl ExprEncoder {
                 .map(|value| self.encode_value(value))
                 .collect::<Option<Vec<_>>>()?,
             max_stack: bc.max_stack,
-            params: self.encode_lambda_params(&bc.params),
+            params: self.encode_lambda_params(&bc.params)?,
             lexical: bc.lexical,
             env: match bc.env.as_ref() {
                 Some(value) => Some(self.encode_value(value)?),
@@ -331,7 +353,10 @@ impl ExprEncoder {
         }
         Some(CachedHashTable {
             test: encode_hash_table_test(&table.test),
-            test_name: table.test_name.map(|id| resolve_sym(id).to_owned()),
+            test_name: match table.test_name {
+                Some(id) => Some(try_resolve_sym(id)?.to_owned()),
+                None => None,
+            },
             size: table.size,
             weakness: table.weakness.as_ref().map(encode_hash_table_weakness),
             rehash_size: table.rehash_size,
@@ -345,7 +370,7 @@ impl ExprEncoder {
             Expr::Int(n) => CachedExpr::Int(*n),
             Expr::Float(f) => CachedExpr::Float(*f),
             Expr::Symbol(id) => {
-                let name = resolve_sym(*id).to_owned();
+                let name = try_resolve_sym(*id)?.to_owned();
                 if is_canonical_symbol_id(*id) {
                     CachedExpr::Symbol(name)
                 } else {
@@ -395,7 +420,7 @@ impl ExprEncoder {
             super::value::ValueKind::Fixnum(n) => CachedExpr::Int(n),
             super::value::ValueKind::Float => CachedExpr::Float(value.as_float()?),
             super::value::ValueKind::Symbol(id) => {
-                let name = resolve_sym(id).to_owned();
+                let name = try_resolve_sym(id)?.to_owned();
                 if is_canonical_symbol_id(id) {
                     CachedExpr::Symbol(name)
                 } else {
@@ -493,7 +518,10 @@ fn summarize_value(value: &Value) -> String {
         super::value::ValueKind::T => "t".to_owned(),
         super::value::ValueKind::Fixnum(n) => format!("fixnum {n}"),
         super::value::ValueKind::Float => format!("float {}", value.as_float().unwrap_or(0.0)),
-        super::value::ValueKind::Symbol(id) => format!("symbol {}", resolve_sym(id)),
+        super::value::ValueKind::Symbol(id) => match try_resolve_sym(id) {
+            Some(name) => format!("symbol {name}"),
+            None => format!("invalid symbol id {}", id.0),
+        },
         super::value::ValueKind::String => {
             if super::value::string_has_text_properties_for_value(*value) {
                 "string with text properties".to_owned()
@@ -513,9 +541,13 @@ fn diagnose_unsupported_value(value: &Value, path: &str) -> UnsupportedValue {
         | super::value::ValueKind::T
         | super::value::ValueKind::Fixnum(_)
         | super::value::ValueKind::Float
-        | super::value::ValueKind::Symbol(_) => {
-            UnsupportedValue::new(path, "value was expected to be serializable")
-        }
+        | super::value::ValueKind::Symbol(_) => UnsupportedValue::new(
+            path,
+            format!(
+                "value was expected to be serializable ({})",
+                summarize_value(value)
+            ),
+        ),
         super::value::ValueKind::String => {
             if super::value::string_has_text_properties_for_value(*value) {
                 UnsupportedValue::new(path, "string with text properties")
@@ -702,6 +734,18 @@ impl NeobcBuilder {
         let cached = self.encoder.encode_value(value)?;
         self.forms.push(SerializedForm::Constant(cached));
         Some(())
+    }
+
+    pub(crate) fn push_constant_value_detailed(
+        &mut self,
+        value: &Value,
+    ) -> Result<(), UnsupportedValue> {
+        let cached = self
+            .encoder
+            .encode_value(value)
+            .ok_or_else(|| self.encoder.unsupported_value(value))?;
+        self.forms.push(SerializedForm::Constant(cached));
+        Ok(())
     }
 
     pub(crate) fn len(&self) -> usize {
@@ -943,14 +987,35 @@ pub fn serialize_neobc(
     lexical_binding: bool,
     compiled_forms: &[CompiledForm],
 ) -> Option<Vec<u8>> {
+    serialize_neobc_detailed(source_hash, lexical_binding, compiled_forms).ok()
+}
+
+pub fn serialize_neobc_detailed(
+    source_hash: &str,
+    lexical_binding: bool,
+    compiled_forms: &[CompiledForm],
+) -> Result<Vec<u8>, UnsupportedValue> {
     let mut builder = NeobcBuilder::new(source_hash, lexical_binding);
-    for form in compiled_forms {
+    for (index, form) in compiled_forms.iter().enumerate() {
+        let prefix = format!("forms[{index}]");
         match form {
-            CompiledForm::Eval(value) => builder.push_eval_value(value)?,
-            CompiledForm::Constant(value) => builder.push_constant_value(value)?,
+            CompiledForm::Eval(value) => builder
+                .push_eval_value_detailed(value)
+                .map_err(|err| err.with_path_prefix(&prefix))?,
+            CompiledForm::EagerEval(value) => builder
+                .push_eager_eval_value_detailed(value)
+                .map_err(|err| err.with_path_prefix(&prefix))?,
+            CompiledForm::Constant(value) => builder
+                .push_constant_value_detailed(value)
+                .map_err(|err| err.with_path_prefix(&prefix))?,
         }
     }
-    builder.finish_bytes()
+    builder.finish_bytes().ok_or_else(|| {
+        UnsupportedValue::new(
+            "root",
+            "forms contained non-serializable runtime values after encoding",
+        )
+    })
 }
 
 /// Serialize already-expanded top-level expressions to `.neobc`.

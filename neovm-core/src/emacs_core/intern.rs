@@ -215,6 +215,19 @@ pub fn resolve_sym(id: SymId) -> &'static str {
         .expect("global interner poisoned during resolve");
     interner.resolve(id)
 }
+
+/// Resolve a SymId to its string using the global runtime interner.
+///
+/// Returns `None` if the id is outside the current interner range instead of
+/// panicking. This is useful at serialization boundaries where we want a
+/// structured error instead of aborting the process on malformed runtime data.
+#[inline]
+pub fn try_resolve_sym(id: SymId) -> Option<&'static str> {
+    let interner = global_interner()
+        .read()
+        .expect("global interner poisoned during resolve");
+    interner.strings().get(id.0 as usize).copied()
+}
 #[cfg(test)]
 #[path = "intern_test.rs"]
 mod tests;

@@ -5622,6 +5622,212 @@ fn expanded_cache_replay_preserves_oclosure_define_class_registration() {
 }
 
 #[test]
+fn expanded_cache_replay_preserves_cl_generic_context_rewriters() {
+    crate::test_utils::init_test_tracing();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("vm-cl-generic-context-cache.el");
+    std::fs::write(
+        &path,
+        r#"
+;; -*- lexical-binding: t -*-
+(eval-when-compile (require 'cl-lib))
+(defvar neo-test-context nil)
+(cl-defgeneric neo-test-frame-creation-function (params))
+(cl-generic-define-context-rewriter neo-test-context (value)
+  `(neo-test-context ,(if (consp value) value `(eql ',value))))
+(cl-defmethod neo-test-frame-creation-function (params &context (neo-test-context nil))
+  'tty)
+"#,
+    )
+    .expect("write cl-generic context fixture");
+
+    let mut eval = partial_bootstrap_eval_until("simple", true);
+    let expansion_probe = parse_forms(
+        r#"(cl-generic-define-context-rewriter neo-test-context (value)
+             `(neo-test-context ,(if (consp value) value `(eql ',value))))"#,
+    )
+    .expect("parse expansion probe");
+    let macroexpand_fn = get_eager_macroexpand_fn(&eval).expect("eager macroexpand fn");
+    let one_level = eval
+        .apply(
+            macroexpand_fn,
+            vec![quote_to_value(&expansion_probe[0]), Value::NIL],
+        )
+        .expect("one-level macroexpand");
+    tracing::info!(
+        "one-level context-rewriter expansion: {}",
+        crate::emacs_core::print::print_value_with_buffers(&one_level, &eval.buffers)
+    );
+    load_file(&mut eval, &path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading {}: {}",
+            path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+    let first = eval_rendered(
+        &mut eval,
+        r#"
+(list (neo-test-frame-creation-function nil)
+      (and (get 'neo-test-context 'cl-generic--context-rewriter) t))
+"#,
+    );
+    let loaded =
+        crate::emacs_core::file_compile_format::read_neobc(&path.with_extension("neobc"), "")
+            .expect("read neobc");
+    let cached_heads: Vec<String> = loaded
+        .forms
+        .iter()
+        .map(|form| {
+            let expr = match form {
+                crate::emacs_core::file_compile_format::LoadedForm::Eval(expr)
+                | crate::emacs_core::file_compile_format::LoadedForm::EagerEval(expr) => expr,
+                crate::emacs_core::file_compile_format::LoadedForm::Constant(_) => {
+                    return "Constant".to_string();
+                }
+            };
+            match expr {
+                Expr::List(items) => match items.first() {
+                    Some(Expr::Symbol(id)) => resolve_sym(*id).to_string(),
+                    _ => "list".to_string(),
+                },
+                Expr::OpaqueValueRef(_) => "opaque".to_string(),
+                _ => "atom".to_string(),
+            }
+        })
+        .collect();
+    tracing::info!("cached heads for {}: {:?}", path.display(), cached_heads);
+
+    let reset_forms = parse_forms(
+        r#"
+(fmakunbound 'neo-test-frame-creation-function)
+(put 'neo-test-context 'cl-generic--context-rewriter nil)
+"#,
+    )
+    .expect("parse reset forms");
+    let _ = eval.eval_forms(&reset_forms);
+
+    for (index, form) in loaded.forms.iter().enumerate() {
+        let property_before = eval_rendered(
+            &mut eval,
+            "(and (get 'neo-test-context 'cl-generic--context-rewriter) t)",
+        );
+        let form_desc = match form {
+            crate::emacs_core::file_compile_format::LoadedForm::Eval(expr)
+            | crate::emacs_core::file_compile_format::LoadedForm::EagerEval(expr) => {
+                crate::emacs_core::print::print_value_with_buffers(
+                    &eval.quote_to_runtime_value(expr),
+                    &eval.buffers,
+                )
+            }
+            crate::emacs_core::file_compile_format::LoadedForm::Constant(value) => {
+                crate::emacs_core::print::print_value_with_buffers(value, &eval.buffers)
+            }
+        };
+        let replay_result = match form {
+            crate::emacs_core::file_compile_format::LoadedForm::Eval(expr) => {
+                eval_runtime_form(&mut eval, expr)
+            }
+            crate::emacs_core::file_compile_format::LoadedForm::EagerEval(expr) => {
+                let form_value = eval.quote_to_runtime_value(expr);
+                if let Some(macroexpand_fn) = get_eager_macroexpand_fn(&mut eval) {
+                    eager_expand_eval(&mut eval, form_value, macroexpand_fn)
+                } else {
+                    eval.eval_sub(form_value).map_err(map_flow)
+                }
+            }
+            crate::emacs_core::file_compile_format::LoadedForm::Constant(_) => Ok(Value::NIL),
+        };
+        if let Err(err) = replay_result {
+            panic!(
+                "failed replaying cached form {} from {} (property before={}): {}",
+                index,
+                path.display(),
+                property_before,
+                format!(
+                    "{} while replaying {}",
+                    format_eval_error(&eval, &err),
+                    form_desc
+                )
+            );
+        }
+    }
+    let second = eval_rendered(
+        &mut eval,
+        r#"
+(list (neo-test-frame-creation-function nil)
+      (and (get 'neo-test-context 'cl-generic--context-rewriter) t))
+"#,
+    );
+
+    assert_eq!(first, "OK (tty t)");
+    assert_eq!(second, "OK (tty t)");
+}
+
+#[test]
+fn compiled_neobc_replay_preserves_cl_generic_context_rewriters() {
+    crate::test_utils::init_test_tracing();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("vm-cl-generic-context-compiled.el");
+    std::fs::write(
+        &path,
+        r#"
+;; -*- lexical-binding: t -*-
+(eval-when-compile (require 'cl-lib))
+(defvar neo-test-context nil)
+(cl-defgeneric neo-test-frame-creation-function (params))
+(cl-generic-define-context-rewriter neo-test-context (value)
+  `(neo-test-context ,(if (consp value) value `(eql ',value))))
+(cl-defmethod neo-test-frame-creation-function (params &context (neo-test-context nil))
+  'tty)
+"#,
+    )
+    .expect("write cl-generic compiled fixture");
+
+    let mut eval = partial_bootstrap_eval_until("simple", true);
+    crate::emacs_core::file_compile::compile_el_to_neobc(&mut eval, &path)
+        .expect("compile fixture to neobc");
+
+    let loaded =
+        crate::emacs_core::file_compile_format::read_neobc(&path.with_extension("neobc"), "")
+            .expect("read compiled neobc");
+    assert!(
+        loaded.forms.iter().any(|form| matches!(
+            form,
+            crate::emacs_core::file_compile_format::LoadedForm::EagerEval(_)
+        )),
+        "compiled neobc should preserve eager replay forms for context rewriters"
+    );
+
+    let reset_forms = parse_forms(
+        r#"
+(fmakunbound 'neo-test-frame-creation-function)
+(put 'neo-test-context 'cl-generic--context-rewriter nil)
+"#,
+    )
+    .expect("parse reset forms");
+    let _ = eval.eval_forms(&reset_forms);
+
+    load_file(&mut eval, &path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading compiled fixture {}: {}",
+            path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"
+(list (neo-test-frame-creation-function nil)
+      (and (get 'neo-test-context 'cl-generic--context-rewriter) t))
+"#,
+    );
+
+    assert_eq!(rendered, "OK (tty t)");
+}
+
+#[test]
 fn expanded_cache_replay_preserves_nadvice_eval_and_compile_helpers() {
     crate::test_utils::init_test_tracing();
     let load_with_partial_bootstrap = || {
@@ -6401,7 +6607,7 @@ fn eager_expand_toplevel_forms_keeps_recursive_progn_forms_alive_under_exact_gc(
         &mut eval,
         form_value,
         macroexpand_fn,
-        &mut |ctx, _original, form| {
+        &mut |ctx, _original, form, _requires_eager_replay| {
             expanded.push(crate::emacs_core::print::print_value_with_buffers(
                 &form,
                 &ctx.buffers,
