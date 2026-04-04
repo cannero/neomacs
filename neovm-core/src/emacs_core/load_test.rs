@@ -2132,6 +2132,53 @@ fn normalize_runtime_surface_preserves_partial_bootstrap_subr_prefix_maps() {
 }
 
 #[test]
+fn normalize_runtime_surface_preserves_partial_bindings_global_prefix_links() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = partial_bootstrap_eval_until("files", true);
+    let project_root = runtime_project_root();
+    normalize_bootstrap_runtime_surface(&mut eval, &project_root)
+        .expect("normalize runtime surface");
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(list
+             (lookup-key (current-global-map) "\e")
+             (lookup-key esc-map "x")
+             (lookup-key (current-global-map) "\C-x")
+             (lookup-key ctl-x-map "4")
+             (lookup-key ctl-x-map "5")
+             (lookup-key ctl-x-map "t")
+             (lookup-key (current-global-map) "\e\e\e")
+             (lookup-key (current-global-map) "\C-x\C-z"))"#,
+    );
+    assert_eq!(
+        rendered,
+        "OK (ESC-prefix execute-extended-command Control-X-prefix ctl-x-4-prefix ctl-x-5-prefix (keymap) keyboard-escape-quit suspend-emacs)"
+    );
+}
+
+#[test]
+fn partial_bootstrap_through_simple_preserves_gnu_prefix_maps() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = partial_bootstrap_eval_until("mouse", true);
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(list
+             (lookup-key (current-global-map) "\e")
+             (lookup-key esc-map "x")
+             (lookup-key (current-global-map) "\C-x")
+             (lookup-key ctl-x-map "4")
+             (lookup-key ctl-x-map "5")
+             (lookup-key ctl-x-map "t")
+             (lookup-key (current-global-map) "\e\e\e")
+             (lookup-key (current-global-map) "\C-x\C-z"))"#,
+    );
+    assert_eq!(
+        rendered,
+        "OK (ESC-prefix execute-extended-command Control-X-prefix ctl-x-4-prefix ctl-x-5-prefix (keymap) keyboard-escape-quit suspend-emacs)"
+    );
+}
+
+#[test]
 fn bootstrap_runtime_preserves_gnu_minibuffer_completion_bindings() {
     crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
