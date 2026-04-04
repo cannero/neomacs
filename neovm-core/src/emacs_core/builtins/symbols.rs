@@ -68,8 +68,7 @@ impl MacroexpandRuntime for super::eval::Context {
         function: Value,
         args: Vec<Value>,
     ) -> Result<Value, Flow> {
-        let tail = form.cons_cdr();
-        if let Some(cached) = self.lookup_runtime_macro_expansion(function, tail, &args) {
+        if let Some(cached) = self.lookup_runtime_macro_expansion(function, &args) {
             return Ok(self.source_literal_to_runtime_value(cached.as_ref()));
         }
         let args_for_cache = args.clone();
@@ -82,13 +81,7 @@ impl MacroexpandRuntime for super::eval::Context {
             }
             let expanded = ctx.with_macro_expansion_scope(|eval| eval.apply(function, args))?;
             let expand_elapsed = expand_start.elapsed();
-            ctx.store_runtime_macro_expansion(
-                function,
-                tail,
-                &args_for_cache,
-                &expanded,
-                expand_elapsed,
-            );
+            ctx.store_runtime_macro_expansion(function, &args_for_cache, &expanded, expand_elapsed);
             Ok(expanded)
         })
     }

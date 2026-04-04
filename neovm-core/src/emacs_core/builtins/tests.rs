@@ -9335,11 +9335,19 @@ fn macroexpand_runtime_cache_tracks_load_forms_without_stale_hits() {
     assert_eq!(eval.macro_cache_misses, 1);
     assert_eq!(eval.macro_cache_hits, 1);
 
+    let equivalent_tail = Value::cons(Value::fixnum(1), Value::NIL);
+    let equivalent_form = Value::cons(Value::symbol("vm-cache-macro"), equivalent_tail);
+    let third = builtin_macroexpand(&mut eval, vec![equivalent_form])
+        .expect("equivalent runtime form should reuse cache");
+    assert_eq!(third, Value::fixnum(1));
+    assert_eq!(eval.macro_cache_misses, 1);
+    assert_eq!(eval.macro_cache_hits, 2);
+
     tail.set_car(Value::fixnum(2));
-    let third = builtin_macroexpand(&mut eval, vec![form]).expect("mutated expansion");
-    assert_eq!(third, Value::fixnum(2));
+    let fourth = builtin_macroexpand(&mut eval, vec![form]).expect("mutated expansion");
+    assert_eq!(fourth, Value::fixnum(2));
     assert_eq!(eval.macro_cache_misses, 2);
-    assert_eq!(eval.macro_cache_hits, 1);
+    assert_eq!(eval.macro_cache_hits, 2);
 }
 
 #[test]

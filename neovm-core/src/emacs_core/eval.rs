@@ -1229,8 +1229,11 @@ pub struct Context {
     /// When true, skip cache lookups (still populate cache for timing).
     pub(crate) macro_cache_disabled: bool,
     /// Value-side eager-load macro cache used by `macroexpand`/
-    /// `internal-macroexpand-for-load`. Stores expansions as `Expr` trees so
-    /// exact GC does not need to root cached Value graphs.
+    /// `internal-macroexpand-for-load`.
+    ///
+    /// Keyed by macro identity plus a structural fingerprint of the runtime
+    /// argument tail, so equivalent cons trees rebuilt from cached/bootstrap
+    /// forms can reuse the same expansion.
     pub(crate) runtime_macro_expansion_cache:
         HashMap<(usize, usize, u64), Rc<MacroExpansionCacheEntry>>,
     /// Bootstrapped standard interpreted-closure filter function object.
@@ -10440,11 +10443,11 @@ impl Context {
     fn runtime_macro_expansion_cache_key(
         &self,
         function: Value,
-        tail: Value,
+        args_fingerprint: u64,
     ) -> (usize, usize, u64) {
         (
             function.bits() ^ 0x9E37_79B1usize,
-            tail.bits() as usize,
+            args_fingerprint as usize,
             self.macro_expansion_context_key(),
         )
     }
@@ -10452,14 +10455,13 @@ impl Context {
     pub(crate) fn lookup_runtime_macro_expansion(
         &mut self,
         function: Value,
-        tail: Value,
         args: &[Value],
     ) -> Option<Rc<Expr>> {
         if !self.runtime_macro_expansion_cache_enabled() {
             return None;
         }
-        let cache_key = self.runtime_macro_expansion_cache_key(function, tail);
         let current_fp = runtime_tail_fingerprint(args);
+        let cache_key = self.runtime_macro_expansion_cache_key(function, current_fp);
         let cached = self
             .runtime_macro_expansion_cache
             .get(&cache_key)
@@ -10474,7 +10476,6 @@ impl Context {
     pub(crate) fn store_runtime_macro_expansion(
         &mut self,
         function: Value,
-        tail: Value,
         args: &[Value],
         expanded_value: &Value,
         expand_elapsed: std::time::Duration,
@@ -10484,17 +10485,17 @@ impl Context {
         }
         self.macro_cache_misses += 1;
         self.macro_expand_total_us += expand_elapsed.as_micros() as u64;
-        let cache_key = self.runtime_macro_expansion_cache_key(function, tail);
         let current_fp = runtime_tail_fingerprint(args);
+        let cache_key = self.runtime_macro_expansion_cache_key(function, current_fp);
         let cache_entry = Rc::new(MacroExpansionCacheEntry::new(
             Rc::new(value_to_expr(expanded_value)),
             current_fp,
         ));
         if expand_elapsed.as_millis() > 50 {
             tracing::warn!(
-                "runtime_macro_cache MISS macro={:#x} tail={:#x} took {expand_elapsed:.2?}",
+                "runtime_macro_cache MISS macro={:#x} fp={:#x} took {expand_elapsed:.2?}",
                 function.bits(),
-                tail.bits()
+                current_fp
             );
         }
         self.runtime_macro_expansion_cache
