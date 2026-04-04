@@ -8,6 +8,8 @@ use crate::face::{Color, FaceAttrValue};
 use crate::test_utils::runtime_startup_eval_all;
 use crate::window::FRAME_ID_BASE;
 use std::cell::RefCell;
+use std::fs;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 fn call_face_font(args: impl FnOnce() -> Vec<Value>) -> EvalResult {
@@ -22,6 +24,42 @@ macro_rules! call_font_builtin {
         let args = $args;
         $builtin(&mut eval, args)
     }};
+}
+
+#[test]
+fn raw_context_does_not_prebind_x_color_aliases() {
+    crate::test_utils::init_test_tracing();
+    let eval = Context::new();
+    for name in ["x-defined-colors", "x-color-defined-p", "x-color-values"] {
+        assert!(
+            eval.obarray.symbol_function(name).is_none(),
+            "{name} should come from GNU faces.el, not Context::new",
+        );
+    }
+}
+
+#[test]
+fn gnu_faces_el_defines_x_color_aliases() {
+    crate::test_utils::init_test_tracing();
+    let source = fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("project root")
+            .join("lisp/faces.el"),
+    )
+    .expect("read faces.el");
+    assert!(
+        source.contains("(define-obsolete-function-alias 'x-defined-colors #'defined-colors \"30.1\")"),
+        "GNU faces.el should own the x-defined-colors alias",
+    );
+    assert!(
+        source.contains("(define-obsolete-function-alias 'x-color-defined-p #'color-defined-p \"30.1\")"),
+        "GNU faces.el should own the x-color-defined-p alias",
+    );
+    assert!(
+        source.contains("(define-obsolete-function-alias 'x-color-values #'color-values \"30.1\")"),
+        "GNU faces.el should own the x-color-values alias",
+    );
 }
 
 // -----------------------------------------------------------------------

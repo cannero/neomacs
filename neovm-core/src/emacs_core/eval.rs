@@ -3407,17 +3407,6 @@ impl Context {
             obarray.put_property(name, "variable-documentation", Value::string(doc));
         }
 
-        obarray.set_symbol_function("x-color-defined-p", Value::symbol("color-defined-p"));
-        obarray.set_symbol_function("x-color-values", Value::symbol("color-values"));
-        obarray.set_symbol_function("x-defined-colors", Value::symbol("defined-colors"));
-        obarray.set_symbol_function("x-get-selection", Value::symbol("gui-get-selection"));
-        obarray.set_symbol_function(
-            "x-get-selection-value",
-            Value::symbol("gui-get-primary-selection"),
-        );
-        obarray.set_symbol_function("x-select-text", Value::symbol("gui-select-text"));
-        obarray.set_symbol_function("x-selection-value", Value::symbol("gui-selection-value"));
-        obarray.set_symbol_function("x-set-selection", Value::symbol("gui-set-selection"));
         // Bootstrap primitive function cells that GNU `simple.el` references
         // before its own Elisp defs overwrite them. Without these placeholders,
         // loaded GNU bytecode can capture `nil` for forward/runtime calls into

@@ -12,9 +12,65 @@ use crate::emacs_core::terminal::pure::{
     reset_terminal_thread_locals, terminal_handle_value,
 };
 use crate::emacs_core::value::ValueKind;
+use std::fs;
+use std::path::PathBuf;
 
 fn clear_terminal_parameters() {
     reset_terminal_thread_locals();
+}
+
+#[test]
+fn raw_context_does_not_prebind_x_selection_aliases() {
+    crate::test_utils::init_test_tracing();
+    let eval = crate::emacs_core::Context::new();
+    for name in [
+        "x-select-text",
+        "x-selection-value",
+        "x-get-selection-value",
+        "x-get-selection",
+        "x-set-selection",
+    ] {
+        assert!(
+            eval.obarray.symbol_function(name).is_none(),
+            "{name} should come from GNU select.el, not Context::new",
+        );
+    }
+}
+
+#[test]
+fn gnu_select_el_defines_x_selection_aliases() {
+    crate::test_utils::init_test_tracing();
+    let source = fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("project root")
+            .join("lisp/select.el"),
+    )
+    .expect("read select.el");
+    assert!(
+        source.contains("(define-obsolete-function-alias 'x-select-text 'gui-select-text \"25.1\")"),
+        "GNU select.el should own the x-select-text alias",
+    );
+    assert!(
+        source.contains(
+            "(define-obsolete-function-alias 'x-selection-value 'gui-selection-value \"25.1\")",
+        ),
+        "GNU select.el should own the x-selection-value alias",
+    );
+    assert!(
+        source.contains(
+            "(define-obsolete-function-alias 'x-get-selection-value\n  'gui-get-primary-selection \"25.1\")",
+        ),
+        "GNU select.el should own the x-get-selection-value alias",
+    );
+    assert!(
+        source.contains("(define-obsolete-function-alias 'x-get-selection 'gui-get-selection \"25.1\")"),
+        "GNU select.el should own the x-get-selection alias",
+    );
+    assert!(
+        source.contains("(define-obsolete-function-alias 'x-set-selection 'gui-set-selection \"25.1\")"),
+        "GNU select.el should own the x-set-selection alias",
+    );
 }
 
 #[test]
