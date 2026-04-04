@@ -2503,6 +2503,17 @@ impl LayoutEngine {
             };
         }
 
+        // --- GlyphMatrix builder: begin window and first row ---
+        let matrix_rows = max_rows.max(1);
+        let matrix_cols = cols.max(1);
+        self.matrix_builder.begin_window(
+            params.window_id as u64,
+            matrix_rows,
+            matrix_cols,
+            params.bounds,
+        );
+        self.matrix_builder.begin_row(0, neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text);
+
         while byte_idx < text.len() && row < max_rows && y + row_max_height <= text_y + text_height
         {
             // Render line number at start of each visual line
@@ -3107,7 +3118,9 @@ impl LayoutEngine {
                     content_x,
                 );
                 row_glyph_start = frame_glyphs.glyphs.len();
+                self.matrix_builder.end_row();
                 row += 1;
+                self.matrix_builder.begin_row(row, neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text);
                 y = text_y + row as f32 * char_h + row_extra_y;
                 row_max_height = char_h;
                 row_max_ascent = default_face_ascent;
@@ -3730,7 +3743,9 @@ impl LayoutEngine {
                         content_x,
                     );
                     row_glyph_start = frame_glyphs.glyphs.len();
+                    self.matrix_builder.end_row();
                     row += 1;
+                    self.matrix_builder.begin_row(row, neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text);
                     y = text_y + row as f32 * char_h + row_extra_y;
                     row_max_height = char_h;
                     row_max_ascent = default_face_ascent;
@@ -3785,7 +3800,9 @@ impl LayoutEngine {
                         content_x,
                     );
                     row_glyph_start = frame_glyphs.glyphs.len();
+                    self.matrix_builder.end_row();
                     row += 1;
+                    self.matrix_builder.begin_row(row, neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text);
                     y = text_y + row as f32 * char_h + row_extra_y;
                     row_max_height = char_h;
                     row_max_ascent = default_face_ascent;
@@ -3843,7 +3860,9 @@ impl LayoutEngine {
                         content_x,
                     );
                     row_glyph_start = frame_glyphs.glyphs.len();
+                    self.matrix_builder.end_row();
                     row += 1;
+                    self.matrix_builder.begin_row(row, neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text);
                     y = text_y + row as f32 * char_h + row_extra_y;
                     row_max_height = char_h;
                     row_max_ascent = default_face_ascent;
@@ -3956,6 +3975,13 @@ impl LayoutEngine {
                 window_top,
             );
             self.run_buf.push(ch, advance);
+
+            // Record character into GlyphMatrix builder
+            if char_cols == 2 {
+                self.matrix_builder.push_wide_char(ch, current_face_id.saturating_sub(1), charpos as usize);
+            } else {
+                self.matrix_builder.push_char(ch, current_face_id.saturating_sub(1), charpos as usize);
+            }
 
             // Flush if run is too long
             if self.run_buf.len() >= MAX_LIGATURE_RUN_LEN {
@@ -4765,6 +4791,10 @@ impl LayoutEngine {
                 }
             }
         }
+
+        // --- GlyphMatrix builder: close final row and window ---
+        self.matrix_builder.end_row();
+        self.matrix_builder.end_window();
 
         // Mode-line: evaluate format-mode-line or fall back to buffer name
         if params.mode_line_height > 0.0 {
