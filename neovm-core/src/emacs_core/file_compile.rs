@@ -768,7 +768,7 @@ fn compile_toplevel_defmacro_direct_with_env(
     let params = parse_lambda_params_from_value(&quote_to_value(arglist)).ok()?;
     let mut compiler = Compiler::new(eval.lexical_binding());
     let body_values: Vec<Value> = body.iter().map(quote_to_value).collect();
-    let body = compile_body_exprs_with_env(eval, &body_values, macroexpand_env);
+    let body = expand_compiler_body_values(eval, &body_values, macroexpand_env)?;
     let mut bytecode = compiler.compile_lambda(&params, &body);
     bytecode.docstring = metadata.docstring.clone();
 
@@ -799,7 +799,7 @@ fn compile_toplevel_defmacro_direct_value_with_env(
     let body = items.get(3 + metadata.body_start..)?;
 
     let mut compiler = Compiler::new(eval.lexical_binding());
-    let compiled_body = compile_body_exprs_with_env(eval, body, macroexpand_env);
+    let compiled_body = expand_compiler_body_values(eval, body, macroexpand_env)?;
     let mut bytecode = compiler.compile_lambda(&params, &compiled_body);
     bytecode.docstring = metadata.docstring.clone();
 
@@ -2275,6 +2275,24 @@ mod tests {
         assert_eq!(target[0].as_symbol_name(), Some("cons"));
         assert!(is_quoted_symbol(target[1], "macro"));
         assert!(target[2].get_bytecode_data().is_some());
+    }
+
+    #[test]
+    fn test_compile_defmacro_direct_real_cl_load_time_value_declines_when_expand_fails() {
+        crate::test_utils::init_test_tracing();
+        let form = real_cl_macs_defmacro_form("cl-load-time-value");
+        let runtime_value = quote_to_value(&form);
+        let items = list_to_vec(&runtime_value).expect("defmacro value should be a list");
+        let mut eval = minimal_compile_surface_eval();
+        let compiled = compile_toplevel_defmacro_direct_value_with_env(
+            &mut eval,
+            &items,
+            Value::symbol("bogus-macroexpand-env"),
+        );
+        assert!(
+            compiled.is_none(),
+            "defmacro compilation should refuse raw-body fallback when macroexpand fails"
+        );
     }
 
     #[test]
