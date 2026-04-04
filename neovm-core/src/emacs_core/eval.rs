@@ -518,6 +518,12 @@ fn interpreted_closure_trim_fingerprint(
     hasher.finish()
 }
 
+fn interpreted_closure_env_shape_hash(env_shape: &[InterpretedClosureEnvEntry]) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    env_shape.hash(&mut hasher);
+    hasher.finish()
+}
+
 fn rebuild_trimmed_interpreted_closure_env(
     source_env: Value,
     template: &[InterpretedClosureEnvEntry],
@@ -627,6 +633,21 @@ impl InterpretedClosureTrimCacheEntry {
             && equal_value(&self.body_value, &body_value, 0)
             && equal_value(&self.iform_value, &iform_value, 0)
             && self.env_shape == env_shape
+    }
+}
+
+#[derive(Clone, Debug)]
+struct InterpretedClosureValueCacheEntry {
+    source_function: Value,
+    env_shape: Vec<InterpretedClosureEnvEntry>,
+    trimmed_params_value: Value,
+    trimmed_body_value: Value,
+    trimmed_env_template: Vec<InterpretedClosureEnvEntry>,
+}
+
+impl InterpretedClosureValueCacheEntry {
+    fn matches(&self, source_function: Value, env_shape: &[InterpretedClosureEnvEntry]) -> bool {
+        equal_value(&self.source_function, &source_function, 0) && self.env_shape == env_shape
     }
 }
 
@@ -1273,6 +1294,11 @@ pub struct Context {
     /// only the selected env template and trimmed body, so captured values are
     /// always rebuilt from the current runtime environment on a hit.
     interpreted_closure_trim_cache: HashMap<u64, Vec<InterpretedClosureTrimCacheEntry>>,
+    /// Value-native cache for runtime callable-cons lambda instantiation.
+    /// Keyed by a shallow Value fingerprint of the source callable plus the
+    /// lexical environment shape, so the Value-side path avoids Expr-style
+    /// deep fingerprinting while still matching structurally equivalent forms.
+    interpreted_closure_value_cache: HashMap<(u64, u64), Vec<InterpretedClosureValueCacheEntry>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3667,6 +3693,7 @@ impl Context {
             runtime_macro_expansion_cache: HashMap::new(),
             interpreted_closure_filter_fn: None,
             interpreted_closure_trim_cache: HashMap::new(),
+            interpreted_closure_value_cache: HashMap::new(),
         };
         ev.finish_runtime_activation(false);
         ev
@@ -3795,6 +3822,7 @@ impl Context {
             runtime_macro_expansion_cache: HashMap::new(),
             interpreted_closure_filter_fn: None,
             interpreted_closure_trim_cache: HashMap::new(),
+            interpreted_closure_value_cache: HashMap::new(),
         };
         ev.initialize_gc_stack_bottom();
         ev.setup_thread_locals();
@@ -3878,6 +3906,13 @@ impl Context {
                 roots.push(entry.params_value);
                 roots.push(entry.body_value);
                 roots.push(entry.iform_value);
+                roots.push(entry.trimmed_params_value);
+                roots.push(entry.trimmed_body_value);
+            }
+        }
+        for bucket in self.interpreted_closure_value_cache.values() {
+            for entry in bucket {
+                roots.push(entry.source_function);
                 roots.push(entry.trimmed_params_value);
                 roots.push(entry.trimmed_body_value);
             }
@@ -5489,6 +5524,7 @@ impl Context {
         self.interpreted_closure_filter_fn = filter_fn;
         if filter_fn.is_none() {
             self.interpreted_closure_trim_cache.clear();
+            self.interpreted_closure_value_cache.clear();
         }
     }
 
@@ -9396,6 +9432,231 @@ impl Context {
         });
     }
 
+    fn maybe_use_cached_value_interpreted_closure_filter(
+        &mut self,
+        closure_hook: Value,
+        source_function: Value,
+        env_value: Value,
+        docstring_value: Value,
+        iform_value: Value,
+    ) -> Option<EvalResult> {
+        let Some(hook_sym) = closure_hook.as_symbol_id() else {
+            return None;
+        };
+        if resolve_sym(hook_sym) != "cconv-make-interpreted-closure" {
+            return None;
+        }
+        let Some(expected_fn) = self.interpreted_closure_filter_fn else {
+            return None;
+        };
+        let Some(current_fn) = self
+            .obarray
+            .symbol_function("cconv-make-interpreted-closure")
+            .cloned()
+        else {
+            return None;
+        };
+        if !eq_value(&current_fn, &expected_fn) {
+            return None;
+        }
+
+        let env_shape = interpreted_closure_env_entries(env_value);
+        let cache_key = (
+            runtime_tail_fingerprint(&[source_function]),
+            interpreted_closure_env_shape_hash(&env_shape),
+        );
+        let entry = self
+            .interpreted_closure_value_cache
+            .get(&cache_key)?
+            .iter()
+            .find(|entry| entry.matches(source_function, &env_shape))?
+            .clone();
+        let rebuilt_env =
+            rebuild_trimmed_interpreted_closure_env(env_value, &entry.trimmed_env_template);
+        Some(builtins::symbols::make_interpreted_closure_from_parts(
+            &entry.trimmed_params_value,
+            &entry.trimmed_body_value,
+            &rebuilt_env,
+            Some(&docstring_value),
+            Some(&iform_value),
+        ))
+    }
+
+    fn maybe_cache_value_interpreted_closure_filter_result(
+        &mut self,
+        closure_hook: Value,
+        source_function: Value,
+        env_value: Value,
+        result: &Value,
+    ) {
+        let Some(hook_sym) = closure_hook.as_symbol_id() else {
+            return;
+        };
+        if resolve_sym(hook_sym) != "cconv-make-interpreted-closure" {
+            return;
+        }
+        let Some(expected_fn) = self.interpreted_closure_filter_fn else {
+            return;
+        };
+        let Some(current_fn) = self
+            .obarray
+            .symbol_function("cconv-make-interpreted-closure")
+            .cloned()
+        else {
+            return;
+        };
+        if !eq_value(&current_fn, &expected_fn) {
+            return;
+        }
+        if !result.is_lambda() {
+            return;
+        };
+        let Some(trimmed_params_value) = result.closure_slot(CLOSURE_ARGLIST) else {
+            return;
+        };
+        let Some(trimmed_body_value) = result.closure_body_value() else {
+            return;
+        };
+        let Some(trimmed_env) = result.closure_env().flatten() else {
+            return;
+        };
+
+        let env_shape = interpreted_closure_env_entries(env_value);
+        let cache_key = (
+            runtime_tail_fingerprint(&[source_function]),
+            interpreted_closure_env_shape_hash(&env_shape),
+        );
+        let bucket = self
+            .interpreted_closure_value_cache
+            .entry(cache_key)
+            .or_default();
+        if bucket
+            .iter()
+            .any(|entry| entry.matches(source_function, &env_shape))
+        {
+            return;
+        }
+        bucket.push(InterpretedClosureValueCacheEntry {
+            source_function,
+            env_shape,
+            trimmed_params_value,
+            trimmed_body_value,
+            trimmed_env_template: interpreted_closure_env_entries(trimmed_env),
+        });
+    }
+
+    fn make_interpreted_closure_with_expr_runtime_hook(
+        &mut self,
+        params_value: Value,
+        body_value: Value,
+        env_value: Value,
+        docstring_value: Value,
+        iform_value: Value,
+    ) -> EvalResult {
+        if !env_value.is_nil() {
+            let closure_hook =
+                self.visible_variable_value_or_nil("internal-make-interpreted-closure-function");
+            if !closure_hook.is_nil() {
+                if let Some(cached) = self.maybe_use_cached_interpreted_closure_filter(
+                    closure_hook,
+                    params_value,
+                    body_value,
+                    env_value,
+                    docstring_value,
+                    iform_value,
+                ) {
+                    return cached;
+                }
+                self.push_temp_root(closure_hook);
+                let result = self.apply(
+                    closure_hook,
+                    vec![
+                        params_value,
+                        body_value,
+                        env_value,
+                        docstring_value,
+                        iform_value,
+                    ],
+                );
+                self.temp_roots.pop();
+                if let Ok(value) = &result {
+                    self.maybe_cache_interpreted_closure_filter_result(
+                        closure_hook,
+                        params_value,
+                        body_value,
+                        env_value,
+                        iform_value,
+                        value,
+                    );
+                }
+                return result;
+            }
+        }
+
+        builtins::symbols::make_interpreted_closure_from_parts(
+            &params_value,
+            &body_value,
+            &env_value,
+            Some(&docstring_value),
+            Some(&iform_value),
+        )
+    }
+
+    fn make_interpreted_closure_with_value_runtime_hook(
+        &mut self,
+        source_function: Value,
+        params_value: Value,
+        body_value: Value,
+        env_value: Value,
+        docstring_value: Value,
+        iform_value: Value,
+    ) -> EvalResult {
+        if !env_value.is_nil() {
+            let closure_hook =
+                self.visible_variable_value_or_nil("internal-make-interpreted-closure-function");
+            if !closure_hook.is_nil() {
+                if let Some(cached) = self.maybe_use_cached_value_interpreted_closure_filter(
+                    closure_hook,
+                    source_function,
+                    env_value,
+                    docstring_value,
+                    iform_value,
+                ) {
+                    return cached;
+                }
+                self.push_temp_root(closure_hook);
+                let result = self.apply(
+                    closure_hook,
+                    vec![
+                        params_value,
+                        body_value,
+                        env_value,
+                        docstring_value,
+                        iform_value,
+                    ],
+                );
+                self.temp_roots.pop();
+                if let Ok(value) = &result {
+                    self.maybe_cache_value_interpreted_closure_filter_result(
+                        closure_hook,
+                        source_function,
+                        env_value,
+                        value,
+                    );
+                }
+                return result;
+            }
+        }
+
+        builtins::symbols::make_interpreted_closure_from_parts(
+            &params_value,
+            &body_value,
+            &env_value,
+            Some(&docstring_value),
+            Some(&iform_value),
+        )
+    }
+
     pub(crate) fn eval_lambda(&mut self, tail: &[Expr]) -> EvalResult {
         if tail.is_empty() {
             return Err(signal(
@@ -9481,62 +9742,13 @@ impl Context {
         self.push_temp_root(docstring_value);
         self.push_temp_root(iform_value);
 
-        let result = if env_value != Value::NIL {
-            let closure_hook =
-                self.visible_variable_value_or_nil("internal-make-interpreted-closure-function");
-            if closure_hook != Value::NIL {
-                if let Some(cached) = self.maybe_use_cached_interpreted_closure_filter(
-                    closure_hook,
-                    params_value,
-                    body_value,
-                    env_value,
-                    docstring_value,
-                    iform_value,
-                ) {
-                    cached
-                } else {
-                    self.push_temp_root(closure_hook);
-                    let result = self.apply(
-                        closure_hook,
-                        vec![
-                            params_value,
-                            body_value,
-                            env_value,
-                            docstring_value,
-                            iform_value,
-                        ],
-                    );
-                    self.temp_roots.pop();
-                    if let Ok(value) = &result {
-                        self.maybe_cache_interpreted_closure_filter_result(
-                            closure_hook,
-                            params_value,
-                            body_value,
-                            env_value,
-                            iform_value,
-                            value,
-                        );
-                    }
-                    result
-                }
-            } else {
-                builtins::symbols::make_interpreted_closure_from_parts(
-                    &params_value,
-                    &body_value,
-                    &env_value,
-                    Some(&docstring_value),
-                    Some(&iform_value),
-                )
-            }
-        } else {
-            builtins::symbols::make_interpreted_closure_from_parts(
-                &params_value,
-                &body_value,
-                &env_value,
-                Some(&docstring_value),
-                Some(&iform_value),
-            )
-        };
+        let result = self.make_interpreted_closure_with_expr_runtime_hook(
+            params_value,
+            body_value,
+            env_value,
+            docstring_value,
+            iform_value,
+        );
 
         scope.close(self);
         result
@@ -9859,37 +10071,26 @@ impl Context {
         self.push_temp_root(body_value);
         self.push_temp_root(env_value);
         self.push_temp_root(closure_doc_value);
+        self.push_temp_root(iform_value);
 
-        if head_name == "lambda" && !env_value.is_nil() {
-            let closure_hook = self
-                .obarray
-                .symbol_value("internal-make-interpreted-closure-function")
-                .cloned()
-                .unwrap_or(Value::NIL);
-            if !closure_hook.is_nil() {
-                self.push_temp_root(closure_hook);
-                let result = self.apply(
-                    closure_hook,
-                    vec![
-                        params_value,
-                        body_value,
-                        env_value,
-                        closure_doc_value,
-                        iform_value,
-                    ],
-                );
-                scope.close(self);
-                return result;
-            }
-        }
-
-        let result = builtins::symbols::make_interpreted_closure_from_parts(
-            &params_value,
-            &body_value,
-            &env_value,
-            Some(&closure_doc_value),
-            Some(&iform_value),
-        );
+        let result = if head_name == "lambda" {
+            self.make_interpreted_closure_with_value_runtime_hook(
+                function,
+                params_value,
+                body_value,
+                env_value,
+                closure_doc_value,
+                iform_value,
+            )
+        } else {
+            builtins::symbols::make_interpreted_closure_from_parts(
+                &params_value,
+                &body_value,
+                &env_value,
+                Some(&closure_doc_value),
+                Some(&iform_value),
+            )
+        };
         scope.close(self);
         result
     }

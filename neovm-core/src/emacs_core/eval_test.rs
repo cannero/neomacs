@@ -8140,6 +8140,48 @@ fn interpreted_closure_trim_cache_survives_exact_gc() {
 }
 
 #[test]
+fn value_lambda_instantiation_uses_interpreted_closure_trim_cache() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.set_lexical_binding(true);
+
+    let setup = parse_forms(
+        r#"
+        (setq vm-interpreted-closure-count 0)
+        (fset 'cconv-make-interpreted-closure
+              (lambda (args body env docstring iform)
+                (setq vm-interpreted-closure-count
+                      (1+ vm-interpreted-closure-count))
+                (make-interpreted-closure args body env docstring iform)))
+        (setq internal-make-interpreted-closure-function
+              'cconv-make-interpreted-closure)
+        "#,
+    )
+    .expect("parse setup");
+    for form in &setup {
+        ev.eval_expr(form)
+            .expect("install interpreted closure trim cache runtime");
+    }
+
+    let filter_fn = ev
+        .obarray()
+        .symbol_function("cconv-make-interpreted-closure")
+        .cloned()
+        .expect("cconv interpreted closure filter");
+    ev.set_interpreted_closure_filter_fn(Some(filter_fn));
+
+    let forms = parse_forms(
+        r#"(let ((x 1))
+             (list (funcall '(lambda () x))
+                   (funcall '(lambda () x))
+                   vm-interpreted-closure-count))"#,
+    )
+    .expect("parse");
+    let rendered = format_eval_result(&ev.eval_expr(&forms[0]));
+    assert_eq!(rendered, "OK (1 1 1)");
+}
+
+#[test]
 fn gc_stress_aref_on_closure_survives_closure_vector_conversion() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
