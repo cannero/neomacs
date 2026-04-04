@@ -1710,6 +1710,10 @@ impl LayoutEngine {
         frame_glyphs.char_height = frame_params.char_height;
         frame_glyphs.font_pixel_size = frame_params.font_pixel_size;
         frame_glyphs.background = Color::from_pixel(frame_params.background);
+        self.matrix_builder
+            .set_background_color(Color::from_pixel(frame_params.background));
+        self.matrix_builder
+            .set_font_pixel_size(frame_params.font_pixel_size);
 
         // Clear hit-test data for new frame
         self.hit_data.clear();
@@ -1766,6 +1770,10 @@ impl LayoutEngine {
                 params.bounds.height,
                 Color::from_pixel(params.default_bg),
             );
+            self.matrix_builder.push_background(
+                params.bounds,
+                Color::from_pixel(params.default_bg),
+            );
 
             // Add window info for animation detection
             let buffer_file_name = {
@@ -1785,25 +1793,28 @@ impl LayoutEngine {
                     .map(|b| b.modified)
                     .unwrap_or(false)
             };
-            frame_glyphs.add_window_info(
-                params.window_id,
-                params.buffer_id,
-                params.window_start,
-                0, // window_end filled after layout
-                params.buffer_size,
-                params.bounds.x,
-                params.bounds.y,
-                params.bounds.width,
-                params.bounds.height,
-                params.mode_line_height,
-                params.header_line_height,
-                params.tab_line_height,
-                params.selected,
-                params.is_minibuffer,
-                params.char_height,
+            let window_info = neomacs_display_protocol::frame_glyphs::WindowInfo {
+                window_id: params.window_id,
+                buffer_id: params.buffer_id,
+                window_start: params.window_start,
+                window_end: 0, // filled after layout
+                buffer_size: params.buffer_size,
+                bounds: Rect::new(
+                    params.bounds.x,
+                    params.bounds.y,
+                    params.bounds.width,
+                    params.bounds.height,
+                ),
+                mode_line_height: params.mode_line_height,
+                header_line_height: params.header_line_height,
+                tab_line_height: params.tab_line_height,
+                selected: params.selected,
+                is_minibuffer: params.is_minibuffer,
+                char_height: params.char_height,
                 buffer_file_name,
                 modified,
-            );
+            };
+            frame_glyphs.window_infos.push(window_info);
             self.record_transition_hint_from_latest_window_info(
                 frame_glyphs,
                 &mut curr_window_infos,
@@ -1866,6 +1877,23 @@ impl LayoutEngine {
         self.update_window_switch_hint(frame_glyphs);
         self.update_theme_transition_hint(frame_glyphs);
         self.maybe_add_topology_transition_hint(frame_glyphs, &curr_window_infos);
+
+        // Copy faces, stipple patterns, window_infos, transition/effect hints
+        // from FrameGlyphBuffer into the matrix builder. These are accumulated by
+        // helper methods that only have access to frame_glyphs, not the builder.
+        self.matrix_builder.set_faces(frame_glyphs.faces.clone());
+        self.matrix_builder
+            .set_stipple_patterns(frame_glyphs.stipple_patterns.clone());
+        for info in &frame_glyphs.window_infos {
+            self.matrix_builder.push_window_info(info.clone());
+        }
+        for hint in &frame_glyphs.transition_hints {
+            self.matrix_builder.push_transition_hint(*hint);
+        }
+        for hint in &frame_glyphs.effect_hints {
+            self.matrix_builder.push_effect_hint(*hint);
+        }
+
         // Build parallel GlyphMatrix output for validation
         let frame_cols = (frame_params.width / frame_params.char_width.max(1.0)) as usize;
         let frame_rows = (frame_params.height / frame_params.char_height.max(1.0)) as usize;
@@ -4392,6 +4420,15 @@ impl LayoutEngine {
                             style,
                             cursor_fg,
                         );
+                        self.matrix_builder.push_cursor(
+                            params.window_id as i32,
+                            cx,
+                            cy,
+                            cursor_w,
+                            cursor_face_h,
+                            style,
+                            cursor_fg,
+                        );
                         self.matrix_builder.set_cursor_at_row(
                             cursor_matrix_row,
                             ccol as u16,
@@ -4431,6 +4468,16 @@ impl LayoutEngine {
                                 cursor_face_h,
                                 cursor_fg,
                                 cursor_face_bg,
+                            );
+                            self.matrix_builder.set_cursor_inverse(
+                                neomacs_display_protocol::frame_glyphs::CursorInverseInfo {
+                                    x: cx,
+                                    y: cy,
+                                    width: cursor_w,
+                                    height: cursor_face_h,
+                                    cursor_bg: cursor_fg,
+                                    cursor_fg: cursor_face_bg,
+                                },
                             );
                         }
                     }
@@ -4629,6 +4676,15 @@ impl LayoutEngine {
                             style,
                             Color::from_pixel(params.cursor_color),
                         );
+                        self.matrix_builder.push_cursor(
+                            params.window_id as i32,
+                            cx,
+                            cy,
+                            cursor_w,
+                            char_h,
+                            style,
+                            Color::from_pixel(params.cursor_color),
+                        );
                         // Fallback cursor: compute matrix row from pixel position
                         let fallback_cursor_row =
                             ((cy - text_y) / char_h).floor() as usize;
@@ -4648,6 +4704,16 @@ impl LayoutEngine {
                                 char_h,
                                 Color::from_pixel(params.cursor_color),
                                 default_bg,
+                            );
+                            self.matrix_builder.set_cursor_inverse(
+                                neomacs_display_protocol::frame_glyphs::CursorInverseInfo {
+                                    x: cx,
+                                    y: cy,
+                                    width: cursor_w,
+                                    height: char_h,
+                                    cursor_bg: Color::from_pixel(params.cursor_color),
+                                    cursor_fg: default_bg,
+                                },
                             );
                         }
                     }
@@ -5894,6 +5960,15 @@ impl LayoutEngine {
                         style,
                         Color::from_pixel(params.cursor_color),
                     );
+                    self.matrix_builder.push_cursor(
+                        params.window_id as i32,
+                        cursor_px,
+                        cursor_y,
+                        cursor_w,
+                        face_h,
+                        style,
+                        Color::from_pixel(params.cursor_color),
+                    );
 
                     if matches!(style, CursorStyle::FilledBox) {
                         frame_glyphs.set_cursor_inverse(
@@ -5903,6 +5978,16 @@ impl LayoutEngine {
                             face_h,
                             Color::from_pixel(params.cursor_color),
                             default_bg,
+                        );
+                        self.matrix_builder.set_cursor_inverse(
+                            neomacs_display_protocol::frame_glyphs::CursorInverseInfo {
+                                x: cursor_px,
+                                y: cursor_y,
+                                width: cursor_w,
+                                height: face_h,
+                                cursor_bg: Color::from_pixel(params.cursor_color),
+                                cursor_fg: default_bg,
+                            },
                         );
                     }
                 }
@@ -6124,6 +6209,16 @@ impl LayoutEngine {
                             left_image_w as f32,
                             left_image_h as f32,
                         );
+                        self.matrix_builder.push_image(
+                            params.window_id,
+                            GlyphRowRole::Text,
+                            None,
+                            left_image_gpu_id as u32,
+                            margin_x,
+                            gy,
+                            left_image_w as f32,
+                            left_image_h as f32,
+                        );
                     } else if left_len > 0 && params.left_margin_width > 0.0 {
                         let margin_x = text_x - left_fringe_width - params.left_margin_width;
                         let gy = row_y[row as usize];
@@ -6171,6 +6266,16 @@ impl LayoutEngine {
                         let margin_x = text_x + text_width + right_fringe_width;
                         let gy = row_y[row as usize];
                         frame_glyphs.add_image(
+                            right_image_gpu_id as u32,
+                            margin_x,
+                            gy,
+                            right_image_w as f32,
+                            right_image_h as f32,
+                        );
+                        self.matrix_builder.push_image(
+                            params.window_id,
+                            GlyphRowRole::Text,
+                            None,
                             right_image_gpu_id as u32,
                             margin_x,
                             gy,
@@ -7325,6 +7430,16 @@ impl LayoutEngine {
                         };
 
                         frame_glyphs.add_image(display_prop.image_gpu_id, gx, gy, img_w, img_h);
+                        self.matrix_builder.push_image(
+                            params.window_id,
+                            GlyphRowRole::Text,
+                            None,
+                            display_prop.image_gpu_id,
+                            gx,
+                            gy,
+                            img_w,
+                            img_h,
+                        );
                         // Advance by total width (including margins)
                         let img_cols = (total_w / char_w).ceil() as i32;
                         col += img_cols;
@@ -7369,6 +7484,18 @@ impl LayoutEngine {
                             display_prop.video_loop_count,
                             display_prop.video_autoplay != 0,
                         );
+                        self.matrix_builder.push_video(
+                            params.window_id,
+                            GlyphRowRole::Text,
+                            None,
+                            display_prop.video_id,
+                            gx,
+                            gy,
+                            vid_w,
+                            vid_h,
+                            display_prop.video_loop_count,
+                            display_prop.video_autoplay != 0,
+                        );
                         let vid_cols = (vid_w / char_w).ceil() as i32;
                         col += vid_cols;
                         x_offset += vid_w;
@@ -7404,6 +7531,16 @@ impl LayoutEngine {
                         let gy = row_y[row as usize];
 
                         frame_glyphs.add_webkit(display_prop.webkit_id, gx, gy, wk_w, wk_h);
+                        self.matrix_builder.push_webkit(
+                            params.window_id,
+                            GlyphRowRole::Text,
+                            None,
+                            display_prop.webkit_id,
+                            gx,
+                            gy,
+                            wk_w,
+                            wk_h,
+                        );
                         let wk_cols = (wk_w / char_w).ceil() as i32;
                         col += wk_cols;
                         x_offset += wk_w;
@@ -8647,6 +8784,15 @@ impl LayoutEngine {
                         style,
                         Color::from_pixel(params.cursor_color),
                     );
+                    self.matrix_builder.push_cursor(
+                        params.window_id as i32,
+                        cursor_px,
+                        cursor_y,
+                        cursor_w,
+                        face_h,
+                        style,
+                        Color::from_pixel(params.cursor_color),
+                    );
 
                     if matches!(style, CursorStyle::FilledBox) {
                         frame_glyphs.set_cursor_inverse(
@@ -8656,6 +8802,16 @@ impl LayoutEngine {
                             face_h,
                             Color::from_pixel(params.cursor_color),
                             default_bg,
+                        );
+                        self.matrix_builder.set_cursor_inverse(
+                            neomacs_display_protocol::frame_glyphs::CursorInverseInfo {
+                                x: cursor_px,
+                                y: cursor_y,
+                                width: cursor_w,
+                                height: face_h,
+                                cursor_bg: Color::from_pixel(params.cursor_color),
+                                cursor_fg: default_bg,
+                            },
                         );
                     }
                 }
@@ -8882,6 +9038,15 @@ impl LayoutEngine {
                         style,
                         Color::from_pixel(params.cursor_color),
                     );
+                    self.matrix_builder.push_cursor(
+                        params.window_id as i32,
+                        cursor_px,
+                        cursor_y,
+                        cursor_w,
+                        face_h,
+                        style,
+                        Color::from_pixel(params.cursor_color),
+                    );
 
                     if matches!(style, CursorStyle::FilledBox) {
                         frame_glyphs.set_cursor_inverse(
@@ -8891,6 +9056,16 @@ impl LayoutEngine {
                             face_h,
                             Color::from_pixel(params.cursor_color),
                             default_bg,
+                        );
+                        self.matrix_builder.set_cursor_inverse(
+                            neomacs_display_protocol::frame_glyphs::CursorInverseInfo {
+                                x: cursor_px,
+                                y: cursor_y,
+                                width: cursor_w,
+                                height: face_h,
+                                cursor_bg: Color::from_pixel(params.cursor_color),
+                                cursor_fg: default_bg,
+                            },
                         );
                     }
                 }
@@ -9352,6 +9527,15 @@ impl LayoutEngine {
                         style,
                         Color::from_pixel(params.cursor_color),
                     );
+                    self.matrix_builder.push_cursor(
+                        params.window_id as i32,
+                        cursor_px,
+                        cursor_y,
+                        cursor_w,
+                        face_h,
+                        style,
+                        Color::from_pixel(params.cursor_color),
+                    );
 
                     if matches!(style, CursorStyle::FilledBox) {
                         frame_glyphs.set_cursor_inverse(
@@ -9361,6 +9545,16 @@ impl LayoutEngine {
                             face_h,
                             Color::from_pixel(params.cursor_color),
                             default_bg,
+                        );
+                        self.matrix_builder.set_cursor_inverse(
+                            neomacs_display_protocol::frame_glyphs::CursorInverseInfo {
+                                x: cursor_px,
+                                y: cursor_y,
+                                width: cursor_w,
+                                height: face_h,
+                                cursor_bg: Color::from_pixel(params.cursor_color),
+                                cursor_fg: default_bg,
+                            },
                         );
                     }
                 }
@@ -9413,6 +9607,8 @@ impl LayoutEngine {
                         char_h,
                         default_fg,
                         frame_glyphs,
+                        &mut self.matrix_builder,
+                        params.window_id,
                     );
                 }
 
@@ -9427,6 +9623,8 @@ impl LayoutEngine {
                         char_h,
                         default_fg,
                         frame_glyphs,
+                        &mut self.matrix_builder,
+                        params.window_id,
                     );
                 }
 
@@ -9441,6 +9639,8 @@ impl LayoutEngine {
                         char_h,
                         default_fg,
                         frame_glyphs,
+                        &mut self.matrix_builder,
+                        params.window_id,
                     );
                 }
 
@@ -9461,6 +9661,8 @@ impl LayoutEngine {
                                 char_h,
                                 ffg,
                                 frame_glyphs,
+                                &mut self.matrix_builder,
+                                params.window_id,
                             );
                         }
                     }
@@ -9483,6 +9685,8 @@ impl LayoutEngine {
                                 char_h,
                                 ffg,
                                 frame_glyphs,
+                                &mut self.matrix_builder,
+                                params.window_id,
                             );
                         }
                     }
@@ -9508,6 +9712,8 @@ impl LayoutEngine {
                                 char_h,
                                 default_fg,
                                 frame_glyphs,
+                                &mut self.matrix_builder,
+                                params.window_id,
                             );
                         }
                     } else {
@@ -9521,6 +9727,8 @@ impl LayoutEngine {
                                 char_h,
                                 default_fg,
                                 frame_glyphs,
+                                &mut self.matrix_builder,
+                                params.window_id,
                             );
                         }
                     }
@@ -9734,6 +9942,8 @@ unsafe fn render_fringe_bitmap(
     row_height: f32,
     fg: Color,
     frame_glyphs: &mut FrameGlyphBuffer,
+    matrix_builder: &mut crate::matrix_builder::GlyphMatrixBuilder,
+    window_id: i64,
 ) {
     let mut bits = [0u16; 64]; // max 64 rows
     let mut bm_width: c_int = 0;
@@ -9804,6 +10014,7 @@ unsafe fn render_fringe_bitmap(
                 let clip_w = clip_r - clip_l;
                 if clip_w > 0.0 {
                     frame_glyphs.add_border(clip_l, py, clip_w, pixel_h, fg);
+                    matrix_builder.push_border(window_id, clip_l, py, clip_w, pixel_h, fg);
                 }
             }
             bit -= 1;
