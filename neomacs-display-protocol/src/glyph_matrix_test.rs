@@ -75,3 +75,52 @@ fn new_row_has_empty_glyph_areas() {
     assert_eq!(row.role, GlyphRowRole::ModeLine);
     assert!(row.enabled);
 }
+
+#[test]
+fn matrix_new_has_correct_dimensions() {
+    let matrix = GlyphMatrix::new(24, 80);
+    assert_eq!(matrix.nrows, 24);
+    assert_eq!(matrix.ncols, 80);
+    assert_eq!(matrix.rows.len(), 24);
+}
+
+#[test]
+fn matrix_rows_are_enabled_by_default() {
+    let matrix = GlyphMatrix::new(3, 10);
+    for row in &matrix.rows {
+        assert!(row.enabled);
+        assert_eq!(row.role, GlyphRowRole::Text);
+    }
+}
+
+#[test]
+fn matrix_clear_resets_all_rows() {
+    let mut matrix = GlyphMatrix::new(2, 10);
+    matrix.rows[0]
+        .glyphs[GlyphArea::Text as usize]
+        .push(Glyph::char('x', 0, 0));
+    matrix.rows[0].hash = 12345;
+    matrix.rows[0].cursor_col = Some(5);
+
+    matrix.clear();
+
+    assert!(matrix.rows[0].glyphs[GlyphArea::Text as usize].is_empty());
+    assert_eq!(matrix.rows[0].hash, 0);
+    assert_eq!(matrix.rows[0].cursor_col, None);
+}
+
+#[test]
+fn matrix_resize_grows_and_shrinks() {
+    let mut matrix = GlyphMatrix::new(10, 80);
+    assert_eq!(matrix.rows.len(), 10);
+
+    matrix.resize(20, 100);
+    assert_eq!(matrix.nrows, 20);
+    assert_eq!(matrix.ncols, 100);
+    assert_eq!(matrix.rows.len(), 20);
+
+    matrix.resize(5, 40);
+    assert_eq!(matrix.nrows, 5);
+    assert_eq!(matrix.ncols, 40);
+    assert_eq!(matrix.rows.len(), 5);
+}

@@ -226,6 +226,55 @@ impl GlyphRow {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct GlyphMatrix {
+    pub rows: Vec<GlyphRow>,
+    pub nrows: usize,
+    pub ncols: usize,
+    pub matrix_x: usize,
+    pub matrix_y: usize,
+    pub header_line: bool,
+    pub tab_line: bool,
+}
+
+impl GlyphMatrix {
+    pub fn new(nrows: usize, ncols: usize) -> Self {
+        let rows = (0..nrows)
+            .map(|_| GlyphRow::new(GlyphRowRole::Text))
+            .collect();
+        Self {
+            rows,
+            nrows,
+            ncols,
+            matrix_x: 0,
+            matrix_y: 0,
+            header_line: false,
+            tab_line: false,
+        }
+    }
+
+    pub fn clear(&mut self) {
+        for row in &mut self.rows {
+            row.clear();
+        }
+    }
+
+    pub fn resize(&mut self, nrows: usize, ncols: usize) {
+        self.rows.resize_with(nrows, || GlyphRow::new(GlyphRowRole::Text));
+        self.rows.truncate(nrows);
+        self.nrows = nrows;
+        self.ncols = ncols;
+    }
+
+    pub fn ensure_hashes(&mut self) {
+        for row in &mut self.rows {
+            if row.hash == 0 && row.total_glyphs() > 0 {
+                row.hash = row.compute_hash();
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "glyph_matrix_test.rs"]
 mod tests;
