@@ -414,6 +414,20 @@ pub struct FrameDisplayState {
     pub stipple_patterns: HashMap<i32, StipplePattern>,
     /// Effect hints for the renderer.
     pub effect_hints: Vec<WindowEffectHint>,
+
+    // -- Passthrough bridge fields (migration period) --
+    // When `passthrough_glyphs` is `Some`, `materialize()` bypasses grid
+    // conversion and returns a `FrameGlyphBuffer` built from these glyphs.
+    // This allows the channel type to change to `FrameDisplayState` while the
+    // layout engine still produces `FrameGlyphBuffer` internally.
+
+    /// Pre-materialized glyphs from `FrameGlyphBuffer`. When present,
+    /// `materialize()` uses these directly instead of converting the grid.
+    pub passthrough_glyphs: Option<Vec<FrameGlyph>>,
+    /// Passthrough transition hints (from `FrameGlyphBuffer`).
+    pub passthrough_transition_hints: Option<Vec<WindowTransitionHint>>,
+    /// Passthrough effect hints (from `FrameGlyphBuffer`).
+    pub passthrough_effect_hints: Option<Vec<WindowEffectHint>>,
 }
 
 impl FrameDisplayState {
@@ -446,16 +460,52 @@ impl FrameDisplayState {
             cursor_inverse: None,
             stipple_patterns: HashMap::new(),
             effect_hints: Vec::new(),
+            passthrough_glyphs: None,
+            passthrough_transition_hints: None,
+            passthrough_effect_hints: None,
         }
+    }
+
+    /// Create a `FrameDisplayState` from an existing `FrameGlyphBuffer`.
+    ///
+    /// This is a bridge conversion for the migration period: the layout
+    /// engine still produces `FrameGlyphBuffer`, but the channel now
+    /// carries `FrameDisplayState`.  The original glyphs are stored in
+    /// `passthrough_glyphs` so that `materialize()` can return an
+    /// equivalent `FrameGlyphBuffer` without lossy grid decomposition.
+    pub fn from_frame_glyph_buffer(buf: &FrameGlyphBuffer) -> Self {
+        let frame_cols = (buf.width / buf.char_width.max(1.0)) as usize;
+        let frame_rows = (buf.height / buf.char_height.max(1.0)) as usize;
+        let mut state = Self::new(frame_cols, frame_rows, buf.char_width, buf.char_height);
+        state.frame_pixel_width = buf.width;
+        state.frame_pixel_height = buf.height;
+        state.font_pixel_size = buf.font_pixel_size;
+        state.background = buf.background;
+        state.frame_id = buf.frame_id;
+        state.parent_id = buf.parent_id;
+        state.parent_x = buf.parent_x;
+        state.parent_y = buf.parent_y;
+        state.z_order = buf.z_order;
+        state.faces = buf.faces.clone();
+        state.window_infos = buf.window_infos.clone();
+        state.cursor_inverse = buf.cursor_inverse.clone();
+        state.stipple_patterns = buf.stipple_patterns.clone();
+
+        // Store the original glyphs for passthrough materialization
+        state.passthrough_glyphs = Some(buf.glyphs.clone());
+        state.passthrough_transition_hints = Some(buf.transition_hints.clone());
+        state.passthrough_effect_hints = Some(buf.effect_hints.clone());
+
+        state
     }
 
     /// Convert this `FrameDisplayState` into a `FrameGlyphBuffer`.
     ///
-    /// This materializes the `GlyphMatrix` grid into pixel-positioned
-    /// `FrameGlyph` entries, and appends all non-grid items (backgrounds,
-    /// borders, cursors, etc.).  Used by the render thread to bridge
-    /// `GlyphMatrix` data to the existing rendering code that consumes
-    /// `FrameGlyphBuffer`.
+    /// When `passthrough_glyphs` is present (bridge mode), the original
+    /// glyphs are copied directly into the buffer without grid conversion.
+    /// Otherwise, materializes the `GlyphMatrix` grid into pixel-positioned
+    /// `FrameGlyph` entries and appends all non-grid items (backgrounds,
+    /// borders, cursors, etc.).
     pub fn materialize(&self) -> FrameGlyphBuffer {
         let mut buf = FrameGlyphBuffer::with_size(self.frame_pixel_width, self.frame_pixel_height);
         buf.char_width = self.char_width;
@@ -483,6 +533,20 @@ impl FrameDisplayState {
 
         // Copy cursor inverse
         buf.cursor_inverse = self.cursor_inverse.clone();
+
+        // --- Passthrough mode: use pre-materialized glyphs directly ---
+        if let Some(ref glyphs) = self.passthrough_glyphs {
+            buf.glyphs = glyphs.clone();
+            if let Some(ref hints) = self.passthrough_transition_hints {
+                buf.transition_hints = hints.clone();
+            }
+            if let Some(ref hints) = self.passthrough_effect_hints {
+                buf.effect_hints = hints.clone();
+            }
+            return buf;
+        }
+
+        // --- Normal mode: grid conversion ---
 
         // Copy effect hints
         buf.effect_hints = self.effect_hints.clone();
