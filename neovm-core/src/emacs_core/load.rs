@@ -901,31 +901,6 @@ pub(crate) fn eager_expand_eval(
     )
 }
 
-type ThreadRuntimeRegistries = (
-    super::charset::CharsetRegistrySnapshot,
-    super::fontset::FontsetRegistrySnapshot,
-);
-
-fn snapshot_thread_runtime_registries() -> ThreadRuntimeRegistries {
-    (
-        super::charset::snapshot_charset_registry(),
-        super::fontset::snapshot_fontset_registry(),
-    )
-}
-
-fn restore_thread_runtime_registries(registries: &ThreadRuntimeRegistries) {
-    super::charset::restore_charset_registry(registries.0.clone());
-    super::fontset::restore_fontset_registry(registries.1.clone());
-}
-
-fn activate_context_thread_runtime(
-    ctx: &mut super::eval::Context,
-    registries: &ThreadRuntimeRegistries,
-) {
-    ctx.setup_thread_locals();
-    restore_thread_runtime_registries(registries);
-}
-
 /// Shared context save/restore for file loading.
 ///
 /// Saves and restores: lexical-binding, lexenv, load-file-name, temp roots.
@@ -1365,17 +1340,6 @@ pub(crate) fn eval_decoded_source_file_in_context(
         runtime_neobc_cache_path(path).unwrap_or_else(|| path.with_extension("neobc"));
 
     if let Some(mexp_fn) = macroexpand_fn {
-        let mut live_runtime_registries = snapshot_thread_runtime_registries();
-        let mut lowering_eval =
-            super::pdump::clone_active_evaluator(eval).map_err(|err| EvalError::Signal {
-                symbol: intern("error"),
-                data: vec![Value::string(format!(
-                    "failed to clone evaluator for runtime cache lowering: {err}"
-                ))],
-                raw_data: None,
-            })?;
-        let mut lowering_runtime_registries = snapshot_thread_runtime_registries();
-        activate_context_thread_runtime(eval, &live_runtime_registries);
         let mut compiler_macro_env = Value::NIL;
         let mut neobc_builder = Some(super::file_compile_format::NeobcBuilder::new(
             &source_hash,
@@ -1385,75 +1349,44 @@ pub(crate) fn eval_decoded_source_file_in_context(
             builder.set_surface_fingerprint(runtime_surface_fingerprint.clone());
         }
         readevalloop(eval, &file_name, &forms, |eval, i, form| {
-            activate_context_thread_runtime(eval, &live_runtime_registries);
             let form_value = eval.source_literal_to_runtime_value(form);
             eager_expand_toplevel_forms(
                 eval,
                 form_value,
                 mexp_fn,
                 &mut |ctx, original, expanded, requires_eager_replay| {
-                    activate_context_thread_runtime(
-                        &mut lowering_eval,
-                        &lowering_runtime_registries,
-                    );
                     let compiled_replay_form = ctx
                         .with_gc_scope_result(|ctx| {
                             ctx.root(original);
                             ctx.root(expanded);
-                            lowering_eval.with_gc_scope_result(|lower_ctx| {
-                                lower_ctx.root(compiler_macro_env);
-                                let (original_local, expanded_local) =
-                                    super::file_compile_format::transplant_value_pair(
-                                        &original, &expanded,
-                                    )
-                                    .map_err(|err| {
-                                        signal(
-                                            "error",
-                                            vec![Value::string(format!(
-                                                "failed to transplant runtime cache lowering values at {} ({})",
-                                                err.path(),
-                                                err.detail()
-                                            ))],
-                                        )
-                                    })?;
-                                lower_ctx.root(original_local);
-                                lower_ctx.root(expanded_local);
-                                let compiled = super::file_compile::lower_runtime_cached_toplevel_form_with_env(
-                                    lower_ctx,
-                                    original_local,
-                                    expanded_local,
+                            ctx.root(compiler_macro_env);
+                            let compiled =
+                                super::file_compile::lower_runtime_cached_toplevel_form_with_env(
+                                    ctx,
+                                    original,
+                                    expanded,
                                     compiler_macro_env,
                                 );
-                                if let Some(compiled) = compiled {
-                                    lower_ctx.root(compiled);
-                                    super::file_compile::maybe_extend_compiler_macro_env_from_lowered(
-                                        &mut compiler_macro_env,
-                                        compiled,
-                                    );
-                                    compiler_macro_env = lower_ctx.root(compiler_macro_env);
-                                }
-                                Ok(compiled)
-                            })
+                            if let Some(compiled) = compiled {
+                                ctx.root(compiled);
+                                super::file_compile::maybe_extend_compiler_macro_env_from_lowered(
+                                    &mut compiler_macro_env,
+                                    compiled,
+                                );
+                                compiler_macro_env = ctx.root(compiler_macro_env);
+                            }
+                            Ok(compiled)
                         })
                         .map_err(map_flow)?;
-                    lowering_runtime_registries = snapshot_thread_runtime_registries();
-
-                    activate_context_thread_runtime(ctx, &live_runtime_registries);
                     ctx.with_gc_scope(|ctx| {
                         ctx.root(original);
                         ctx.root(expanded);
+                        ctx.root(compiler_macro_env);
                         let mut disable_cache = None;
                         if let Some(builder) = neobc_builder.as_mut() {
                             let push_result = if let Some(compiled) = compiled_replay_form {
-                                activate_context_thread_runtime(
-                                    &mut lowering_eval,
-                                    &lowering_runtime_registries,
-                                );
-                                lowering_eval.with_gc_scope(|lower_ctx| {
-                                    lower_ctx.root(compiler_macro_env);
-                                    lower_ctx.root(compiled);
-                                    builder.push_eval_value_detailed(&compiled)
-                                })
+                                ctx.root(compiled);
+                                builder.push_eval_value_detailed(&compiled)
                             } else if requires_eager_replay {
                                 builder.push_eager_eval_value_detailed(&original)
                             } else {
@@ -1463,10 +1396,6 @@ pub(crate) fn eval_decoded_source_file_in_context(
                                 disable_cache =
                                     Some((err.path().to_owned(), err.detail().to_owned()));
                             }
-                        }
-                        if compiled_replay_form.is_some() {
-                            lowering_runtime_registries = snapshot_thread_runtime_registries();
-                            activate_context_thread_runtime(ctx, &live_runtime_registries);
                         }
                         if let Some((err_path, err_detail)) = disable_cache {
                             tracing::debug!(
@@ -1482,11 +1411,9 @@ pub(crate) fn eval_decoded_source_file_in_context(
                         // compilation concern. The live load path should still
                         // evaluate the source-expanded form, not the freshly
                         // lowered cache artifact.
-                        activate_context_thread_runtime(ctx, &live_runtime_registries);
                         ctx.root(expanded);
                         let t4 = std::time::Instant::now();
                         let value = ctx.eval_value(&expanded).map_err(map_flow)?;
-                        live_runtime_registries = snapshot_thread_runtime_registries();
                         let d4 = t4.elapsed();
                         if d4.as_millis() > 200 {
                             tracing::warn!("eager_expand step4 (eval) took {d4:.2?}");
