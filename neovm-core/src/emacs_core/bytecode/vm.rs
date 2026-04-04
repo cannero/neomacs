@@ -3610,18 +3610,6 @@ impl<'a> Vm<'a> {
                     args,
                 );
             }
-            "name-last-kbd-macro" => {
-                return crate::emacs_core::kmacro::builtin_name_last_kbd_macro(
-                    &mut *self.ctx,
-                    args,
-                );
-            }
-            "kmacro-name-last-macro" => {
-                return crate::emacs_core::kmacro::builtin_kmacro_name_last_macro(
-                    &mut *self.ctx,
-                    args,
-                );
-            }
             "%%defvar" => {
                 if args.len() >= 2 {
                     let sym_name = args[1].as_symbol_name().unwrap_or("nil").to_string();

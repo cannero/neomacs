@@ -399,16 +399,6 @@ pub(crate) fn builtin_name_last_kbd_macro(
     name_last_kbd_macro_impl(eval, args, "name-last-kbd-macro")
 }
 
-/// (kmacro-name-last-macro SYMBOL) -> nil
-///
-/// Alias entry point used in startup wrappers for arity payload parity.
-pub(crate) fn builtin_kmacro_name_last_macro(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    name_last_kbd_macro_impl(eval, args, "kmacro-name-last-macro")
-}
-
 /// (defining-kbd-macro-p) -> non-nil when keyboard macro recording is active.
 pub(crate) fn builtin_defining_kbd_macro_p(
     eval: &mut super::eval::Context,

@@ -872,6 +872,54 @@ fn kmacro_name_last_macro_startup_is_autoloaded() {
 }
 
 #[test]
+fn raw_context_does_not_prebind_kmacro_name_aliases() {
+    crate::test_utils::init_test_tracing();
+    let ev = Context::new();
+    for name in ["kmacro-name-last-macro", "name-last-kbd-macro"] {
+        assert!(
+            ev.obarray.symbol_function_id(intern(name)).is_none(),
+            "{name} should come from GNU ldefs-boot/kmacro Lisp, not Context::new"
+        );
+    }
+}
+
+#[test]
+fn ldefs_boot_aliases_name_last_kbd_macro_to_kmacro_name_last_macro() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let ldefs_source = fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("project root")
+            .join("lisp/ldefs-boot.el"),
+    )
+    .expect("read ldefs-boot.el");
+    eval_first_form_after_marker(
+        &mut ev,
+        &ldefs_source,
+        "(autoload 'kmacro-name-last-macro \"kmacro\"",
+    );
+    eval_first_form_after_marker(
+        &mut ev,
+        &ldefs_source,
+        "(defalias 'name-last-kbd-macro #'kmacro-name-last-macro)",
+    );
+
+    let kmacro = ev
+        .obarray
+        .symbol_function("kmacro-name-last-macro")
+        .expect("kmacro-name-last-macro autoload");
+    assert!(
+        crate::emacs_core::autoload::is_autoload_value(kmacro),
+        "GNU ldefs-boot should install kmacro-name-last-macro as an autoload"
+    );
+    assert_eq!(
+        ev.obarray.symbol_function("name-last-kbd-macro").copied(),
+        Some(Value::symbol("kmacro-name-last-macro"))
+    );
+}
+
+#[test]
 fn remove_hook_is_available_after_bootstrap() {
     crate::test_utils::init_test_tracing();
     // remove-hook is a defun in subr.el, not autoloaded in GNU Emacs.

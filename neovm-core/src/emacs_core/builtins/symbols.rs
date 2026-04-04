@@ -558,24 +558,6 @@ pub(crate) fn symbol_function_impl(obarray: &Obarray, args: Vec<Value>) -> EvalR
     }
 
     if let Some(function) = obarray.symbol_function_id(symbol) {
-        // GNU Emacs exposes this symbol as autoload-shaped in startup state,
-        // then subr-shaped after first invocation triggers autoload materialization.
-        if name == "kmacro-name-last-macro"
-            && function
-                .as_subr_id()
-                .map_or(false, |subr| resolve_sym(subr) == "kmacro-name-last-macro")
-            && obarray
-                .get_property_id(symbol, intern("neovm--kmacro-autoload-promoted"))
-                .is_none()
-        {
-            return Ok(Value::list(vec![
-                Value::symbol("autoload"),
-                Value::string("kmacro"),
-                Value::string("Assign a name to the last keyboard macro defined."),
-                Value::T,
-                Value::NIL,
-            ]));
-        }
         return Ok(*function);
     }
 

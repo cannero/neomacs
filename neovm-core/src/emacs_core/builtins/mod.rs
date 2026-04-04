@@ -1778,18 +1778,6 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         Some(1),
     );
     ctx.defsubr(
-        "name-last-kbd-macro",
-        super::kmacro::builtin_name_last_kbd_macro,
-        1,
-        Some(1),
-    );
-    ctx.defsubr(
-        "kmacro-name-last-macro",
-        super::kmacro::builtin_kmacro_name_last_macro,
-        1,
-        Some(1),
-    );
-    ctx.defsubr(
         "defining-kbd-macro",
         super::kmacro::builtin_defining_kbd_macro,
         1,
