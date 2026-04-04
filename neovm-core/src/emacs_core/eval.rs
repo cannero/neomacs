@@ -3455,16 +3455,6 @@ impl Context {
             "subr",
             "Return non-nil if OBJECT is an integer greater than or equal to zero.",
         );
-        seed_autoload_noninteractive(
-            "window-height",
-            "window",
-            "Return the total height, in lines, of WINDOW.",
-        );
-        seed_autoload_noninteractive(
-            "window-width",
-            "window",
-            "Return the width, in columns, of WINDOW.",
-        );
         // Keep these as non-interactive autoload wrappers to match GNU Emacs
         // `symbol-function` shape during bootstrap.
         drop(seed_autoload_noninteractive);

@@ -710,19 +710,19 @@ fn set_window_start_point_and_group_start_accept_marker_positions() {
 #[test]
 fn window_height_positive() {
     crate::test_utils::init_test_tracing();
-    let r = eval_one_with_frame("(window-height)");
+    let r = eval_one_with_frame("(window-total-height)");
     assert!(r.starts_with("OK "));
     let val: i64 = r.strip_prefix("OK ").unwrap().trim().parse().unwrap();
-    assert!(val > 0, "window-height should be positive, got {val}");
+    assert!(val > 0, "window-total-height should be positive, got {val}");
 }
 
 #[test]
 fn window_width_positive() {
     crate::test_utils::init_test_tracing();
-    let r = eval_one_with_frame("(window-width)");
+    let r = eval_one_with_frame("(window-body-width)");
     assert!(r.starts_with("OK "));
     let val: i64 = r.strip_prefix("OK ").unwrap().trim().parse().unwrap();
-    assert!(val > 0, "window-width should be positive, got {val}");
+    assert!(val > 0, "window-body-width should be positive, got {val}");
 }
 
 #[test]
@@ -1527,8 +1527,8 @@ fn window_size_queries_bootstrap_initial_frame() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
-        "(list (integerp (window-height))
-               (integerp (window-width))
+        "(list (integerp (window-total-height))
+               (integerp (window-total-width))
                (integerp (window-body-height))
                (integerp (window-body-width)))",
     )
@@ -1542,18 +1542,14 @@ fn window_size_queries_match_batch_defaults_and_invalid_window_predicates() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms(
-        "(window-height nil)
-         (window-width nil)
+        "(window-total-height nil)
+         (window-total-width nil)
          (window-body-height nil)
          (window-body-width nil)
-         (window-total-height nil)
-         (window-total-width nil)
-         (condition-case err (window-height 999999) (error err))
-         (condition-case err (window-width 999999) (error err))
-         (condition-case err (window-body-height 999999) (error err))
-         (condition-case err (window-body-width 999999) (error err))
          (condition-case err (window-total-height 999999) (error err))
-         (condition-case err (window-total-width 999999) (error err))",
+         (condition-case err (window-total-width 999999) (error err))
+         (condition-case err (window-body-height 999999) (error err))
+         (condition-case err (window-body-width 999999) (error err))",
     )
     .expect("parse");
     let out = ev
@@ -1565,14 +1561,10 @@ fn window_size_queries_match_batch_defaults_and_invalid_window_predicates() {
     assert_eq!(out[1], "OK 80");
     assert_eq!(out[2], "OK 23");
     assert_eq!(out[3], "OK 80");
-    assert_eq!(out[4], "OK 24");
-    assert_eq!(out[5], "OK 80");
-    assert_eq!(out[6], "OK (wrong-type-argument window-valid-p 999999)");
+    assert_eq!(out[4], "OK (wrong-type-argument window-valid-p 999999)");
+    assert_eq!(out[5], "OK (wrong-type-argument window-valid-p 999999)");
+    assert_eq!(out[6], "OK (wrong-type-argument window-live-p 999999)");
     assert_eq!(out[7], "OK (wrong-type-argument window-live-p 999999)");
-    assert_eq!(out[8], "OK (wrong-type-argument window-live-p 999999)");
-    assert_eq!(out[9], "OK (wrong-type-argument window-live-p 999999)");
-    assert_eq!(out[10], "OK (wrong-type-argument window-valid-p 999999)");
-    assert_eq!(out[11], "OK (wrong-type-argument window-valid-p 999999)");
 }
 
 #[test]

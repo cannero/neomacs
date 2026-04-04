@@ -2877,18 +2877,6 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         1,
         Some(1),
     );
-    ctx.defsubr(
-        "window-height",
-        super::window_cmds::builtin_window_height,
-        0,
-        None,
-    );
-    ctx.defsubr(
-        "window-width",
-        super::window_cmds::builtin_window_width,
-        0,
-        None,
-    );
     ctx.defsubr("framep", super::window_cmds::builtin_framep, 1, Some(1));
     ctx.defsubr(
         "window-frame",

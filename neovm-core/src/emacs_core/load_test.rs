@@ -226,6 +226,32 @@ fn gnu_bootstrap_files_define_string_helpers_without_rust_shims() {
 }
 
 #[test]
+fn raw_context_does_not_seed_window_size_alias_cells() {
+    crate::test_utils::init_test_tracing();
+    let eval = Context::new();
+    for name in ["window-height", "window-width"] {
+        assert!(
+            eval.obarray.symbol_function_id(intern(name)).is_none(),
+            "{name} should come from GNU window.el, not Context::new"
+        );
+    }
+}
+
+#[test]
+fn gnu_window_el_defines_window_size_aliases() {
+    crate::test_utils::init_test_tracing();
+    let eval = partial_bootstrap_eval_until("files", true);
+    assert_eq!(
+        eval.obarray.symbol_function("window-height").copied(),
+        Some(Value::symbol("window-total-height"))
+    );
+    assert_eq!(
+        eval.obarray.symbol_function("window-width").copied(),
+        Some(Value::symbol("window-body-width"))
+    );
+}
+
+#[test]
 fn bootstrap_source_fingerprint_tracks_lisp_files_only() {
     let temp = tempdir().expect("temp runtime root");
     let runtime_root = temp.path();

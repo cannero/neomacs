@@ -1793,34 +1793,6 @@ pub(crate) fn builtin_set_window_point(
         }
     }
 }
-/// `(window-height &optional WINDOW)` -> integer (lines).
-pub(crate) fn builtin_window_height(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
-    expect_max_args("window-height", &args, 1)?;
-    let _ = ensure_selected_frame_id_in_state(frames, buffers);
-    let (fid, wid) =
-        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-valid-p")?;
-    let w = get_window(frames, fid, wid)?;
-    let ch = frames.get(fid).map(|f| f.char_height).unwrap_or(16.0);
-    Ok(Value::fixnum(window_height_lines(w, ch)))
-}
-/// `(window-width &optional WINDOW)` -> integer (columns).
-pub(crate) fn builtin_window_width(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
-    expect_max_args("window-width", &args, 1)?;
-    let _ = ensure_selected_frame_id_in_state(frames, buffers);
-    let (fid, wid) =
-        resolve_window_id_with_pred_in_state(frames, buffers, args.first(), "window-live-p")?;
-    let w = get_window(frames, fid, wid)?;
-    let cw = frames.get(fid).map(|f| f.char_width).unwrap_or(8.0);
-    Ok(Value::fixnum(window_width_cols(w, cw)))
-}
 /// `(window-use-time &optional WINDOW)` -> integer.
 pub(crate) fn builtin_window_use_time(
     eval: &mut super::eval::Context,
