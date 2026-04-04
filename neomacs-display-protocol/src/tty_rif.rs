@@ -199,8 +199,13 @@ impl TtyRif {
         self.cursor_visible = false;
 
         for entry in &state.window_matrices {
-            let win_col = entry.matrix.matrix_x;
-            let win_row = entry.matrix.matrix_y;
+            // Derive screen position from pixel_bounds.
+            // In TTY mode, pixel_bounds uses char-cell units (char_w=1, char_h=1),
+            // so bounds.x/y directly give the screen column/row.
+            let char_w = state.char_width.max(1.0);
+            let char_h = state.char_height.max(1.0);
+            let win_col = (entry.pixel_bounds.x / char_w) as usize;
+            let win_row = (entry.pixel_bounds.y / char_h) as usize;
 
             for (row_idx, glyph_row) in entry.matrix.rows.iter().enumerate() {
                 if !glyph_row.enabled {
