@@ -1700,10 +1700,34 @@ fn bootstrap_runtime_require_icons_restores_cl_loaddefs_under_gui_features() {
                  (list (featurep 'icons)
                        (featurep 'cl-lib)
                        (fboundp 'cl-every)
-                       (autoloadp (symbol-function 'cl-every))))
+                       (autoloadp (symbol-function 'cl-every))
+                       (not (null (get 'button 'icon--properties)))))
              (error (list 'error err)))"#,
     );
-    assert_eq!(rendered, "OK (t t t t)");
+    assert_eq!(rendered, "OK (t t t t t)");
+}
+
+#[test]
+fn runtime_source_bootstrap_surface_tracks_icons_owned_surface() {
+    crate::test_utils::init_test_tracing();
+    let project_root = runtime_project_root();
+    let state =
+        runtime_source_bootstrap_surface_state(&project_root).expect("runtime source surface");
+
+    assert!(state.function_names.contains("define-icon"));
+    assert!(state.function_names.contains("icon-string"));
+    assert!(state.function_names.contains("describe-icon"));
+    assert!(state.variable_names.contains("icon-preference"));
+    assert!(state.variable_names.contains("icon"));
+    assert!(state.variable_names.contains("icon-button"));
+    assert!(state.face_names.contains("icon"));
+    assert!(state.face_names.contains("icon-button"));
+    assert!(
+        state
+            .property_keys
+            .contains(&(String::from("button"), String::from("icon--properties")))
+    );
+    assert!(state.features.contains("icons"));
 }
 
 #[test]
@@ -1715,6 +1739,7 @@ fn bootstrap_runtime_gui_surface_matches_gnu_icons_residency() {
     let rendered = eval_rendered(
         &mut eval,
         r#"(list (featurep 'icons)
+                 (get 'button 'icon--properties)
                  (fboundp 'icon-string)
                  (autoloadp (symbol-function 'icon-string))
                  (boundp 'icon-preference)
@@ -1726,7 +1751,7 @@ fn bootstrap_runtime_gui_surface_matches_gnu_icons_residency() {
                  (fboundp 'tab-bar-mode)
                  (autoloadp (symbol-function 'tab-bar-mode)))"#,
     );
-    assert_eq!(rendered, "OK (nil nil nil nil nil nil t t t t nil)");
+    assert_eq!(rendered, "OK (nil nil nil nil nil nil nil t t t t nil)");
 }
 
 #[test]

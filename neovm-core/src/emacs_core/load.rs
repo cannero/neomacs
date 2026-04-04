@@ -2123,6 +2123,7 @@ struct LoaddefsSurfaceState {
 struct SourceFileSurfaceState {
     function_names: std::collections::BTreeSet<String>,
     variable_names: std::collections::BTreeSet<String>,
+    face_names: std::collections::BTreeSet<String>,
     property_keys: std::collections::BTreeSet<(String, String)>,
     features: std::collections::BTreeSet<String>,
 }
@@ -2164,6 +2165,12 @@ fn collect_source_surface(expr: &Expr, state: &mut SourceFileSurfaceState) {
                 state.variable_names.insert(name);
             }
         }
+        "defface" => {
+            if let Some(name) = items.get(1).and_then(expr_symbol_name) {
+                state.variable_names.insert(name.clone());
+                state.face_names.insert(name);
+            }
+        }
         "put" | "function-put" | "define-symbol-prop" => {
             if let Some(name) = items.get(1).and_then(expr_quoted_symbol_name)
                 && let Some(prop) = items.get(2).and_then(expr_symbol_name)
@@ -2187,6 +2194,11 @@ fn collect_source_surface(expr: &Expr, state: &mut SourceFileSurfaceState) {
                 state.function_names.insert(macroexpander.clone());
                 source_surface_insert_property(state, &macroexpander, "edebug-form-spec");
                 source_surface_insert_property(state, name, "pcase-macroexpander");
+            }
+        }
+        "define-icon" => {
+            if let Some(name) = items.get(1).and_then(expr_symbol_name) {
+                source_surface_insert_property(state, name, "icon--properties");
             }
         }
         _ => {}
@@ -2425,7 +2437,10 @@ fn runtime_source_bootstrap_surface_state(
     project_root: &Path,
 ) -> Result<SourceFileSurfaceState, EvalError> {
     collect_source_surface_from_paths(
-        &[project_root.join("lisp/emacs-lisp/pcase.el")],
+        &[
+            project_root.join("lisp/emacs-lisp/icons.el"),
+            project_root.join("lisp/emacs-lisp/pcase.el"),
+        ],
         "bootstrap runtime cleanup",
     )
 }
@@ -2531,7 +2546,6 @@ fn normalize_bootstrap_runtime_surface(
     // expands many macros while loading core Lisp, so NeoVM must explicitly
     // drop that transient expansion count from the runtime surface.
     eval.set_variable("gensym-counter", Value::fixnum(0));
-    strip_runtime_icons_surface(eval);
 
     for (name, prop) in compile_only_state
         .property_keys
@@ -2573,6 +2587,9 @@ fn normalize_bootstrap_runtime_surface(
     for name in &runtime_source_state.variable_names {
         eval.obarray_mut().makunbound(name);
     }
+    for name in &runtime_source_state.face_names {
+        super::font::clear_created_lisp_face(name);
+    }
 
     let autoload_entries = eval.autoloads.entries_snapshot();
     for entry in &autoload_entries {
@@ -2605,51 +2622,6 @@ fn normalize_bootstrap_runtime_surface(
     }
 
     Ok(())
-}
-
-fn strip_runtime_icons_surface(eval: &mut super::eval::Context) {
-    const ICON_RUNTIME_FUNCTIONS: &[&str] = &[
-        "define-icon",
-        "icons--register",
-        "icon-spec-keywords",
-        "icon-spec-values",
-        "iconp",
-        "icon-documentation",
-        "icons--spec",
-        "icons--copy-spec",
-        "icon-complete-spec",
-        "icon-string",
-        "icon-elements",
-        "icons--merge-spec",
-        "icons--create",
-        "describe-icon",
-        "icons--describe-spec",
-    ];
-    const ICON_RUNTIME_VARIABLES: &[&str] = &["icon-preference", "icon", "icon-button"];
-    const ICON_RUNTIME_FACES: &[&str] = &["icon", "icon-button"];
-
-    eval.remove_feature("icons");
-
-    for name in ICON_RUNTIME_FUNCTIONS {
-        eval.obarray_mut().fmakunbound(name);
-        eval.autoloads.remove(name);
-        let _ = super::builtins::builtin_put(
-            eval,
-            vec![
-                Value::symbol(name),
-                Value::symbol("autoload-macro"),
-                Value::NIL,
-            ],
-        );
-    }
-
-    for name in ICON_RUNTIME_VARIABLES {
-        eval.obarray_mut().makunbound(name);
-    }
-
-    for face in ICON_RUNTIME_FACES {
-        super::font::clear_created_lisp_face(face);
-    }
 }
 
 fn bootstrap_runtime_window_system_symbol(eval: &mut super::eval::Context) -> Option<Value> {
