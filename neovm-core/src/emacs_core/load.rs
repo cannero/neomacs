@@ -3135,12 +3135,6 @@ pub fn create_bootstrap_evaluator_with_startup_surface(
         // NeoVM counts depth more aggressively than GNU (see eval.rs comment).
         eval.set_variable("max-lisp-eval-depth", Value::fixnum(2400));
         eval.set_variable("inhibit-load-charset-map", Value::T);
-        // Override Elisp function-get with Rust builtin to avoid deep
-        // eval depth consumption. The Elisp version from subr.el uses
-        // get/fboundp/symbol-function which each increment depth in NeoVM
-        // (but not in GNU's C implementations).
-        eval.obarray
-            .set_symbol_function("function-get", Value::subr(intern("function-get")));
         // data-directory: directory of machine-independent data files (etc/)
         let etc_dir = project_root.join("etc");
         eval.set_variable(

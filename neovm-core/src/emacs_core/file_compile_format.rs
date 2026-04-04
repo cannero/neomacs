@@ -1022,9 +1022,11 @@ pub(crate) fn transplant_value_pair(
     let first_cached = encoder
         .encode_value(first)
         .ok_or_else(|| encoder.unsupported_value(first).with_path_prefix("pair[0]"))?;
-    let second_cached = encoder
-        .encode_value(second)
-        .ok_or_else(|| encoder.unsupported_value(second).with_path_prefix("pair[1]"))?;
+    let second_cached = encoder.encode_value(second).ok_or_else(|| {
+        encoder
+            .unsupported_value(second)
+            .with_path_prefix("pair[1]")
+    })?;
 
     let mut decoder = ExprDecoder::default();
     Ok((

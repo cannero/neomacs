@@ -6462,19 +6462,6 @@ fn write_real_cl_typep_inline_fixture(path: &std::path::Path) {
     .expect("write real cl-typep inline fixture");
 }
 
-fn load_ldefs_boot_for_compile_surface(eval: &mut Context) {
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let project_root = manifest.parent().expect("project root");
-    let ldefs_boot = project_root.join("lisp/ldefs-boot.el");
-    load_file(eval, &ldefs_boot).unwrap_or_else(|err| {
-        panic!(
-            "load ldefs-boot {}: {}",
-            ldefs_boot.display(),
-            format_eval_error(eval, &err)
-        )
-    });
-}
-
 #[test]
 fn compiled_neobc_real_cl_typep_define_inline_loads() {
     crate::test_utils::init_test_tracing();
@@ -6482,12 +6469,7 @@ fn compiled_neobc_real_cl_typep_define_inline_loads() {
     let path = dir.path().join("vm-real-cl-typep-inline.el");
     write_real_cl_typep_inline_fixture(&path);
 
-    let mut eval = minimal_eager_macroexpand_eval();
-    let load_path = get_load_path(&eval.obarray());
-    let custom_path =
-        bootstrap_fixture_path(&load_path, "custom", true).expect("custom fixture path");
-    load_file(&mut eval, &custom_path).expect("load custom for cl-lib bootstrap surface");
-    load_ldefs_boot_for_compile_surface(&mut eval);
+    let mut eval = partial_bootstrap_eval_until("button", false);
     crate::emacs_core::file_compile::compile_el_to_neobc(&mut eval, &path)
         .expect("compile real cl-typep inline fixture to neobc");
 
@@ -6531,12 +6513,7 @@ fn compiled_neobc_real_cl_typep_compiler_macro_call_matches_gnu_source_shape() {
     let path = dir.path().join("vm-real-cl-typep-inline.el");
     write_real_cl_typep_inline_fixture(&path);
 
-    let mut eval = minimal_eager_macroexpand_eval();
-    let load_path = get_load_path(&eval.obarray());
-    let custom_path =
-        bootstrap_fixture_path(&load_path, "custom", true).expect("custom fixture path");
-    load_file(&mut eval, &custom_path).expect("load custom for cl-lib bootstrap surface");
-    load_ldefs_boot_for_compile_surface(&mut eval);
+    let mut eval = partial_bootstrap_eval_until("button", false);
     crate::emacs_core::file_compile::compile_el_to_neobc(&mut eval, &path)
         .expect("compile real cl-typep inline fixture to neobc");
 

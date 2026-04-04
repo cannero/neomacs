@@ -2642,37 +2642,6 @@ fn format_ipv6_network_address(items: &[i64], omit_port: bool) -> Option<String>
 // Builtins (eval-dependent)
 // ---------------------------------------------------------------------------
 
-/// (backquote-delay-process ENV FORM) -> delayed-form
-pub(crate) fn builtin_backquote_delay_process(
-    _eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("backquote-delay-process", &args, 2)?;
-    Ok(Value::list(vec![
-        Value::fixnum(0),
-        Value::symbol("quote"),
-        Value::list(vec![args[1]]),
-    ]))
-}
-
-/// (backquote-process FORM &optional LEVEL) -> processed
-pub(crate) fn builtin_backquote_process(
-    _eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_min_args("backquote-process", &args, 1)?;
-    if args.len() > 2 {
-        return Err(signal(
-            "wrong-number-of-arguments",
-            vec![
-                Value::symbol("backquote-process"),
-                Value::fixnum(args.len() as i64),
-            ],
-        ));
-    }
-    Ok(Value::list(vec![Value::fixnum(0)]))
-}
-
 /// (clone-process PROCESS &optional NAME) -> process
 pub(crate) fn builtin_clone_process(
     eval: &mut super::eval::Context,

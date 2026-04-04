@@ -1260,6 +1260,7 @@ mod tests {
     use crate::emacs_core::file_compile_format::{LoadedForm, read_neobc};
     use crate::emacs_core::load::{get_load_path, load_file};
     use crate::emacs_core::parser::parse_forms;
+    use crate::emacs_core::print::print_expr;
 
     fn bootstrap_fixture_path(load_path: &[String], logical_name: &str) -> std::path::PathBuf {
         for dir in load_path {
@@ -1370,6 +1371,25 @@ mod tests {
                 _ => false,
             })
             .unwrap_or_else(|| panic!("find defmacro {name} in inline.el"))
+    }
+
+    fn real_cl_macs_defmacro_form(name: &str) -> Expr {
+        let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let project_root = manifest.parent().expect("project root");
+        let source = std::fs::read_to_string(project_root.join("lisp/emacs-lisp/cl-macs.el"))
+            .expect("read cl-macs.el");
+        let forms = parse_forms(&source).expect("parse cl-macs.el");
+        forms
+            .into_iter()
+            .find(|form| match form {
+                Expr::List(items) => matches!(
+                    (items.first(), items.get(1)),
+                    (Some(Expr::Symbol(id0)), Some(Expr::Symbol(id1)))
+                        if resolve_sym(*id0) == "defmacro" && resolve_sym(*id1) == name
+                ),
+                _ => false,
+            })
+            .unwrap_or_else(|| panic!("find defmacro {name} in cl-macs.el"))
     }
 
     fn macroexp_accumulate_defmacro_form() -> Expr {
@@ -2203,6 +2223,58 @@ mod tests {
                 .all(|expr| !expr_contains_symbol_named(expr, "\\,@")),
             "compiled body should not contain raw comma-at symbol"
         );
+    }
+
+    #[test]
+    fn test_compile_body_exprs_expands_cl_load_time_value_backquote_shape() {
+        crate::test_utils::init_test_tracing();
+        let form = real_cl_macs_defmacro_form("cl-load-time-value");
+        let Expr::List(items) = &form else {
+            panic!("expected cl-load-time-value defmacro list");
+        };
+        let body_values: Vec<Value> = items[3..].iter().map(quote_to_value).collect();
+        let mut eval = minimal_compile_surface_eval();
+        let compiled_body = compile_body_exprs(&mut eval, &body_values);
+        let rendered = compiled_body
+            .iter()
+            .map(print_expr)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            compiled_body
+                .iter()
+                .all(|expr| !expr_contains_symbol_named(expr, "`")),
+            "compiled cl-load-time-value body should not contain raw backquote symbol: {rendered}"
+        );
+        assert!(
+            compiled_body
+                .iter()
+                .all(|expr| !expr_contains_symbol_named(expr, "\\,")),
+            "compiled cl-load-time-value body should not contain raw comma symbol: {rendered}"
+        );
+        assert!(
+            compiled_body
+                .iter()
+                .all(|expr| !expr_contains_symbol_named(expr, "\\,@")),
+            "compiled cl-load-time-value body should not contain raw comma-at symbol: {rendered}"
+        );
+    }
+
+    #[test]
+    fn test_compile_defmacro_direct_real_cl_load_time_value_emits_compiled_macro() {
+        crate::test_utils::init_test_tracing();
+        let form = real_cl_macs_defmacro_form("cl-load-time-value");
+        let runtime_value = quote_to_value(&form);
+        let items = list_to_vec(&runtime_value).expect("defmacro value should be a list");
+        let mut eval = minimal_compile_surface_eval();
+        let compiled = compile_toplevel_defmacro_direct_value(&mut eval, &items)
+            .expect("real cl-load-time-value should compile");
+        let compiled_items = list_to_vec(&compiled).expect("compiled form should be a list");
+        assert_eq!(compiled_items[0].as_symbol_name(), Some("defalias"));
+        let target = list_to_vec(&compiled_items[2]).expect("macro target should be a list");
+        assert_eq!(target[0].as_symbol_name(), Some("cons"));
+        assert!(is_quoted_symbol(target[1], "macro"));
+        assert!(target[2].get_bytecode_data().is_some());
     }
 
     #[test]

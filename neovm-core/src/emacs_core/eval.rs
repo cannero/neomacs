@@ -3567,51 +3567,6 @@ impl Context {
         // not as a startup builtin.
         obarray.clear_function_silent("word-at-point");
 
-        let noop_macro = Value::make_macro(LambdaData {
-            params: LambdaParams {
-                required: Vec::new(),
-                optional: Vec::new(),
-                rest: Some(intern("_args")),
-            },
-            body: vec![].into(), // empty body → nil
-            env: None,
-            docstring: None,
-            doc_form: None,
-            interactive: None,
-        });
-
-        // cl-defgeneric and cl-defmethod stubs — these macros are normally
-        // defined by cl-generic.el, which fails during bootstrap (needs cl
-        // type system).  Stub them as no-ops so files like startup.el and
-        // frame.el that use them can still load.
-        for stub_name in &["cl-defgeneric", "cl-defmethod"] {
-            obarray.set_symbol_function(stub_name, noop_macro);
-        }
-
-        // cl-check-type and cl-typep stubs — cl-preloaded.el uses
-        // (cl-check-type ...) which macroexpands to (cl-typep val type).
-        // cl-macs.el defines these via define-inline (stores inline body
-        // in the variable cell), but cl-macs is only eval-when-compile'd.
-        // Stub cl-check-type as a no-op macro and cl-typep as a function
-        // returning t — skips type validation during bootstrap.
-        obarray.set_symbol_function("cl-check-type", noop_macro);
-        obarray.set_symbol_function(
-            "cl-typep",
-            Value::make_lambda(LambdaData {
-                params: LambdaParams {
-                    required: vec![intern("_val"), intern("_type")],
-                    optional: Vec::new(),
-                    rest: None,
-                },
-                body: vec![Expr::Symbol(intern("t"))].into(),
-                env: None,
-                docstring: None,
-                doc_form: None,
-                interactive: None,
-            }),
-        );
-        obarray.set_symbol_value("cl-typep", Value::T);
-
         // Mark standard variables as special (dynamically bound)
         for name in &[
             "debug-on-error",

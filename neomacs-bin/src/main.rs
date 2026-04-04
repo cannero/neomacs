@@ -1435,15 +1435,6 @@ fn configure_gnu_startup_state(eval: &mut Context, frame_id: FrameId, startup: &
     // with_mirrored_evaluator.  Users who want it can set this to nil in
     // their init file.
     eval.set_variable("inhibit-startup-screen", Value::T);
-
-    // Override Elisp function-get with Rust builtin. The Elisp version
-    // (subr.el) uses get/fboundp/symbol-function in a while loop, each
-    // incrementing eval depth in NeoVM. The Rust builtin performs the
-    // same loop without depth counting, preventing excessive-lisp-nesting
-    // errors during macroexpand-all in complex startup sequences.
-    use neovm_core::emacs_core::intern::intern;
-    eval.obarray_mut()
-        .set_symbol_function("function-get", Value::subr(intern("function-get")));
 }
 
 fn ensure_gnu_startup_terminal_frame(eval: &mut Context, opening_frame_id: FrameId) -> FrameId {
