@@ -218,6 +218,29 @@ fn eval_with_explicit_lexenv_shadows_special_reads_and_setq() {
 }
 
 #[test]
+fn source_cons_macro_cache_uses_value_expansion_path() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let setup = parse_forms(
+        r#"(fset 'source-cache-macro
+                  (cons 'macro
+                        (lambda (x)
+                          x)))"#,
+    )
+    .expect("parse macro setup");
+    ev.eval_expr(&setup[0]).expect("install macro");
+
+    let forms = parse_forms("(source-cache-macro (+ 1 2))").expect("parse source form");
+    let first = ev.eval_expr(&forms[0]);
+    let second = ev.eval_expr(&forms[0]);
+
+    assert_eq!(format_eval_result(&first), "OK 3");
+    assert_eq!(format_eval_result(&second), "OK 3");
+    assert_eq!(ev.macro_cache_misses, 1);
+    assert_eq!(ev.macro_cache_hits, 1);
+}
+
+#[test]
 fn source_literal_to_runtime_value_reuses_compound_literal_nodes() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

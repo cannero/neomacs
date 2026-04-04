@@ -578,12 +578,12 @@ enum InterpretedClosureEnvEntry {
 
 #[derive(Clone, Debug)]
 pub(crate) struct MacroExpansionCacheEntry {
-    expanded: Rc<Expr>,
+    expanded: Value,
     fingerprint: u64,
 }
 
 impl MacroExpansionCacheEntry {
-    fn new(expanded: Rc<Expr>, fingerprint: u64) -> Self {
+    fn new(expanded: Value, fingerprint: u64) -> Self {
         Self {
             expanded,
             fingerprint,
@@ -1244,8 +1244,8 @@ pub struct Context {
     /// Key: `(macro_heap_id, args_slice_ptr)` — the macro's tagged pointer plus the
     /// pointer to the args `&[Expr]` slice.
     ///
-    /// Value: `(Rc<Expr>, u64)` — the expanded Expr tree plus a content
-    /// fingerprint of the args at insertion time.  On cache hit, the
+    /// Value: `(Value, u64)` — the expanded runtime Lisp object plus a
+    /// content fingerprint of the args at insertion time. On cache hit, the
     /// fingerprint is recomputed and compared to detect ABA: when a
     /// lambda body `Rc<Vec<Expr>>` is freed during macro expansion (e.g.
     /// temporary lambdas in pcase), its memory can be reused by a new
@@ -6657,8 +6657,7 @@ impl Context {
                             {
                                 if cached.fingerprint == current_fp {
                                     self.macro_cache_hits += 1;
-                                    let expanded = cached.expanded.clone();
-                                    return self.eval(&expanded);
+                                    return self.eval_sub(cached.expanded);
                                 }
                                 // Fingerprint mismatch → ABA detected, fall through to re-expand
                             }
@@ -6729,8 +6728,14 @@ impl Context {
                         };
 
                         let expand_elapsed = expand_start.elapsed();
-                        self.macro_cache_misses += 1;
-                        self.macro_expand_total_us += expand_elapsed.as_micros() as u64;
+                        if !self.macro_cache_disabled {
+                            self.macro_cache_misses += 1;
+                            self.macro_expand_total_us += expand_elapsed.as_micros() as u64;
+                            self.macro_expansion_cache.insert(
+                                cache_key,
+                                Rc::new(MacroExpansionCacheEntry::new(expanded_value, current_fp)),
+                            );
+                        }
                         if expand_elapsed.as_millis() > 50 {
                             tracing::debug!("cons-macro expand took {expand_elapsed:.2?}");
                         }
@@ -10490,11 +10495,7 @@ impl Context {
     // Macro expansion
     // -----------------------------------------------------------------------
 
-    pub(crate) fn expand_macro(
-        &mut self,
-        macro_val: Value,
-        args: &[Expr],
-    ) -> Result<Rc<Expr>, Flow> {
+    pub(crate) fn expand_macro(&mut self, macro_val: Value, args: &[Expr]) -> Result<Value, Flow> {
         if !macro_val.is_macro() {
             return Err(signal("invalid-macro", vec![]));
         };
@@ -10512,7 +10513,7 @@ impl Context {
             if let Some(cached) = self.macro_expansion_cache.get(&cache_key).cloned() {
                 if cached.fingerprint == current_fp {
                     self.macro_cache_hits += 1;
-                    return Ok(cached.expanded.clone());
+                    return Ok(cached.expanded);
                 }
                 // Fingerprint mismatch → ABA, fall through to re-expand
             }
@@ -10534,20 +10535,12 @@ impl Context {
 
         let expanded_value =
             self.with_macro_expansion_scope(|eval| eval.apply_lambda(macro_val, arg_values))?;
-        // Root expansion result during value_to_expr traversal
-        self.push_temp_root(expanded_value);
-
-        // Convert value back to expr for re-evaluation
-        let result = Rc::new(value_to_expr(&expanded_value));
         scope.close(self);
 
-        // Cache the expansion as Rc<Expr>.  The Rc keeps the expansion
-        // data alive, so inner Vec addresses remain stable for future
-        // cache key lookups by inner macro calls.
         let expand_elapsed = expand_start.elapsed();
         self.macro_cache_misses += 1;
         self.macro_expand_total_us += expand_elapsed.as_micros() as u64;
-        let cache_entry = Rc::new(MacroExpansionCacheEntry::new(result.clone(), current_fp));
+        let cache_entry = Rc::new(MacroExpansionCacheEntry::new(expanded_value, current_fp));
         // With OpaqueValuePool, expansions containing OpaqueValueRef are
         // safe to cache — the pool keeps referenced Values GC-rooted.
         if !self.macro_cache_disabled {
@@ -10561,7 +10554,7 @@ impl Context {
             self.macro_expansion_cache.insert(cache_key, cache_entry);
         }
 
-        Ok(result)
+        Ok(expanded_value)
     }
 
     pub(crate) fn with_macro_expansion_scope<T>(
