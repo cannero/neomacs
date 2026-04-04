@@ -64,6 +64,14 @@ impl<'a> crate::emacs_core::hook_runtime::HookRuntime for Vm<'a> {
     fn call_hook_callable(&mut self, function: Value, args: &[Value]) -> EvalResult {
         self.call_function_with_roots(function, args)
     }
+
+    fn with_hook_roots<T>(
+        &mut self,
+        roots: &[Value],
+        f: impl FnOnce(&mut Self) -> Result<T, Flow>,
+    ) -> Result<T, Flow> {
+        self.with_extra_roots(roots, f)
+    }
 }
 
 impl<'a> Vm<'a> {

@@ -5823,6 +5823,36 @@ fn run_hook_with_args_runtime_value_shapes() {
 }
 
 #[test]
+fn run_hook_with_args_roots_callbacks_and_args_across_exact_gc() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
+    ev.tagged_heap.set_gc_threshold(1);
+    let forms = parse_forms(
+        r#"
+(progn
+  (setq hook-root-a nil)
+  (setq hook-root-b nil)
+  (setq hook-probe-hook
+        (list
+         (lambda (arg)
+           (garbage-collect)
+           (setq hook-root-a arg))
+         (lambda (arg)
+           (garbage-collect)
+           (setq hook-root-b arg))))
+  (let ((payload (cons 'x 'y)))
+    (run-hook-with-args 'hook-probe-hook payload)
+    (list hook-root-a hook-root-b payload)))
+"#,
+    )
+    .expect("parse");
+    let result = format_eval_result(&ev.eval_expr(&forms[0]));
+    assert_eq!(result, "OK ((x . y) (x . y) (x . y))");
+    assert!(ev.gc_count > 0, "hook callback GC should run");
+}
+
+#[test]
 fn run_hook_wrapped_stops_on_first_non_nil_wrapper_result() {
     crate::test_utils::init_test_tracing();
     let result = eval_one(
