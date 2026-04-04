@@ -11,7 +11,7 @@ use std::path::Path;
 use super::builtins::parse_lambda_params_from_value;
 use super::bytecode::Compiler;
 use super::error::{EvalError, Flow, map_flow};
-use super::eval::{Context, quote_to_value};
+use super::eval::{Context, quote_to_value, value_to_expr};
 use super::expr::Expr;
 use super::intern::resolve_sym;
 use super::value::{Value, list_to_vec};
@@ -69,6 +69,13 @@ fn compile_replayable_toplevel_form(
         return Ok(());
     };
 
+    if form_value.is_cons() && form_value.cons_car().as_symbol_name() == Some("define-inline") {
+        super::load::eager_expand_eval(eval, form_value, macroexpand_fn)
+            .map_err(eval_error_to_flow)?;
+        out.push(CompiledForm::EagerEval(form_value));
+        return Ok(());
+    }
+
     super::load::eager_expand_toplevel_forms(
         eval,
         form_value,
@@ -116,7 +123,140 @@ pub fn compile_file_forms(eval: &mut Context, forms: &[Expr]) -> Result<Vec<Comp
     Ok(compiled)
 }
 
-fn compile_toplevel_defun(eval: &Context, items: &[Expr]) -> Option<Value> {
+fn parse_lambda_metadata_from_expr_body(
+    body: &[Expr],
+) -> (Option<String>, Option<Value>, Option<Value>, usize) {
+    let (docstring, mut body_start) = match (body.first(), body.get(1)) {
+        (Some(Expr::Str(s)), Some(_)) => (Some(s.clone()), 1),
+        _ => (None, 0),
+    };
+
+    let (doc_form, next_body_start) = if let Some(Expr::List(items)) = body.get(body_start) {
+        let is_doc_form = matches!(
+            items.first(),
+            Some(Expr::Keyword(id) | Expr::Symbol(id)) if resolve_sym(*id) == ":documentation"
+        );
+        if is_doc_form {
+            (
+                Some(items.get(1).map(quote_to_value).unwrap_or(Value::NIL)),
+                body_start + 1,
+            )
+        } else {
+            (None, body_start)
+        }
+    } else {
+        (None, body_start)
+    };
+    body_start = next_body_start;
+
+    while matches!(
+        body.get(body_start),
+        Some(Expr::List(items))
+            if matches!(items.first(), Some(Expr::Symbol(id)) if resolve_sym(*id) == "declare")
+    ) {
+        body_start += 1;
+    }
+
+    let interactive = if let Some(Expr::List(items)) = body.get(body_start) {
+        if matches!(items.first(), Some(Expr::Symbol(id)) if resolve_sym(*id) == "interactive") {
+            body_start += 1;
+            Some(if items.len() <= 2 {
+                items.get(1).map(quote_to_value).unwrap_or(Value::NIL)
+            } else {
+                Value::vector(items[1..].iter().map(quote_to_value).collect())
+            })
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    (docstring, doc_form, interactive, body_start)
+}
+
+fn compile_lambda_value(eval: &Context, lambda_value: Value) -> Option<Value> {
+    let items = list_to_vec(&lambda_value)?;
+    if items.first()?.as_symbol_name()? != "lambda" {
+        return None;
+    }
+
+    let params_value = *items.get(1)?;
+    let params = parse_lambda_params_from_value(&params_value).ok()?;
+    let (docstring, doc_form, interactive, body_start) = parse_lambda_metadata_from_expr_body(
+        &items[2..].iter().map(value_to_expr).collect::<Vec<_>>(),
+    );
+    let body_values = items.get(2 + body_start..)?;
+    let body_exprs: Vec<Expr> = if body_values.is_empty() {
+        vec![Expr::Bool(false)]
+    } else {
+        body_values.iter().map(value_to_expr).collect()
+    };
+
+    let mut compiler = Compiler::new(eval.lexical_binding());
+    let mut bytecode = compiler.compile_lambda(&params, &body_exprs);
+    bytecode.docstring = docstring;
+    bytecode.doc_form = doc_form.filter(|value| !value.is_nil());
+    bytecode.interactive = interactive.filter(|value| !value.is_nil());
+    Some(Value::make_bytecode(bytecode))
+}
+
+fn compile_function_value(eval: &Context, function_value: Value) -> Option<Value> {
+    if !function_value.is_cons() || function_value.cons_car().as_symbol_name() != Some("function") {
+        return None;
+    }
+    let tail = function_value.cons_cdr();
+    if !tail.is_cons() {
+        return None;
+    }
+    compile_lambda_value(eval, tail.cons_car())
+}
+
+fn is_quoted_symbol(value: Value, name: &str) -> bool {
+    value.is_cons()
+        && value.cons_car().as_symbol_name() == Some("quote")
+        && value.cons_cdr().is_cons()
+        && value.cons_cdr().cons_car().as_symbol_name() == Some(name)
+        && value.cons_cdr().cons_cdr().is_nil()
+}
+
+fn compile_defalias_target_value(eval: &Context, target: Value) -> Option<Value> {
+    if let Some(compiled) = compile_function_value(eval, target) {
+        return Some(compiled);
+    }
+
+    let items = list_to_vec(&target)?;
+    if items.len() != 3 || items.first()?.as_symbol_name()? != "cons" {
+        return None;
+    }
+    if !is_quoted_symbol(items[1], "macro") {
+        return None;
+    }
+
+    let compiled = compile_function_value(eval, items[2])?;
+    Some(Value::list(vec![Value::symbol("cons"), items[1], compiled]))
+}
+
+fn compile_macroexpanded_defalias_value(eval: &Context, expanded: Value) -> Option<Value> {
+    let items = list_to_vec(&expanded)?;
+    match items.first()?.as_symbol_name()? {
+        "defalias" => {
+            let compiled = compile_defalias_target_value(eval, *items.get(2)?)?;
+            let mut rebuilt = items;
+            rebuilt[2] = compiled;
+            Some(Value::list(rebuilt))
+        }
+        "prog1" => {
+            let compiled = compile_macroexpanded_defalias_value(eval, *items.get(1)?)?;
+            let mut rebuilt = items;
+            rebuilt[1] = compiled;
+            Some(Value::list(rebuilt))
+        }
+        _ => None,
+    }
+}
+
+fn compile_toplevel_defun_direct(eval: &Context, items: &[Expr]) -> Option<Value> {
     if items.len() < 4 {
         return None;
     }
@@ -126,20 +266,20 @@ fn compile_toplevel_defun(eval: &Context, items: &[Expr]) -> Option<Value> {
     };
 
     let arglist = items.get(2)?;
-    let docstring = match items.get(3) {
-        Some(Expr::Str(text)) => Some(text.clone()),
-        _ => None,
-    };
-    let body_start = if docstring.is_some() { 4 } else { 3 };
-    let body = items.get(body_start..)?;
-    if body.is_empty() {
-        return None;
-    }
-
+    let (docstring, doc_form, interactive, body_start_offset) =
+        parse_lambda_metadata_from_expr_body(&items[3..]);
+    let body = items.get(3 + body_start_offset..)?;
     let params = parse_lambda_params_from_value(&quote_to_value(arglist)).ok()?;
     let mut compiler = Compiler::new(eval.lexical_binding());
-    let mut bytecode = compiler.compile_lambda(&params, body);
+    let body = if body.is_empty() {
+        vec![Expr::Bool(false)]
+    } else {
+        body.to_vec()
+    };
+    let mut bytecode = compiler.compile_lambda(&params, &body);
     bytecode.docstring = docstring.clone();
+    bytecode.doc_form = doc_form.filter(|value| !value.is_nil());
+    bytecode.interactive = interactive.filter(|value| !value.is_nil());
 
     let mut form = vec![
         Value::symbol("defalias"),
@@ -150,6 +290,82 @@ fn compile_toplevel_defun(eval: &Context, items: &[Expr]) -> Option<Value> {
         form.push(Value::string(doc));
     }
     Some(Value::list(form))
+}
+
+fn compile_toplevel_defmacro_direct(eval: &Context, items: &[Expr]) -> Option<Value> {
+    if items.len() < 4 {
+        return None;
+    }
+
+    let Expr::Symbol(name_id) = items.get(1)? else {
+        return None;
+    };
+
+    let arglist = items.get(2)?;
+    let (docstring, _doc_form, _interactive, body_start_offset) =
+        parse_lambda_metadata_from_expr_body(&items[3..]);
+    let body = items.get(3 + body_start_offset..)?;
+    let params = parse_lambda_params_from_value(&quote_to_value(arglist)).ok()?;
+    let mut compiler = Compiler::new(eval.lexical_binding());
+    let body = if body.is_empty() {
+        vec![Expr::Bool(false)]
+    } else {
+        body.to_vec()
+    };
+    let mut bytecode = compiler.compile_lambda(&params, &body);
+    bytecode.docstring = docstring.clone();
+
+    let mut form = vec![
+        Value::symbol("defalias"),
+        Value::list(vec![Value::symbol("quote"), Value::from_sym_id(*name_id)]),
+        Value::list(vec![
+            Value::symbol("cons"),
+            Value::list(vec![Value::symbol("quote"), Value::symbol("macro")]),
+            Value::make_bytecode(bytecode),
+        ]),
+    ];
+    if let Some(doc) = docstring {
+        form.push(Value::string(doc));
+    }
+    Some(Value::list(form))
+}
+
+fn compile_toplevel_defun(eval: &mut Context, form: &Expr) -> Result<Option<Value>, Flow> {
+    let form_value = quote_to_value(form);
+    if let Some(macroexpand_fn) = super::load::get_eager_macroexpand_fn(eval) {
+        let expanded = eval.with_gc_scope_result(|ctx| {
+            ctx.root(form_value);
+            ctx.root(macroexpand_fn);
+            ctx.apply(macroexpand_fn, vec![form_value, Value::NIL])
+        })?;
+        if let Some(compiled) = compile_macroexpanded_defalias_value(eval, expanded) {
+            return Ok(Some(compiled));
+        }
+    }
+
+    let Expr::List(items) = form else {
+        return Ok(None);
+    };
+    Ok(compile_toplevel_defun_direct(eval, items))
+}
+
+fn compile_toplevel_defmacro(eval: &mut Context, form: &Expr) -> Result<Option<Value>, Flow> {
+    if let Some(macroexpand_fn) = super::load::get_eager_macroexpand_fn(eval) {
+        let form_value = quote_to_value(form);
+        let expanded = eval.with_gc_scope_result(|ctx| {
+            ctx.root(form_value);
+            ctx.root(macroexpand_fn);
+            ctx.apply(macroexpand_fn, vec![form_value, Value::NIL])
+        })?;
+        if let Some(compiled) = compile_macroexpanded_defalias_value(eval, expanded) {
+            return Ok(Some(compiled));
+        }
+    }
+
+    let Expr::List(items) = form else {
+        return Ok(None);
+    };
+    Ok(compile_toplevel_defmacro_direct(eval, items))
 }
 
 /// Process a single top-level form, appending results to `out`.
@@ -185,8 +401,21 @@ fn compile_toplevel_file_form(
                         return Ok(());
                     }
                     "defun" => {
-                        if let Some(compiled_form) = compile_toplevel_defun(eval, items) {
-                            eval.eval_value(&compiled_form)?;
+                        if let Some(compiled_form) = compile_toplevel_defun(eval, form)? {
+                            eval.with_gc_scope_result(|ctx| {
+                                ctx.root(compiled_form);
+                                ctx.eval_value(&compiled_form)
+                            })?;
+                            out.push(CompiledForm::Eval(compiled_form));
+                            return Ok(());
+                        }
+                    }
+                    "defmacro" => {
+                        if let Some(compiled_form) = compile_toplevel_defmacro(eval, form)? {
+                            eval.with_gc_scope_result(|ctx| {
+                                ctx.root(compiled_form);
+                                ctx.eval_value(&compiled_form)
+                            })?;
                             out.push(CompiledForm::Eval(compiled_form));
                             return Ok(());
                         }
@@ -374,6 +603,37 @@ mod tests {
         assert_eq!(items[0].as_symbol_name(), Some("defalias"));
         assert!(items[2].get_bytecode_data().is_some());
         assert_eq!(items[3].as_str(), Some("doc"));
+    }
+
+    #[test]
+    fn test_compile_defmacro_emits_compiled_macro_defalias_form() {
+        crate::test_utils::init_test_tracing();
+        let mut eval = Context::new();
+        let forms = parse_forms("(defmacro test-fc-macro (x) \"doc\" x)").unwrap();
+        let compiled = compile_file_forms(&mut eval, &forms).unwrap();
+        assert_eq!(compiled.len(), 1);
+
+        let CompiledForm::Eval(value) = &compiled[0] else {
+            panic!("expected Eval form");
+        };
+        let items = list_to_vec(value).expect("compiled top-level form should be a list");
+        assert_eq!(items[0].as_symbol_name(), Some("defalias"));
+        assert_eq!(items[3].as_str(), Some("doc"));
+
+        let target = list_to_vec(&items[2]).expect("macro target should be a list");
+        assert_eq!(target[0].as_symbol_name(), Some("cons"));
+        assert!(is_quoted_symbol(target[1], "macro"));
+        assert!(target[2].get_bytecode_data().is_some());
+
+        let mut runtime_eval = Context::new();
+        runtime_eval.eval_sub(*value).unwrap();
+        let func = runtime_eval
+            .obarray()
+            .symbol_function("test-fc-macro")
+            .copied()
+            .expect("macro function should be installed");
+        assert_eq!(func.cons_car().as_symbol_name(), Some("macro"));
+        assert!(func.cons_cdr().get_bytecode_data().is_some());
     }
 
     #[test]

@@ -38,10 +38,10 @@ use crate::tagged::header::{
 /// version in `load.rs`. Any change that makes previously emitted cached
 /// forms semantically unsafe to replay must bump it, even if the bincode
 /// layout itself stays readable.
-pub(crate) const NEOBC_FORMAT_VERSION: u32 = 5;
+pub(crate) const NEOBC_FORMAT_VERSION: u32 = 6;
 
 /// Magic bytes identifying a `.neobc` file.
-const NEOBC_MAGIC: &[u8] = b"NEOVM-BC-V5\n";
+const NEOBC_MAGIC: &[u8] = b"NEOVM-BC-V6\n";
 
 // ---------------------------------------------------------------------------
 // Serializable expression type (mirrors load.rs CachedExpr, which is private)
