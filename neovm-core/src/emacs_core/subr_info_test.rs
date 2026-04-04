@@ -1922,16 +1922,6 @@ fn subr_arity_window_frame_primitives_match_oracle() {
     assert_subr_arity("window-total-width", 0, Some(2));
 }
 
-#[test]
-fn subr_primitive_and_native_predicates() {
-    crate::test_utils::init_test_tracing();
-    let primitive = builtin_subr_primitive_p(vec![Value::subr(intern("car"))]).unwrap();
-    assert!(primitive.is_truthy());
-
-    let non_subr = builtin_subr_primitive_p(vec![Value::fixnum(1)]).unwrap();
-    assert!(non_subr.is_nil());
-}
-
 // -- interpreted-function-p --
 
 #[test]

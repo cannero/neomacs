@@ -3431,17 +3431,6 @@ impl Context {
         for name in ["mark-marker", "region-beginning", "region-end"] {
             obarray.set_symbol_function(name, Value::subr(intern(name)));
         }
-        // GNU Emacs exposes this helper as a Lisp wrapper, not a primitive.
-        obarray.set_symbol_function(
-            "subr-primitive-p",
-            Value::make_bytecode(Compiler::new(false).compile_lambda(
-                &LambdaParams::simple(vec![intern("object")]),
-                &[Expr::List(vec![
-                    Expr::Symbol(intern("subrp")),
-                    Expr::Symbol(intern("object")),
-                ])],
-            )),
-        );
         // Bookmark command wrappers are startup autoloads in GNU Emacs.
         let seed_autoload = |name: &str, file: &str, doc: &str| {
             obarray.set_symbol_function(
