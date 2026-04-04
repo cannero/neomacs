@@ -430,3 +430,19 @@ fn glyph_to_char(glyph: &Glyph) -> char {
 #[cfg(test)]
 #[path = "tty_rif_test.rs"]
 mod tests;
+
+impl TtyRif {
+    /// Debug: dump the desired grid content as plain text lines.
+    pub fn dump_desired(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        for row in 0..self.desired.height {
+            let mut line = String::new();
+            for col in 0..self.desired.width {
+                let idx = row * self.desired.width + col;
+                line.push(self.desired.cells[idx].ch);
+            }
+            lines.push(line);
+        }
+        lines
+    }
+}
