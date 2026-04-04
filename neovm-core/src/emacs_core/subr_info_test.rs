@@ -623,7 +623,6 @@ fn subr_arity_hook_advice_primitives_match_oracle() {
 fn subr_arity_doc_helper_primitives_match_oracle() {
     crate::test_utils::init_test_tracing();
     assert_subr_arity("Snarf-documentation", 1, Some(1));
-    assert_subr_arity("substitute-command-keys", 1, Some(3));
     assert_subr_arity("documentation", 1, Some(2));
     assert_subr_arity("documentation-stringp", 1, Some(1));
     assert_subr_arity("documentation-property", 2, Some(3));

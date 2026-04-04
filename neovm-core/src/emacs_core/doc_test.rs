@@ -2,106 +2,57 @@ use super::*;
 use crate::emacs_core::Expr;
 use crate::emacs_core::builtins::builtin_documentation_stringp;
 use crate::emacs_core::{Context, format_eval_result, parse_forms};
-use crate::test_utils::{runtime_startup_context, runtime_startup_eval_all};
+use crate::test_utils::{
+    load_minimal_gnu_help_runtime, runtime_startup_context, runtime_startup_eval_all,
+};
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
     runtime_startup_eval_all(src)
 }
 
-// =======================================================================
-// substitute-command-keys
-// =======================================================================
-
 #[test]
-fn substitute_plain_string() {
+fn raw_documentation_property_does_not_require_substitute_command_keys() {
     crate::test_utils::init_test_tracing();
-    let result = builtin_substitute_command_keys(vec![Value::string("hello world")]);
-    assert!(result.is_ok());
-    assert_eq!(result.unwrap().as_str(), Some("hello world"));
+    let mut eval = Context::new();
+    eval.obarray_mut().put_property(
+        "vm-doc-prop",
+        "variable-documentation",
+        Value::string("Press \\[save-buffer] to save."),
+    );
+
+    let result = builtin_documentation_property(
+        &mut eval,
+        vec![
+            Value::symbol("vm-doc-prop"),
+            Value::symbol("variable-documentation"),
+        ],
+    )
+    .expect("raw documentation-property should succeed");
+    assert_eq!(result.as_str(), Some("Press \\[save-buffer] to save."));
 }
 
 #[test]
-fn substitute_command_key_binding() {
+fn runtime_documentation_property_uses_gnu_substitute_command_keys() {
     crate::test_utils::init_test_tracing();
-    let result =
-        builtin_substitute_command_keys(vec![Value::string("Press \\[save-buffer] to save.")]);
-    assert!(result.is_ok());
-    let s = result.unwrap();
-    let text = s.as_str().unwrap();
+    let mut eval = Context::new();
+    load_minimal_gnu_help_runtime(&mut eval);
+    eval.obarray_mut().put_property(
+        "vm-doc-prop",
+        "variable-documentation",
+        Value::string("Press \\[save-buffer] to save."),
+    );
+
+    let result = builtin_documentation_property(
+        &mut eval,
+        vec![
+            Value::symbol("vm-doc-prop"),
+            Value::symbol("variable-documentation"),
+        ],
+    )
+    .expect("runtime documentation-property should succeed");
+    let text = result.as_str().expect("runtime doc should stay string");
     assert!(text.contains("save-buffer"));
     assert!(!text.contains("\\["));
-    assert!(!text.contains(']'));
-}
-
-#[test]
-fn substitute_keymap_description() {
-    crate::test_utils::init_test_tracing();
-    let result =
-        builtin_substitute_command_keys(vec![Value::string("Bindings:\\{foo-mode-map}done")]);
-    assert!(result.is_ok());
-    let s = result.unwrap();
-    let text = s.as_str().unwrap();
-    // The keymap description is stripped entirely.
-    assert_eq!(text, "Bindings:done");
-}
-
-#[test]
-fn substitute_keymap_context() {
-    crate::test_utils::init_test_tracing();
-    let result =
-        builtin_substitute_command_keys(vec![Value::string("\\<foo-map>Press \\[bar] now")]);
-    assert!(result.is_ok());
-    let s = result.unwrap();
-    let text = s.as_str().unwrap();
-    assert!(!text.contains("\\<"));
-    assert!(!text.contains('>'));
-    assert!(text.contains("bar"));
-}
-
-#[test]
-fn substitute_quote_escape() {
-    crate::test_utils::init_test_tracing();
-    let result =
-        builtin_substitute_command_keys(vec![Value::string("Use \\=\\[not-a-command] literally")]);
-    assert!(result.is_ok());
-    let s = result.unwrap();
-    let text = s.as_str().unwrap();
-    // \\= quotes the next char, so \\[ is literal.
-    assert!(text.contains("\\[not-a-command]"));
-}
-
-#[test]
-fn substitute_literal_backslash() {
-    crate::test_utils::init_test_tracing();
-    let result = builtin_substitute_command_keys(vec![Value::string("path\\\\name")]);
-    assert!(result.is_ok());
-    let s = result.unwrap();
-    assert_eq!(s.as_str(), Some("path\\name"));
-}
-
-#[test]
-fn substitute_wrong_type() {
-    crate::test_utils::init_test_tracing();
-    let result = builtin_substitute_command_keys(vec![Value::fixnum(42)]);
-    assert!(result.is_err());
-}
-
-#[test]
-fn substitute_wrong_arity() {
-    crate::test_utils::init_test_tracing();
-    let result = builtin_substitute_command_keys(vec![]);
-    assert!(result.is_err());
-}
-
-#[test]
-fn substitute_command_keys_startup_is_autoloaded() {
-    crate::test_utils::init_test_tracing();
-    let eval = Context::new();
-    let function = eval
-        .obarray
-        .symbol_function("substitute-command-keys")
-        .expect("missing substitute-command-keys startup function cell");
-    assert!(crate::emacs_core::autoload::is_autoload_value(&function));
 }
 
 // =======================================================================

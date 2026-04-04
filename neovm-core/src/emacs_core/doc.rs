@@ -4,7 +4,6 @@
 //! - `documentation` — retrieve docstring from a function
 //! - `documentation-property` — retrieve documentation property
 //! - `Snarf-documentation` — internal DOC file loader compatibility shim
-//! - `substitute-command-keys` — process special sequences in docstrings
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::{intern, resolve_sym};
@@ -60,6 +59,7 @@ pub(crate) fn builtin_documentation(
     finish_documentation_result(
         execute_documentation_plan(plan, |value| eval.eval_value(&value))?,
         raw,
+        |value| maybe_substitute_command_keys(eval, value),
     )
 }
 
@@ -78,12 +78,31 @@ fn execute_documentation_plan(
     }
 }
 
-fn finish_documentation_result(value: Value, raw: bool) -> EvalResult {
+fn finish_documentation_result(
+    value: Value,
+    raw: bool,
+    mut substitute_command_keys: impl FnMut(Value) -> EvalResult,
+) -> EvalResult {
     if raw || !value.is_string() {
         Ok(value)
     } else {
-        builtin_substitute_command_keys(vec![value])
+        substitute_command_keys(value)
     }
+}
+
+fn maybe_substitute_command_keys(eval: &mut super::eval::Context, value: Value) -> EvalResult {
+    if eval
+        .obarray()
+        .symbol_function_id(intern("substitute-command-keys"))
+        .is_none()
+    {
+        return Ok(value);
+    }
+
+    eval.eval_value(&Value::list(vec![
+        Value::symbol("substitute-command-keys"),
+        value,
+    ]))
 }
 
 fn documentation_plan(
@@ -146,6 +165,23 @@ pub(crate) fn builtin_documentation_in_vm_runtime(
             })
         })?,
         raw,
+        |value| {
+            if shared
+                .obarray()
+                .symbol_function_id(intern("substitute-command-keys"))
+                .is_none()
+            {
+                return Ok(value);
+            }
+
+            let call = Value::list(vec![Value::symbol("substitute-command-keys"), value]);
+            let mut extra_roots = args_roots.clone();
+            extra_roots.push(value);
+            extra_roots.push(call);
+            shared.with_extra_gc_roots(vm_gc_roots, &extra_roots, move |eval| {
+                eval.eval_value(&call)
+            })
+        },
     )
 }
 
@@ -10540,6 +10576,7 @@ pub(crate) fn builtin_documentation_property(
     finish_documentation_result(
         execute_documentation_plan(plan, |value| eval.eval_value(&value))?,
         raw,
+        |value| maybe_substitute_command_keys(eval, value),
     )
 }
 
@@ -10609,6 +10646,23 @@ pub(crate) fn builtin_documentation_property_in_vm_runtime(
             })
         })?,
         raw,
+        |value| {
+            if shared
+                .obarray()
+                .symbol_function_id(intern("substitute-command-keys"))
+                .is_none()
+            {
+                return Ok(value);
+            }
+
+            let call = Value::list(vec![Value::symbol("substitute-command-keys"), value]);
+            let mut extra_roots = args_roots.clone();
+            extra_roots.push(value);
+            extra_roots.push(call);
+            shared.with_extra_gc_roots(vm_gc_roots, &extra_roots, move |eval| {
+                eval.eval_value(&call)
+            })
+        },
     )
 }
 
@@ -10681,95 +10735,6 @@ pub(crate) fn builtin_snarf_documentation(args: Vec<Value>) -> EvalResult {
             Value::string(format!("/usr/share/emacs/etc/{filename}")),
         ],
     ))
-}
-
-/// `(substitute-command-keys STRING)` -- process special documentation
-/// sequences in STRING.
-///
-/// Recognized sequences:
-/// - `\\[COMMAND]` — replaced with the key binding for COMMAND (stripped here)
-/// - `\\{KEYMAP}` — replaced with a description of the keymap (stripped here)
-/// - `\\<KEYMAP>` — sets the keymap for subsequent `\\[...]` (stripped here)
-/// - `\\=` — quote the next character (prevents interpretation)
-///
-/// This implementation strips the special sequences, returning the plain
-/// text content.  A full implementation would resolve key bindings and
-/// format keymap descriptions.
-pub(crate) fn builtin_substitute_command_keys(args: Vec<Value>) -> EvalResult {
-    expect_args("substitute-command-keys", &args, 1)?;
-
-    let input = match args[0].as_str() {
-        Some(s) => s,
-        None => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("stringp"), args[0]],
-            ));
-        }
-    };
-
-    let mut result = String::with_capacity(input.len());
-    let mut chars = input.chars().peekable();
-
-    while let Some(ch) = chars.next() {
-        if ch == '\\' {
-            match chars.peek() {
-                Some('[') => {
-                    // \\[COMMAND] — skip until closing ']'
-                    chars.next(); // consume '['
-                    let mut command = String::new();
-                    for c in chars.by_ref() {
-                        if c == ']' {
-                            break;
-                        }
-                        command.push(c);
-                    }
-                    // Replace with a placeholder showing the command name.
-                    result.push_str(&format!("M-x {}", command));
-                }
-                Some('{') => {
-                    // \\{KEYMAP} — skip until closing '}'
-                    chars.next(); // consume '{'
-                    for c in chars.by_ref() {
-                        if c == '}' {
-                            break;
-                        }
-                    }
-                    // Omit keymap description entirely.
-                }
-                Some('<') => {
-                    // \\<KEYMAP> — skip until closing '>'
-                    chars.next(); // consume '<'
-                    for c in chars.by_ref() {
-                        if c == '>' {
-                            break;
-                        }
-                    }
-                    // Silently consumed (sets keymap context).
-                }
-                Some('=') => {
-                    // \\= — quote next character literally.
-                    chars.next(); // consume '='
-                    if let Some(next) = chars.next() {
-                        result.push(next);
-                    }
-                }
-                Some('\\') => {
-                    // Literal backslash (\\\\).
-                    chars.next();
-                    result.push('\\');
-                }
-                _ => {
-                    // Not a recognized sequence; keep the backslash.
-                    result.push(ch);
-                }
-            }
-        } else {
-            result.push(ch);
-        }
-    }
-
-    Ok(Value::string(result))
 }
 
 // ---------------------------------------------------------------------------

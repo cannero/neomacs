@@ -9,6 +9,7 @@ use crate::emacs_core::value::{
     HashKey, HashTableTest, Value, ValueKind, VecLikeType, list_to_vec,
 };
 use crate::emacs_core::{format_eval_result, parse_forms};
+use crate::test_utils::load_minimal_gnu_help_runtime;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -130,6 +131,8 @@ fn raw_source_bootstrap_starts_without_extra_function_cells() {
         "with-output-to-string",
         "with-syntax-table",
         "with-mutex",
+        "substitute-command-keys",
+        "wholenump",
     ] {
         assert!(
             eval.obarray.symbol_function_id(intern(name)).is_none(),
@@ -223,6 +226,28 @@ fn gnu_bootstrap_files_define_string_helpers_without_rust_shims() {
             "{name} should come from GNU autoloads"
         );
     }
+}
+
+#[test]
+fn gnu_subr_el_defines_wholenump_without_rust_shim() {
+    crate::test_utils::init_test_tracing();
+    let eval = partial_bootstrap_eval_until("keymap", true);
+    assert_eq!(
+        eval.obarray.symbol_function("wholenump"),
+        Some(&Value::symbol("natnump"))
+    );
+}
+
+#[test]
+fn gnu_help_el_defines_substitute_command_keys_without_rust_shim() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    load_minimal_gnu_help_runtime(&mut eval);
+    let function = eval
+        .obarray
+        .symbol_function("substitute-command-keys")
+        .expect("help.el should define substitute-command-keys");
+    assert!(!crate::emacs_core::autoload::is_autoload_value(function));
 }
 
 #[test]

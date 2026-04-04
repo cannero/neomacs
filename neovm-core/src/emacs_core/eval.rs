@@ -3431,7 +3431,7 @@ impl Context {
         for name in ["mark-marker", "region-beginning", "region-end"] {
             obarray.set_symbol_function(name, Value::subr(intern(name)));
         }
-        let mut seed_autoload_noninteractive = |name: &str, file: &str, doc: &str| {
+        let seed_autoload_noninteractive = |name: &str, file: &str, doc: &str| {
             obarray.set_symbol_function(
                 name,
                 Value::list(vec![
@@ -3443,20 +3443,6 @@ impl Context {
                 ]),
             );
         };
-        // Some helper autoloads are non-interactive in GNU Emacs startup
-        // function-cells; override their startup metadata accordingly.
-        seed_autoload_noninteractive(
-            "substitute-command-keys",
-            "help",
-            "Replace key descriptions in STRING.",
-        );
-        seed_autoload_noninteractive(
-            "wholenump",
-            "subr",
-            "Return non-nil if OBJECT is an integer greater than or equal to zero.",
-        );
-        // Keep these as non-interactive autoload wrappers to match GNU Emacs
-        // `symbol-function` shape during bootstrap.
         drop(seed_autoload_noninteractive);
 
         // `word-at-point` is defined in GNU Emacs Lisp by `thingatpt.el`,

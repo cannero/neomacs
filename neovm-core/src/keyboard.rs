@@ -3211,7 +3211,7 @@ impl crate::emacs_core::eval::Context {
             Some(function) if !crate::emacs_core::autoload::is_autoload_value(&function) => {
                 self.funcall_general(Value::symbol("substitute-command-keys"), vec![help])
             }
-            _ => crate::emacs_core::doc::builtin_substitute_command_keys(vec![help]),
+            _ => Ok(help),
         }
     }
 

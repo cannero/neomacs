@@ -2,12 +2,13 @@
 //!
 //! Provides shared helpers used across all test modules.
 
+use crate::emacs_core::intern::resolve_sym;
 use crate::emacs_core::load::{
     apply_ldefs_boot_autoloads_for_names, bootstrap_load_path_entries,
     create_runtime_startup_evaluator_cached, find_file_in_load_path, get_load_path, load_file,
 };
 use crate::emacs_core::value::Value;
-use crate::emacs_core::{Context, format_eval_result, parse_forms};
+use crate::emacs_core::{Context, Expr, format_eval_result, parse_forms};
 use std::path::PathBuf;
 
 /// Initialize the tracing subscriber for test output.
@@ -60,6 +61,58 @@ pub fn load_minimal_gnu_backquote_runtime(eval: &mut Context) {
         let path = find_file_in_load_path(name, &load_path)
             .unwrap_or_else(|| panic!("cannot find {name}"));
         load_file(eval, &path).unwrap_or_else(|err| panic!("load {name}: {err:?}"));
+    }
+}
+
+/// Load a small GNU Lisp runtime that is sufficient for `help.el`
+/// semantics such as `substitute-command-keys`, without paying for
+/// full `loadup.el` startup.
+pub fn load_minimal_gnu_help_runtime(eval: &mut Context) {
+    load_minimal_gnu_backquote_runtime(eval);
+    let load_path = get_load_path(&eval.obarray());
+    for name in &[
+        "keymap",
+        "widget",
+        "custom",
+        "cus-face",
+        "faces",
+        "emacs-lisp/macroexp",
+        "emacs-lisp/pcase",
+        "emacs-lisp/easy-mmode",
+        "help-macro",
+    ] {
+        let path = find_file_in_load_path(name, &load_path)
+            .unwrap_or_else(|| panic!("cannot find {name}"));
+        load_file(eval, &path).unwrap_or_else(|err| panic!("load {name}: {err:?}"));
+    }
+
+    let help_path = find_file_in_load_path("help", &load_path).expect("cannot find help");
+    let help_source =
+        std::fs::read_to_string(&help_path).unwrap_or_else(|err| panic!("read help.el: {err}"));
+    let help_forms = parse_forms(&help_source).expect("parse help.el");
+    let mut found_substitute_command_keys = false;
+    for form in &help_forms {
+        eval.eval_expr(form)
+            .unwrap_or_else(|err| panic!("eval help.el prefix: {err:?}"));
+        if is_named_defun(form, "substitute-command-keys") {
+            found_substitute_command_keys = true;
+            break;
+        }
+    }
+    assert!(
+        found_substitute_command_keys,
+        "help.el should define substitute-command-keys"
+    );
+}
+
+fn is_named_defun(form: &Expr, name: &str) -> bool {
+    match form {
+        Expr::List(items) => matches!(
+            (items.first(), items.get(1)),
+            (Some(Expr::Symbol(id0)), Some(Expr::Symbol(id1)))
+                if resolve_sym(*id0) == "defun" && resolve_sym(*id1) == name
+        ),
+        _ => false,
     }
 }
 

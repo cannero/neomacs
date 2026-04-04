@@ -408,16 +408,6 @@ pub(crate) fn builtin_natnump(args: Vec<Value>) -> EvalResult {
     Ok(Value::bool_val(is_nat))
 }
 
-/// `(wholenump OBJ)` -> t if whole number.
-pub(crate) fn builtin_wholenump(args: Vec<Value>) -> EvalResult {
-    expect_args("wholenump", &args, 1)?;
-    let is_whole = match args[0].kind() {
-        ValueKind::Fixnum(n) => n >= 0,
-        _ => false,
-    };
-    Ok(Value::bool_val(is_whole))
-}
-
 /// `(zerop OBJ)` -> t if zero.
 pub(crate) fn builtin_zerop(args: Vec<Value>) -> EvalResult {
     expect_args("zerop", &args, 1)?;
