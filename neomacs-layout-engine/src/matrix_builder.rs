@@ -71,6 +71,24 @@ impl GlyphMatrixBuilder {
         self.in_row = false;
     }
 
+    pub fn push_left_margin_char(&mut self, ch: char, face_id: u32) {
+        if let Some(ref mut matrix) = self.current_matrix {
+            if self.current_row < matrix.rows.len() {
+                matrix.rows[self.current_row].glyphs[GlyphArea::LeftMargin as usize]
+                    .push(Glyph::char(ch, face_id, 0));
+            }
+        }
+    }
+
+    pub fn push_left_margin_stretch(&mut self, width_cols: u16, face_id: u32) {
+        if let Some(ref mut matrix) = self.current_matrix {
+            if self.current_row < matrix.rows.len() {
+                matrix.rows[self.current_row].glyphs[GlyphArea::LeftMargin as usize]
+                    .push(Glyph::stretch(width_cols, face_id));
+            }
+        }
+    }
+
     pub fn push_char(&mut self, ch: char, face_id: u32, charpos: usize) {
         if let Some(ref mut matrix) = self.current_matrix {
             if self.current_row < matrix.rows.len() {
@@ -122,10 +140,14 @@ impl GlyphMatrixBuilder {
     }
 
     pub fn set_cursor(&mut self, col: u16, style: neomacs_display_protocol::frame_glyphs::CursorStyle) {
+        self.set_cursor_at_row(self.current_row, col, style);
+    }
+
+    pub fn set_cursor_at_row(&mut self, row: usize, col: u16, style: neomacs_display_protocol::frame_glyphs::CursorStyle) {
         if let Some(ref mut matrix) = self.current_matrix {
-            if self.current_row < matrix.rows.len() {
-                matrix.rows[self.current_row].cursor_col = Some(col);
-                matrix.rows[self.current_row].cursor_type = Some(style);
+            if row < matrix.rows.len() {
+                matrix.rows[row].cursor_col = Some(col);
+                matrix.rows[row].cursor_type = Some(style);
             }
         }
     }
@@ -137,6 +159,44 @@ impl GlyphMatrixBuilder {
                 matrix.rows[self.current_row].end_charpos = end;
             }
         }
+    }
+
+    /// Extract status-line characters from FrameGlyphBuffer and append as a new matrix row.
+    ///
+    /// This bridges the gap until status-line rendering is fully migrated to matrix output.
+    /// Call this AFTER `end_window()` — it appends a row to the most recently stored window's
+    /// matrix, filtering `FrameGlyph::Char` entries that match the given `window_id` and `role`.
+    pub fn push_status_line_from_buffer(
+        &mut self,
+        glyphs: &[neomacs_display_protocol::frame_glyphs::FrameGlyph],
+        role: GlyphRowRole,
+        window_id: i64,
+    ) {
+        use neomacs_display_protocol::frame_glyphs::FrameGlyph;
+        let Some(entry) = self.windows.last_mut() else {
+            return;
+        };
+        // Append a new row for the status line
+        let mut row = neomacs_display_protocol::glyph_matrix::GlyphRow::new(role);
+        row.enabled = true;
+        row.mode_line = true;
+        let area = &mut row.glyphs[GlyphArea::Text as usize];
+        for glyph in glyphs {
+            if let FrameGlyph::Char {
+                window_id: wid,
+                row_role,
+                char: ch,
+                face_id,
+                ..
+            } = glyph
+            {
+                if *wid == window_id && *row_role == role {
+                    area.push(Glyph::char(*ch, *face_id, 0));
+                }
+            }
+        }
+        entry.matrix.rows.push(row);
+        entry.matrix.nrows += 1;
     }
 
     pub fn finish(mut self, frame_cols: usize, frame_rows: usize, char_width: f32, char_height: f32) -> FrameDisplayState {
