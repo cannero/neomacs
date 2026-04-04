@@ -18,6 +18,7 @@ pub mod hit_test;
 pub mod neovm_bridge;
 pub mod status_line;
 pub mod types;
+pub mod matrix_builder;
 pub mod unicode;
 
 pub use engine::*;
