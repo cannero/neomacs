@@ -939,6 +939,7 @@ fn measured_face_status_line_face(
 
 fn apply_resolved_face(
     frame_glyphs: &mut FrameGlyphBuffer,
+    builder: &mut crate::matrix_builder::GlyphMatrixBuilder,
     face_id: u32,
     face: &super::neovm_bridge::ResolvedFace,
     metrics: Option<FontMetrics>,
@@ -960,9 +961,9 @@ fn apply_resolved_face(
         render_face.overline_color,
         render_face.overstrike,
     );
-    frame_glyphs
-        .faces
-        .insert(render_face.face_id, render_face.render_face());
+    let rendered = render_face.render_face();
+    frame_glyphs.faces.insert(render_face.face_id, rendered.clone());
+    builder.insert_face(render_face.face_id, rendered);
 }
 
 /// The main Rust layout engine.
@@ -1034,7 +1035,7 @@ impl LayoutEngine {
     }
 
     fn record_transition_hint_from_latest_window_info(
-        &self,
+        &mut self,
         frame_glyphs: &mut FrameGlyphBuffer,
         curr_window_infos: &mut std::collections::HashMap<i64, WindowInfo>,
     ) {
@@ -1042,13 +1043,14 @@ impl LayoutEngine {
             if let Some(prev) = self.prev_window_infos.get(&curr.window_id) {
                 if let Some(hint) = FrameGlyphBuffer::derive_transition_hint(prev, &curr) {
                     frame_glyphs.add_transition_hint(hint);
+                    self.matrix_builder.push_transition_hint(hint);
                 }
             }
             curr_window_infos.insert(curr.window_id, curr);
         }
     }
 
-    fn record_effect_hints_from_latest_window_info(&self, frame_glyphs: &mut FrameGlyphBuffer) {
+    fn record_effect_hints_from_latest_window_info(&mut self, frame_glyphs: &mut FrameGlyphBuffer) {
         let Some(curr) = frame_glyphs.window_infos.last().cloned() else {
             return;
         };
@@ -1064,10 +1066,12 @@ impl LayoutEngine {
         }
 
         if prev.buffer_id != curr.buffer_id {
-            frame_glyphs.add_effect_hint(WindowEffectHint::TextFadeIn {
+            let hint = WindowEffectHint::TextFadeIn {
                 window_id: curr.window_id,
                 bounds: curr.bounds,
-            });
+            };
+            frame_glyphs.add_effect_hint(hint);
+            self.matrix_builder.push_effect_hint(hint);
             return;
         }
 
@@ -1078,25 +1082,33 @@ impl LayoutEngine {
                 -1
             };
             let delta = (curr.window_start - prev.window_start).unsigned_abs() as f32;
-            frame_glyphs.add_effect_hint(WindowEffectHint::TextFadeIn {
+            let h1 = WindowEffectHint::TextFadeIn {
                 window_id: curr.window_id,
                 bounds: curr.bounds,
-            });
-            frame_glyphs.add_effect_hint(WindowEffectHint::ScrollLineSpacing {
-                window_id: curr.window_id,
-                bounds: curr.bounds,
-                direction,
-            });
-            frame_glyphs.add_effect_hint(WindowEffectHint::ScrollMomentum {
+            };
+            frame_glyphs.add_effect_hint(h1);
+            self.matrix_builder.push_effect_hint(h1);
+            let h2 = WindowEffectHint::ScrollLineSpacing {
                 window_id: curr.window_id,
                 bounds: curr.bounds,
                 direction,
-            });
-            frame_glyphs.add_effect_hint(WindowEffectHint::ScrollVelocityFade {
+            };
+            frame_glyphs.add_effect_hint(h2);
+            self.matrix_builder.push_effect_hint(h2);
+            let h3 = WindowEffectHint::ScrollMomentum {
+                window_id: curr.window_id,
+                bounds: curr.bounds,
+                direction,
+            };
+            frame_glyphs.add_effect_hint(h3);
+            self.matrix_builder.push_effect_hint(h3);
+            let h4 = WindowEffectHint::ScrollVelocityFade {
                 window_id: curr.window_id,
                 bounds: curr.bounds,
                 delta,
-            });
+            };
+            frame_glyphs.add_effect_hint(h4);
+            self.matrix_builder.push_effect_hint(h4);
         }
     }
 
@@ -1120,7 +1132,7 @@ impl LayoutEngine {
     }
 
     fn add_line_animation_hints(
-        &self,
+        &mut self,
         frame_glyphs: &mut FrameGlyphBuffer,
         curr_window_infos: &std::collections::HashMap<i64, WindowInfo>,
     ) {
@@ -1144,12 +1156,14 @@ impl LayoutEngine {
                     } else {
                         curr.char_height
                     };
-                    frame_glyphs.add_effect_hint(WindowEffectHint::LineAnimation {
+                    let hint = WindowEffectHint::LineAnimation {
                         window_id: curr.window_id,
                         bounds: curr.bounds,
                         edit_y: edit_y + curr.char_height,
                         offset,
-                    });
+                    };
+                    frame_glyphs.add_effect_hint(hint);
+                    self.matrix_builder.push_effect_hint(hint);
                 }
             }
         }
@@ -1163,8 +1177,9 @@ impl LayoutEngine {
             .map(|info| (info.window_id, info.bounds));
         if let Some((window_id, bounds)) = new_selected {
             if self.prev_selected_window_id != 0 && self.prev_selected_window_id != window_id {
-                frame_glyphs
-                    .add_effect_hint(WindowEffectHint::WindowSwitchFade { window_id, bounds });
+                let hint = WindowEffectHint::WindowSwitchFade { window_id, bounds };
+                frame_glyphs.add_effect_hint(hint);
+                self.matrix_builder.push_effect_hint(hint);
             }
             self.prev_selected_window_id = window_id;
         }
@@ -1183,16 +1198,18 @@ impl LayoutEngine {
                     .iter()
                     .find(|w| w.is_minibuffer)
                     .map_or(frame_glyphs.height, |w| w.bounds.y);
-                frame_glyphs.add_effect_hint(WindowEffectHint::ThemeTransition {
+                let hint = WindowEffectHint::ThemeTransition {
                     bounds: Rect::new(0.0, 0.0, frame_glyphs.width, full_h),
-                });
+                };
+                frame_glyphs.add_effect_hint(hint);
+                self.matrix_builder.push_effect_hint(hint);
             }
         }
         self.prev_background = Some(new_bg);
     }
 
     fn maybe_add_topology_transition_hint(
-        &self,
+        &mut self,
         frame_glyphs: &mut FrameGlyphBuffer,
         curr_window_infos: &std::collections::HashMap<i64, WindowInfo>,
     ) {
@@ -1230,13 +1247,15 @@ impl LayoutEngine {
             .find(|w| w.is_minibuffer)
             .map_or(frame_glyphs.height, |w| w.bounds.y);
 
-        frame_glyphs.add_transition_hint(WindowTransitionHint {
+        let hint = WindowTransitionHint {
             window_id: 0,
             bounds: Rect::new(0.0, 0.0, frame_glyphs.width, full_h),
             kind: WindowTransitionKind::Crossfade,
             effect: None,
             easing: None,
-        });
+        };
+        frame_glyphs.add_transition_hint(hint);
+        self.matrix_builder.push_transition_hint(hint);
     }
 
     // char_advance is a standalone function (below) to avoid borrow conflicts
@@ -1448,6 +1467,9 @@ impl LayoutEngine {
                 buffer_file_name,
                 wp.modified != 0,
             );
+            if let Some(info) = frame_glyphs.window_infos.last() {
+                self.matrix_builder.push_window_info(info.clone());
+            }
             self.record_transition_hint_from_latest_window_info(
                 frame_glyphs,
                 &mut curr_window_infos,
@@ -1635,7 +1657,7 @@ impl LayoutEngine {
             frame_glyphs.font_pixel_size = default_resolved.font_size;
         }
 
-        apply_resolved_face(frame_glyphs, 0, default_resolved, default_metrics);
+        apply_resolved_face(frame_glyphs, &mut self.matrix_builder, 0, default_resolved, default_metrics);
 
         let tab_bar_height = frame_params.tab_bar_height;
         if tab_bar_height > 0.0 {
@@ -1716,7 +1738,8 @@ impl LayoutEngine {
                 buffer_file_name,
                 modified,
             };
-            frame_glyphs.window_infos.push(window_info);
+            frame_glyphs.window_infos.push(window_info.clone());
+            self.matrix_builder.push_window_info(window_info);
             self.record_transition_hint_from_latest_window_info(
                 frame_glyphs,
                 &mut curr_window_infos,
@@ -1769,21 +1792,13 @@ impl LayoutEngine {
         self.update_theme_transition_hint(frame_glyphs);
         self.maybe_add_topology_transition_hint(frame_glyphs, &curr_window_infos);
 
-        // Copy faces, stipple patterns, window_infos, transition/effect hints
-        // from FrameGlyphBuffer into the matrix builder. These are accumulated by
-        // helper methods that only have access to frame_glyphs, not the builder.
+        // Copy faces from FrameGlyphBuffer into the builder.  Faces are
+        // still accumulated into frame_glyphs.faces by apply_face (FFI) and
+        // apply_status_line_face because those functions cannot access the
+        // builder directly (borrow-checker constraints on &self receivers).
+        // Window infos, transition hints, and effect hints are now pushed
+        // directly into the builder at their origination sites.
         self.matrix_builder.set_faces(frame_glyphs.faces.clone());
-        self.matrix_builder
-            .set_stipple_patterns(frame_glyphs.stipple_patterns.clone());
-        for info in &frame_glyphs.window_infos {
-            self.matrix_builder.push_window_info(info.clone());
-        }
-        for hint in &frame_glyphs.transition_hints {
-            self.matrix_builder.push_transition_hint(*hint);
-        }
-        for hint in &frame_glyphs.effect_hints {
-            self.matrix_builder.push_effect_hint(*hint);
-        }
 
         // Build parallel GlyphMatrix output for validation
         let frame_cols = (frame_params.width / frame_params.char_width.max(1.0)) as usize;
@@ -2377,7 +2392,7 @@ impl LayoutEngine {
                         )
                     };
 
-                    apply_resolved_face(frame_glyphs, face_id, &resolved, metrics);
+                    apply_resolved_face(frame_glyphs, &mut self.matrix_builder, face_id, &resolved, metrics);
                     current_face_id += 1;
 
                     if resolved.extend {
@@ -2456,7 +2471,7 @@ impl LayoutEngine {
                 let _lnum_bg = Color::from_pixel(lnum_face.bg);
                 // Realize and register the line-number face so the renderer
                 // uses the same family/weight/slant the layout chose.
-                apply_resolved_face(frame_glyphs, current_face_id, &lnum_face, None);
+                apply_resolved_face(frame_glyphs, &mut self.matrix_builder, current_face_id, &lnum_face, None);
                 let lnum_face_id = current_face_id;
                 current_face_id += 1;
 
@@ -4808,60 +4823,58 @@ impl LayoutEngine {
             attrs |= FaceAttributes::BOX;
         }
 
-        frame_glyphs.faces.insert(
-            face.face_id,
-            Face {
-                id: face.face_id,
-                foreground: fg,
-                background: bg,
-                underline_color,
-                overline_color,
-                strike_through_color: strike_color,
-                box_color: if face.box_type > 0 {
-                    Some(Color::from_pixel(face.box_color))
-                } else {
-                    None
-                },
-                font_family: font_family.to_string(),
-                font_size: face.font_size as f32,
-                font_weight,
-                attributes: attrs,
-                underline_style: match face.underline_style {
-                    1 => UnderlineStyle::Line,
-                    2 => UnderlineStyle::Wave,
-                    3 => UnderlineStyle::Double,
-                    4 => UnderlineStyle::Dotted,
-                    5 => UnderlineStyle::Dashed,
-                    _ => UnderlineStyle::None,
-                },
-                box_type: if face.box_type == 1 {
-                    BoxType::Line
-                } else {
-                    BoxType::None
-                },
-                box_line_width: face.box_line_width,
-                box_corner_radius: face.box_corner_radius,
-                box_border_style: face.box_border_style as u32,
-                box_border_speed: face.box_border_speed as f32 / 100.0,
-                box_color2: if face.box_color2 != 0 {
-                    Some(Color::from_pixel(face.box_color2))
-                } else {
-                    None
-                },
-                font_file_path: font_file_path,
-                font_ascent: face.font_ascent as i32,
-                font_descent: face.font_descent,
-                underline_position: face.underline_position.max(1),
-                underline_thickness: face.underline_thickness.max(1),
+        let rendered = Face {
+            id: face.face_id,
+            foreground: fg,
+            background: bg,
+            underline_color,
+            overline_color,
+            strike_through_color: strike_color,
+            box_color: if face.box_type > 0 {
+                Some(Color::from_pixel(face.box_color))
+            } else {
+                None
             },
-        );
+            font_family: font_family.to_string(),
+            font_size: face.font_size as f32,
+            font_weight,
+            attributes: attrs,
+            underline_style: match face.underline_style {
+                1 => UnderlineStyle::Line,
+                2 => UnderlineStyle::Wave,
+                3 => UnderlineStyle::Double,
+                4 => UnderlineStyle::Dotted,
+                5 => UnderlineStyle::Dashed,
+                _ => UnderlineStyle::None,
+            },
+            box_type: if face.box_type == 1 {
+                BoxType::Line
+            } else {
+                BoxType::None
+            },
+            box_line_width: face.box_line_width,
+            box_corner_radius: face.box_corner_radius,
+            box_border_style: face.box_border_style as u32,
+            box_border_speed: face.box_border_speed as f32 / 100.0,
+            box_color2: if face.box_color2 != 0 {
+                Some(Color::from_pixel(face.box_color2))
+            } else {
+                None
+            },
+            font_file_path: font_file_path,
+            font_ascent: face.font_ascent as i32,
+            font_descent: face.font_descent,
+            underline_position: face.underline_position.max(1),
+            underline_thickness: face.underline_thickness.max(1),
+        };
+        frame_glyphs.faces.insert(face.face_id, rendered);
 
         let _ = frame;
     }
 
     /// Apply a backend-neutral status-line face to the glyph buffer.
     pub(crate) unsafe fn apply_status_line_face(
-        &self,
+        &mut self,
         face: &StatusLineFace,
         frame: Option<EmacsFrame>,
         frame_glyphs: &mut FrameGlyphBuffer,
@@ -4882,7 +4895,9 @@ impl LayoutEngine {
             face.overline_color,
             face.overstrike,
         );
-        frame_glyphs.faces.insert(face.face_id, face.render_face());
+        let rendered = face.render_face();
+        frame_glyphs.faces.insert(face.face_id, rendered.clone());
+        self.matrix_builder.insert_face(face.face_id, rendered);
 
         let _ = frame;
     }
