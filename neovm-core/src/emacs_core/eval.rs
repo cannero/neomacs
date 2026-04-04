@@ -3414,19 +3414,6 @@ impl Context {
         for name in ["mark-marker", "region-beginning", "region-end"] {
             obarray.set_symbol_function(name, Value::subr(intern(name)));
         }
-        let seed_autoload_noninteractive = |name: &str, file: &str, doc: &str| {
-            obarray.set_symbol_function(
-                name,
-                Value::list(vec![
-                    Value::symbol("autoload"),
-                    Value::string(file),
-                    Value::string(doc),
-                    Value::NIL,
-                    Value::NIL,
-                ]),
-            );
-        };
-        drop(seed_autoload_noninteractive);
 
         // `word-at-point` is defined in GNU Emacs Lisp by `thingatpt.el`,
         // not as a startup builtin.
