@@ -4,16 +4,11 @@
 //! computes line breaks, positions glyphs on a fixed-width grid, and
 //! produces FrameGlyphBuffer compatible with the existing wgpu renderer.
 
-use std::ffi::CStr;
-use std::ffi::c_int;
-
-use super::emacs_ffi::*;
 use super::font_metrics::{FontMetrics, FontMetricsService};
 use super::hit_test::*;
 use super::status_line::*;
 use super::types::*;
 use super::unicode::*;
-use neomacs_display_protocol::face::{BoxType, Face, FaceAttributes, UnderlineStyle};
 use neomacs_display_protocol::frame_glyphs::{
     CursorStyle, FrameGlyphBuffer, WindowEffectHint, WindowInfo,
     WindowTransitionHint, WindowTransitionKind,
@@ -646,9 +641,7 @@ unsafe fn cursor_point_advance(
     face_char_w: f32,
     face_space_w: f32,
     char_w: f32,
-    face_id: u32,
     font_size: i32,
-    window: EmacsWindow,
     font_family: &str,
     font_weight: u16,
     font_italic: bool,
@@ -688,10 +681,8 @@ unsafe fn cursor_point_advance(
                 ch,
                 char_cols,
                 char_w,
-                face_id,
                 font_size,
                 face_char_w,
-                window,
                 font_family,
                 font_weight,
                 font_italic,
@@ -920,8 +911,6 @@ fn apply_resolved_face(
 pub struct LayoutEngine {
     /// Reusable text buffer to avoid allocation per frame
     text_buf: Vec<u8>,
-    /// Cached face data to avoid redundant FFI calls
-    face_data: FaceDataFFI,
     /// Per-font ASCII width cache: actual glyph widths via cosmic-text.
     /// Key: semantic font identity, Value: advance widths for chars 0-127.
     pub(crate) ascii_width_cache: std::collections::HashMap<AsciiWidthCacheKey, [f32; 128]>,
@@ -963,7 +952,6 @@ impl LayoutEngine {
     pub fn new() -> Self {
         Self {
             text_buf: Vec::with_capacity(64 * 1024), // 64KB initial
-            face_data: FaceDataFFI::default(),
             ascii_width_cache: std::collections::HashMap::new(),
             hit_data: Vec::new(),
             display_snapshots: Vec::new(),
@@ -1757,10 +1745,8 @@ impl LayoutEngine {
                 ' ',
                 1,
                 char_w,
-                0,
                 current_font_size_px,
                 face_char_w,
-                std::ptr::null_mut(),
                 &self.current_resolved_family,
                 current_font_weight,
                 current_font_italic,
@@ -1992,10 +1978,8 @@ impl LayoutEngine {
                             ' ',
                             1,
                             char_w,
-                            face_id,
                             current_font_size_px,
                             face_char_w,
-                            std::ptr::null_mut(),
                             &self.current_resolved_family,
                             current_font_weight,
                             current_font_italic,
@@ -2972,7 +2956,6 @@ impl LayoutEngine {
 
             // Compute wide-char advance: CJK chars occupy 2 columns
             let char_cols = if is_wide_char(ch) { 2 } else { 1 };
-            let active_face_id = current_face_id.saturating_sub(1);
             let advance = unsafe {
                 char_advance(
                     &mut self.ascii_width_cache,
@@ -2980,10 +2963,8 @@ impl LayoutEngine {
                     ch,
                     char_cols as i32,
                     char_w,
-                    active_face_id,
                     current_font_size_px,
                     face_char_w,
-                    std::ptr::null_mut(),
                     &self.current_resolved_family,
                     current_font_weight,
                     current_font_italic,
@@ -3514,9 +3495,7 @@ impl LayoutEngine {
                                     cursor_face_w,
                                     cursor_face_space_w,
                                     char_w,
-                                    cursor_face_id,
                                     face.font_size.max(1.0).round() as i32,
-                                    std::ptr::null_mut(),
                                     &face.font_family,
                                     face.font_weight,
                                     face.is_italic(),
@@ -4190,164 +4169,7 @@ impl LayoutEngine {
     }
 }
 
-/// Build a `Face` from FFI `FaceDataFFI` and insert it into the builder.
-unsafe fn apply_ffi_face(
-    face: &FaceDataFFI,
-    builder: &mut crate::matrix_builder::GlyphMatrixBuilder,
-) {
-        let fg = Color::from_pixel(face.fg);
-        let bg = Color::from_pixel(face.bg);
-        let font_weight = face.font_weight as u16;
-        let italic = face.italic != 0;
-
-        // Get font family string from C pointer
-        let font_family = if !face.font_family.is_null() {
-            CStr::from_ptr(face.font_family)
-                .to_str()
-                .unwrap_or("monospace")
-        } else {
-            "monospace"
-        };
-
-        // Get font file path from C pointer (absolute path from Fontconfig)
-        let font_file_path = if !face.font_file_path.is_null() {
-            CStr::from_ptr(face.font_file_path)
-                .to_str()
-                .ok()
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
-        } else {
-            None
-        };
-
-        let underline_color = if face.underline_style > 0 {
-            Some(Color::from_pixel(face.underline_color))
-        } else {
-            None
-        };
-
-        let strike_color = if face.strike_through > 0 {
-            Some(Color::from_pixel(face.strike_through_color))
-        } else {
-            None
-        };
-
-        let overline_color = if face.overline > 0 {
-            Some(Color::from_pixel(face.overline_color))
-        } else {
-            None
-        };
-
-        // Build complete Face for this face_id so the render thread gets
-        // all attributes (box, underline, etc.) in one shot per frame,
-        // eliminating stale-cache bugs when Emacs reuses face IDs.
-        let mut attrs = FaceAttributes::empty();
-        if font_weight >= 700 {
-            attrs |= FaceAttributes::BOLD;
-        }
-        if italic {
-            attrs |= FaceAttributes::ITALIC;
-        }
-        if face.underline_style > 0 {
-            attrs |= FaceAttributes::UNDERLINE;
-        }
-        if face.strike_through > 0 {
-            attrs |= FaceAttributes::STRIKE_THROUGH;
-        }
-        if face.overline > 0 {
-            attrs |= FaceAttributes::OVERLINE;
-        }
-        if face.box_type > 0 {
-            attrs |= FaceAttributes::BOX;
-        }
-
-        let rendered = Face {
-            id: face.face_id,
-            foreground: fg,
-            background: bg,
-            underline_color,
-            overline_color,
-            strike_through_color: strike_color,
-            box_color: if face.box_type > 0 {
-                Some(Color::from_pixel(face.box_color))
-            } else {
-                None
-            },
-            font_family: font_family.to_string(),
-            font_size: face.font_size as f32,
-            font_weight,
-            attributes: attrs,
-            underline_style: match face.underline_style {
-                1 => UnderlineStyle::Line,
-                2 => UnderlineStyle::Wave,
-                3 => UnderlineStyle::Double,
-                4 => UnderlineStyle::Dotted,
-                5 => UnderlineStyle::Dashed,
-                _ => UnderlineStyle::None,
-            },
-            box_type: if face.box_type == 1 {
-                BoxType::Line
-            } else {
-                BoxType::None
-            },
-            box_line_width: face.box_line_width,
-            box_corner_radius: face.box_corner_radius,
-            box_border_style: face.box_border_style as u32,
-            box_border_speed: face.box_border_speed as f32 / 100.0,
-            box_color2: if face.box_color2 != 0 {
-                Some(Color::from_pixel(face.box_color2))
-            } else {
-                None
-            },
-            font_file_path,
-            font_ascent: face.font_ascent as i32,
-            font_descent: face.font_descent,
-            underline_position: face.underline_position.max(1),
-            underline_thickness: face.underline_thickness.max(1),
-        };
-        builder.insert_face(face.face_id, rendered);
-}
-
 impl LayoutEngine {
-    /// Apply a backend-neutral status-line face to the builder's face map.
-    pub(crate) fn apply_status_line_face(
-        &mut self,
-        face: &StatusLineFace,
-    ) {
-        let rendered = face.render_face();
-        self.matrix_builder.insert_face(face.face_id, rendered);
-    }
-
-    /// Add a stretch glyph, automatically using stipple if the given face has one.
-    /// NOTE: Glyph output has been migrated to `GlyphMatrixBuilder`.
-    /// This function is now a no-op retained to keep call-sites compiling.
-    pub(crate) fn add_stretch_for_face(
-        _face: &FaceDataFFI,
-        _x: f32,
-        _y: f32,
-        _width: f32,
-        _height: f32,
-        _bg: Color,
-        _face_id: u32,
-        _is_overlay: bool,
-    ) {
-    }
-
-    /// Add a stretch glyph for a backend-neutral status-line face.
-    /// NOTE: Glyph output has been migrated to `GlyphMatrixBuilder`.
-    /// This function is now a no-op retained to keep call-sites compiling.
-    pub(crate) fn add_stretch_for_status_line_face(
-        _face: &StatusLineFace,
-        _x: f32,
-        _y: f32,
-        _width: f32,
-        _height: f32,
-        _bg: Color,
-        _face_id: u32,
-        _is_overlay: bool,
-    ) {
-    }
-
     /// Resolve the character width used by the Rust-native status-line path.
     pub(crate) fn status_line_char_width(
         &mut self,
@@ -4404,48 +4226,18 @@ impl LayoutEngine {
     ) -> f32 {
         match advance_mode {
             StatusLineAdvanceMode::Fixed => fallback_char_width,
-            StatusLineAdvanceMode::Measured { window } => char_advance(
+            StatusLineAdvanceMode::Measured => char_advance(
                 &mut self.ascii_width_cache,
                 &mut self.font_metrics,
                 ch,
                 if is_wide_char(ch) { 2 } else { 1 },
                 fallback_char_width,
-                face.face_id,
                 face.font_size.round() as i32,
                 face.font_char_width,
-                *window,
                 &face.font_family,
                 face.font_weight,
                 face.italic,
             ),
-        }
-    }
-
-    /// Render the frame-level tab-bar via the legacy FFI status-line pipeline.
-    unsafe fn render_frame_tab_bar(
-        &mut self,
-        frame: EmacsFrame,
-        frame_params: &FrameParams,
-        tab_bar_height: f32,
-    ) {
-        let x = 0.0;
-        let y = 0.0;
-        let width = frame_params.width;
-        let window_id = frame as i64;
-        let char_w = frame_params.char_width;
-        let ascent = frame_params.char_height * 0.8;
-
-        if let Some(spec) = self.build_ffi_tab_bar_spec(
-            x,
-            y,
-            width,
-            tab_bar_height,
-            window_id,
-            char_w,
-            ascent,
-            frame,
-        ) {
-            self.render_status_line_spec(&spec, None, None);
         }
     }
 
@@ -4495,23 +4287,16 @@ impl LayoutEngine {
 ///
 /// Standalone function to avoid borrow conflicts with `LayoutEngine::text_buf`.
 ///
-/// Supports two measurement backends:
-/// - **C FFI** (default): Uses `neomacs_layout_fill_ascii_widths()` / `neomacs_layout_char_width()`
-///   which read from Emacs C font metrics (fontconfig/freetype).
-/// - **Cosmic-text**: Uses `FontMetricsService` for measurement, matching the render thread's
-///   font resolution exactly. Eliminates width mismatches between layout and rendering.
-///
-/// The backend is selected by `font_metrics_svc` being Some (cosmic) or None (C FFI).
+/// Uses `FontMetricsService` (cosmic-text) for measurement, matching the render
+/// thread's font resolution exactly.
 unsafe fn char_advance(
     ascii_width_cache: &mut std::collections::HashMap<AsciiWidthCacheKey, [f32; 128]>,
     font_metrics_svc: &mut Option<FontMetricsService>,
     ch: char,
     char_cols: i32,
     char_w: f32,
-    _face_id: u32,
     font_size: i32,
     face_char_w: f32,
-    _window: EmacsWindow,
     font_family: &str,
     font_weight: u16,
     font_italic: bool,
@@ -4562,96 +4347,6 @@ unsafe fn char_advance(
 
     let measured = svc.char_width(ch, font_family, font_weight, font_italic, font_size_f);
     snap_advance_to_pixel_grid(measured, min_grid_advance)
-}
-
-/// Render a fringe bitmap at the given position using Border rects.
-/// Queries the actual bitmap data from Emacs via FFI and draws
-/// each set bit as a filled pixel rectangle.
-unsafe fn render_fringe_bitmap(
-    bitmap_id: i32,
-    fringe_x: f32,
-    row_y: f32,
-    fringe_width: f32,
-    row_height: f32,
-    fg: Color,
-    _frame_glyphs: &mut FrameGlyphBuffer,
-    matrix_builder: &mut crate::matrix_builder::GlyphMatrixBuilder,
-    window_id: i64,
-) {
-    let mut bits = [0u16; 64]; // max 64 rows
-    let mut bm_width: c_int = 0;
-    let mut bm_height: c_int = 0;
-    let mut bm_align: c_int = 0;
-
-    let rows = neomacs_layout_get_fringe_bitmap(
-        bitmap_id,
-        bits.as_mut_ptr(),
-        64,
-        &mut bm_width,
-        &mut bm_height,
-        &mut bm_align,
-    );
-
-    if rows <= 0 || bm_width <= 0 {
-        return;
-    }
-
-    let bm_w = bm_width as f32;
-    let bm_h = rows as f32;
-
-    // Emacs parity: fringe bitmap pixels are intrinsic (1 bitmap pixel = 1 screen px),
-    // not scaled to row height or fringe width.
-    let pixel_w = 1.0;
-    let pixel_h = 1.0;
-    let scaled_w = bm_w;
-    let scaled_h = bm_h;
-
-    // Center horizontally in fringe
-    let x_start = fringe_x + (fringe_width - scaled_w) / 2.0;
-    let x_end = fringe_x + fringe_width;
-
-    // Vertical alignment within the row
-    let y_start = match bm_align {
-        1 => row_y,                                 // top
-        2 => row_y + row_height - scaled_h,         // bottom
-        _ => row_y + (row_height - scaled_h) / 2.0, // center (default)
-    };
-
-    // Render each row of the bitmap
-    for r in 0..rows as usize {
-        let row_bits = bits[r];
-        if row_bits == 0 {
-            continue;
-        }
-
-        let py = y_start + r as f32 * pixel_h;
-        if py + pixel_h <= row_y || py >= row_y + row_height {
-            continue; // skip rows outside visible area
-        }
-
-        // Scan for horizontal runs of consecutive set bits
-        let mut bit = bm_width - 1; // MSB = leftmost pixel
-        while bit >= 0 {
-            if row_bits & (1 << bit) != 0 {
-                // Start of a run
-                let run_start = bit;
-                while bit > 0 && row_bits & (1 << (bit - 1)) != 0 {
-                    bit -= 1;
-                }
-                let run_end = bit;
-                let run_len = (run_start - run_end + 1) as f32;
-                let px = x_start + (bm_width - 1 - run_start) as f32 * pixel_w;
-                let run_w = run_len * pixel_w;
-                let clip_l = px.max(fringe_x);
-                let clip_r = (px + run_w).min(x_end);
-                let clip_w = clip_r - clip_l;
-                if clip_w > 0.0 {
-                    matrix_builder.push_border(window_id, clip_l, py, clip_w, pixel_h, fg);
-                }
-            }
-            bit -= 1;
-        }
-    }
 }
 
 #[cfg(test)]
@@ -6230,7 +5925,6 @@ mod tests {
     fn char_advance_ascii_cache_distinguishes_semantic_font_identity() {
         let mut ascii_width_cache = std::collections::HashMap::new();
         let mut font_metrics_svc = Some(FontMetricsService::new());
-        let window = std::ptr::null_mut();
 
         let regular_width = unsafe {
             char_advance(
@@ -6239,10 +5933,8 @@ mod tests {
                 'A',
                 1,
                 8.0,
-                7,
                 14,
                 8.0,
-                window,
                 "monospace",
                 400,
                 false,
@@ -6265,10 +5957,8 @@ mod tests {
                 'A',
                 1,
                 8.0,
-                7,
                 14,
                 8.0,
-                window,
                 "monospace",
                 700,
                 false,
@@ -6291,10 +5981,8 @@ mod tests {
                 'A',
                 1,
                 8.0,
-                7,
                 14,
                 8.0,
-                window,
                 "monospace",
                 400,
                 false,

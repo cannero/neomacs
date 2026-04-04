@@ -3,7 +3,6 @@
 //! Handles mode-line, header-line, and tab-line: type definitions,
 //! face run parsing, and rendering into GlyphMatrixBuilder.
 
-use super::emacs_ffi::*;
 use super::engine::LayoutEngine;
 use super::neovm_bridge::{FaceResolver, ResolvedFace};
 use super::unicode::decode_utf8;
@@ -14,7 +13,6 @@ use neovm_core::buffer::text_props::TextPropertyTable;
 use neovm_core::emacs_core::Value;
 use neovm_core::emacs_core::value::get_string_text_properties_table_for_value;
 use std::collections::HashMap;
-use std::ffi::CStr;
 
 /// Which kind of status line to render.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,66 +71,6 @@ pub(crate) struct StatusLineFace {
 }
 
 impl StatusLineFace {
-    unsafe fn from_ffi(face: &FaceDataFFI) -> Self {
-        let font_family = if !face.font_family.is_null() {
-            unsafe { CStr::from_ptr(face.font_family) }
-                .to_str()
-                .unwrap_or("monospace")
-                .to_string()
-        } else {
-            "monospace".to_string()
-        };
-        let font_file_path = if !face.font_file_path.is_null() {
-            unsafe { CStr::from_ptr(face.font_file_path) }
-                .to_str()
-                .ok()
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
-        } else {
-            None
-        };
-        let underline_style = face.underline_style.max(0) as u8;
-        let strike_through = face.strike_through > 0;
-        let overline = face.overline > 0;
-        let box_type = if face.box_type == 1 {
-            BoxType::Line
-        } else {
-            BoxType::None
-        };
-        Self {
-            face_id: face.face_id,
-            foreground: Color::from_pixel(face.fg),
-            background: Color::from_pixel(face.bg),
-            font_family,
-            font_file_path,
-            font_weight: face.font_weight.max(0) as u16,
-            italic: face.italic != 0,
-            font_size: face.font_size.max(0) as f32,
-            underline_style,
-            underline_color: (underline_style > 0).then(|| Color::from_pixel(face.underline_color)),
-            strike_through,
-            strike_through_color: strike_through
-                .then(|| Color::from_pixel(face.strike_through_color)),
-            overline,
-            overline_color: overline.then(|| Color::from_pixel(face.overline_color)),
-            overstrike: face.overstrike != 0,
-            box_type,
-            box_color: (face.box_type > 0).then(|| Color::from_pixel(face.box_color)),
-            box_line_width: face.box_line_width,
-            box_corner_radius: face.box_corner_radius,
-            box_border_style: face.box_border_style.max(0) as u32,
-            box_border_speed: face.box_border_speed as f32 / 100.0,
-            box_color2: (face.box_color2 != 0).then(|| Color::from_pixel(face.box_color2)),
-            box_h_line_width: face.box_h_line_width,
-            font_char_width: face.font_char_width,
-            font_ascent: face.font_ascent,
-            font_descent: face.font_descent,
-            underline_position: face.underline_position.max(1),
-            underline_thickness: face.underline_thickness.max(1),
-            stipple: face.stipple,
-        }
-    }
-
     pub(crate) fn from_resolved(face_id: u32, face: &ResolvedFace) -> Self {
         let font_descent = if face.font_line_height > 0.0 && face.font_ascent > 0.0 {
             (face.font_line_height - face.font_ascent).max(0.0).ceil() as i32
@@ -249,7 +187,7 @@ impl StatusLineFace {
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum StatusLineAdvanceMode {
     Fixed,
-    Measured { window: EmacsWindow },
+    Measured,
 }
 
 /// A face run within an overlay/display string: byte offset + fg/bg colors + face_id.
@@ -606,99 +544,6 @@ impl LayoutEngine {
         }
     }
 
-    fn build_ffi_status_line_spec(
-        &mut self,
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-        window_id: i64,
-        char_w: f32,
-        ascent: f32,
-        wp: &WindowParamsFFI,
-        kind: StatusLineKind,
-    ) -> StatusLineSpec {
-        let mut line_face = FaceDataFFI::default();
-        let buf_size = 4096usize;
-        let mut line_buf = vec![0u8; buf_size];
-
-        let bytes = unsafe {
-            match kind {
-                StatusLineKind::TabLine => neomacs_layout_tab_line_text(
-                    wp.window_ptr,
-                    std::ptr::null_mut(),
-                    line_buf.as_mut_ptr(),
-                    buf_size as i64,
-                    &mut line_face,
-                ),
-                StatusLineKind::HeaderLine => neomacs_layout_header_line_text(
-                    wp.window_ptr,
-                    std::ptr::null_mut(),
-                    line_buf.as_mut_ptr(),
-                    buf_size as i64,
-                    &mut line_face,
-                ),
-                StatusLineKind::ModeLine => neomacs_layout_mode_line_text(
-                    wp.window_ptr,
-                    std::ptr::null_mut(),
-                    line_buf.as_mut_ptr(),
-                    buf_size as i64,
-                    &mut line_face,
-                ),
-                StatusLineKind::TabBar => {
-                    // TabBar uses build_ffi_tab_bar_spec() instead, never reaches here.
-                    unreachable!("TabBar should use build_ffi_tab_bar_spec()")
-                }
-                StatusLineKind::Minibuffer => {
-                    unreachable!("Minibuffer should use render_rust_status_line_plain()")
-                }
-            }
-        };
-
-        let text_len = if bytes > 0 {
-            (bytes & 0xFFFFFFFF) as usize
-        } else {
-            0
-        };
-        let nruns = if bytes > 0 {
-            ((bytes >> 32) & 0xFFFF) as usize
-        } else {
-            0
-        };
-        let ndisplay = if bytes > 0 {
-            ((bytes >> 48) & 0xFF) as usize
-        } else {
-            0
-        };
-        let naligns = if bytes > 0 {
-            ((bytes >> 56) & 0xFF) as usize
-        } else {
-            0
-        };
-        let display_start = text_len + nruns * 14;
-        let align_start = display_start + ndisplay * 16;
-
-        StatusLineSpec {
-            kind,
-            x,
-            y,
-            width,
-            height,
-            window_id,
-            char_width: char_w,
-            ascent,
-            face: unsafe { StatusLineFace::from_ffi(&line_face) },
-            text: line_buf[..text_len.min(line_buf.len())].to_vec(),
-            face_runs: parse_overlay_face_runs(&line_buf, text_len, nruns as i32),
-            run_faces: HashMap::new(),
-            display_props: parse_display_props(&line_buf, display_start, ndisplay),
-            align_entries: parse_status_line_align_entries(&line_buf, align_start, naligns),
-            advance_mode: StatusLineAdvanceMode::Measured {
-                window: wp.window_ptr,
-            },
-        }
-    }
-
     /// Render a run of UTF-8 text with a given face. Returns total advance consumed.
     ///
     /// Both `render_status_line_spec()` and overlay string rendering can use
@@ -740,7 +585,6 @@ impl LayoutEngine {
     pub(crate) fn render_status_line_spec(
         &mut self,
         spec: &StatusLineSpec,
-        _frame: Option<EmacsFrame>,
         mut builder: Option<&mut crate::matrix_builder::GlyphMatrixBuilder>,
     ) {
         // If a builder is provided, start a new status-line row for this spec.
@@ -1011,7 +855,7 @@ impl LayoutEngine {
         let spec = StatusLineSpec::plain(
             kind, x, y, width, height, window_id, char_width, ascent, face, text,
         );
-        self.render_status_line_spec(&spec, None, builder);
+        self.render_status_line_spec(&spec, builder);
     }
 
     pub(crate) fn render_rust_status_line_value(
@@ -1044,100 +888,10 @@ impl LayoutEngine {
             face_resolver,
             kind,
         ) {
-            self.render_status_line_spec(&spec, None, builder);
+            self.render_status_line_spec(&spec, builder);
         }
     }
 
-    /// Build a StatusLineSpec for the frame-level tab-bar.
-    /// Similar to build_ffi_status_line_spec but takes a frame instead of window params.
-    pub(crate) fn build_ffi_tab_bar_spec(
-        &mut self,
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-        window_id: i64,
-        char_w: f32,
-        ascent: f32,
-        frame: EmacsFrame,
-    ) -> Option<StatusLineSpec> {
-        let mut line_face = FaceDataFFI::default();
-        let buf_size = 4096usize;
-        let mut line_buf = vec![0u8; buf_size];
-
-        let bytes = unsafe {
-            neomacs_layout_tab_bar_text(
-                frame,
-                line_buf.as_mut_ptr(),
-                buf_size as i64,
-                &mut line_face,
-            )
-        };
-
-        if bytes <= 0 {
-            return None;
-        }
-
-        let text_len = (bytes & 0xFFFFFFFF) as usize;
-        let nruns = ((bytes >> 32) & 0xFFFF) as usize;
-        let ndisplay = ((bytes >> 48) & 0xFF) as usize;
-        let naligns = ((bytes >> 56) & 0xFF) as usize;
-        let display_start = text_len + nruns * 14;
-        let align_start = display_start + ndisplay * 16;
-
-        // Get the tab-bar window for measured font advance (same window
-        // used by neomacs_layout_tab_bar_text for face resolution).
-        let tab_bar_window = unsafe { neomacs_layout_tab_bar_window(frame) };
-        let advance_mode = if !tab_bar_window.is_null() {
-            StatusLineAdvanceMode::Measured {
-                window: tab_bar_window,
-            }
-        } else {
-            StatusLineAdvanceMode::Fixed
-        };
-
-        let text_vec = line_buf[..text_len.min(line_buf.len())].to_vec();
-        let face_runs = parse_overlay_face_runs(&line_buf, text_len, nruns as i32);
-        let display_props = parse_display_props(&line_buf, display_start, ndisplay);
-        let align_entries = parse_status_line_align_entries(&line_buf, align_start, naligns);
-
-        Some(StatusLineSpec {
-            kind: StatusLineKind::TabBar,
-            x,
-            y,
-            width,
-            height,
-            window_id,
-            char_width: char_w,
-            ascent,
-            face: unsafe { StatusLineFace::from_ffi(&line_face) },
-            text: text_vec,
-            face_runs,
-            run_faces: HashMap::new(),
-            display_props,
-            align_entries,
-            advance_mode,
-        })
-    }
-
-    /// Render a status line (mode-line, header-line, or tab-line).
-    pub(crate) unsafe fn render_status_line(
-        &mut self,
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-        window_id: i64,
-        char_w: f32,
-        ascent: f32,
-        wp: &WindowParamsFFI,
-        _frame: EmacsFrame,
-        kind: StatusLineKind,
-    ) {
-        let spec = self
-            .build_ffi_status_line_spec(x, y, width, height, window_id, char_w, ascent, wp, kind);
-        self.render_status_line_spec(&spec, None, None);
-    }
 }
 
 #[cfg(test)]
