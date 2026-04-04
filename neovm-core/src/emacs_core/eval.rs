@@ -105,7 +105,7 @@ use super::value::*;
 use crate::buffer::{BufferManager, InsertionType};
 use crate::face::{Face as RuntimeFace, FaceTable, FontSlant, FontWeight, FontWidth};
 use crate::gc_trace::GcTrace;
-use crate::tagged::header::{SubrDispatchKind, SubrObj};
+use crate::tagged::header::{CLOSURE_ARGLIST, SubrDispatchKind, SubrObj};
 use crate::window::FrameManager;
 
 const EVAL_STACK_RED_ZONE: usize = 256 * 1024;
@@ -504,18 +504,16 @@ fn binding_symbol_id(value: Value) -> Option<SymId> {
 }
 
 fn interpreted_closure_trim_fingerprint(
-    params_expr: &Expr,
-    body_exprs: &[Expr],
-    iform_expr: &Expr,
+    params_value: Value,
+    body_value: Value,
+    iform_value: Value,
     env_shape: &[InterpretedClosureEnvEntry],
 ) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    expr_fingerprint(params_expr, &mut hasher, 8);
-    body_exprs.len().hash(&mut hasher);
-    for expr in body_exprs {
-        expr_fingerprint(expr, &mut hasher, 8);
-    }
-    expr_fingerprint(iform_expr, &mut hasher, 8);
+    let mut seen = std::collections::HashSet::new();
+    value_fingerprint(params_value, &mut hasher, 8, &mut seen);
+    value_fingerprint(body_value, &mut hasher, 8, &mut seen);
+    value_fingerprint(iform_value, &mut hasher, 8, &mut seen);
     env_shape.hash(&mut hasher);
     hasher.finish()
 }
@@ -608,26 +606,26 @@ impl RuntimeMacroExpansionCacheEntry {
 
 #[derive(Clone, Debug)]
 struct InterpretedClosureTrimCacheEntry {
-    params_expr: Expr,
-    body_exprs: Vec<Expr>,
-    iform_expr: Expr,
+    params_value: Value,
+    body_value: Value,
+    iform_value: Value,
     env_shape: Vec<InterpretedClosureEnvEntry>,
-    params: LambdaParams,
-    trimmed_body: Rc<Vec<Expr>>,
+    trimmed_params_value: Value,
+    trimmed_body_value: Value,
     trimmed_env_template: Vec<InterpretedClosureEnvEntry>,
 }
 
 impl InterpretedClosureTrimCacheEntry {
     fn matches(
         &self,
-        params_expr: &Expr,
-        body_exprs: &[Expr],
-        iform_expr: &Expr,
+        params_value: Value,
+        body_value: Value,
+        iform_value: Value,
         env_shape: &[InterpretedClosureEnvEntry],
     ) -> bool {
-        self.params_expr == *params_expr
-            && self.body_exprs == body_exprs
-            && self.iform_expr == *iform_expr
+        equal_value(&self.params_value, &params_value, 0)
+            && equal_value(&self.body_value, &body_value, 0)
+            && equal_value(&self.iform_value, &iform_value, 0)
             && self.env_shape == env_shape
     }
 }
@@ -4068,6 +4066,15 @@ impl Context {
                 .values()
                 .map(|entry| entry.expanded),
         );
+        for bucket in self.interpreted_closure_trim_cache.values() {
+            for entry in bucket {
+                roots.push(entry.params_value);
+                roots.push(entry.body_value);
+                roots.push(entry.iform_value);
+                roots.push(entry.trimmed_params_value);
+                roots.push(entry.trimmed_body_value);
+            }
+        }
 
         // OpaqueValuePool — root all pooled Values (replaces per-entry opaque_roots)
         OPAQUE_POOL.with(|pool| pool.borrow().trace_roots(&mut roots));
@@ -9471,13 +9478,12 @@ impl Context {
     fn maybe_use_cached_interpreted_closure_filter(
         &mut self,
         closure_hook: Value,
-        params_expr: &Expr,
-        body_exprs: &[Expr],
+        params_value: Value,
+        body_value: Value,
         env_value: Value,
-        docstring: Option<String>,
-        doc_form: Option<Value>,
+        docstring_value: Value,
         iform_value: Value,
-    ) -> Option<Value> {
+    ) -> Option<EvalResult> {
         let Some(hook_sym) = closure_hook.as_symbol_id() else {
             return None;
         };
@@ -9499,40 +9505,30 @@ impl Context {
         }
 
         let env_shape = interpreted_closure_env_entries(env_value);
-        let iform_expr = value_to_expr(&iform_value);
         let cache_fp =
-            interpreted_closure_trim_fingerprint(params_expr, body_exprs, &iform_expr, &env_shape);
+            interpreted_closure_trim_fingerprint(params_value, body_value, iform_value, &env_shape);
         let entry = self
             .interpreted_closure_trim_cache
             .get(&cache_fp)?
             .iter()
-            .find(|entry| entry.matches(params_expr, body_exprs, &iform_expr, &env_shape))?
+            .find(|entry| entry.matches(params_value, body_value, iform_value, &env_shape))?
             .clone();
         let rebuilt_env =
             rebuild_trimmed_interpreted_closure_env(env_value, &entry.trimmed_env_template);
-        // Restore the interactive spec from the iform that was passed to
-        // eval_lambda.  The cache key includes the iform, so the cached
-        // entry corresponds to the same interactive status.
-        let interactive_spec = if iform_value.is_nil() {
-            None
-        } else {
-            Some(iform_value)
-        };
-        Some(Value::make_lambda(LambdaData {
-            params: entry.params,
-            body: entry.trimmed_body,
-            env: Some(rebuilt_env),
-            docstring,
-            doc_form,
-            interactive: interactive_spec,
-        }))
+        Some(builtins::symbols::make_interpreted_closure_from_parts(
+            &entry.trimmed_params_value,
+            &entry.trimmed_body_value,
+            &rebuilt_env,
+            Some(&docstring_value),
+            Some(&iform_value),
+        ))
     }
 
     fn maybe_cache_interpreted_closure_filter_result(
         &mut self,
         closure_hook: Value,
-        params_expr: &Expr,
-        body_exprs: &[Expr],
+        params_value: Value,
+        body_value: Value,
         env_value: Value,
         iform_value: Value,
         result: &Value,
@@ -9559,14 +9555,10 @@ impl Context {
         if !result.is_lambda() {
             return;
         };
-        let Some(trimmed_params) = result.closure_params().cloned() else {
+        let Some(trimmed_params_value) = result.closure_slot(CLOSURE_ARGLIST) else {
             return;
         };
-        let Some(trimmed_body) = result
-            .closure_body_value()
-            .and_then(|body| list_to_vec(&body))
-            .map(|forms| forms.iter().map(value_to_expr).collect::<Vec<_>>())
-        else {
+        let Some(trimmed_body_value) = result.closure_body_value() else {
             return;
         };
         let Some(trimmed_env) = result.closure_env().flatten() else {
@@ -9574,26 +9566,25 @@ impl Context {
         };
 
         let env_shape = interpreted_closure_env_entries(env_value);
-        let iform_expr = value_to_expr(&iform_value);
         let cache_fp =
-            interpreted_closure_trim_fingerprint(params_expr, body_exprs, &iform_expr, &env_shape);
+            interpreted_closure_trim_fingerprint(params_value, body_value, iform_value, &env_shape);
         let bucket = self
             .interpreted_closure_trim_cache
             .entry(cache_fp)
             .or_default();
         if bucket
             .iter()
-            .any(|entry| entry.matches(params_expr, body_exprs, &iform_expr, &env_shape))
+            .any(|entry| entry.matches(params_value, body_value, iform_value, &env_shape))
         {
             return;
         }
         bucket.push(InterpretedClosureTrimCacheEntry {
-            params_expr: params_expr.clone(),
-            body_exprs: body_exprs.to_vec(),
-            iform_expr,
+            params_value,
+            body_value,
+            iform_value,
             env_shape,
-            params: trimmed_params,
-            trimmed_body: trimmed_body.into(),
+            trimmed_params_value,
+            trimmed_body_value,
             trimmed_env_template: interpreted_closure_env_entries(trimmed_env),
         });
     }
@@ -9689,14 +9680,13 @@ impl Context {
             if closure_hook != Value::NIL {
                 if let Some(cached) = self.maybe_use_cached_interpreted_closure_filter(
                     closure_hook,
-                    &tail[0],
-                    &tail[body_start..],
+                    params_value,
+                    body_value,
                     env_value,
-                    docstring.clone(),
-                    doc_form,
+                    docstring_value,
                     iform_value,
                 ) {
-                    Ok(cached)
+                    cached
                 } else {
                     self.push_temp_root(closure_hook);
                     let result = self.apply(
@@ -9713,8 +9703,8 @@ impl Context {
                     if let Ok(value) = &result {
                         self.maybe_cache_interpreted_closure_filter_result(
                             closure_hook,
-                            &tail[0],
-                            &tail[body_start..],
+                            params_value,
+                            body_value,
                             env_value,
                             iform_value,
                             value,
