@@ -179,6 +179,53 @@ fn raw_source_debug_early_and_byte_run_define_eval_and_compile_without_shim() {
 }
 
 #[test]
+fn raw_context_does_not_seed_gnu_string_helper_cells() {
+    crate::test_utils::init_test_tracing();
+    let eval = Context::new();
+
+    for name in [
+        "string-blank-p",
+        "string-empty-p",
+        "string-fill",
+        "string-limit",
+        "string-pad",
+        "string-chop-newline",
+    ] {
+        assert!(
+            eval.obarray.symbol_function_id(intern(name)).is_none(),
+            "{name} should come from GNU Lisp bootstrap files, not Context::new"
+        );
+    }
+}
+
+#[test]
+fn gnu_bootstrap_files_define_string_helpers_without_rust_shims() {
+    crate::test_utils::init_test_tracing();
+    let eval = crate::test_utils::eval_with_ldefs_boot_autoloads(&[
+        "string-fill",
+        "string-limit",
+        "string-pad",
+        "string-chop-newline",
+    ]);
+
+    for name in [
+        "string-fill",
+        "string-limit",
+        "string-pad",
+        "string-chop-newline",
+    ] {
+        let function = eval
+            .obarray
+            .symbol_function(name)
+            .unwrap_or_else(|| panic!("{name} should be installed by GNU ldefs-boot"));
+        assert!(
+            crate::emacs_core::autoload::is_autoload_value(&function),
+            "{name} should come from GNU autoloads"
+        );
+    }
+}
+
+#[test]
 fn bootstrap_source_fingerprint_tracks_lisp_files_only() {
     let temp = tempdir().expect("temp runtime root");
     let runtime_root = temp.path();

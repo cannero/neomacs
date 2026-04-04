@@ -3431,20 +3431,6 @@ impl Context {
         for name in ["mark-marker", "region-beginning", "region-end"] {
             obarray.set_symbol_function(name, Value::subr(intern(name)));
         }
-        // Bookmark command wrappers are startup autoloads in GNU Emacs.
-        let seed_autoload = |name: &str, file: &str, doc: &str| {
-            obarray.set_symbol_function(
-                name,
-                Value::list(vec![
-                    Value::symbol("autoload"),
-                    Value::string(file),
-                    Value::string(doc),
-                    Value::T,
-                    Value::NIL,
-                ]),
-            );
-        };
-        drop(seed_autoload);
         let mut seed_autoload_noninteractive = |name: &str, file: &str, doc: &str| {
             obarray.set_symbol_function(
                 name,
@@ -3482,75 +3468,6 @@ impl Context {
         // Keep these as non-interactive autoload wrappers to match GNU Emacs
         // `symbol-function` shape during bootstrap.
         drop(seed_autoload_noninteractive);
-        obarray.set_symbol_function(
-            "string-chop-newline",
-            Value::list(vec![
-                Value::symbol("autoload"),
-                Value::string("subr-x"),
-                Value::string("Remove the final newline (if any) from STRING."),
-                Value::NIL,
-                Value::NIL,
-            ]),
-        );
-        obarray.set_symbol_function(
-            "string-pad",
-            Value::list(vec![
-                Value::symbol("autoload"),
-                Value::string("subr-x"),
-                Value::string("Pad STRING to LENGTH using PADDING."),
-                Value::NIL,
-                Value::NIL,
-            ]),
-        );
-        obarray.set_symbol_function(
-            "string-fill",
-            Value::list(vec![
-                Value::symbol("autoload"),
-                Value::string("subr-x"),
-                Value::string(
-                    "Try to word-wrap STRING so that it displays with lines no wider than WIDTH.",
-                ),
-                Value::NIL,
-                Value::NIL,
-            ]),
-        );
-        obarray.set_symbol_function(
-            "string-limit",
-            Value::list(vec![
-                Value::symbol("autoload"),
-                Value::string("subr-x"),
-                Value::string(
-                    "Return a substring of STRING that is (up to) LENGTH characters long.",
-                ),
-                Value::NIL,
-                Value::NIL,
-            ]),
-        );
-        // Some startup helpers are Lisp functions that delegate to primitives.
-        // Seed lightweight bytecode wrappers so `symbol-function` shape matches GNU Emacs.
-        let seed_function_wrapper = |obarray: &mut Obarray, name: &str| {
-            let wrapper = format!("neovm--startup-subr-wrapper-{name}");
-            obarray.set_symbol_function(&wrapper, Value::subr(intern(name)));
-
-            let params = LambdaParams {
-                required: vec![],
-                optional: vec![],
-                rest: Some(intern("args")),
-            };
-            let body = vec![Expr::List(vec![
-                Expr::Symbol(intern("apply")),
-                Expr::List(vec![
-                    Expr::Symbol(intern("quote")),
-                    Expr::Symbol(intern(&wrapper)),
-                ]),
-                Expr::Symbol(intern("args")),
-            ])];
-            let bc = Compiler::new(false).compile_lambda(&params, &body);
-            obarray.set_symbol_function(name, Value::make_bytecode(bc));
-        };
-        for name in ["string-blank-p", "string-empty-p"] {
-            seed_function_wrapper(&mut obarray, name);
-        }
 
         // `word-at-point` is defined in GNU Emacs Lisp by `thingatpt.el`,
         // not as a startup builtin.
