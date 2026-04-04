@@ -1068,6 +1068,9 @@ pub struct LayoutEngine {
     prev_background: Option<(f32, f32, f32, f32)>,
     /// Parallel GlyphMatrix builder — records text content alongside FrameGlyphBuffer.
     pub matrix_builder: crate::matrix_builder::GlyphMatrixBuilder,
+    /// The last completed `FrameDisplayState`, produced by `layout_frame_rust()`.
+    /// Used by the TTY redisplay path to drive `TtyRif` on the evaluator thread.
+    pub last_frame_display_state: Option<neomacs_display_protocol::glyph_matrix::FrameDisplayState>,
 }
 
 impl LayoutEngine {
@@ -1089,6 +1092,7 @@ impl LayoutEngine {
             prev_selected_window_id: 0,
             prev_background: None,
             matrix_builder: crate::matrix_builder::GlyphMatrixBuilder::new(),
+            last_frame_display_state: None,
         }
     }
 
@@ -1900,6 +1904,7 @@ impl LayoutEngine {
             );
         }
 
+        self.last_frame_display_state = Some(frame_display_state);
         self.prev_window_infos = curr_window_infos;
 
         if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
