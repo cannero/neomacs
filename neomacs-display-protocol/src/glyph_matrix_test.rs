@@ -124,3 +124,28 @@ fn matrix_resize_grows_and_shrinks() {
     assert_eq!(matrix.ncols, 40);
     assert_eq!(matrix.rows.len(), 5);
 }
+
+#[test]
+fn frame_display_state_new_has_correct_defaults() {
+    let state = FrameDisplayState::new(80, 24, 8.0, 16.0);
+    assert_eq!(state.frame_cols, 80);
+    assert_eq!(state.frame_rows, 24);
+    assert_eq!(state.char_width, 8.0);
+    assert_eq!(state.char_height, 16.0);
+    assert!(state.window_matrices.is_empty());
+    assert!(state.faces.is_empty());
+}
+
+#[test]
+fn frame_display_state_add_window_matrix() {
+    let mut state = FrameDisplayState::new(80, 24, 8.0, 16.0);
+    let matrix = GlyphMatrix::new(20, 80);
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: 1,
+        matrix,
+        pixel_bounds: Rect::new(0.0, 0.0, 640.0, 320.0),
+    });
+    assert_eq!(state.window_matrices.len(), 1);
+    assert_eq!(state.window_matrices[0].window_id, 1);
+    assert_eq!(state.window_matrices[0].matrix.nrows, 20);
+}

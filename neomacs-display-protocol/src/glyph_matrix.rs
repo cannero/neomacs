@@ -275,6 +275,76 @@ impl GlyphMatrix {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct WindowMatrixEntry {
+    pub window_id: u64,
+    pub matrix: GlyphMatrix,
+    pub pixel_bounds: Rect,
+}
+
+#[derive(Clone, Debug)]
+pub struct FrameDisplayState {
+    pub window_matrices: Vec<WindowMatrixEntry>,
+    pub frame_cols: usize,
+    pub frame_rows: usize,
+    pub frame_pixel_width: f32,
+    pub frame_pixel_height: f32,
+    pub char_width: f32,
+    pub char_height: f32,
+    pub font_pixel_size: f32,
+    pub background: Color,
+    pub faces: HashMap<u32, Face>,
+    pub frame_id: u64,
+    pub parent_id: u64,
+    pub parent_x: f32,
+    pub parent_y: f32,
+    pub z_order: i32,
+    pub window_infos: Vec<WindowInfo>,
+    pub transition_hints: Vec<WindowTransitionHint>,
+}
+
+impl FrameDisplayState {
+    pub fn new(frame_cols: usize, frame_rows: usize, char_width: f32, char_height: f32) -> Self {
+        Self {
+            window_matrices: Vec::new(),
+            frame_cols,
+            frame_rows,
+            frame_pixel_width: frame_cols as f32 * char_width,
+            frame_pixel_height: frame_rows as f32 * char_height,
+            char_width,
+            char_height,
+            font_pixel_size: char_height,
+            background: Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+            faces: HashMap::new(),
+            frame_id: 0,
+            parent_id: 0,
+            parent_x: 0.0,
+            parent_y: 0.0,
+            z_order: 0,
+            window_infos: Vec::new(),
+            transition_hints: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ScrollRun {
+    pub window_id: u64,
+    pub first_row: usize,
+    pub last_row: usize,
+    pub distance: i32,
+}
+
+pub trait RedisplayInterface {
+    fn update_window_begin(&mut self, window_id: u64);
+    fn write_glyphs(&mut self, row: &GlyphRow, area: GlyphArea, start: usize, len: usize);
+    fn clear_end_of_line(&mut self, row: &GlyphRow, area: GlyphArea);
+    fn scroll_run(&mut self, run: &ScrollRun);
+    fn update_window_end(&mut self, window_id: u64);
+    fn set_cursor(&mut self, row: u16, col: u16, style: CursorStyle);
+    fn flush(&mut self);
+}
+
 #[cfg(test)]
 #[path = "glyph_matrix_test.rs"]
 mod tests;
