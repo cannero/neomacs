@@ -5994,10 +5994,6 @@ impl Context {
             if let Some(result) = self.try_special_form_value_id(sym_id, original_args) {
                 return result;
             }
-            let args_exprs = value_list_to_exprs(&original_args);
-            if let Some(result) = self.try_special_form_id(sym_id, &args_exprs) {
-                return result;
-            }
         }
 
         // Resolve function value
@@ -7111,6 +7107,8 @@ impl Context {
             id if id == save_restriction_symbol() => self.sf_save_restriction_value(tail),
             id if id == interactive_symbol_id() => Ok(Value::NIL),
             id if id == lambda_symbol() => self.sf_lambda_value(tail),
+            id if id == byte_code_literal_symbol() => self.sf_byte_code_literal_value(tail),
+            id if id == byte_code_symbol() => self.sf_byte_code_value(tail),
             _ => return None,
         })
     }
@@ -7241,16 +7239,13 @@ impl Context {
     fn sf_function_value_named(&mut self, call_name: &str, tail: Value) -> EvalResult {
         let arg = self.one_unevalled_arg(call_name, tail)?;
         if cons_head_symbol_id(&arg) == Some(lambda_symbol()) {
-            let lambda_tail = arg.cons_cdr();
-            let args_exprs = value_list_to_exprs(&lambda_tail);
-            return self.eval_lambda(&args_exprs);
+            return self.instantiate_callable_cons_form(arg);
         }
         Ok(arg)
     }
 
     fn sf_lambda_value(&mut self, tail: Value) -> EvalResult {
-        let args_exprs = value_list_to_exprs(&tail);
-        self.eval_lambda(&args_exprs)
+        self.instantiate_callable_cons_form(Value::cons(Value::from_sym_id(lambda_symbol()), tail))
     }
 
     fn sf_let_value(&mut self, tail: Value) -> EvalResult {
@@ -8898,6 +8893,24 @@ impl Context {
         }
     }
 
+    fn quote_value_with_bytecode(&mut self, value: Value) -> EvalResult {
+        if value.is_cons() && cons_head_symbol_id(&value) == Some(byte_code_literal_symbol()) {
+            return self.sf_byte_code_literal_value(value.cons_cdr());
+        }
+
+        match value.kind() {
+            ValueKind::Veclike(VecLikeType::Vector) => {
+                let items = value.as_vector_data().unwrap();
+                let mut values = Vec::with_capacity(items.len());
+                for item in items {
+                    values.push(self.quote_value_with_bytecode(*item)?);
+                }
+                Ok(Value::vector(values))
+            }
+            _ => Ok(value),
+        }
+    }
+
     pub(crate) fn reify_byte_code_literals(&mut self, expr: &Expr) -> Result<Expr, Flow> {
         match expr {
             Expr::List(elts)
@@ -9032,6 +9045,34 @@ impl Context {
         )
     }
 
+    fn sf_byte_code_literal_value(&mut self, tail: Value) -> EvalResult {
+        let vector = self.one_unevalled_arg("byte-code-literal", tail)?;
+        let Some(items) = vector.as_vector_data() else {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("vectorp"), vector],
+            ));
+        };
+
+        if items.len() < 4 {
+            return Ok(vector);
+        }
+
+        let mut values = Vec::with_capacity(items.len());
+        for item in items {
+            values.push(self.quote_value_with_bytecode(*item)?);
+        }
+
+        crate::emacs_core::builtins::make_byte_code_from_parts(
+            &values[0],
+            &values[1],
+            &values[2],
+            &values[3],
+            values.get(4),
+            values.get(5),
+        )
+    }
+
     /// Top-level `(byte-code "bytecodes" [constants] maxdepth)` form used in `.elc` files.
     /// Creates a temporary zero-arg ByteCodeFunction and executes it via the VM.
     fn sf_byte_code(&mut self, tail: &[Expr]) -> EvalResult {
@@ -9121,6 +9162,105 @@ impl Context {
         };
 
         // Execute via VM
+        self.refresh_features_from_variable();
+        let mut vm = super::bytecode::Vm::from_context(self);
+        let exec_start = trace_toplevel_bytecode.then(std::time::Instant::now);
+        let result = vm.execute(&bc, vec![]);
+        if let Some(start) = exec_start {
+            tracing::info!(
+                "TOPLEVEL-BYTECODE exec   file={} ops={} elapsed={:.2?}",
+                load_file_name,
+                bc.ops.len(),
+                start.elapsed()
+            );
+        }
+        self.sync_features_variable();
+        result
+    }
+
+    fn sf_byte_code_value(&mut self, tail: Value) -> EvalResult {
+        let args = list_to_vec(&tail).ok_or_else(|| self.listp_error(tail))?;
+        if args.len() != 3 {
+            return Err(signal(
+                "wrong-number-of-arguments",
+                vec![Value::symbol("byte-code"), Value::fixnum(args.len() as i64)],
+            ));
+        }
+        let trace_toplevel_bytecode = std::env::var_os("NEOVM_TRACE_TOPLEVEL_BYTECODE").is_some();
+        let load_file_name = if trace_toplevel_bytecode {
+            self.obarray()
+                .symbol_value("load-file-name")
+                .and_then(|value| value.as_str().map(str::to_owned))
+                .unwrap_or_else(|| "<unknown>".to_string())
+        } else {
+            String::new()
+        };
+        let decode_start = trace_toplevel_bytecode.then(std::time::Instant::now);
+
+        let bytecode_str = args[0];
+        let constants_vec = self.quote_value_with_bytecode(args[1])?;
+        let maxdepth = args[2];
+
+        use crate::emacs_core::bytecode::ByteCodeFunction;
+        use crate::emacs_core::bytecode::decode::{
+            decode_gnu_bytecode_with_offset_map, string_value_to_bytes,
+        };
+        use crate::emacs_core::value::LambdaParams;
+
+        let raw_bytes = if let Some(s) = bytecode_str.as_str() {
+            string_value_to_bytes(s)
+        } else {
+            Vec::new()
+        };
+
+        let mut constants: Vec<Value> = match constants_vec.kind() {
+            ValueKind::Veclike(VecLikeType::Vector) => {
+                constants_vec.as_vector_data().unwrap().clone()
+            }
+            _ => Vec::new(),
+        };
+
+        for i in 0..constants.len() {
+            constants[i] =
+                crate::emacs_core::builtins::try_convert_nested_compiled_literal(constants[i]);
+        }
+
+        let (ops, gnu_byte_offset_map) =
+            decode_gnu_bytecode_with_offset_map(&raw_bytes, &mut constants).map_err(|e| {
+                signal(
+                    "error",
+                    vec![Value::string(format!("bytecode decode error: {}", e))],
+                )
+            })?;
+        if let Some(start) = decode_start {
+            tracing::info!(
+                "TOPLEVEL-BYTECODE decode file={} bytes={} consts={} ops={} elapsed={:.2?}",
+                load_file_name,
+                raw_bytes.len(),
+                constants.len(),
+                ops.len(),
+                start.elapsed()
+            );
+        }
+
+        let max_stack = match maxdepth.kind() {
+            ValueKind::Fixnum(n) => n as u16,
+            _ => 16,
+        };
+
+        let bc = ByteCodeFunction {
+            ops,
+            constants,
+            max_stack,
+            params: LambdaParams::simple(vec![]),
+            lexical: false,
+            env: None,
+            gnu_byte_offset_map: Some(gnu_byte_offset_map),
+            docstring: None,
+            doc_form: None,
+            interactive: None,
+        };
+
         self.refresh_features_from_variable();
         let mut vm = super::bytecode::Vm::from_context(self);
         let exec_start = trace_toplevel_bytecode.then(std::time::Instant::now);
@@ -11765,19 +11905,6 @@ fn value_list_to_values(list: &Value) -> Vec<Value> {
     let mut cursor = *list;
     while cursor.is_cons() {
         result.push(cursor.cons_car());
-        cursor = cursor.cons_cdr();
-    }
-    result
-}
-
-/// Convert a Value cons list to Vec<Expr> for special form dispatch.
-/// This is a SHALLOW conversion — each element becomes a single Expr node.
-/// Used by eval_sub to interface with Expr-based special form handlers.
-fn value_list_to_exprs(list: &Value) -> Vec<Expr> {
-    let mut result = Vec::new();
-    let mut cursor = *list;
-    while cursor.is_cons() {
-        result.push(value_to_expr(&cursor.cons_car()));
         cursor = cursor.cons_cdr();
     }
     result

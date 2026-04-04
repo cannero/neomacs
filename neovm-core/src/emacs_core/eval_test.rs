@@ -3842,6 +3842,33 @@ fn function_special_form_evaluates_dynamic_documentation_form() {
 }
 
 #[test]
+fn function_special_form_value_path_evaluates_dynamic_documentation_form() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let forms =
+        parse_forms("(function (lambda nil (:documentation (if t \"dyn-doc\" \"bad\")) nil))")
+            .expect("parse");
+    let form = quote_to_value(&forms[0]);
+    let value = ev.eval_sub(form).expect("eval");
+    assert_eq!(value.closure_docstring().flatten(), Some("dyn-doc"));
+    let body = value
+        .closure_body_value()
+        .and_then(|body| crate::emacs_core::value::list_to_vec(&body))
+        .expect("expected lambda body");
+    assert_eq!(body, vec![Value::NIL]);
+}
+
+#[test]
+fn byte_code_literal_value_path_produces_bytecode() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let forms = parse_forms("#[(x) \"\\bT\\207\" [x] 1 (#$ . 83)]").expect("parse");
+    let form = quote_to_value(&forms[0]);
+    let value = ev.eval_sub(form).expect("eval");
+    assert!(value.is_bytecode(), "expected bytecode object, got {value}");
+}
+
+#[test]
 fn quoted_lambda_funcall_strips_dynamic_documentation_form() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
