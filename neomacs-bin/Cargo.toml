@@ -30,10 +30,6 @@ name = "mock-display"
 path = "src/bin/mock-display.rs"
 test = false
 
-[[bin]]
-name = "mock-display-gui"
-path = "src/bin/mock-display-gui.rs"
-test = false
 
 [dependencies]
 neomacs-display-protocol.workspace = true
