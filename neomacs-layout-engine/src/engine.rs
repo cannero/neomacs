@@ -1066,6 +1066,8 @@ pub struct LayoutEngine {
     prev_selected_window_id: i64,
     /// Previous frame background for theme-transition detection.
     prev_background: Option<(f32, f32, f32, f32)>,
+    /// Parallel GlyphMatrix builder — records text content alongside FrameGlyphBuffer.
+    pub matrix_builder: crate::matrix_builder::GlyphMatrixBuilder,
 }
 
 impl LayoutEngine {
@@ -1086,6 +1088,7 @@ impl LayoutEngine {
             prev_window_infos: std::collections::HashMap::new(),
             prev_selected_window_id: 0,
             prev_background: None,
+            matrix_builder: crate::matrix_builder::GlyphMatrixBuilder::new(),
         }
     }
 
@@ -1692,6 +1695,7 @@ impl LayoutEngine {
 
         // Clear previous frame's glyphs before building new frame
         frame_glyphs.clear_all();
+        self.matrix_builder.reset();
         let mut curr_window_infos: std::collections::HashMap<i64, WindowInfo> =
             std::collections::HashMap::new();
 
@@ -1858,6 +1862,20 @@ impl LayoutEngine {
         self.update_window_switch_hint(frame_glyphs);
         self.update_theme_transition_hint(frame_glyphs);
         self.maybe_add_topology_transition_hint(frame_glyphs, &curr_window_infos);
+        // Build parallel GlyphMatrix output for validation
+        let frame_cols = (frame_params.width / frame_params.char_width.max(1.0)) as usize;
+        let frame_rows = (frame_params.height / frame_params.char_height.max(1.0)) as usize;
+        let matrix_builder = std::mem::replace(
+            &mut self.matrix_builder,
+            crate::matrix_builder::GlyphMatrixBuilder::new(),
+        );
+        let _frame_display_state = matrix_builder.finish(
+            frame_cols,
+            frame_rows,
+            frame_params.char_width,
+            frame_params.char_height,
+        );
+
         self.prev_window_infos = curr_window_infos;
 
         if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
