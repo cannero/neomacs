@@ -2062,6 +2062,76 @@ fn pdump_roundtrip_preserves_gnu_prefix_keymap_links() {
 }
 
 #[test]
+fn partial_bootstrap_subr_defines_gnu_prefix_maps_before_bindings() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = partial_bootstrap_eval_until("bindings", true);
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(list
+             (lookup-key (current-global-map) "\e")
+             (lookup-key esc-map "x")
+             (lookup-key (current-global-map) "\C-x")
+             (lookup-key ctl-x-map "4")
+             (lookup-key ctl-x-map "5")
+             (lookup-key ctl-x-map "t"))"#,
+    );
+    assert_eq!(
+        rendered,
+        "OK (ESC-prefix execute-extended-command Control-X-prefix ctl-x-4-prefix ctl-x-5-prefix (keymap))"
+    );
+}
+
+#[test]
+fn pdump_roundtrip_preserves_partial_bootstrap_subr_prefix_maps() {
+    crate::test_utils::init_test_tracing();
+    let eval = partial_bootstrap_eval_until("bindings", true);
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let dump_path = dir.path().join("partial-subr-prefixes.pdump");
+    crate::emacs_core::pdump::dump_to_file(&eval, &dump_path).expect("dump should succeed");
+
+    let mut loaded =
+        crate::emacs_core::pdump::load_from_dump(&dump_path).expect("load should succeed");
+    let rendered = eval_rendered(
+        &mut loaded,
+        r#"(list
+             (lookup-key (current-global-map) "\e")
+             (lookup-key esc-map "x")
+             (lookup-key (current-global-map) "\C-x")
+             (lookup-key ctl-x-map "4")
+             (lookup-key ctl-x-map "5")
+             (lookup-key ctl-x-map "t"))"#,
+    );
+    assert_eq!(
+        rendered,
+        "OK (ESC-prefix execute-extended-command Control-X-prefix ctl-x-4-prefix ctl-x-5-prefix (keymap))"
+    );
+}
+
+#[test]
+fn normalize_runtime_surface_preserves_partial_bootstrap_subr_prefix_maps() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = partial_bootstrap_eval_until("bindings", true);
+    let project_root = runtime_project_root();
+    normalize_bootstrap_runtime_surface(&mut eval, &project_root)
+        .expect("normalize runtime surface");
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(list
+             (lookup-key (current-global-map) "\e")
+             (lookup-key esc-map "x")
+             (lookup-key (current-global-map) "\C-x")
+             (lookup-key ctl-x-map "4")
+             (lookup-key ctl-x-map "5")
+             (lookup-key ctl-x-map "t"))"#,
+    );
+    assert_eq!(
+        rendered,
+        "OK (ESC-prefix execute-extended-command Control-X-prefix ctl-x-4-prefix ctl-x-5-prefix (keymap))"
+    );
+}
+
+#[test]
 fn bootstrap_runtime_preserves_gnu_minibuffer_completion_bindings() {
     crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
