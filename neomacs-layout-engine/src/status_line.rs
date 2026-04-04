@@ -712,6 +712,9 @@ impl LayoutEngine {
     /// this to measure and emit glyphs for a contiguous segment of text sharing
     /// a single face.  The caller is responsible for setting the active face on
     /// `frame_glyphs` before calling this method.
+    ///
+    /// When `builder` is `Some`, each character is also pushed into the
+    /// builder's current status-line row via `push_status_line_char`.
     pub(crate) unsafe fn render_text_run(
         &mut self,
         text: &[u8],
@@ -724,6 +727,7 @@ impl LayoutEngine {
         advance_mode: &StatusLineAdvanceMode,
         fallback_char_width: f32,
         frame_glyphs: &mut FrameGlyphBuffer,
+        mut builder: Option<&mut crate::matrix_builder::GlyphMatrixBuilder>,
     ) -> f32 {
         let mut offset = 0usize;
         let mut x_offset = 0.0f32;
@@ -735,6 +739,9 @@ impl LayoutEngine {
             }
             let advance = self.status_line_advance(advance_mode, face, fallback_char_width, ch);
             frame_glyphs.add_char(ch, x + x_offset, y, advance, row_height, ascent, true);
+            if let Some(ref mut b) = builder {
+                b.push_status_line_char(ch, face.face_id);
+            }
             x_offset += advance;
         }
         x_offset
@@ -745,7 +752,12 @@ impl LayoutEngine {
         spec: &StatusLineSpec,
         frame: Option<EmacsFrame>,
         frame_glyphs: &mut FrameGlyphBuffer,
+        mut builder: Option<&mut crate::matrix_builder::GlyphMatrixBuilder>,
     ) {
+        // If a builder is provided, start a new status-line row for this spec.
+        if let Some(ref mut b) = builder {
+            b.begin_status_line_row(spec.kind.row_role());
+        }
         let row_role = spec.kind.row_role();
         frame_glyphs.set_draw_context(
             spec.window_id,
@@ -964,6 +976,7 @@ impl LayoutEngine {
                     &spec.advance_mode,
                     spec.char_width,
                     frame_glyphs,
+                    builder.as_mut().map(|b| &mut **b),
                 )
             };
             sl_x_offset += run_advance;
@@ -1120,13 +1133,14 @@ impl LayoutEngine {
         text: String,
         frame_glyphs: &mut FrameGlyphBuffer,
         kind: StatusLineKind,
+        builder: Option<&mut crate::matrix_builder::GlyphMatrixBuilder>,
     ) {
         let face = self.realize_status_line_face(face_id, face, char_w, ascent, height);
         let char_width = self.status_line_char_width(&face, char_w);
         let spec = StatusLineSpec::plain(
             kind, x, y, width, height, window_id, char_width, ascent, face, text,
         );
-        self.render_status_line_spec(&spec, None, frame_glyphs);
+        self.render_status_line_spec(&spec, None, frame_glyphs, builder);
     }
 
     pub(crate) fn render_rust_status_line_value(
@@ -1144,6 +1158,7 @@ impl LayoutEngine {
         face_resolver: &FaceResolver,
         frame_glyphs: &mut FrameGlyphBuffer,
         kind: StatusLineKind,
+        builder: Option<&mut crate::matrix_builder::GlyphMatrixBuilder>,
     ) {
         if let Some(spec) = self.build_rust_status_line_spec(
             x,
@@ -1159,7 +1174,7 @@ impl LayoutEngine {
             face_resolver,
             kind,
         ) {
-            self.render_status_line_spec(&spec, None, frame_glyphs);
+            self.render_status_line_spec(&spec, None, frame_glyphs, builder);
         }
     }
 
@@ -1252,7 +1267,7 @@ impl LayoutEngine {
     ) {
         let spec = self
             .build_ffi_status_line_spec(x, y, width, height, window_id, char_w, ascent, wp, kind);
-        self.render_status_line_spec(&spec, Some(frame), frame_glyphs);
+        self.render_status_line_spec(&spec, Some(frame), frame_glyphs, None);
     }
 }
 
@@ -1913,6 +1928,7 @@ mod tests {
             " *scratch* ".to_string(),
             &mut fgb,
             StatusLineKind::ModeLine,
+            None,
         );
 
         assert!(!fgb.glyphs.is_empty());
@@ -1983,6 +1999,7 @@ mod tests {
             "x".to_string(),
             &mut fgb,
             StatusLineKind::ModeLine,
+            None,
         );
 
         let (glyph_y, glyph_baseline) = fgb
@@ -2037,6 +2054,7 @@ mod tests {
             "x".to_string(),
             &mut fgb,
             StatusLineKind::ModeLine,
+            None,
         );
 
         let (glyph_y, glyph_baseline) = fgb
@@ -2101,6 +2119,7 @@ mod tests {
             &resolver,
             &mut fgb,
             StatusLineKind::HeaderLine,
+            None,
         );
 
         let mut chars = fgb

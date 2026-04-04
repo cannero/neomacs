@@ -2168,6 +2168,7 @@ impl LayoutEngine {
                 echo_message,
                 frame_glyphs,
                 StatusLineKind::Minibuffer,
+                None,
             );
             return;
         }
@@ -4559,6 +4560,10 @@ impl LayoutEngine {
                 result
             };
 
+            let mut builder = std::mem::replace(
+                &mut self.matrix_builder,
+                crate::matrix_builder::GlyphMatrixBuilder::new(),
+            );
             self.render_rust_status_line_value(
                 params.bounds.x,
                 ml_y,
@@ -4573,12 +4578,9 @@ impl LayoutEngine {
                 face_resolver,
                 frame_glyphs,
                 StatusLineKind::ModeLine,
+                Some(&mut builder),
             );
-            self.matrix_builder.push_status_line_from_buffer(
-                &frame_glyphs.glyphs,
-                GlyphRowRole::ModeLine,
-                params.window_id,
-            );
+            self.matrix_builder = builder;
         }
 
         // Header-line: evaluate format-mode-line with header-line-format
@@ -4596,6 +4598,10 @@ impl LayoutEngine {
             )
             .unwrap_or_else(|| Value::string(""));
 
+            let mut builder = std::mem::replace(
+                &mut self.matrix_builder,
+                crate::matrix_builder::GlyphMatrixBuilder::new(),
+            );
             self.render_rust_status_line_value(
                 params.bounds.x,
                 hl_y,
@@ -4610,12 +4616,9 @@ impl LayoutEngine {
                 face_resolver,
                 frame_glyphs,
                 StatusLineKind::HeaderLine,
+                Some(&mut builder),
             );
-            self.matrix_builder.push_status_line_from_buffer(
-                &frame_glyphs.glyphs,
-                GlyphRowRole::HeaderLine,
-                params.window_id,
-            );
+            self.matrix_builder = builder;
         }
 
         // Tab-line: evaluate format-mode-line with tab-line-format
@@ -4634,6 +4637,10 @@ impl LayoutEngine {
             )
             .unwrap_or_else(|| Value::string(""));
 
+            let mut builder = std::mem::replace(
+                &mut self.matrix_builder,
+                crate::matrix_builder::GlyphMatrixBuilder::new(),
+            );
             self.render_rust_status_line_value(
                 params.bounds.x,
                 tl_y,
@@ -4648,12 +4655,9 @@ impl LayoutEngine {
                 face_resolver,
                 frame_glyphs,
                 StatusLineKind::TabLine,
+                Some(&mut builder),
             );
-            self.matrix_builder.push_status_line_from_buffer(
-                &frame_glyphs.glyphs,
-                GlyphRowRole::TabLine,
-                params.window_id,
-            );
+            self.matrix_builder = builder;
         }
 
         // Store hit-test data for this window
@@ -5045,7 +5049,7 @@ impl LayoutEngine {
             ascent,
             frame,
         ) {
-            self.render_status_line_spec(&spec, Some(frame), frame_glyphs);
+            self.render_status_line_spec(&spec, Some(frame), frame_glyphs, None);
         }
     }
 
@@ -5087,6 +5091,7 @@ impl LayoutEngine {
             tab_bar_text,
             frame_glyphs,
             StatusLineKind::TabBar,
+            None,
         );
     }
 

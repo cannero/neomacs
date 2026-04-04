@@ -410,42 +410,34 @@ impl GlyphMatrixBuilder {
         self.z_order = z_order;
     }
 
-    /// Extract status-line characters from FrameGlyphBuffer and append as a new matrix row.
+    /// Begin a new status-line row on the most recently stored window.
     ///
-    /// This bridges the gap until status-line rendering is fully migrated to matrix output.
-    /// Call this AFTER `end_window()` — it appends a row to the most recently stored window's
-    /// matrix, filtering `FrameGlyph::Char` entries that match the given `window_id` and `role`.
-    pub fn push_status_line_from_buffer(
-        &mut self,
-        glyphs: &[neomacs_display_protocol::frame_glyphs::FrameGlyph],
-        role: GlyphRowRole,
-        window_id: i64,
-    ) {
-        use neomacs_display_protocol::frame_glyphs::FrameGlyph;
+    /// Call this AFTER `end_window()`.  It appends a new enabled, mode-line
+    /// row with the given `role` to the last window's matrix and returns
+    /// `true` on success.  Returns `false` when no window has been stored yet.
+    pub fn begin_status_line_row(&mut self, role: GlyphRowRole) -> bool {
+        let Some(entry) = self.windows.last_mut() else {
+            return false;
+        };
+        let mut row = GlyphRow::new(role);
+        row.enabled = true;
+        row.mode_line = true;
+        entry.matrix.rows.push(row);
+        entry.matrix.nrows += 1;
+        true
+    }
+
+    /// Push a single character glyph into the current (last) status-line row
+    /// of the most recently stored window.
+    ///
+    /// Must be called after `begin_status_line_row`.
+    pub fn push_status_line_char(&mut self, ch: char, face_id: u32) {
         let Some(entry) = self.windows.last_mut() else {
             return;
         };
-        // Append a new row for the status line
-        let mut row = neomacs_display_protocol::glyph_matrix::GlyphRow::new(role);
-        row.enabled = true;
-        row.mode_line = true;
-        let area = &mut row.glyphs[GlyphArea::Text as usize];
-        for glyph in glyphs {
-            if let FrameGlyph::Char {
-                window_id: wid,
-                row_role,
-                char: ch,
-                face_id,
-                ..
-            } = glyph
-            {
-                if *wid == window_id && *row_role == role {
-                    area.push(Glyph::char(*ch, *face_id, 0));
-                }
-            }
+        if let Some(row) = entry.matrix.rows.last_mut() {
+            row.glyphs[GlyphArea::Text as usize].push(Glyph::char(ch, face_id, 0));
         }
-        entry.matrix.rows.push(row);
-        entry.matrix.nrows += 1;
     }
 
     pub fn finish(

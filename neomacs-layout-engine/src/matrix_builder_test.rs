@@ -1,7 +1,7 @@
 use super::*;
-use neomacs_display_protocol::frame_glyphs::{CursorStyle, FrameGlyph, GlyphRowRole};
+use neomacs_display_protocol::frame_glyphs::{CursorStyle, GlyphRowRole};
 use neomacs_display_protocol::glyph_matrix::*;
-use neomacs_display_protocol::types::{Color, Rect};
+use neomacs_display_protocol::types::Rect;
 
 #[test]
 fn builder_starts_empty() {
@@ -126,38 +126,8 @@ fn builder_resets_on_new_frame() {
     assert!(state.window_matrices.is_empty());
 }
 
-/// Helper: construct a minimal FrameGlyph::Char for testing.
-fn make_test_frame_glyph(ch: char, window_id: i64, role: GlyphRowRole, face_id: u32) -> FrameGlyph {
-    FrameGlyph::Char {
-        window_id,
-        row_role: role,
-        clip_rect: None,
-        char: ch,
-        composed: None,
-        x: 0.0,
-        y: 0.0,
-        baseline: 0.0,
-        width: 8.0,
-        height: 16.0,
-        ascent: 12.0,
-        fg: Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 },
-        bg: None,
-        face_id,
-        font_weight: 400,
-        italic: false,
-        font_size: 14.0,
-        underline: 0,
-        underline_color: None,
-        strike_through: 0,
-        strike_through_color: None,
-        overline: 0,
-        overline_color: None,
-        overstrike: false,
-    }
-}
-
 #[test]
-fn builder_captures_status_line_from_buffer() {
+fn builder_captures_status_line_chars_directly() {
     let mut builder = GlyphMatrixBuilder::new();
     builder.begin_window(1, 3, 80, Rect::new(0.0, 0.0, 640.0, 48.0));
     builder.begin_row(0, GlyphRowRole::Text);
@@ -165,19 +135,11 @@ fn builder_captures_status_line_from_buffer() {
     builder.end_row();
     builder.end_window();
 
-    // Simulate FrameGlyphBuffer contents with mode-line chars
-    let glyphs = vec![
-        make_test_frame_glyph('a', 1, GlyphRowRole::Text, 0),
-        make_test_frame_glyph('-', 1, GlyphRowRole::ModeLine, 5),
-        make_test_frame_glyph('U', 1, GlyphRowRole::ModeLine, 5),
-        make_test_frame_glyph(':', 1, GlyphRowRole::ModeLine, 5),
-        // Different window — should be filtered out
-        make_test_frame_glyph('X', 2, GlyphRowRole::ModeLine, 5),
-        // Header line for same window — should not appear in mode-line row
-        make_test_frame_glyph('H', 1, GlyphRowRole::HeaderLine, 6),
-    ];
-
-    builder.push_status_line_from_buffer(&glyphs, GlyphRowRole::ModeLine, 1);
+    // Push status-line characters directly
+    builder.begin_status_line_row(GlyphRowRole::ModeLine);
+    builder.push_status_line_char('-', 5);
+    builder.push_status_line_char('U', 5);
+    builder.push_status_line_char(':', 5);
 
     let state = builder.finish(80, 3, 8.0, 16.0);
     let matrix = &state.window_matrices[0].matrix;
@@ -200,17 +162,13 @@ fn builder_captures_status_line_from_buffer() {
 }
 
 #[test]
-fn builder_status_line_ignores_other_windows() {
+fn builder_status_line_empty_row_when_no_chars_pushed() {
     let mut builder = GlyphMatrixBuilder::new();
     builder.begin_window(1, 2, 40, Rect::new(0.0, 0.0, 320.0, 32.0));
     builder.end_window();
 
-    // Only window 2 chars — nothing should be captured for window 1
-    let glyphs = vec![
-        make_test_frame_glyph('Z', 2, GlyphRowRole::ModeLine, 3),
-    ];
-
-    builder.push_status_line_from_buffer(&glyphs, GlyphRowRole::ModeLine, 1);
+    // Begin a status-line row but push no characters
+    builder.begin_status_line_row(GlyphRowRole::ModeLine);
 
     let state = builder.finish(40, 2, 8.0, 16.0);
     let ml_row = &state.window_matrices[0].matrix.rows[2]; // appended row
@@ -221,7 +179,8 @@ fn builder_status_line_ignores_other_windows() {
 fn builder_status_line_no_window_is_noop() {
     let mut builder = GlyphMatrixBuilder::new();
     // No window started — should not panic
-    builder.push_status_line_from_buffer(&[], GlyphRowRole::ModeLine, 1);
+    assert!(!builder.begin_status_line_row(GlyphRowRole::ModeLine));
+    builder.push_status_line_char('x', 0); // should be a no-op too
     let state = builder.finish(80, 24, 8.0, 16.0);
     assert!(state.window_matrices.is_empty());
 }
