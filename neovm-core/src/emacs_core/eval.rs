@@ -4063,6 +4063,11 @@ impl Context {
 
         // Literal cache — cached quote_to_value results for pcase eq-memoization
         roots.extend(self.source_literal_cache.values().copied());
+        roots.extend(
+            self.runtime_macro_expansion_cache
+                .values()
+                .map(|entry| entry.expanded),
+        );
 
         // OpaqueValuePool — root all pooled Values (replaces per-entry opaque_roots)
         OPAQUE_POOL.with(|pool| pool.borrow().trace_roots(&mut roots));
@@ -5068,7 +5073,6 @@ impl Context {
         // a stale cached Value from a collected lambda's expression.
         self.source_literal_cache.clear();
         self.macro_expansion_cache.clear();
-        self.runtime_macro_expansion_cache.clear();
         self.lexenv_assq_cache.borrow_mut().clear();
         self.lexenv_special_cache.borrow_mut().clear();
         let roots = self.collect_roots_with_extra_root_slices(extra_root_slices);
