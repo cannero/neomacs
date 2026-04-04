@@ -2936,32 +2936,7 @@ fn eval_startup_forms(eval: &mut super::eval::Context, forms_src: &str) -> Resul
 /// startup.  Runtime callers that compare against `emacs --batch -Q` still
 /// need the early startup buffer initialization that `startup.el` performs for
 /// the `*scratch*` buffer.
-pub fn apply_runtime_startup_state(eval: &mut super::eval::Context) -> Result<(), EvalError> {
-    let project_root = runtime_project_root();
-    eval_startup_forms(
-        eval,
-        r#"
-          (if (get-buffer "*scratch*")
-              (with-current-buffer "*scratch*"
-                (if (eq major-mode 'fundamental-mode)
-                    (funcall initial-major-mode))))
-          ;; GNU loadup.el gates this on compiled-function-p, but NeoVM
-          ;; loads .el source (no .elc), so cconv functions are interpreted.
-          ;; We set the filter unconditionally when cconv-fv is fboundp so
-          ;; that interpreted closure shapes match GNU Emacs.
-          (when (and (null internal-make-interpreted-closure-function)
-                     (fboundp 'cconv-fv))
-            (setq internal-make-interpreted-closure-function
-                  #'cconv-make-interpreted-closure))
-        "#,
-    )?;
-
-    // GNU's startup path reaches its post-startup surface through compiled
-    // early Lisp. NeoVM executes the same files from source, which can
-    // transiently reload compile-time helpers such as `gv`. Normalize the
-    // runtime-visible autoload/feature surface again after those forms run.
-    normalize_bootstrap_runtime_surface(eval, &project_root)?;
-
+fn sync_runtime_interpreted_closure_filter(eval: &mut super::eval::Context) {
     let filter_fn = eval
         .obarray()
         .symbol_value("internal-make-interpreted-closure-function")
@@ -2976,6 +2951,27 @@ pub fn apply_runtime_startup_state(eval: &mut super::eval::Context) -> Result<()
             }
         });
     eval.set_interpreted_closure_filter_fn(filter_fn);
+}
+
+pub fn apply_runtime_startup_state(eval: &mut super::eval::Context) -> Result<(), EvalError> {
+    let project_root = runtime_project_root();
+    eval_startup_forms(
+        eval,
+        r#"
+          (if (get-buffer "*scratch*")
+              (with-current-buffer "*scratch*"
+                (if (eq major-mode 'fundamental-mode)
+                    (funcall initial-major-mode)))
+        "#,
+    )?;
+
+    // GNU's startup path reaches its post-startup surface through compiled
+    // early Lisp. NeoVM executes the same files from source, which can
+    // transiently reload compile-time helpers such as `gv`. Normalize the
+    // runtime-visible autoload/feature surface again after those forms run.
+    normalize_bootstrap_runtime_surface(eval, &project_root)?;
+
+    sync_runtime_interpreted_closure_filter(eval);
     for feature in TRANSIENT_RUNTIME_FEATURES {
         eval.remove_feature(feature);
     }

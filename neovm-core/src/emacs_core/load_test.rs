@@ -534,7 +534,9 @@ fn runtime_startup_state_clears_top_level_eval_state() {
     crate::test_utils::init_test_tracing();
     let mut eval =
         create_bootstrap_evaluator_cached_with_features(&["neomacs"]).expect("bootstrap evaluator");
-    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    apply_runtime_startup_state(&mut eval).unwrap_or_else(|err| {
+        panic!("runtime startup state: {}", format_eval_error(&eval, &err));
+    });
     assert!(
         eval.top_level_eval_state_is_clean(),
         "runtime startup state should end at a clean top-level evaluator surface"
@@ -2413,47 +2415,68 @@ fn bootstrap_runtime_cl_defstruct_entry_point_works() {
 }
 
 #[test]
-fn bootstrap_runtime_interpreted_closure_filter_state_matches_gnu_emacs() {
+fn runtime_interpreted_closure_filter_requires_explicit_runtime_binding() {
     crate::test_utils::init_test_tracing();
-    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
-    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let mut eval = Context::new();
+    eval.set_lexical_binding(true);
+    let setup = parse_forms(
+        r#"
+        (setq neovm--hook-count 0)
+        (fset 'cconv-fv (lambda (&rest _) nil))
+        (fset 'cconv-make-interpreted-closure
+              (lambda (args body env docstring iform)
+                (setq neovm--hook-count (1+ neovm--hook-count))
+                (make-interpreted-closure args body env docstring iform)))
+        "#,
+    )
+    .expect("parse cconv source bootstrap fixture");
+    for form in &setup {
+        eval.eval_expr(form)
+            .expect("install cconv source bootstrap fixture");
+    }
+    sync_runtime_interpreted_closure_filter(&mut eval);
     let rendered = eval_rendered(
         &mut eval,
         r#"(list
-             (compiled-function-p (symbol-function 'cconv-fv))
-             (compiled-function-p (symbol-function 'cconv-make-interpreted-closure))
-             internal-make-interpreted-closure-function)"#,
+             internal-make-interpreted-closure-function
+             (funcall (let ((x 1)) (lambda () x)))
+             (funcall (let ((x 1)) (lambda () x)))
+             neovm--hook-count)"#,
     );
-    // NeoVM loads cconv from .el source (no .elc), so the functions are
-    // interpreted, not byte-compiled.  The important invariant is that the
-    // closure filter variable is set to cconv-make-interpreted-closure.
-    assert_eq!(rendered, "OK (nil nil cconv-make-interpreted-closure)");
+    assert_eq!(rendered, "OK (nil 1 1 0)");
 }
 
 #[test]
-fn bootstrap_runtime_rebound_interpreted_closure_filter_remains_observable() {
+fn runtime_interpreted_closure_filter_honors_explicit_runtime_binding() {
     crate::test_utils::init_test_tracing();
-    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
-    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let mut eval = Context::new();
+    eval.set_lexical_binding(true);
+    let setup = parse_forms(
+        r#"
+        (setq neovm--hook-count 0)
+        (fset 'cconv-make-interpreted-closure
+              (lambda (args body env docstring iform)
+                (setq neovm--hook-count (1+ neovm--hook-count))
+                (make-interpreted-closure args body env docstring iform)))
+        (setq internal-make-interpreted-closure-function
+              'cconv-make-interpreted-closure)
+        "#,
+    )
+    .expect("parse explicit cconv runtime binding fixture");
+    for form in &setup {
+        eval.eval_expr(form)
+            .expect("install explicit cconv runtime binding fixture");
+    }
+    sync_runtime_interpreted_closure_filter(&mut eval);
     let rendered = eval_rendered(
         &mut eval,
         r#"(progn
-             (setq neovm--hook-count 0)
-             (fset 'neovm--counting-make-interpreted-closure
-                   (lambda (args body env docstring iform)
-                     (setq neovm--hook-count (1+ neovm--hook-count))
-                     (make-interpreted-closure args body env docstring iform)))
-             (let ((internal-make-interpreted-closure-function
-                    'neovm--counting-make-interpreted-closure))
-               (unwind-protect
-                   (list
-                    (funcall (let ((x 1)) (lambda () x)))
-                    (funcall (let ((x 1)) (lambda () x)))
-                    neovm--hook-count)
-                 (fmakunbound 'neovm--counting-make-interpreted-closure)
-                 (makunbound 'neovm--hook-count))))"#,
+             (list
+              internal-make-interpreted-closure-function
+              (funcall (let ((x 1)) (lambda () x)))
+              neovm--hook-count))"#,
     );
-    assert_eq!(rendered, "OK (1 1 2)");
+    assert_eq!(rendered, "OK (cconv-make-interpreted-closure 1 1)");
 }
 
 #[test]
