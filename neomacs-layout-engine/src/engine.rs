@@ -7,7 +7,6 @@
 use std::ffi::CStr;
 use std::ffi::c_int;
 
-use super::bidi_layout::reorder_row_bidi;
 use super::emacs_ffi::*;
 use super::font_metrics::{FontMetrics, FontMetricsService};
 use super::hit_test::*;
@@ -2097,7 +2096,6 @@ impl LayoutEngine {
         } else {
             &[]
         };
-        let glyphs_len_before = frame_glyphs.glyphs.len();
         let transition_hints_len_before = frame_glyphs.transition_hints.len();
         let effect_hints_len_before = frame_glyphs.effect_hints.len();
         let cursor_inverse_before = frame_glyphs.cursor_inverse.clone();
@@ -2228,7 +2226,6 @@ impl LayoutEngine {
         let mut wrap_break_charpos = window_start;
         let mut _wrap_break_x: f32 = 0.0;
         let mut _wrap_break_col = 0usize;
-        let mut wrap_break_glyph_count = 0usize;
         let mut wrap_break_display_point_count = 0usize;
         let mut wrap_break_row_first_display_pos: Option<usize> = None;
         let mut wrap_break_row_last_display_pos: Option<usize> = None;
@@ -2250,8 +2247,6 @@ impl LayoutEngine {
         let mut row_extra_y: f32 = 0.0; // cumulative extra height from previous rows
         let mut row_y_positions: Vec<f32> = Vec::with_capacity(max_rows);
         row_y_positions.push(text_y); // row 0
-        // Bidi reordering: track glyph range for each row
-        let mut row_glyph_start: usize = frame_glyphs.glyphs.len();
         // Trailing whitespace tracking
         let trailing_ws_bg = if params.show_trailing_whitespace {
             Some(Color::from_pixel(params.trailing_ws_bg))
@@ -2424,7 +2419,6 @@ impl LayoutEngine {
                     wrap_break_display_point_count = display_points.len();
                     wrap_break_row_first_display_pos = row_first_display_pos;
                     wrap_break_row_last_display_pos = row_last_display_pos;
-                    wrap_break_glyph_count = frame_glyphs.glyphs.len();
                     wrap_has_break = true;
                 }
             };
@@ -2654,13 +2648,6 @@ impl LayoutEngine {
                     row_extend_bg = None;
                     row_extend_row = -1;
 
-                    reorder_row_bidi(
-                        frame_glyphs,
-                        row_glyph_start,
-                        frame_glyphs.glyphs.len(),
-                        content_x,
-                    );
-                    row_glyph_start = frame_glyphs.glyphs.len();
                     row += 1;
                     y = text_y + row as f32 * char_h + row_extra_y;
                     row_max_height = char_h;
@@ -2871,13 +2858,6 @@ impl LayoutEngine {
                             box_start_x = content_x;
                             box_row = row + 1;
                         }
-                        reorder_row_bidi(
-                            frame_glyphs,
-                            row_glyph_start,
-                            frame_glyphs.glyphs.len(),
-                            content_x,
-                        );
-                        row_glyph_start = frame_glyphs.glyphs.len();
                         row += 1;
                         y = text_y + row as f32 * char_h + row_extra_y;
                         row_max_height = char_h;
@@ -2973,13 +2953,6 @@ impl LayoutEngine {
                     &mut row_last_display_pos,
                 );
 
-                reorder_row_bidi(
-                    frame_glyphs,
-                    row_glyph_start,
-                    frame_glyphs.glyphs.len(),
-                    content_x,
-                );
-                row_glyph_start = frame_glyphs.glyphs.len();
                 self.matrix_builder.end_row();
                 row += 1;
                 self.matrix_builder.begin_row(row, neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text);
@@ -3164,13 +3137,6 @@ impl LayoutEngine {
                         );
                         row_extend_bg = None;
                         row_extend_row = -1;
-                        reorder_row_bidi(
-                            frame_glyphs,
-                            row_glyph_start,
-                            frame_glyphs.glyphs.len(),
-                            content_x,
-                        );
-                        row_glyph_start = frame_glyphs.glyphs.len();
                         row += 1;
                         y = text_y + row as f32 * char_h + row_extra_y;
                         row_max_height = char_h;
@@ -3212,13 +3178,6 @@ impl LayoutEngine {
                         hit_row_charpos_start = charpos;
                         row_extend_bg = None;
                         row_extend_row = -1;
-                        reorder_row_bidi(
-                            frame_glyphs,
-                            row_glyph_start,
-                            frame_glyphs.glyphs.len(),
-                            content_x,
-                        );
-                        row_glyph_start = frame_glyphs.glyphs.len();
                         row += 1;
                         y = text_y + row as f32 * char_h + row_extra_y;
                         row_max_height = char_h;
@@ -3517,13 +3476,6 @@ impl LayoutEngine {
                     );
                     row_extend_bg = None;
                     row_extend_row = -1;
-                    reorder_row_bidi(
-                        frame_glyphs,
-                        row_glyph_start,
-                        frame_glyphs.glyphs.len(),
-                        content_x,
-                    );
-                    row_glyph_start = frame_glyphs.glyphs.len();
                     self.matrix_builder.end_row();
                     row += 1;
                     self.matrix_builder.begin_row(row, neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text);
@@ -3541,7 +3493,6 @@ impl LayoutEngine {
                     continue;
                 } else if params.word_wrap && wrap_has_break {
                     // Word-wrap: rewind to last break point
-                    frame_glyphs.glyphs.truncate(wrap_break_glyph_count);
                     display_points.truncate(wrap_break_display_point_count);
                     row_first_display_pos = wrap_break_row_first_display_pos;
                     row_last_display_pos = wrap_break_row_last_display_pos;
@@ -3574,13 +3525,6 @@ impl LayoutEngine {
                     );
                     row_extend_bg = None;
                     row_extend_row = -1;
-                    reorder_row_bidi(
-                        frame_glyphs,
-                        row_glyph_start,
-                        frame_glyphs.glyphs.len(),
-                        content_x,
-                    );
-                    row_glyph_start = frame_glyphs.glyphs.len();
                     self.matrix_builder.end_row();
                     row += 1;
                     self.matrix_builder.begin_row(row, neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text);
@@ -3634,13 +3578,6 @@ impl LayoutEngine {
                     );
                     row_extend_bg = None;
                     row_extend_row = -1;
-                    reorder_row_bidi(
-                        frame_glyphs,
-                        row_glyph_start,
-                        frame_glyphs.glyphs.len(),
-                        content_x,
-                    );
-                    row_glyph_start = frame_glyphs.glyphs.len();
                     self.matrix_builder.end_row();
                     row += 1;
                     self.matrix_builder.begin_row(row, neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text);
@@ -3887,13 +3824,6 @@ impl LayoutEngine {
             }
         }
 
-        // Reorder final partial row (bidi)
-        reorder_row_bidi(
-            frame_glyphs,
-            row_glyph_start,
-            frame_glyphs.glyphs.len(),
-            content_x,
-        );
 
         // Face :extend at end-of-buffer: fill remaining empty rows
         // with the last :extend face's background color
@@ -4448,7 +4378,6 @@ impl LayoutEngine {
                 new_window_start,
                 remaining_visibility_retries
             );
-            frame_glyphs.glyphs.truncate(glyphs_len_before);
             frame_glyphs
                 .transition_hints
                 .truncate(transition_hints_len_before);
@@ -5434,7 +5363,6 @@ impl LayoutEngine {
         let mut wrap_break_x: f32 = 0.0; // pixel position of wrap break
         let mut wrap_break_byte_idx = 0usize;
         let mut wrap_break_charpos = window_start;
-        let mut wrap_break_glyph_count = 0usize;
         let mut wrap_has_break = false;
 
         // Line/wrap prefix tracking: 0=none, 1=line_prefix, 2=wrap_prefix
@@ -5475,8 +5403,6 @@ impl LayoutEngine {
         let ligatures = self.ligatures_enabled;
         self.run_buf.clear();
 
-        // Bidi reordering: track where each row's glyphs start in frame_glyphs.glyphs
-        let mut row_glyph_start: usize = frame_glyphs.glyphs.len();
         // Track script transitions so multibyte chars can force per-char
         // face resolution (mirrors xdisp FACE_FOR_CHAR behavior).
         let mut prev_was_non_ascii = false;
@@ -5822,16 +5748,9 @@ impl LayoutEngine {
 
                 if ch == '\n' {
                     // Newline within hscroll region: new line
-                    reorder_row_bidi(
-                        frame_glyphs,
-                        row_glyph_start,
-                        frame_glyphs.glyphs.len(),
-                        content_x,
-                    );
                     col = 0;
                     x_offset = 0.0;
                     row += 1;
-                    row_glyph_start = frame_glyphs.glyphs.len();
                     current_line += 1;
                     need_line_number = lnum_enabled;
                     need_margin_check = has_margins;
@@ -6032,16 +5951,9 @@ impl LayoutEngine {
                                                 let _gy = row_y[row as usize];
                                             }
                                         }
-                                        reorder_row_bidi(
-                                            frame_glyphs,
-                                            row_glyph_start,
-                                            frame_glyphs.glyphs.len(),
-                                            content_x,
-                                        );
                                         col = 0;
                                         x_offset = 0.0;
                                         row += 1;
-                                        row_glyph_start = frame_glyphs.glyphs.len();
                                         if row >= max_rows {
                                             break;
                                         }
@@ -6055,16 +5967,9 @@ impl LayoutEngine {
                                         col += 1;
                                         x_offset += char_w;
                                         if x_offset >= avail_width {
-                                            reorder_row_bidi(
-                                                frame_glyphs,
-                                                row_glyph_start,
-                                                frame_glyphs.glyphs.len(),
-                                                content_x,
-                                            );
                                             col = 0;
                                             x_offset = 0.0;
                                             row += 1;
-                                            row_glyph_start = frame_glyphs.glyphs.len();
                                         }
                                     }
                                 }
@@ -6156,16 +6061,9 @@ impl LayoutEngine {
                                                 let _gy = row_y[row as usize];
                                             }
                                         }
-                                        reorder_row_bidi(
-                                            frame_glyphs,
-                                            row_glyph_start,
-                                            frame_glyphs.glyphs.len(),
-                                            content_x,
-                                        );
                                         col = 0;
                                         x_offset = 0.0;
                                         row += 1;
-                                        row_glyph_start = frame_glyphs.glyphs.len();
                                         if row >= max_rows {
                                             break;
                                         }
@@ -6179,16 +6077,9 @@ impl LayoutEngine {
                                         col += 1;
                                         x_offset += char_w;
                                         if x_offset >= avail_width {
-                                            reorder_row_bidi(
-                                                frame_glyphs,
-                                                row_glyph_start,
-                                                frame_glyphs.glyphs.len(),
-                                                content_x,
-                                            );
                                             col = 0;
                                             x_offset = 0.0;
                                             row += 1;
-                                            row_glyph_start = frame_glyphs.glyphs.len();
                                         }
                                     }
                                 }
@@ -6429,16 +6320,9 @@ impl LayoutEngine {
                                     let _gy = row_y[row as usize];
                                 }
                             }
-                            reorder_row_bidi(
-                                frame_glyphs,
-                                row_glyph_start,
-                                frame_glyphs.glyphs.len(),
-                                content_x,
-                            );
                             col = 0;
                             x_offset = 0.0;
                             row += 1;
-                            row_glyph_start = frame_glyphs.glyphs.len();
                             if row >= max_rows {
                                 break;
                             }
@@ -6453,12 +6337,6 @@ impl LayoutEngine {
                         if x_offset + badv > avail_width {
                             if params.truncate_lines {
                                 // Skip to next newline, then advance to next row
-                                reorder_row_bidi(
-                                    frame_glyphs,
-                                    row_glyph_start,
-                                    frame_glyphs.glyphs.len(),
-                                    content_x,
-                                );
                                 while bi < bstr.len() {
                                     let (sc, sl) = decode_utf8(&bstr[bi..]);
                                     bi += sl;
@@ -6466,7 +6344,6 @@ impl LayoutEngine {
                                         col = 0;
                                         x_offset = 0.0;
                                         row += 1;
-                                        row_glyph_start = frame_glyphs.glyphs.len();
                                         break;
                                     }
                                 }
@@ -6475,16 +6352,9 @@ impl LayoutEngine {
                                 }
                                 continue;
                             }
-                            reorder_row_bidi(
-                                frame_glyphs,
-                                row_glyph_start,
-                                frame_glyphs.glyphs.len(),
-                                content_x,
-                            );
                             col = 0;
                             x_offset = 0.0;
                             row += 1;
-                            row_glyph_start = frame_glyphs.glyphs.len();
                             if row >= max_rows {
                                 break;
                             }
@@ -6677,16 +6547,9 @@ impl LayoutEngine {
                             if params.truncate_lines {
                                 break;
                             }
-                            reorder_row_bidi(
-                                frame_glyphs,
-                                row_glyph_start,
-                                frame_glyphs.glyphs.len(),
-                                content_x,
-                            );
                             col = 0;
                             x_offset = 0.0;
                             row += 1;
-                            row_glyph_start = frame_glyphs.glyphs.len();
                             if row >= max_rows {
                                 break;
                             }
@@ -7168,13 +7031,6 @@ impl LayoutEngine {
                     flush_run(&self.run_buf, frame_glyphs, ligatures);
                     self.run_buf.clear();
 
-                    // Bidi reorder: reorder glyph X positions for this completed row
-                    reorder_row_bidi(
-                        frame_glyphs,
-                        row_glyph_start,
-                        frame_glyphs.glyphs.len(),
-                        content_x,
-                    );
 
                     // Highlight trailing whitespace (overlay stretch on top)
                     if let Some(_tw_bg) = trailing_ws_bg {
@@ -7231,7 +7087,6 @@ impl LayoutEngine {
                     col = 0;
                     x_offset = 0.0;
                     row += 1;
-                    row_glyph_start = frame_glyphs.glyphs.len();
 
                     // Apply extra height from variable-height faces on this row
                     if row_max_height > char_h {
@@ -7376,17 +7231,9 @@ impl LayoutEngine {
                         wrap_break_x = x_offset;
                         wrap_break_byte_idx = byte_idx;
                         wrap_break_charpos = charpos;
-                        wrap_break_glyph_count = frame_glyphs.glyphs.len();
                         wrap_has_break = true;
                     }
                     if x_offset >= avail_width {
-                        // Bidi reorder before advancing to next row
-                        reorder_row_bidi(
-                            frame_glyphs,
-                            row_glyph_start,
-                            frame_glyphs.glyphs.len(),
-                            content_x,
-                        );
                         if params.truncate_lines {
                             if (row as usize) < row_truncated.len() {
                                 row_truncated[row as usize] = true;
@@ -7399,7 +7246,6 @@ impl LayoutEngine {
                                     col = 0;
                                     x_offset = 0.0;
                                     row += 1;
-                                    row_glyph_start = frame_glyphs.glyphs.len();
                                     current_line += 1;
                                     need_line_number = lnum_enabled;
                                     need_margin_check = has_margins;
@@ -7414,7 +7260,6 @@ impl LayoutEngine {
                             col = 0;
                             x_offset = 0.0;
                             row += 1;
-                            row_glyph_start = frame_glyphs.glyphs.len();
                             if (row as usize) < row_continuation.len() {
                                 row_continuation[row as usize] = true;
                             }
@@ -7441,13 +7286,6 @@ impl LayoutEngine {
                             for _dot_i in 0..3 {
                             }
                         }
-                        // Bidi reorder before advancing to next row
-                        reorder_row_bidi(
-                            frame_glyphs,
-                            row_glyph_start,
-                            frame_glyphs.glyphs.len(),
-                            content_x,
-                        );
                         // Skip to next \n
                         while byte_idx < bytes_read as usize {
                             let (sch, slen) = decode_utf8(&text[byte_idx..]);
@@ -7457,7 +7295,6 @@ impl LayoutEngine {
                                 col = 0;
                                 x_offset = 0.0;
                                 row += 1;
-                                row_glyph_start = frame_glyphs.glyphs.len();
                                 current_line += 1;
                                 need_line_number = lnum_enabled;
                                 need_margin_check = has_margins;
@@ -7507,13 +7344,6 @@ impl LayoutEngine {
                         col += 2;
                         x_offset += 2.0 * char_w;
                     } else {
-                        // Bidi reorder before advancing to next row (control char overflow)
-                        reorder_row_bidi(
-                            frame_glyphs,
-                            row_glyph_start,
-                            frame_glyphs.glyphs.len(),
-                            content_x,
-                        );
                         if params.truncate_lines {
                             while byte_idx < bytes_read as usize {
                                 let (c, l) = decode_utf8(&text[byte_idx..]);
@@ -7523,7 +7353,6 @@ impl LayoutEngine {
                                     col = 0;
                                     x_offset = 0.0;
                                     row += 1;
-                                    row_glyph_start = frame_glyphs.glyphs.len();
                                     current_line += 1;
                                     need_line_number = lnum_enabled;
                                     need_margin_check = has_margins;
@@ -7535,7 +7364,6 @@ impl LayoutEngine {
                             col = 0;
                             x_offset = 0.0;
                             row += 1;
-                            row_glyph_start = frame_glyphs.glyphs.len();
                             wrap_has_break = false;
                         }
                     }
@@ -7601,12 +7429,6 @@ impl LayoutEngine {
                         let glyph_w = char_cols as f32 * char_w;
 
                         if x_offset + glyph_w > avail_width {
-                            reorder_row_bidi(
-                                frame_glyphs,
-                                row_glyph_start,
-                                frame_glyphs.glyphs.len(),
-                                content_x,
-                            );
                             if params.truncate_lines {
                                 // Skip to end of line
                                 while byte_idx < bytes_read as usize {
@@ -7617,7 +7439,6 @@ impl LayoutEngine {
                                         col = 0;
                                         x_offset = 0.0;
                                         row += 1;
-                                        row_glyph_start = frame_glyphs.glyphs.len();
                                         current_line += 1;
                                         need_line_number = lnum_enabled;
                                         need_margin_check = has_margins;
@@ -7633,7 +7454,6 @@ impl LayoutEngine {
                                 col = 0;
                                 x_offset = 0.0;
                                 row += 1;
-                                row_glyph_start = frame_glyphs.glyphs.len();
                                 wrap_has_break = false;
                                 if row >= max_rows {
                                     break;
@@ -7833,13 +7653,6 @@ impl LayoutEngine {
 
                         // Line full
                         if params.truncate_lines {
-                            // Bidi reorder this completed row before truncation
-                            reorder_row_bidi(
-                                frame_glyphs,
-                                row_glyph_start,
-                                frame_glyphs.glyphs.len(),
-                                content_x,
-                            );
                             // Show $ truncation indicator at right edge
                             let _trunc_x = content_x + avail_width - char_w;
                             let _gy = row_y[row as usize];
@@ -7855,7 +7668,6 @@ impl LayoutEngine {
                                     col = 0;
                                     x_offset = 0.0;
                                     row += 1;
-                                    row_glyph_start = frame_glyphs.glyphs.len();
                                     // Apply variable-height row adjustment
                                     if row_max_height > char_h {
                                         row_extra_y += row_max_height - char_h;
@@ -7876,7 +7688,6 @@ impl LayoutEngine {
                             continue;
                         } else if params.word_wrap && wrap_has_break && wrap_break_x > 0.0 {
                             // Word-wrap: rewind to last breakpoint
-                            frame_glyphs.glyphs.truncate(wrap_break_glyph_count);
                             // Fill from break to end of line with bg
                             let fill_w = avail_width - wrap_break_x;
                             if fill_w > 0.0 {
@@ -7894,13 +7705,6 @@ impl LayoutEngine {
                                     false,
                                 );
                             }
-                            // Bidi reorder after word-wrap truncation (re-reorder the truncated glyphs)
-                            reorder_row_bidi(
-                                frame_glyphs,
-                                row_glyph_start,
-                                frame_glyphs.glyphs.len(),
-                                content_x,
-                            );
                             if (row as usize) < row_continued.len() {
                                 row_continued[row as usize] = true;
                             }
@@ -7922,7 +7726,6 @@ impl LayoutEngine {
                             col = 0;
                             x_offset = 0.0;
                             row += 1;
-                            row_glyph_start = frame_glyphs.glyphs.len();
                             // Apply variable-height row adjustment
                             if row_max_height > char_h {
                                 row_extra_y += row_max_height - char_h;
@@ -7944,13 +7747,6 @@ impl LayoutEngine {
                             }
                             continue;
                         } else {
-                            // Bidi reorder this completed row before char-wrap
-                            reorder_row_bidi(
-                                frame_glyphs,
-                                row_glyph_start,
-                                frame_glyphs.glyphs.len(),
-                                content_x,
-                            );
                             // Character wrap: fill remaining space
                             let remaining = avail_width - x_offset;
                             if remaining > 0.0 {
@@ -7984,7 +7780,6 @@ impl LayoutEngine {
                             col = 0;
                             x_offset = 0.0;
                             row += 1;
-                            row_glyph_start = frame_glyphs.glyphs.len();
                             // Apply variable-height row adjustment
                             if row_max_height > char_h {
                                 row_extra_y += row_max_height - char_h;
@@ -8078,7 +7873,6 @@ impl LayoutEngine {
                         wrap_break_x = x_offset;
                         wrap_break_byte_idx = byte_idx;
                         wrap_break_charpos = charpos;
-                        wrap_break_glyph_count = frame_glyphs.glyphs.len();
                         wrap_has_break = true;
                     }
                 }
@@ -8227,16 +8021,9 @@ impl LayoutEngine {
                                 let _gy = row_y[row as usize];
                             }
                         }
-                        reorder_row_bidi(
-                            frame_glyphs,
-                            row_glyph_start,
-                            frame_glyphs.glyphs.len(),
-                            content_x,
-                        );
                         col = 0;
                         x_offset = 0.0;
                         row += 1;
-                        row_glyph_start = frame_glyphs.glyphs.len();
                         if row >= max_rows {
                             break;
                         }
@@ -8250,12 +8037,6 @@ impl LayoutEngine {
                     let a_advance = achar_cols as f32 * char_w;
                     if x_offset + a_advance > avail_width {
                         if params.truncate_lines {
-                            reorder_row_bidi(
-                                frame_glyphs,
-                                row_glyph_start,
-                                frame_glyphs.glyphs.len(),
-                                content_x,
-                            );
                             while ai < astr.len() {
                                 let (sc, sl) = decode_utf8(&astr[ai..]);
                                 ai += sl;
@@ -8263,7 +8044,6 @@ impl LayoutEngine {
                                     col = 0;
                                     x_offset = 0.0;
                                     row += 1;
-                                    row_glyph_start = frame_glyphs.glyphs.len();
                                     break;
                                 }
                             }
@@ -8272,16 +8052,9 @@ impl LayoutEngine {
                             }
                             continue;
                         }
-                        reorder_row_bidi(
-                            frame_glyphs,
-                            row_glyph_start,
-                            frame_glyphs.glyphs.len(),
-                            content_x,
-                        );
                         col = 0;
                         x_offset = 0.0;
                         row += 1;
-                        row_glyph_start = frame_glyphs.glyphs.len();
                         if row >= max_rows {
                             break;
                         }
@@ -8511,16 +8284,9 @@ impl LayoutEngine {
                                 let _gy = row_y[row as usize];
                             }
                         }
-                        reorder_row_bidi(
-                            frame_glyphs,
-                            row_glyph_start,
-                            frame_glyphs.glyphs.len(),
-                            content_x,
-                        );
                         col = 0;
                         x_offset = 0.0;
                         row += 1;
-                        row_glyph_start = frame_glyphs.glyphs.len();
                         if row >= max_rows {
                             break;
                         }
@@ -8533,12 +8299,6 @@ impl LayoutEngine {
                     let b_advance = bchar_cols as f32 * char_w;
                     if x_offset + b_advance > avail_width {
                         if params.truncate_lines {
-                            reorder_row_bidi(
-                                frame_glyphs,
-                                row_glyph_start,
-                                frame_glyphs.glyphs.len(),
-                                content_x,
-                            );
                             while bi < bstr.len() {
                                 let (sc, sl) = decode_utf8(&bstr[bi..]);
                                 bi += sl;
@@ -8546,7 +8306,6 @@ impl LayoutEngine {
                                     col = 0;
                                     x_offset = 0.0;
                                     row += 1;
-                                    row_glyph_start = frame_glyphs.glyphs.len();
                                     break;
                                 }
                             }
@@ -8555,16 +8314,9 @@ impl LayoutEngine {
                             }
                             continue;
                         }
-                        reorder_row_bidi(
-                            frame_glyphs,
-                            row_glyph_start,
-                            frame_glyphs.glyphs.len(),
-                            content_x,
-                        );
                         col = 0;
                         x_offset = 0.0;
                         row += 1;
-                        row_glyph_start = frame_glyphs.glyphs.len();
                         if row >= max_rows {
                             break;
                         }
@@ -8662,16 +8414,9 @@ impl LayoutEngine {
                                 let _gy = row_y[row as usize];
                             }
                         }
-                        reorder_row_bidi(
-                            frame_glyphs,
-                            row_glyph_start,
-                            frame_glyphs.glyphs.len(),
-                            content_x,
-                        );
                         col = 0;
                         x_offset = 0.0;
                         row += 1;
-                        row_glyph_start = frame_glyphs.glyphs.len();
                         if row >= max_rows {
                             break;
                         }
@@ -8684,12 +8429,6 @@ impl LayoutEngine {
                     let a_advance = achar_cols as f32 * char_w;
                     if x_offset + a_advance > avail_width {
                         if params.truncate_lines {
-                            reorder_row_bidi(
-                                frame_glyphs,
-                                row_glyph_start,
-                                frame_glyphs.glyphs.len(),
-                                content_x,
-                            );
                             while ai < astr.len() {
                                 let (sc, sl) = decode_utf8(&astr[ai..]);
                                 ai += sl;
@@ -8697,7 +8436,6 @@ impl LayoutEngine {
                                     col = 0;
                                     x_offset = 0.0;
                                     row += 1;
-                                    row_glyph_start = frame_glyphs.glyphs.len();
                                     break;
                                 }
                             }
@@ -8706,16 +8444,9 @@ impl LayoutEngine {
                             }
                             continue;
                         }
-                        reorder_row_bidi(
-                            frame_glyphs,
-                            row_glyph_start,
-                            frame_glyphs.glyphs.len(),
-                            content_x,
-                        );
                         col = 0;
                         x_offset = 0.0;
                         row += 1;
-                        row_glyph_start = frame_glyphs.glyphs.len();
                         if row >= max_rows {
                             break;
                         }
@@ -8734,12 +8465,6 @@ impl LayoutEngine {
         // Flush any remaining ligature run and bidi reorder the last row
         flush_run(&self.run_buf, frame_glyphs, ligatures);
         self.run_buf.clear();
-        reorder_row_bidi(
-            frame_glyphs,
-            row_glyph_start,
-            frame_glyphs.glyphs.len(),
-            content_x,
-        );
 
         // Fill rest of last line with :extend background if applicable
         // (handles end-of-buffer without trailing newline)
