@@ -292,7 +292,7 @@ fn run_is_pure_ligature(run: &LigatureRunBuffer) -> bool {
 ///
 /// NOTE: Glyph output has been migrated to `GlyphMatrixBuilder`. This function is now
 /// a no-op retained only to keep call-sites compiling during the migration.
-fn flush_run(_run: &LigatureRunBuffer, _frame_glyphs: &mut FrameGlyphBuffer, _ligatures: bool) {
+fn flush_run(_run: &LigatureRunBuffer, _ligatures: bool) {
 }
 
 fn push_display_point(
@@ -849,7 +849,7 @@ fn check_glyphless_char(ch: char) -> u8 {
     0 // normal display
 }
 
-/// Render overlay string bytes into the frame glyph buffer.
+/// Render overlay string bytes into the layout.
 /// Returns the number of pixels advanced in x.
 fn render_overlay_string(
     text_bytes: &[u8],
@@ -860,45 +860,11 @@ fn render_overlay_string(
     _char_h: f32,
     _font_ascent: f32,
     max_x: f32,
-    frame_glyphs: &mut FrameGlyphBuffer,
-    overlay_face: Option<&super::neovm_bridge::ResolvedFace>,
+    _overlay_face: Option<&super::neovm_bridge::ResolvedFace>,
     current_face_id: &mut u32,
 ) {
-    // Apply overlay face colors if provided
-    if let Some(face) = overlay_face {
-        let fg = Color::from_pixel(face.fg);
-        let bg = Some(Color::from_pixel(face.bg));
-        let ul_color = if face.underline_color != 0 {
-            Some(Color::from_pixel(face.underline_color))
-        } else {
-            None
-        };
-        let st_color = if face.strike_through_color != 0 {
-            Some(Color::from_pixel(face.strike_through_color))
-        } else {
-            None
-        };
-        let ol_color = if face.overline_color != 0 {
-            Some(Color::from_pixel(face.overline_color))
-        } else {
-            None
-        };
-        frame_glyphs.set_face_with_font(
-            *current_face_id,
-            fg,
-            bg,
-            &face.font_family,
-            face.font_weight,
-            face.italic,
-            face.font_size,
-            face.underline_style,
-            ul_color,
-            if face.strike_through { 1 } else { 0 },
-            st_color,
-            if face.overline { 1 } else { 0 },
-            ol_color,
-            face.overstrike,
-        );
+    // Overlay face is now handled by the builder; just track the face_id bump.
+    if _overlay_face.is_some() {
         *current_face_id += 1;
     }
 
@@ -937,31 +903,13 @@ fn measured_face_status_line_face(
 }
 
 fn apply_resolved_face(
-    frame_glyphs: &mut FrameGlyphBuffer,
     builder: &mut crate::matrix_builder::GlyphMatrixBuilder,
     face_id: u32,
     face: &super::neovm_bridge::ResolvedFace,
     metrics: Option<FontMetrics>,
 ) {
     let render_face = measured_face_status_line_face(face_id, face, metrics);
-    frame_glyphs.set_face_with_font(
-        render_face.face_id,
-        render_face.foreground,
-        Some(render_face.background),
-        &render_face.font_family,
-        render_face.font_weight,
-        render_face.italic,
-        render_face.font_size,
-        render_face.underline_style,
-        render_face.underline_color,
-        if render_face.strike_through { 1 } else { 0 },
-        render_face.strike_through_color,
-        if render_face.overline { 1 } else { 0 },
-        render_face.overline_color,
-        render_face.overstrike,
-    );
     let rendered = render_face.render_face();
-    frame_glyphs.faces.insert(render_face.face_id, rendered.clone());
     builder.insert_face(render_face.face_id, rendered);
 }
 
@@ -1035,13 +983,11 @@ impl LayoutEngine {
 
     fn record_transition_hint_from_latest_window_info(
         &mut self,
-        frame_glyphs: &mut FrameGlyphBuffer,
         curr_window_infos: &mut std::collections::HashMap<i64, WindowInfo>,
     ) {
-        if let Some(curr) = frame_glyphs.window_infos.last().cloned() {
+        if let Some(curr) = self.matrix_builder.window_infos().last().cloned() {
             if let Some(prev) = self.prev_window_infos.get(&curr.window_id) {
                 if let Some(hint) = FrameGlyphBuffer::derive_transition_hint(prev, &curr) {
-                    frame_glyphs.add_transition_hint(hint);
                     self.matrix_builder.push_transition_hint(hint);
                 }
             }
@@ -1049,8 +995,8 @@ impl LayoutEngine {
         }
     }
 
-    fn record_effect_hints_from_latest_window_info(&mut self, frame_glyphs: &mut FrameGlyphBuffer) {
-        let Some(curr) = frame_glyphs.window_infos.last().cloned() else {
+    fn record_effect_hints_from_latest_window_info(&mut self) {
+        let Some(curr) = self.matrix_builder.window_infos().last().cloned() else {
             return;
         };
         if curr.is_minibuffer {
@@ -1069,7 +1015,6 @@ impl LayoutEngine {
                 window_id: curr.window_id,
                 bounds: curr.bounds,
             };
-            frame_glyphs.add_effect_hint(hint);
             self.matrix_builder.push_effect_hint(hint);
             return;
         }
@@ -1085,46 +1030,37 @@ impl LayoutEngine {
                 window_id: curr.window_id,
                 bounds: curr.bounds,
             };
-            frame_glyphs.add_effect_hint(h1);
             self.matrix_builder.push_effect_hint(h1);
             let h2 = WindowEffectHint::ScrollLineSpacing {
                 window_id: curr.window_id,
                 bounds: curr.bounds,
                 direction,
             };
-            frame_glyphs.add_effect_hint(h2);
             self.matrix_builder.push_effect_hint(h2);
             let h3 = WindowEffectHint::ScrollMomentum {
                 window_id: curr.window_id,
                 bounds: curr.bounds,
                 direction,
             };
-            frame_glyphs.add_effect_hint(h3);
             self.matrix_builder.push_effect_hint(h3);
             let h4 = WindowEffectHint::ScrollVelocityFade {
                 window_id: curr.window_id,
                 bounds: curr.bounds,
                 delta,
             };
-            frame_glyphs.add_effect_hint(h4);
             self.matrix_builder.push_effect_hint(h4);
         }
     }
 
-    fn find_window_cursor_y(frame_glyphs: &FrameGlyphBuffer, info: &WindowInfo) -> Option<f32> {
-        for glyph in &frame_glyphs.glyphs {
-            if let neomacs_display_protocol::frame_glyphs::FrameGlyph::Cursor {
-                x, y, style, ..
-            } = glyph
+    fn find_window_cursor_y_in_builder(builder: &crate::matrix_builder::GlyphMatrixBuilder, info: &WindowInfo) -> Option<f32> {
+        for cursor in builder.cursors() {
+            if cursor.x >= info.bounds.x
+                && cursor.x < info.bounds.x + info.bounds.width
+                && cursor.y >= info.bounds.y
+                && cursor.y < info.bounds.y + info.bounds.height
+                && !cursor.style.is_hollow()
             {
-                if *x >= info.bounds.x
-                    && *x < info.bounds.x + info.bounds.width
-                    && *y >= info.bounds.y
-                    && *y < info.bounds.y + info.bounds.height
-                    && !style.is_hollow()
-                {
-                    return Some(*y);
-                }
+                return Some(cursor.y);
             }
         }
         None
@@ -1132,7 +1068,6 @@ impl LayoutEngine {
 
     fn add_line_animation_hints(
         &mut self,
-        frame_glyphs: &mut FrameGlyphBuffer,
         curr_window_infos: &std::collections::HashMap<i64, WindowInfo>,
     ) {
         for (window_id, curr) in curr_window_infos {
@@ -1149,7 +1084,7 @@ impl LayoutEngine {
                 && prev.window_start == curr.window_start
                 && prev.buffer_size != curr.buffer_size
             {
-                if let Some(edit_y) = Self::find_window_cursor_y(frame_glyphs, curr) {
+                if let Some(edit_y) = Self::find_window_cursor_y_in_builder(&self.matrix_builder, curr) {
                     let offset = if curr.buffer_size > prev.buffer_size {
                         -curr.char_height
                     } else {
@@ -1161,46 +1096,43 @@ impl LayoutEngine {
                         edit_y: edit_y + curr.char_height,
                         offset,
                     };
-                    frame_glyphs.add_effect_hint(hint);
                     self.matrix_builder.push_effect_hint(hint);
                 }
             }
         }
     }
 
-    fn update_window_switch_hint(&mut self, frame_glyphs: &mut FrameGlyphBuffer) {
-        let new_selected = frame_glyphs
-            .window_infos
+    fn update_window_switch_hint(&mut self) {
+        let new_selected = self.matrix_builder
+            .window_infos()
             .iter()
             .find(|info| info.selected && !info.is_minibuffer)
             .map(|info| (info.window_id, info.bounds));
         if let Some((window_id, bounds)) = new_selected {
             if self.prev_selected_window_id != 0 && self.prev_selected_window_id != window_id {
                 let hint = WindowEffectHint::WindowSwitchFade { window_id, bounds };
-                frame_glyphs.add_effect_hint(hint);
                 self.matrix_builder.push_effect_hint(hint);
             }
             self.prev_selected_window_id = window_id;
         }
     }
 
-    fn update_theme_transition_hint(&mut self, frame_glyphs: &mut FrameGlyphBuffer) {
-        let bg = &frame_glyphs.background;
+    fn update_theme_transition_hint(&mut self, frame_width: f32, frame_height: f32) {
+        let bg = self.matrix_builder.background_color();
         let new_bg = (bg.r, bg.g, bg.b, bg.a);
         if let Some(old_bg) = self.prev_background {
             let dr = (new_bg.0 - old_bg.0).abs();
             let dg = (new_bg.1 - old_bg.1).abs();
             let db = (new_bg.2 - old_bg.2).abs();
             if dr > 0.02 || dg > 0.02 || db > 0.02 {
-                let full_h = frame_glyphs
-                    .window_infos
+                let full_h = self.matrix_builder
+                    .window_infos()
                     .iter()
                     .find(|w| w.is_minibuffer)
-                    .map_or(frame_glyphs.height, |w| w.bounds.y);
+                    .map_or(frame_height, |w| w.bounds.y);
                 let hint = WindowEffectHint::ThemeTransition {
-                    bounds: Rect::new(0.0, 0.0, frame_glyphs.width, full_h),
+                    bounds: Rect::new(0.0, 0.0, frame_width, full_h),
                 };
-                frame_glyphs.add_effect_hint(hint);
                 self.matrix_builder.push_effect_hint(hint);
             }
         }
@@ -1209,7 +1141,8 @@ impl LayoutEngine {
 
     fn maybe_add_topology_transition_hint(
         &mut self,
-        frame_glyphs: &mut FrameGlyphBuffer,
+        frame_width: f32,
+        frame_height: f32,
         curr_window_infos: &std::collections::HashMap<i64, WindowInfo>,
     ) {
         if self.prev_window_infos.is_empty() {
@@ -1232,28 +1165,27 @@ impl LayoutEngine {
             return;
         }
 
-        if frame_glyphs
-            .transition_hints
+        if self.matrix_builder
+            .transition_hints()
             .iter()
             .any(|hint| hint.window_id == 0 && matches!(hint.kind, WindowTransitionKind::Crossfade))
         {
             return;
         }
 
-        let full_h = frame_glyphs
-            .window_infos
+        let full_h = self.matrix_builder
+            .window_infos()
             .iter()
             .find(|w| w.is_minibuffer)
-            .map_or(frame_glyphs.height, |w| w.bounds.y);
+            .map_or(frame_height, |w| w.bounds.y);
 
         let hint = WindowTransitionHint {
             window_id: 0,
-            bounds: Rect::new(0.0, 0.0, frame_glyphs.width, full_h),
+            bounds: Rect::new(0.0, 0.0, frame_width, full_h),
             kind: WindowTransitionKind::Crossfade,
             effect: None,
             easing: None,
         };
-        frame_glyphs.add_transition_hint(hint);
         self.matrix_builder.push_transition_hint(hint);
     }
 
@@ -1275,6 +1207,7 @@ impl LayoutEngine {
     ) {
         // Build a complete fresh frame every redisplay cycle.
         frame_glyphs.clear_all();
+        self.matrix_builder.reset();
         let mut curr_window_infos: std::collections::HashMap<i64, WindowInfo> =
             std::collections::HashMap::new();
 
@@ -1285,6 +1218,8 @@ impl LayoutEngine {
         frame_glyphs.char_height = frame_params.char_height;
         frame_glyphs.font_pixel_size = frame_params.font_pixel_size;
         frame_glyphs.background = Color::from_pixel(frame_params.background);
+        self.matrix_builder
+            .set_background_color(Color::from_pixel(frame_params.background));
 
         // Clear hit-test data for new frame
         self.hit_data.clear();
@@ -1298,22 +1233,18 @@ impl LayoutEngine {
         }
 
         // Always populate face_id=0 (DEFAULT_FACE_ID) in the faces map.
-        // Many code paths use face_id=0 as a fallback: initial set_face(),
-        // divider stretches, overlay strings without explicit face, and
-        // the legacy menu/tool bar extraction.  Without this, glyphs with
-        // face_id=0 have no Face entry and fall back to generic monospace.
         {
             let mut default_face = FaceDataFFI::default();
             let rc = neomacs_layout_default_face(frame, &mut default_face);
             if rc >= 0 {
-                self.apply_face(&default_face, frame, frame_glyphs);
+                apply_ffi_face(&default_face, &mut self.matrix_builder);
             }
         }
 
         // Render frame-level tab-bar (tab-bar-mode) via the status-line pipeline.
         let tab_bar_height = frame_params.tab_bar_height;
         if tab_bar_height > 0.0 {
-            self.render_frame_tab_bar(frame, frame_params, frame_glyphs, tab_bar_height);
+            self.render_frame_tab_bar(frame, frame_params, tab_bar_height);
         }
 
         // Get number of windows (direct Rust struct access, no FFI call)
@@ -1447,33 +1378,33 @@ impl LayoutEngine {
                     .to_string_lossy()
                     .into_owned()
             };
-            frame_glyphs.add_window_info(
-                params.window_id,
-                params.buffer_id,
-                params.window_start,
-                0, // window_end filled after layout
-                params.buffer_size,
-                params.bounds.x,
-                params.bounds.y,
-                params.bounds.width,
-                params.bounds.height,
-                params.mode_line_height,
-                params.header_line_height,
-                params.tab_line_height,
-                params.selected,
-                params.is_minibuffer,
-                params.char_height,
+            let window_info = neomacs_display_protocol::frame_glyphs::WindowInfo {
+                window_id: params.window_id,
+                buffer_id: params.buffer_id,
+                window_start: params.window_start,
+                window_end: 0, // filled after layout
+                buffer_size: params.buffer_size,
+                bounds: Rect::new(
+                    params.bounds.x,
+                    params.bounds.y,
+                    params.bounds.width,
+                    params.bounds.height,
+                ),
+                mode_line_height: params.mode_line_height,
+                header_line_height: params.header_line_height,
+                tab_line_height: params.tab_line_height,
+                selected: params.selected,
+                is_minibuffer: params.is_minibuffer,
+                char_height: params.char_height,
                 buffer_file_name,
-                wp.modified != 0,
-            );
-            if let Some(info) = frame_glyphs.window_infos.last() {
-                self.matrix_builder.push_window_info(info.clone());
-            }
+                modified: wp.modified != 0,
+            };
+            frame_glyphs.window_infos.push(window_info.clone());
+            self.matrix_builder.push_window_info(window_info);
             self.record_transition_hint_from_latest_window_info(
-                frame_glyphs,
                 &mut curr_window_infos,
             );
-            self.record_effect_hints_from_latest_window_info(frame_glyphs);
+            self.record_effect_hints_from_latest_window_info();
 
             // Layout this window's content
             self.layout_window(&params, &wp, frame, frame_glyphs);
@@ -1528,10 +1459,10 @@ impl LayoutEngine {
             }
         }
 
-        self.add_line_animation_hints(frame_glyphs, &curr_window_infos);
-        self.update_window_switch_hint(frame_glyphs);
-        self.update_theme_transition_hint(frame_glyphs);
-        self.maybe_add_topology_transition_hint(frame_glyphs, &curr_window_infos);
+        self.add_line_animation_hints(&curr_window_infos);
+        self.update_window_switch_hint();
+        self.update_theme_transition_hint(frame_params.width, frame_params.height);
+        self.maybe_add_topology_transition_hint(frame_params.width, frame_params.height, &curr_window_infos);
         self.prev_window_infos = curr_window_infos;
 
         // Publish hit-test data for mouse interaction queries
@@ -1549,7 +1480,6 @@ impl LayoutEngine {
         &mut self,
         evaluator: &mut neovm_core::emacs_core::Context,
         frame_id: neovm_core::window::FrameId,
-        frame_glyphs: &mut FrameGlyphBuffer,
     ) {
         // Lazy-initialize FontMetricsService before collecting layout params so
         // the selected frame's default metrics can be refreshed first.
@@ -1627,19 +1557,12 @@ impl LayoutEngine {
             Self::ensure_fontified_rust(evaluator, buf_id, window_start, fontify_end);
         }
 
-        // Clear previous frame's glyphs before building new frame
-        frame_glyphs.clear_all();
+        // Reset builder for new frame
         self.matrix_builder.reset();
         let mut curr_window_infos: std::collections::HashMap<i64, WindowInfo> =
             std::collections::HashMap::new();
 
-        // Set up frame dimensions
-        frame_glyphs.width = frame_params.width;
-        frame_glyphs.height = frame_params.height;
-        frame_glyphs.char_width = frame_params.char_width;
-        frame_glyphs.char_height = frame_params.char_height;
-        frame_glyphs.font_pixel_size = frame_params.font_pixel_size;
-        frame_glyphs.background = Color::from_pixel(frame_params.background);
+        // Set up frame dimensions in the builder
         self.matrix_builder
             .set_background_color(Color::from_pixel(frame_params.background));
         self.matrix_builder
@@ -1650,13 +1573,7 @@ impl LayoutEngine {
         self.display_snapshots.clear();
         let default_resolved = face_resolver.default_face();
 
-        if let Some(metrics) = default_metrics {
-            frame_glyphs.char_width = metrics.char_width;
-            frame_glyphs.char_height = metrics.line_height;
-            frame_glyphs.font_pixel_size = default_resolved.font_size;
-        }
-
-        apply_resolved_face(frame_glyphs, &mut self.matrix_builder, 0, default_resolved, default_metrics);
+        apply_resolved_face(&mut self.matrix_builder, 0, default_resolved, default_metrics);
 
         let tab_bar_height = frame_params.tab_bar_height;
         if tab_bar_height > 0.0 {
@@ -1665,7 +1582,6 @@ impl LayoutEngine {
                 frame_id.0 as i64,
                 &face_resolver,
                 &frame_params,
-                frame_glyphs,
                 tab_bar_height,
             );
         }
@@ -1737,13 +1653,11 @@ impl LayoutEngine {
                 buffer_file_name,
                 modified,
             };
-            frame_glyphs.window_infos.push(window_info.clone());
             self.matrix_builder.push_window_info(window_info);
             self.record_transition_hint_from_latest_window_info(
-                frame_glyphs,
                 &mut curr_window_infos,
             );
-            self.record_effect_hints_from_latest_window_info(frame_glyphs);
+            self.record_effect_hints_from_latest_window_info();
 
             // Simplified layout for this window (no face resolution, no overlays)
             self.layout_window_rust(
@@ -1751,7 +1665,6 @@ impl LayoutEngine {
                 frame_id,
                 params,
                 &frame_params,
-                frame_glyphs,
                 &face_resolver,
                 MAX_WINDOW_VISIBILITY_RETRIES,
             );
@@ -1786,18 +1699,10 @@ impl LayoutEngine {
             }
         }
 
-        self.add_line_animation_hints(frame_glyphs, &curr_window_infos);
-        self.update_window_switch_hint(frame_glyphs);
-        self.update_theme_transition_hint(frame_glyphs);
-        self.maybe_add_topology_transition_hint(frame_glyphs, &curr_window_infos);
-
-        // Copy faces from FrameGlyphBuffer into the builder.  Faces are
-        // still accumulated into frame_glyphs.faces by apply_face (FFI) and
-        // apply_status_line_face because those functions cannot access the
-        // builder directly (borrow-checker constraints on &self receivers).
-        // Window infos, transition hints, and effect hints are now pushed
-        // directly into the builder at their origination sites.
-        self.matrix_builder.set_faces(frame_glyphs.faces.clone());
+        self.add_line_animation_hints(&curr_window_infos);
+        self.update_window_switch_hint();
+        self.update_theme_transition_hint(frame_params.width, frame_params.height);
+        self.maybe_add_topology_transition_hint(frame_params.width, frame_params.height, &curr_window_infos);
 
         // Build parallel GlyphMatrix output for validation
         let frame_cols = (frame_params.width / frame_params.char_width.max(1.0)) as usize;
@@ -1841,7 +1746,6 @@ impl LayoutEngine {
         frame_id: neovm_core::window::FrameId,
         params: &WindowParams,
         _frame_params: &FrameParams,
-        frame_glyphs: &mut FrameGlyphBuffer,
         face_resolver: &super::neovm_bridge::FaceResolver,
         remaining_visibility_retries: usize,
     ) {
@@ -1980,16 +1884,6 @@ impl LayoutEngine {
         let text_height =
             params.bounds.height - mode_line_height - header_line_height - tab_line_height;
 
-        frame_glyphs.set_draw_context(
-            params.window_id,
-            if params.is_minibuffer {
-                GlyphRowRole::Minibuffer
-            } else {
-                GlyphRowRole::Text
-            },
-            Some(Rect::new(text_x, text_y, text_width, text_height.max(0.0))),
-        );
-
         // In Emacs, w->vscroll is negative when content is shifted up.
         let vscroll = (-params.vscroll).max(0) as f32;
         let text_height = (text_height - vscroll).max(0.0);
@@ -2096,9 +1990,9 @@ impl LayoutEngine {
         } else {
             &[]
         };
-        let transition_hints_len_before = frame_glyphs.transition_hints.len();
-        let effect_hints_len_before = frame_glyphs.effect_hints.len();
-        let cursor_inverse_before = frame_glyphs.cursor_inverse.clone();
+        let transition_hints_len_before = self.matrix_builder.transition_hints().len();
+        let effect_hints_len_before = self.matrix_builder.effect_hints().len();
+        let cursor_inverse_before = self.matrix_builder.cursor_inverse().cloned();
 
         tracing::debug!(
             "  layout_window_rust id={}: text_y={:.1} text_h={:.1} max_rows={} bytes_read={}",
@@ -2164,7 +2058,6 @@ impl LayoutEngine {
                 0,
                 default_resolved,
                 echo_message,
-                frame_glyphs,
                 StatusLineKind::Minibuffer,
                 None,
             );
@@ -2322,7 +2215,7 @@ impl LayoutEngine {
         macro_rules! resolve_current_face_state {
             () => {
                 if (charpos as usize) >= face_next_check {
-                    flush_run(&self.run_buf, frame_glyphs, ligatures);
+                    flush_run(&self.run_buf, ligatures);
                     self.run_buf.clear();
                     let buffer_ref = evaluator.buffer_manager().get(buf_id).unwrap();
                     let resolved = face_resolver.face_at_pos(
@@ -2388,7 +2281,7 @@ impl LayoutEngine {
                         )
                     };
 
-                    apply_resolved_face(frame_glyphs, &mut self.matrix_builder, face_id, &resolved, metrics);
+                    apply_resolved_face(&mut self.matrix_builder, face_id, &resolved, metrics);
                     current_face_id += 1;
 
                     if resolved.extend {
@@ -2412,7 +2305,7 @@ impl LayoutEngine {
         macro_rules! save_word_wrap_candidate {
             ($ch:expr, $break_byte_idx:expr) => {
                 if params.word_wrap && word_wrap_may_wrap && char_can_wrap_before_basic($ch) {
-                    flush_run(&self.run_buf, frame_glyphs, ligatures);
+                    flush_run(&self.run_buf, ligatures);
                     self.run_buf.clear();
                     wrap_break_byte_idx = $break_byte_idx;
                     wrap_break_charpos = charpos;
@@ -2466,7 +2359,7 @@ impl LayoutEngine {
                 let _lnum_bg = Color::from_pixel(lnum_face.bg);
                 // Realize and register the line-number face so the renderer
                 // uses the same family/weight/slant the layout chose.
-                apply_resolved_face(frame_glyphs, &mut self.matrix_builder, current_face_id, &lnum_face, None);
+                apply_resolved_face(&mut self.matrix_builder, current_face_id, &lnum_face, None);
                 let lnum_face_id = current_face_id;
                 current_face_id += 1;
 
@@ -2514,7 +2407,7 @@ impl LayoutEngine {
 
                 if let Some(prefix_text) = prefix {
                     // Flush ligature run before prefix
-                    flush_run(&self.run_buf, frame_glyphs, ligatures);
+                    flush_run(&self.run_buf, ligatures);
                     self.run_buf.clear();
 
                     let right_limit = content_x + avail_width;
@@ -2562,7 +2455,7 @@ impl LayoutEngine {
 
                     // Render "..." ellipsis for non-t invisible property values
                     if show_ellipsis {
-                        flush_run(&self.run_buf, frame_glyphs, ligatures);
+                        flush_run(&self.run_buf, ligatures);
                         self.run_buf.clear();
                         let right_limit = content_x + avail_width;
                         for _ in 0..3 {
@@ -2582,7 +2475,7 @@ impl LayoutEngine {
                         let (_before_strings, after_strings) =
                             invis_text_props.overlay_strings_at(charpos);
                         if !after_strings.is_empty() {
-                            flush_run(&self.run_buf, frame_glyphs, ligatures);
+                            flush_run(&self.run_buf, ligatures);
                             self.run_buf.clear();
                             let right_limit = content_x + avail_width;
                             for (string_bytes, overlay_id) in &after_strings {
@@ -2599,7 +2492,6 @@ impl LayoutEngine {
                                     char_h,
                                     face_ascent_val,
                                     right_limit,
-                                    frame_glyphs,
                                     ov_face.as_ref(),
                                     &mut current_face_id,
                                 );
@@ -2607,7 +2499,7 @@ impl LayoutEngine {
                         }
                     }
 
-                    flush_run(&self.run_buf, frame_glyphs, ligatures);
+                    flush_run(&self.run_buf, ligatures);
                     self.run_buf.clear();
                     continue;
                 }
@@ -2616,7 +2508,7 @@ impl LayoutEngine {
 
             // Handle hscroll: skip columns consumed by horizontal scroll
             if hscroll_remaining > 0 {
-                flush_run(&self.run_buf, frame_glyphs, ligatures);
+                flush_run(&self.run_buf, ligatures);
                 self.run_buf.clear();
                 let (ch, ch_len) = decode_utf8(&text[byte_idx..]);
                 byte_idx += ch_len;
@@ -2693,7 +2585,7 @@ impl LayoutEngine {
                 };
 
                 if let Some(prop_val) = display_prop_val {
-                    flush_run(&self.run_buf, frame_glyphs, ligatures);
+                    flush_run(&self.run_buf, ligatures);
                     self.run_buf.clear();
                     // Case 1: String replacement — render the string instead of buffer text
                     if let Some(replacement) = prop_val.as_str() {
@@ -2815,7 +2707,7 @@ impl LayoutEngine {
 
             // Selective display: \r hides rest of line until \n
             if selective_display > 0 && ch == '\r' {
-                flush_run(&self.run_buf, frame_glyphs, ligatures);
+                flush_run(&self.run_buf, ligatures);
                 self.run_buf.clear();
                 // Show ... ellipsis indicator
                 let ellipsis = "...";
@@ -2885,7 +2777,7 @@ impl LayoutEngine {
             save_word_wrap_candidate!(ch, ch_start_byte_idx);
 
             if ch == '\n' {
-                flush_run(&self.run_buf, frame_glyphs, ligatures);
+                flush_run(&self.run_buf, ligatures);
                 self.run_buf.clear();
                 // Highlight trailing whitespace before advancing to next row
                 if let Some(_tw_bg) = trailing_ws_bg {
@@ -3030,7 +2922,7 @@ impl LayoutEngine {
             }
 
             if ch == '\t' {
-                flush_run(&self.run_buf, frame_glyphs, ligatures);
+                flush_run(&self.run_buf, ligatures);
                 self.run_buf.clear();
                 // Tab: advance to next tab stop using per-face char width
                 let x_before_tab = x;
@@ -3095,7 +2987,7 @@ impl LayoutEngine {
 
             // Control characters: render as ^X notation
             if ch < ' ' || ch == '\x7F' {
-                flush_run(&self.run_buf, frame_glyphs, ligatures);
+                flush_run(&self.run_buf, ligatures);
                 self.run_buf.clear();
                 let _ctrl_ch = if ch == '\x7F' {
                     '?'
@@ -3199,23 +3091,6 @@ impl LayoutEngine {
 
                 // Render ^X with escape-glyph face color
                 if params.escape_glyph_fg != 0 {
-                    let escape_fg = Color::from_pixel(params.escape_glyph_fg);
-                    frame_glyphs.set_face_with_font(
-                        current_face_id,
-                        escape_fg,
-                        Some(default_bg),
-                        &default_resolved.font_family,
-                        default_resolved.font_weight,
-                        default_resolved.italic,
-                        default_resolved.font_size,
-                        0,
-                        None,
-                        0,
-                        None,
-                        0,
-                        None,
-                        false,
-                    );
                     current_face_id += 1;
                 }
                 push_display_point(
@@ -3243,29 +3118,13 @@ impl LayoutEngine {
 
             // Nobreak character display (U+00A0 non-breaking space, U+00AD soft hyphen)
             if params.nobreak_char_display > 0 && (ch == '\u{00A0}' || ch == '\u{00AD}') {
-                flush_run(&self.run_buf, frame_glyphs, ligatures);
+                flush_run(&self.run_buf, ligatures);
                 self.run_buf.clear();
                 match params.nobreak_char_display {
                     1 => {
                         // Highlight mode: render with nobreak face color
                         if params.nobreak_char_fg != 0 {
-                            let nb_fg = Color::from_pixel(params.nobreak_char_fg);
-                            frame_glyphs.set_face_with_font(
-                                current_face_id,
-                                nb_fg,
-                                Some(default_bg),
-                                &default_resolved.font_family,
-                                default_resolved.font_weight,
-                                default_resolved.italic,
-                                default_resolved.font_size,
-                                0,
-                                None,
-                                0,
-                                None,
-                                0,
-                                None,
-                                false,
-                            );
+                            let _nb_fg = Color::from_pixel(params.nobreak_char_fg);
                             current_face_id += 1;
                         }
                         // Render as visible space or hyphen
@@ -3295,23 +3154,7 @@ impl LayoutEngine {
                         // Escape notation mode: show as "\\ " for NBSP, "\\-" for soft hyphen
                         let _indicator = if ch == '\u{00A0}' { ' ' } else { '-' };
                         if params.nobreak_char_fg != 0 {
-                            let nb_fg = Color::from_pixel(params.nobreak_char_fg);
-                            frame_glyphs.set_face_with_font(
-                                current_face_id,
-                                nb_fg,
-                                Some(default_bg),
-                                &default_resolved.font_family,
-                                default_resolved.font_weight,
-                                default_resolved.italic,
-                                default_resolved.font_size,
-                                0,
-                                None,
-                                0,
-                                None,
-                                0,
-                                None,
-                                false,
-                            );
+                            let _nb_fg = Color::from_pixel(params.nobreak_char_fg);
                             current_face_id += 1;
                         }
                         // Check if 2 columns fit
@@ -3346,7 +3189,7 @@ impl LayoutEngine {
             // Glyphless character detection (C1 controls, format chars, etc.)
             let glyphless = check_glyphless_char(ch);
             if glyphless > 0 {
-                flush_run(&self.run_buf, frame_glyphs, ligatures);
+                flush_run(&self.run_buf, ligatures);
                 self.run_buf.clear();
 
                 match glyphless {
@@ -3373,23 +3216,6 @@ impl LayoutEngine {
 
                         // Use glyphless-char face color if available
                         if params.glyphless_char_fg != 0 {
-                            let glyph_fg = Color::from_pixel(params.glyphless_char_fg);
-                            frame_glyphs.set_face_with_font(
-                                current_face_id,
-                                glyph_fg,
-                                Some(default_bg),
-                                &default_resolved.font_family,
-                                default_resolved.font_weight,
-                                default_resolved.italic,
-                                default_resolved.font_size,
-                                0,
-                                None,
-                                0,
-                                None,
-                                0,
-                                None,
-                                false,
-                            );
                             current_face_id += 1;
                         }
 
@@ -3443,7 +3269,7 @@ impl LayoutEngine {
                 )
             };
             if x + advance > content_x + avail_width {
-                flush_run(&self.run_buf, frame_glyphs, ligatures);
+                flush_run(&self.run_buf, ligatures);
                 self.run_buf.clear();
                 if params.truncate_lines {
                     if row < max_rows {
@@ -3641,7 +3467,7 @@ impl LayoutEngine {
                 let (before_strings, _) = text_props.overlay_strings_at(charpos);
                 if !before_strings.is_empty() {
                     // Flush run buffer before emitting overlay chars
-                    flush_run(&self.run_buf, frame_glyphs, ligatures);
+                    flush_run(&self.run_buf, ligatures);
                     self.run_buf.clear();
                     let right_limit = content_x + avail_width;
                     for (string_bytes, overlay_id) in &before_strings {
@@ -3658,7 +3484,6 @@ impl LayoutEngine {
                             char_h,
                             face_ascent_val,
                             right_limit,
-                            frame_glyphs,
                             ov_face.as_ref(),
                             &mut current_face_id,
                         );
@@ -3704,7 +3529,7 @@ impl LayoutEngine {
 
             // Flush if run is too long
             if self.run_buf.len() >= MAX_LIGATURE_RUN_LEN {
-                flush_run(&self.run_buf, frame_glyphs, ligatures);
+                flush_run(&self.run_buf, ligatures);
                 self.run_buf.clear();
             }
 
@@ -3719,7 +3544,7 @@ impl LayoutEngine {
                 let (_, after_strings) = text_props.overlay_strings_at(charpos);
                 if !after_strings.is_empty() {
                     // Flush run buffer before emitting overlay chars
-                    flush_run(&self.run_buf, frame_glyphs, ligatures);
+                    flush_run(&self.run_buf, ligatures);
                     self.run_buf.clear();
                     let right_limit = content_x + avail_width;
                     for (string_bytes, overlay_id) in &after_strings {
@@ -3736,7 +3561,6 @@ impl LayoutEngine {
                             char_h,
                             face_ascent_val,
                             right_limit,
-                            frame_glyphs,
                             ov_face.as_ref(),
                             &mut current_face_id,
                         );
@@ -3758,7 +3582,7 @@ impl LayoutEngine {
             }
         }
 
-        flush_run(&self.run_buf, frame_glyphs, ligatures);
+        flush_run(&self.run_buf, ligatures);
         self.run_buf.clear();
 
         let point_is_visible_eob =
@@ -3817,7 +3641,6 @@ impl LayoutEngine {
                     char_h,
                     face_ascent_val,
                     right_limit,
-                    frame_glyphs,
                     ov_face.as_ref(),
                     &mut current_face_id,
                 );
@@ -3904,25 +3727,11 @@ impl LayoutEngine {
         if params.fill_column_indicator > 0 {
             let fci_col = params.fill_column_indicator;
             let _fci_char = params.fill_column_indicator_char;
-            let fci_fg = if params.fill_column_indicator_fg != 0 {
+            let _fci_fg = if params.fill_column_indicator_fg != 0 {
                 Color::from_pixel(params.fill_column_indicator_fg)
             } else {
                 default_fg
             };
-
-            frame_glyphs.set_face(
-                0,
-                fci_fg,
-                Some(default_bg),
-                400,
-                false,
-                0,
-                None,
-                0,
-                None,
-                0,
-                None,
-            );
 
             // Draw indicator character at the fill column on each row
             if (fci_col as usize) < cols {
@@ -3974,7 +3783,7 @@ impl LayoutEngine {
                         );
                         let cursor_w = if matches!(style, CursorStyle::Bar(_)) {
                             fallback_cursor_w
-                        } else if let Some(face) = frame_glyphs.faces.get(&cursor_face_id) {
+                        } else if let Some(face) = self.matrix_builder.faces().get(&cursor_face_id) {
                             unsafe {
                                 cursor_point_advance(
                                     text,
@@ -4378,11 +4187,9 @@ impl LayoutEngine {
                 new_window_start,
                 remaining_visibility_retries
             );
-            frame_glyphs
-                .transition_hints
-                .truncate(transition_hints_len_before);
-            frame_glyphs.effect_hints.truncate(effect_hints_len_before);
-            frame_glyphs.cursor_inverse = cursor_inverse_before;
+            self.matrix_builder.truncate_transition_hints(transition_hints_len_before);
+            self.matrix_builder.truncate_effect_hints(effect_hints_len_before);
+            self.matrix_builder.restore_cursor_inverse(cursor_inverse_before);
 
             let mut retry_params = params.clone();
             retry_params.window_start = new_window_start;
@@ -4392,7 +4199,6 @@ impl LayoutEngine {
                 frame_id,
                 &retry_params,
                 _frame_params,
-                frame_glyphs,
                 face_resolver,
                 remaining_visibility_retries.saturating_sub(1),
             );
@@ -4411,7 +4217,7 @@ impl LayoutEngine {
             .map(|row| row.row.max(0) as usize)
             .unwrap_or(0);
 
-        if let Some(info) = frame_glyphs.window_infos.last_mut()
+        if let Some(info) = self.matrix_builder.window_infos_last_mut()
             && info.window_id == params.window_id
         {
             info.window_start = window_start_lisp as i64;
@@ -4505,7 +4311,6 @@ impl LayoutEngine {
                 ml_face,
                 mode_text,
                 face_resolver,
-                frame_glyphs,
                 StatusLineKind::ModeLine,
                 Some(&mut builder),
             );
@@ -4543,7 +4348,6 @@ impl LayoutEngine {
                 hl_face,
                 header_text,
                 face_resolver,
-                frame_glyphs,
                 StatusLineKind::HeaderLine,
                 Some(&mut builder),
             );
@@ -4582,7 +4386,6 @@ impl LayoutEngine {
                 tl_face,
                 tab_text,
                 face_resolver,
-                frame_glyphs,
                 StatusLineKind::TabLine,
                 Some(&mut builder),
             );
@@ -4664,19 +4467,17 @@ impl LayoutEngine {
             }
         }
     }
+}
 
-    /// Apply face data from FFI to the FrameGlyphBuffer's current face state.
-    pub(crate) unsafe fn apply_face(
-        &self,
-        face: &FaceDataFFI,
-        frame: EmacsFrame,
-        frame_glyphs: &mut FrameGlyphBuffer,
-    ) {
+/// Build a `Face` from FFI `FaceDataFFI` and insert it into the builder.
+unsafe fn apply_ffi_face(
+    face: &FaceDataFFI,
+    builder: &mut crate::matrix_builder::GlyphMatrixBuilder,
+) {
         let fg = Color::from_pixel(face.fg);
         let bg = Color::from_pixel(face.bg);
         let font_weight = face.font_weight as u16;
         let italic = face.italic != 0;
-        let overstrike = face.overstrike != 0;
 
         // Get font family string from C pointer
         let font_family = if !face.font_family.is_null() {
@@ -4715,23 +4516,6 @@ impl LayoutEngine {
         } else {
             None
         };
-
-        frame_glyphs.set_face_with_font(
-            face.face_id,
-            fg,
-            Some(bg),
-            font_family,
-            font_weight,
-            italic,
-            face.font_size as f32,
-            face.underline_style as u8,
-            underline_color,
-            face.strike_through as u8,
-            strike_color,
-            face.overline as u8,
-            overline_color,
-            overstrike,
-        );
 
         // Build complete Face for this face_id so the render thread gets
         // all attributes (box, underline, etc.) in one shot per frame,
@@ -4794,45 +4578,23 @@ impl LayoutEngine {
             } else {
                 None
             },
-            font_file_path: font_file_path,
+            font_file_path,
             font_ascent: face.font_ascent as i32,
             font_descent: face.font_descent,
             underline_position: face.underline_position.max(1),
             underline_thickness: face.underline_thickness.max(1),
         };
-        frame_glyphs.faces.insert(face.face_id, rendered);
+        builder.insert_face(face.face_id, rendered);
+}
 
-        let _ = frame;
-    }
-
-    /// Apply a backend-neutral status-line face to the glyph buffer.
-    pub(crate) unsafe fn apply_status_line_face(
+impl LayoutEngine {
+    /// Apply a backend-neutral status-line face to the builder's face map.
+    pub(crate) fn apply_status_line_face(
         &mut self,
         face: &StatusLineFace,
-        frame: Option<EmacsFrame>,
-        frame_glyphs: &mut FrameGlyphBuffer,
     ) {
-        frame_glyphs.set_face_with_font(
-            face.face_id,
-            face.foreground,
-            Some(face.background),
-            &face.font_family,
-            face.font_weight,
-            face.italic,
-            face.font_size,
-            face.underline_style,
-            face.underline_color,
-            if face.strike_through { 1 } else { 0 },
-            face.strike_through_color,
-            if face.overline { 1 } else { 0 },
-            face.overline_color,
-            face.overstrike,
-        );
         let rendered = face.render_face();
-        frame_glyphs.faces.insert(face.face_id, rendered.clone());
         self.matrix_builder.insert_face(face.face_id, rendered);
-
-        let _ = frame;
     }
 
     /// Add a stretch glyph, automatically using stipple if the given face has one.
@@ -4840,7 +4602,6 @@ impl LayoutEngine {
     /// This function is now a no-op retained to keep call-sites compiling.
     pub(crate) fn add_stretch_for_face(
         _face: &FaceDataFFI,
-        _frame_glyphs: &mut FrameGlyphBuffer,
         _x: f32,
         _y: f32,
         _width: f32,
@@ -4852,32 +4613,18 @@ impl LayoutEngine {
     }
 
     /// Add a stretch glyph for a backend-neutral status-line face.
+    /// NOTE: Glyph output has been migrated to `GlyphMatrixBuilder`.
+    /// This function is now a no-op retained to keep call-sites compiling.
     pub(crate) fn add_stretch_for_status_line_face(
-        face: &StatusLineFace,
-        frame_glyphs: &mut FrameGlyphBuffer,
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-        bg: Color,
-        face_id: u32,
-        is_overlay: bool,
+        _face: &StatusLineFace,
+        _x: f32,
+        _y: f32,
+        _width: f32,
+        _height: f32,
+        _bg: Color,
+        _face_id: u32,
+        _is_overlay: bool,
     ) {
-        if face.stipple > 0 {
-            frame_glyphs.add_stretch_stipple(
-                x,
-                y,
-                width,
-                height,
-                bg,
-                face.foreground,
-                face_id,
-                is_overlay,
-                face.stipple,
-            );
-        } else {
-            frame_glyphs.add_stretch(x, y, width, height, bg, face_id, is_overlay);
-        }
     }
 
     /// Resolve the character width used by the Rust-native status-line path.
@@ -4958,7 +4705,6 @@ impl LayoutEngine {
         &mut self,
         frame: EmacsFrame,
         frame_params: &FrameParams,
-        frame_glyphs: &mut FrameGlyphBuffer,
         tab_bar_height: f32,
     ) {
         let x = 0.0;
@@ -4978,7 +4724,7 @@ impl LayoutEngine {
             ascent,
             frame,
         ) {
-            self.render_status_line_spec(&spec, Some(frame), frame_glyphs, None);
+            self.render_status_line_spec(&spec, None, None);
         }
     }
 
@@ -4989,7 +4735,6 @@ impl LayoutEngine {
         frame_window_id: i64,
         face_resolver: &super::neovm_bridge::FaceResolver,
         frame_params: &FrameParams,
-        frame_glyphs: &mut FrameGlyphBuffer,
         tab_bar_height: f32,
     ) {
         let Some(tab_bar_text) = build_tab_bar_plain_text(evaluator, frame_window_id as u64) else {
@@ -5018,7 +4763,6 @@ impl LayoutEngine {
             0,
             &tab_bar_face,
             tab_bar_text,
-            frame_glyphs,
             StatusLineKind::TabBar,
             None,
         );
@@ -5412,7 +5156,7 @@ impl LayoutEngine {
         macro_rules! place_cursor_here {
             ($cursor_byte_idx:expr, $cursor_col:expr) => {{
                 // Flush ligature run before cursor to split run at cursor position
-                flush_run(&self.run_buf, frame_glyphs, ligatures);
+                flush_run(&self.run_buf, ligatures);
                 self.run_buf.clear();
                 cursor_col = $cursor_col;
                 cursor_x = x_offset;
@@ -5557,7 +5301,7 @@ impl LayoutEngine {
                 );
 
                 // Apply line number face and render digits
-                self.apply_face(&lnum_face, frame, frame_glyphs);
+                apply_ffi_face(&lnum_face, &mut self.matrix_builder);
                 let _lnum_bg = Color::from_pixel(lnum_face.bg);
 
                 // Format the number right-aligned
@@ -5581,7 +5325,7 @@ impl LayoutEngine {
 
                 // Restore text face
                 if current_face_id >= 0 {
-                    self.apply_face(&self.face_data, frame, frame_glyphs);
+                    apply_ffi_face(&self.face_data, &mut self.matrix_builder);
                 }
 
                 need_line_number = false;
@@ -5807,7 +5551,7 @@ impl LayoutEngine {
 
                 if invis > 0 {
                     // Flush ligature run before invisible text skip
-                    flush_run(&self.run_buf, frame_glyphs, ligatures);
+                    flush_run(&self.run_buf, ligatures);
                     self.run_buf.clear();
 
                     // Even though the buffer text is invisible, overlays
@@ -5891,7 +5635,7 @@ impl LayoutEngine {
 
                                 if !ib_has_runs {
                                     if ib_face.face_id != 0 {
-                                        self.apply_face(&ib_face, frame, frame_glyphs);
+                                        apply_ffi_face(&ib_face, &mut self.matrix_builder);
                                     }
                                 }
 
@@ -5935,7 +5679,6 @@ impl LayoutEngine {
                                             &ib_face_runs,
                                             bi,
                                             ib_current_run,
-                                            frame_glyphs,
                                         );
                                     }
 
@@ -6001,7 +5744,7 @@ impl LayoutEngine {
 
                                 if !ia_has_runs {
                                     if ia_face.face_id != 0 {
-                                        self.apply_face(&ia_face, frame, frame_glyphs);
+                                        apply_ffi_face(&ia_face, &mut self.matrix_builder);
                                     }
                                 }
 
@@ -6045,7 +5788,6 @@ impl LayoutEngine {
                                             &ia_face_runs,
                                             ai,
                                             ia_current_run,
-                                            frame_glyphs,
                                         );
                                     }
 
@@ -6197,7 +5939,7 @@ impl LayoutEngine {
 
                 // Flush ligature run before overlay strings (only if overlays exist)
                 if overlay_before_len > 0 || overlay_after_len > 0 {
-                    flush_run(&self.run_buf, frame_glyphs, ligatures);
+                    flush_run(&self.run_buf, ligatures);
                     self.run_buf.clear();
                 }
 
@@ -6228,7 +5970,7 @@ impl LayoutEngine {
                     // Use per-char face runs, overlay face, or resolve face for position
                     if !before_has_runs {
                         if overlay_before_face.face_id != 0 {
-                            self.apply_face(&overlay_before_face, frame, frame_glyphs);
+                            apply_ffi_face(&overlay_before_face, &mut self.matrix_builder);
                         } else if charpos >= next_face_check || current_face_id < 0 {
                             let mut next_check: i64 = 0;
                             let fid = neomacs_layout_face_at_pos(
@@ -6241,7 +5983,7 @@ impl LayoutEngine {
                                 current_face_id = fid;
                                 _face_fg = Color::from_pixel(self.face_data.fg);
                                 face_bg = Color::from_pixel(self.face_data.bg);
-                                self.apply_face(&self.face_data, frame, frame_glyphs);
+                                apply_ffi_face(&self.face_data, &mut self.matrix_builder);
                                 // Track last face with :extend on this row
                                 if self.face_data.extend != 0 {
                                     row_extend_bg = Some((face_bg, self.face_data.face_id));
@@ -6302,7 +6044,6 @@ impl LayoutEngine {
                                 &before_face_runs,
                                 bi,
                                 bcurrent_run,
-                                frame_glyphs,
                             );
                         }
 
@@ -6368,7 +6109,7 @@ impl LayoutEngine {
                     // Restore text face after overlay face was used
                     if (before_has_runs || overlay_before_face.face_id != 0) && current_face_id >= 0
                     {
-                        self.apply_face(&self.face_data, frame, frame_glyphs);
+                        apply_ffi_face(&self.face_data, &mut self.matrix_builder);
                     }
                 }
 
@@ -6399,7 +6140,7 @@ impl LayoutEngine {
                         display_prop.image_gpu_id
                     );
                     // Flush ligature run before display property handling
-                    flush_run(&self.run_buf, frame_glyphs, ligatures);
+                    flush_run(&self.run_buf, ligatures);
                     self.run_buf.clear();
                 }
 
@@ -6419,7 +6160,7 @@ impl LayoutEngine {
                         if fid >= 0 && fid != current_face_id {
                             _face_fg = Color::from_pixel(self.face_data.fg);
                             face_bg = Color::from_pixel(self.face_data.bg);
-                            self.apply_face(&self.face_data, frame, frame_glyphs);
+                            apply_ffi_face(&self.face_data, &mut self.matrix_builder);
                         }
                         next_face_check = if next_check > charpos {
                             next_check
@@ -6567,7 +6308,7 @@ impl LayoutEngine {
                         || display_prop.display_bg != 0)
                         && current_face_id >= 0
                     {
-                        self.apply_face(&self.face_data, frame, frame_glyphs);
+                        apply_ffi_face(&self.face_data, &mut self.matrix_builder);
                     }
 
                     // Skip original buffer text covered by this display prop
@@ -6599,7 +6340,7 @@ impl LayoutEngine {
                         if fid >= 0 && fid != current_face_id {
                             _face_fg = Color::from_pixel(self.face_data.fg);
                             face_bg = Color::from_pixel(self.face_data.bg);
-                            self.apply_face(&self.face_data, frame, frame_glyphs);
+                            apply_ffi_face(&self.face_data, &mut self.matrix_builder);
                         }
                         next_face_check = if next_check > charpos {
                             next_check
@@ -6621,7 +6362,6 @@ impl LayoutEngine {
                         let gy = row_y[row as usize];
                         Self::add_stretch_for_face(
                             &self.face_data,
-                            frame_glyphs,
                             gx,
                             gy,
                             space_pixel_w,
@@ -6663,7 +6403,7 @@ impl LayoutEngine {
                         if fid >= 0 && fid != current_face_id {
                             _face_fg = Color::from_pixel(self.face_data.fg);
                             face_bg = Color::from_pixel(self.face_data.bg);
-                            self.apply_face(&self.face_data, frame, frame_glyphs);
+                            apply_ffi_face(&self.face_data, &mut self.matrix_builder);
                         }
                         next_face_check = if next_check > charpos {
                             next_check
@@ -6679,7 +6419,6 @@ impl LayoutEngine {
                         let stretch_w = target_x - x_offset;
                         Self::add_stretch_for_face(
                             &self.face_data,
-                            frame_glyphs,
                             gx,
                             gy,
                             stretch_w,
@@ -6956,7 +6695,7 @@ impl LayoutEngine {
                 if fid >= 0 {
                     if fid != current_face_id {
                         // Flush ligature run before face change
-                        flush_run(&self.run_buf, frame_glyphs, ligatures);
+                        flush_run(&self.run_buf, ligatures);
                         self.run_buf.clear();
                         // Close previous box face region if active.
                         // Box borders are now rendered by the renderer's box span
@@ -6985,7 +6724,7 @@ impl LayoutEngine {
                             face_h = char_h;
                             face_ascent = ascent;
                         }
-                        self.apply_face(&self.face_data, frame, frame_glyphs);
+                        apply_ffi_face(&self.face_data, &mut self.matrix_builder);
 
                         // Track last face with :extend on this row
                         if self.face_data.extend != 0 {
@@ -7028,7 +6767,7 @@ impl LayoutEngine {
                         place_cursor_here!(cursor_byte_idx_at_char, cursor_col_at_char);
                     }
                     // Flush ligature run before newline
-                    flush_run(&self.run_buf, frame_glyphs, ligatures);
+                    flush_run(&self.run_buf, ligatures);
                     self.run_buf.clear();
 
 
@@ -7180,7 +6919,7 @@ impl LayoutEngine {
                         place_cursor_here!(cursor_byte_idx_at_char, cursor_col_at_char);
                     }
                     // Flush ligature run before tab
-                    flush_run(&self.run_buf, frame_glyphs, ligatures);
+                    flush_run(&self.run_buf, ligatures);
                     self.run_buf.clear();
 
                     // Tab: advance to next tab stop (column-based, pixel width uses space_w)
@@ -7213,7 +6952,6 @@ impl LayoutEngine {
                     let gy = row_y[row as usize];
                     Self::add_stretch_for_face(
                         &self.face_data,
-                        frame_glyphs,
                         gx,
                         gy,
                         tab_pixel_w,
@@ -7275,7 +7013,7 @@ impl LayoutEngine {
                         place_cursor_here!(cursor_byte_idx_at_char, cursor_col_at_char);
                     }
                     // Flush ligature run before carriage return
-                    flush_run(&self.run_buf, frame_glyphs, ligatures);
+                    flush_run(&self.run_buf, ligatures);
                     self.run_buf.clear();
 
                     if params.selective_display > 0 {
@@ -7311,7 +7049,7 @@ impl LayoutEngine {
                         place_cursor_here!(cursor_byte_idx_at_char, cursor_col_at_char);
                     }
                     // Flush ligature run before control char
-                    flush_run(&self.run_buf, frame_glyphs, ligatures);
+                    flush_run(&self.run_buf, ligatures);
                     self.run_buf.clear();
 
                     // Control character: display as ^X (2 columns)
@@ -7369,14 +7107,14 @@ impl LayoutEngine {
                     }
                     // Restore text face after escape-glyph
                     if current_face_id >= 0 {
-                        self.apply_face(&self.face_data, frame, frame_glyphs);
+                        apply_ffi_face(&self.face_data, &mut self.matrix_builder);
                     }
                 }
                 _ => {
                     // Non-breaking space and soft hyphen highlighting
                     if params.nobreak_char_display > 0 && (ch == '\u{00A0}' || ch == '\u{00AD}') {
                         // Flush ligature run before nobreak char special handling
-                        flush_run(&self.run_buf, frame_glyphs, ligatures);
+                        flush_run(&self.run_buf, ligatures);
                         self.run_buf.clear();
                         let nb_fg = Color::from_pixel(params.nobreak_char_fg);
                         frame_glyphs.set_face(
@@ -7403,7 +7141,7 @@ impl LayoutEngine {
                         }
                         // Restore text face
                         if current_face_id >= 0 {
-                            self.apply_face(&self.face_data, frame, frame_glyphs);
+                            apply_ffi_face(&self.face_data, &mut self.matrix_builder);
                         }
                         window_end_charpos = charpos;
                         continue;
@@ -7417,7 +7155,7 @@ impl LayoutEngine {
 
                     if let Some(_cluster) = cluster_text {
                         // Flush ligature run before grapheme cluster (emoji/ZWJ)
-                        flush_run(&self.run_buf, frame_glyphs, ligatures);
+                        flush_run(&self.run_buf, ligatures);
                         self.run_buf.clear();
                         // Multi-codepoint grapheme cluster (emoji ZWJ, combining marks, etc.)
                         // Advance past the extra characters consumed
@@ -7481,7 +7219,7 @@ impl LayoutEngine {
                         && ch != '\u{FEFF}'
                     {
                         // Flush ligature run before combining mark
-                        flush_run(&self.run_buf, frame_glyphs, ligatures);
+                        flush_run(&self.run_buf, ligatures);
                         self.run_buf.clear();
                         if x_offset > 0.0 {
                             // Place combining mark at the position of the previous character
@@ -7496,7 +7234,7 @@ impl LayoutEngine {
                     // non-printable chars
                     if is_potentially_glyphless(ch) {
                         // Flush ligature run before glyphless handling
-                        flush_run(&self.run_buf, frame_glyphs, ligatures);
+                        flush_run(&self.run_buf, ligatures);
                         self.run_buf.clear();
                         let mut method: c_int = 0;
                         let mut str_buf = [0u8; 64];
@@ -7583,7 +7321,7 @@ impl LayoutEngine {
                             }
                             // Restore face
                             if current_face_id >= 0 {
-                                self.apply_face(&self.face_data, frame, frame_glyphs);
+                                apply_ffi_face(&self.face_data, &mut self.matrix_builder);
                             }
                             if point_at_this_char && !cursor_placed {
                                 place_cursor_here!(cursor_byte_idx_at_char, cursor_col_at_char);
@@ -7648,7 +7386,7 @@ impl LayoutEngine {
 
                     if x_offset + advance > avail_width {
                         // Flush ligature run before line wrap/truncation
-                        flush_run(&self.run_buf, frame_glyphs, ligatures);
+                        flush_run(&self.run_buf, ligatures);
                         self.run_buf.clear();
 
                         // Line full
@@ -7695,7 +7433,6 @@ impl LayoutEngine {
                                 let gy = row_y[row as usize];
                                 Self::add_stretch_for_face(
                                     &self.face_data,
-                                    frame_glyphs,
                                     gx,
                                     gy,
                                     fill_w,
@@ -7754,7 +7491,6 @@ impl LayoutEngine {
                                 let gy = row_y[row as usize];
                                 Self::add_stretch_for_face(
                                     &self.face_data,
-                                    frame_glyphs,
                                     gx,
                                     gy,
                                     remaining,
@@ -7819,7 +7555,7 @@ impl LayoutEngine {
                     // Spaces break ligature runs (they never ligate) and serve
                     // as word-wrap breakpoints. Flush and emit individually.
                     if ch == ' ' {
-                        flush_run(&self.run_buf, frame_glyphs, ligatures);
+                        flush_run(&self.run_buf, ligatures);
                         self.run_buf.clear();
                     } else if ligatures {
                         // Accumulate into ligature run
@@ -7840,7 +7576,7 @@ impl LayoutEngine {
 
                         // Flush at max run length to limit texture sizes
                         if self.run_buf.len() >= MAX_LIGATURE_RUN_LEN {
-                            flush_run(&self.run_buf, frame_glyphs, ligatures);
+                            flush_run(&self.run_buf, ligatures);
                             self.run_buf.clear();
                         }
                     } else {
@@ -7866,7 +7602,7 @@ impl LayoutEngine {
                     if params.word_wrap && (ch == ' ' || ch == '\t') {
                         // Flush ligature run at word-wrap boundary so truncate()
                         // never cuts inside a composed glyph
-                        flush_run(&self.run_buf, frame_glyphs, ligatures);
+                        flush_run(&self.run_buf, ligatures);
                         self.run_buf.clear();
 
                         _wrap_break_col = col;
@@ -7880,7 +7616,7 @@ impl LayoutEngine {
 
             // Flush ligature run only if we have overlay after-strings to render
             if overlay_after_len > 0 {
-                flush_run(&self.run_buf, frame_glyphs, ligatures);
+                flush_run(&self.run_buf, ligatures);
                 self.run_buf.clear();
             }
 
@@ -7960,7 +7696,7 @@ impl LayoutEngine {
 
                 // Apply overlay face for after-string if no per-char runs
                 if !after_has_runs && overlay_after_face.face_id != 0 {
-                    self.apply_face(&overlay_after_face, frame, frame_glyphs);
+                    apply_ffi_face(&overlay_after_face, &mut self.matrix_builder);
                 }
 
                 let astr = &overlay_after_buf[..overlay_after_len as usize];
@@ -8003,7 +7739,6 @@ impl LayoutEngine {
                             &after_face_runs,
                             ai,
                             acurrent_run,
-                            frame_glyphs,
                         );
                     }
 
@@ -8067,7 +7802,7 @@ impl LayoutEngine {
 
                 // Restore text face after overlay after-string
                 if (after_has_runs || overlay_after_face.face_id != 0) && current_face_id >= 0 {
-                    self.apply_face(&self.face_data, frame, frame_glyphs);
+                    apply_ffi_face(&self.face_data, &mut self.matrix_builder);
                 }
             }
 
@@ -8075,7 +7810,7 @@ impl LayoutEngine {
         }
 
         // Flush any remaining ligature run at end of buffer
-        flush_run(&self.run_buf, frame_glyphs, ligatures);
+        flush_run(&self.run_buf, ligatures);
         self.run_buf.clear();
 
         tracing::debug!(
@@ -8225,7 +7960,7 @@ impl LayoutEngine {
                 let mut eob_bcurrent_align = 0usize;
 
                 if !eob_before_has_runs && eob_before_face.face_id != 0 {
-                    self.apply_face(&eob_before_face, frame, frame_glyphs);
+                    apply_ffi_face(&eob_before_face, &mut self.matrix_builder);
                 }
                 let bstr = &overlay_before_buf[..eob_before_len as usize];
                 let mut bi = 0usize;
@@ -8266,7 +8001,6 @@ impl LayoutEngine {
                             &eob_before_face_runs,
                             bi,
                             bcurrent_run,
-                            frame_glyphs,
                         );
                     }
 
@@ -8327,7 +8061,7 @@ impl LayoutEngine {
                     x_offset += b_advance;
                 }
                 if (eob_before_has_runs || eob_before_face.face_id != 0) && current_face_id >= 0 {
-                    self.apply_face(&self.face_data, frame, frame_glyphs);
+                    apply_ffi_face(&self.face_data, &mut self.matrix_builder);
                 }
             }
 
@@ -8356,7 +8090,7 @@ impl LayoutEngine {
                 let mut eob_acurrent_align = 0usize;
 
                 if !eob_after_has_runs && overlay_after_face.face_id != 0 {
-                    self.apply_face(&overlay_after_face, frame, frame_glyphs);
+                    apply_ffi_face(&overlay_after_face, &mut self.matrix_builder);
                 }
                 let astr = &overlay_after_buf[..overlay_after_len as usize];
                 let mut ai = 0usize;
@@ -8396,7 +8130,6 @@ impl LayoutEngine {
                             &eob_after_face_runs,
                             ai,
                             acurrent_run,
-                            frame_glyphs,
                         );
                     }
 
@@ -8457,13 +8190,13 @@ impl LayoutEngine {
                     x_offset += a_advance;
                 }
                 if (eob_after_has_runs || overlay_after_face.face_id != 0) && current_face_id >= 0 {
-                    self.apply_face(&self.face_data, frame, frame_glyphs);
+                    apply_ffi_face(&self.face_data, &mut self.matrix_builder);
                 }
             }
         }
 
         // Flush any remaining ligature run and bidi reorder the last row
-        flush_run(&self.run_buf, frame_glyphs, ligatures);
+        flush_run(&self.run_buf, ligatures);
         self.run_buf.clear();
 
         // Fill rest of last line with :extend background if applicable
@@ -8712,21 +8445,7 @@ impl LayoutEngine {
         if params.fill_column_indicator > 0 {
             let fci_col = params.fill_column_indicator;
             let _fci_char = params.fill_column_indicator_char;
-            let fci_fg = Color::from_pixel(params.fill_column_indicator_fg);
-
-            frame_glyphs.set_face(
-                0,
-                fci_fg,
-                Some(default_bg),
-                400,
-                false,
-                0,
-                None,
-                0,
-                None,
-                0,
-                None,
-            );
+            let _fci_fg = Color::from_pixel(params.fill_column_indicator_fg);
 
             // Draw indicator character at the fill column on each row
             if fci_col < cols {
@@ -8752,7 +8471,6 @@ impl LayoutEngine {
                 params.font_ascent,
                 wp,
                 frame,
-                frame_glyphs,
                 StatusLineKind::TabLine,
             );
         }
@@ -8769,7 +8487,6 @@ impl LayoutEngine {
                 params.font_ascent,
                 wp,
                 frame,
-                frame_glyphs,
                 StatusLineKind::HeaderLine,
             );
         }
@@ -8786,7 +8503,6 @@ impl LayoutEngine {
                 params.font_ascent,
                 wp,
                 frame,
-                frame_glyphs,
                 StatusLineKind::ModeLine,
             );
         }
@@ -9116,7 +8832,7 @@ mod tests {
 
         let mut engine = LayoutEngine::new();
         let mut frame_glyphs = FrameGlyphBuffer::with_size(320.0, 120.0);
-        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+        engine.layout_frame_rust(&mut eval, frame_id);
 
         let frame = eval.frame_manager().get(frame_id).expect("frame");
         let snapshot = frame
@@ -9174,7 +8890,7 @@ mod tests {
 
         let mut engine = LayoutEngine::new();
         let mut frame_glyphs = FrameGlyphBuffer::with_size(320.0, 120.0);
-        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+        engine.layout_frame_rust(&mut eval, frame_id);
 
         let frame = eval.frame_manager().get(frame_id).expect("frame");
         let snapshot = frame
@@ -9286,7 +9002,7 @@ mod tests {
 
         let mut engine = LayoutEngine::new();
         let mut frame_glyphs = FrameGlyphBuffer::with_size(800.0, 160.0);
-        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+        engine.layout_frame_rust(&mut eval, frame_id);
 
         let frame = eval.frame_manager().get(frame_id).expect("frame");
         let snapshot = frame
@@ -9447,7 +9163,7 @@ mod tests {
 
         let mut engine = LayoutEngine::new();
         let mut frame_glyphs = FrameGlyphBuffer::with_size(1400.0, 160.0);
-        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+        engine.layout_frame_rust(&mut eval, frame_id);
 
         let frame = eval.frame_manager().get(frame_id).expect("frame");
         let snapshot = frame
@@ -9581,7 +9297,7 @@ mod tests {
 
         let mut engine = LayoutEngine::new();
         let mut frame_glyphs = FrameGlyphBuffer::with_size(128.0, 160.0);
-        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+        engine.layout_frame_rust(&mut eval, frame_id);
 
         let frame = eval.frame_manager().get(frame_id).expect("frame");
         let snapshot = frame
@@ -9765,7 +9481,7 @@ mod tests {
                 }
             }
 
-            engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+            engine.layout_frame_rust(&mut eval, frame_id);
 
             let frame = eval.frame_manager().get(frame_id).expect("frame");
             let snapshot = frame
@@ -9994,7 +9710,7 @@ mod tests {
                 }
             }
 
-            engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+            engine.layout_frame_rust(&mut eval, frame_id);
 
             let frame = eval.frame_manager().get(frame_id).expect("frame");
             let snapshot = frame
@@ -10170,7 +9886,7 @@ mod tests {
 
         let mut engine = LayoutEngine::new();
         let mut frame_glyphs = FrameGlyphBuffer::with_size(96.0, 160.0);
-        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+        engine.layout_frame_rust(&mut eval, frame_id);
 
         let frame = eval.frame_manager().get(frame_id).expect("frame");
         let snapshot = frame
@@ -10248,7 +9964,7 @@ mod tests {
 
         let mut engine = LayoutEngine::new();
         let mut frame_glyphs = FrameGlyphBuffer::with_size(96.0, 640.0);
-        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+        engine.layout_frame_rust(&mut eval, frame_id);
 
         let frame = eval.frame_manager().get(frame_id).expect("frame");
         let snapshot = frame
@@ -10311,7 +10027,7 @@ mod tests {
 
         let mut engine = LayoutEngine::new();
         let mut frame_glyphs = FrameGlyphBuffer::with_size(160.0, 192.0);
-        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+        engine.layout_frame_rust(&mut eval, frame_id);
 
         let frame = eval.frame_manager().get(frame_id).expect("frame");
         let snapshot = frame
@@ -10706,7 +10422,7 @@ mod tests {
 
         let mut engine = LayoutEngine::new();
         let mut frame_glyphs = FrameGlyphBuffer::with_size(80.0, 192.0);
-        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+        engine.layout_frame_rust(&mut eval, frame_id);
 
         let frame = eval.frame_manager().get(frame_id).expect("frame");
         let snapshot = frame
@@ -10786,7 +10502,7 @@ mod tests {
 
         let mut engine = LayoutEngine::new();
         let mut frame_glyphs = FrameGlyphBuffer::with_size(80.0, 256.0);
-        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+        engine.layout_frame_rust(&mut eval, frame_id);
 
         let frame = eval.frame_manager().get(frame_id).expect("frame");
         let snapshot = frame
@@ -10841,7 +10557,7 @@ mod tests {
 
         let mut engine = LayoutEngine::new();
         let mut frame_glyphs = FrameGlyphBuffer::with_size(320.0, 640.0);
-        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+        engine.layout_frame_rust(&mut eval, frame_id);
 
         let frame = eval.frame_manager().get(frame_id).expect("frame");
         let snapshot = frame
@@ -10909,24 +10625,25 @@ mod tests {
         }
 
         let mut engine = LayoutEngine::new();
-        let mut frame_glyphs = FrameGlyphBuffer::with_size(640.0, 96.0);
-        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+        engine.layout_frame_rust(&mut eval, frame_id);
 
-        let mut mode_line_glyphs = frame_glyphs
-            .glyphs
-            .iter()
-            .filter_map(|glyph| match glyph {
-                FrameGlyph::Char {
-                    char, x, row_role, ..
-                } if *row_role == GlyphRowRole::ModeLine => Some((*x, *char)),
-                _ => None,
+        let mode_line_text = engine
+            .last_frame_display_state
+            .as_ref()
+            .map(|state| {
+                state
+                    .window_matrices
+                    .iter()
+                    .flat_map(|wm| wm.matrix.rows.iter())
+                    .filter(|row| row.role == GlyphRowRole::ModeLine && row.enabled)
+                    .flat_map(|row| row.glyphs[1].iter())
+                    .filter_map(|g| match &g.glyph_type {
+                        neomacs_display_protocol::glyph_matrix::GlyphType::Char { ch } => Some(*ch),
+                        _ => None,
+                    })
+                    .collect::<String>()
             })
-            .collect::<Vec<_>>();
-        mode_line_glyphs.sort_by(|lhs, rhs| lhs.0.total_cmp(&rhs.0));
-        let mode_line_text = mode_line_glyphs
-            .into_iter()
-            .map(|(_, ch)| ch)
-            .collect::<String>();
+            .unwrap_or_default();
         let published_window_start = {
             let frame = eval.frame_manager().get(frame_id).expect("frame");
             let window = frame.find_window(selected_window).expect("selected window");
@@ -10971,24 +10688,25 @@ mod tests {
                 .create_frame("layout-header-line", 640, 160, buf_id);
 
         let mut engine = LayoutEngine::new();
-        let mut frame_glyphs = FrameGlyphBuffer::with_size(640.0, 160.0);
-        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+        engine.layout_frame_rust(&mut eval, frame_id);
 
-        let mut header_glyphs = frame_glyphs
-            .glyphs
-            .iter()
-            .filter_map(|glyph| match glyph {
-                FrameGlyph::Char {
-                    char, x, row_role, ..
-                } if *row_role == GlyphRowRole::HeaderLine => Some((*x, *char)),
-                _ => None,
+        let header_text = engine
+            .last_frame_display_state
+            .as_ref()
+            .map(|state| {
+                state
+                    .window_matrices
+                    .iter()
+                    .flat_map(|wm| wm.matrix.rows.iter())
+                    .filter(|row| row.role == GlyphRowRole::HeaderLine && row.enabled)
+                    .flat_map(|row| row.glyphs[1].iter())
+                    .filter_map(|g| match &g.glyph_type {
+                        neomacs_display_protocol::glyph_matrix::GlyphType::Char { ch } => Some(*ch),
+                        _ => None,
+                    })
+                    .collect::<String>()
             })
-            .collect::<Vec<_>>();
-        header_glyphs.sort_by(|lhs, rhs| lhs.0.total_cmp(&rhs.0));
-        let header_text = header_glyphs
-            .into_iter()
-            .map(|(_, ch)| ch)
-            .collect::<String>();
+            .unwrap_or_default();
 
         assert!(
             header_text.contains("LEFT HEADER"),
@@ -11095,24 +10813,25 @@ mod tests {
         );
 
         let mut engine = LayoutEngine::new();
-        let mut frame_glyphs = FrameGlyphBuffer::with_size(1600.0, 160.0);
-        engine.layout_frame_rust(&mut eval, frame_id, &mut frame_glyphs);
+        engine.layout_frame_rust(&mut eval, frame_id);
 
-        let mut tab_bar_glyphs = frame_glyphs
-            .glyphs
-            .iter()
-            .filter_map(|glyph| match glyph {
-                FrameGlyph::Char {
-                    char, x, row_role, ..
-                } if *row_role == GlyphRowRole::TabBar => Some((*x, *char)),
-                _ => None,
+        let tab_bar_text = engine
+            .last_frame_display_state
+            .as_ref()
+            .map(|state| {
+                state
+                    .window_matrices
+                    .iter()
+                    .flat_map(|wm| wm.matrix.rows.iter())
+                    .filter(|row| row.role == GlyphRowRole::TabBar && row.enabled)
+                    .flat_map(|row| row.glyphs[1].iter())
+                    .filter_map(|g| match &g.glyph_type {
+                        neomacs_display_protocol::glyph_matrix::GlyphType::Char { ch } => Some(*ch),
+                        _ => None,
+                    })
+                    .collect::<String>()
             })
-            .collect::<Vec<_>>();
-        tab_bar_glyphs.sort_by(|lhs, rhs| lhs.0.total_cmp(&rhs.0));
-        let tab_bar_text = tab_bar_glyphs
-            .into_iter()
-            .map(|(_, ch)| ch)
-            .collect::<String>();
+            .unwrap_or_default();
 
         assert!(
             tab_bar_text.contains("*tb-2*"),
@@ -11231,15 +10950,15 @@ mod tests {
         run.push('a', 8.0);
 
         let mut frame_glyphs = FrameGlyphBuffer::new();
-        flush_run(&run, &mut frame_glyphs, true);
+        flush_run(&run, true);
         assert_eq!(frame_glyphs.glyphs.len(), 0);
 
-        flush_run(&run, &mut frame_glyphs, false);
+        flush_run(&run, false);
         assert_eq!(frame_glyphs.glyphs.len(), 0);
 
         // Empty run
         let empty_run = LigatureRunBuffer::new();
-        flush_run(&empty_run, &mut frame_glyphs, true);
+        flush_run(&empty_run, true);
         assert_eq!(frame_glyphs.glyphs.len(), 0);
     }
 

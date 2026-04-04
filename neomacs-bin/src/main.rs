@@ -18,7 +18,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use neomacs_display_runtime::FrameGlyphBuffer;
 use neomacs_display_protocol::glyph_matrix::FrameDisplayState;
 use neomacs_display_runtime::render_thread::{
     RenderThread, SharedImageDimensions, SharedMonitorInfo,
@@ -963,8 +962,6 @@ pub fn run(mode: RuntimeMode) {
     // it visible until some later input or timer happens to trigger a
     // redisplay.  Keep the frontend window alive, but let the first real frame
     // come from the command loop's redisplay path.
-    let mut frame_glyphs = FrameGlyphBuffer::with_size(width as f32, height as f32);
-
     // 7. Create input bridge: convert display runtime events → keyboard events
     let (input_tx, input_rx) = crossbeam_channel::unbounded();
     let display_input_rx = emacs_comms.input_rx;
@@ -993,19 +990,18 @@ pub fn run(mode: RuntimeMode) {
             let frame_tx = emacs_comms.frame_tx;
             evaluator.redisplay_fn = Some(Box::new(move |eval: &mut Context| {
                 eval.setup_thread_locals();
-                run_layout(eval, &mut frame_glyphs);
+                run_layout(eval);
                 // Take the complete FrameDisplayState produced by the layout
-                // engine's GlyphMatrixBuilder.  Falls back to decomposing
-                // the FrameGlyphBuffer if the builder produced no state.
+                // engine's GlyphMatrixBuilder.
                 let display_state = LAYOUT_ENGINE.with(|engine| {
                     engine
                         .borrow_mut()
                         .last_frame_display_state
                         .take()
-                        .unwrap_or_else(|| {
-                            FrameDisplayState::from_frame_glyph_buffer(&frame_glyphs)
-                        })
                 });
+                let Some(display_state) = display_state else {
+                    return;
+                };
                 let _ = frame_tx.try_send(display_state);
             }));
         }
@@ -1017,7 +1013,7 @@ pub fn run(mode: RuntimeMode) {
                 neomacs_display_protocol::tty_rif::TtyRif::new(cols as usize, rows as usize);
             evaluator.redisplay_fn = Some(Box::new(move |eval: &mut Context| {
                 eval.setup_thread_locals();
-                run_layout(eval, &mut frame_glyphs);
+                run_layout(eval);
                 // Extract FrameDisplayState from the layout engine's thread-local
                 run_tty_rif_redisplay(&mut tty_rif);
             }));
@@ -1776,7 +1772,7 @@ thread_local! {
 }
 
 /// Run the layout engine on the selected live frame.
-fn run_layout(evaluator: &mut Context, frame_glyphs: &mut FrameGlyphBuffer) {
+fn run_layout(evaluator: &mut Context) {
     let Some(frame_id) = current_layout_frame_id(evaluator) else {
         tracing::warn!("run_layout: no selected live frame");
         return;
@@ -1785,7 +1781,7 @@ fn run_layout(evaluator: &mut Context, frame_glyphs: &mut FrameGlyphBuffer) {
     LAYOUT_ENGINE.with(|engine| {
         engine
             .borrow_mut()
-            .layout_frame_rust(evaluator, frame_id, frame_glyphs);
+            .layout_frame_rust(evaluator, frame_id);
     });
 }
 

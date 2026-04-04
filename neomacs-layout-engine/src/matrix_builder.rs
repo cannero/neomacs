@@ -395,6 +395,50 @@ impl GlyphMatrixBuilder {
         self.font_pixel_size = size;
     }
 
+    pub fn window_infos(&self) -> &[WindowInfo] {
+        &self.window_infos
+    }
+
+    pub fn window_infos_last_mut(&mut self) -> Option<&mut WindowInfo> {
+        self.window_infos.last_mut()
+    }
+
+    pub fn transition_hints(&self) -> &[WindowTransitionHint] {
+        &self.transition_hints
+    }
+
+    pub fn effect_hints(&self) -> &[WindowEffectHint] {
+        &self.effect_hints
+    }
+
+    pub fn truncate_transition_hints(&mut self, len: usize) {
+        self.transition_hints.truncate(len);
+    }
+
+    pub fn truncate_effect_hints(&mut self, len: usize) {
+        self.effect_hints.truncate(len);
+    }
+
+    pub fn background_color(&self) -> &Color {
+        &self.background_color
+    }
+
+    pub fn cursor_inverse(&self) -> Option<&CursorInverseInfo> {
+        self.cursor_inverse.as_ref()
+    }
+
+    pub fn restore_cursor_inverse(&mut self, info: Option<CursorInverseInfo>) {
+        self.cursor_inverse = info;
+    }
+
+    pub fn faces(&self) -> &HashMap<u32, Face> {
+        &self.faces
+    }
+
+    pub fn cursors(&self) -> &[CursorItem] {
+        &self.cursors
+    }
+
     pub fn set_frame_identity(
         &mut self,
         frame_id: u64,
