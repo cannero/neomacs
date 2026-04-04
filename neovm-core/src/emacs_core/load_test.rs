@@ -2013,6 +2013,55 @@ fn bootstrap_runtime_preserves_gnu_global_prefix_links() {
 }
 
 #[test]
+fn pdump_roundtrip_preserves_gnu_prefix_keymap_links() {
+    crate::test_utils::init_test_tracing();
+
+    let mut eval = Context::new();
+    let setup = crate::emacs_core::parser::parse_forms(
+        r#"(progn
+             (setq esc-map (make-sparse-keymap "ESC-prefix"))
+             (define-key esc-map "x" 'execute-extended-command)
+             (fset 'ESC-prefix esc-map)
+             (setq ctl-x-map (make-sparse-keymap "Control-X-prefix"))
+             (define-key ctl-x-map "2" 'split-window-below)
+             (define-key ctl-x-map "3" 'split-window-right)
+             (fset 'Control-X-prefix ctl-x-map)
+             (setq global-map (make-sparse-keymap))
+             (define-key global-map "\e" 'ESC-prefix)
+             (define-key global-map "\C-x" 'Control-X-prefix)
+             (define-key global-map "\e\e\e" 'keyboard-escape-quit)
+             (define-key global-map "\C-x\C-z" 'suspend-emacs)
+             (use-global-map global-map))"#,
+    )
+    .expect("parse prefix keymap setup");
+    eval.eval_expr(&setup[0])
+        .expect("evaluate prefix keymap setup");
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let dump_path = dir.path().join("prefix-keymaps.pdump");
+    crate::emacs_core::pdump::dump_to_file(&eval, &dump_path).expect("dump should succeed");
+    drop(eval);
+
+    let mut loaded =
+        crate::emacs_core::pdump::load_from_dump(&dump_path).expect("load should succeed");
+    let rendered = eval_rendered(
+        &mut loaded,
+        r#"(list
+             (lookup-key (current-global-map) "\e")
+             (lookup-key esc-map "x")
+             (lookup-key (current-global-map) "\C-x")
+             (lookup-key ctl-x-map "2")
+             (lookup-key ctl-x-map "3")
+             (lookup-key (current-global-map) "\e\e\e")
+             (lookup-key (current-global-map) "\C-x\C-z"))"#,
+    );
+    assert_eq!(
+        rendered,
+        "OK (ESC-prefix execute-extended-command Control-X-prefix split-window-below split-window-right keyboard-escape-quit suspend-emacs)"
+    );
+}
+
+#[test]
 fn bootstrap_runtime_preserves_gnu_minibuffer_completion_bindings() {
     crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
