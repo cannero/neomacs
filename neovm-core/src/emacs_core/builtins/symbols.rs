@@ -597,14 +597,6 @@ pub(crate) fn builtin_func_arity(eval: &mut super::eval::Context, args: Vec<Valu
     super::subr_info::builtin_func_arity_ctx(eval, vec![args[0]])
 }
 
-fn has_startup_subr_wrapper_in_obarray(obarray: &Obarray, name: &str) -> bool {
-    let wrapper = format!("neovm--startup-subr-wrapper-{name}");
-    obarray
-        .symbol_function(&wrapper)
-        .and_then(|v| v.as_subr_id())
-        .map_or(false, |subr_id| resolve_sym(subr_id) == name)
-}
-
 fn dispatch_symbol_func_arity_override_in_obarray(
     obarray: &Obarray,
     name: &str,
@@ -615,9 +607,7 @@ fn dispatch_symbol_func_arity_override_in_obarray(
         return None;
     }
 
-    if super::autoload::is_autoload_value(function)
-        || (function.is_bytecode() && has_startup_subr_wrapper_in_obarray(obarray, name))
-    {
+    if super::autoload::is_autoload_value(function) {
         return Some(super::subr_info::dispatch_subr_arity_value(name));
     }
 
