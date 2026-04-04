@@ -1869,12 +1869,36 @@ impl LayoutEngine {
             &mut self.matrix_builder,
             crate::matrix_builder::GlyphMatrixBuilder::new(),
         );
-        let _frame_display_state = matrix_builder.finish(
+        let frame_display_state = matrix_builder.finish(
             frame_cols,
             frame_rows,
             frame_params.char_width,
             frame_params.char_height,
         );
+
+        // Validate: count text characters in GlyphMatrix vs FrameGlyphBuffer
+        let matrix_char_count: usize = frame_display_state
+            .window_matrices
+            .iter()
+            .flat_map(|w| w.matrix.rows.iter())
+            .flat_map(|r| r.glyphs[neomacs_display_protocol::glyph_matrix::GlyphArea::Text as usize].iter())
+            .filter(|g| matches!(g.glyph_type, neomacs_display_protocol::glyph_matrix::GlyphType::Char { .. }) && !g.padding)
+            .count();
+
+        let buffer_char_count = frame_glyphs
+            .glyphs
+            .iter()
+            .filter(|g| matches!(g, neomacs_display_protocol::frame_glyphs::FrameGlyph::Char { row_role, .. } if *row_role == neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text))
+            .count();
+
+        if matrix_char_count != buffer_char_count {
+            tracing::debug!(
+                "GlyphMatrix validation: matrix_chars={} vs buffer_chars={} (delta={})",
+                matrix_char_count,
+                buffer_char_count,
+                (matrix_char_count as i64) - (buffer_char_count as i64),
+            );
+        }
 
         self.prev_window_infos = curr_window_infos;
 
