@@ -322,7 +322,9 @@ fn raw_context_does_not_prebind_frame_creation_function() {
     crate::test_utils::init_test_tracing();
     let eval = Context::new();
     assert!(
-        eval.obarray.symbol_value("frame-creation-function").is_none(),
+        eval.obarray
+            .symbol_value("frame-creation-function")
+            .is_none(),
         "frame-creation-function should come from GNU frame.el/cl-generic bootstrap, not Context::new"
     );
 }
