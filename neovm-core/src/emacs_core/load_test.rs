@@ -48,6 +48,37 @@ fn isolated_runtime_bootstrap_eval() -> Context {
     eval
 }
 
+fn bootstrap_lisp_root() -> PathBuf {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    manifest.parent().expect("project root").join("lisp")
+}
+
+fn source_bootstrap_path(rel: &str) -> PathBuf {
+    bootstrap_lisp_root().join(rel)
+}
+
+fn copy_source_fixture(dir: &std::path::Path, rel: &str) -> PathBuf {
+    let source = source_bootstrap_path(rel);
+    let copied = dir.join(rel);
+    if let Some(parent) = copied.parent() {
+        std::fs::create_dir_all(parent).unwrap_or_else(|err| {
+            panic!("create temp source fixture dir {}: {err}", parent.display())
+        });
+    }
+    std::fs::copy(&source, &copied).unwrap_or_else(|err| {
+        panic!(
+            "copy source fixture {} -> {}: {err}",
+            source.display(),
+            copied.display()
+        )
+    });
+    copied
+}
+
+fn definition_is_macroish(value: Value) -> bool {
+    value.is_macro() || (value.is_cons() && value.cons_car().as_symbol_name() == Some("macro"))
+}
+
 #[test]
 fn cached_bootstrap_evaluator_clears_top_level_eval_state() {
     crate::test_utils::init_test_tracing();
@@ -62,7 +93,7 @@ fn cached_bootstrap_evaluator_clears_top_level_eval_state() {
 #[test]
 fn dump_emacs_portable_writes_reloadable_snapshot() {
     crate::test_utils::init_test_tracing();
-    let mut eval = create_source_bootstrap_context();
+    let mut eval = Context::new();
     eval.set_variable("dump-portable-test-var", Value::fixnum(42));
 
     let dir = tempdir().expect("dump tempdir");
@@ -79,6 +110,72 @@ fn dump_emacs_portable_writes_reloadable_snapshot() {
         loaded.obarray().symbol_value("dump-portable-test-var"),
         Some(&Value::fixnum(42))
     );
+}
+
+#[test]
+fn raw_source_bootstrap_starts_without_extra_function_cells() {
+    crate::test_utils::init_test_tracing();
+    let eval = Context::new();
+    assert!(
+        eval.obarray
+            .symbol_function_id(intern("eval-and-compile"))
+            .is_none()
+    );
+
+    for name in [
+        "defvar-local",
+        "track-mouse",
+        "with-current-buffer",
+        "with-temp-buffer",
+        "with-output-to-string",
+        "with-syntax-table",
+        "with-mutex",
+    ] {
+        assert!(
+            eval.obarray.symbol_function_id(intern(name)).is_none(),
+            "{name} should come from GNU Lisp, not Rust source bootstrap"
+        );
+    }
+}
+
+#[test]
+fn raw_source_debug_early_and_byte_run_define_eval_and_compile_without_shim() {
+    crate::test_utils::init_test_tracing();
+    let lisp_root = bootstrap_lisp_root();
+    let temp = tempfile::tempdir().expect("tempdir for source-only bootstrap fixtures");
+    let temp_root = temp.path().join("lisp");
+    let debug_early = copy_source_fixture(&temp_root, "emacs-lisp/debug-early.el");
+    let byte_run = copy_source_fixture(&temp_root, "emacs-lisp/byte-run.el");
+
+    let mut eval = Context::new();
+    eval.set_variable(
+        "load-path",
+        Value::list(vec![
+            Value::string(temp_root.to_string_lossy().to_string()),
+            Value::string(temp_root.join("emacs-lisp").to_string_lossy().to_string()),
+            Value::string(lisp_root.to_string_lossy().to_string()),
+            Value::string(lisp_root.join("emacs-lisp").to_string_lossy().to_string()),
+        ]),
+    );
+    eval.set_variable("dump-mode", Value::symbol("pbootstrap"));
+    eval.set_variable("purify-flag", Value::NIL);
+    eval.set_variable("max-lisp-eval-depth", Value::fixnum(1600));
+    eval.set_variable(
+        "macroexp--pending-eager-loads",
+        Value::list(vec![Value::symbol("skip")]),
+    );
+
+    for path in [&debug_early, &byte_run] {
+        load_file(&mut eval, path)
+            .unwrap_or_else(|err| panic!("failed loading {}: {:?}", path.display(), err));
+    }
+
+    let eval_and_compile = eval
+        .obarray
+        .symbol_function_id(intern("eval-and-compile"))
+        .copied()
+        .expect("GNU byte-run should define eval-and-compile");
+    assert!(definition_is_macroish(eval_and_compile));
 }
 
 #[test]
@@ -201,7 +298,7 @@ fn missing_runtime_image_reports_heapless_startup_error() {
 
 #[test]
 fn loadup_startup_surface_seeds_pre_startup_command_line_state() {
-    let mut eval = create_source_bootstrap_context();
+    let mut eval = Context::new();
     apply_loadup_startup_surface(
         &mut eval,
         &LoadupStartupSurface {

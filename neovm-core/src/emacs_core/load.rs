@@ -3020,17 +3020,6 @@ pub fn create_bootstrap_evaluator() -> Result<super::eval::Context, EvalError> {
     create_bootstrap_evaluator_with_features(&[])
 }
 
-/// Create a pre-loadup context for GNU source bootstrap.
-///
-/// This keeps ordinary `Context::new()` close to GNU's C-level startup
-/// surface while still letting NeoVM load `byte-run.el` from source, where
-/// only `eval-and-compile` is needed before its later `defmacro`.
-pub fn create_source_bootstrap_context() -> super::eval::Context {
-    let mut eval = super::eval::Context::new();
-    super::bootstrap_macros::install_bootstrap_macro_function_cells(&mut eval);
-    eval
-}
-
 fn set_loadup_dump_mode(eval: &mut super::eval::Context, dump_mode: Option<LoadupDumpMode>) {
     match dump_mode {
         Some(mode) => eval.set_variable("dump-mode", Value::string(mode.as_gnu_string())),
@@ -3089,7 +3078,7 @@ pub fn create_bootstrap_evaluator_with_startup_surface(
     );
     stacker::maybe_grow(256 * 1024, 32 * 1024 * 1024, || {
         maybe_trace_bootstrap_step("create_bootstrap_evaluator_with_features: enter");
-        let mut eval = create_source_bootstrap_context();
+        let mut eval = super::eval::Context::new();
         maybe_trace_bootstrap_step("create_bootstrap_evaluator_with_features: evaluator-new");
         let bootstrap_features = normalized_bootstrap_features(extra_features);
         for feature in &bootstrap_features {

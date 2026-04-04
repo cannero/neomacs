@@ -1,9 +1,9 @@
-use neovm_core::emacs_core::load::create_source_bootstrap_context;
+use neovm_core::emacs_core::eval::Context;
 use neovm_core::emacs_core::{format_eval_result, parse_forms};
 
 #[test]
 fn compat_source_bootstrap_macro_surface_is_minimal() {
-    let mut eval = create_source_bootstrap_context();
+    let mut eval = Context::new();
     eval.set_lexical_binding(true);
 
     let forms = parse_forms(
@@ -33,6 +33,6 @@ fn compat_source_bootstrap_macro_surface_is_minimal() {
     let rendered = format_eval_result(&result);
     assert_eq!(
         rendered,
-        "OK ((eval-and-compile t t) (defvar-local nil nil) (track-mouse nil nil) (with-current-buffer nil nil) (with-temp-buffer nil nil) (with-output-to-string nil nil) (with-syntax-table nil nil) (with-mutex nil nil) (pcase nil nil) (pcase-defmacro nil nil) (\\`--pcase-macroexpander nil nil))"
+        "OK ((eval-and-compile nil nil) (defvar-local nil nil) (track-mouse nil nil) (with-current-buffer nil nil) (with-temp-buffer nil nil) (with-output-to-string nil nil) (with-syntax-table nil nil) (with-mutex nil nil) (pcase nil nil) (pcase-defmacro nil nil) (\\`--pcase-macroexpander nil nil))"
     );
 }

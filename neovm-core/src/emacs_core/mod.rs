@@ -14,7 +14,6 @@ pub mod advice;
 pub mod alloc;
 pub mod autoload;
 pub mod bookmark;
-pub mod bootstrap_macros;
 pub mod buffer;
 pub mod buffer_vars;
 pub mod builtins;
