@@ -2591,17 +2591,20 @@ impl LayoutEngine {
                         lnum_face_id,
                         false,
                     );
+                    self.matrix_builder.push_left_margin_stretch(padding as u16, lnum_face_id);
                 }
 
                 // Number digits
                 for (i, ch) in num_str.chars().enumerate() {
                     let dx = text_x + (padding.max(0) + i as i32) as f32 * char_w;
                     frame_glyphs.add_char(ch, dx, gy, char_w, char_h, font_ascent, false);
+                    self.matrix_builder.push_left_margin_char(ch, lnum_face_id);
                 }
 
                 // Trailing space separator
                 let space_x = text_x + (lnum_cols - 1) as f32 * char_w;
                 frame_glyphs.add_stretch(space_x, gy, char_w, char_h, lnum_bg, lnum_face_id, false);
+                self.matrix_builder.push_left_margin_stretch(1, lnum_face_id);
 
                 // Force face resolution to re-apply text face after line number face
                 face_next_check = 0;
@@ -4861,6 +4864,11 @@ impl LayoutEngine {
                 frame_glyphs,
                 StatusLineKind::ModeLine,
             );
+            self.matrix_builder.push_status_line_from_buffer(
+                &frame_glyphs.glyphs,
+                GlyphRowRole::ModeLine,
+                params.window_id,
+            );
         }
 
         // Header-line: evaluate format-mode-line with header-line-format
@@ -4892,6 +4900,11 @@ impl LayoutEngine {
                 face_resolver,
                 frame_glyphs,
                 StatusLineKind::HeaderLine,
+            );
+            self.matrix_builder.push_status_line_from_buffer(
+                &frame_glyphs.glyphs,
+                GlyphRowRole::HeaderLine,
+                params.window_id,
             );
         }
 
@@ -4925,6 +4938,11 @@ impl LayoutEngine {
                 face_resolver,
                 frame_glyphs,
                 StatusLineKind::TabLine,
+            );
+            self.matrix_builder.push_status_line_from_buffer(
+                &frame_glyphs.glyphs,
+                GlyphRowRole::TabLine,
+                params.window_id,
             );
         }
 
