@@ -10,6 +10,7 @@ pub mod types;
 pub mod ui_types;
 pub mod glyph_matrix;
 pub use glyph_matrix::*;
+pub mod tty_rif;
 
 pub use effect_config::*;
 pub use face::*;
