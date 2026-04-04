@@ -9,9 +9,16 @@ impl RenderApp {
     /// Get latest frame from Emacs (non-blocking).
     pub(super) fn poll_frame(&mut self) {
         self.child_frames.tick();
-        while let Ok(frame) = self.comms.frame_rx.try_recv() {
-            let frame_id = frame.frame_id;
-            let parent_id = frame.parent_id;
+        while let Ok(display_state) = self.comms.frame_rx.try_recv() {
+            let frame_id = display_state.frame_id;
+            let parent_id = display_state.parent_id;
+
+            // Materialize FrameDisplayState → FrameGlyphBuffer for the
+            // existing rendering code.  During the migration the layout
+            // engine sends passthrough data, so this is essentially a
+            // clone; once the layout fills the grid directly, this will
+            // do the actual grid→pixel conversion.
+            let frame = display_state.materialize();
 
             if frame_id != 0 && parent_id == 0 && self.multi_windows.windows.contains_key(&frame_id)
             {

@@ -14,7 +14,7 @@ pub type WakeupFd = RawFd;
 #[cfg(windows)]
 pub type WakeupFd = RawHandle;
 
-use crate::core::frame_glyphs::FrameGlyphBuffer;
+use neomacs_display_protocol::glyph_matrix::FrameDisplayState;
 pub use neomacs_display_protocol::{
     EffectsConfig, MenuBarItem, PopupMenuItem, TabBarItem, ToolBarItem, TransitionPolicy,
 };
@@ -713,9 +713,9 @@ const COMMAND_CHANNEL_CAPACITY: usize = 64;
 
 /// Communication channels between threads
 pub struct ThreadComms {
-    /// Frame glyphs: Emacs → Render
-    pub frame_tx: Sender<FrameGlyphBuffer>,
-    pub frame_rx: Receiver<FrameGlyphBuffer>,
+    /// Frame display state: Emacs → Render
+    pub frame_tx: Sender<FrameDisplayState>,
+    pub frame_rx: Receiver<FrameDisplayState>,
 
     /// Commands: Emacs → Render
     pub cmd_tx: Sender<RenderCommand>,
@@ -773,7 +773,7 @@ impl ThreadComms {
 
 /// Emacs thread communication handle
 pub struct EmacsComms {
-    pub frame_tx: Sender<FrameGlyphBuffer>,
+    pub frame_tx: Sender<FrameDisplayState>,
     pub cmd_tx: Sender<RenderCommand>,
     pub input_rx: Receiver<InputEvent>,
     pub wakeup_read_fd: WakeupFd,
@@ -858,7 +858,7 @@ unsafe impl Sync for WakeupClear {}
 
 /// Render thread communication handle
 pub struct RenderComms {
-    pub frame_rx: Receiver<FrameGlyphBuffer>,
+    pub frame_rx: Receiver<FrameDisplayState>,
     pub cmd_rx: Receiver<RenderCommand>,
     pub input_tx: Sender<InputEvent>,
     pub wakeup: WakeupPipe,
@@ -936,6 +936,7 @@ impl RenderComms {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::frame_glyphs::FrameGlyphBuffer;
 
     // ===================================================================
     // Constants
@@ -1144,11 +1145,12 @@ mod tests {
         let comms = ThreadComms::new().unwrap();
 
         let buf = FrameGlyphBuffer::new();
-        comms.frame_tx.send(buf).unwrap();
+        let state = FrameDisplayState::from_frame_glyph_buffer(&buf);
+        comms.frame_tx.send(state).unwrap();
 
         let received = comms.frame_rx.try_recv().unwrap();
-        assert_eq!(received.width, 0.0);
-        assert_eq!(received.height, 0.0);
+        assert_eq!(received.frame_pixel_width, 0.0);
+        assert_eq!(received.frame_pixel_height, 0.0);
     }
 
     #[test]
@@ -1158,13 +1160,14 @@ mod tests {
         // Send many frames without blocking -- unbounded channel
         for i in 0..100 {
             let buf = FrameGlyphBuffer::with_size(i as f32, i as f32);
-            comms.frame_tx.send(buf).unwrap();
+            let state = FrameDisplayState::from_frame_glyph_buffer(&buf);
+            comms.frame_tx.send(state).unwrap();
         }
 
         // Drain and verify
         for i in 0..100 {
             let received = comms.frame_rx.try_recv().unwrap();
-            assert_eq!(received.width, i as f32);
+            assert_eq!(received.frame_pixel_width, i as f32);
         }
     }
 
@@ -1245,10 +1248,11 @@ mod tests {
 
         // Emacs sends frame, render receives
         let buf = FrameGlyphBuffer::with_size(800.0, 600.0);
-        emacs.frame_tx.send(buf).unwrap();
+        let state = FrameDisplayState::from_frame_glyph_buffer(&buf);
+        emacs.frame_tx.send(state).unwrap();
         let frame = render.frame_rx.try_recv().unwrap();
-        assert_eq!(frame.width, 800.0);
-        assert_eq!(frame.height, 600.0);
+        assert_eq!(frame.frame_pixel_width, 800.0);
+        assert_eq!(frame.frame_pixel_height, 600.0);
     }
 
     #[test]
@@ -2758,12 +2762,13 @@ mod tests {
 
         let handle = std::thread::spawn(move || {
             let frame = render.frame_rx.recv().unwrap();
-            assert_eq!(frame.width, 1920.0);
-            assert_eq!(frame.height, 1080.0);
+            assert_eq!(frame.frame_pixel_width, 1920.0);
+            assert_eq!(frame.frame_pixel_height, 1080.0);
         });
 
         let buf = FrameGlyphBuffer::with_size(1920.0, 1080.0);
-        emacs.frame_tx.send(buf).unwrap();
+        let state = FrameDisplayState::from_frame_glyph_buffer(&buf);
+        emacs.frame_tx.send(state).unwrap();
 
         handle.join().unwrap();
     }

@@ -19,6 +19,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use neomacs_display_runtime::FrameGlyphBuffer;
+use neomacs_display_protocol::glyph_matrix::FrameDisplayState;
 use neomacs_display_runtime::render_thread::{
     RenderThread, SharedImageDimensions, SharedMonitorInfo,
 };
@@ -993,7 +994,12 @@ pub fn run(mode: RuntimeMode) {
             evaluator.redisplay_fn = Some(Box::new(move |eval: &mut Context| {
                 eval.setup_thread_locals();
                 run_layout(eval, &mut frame_glyphs);
-                let _ = frame_tx.try_send(frame_glyphs.clone());
+                // Bridge: wrap the FrameGlyphBuffer in a FrameDisplayState
+                // (passthrough mode).  The render thread calls materialize()
+                // to recover the original FrameGlyphBuffer.
+                let display_state =
+                    FrameDisplayState::from_frame_glyph_buffer(&frame_glyphs);
+                let _ = frame_tx.try_send(display_state);
             }));
         }
         FrontendKind::Tty => {
