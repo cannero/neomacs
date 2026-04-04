@@ -121,12 +121,14 @@ fn run_gui(demo: &str) {
         )
         .init();
 
-    let width = 800u32;
-    let height = 600u32;
+    // Use logical pixels (winit handles DPI scaling internally).
+    // The render thread's scale_factor from winit converts logical → physical.
     let char_w = 8.0f32;
     let char_h = 16.0f32;
-    let cols = (width as f32 / char_w) as u16;
-    let rows = (height as f32 / char_h) as u16;
+    let cols = 100u16;
+    let rows = 37u16;
+    let width = (cols as f32 * char_w) as u32;
+    let height = (rows as f32 * char_h) as u32;
 
     let comms = ThreadComms::new().expect("failed to create comms");
     let (emacs_comms, render_comms) = comms.split();
@@ -741,4 +743,24 @@ fn query_terminal_size() -> Option<(u16, u16)> {
 #[cfg(not(unix))]
 fn query_terminal_size() -> Option<(u16, u16)> {
     None
+}
+
+/// Read Xft.dpi from xrdb and compute scale factor (96 dpi = 1.0x).
+fn detect_dpi_scale() -> f32 {
+    if let Ok(output) = std::process::Command::new("xrdb")
+        .arg("-query")
+        .output()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if line.starts_with("Xft.dpi:") {
+                if let Some(val) = line.split_whitespace().nth(1) {
+                    if let Ok(dpi) = val.parse::<f32>() {
+                        return (dpi / 96.0).max(1.0);
+                    }
+                }
+            }
+        }
+    }
+    1.0
 }
