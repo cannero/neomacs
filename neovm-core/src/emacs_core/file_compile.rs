@@ -292,6 +292,41 @@ fn compile_toplevel_defun_direct(eval: &Context, items: &[Expr]) -> Option<Value
     Some(Value::list(form))
 }
 
+fn compile_toplevel_defun_direct_value(eval: &Context, items: &[Value]) -> Option<Value> {
+    if items.len() < 4 {
+        return None;
+    }
+
+    let name_id = items.get(1)?.as_symbol_id()?;
+    let params = parse_lambda_params_from_value(items.get(2)?).ok()?;
+    let (docstring, doc_form, interactive, body_start_offset) =
+        parse_lambda_metadata_from_expr_body(
+            &items[3..].iter().map(value_to_expr).collect::<Vec<_>>(),
+        );
+    let body = items.get(3 + body_start_offset..)?;
+
+    let mut compiler = Compiler::new(eval.lexical_binding());
+    let body_exprs = if body.is_empty() {
+        vec![Expr::Bool(false)]
+    } else {
+        body.iter().map(value_to_expr).collect()
+    };
+    let mut bytecode = compiler.compile_lambda(&params, &body_exprs);
+    bytecode.docstring = docstring.clone();
+    bytecode.doc_form = doc_form.filter(|value| !value.is_nil());
+    bytecode.interactive = interactive.filter(|value| !value.is_nil());
+
+    let mut form = vec![
+        Value::symbol("defalias"),
+        Value::list(vec![Value::symbol("quote"), Value::from_sym_id(name_id)]),
+        Value::make_bytecode(bytecode),
+    ];
+    if let Some(doc) = docstring {
+        form.push(Value::string(doc));
+    }
+    Some(Value::list(form))
+}
+
 fn compile_toplevel_defmacro_direct(eval: &Context, items: &[Expr]) -> Option<Value> {
     if items.len() < 4 {
         return None;
@@ -318,6 +353,44 @@ fn compile_toplevel_defmacro_direct(eval: &Context, items: &[Expr]) -> Option<Va
     let mut form = vec![
         Value::symbol("defalias"),
         Value::list(vec![Value::symbol("quote"), Value::from_sym_id(*name_id)]),
+        Value::list(vec![
+            Value::symbol("cons"),
+            Value::list(vec![Value::symbol("quote"), Value::symbol("macro")]),
+            Value::make_bytecode(bytecode),
+        ]),
+    ];
+    if let Some(doc) = docstring {
+        form.push(Value::string(doc));
+    }
+    Some(Value::list(form))
+}
+
+#[cfg(test)]
+fn compile_toplevel_defmacro_direct_value(eval: &Context, items: &[Value]) -> Option<Value> {
+    if items.len() < 4 {
+        return None;
+    }
+
+    let name_id = items.get(1)?.as_symbol_id()?;
+    let params = parse_lambda_params_from_value(items.get(2)?).ok()?;
+    let (docstring, _doc_form, _interactive, body_start_offset) =
+        parse_lambda_metadata_from_expr_body(
+            &items[3..].iter().map(value_to_expr).collect::<Vec<_>>(),
+        );
+    let body = items.get(3 + body_start_offset..)?;
+
+    let mut compiler = Compiler::new(eval.lexical_binding());
+    let body_exprs = if body.is_empty() {
+        vec![Expr::Bool(false)]
+    } else {
+        body.iter().map(value_to_expr).collect()
+    };
+    let mut bytecode = compiler.compile_lambda(&params, &body_exprs);
+    bytecode.docstring = docstring.clone();
+
+    let mut form = vec![
+        Value::symbol("defalias"),
+        Value::list(vec![Value::symbol("quote"), Value::from_sym_id(name_id)]),
         Value::list(vec![
             Value::symbol("cons"),
             Value::list(vec![Value::symbol("quote"), Value::symbol("macro")]),
@@ -366,6 +439,27 @@ fn compile_toplevel_defmacro(eval: &mut Context, form: &Expr) -> Result<Option<V
         return Ok(None);
     };
     Ok(compile_toplevel_defmacro_direct(eval, items))
+}
+
+pub(crate) fn lower_runtime_cached_toplevel_form(
+    eval: &Context,
+    original: Value,
+    expanded: Value,
+) -> Option<Value> {
+    let items = list_to_vec(&original)?;
+    let head = items.first()?.as_symbol_name()?;
+    if head == "defmacro" {
+        return None;
+    }
+
+    if let Some(compiled) = compile_macroexpanded_defalias_value(eval, expanded) {
+        return Some(compiled);
+    }
+
+    match head {
+        "defun" => compile_toplevel_defun_direct_value(eval, &items),
+        _ => None,
+    }
 }
 
 /// Process a single top-level form, appending results to `out`.
@@ -514,6 +608,44 @@ mod tests {
     use crate::emacs_core::file_compile_format::{LoadedForm, read_neobc};
     use crate::emacs_core::parser::parse_forms;
 
+    fn real_custom_defmacro_form(name: &str) -> Expr {
+        let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let project_root = manifest.parent().expect("project root");
+        let source =
+            std::fs::read_to_string(project_root.join("lisp/custom.el")).expect("read custom.el");
+        let forms = parse_forms(&source).expect("parse custom.el");
+        forms
+            .into_iter()
+            .find(|form| match form {
+                Expr::List(items) => matches!(
+                    (items.first(), items.get(1)),
+                    (Some(Expr::Symbol(id0)), Some(Expr::Symbol(id1)))
+                        if resolve_sym(*id0) == "defmacro" && resolve_sym(*id1) == name
+                ),
+                _ => false,
+            })
+            .unwrap_or_else(|| panic!("find defmacro {name} in custom.el"))
+    }
+
+    fn real_cus_face_defun_form(name: &str) -> Expr {
+        let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let project_root = manifest.parent().expect("project root");
+        let source = std::fs::read_to_string(project_root.join("lisp/cus-face.el"))
+            .expect("read cus-face.el");
+        let forms = parse_forms(&source).expect("parse cus-face.el");
+        forms
+            .into_iter()
+            .find(|form| match form {
+                Expr::List(items) => matches!(
+                    (items.first(), items.get(1)),
+                    (Some(Expr::Symbol(id0)), Some(Expr::Symbol(id1)))
+                        if resolve_sym(*id0) == "defun" && resolve_sym(*id1) == name
+                ),
+                _ => false,
+            })
+            .unwrap_or_else(|| panic!("find defun {name} in cus-face.el"))
+    }
+
     #[test]
     fn test_compile_simple_form() {
         crate::test_utils::init_test_tracing();
@@ -634,6 +766,215 @@ mod tests {
             .expect("macro function should be installed");
         assert_eq!(func.cons_car().as_symbol_name(), Some("macro"));
         assert!(func.cons_cdr().get_bytecode_data().is_some());
+    }
+
+    #[test]
+    fn test_compile_defmacro_direct_value_matches_expr_path_for_defface_shape() {
+        crate::test_utils::init_test_tracing();
+        let eval = Context::new();
+        let forms = parse_forms(
+            r#"
+(defmacro vm--defface-shape (face spec doc &rest args)
+  "Declare FACE as a customizable face that defaults to SPEC."
+  (declare (doc-string 3) (indent defun))
+  (nconc (list 'custom-declare-face (list 'quote face) spec doc) args))
+"#,
+        )
+        .unwrap();
+
+        let Expr::List(expr_items) = &forms[0] else {
+            panic!("expected defmacro list");
+        };
+        let expr_compiled =
+            compile_toplevel_defmacro_direct(&eval, expr_items).expect("expr path should compile");
+
+        let runtime_value = quote_to_value(&forms[0]);
+        let runtime_items = list_to_vec(&runtime_value).expect("runtime form should be a list");
+        let value_compiled = compile_toplevel_defmacro_direct_value(&eval, &runtime_items)
+            .expect("runtime-value path should compile");
+
+        let expr_items = list_to_vec(&expr_compiled).expect("expr compiled form should be a list");
+        let value_items =
+            list_to_vec(&value_compiled).expect("value compiled form should be a list");
+        assert_eq!(expr_items[0], value_items[0]);
+        assert_eq!(expr_items[1], value_items[1]);
+        assert_eq!(expr_items[3], value_items[3]);
+
+        let expr_target = list_to_vec(&expr_items[2]).expect("expr target should be a list");
+        let value_target = list_to_vec(&value_items[2]).expect("value target should be a list");
+        assert_eq!(expr_target[0], value_target[0]);
+        assert_eq!(expr_target[1], value_target[1]);
+
+        let expr_bc = expr_target[2].get_bytecode_data().expect("expr bytecode");
+        let value_bc = value_target[2].get_bytecode_data().expect("value bytecode");
+        assert_eq!(expr_bc.ops, value_bc.ops);
+        assert_eq!(expr_bc.constants, value_bc.constants);
+        assert_eq!(expr_bc.params, value_bc.params);
+        assert_eq!(expr_bc.lexical, value_bc.lexical);
+        assert_eq!(expr_bc.docstring, value_bc.docstring);
+        assert_eq!(expr_bc.doc_form, value_bc.doc_form);
+        assert_eq!(expr_bc.interactive, value_bc.interactive);
+    }
+
+    #[test]
+    fn test_compile_defmacro_direct_value_matches_expr_path_for_real_custom_defface() {
+        crate::test_utils::init_test_tracing();
+        let eval = Context::new();
+        let defface_form = real_custom_defmacro_form("defface");
+
+        let Expr::List(expr_items) = &defface_form else {
+            panic!("expected defface defmacro list");
+        };
+        let expr_compiled =
+            compile_toplevel_defmacro_direct(&eval, expr_items).expect("expr path should compile");
+
+        let runtime_value = quote_to_value(&defface_form);
+        let runtime_items = list_to_vec(&runtime_value).expect("runtime form should be a list");
+        let value_compiled = compile_toplevel_defmacro_direct_value(&eval, &runtime_items)
+            .expect("runtime-value path should compile");
+
+        let expr_items = list_to_vec(&expr_compiled).expect("expr compiled form should be a list");
+        let value_items =
+            list_to_vec(&value_compiled).expect("value compiled form should be a list");
+        assert_eq!(expr_items[0], value_items[0]);
+        assert_eq!(expr_items[1], value_items[1]);
+        assert_eq!(expr_items[3], value_items[3]);
+
+        let expr_target = list_to_vec(&expr_items[2]).expect("expr target should be a list");
+        let value_target = list_to_vec(&value_items[2]).expect("value target should be a list");
+        assert_eq!(expr_target[0], value_target[0]);
+        assert_eq!(expr_target[1], value_target[1]);
+
+        let expr_bc = expr_target[2].get_bytecode_data().expect("expr bytecode");
+        let value_bc = value_target[2].get_bytecode_data().expect("value bytecode");
+        assert_eq!(expr_bc.ops, value_bc.ops);
+        assert_eq!(expr_bc.constants, value_bc.constants);
+        assert_eq!(expr_bc.params, value_bc.params);
+        assert_eq!(expr_bc.lexical, value_bc.lexical);
+        assert_eq!(expr_bc.docstring, value_bc.docstring);
+        assert_eq!(expr_bc.doc_form, value_bc.doc_form);
+        assert_eq!(expr_bc.interactive, value_bc.interactive);
+    }
+
+    #[test]
+    fn test_compile_defun_preserves_doc_named_argument_order() {
+        crate::test_utils::init_test_tracing();
+        let mut eval = Context::new();
+        let forms = parse_forms(
+            r#"(defun test-fc-doc-arg-order (face spec doc &rest args)
+                 "Function docstring."
+                 (list face spec doc args))"#,
+        )
+        .unwrap();
+        let compiled = compile_file_forms(&mut eval, &forms).unwrap();
+        assert_eq!(compiled.len(), 1);
+
+        let CompiledForm::Eval(value) = &compiled[0] else {
+            panic!("expected Eval form");
+        };
+        eval.eval_sub(*value)
+            .expect("compiled defun defalias should install");
+
+        let call = parse_forms(
+            r#"(test-fc-doc-arg-order
+                 'default
+                 '((t nil))
+                 "Basic default face."
+                 :group
+                 'basic-faces)"#,
+        )
+        .unwrap();
+        let result = eval
+            .eval_expr(&call[0])
+            .expect("compiled defun should preserve argument order");
+        assert_eq!(
+            result,
+            Value::list(vec![
+                Value::symbol("default"),
+                Value::list(vec![Value::list(vec![Value::T, Value::NIL])]),
+                Value::string("Basic default face."),
+                Value::list(vec![Value::symbol(":group"), Value::symbol("basic-faces")]),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_compile_defun_preserves_doc_named_argument_order_through_conditional() {
+        crate::test_utils::init_test_tracing();
+        let mut eval = Context::new();
+        let forms = parse_forms(
+            r#"(defun test-fc-doc-conditional (face spec doc &rest args)
+                 "Function docstring."
+                 (if (and doc (stringp doc))
+                     (list face spec doc args)
+                   'bad))"#,
+        )
+        .unwrap();
+        let compiled = compile_file_forms(&mut eval, &forms).unwrap();
+        assert_eq!(compiled.len(), 1);
+
+        let CompiledForm::Eval(value) = &compiled[0] else {
+            panic!("expected Eval form");
+        };
+        eval.eval_sub(*value)
+            .expect("compiled defun defalias should install");
+
+        let call = parse_forms(
+            r#"(test-fc-doc-conditional
+                 'default
+                 '((t nil))
+                 "Basic default face."
+                 :group
+                 'basic-faces)"#,
+        )
+        .unwrap();
+        let result = eval
+            .eval_expr(&call[0])
+            .expect("compiled defun should preserve argument order through conditional");
+        assert_eq!(
+            result,
+            Value::list(vec![
+                Value::symbol("default"),
+                Value::list(vec![Value::list(vec![Value::T, Value::NIL])]),
+                Value::string("Basic default face."),
+                Value::list(vec![Value::symbol(":group"), Value::symbol("basic-faces")]),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_compile_defun_direct_value_matches_expr_path_for_real_custom_declare_face() {
+        crate::test_utils::init_test_tracing();
+        let eval = Context::new();
+        let defun_form = real_cus_face_defun_form("custom-declare-face");
+
+        let Expr::List(expr_items) = &defun_form else {
+            panic!("expected custom-declare-face defun list");
+        };
+        let expr_compiled =
+            compile_toplevel_defun_direct(&eval, expr_items).expect("expr path should compile");
+
+        let runtime_value = quote_to_value(&defun_form);
+        let runtime_items = list_to_vec(&runtime_value).expect("runtime form should be a list");
+        let value_compiled = compile_toplevel_defun_direct_value(&eval, &runtime_items)
+            .expect("runtime-value path should compile");
+
+        let expr_items = list_to_vec(&expr_compiled).expect("expr compiled form should be a list");
+        let value_items =
+            list_to_vec(&value_compiled).expect("value compiled form should be a list");
+        assert_eq!(expr_items[0], value_items[0]);
+        assert_eq!(expr_items[1], value_items[1]);
+        assert_eq!(expr_items[3], value_items[3]);
+
+        let expr_bc = expr_items[2].get_bytecode_data().expect("expr bytecode");
+        let value_bc = value_items[2].get_bytecode_data().expect("value bytecode");
+        assert_eq!(expr_bc.ops, value_bc.ops);
+        assert_eq!(expr_bc.constants, value_bc.constants);
+        assert_eq!(expr_bc.params, value_bc.params);
+        assert_eq!(expr_bc.lexical, value_bc.lexical);
+        assert_eq!(expr_bc.docstring, value_bc.docstring);
+        assert_eq!(expr_bc.doc_form, value_bc.doc_form);
+        assert_eq!(expr_bc.interactive, value_bc.interactive);
     }
 
     #[test]

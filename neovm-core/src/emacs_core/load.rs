@@ -218,10 +218,16 @@ fn eval_runtime_form(eval: &mut super::eval::Context, form: &Expr) -> Result<Val
 
 fn cached_form_requires_eager_replay(form: Value) -> bool {
     form.is_cons()
-        && form
-            .cons_car()
-            .as_symbol_name()
-            .is_some_and(|name| matches!(name, "eval-and-compile" | "eval-when-compile"))
+        && form.cons_car().as_symbol_name().is_some_and(|name| {
+            matches!(
+                name,
+                "eval-and-compile" | "eval-when-compile" | "define-inline"
+            )
+        })
+}
+
+fn preserve_original_toplevel_replay_boundary(form: Value) -> bool {
+    form.is_cons() && form.cons_car().as_symbol_name() == Some("define-inline")
 }
 
 fn generated_defalias(eval: &mut super::eval::Context, args: &[Expr]) -> Result<Value, EvalError> {
@@ -1298,17 +1304,43 @@ pub(crate) fn eval_decoded_source_file_in_context(
         ));
         readevalloop(eval, &file_name, &forms, |eval, i, form| {
             let form_value = eval.source_literal_to_runtime_value(form);
+            if preserve_original_toplevel_replay_boundary(form_value) {
+                if let Some(builder) = neobc_builder.as_mut()
+                    && let Err(err) = builder.push_eager_eval_value_detailed(&form_value)
+                {
+                    tracing::debug!(
+                        "neobc cache save skipped for {} at source form {}: unsupported value at {} ({})",
+                        path.display(),
+                        i,
+                        err.path(),
+                        err.detail()
+                    );
+                    neobc_builder = None;
+                }
+                return eager_expand_eval(eval, form_value, mexp_fn);
+            }
             eager_expand_toplevel_forms(
                 eval,
                 form_value,
                 mexp_fn,
                 &mut |ctx, original, expanded, requires_eager_replay| {
                     if let Some(builder) = neobc_builder.as_mut() {
-                        let push_result = if requires_eager_replay {
-                            builder.push_eager_eval_value_detailed(&original)
-                        } else {
-                            builder.push_eval_value_detailed(&expanded)
-                        };
+                        let push_result = ctx.with_gc_scope(|ctx| {
+                            ctx.root(original);
+                            ctx.root(expanded);
+                            if let Some(compiled) =
+                                super::file_compile::lower_runtime_cached_toplevel_form(
+                                    ctx, original, expanded,
+                                )
+                            {
+                                ctx.root(compiled);
+                                builder.push_eval_value_detailed(&compiled)
+                            } else if requires_eager_replay {
+                                builder.push_eager_eval_value_detailed(&original)
+                            } else {
+                                builder.push_eval_value_detailed(&expanded)
+                            }
+                        });
                         if let Err(err) = push_result {
                             tracing::debug!(
                                 "neobc cache save skipped for {} at source form {}: unsupported value at {} ({})",

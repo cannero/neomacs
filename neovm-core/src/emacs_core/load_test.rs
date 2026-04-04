@@ -2606,6 +2606,28 @@ fn profile_single_bootstrap_file_load() {
     let load_path = get_load_path(&eval.obarray());
     let path = bootstrap_fixture_path(&load_path, &target, prefer_compiled)
         .unwrap_or_else(|| panic!("bootstrap file not found: {target}"));
+    let path = if std::env::var("NEOVM_PROFILE_BOOTSTRAP_DISABLE_NEOBC").as_deref() == Ok("1") {
+        let source_path = source_suffixed_path(&path.with_extension(""));
+        let temp = tempfile::tempdir().expect("tempdir for source-only bootstrap profile");
+        let copied = temp.path().join(
+            source_path
+                .file_name()
+                .expect("bootstrap source file should have name"),
+        );
+        std::fs::write(
+            &copied,
+            std::fs::read_to_string(&source_path).unwrap_or_else(|err| {
+                panic!(
+                    "read source bootstrap file {}: {err}",
+                    source_path.display()
+                )
+            }),
+        )
+        .unwrap_or_else(|err| panic!("copy source bootstrap file {}: {err}", copied.display()));
+        copied
+    } else {
+        path
+    };
 
     let start = std::time::Instant::now();
     load_file(&mut eval, &path).unwrap_or_else(|err| {
@@ -2624,6 +2646,63 @@ fn profile_single_bootstrap_file_load() {
     );
 
     let _ = lisp_dir;
+}
+
+#[test]
+fn profile_runtime_neobc_form_kinds() {
+    crate::test_utils::init_test_tracing();
+    let Ok(target) = std::env::var("NEOVM_PROFILE_NEOBC_FILE") else {
+        return;
+    };
+
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let source = source_suffixed_path(&project_root.join("lisp").join(&target));
+    let cache_path = runtime_neobc_cache_path(&source)
+        .unwrap_or_else(|| panic!("runtime neobc path unavailable for {}", source.display()));
+    let source_text = std::fs::read_to_string(&source)
+        .unwrap_or_else(|err| panic!("read source {}: {err}", source.display()));
+    let hash = crate::emacs_core::file_compile_format::source_sha256(&source_text);
+    let loaded = crate::emacs_core::file_compile_format::read_neobc(&cache_path, &hash)
+        .unwrap_or_else(|err| panic!("read {}: {err}", cache_path.display()));
+
+    use std::collections::BTreeMap;
+    let mut eval_count = 0usize;
+    let mut eager_count = 0usize;
+    let mut constant_count = 0usize;
+    let mut eager_heads: BTreeMap<String, usize> = BTreeMap::new();
+    let mut eager_forms = Vec::new();
+
+    for (index, form) in loaded.forms.iter().enumerate() {
+        match form {
+            crate::emacs_core::file_compile_format::LoadedForm::Eval(_) => eval_count += 1,
+            crate::emacs_core::file_compile_format::LoadedForm::Constant(_) => constant_count += 1,
+            crate::emacs_core::file_compile_format::LoadedForm::EagerEval(expr) => {
+                eager_count += 1;
+                let head = match expr {
+                    Expr::List(items) => match items.first() {
+                        Some(Expr::Symbol(id)) => resolve_sym(*id).to_string(),
+                        _ => "list".to_string(),
+                    },
+                    Expr::OpaqueValueRef(_) => "opaque".to_string(),
+                    _ => "atom".to_string(),
+                };
+                *eager_heads.entry(head).or_default() += 1;
+                eager_forms.push(format!("#{index}: {}", print_expr(expr)));
+            }
+        }
+    }
+
+    tracing::info!(
+        "NEOBC_PROFILE target={} path={} eval={} eager={} constant={} eager_heads={:?} eager_forms={:?}",
+        target,
+        cache_path.display(),
+        eval_count,
+        eager_count,
+        constant_count,
+        eager_heads,
+        eager_forms
+    );
 }
 
 #[test]
@@ -3764,6 +3843,110 @@ fn neobc_cache_replays_eval_and_compile_load_side_effects() {
         "expected {} to preserve eager source replay forms",
         cache_path.display()
     );
+}
+
+#[test]
+fn runtime_neobc_preserves_toplevel_defmacro_as_interpreted_defalias() {
+    crate::test_utils::init_test_tracing();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("vm-runtime-cached-macro.el");
+    fs::write(
+        &path,
+        r#"
+(defmacro vm--runtime-cached-macro (x) "doc" x)
+"#,
+    )
+    .expect("write runtime cached macro fixture");
+
+    let mut source_eval = minimal_eager_macroexpand_eval();
+    load_file(&mut source_eval, &path).unwrap_or_else(|err| {
+        panic!(
+            "source load {}: {}",
+            path.display(),
+            format_eval_error(&source_eval, &err)
+        )
+    });
+
+    let cache_path =
+        runtime_neobc_cache_path(&path).unwrap_or_else(|| path.with_extension("neobc"));
+    let source = fs::read_to_string(&path).expect("read runtime cached macro source");
+    let hash = crate::emacs_core::file_compile_format::source_sha256(&source);
+    let loaded = crate::emacs_core::file_compile_format::read_neobc(&cache_path, &hash)
+        .unwrap_or_else(|err| panic!("read {}: {err}", cache_path.display()));
+
+    assert_eq!(
+        loaded.forms.len(),
+        1,
+        "expected single cached top-level form"
+    );
+    let expr = match &loaded.forms[0] {
+        crate::emacs_core::file_compile_format::LoadedForm::Eval(expr) => expr,
+        crate::emacs_core::file_compile_format::LoadedForm::EagerEval(_) => {
+            panic!("runtime neobc should keep defmacro as replayable source eval, not eager replay")
+        }
+        crate::emacs_core::file_compile_format::LoadedForm::Constant(_) => {
+            panic!("runtime neobc should not fold defmacro to constant")
+        }
+    };
+
+    let Expr::List(items) = expr else {
+        panic!("cached form should be a list, got {}", print_expr(expr));
+    };
+    assert!(
+        matches!(items.first(), Some(Expr::Symbol(id)) if resolve_sym(*id) == "defalias"),
+        "cached form should preserve defmacro as defalias replay, got {}",
+        print_expr(expr)
+    );
+
+    let target = match items.get(2) {
+        Some(Expr::List(target)) => target,
+        _ => panic!(
+            "cached macro target should be a list, got {}",
+            print_expr(expr)
+        ),
+    };
+    assert!(
+        matches!(target.first(), Some(Expr::Symbol(id)) if resolve_sym(*id) == "cons"),
+        "cached macro target should stay cons-wrapped, got {}",
+        print_expr(expr)
+    );
+    assert!(
+        !matches!(target.get(2), Some(Expr::OpaqueValueRef(_))),
+        "runtime neobc should not lower top-level defmacro target to bytecode"
+    );
+
+    let mut cached_eval = minimal_eager_macroexpand_eval();
+    load_file(&mut cached_eval, &path).unwrap_or_else(|err| {
+        panic!(
+            "cached load {}: {}",
+            path.display(),
+            format_eval_error(&cached_eval, &err)
+        )
+    });
+    let func = cached_eval
+        .obarray()
+        .symbol_function("vm--runtime-cached-macro")
+        .copied()
+        .expect("cached macro should be installed");
+    assert_eq!(func.cons_car().as_symbol_name(), Some("macro"));
+    assert!(!func.cons_cdr().is_nil());
+    assert!(func.cons_cdr().get_bytecode_data().is_none());
+}
+
+#[test]
+fn compiled_custom_declare_face_call_before_faces_succeeds() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = partial_bootstrap_eval_until("faces", true);
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(condition-case err
+               (progn
+                 (put 'vm-debug-face 'face-defface-spec t)
+                 (custom-declare-face 'vm-debug-face '((t nil)) "Debug doc." :group 'basic-faces)
+                 (get 'vm-debug-face 'face-defface-spec))
+             (error err))"#,
+    );
+    assert_eq!(rendered, "OK t");
 }
 
 #[test]
@@ -5527,6 +5710,49 @@ fn bootstrap_defun_compiler_macro_declaration_sets_properties() {
 }
 
 #[test]
+fn compiled_neobc_defun_compiler_macro_declaration_sets_properties() {
+    crate::test_utils::init_test_tracing();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("vm-compiled-cmacro.el");
+    std::fs::write(
+        &path,
+        r#"
+(defun vm--compiled-cmacro-probe (x)
+  (declare (compiler-macro vm--compiled-cmacro-probe--cm))
+  x)
+(defun vm--compiled-cmacro-probe--cm (_form x)
+  x)
+"#,
+    )
+    .expect("write compiled cmacro fixture");
+
+    let mut eval = partial_bootstrap_eval_until("emacs-lisp/cl-preloaded", true);
+    crate::emacs_core::file_compile::compile_el_to_neobc(&mut eval, &path)
+        .expect("compile fixture to neobc");
+
+    load_file(&mut eval, &path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading compiled fixture {}: {}",
+            path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"
+(list (get 'vm--compiled-cmacro-probe 'compiler-macro)
+      (function-get 'vm--compiled-cmacro-probe 'compiler-macro))
+"#,
+    );
+
+    assert_eq!(
+        rendered,
+        "OK (vm--compiled-cmacro-probe--cm vm--compiled-cmacro-probe--cm)"
+    );
+}
+
+#[test]
 fn bootstrap_define_inline_sets_compiler_macro_properties() {
     crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
@@ -5578,6 +5804,59 @@ fn expanded_cache_replay_preserves_define_inline_compiler_macro() {
     assert_eq!(
         second,
         "OK (vm--inline-cache-probe--inliner vm--inline-cache-probe--inliner)"
+    );
+}
+
+#[test]
+fn compiled_neobc_replay_preserves_define_inline_compiler_macro() {
+    crate::test_utils::init_test_tracing();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("vm-inline-compiled-cache.el");
+    std::fs::write(
+        &path,
+        r#"
+(require 'inline)
+(define-inline vm--inline-compiled-cache-probe (x) x)
+"#,
+    )
+    .expect("write inline compiled fixture");
+
+    let mut eval = partial_bootstrap_eval_until("emacs-lisp/cl-preloaded", true);
+    crate::emacs_core::file_compile::compile_el_to_neobc(&mut eval, &path)
+        .expect("compile inline fixture to neobc");
+
+    let loaded =
+        crate::emacs_core::file_compile_format::read_neobc(&path.with_extension("neobc"), "")
+            .expect("read compiled inline neobc");
+    assert!(
+        loaded.forms.iter().any(|form| matches!(
+            form,
+            crate::emacs_core::file_compile_format::LoadedForm::EagerEval(expr)
+                if matches!(expr, Expr::List(items)
+                    if matches!(items.first(), Some(Expr::Symbol(id)) if resolve_sym(*id) == "define-inline"))
+        )),
+        "compiled define-inline should preserve eager replay"
+    );
+
+    load_file(&mut eval, &path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading compiled inline fixture {}: {}",
+            path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"
+(list (get 'vm--inline-compiled-cache-probe 'compiler-macro)
+      (function-get 'vm--inline-compiled-cache-probe 'compiler-macro))
+"#,
+    );
+
+    assert_eq!(
+        rendered,
+        "OK (vm--inline-compiled-cache-probe--inliner vm--inline-compiled-cache-probe--inliner)"
     );
 }
 
@@ -7246,6 +7525,31 @@ fn bootstrap_macroexpand_all_pcase() {
     assert!(
         rendered2.starts_with("OK"),
         "macroexpand-all pcase backquote failed: {rendered2}"
+    );
+}
+
+#[test]
+fn bootstrap_macroexpand_functions_are_compiled() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = partial_bootstrap_eval_until("emacs-lisp/cl-generic", true);
+    let forms = parse_forms(
+        r#"
+(list
+  (compiled-function-p (symbol-function 'macroexpand-all))
+  (compiled-function-p (symbol-function 'internal-macroexpand-for-load)))
+"#,
+    )
+    .expect("parse");
+    let result = eval.eval_forms(&forms);
+    let rendered = result
+        .iter()
+        .map(format_eval_result)
+        .collect::<Vec<_>>()
+        .join(" ");
+    tracing::info!("compiled macroexpand functions => {rendered}");
+    assert_eq!(
+        rendered, "OK (t t)",
+        "bootstrap macroexpand functions should be compiled, got: {rendered}"
     );
 }
 

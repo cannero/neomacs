@@ -1951,7 +1951,11 @@ fn stack_delta(op: &Op) -> i32 {
         Op::Apply(n) => -(*n as i32),
         Op::Goto(_) => 0,
         Op::GotoIfNil(_) | Op::GotoIfNotNil(_) => -1,
-        Op::GotoIfNilElsePop(_) | Op::GotoIfNotNilElsePop(_) => 0, // conditional pop
+        // Sequential compilation continues on the fallthrough path, and that
+        // path pops the tested value before evaluating the remaining forms.
+        // Tracking these as stack-neutral shifts later StackRef offsets by one
+        // inside compiled `and`/`or` bodies.
+        Op::GotoIfNilElsePop(_) | Op::GotoIfNotNilElsePop(_) => -1,
         Op::Switch => -2,
         Op::Return => -1,
         // Binary ops: pop 2, push 1
