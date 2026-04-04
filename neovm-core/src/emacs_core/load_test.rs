@@ -239,6 +239,16 @@ fn gnu_subr_el_defines_wholenump_without_rust_shim() {
 }
 
 #[test]
+fn raw_context_does_not_prebind_frame_creation_function() {
+    crate::test_utils::init_test_tracing();
+    let eval = Context::new();
+    assert!(
+        eval.obarray.symbol_value("frame-creation-function").is_none(),
+        "frame-creation-function should come from GNU frame.el/cl-generic bootstrap, not Context::new"
+    );
+}
+
+#[test]
 fn gnu_help_el_defines_substitute_command_keys_without_rust_shim() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();

@@ -19,9 +19,6 @@ pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray)
     obarray.set_symbol_value("focus-follows-mouse", Value::NIL);
     obarray.set_symbol_value("frame-inhibit-implied-resize", Value::NIL);
     obarray.set_symbol_value("terminal-frame", Value::NIL);
-    // frame.el's (cl-defgeneric frame-creation-function ...) needs this
-    // bound before cl-generic infrastructure is available.
-    obarray.set_symbol_value("frame-creation-function", Value::NIL);
     obarray.set_symbol_value("frameset-filter-alist", Value::NIL);
     obarray.set_symbol_value("frameset-session-filter-alist", Value::NIL);
 }
