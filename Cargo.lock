@@ -1967,6 +1967,7 @@ version = "0.0.1"
 dependencies = [
  "crossbeam-channel",
  "libc",
+ "neomacs-display-protocol",
  "neomacs-display-runtime",
  "neomacs-layout-engine",
  "neovm-core",

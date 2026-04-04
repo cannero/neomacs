@@ -485,6 +485,8 @@ fn query_terminal_size_cells() -> Option<(u16, u16)> {
 enum FrontendHandle {
     Gui(RenderThread),
     Tty(tty_frontend::TtyFrontend),
+    /// Single-thread TTY path: input reader only, rendering via TtyRif on eval thread.
+    TtyRifInput(tty_frontend::TtyInputReader),
 }
 
 impl FrontendHandle {
@@ -492,6 +494,7 @@ impl FrontendHandle {
         match self {
             Self::Gui(handle) => handle.join(),
             Self::Tty(handle) => handle.join(),
+            Self::TtyRifInput(handle) => handle.join(),
         }
     }
 }
@@ -943,9 +946,12 @@ pub fn run(mode: RuntimeMode) {
             FrontendHandle::Gui(render_thread)
         }
         FrontendKind::Tty => {
-            let tty_thread = tty_frontend::TtyFrontend::spawn(render_comms);
-            tracing::info!("TTY frontend spawned");
-            FrontendHandle::Tty(tty_thread)
+            // Single-thread TTY path: terminal init here, rendering via TtyRif
+            // on the evaluator thread, input reader on a background thread.
+            tty_init_terminal();
+            let input_reader = tty_frontend::TtyInputReader::spawn(render_comms);
+            tracing::info!("TTY frontend spawned (TtyRif single-thread redisplay)");
+            FrontendHandle::TtyRifInput(input_reader)
         }
     };
 
@@ -983,12 +989,29 @@ pub fn run(mode: RuntimeMode) {
     evaluator.init_input_system(input_rx, wakeup_fd);
 
     // 9. Set up redisplay callback (layout engine + send frame)
-    let frame_tx = emacs_comms.frame_tx;
-    evaluator.redisplay_fn = Some(Box::new(move |eval: &mut Context| {
-        eval.setup_thread_locals();
-        run_layout(eval, &mut frame_glyphs);
-        let _ = frame_tx.try_send(frame_glyphs.clone());
-    }));
+    match startup.frontend {
+        FrontendKind::Gui => {
+            let frame_tx = emacs_comms.frame_tx;
+            evaluator.redisplay_fn = Some(Box::new(move |eval: &mut Context| {
+                eval.setup_thread_locals();
+                run_layout(eval, &mut frame_glyphs);
+                let _ = frame_tx.try_send(frame_glyphs.clone());
+            }));
+        }
+        FrontendKind::Tty => {
+            // Single-thread TTY redisplay: run layout, then rasterize via TtyRif
+            // directly on the evaluator thread (no channel, no render thread).
+            let (cols, rows) = query_terminal_size_cells().unwrap_or((80, 25));
+            let mut tty_rif =
+                neomacs_display_protocol::tty_rif::TtyRif::new(cols as usize, rows as usize);
+            evaluator.redisplay_fn = Some(Box::new(move |eval: &mut Context| {
+                eval.setup_thread_locals();
+                run_layout(eval, &mut frame_glyphs);
+                // Extract FrameDisplayState from the layout engine's thread-local
+                run_tty_rif_redisplay(&mut tty_rif);
+            }));
+        }
+    }
 
     // Add undo boundary after startup so initial content isn't undoable
     if let Some(buf) = evaluator.buffer_manager_mut().current_buffer_mut() {
@@ -1016,6 +1039,9 @@ pub fn run(mode: RuntimeMode) {
         .cmd_tx
         .try_send(neomacs_display_runtime::thread_comm::RenderCommand::Shutdown);
     frontend.join();
+    if startup.frontend == FrontendKind::Tty {
+        tty_shutdown_terminal();
+    }
     tracing::info!("Neomacs exited cleanly");
 
     if let Some(request) = evaluator.shutdown_request() {
@@ -1026,6 +1052,93 @@ pub fn run(mode: RuntimeMode) {
             std::process::exit(request.exit_code);
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// TTY terminal setup/teardown for TtyRif single-thread path
+// ---------------------------------------------------------------------------
+
+/// Saved original termios for the TtyRif path. Stored globally so
+/// `tty_shutdown_terminal` can restore it even from a panic handler.
+#[cfg(unix)]
+static TTY_SAVED_TERMIOS: std::sync::Mutex<Option<libc::termios>> = std::sync::Mutex::new(None);
+
+/// Set up the terminal for the TtyRif direct-rendering path:
+/// raw mode, alternate screen buffer, hidden cursor.
+#[cfg(unix)]
+fn tty_init_terminal() {
+    use std::io::Write;
+    use std::mem::MaybeUninit;
+
+    unsafe {
+        let mut original = MaybeUninit::<libc::termios>::uninit();
+        if libc::tcgetattr(libc::STDIN_FILENO, original.as_mut_ptr()) != 0 {
+            tracing::error!("tty_init_terminal: tcgetattr failed");
+            return;
+        }
+        let original = original.assume_init();
+
+        // Save for later restore
+        if let Ok(mut guard) = TTY_SAVED_TERMIOS.lock() {
+            *guard = Some(original);
+        }
+
+        let mut raw = original;
+        // Input: no break, no CR->NL, no parity, no strip, no start/stop
+        raw.c_iflag &= !(libc::BRKINT | libc::ICRNL | libc::INPCK | libc::ISTRIP | libc::IXON);
+        // Output: disable post-processing
+        raw.c_oflag &= !libc::OPOST;
+        // Control: 8-bit chars
+        raw.c_cflag |= libc::CS8;
+        // Local: no echo, no canonical, no signals, no extended
+        raw.c_lflag &= !(libc::ECHO | libc::ICANON | libc::ISIG | libc::IEXTEN);
+        // Non-blocking reads
+        raw.c_cc[libc::VMIN] = 0;
+        raw.c_cc[libc::VTIME] = 0;
+
+        if libc::tcsetattr(libc::STDIN_FILENO, libc::TCSAFLUSH, &raw) != 0 {
+            tracing::error!("tty_init_terminal: tcsetattr failed");
+            return;
+        }
+    }
+
+    // Enter alternate screen, hide cursor, clear
+    let mut stdout = std::io::stdout();
+    let _ = stdout.write_all(b"\x1b[?1049h\x1b[?25l\x1b[2J");
+    let _ = stdout.flush();
+    tracing::info!("TTY terminal initialized (raw mode + alt screen)");
+}
+
+#[cfg(not(unix))]
+fn tty_init_terminal() {
+    tracing::warn!("tty_init_terminal: not implemented on this platform");
+}
+
+/// Restore the terminal to its original state: show cursor, leave alt screen,
+/// reset SGR, restore saved termios.
+#[cfg(unix)]
+fn tty_shutdown_terminal() {
+    use std::io::Write;
+
+    // Show cursor, reset SGR, leave alternate screen
+    let mut stdout = std::io::stdout();
+    let _ = stdout.write_all(b"\x1b[0m\x1b[?25h\x1b[?1049l");
+    let _ = stdout.flush();
+
+    // Restore termios
+    if let Ok(guard) = TTY_SAVED_TERMIOS.lock() {
+        if let Some(ref original) = *guard {
+            unsafe {
+                let _ = libc::tcsetattr(libc::STDIN_FILENO, libc::TCSAFLUSH, original);
+            }
+        }
+    }
+    tracing::info!("TTY terminal restored");
+}
+
+#[cfg(not(unix))]
+fn tty_shutdown_terminal() {
+    tracing::warn!("tty_shutdown_terminal: not implemented on this platform");
 }
 
 fn run_temacs_dump_mode(dump_mode: LoadupDumpMode, startup: &StartupOptions) {
@@ -1646,23 +1759,40 @@ fn current_layout_frame_id(evaluator: &Context) -> Option<FrameId> {
         .map(|frame| frame.id)
 }
 
+thread_local! {
+    static LAYOUT_ENGINE: std::cell::RefCell<neomacs_display_runtime::layout::LayoutEngine> =
+        std::cell::RefCell::new(neomacs_display_runtime::layout::LayoutEngine::new());
+}
+
 /// Run the layout engine on the selected live frame.
 fn run_layout(evaluator: &mut Context, frame_glyphs: &mut FrameGlyphBuffer) {
-    use neomacs_display_runtime::layout::LayoutEngine;
-
     let Some(frame_id) = current_layout_frame_id(evaluator) else {
         tracing::warn!("run_layout: no selected live frame");
         return;
     };
 
-    thread_local! {
-        static ENGINE: std::cell::RefCell<LayoutEngine> = std::cell::RefCell::new(LayoutEngine::new());
-    }
-
-    ENGINE.with(|engine| {
+    LAYOUT_ENGINE.with(|engine| {
         engine
             .borrow_mut()
             .layout_frame_rust(evaluator, frame_id, frame_glyphs);
+    });
+}
+
+/// After `run_layout` has populated the layout engine's `last_frame_display_state`,
+/// rasterize the display state into a `TtyRif` and write the ANSI output to stdout.
+fn run_tty_rif_redisplay(tty_rif: &mut neomacs_display_protocol::tty_rif::TtyRif) {
+    LAYOUT_ENGINE.with(|engine| {
+        let engine = engine.borrow();
+        if let Some(ref state) = engine.last_frame_display_state {
+            tty_rif.rasterize(state);
+            tty_rif.diff_and_render();
+            let output = tty_rif.take_output();
+            if !output.is_empty() {
+                use std::io::Write;
+                let _ = std::io::stdout().write_all(&output);
+                let _ = std::io::stdout().flush();
+            }
+        }
     });
 }
 

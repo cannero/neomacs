@@ -405,6 +405,79 @@ fn csi_modifier_bits(modifier: u16) -> u32 {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Standalone TTY input reader (for TtyRif single-thread redisplay path)
+// ---------------------------------------------------------------------------
+
+/// A standalone TTY input reader that forwards terminal key events to
+/// `RenderComms` without running a full `TtyFrontend` render loop.
+/// Used by the `-nw` path when rendering goes through `TtyRif` on the
+/// evaluator thread.
+pub struct TtyInputReader {
+    handle: Option<JoinHandle<()>>,
+    stop: Arc<AtomicBool>,
+}
+
+impl TtyInputReader {
+    /// Spawn a background thread that reads terminal input and sends events
+    /// through `comms.send_input()`.
+    pub fn spawn(comms: RenderComms) -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        let input_stop = Arc::clone(&stop);
+        let handle = thread::Builder::new()
+            .name("tty-input-reader".to_string())
+            .spawn(move || {
+                let pause = Arc::new(AtomicBool::new(false));
+                let (tx, rx) = unbounded();
+                let reader_stop = Arc::clone(&input_stop);
+                let reader_pause = Arc::clone(&pause);
+                let reader_handle = thread::Builder::new()
+                    .name("tty-input-raw".to_string())
+                    .spawn(move || read_tty_input(tx, reader_stop, reader_pause))
+                    .ok();
+
+                // Forward raw input events to the RenderComms channel, and
+                // listen for shutdown commands.
+                loop {
+                    select! {
+                        recv(comms.cmd_rx) -> msg => {
+                            match msg {
+                                Ok(RenderCommand::Shutdown) | Err(_) => break,
+                                Ok(_) => {}
+                            }
+                        }
+                        recv(rx) -> msg => {
+                            match msg {
+                                Ok(event) => comms.send_input(event),
+                                Err(_) => break,
+                            }
+                        }
+                        default(Duration::from_millis(50)) => {}
+                    }
+                }
+
+                input_stop.store(true, Ordering::Relaxed);
+                if let Some(h) = reader_handle {
+                    let _ = h.join();
+                }
+            })
+            .expect("Failed to spawn tty-input-reader thread");
+
+        Self {
+            handle: Some(handle),
+            stop,
+        }
+    }
+
+    /// Signal the input reader to stop and wait for it to finish.
+    pub fn join(mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
