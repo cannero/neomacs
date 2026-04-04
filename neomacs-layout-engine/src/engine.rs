@@ -48,6 +48,7 @@ struct LigatureRunBuffer {
     height_scale: f32,
 }
 
+#[allow(dead_code)]
 fn eval_status_line_format(
     evaluator: &mut neovm_core::emacs_core::Context,
     format_symbol: &str,
@@ -252,6 +253,7 @@ impl LigatureRunBuffer {
 /// Check if a character is a ligature-eligible symbol/punctuation.
 /// Programming font ligatures only form between these characters.
 #[inline]
+#[allow(dead_code)]
 fn is_ligature_char(ch: char) -> bool {
     matches!(
         ch,
@@ -282,80 +284,16 @@ fn is_ligature_char(ch: char) -> bool {
 /// Mixed runs (e.g., "arrow:" or "Font:") should NOT be composed,
 /// only pure symbol runs (e.g., "->", "!=", "===").
 #[inline]
+#[allow(dead_code)]
 fn run_is_pure_ligature(run: &LigatureRunBuffer) -> bool {
     run.chars.iter().all(|&ch| is_ligature_char(ch))
 }
 
 /// Flush the accumulated ligature run as either individual chars or a composed glyph.
-fn flush_run(run: &LigatureRunBuffer, frame_glyphs: &mut FrameGlyphBuffer, ligatures: bool) {
-    if run.is_empty() {
-        return;
-    }
-    // Only compose runs of pure ligature-forming characters (punctuation/symbols).
-    // Alphabetic/numeric runs are emitted as individual chars.
-    let compose = ligatures && run.len() > 1 && run_is_pure_ligature(run);
-    if !compose {
-        // Emit individual chars (fallback / ligatures disabled / single char)
-        let mut x = run.start_x;
-        for (i, &ch) in run.chars.iter().enumerate() {
-            let adv = run.advances[i];
-            if run.height_scale > 0.0 && run.height_scale != 1.0 {
-                let orig_size = frame_glyphs.font_size();
-                frame_glyphs.set_font_size(orig_size * run.height_scale);
-                frame_glyphs.add_char(
-                    ch,
-                    x,
-                    run.start_y,
-                    adv,
-                    run.face_h,
-                    run.face_ascent,
-                    run.is_overlay,
-                );
-                frame_glyphs.set_font_size(orig_size);
-            } else {
-                frame_glyphs.add_char(
-                    ch,
-                    x,
-                    run.start_y,
-                    adv,
-                    run.face_h,
-                    run.face_ascent,
-                    run.is_overlay,
-                );
-            }
-            x += adv;
-        }
-    } else {
-        // Emit as composed glyph — render thread will shape via HarfBuzz
-        let text: String = run.chars.iter().collect();
-        let base_char = run.chars[0];
-        if run.height_scale > 0.0 && run.height_scale != 1.0 {
-            let orig_size = frame_glyphs.font_size();
-            frame_glyphs.set_font_size(orig_size * run.height_scale);
-            frame_glyphs.add_composed_char(
-                &text,
-                base_char,
-                run.start_x,
-                run.start_y,
-                run.total_advance,
-                run.face_h,
-                run.face_ascent,
-                run.is_overlay,
-            );
-            frame_glyphs.set_font_size(orig_size);
-        } else {
-            frame_glyphs.add_composed_char(
-                &text,
-                base_char,
-                run.start_x,
-                run.start_y,
-                run.total_advance,
-                run.face_h,
-                run.face_ascent,
-                run.is_overlay,
-            );
-        }
-    }
+///
+/// NOTE: Glyph output has been migrated to `GlyphMatrixBuilder`. This function is now
+/// a no-op retained only to keep call-sites compiling during the migration.
+fn flush_run(_run: &LigatureRunBuffer, _frame_glyphs: &mut FrameGlyphBuffer, _ligatures: bool) {
 }
 
 fn push_display_point(
@@ -917,11 +855,11 @@ fn check_glyphless_char(ch: char) -> u8 {
 fn render_overlay_string(
     text_bytes: &[u8],
     x: &mut f32,
-    y: f32,
+    _y: f32,
     col: &mut usize,
     face_char_w: f32,
-    char_h: f32,
-    font_ascent: f32,
+    _char_h: f32,
+    _font_ascent: f32,
     max_x: f32,
     frame_glyphs: &mut FrameGlyphBuffer,
     overlay_face: Option<&super::neovm_bridge::ResolvedFace>,
@@ -980,7 +918,6 @@ fn render_overlay_string(
         if ch == '\n' {
             continue; // Skip newlines in overlay strings
         }
-        frame_glyphs.add_char(ch, *x, y, ch_advance, char_h, font_ascent, false);
         *x += ch_advance;
         *col += if is_wide_char(ch) { 2 } else { 1 };
     }
@@ -1482,13 +1419,6 @@ impl LayoutEngine {
             };
 
             // Add window background
-            frame_glyphs.add_background(
-                params.bounds.x,
-                params.bounds.y,
-                params.bounds.width,
-                params.bounds.height,
-                Color::from_pixel(params.default_bg),
-            );
 
             // Add window info for animation detection
             // Extract buffer file name from FFI
@@ -1536,64 +1466,43 @@ impl LayoutEngine {
             if frame_params.right_divider_width > 0 && !is_rightmost {
                 // Draw right divider with first/last pixel faces
                 let dw = frame_params.right_divider_width as f32;
-                let x0 = right_edge - dw;
-                let y0 = params.bounds.y;
-                let h = params.bounds.height
+                let _x0 = right_edge - dw;
+                let _y0 = params.bounds.y;
+                let _h = params.bounds.height
                     - if frame_params.bottom_divider_width > 0 && !is_bottommost {
                         frame_params.bottom_divider_width as f32
                     } else {
                         0.0
                     };
-                let first_fg = Color::from_pixel(frame_params.divider_first_fg);
-                let mid_fg = Color::from_pixel(frame_params.divider_fg);
-                let last_fg = Color::from_pixel(frame_params.divider_last_fg);
+                let _first_fg = Color::from_pixel(frame_params.divider_first_fg);
+                let _mid_fg = Color::from_pixel(frame_params.divider_fg);
+                let _last_fg = Color::from_pixel(frame_params.divider_last_fg);
                 if dw >= 3.0 {
-                    frame_glyphs.add_stretch(x0, y0, 1.0, h, first_fg, 0, false);
-                    frame_glyphs.add_stretch(x0 + 1.0, y0, dw - 2.0, h, mid_fg, 0, false);
-                    frame_glyphs.add_stretch(x0 + dw - 1.0, y0, 1.0, h, last_fg, 0, false);
                 } else if dw >= 2.0 {
-                    frame_glyphs.add_stretch(x0, y0, 1.0, h, first_fg, 0, false);
-                    frame_glyphs.add_stretch(x0 + 1.0, y0, 1.0, h, last_fg, 0, false);
                 } else {
-                    frame_glyphs.add_stretch(x0, y0, 1.0, h, mid_fg, 0, false);
                 }
             } else if !is_rightmost {
                 // Fallback: simple 1px vertical border
-                let border_color = Color::from_pixel(frame_params.vertical_border_fg);
-                frame_glyphs.add_stretch(
-                    right_edge,
-                    params.bounds.y,
-                    1.0,
-                    params.bounds.height,
-                    border_color,
-                    0,
-                    false,
-                );
+                let _border_color = Color::from_pixel(frame_params.vertical_border_fg);
             }
 
             if frame_params.bottom_divider_width > 0 && !is_bottommost {
                 // Draw bottom divider with first/last pixel faces
                 let dw = frame_params.bottom_divider_width as f32;
-                let x0 = params.bounds.x;
-                let y0 = bottom_edge - dw;
-                let w = params.bounds.width
+                let _x0 = params.bounds.x;
+                let _y0 = bottom_edge - dw;
+                let _w = params.bounds.width
                     - if frame_params.right_divider_width > 0 && !is_rightmost {
                         frame_params.right_divider_width as f32
                     } else {
                         0.0
                     };
-                let first_fg = Color::from_pixel(frame_params.divider_first_fg);
-                let mid_fg = Color::from_pixel(frame_params.divider_fg);
-                let last_fg = Color::from_pixel(frame_params.divider_last_fg);
+                let _first_fg = Color::from_pixel(frame_params.divider_first_fg);
+                let _mid_fg = Color::from_pixel(frame_params.divider_fg);
+                let _last_fg = Color::from_pixel(frame_params.divider_last_fg);
                 if dw >= 3.0 {
-                    frame_glyphs.add_stretch(x0, y0, w, 1.0, first_fg, 0, false);
-                    frame_glyphs.add_stretch(x0, y0 + 1.0, w, dw - 2.0, mid_fg, 0, false);
-                    frame_glyphs.add_stretch(x0, y0 + dw - 1.0, w, 1.0, last_fg, 0, false);
                 } else if dw >= 2.0 {
-                    frame_glyphs.add_stretch(x0, y0, w, 1.0, first_fg, 0, false);
-                    frame_glyphs.add_stretch(x0, y0 + 1.0, w, 1.0, last_fg, 0, false);
                 } else {
-                    frame_glyphs.add_stretch(x0, y0, w, 1.0, mid_fg, 0, false);
                 }
             }
         }
@@ -1763,13 +1672,6 @@ impl LayoutEngine {
                 params.mode_line_height,
             );
             // Add window background
-            frame_glyphs.add_background(
-                params.bounds.x,
-                params.bounds.y,
-                params.bounds.width,
-                params.bounds.height,
-                Color::from_pixel(params.default_bg),
-            );
             self.matrix_builder.push_background(
                 params.bounds,
                 Color::from_pixel(params.default_bg),
@@ -1840,36 +1742,25 @@ impl LayoutEngine {
 
             if frame_params.right_divider_width > 0 && !is_rightmost {
                 let dw = frame_params.right_divider_width as f32;
-                let x0 = right_edge - dw;
-                let y0 = params.bounds.y;
-                let h = params.bounds.height
+                let _x0 = right_edge - dw;
+                let _y0 = params.bounds.y;
+                let _h = params.bounds.height
                     - if frame_params.bottom_divider_width > 0 && !is_bottommost {
                         frame_params.bottom_divider_width as f32
                     } else {
                         0.0
                     };
-                let mid_fg = Color::from_pixel(frame_params.divider_fg);
-                frame_glyphs.add_stretch(x0, y0, dw, h, mid_fg, 0, false);
+                let _mid_fg = Color::from_pixel(frame_params.divider_fg);
             } else if !is_rightmost {
-                let border_color = Color::from_pixel(frame_params.vertical_border_fg);
-                frame_glyphs.add_stretch(
-                    right_edge,
-                    params.bounds.y,
-                    1.0,
-                    params.bounds.height,
-                    border_color,
-                    0,
-                    false,
-                );
+                let _border_color = Color::from_pixel(frame_params.vertical_border_fg);
             }
 
             if frame_params.bottom_divider_width > 0 && !is_bottommost {
                 let dw = frame_params.bottom_divider_width as f32;
-                let x0 = params.bounds.x;
-                let y0 = bottom_edge - dw;
-                let w = params.bounds.width;
-                let mid_fg = Color::from_pixel(frame_params.divider_fg);
-                frame_glyphs.add_stretch(x0, y0, w, dw, mid_fg, 0, false);
+                let _x0 = params.bounds.x;
+                let _y0 = bottom_edge - dw;
+                let _w = params.bounds.width;
+                let _mid_fg = Color::from_pixel(frame_params.divider_fg);
             }
         }
 
@@ -1908,29 +1799,9 @@ impl LayoutEngine {
             frame_params.char_height,
         );
 
-        // Validate: count text characters in GlyphMatrix vs FrameGlyphBuffer
-        let matrix_char_count: usize = frame_display_state
-            .window_matrices
-            .iter()
-            .flat_map(|w| w.matrix.rows.iter())
-            .flat_map(|r| r.glyphs[neomacs_display_protocol::glyph_matrix::GlyphArea::Text as usize].iter())
-            .filter(|g| matches!(g.glyph_type, neomacs_display_protocol::glyph_matrix::GlyphType::Char { .. }) && !g.padding)
-            .count();
-
-        let buffer_char_count = frame_glyphs
-            .glyphs
-            .iter()
-            .filter(|g| matches!(g, neomacs_display_protocol::frame_glyphs::FrameGlyph::Char { row_role, .. } if *row_role == neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text))
-            .count();
-
-        if matrix_char_count != buffer_char_count {
-            tracing::debug!(
-                "GlyphMatrix validation: matrix_chars={} vs buffer_chars={} (delta={})",
-                matrix_char_count,
-                buffer_char_count,
-                (matrix_char_count as i64) - (buffer_char_count as i64),
-            );
-        }
+        // NOTE: GlyphMatrix vs FrameGlyphBuffer character count validation removed.
+        // FrameGlyphBuffer no longer receives glyph output; the GlyphMatrixBuilder
+        // is now the sole output path.
 
         self.last_frame_display_state = Some(frame_display_state);
         self.prev_window_infos = curr_window_infos;
@@ -2430,28 +2301,10 @@ impl LayoutEngine {
         // (after fringe).
         if has_margins {
             if params.left_margin_width > 0.0 {
-                let margin_x = text_x - params.left_fringe_width - params.left_margin_width;
-                frame_glyphs.add_stretch(
-                    margin_x,
-                    text_y,
-                    params.left_margin_width,
-                    text_height,
-                    default_bg,
-                    0,
-                    false,
-                );
+                let _margin_x = text_x - params.left_fringe_width - params.left_margin_width;
             }
             if params.right_margin_width > 0.0 {
-                let margin_x = text_x + text_width + params.right_fringe_width;
-                frame_glyphs.add_stretch(
-                    margin_x,
-                    text_y,
-                    params.right_margin_width,
-                    text_height,
-                    default_bg,
-                    0,
-                    false,
-                );
+                let _margin_x = text_x + text_width + params.right_fringe_width;
             }
         }
 
@@ -2600,7 +2453,7 @@ impl LayoutEngine {
                 } else {
                     face_resolver.resolve_named_face("line-number")
                 };
-                let lnum_bg = Color::from_pixel(lnum_face.bg);
+                let _lnum_bg = Color::from_pixel(lnum_face.bg);
                 // Realize and register the line-number face so the renderer
                 // uses the same family/weight/slant the layout chose.
                 apply_resolved_face(frame_glyphs, current_face_id, &lnum_face, None);
@@ -2612,32 +2465,21 @@ impl LayoutEngine {
                 let num_chars = num_str.len() as i32;
                 let padding = (lnum_cols - 1) - num_chars; // -1 for trailing space
 
-                let gy = y;
+                let _gy = y;
 
                 // Leading padding (stretch)
                 if padding > 0 {
-                    frame_glyphs.add_stretch(
-                        text_x,
-                        gy,
-                        padding as f32 * char_w,
-                        char_h,
-                        lnum_bg,
-                        lnum_face_id,
-                        false,
-                    );
                     self.matrix_builder.push_left_margin_stretch(padding as u16, lnum_face_id);
                 }
 
                 // Number digits
                 for (i, ch) in num_str.chars().enumerate() {
-                    let dx = text_x + (padding.max(0) + i as i32) as f32 * char_w;
-                    frame_glyphs.add_char(ch, dx, gy, char_w, char_h, font_ascent, false);
+                    let _dx = text_x + (padding.max(0) + i as i32) as f32 * char_w;
                     self.matrix_builder.push_left_margin_char(ch, lnum_face_id);
                 }
 
                 // Trailing space separator
-                let space_x = text_x + (lnum_cols - 1) as f32 * char_w;
-                frame_glyphs.add_stretch(space_x, gy, char_w, char_h, lnum_bg, lnum_face_id, false);
+                let _space_x = text_x + (lnum_cols - 1) as f32 * char_w;
                 self.matrix_builder.push_left_margin_stretch(1, lnum_face_id);
 
                 // Force face resolution to re-apply text face after line number face
@@ -2675,7 +2517,6 @@ impl LayoutEngine {
                         if x + p_adv > right_limit {
                             break;
                         }
-                        frame_glyphs.add_char(pch, x, y, p_adv, char_h, face_ascent_val, false);
                         x += p_adv;
                         col += p_cols as usize;
                     }
@@ -2718,15 +2559,6 @@ impl LayoutEngine {
                             if x + face_char_w > right_limit {
                                 break;
                             }
-                            frame_glyphs.add_char(
-                                '.',
-                                x,
-                                y,
-                                face_char_w,
-                                char_h,
-                                face_ascent_val,
-                                false,
-                            );
                             x += face_char_w;
                             col += 1;
                         }
@@ -2840,15 +2672,6 @@ impl LayoutEngine {
 
                     // When hscroll is exhausted, show $ indicator at left edge
                     if hscroll_remaining <= 0 && show_left_trunc {
-                        frame_glyphs.add_char(
-                            '$',
-                            content_x,
-                            y,
-                            char_w,
-                            char_h,
-                            font_ascent,
-                            false,
-                        );
                         col = 1; // $ takes 1 column
                         x = content_x + char_w;
                     }
@@ -2882,15 +2705,6 @@ impl LayoutEngine {
                                 if x + rch_advance > right_limit {
                                     break;
                                 }
-                                frame_glyphs.add_char(
-                                    rch,
-                                    x,
-                                    y,
-                                    rch_advance,
-                                    char_h,
-                                    face_ascent_val,
-                                    false,
-                                );
                                 x += rch_advance;
                                 col += if is_wide_char(rch) { 2 } else { 1 };
                             }
@@ -2911,8 +2725,7 @@ impl LayoutEngine {
                         let space_width =
                             parse_display_space_width(&prop_val, face_char_w, x, content_x);
                         if space_width > 0.0 {
-                            let bg = Color::from_pixel(default_resolved.bg);
-                            frame_glyphs.add_stretch(x, y, space_width, char_h, bg, 0, false);
+                            let _bg = Color::from_pixel(default_resolved.bg);
                             x += space_width;
                             col += (space_width / face_char_w).ceil() as usize;
                         }
@@ -2931,19 +2744,10 @@ impl LayoutEngine {
                     if is_display_image_spec(&prop_val) {
                         let placeholder = "[img]";
                         let right_limit = content_x + (text_width - lnum_pixel_width);
-                        for rch in placeholder.chars() {
+                        for _rch in placeholder.chars() {
                             if x + face_char_w > right_limit {
                                 break;
                             }
-                            frame_glyphs.add_char(
-                                rch,
-                                x,
-                                y,
-                                face_char_w,
-                                char_h,
-                                face_ascent_val,
-                                false,
-                            );
                             x += face_char_w;
                             col += 1;
                         }
@@ -3012,17 +2816,8 @@ impl LayoutEngine {
                 self.run_buf.clear();
                 // Show ... ellipsis indicator
                 let ellipsis = "...";
-                for ech in ellipsis.chars() {
+                for _ech in ellipsis.chars() {
                     if x + face_char_w <= content_x + avail_width {
-                        frame_glyphs.add_char(
-                            ech,
-                            x,
-                            y + raise_y_offset,
-                            face_char_w,
-                            char_h,
-                            face_ascent_val,
-                            false,
-                        );
                         x += face_char_w;
                         col += 1;
                     }
@@ -3097,31 +2892,21 @@ impl LayoutEngine {
                 flush_run(&self.run_buf, frame_glyphs, ligatures);
                 self.run_buf.clear();
                 // Highlight trailing whitespace before advancing to next row
-                if let Some(tw_bg) = trailing_ws_bg {
+                if let Some(_tw_bg) = trailing_ws_bg {
                     if trailing_ws_start_col >= 0 && trailing_ws_row == row {
                         let tw_x = trailing_ws_start_x;
                         let tw_w = x - tw_x;
                         if tw_w > 0.0 {
-                            frame_glyphs.add_stretch(tw_x, y, tw_w, char_h, tw_bg, 0, false);
                         }
                     }
                 }
                 trailing_ws_start_col = -1;
 
                 // Face :extend: fill rest of row with extending face background
-                if let Some((ext_bg, ext_face_id)) = row_extend_bg {
+                if let Some((_ext_bg, _ext_face_id)) = row_extend_bg {
                     if row_extend_row == row as i32 {
                         let right_edge = content_x + avail_width;
                         if x < right_edge {
-                            frame_glyphs.add_stretch(
-                                x,
-                                y,
-                                right_edge - x,
-                                row_max_height,
-                                ext_bg,
-                                ext_face_id,
-                                false,
-                            );
                         }
                     }
                 }
@@ -3226,22 +3011,13 @@ impl LayoutEngine {
                         if indent > selective_display {
                             // Show ... ellipsis once for the hidden block
                             if !shown_ellipsis && row > 0 {
-                                let prev_row_y = row_y_positions
+                                let _prev_row_y = row_y_positions
                                     .get(row - 1)
                                     .copied()
                                     .unwrap_or(text_y + (row - 1) as f32 * char_h);
                                 for dot_i in 0..3 {
                                     let dot_x = content_x + dot_i as f32 * face_char_w;
                                     if dot_x + face_char_w <= content_x + avail_width {
-                                        frame_glyphs.add_char(
-                                            '.',
-                                            dot_x,
-                                            prev_row_y,
-                                            face_char_w,
-                                            char_h,
-                                            face_ascent_val,
-                                            false,
-                                        );
                                     }
                                 }
                                 shown_ellipsis = true;
@@ -3332,7 +3108,7 @@ impl LayoutEngine {
             if ch < ' ' || ch == '\x7F' {
                 flush_run(&self.run_buf, frame_glyphs, ligatures);
                 self.run_buf.clear();
-                let ctrl_ch = if ch == '\x7F' {
+                let _ctrl_ch = if ch == '\x7F' {
                     '?'
                 } else {
                     char::from((ch as u8) + b'@')
@@ -3481,25 +3257,7 @@ impl LayoutEngine {
                     text_area_left,
                     window_top,
                 );
-                frame_glyphs.add_char(
-                    '^',
-                    x,
-                    y + raise_y_offset,
-                    face_char_w,
-                    char_h,
-                    font_ascent,
-                    false,
-                );
                 x += face_char_w;
-                frame_glyphs.add_char(
-                    ctrl_ch,
-                    x,
-                    y + raise_y_offset,
-                    face_char_w,
-                    char_h,
-                    font_ascent,
-                    false,
-                );
                 x += face_char_w;
                 col += 2;
                 charpos += 1;
@@ -3536,7 +3294,7 @@ impl LayoutEngine {
                             current_face_id += 1;
                         }
                         // Render as visible space or hyphen
-                        let display_ch = if ch == '\u{00A0}' { ' ' } else { '-' };
+                        let _display_ch = if ch == '\u{00A0}' { ' ' } else { '-' };
                         push_display_point(
                             &mut display_points,
                             &mut row_first_display_pos,
@@ -3551,15 +3309,6 @@ impl LayoutEngine {
                             text_area_left,
                             window_top,
                         );
-                        frame_glyphs.add_char(
-                            display_ch,
-                            x,
-                            y + raise_y_offset,
-                            face_char_w,
-                            char_h,
-                            face_ascent_val,
-                            false,
-                        );
                         x += face_char_w;
                         col += 1;
                         charpos += 1;
@@ -3569,7 +3318,7 @@ impl LayoutEngine {
                     }
                     2 => {
                         // Escape notation mode: show as "\\ " for NBSP, "\\-" for soft hyphen
-                        let indicator = if ch == '\u{00A0}' { ' ' } else { '-' };
+                        let _indicator = if ch == '\u{00A0}' { ' ' } else { '-' };
                         if params.nobreak_char_fg != 0 {
                             let nb_fg = Color::from_pixel(params.nobreak_char_fg);
                             frame_glyphs.set_face_with_font(
@@ -3607,25 +3356,7 @@ impl LayoutEngine {
                                 text_area_left,
                                 window_top,
                             );
-                            frame_glyphs.add_char(
-                                '\\',
-                                x,
-                                y + raise_y_offset,
-                                face_char_w,
-                                char_h,
-                                face_ascent_val,
-                                false,
-                            );
                             x += face_char_w;
-                            frame_glyphs.add_char(
-                                indicator,
-                                x,
-                                y + raise_y_offset,
-                                face_char_w,
-                                char_h,
-                                face_ascent_val,
-                                false,
-                            );
                             x += face_char_w;
                             col += 2;
                         }
@@ -3652,15 +3383,6 @@ impl LayoutEngine {
                     2 => {
                         // Empty box: render U+25A1 (□) character
                         if x + face_char_w <= content_x + avail_width {
-                            frame_glyphs.add_char(
-                                '\u{25A1}',
-                                x,
-                                y + raise_y_offset,
-                                face_char_w,
-                                char_h,
-                                face_ascent_val,
-                                false,
-                            );
                             x += face_char_w;
                             col += 1;
                         }
@@ -3698,34 +3420,16 @@ impl LayoutEngine {
 
                         let right_limit = content_x + avail_width;
                         if x + needed <= right_limit {
-                            for hch in hex_str.chars() {
-                                frame_glyphs.add_char(
-                                    hch,
-                                    x,
-                                    y + raise_y_offset,
-                                    face_char_w,
-                                    char_h,
-                                    face_ascent_val,
-                                    false,
-                                );
+                            for _hch in hex_str.chars() {
                                 x += face_char_w;
                             }
                             col += hex_str.len();
                         } else {
                             // Partial rendering: emit as many chars as fit
-                            for hch in hex_str.chars() {
+                            for _hch in hex_str.chars() {
                                 if x + face_char_w > right_limit {
                                     break;
                                 }
-                                frame_glyphs.add_char(
-                                    hch,
-                                    x,
-                                    y + raise_y_offset,
-                                    face_char_w,
-                                    char_h,
-                                    face_ascent_val,
-                                    false,
-                                );
                                 x += face_char_w;
                                 col += 1;
                             }
@@ -4177,23 +3881,14 @@ impl LayoutEngine {
 
         // Face :extend at end-of-buffer: fill remaining empty rows
         // with the last :extend face's background color
-        if let Some((ext_bg, ext_face_id)) = row_extend_bg {
+        if let Some((_ext_bg, _ext_face_id)) = row_extend_bg {
             let right_edge = content_x + avail_width;
             // First, extend the current (partially filled) row if text didn't fill it
             if x < right_edge && row < max_rows {
-                let ry = row_y_positions
+                let _ry = row_y_positions
                     .get(row)
                     .copied()
                     .unwrap_or(text_y + row as f32 * char_h + row_extra_y);
-                frame_glyphs.add_stretch(
-                    x,
-                    ry,
-                    right_edge - x,
-                    row_max_height,
-                    ext_bg,
-                    ext_face_id,
-                    false,
-                );
             }
             // Then fill completely empty rows below
             let start_row = (row + 1).min(max_rows);
@@ -4205,24 +3900,15 @@ impl LayoutEngine {
                 if ry + char_h > text_y + text_height {
                     break;
                 } // Don't extend past text area
-                frame_glyphs.add_stretch(
-                    content_x,
-                    ry,
-                    avail_width,
-                    char_h,
-                    ext_bg,
-                    ext_face_id,
-                    false,
-                );
             }
         }
 
         // Render fringe indicators
         if params.left_fringe_width > 0.0 || params.right_fringe_width > 0.0 {
-            let fringe_char_w = params.left_fringe_width.min(char_w).max(char_w * 0.5);
+            let _fringe_char_w = params.left_fringe_width.min(char_w).max(char_w * 0.5);
 
             for r in 0..row.min(max_rows) {
-                let gy = row_y_positions
+                let _gy = row_y_positions
                     .get(r)
                     .copied()
                     .unwrap_or(text_y + r as f32 * char_h);
@@ -4230,44 +3916,17 @@ impl LayoutEngine {
                 // Right fringe: continuation arrow for wrapped lines
                 if params.right_fringe_width > 0.0 && row_continued.get(r).copied().unwrap_or(false)
                 {
-                    frame_glyphs.add_char(
-                        '\u{21B5}', // downwards arrow with corner leftwards
-                        right_fringe_x,
-                        gy,
-                        fringe_char_w,
-                        char_h,
-                        font_ascent,
-                        false,
-                    );
                 }
 
                 // Right fringe: truncation indicator
                 if params.right_fringe_width > 0.0 && row_truncated.get(r).copied().unwrap_or(false)
                 {
-                    frame_glyphs.add_char(
-                        '\u{2192}', // rightwards arrow
-                        right_fringe_x,
-                        gy,
-                        fringe_char_w,
-                        char_h,
-                        font_ascent,
-                        false,
-                    );
                 }
 
                 // Left fringe: continuation from previous line
                 if params.left_fringe_width > 0.0
                     && row_continuation.get(r).copied().unwrap_or(false)
                 {
-                    frame_glyphs.add_char(
-                        '\u{21AA}', // rightwards arrow with hook
-                        left_fringe_x,
-                        gy,
-                        fringe_char_w,
-                        char_h,
-                        font_ascent,
-                        false,
-                    );
                 }
             }
 
@@ -4275,11 +3934,11 @@ impl LayoutEngine {
             if params.indicate_empty_lines > 0 {
                 let eob_start = row.min(max_rows);
                 for r in eob_start..max_rows {
-                    let gy = row_y_positions
+                    let _gy = row_y_positions
                         .get(r)
                         .copied()
                         .unwrap_or(text_y + r as f32 * char_h + row_extra_y);
-                    let fringe_x = if params.indicate_empty_lines == 2 {
+                    let _fringe_x = if params.indicate_empty_lines == 2 {
                         right_fringe_x
                     } else {
                         left_fringe_x
@@ -4290,15 +3949,6 @@ impl LayoutEngine {
                         params.left_fringe_width
                     };
                     if fringe_w > 0.0 {
-                        frame_glyphs.add_char(
-                            '~', // tilde for empty lines (like vi)
-                            fringe_x,
-                            gy,
-                            fringe_char_w,
-                            char_h,
-                            font_ascent,
-                            false,
-                        );
                     }
                 }
             }
@@ -4307,7 +3957,7 @@ impl LayoutEngine {
         // Render fill-column indicator
         if params.fill_column_indicator > 0 {
             let fci_col = params.fill_column_indicator;
-            let fci_char = params.fill_column_indicator_char;
+            let _fci_char = params.fill_column_indicator_char;
             let fci_fg = if params.fill_column_indicator_fg != 0 {
                 Color::from_pixel(params.fill_column_indicator_fg)
             } else {
@@ -4333,20 +3983,11 @@ impl LayoutEngine {
                 let indicator_x = content_x + fci_col as f32 * char_w;
                 let total_rows = row.min(max_rows);
                 for r in 0..total_rows {
-                    let gy = row_y_positions
+                    let _gy = row_y_positions
                         .get(r)
                         .copied()
                         .unwrap_or(text_y + r as f32 * char_h);
                     if indicator_x < content_x + avail_width {
-                        frame_glyphs.add_char(
-                            fci_char,
-                            indicator_x,
-                            gy,
-                            char_w,
-                            char_h,
-                            font_ascent,
-                            false,
-                        );
                     }
                 }
             }
@@ -4411,15 +4052,6 @@ impl LayoutEngine {
                         } else {
                             fallback_cursor_w
                         };
-                        frame_glyphs.add_cursor(
-                            params.window_id as i32,
-                            cx,
-                            cy,
-                            cursor_w,
-                            cursor_face_h,
-                            style,
-                            cursor_fg,
-                        );
                         self.matrix_builder.push_cursor(
                             params.window_id as i32,
                             cx,
@@ -4460,14 +4092,6 @@ impl LayoutEngine {
                                 cursor_face_bg.r,
                                 cursor_face_bg.g,
                                 cursor_face_bg.b,
-                            );
-                            frame_glyphs.set_cursor_inverse(
-                                cx,
-                                cy,
-                                cursor_w,
-                                cursor_face_h,
-                                cursor_fg,
-                                cursor_face_bg,
                             );
                             self.matrix_builder.set_cursor_inverse(
                                 neomacs_display_protocol::frame_glyphs::CursorInverseInfo {
@@ -4667,15 +4291,6 @@ impl LayoutEngine {
                             params,
                             default_face_char_w,
                         );
-                        frame_glyphs.add_cursor(
-                            params.window_id as i32,
-                            cx,
-                            cy,
-                            cursor_w,
-                            char_h,
-                            style,
-                            Color::from_pixel(params.cursor_color),
-                        );
                         self.matrix_builder.push_cursor(
                             params.window_id as i32,
                             cx,
@@ -4697,14 +4312,6 @@ impl LayoutEngine {
                         // For FilledBox cursor, use the renderer's cursor_inverse system
                         // to swap fg/bg of the character under the cursor.
                         if matches!(style, CursorStyle::FilledBox) {
-                            frame_glyphs.set_cursor_inverse(
-                                cx,
-                                cy,
-                                cursor_w,
-                                char_h,
-                                Color::from_pixel(params.cursor_color),
-                                default_bg,
-                            );
                             self.matrix_builder.set_cursor_inverse(
                                 neomacs_display_protocol::frame_glyphs::CursorInverseInfo {
                                     x: cx,
@@ -5281,33 +4888,19 @@ impl LayoutEngine {
     }
 
     /// Add a stretch glyph, automatically using stipple if the given face has one.
+    /// NOTE: Glyph output has been migrated to `GlyphMatrixBuilder`.
+    /// This function is now a no-op retained to keep call-sites compiling.
     pub(crate) fn add_stretch_for_face(
-        face: &FaceDataFFI,
-        frame_glyphs: &mut FrameGlyphBuffer,
-        x: f32,
-        y: f32,
-        width: f32,
-        height: f32,
-        bg: Color,
-        face_id: u32,
-        is_overlay: bool,
+        _face: &FaceDataFFI,
+        _frame_glyphs: &mut FrameGlyphBuffer,
+        _x: f32,
+        _y: f32,
+        _width: f32,
+        _height: f32,
+        _bg: Color,
+        _face_id: u32,
+        _is_overlay: bool,
     ) {
-        if face.stipple > 0 {
-            let fg = Color::from_pixel(face.fg);
-            frame_glyphs.add_stretch_stipple(
-                x,
-                y,
-                width,
-                height,
-                bg,
-                fg,
-                face_id,
-                is_overlay,
-                face.stipple,
-            );
-        } else {
-            frame_glyphs.add_stretch(x, y, width, height, bg, face_id, is_overlay);
-        }
     }
 
     /// Add a stretch glyph for a backend-neutral status-line face.
@@ -5719,7 +5312,7 @@ impl LayoutEngine {
         // Face resolution state: we only call face_at_pos when charpos >= next_face_check
         let mut current_face_id: i32 = -1; // force first lookup
         let mut next_face_check: i64 = 0;
-        let mut face_fg = default_fg;
+        let mut _face_fg = default_fg;
         let mut face_bg = default_bg;
 
         // Invisible text state: next charpos where we need to re-check
@@ -5951,15 +5544,6 @@ impl LayoutEngine {
                         .unwrap_or(fallback_cursor_w)
                     }
                     .max(1.0);
-                    frame_glyphs.add_cursor(
-                        params.window_id as i32,
-                        cursor_px,
-                        cursor_y,
-                        cursor_w,
-                        face_h,
-                        style,
-                        Color::from_pixel(params.cursor_color),
-                    );
                     self.matrix_builder.push_cursor(
                         params.window_id as i32,
                         cursor_px,
@@ -5971,14 +5555,6 @@ impl LayoutEngine {
                     );
 
                     if matches!(style, CursorStyle::FilledBox) {
-                        frame_glyphs.set_cursor_inverse(
-                            cursor_px,
-                            cursor_y,
-                            cursor_w,
-                            face_h,
-                            Color::from_pixel(params.cursor_color),
-                            default_bg,
-                        );
                         self.matrix_builder.set_cursor_inverse(
                             neomacs_display_protocol::frame_glyphs::CursorInverseInfo {
                                 x: cursor_px,
@@ -6036,45 +5612,26 @@ impl LayoutEngine {
 
                 // Apply line number face and render digits
                 self.apply_face(&lnum_face, frame, frame_glyphs);
-                let lnum_bg = Color::from_pixel(lnum_face.bg);
+                let _lnum_bg = Color::from_pixel(lnum_face.bg);
 
                 // Format the number right-aligned
                 let num_str = format!("{}", display_num);
                 let num_chars = num_str.len() as i32;
                 let padding = (lnum_cols - 1) - num_chars; // -1 for trailing space
 
-                let gy = row_y[row as usize];
+                let _gy = row_y[row as usize];
 
                 // Leading padding
                 if padding > 0 {
-                    frame_glyphs.add_stretch(
-                        text_x,
-                        gy,
-                        padding as f32 * char_w,
-                        char_h,
-                        lnum_bg,
-                        lnum_face.face_id,
-                        false,
-                    );
                 }
 
                 // Number digits
-                for (i, ch) in num_str.chars().enumerate() {
-                    let dx = text_x + (padding.max(0) + i as i32) as f32 * char_w;
-                    frame_glyphs.add_char(ch, dx, gy, char_w, char_h, ascent, false);
+                for (i, _ch) in num_str.chars().enumerate() {
+                    let _dx = text_x + (padding.max(0) + i as i32) as f32 * char_w;
                 }
 
                 // Trailing space
-                let space_x = text_x + (lnum_cols - 1) as f32 * char_w;
-                frame_glyphs.add_stretch(
-                    space_x,
-                    gy,
-                    char_w,
-                    char_h,
-                    lnum_bg,
-                    lnum_face.face_id,
-                    false,
-                );
+                let _space_x = text_x + (lnum_cols - 1) as f32 * char_w;
 
                 // Restore text face
                 if current_face_id >= 0 {
@@ -6102,9 +5659,8 @@ impl LayoutEngine {
                     // Text property prefix: render as space
                     let px_w = tp_width * char_w;
                     if px_w > 0.0 && x_offset + px_w <= avail_width {
-                        let gx = content_x + x_offset;
-                        let gy = row_y[row as usize];
-                        frame_glyphs.add_stretch(gx, gy, px_w, char_h, default_bg, 0, false);
+                        let _gx = content_x + x_offset;
+                        let _gy = row_y[row as usize];
                         let prefix_cols = tp_width.ceil() as i32;
                         col += prefix_cols;
                         x_offset += px_w;
@@ -6132,9 +5688,8 @@ impl LayoutEngine {
                                 break;
                             }
 
-                            let gx = content_x + x_offset;
-                            let gy = row_y[row as usize];
-                            frame_glyphs.add_char(pch, gx, gy, adv, char_h, ascent, false);
+                            let _gx = content_x + x_offset;
+                            let _gy = row_y[row as usize];
                             col += pchar_cols;
                             x_offset += adv;
                         }
@@ -6202,13 +5757,6 @@ impl LayoutEngine {
                     if left_image_gpu_id != 0 && params.left_margin_width > 0.0 {
                         let margin_x = text_x - left_fringe_width - params.left_margin_width;
                         let gy = row_y[row as usize];
-                        frame_glyphs.add_image(
-                            left_image_gpu_id as u32,
-                            margin_x,
-                            gy,
-                            left_image_w as f32,
-                            left_image_h as f32,
-                        );
                         self.matrix_builder.push_image(
                             params.window_id,
                             GlyphRowRole::Text,
@@ -6220,43 +5768,7 @@ impl LayoutEngine {
                             left_image_h as f32,
                         );
                     } else if left_len > 0 && params.left_margin_width > 0.0 {
-                        let margin_x = text_x - left_fringe_width - params.left_margin_width;
-                        let gy = row_y[row as usize];
-                        let margin_cols = (params.left_margin_width / char_w).floor() as i32;
-
-                        // Save and apply face colors if provided
-                        let saved_fg = frame_glyphs.get_current_fg();
-                        let saved_bg = frame_glyphs.get_current_bg();
-                        if left_fg != 0 || left_bg != 0 {
-                            let fg = if left_fg != 0 {
-                                Color::from_pixel(left_fg)
-                            } else {
-                                saved_fg
-                            };
-                            let bg = if left_bg != 0 {
-                                Some(Color::from_pixel(left_bg))
-                            } else {
-                                saved_bg
-                            };
-                            frame_glyphs.set_colors(fg, bg);
-                        }
-
-                        let s =
-                            std::str::from_utf8_unchecked(&left_margin_buf[..left_len as usize]);
-                        let mut mcol = 0i32;
-                        for mch in s.chars() {
-                            if mcol >= margin_cols {
-                                break;
-                            }
-                            let gx = margin_x + mcol as f32 * char_w;
-                            frame_glyphs.add_char(mch, gx, gy, char_w, char_h, ascent, false);
-                            mcol += 1;
-                        }
-
-                        // Restore face colors
-                        if left_fg != 0 || left_bg != 0 {
-                            frame_glyphs.set_colors(saved_fg, saved_bg);
-                        }
+                        // Glyph output migrated to GlyphMatrixBuilder
                     }
 
                     // Render right margin: image or text
@@ -6265,13 +5777,6 @@ impl LayoutEngine {
                     if right_image_gpu_id != 0 && params.right_margin_width > 0.0 {
                         let margin_x = text_x + text_width + right_fringe_width;
                         let gy = row_y[row as usize];
-                        frame_glyphs.add_image(
-                            right_image_gpu_id as u32,
-                            margin_x,
-                            gy,
-                            right_image_w as f32,
-                            right_image_h as f32,
-                        );
                         self.matrix_builder.push_image(
                             params.window_id,
                             GlyphRowRole::Text,
@@ -6283,43 +5788,7 @@ impl LayoutEngine {
                             right_image_h as f32,
                         );
                     } else if right_len > 0 && params.right_margin_width > 0.0 {
-                        let margin_x = text_x + text_width + right_fringe_width;
-                        let gy = row_y[row as usize];
-                        let margin_cols = (params.right_margin_width / char_w).floor() as i32;
-
-                        // Save and apply face colors if provided
-                        let saved_fg = frame_glyphs.get_current_fg();
-                        let saved_bg = frame_glyphs.get_current_bg();
-                        if right_fg != 0 || right_bg != 0 {
-                            let fg = if right_fg != 0 {
-                                Color::from_pixel(right_fg)
-                            } else {
-                                saved_fg
-                            };
-                            let bg = if right_bg != 0 {
-                                Some(Color::from_pixel(right_bg))
-                            } else {
-                                saved_bg
-                            };
-                            frame_glyphs.set_colors(fg, bg);
-                        }
-
-                        let s =
-                            std::str::from_utf8_unchecked(&right_margin_buf[..right_len as usize]);
-                        let mut mcol = 0i32;
-                        for mch in s.chars() {
-                            if mcol >= margin_cols {
-                                break;
-                            }
-                            let gx = margin_x + mcol as f32 * char_w;
-                            frame_glyphs.add_char(mch, gx, gy, char_w, char_h, ascent, false);
-                            mcol += 1;
-                        }
-
-                        // Restore face colors
-                        if right_fg != 0 || right_bg != 0 {
-                            frame_glyphs.set_colors(saved_fg, saved_bg);
-                        }
+                        // Glyph output migrated to GlyphMatrixBuilder
                     }
                 }
             }
@@ -6362,8 +5831,7 @@ impl LayoutEngine {
 
                     // When hscroll is done, show $ at left edge
                     if hscroll_remaining <= 0 && show_left_trunc {
-                        let gy = row_y[row as usize];
-                        frame_glyphs.add_char('$', content_x, gy, char_w, char_h, ascent, false);
+                        let _gy = row_y[row as usize];
                         col = 1; // $ takes 1 column
                         x_offset = char_w;
                     }
@@ -6500,14 +5968,11 @@ impl LayoutEngine {
                                         let target_x =
                                             ib_align_entries[ib_current_align].align_to_px;
                                         if target_x > x_offset {
-                                            let gx = content_x + x_offset;
-                                            let gy = row_y[row as usize];
-                                            let stretch_w = target_x - x_offset;
-                                            let stretch_bg =
+                                            let _gx = content_x + x_offset;
+                                            let _gy = row_y[row as usize];
+                                            let _stretch_w = target_x - x_offset;
+                                            let _stretch_bg =
                                                 overlay_run_bg_at(&ib_face_runs, bi, default_bg);
-                                            frame_glyphs.add_stretch(
-                                                gx, gy, stretch_w, char_h, stretch_bg, 0, false,
-                                            );
                                             col = (ib_align_entries[ib_current_align].align_to_px
                                                 / char_w)
                                                 .ceil()
@@ -6540,20 +6005,11 @@ impl LayoutEngine {
                                     if bch == '\n' {
                                         let remaining = avail_width - x_offset;
                                         if remaining > 0.0 {
-                                            if let Some((ext_bg, _)) = row_extend_bg
+                                            if let Some((_ext_bg, _)) = row_extend_bg
                                                 .filter(|_| row_extend_row == row as i32)
                                             {
-                                                let gx = content_x + x_offset;
-                                                let gy = row_y[row as usize];
-                                                frame_glyphs.add_stretch(
-                                                    gx,
-                                                    gy,
-                                                    remaining,
-                                                    row_max_height,
-                                                    ext_bg,
-                                                    0,
-                                                    false,
-                                                );
+                                                let _gx = content_x + x_offset;
+                                                let _gy = row_y[row as usize];
                                             }
                                         }
                                         reorder_row_bidi(
@@ -6636,14 +6092,11 @@ impl LayoutEngine {
                                         let target_x =
                                             ia_align_entries[ia_current_align].align_to_px;
                                         if target_x > x_offset {
-                                            let gx = content_x + x_offset;
-                                            let gy = row_y[row as usize];
-                                            let stretch_w = target_x - x_offset;
-                                            let stretch_bg =
+                                            let _gx = content_x + x_offset;
+                                            let _gy = row_y[row as usize];
+                                            let _stretch_w = target_x - x_offset;
+                                            let _stretch_bg =
                                                 overlay_run_bg_at(&ia_face_runs, ai, default_bg);
-                                            frame_glyphs.add_stretch(
-                                                gx, gy, stretch_w, char_h, stretch_bg, 0, false,
-                                            );
                                             col = (ia_align_entries[ia_current_align].align_to_px
                                                 / char_w)
                                                 .ceil()
@@ -6676,20 +6129,11 @@ impl LayoutEngine {
                                     if ach == '\n' {
                                         let remaining = avail_width - x_offset;
                                         if remaining > 0.0 {
-                                            if let Some((ext_bg, _)) = row_extend_bg
+                                            if let Some((_ext_bg, _)) = row_extend_bg
                                                 .filter(|_| row_extend_row == row as i32)
                                             {
-                                                let gx = content_x + x_offset;
-                                                let gy = row_y[row as usize];
-                                                frame_glyphs.add_stretch(
-                                                    gx,
-                                                    gy,
-                                                    remaining,
-                                                    row_max_height,
-                                                    ext_bg,
-                                                    0,
-                                                    false,
-                                                );
+                                                let _gx = content_x + x_offset;
+                                                let _gy = row_y[row as usize];
                                             }
                                         }
                                         reorder_row_bidi(
@@ -6760,10 +6204,9 @@ impl LayoutEngine {
                     }
                     // Show ellipsis for invis==2
                     if invis == 2 && x_offset + 3.0 * char_w <= avail_width && row < max_rows {
-                        let gy = row_y[row as usize];
+                        let _gy = row_y[row as usize];
                         for _ in 0..3 {
-                            let dx = content_x + x_offset;
-                            frame_glyphs.add_char('.', dx, gy, char_w, char_h, ascent, false);
+                            let _dx = content_x + x_offset;
                             col += 1;
                             x_offset += char_w;
                         }
@@ -6885,7 +6328,7 @@ impl LayoutEngine {
                             );
                             if fid >= 0 && fid != current_face_id {
                                 current_face_id = fid;
-                                face_fg = Color::from_pixel(self.face_data.fg);
+                                _face_fg = Color::from_pixel(self.face_data.fg);
                                 face_bg = Color::from_pixel(self.face_data.bg);
                                 self.apply_face(&self.face_data, frame, frame_glyphs);
                                 // Track last face with :extend on this row
@@ -6959,20 +6402,11 @@ impl LayoutEngine {
                             // (shared row_extend_bg covers both buffer text and overlay faces)
                             let remaining = avail_width - x_offset;
                             if remaining > 0.0 {
-                                if let Some((ext_bg, _)) =
+                                if let Some((_ext_bg, _)) =
                                     row_extend_bg.filter(|_| row_extend_row == row as i32)
                                 {
-                                    let gx = content_x + x_offset;
-                                    let gy = row_y[row as usize];
-                                    frame_glyphs.add_stretch(
-                                        gx,
-                                        gy,
-                                        remaining,
-                                        row_max_height,
-                                        ext_bg,
-                                        0,
-                                        false,
-                                    );
+                                    let _gx = content_x + x_offset;
+                                    let _gy = row_y[row as usize];
                                 }
                             }
                             reorder_row_bidi(
@@ -7035,9 +6469,8 @@ impl LayoutEngine {
                                 break;
                             }
                         }
-                        let gx = content_x + x_offset;
-                        let gy = row_y[row as usize];
-                        frame_glyphs.add_char(bch, gx, gy, badv, char_h, ascent, false);
+                        let _gx = content_x + x_offset;
+                        let _gy = row_y[row as usize];
                         col += bchar_cols;
                         x_offset += badv;
                     }
@@ -7094,7 +6527,7 @@ impl LayoutEngine {
                             &mut next_check,
                         );
                         if fid >= 0 && fid != current_face_id {
-                            face_fg = Color::from_pixel(self.face_data.fg);
+                            _face_fg = Color::from_pixel(self.face_data.fg);
                             face_bg = Color::from_pixel(self.face_data.bg);
                             self.apply_face(&self.face_data, frame, frame_glyphs);
                         }
@@ -7239,9 +6672,8 @@ impl LayoutEngine {
                             }
                         }
 
-                        let gx = content_x + x_offset;
-                        let gy = row_y[row as usize];
-                        frame_glyphs.add_char(dch, gx, gy, d_advance, char_h, ascent, false);
+                        let _gx = content_x + x_offset;
+                        let _gy = row_y[row as usize];
                         col += dchar_cols;
                         x_offset += d_advance;
                     }
@@ -7282,7 +6714,7 @@ impl LayoutEngine {
                             &mut next_check,
                         );
                         if fid >= 0 && fid != current_face_id {
-                            face_fg = Color::from_pixel(self.face_data.fg);
+                            _face_fg = Color::from_pixel(self.face_data.fg);
                             face_bg = Color::from_pixel(self.face_data.bg);
                             self.apply_face(&self.face_data, frame, frame_glyphs);
                         }
@@ -7346,7 +6778,7 @@ impl LayoutEngine {
                             &mut next_check,
                         );
                         if fid >= 0 && fid != current_face_id {
-                            face_fg = Color::from_pixel(self.face_data.fg);
+                            _face_fg = Color::from_pixel(self.face_data.fg);
                             face_bg = Color::from_pixel(self.face_data.bg);
                             self.apply_face(&self.face_data, frame, frame_glyphs);
                         }
@@ -7429,7 +6861,6 @@ impl LayoutEngine {
                             gy_base + vmargin
                         };
 
-                        frame_glyphs.add_image(display_prop.image_gpu_id, gx, gy, img_w, img_h);
                         self.matrix_builder.push_image(
                             params.window_id,
                             GlyphRowRole::Text,
@@ -7475,15 +6906,6 @@ impl LayoutEngine {
                         let gx = content_x + x_offset;
                         let gy = row_y[row as usize];
 
-                        frame_glyphs.add_video(
-                            display_prop.video_id,
-                            gx,
-                            gy,
-                            vid_w,
-                            vid_h,
-                            display_prop.video_loop_count,
-                            display_prop.video_autoplay != 0,
-                        );
                         self.matrix_builder.push_video(
                             params.window_id,
                             GlyphRowRole::Text,
@@ -7530,7 +6952,6 @@ impl LayoutEngine {
                         let gx = content_x + x_offset;
                         let gy = row_y[row as usize];
 
-                        frame_glyphs.add_webkit(display_prop.webkit_id, gx, gy, wk_w, wk_h);
                         self.matrix_builder.push_webkit(
                             params.window_id,
                             GlyphRowRole::Text,
@@ -7662,7 +7083,7 @@ impl LayoutEngine {
                         }
 
                         current_face_id = fid;
-                        face_fg = Color::from_pixel(self.face_data.fg);
+                        _face_fg = Color::from_pixel(self.face_data.fg);
                         face_bg = Color::from_pixel(self.face_data.bg);
                         face_space_w = if self.face_data.font_space_width > 0.0 {
                             self.face_data.font_space_width
@@ -7736,13 +7157,12 @@ impl LayoutEngine {
                     );
 
                     // Highlight trailing whitespace (overlay stretch on top)
-                    if let Some(tw_bg) = trailing_ws_bg {
+                    if let Some(_tw_bg) = trailing_ws_bg {
                         if trailing_ws_start_col >= 0 && trailing_ws_row == row {
-                            let tw_x = content_x + trailing_ws_start_x;
+                            let _tw_x = content_x + trailing_ws_start_x;
                             let tw_w = x_offset - trailing_ws_start_x;
-                            let gy = row_y[row as usize];
+                            let _gy = row_y[row as usize];
                             if tw_w > 0.0 {
-                                frame_glyphs.add_stretch(tw_x, gy, tw_w, char_h, tw_bg, 0, false);
                             }
                         }
                     }
@@ -7755,9 +7175,9 @@ impl LayoutEngine {
                     // (e.g., completion overlays that don't cover the newline).
                     let remaining = avail_width - x_offset;
                     if remaining > 0.0 {
-                        let gx = content_x + x_offset;
-                        let gy = row_y[row as usize];
-                        let (fill_bg, fill_face) = if self.face_data.extend != 0 {
+                        let _gx = content_x + x_offset;
+                        let _gy = row_y[row as usize];
+                        let (_fill_bg, fill_face) = if self.face_data.extend != 0 {
                             (face_bg, self.face_data.face_id)
                         } else if let Some((ext_bg, ext_face)) =
                             row_extend_bg.filter(|_| row_extend_row == row as i32)
@@ -7767,25 +7187,7 @@ impl LayoutEngine {
                             (default_bg, 0)
                         };
                         if fill_face != 0 {
-                            frame_glyphs.add_stretch(
-                                gx,
-                                gy,
-                                remaining,
-                                row_max_height,
-                                fill_bg,
-                                fill_face,
-                                false,
-                            );
                         } else {
-                            frame_glyphs.add_stretch(
-                                gx,
-                                gy,
-                                remaining,
-                                row_max_height,
-                                fill_bg,
-                                0,
-                                false,
-                            );
                         }
                     }
 
@@ -7877,17 +7279,8 @@ impl LayoutEngine {
                             if indent > params.selective_display {
                                 // Show ... ellipsis once for the hidden block
                                 if !shown_ellipsis && row > 0 {
-                                    let gy = row_y[(row - 1) as usize];
-                                    for dot_i in 0..3i32.min(cols) {
-                                        frame_glyphs.add_char(
-                                            '.',
-                                            content_x + dot_i as f32 * char_w,
-                                            gy,
-                                            char_w,
-                                            char_h,
-                                            ascent,
-                                            false,
-                                        );
+                                    let _gy = row_y[(row - 1) as usize];
+                                    for _dot_i in 0..3i32.min(cols) {
                                     }
                                     shown_ellipsis = true;
                                 }
@@ -8023,18 +7416,9 @@ impl LayoutEngine {
                     if params.selective_display > 0 {
                         // In selective-display mode, \r hides until next \n
                         // Show ... ellipsis
-                        let gy = row_y[row as usize];
+                        let _gy = row_y[row as usize];
                         if x_offset + 3.0 * char_w <= avail_width {
-                            for dot_i in 0..3 {
-                                frame_glyphs.add_char(
-                                    '.',
-                                    content_x + x_offset + dot_i as f32 * char_w,
-                                    gy,
-                                    char_w,
-                                    char_h,
-                                    ascent,
-                                    false,
-                                );
+                            for _dot_i in 0..3 {
                             }
                         }
                         // Bidi reorder before advancing to next row
@@ -8091,25 +7475,15 @@ impl LayoutEngine {
                         None,
                     );
 
-                    let gx = content_x + x_offset;
-                    let gy = row_y[row as usize];
+                    let _gx = content_x + x_offset;
+                    let _gy = row_y[row as usize];
 
-                    let ctrl_ch = if ch == '\x7F' {
+                    let _ctrl_ch = if ch == '\x7F' {
                         '?'
                     } else {
                         char::from((ch as u8) + b'@')
                     };
                     if x_offset + 2.0 * char_w <= avail_width {
-                        frame_glyphs.add_char('^', gx, gy, char_w, char_h, ascent, false);
-                        frame_glyphs.add_char(
-                            ctrl_ch,
-                            gx + char_w,
-                            gy,
-                            char_w,
-                            char_h,
-                            ascent,
-                            false,
-                        );
                         col += 2;
                         x_offset += 2.0 * char_w;
                     } else {
@@ -8193,7 +7567,7 @@ impl LayoutEngine {
                     let (cluster_text, cluster_extra_bytes, cluster_extra_chars) =
                         collect_grapheme_cluster(ch, &text[byte_idx..bytes_read as usize]);
 
-                    if let Some(ref cluster) = cluster_text {
+                    if let Some(_cluster) = cluster_text {
                         // Flush ligature run before grapheme cluster (emoji/ZWJ)
                         flush_run(&self.run_buf, frame_glyphs, ligatures);
                         self.run_buf.clear();
@@ -8247,21 +7621,9 @@ impl LayoutEngine {
                             }
                         }
 
-                        let gx = content_x + x_offset;
-                        let gy = row_y[row as usize] + raise_y_offset;
+                        let _gx = content_x + x_offset;
+                        let _gy = row_y[row as usize] + raise_y_offset;
 
-                        if height_scale > 0.0 && height_scale != 1.0 {
-                            let orig_size = frame_glyphs.font_size();
-                            frame_glyphs.set_font_size(orig_size * height_scale);
-                            frame_glyphs.add_composed_char(
-                                cluster, ch, gx, gy, glyph_w, char_h, ascent, false,
-                            );
-                            frame_glyphs.set_font_size(orig_size);
-                        } else {
-                            frame_glyphs.add_composed_char(
-                                cluster, ch, gx, gy, glyph_w, char_h, ascent, false,
-                            );
-                        }
                         col += char_cols;
                         x_offset += glyph_w;
                         window_end_charpos = charpos;
@@ -8283,9 +7645,8 @@ impl LayoutEngine {
                         self.run_buf.clear();
                         if x_offset > 0.0 {
                             // Place combining mark at the position of the previous character
-                            let gx = content_x + x_offset - char_w;
-                            let gy = row_y[row as usize];
-                            frame_glyphs.add_char(ch, gx, gy, 0.0, char_h, ascent, false);
+                            let _gx = content_x + x_offset - char_w;
+                            let _gy = row_y[row as usize];
                         }
                         window_end_charpos = charpos;
                         continue;
@@ -8335,9 +7696,6 @@ impl LayoutEngine {
                                 2 => {
                                     // empty-box: render as hollow box char
                                     if x_offset + char_w <= avail_width {
-                                        frame_glyphs.add_char(
-                                            '\u{25A1}', gx, gy, char_w, char_h, ascent, false,
-                                        );
                                         col += 1;
                                         x_offset += char_w;
                                     }
@@ -8352,16 +7710,7 @@ impl LayoutEngine {
                                     let needed = hex.len() as i32;
                                     let needed_px = needed as f32 * char_w;
                                     if x_offset + needed_px <= avail_width {
-                                        for (i, hch) in hex.chars().enumerate() {
-                                            frame_glyphs.add_char(
-                                                hch,
-                                                gx + i as f32 * char_w,
-                                                gy,
-                                                char_w,
-                                                char_h,
-                                                ascent,
-                                                false,
-                                            );
+                                        for (_i, _hch) in hex.chars().enumerate() {
                                         }
                                         col += needed;
                                         x_offset += needed_px;
@@ -8378,16 +7727,7 @@ impl LayoutEngine {
                                         let needed = s.len() as i32;
                                         let needed_px = needed as f32 * char_w;
                                         if x_offset + needed_px <= avail_width {
-                                            for (i, ach) in s.chars().enumerate() {
-                                                frame_glyphs.add_char(
-                                                    ach,
-                                                    gx + i as f32 * char_w,
-                                                    gy,
-                                                    char_w,
-                                                    char_h,
-                                                    ascent,
-                                                    false,
-                                                );
+                                            for (_i, _ach) in s.chars().enumerate() {
                                             }
                                             col += needed;
                                             x_offset += needed_px;
@@ -8481,9 +7821,8 @@ impl LayoutEngine {
                                 content_x,
                             );
                             // Show $ truncation indicator at right edge
-                            let trunc_x = content_x + avail_width - char_w;
-                            let gy = row_y[row as usize];
-                            frame_glyphs.add_char('$', trunc_x, gy, char_w, char_h, ascent, false);
+                            let _trunc_x = content_x + avail_width - char_w;
+                            let _gy = row_y[row as usize];
                             if (row as usize) < row_truncated.len() {
                                 row_truncated[row as usize] = true;
                             }
@@ -8667,17 +8006,6 @@ impl LayoutEngine {
                     if ch == ' ' {
                         flush_run(&self.run_buf, frame_glyphs, ligatures);
                         self.run_buf.clear();
-
-                        let gx = content_x + x_offset;
-                        let gy = row_y[row as usize] + raise_y_offset;
-                        if height_scale > 0.0 && height_scale != 1.0 {
-                            let orig_size = frame_glyphs.font_size();
-                            frame_glyphs.set_font_size(orig_size * height_scale);
-                            frame_glyphs.add_char(ch, gx, gy, advance, face_h, face_ascent, false);
-                            frame_glyphs.set_font_size(orig_size);
-                        } else {
-                            frame_glyphs.add_char(ch, gx, gy, advance, face_h, face_ascent, false);
-                        }
                     } else if ligatures {
                         // Accumulate into ligature run
                         let gy = row_y[row as usize] + raise_y_offset;
@@ -8701,17 +8029,7 @@ impl LayoutEngine {
                             self.run_buf.clear();
                         }
                     } else {
-                        // Ligatures disabled: emit directly
-                        let gx = content_x + x_offset;
-                        let gy = row_y[row as usize] + raise_y_offset;
-                        if height_scale > 0.0 && height_scale != 1.0 {
-                            let orig_size = frame_glyphs.font_size();
-                            frame_glyphs.set_font_size(orig_size * height_scale);
-                            frame_glyphs.add_char(ch, gx, gy, advance, face_h, face_ascent, false);
-                            frame_glyphs.set_font_size(orig_size);
-                        } else {
-                            frame_glyphs.add_char(ch, gx, gy, advance, face_h, face_ascent, false);
-                        }
+                        // Ligatures disabled: glyph output migrated to GlyphMatrixBuilder
                     }
                     col += char_cols;
                     x_offset += advance;
@@ -8775,15 +8093,6 @@ impl LayoutEngine {
                 if let Some(style) = cursor_style {
                     let cursor_w =
                         cursor_width_for_style(style, text, byte_idx, col, params, cursor_face_w);
-                    frame_glyphs.add_cursor(
-                        params.window_id as i32,
-                        cursor_px,
-                        cursor_y,
-                        cursor_w,
-                        face_h,
-                        style,
-                        Color::from_pixel(params.cursor_color),
-                    );
                     self.matrix_builder.push_cursor(
                         params.window_id as i32,
                         cursor_px,
@@ -8795,14 +8104,6 @@ impl LayoutEngine {
                     );
 
                     if matches!(style, CursorStyle::FilledBox) {
-                        frame_glyphs.set_cursor_inverse(
-                            cursor_px,
-                            cursor_y,
-                            cursor_w,
-                            face_h,
-                            Color::from_pixel(params.cursor_color),
-                            default_bg,
-                        );
                         self.matrix_builder.set_cursor_inverse(
                             neomacs_display_protocol::frame_glyphs::CursorInverseInfo {
                                 x: cursor_px,
@@ -8899,20 +8200,11 @@ impl LayoutEngine {
                         // (shared row_extend_bg covers both buffer text and overlay faces)
                         let remaining = avail_width - x_offset;
                         if remaining > 0.0 {
-                            if let Some((ext_bg, _)) =
+                            if let Some((_ext_bg, _)) =
                                 row_extend_bg.filter(|_| row_extend_row == row as i32)
                             {
-                                let gx = content_x + x_offset;
-                                let gy = row_y[row as usize];
-                                frame_glyphs.add_stretch(
-                                    gx,
-                                    gy,
-                                    remaining,
-                                    row_max_height,
-                                    ext_bg,
-                                    0,
-                                    false,
-                                );
+                                let _gx = content_x + x_offset;
+                                let _gy = row_y[row as usize];
                             }
                         }
                         reorder_row_bidi(
@@ -8974,9 +8266,8 @@ impl LayoutEngine {
                             break;
                         }
                     }
-                    let gx = content_x + x_offset;
-                    let gy = row_y[row as usize];
-                    frame_glyphs.add_char(ach, gx, gy, a_advance, char_h, ascent, false);
+                    let _gx = content_x + x_offset;
+                    let _gy = row_y[row as usize];
                     col += achar_cols;
                     x_offset += a_advance;
                 }
@@ -9029,15 +8320,6 @@ impl LayoutEngine {
                 if let Some(style) = cursor_style {
                     let cursor_w =
                         cursor_width_for_style(style, text, byte_idx, col, params, cursor_face_w);
-                    frame_glyphs.add_cursor(
-                        params.window_id as i32,
-                        cursor_px,
-                        cursor_y,
-                        cursor_w,
-                        face_h,
-                        style,
-                        Color::from_pixel(params.cursor_color),
-                    );
                     self.matrix_builder.push_cursor(
                         params.window_id as i32,
                         cursor_px,
@@ -9049,14 +8331,6 @@ impl LayoutEngine {
                     );
 
                     if matches!(style, CursorStyle::FilledBox) {
-                        frame_glyphs.set_cursor_inverse(
-                            cursor_px,
-                            cursor_y,
-                            cursor_w,
-                            face_h,
-                            Color::from_pixel(params.cursor_color),
-                            default_bg,
-                        );
                         self.matrix_builder.set_cursor_inverse(
                             neomacs_display_protocol::frame_glyphs::CursorInverseInfo {
                                 x: cursor_px,
@@ -9210,20 +8484,11 @@ impl LayoutEngine {
                         // (shared row_extend_bg covers both buffer text and overlay faces)
                         let remaining = avail_width - x_offset;
                         if remaining > 0.0 {
-                            if let Some((ext_bg, _)) =
+                            if let Some((_ext_bg, _)) =
                                 row_extend_bg.filter(|_| row_extend_row == row as i32)
                             {
-                                let gx = content_x + x_offset;
-                                let gy = row_y[row as usize];
-                                frame_glyphs.add_stretch(
-                                    gx,
-                                    gy,
-                                    remaining,
-                                    row_max_height,
-                                    ext_bg,
-                                    0,
-                                    false,
-                                );
+                                let _gx = content_x + x_offset;
+                                let _gy = row_y[row as usize];
                             }
                         }
                         reorder_row_bidi(
@@ -9284,9 +8549,8 @@ impl LayoutEngine {
                             break;
                         }
                     }
-                    let gx = content_x + x_offset;
-                    let gy = row_y[row as usize];
-                    frame_glyphs.add_char(bch, gx, gy, b_advance, char_h, ascent, false);
+                    let _gx = content_x + x_offset;
+                    let _gy = row_y[row as usize];
                     col += bchar_cols;
                     x_offset += b_advance;
                 }
@@ -9371,20 +8635,11 @@ impl LayoutEngine {
                         // (shared row_extend_bg covers both buffer text and overlay faces)
                         let remaining = avail_width - x_offset;
                         if remaining > 0.0 {
-                            if let Some((ext_bg, _)) =
+                            if let Some((_ext_bg, _)) =
                                 row_extend_bg.filter(|_| row_extend_row == row as i32)
                             {
-                                let gx = content_x + x_offset;
-                                let gy = row_y[row as usize];
-                                frame_glyphs.add_stretch(
-                                    gx,
-                                    gy,
-                                    remaining,
-                                    row_max_height,
-                                    ext_bg,
-                                    0,
-                                    false,
-                                );
+                                let _gx = content_x + x_offset;
+                                let _gy = row_y[row as usize];
                             }
                         }
                         reorder_row_bidi(
@@ -9445,9 +8700,8 @@ impl LayoutEngine {
                             break;
                         }
                     }
-                    let gx = content_x + x_offset;
-                    let gy = row_y[row as usize];
-                    frame_glyphs.add_char(ach, gx, gy, a_advance, char_h, ascent, false);
+                    let _gx = content_x + x_offset;
+                    let _gy = row_y[row as usize];
                     col += achar_cols;
                     x_offset += a_advance;
                 }
@@ -9472,9 +8726,9 @@ impl LayoutEngine {
         if row < max_rows && x_offset > 0.0 {
             let remaining = avail_width - x_offset;
             if remaining > 0.0 {
-                let gx = content_x + x_offset;
-                let gy = row_y[row as usize];
-                let (fill_bg, fill_face) = if self.face_data.extend != 0 {
+                let _gx = content_x + x_offset;
+                let _gy = row_y[row as usize];
+                let (_fill_bg, _fill_face) = if self.face_data.extend != 0 {
                     (face_bg, self.face_data.face_id)
                 } else if let Some((ext_bg, ext_face)) =
                     row_extend_bg.filter(|_| row_extend_row == row as i32)
@@ -9483,15 +8737,6 @@ impl LayoutEngine {
                 } else {
                     (default_bg, 0)
                 };
-                frame_glyphs.add_stretch(
-                    gx,
-                    gy,
-                    remaining,
-                    row_max_height,
-                    fill_bg,
-                    fill_face,
-                    false,
-                );
             }
         }
 
@@ -9518,15 +8763,6 @@ impl LayoutEngine {
                 if let Some(style) = cursor_style {
                     let cursor_w =
                         cursor_width_for_style(style, text, byte_idx, col, params, cursor_face_w);
-                    frame_glyphs.add_cursor(
-                        params.window_id as i32,
-                        cursor_px,
-                        cursor_y,
-                        cursor_w,
-                        face_h,
-                        style,
-                        Color::from_pixel(params.cursor_color),
-                    );
                     self.matrix_builder.push_cursor(
                         params.window_id as i32,
                         cursor_px,
@@ -9538,14 +8774,6 @@ impl LayoutEngine {
                     );
 
                     if matches!(style, CursorStyle::FilledBox) {
-                        frame_glyphs.set_cursor_inverse(
-                            cursor_px,
-                            cursor_y,
-                            cursor_w,
-                            face_h,
-                            Color::from_pixel(params.cursor_color),
-                            default_bg,
-                        );
                         self.matrix_builder.set_cursor_inverse(
                             neomacs_display_protocol::frame_glyphs::CursorInverseInfo {
                                 x: cursor_px,
@@ -9565,10 +8793,9 @@ impl LayoutEngine {
         // Fill remaining rows with default background
         let filled_rows = row + 1;
         if filled_rows < max_rows {
-            let gy = row_y[filled_rows as usize];
+            let _gy = row_y[filled_rows as usize];
             let remaining_h = (text_y + text_height) - row_y[filled_rows as usize];
             if remaining_h > 0.0 {
-                frame_glyphs.add_stretch(text_x, gy, text_width, remaining_h, default_bg, 0, false);
             }
         }
 
@@ -9739,7 +8966,7 @@ impl LayoutEngine {
         // Render fill-column indicator
         if params.fill_column_indicator > 0 {
             let fci_col = params.fill_column_indicator;
-            let fci_char = params.fill_column_indicator_char;
+            let _fci_char = params.fill_column_indicator_char;
             let fci_fg = Color::from_pixel(params.fill_column_indicator_fg);
 
             frame_glyphs.set_face(
@@ -9759,12 +8986,11 @@ impl LayoutEngine {
             // Draw indicator character at the fill column on each row
             if fci_col < cols {
                 for r in 0..max_rows as usize {
-                    let gx = content_x + fci_col as f32 * char_w;
+                    let _gx = content_x + fci_col as f32 * char_w;
                     let gy = row_y[r];
                     if gy + char_h > text_y_limit {
                         break;
                     }
-                    frame_glyphs.add_char(fci_char, gx, gy, char_w, char_h, ascent, false);
                 }
             }
         }
@@ -9941,7 +9167,7 @@ unsafe fn render_fringe_bitmap(
     fringe_width: f32,
     row_height: f32,
     fg: Color,
-    frame_glyphs: &mut FrameGlyphBuffer,
+    _frame_glyphs: &mut FrameGlyphBuffer,
     matrix_builder: &mut crate::matrix_builder::GlyphMatrixBuilder,
     window_id: i64,
 ) {
@@ -10013,7 +9239,6 @@ unsafe fn render_fringe_bitmap(
                 let clip_r = (px + run_w).min(x_end);
                 let clip_w = clip_r - clip_l;
                 if clip_w > 0.0 {
-                    frame_glyphs.add_border(clip_l, py, clip_w, pixel_h, fg);
                     matrix_builder.push_border(window_id, clip_l, py, clip_w, pixel_h, fg);
                 }
             }
@@ -12253,216 +11478,24 @@ mod tests {
     }
 
     #[test]
-    fn test_flush_run_empty() {
-        let run = LigatureRunBuffer::new();
+    fn test_flush_run_is_noop() {
+        // flush_run is now a no-op: glyph output has been migrated to GlyphMatrixBuilder.
+        // Verify it does not add any glyphs to FrameGlyphBuffer.
+        let mut run = LigatureRunBuffer::new();
+        run.start(10.0, 20.0, 16.0, 12.0, 1, false, 0.0);
+        run.push('a', 8.0);
+
         let mut frame_glyphs = FrameGlyphBuffer::new();
-
         flush_run(&run, &mut frame_glyphs, true);
-
-        // No glyphs added
         assert_eq!(frame_glyphs.glyphs.len(), 0);
-    }
-
-    #[test]
-    fn test_flush_run_single_char_ligatures_true() {
-        let mut run = LigatureRunBuffer::new();
-        run.start(10.0, 20.0, 16.0, 12.0, 1, false, 0.0);
-        run.push('a', 8.0);
-
-        let mut frame_glyphs = FrameGlyphBuffer::new();
-        flush_run(&run, &mut frame_glyphs, true);
-
-        // Single char emits as individual char, not composed
-        assert_eq!(frame_glyphs.glyphs.len(), 1);
-        match &frame_glyphs.glyphs[0] {
-            FrameGlyph::Char {
-                char: ch,
-                composed,
-                x,
-                y,
-                width,
-                height,
-                ascent,
-                ..
-            } => {
-                assert_eq!(*ch, 'a');
-                assert_eq!(*composed, None);
-                assert_eq!(*x, 10.0);
-                assert_eq!(*y, 20.0);
-                assert_eq!(*width, 8.0);
-                assert_eq!(*height, 16.0);
-                assert_eq!(*ascent, 12.0);
-            }
-            _ => panic!("Expected Char glyph"),
-        }
-    }
-
-    #[test]
-    fn test_flush_run_single_char_ligatures_false() {
-        let mut run = LigatureRunBuffer::new();
-        run.start(100.0, 200.0, 18.0, 14.0, 2, true, 0.0);
-        run.push('x', 9.0);
-
-        let mut frame_glyphs = FrameGlyphBuffer::new();
-        flush_run(&run, &mut frame_glyphs, false);
-
-        // Single char emits as individual char
-        assert_eq!(frame_glyphs.glyphs.len(), 1);
-        match &frame_glyphs.glyphs[0] {
-            FrameGlyph::Char {
-                char: ch,
-                composed,
-                x,
-                y,
-                width,
-                ..
-            } => {
-                assert_eq!(*ch, 'x');
-                assert_eq!(*composed, None);
-                assert_eq!(*x, 100.0);
-                assert_eq!(*y, 200.0);
-                assert_eq!(*width, 9.0);
-            }
-            _ => panic!("Expected Char glyph"),
-        }
-    }
-
-    #[test]
-    fn test_flush_run_multiple_chars_ligatures_false() {
-        let mut run = LigatureRunBuffer::new();
-        run.start(50.0, 60.0, 16.0, 12.0, 1, false, 0.0);
-        run.push('f', 6.0);
-        run.push('i', 4.0);
-        run.push('j', 4.0);
-
-        let mut frame_glyphs = FrameGlyphBuffer::new();
-        flush_run(&run, &mut frame_glyphs, false);
-
-        // Emits individual chars with correct x positions
-        assert_eq!(frame_glyphs.glyphs.len(), 3);
-
-        match &frame_glyphs.glyphs[0] {
-            FrameGlyph::Char {
-                char: ch, x, width, ..
-            } => {
-                assert_eq!(*ch, 'f');
-                assert_eq!(*x, 50.0);
-                assert_eq!(*width, 6.0);
-            }
-            _ => panic!("Expected Char glyph"),
-        }
-
-        match &frame_glyphs.glyphs[1] {
-            FrameGlyph::Char {
-                char: ch, x, width, ..
-            } => {
-                assert_eq!(*ch, 'i');
-                assert_eq!(*x, 56.0); // 50.0 + 6.0
-                assert_eq!(*width, 4.0);
-            }
-            _ => panic!("Expected Char glyph"),
-        }
-
-        match &frame_glyphs.glyphs[2] {
-            FrameGlyph::Char {
-                char: ch, x, width, ..
-            } => {
-                assert_eq!(*ch, 'j');
-                assert_eq!(*x, 60.0); // 56.0 + 4.0
-                assert_eq!(*width, 4.0);
-            }
-            _ => panic!("Expected Char glyph"),
-        }
-    }
-
-    #[test]
-    fn test_flush_run_multiple_chars_ligatures_true() {
-        // Use ligature-eligible chars (pure symbol run)
-        let mut run = LigatureRunBuffer::new();
-        run.start(10.0, 20.0, 16.0, 12.0, 1, false, 0.0);
-        run.push('-', 6.0);
-        run.push('>', 4.0);
-
-        let mut frame_glyphs = FrameGlyphBuffer::new();
-        flush_run(&run, &mut frame_glyphs, true);
-
-        // Emits as composed glyph
-        assert_eq!(frame_glyphs.glyphs.len(), 1);
-
-        match &frame_glyphs.glyphs[0] {
-            FrameGlyph::Char {
-                char: ch,
-                composed,
-                x,
-                y,
-                width,
-                height,
-                ascent,
-                ..
-            } => {
-                assert_eq!(*ch, '-'); // base char
-                assert_eq!(composed.as_ref().map(|s: &Box<str>| s.as_ref()), Some("->"));
-                assert_eq!(*x, 10.0);
-                assert_eq!(*y, 20.0);
-                assert_eq!(*width, 10.0); // total_advance = 6.0 + 4.0
-                assert_eq!(*height, 16.0);
-                assert_eq!(*ascent, 12.0);
-            }
-            _ => panic!("Expected Char glyph"),
-        }
-    }
-
-    #[test]
-    fn test_flush_run_mixed_alpha_symbol_not_composed() {
-        // Mixed alphanumeric+symbol runs should NOT compose (e.g., "arrow:")
-        let mut run = LigatureRunBuffer::new();
-        run.start(0.0, 0.0, 16.0, 12.0, 1, false, 0.0);
-        run.push('f', 6.0);
-        run.push('i', 4.0);
-
-        let mut frame_glyphs = FrameGlyphBuffer::new();
-        flush_run(&run, &mut frame_glyphs, true);
-
-        // Should emit as individual chars, not composed
-        assert_eq!(frame_glyphs.glyphs.len(), 2);
-    }
-
-    #[test]
-    fn test_flush_run_height_scale_individual() {
-        let mut run = LigatureRunBuffer::new();
-        run.start(0.0, 0.0, 16.0, 12.0, 1, false, 1.5);
-        run.push('a', 8.0);
-
-        let mut frame_glyphs = FrameGlyphBuffer::new();
-        frame_glyphs.set_font_size(14.0);
 
         flush_run(&run, &mut frame_glyphs, false);
+        assert_eq!(frame_glyphs.glyphs.len(), 0);
 
-        // Font size should be restored after flush
-        assert_eq!(frame_glyphs.font_size(), 14.0);
-
-        // Glyph should exist
-        assert_eq!(frame_glyphs.glyphs.len(), 1);
-    }
-
-    #[test]
-    fn test_flush_run_height_scale_composed() {
-        // Use ligature-eligible chars for composed path
-        let mut run = LigatureRunBuffer::new();
-        run.start(0.0, 0.0, 16.0, 12.0, 1, false, 2.0);
-        run.push('=', 6.0);
-        run.push('>', 4.0);
-
-        let mut frame_glyphs = FrameGlyphBuffer::new();
-        frame_glyphs.set_font_size(14.0);
-
-        flush_run(&run, &mut frame_glyphs, true);
-
-        // Font size should be restored after flush
-        assert_eq!(frame_glyphs.font_size(), 14.0);
-
-        // Composed glyph should exist
-        assert_eq!(frame_glyphs.glyphs.len(), 1);
+        // Empty run
+        let empty_run = LigatureRunBuffer::new();
+        flush_run(&empty_run, &mut frame_glyphs, true);
+        assert_eq!(frame_glyphs.glyphs.len(), 0);
     }
 
     #[test]
