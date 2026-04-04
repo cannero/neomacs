@@ -832,7 +832,6 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr("symbol-value", builtin_symbol_value, 1, Some(1));
     ctx.defsubr("symbol-function", builtin_symbol_function, 1, Some(1));
-    ctx.defsubr("function-get", builtin_function_get, 0, None);
     ctx.defsubr("set", builtin_set, 2, Some(2));
     ctx.defsubr("fset", builtin_fset, 2, Some(2));
     ctx.defsubr("makunbound", builtin_makunbound, 1, Some(1));
