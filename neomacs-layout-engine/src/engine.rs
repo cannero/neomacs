@@ -2368,6 +2368,7 @@ impl LayoutEngine {
             usize,
             u32,
             f32,
+            usize, // matrix row index for cursor
         )> = None;
 
         // Hit-test data for this window
@@ -3940,6 +3941,7 @@ impl LayoutEngine {
                     col,
                     current_face_id.saturating_sub(1),
                     face_space_w,
+                    row,
                 ));
             }
 
@@ -4097,6 +4099,7 @@ impl LayoutEngine {
                 col,
                 current_face_id.saturating_sub(1),
                 face_space_w,
+                row,
             ));
         }
 
@@ -4335,6 +4338,7 @@ impl LayoutEngine {
                 ccol,
                 cursor_face_id,
                 cursor_face_space_w,
+                cursor_matrix_row,
             )) = cursor_info
             {
                 // Cursor position and face metrics captured during the main layout loop
@@ -4382,6 +4386,11 @@ impl LayoutEngine {
                             cursor_face_h,
                             style,
                             cursor_fg,
+                        );
+                        self.matrix_builder.set_cursor_at_row(
+                            cursor_matrix_row,
+                            ccol as u16,
+                            style,
                         );
 
                         if point_is_visible_eob {
@@ -4614,6 +4623,14 @@ impl LayoutEngine {
                             char_h,
                             style,
                             Color::from_pixel(params.cursor_color),
+                        );
+                        // Fallback cursor: compute matrix row from pixel position
+                        let fallback_cursor_row =
+                            ((cy - text_y) / char_h).floor() as usize;
+                        self.matrix_builder.set_cursor_at_row(
+                            fallback_cursor_row,
+                            ccol as u16,
+                            style,
                         );
 
                         // For FilledBox cursor, use the renderer's cursor_inverse system
