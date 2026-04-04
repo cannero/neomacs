@@ -7,8 +7,11 @@
 //! Both TTY and GUI backends read from this representation.
 //! TTY outputs directly; GUI converts to pixel positions on the render thread.
 
-use super::face::Face;
-use super::frame_glyphs::{CursorStyle, GlyphRowRole, WindowInfo, WindowTransitionHint};
+use super::face::{Face, FaceAttributes, UnderlineStyle};
+use super::frame_glyphs::{
+    CursorInverseInfo, CursorStyle, FrameGlyph, FrameGlyphBuffer, GlyphRowRole, StipplePattern,
+    WindowEffectHint, WindowInfo, WindowTransitionHint,
+};
 use super::types::{Color, Rect};
 use std::collections::HashMap;
 
@@ -282,6 +285,96 @@ pub struct WindowMatrixEntry {
     pub pixel_bounds: Rect,
 }
 
+// ---------------------------------------------------------------------------
+// Non-grid item structs — these mirror FrameGlyph variants for items that
+// don't belong on the character grid (backgrounds, borders, cursors, etc.).
+// ---------------------------------------------------------------------------
+
+/// A window background rectangle.
+#[derive(Clone, Debug)]
+pub struct BackgroundItem {
+    pub bounds: Rect,
+    pub color: Color,
+}
+
+/// A window border/divider rectangle.
+#[derive(Clone, Debug)]
+pub struct BorderItem {
+    pub window_id: i64,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub color: Color,
+}
+
+/// A cursor entry.
+#[derive(Clone, Debug)]
+pub struct CursorItem {
+    pub window_id: i32,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub style: CursorStyle,
+    pub color: Color,
+}
+
+/// An inline image.
+#[derive(Clone, Debug)]
+pub struct ImageItem {
+    pub window_id: i64,
+    pub row_role: GlyphRowRole,
+    pub clip_rect: Option<Rect>,
+    pub image_id: u32,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+/// An inline video.
+#[derive(Clone, Debug)]
+pub struct VideoItem {
+    pub window_id: i64,
+    pub row_role: GlyphRowRole,
+    pub clip_rect: Option<Rect>,
+    pub video_id: u32,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub loop_count: i32,
+    pub autoplay: bool,
+}
+
+/// A WebKit view.
+#[derive(Clone, Debug)]
+pub struct WebKitItem {
+    pub window_id: i64,
+    pub row_role: GlyphRowRole,
+    pub clip_rect: Option<Rect>,
+    pub webkit_id: u32,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+/// A scroll bar.
+#[derive(Clone, Debug)]
+pub struct ScrollBarItem {
+    pub horizontal: bool,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub thumb_start: f32,
+    pub thumb_size: f32,
+    pub track_color: Color,
+    pub thumb_color: Color,
+}
+
 #[derive(Clone, Debug)]
 pub struct FrameDisplayState {
     pub window_matrices: Vec<WindowMatrixEntry>,
@@ -301,6 +394,26 @@ pub struct FrameDisplayState {
     pub z_order: i32,
     pub window_infos: Vec<WindowInfo>,
     pub transition_hints: Vec<WindowTransitionHint>,
+    /// Window background rectangles.
+    pub backgrounds: Vec<BackgroundItem>,
+    /// Window border/divider rectangles.
+    pub borders: Vec<BorderItem>,
+    /// Cursor entries.
+    pub cursors: Vec<CursorItem>,
+    /// Inline images (non-grid, pixel-positioned).
+    pub images: Vec<ImageItem>,
+    /// Inline videos.
+    pub videos: Vec<VideoItem>,
+    /// WebKit views.
+    pub webkits: Vec<WebKitItem>,
+    /// Scroll bars.
+    pub scroll_bars: Vec<ScrollBarItem>,
+    /// Cursor inverse video info for filled box cursor.
+    pub cursor_inverse: Option<CursorInverseInfo>,
+    /// Stipple patterns for background fills.
+    pub stipple_patterns: HashMap<i32, StipplePattern>,
+    /// Effect hints for the renderer.
+    pub effect_hints: Vec<WindowEffectHint>,
 }
 
 impl FrameDisplayState {
@@ -323,8 +436,386 @@ impl FrameDisplayState {
             z_order: 0,
             window_infos: Vec::new(),
             transition_hints: Vec::new(),
+            backgrounds: Vec::new(),
+            borders: Vec::new(),
+            cursors: Vec::new(),
+            images: Vec::new(),
+            videos: Vec::new(),
+            webkits: Vec::new(),
+            scroll_bars: Vec::new(),
+            cursor_inverse: None,
+            stipple_patterns: HashMap::new(),
+            effect_hints: Vec::new(),
         }
     }
+
+    /// Convert this `FrameDisplayState` into a `FrameGlyphBuffer`.
+    ///
+    /// This materializes the `GlyphMatrix` grid into pixel-positioned
+    /// `FrameGlyph` entries, and appends all non-grid items (backgrounds,
+    /// borders, cursors, etc.).  Used by the render thread to bridge
+    /// `GlyphMatrix` data to the existing rendering code that consumes
+    /// `FrameGlyphBuffer`.
+    pub fn materialize(&self) -> FrameGlyphBuffer {
+        let mut buf = FrameGlyphBuffer::with_size(self.frame_pixel_width, self.frame_pixel_height);
+        buf.char_width = self.char_width;
+        buf.char_height = self.char_height;
+        buf.font_pixel_size = self.font_pixel_size;
+        buf.background = self.background;
+        buf.frame_id = self.frame_id;
+        buf.parent_id = self.parent_id;
+        buf.parent_x = self.parent_x;
+        buf.parent_y = self.parent_y;
+        buf.z_order = self.z_order;
+
+        // Copy faces
+        for (id, face) in &self.faces {
+            buf.faces.insert(*id, face.clone());
+        }
+
+        // Copy window_infos
+        for info in &self.window_infos {
+            buf.window_infos.push(info.clone());
+        }
+
+        // Copy stipple patterns
+        buf.stipple_patterns = self.stipple_patterns.clone();
+
+        // Copy cursor inverse
+        buf.cursor_inverse = self.cursor_inverse.clone();
+
+        // Copy effect hints
+        buf.effect_hints = self.effect_hints.clone();
+
+        // Copy transition hints
+        buf.transition_hints = self.transition_hints.clone();
+
+        // --- Materialize backgrounds ---
+        for bg in &self.backgrounds {
+            buf.glyphs.push(FrameGlyph::Background {
+                bounds: bg.bounds,
+                color: bg.color,
+            });
+        }
+
+        // --- Materialize grid content -> pixel-positioned Char/Stretch glyphs ---
+        for entry in &self.window_matrices {
+            let win_x = entry.pixel_bounds.x;
+            let win_y = entry.pixel_bounds.y;
+            let win_w = entry.pixel_bounds.width;
+            let char_w = if entry.matrix.ncols > 0 {
+                win_w / entry.matrix.ncols as f32
+            } else {
+                self.char_width
+            };
+            let char_h = self.char_height;
+
+            for (row_idx, glyph_row) in entry.matrix.rows.iter().enumerate() {
+                if !glyph_row.enabled {
+                    continue;
+                }
+                let y = win_y + row_idx as f32 * char_h;
+                let mut col = 0usize;
+                let row_role = glyph_row.role;
+                let clip_rect =
+                    Some(Rect::new(win_x, win_y, win_w, entry.pixel_bounds.height));
+
+                // Process all three areas in order
+                for area_idx in 0..3 {
+                    for glyph in &glyph_row.glyphs[area_idx] {
+                        if glyph.padding {
+                            continue;
+                        }
+                        let x = win_x + col as f32 * char_w;
+
+                        match &glyph.glyph_type {
+                            GlyphType::Char { ch } => {
+                                let face_data =
+                                    self.resolve_face_for_materialize(glyph.face_id);
+                                let glyph_width =
+                                    if glyph.wide { char_w * 2.0 } else { char_w };
+                                buf.glyphs.push(FrameGlyph::Char {
+                                    window_id: entry.window_id as i64,
+                                    row_role,
+                                    clip_rect,
+                                    char: *ch,
+                                    composed: None,
+                                    x,
+                                    y,
+                                    baseline: y + char_h * 0.8,
+                                    width: glyph_width,
+                                    height: char_h,
+                                    ascent: char_h * 0.8,
+                                    fg: face_data.fg,
+                                    bg: Some(face_data.bg),
+                                    face_id: glyph.face_id,
+                                    font_weight: face_data.font_weight,
+                                    italic: face_data.italic,
+                                    font_size: face_data.font_size,
+                                    underline: face_data.underline,
+                                    underline_color: face_data.underline_color,
+                                    strike_through: face_data.strike_through,
+                                    strike_through_color: face_data.strike_through_color,
+                                    overline: face_data.overline,
+                                    overline_color: face_data.overline_color,
+                                    overstrike: face_data.overstrike,
+                                });
+                            }
+                            GlyphType::Composite { text } => {
+                                let face_data =
+                                    self.resolve_face_for_materialize(glyph.face_id);
+                                buf.glyphs.push(FrameGlyph::Char {
+                                    window_id: entry.window_id as i64,
+                                    row_role,
+                                    clip_rect,
+                                    char: text.chars().next().unwrap_or(' '),
+                                    composed: Some(text.clone()),
+                                    x,
+                                    y,
+                                    baseline: y + char_h * 0.8,
+                                    width: char_w,
+                                    height: char_h,
+                                    ascent: char_h * 0.8,
+                                    fg: face_data.fg,
+                                    bg: Some(face_data.bg),
+                                    face_id: glyph.face_id,
+                                    font_weight: face_data.font_weight,
+                                    italic: face_data.italic,
+                                    font_size: face_data.font_size,
+                                    underline: face_data.underline,
+                                    underline_color: face_data.underline_color,
+                                    strike_through: face_data.strike_through,
+                                    strike_through_color: face_data.strike_through_color,
+                                    overline: face_data.overline,
+                                    overline_color: face_data.overline_color,
+                                    overstrike: face_data.overstrike,
+                                });
+                            }
+                            GlyphType::Stretch { width_cols } => {
+                                let face_data =
+                                    self.resolve_face_for_materialize(glyph.face_id);
+                                let stretch_w = *width_cols as f32 * char_w;
+                                buf.glyphs.push(FrameGlyph::Stretch {
+                                    window_id: entry.window_id as i64,
+                                    row_role,
+                                    clip_rect,
+                                    x,
+                                    y,
+                                    width: stretch_w,
+                                    height: char_h,
+                                    bg: face_data.bg,
+                                    face_id: glyph.face_id,
+                                    stipple_id: 0,
+                                    stipple_fg: None,
+                                });
+                            }
+                            GlyphType::Image { image_id } => {
+                                buf.glyphs.push(FrameGlyph::Image {
+                                    window_id: entry.window_id as i64,
+                                    row_role,
+                                    clip_rect,
+                                    image_id: *image_id as u32,
+                                    x,
+                                    y,
+                                    width: char_w,
+                                    height: char_h,
+                                });
+                            }
+                            GlyphType::Glyphless { ch } => {
+                                let face_data =
+                                    self.resolve_face_for_materialize(glyph.face_id);
+                                buf.glyphs.push(FrameGlyph::Char {
+                                    window_id: entry.window_id as i64,
+                                    row_role,
+                                    clip_rect,
+                                    char: *ch,
+                                    composed: None,
+                                    x,
+                                    y,
+                                    baseline: y + char_h * 0.8,
+                                    width: char_w,
+                                    height: char_h,
+                                    ascent: char_h * 0.8,
+                                    fg: face_data.fg,
+                                    bg: Some(face_data.bg),
+                                    face_id: glyph.face_id,
+                                    font_weight: face_data.font_weight,
+                                    italic: face_data.italic,
+                                    font_size: face_data.font_size,
+                                    underline: 0,
+                                    underline_color: None,
+                                    strike_through: 0,
+                                    strike_through_color: None,
+                                    overline: 0,
+                                    overline_color: None,
+                                    overstrike: false,
+                                });
+                            }
+                        }
+                        col += if glyph.wide { 2 } else { 1 };
+                    }
+                }
+            }
+        }
+
+        // --- Materialize borders ---
+        for border in &self.borders {
+            buf.glyphs.push(FrameGlyph::Border {
+                window_id: border.window_id,
+                row_role: GlyphRowRole::Text,
+                clip_rect: None,
+                x: border.x,
+                y: border.y,
+                width: border.width,
+                height: border.height,
+                color: border.color,
+            });
+        }
+
+        // --- Materialize cursors ---
+        for cursor in &self.cursors {
+            buf.glyphs.push(FrameGlyph::Cursor {
+                window_id: cursor.window_id,
+                x: cursor.x,
+                y: cursor.y,
+                width: cursor.width,
+                height: cursor.height,
+                style: cursor.style,
+                color: cursor.color,
+            });
+        }
+
+        // --- Materialize standalone images ---
+        for img in &self.images {
+            buf.glyphs.push(FrameGlyph::Image {
+                window_id: img.window_id,
+                row_role: img.row_role,
+                clip_rect: img.clip_rect,
+                image_id: img.image_id,
+                x: img.x,
+                y: img.y,
+                width: img.width,
+                height: img.height,
+            });
+        }
+
+        // --- Materialize videos ---
+        for vid in &self.videos {
+            buf.glyphs.push(FrameGlyph::Video {
+                window_id: vid.window_id,
+                row_role: vid.row_role,
+                clip_rect: vid.clip_rect,
+                video_id: vid.video_id,
+                x: vid.x,
+                y: vid.y,
+                width: vid.width,
+                height: vid.height,
+                loop_count: vid.loop_count,
+                autoplay: vid.autoplay,
+            });
+        }
+
+        // --- Materialize WebKit views ---
+        for wk in &self.webkits {
+            buf.glyphs.push(FrameGlyph::WebKit {
+                window_id: wk.window_id,
+                row_role: wk.row_role,
+                clip_rect: wk.clip_rect,
+                webkit_id: wk.webkit_id,
+                x: wk.x,
+                y: wk.y,
+                width: wk.width,
+                height: wk.height,
+            });
+        }
+
+        // --- Materialize scroll bars ---
+        for sb in &self.scroll_bars {
+            buf.glyphs.push(FrameGlyph::ScrollBar {
+                horizontal: sb.horizontal,
+                x: sb.x,
+                y: sb.y,
+                width: sb.width,
+                height: sb.height,
+                thumb_start: sb.thumb_start,
+                thumb_size: sb.thumb_size,
+                track_color: sb.track_color,
+                thumb_color: sb.thumb_color,
+            });
+        }
+
+        buf
+    }
+
+    /// Resolve face attributes for grid materialization.
+    ///
+    /// Returns a helper struct with the resolved colors, font properties, and
+    /// decoration flags needed by `FrameGlyph::Char` and `FrameGlyph::Stretch`.
+    fn resolve_face_for_materialize(&self, face_id: u32) -> MaterializedFaceData {
+        if let Some(face) = self.faces.get(&face_id) {
+            let underline = match face.underline_style {
+                UnderlineStyle::None => 0u8,
+                UnderlineStyle::Line => 1,
+                UnderlineStyle::Wave => 2,
+                UnderlineStyle::Double => 3,
+                UnderlineStyle::Dotted => 4,
+                UnderlineStyle::Dashed => 5,
+            };
+            MaterializedFaceData {
+                fg: face.foreground,
+                bg: face.background,
+                font_weight: face.font_weight,
+                italic: face.attributes.contains(FaceAttributes::ITALIC),
+                font_size: face.font_size,
+                underline,
+                underline_color: face.underline_color,
+                strike_through: if face.attributes.contains(FaceAttributes::STRIKE_THROUGH) {
+                    1
+                } else {
+                    0
+                },
+                strike_through_color: face.strike_through_color,
+                overline: if face.attributes.contains(FaceAttributes::OVERLINE) {
+                    1
+                } else {
+                    0
+                },
+                overline_color: face.overline_color,
+                overstrike: false,
+            }
+        } else {
+            MaterializedFaceData {
+                fg: Color::new(1.0, 1.0, 1.0, 1.0),
+                bg: self.background,
+                font_weight: 400,
+                italic: false,
+                font_size: self.font_pixel_size,
+                underline: 0,
+                underline_color: None,
+                strike_through: 0,
+                strike_through_color: None,
+                overline: 0,
+                overline_color: None,
+                overstrike: false,
+            }
+        }
+    }
+}
+
+/// Helper struct for resolved face data used during materialization.
+struct MaterializedFaceData {
+    fg: Color,
+    bg: Color,
+    font_weight: u16,
+    italic: bool,
+    font_size: f32,
+    underline: u8,
+    underline_color: Option<Color>,
+    strike_through: u8,
+    strike_through_color: Option<Color>,
+    overline: u8,
+    overline_color: Option<Color>,
+    overstrike: bool,
 }
 
 #[derive(Clone, Debug)]
