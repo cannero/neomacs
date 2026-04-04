@@ -2407,12 +2407,6 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         Some(1),
     );
     ctx.defsubr(
-        "window-inside-pixel-edges",
-        super::window_cmds::builtin_window_inside_pixel_edges,
-        0,
-        Some(1),
-    );
-    ctx.defsubr(
         "window-absolute-pixel-edges",
         super::window_cmds::builtin_window_absolute_pixel_edges,
         0,

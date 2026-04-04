@@ -2774,27 +2774,6 @@ pub(crate) fn builtin_window_pixel_edges(
     ]))
 }
 
-/// `(window-inside-pixel-edges &optional WINDOW)` -> (LEFT TOP RIGHT BOTTOM).
-/// Returns body area edges (excluding fringes, margins, scroll bars).
-pub(crate) fn builtin_window_inside_pixel_edges(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_max_args("window-inside-pixel-edges", &args, 1)?;
-    let (fid, wid) = resolve_window_id(eval, args.first())?;
-    let w = eval.frames.get(fid).and_then(|f| f.find_window(wid));
-    let Some(w) = w else {
-        return Ok(Value::NIL);
-    };
-    let (left, top, right, bottom) = window_body_edges_pixels(&eval.frames, fid, wid, w);
-    Ok(Value::list(vec![
-        Value::fixnum(left),
-        Value::fixnum(top),
-        Value::fixnum(right),
-        Value::fixnum(bottom),
-    ]))
-}
-
 /// `(window-absolute-pixel-edges &optional WINDOW)` -> (LEFT TOP RIGHT BOTTOM).
 /// Same as pixel-edges for NeoVM (frames don't have screen offset tracking).
 pub(crate) fn builtin_window_absolute_pixel_edges(

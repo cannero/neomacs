@@ -5,6 +5,8 @@ use crate::emacs_core::{format_eval_result, parse_forms};
 use crate::test_utils::{
     eval_with_ldefs_boot_autoloads, runtime_startup_context, runtime_startup_eval_all,
 };
+use std::fs;
+use std::path::PathBuf;
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
     runtime_startup_eval_all(src)
@@ -470,15 +472,30 @@ fn delete_extract_rectangle_line_loaded_state_matches_gnu() {
 }
 
 #[test]
-fn replace_rectangle_startup_aliases_string_rectangle() {
+fn raw_context_does_not_prebind_replace_rectangle_alias() {
     crate::test_utils::init_test_tracing();
     let eval = super::super::eval::Context::new();
-    assert_eq!(
-        eval.obarray
-            .symbol_function("replace-rectangle")
-            .expect("missing replace-rectangle startup alias")
-            .as_symbol_name(),
-        Some("string-rectangle")
+    assert!(
+        eval.obarray.symbol_function("replace-rectangle").is_none(),
+        "replace-rectangle should come from GNU rect.el/loaddefs, not Context::new"
+    );
+}
+
+#[test]
+fn gnu_ldefs_boot_defines_replace_rectangle_alias() {
+    crate::test_utils::init_test_tracing();
+    let source = fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("project root")
+            .join("lisp/ldefs-boot.el"),
+    )
+    .expect("read ldefs-boot");
+    assert!(
+        source.contains(
+            "(define-obsolete-function-alias 'replace-rectangle #'string-rectangle \"29.1\")",
+        ),
+        "GNU ldefs-boot.el should own the replace-rectangle alias",
     );
 }
 

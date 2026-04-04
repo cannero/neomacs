@@ -4,6 +4,8 @@ use crate::emacs_core::{
     Context, DisplayHost, GuiFrameHostRequest, Value, format_eval_result, parse_forms,
 };
 use crate::test_utils::{runtime_startup_context, runtime_startup_eval_all};
+use std::fs;
+use std::path::PathBuf;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -2243,6 +2245,46 @@ fn window_tree_navigation_and_normal_size_match_gnu_runtime() {
     assert_eq!(
         out[0],
         "OK (t nil t t t nil t t t nil t t 1.0 0.5 0.5 1.0 1.0 0.5)"
+    );
+}
+
+#[test]
+fn raw_context_does_not_prebind_window_inside_aliases() {
+    crate::test_utils::init_test_tracing();
+    let eval = super::super::eval::Context::new();
+    for name in ["window-inside-pixel-edges", "window-inside-edges"] {
+        assert!(
+            eval.obarray.symbol_function(name).is_none(),
+            "{name} should come from GNU window.el, not Context::new"
+        );
+    }
+}
+
+#[test]
+fn gnu_window_el_defines_window_inside_aliases() {
+    crate::test_utils::init_test_tracing();
+    let source = fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("project root")
+            .join("lisp/window.el"),
+    )
+    .expect("read window.el");
+    assert!(
+        source.contains("(defun window-body-edges (&optional window)"),
+        "GNU window.el should define window-body-edges",
+    );
+    assert!(
+        source.contains("(defalias 'window-inside-edges 'window-body-edges)"),
+        "GNU window.el should own the window-inside-edges alias",
+    );
+    assert!(
+        source.contains("(defun window-body-pixel-edges (&optional window)"),
+        "GNU window.el should define window-body-pixel-edges",
+    );
+    assert!(
+        source.contains("(defalias 'window-inside-pixel-edges 'window-body-pixel-edges)"),
+        "GNU window.el should own the window-inside-pixel-edges alias",
     );
 }
 

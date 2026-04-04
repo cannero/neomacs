@@ -3418,12 +3418,6 @@ impl Context {
         obarray.set_symbol_function("x-select-text", Value::symbol("gui-select-text"));
         obarray.set_symbol_function("x-selection-value", Value::symbol("gui-selection-value"));
         obarray.set_symbol_function("x-set-selection", Value::symbol("gui-set-selection"));
-        obarray.set_symbol_function(
-            "window-inside-pixel-edges",
-            Value::symbol("window-body-pixel-edges"),
-        );
-        obarray.set_symbol_function("window-inside-edges", Value::symbol("window-body-edges"));
-        obarray.set_symbol_function("replace-rectangle", Value::symbol("string-rectangle"));
         // Bootstrap primitive function cells that GNU `simple.el` references
         // before its own Elisp defs overwrite them. Without these placeholders,
         // loaded GNU bytecode can capture `nil` for forward/runtime calls into
