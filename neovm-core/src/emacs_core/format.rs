@@ -2,28 +2,15 @@
 //!
 //! Pure builtins (`Vec<Value> -> EvalResult`):
 //! - `format-time-string` — format time like strftime
-//! - `string-chop-newline` — remove trailing newline
 //! - `string-clean-whitespace` — collapse whitespace and trim
 //! - `string-pixel-width` — batch-compatible display-column width
 
 use super::error::{EvalResult, Flow, signal};
-use super::intern::resolve_sym;
 use super::value::*;
 
 // ---------------------------------------------------------------------------
 // Argument helpers
 // ---------------------------------------------------------------------------
-
-fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
-    if args.len() != n {
-        Err(signal(
-            "wrong-number-of-arguments",
-            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
-        ))
-    } else {
-        Ok(())
-    }
-}
 
 fn expect_min_args(name: &str, args: &[Value], min: usize) -> Result<(), Flow> {
     if args.len() < min {
@@ -42,16 +29,6 @@ fn require_string(_name: &str, val: &Value) -> Result<String, Flow> {
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *val],
-        )),
-    }
-}
-
-fn require_char(val: &Value) -> Result<char, Flow> {
-    match val.kind() {
-        ValueKind::Fixnum(c) => Ok(char::from_u32(c as u32).unwrap_or('\0')),
-        other => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("characterp"), *val],
         )),
     }
 }
@@ -471,19 +448,6 @@ fn format_time(fmt: &str, tm: &BrokenDownTime) -> String {
 
     result
 }
-
-// ---------------------------------------------------------------------------
-// string-chop-newline
-// ---------------------------------------------------------------------------
-
-/// `(string-chop-newline STRING)` -- remove trailing CR/LF run from STRING.
-pub(crate) fn builtin_string_chop_newline(args: Vec<Value>) -> EvalResult {
-    expect_args("string-chop-newline", &args, 1)?;
-    let s = require_string("string-chop-newline", &args[0])?;
-    let trimmed = s.trim_end_matches(['\n', '\r']).to_string();
-    Ok(Value::string(trimmed))
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------

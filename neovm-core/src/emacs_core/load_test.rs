@@ -80,6 +80,17 @@ fn definition_is_macroish(value: Value) -> bool {
     value.is_macro() || (value.is_cons() && value.cons_car().as_symbol_name() == Some("macro"))
 }
 
+fn is_named_defun(form: &Expr, name: &str) -> bool {
+    match form {
+        Expr::List(items) => matches!(
+            (items.first(), items.get(1)),
+            (Some(Expr::Symbol(id0)), Some(Expr::Symbol(id1)))
+                if resolve_sym(*id0) == "defun" && resolve_sym(*id1) == name
+        ),
+        _ => false,
+    }
+}
+
 #[test]
 fn cached_bootstrap_evaluator_clears_top_level_eval_state() {
     crate::test_utils::init_test_tracing();
@@ -226,6 +237,74 @@ fn gnu_bootstrap_files_define_string_helpers_without_rust_shims() {
             "{name} should come from GNU autoloads"
         );
     }
+}
+
+#[test]
+fn gnu_subr_x_string_chop_newline_loads_without_rust_builtin() {
+    crate::test_utils::init_test_tracing();
+    // Split responsibilities cleanly:
+    // - `gnu_bootstrap_files_define_string_helpers_without_rust_shims` proves
+    //   GNU `ldefs-boot.el` owns the autoload cell.
+    // - this test proves the real implementation comes from loaded GNU
+    //   `subr-x.el`, not from a Rust builtin.
+    let mut eval = Context::new();
+    crate::test_utils::load_minimal_gnu_help_runtime(&mut eval);
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let lisp_dir = project_root.join("lisp");
+    eval.set_variable(
+        "load-path",
+        Value::list(bootstrap_load_path_entries(&lisp_dir)),
+    );
+    let load_path = get_load_path(&eval.obarray());
+    let bindings_path =
+        bootstrap_fixture_path(&load_path, "bindings", true).expect("bindings fixture path");
+    load_file(&mut eval, &bindings_path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading bindings from {}: {}",
+            bindings_path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+    eval.require_value(Value::symbol("gv"), None, None)
+        .expect("require gv before GNU cl-lib/subr-x");
+    eval.require_value(Value::symbol("cl-lib"), None, None)
+        .expect("preload GNU cl-lib before GNU subr-x");
+    eval.obarray_mut().fmakunbound("string-chop-newline");
+    let subr_x_path =
+        bootstrap_fixture_path(&load_path, "emacs-lisp/subr-x", false).expect("subr-x path");
+    let subr_x_source =
+        fs::read_to_string(&subr_x_path).unwrap_or_else(|err| panic!("read subr-x.el: {err}"));
+    let subr_x_forms = parse_forms(&subr_x_source).expect("parse subr-x.el");
+    let mut found_string_chop_newline = false;
+    for form in &subr_x_forms {
+        eval.eval_expr(form).unwrap_or_else(|err| {
+            panic!(
+                "eval subr-x prefix from {}: {}",
+                subr_x_path.display(),
+                format_eval_error(&eval, &err)
+            )
+        });
+        if is_named_defun(form, "string-chop-newline") {
+            found_string_chop_newline = true;
+            break;
+        }
+    }
+    assert!(
+        found_string_chop_newline,
+        "subr-x.el should define string-chop-newline before later helpers"
+    );
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"
+(list (string-chop-newline "x")
+      (string-chop-newline "x\n")
+      (string-chop-newline "x\r\n")
+      (condition-case err (string-chop-newline 1) (error (car err))))
+"#,
+    );
+    assert_eq!(rendered, "OK (\"x\" \"x\" \"x\r\" wrong-type-argument)");
 }
 
 #[test]

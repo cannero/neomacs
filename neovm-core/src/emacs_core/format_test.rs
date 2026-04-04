@@ -215,37 +215,6 @@ fn subr_x_string_helpers_autoload() {
 }
 
 // ===================================================================
-// string-chop-newline tests
-// ===================================================================
-
-#[test]
-fn string_chop_newline_no_newline() {
-    crate::test_utils::init_test_tracing();
-    let result = builtin_string_chop_newline(vec![Value::string("x")]).unwrap();
-    assert_eq!(result.as_str().unwrap(), "x");
-}
-
-#[test]
-fn string_chop_newline_lf() {
-    crate::test_utils::init_test_tracing();
-    let result = builtin_string_chop_newline(vec![Value::string("x\n")]).unwrap();
-    assert_eq!(result.as_str().unwrap(), "x");
-}
-
-#[test]
-fn string_chop_newline_crlf_run() {
-    crate::test_utils::init_test_tracing();
-    let result = builtin_string_chop_newline(vec![Value::string("x\r\n\n")]).unwrap();
-    assert_eq!(result.as_str().unwrap(), "x");
-}
-
-#[test]
-fn string_chop_newline_wrong_type() {
-    crate::test_utils::init_test_tracing();
-    assert!(builtin_string_chop_newline(vec![Value::fixnum(1)]).is_err());
-}
-
-// ===================================================================
 // string-lines tests
 // ===================================================================
 
