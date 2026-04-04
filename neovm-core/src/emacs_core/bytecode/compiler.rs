@@ -269,11 +269,14 @@ impl Compiler {
                 return;
             }
 
-            // Try dedicated opcodes for known builtins
-            if for_value {
-                if let Some(()) = self.try_compile_builtin_op(func, name, tail) {
-                    return;
+            // Try dedicated opcodes / shared builtin paths for known builtins.
+            // If the resulting value is unused, emit the same operation and
+            // drop it explicitly.
+            if let Some(()) = self.try_compile_builtin_op(func, name, tail) {
+                if !for_value {
+                    self.emit_tracked(func, Op::Pop);
                 }
+                return;
             }
 
             // General function call
@@ -781,6 +784,27 @@ impl Compiler {
                 }
                 // Use CallBuiltin for substring since it has variable args
                 let name_idx = func.add_symbol("substring");
+                self.emit_tracked(func, Op::CallBuiltin(name_idx, args.len() as u8));
+                Some(())
+            }
+            ("garbage-collect", 0) => {
+                let name_idx = func.add_symbol("garbage-collect");
+                self.emit_tracked(func, Op::CallBuiltin(name_idx, 0));
+                Some(())
+            }
+            ("mapatoms", 1) | ("mapatoms", 2) => {
+                for arg in args {
+                    self.compile_expr(func, arg, true);
+                }
+                let name_idx = func.add_symbol("mapatoms");
+                self.emit_tracked(func, Op::CallBuiltin(name_idx, args.len() as u8));
+                Some(())
+            }
+            ("maphash", 2) => {
+                for arg in args {
+                    self.compile_expr(func, arg, true);
+                }
+                let name_idx = func.add_symbol("maphash");
                 self.emit_tracked(func, Op::CallBuiltin(name_idx, args.len() as u8));
                 Some(())
             }

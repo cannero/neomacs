@@ -976,7 +976,9 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin("car", call_args))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, stack, handlers, specpdl, "car", call_args,
+                        ))
                     };
                     stack.push(result);
                 }
@@ -993,7 +995,9 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin("cdr", call_args))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, stack, handlers, specpdl, "cdr", call_args,
+                        ))
                     };
                     stack.push(result);
                 }
@@ -1122,7 +1126,9 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin("nth", call_args))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, stack, handlers, specpdl, "nth", call_args,
+                        ))
                     };
                     stack.push(result);
                 }
@@ -1140,7 +1146,9 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin("nthcdr", call_args))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, stack, handlers, specpdl, "nthcdr", call_args,
+                        ))
                     };
                     stack.push(result);
                 }
@@ -1158,7 +1166,9 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin("elt", call_args))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, stack, handlers, specpdl, "elt", call_args,
+                        ))
                     };
                     stack.push(result);
                 }
@@ -1202,7 +1212,9 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin("nconc", call_args))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, stack, handlers, specpdl, "nconc", call_args,
+                        ))
                     };
                     stack.push(result);
                 }
@@ -1219,7 +1231,9 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin("nreverse", call_args))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, stack, handlers, specpdl, "nreverse", call_args,
+                        ))
                     };
                     stack.push(result);
                 }
@@ -1237,7 +1251,9 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin("member", call_args))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, stack, handlers, specpdl, "member", call_args,
+                        ))
                     };
                     stack.push(result);
                 }
@@ -1255,7 +1271,9 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin("memq", call_args))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, stack, handlers, specpdl, "memq", call_args,
+                        ))
                     };
                     stack.push(result);
                 }
@@ -1273,7 +1291,9 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin("assq", call_args))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, stack, handlers, specpdl, "assq", call_args,
+                        ))
                     };
                     stack.push(result);
                 }
@@ -1450,7 +1470,9 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin("concat", parts))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, stack, handlers, specpdl, "concat", parts,
+                        ))
                     };
                     stack.push(result);
                 }
@@ -1487,7 +1509,9 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin("string=", call_args))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, stack, handlers, specpdl, "string=", call_args,
+                        ))
                     };
                     stack.push(result);
                 }
@@ -1505,7 +1529,14 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin("string-lessp", call_args))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func,
+                            stack,
+                            handlers,
+                            specpdl,
+                            "string-lessp",
+                            call_args,
+                        ))
                     };
                     stack.push(result);
                 }
@@ -1566,7 +1597,14 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin("symbol-value", call_args))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func,
+                            stack,
+                            handlers,
+                            specpdl,
+                            "symbol-value",
+                            call_args,
+                        ))
                     };
                     stack.push(result);
                 }
@@ -1583,7 +1621,14 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin("symbol-function", call_args))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func,
+                            stack,
+                            handlers,
+                            specpdl,
+                            "symbol-function",
+                            call_args,
+                        ))
                     };
                     stack.push(result);
                 }
@@ -1601,7 +1646,9 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin("set", call_args))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, stack, handlers, specpdl, "set", call_args,
+                        ))
                     };
                     stack.push(result);
                 }
@@ -1619,7 +1666,9 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin("fset", call_args))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, stack, handlers, specpdl, "fset", call_args,
+                        ))
                     };
                     stack.push(result);
                 }
@@ -1637,7 +1686,9 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin("get", call_args))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, stack, handlers, specpdl, "get", call_args,
+                        ))
                     };
                     stack.push(result);
                 }
@@ -1656,7 +1707,9 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin("put", call_args))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, stack, handlers, specpdl, "put", call_args,
+                        ))
                     };
                     stack.push(result);
                 }
@@ -1764,7 +1817,9 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin(&name, args))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(
+                            func, stack, handlers, specpdl, &name, args,
+                        ))
                     };
                     self.maybe_writeback_mutating_first_arg(
                         &name,
@@ -3500,8 +3555,27 @@ impl<'a> Vm<'a> {
         self.ctx.buffers.restore_saved_restriction_state(saved);
     }
 
-    /// Dispatch to builtin functions from the VM.
+    fn dispatch_vm_builtin_with_frame(
+        &mut self,
+        func: &ByteCodeFunction,
+        stack: &[Value],
+        handlers: &[Handler],
+        specpdl: &[VmUnwindEntry],
+        name: &str,
+        args: Vec<Value>,
+    ) -> EvalResult {
+        let extra_roots = args.clone();
+        self.with_frame_roots(func, stack, handlers, specpdl, &extra_roots, |vm| {
+            vm.dispatch_vm_builtin_unrooted(name, args)
+        })
+    }
+
     fn dispatch_vm_builtin(&mut self, name: &str, args: Vec<Value>) -> EvalResult {
+        self.dispatch_vm_builtin_unrooted(name, args)
+    }
+
+    /// Dispatch to builtin functions from the VM.
+    fn dispatch_vm_builtin_unrooted(&mut self, name: &str, args: Vec<Value>) -> EvalResult {
         // VM-internal bytecode operations that are not real Elisp builtins.
         match name {
             "call-interactively" => return self.builtin_call_interactively_shared(&args),
@@ -3513,6 +3587,9 @@ impl<'a> Vm<'a> {
             }
             "call-last-kbd-macro" => return self.builtin_call_last_kbd_macro_shared(&args),
             "execute-kbd-macro" => return self.builtin_execute_kbd_macro_shared(&args),
+            "garbage-collect" => return self.builtin_garbage_collect_shared(&args),
+            "mapatoms" => return self.builtin_mapatoms_shared(&args),
+            "maphash" => return self.builtin_maphash_shared(&args),
             "store-kbd-macro-event" => {
                 return crate::emacs_core::kmacro::builtin_store_kbd_macro_event(
                     &mut *self.ctx,
@@ -3760,18 +3837,31 @@ impl<'a> Vm<'a> {
     fn builtin_mapatoms_shared(&mut self, args: &[Value]) -> EvalResult {
         let (func, symbols) =
             crate::emacs_core::hashtab::collect_mapatoms_symbols(&self.ctx.obarray, args.to_vec())?;
-        for sym in symbols {
-            self.call_function_with_roots(func, &[sym])?;
-        }
-        Ok(Value::NIL)
+        let mut roots = Vec::with_capacity(symbols.len() + 1);
+        roots.push(func);
+        roots.extend(symbols.iter().copied());
+        self.with_extra_roots(&roots, |vm| {
+            for sym in symbols {
+                vm.call_function(func, vec![sym])?;
+            }
+            Ok(Value::NIL)
+        })
     }
 
     fn builtin_maphash_shared(&mut self, args: &[Value]) -> EvalResult {
         let (func, entries) = crate::emacs_core::hashtab::collect_maphash_entries(args.to_vec())?;
-        for (key, value) in entries {
-            self.call_function_with_roots(func, &[key, value])?;
+        let mut roots = Vec::with_capacity(entries.len() * 2 + 1);
+        roots.push(func);
+        for (key, value) in &entries {
+            roots.push(*key);
+            roots.push(*value);
         }
-        Ok(Value::NIL)
+        self.with_extra_roots(&roots, |vm| {
+            for (key, value) in entries {
+                vm.call_function(func, vec![key, value])?;
+            }
+            Ok(Value::NIL)
+        })
     }
 
     fn builtin_read_string_shared(&mut self, args: &[Value]) -> EvalResult {

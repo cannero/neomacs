@@ -5557,6 +5557,50 @@ fn startup_variable_documentation_runtime_resolution_counts_match_oracle_snapsho
 }
 
 #[test]
+fn mapatoms_roots_anonymous_callback_across_exact_gc() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.tagged_heap.set_gc_threshold(1);
+    let forms = parse_forms(
+        r#"(let ((ob (make-vector 7 0)))
+             (intern "mapatoms-root-a" ob)
+             (intern "mapatoms-root-b" ob)
+             (let ((count 0))
+               (mapatoms (lambda (_sym)
+                           (garbage-collect)
+                           (setq count (1+ count)))
+                         ob)
+               count))"#,
+    )
+    .expect("parse");
+    let result = format_eval_result(&ev.eval_expr(&forms[0]));
+    assert_eq!(result, "OK 2");
+    assert!(ev.gc_count > 0, "callback-triggered GC should run");
+}
+
+#[test]
+fn maphash_roots_reconstructed_keys_across_exact_gc() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.tagged_heap.set_gc_threshold(1);
+    let forms = parse_forms(
+        r#"(let ((h (make-hash-table :test 'equal))
+                 (sum 0))
+             (puthash (list 'a 1) 'x h)
+             (puthash (list 'b 2) 'y h)
+             (maphash (lambda (k _v)
+                        (garbage-collect)
+                        (setq sum (+ sum (car (cdr k)))))
+                      h)
+             sum)"#,
+    )
+    .expect("parse");
+    let result = format_eval_result(&ev.eval_expr(&forms[0]));
+    assert_eq!(result, "OK 3");
+    assert!(ev.gc_count > 0, "callback-triggered GC should run");
+}
+
+#[test]
 fn features_variable_controls_featurep_and_require() {
     crate::test_utils::init_test_tracing();
     let results = eval_all(

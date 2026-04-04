@@ -150,6 +150,51 @@ fn disassemble_output() {
 }
 
 #[test]
+fn compile_mapatoms_and_maphash_to_callbuiltin() {
+    crate::test_utils::init_test_tracing();
+
+    let mapatoms = compile("(mapatoms #'identity)");
+    assert!(
+        mapatoms
+            .ops
+            .iter()
+            .any(|op| matches!(op, Op::CallBuiltin(_, 1) | Op::CallBuiltin(_, 2)))
+    );
+
+    let maphash = compile("(maphash #'identity table)");
+    assert!(
+        maphash
+            .ops
+            .iter()
+            .any(|op| matches!(op, Op::CallBuiltin(_, 2)))
+    );
+}
+
+#[test]
+fn compile_statement_position_builtins_to_fast_paths() {
+    crate::test_utils::init_test_tracing();
+
+    let mapatoms = compile("(let ((x 1)) (mapatoms #'identity) x)");
+    assert!(
+        mapatoms
+            .ops
+            .iter()
+            .any(|op| matches!(op, Op::CallBuiltin(_, 1) | Op::CallBuiltin(_, 2)))
+    );
+
+    let maphash = compile("(let ((x 1)) (maphash #'identity table) x)");
+    assert!(
+        maphash
+            .ops
+            .iter()
+            .any(|op| matches!(op, Op::CallBuiltin(_, 2)))
+    );
+
+    let gc = compile("(let ((x 1)) (garbage-collect) x)");
+    assert!(gc.ops.iter().any(|op| matches!(op, Op::CallBuiltin(_, 0))));
+}
+
+#[test]
 fn compile_cond() {
     crate::test_utils::init_test_tracing();
     let func = compile("(cond (nil 1) (t 2))");

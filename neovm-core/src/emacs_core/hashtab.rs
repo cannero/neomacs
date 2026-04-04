@@ -702,20 +702,39 @@ pub(crate) fn builtin_internal_hash_table_histogram(args: Vec<Value>) -> EvalRes
 
 /// (maphash FUNCTION TABLE) — call FUNCTION with each (KEY VALUE) pair.
 pub(crate) fn builtin_maphash(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    let (func, entries) = collect_maphash_entries(args)?;
-    for (key, val) in entries {
-        eval.apply(func, vec![key, val])?;
-    }
-    Ok(Value::NIL)
+    eval.with_gc_scope_result(|eval| {
+        for arg in &args {
+            eval.root(*arg);
+        }
+        let (func, entries) = collect_maphash_entries(args)?;
+        let func = eval.root(func);
+        for (key, val) in &entries {
+            eval.root(*key);
+            eval.root(*val);
+        }
+        for (key, val) in entries {
+            eval.apply(func, vec![key, val])?;
+        }
+        Ok(Value::NIL)
+    })
 }
 
 /// (mapatoms FUNCTION &optional OBARRAY) — call FUNCTION with each interned symbol.
 pub(crate) fn builtin_mapatoms(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    let (func, symbols) = collect_mapatoms_symbols(eval.obarray(), args)?;
-    for sym in symbols {
-        eval.apply(func, vec![sym])?;
-    }
-    Ok(Value::NIL)
+    eval.with_gc_scope_result(|eval| {
+        for arg in &args {
+            eval.root(*arg);
+        }
+        let (func, symbols) = collect_mapatoms_symbols(eval.obarray(), args)?;
+        let func = eval.root(func);
+        for sym in &symbols {
+            eval.root(*sym);
+        }
+        for sym in symbols {
+            eval.apply(func, vec![sym])?;
+        }
+        Ok(Value::NIL)
+    })
 }
 
 pub(crate) fn collect_maphash_entries(

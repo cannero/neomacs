@@ -2898,6 +2898,43 @@ fn vm_mapatoms_and_maphash_use_shared_runtime_callbacks() {
 }
 
 #[test]
+fn vm_mapatoms_and_maphash_root_full_traversal_across_exact_gc() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    eval.tagged_heap.set_gc_threshold(1);
+    with_vm_eval_in_context(
+        eval,
+        r#"(list
+             (let ((ob (make-vector 7 0)))
+               (intern "vm-mapatoms-root-a" ob)
+               (intern "vm-mapatoms-root-b" ob)
+               (let ((count 0))
+                 (mapatoms (lambda (_sym)
+                             (garbage-collect)
+                             (setq count (1+ count)))
+                           ob)
+                 count))
+             (let ((h (make-hash-table :test 'equal))
+                   (sum 0))
+               (puthash (list 'a 1) 'x h)
+               (puthash (list 'b 2) 'y h)
+               (maphash (lambda (k _v)
+                          (garbage-collect)
+                          (setq sum (+ sum (car (cdr k)))))
+                        h)
+               sum))"#,
+        false,
+        |result, eval| {
+            assert_eq!(
+                crate::emacs_core::error::format_eval_result(&result),
+                "OK (2 3)"
+            );
+            assert!(eval.gc_count > 0, "callback-triggered GC should run");
+        },
+    );
+}
+
+#[test]
 fn vm_window_metadata_builtins_use_shared_runtime_state() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
