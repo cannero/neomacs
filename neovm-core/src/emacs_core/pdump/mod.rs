@@ -156,6 +156,16 @@ pub fn snapshot_evaluator(eval: &Context) -> DumpContextState {
     dump_evaluator(eval)
 }
 
+/// Snapshot an evaluator after activating its thread-local runtime bindings.
+///
+/// Use this entry point when multiple `Context`s may share the current thread.
+/// The pdump conversion pipeline relies on thread-local tagged-heap state, so
+/// the source evaluator must be active before we walk its heap-backed values.
+pub fn snapshot_active_evaluator(eval: &mut Context) -> DumpContextState {
+    eval.setup_thread_locals();
+    dump_evaluator(eval)
+}
+
 /// Reconstruct an evaluator from a previously captured in-memory pdump snapshot.
 pub fn restore_snapshot(state: &DumpContextState) -> Result<Context, DumpError> {
     reconstruct_evaluator(state)
@@ -167,6 +177,14 @@ pub fn restore_snapshot(state: &DumpContextState) -> Result<Context, DumpError> 
 /// template repeatedly; that avoids rebuilding the intermediate dump state.
 pub fn clone_evaluator(eval: &Context) -> Result<Context, DumpError> {
     restore_snapshot(&snapshot_evaluator(eval))
+}
+
+/// Clone an evaluator after activating its thread-local runtime bindings.
+///
+/// Use this when cloning from a live runtime that shares the current thread
+/// with other `Context`s.
+pub fn clone_active_evaluator(eval: &mut Context) -> Result<Context, DumpError> {
+    restore_snapshot(&snapshot_active_evaluator(eval))
 }
 
 /// Reconstruct an `Context` from deserialized dump state.

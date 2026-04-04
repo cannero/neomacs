@@ -6,6 +6,7 @@ use super::chunk::ByteCodeFunction;
 use super::opcode::Op;
 use crate::emacs_core::expr::Expr;
 use crate::emacs_core::intern::{intern, resolve_sym};
+use crate::emacs_core::print::print_expr;
 use crate::emacs_core::value::{LambdaParams, Value};
 
 /// A stack-local variable (function parameter accessed via StackRef).
@@ -900,6 +901,8 @@ impl Compiler {
             }
             return;
         }
+        let branch_entry_depth = self.stack_depth;
+        let expected_end_depth = branch_entry_depth + i32::from(for_value);
         // Compile condition
         self.compile_expr(func, &tail[0], true);
         let jump_false = func.current_offset();
@@ -907,20 +910,47 @@ impl Compiler {
 
         // Then branch
         self.compile_expr(func, &tail[1], for_value);
+        let then_end_depth = self.stack_depth;
         let jump_end = func.current_offset();
         self.emit_tracked(func, Op::Goto(0)); // placeholder
 
         // Else branch
         let else_target = func.current_offset();
         func.patch_jump(jump_false, else_target);
+        self.stack_depth = branch_entry_depth;
         if tail.len() > 2 {
             self.compile_progn(func, &tail[2..], for_value);
         } else if for_value {
             self.emit_tracked(func, Op::Nil);
         }
+        let else_end_depth = self.stack_depth;
 
         let end_target = func.current_offset();
         func.patch_jump(jump_end, end_target);
+        let tail_expr = format!(
+            "(if {} {}{})",
+            print_expr(&tail[0]),
+            print_expr(&tail[1]),
+            if tail.len() > 2 {
+                let else_forms = tail[2..]
+                    .iter()
+                    .map(print_expr)
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                format!(" {}", else_forms)
+            } else {
+                String::new()
+            }
+        );
+        debug_assert_eq!(
+            then_end_depth, expected_end_depth,
+            "then branch stack mismatch for {tail_expr} entry_depth={branch_entry_depth} for_value={for_value}"
+        );
+        debug_assert_eq!(
+            else_end_depth, expected_end_depth,
+            "else branch stack mismatch for {tail_expr} entry_depth={branch_entry_depth} for_value={for_value}"
+        );
+        self.stack_depth = expected_end_depth;
     }
 
     fn compile_and(&mut self, func: &mut ByteCodeFunction, forms: &[Expr], for_value: bool) {
@@ -1009,10 +1039,12 @@ impl Compiler {
             return;
         }
 
+        let cond_entry_depth = self.stack_depth;
+        let expected_end_depth = cond_entry_depth + i32::from(for_value);
         let mut end_patches = Vec::new();
 
-        for (i, clause) in clauses.iter().enumerate() {
-            let is_last = i == clauses.len() - 1;
+        for clause in clauses {
+            let clause_entry_depth = self.stack_depth;
             let Expr::List(items) = clause else {
                 continue;
             };
@@ -1025,41 +1057,31 @@ impl Compiler {
 
             if items.len() == 1 {
                 // (cond (TEST)) - return test value if true
-                if is_last {
-                    if !for_value {
-                        self.emit_tracked(func, Op::Pop);
-                    }
-                } else if for_value {
+                if for_value {
                     let jump = func.current_offset();
                     self.emit_tracked(func, Op::GotoIfNotNilElsePop(0));
                     end_patches.push(jump);
                 } else {
-                    let jump = func.current_offset();
-                    self.emit_tracked(func, Op::GotoIfNotNil(0));
-                    end_patches.push(jump);
+                    self.emit_tracked(func, Op::Pop);
                 }
             } else {
                 // (cond (TEST BODY...))
-                if is_last {
-                    // Last clause: run body if test passes, nil if not
-                    let jump_skip = func.current_offset();
-                    self.emit_tracked(func, Op::GotoIfNil(0));
-                    self.compile_progn(func, &items[1..], for_value);
-                    let jump_end = func.current_offset();
-                    self.emit_tracked(func, Op::Goto(0)); // jump past trailing nil
-                    end_patches.push(jump_end);
-                    let skip_target = func.current_offset();
-                    func.patch_jump(jump_skip, skip_target);
-                } else {
-                    let jump_skip = func.current_offset();
-                    self.emit_tracked(func, Op::GotoIfNil(0));
-                    self.compile_progn(func, &items[1..], for_value);
-                    let jump_end = func.current_offset();
-                    self.emit_tracked(func, Op::Goto(0));
-                    end_patches.push(jump_end);
-                    let skip_target = func.current_offset();
-                    func.patch_jump(jump_skip, skip_target);
-                }
+                let jump_skip = func.current_offset();
+                self.emit_tracked(func, Op::GotoIfNil(0));
+                self.compile_progn(func, &items[1..], for_value);
+                let body_end_depth = self.stack_depth;
+                let jump_end = func.current_offset();
+                self.emit_tracked(func, Op::Goto(0));
+                end_patches.push(jump_end);
+                let skip_target = func.current_offset();
+                func.patch_jump(jump_skip, skip_target);
+                debug_assert_eq!(
+                    body_end_depth,
+                    expected_end_depth,
+                    "cond clause body stack mismatch for clause={}",
+                    print_expr(clause)
+                );
+                self.stack_depth = clause_entry_depth;
             }
         }
 
@@ -1072,6 +1094,7 @@ impl Compiler {
         for patch in end_patches {
             func.patch_jump(patch, end);
         }
+        self.stack_depth = expected_end_depth;
     }
 
     fn compile_while(&mut self, func: &mut ByteCodeFunction, tail: &[Expr]) {

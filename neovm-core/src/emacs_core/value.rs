@@ -866,9 +866,19 @@ impl TaggedValue {
         with_tagged_heap(|h| h.alloc_lambda_from_data(data))
     }
 
+    /// Allocate a lambda from already-validated GNU closure slots.
+    pub fn make_lambda_with_slots(slots: Vec<Value>) -> Self {
+        with_tagged_heap(|h| h.alloc_lambda(slots))
+    }
+
     /// Allocate a macro. Converts LambdaData to a Value vector for GC safety.
     pub fn make_macro(data: LambdaData) -> Self {
         with_tagged_heap(|h| h.alloc_macro_from_data(data))
+    }
+
+    /// Allocate a macro from already-validated GNU closure slots.
+    pub fn make_macro_with_slots(slots: Vec<Value>) -> Self {
+        with_tagged_heap(|h| h.alloc_macro(slots))
     }
 
     /// Allocate a bytecode function.

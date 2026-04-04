@@ -52,6 +52,11 @@ impl OpaqueValuePool {
             }
         }
     }
+
+    pub fn clear(&mut self) {
+        self.values.clear();
+        self.free_list.clear();
+    }
 }
 
 thread_local! {
@@ -64,6 +69,10 @@ thread_local! {
 /// Use the returned index with `Expr::OpaqueValueRef(idx)`.
 pub fn opaque_pool_insert(val: Value) -> u32 {
     OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(val))
+}
+
+pub(crate) fn reset_opaque_value_pool() {
+    OPAQUE_POOL.with(|pool| pool.borrow_mut().clear());
 }
 
 use super::abbrev::AbbrevManager;
@@ -10529,6 +10538,103 @@ impl Context {
         }
         self.runtime_macro_expansion_cache
             .insert(cache_key, cache_entry);
+    }
+
+    fn apply_macro_callable_with_dynamic_scope(
+        &mut self,
+        callable: Value,
+        args: Vec<Value>,
+    ) -> Result<Value, Flow> {
+        self.push_temp_root(callable);
+        let saved_lexbind = self
+            .obarray()
+            .symbol_value_id(lexical_binding_symbol())
+            .cloned();
+        let lexbind_val = if self.lexenv.is_nil() {
+            Value::NIL
+        } else {
+            Value::T
+        };
+        self.obarray
+            .set_symbol_value_id(lexical_binding_symbol(), lexbind_val);
+
+        let saved_dynvars = self
+            .obarray()
+            .symbol_value_id(macroexp_dynvars_symbol())
+            .cloned();
+        let mut dynvars = saved_dynvars.unwrap_or(Value::NIL);
+        {
+            let mut p = self.lexenv;
+            while p.is_cons() {
+                let e = p.cons_car();
+                if e.is_symbol() {
+                    dynvars = Value::cons(e, dynvars);
+                }
+                p = p.cons_cdr();
+            }
+        }
+        self.obarray
+            .set_symbol_value_id(macroexp_dynvars_symbol(), dynvars);
+
+        let result = self.with_macro_expansion_scope(|eval| eval.apply(callable, args));
+
+        if let Some(v) = saved_lexbind {
+            self.obarray
+                .set_symbol_value_id(lexical_binding_symbol(), v);
+        } else {
+            self.obarray
+                .set_symbol_value_id(lexical_binding_symbol(), Value::NIL);
+        }
+        if let Some(v) = saved_dynvars {
+            self.obarray
+                .set_symbol_value_id(macroexp_dynvars_symbol(), v);
+        } else {
+            self.obarray
+                .set_symbol_value_id(macroexp_dynvars_symbol(), Value::NIL);
+        }
+
+        result
+    }
+
+    pub(crate) fn expand_macro_for_macroexpand(
+        &mut self,
+        form: Value,
+        definition: Value,
+        args: Vec<Value>,
+    ) -> Result<Value, Flow> {
+        if let Some(cached) = self.lookup_runtime_macro_expansion(definition, &args) {
+            return Ok(self.source_literal_to_runtime_value(cached.as_ref()));
+        }
+        let args_for_cache = args.clone();
+        let expand_start = std::time::Instant::now();
+        self.with_gc_scope_result(|ctx| {
+            ctx.push_temp_root(form);
+            ctx.push_temp_root(definition);
+            for arg in &args {
+                ctx.push_temp_root(*arg);
+            }
+
+            let expanded = if definition.is_macro() {
+                ctx.apply_macro_callable_with_dynamic_scope(definition, args)?
+            } else if cons_head_symbol_id(&definition) == Some(macro_symbol()) {
+                ctx.apply_macro_callable_with_dynamic_scope(definition.cons_cdr(), args)?
+            } else if ctx.function_value_is_callable(&definition) {
+                // GNU `macroexpand` ENVIRONMENT entries store the macro
+                // expander itself, not the full `(macro . fn)` function cell.
+                ctx.apply_macro_callable_with_dynamic_scope(definition, args)?
+            } else {
+                return Err(signal("invalid-function", vec![definition]));
+            };
+
+            let expand_elapsed = expand_start.elapsed();
+            ctx.store_runtime_macro_expansion(
+                definition,
+                &args_for_cache,
+                &expanded,
+                expand_elapsed,
+            );
+            Ok(expanded)
+        })
     }
 
     // -----------------------------------------------------------------------

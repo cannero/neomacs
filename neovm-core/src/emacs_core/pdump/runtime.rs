@@ -115,6 +115,10 @@ pub(crate) fn reset_runtime_for_new_heap(mode: HeapResetMode) {
         run_registered_load_hooks();
     }
 
+    // Opaque Expr value refs are thread-local and can contain tagged pointers
+    // from the previous heap. They must not survive heap transitions.
+    crate::emacs_core::eval::reset_opaque_value_pool();
+
     match mode {
         HeapResetMode::FreshContext => {
             // Tests can preconfigure terminal runtime before Context creation.

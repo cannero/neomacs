@@ -15,6 +15,18 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tempfile::tempdir;
 
+fn loaded_runtime_form_expr(
+    form: &crate::emacs_core::file_compile_format::LoadedForm,
+) -> Option<Expr> {
+    match form {
+        crate::emacs_core::file_compile_format::LoadedForm::Eval(value)
+        | crate::emacs_core::file_compile_format::LoadedForm::EagerEval(value) => {
+            Some(value_to_expr(value))
+        }
+        crate::emacs_core::file_compile_format::LoadedForm::Constant(_) => None,
+    }
+}
+
 fn isolated_runtime_bootstrap_eval() -> Context {
     let dump_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../target/test-cache/neovm-advice-stack-minibuffer-partial.pdump");
@@ -528,7 +540,7 @@ fn partial_bootstrap_eval_until(stop_before: &str, prefer_compiled: bool) -> Con
     eval
 }
 
-fn minimal_eager_macroexpand_eval() -> Context {
+fn build_pre_macroexp_reload_eval() -> Context {
     crate::test_utils::init_test_tracing();
 
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -585,6 +597,18 @@ fn minimal_eager_macroexpand_eval() -> Context {
     eval.require_value(Value::symbol("gv"), None, None)
         .expect("require gv for eager macroexpansion");
     eval.set_variable("macroexp--pending-eager-loads", Value::NIL);
+
+    assert!(
+        get_eager_macroexpand_fn(&eval).is_some(),
+        "pre-reload eager bootstrap should expose internal-macroexpand-for-load"
+    );
+
+    eval
+}
+
+fn minimal_eager_macroexpand_eval() -> Context {
+    let mut eval = build_pre_macroexp_reload_eval();
+    let load_path = get_load_path(&eval.obarray());
     let macroexp_path = bootstrap_fixture_path(&load_path, "emacs-lisp/macroexp", false)
         .expect("macroexp source fixture path");
     load_file(&mut eval, &macroexp_path).unwrap_or_else(|err| {
@@ -601,6 +625,193 @@ fn minimal_eager_macroexpand_eval() -> Context {
     );
 
     eval
+}
+
+#[test]
+fn minimal_eager_macroexp_cached_replay_stays_callable() {
+    crate::test_utils::init_test_tracing();
+
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let lisp_dir = project_root.join("lisp");
+
+    let temp = tempfile::tempdir().expect("temp macroexp cache dir");
+    let macroexp_source = lisp_dir.join("emacs-lisp/macroexp.el");
+    let macroexp_copy = temp.path().join("macroexp.el");
+    fs::copy(&macroexp_source, &macroexp_copy).expect("copy macroexp source");
+
+    let mut source_eval = build_pre_macroexp_reload_eval();
+    load_file(&mut source_eval, &macroexp_copy).unwrap_or_else(|err| {
+        panic!(
+            "failed loading source macroexp copy from {}: {}",
+            macroexp_copy.display(),
+            format_eval_error(&source_eval, &err)
+        )
+    });
+
+    let cache_path = macroexp_copy.with_extension("neobc");
+    let source = fs::read_to_string(&macroexp_copy).expect("read macroexp source copy");
+    let hash = crate::emacs_core::file_compile_format::source_sha256(&source);
+    let loaded = crate::emacs_core::file_compile_format::read_neobc(&cache_path, &hash)
+        .unwrap_or_else(|err| panic!("read {}: {err}", cache_path.display()));
+    let mut eval = build_pre_macroexp_reload_eval();
+    let replay_roots: Vec<Value> = loaded.forms.iter().map(|form| form.root_value()).collect();
+    let replay_result: Result<(), EvalError> = Ok(());
+    eval.with_gc_scope(|ctx| {
+        for root in &replay_roots {
+            ctx.root(*root);
+        }
+        for (index, form) in loaded.forms.iter().enumerate() {
+            let form_desc = match form {
+                crate::emacs_core::file_compile_format::LoadedForm::Eval(value)
+                | crate::emacs_core::file_compile_format::LoadedForm::EagerEval(value) => {
+                    crate::emacs_core::print::print_value_with_buffers(value, &ctx.buffers)
+                }
+                crate::emacs_core::file_compile_format::LoadedForm::Constant(value) => {
+                    crate::emacs_core::print::print_value_with_buffers(value, &ctx.buffers)
+                }
+            };
+            let replay_result = match form {
+                crate::emacs_core::file_compile_format::LoadedForm::Eval(value) => {
+                    ctx.eval_sub(*value).map_err(map_flow)
+                }
+                crate::emacs_core::file_compile_format::LoadedForm::EagerEval(value) => {
+                    if let Some(macroexpand_fn) = get_eager_macroexpand_fn(ctx) {
+                        eager_expand_eval(ctx, *value, macroexpand_fn)
+                    } else {
+                        ctx.eval_sub(*value).map_err(map_flow)
+                    }
+                }
+                crate::emacs_core::file_compile_format::LoadedForm::Constant(_) => Ok(Value::NIL),
+            };
+            if let Err(err) = replay_result {
+                panic!(
+                    "failed replaying cached macroexp form {} from {}: {} while replaying {}",
+                    index,
+                    macroexp_copy.display(),
+                    format_eval_error(ctx, &err),
+                    form_desc
+                );
+            }
+            ctx.gc_safe_point_exact();
+        }
+    });
+    replay_result.expect("macroexp cached replay should stay callable");
+}
+
+#[test]
+fn minimal_eager_subr_cached_replay_stays_callable() {
+    crate::test_utils::init_test_tracing();
+
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let lisp_dir = project_root.join("lisp");
+
+    let build_pre_subr_eval = || {
+        let mut eval = Context::new();
+        let subdirs = ["", "emacs-lisp"];
+        let mut load_path_entries = Vec::new();
+        for sub in &subdirs {
+            let dir = if sub.is_empty() {
+                lisp_dir.clone()
+            } else {
+                lisp_dir.join(sub)
+            };
+            if dir.is_dir() {
+                load_path_entries.push(Value::string(dir.to_string_lossy().to_string()));
+            }
+        }
+        eval.set_variable("load-path", Value::list(load_path_entries));
+        eval.set_variable("dump-mode", Value::symbol("pbootstrap"));
+        eval.set_variable("purify-flag", Value::NIL);
+        eval.set_variable("max-lisp-eval-depth", Value::fixnum(1600));
+        eval.set_variable(
+            "macroexp--pending-eager-loads",
+            Value::list(vec![Value::symbol("skip")]),
+        );
+
+        let load_path = get_load_path(&eval.obarray());
+        for name in &[
+            "emacs-lisp/debug-early",
+            "emacs-lisp/byte-run",
+            "emacs-lisp/backquote",
+        ] {
+            let path = bootstrap_fixture_path(&load_path, name, false)
+                .unwrap_or_else(|| panic!("bootstrap file not found: {name}"));
+            load_file(&mut eval, &path).unwrap_or_else(|err| {
+                panic!(
+                    "failed loading {name} from {}: {}",
+                    path.display(),
+                    format_eval_error(&eval, &err)
+                )
+            });
+        }
+
+        eval
+    };
+
+    let temp = tempfile::tempdir().expect("temp subr cache dir");
+    let subr_source = lisp_dir.join("subr.el");
+    let subr_copy = temp.path().join("subr.el");
+    fs::copy(&subr_source, &subr_copy).expect("copy subr source");
+
+    let mut source_eval = build_pre_subr_eval();
+    load_file(&mut source_eval, &subr_copy).unwrap_or_else(|err| {
+        panic!(
+            "failed loading source subr copy from {}: {}",
+            subr_copy.display(),
+            format_eval_error(&source_eval, &err)
+        )
+    });
+
+    let cache_path = subr_copy.with_extension("neobc");
+    let source = fs::read_to_string(&subr_copy).expect("read subr source copy");
+    let hash = crate::emacs_core::file_compile_format::source_sha256(&source);
+    let loaded = crate::emacs_core::file_compile_format::read_neobc(&cache_path, &hash)
+        .unwrap_or_else(|err| panic!("read {}: {err}", cache_path.display()));
+    let mut eval = build_pre_subr_eval();
+    let replay_roots: Vec<Value> = loaded.forms.iter().map(|form| form.root_value()).collect();
+    let replay_result: Result<(), EvalError> = Ok(());
+    eval.with_gc_scope(|ctx| {
+        for root in &replay_roots {
+            ctx.root(*root);
+        }
+        for (index, form) in loaded.forms.iter().enumerate() {
+            let form_desc = match form {
+                crate::emacs_core::file_compile_format::LoadedForm::Eval(value)
+                | crate::emacs_core::file_compile_format::LoadedForm::EagerEval(value) => {
+                    crate::emacs_core::print::print_value_with_buffers(value, &ctx.buffers)
+                }
+                crate::emacs_core::file_compile_format::LoadedForm::Constant(value) => {
+                    crate::emacs_core::print::print_value_with_buffers(value, &ctx.buffers)
+                }
+            };
+            let replay_result = match form {
+                crate::emacs_core::file_compile_format::LoadedForm::Eval(value) => {
+                    ctx.eval_sub(*value).map_err(map_flow)
+                }
+                crate::emacs_core::file_compile_format::LoadedForm::EagerEval(value) => {
+                    if let Some(macroexpand_fn) = get_eager_macroexpand_fn(ctx) {
+                        eager_expand_eval(ctx, *value, macroexpand_fn)
+                    } else {
+                        ctx.eval_sub(*value).map_err(map_flow)
+                    }
+                }
+                crate::emacs_core::file_compile_format::LoadedForm::Constant(_) => Ok(Value::NIL),
+            };
+            if let Err(err) = replay_result {
+                panic!(
+                    "failed replaying cached subr form {} from {}: {} while replaying {}",
+                    index,
+                    subr_copy.display(),
+                    format_eval_error(ctx, &err),
+                    form_desc
+                );
+            }
+            ctx.gc_safe_point_exact();
+        }
+    });
+    replay_result.expect("subr cached replay should stay callable");
 }
 
 #[test]
@@ -2677,9 +2888,10 @@ fn profile_runtime_neobc_form_kinds() {
         match form {
             crate::emacs_core::file_compile_format::LoadedForm::Eval(_) => eval_count += 1,
             crate::emacs_core::file_compile_format::LoadedForm::Constant(_) => constant_count += 1,
-            crate::emacs_core::file_compile_format::LoadedForm::EagerEval(expr) => {
+            crate::emacs_core::file_compile_format::LoadedForm::EagerEval(value) => {
                 eager_count += 1;
-                let head = match expr {
+                let expr = value_to_expr(value);
+                let head = match &expr {
                     Expr::List(items) => match items.first() {
                         Some(Expr::Symbol(id)) => resolve_sym(*id).to_string(),
                         _ => "list".to_string(),
@@ -2688,7 +2900,7 @@ fn profile_runtime_neobc_form_kinds() {
                     _ => "atom".to_string(),
                 };
                 *eager_heads.entry(head).or_default() += 1;
-                eager_forms.push(format!("#{index}: {}", print_expr(expr)));
+                eager_forms.push(format!("#{index}: {}", print_expr(&expr)));
             }
         }
     }
@@ -3880,7 +4092,7 @@ fn runtime_neobc_preserves_toplevel_defmacro_as_interpreted_defalias() {
         "expected single cached top-level form"
     );
     let expr = match &loaded.forms[0] {
-        crate::emacs_core::file_compile_format::LoadedForm::Eval(expr) => expr,
+        crate::emacs_core::file_compile_format::LoadedForm::Eval(value) => value_to_expr(value),
         crate::emacs_core::file_compile_format::LoadedForm::EagerEval(_) => {
             panic!("runtime neobc should keep defmacro as replayable source eval, not eager replay")
         }
@@ -3889,26 +4101,26 @@ fn runtime_neobc_preserves_toplevel_defmacro_as_interpreted_defalias() {
         }
     };
 
-    let Expr::List(items) = expr else {
-        panic!("cached form should be a list, got {}", print_expr(expr));
+    let Expr::List(items) = &expr else {
+        panic!("cached form should be a list, got {}", print_expr(&expr));
     };
     assert!(
         matches!(items.first(), Some(Expr::Symbol(id)) if resolve_sym(*id) == "defalias"),
         "cached form should preserve defmacro as defalias replay, got {}",
-        print_expr(expr)
+        print_expr(&expr)
     );
 
     let target = match items.get(2) {
         Some(Expr::List(target)) => target,
         _ => panic!(
             "cached macro target should be a list, got {}",
-            print_expr(expr)
+            print_expr(&expr)
         ),
     };
     assert!(
         matches!(target.first(), Some(Expr::Symbol(id)) if resolve_sym(*id) == "cons"),
         "cached macro target should stay cons-wrapped, got {}",
-        print_expr(expr)
+        print_expr(&expr)
     );
     assert!(
         !matches!(target.get(2), Some(Expr::OpaqueValueRef(_))),
@@ -5753,6 +5965,279 @@ fn compiled_neobc_defun_compiler_macro_declaration_sets_properties() {
 }
 
 #[test]
+fn compiled_real_set_face_attribute_runs_before_faces() {
+    crate::test_utils::init_test_tracing();
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let source =
+        std::fs::read_to_string(project_root.join("lisp/faces.el")).expect("read faces.el");
+    let forms = parse_forms(&source).expect("parse faces.el");
+    let defun = forms
+        .into_iter()
+        .find(|form| match form {
+            Expr::List(items) => matches!(
+                (items.first(), items.get(1)),
+                (Some(Expr::Symbol(id0)), Some(Expr::Symbol(id1)))
+                    if resolve_sym(*id0) == "defun" && resolve_sym(*id1) == "set-face-attribute"
+            ),
+            _ => false,
+        })
+        .expect("find set-face-attribute");
+
+    let mut eval = partial_bootstrap_eval_until("faces", true);
+    let compiled = crate::emacs_core::file_compile::compile_file_forms(&mut eval, &[defun])
+        .expect("compile set-face-attribute");
+    assert_eq!(compiled.len(), 1);
+
+    let crate::emacs_core::file_compile::CompiledForm::Eval(value) = &compiled[0] else {
+        panic!("expected compiled set-face-attribute defalias");
+    };
+    eval.eval_sub(*value)
+        .expect("install compiled set-face-attribute");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"
+(condition-case err
+    (progn
+      (set-face-attribute 'default (selected-frame)
+                          :family "Monospace"
+                          :weight 'bold)
+      'ok)
+  (error (list 'error err)))
+"#,
+    );
+
+    assert_eq!(
+        rendered, "OK ok",
+        "compiled real set-face-attribute should run before faces.el, got: {rendered}"
+    );
+}
+
+#[test]
+fn lowered_real_set_face_attribute_is_bytecode_defalias_before_faces() {
+    crate::test_utils::init_test_tracing();
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let source =
+        std::fs::read_to_string(project_root.join("lisp/faces.el")).expect("read faces.el");
+    let forms = parse_forms(&source).expect("parse faces.el");
+    let defun = forms
+        .into_iter()
+        .find(|form| match form {
+            Expr::List(items) => matches!(
+                (items.first(), items.get(1)),
+                (Some(Expr::Symbol(id0)), Some(Expr::Symbol(id1)))
+                    if resolve_sym(*id0) == "defun" && resolve_sym(*id1) == "set-face-attribute"
+            ),
+            _ => false,
+        })
+        .expect("find set-face-attribute");
+
+    let mut eval = partial_bootstrap_eval_until("faces", true);
+    let lowered =
+        crate::emacs_core::file_compile::lower_toplevel_compiled_form_for_test(&mut eval, &defun)
+            .expect("lower set-face-attribute")
+            .expect("expected lowered form");
+    let items = list_to_vec(&lowered).expect("lowered form should be a list");
+    assert_eq!(
+        items[0].as_symbol_name(),
+        Some("defalias"),
+        "unexpected lowered form: {lowered}"
+    );
+    assert_eq!(
+        items.len(),
+        3,
+        "expected GNU-shaped macroexpanded defalias form, got: {lowered}"
+    );
+    assert_eq!(
+        items[1].to_string(),
+        "'set-face-attribute",
+        "expected quoted function name in lowered defalias, got: {lowered}"
+    );
+    let bytecode = items[2]
+        .get_bytecode_data()
+        .expect("expected bytecode defalias target");
+    assert!(
+        bytecode.docstring.is_some(),
+        "expected bytecode docstring to preserve GNU defalias doc path, got: {lowered}"
+    );
+    eval.eval_sub(lowered)
+        .expect("install lowered set-face-attribute defalias");
+}
+
+#[test]
+fn compiled_real_face_spec_choose_runs_before_faces() {
+    crate::test_utils::init_test_tracing();
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let source =
+        std::fs::read_to_string(project_root.join("lisp/faces.el")).expect("read faces.el");
+    let forms = parse_forms(&source).expect("parse faces.el");
+    let defun = forms
+        .into_iter()
+        .find(|form| match form {
+            Expr::List(items) => matches!(
+                (items.first(), items.get(1)),
+                (Some(Expr::Symbol(id0)), Some(Expr::Symbol(id1)))
+                    if resolve_sym(*id0) == "defun" && resolve_sym(*id1) == "face-spec-choose"
+            ),
+            _ => false,
+        })
+        .expect("find face-spec-choose");
+
+    let mut eval = partial_bootstrap_eval_until("faces", true);
+    let compiled = crate::emacs_core::file_compile::compile_file_forms(&mut eval, &[defun])
+        .expect("compile face-spec-choose");
+    assert_eq!(compiled.len(), 1);
+
+    let crate::emacs_core::file_compile::CompiledForm::Eval(value) = &compiled[0] else {
+        panic!("expected compiled face-spec-choose defalias");
+    };
+    eval.eval_sub(*value)
+        .expect("install compiled face-spec-choose");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"
+(condition-case err
+    (face-spec-choose '((default :weight bold)) (selected-frame) nil)
+  (error (list 'error err)))
+"#,
+    );
+
+    assert_eq!(
+        rendered, "OK (:weight bold)",
+        "compiled real face-spec-choose should run before faces.el, got: {rendered}"
+    );
+}
+
+#[test]
+fn lowered_real_face_spec_choose_is_bytecode_defalias_before_faces() {
+    crate::test_utils::init_test_tracing();
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let source =
+        std::fs::read_to_string(project_root.join("lisp/faces.el")).expect("read faces.el");
+    let forms = parse_forms(&source).expect("parse faces.el");
+    let defun = forms
+        .into_iter()
+        .find(|form| match form {
+            Expr::List(items) => matches!(
+                (items.first(), items.get(1)),
+                (Some(Expr::Symbol(id0)), Some(Expr::Symbol(id1)))
+                    if resolve_sym(*id0) == "defun" && resolve_sym(*id1) == "face-spec-choose"
+            ),
+            _ => false,
+        })
+        .expect("find face-spec-choose");
+
+    let mut eval = partial_bootstrap_eval_until("faces", true);
+    let lowered =
+        crate::emacs_core::file_compile::lower_toplevel_compiled_form_for_test(&mut eval, &defun)
+            .expect("lower face-spec-choose")
+            .expect("expected lowered form");
+    let items = list_to_vec(&lowered).expect("lowered form should be a list");
+    assert_eq!(
+        items[0].as_symbol_name(),
+        Some("defalias"),
+        "unexpected lowered form: {lowered}"
+    );
+    assert_eq!(
+        items.len(),
+        3,
+        "expected GNU-shaped macroexpanded defalias form, got: {lowered}"
+    );
+    assert_eq!(
+        items[1].to_string(),
+        "'face-spec-choose",
+        "expected quoted function name in lowered defalias, got: {lowered}"
+    );
+    let bytecode = items[2]
+        .get_bytecode_data()
+        .expect("expected bytecode defalias target");
+    assert!(
+        bytecode.docstring.is_some(),
+        "expected bytecode docstring to preserve GNU defalias doc path, got: {lowered}"
+    );
+    eval.eval_sub(lowered)
+        .expect("install lowered face-spec-choose defalias");
+}
+
+#[test]
+fn bootstrap_macroexpand_all_pop_body_before_faces() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = partial_bootstrap_eval_until("faces", true);
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"
+(condition-case err
+    (macroexpand-all
+     '(let ((tail spec))
+        (let* ((entry (pop tail))
+               (display (car entry))
+               (attrs (cdr entry))
+               thisval)
+          (setq thisval
+                (if (null (cdr attrs))
+                    (car attrs)
+                  attrs))
+          thisval)))
+  (error (list 'error err)))
+"#,
+    );
+
+    assert!(
+        rendered.starts_with("OK "),
+        "bootstrap macroexpand-all on pop body should succeed before faces.el, got: {rendered}"
+    );
+}
+
+#[test]
+fn bootstrap_macroexpand_all_real_face_spec_choose_body_before_faces() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = partial_bootstrap_eval_until("faces", true);
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"
+(condition-case err
+    (macroexpand-all
+     '(progn
+        (unless frame
+          (setq frame (selected-frame)))
+        (let ((tail spec)
+              result defaults match-found)
+          (while tail
+            (let* ((entry (pop tail))
+                   (display (car entry))
+                   (attrs (cdr entry))
+                   thisval)
+              (setq thisval
+                    (if (null (cdr attrs))
+                        (car attrs)
+                      attrs))
+              (if (eq display 'default)
+                  (setq defaults thisval)
+                (when (face-spec-set-match-display display frame)
+                  (setq result thisval
+                        tail nil
+                        match-found t)))))
+          (if defaults
+              (append defaults result)
+            (if match-found
+                result
+              no-match-retval)))))
+  (error (list 'error err)))
+"#,
+    );
+
+    assert!(
+        rendered.starts_with("OK "),
+        "bootstrap macroexpand-all on real face-spec-choose body should succeed before faces.el, got: {rendered}"
+    );
+}
+
+#[test]
 fn bootstrap_define_inline_sets_compiler_macro_properties() {
     crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
@@ -5794,8 +6279,83 @@ fn expanded_cache_replay_preserves_define_inline_compiler_macro() {
       (function-get 'vm--inline-cache-probe 'compiler-macro))
 "#;
 
-    let first = cached_bootstrap_eval_with_loaded_file(&path, form);
-    let second = cached_bootstrap_eval_with_loaded_file(&path, form);
+    let load_with_minimal_eager_eval = || {
+        let mut eval = minimal_eager_macroexpand_eval();
+        load_file(&mut eval, &path).unwrap_or_else(|err| {
+            panic!(
+                "failed loading {}: {}",
+                path.display(),
+                format_eval_error(&eval, &err)
+            )
+        });
+        eval_rendered(&mut eval, form)
+    };
+
+    let first = load_with_minimal_eager_eval();
+    let cache_path =
+        runtime_neobc_cache_path(&path).unwrap_or_else(|| path.with_extension("neobc"));
+    let source = fs::read_to_string(&path).expect("read inline cache source");
+    let hash = crate::emacs_core::file_compile_format::source_sha256(&source);
+    let loaded = crate::emacs_core::file_compile_format::read_neobc(&cache_path, &hash)
+        .unwrap_or_else(|err| panic!("read {}: {err}", cache_path.display()));
+
+    fn runtime_cached_defalias_targets_bytecode(expr: &Expr, name: &str) -> bool {
+        let Expr::List(items) = expr else {
+            return false;
+        };
+        let Some(Expr::Symbol(head)) = items.first() else {
+            return false;
+        };
+        match resolve_sym(*head) {
+            "defalias" => {
+                let Some(target_name) = items.get(1).and_then(expr_quoted_symbol_name) else {
+                    return false;
+                };
+                target_name == name && matches!(items.get(2), Some(Expr::OpaqueValueRef(_)))
+            }
+            "prog1" => items
+                .get(1)
+                .is_some_and(|nested| runtime_cached_defalias_targets_bytecode(nested, name)),
+            _ => false,
+        }
+    }
+
+    assert!(
+        !loaded.forms.iter().any(|form| {
+            matches!(
+                loaded_runtime_form_expr(form),
+                Some(Expr::List(items))
+                    if matches!(items.first(), Some(Expr::Symbol(id)) if resolve_sym(*id) == "define-inline")
+            )
+        }),
+        "runtime cache should lower define-inline instead of preserving source replay"
+    );
+    assert!(
+        loaded.forms.iter().any(|form| {
+            matches!(
+                form,
+                crate::emacs_core::file_compile_format::LoadedForm::EagerEval(_)
+            ) && matches!(
+                loaded_runtime_form_expr(form),
+                Some(Expr::List(items))
+                    if matches!(items.first(), Some(Expr::Symbol(id)) if resolve_sym(*id) == "eval-and-compile")
+            )
+        }),
+        "runtime cache should preserve eval-and-compile eager replay for define-inline"
+    );
+    assert!(
+        loaded.forms.iter().any(|form| {
+            matches!(
+                form,
+                crate::emacs_core::file_compile_format::LoadedForm::Eval(_)
+            ) && loaded_runtime_form_expr(form).as_ref().is_some_and(|expr| {
+                runtime_cached_defalias_targets_bytecode(expr, "vm--inline-cache-probe")
+            })
+        }),
+        "runtime cache should lower define-inline defalias target to bytecode"
+    );
+
+    let second = load_with_minimal_eager_eval();
 
     assert_eq!(
         first,
@@ -5829,13 +6389,14 @@ fn compiled_neobc_replay_preserves_define_inline_compiler_macro() {
         crate::emacs_core::file_compile_format::read_neobc(&path.with_extension("neobc"), "")
             .expect("read compiled inline neobc");
     assert!(
-        loaded.forms.iter().any(|form| matches!(
-            form,
-            crate::emacs_core::file_compile_format::LoadedForm::EagerEval(expr)
-                if matches!(expr, Expr::List(items)
-                    if matches!(items.first(), Some(Expr::Symbol(id)) if resolve_sym(*id) == "define-inline"))
-        )),
-        "compiled define-inline should preserve eager replay"
+        !loaded.forms.iter().any(|form| {
+            matches!(
+                loaded_runtime_form_expr(form),
+                Some(Expr::List(items))
+                    if matches!(items.first(), Some(Expr::Symbol(id)) if resolve_sym(*id) == "define-inline")
+            )
+        }),
+        "compiled define-inline should lower expanded forms instead of preserving source replay"
     );
 
     load_file(&mut eval, &path).unwrap_or_else(|err| {
@@ -5857,6 +6418,155 @@ fn compiled_neobc_replay_preserves_define_inline_compiler_macro() {
     assert_eq!(
         rendered,
         "OK (vm--inline-compiled-cache-probe--inliner vm--inline-compiled-cache-probe--inliner)"
+    );
+}
+
+fn real_cl_macs_named_toplevel_form(head_name: &str, name: &str) -> Expr {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let source = std::fs::read_to_string(project_root.join("lisp/emacs-lisp/cl-macs.el"))
+        .expect("read cl-macs.el");
+    let forms = parse_forms(&source).expect("parse cl-macs.el");
+    forms
+        .into_iter()
+        .find(|form| match form {
+            Expr::List(items) => matches!(
+                (items.first(), items.get(1)),
+                (Some(Expr::Symbol(id0)), Some(Expr::Symbol(id1)))
+                    if resolve_sym(*id0) == head_name && resolve_sym(*id1) == name
+            ),
+            _ => false,
+        })
+        .unwrap_or_else(|| panic!("find {head_name} {name} in cl-macs.el"))
+}
+
+fn real_cl_macs_define_inline_form(name: &str) -> Expr {
+    real_cl_macs_named_toplevel_form("define-inline", name)
+}
+
+fn real_cl_macs_defun_form(name: &str) -> Expr {
+    real_cl_macs_named_toplevel_form("defun", name)
+}
+
+fn write_real_cl_typep_inline_fixture(path: &std::path::Path) {
+    let cl_macroexp_fboundp = real_cl_macs_defun_form("cl--macroexp-fboundp");
+    let cl_typep = real_cl_macs_define_inline_form("cl-typep");
+    std::fs::write(
+        path,
+        format!(
+            ";;; vm-real-cl-typep-inline.el  -*- lexical-binding: t -*-\n(require 'cl-lib)\n(require 'inline)\n{}\n{}\n",
+            crate::emacs_core::print::print_expr(&cl_macroexp_fboundp),
+            crate::emacs_core::print::print_expr(&cl_typep)
+        ),
+    )
+    .expect("write real cl-typep inline fixture");
+}
+
+fn load_ldefs_boot_for_compile_surface(eval: &mut Context) {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let ldefs_boot = project_root.join("lisp/ldefs-boot.el");
+    load_file(eval, &ldefs_boot).unwrap_or_else(|err| {
+        panic!(
+            "load ldefs-boot {}: {}",
+            ldefs_boot.display(),
+            format_eval_error(eval, &err)
+        )
+    });
+}
+
+#[test]
+fn compiled_neobc_real_cl_typep_define_inline_loads() {
+    crate::test_utils::init_test_tracing();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("vm-real-cl-typep-inline.el");
+    write_real_cl_typep_inline_fixture(&path);
+
+    let mut eval = minimal_eager_macroexpand_eval();
+    let load_path = get_load_path(&eval.obarray());
+    let custom_path =
+        bootstrap_fixture_path(&load_path, "custom", true).expect("custom fixture path");
+    load_file(&mut eval, &custom_path).expect("load custom for cl-lib bootstrap surface");
+    load_ldefs_boot_for_compile_surface(&mut eval);
+    crate::emacs_core::file_compile::compile_el_to_neobc(&mut eval, &path)
+        .expect("compile real cl-typep inline fixture to neobc");
+
+    let loaded =
+        crate::emacs_core::file_compile_format::read_neobc(&path.with_extension("neobc"), "")
+            .expect("read compiled real cl-typep inline neobc");
+    assert!(
+        !loaded.forms.iter().any(|form| {
+            matches!(
+                loaded_runtime_form_expr(form),
+                Some(Expr::List(items))
+                    if matches!(items.first(), Some(Expr::Symbol(id)) if resolve_sym(*id) == "define-inline")
+            )
+        }),
+        "real cl-typep define-inline should lower expanded forms instead of preserving source replay"
+    );
+
+    load_file(&mut eval, &path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading compiled real cl-typep fixture {}: {}",
+            path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"
+(list (get 'cl-typep 'compiler-macro)
+      (function-get 'cl-typep 'compiler-macro))
+"#,
+    );
+
+    assert_eq!(rendered, "OK (cl-typep--inliner cl-typep--inliner)");
+}
+
+#[test]
+fn compiled_neobc_real_cl_typep_compiler_macro_call_matches_gnu_source_shape() {
+    crate::test_utils::init_test_tracing();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("vm-real-cl-typep-inline.el");
+    write_real_cl_typep_inline_fixture(&path);
+
+    let mut eval = minimal_eager_macroexpand_eval();
+    let load_path = get_load_path(&eval.obarray());
+    let custom_path =
+        bootstrap_fixture_path(&load_path, "custom", true).expect("custom fixture path");
+    load_file(&mut eval, &custom_path).expect("load custom for cl-lib bootstrap surface");
+    load_ldefs_boot_for_compile_surface(&mut eval);
+    crate::emacs_core::file_compile::compile_el_to_neobc(&mut eval, &path)
+        .expect("compile real cl-typep inline fixture to neobc");
+
+    load_file(&mut eval, &path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading compiled real cl-typep fixture {}: {}",
+            path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"
+(list
+  (apply (get 'cl-typep 'compiler-macro)
+         '(cl-typep x 'integer)
+         '(x 'integer))
+  (apply (get 'cl-typep 'compiler-macro)
+         '(cl-typep x '(eql 1))
+         '(x '(eql 1)))
+  (apply (get 'cl-typep 'compiler-macro)
+         '(cl-typep x '(member 1 2))
+         '(x '(member 1 2))))
+"#,
+    );
+
+    assert_eq!(
+        rendered,
+        "OK ((funcall #'integerp x) (and (eql x '1) t) (and (memql x '(1 2)) t))"
     );
 }
 
@@ -5958,12 +6668,8 @@ fn expanded_cache_replay_preserves_cl_generic_context_rewriters() {
         .forms
         .iter()
         .map(|form| {
-            let expr = match form {
-                crate::emacs_core::file_compile_format::LoadedForm::Eval(expr)
-                | crate::emacs_core::file_compile_format::LoadedForm::EagerEval(expr) => expr,
-                crate::emacs_core::file_compile_format::LoadedForm::Constant(_) => {
-                    return "Constant".to_string();
-                }
+            let Some(expr) = loaded_runtime_form_expr(form) else {
+                return "Constant".to_string();
             };
             match expr {
                 Expr::List(items) => match items.first() {
@@ -5992,27 +6698,23 @@ fn expanded_cache_replay_preserves_cl_generic_context_rewriters() {
             "(and (get 'neo-test-context 'cl-generic--context-rewriter) t)",
         );
         let form_desc = match form {
-            crate::emacs_core::file_compile_format::LoadedForm::Eval(expr)
-            | crate::emacs_core::file_compile_format::LoadedForm::EagerEval(expr) => {
-                crate::emacs_core::print::print_value_with_buffers(
-                    &eval.quote_to_runtime_value(expr),
-                    &eval.buffers,
-                )
+            crate::emacs_core::file_compile_format::LoadedForm::Eval(value)
+            | crate::emacs_core::file_compile_format::LoadedForm::EagerEval(value) => {
+                crate::emacs_core::print::print_value_with_buffers(value, &eval.buffers)
             }
             crate::emacs_core::file_compile_format::LoadedForm::Constant(value) => {
                 crate::emacs_core::print::print_value_with_buffers(value, &eval.buffers)
             }
         };
         let replay_result = match form {
-            crate::emacs_core::file_compile_format::LoadedForm::Eval(expr) => {
-                eval_runtime_form(&mut eval, expr)
+            crate::emacs_core::file_compile_format::LoadedForm::Eval(value) => {
+                eval.eval_sub(*value).map_err(map_flow)
             }
-            crate::emacs_core::file_compile_format::LoadedForm::EagerEval(expr) => {
-                let form_value = eval.quote_to_runtime_value(expr);
+            crate::emacs_core::file_compile_format::LoadedForm::EagerEval(value) => {
                 if let Some(macroexpand_fn) = get_eager_macroexpand_fn(&mut eval) {
-                    eager_expand_eval(&mut eval, form_value, macroexpand_fn)
+                    eager_expand_eval(&mut eval, *value, macroexpand_fn)
                 } else {
-                    eval.eval_sub(form_value).map_err(map_flow)
+                    eval.eval_sub(*value).map_err(map_flow)
                 }
             }
             crate::emacs_core::file_compile_format::LoadedForm::Constant(_) => Ok(Value::NIL),

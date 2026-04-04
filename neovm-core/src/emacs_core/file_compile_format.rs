@@ -12,25 +12,19 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::Path;
-use std::rc::Rc;
 
-use super::builtins::parse_lambda_params_from_value;
 use super::bytecode::chunk::ByteCodeFunction;
 use super::bytecode::opcode::Op;
-use super::eval::{OPAQUE_POOL, quote_to_value, value_to_expr};
+use super::eval::OPAQUE_POOL;
 use super::expr::Expr;
 use super::file_compile::CompiledForm;
 use super::intern::{
     SymId, intern, intern_uninterned, is_canonical_id, resolve_sym, try_resolve_sym,
 };
 use super::value::{
-    HashKey, HashTableTest, HashTableWeakness, LambdaData, LambdaParams, Value,
-    build_hash_table_literal_value, list_to_vec,
+    HashKey, HashTableTest, HashTableWeakness, LambdaParams, Value, build_hash_table_literal_value,
 };
-use crate::tagged::header::{
-    CLOSURE_ARGLIST, CLOSURE_CODE, CLOSURE_CONSTANTS, CLOSURE_DOC_STRING, CLOSURE_INTERACTIVE,
-    VecLikeType,
-};
+use crate::tagged::header::VecLikeType;
 
 /// Monotonic on-disk `.neobc` schema version.
 ///
@@ -38,10 +32,10 @@ use crate::tagged::header::{
 /// version in `load.rs`. Any change that makes previously emitted cached
 /// forms semantically unsafe to replay must bump it, even if the bincode
 /// layout itself stays readable.
-pub(crate) const NEOBC_FORMAT_VERSION: u32 = 9;
+pub(crate) const NEOBC_FORMAT_VERSION: u32 = 14;
 
 /// Magic bytes identifying a `.neobc` file.
-const NEOBC_MAGIC: &[u8] = b"NEOVM-BC-V9\n";
+const NEOBC_MAGIC: &[u8] = b"NEOVM-BC-V14\n";
 
 // ---------------------------------------------------------------------------
 // Serializable expression type (mirrors load.rs CachedExpr, which is private)
@@ -138,6 +132,10 @@ enum SerializedForm {
 struct NeobcFile {
     /// SHA-256 hex digest of the source `.el` file contents.
     source_hash: String,
+    /// Optional fingerprint of the bootstrap/runtime surface that produced
+    /// this cache. Runtime eager caches are only safe to replay when the
+    /// loader surface matches.
+    surface_fingerprint: Option<String>,
     /// Whether the source was compiled with lexical binding.
     lexical_binding: bool,
     /// The compiled forms.
@@ -679,6 +677,7 @@ fn diagnose_unsupported_value(value: &Value, path: &str) -> UnsupportedValue {
 
 pub(crate) struct NeobcBuilder {
     source_hash: String,
+    surface_fingerprint: Option<String>,
     lexical_binding: bool,
     encoder: ExprEncoder,
     forms: Vec<SerializedForm>,
@@ -688,10 +687,15 @@ impl NeobcBuilder {
     pub(crate) fn new(source_hash: &str, lexical_binding: bool) -> Self {
         Self {
             source_hash: source_hash.to_owned(),
+            surface_fingerprint: None,
             lexical_binding,
             encoder: ExprEncoder::default(),
             forms: Vec::new(),
         }
+    }
+
+    pub(crate) fn set_surface_fingerprint(&mut self, surface_fingerprint: impl Into<String>) {
+        self.surface_fingerprint = Some(surface_fingerprint.into());
     }
 
     pub(crate) fn push_eval_expr(&mut self, expr: &Expr) -> Option<()> {
@@ -755,6 +759,7 @@ impl NeobcBuilder {
     fn finish_bytes(self) -> Option<Vec<u8>> {
         let file = NeobcFile {
             source_hash: self.source_hash,
+            surface_fingerprint: self.surface_fingerprint,
             lexical_binding: self.lexical_binding,
             forms: self.forms,
         };
@@ -809,7 +814,7 @@ impl ExprDecoder {
         let constants = bytecode
             .constants
             .iter()
-            .map(|item| quote_to_value(&self.decode(item)))
+            .map(|item| self.decode_value(item))
             .collect();
         Value::make_bytecode(ByteCodeFunction {
             ops: bytecode.ops.clone(),
@@ -817,10 +822,7 @@ impl ExprDecoder {
             max_stack: bytecode.max_stack,
             params: self.decode_lambda_params(&bytecode.params),
             lexical: bytecode.lexical,
-            env: bytecode
-                .env
-                .as_ref()
-                .map(|value| quote_to_value(&self.decode(value))),
+            env: bytecode.env.as_ref().map(|value| self.decode_value(value)),
             gnu_byte_offset_map: bytecode.gnu_byte_offset_map.as_ref().map(|pairs| {
                 pairs
                     .iter()
@@ -831,62 +833,19 @@ impl ExprDecoder {
             doc_form: bytecode
                 .doc_form
                 .as_ref()
-                .map(|value| quote_to_value(&self.decode(value))),
+                .map(|value| self.decode_value(value)),
             interactive: bytecode
                 .interactive
                 .as_ref()
-                .map(|value| quote_to_value(&self.decode(value))),
+                .map(|value| self.decode_value(value)),
         })
     }
 
     fn decode_closure_value(&mut self, kind: VecLikeType, slots: &[CachedExpr]) -> Value {
-        let slot_values: Vec<Value> = slots
-            .iter()
-            .map(|item| quote_to_value(&self.decode(item)))
-            .collect();
-        let arglist = slot_values
-            .get(CLOSURE_ARGLIST)
-            .copied()
-            .unwrap_or(Value::NIL);
-        let body_value = slot_values.get(CLOSURE_CODE).copied().unwrap_or(Value::NIL);
-        let env_value = slot_values
-            .get(CLOSURE_CONSTANTS)
-            .copied()
-            .unwrap_or(Value::NIL);
-        let doc_value = slot_values
-            .get(CLOSURE_DOC_STRING)
-            .copied()
-            .unwrap_or(Value::NIL);
-        let interactive = slot_values
-            .get(CLOSURE_INTERACTIVE)
-            .copied()
-            .filter(|value| !value.is_nil());
-        let params = parse_lambda_params_from_value(&arglist)
-            .unwrap_or_else(|_| crate::emacs_core::value::LambdaParams::simple(Vec::new()));
-        let body = list_to_vec(&body_value)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|item| value_to_expr(&item))
-            .collect();
-        let env = (!env_value.is_nil()).then_some(env_value);
-        let (docstring, doc_form) = if doc_value.is_nil() {
-            (None, None)
-        } else if let Some(doc) = doc_value.as_str() {
-            (Some(doc.to_owned()), None)
-        } else {
-            (None, Some(doc_value))
-        };
-        let data = LambdaData {
-            params,
-            body: Rc::new(body),
-            env,
-            docstring,
-            doc_form,
-            interactive,
-        };
+        let slot_values: Vec<Value> = slots.iter().map(|item| self.decode_value(item)).collect();
         match kind {
-            VecLikeType::Lambda => Value::make_lambda(data),
-            VecLikeType::Macro => Value::make_macro(data),
+            VecLikeType::Lambda => Value::make_lambda_with_slots(slot_values),
+            VecLikeType::Macro => Value::make_macro_with_slots(slot_values),
             _ => Value::NIL,
         }
     }
@@ -895,12 +854,7 @@ impl ExprDecoder {
         let entries = table
             .entries
             .iter()
-            .map(|(key, value)| {
-                (
-                    quote_to_value(&self.decode(key)),
-                    quote_to_value(&self.decode(value)),
-                )
-            })
+            .map(|(key, value)| (self.decode_value(key), self.decode_value(value)))
             .collect();
         build_hash_table_literal_value(
             decode_hash_table_test(&table.test),
@@ -911,6 +865,49 @@ impl ExprDecoder {
             table.rehash_threshold,
             entries,
         )
+    }
+
+    fn decode_value(&mut self, expr: &CachedExpr) -> Value {
+        match expr {
+            CachedExpr::Int(n) => Value::fixnum(*n),
+            CachedExpr::Float(f) => Value::make_float(*f),
+            CachedExpr::Symbol(name) if name == "nil" => Value::NIL,
+            CachedExpr::Symbol(name) if name == "t" => Value::T,
+            CachedExpr::Symbol(name) => Value::symbol(name),
+            CachedExpr::UninternedSymbol { slot, name } => {
+                let sym = *self
+                    .uninterned_slots
+                    .entry(*slot)
+                    .or_insert_with(|| intern_uninterned(name));
+                Value::from_sym_id(sym)
+            }
+            CachedExpr::ReaderLoadFileName => Value::symbol("load-file-name"),
+            CachedExpr::Keyword(name) => Value::keyword(name),
+            CachedExpr::Str(s) => Value::string(s.clone()),
+            CachedExpr::Char(c) => Value::char(*c),
+            CachedExpr::List(items) => {
+                Value::list(items.iter().map(|item| self.decode_value(item)).collect())
+            }
+            CachedExpr::Vector(items) => {
+                Value::vector(items.iter().map(|item| self.decode_value(item)).collect())
+            }
+            CachedExpr::Record(items) => {
+                let values: Vec<Value> = items.iter().map(|item| self.decode_value(item)).collect();
+                Value::make_record(values)
+            }
+            CachedExpr::Lambda(slots) => self.decode_closure_value(VecLikeType::Lambda, slots),
+            CachedExpr::Macro(slots) => self.decode_closure_value(VecLikeType::Macro, slots),
+            CachedExpr::ByteCode(bytecode) => self.decode_bytecode_value(bytecode),
+            CachedExpr::HashTable(table) => self.decode_hash_table(table),
+            CachedExpr::DottedList(items, tail) => {
+                let tail_value = self.decode_value(tail);
+                items.iter().rev().fold(tail_value, |acc, item| {
+                    Value::cons(self.decode_value(item), acc)
+                })
+            }
+            CachedExpr::Bool(true) => Value::T,
+            CachedExpr::Bool(false) => Value::NIL,
+        }
     }
 
     fn decode(&mut self, expr: &CachedExpr) -> Expr {
@@ -936,8 +933,7 @@ impl ExprDecoder {
                 Expr::Vector(items.iter().map(|item| self.decode(item)).collect())
             }
             CachedExpr::Record(items) => {
-                let expr_items: Vec<Expr> = items.iter().map(|item| self.decode(item)).collect();
-                let values: Vec<Value> = expr_items.iter().map(quote_to_value).collect();
+                let values: Vec<Value> = items.iter().map(|item| self.decode_value(item)).collect();
                 Expr::OpaqueValueRef(
                     OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(Value::make_record(values))),
                 )
@@ -1018,6 +1014,25 @@ pub fn serialize_neobc_detailed(
     })
 }
 
+pub(crate) fn transplant_value_pair(
+    first: &Value,
+    second: &Value,
+) -> Result<(Value, Value), UnsupportedValue> {
+    let mut encoder = ExprEncoder::default();
+    let first_cached = encoder
+        .encode_value(first)
+        .ok_or_else(|| encoder.unsupported_value(first).with_path_prefix("pair[0]"))?;
+    let second_cached = encoder
+        .encode_value(second)
+        .ok_or_else(|| encoder.unsupported_value(second).with_path_prefix("pair[1]"))?;
+
+    let mut decoder = ExprDecoder::default();
+    Ok((
+        decoder.decode_value(&first_cached),
+        decoder.decode_value(&second_cached),
+    ))
+}
+
 /// Serialize already-expanded top-level expressions to `.neobc`.
 pub fn serialize_neobc_exprs(
     source_hash: &str,
@@ -1082,11 +1097,19 @@ pub struct LoadedNeobc {
 #[derive(Debug)]
 pub enum LoadedForm {
     /// Re-evaluate this expression at load time.
-    Eval(Expr),
+    Eval(Value),
     /// Re-run eager macroexpansion for this source form at load time.
-    EagerEval(Expr),
+    EagerEval(Value),
     /// A pre-computed constant (result of `eval-when-compile`).
     Constant(Value),
+}
+
+impl LoadedForm {
+    pub(crate) fn root_value(&self) -> Value {
+        match self {
+            Self::Eval(value) | Self::EagerEval(value) | Self::Constant(value) => *value,
+        }
+    }
 }
 
 /// Read and validate a `.neobc` file.
@@ -1095,6 +1118,14 @@ pub enum LoadedForm {
 /// file's stored hash does not match, `Err` is returned (stale cache).
 /// Pass an empty string to skip the hash check.
 pub fn read_neobc(path: &Path, expected_hash: &str) -> std::io::Result<LoadedNeobc> {
+    read_neobc_with_surface(path, expected_hash, None)
+}
+
+pub fn read_neobc_with_surface(
+    path: &Path,
+    expected_hash: &str,
+    expected_surface: Option<&str>,
+) -> std::io::Result<LoadedNeobc> {
     let data = std::fs::read(path)?;
 
     // Validate magic header.
@@ -1136,6 +1167,18 @@ pub fn read_neobc(path: &Path, expected_hash: &str) -> std::io::Result<LoadedNeo
             ),
         ));
     }
+    if let Some(expected_surface) = expected_surface
+        && let Some(actual_surface) = file.surface_fingerprint.as_deref()
+        && actual_surface != expected_surface
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "neobc surface mismatch: expected {}, got {}",
+                expected_surface, actual_surface
+            ),
+        ));
+    }
 
     // Decode forms.
     let mut decoder = ExprDecoder::default();
@@ -1143,12 +1186,11 @@ pub fn read_neobc(path: &Path, expected_hash: &str) -> std::io::Result<LoadedNeo
         .forms
         .iter()
         .map(|sf| match sf {
-            SerializedForm::Eval(cached) => LoadedForm::Eval(decoder.decode(cached)),
-            SerializedForm::EagerEval(cached) => LoadedForm::EagerEval(decoder.decode(cached)),
-            SerializedForm::Constant(cached) => {
-                let expr = decoder.decode(cached);
-                LoadedForm::Constant(quote_to_value(&expr))
+            SerializedForm::Eval(cached) => LoadedForm::Eval(decoder.decode_value(cached)),
+            SerializedForm::EagerEval(cached) => {
+                LoadedForm::EagerEval(decoder.decode_value(cached))
             }
+            SerializedForm::Constant(cached) => LoadedForm::Constant(decoder.decode_value(cached)),
         })
         .collect();
 
@@ -1184,6 +1226,13 @@ mod tests {
             docstring: Some("sample closure".to_owned()),
             doc_form: None,
             interactive: Some(Value::string("p".to_owned())),
+        }
+    }
+
+    fn loaded_form_runtime_value(form: &LoadedForm) -> Option<Value> {
+        match form {
+            LoadedForm::Eval(value) | LoadedForm::EagerEval(value) => Some(*value),
+            LoadedForm::Constant(_) => None,
         }
     }
 
@@ -1240,9 +1289,9 @@ mod tests {
         ));
 
         // Re-evaluate the loaded form and check result.
-        if let LoadedForm::Eval(expr) | LoadedForm::EagerEval(expr) = &loaded.forms[0] {
+        if let Some(value) = loaded_form_runtime_value(&loaded.forms[0]) {
             let mut eval2 = Context::new();
-            let result = eval2.eval(expr).unwrap();
+            let result = eval2.eval_sub(value).unwrap();
             assert_eq!(result, Value::fixnum(3));
         }
     }
@@ -1397,8 +1446,8 @@ mod tests {
         assert!(!loaded.lexical_binding);
         assert_eq!(loaded.forms.len(), 1);
         match &loaded.forms[0] {
-            LoadedForm::Eval(expr) | LoadedForm::EagerEval(expr) => {
-                assert!(matches!(expr, Expr::List(_)))
+            LoadedForm::Eval(value) | LoadedForm::EagerEval(value) => {
+                assert!(value.is_cons())
             }
             LoadedForm::Constant(_) => panic!("expected Eval form"),
         }
@@ -1508,6 +1557,26 @@ mod tests {
     }
 
     #[test]
+    fn test_transplant_value_pair_preserves_shared_uninterned_symbol_identity() {
+        crate::test_utils::init_test_tracing();
+        let sym = intern_uninterned("shared-transplant-symbol");
+        let first = Value::list(vec![Value::symbol(sym), Value::fixnum(1)]);
+        let second = Value::list(vec![Value::symbol(sym), Value::fixnum(2)]);
+
+        let (first_local, second_local) =
+            transplant_value_pair(&first, &second).expect("transplant pair");
+
+        let first_items = crate::emacs_core::value::list_to_vec(&first_local).expect("first list");
+        let second_items =
+            crate::emacs_core::value::list_to_vec(&second_local).expect("second list");
+
+        let first_sym = first_items[0].as_symbol_id().expect("first symbol");
+        let second_sym = second_items[0].as_symbol_id().expect("second symbol");
+        assert_eq!(resolve_sym(first_sym), "shared-transplant-symbol");
+        assert_eq!(first_sym, second_sym);
+    }
+
+    #[test]
     fn test_roundtrip_record_literal_expr() {
         crate::test_utils::init_test_tracing();
         let src = "#s(cl-slot-descriptor foo 1)";
@@ -1520,11 +1589,11 @@ mod tests {
 
         let loaded = read_neobc(&path, &hash).unwrap();
         match &loaded.forms[0] {
-            LoadedForm::Eval(expr) | LoadedForm::EagerEval(expr) => {
+            LoadedForm::Eval(value) | LoadedForm::EagerEval(value) => {
                 let mut eval = Context::new();
-                let value = eval.eval(expr).unwrap();
-                assert!(value.is_record());
-                let items = value.as_record_data().unwrap();
+                let result = eval.eval_sub(*value).unwrap();
+                assert!(result.is_record());
+                let items = result.as_record_data().unwrap();
                 assert_eq!(items.len(), 3);
                 assert_eq!(items[0].as_symbol_name(), Some("cl-slot-descriptor"));
                 assert_eq!(items[1].as_symbol_name(), Some("foo"));
@@ -1547,10 +1616,10 @@ mod tests {
 
         let loaded = read_neobc(&path, &hash).unwrap();
         match &loaded.forms[0] {
-            LoadedForm::Eval(expr) | LoadedForm::EagerEval(expr) => {
+            LoadedForm::Eval(value) | LoadedForm::EagerEval(value) => {
                 let mut eval = Context::new();
-                let value = eval.eval(expr).unwrap();
-                let table = value.as_hash_table().unwrap();
+                let result = eval.eval_sub(*value).unwrap();
+                let table = result.as_hash_table().unwrap();
                 assert_eq!(table.test, crate::emacs_core::value::HashTableTest::Equal);
                 assert_eq!(table.size, 3);
                 assert_eq!(table.data.len(), 2);
@@ -1593,10 +1662,10 @@ mod tests {
 
         let loaded = read_neobc(&path, "hash").unwrap();
         match &loaded.forms[0] {
-            LoadedForm::Eval(expr) | LoadedForm::EagerEval(expr) => {
+            LoadedForm::Eval(value) | LoadedForm::EagerEval(value) => {
                 let mut eval = Context::new();
-                let value = eval.eval(expr).unwrap();
-                let items = value.as_record_data().unwrap();
+                let result = eval.eval_sub(*value).unwrap();
+                let items = result.as_record_data().unwrap();
                 let table = items[2].as_hash_table().unwrap();
                 assert_eq!(table.test, crate::emacs_core::value::HashTableTest::Eq);
                 assert_eq!(table.data.len(), 2);
@@ -1619,14 +1688,14 @@ mod tests {
 
         let loaded = read_neobc(&path, "hash").unwrap();
         match &loaded.forms[0] {
-            LoadedForm::Eval(expr) | LoadedForm::EagerEval(expr) => {
+            LoadedForm::Eval(value) | LoadedForm::EagerEval(value) => {
                 let mut eval = Context::new();
-                let value = eval.eval(expr).unwrap();
-                assert!(value.is_lambda());
-                assert_eq!(value.closure_docstring(), Some(Some("sample closure")));
-                assert_eq!(value.closure_interactive(), Some(Some(Value::string("p"))));
+                let result = eval.eval_sub(*value).unwrap();
+                assert!(result.is_lambda());
+                assert_eq!(result.closure_docstring(), Some(Some("sample closure")));
+                assert_eq!(result.closure_interactive(), Some(Some(Value::string("p"))));
                 assert_eq!(
-                    value
+                    result
                         .closure_params()
                         .map(|params| params.required.clone())
                         .unwrap_or_default(),
@@ -1658,12 +1727,12 @@ mod tests {
 
         let loaded = read_neobc(&path, "hash").unwrap();
         match &loaded.forms[0] {
-            LoadedForm::Eval(expr) | LoadedForm::EagerEval(expr) => {
+            LoadedForm::Eval(value) | LoadedForm::EagerEval(value) => {
                 let mut eval = Context::new();
-                let value = eval.eval(expr).unwrap();
-                assert!(value.is_lambda());
-                assert_eq!(value.closure_docstring(), Some(Some("outer closure")));
-                let env = value.closure_env().unwrap().unwrap();
+                let result = eval.eval_sub(*value).unwrap();
+                assert!(result.is_lambda());
+                assert_eq!(result.closure_docstring(), Some(Some("outer closure")));
+                let env = result.closure_env().unwrap().unwrap();
                 let items = crate::emacs_core::value::list_to_vec(&env).unwrap();
                 assert_eq!(items.len(), 1);
                 assert!(items[0].is_lambda());
@@ -1686,11 +1755,11 @@ mod tests {
 
         let loaded = read_neobc(&path, "hash").unwrap();
         match &loaded.forms[0] {
-            LoadedForm::Eval(expr) | LoadedForm::EagerEval(expr) => {
+            LoadedForm::Eval(value) | LoadedForm::EagerEval(value) => {
                 let mut eval = Context::new();
-                let value = eval.eval(expr).unwrap();
-                assert!(value.is_macro());
-                assert_eq!(value.closure_docstring(), Some(Some("sample closure")));
+                let result = eval.eval_sub(*value).unwrap();
+                assert!(result.is_macro());
+                assert_eq!(result.closure_docstring(), Some(Some("sample closure")));
             }
             LoadedForm::Constant(_) => panic!("expected Eval form"),
         }
@@ -1711,11 +1780,11 @@ mod tests {
 
         let loaded = read_neobc(&path, &hash).unwrap();
         match &loaded.forms[0] {
-            LoadedForm::Eval(expr) | LoadedForm::EagerEval(expr) => {
+            LoadedForm::Eval(value) | LoadedForm::EagerEval(value) => {
                 let mut eval = Context::new();
-                let value = eval.eval(expr).unwrap();
-                assert!(value.is_lambda());
-                assert_eq!(value.closure_docstring(), Some(Some("sample closure")));
+                let result = eval.eval_sub(*value).unwrap();
+                assert!(result.is_lambda());
+                assert_eq!(result.closure_docstring(), Some(Some("sample closure")));
             }
             LoadedForm::Constant(_) => panic!("expected Eval form"),
         }
@@ -1737,11 +1806,11 @@ mod tests {
 
         let loaded = read_neobc(&path, "hash").unwrap();
         match &loaded.forms[0] {
-            LoadedForm::Eval(expr) | LoadedForm::EagerEval(expr) => {
+            LoadedForm::Eval(value) | LoadedForm::EagerEval(value) => {
                 let mut eval = Context::new();
-                let value = eval.eval(expr).unwrap();
-                assert!(value.is_bytecode());
-                let bytecode = value.get_bytecode_data().expect("bytecode payload");
+                let result = eval.eval_sub(*value).unwrap();
+                assert!(result.is_bytecode());
+                let bytecode = result.get_bytecode_data().expect("bytecode payload");
                 assert_eq!(bytecode.params.required, vec![intern("x")]);
                 assert!(!bytecode.ops.is_empty());
             }
@@ -1767,12 +1836,12 @@ mod tests {
 
         let loaded = read_neobc(&path, &hash).unwrap();
         match &loaded.forms[0] {
-            LoadedForm::Eval(expr) | LoadedForm::EagerEval(expr) => {
+            LoadedForm::Eval(value) | LoadedForm::EagerEval(value) => {
                 let mut eval = Context::new();
-                let value = eval.eval(expr).unwrap();
-                assert!(value.is_bytecode());
+                let result = eval.eval_sub(*value).unwrap();
+                assert!(result.is_bytecode());
                 assert_eq!(
-                    value
+                    result
                         .get_bytecode_data()
                         .expect("bytecode payload")
                         .params

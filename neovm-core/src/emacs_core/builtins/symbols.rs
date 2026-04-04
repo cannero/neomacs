@@ -44,7 +44,7 @@ pub(crate) trait MacroexpandRuntime {
     fn apply_macro_function(
         &mut self,
         form: Value,
-        function: Value,
+        definition: Value,
         args: Vec<Value>,
     ) -> Result<Value, Flow>;
 }
@@ -65,25 +65,10 @@ impl MacroexpandRuntime for super::eval::Context {
     fn apply_macro_function(
         &mut self,
         form: Value,
-        function: Value,
+        definition: Value,
         args: Vec<Value>,
     ) -> Result<Value, Flow> {
-        if let Some(cached) = self.lookup_runtime_macro_expansion(function, &args) {
-            return Ok(self.source_literal_to_runtime_value(cached.as_ref()));
-        }
-        let args_for_cache = args.clone();
-        let expand_start = std::time::Instant::now();
-        self.with_gc_scope_result(|ctx| {
-            ctx.push_temp_root(form);
-            ctx.push_temp_root(function);
-            for arg in &args {
-                ctx.push_temp_root(*arg);
-            }
-            let expanded = ctx.with_macro_expansion_scope(|eval| eval.apply(function, args))?;
-            let expand_elapsed = expand_start.elapsed();
-            ctx.store_runtime_macro_expansion(function, &args_for_cache, &expanded, expand_elapsed);
-            Ok(expanded)
-        })
+        self.expand_macro_for_macroexpand(form, definition, args)
     }
 }
 
@@ -1103,15 +1088,6 @@ fn macroexpand_definition_is_macro(definition: &Value) -> bool {
         || (definition.is_cons() && definition.cons_car().is_symbol_named("macro"))
 }
 
-#[inline]
-fn macroexpand_expander_from_definition(definition: Value) -> Value {
-    if definition.is_cons() {
-        definition.cons_cdr()
-    } else {
-        definition
-    }
-}
-
 #[tracing::instrument(level = "trace", skip(runtime, environment), fields(head))]
 fn macroexpand_once_with_environment<R: MacroexpandRuntime>(
     runtime: &mut R,
@@ -1179,7 +1155,7 @@ fn macroexpand_once_with_environment<R: MacroexpandRuntime>(
         }
 
         if macroexpand_definition_is_macro(&global) {
-            Some(macroexpand_expander_from_definition(global))
+            Some(global)
         } else {
             None
         }
@@ -4006,26 +3982,13 @@ pub(crate) fn make_interpreted_closure_from_parts(
     let docstring_value = docstring.copied().unwrap_or(Value::NIL);
     let iform = interactive.copied().unwrap_or(Value::NIL);
 
-    let params_expr = super::eval::value_to_expr(params_value);
-    let params = parse_lambda_params_from_expr(&params_expr)?;
-
-    let body_exprs: Vec<super::super::expr::Expr> = if body_value.is_nil() {
-        vec![]
-    } else {
-        let body_items = list_to_vec(body_value).ok_or_else(|| {
-            signal(
-                "wrong-type-argument",
-                vec![Value::symbol("listp"), *body_value],
-            )
-        })?;
-        body_items.iter().map(super::eval::value_to_expr).collect()
-    };
-
-    let env = if env_value.is_nil() {
-        None
-    } else {
-        Some(*env_value)
-    };
+    parse_lambda_params_from_value(params_value)?;
+    if !body_value.is_nil() && list_to_vec(body_value).is_none() {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("listp"), *body_value],
+        ));
+    }
 
     let (docstring, doc_form) = match docstring_value.kind() {
         ValueKind::String => (Some(docstring_value.as_str().unwrap().to_owned()), None),
@@ -4056,14 +4019,18 @@ pub(crate) fn make_interpreted_closure_from_parts(
         Some(iform)
     };
 
-    Ok(Value::make_lambda(LambdaData {
-        params,
-        body: body_exprs.into(),
-        env,
-        docstring,
-        doc_form,
-        interactive: interactive_spec,
-    }))
+    // Store GNU closure slots directly so interpreted closures do not pay a
+    // Value -> Expr -> Value round-trip for their runtime bodies.
+    Ok(Value::make_lambda_with_slots(vec![
+        *params_value,
+        *body_value,
+        *env_value,
+        Value::NIL,
+        doc_form
+            .or_else(|| docstring.as_ref().map(|d| Value::string(d.clone())))
+            .unwrap_or(Value::NIL),
+        interactive_spec.unwrap_or(Value::NIL),
+    ]))
 }
 
 /// Reify nested compiled literals embedded in `.elc` constant vectors.

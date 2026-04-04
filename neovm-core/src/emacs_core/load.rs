@@ -218,16 +218,10 @@ fn eval_runtime_form(eval: &mut super::eval::Context, form: &Expr) -> Result<Val
 
 fn cached_form_requires_eager_replay(form: Value) -> bool {
     form.is_cons()
-        && form.cons_car().as_symbol_name().is_some_and(|name| {
-            matches!(
-                name,
-                "eval-and-compile" | "eval-when-compile" | "define-inline"
-            )
-        })
-}
-
-fn preserve_original_toplevel_replay_boundary(form: Value) -> bool {
-    form.is_cons() && form.cons_car().as_symbol_name() == Some("define-inline")
+        && form
+            .cons_car()
+            .as_symbol_name()
+            .is_some_and(|name| matches!(name, "eval-and-compile" | "eval-when-compile"))
 }
 
 fn generated_defalias(eval: &mut super::eval::Context, args: &[Expr]) -> Result<Value, EvalError> {
@@ -778,11 +772,28 @@ pub(crate) fn eager_expand_toplevel_forms(
     macroexpand_fn: Value,
     sink: &mut impl FnMut(&mut super::eval::Context, Value, Value, bool) -> Result<Value, EvalError>,
 ) -> Result<Value, EvalError> {
+    eager_expand_toplevel_forms_with_extra_roots(
+        eval,
+        form_value,
+        macroexpand_fn,
+        &mut |_ctx| {},
+        sink,
+    )
+}
+
+pub(crate) fn eager_expand_toplevel_forms_with_extra_roots(
+    eval: &mut super::eval::Context,
+    form_value: Value,
+    macroexpand_fn: Value,
+    extra_roots: &mut impl FnMut(&mut super::eval::Context),
+    sink: &mut impl FnMut(&mut super::eval::Context, Value, Value, bool) -> Result<Value, EvalError>,
+) -> Result<Value, EvalError> {
     let original_form = form_value;
     let mutation_epoch_before = eval.macro_expansion_mutation_epoch();
     // Step 1: one-level expand — val = (internal-macroexpand-for-load val nil)
     // Note: real Emacs mutates `val` here; we shadow it.
     let val = eval.with_gc_scope(|ctx| {
+        extra_roots(ctx);
         ctx.root(form_value);
         ctx.root(macroexpand_fn);
         ctx.apply(macroexpand_fn, vec![form_value, Value::NIL]).ok()
@@ -795,6 +806,7 @@ pub(crate) fn eager_expand_toplevel_forms(
             // This matches .elc behavior where forms are already compiled.
             tracing::debug!("eager_expand step1 failed, falling back to plain eval");
             return eval.with_gc_scope(|ctx| {
+                extra_roots(ctx);
                 ctx.root(form_value);
                 sink(ctx, original_form, form_value, false)
             });
@@ -809,13 +821,20 @@ pub(crate) fn eager_expand_toplevel_forms(
         let cdr = val.cons_cdr();
         if car.is_symbol_named("progn") {
             return eval.with_gc_scope(|ctx| {
+                extra_roots(ctx);
                 ctx.root(val);
                 let mut result = Value::NIL;
                 let mut tail = cdr;
                 while tail.is_cons() {
                     let sub_form = tail.cons_car();
                     tail = tail.cons_cdr();
-                    result = eager_expand_toplevel_forms(ctx, sub_form, macroexpand_fn, sink)?;
+                    result = eager_expand_toplevel_forms_with_extra_roots(
+                        ctx,
+                        sub_form,
+                        macroexpand_fn,
+                        extra_roots,
+                        sink,
+                    )?;
                 }
                 Ok(result)
             });
@@ -828,6 +847,7 @@ pub(crate) fn eager_expand_toplevel_forms(
     // Calling internal-macroexpand-for-load(val, t) with full-p=t triggers
     // macroexpand--all-toplevel (deep/recursive expansion via macroexpand-all).
     eval.with_gc_scope(|ctx| {
+        extra_roots(ctx);
         ctx.root(val);
         ctx.root(macroexpand_fn);
         ctx.root(original_form);
@@ -879,6 +899,31 @@ pub(crate) fn eager_expand_eval(
             })
         },
     )
+}
+
+type ThreadRuntimeRegistries = (
+    super::charset::CharsetRegistrySnapshot,
+    super::fontset::FontsetRegistrySnapshot,
+);
+
+fn snapshot_thread_runtime_registries() -> ThreadRuntimeRegistries {
+    (
+        super::charset::snapshot_charset_registry(),
+        super::fontset::snapshot_fontset_registry(),
+    )
+}
+
+fn restore_thread_runtime_registries(registries: &ThreadRuntimeRegistries) {
+    super::charset::restore_charset_registry(registries.0.clone());
+    super::fontset::restore_fontset_registry(registries.1.clone());
+}
+
+fn activate_context_thread_runtime(
+    ctx: &mut super::eval::Context,
+    registries: &ThreadRuntimeRegistries,
+) {
+    ctx.setup_thread_locals();
+    restore_thread_runtime_registries(registries);
 }
 
 /// Shared context save/restore for file loading.
@@ -1227,9 +1272,18 @@ pub(crate) fn eval_decoded_source_file_in_context(
     lexical_binding: bool,
 ) -> Result<Value, EvalError> {
     let source_hash = super::file_compile_format::source_sha256(content);
+    let runtime_surface_fingerprint = runtime_neobc_surface_fingerprint(eval);
     for neobc_path in neobc_candidate_paths(path) {
         if neobc_path.exists() {
-            match super::file_compile_format::read_neobc(&neobc_path, &source_hash) {
+            let expected_surface = runtime_neobc_cache_path(path)
+                .as_ref()
+                .filter(|runtime_path| *runtime_path == &neobc_path)
+                .map(|_| runtime_surface_fingerprint.as_str());
+            match super::file_compile_format::read_neobc_with_surface(
+                &neobc_path,
+                &source_hash,
+                expected_surface,
+            ) {
                 Ok(loaded) => {
                     tracing::info!(
                         "neobc cache hit for {} via {} ({} forms)",
@@ -1237,25 +1291,38 @@ pub(crate) fn eval_decoded_source_file_in_context(
                         neobc_path.display(),
                         loaded.forms.len()
                     );
-                    for form in &loaded.forms {
-                        match form {
-                            super::file_compile_format::LoadedForm::Eval(expr) => {
-                                eval_runtime_form(eval, expr)?;
-                            }
-                            super::file_compile_format::LoadedForm::EagerEval(expr) => {
-                                let form_value = eval.quote_to_runtime_value(expr);
-                                if let Some(macroexpand_fn) = get_eager_macroexpand_fn(eval) {
-                                    eager_expand_eval(eval, form_value, macroexpand_fn)?;
-                                } else {
-                                    eval.eval_sub(form_value).map_err(map_flow)?;
-                                }
-                            }
-                            super::file_compile_format::LoadedForm::Constant(_) => {
-                                // eval-when-compile constant -- already evaluated, skip.
-                            }
+                    let replay_roots: Vec<Value> =
+                        loaded.forms.iter().map(|form| form.root_value()).collect();
+                    let mut replay_result = Ok(());
+                    eval.with_gc_scope(|ctx| {
+                        for root in &replay_roots {
+                            ctx.root(*root);
                         }
-                        eval.gc_safe_point_exact();
-                    }
+                        for form in &loaded.forms {
+                            let step_result: Result<(), EvalError> = match form {
+                                super::file_compile_format::LoadedForm::Eval(value) => {
+                                    ctx.eval_sub(*value).map(|_| ()).map_err(map_flow)
+                                }
+                                super::file_compile_format::LoadedForm::EagerEval(value) => {
+                                    if let Some(macroexpand_fn) = get_eager_macroexpand_fn(ctx) {
+                                        eager_expand_eval(ctx, *value, macroexpand_fn).map(|_| ())
+                                    } else {
+                                        ctx.eval_sub(*value).map(|_| ()).map_err(map_flow)
+                                    }
+                                }
+                                super::file_compile_format::LoadedForm::Constant(_) => {
+                                    // eval-when-compile constant -- already evaluated, skip.
+                                    Ok(())
+                                }
+                            };
+                            if let Err(err) = step_result {
+                                replay_result = Err(err);
+                                break;
+                            }
+                            ctx.gc_safe_point_exact();
+                        }
+                    });
+                    replay_result?;
                     record_load_history(eval, path);
                     return Ok(Value::T);
                 }
@@ -1298,64 +1365,128 @@ pub(crate) fn eval_decoded_source_file_in_context(
         runtime_neobc_cache_path(path).unwrap_or_else(|| path.with_extension("neobc"));
 
     if let Some(mexp_fn) = macroexpand_fn {
+        let mut live_runtime_registries = snapshot_thread_runtime_registries();
+        let mut lowering_eval =
+            super::pdump::clone_active_evaluator(eval).map_err(|err| EvalError::Signal {
+                symbol: intern("error"),
+                data: vec![Value::string(format!(
+                    "failed to clone evaluator for runtime cache lowering: {err}"
+                ))],
+                raw_data: None,
+            })?;
+        let mut lowering_runtime_registries = snapshot_thread_runtime_registries();
+        activate_context_thread_runtime(eval, &live_runtime_registries);
+        let mut compiler_macro_env = Value::NIL;
         let mut neobc_builder = Some(super::file_compile_format::NeobcBuilder::new(
             &source_hash,
             lexical_binding,
         ));
+        if let Some(builder) = neobc_builder.as_mut() {
+            builder.set_surface_fingerprint(runtime_surface_fingerprint.clone());
+        }
         readevalloop(eval, &file_name, &forms, |eval, i, form| {
+            activate_context_thread_runtime(eval, &live_runtime_registries);
             let form_value = eval.source_literal_to_runtime_value(form);
-            if preserve_original_toplevel_replay_boundary(form_value) {
-                if let Some(builder) = neobc_builder.as_mut()
-                    && let Err(err) = builder.push_eager_eval_value_detailed(&form_value)
-                {
-                    tracing::debug!(
-                        "neobc cache save skipped for {} at source form {}: unsupported value at {} ({})",
-                        path.display(),
-                        i,
-                        err.path(),
-                        err.detail()
-                    );
-                    neobc_builder = None;
-                }
-                return eager_expand_eval(eval, form_value, mexp_fn);
-            }
             eager_expand_toplevel_forms(
                 eval,
                 form_value,
                 mexp_fn,
                 &mut |ctx, original, expanded, requires_eager_replay| {
-                    if let Some(builder) = neobc_builder.as_mut() {
-                        let push_result = ctx.with_gc_scope(|ctx| {
+                    activate_context_thread_runtime(
+                        &mut lowering_eval,
+                        &lowering_runtime_registries,
+                    );
+                    let compiled_replay_form = ctx
+                        .with_gc_scope_result(|ctx| {
                             ctx.root(original);
                             ctx.root(expanded);
-                            if let Some(compiled) =
-                                super::file_compile::lower_runtime_cached_toplevel_form(
-                                    ctx, original, expanded,
-                                )
-                            {
-                                ctx.root(compiled);
-                                builder.push_eval_value_detailed(&compiled)
+                            lowering_eval.with_gc_scope_result(|lower_ctx| {
+                                lower_ctx.root(compiler_macro_env);
+                                let (original_local, expanded_local) =
+                                    super::file_compile_format::transplant_value_pair(
+                                        &original, &expanded,
+                                    )
+                                    .map_err(|err| {
+                                        signal(
+                                            "error",
+                                            vec![Value::string(format!(
+                                                "failed to transplant runtime cache lowering values at {} ({})",
+                                                err.path(),
+                                                err.detail()
+                                            ))],
+                                        )
+                                    })?;
+                                lower_ctx.root(original_local);
+                                lower_ctx.root(expanded_local);
+                                let compiled = super::file_compile::lower_runtime_cached_toplevel_form_with_env(
+                                    lower_ctx,
+                                    original_local,
+                                    expanded_local,
+                                    compiler_macro_env,
+                                );
+                                if let Some(compiled) = compiled {
+                                    lower_ctx.root(compiled);
+                                    super::file_compile::maybe_extend_compiler_macro_env_from_lowered(
+                                        &mut compiler_macro_env,
+                                        compiled,
+                                    );
+                                    compiler_macro_env = lower_ctx.root(compiler_macro_env);
+                                }
+                                Ok(compiled)
+                            })
+                        })
+                        .map_err(map_flow)?;
+                    lowering_runtime_registries = snapshot_thread_runtime_registries();
+
+                    activate_context_thread_runtime(ctx, &live_runtime_registries);
+                    ctx.with_gc_scope(|ctx| {
+                        ctx.root(original);
+                        ctx.root(expanded);
+                        let mut disable_cache = None;
+                        if let Some(builder) = neobc_builder.as_mut() {
+                            let push_result = if let Some(compiled) = compiled_replay_form {
+                                activate_context_thread_runtime(
+                                    &mut lowering_eval,
+                                    &lowering_runtime_registries,
+                                );
+                                lowering_eval.with_gc_scope(|lower_ctx| {
+                                    lower_ctx.root(compiler_macro_env);
+                                    lower_ctx.root(compiled);
+                                    builder.push_eval_value_detailed(&compiled)
+                                })
                             } else if requires_eager_replay {
                                 builder.push_eager_eval_value_detailed(&original)
                             } else {
                                 builder.push_eval_value_detailed(&expanded)
+                            };
+                            if let Err(err) = push_result {
+                                disable_cache =
+                                    Some((err.path().to_owned(), err.detail().to_owned()));
                             }
-                        });
-                        if let Err(err) = push_result {
+                        }
+                        if compiled_replay_form.is_some() {
+                            lowering_runtime_registries = snapshot_thread_runtime_registries();
+                            activate_context_thread_runtime(ctx, &live_runtime_registries);
+                        }
+                        if let Some((err_path, err_detail)) = disable_cache {
                             tracing::debug!(
                                 "neobc cache save skipped for {} at source form {}: unsupported value at {} ({})",
                                 path.display(),
                                 i,
-                                err.path(),
-                                err.detail()
+                                err_path,
+                                err_detail
                             );
                             neobc_builder = None;
                         }
-                    }
-                    ctx.with_gc_scope(|ctx| {
+                        // Match GNU source loading: cache lowering is a separate
+                        // compilation concern. The live load path should still
+                        // evaluate the source-expanded form, not the freshly
+                        // lowered cache artifact.
+                        activate_context_thread_runtime(ctx, &live_runtime_registries);
                         ctx.root(expanded);
                         let t4 = std::time::Instant::now();
                         let value = ctx.eval_value(&expanded).map_err(map_flow)?;
+                        live_runtime_registries = snapshot_thread_runtime_registries();
                         let d4 = t4.elapsed();
                         if d4.as_millis() > 200 {
                             tracing::warn!("eager_expand step4 (eval) took {d4:.2?}");
@@ -1426,6 +1557,54 @@ pub(crate) fn eval_decoded_source_file_in_context(
     record_load_history(eval, path);
 
     Ok(Value::T)
+}
+
+fn runtime_neobc_surface_fingerprint(eval: &super::eval::Context) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"neomacs-runtime-neobc-surface-v1\0");
+    for (name, value) in [
+        (
+            "features",
+            eval.obarray()
+                .symbol_value("features")
+                .copied()
+                .unwrap_or(Value::NIL),
+        ),
+        (
+            "load-history",
+            eval.obarray()
+                .symbol_value("load-history")
+                .copied()
+                .unwrap_or(Value::NIL),
+        ),
+        (
+            "macroexp--pending-eager-loads",
+            eval.obarray()
+                .symbol_value("macroexp--pending-eager-loads")
+                .copied()
+                .unwrap_or(Value::NIL),
+        ),
+        (
+            "defun-declarations-alist",
+            eval.obarray()
+                .symbol_value("defun-declarations-alist")
+                .copied()
+                .unwrap_or(Value::NIL),
+        ),
+        (
+            "load-path",
+            eval.obarray()
+                .symbol_value("load-path")
+                .copied()
+                .unwrap_or(Value::NIL),
+        ),
+    ] {
+        hasher.update(name.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(super::print::print_value(&value).as_bytes());
+        hasher.update(b"\0");
+    }
+    format!("{:x}", hasher.finalize())
 }
 
 /// Skip the `;ELC` magic header in a byte-compiled Elisp file.
