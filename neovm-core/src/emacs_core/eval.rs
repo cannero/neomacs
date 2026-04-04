@@ -592,6 +592,21 @@ impl MacroExpansionCacheEntry {
 }
 
 #[derive(Clone, Debug)]
+pub(crate) struct RuntimeMacroExpansionCacheEntry {
+    expanded: Value,
+    fingerprint: u64,
+}
+
+impl RuntimeMacroExpansionCacheEntry {
+    fn new(expanded: Value, fingerprint: u64) -> Self {
+        Self {
+            expanded,
+            fingerprint,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
 struct InterpretedClosureTrimCacheEntry {
     params_expr: Expr,
     body_exprs: Vec<Expr>,
@@ -1250,7 +1265,7 @@ pub struct Context {
     /// argument tail, so equivalent cons trees rebuilt from cached/bootstrap
     /// forms can reuse the same expansion.
     pub(crate) runtime_macro_expansion_cache:
-        HashMap<(usize, usize, u64), Rc<MacroExpansionCacheEntry>>,
+        HashMap<(usize, usize, u64), RuntimeMacroExpansionCacheEntry>,
     /// Bootstrapped standard interpreted-closure filter function object.
     /// Used to memoize the GNU cconv closure-trimming path without changing
     /// semantics when users later rebind/advice the hook.
@@ -10494,7 +10509,7 @@ impl Context {
         &mut self,
         function: Value,
         args: &[Value],
-    ) -> Option<Rc<Expr>> {
+    ) -> Option<Value> {
         if !self.runtime_macro_expansion_cache_enabled() {
             return None;
         }
@@ -10506,7 +10521,7 @@ impl Context {
             .cloned()?;
         if cached.fingerprint == current_fp {
             self.macro_cache_hits += 1;
-            return Some(cached.expanded.clone());
+            return Some(cached.expanded);
         }
         None
     }
@@ -10525,10 +10540,7 @@ impl Context {
         self.macro_expand_total_us += expand_elapsed.as_micros() as u64;
         let current_fp = runtime_tail_fingerprint(args);
         let cache_key = self.runtime_macro_expansion_cache_key(function, current_fp);
-        let cache_entry = Rc::new(MacroExpansionCacheEntry::new(
-            Rc::new(value_to_expr(expanded_value)),
-            current_fp,
-        ));
+        let cache_entry = RuntimeMacroExpansionCacheEntry::new(*expanded_value, current_fp);
         if expand_elapsed.as_millis() > 50 {
             tracing::warn!(
                 "runtime_macro_cache MISS macro={:#x} fp={:#x} took {expand_elapsed:.2?}",
@@ -10603,7 +10615,7 @@ impl Context {
         args: Vec<Value>,
     ) -> Result<Value, Flow> {
         if let Some(cached) = self.lookup_runtime_macro_expansion(definition, &args) {
-            return Ok(self.source_literal_to_runtime_value(cached.as_ref()));
+            return Ok(cached);
         }
         let args_for_cache = args.clone();
         let expand_start = std::time::Instant::now();

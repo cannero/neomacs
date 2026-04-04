@@ -4383,7 +4383,7 @@ impl<'a> crate::emacs_core::builtins::symbols::MacroexpandRuntime for Vm<'a> {
         args: Vec<Value>,
     ) -> Result<Value, Flow> {
         if let Some(cached) = self.ctx.lookup_runtime_macro_expansion(function, &args) {
-            return Ok(self.ctx.source_literal_to_runtime_value(cached.as_ref()));
+            return Ok(cached);
         }
         let args_for_cache = args.clone();
         let expand_start = std::time::Instant::now();
