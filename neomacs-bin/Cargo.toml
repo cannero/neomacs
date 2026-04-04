@@ -25,6 +25,11 @@ name = "bootstrap-neomacs"
 path = "src/bin/bootstrap-neomacs.rs"
 test = false
 
+[[bin]]
+name = "mock-display"
+path = "src/bin/mock-display.rs"
+test = false
+
 [dependencies]
 neomacs-display-protocol.workspace = true
 neomacs-display-runtime = { workspace = true, default-features = false }
