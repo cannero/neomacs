@@ -3,7 +3,7 @@ experimental = ["wrapper-scripts"]
 # Memory-limited wrapper: each test process gets a 4GB RSS limit via cgroup.
 # Prevents runaway tests from OOM-killing the system.
 [scripts.wrapper.memory-limit]
-command = 'systemd-run --user --scope -q -p MemoryMax=1G --'
+command = 'systemd-run --user --scope -q -p MemoryMax=4G --'
 
 [profile.default]
 # Many tests use the bootstrap evaluator (which loads 122 .el files)
@@ -15,6 +15,12 @@ slow-timeout = { period = "120s", terminate-after = 1 }
 [[profile.default.scripts]]
 filter = 'all()'
 run-wrapper = 'memory-limit'
+
+# Bootstrap tests need more stack (Rust frames are larger than C)
+[[profile.default.overrides]]
+filter = 'test(bootstrap) | test(pdump) | test(loadup)'
+threads-required = 1
+environment = { RUST_MIN_STACK = "67108864" }
 
 # Oracle tests get longer timeouts
 [[profile.default.overrides]]
