@@ -22,13 +22,13 @@ license = "GPL-3.0-or-later"
 
 [workspace.dependencies]
 # Internal crates
-neovm-core = { path = "neovm-core", default-features = false }
-neovm-host-abi = { path = "neovm-host-abi" }
-neovm-oracle-tests = { path = "neovm-oracle-tests" }
-neomacs-display-runtime = { path = "neomacs-display-runtime", default-features = false }
-neomacs-display-protocol = { path = "neomacs-display-protocol", default-features = false }
-neomacs-layout-engine = { path = "neomacs-layout-engine", default-features = false }
-neomacs-renderer-wgpu = { path = "neomacs-renderer-wgpu", default-features = false }
+neovm-core = { path = "neovm-core", version = "0.0.1", default-features = false }
+neovm-host-abi = { path = "neovm-host-abi", version = "0.0.1" }
+neovm-oracle-tests = { path = "neovm-oracle-tests", version = "0.0.1" }
+neomacs-display-runtime = { path = "neomacs-display-runtime", version = "0.0.1", default-features = false }
+neomacs-display-protocol = { path = "neomacs-display-protocol", version = "0.0.1", default-features = false }
+neomacs-layout-engine = { path = "neomacs-layout-engine", version = "0.0.1", default-features = false }
+neomacs-renderer-wgpu = { path = "neomacs-renderer-wgpu", version = "0.0.1", default-features = false }
 
 # Logging / tracing
 tracing = { version = "0.1", features = ["attributes"] }
