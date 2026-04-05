@@ -5822,6 +5822,26 @@ impl Context {
         self.eval_sub(form).map_err(map_flow)
     }
 
+    /// Evaluate a Lisp expression string. Convenience for tests.
+    /// Reads via the Value-native reader and evaluates via eval_sub.
+    pub fn eval_str(&mut self, source: &str) -> Result<Value, EvalError> {
+        crate::tagged::gc::set_tagged_heap(&mut self.tagged_heap);
+        let forms = super::value_reader::read_all(source)
+            .map_err(|e| EvalError::Signal {
+                symbol: crate::emacs_core::intern::intern("error"),
+                data: vec![Value::string(format!("Read error: {}", e.message))],
+                raw_data: None,
+            })?;
+        if forms.is_empty() {
+            return Ok(Value::NIL);
+        }
+        let mut result = Value::NIL;
+        for form in forms {
+            result = self.eval_sub(form).map_err(super::error::map_flow)?;
+        }
+        Ok(result)
+    }
+
     /// Evaluate a Value as code (like Elisp's `eval`).
     /// Converts Value to Expr, then evaluates.  OpaqueValueRef entries
     /// are rooted by the OpaqueValuePool automatically.
