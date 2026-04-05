@@ -1069,48 +1069,8 @@ impl TaggedHeap {
         roots: impl Iterator<Item = TaggedValue>,
         mode: RootScanMode,
     ) {
-        // -- Debug: check for pre-existing corruption BEFORE clearing marks --
-        #[cfg(debug_assertions)]
-        {
-            static GC_CYCLE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-            let cycle = GC_CYCLE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let mut corrupt_count = 0;
-            let mut check = self.all_objects;
-            while !check.is_null() {
-                unsafe {
-                    if (*check).kind == HeapObjectKind::String {
-                        let obj = &*(check as *const StringObj);
-                        let str_ptr = obj.data.as_str().as_ptr() as usize;
-                        if str_ptr != 0 && str_ptr < 0x1000 {
-                            if corrupt_count == 0 {
-                                // Print detailed info about the first corrupt StringObj
-                                tracing::error!(
-                                    "GC CYCLE {}: FIRST corrupt StringObj at {:p}, \
-                                     header.marked={}, header.kind={:?}, \
-                                     data.as_str().as_ptr()={:#x}, \
-                                     data.byte_len()={}, data.multibyte={}",
-                                    cycle,
-                                    check,
-                                    obj.header.marked,
-                                    obj.header.kind,
-                                    str_ptr,
-                                    obj.data.byte_len(),
-                                    obj.data.multibyte,
-                                );
-                            }
-                            corrupt_count += 1;
-                        }
-                    }
-                    check = (*check).next;
-                }
-            }
-            if corrupt_count > 0 {
-                tracing::error!(
-                    "GC CYCLE {}: {} corrupt StringObjs found BEFORE mark phase",
-                    cycle, corrupt_count
-                );
-            }
-        }
+        // (Pre-mark verification removed — unmarked objects may have stale data
+        //  that will be swept. Only post-mark verification is meaningful.)
 
         // -- Clear marks --
         for block in &mut self.cons_blocks {
