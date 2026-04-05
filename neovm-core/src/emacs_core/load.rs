@@ -1547,13 +1547,13 @@ fn load_file_body(
 
     // --- Shared context setup via with_load_context ---
     with_load_context(eval, path, lexical_binding, |eval| {
-        // --- Streaming Value-reader path (opt-in via NEOVM_USE_VALUE_READER=1) ---
-        // This bypasses the Expr-based parser and neobc cache entirely,
-        // matching GNU's readevalloop: read one form, expand, eval, next.
-        // .elc files are kept on the old path because they need
-        // reify_byte_code_literals which operates on Expr, not Value.
+        // --- Streaming Value-reader path (default for .el files) ---
+        // Matches GNU's readevalloop: read one form, expand, eval, next.
+        // No Expr intermediate, no neobc cache, no macro expansion cache.
+        // .elc files use the old Expr path (needs reify_byte_code_literals).
+        // Set NEOVM_USE_EXPR_READER=1 to force the old Expr path.
         if !is_elc
-            && std::env::var("NEOVM_USE_VALUE_READER").ok().as_deref() == Some("1")
+            && std::env::var("NEOVM_USE_EXPR_READER").ok().as_deref() != Some("1")
         {
             eval.macro_expansion_cache.clear();
             eval.source_literal_cache.clear();
