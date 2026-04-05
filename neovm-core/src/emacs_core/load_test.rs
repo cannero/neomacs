@@ -158,7 +158,7 @@ fn eval_expanded_progn_subforms(eval: &mut Context, expanded: Value, label: &str
         {
             for (idx, form) in forms.iter().enumerate().skip(1) {
                 let expr = value_to_expr(form);
-                eval.eval_expr(&expr).unwrap_or_else(|err| {
+                { let _v = eval.quote_to_runtime_value(&expr); eval.eval_form(_v) }.unwrap_or_else(|err| {
                     panic!(
                         "failed evaluating expanded {label} subform {idx}: {}",
                         format_eval_error(eval, &err)
@@ -360,7 +360,7 @@ fn gnu_subr_x_string_chop_newline_loads_without_rust_builtin() {
     let subr_x_forms = parse_forms(&subr_x_source).expect("parse subr-x.el");
     let mut found_string_chop_newline = false;
     for form in &subr_x_forms {
-        eval.eval_expr(form).unwrap_or_else(|err| {
+        { let v = eval.quote_to_runtime_value(form); eval.eval_form(v) }.unwrap_or_else(|err| {
             panic!(
                 "eval subr-x prefix from {}: {}",
                 subr_x_path.display(),
@@ -1335,7 +1335,7 @@ fn bootstrap_lambda_parameters_bind_special_symbols_like_gnu_emacs() {
               (funcall (lambda (t) (setq t 10) t) 7)))",
     )
     .expect("parse");
-    let result = eval.eval_expr(&forms[0]);
+    let result = { let _v = eval.quote_to_runtime_value(&forms[0]); eval.eval_form(_v) };
     assert_eq!(
         format_eval_result(&result),
         "OK (7 9 t 7 (1 2 3) (4 5 6) (7 42) 10)",
@@ -1970,7 +1970,7 @@ fn bootstrap_runtime_display_selections_p_is_true_under_neomacs_gui_surface() {
     let mut eval =
         create_bootstrap_evaluator_cached_with_features(&["x", "neomacs"]).expect("bootstrap");
     let forms = parse_forms("(display-selections-p)").expect("parse display-selections-p");
-    let value = eval.eval_expr(&forms[0]).expect("display-selections-p");
+    let value = { let _v = eval.quote_to_runtime_value(&forms[0]); eval.eval_form(_v) }.expect("display-selections-p");
     assert_eq!(value, Value::T);
 }
 
@@ -2244,7 +2244,20 @@ fn pdump_roundtrip_preserves_gnu_prefix_keymap_links() {
              (use-global-map global-map))"#,
     )
     .expect("parse prefix keymap setup");
-    eval.eval_expr(&setup[0])
+    eval.eval_str(r#"(progn
+             (setq esc-map (make-sparse-keymap "ESC-prefix"))
+             (define-key esc-map "x" 'execute-extended-command)
+             (fset 'ESC-prefix esc-map)
+             (setq ctl-x-map (make-sparse-keymap "Control-X-prefix"))
+             (define-key ctl-x-map "2" 'split-window-below)
+             (define-key ctl-x-map "3" 'split-window-right)
+             (fset 'Control-X-prefix ctl-x-map)
+             (setq global-map (make-sparse-keymap))
+             (define-key global-map "\e" 'ESC-prefix)
+             (define-key global-map "\C-x" 'Control-X-prefix)
+             (define-key global-map "\e\e\e" 'keyboard-escape-quit)
+             (define-key global-map "\C-x\C-z" 'suspend-emacs)
+             (use-global-map global-map))"#)
         .expect("evaluate prefix keymap setup");
 
     let dir = tempfile::tempdir().expect("tempdir");
@@ -2436,15 +2449,13 @@ fn bootstrap_runtime_execute_extended_command_exits_minibuffer_on_ret() {
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).expect("runtime startup state");
 
-    let setup = parse_forms(
-        r#"(progn
+    eval.eval_str(r#"(progn
              (setq neo-ret-probe-ran nil)
              (defun neo-ret-probe ()
                (interactive)
                (setq neo-ret-probe-ran t)))"#,
     )
-    .expect("parse execute-extended-command RET probe");
-    let _ = eval.eval_forms(&setup);
+    .expect("eval execute-extended-command RET probe");
 
     let (tx, rx) = crossbeam_channel::unbounded();
     drop(tx);
@@ -2581,7 +2592,7 @@ fn bootstrap_runtime_window_close_routes_through_handle_delete_frame() {
     )
     .expect("parse window-close runtime cleanup");
     assert_eq!(
-        format_eval_result(&eval.eval_expr(&forms[0])),
+        format_eval_result(&{ let _v = eval.quote_to_runtime_value(&forms[0]); eval.eval_form(_v) }),
         "OK (delete-frame t)",
         "expected WM close to route through GNU handle-delete-frame"
     );
@@ -2776,7 +2787,7 @@ fn bootstrap_runtime_loads_gnu_window_split_entry_point() {
                        (length (window-list)))))",
     )
     .expect("parse");
-    let rendered = format_eval_result(&eval.eval_expr(&forms[0]));
+    let rendered = format_eval_result(&{ let _v = eval.quote_to_runtime_value(&forms[0]); eval.eval_form(_v) });
     assert_eq!(rendered, "OK (t (t 2))");
 }
 
@@ -2828,13 +2839,8 @@ fn runtime_interpreted_closure_filter_requires_explicit_runtime_binding() {
               (lambda (args body env docstring iform)
                 (setq neovm--hook-count (1+ neovm--hook-count))
                 (make-interpreted-closure args body env docstring iform)))
-        "#,
-    )
-    .expect("parse cconv source bootstrap fixture");
-    for form in &setup {
-        eval.eval_expr(form)
-            .expect("install cconv source bootstrap fixture");
-    }
+        "#)
+    .expect("eval forms");
     sync_runtime_interpreted_closure_filter(&mut eval);
     let rendered = eval_rendered(
         &mut eval,
@@ -2852,8 +2858,7 @@ fn runtime_interpreted_closure_filter_honors_explicit_runtime_binding() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     eval.set_lexical_binding(true);
-    let setup = parse_forms(
-        r#"
+    eval.eval_str(r#"
         (setq neovm--hook-count 0)
         (fset 'cconv-make-interpreted-closure
               (lambda (args body env docstring iform)
@@ -2861,13 +2866,8 @@ fn runtime_interpreted_closure_filter_honors_explicit_runtime_binding() {
                 (make-interpreted-closure args body env docstring iform)))
         (setq internal-make-interpreted-closure-function
               'cconv-make-interpreted-closure)
-        "#,
-    )
-    .expect("parse explicit cconv runtime binding fixture");
-    for form in &setup {
-        eval.eval_expr(form)
-            .expect("install explicit cconv runtime binding fixture");
-    }
+        "#)
+    .expect("eval forms");
     sync_runtime_interpreted_closure_filter(&mut eval);
     let rendered = eval_rendered(
         &mut eval,
@@ -3021,7 +3021,7 @@ fn bootstrap_runtime_cl_transform_lambda_cl_quote_key_defaults_matches_gnu() {
 
 fn eval_rendered(eval: &mut Context, form: &str) -> String {
     let parsed = crate::emacs_core::parser::parse_forms(form).expect("parse eval form");
-    match eval.eval_expr(&parsed[0]) {
+    match { let _v = eval.quote_to_runtime_value(&parsed[0]); eval.eval_form(_v) } {
         Ok(value) => format!(
             "OK {}",
             crate::emacs_core::print::print_value_with_buffers(&value, &eval.buffers)
@@ -3083,7 +3083,8 @@ fn bootstrap_runtime_standard_fontset_spec_creates_named_fontset() {
     )
     .expect("parse fontset creation form");
     let result = eval
-        .eval_expr(&parsed[0])
+        .eval_str(r#"(let ((name (create-fontset-from-fontset-spec standard-fontset-spec t)))
+             (list name (query-fontset "fontset-standard")))"#)
         .expect("standard fontset creation should evaluate");
     assert_eq!(
         list_to_vec(&result),
@@ -3107,7 +3108,7 @@ fn bootstrap_runtime_setup_default_fontset_preserves_gnu_han_order() {
     assert_eq!(rendered, "OK (t han)");
 
     let forms = parse_forms("(setup-default-fontset)").expect("parse default fontset setup");
-    eval.eval_expr(&forms[0])
+    { let _v = eval.quote_to_runtime_value(&forms[0]); eval.eval_form(_v) }
         .expect("setup-default-fontset should evaluate");
 
     let entries = matching_entries_for_fontset(DEFAULT_FONTSET_NAME, '好');
@@ -3884,7 +3885,7 @@ fn load_file_exact_gc_roots_load_history_and_after_load_filename() {
                    (setq vm-after-load-filename file))))",
     )
     .expect("parse do-after-load-evaluation setup");
-    eval.eval_expr(&forms[0])
+    { let _v = eval.quote_to_runtime_value(&forms[0]); eval.eval_form(_v) }
         .expect("install do-after-load-evaluation probe");
 
     let loaded = load_file(&mut eval, &file).expect("load file under exact gc");
@@ -4097,7 +4098,7 @@ fn load_file_accepts_shebang_and_honors_second_line_lexical_binding_cookie() {
         "(let ((lexical-binding nil)) (funcall vm-load-shebang-fn))",
     )
     .expect("parse call fixture");
-    let value = eval.eval_expr(&call[0]).expect("evaluate closure");
+    let value = eval.eval_str("(let ((lexical-binding nil)) (funcall vm-load-shebang-fn))").expect("evaluate closure");
     assert_eq!(
         value.as_int(),
         Some(42),
@@ -4142,7 +4143,7 @@ fn load_file_does_not_enable_lexical_binding_from_non_cookie_second_line_text() 
     )
     .expect("parse call fixture");
     let value = eval
-        .eval_expr(&call[0])
+        .eval_str("(condition-case err (let ((lexical-binding nil)) (funcall vm-load-shebang-false-fn)) (error (list 'error (car err))))")
         .expect("evaluate closure failure probe");
     let payload = super::super::value::list_to_vec(&value).expect("expected error payload list");
     assert_eq!(
@@ -4325,7 +4326,7 @@ fn neovm_loadup_bootstrap() {
         "(list (not (null (cl--find-class 'float))) (not (null (cl--find-class 'integer))))",
     )
     .expect("parse cl class probe");
-    let result = eval.eval_expr(&form[0]).expect("evaluate cl class probe");
+    let result = eval.eval_str("(list (not (null (cl--find-class 'float))) (not (null (cl--find-class 'integer))))").expect("evaluate cl class probe");
     let items = crate::emacs_core::value::list_to_vec(&result).expect("result list");
     assert_eq!(
         items,
@@ -4350,12 +4351,8 @@ fn neovm_loadup_bootstrap() {
         "expected integer cl-deftype-satisfies property to be non-nil, got {integer_pred:?}"
     );
 
-    let compat_probe = crate::emacs_core::parser::parse_forms(
-        "(list (coding-system-p 'iso-8859-15) (stringp system-configuration-features))",
-    )
-    .expect("parse startup compatibility probe");
     let compat_result = eval
-        .eval_expr(&compat_probe[0])
+        .eval_str("(list (coding-system-p 'iso-8859-15) (stringp system-configuration-features))")
         .expect("evaluate startup compatibility probe");
     let compat_items =
         crate::emacs_core::value::list_to_vec(&compat_result).expect("compat probe result list");
@@ -4408,13 +4405,11 @@ fn deftheme_and_provide_theme_works() {
         "(progn (deftheme test-neovm \"Test\") (provide-theme 'test-neovm))",
     )
     .unwrap();
-    let result = eval.eval_expr(&forms[0]);
+    let result = { let _v = eval.quote_to_runtime_value(&forms[0]); eval.eval_form(_v) };
     eprintln!("deftheme+provide-theme result: {:?}", result);
 
     let provided = eval
-        .eval_expr(
-            &crate::emacs_core::parser::parse_forms("(featurep 'test-neovm-theme)").unwrap()[0],
-        )
+        .eval_str("(featurep 'test-neovm-theme)")
         .unwrap();
     eprintln!("(featurep 'test-neovm-theme) = {:?}", provided);
     assert!(
@@ -4434,7 +4429,7 @@ fn eval_after_load_defines_function_on_provide() {
         "(eval-after-load 'test-pkg (lambda () (defun test-pkg-fn () 42)))",
     )
     .unwrap();
-    eval.eval_expr(&setup[0])
+    eval.eval_str("(eval-after-load 'test-pkg (lambda () (defun test-pkg-fn () 42)))")
         .expect("eval-after-load should succeed");
 
     // 2. test-pkg-fn should NOT be defined yet
@@ -4452,8 +4447,6 @@ fn eval_after_load_defines_function_on_provide() {
            (provide 'test-pkg))",
     )
     .unwrap();
-    eval.eval_expr(&provide_during_load[0])
-        .expect("provide during load should succeed");
 
     // 3b. test-pkg-fn might NOT be defined yet (deferred to after-load-functions)
     let mid = eval
@@ -4468,7 +4461,8 @@ fn eval_after_load_defines_function_on_provide() {
            (do-after-load-evaluation \"/tmp/test-pkg.el\"))",
     )
     .unwrap();
-    eval.eval_expr(&dale[0])
+    eval.eval_str(r#"(when (fboundp 'do-after-load-evaluation)
+           (do-after-load-evaluation \"/tmp/test-pkg.el\"))"#)
         .expect("do-after-load-evaluation should succeed");
 
     // 5. NOW test-pkg-fn should be defined
@@ -4491,7 +4485,7 @@ fn defface_warning_creates_face_after_bootstrap() {
 
     // Check: is 'warning a valid face after bootstrap?
     let facep = crate::emacs_core::parser::parse_forms("(facep 'warning)").unwrap();
-    let result = eval.eval_expr(&facep[0]).expect("facep should work");
+    let result = eval.eval_str("(facep 'warning)").expect("facep should work");
     eprintln!("(facep 'warning) = {:?}", result);
     assert!(
         result.is_truthy(),
@@ -4515,7 +4509,12 @@ fn uninterned_symbol_in_hook_works() {
            (run-hook-with-args 'test-hook 42))",
     )
     .unwrap();
-    eval.eval_expr(&setup[0])
+    eval.eval_str(r#"(progn
+           (defvar test-hook nil)
+           (let ((fun (make-symbol \"test-helper\")))
+             (fset fun (lambda (x) (set 'test-hook-result x)))
+             (add-hook 'test-hook fun))
+           (run-hook-with-args 'test-hook 42))"#)
         .expect("hook with uninterned symbol should work");
 
     let result = eval.obarray().symbol_value("test-hook-result").cloned();
@@ -4537,7 +4536,7 @@ fn defun_inside_lambda_works() {
         "(let ((fn (lambda () (defun test-fn-from-lambda () 42)))) (funcall fn))",
     )
     .unwrap();
-    eval.eval_expr(&forms[0])
+    { let _v = eval.quote_to_runtime_value(&forms[0]); eval.eval_form(_v) }
         .expect("funcall lambda with defun");
 
     let defined = eval
@@ -4606,7 +4605,7 @@ fn elc_loading_defines_defcustom_variables() {
 
     // Check that general feature was provided
     let provided =
-        eval.eval_expr(&crate::emacs_core::parser::parse_forms("(featurep 'general)").unwrap()[0]);
+        eval.eval_str("(featurep 'general)");
     eprintln!("(featurep 'general) = {:?}", provided);
 
     // Test Form 0 in the same evaluator
@@ -4616,7 +4615,7 @@ fn elc_loading_defines_defcustom_variables() {
     eprintln!("Parsed {} forms from general.elc source", forms.len());
 
     let form0 = eval.reify_byte_code_literals(&forms[0]).unwrap();
-    let result = eval.eval_expr(&form0);
+    let result = { let _v = eval.quote_to_runtime_value(&form0); eval.eval_form(_v) };
     eprintln!("Form 0 result: {:?}", result);
 
     let gds_bound = eval
@@ -4677,7 +4676,7 @@ fn compiled_cl_preloaded_loads_after_faces() {
     let probe = crate::emacs_core::parser::parse_forms("(fboundp 'built-in-class--make)")
         .expect("parse built-in-class probe");
     let result = eval
-        .eval_expr(&probe[0])
+        .eval_str("(fboundp 'built-in-class--make)")
         .expect("evaluate built-in-class constructor probe");
     assert_eq!(result, Value::T);
 }
@@ -4743,7 +4742,7 @@ fn source_cycle_spacing_form_loads_after_bootstrap_prefix() {
     )
     .expect("parse cycle-spacing probe");
     let result = eval
-        .eval_expr(&probe[0])
+        .eval_str("(list (boundp 'cycle-spacing--context) (fboundp 'cycle-spacing))")
         .expect("evaluate cycle-spacing probe");
     assert_eq!(result, Value::list(vec![Value::T, Value::T]));
 }
@@ -4904,7 +4903,11 @@ fn define_prefix_command_sets_symbol_value_and_function() {
     )
     .expect("parse define-prefix-command probe");
     let result = eval
-        .eval_expr(&probe[0])
+        .eval_str(r#"(let ((cmd 'neovm--test-prefix-map))
+             (define-prefix-command cmd nil "Test Prefix")
+             (list (eq cmd 'neovm--test-prefix-map)
+                   (keymapp (symbol-function cmd))
+                   (keymapp (symbol-value cmd))))"#)
         .expect("evaluate define-prefix-command probe");
     assert_eq!(
         crate::emacs_core::value::list_to_vec(&result).expect("probe result list"),
@@ -4927,7 +4930,13 @@ fn lookup_key_returned_submenu_symbol_has_bound_value() {
     )
     .expect("parse lookup-key submenu probe");
     let result = eval
-        .eval_expr(&probe[0])
+        .eval_str(r#"(let* ((root (make-sparse-keymap))
+                  (submenu 'describe-chinese-environment-map))
+             (define-prefix-command submenu nil "Chinese Environment")
+             (define-key-after root (vector 'Chinese) (cons "Chinese" submenu))
+             (let ((found (lookup-key root [Chinese])))
+               (list (eq found submenu)
+                     (keymapp (symbol-value found)))))"#)
         .expect("evaluate lookup-key submenu probe");
     assert_eq!(
         crate::emacs_core::value::list_to_vec(&result).expect("probe result list"),
@@ -4953,7 +4962,16 @@ fn set_language_info_alist_reuses_chinese_submenu_like_gnu_emacs() {
     )
     .expect("parse set-language-info-alist submenu probe");
     let result = eval
-        .eval_expr(&probe[0])
+        .eval_str(r#"(progn
+             (set-language-info-alist
+              "Chinese-GB"
+              '((documentation . "GB"))
+              '("Chinese"))
+             (set-language-info-alist
+              "Chinese-BIG5"
+              '((documentation . "BIG5"))
+              '("Chinese"))
+             (keymapp describe-chinese-environment-map))"#)
         .expect("evaluate set-language-info-alist submenu probe");
     assert_eq!(result, Value::T);
 }
@@ -5938,7 +5956,7 @@ conveniently adding tool bar items."
     ] {
         let forms = crate::emacs_core::parser::parse_forms(src).expect("parse easy-mmode probe");
         tracing::info!("tool-bar probe: helper {}", label);
-        let value = eval.eval_expr(&forms[0]).unwrap_or_else(|err| {
+        let value = { let _v = eval.quote_to_runtime_value(&forms[0]); eval.eval_form(_v) }.unwrap_or_else(|err| {
             panic!(
                 "failed evaluating tool-bar helper {label} from {}: {}",
                 tool_bar_path.display(),
@@ -5948,8 +5966,9 @@ conveniently adding tool bar items."
         let rendered = crate::emacs_core::print::print_value_with_buffers(&value, &eval.buffers);
         tracing::info!("tool-bar probe: helper {} => {}", label, rendered);
     }
-    let macroexpand_probe = crate::emacs_core::parser::parse_forms(
-        r#"(macroexpand
+    tracing::info!("tool-bar probe: macroexpand form 1");
+    let expanded = eval
+        .eval_str(r#"(macroexpand
              '(define-minor-mode tool-bar-mode
                 "Toggle the tool bar in all graphical frames (Tool Bar mode).
 
@@ -5968,12 +5987,7 @@ conveniently adding tool bar items."
                                                    default-frame-alist)))))
                 (and tool-bar-mode
                      (= 1 (length (default-value 'tool-bar-map)))
-                     (tool-bar-setup))))"#,
-    )
-    .expect("parse macroexpand probe");
-    tracing::info!("tool-bar probe: macroexpand form 1");
-    let expanded = eval
-        .eval_expr(&macroexpand_probe[0])
+                     (tool-bar-setup))))"#)
         .expect("macroexpand tool-bar define-minor-mode");
     tracing::info!("tool-bar probe: macroexpand complete");
     if let Some(forms) = list_to_vec(&expanded) {
@@ -5981,7 +5995,7 @@ conveniently adding tool bar items."
             for (idx, form) in forms.iter().enumerate().skip(1) {
                 tracing::info!("tool-bar probe: eval expanded subform {}", idx);
                 let expr = value_to_expr(form);
-                eval.eval_expr(&expr).unwrap_or_else(|err| {
+                { let _v = eval.quote_to_runtime_value(&expr); eval.eval_form(_v) }.unwrap_or_else(|err| {
                     panic!(
                         "failed evaluating tool-bar expanded subform {} from {}: {}",
                         idx,
@@ -5998,7 +6012,7 @@ conveniently adding tool bar items."
     }
     for (idx, form) in top_level_forms.iter().enumerate().skip(1) {
         tracing::info!("tool-bar probe: eval top-level form {}", idx + 1);
-        eval.eval_expr(form).unwrap_or_else(|err| {
+        { let v = eval.quote_to_runtime_value(form); eval.eval_form(v) }.unwrap_or_else(|err| {
             panic!(
                 "failed evaluating tool-bar form {} from {}: {}",
                 idx + 1,
@@ -6018,7 +6032,12 @@ conveniently adding tool bar items."
     )
     .expect("parse tool-bar bootstrap probe");
     let result = eval
-        .eval_expr(&forms[0])
+        .eval_str(r#"(list
+             (special-form-p 'define-minor-mode)
+             (commandp 'tool-bar-mode)
+             (not (and (consp (symbol-function 'tool-bar-mode))
+                       (eq (car (symbol-function 'tool-bar-mode)) 'autoload)))
+             (keymapp tool-bar-map))"#)
         .expect("evaluate tool-bar bootstrap probe");
     assert_eq!(
         result,
@@ -6068,8 +6087,9 @@ fn compiled_easy_mmode_neobc_replays_define_minor_mode_for_tool_bar() {
         "compiled easy-mmode replay should install bytecode-backed define-minor-mode"
     );
 
+    let macroexpand_val = eval.quote_to_runtime_value(&macroexpand_form);
     let expanded = eval
-        .eval_expr(&macroexpand_form)
+        .eval_form(macroexpand_val)
         .expect("macroexpand compiled tool-bar define-minor-mode");
     eval_expanded_progn_subforms(&mut eval, expanded, "tool-bar define-minor-mode");
 
@@ -6083,7 +6103,12 @@ fn compiled_easy_mmode_neobc_replays_define_minor_mode_for_tool_bar() {
     )
     .expect("parse compiled tool-bar bootstrap probe");
     let result = eval
-        .eval_expr(&forms[0])
+        .eval_str(r#"(list
+             (special-form-p 'define-minor-mode)
+             (commandp 'tool-bar-mode)
+             (not (and (consp (symbol-function 'tool-bar-mode))
+                       (eq (car (symbol-function 'tool-bar-mode)) 'autoload)))
+             (keymapp tool-bar-map))"#)
         .expect("evaluate compiled tool-bar bootstrap probe");
     assert_eq!(
         result,
@@ -6127,8 +6152,9 @@ fn compiled_easy_mmode_neobc_macroexpands_auto_save_visited_mode_under_files_boo
             format_eval_error(&compiled_eval, &err)
         )
     });
+    let macroexpand_val = compiled_eval.quote_to_runtime_value(&macroexpand_form);
     let compiled_expanded = compiled_eval
-        .eval_expr(&macroexpand_form)
+        .eval_form(macroexpand_val)
         .expect("macroexpand compiled auto-save-visited define-minor-mode under files bootstrap");
     eval_expanded_progn_subforms(
         &mut compiled_eval,
@@ -6175,7 +6201,7 @@ conveniently adding tool bar items."
         ),
     ] {
         let forms = crate::emacs_core::parser::parse_forms(src).expect("parse easy-mmode helper");
-        eval.eval_expr(&forms[0]).unwrap_or_else(|err| {
+        { let _v = eval.quote_to_runtime_value(&forms[0]); eval.eval_form(_v) }.unwrap_or_else(|err| {
             panic!(
                 "compiled easy-mmode helper {label} failed under files bootstrap: {}",
                 format_eval_error(&eval, &err)
@@ -6240,23 +6266,11 @@ fn auth_source_backend_exposes_type_slot() {
         create_bootstrap_evaluator_cached_with_features(&["neomacs"]).expect("bootstrap evaluator");
     let runtime_load_path = crate::emacs_core::parser::parse_forms("(load \"subdirs\" nil t)")
         .expect("parse runtime load-path expansion");
-    eval.eval_expr(&runtime_load_path[0])
+    eval.eval_str(r#"(load \"subdirs\" nil t)"#)
         .expect("load runtime subdirs.el");
     let require_error = eval
         .require_value(Value::symbol("auth-source"), None, None)
-        .err()
-        .map(|err| match err {
-            crate::emacs_core::error::Flow::Signal(sig) => {
-                let rendered = sig
-                    .data
-                    .iter()
-                    .map(|value| format!("{value}"))
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                format!("({} {})", sig.symbol_name(), rendered)
-            }
-            other => format!("{other:?}"),
-        });
+        .err();
 
     let form = crate::emacs_core::parser::parse_forms(
         "(let ((backend (make-instance 'auth-source-backend :type 'netrc :source \"test\")))\n\
@@ -6266,7 +6280,7 @@ fn auth_source_backend_exposes_type_slot() {
                          (eieio-class-slots (eieio-object-class backend)))))",
     )
     .expect("parse auth-source backend slot probe");
-    let result = eval.eval_expr(&form[0]).unwrap_or_else(|err| {
+    let result = { let _v = eval.quote_to_runtime_value(&form[0]); eval.eval_form(_v) }.unwrap_or_else(|err| {
         panic!(
             "evaluate auth-source backend slot probe failed after require_error={require_error:?}: {err:?}"
         )
@@ -6312,7 +6326,9 @@ fn cl_callf_updates_variable_place() {
     )
     .expect("parse cl-callf variable probe");
     let result = eval
-        .eval_expr(&form[0])
+        .eval_str(r#"(let ((a '(3 2 1)))
+           (cl-callf (lambda (slots) (apply #'vector (nreverse slots))) a)
+           a)"#)
         .expect("evaluate cl-callf variable probe");
     assert_eq!(expect_vector_ints(result), vec![1, 2, 3]);
 }
@@ -6328,7 +6344,9 @@ fn direct_setq_funcall_updates_variable_place() {
     )
     .expect("parse direct funcall probe");
     let result = eval
-        .eval_expr(&form[0])
+        .eval_str(r#"(let ((a '(3 2 1)))
+           (setq a (funcall #'(lambda (slots) (apply #'vector (nreverse slots))) a))
+           a)"#)
         .expect("evaluate direct funcall probe");
     assert_eq!(expect_vector_ints(result), vec![1, 2, 3]);
 }
@@ -6422,7 +6440,7 @@ fn pdump_roundtrip_preserves_advice_remove_member_lifecycle() {
 
     for (label, form, expected) in steps {
         let parsed = crate::emacs_core::parser::parse_forms(form).expect("parse step");
-        let value = loaded.eval_expr(&parsed[0]).expect("evaluate step");
+        let value = { let _v = loaded.quote_to_runtime_value(&parsed[0]); loaded.eval_form(_v) }.expect("evaluate step");
         if let Some(expected) = expected {
             let rendered =
                 crate::emacs_core::print::print_value_with_buffers(&value, &loaded.buffers);
@@ -6474,7 +6492,26 @@ fn pdump_roundtrip_evaluates_full_advice_remove_member_form() {
     )
     .expect("parse form");
 
-    let value = loaded.eval_expr(&form[0]).expect("evaluate full form");
+    let value = loaded.eval_str(r#"(progn
+      (fset 'neovm--adv-tgt3 (lambda (x) x))
+      (fset 'neovm--adv-fn3a (lambda (&rest _) nil))
+      (fset 'neovm--adv-fn3b (lambda (&rest _) nil))
+      (unwind-protect
+          (let (results)
+            (setq results (cons (not (null (advice-member-p 'neovm--adv-fn3a 'neovm--adv-tgt3))) results))
+            (advice-add 'neovm--adv-tgt3 :before 'neovm--adv-fn3a)
+            (advice-add 'neovm--adv-tgt3 :after 'neovm--adv-fn3b)
+            (setq results (cons (not (null (advice-member-p 'neovm--adv-fn3a 'neovm--adv-tgt3))) results))
+            (setq results (cons (not (null (advice-member-p 'neovm--adv-fn3b 'neovm--adv-tgt3))) results))
+            (advice-remove 'neovm--adv-tgt3 'neovm--adv-fn3a)
+            (setq results (cons (not (null (advice-member-p 'neovm--adv-fn3a 'neovm--adv-tgt3))) results))
+            (setq results (cons (not (null (advice-member-p 'neovm--adv-fn3b 'neovm--adv-tgt3))) results))
+            (advice-remove 'neovm--adv-tgt3 'neovm--adv-fn3b)
+            (setq results (cons (not (null (advice-member-p 'neovm--adv-fn3b 'neovm--adv-tgt3))) results))
+            (nreverse results))
+        (fmakunbound 'neovm--adv-tgt3)
+        (fmakunbound 'neovm--adv-fn3a)
+        (fmakunbound 'neovm--adv-fn3b)))"#).expect("evaluate full form");
     let rendered = crate::emacs_core::print::print_value_with_buffers(&value, &loaded.buffers);
     assert_eq!(rendered, "(nil t t nil t nil)");
 }
@@ -6510,7 +6547,7 @@ fn cached_bootstrap_reload_evaluates_full_advice_remove_member_form() {
         create_bootstrap_evaluator_cached_at_path(&[], &dump_path).expect("fresh cached bootstrap");
     apply_runtime_startup_state(&mut fresh).expect("fresh runtime startup");
     let fresh_form = crate::emacs_core::parser::parse_forms(form_source).expect("parse fresh form");
-    let fresh_value = fresh.eval_expr(&fresh_form[0]).expect("fresh form eval");
+    let fresh_value = { let _v = fresh.quote_to_runtime_value(&fresh_form[0]); fresh.eval_form(_v) }.expect("fresh form eval");
     assert_eq!(
         crate::emacs_core::print::print_value_with_buffers(&fresh_value, &fresh.buffers),
         "(nil t t nil t nil)"
@@ -6522,7 +6559,7 @@ fn cached_bootstrap_reload_evaluates_full_advice_remove_member_form() {
     apply_runtime_startup_state(&mut loaded).expect("loaded runtime startup");
     let loaded_form =
         crate::emacs_core::parser::parse_forms(form_source).expect("parse loaded form");
-    let loaded_value = loaded.eval_expr(&loaded_form[0]).expect("loaded form eval");
+    let loaded_value = { let _v = loaded.quote_to_runtime_value(&loaded_form[0]); loaded.eval_form(_v) }.expect("loaded form eval");
     assert_eq!(
         crate::emacs_core::print::print_value_with_buffers(&loaded_value, &loaded.buffers),
         "(nil t t nil t nil)"
@@ -6573,7 +6610,40 @@ fn runtime_startup_state_matches_char_syntax_comprehensive_form() {
     )
     .expect("parse char syntax comprehensive probe");
     let result = eval
-        .eval_expr(&form[0])
+        .eval_str(r#"
+(list
+ ;; Standard syntax table entries
+ (char-syntax ?a)
+ (char-syntax ?Z)
+ (char-syntax ?0)
+ (char-syntax ?9)
+ (char-syntax ?_)
+ (char-syntax ?\ )
+ (char-syntax ?\t)
+ (char-syntax ?\n)
+ (char-syntax ?\()
+ (char-syntax ?\))
+ (char-syntax ?\[)
+ (char-syntax ?\])
+ (char-syntax ?{)
+ (char-syntax ?})
+ (char-syntax ?.)
+ (char-syntax ?,)
+ (char-syntax ?;)
+ (char-syntax ?\")
+ (char-syntax ?+)
+ (char-syntax ?-)
+ (char-syntax ?*)
+ (char-syntax ?/)
+ (char-syntax ?')
+   (with-syntax-table (copy-syntax-table)
+     (modify-syntax-entry ?_ "w")
+     (modify-syntax-entry ?- "w")
+     (list (char-syntax ?_)
+           (char-syntax ?-)
+           (char-syntax ?a)
+           (char-syntax ?\())))
+"#)
         .expect("evaluate char syntax comprehensive probe");
     assert_eq!(
         crate::emacs_core::print::print_value_with_buffers(&result, &eval.buffers),
@@ -8188,7 +8258,9 @@ fn cl_callf_updates_generalized_place() {
     )
     .expect("parse cl-callf generalized place probe");
     let result = eval
-        .eval_expr(&form[0])
+        .eval_str(r#"(let ((box (list '(3 2 1))))
+           (cl-callf (lambda (slots) (apply #'vector (nreverse slots))) (car box))
+           (car box))"#)
         .expect("evaluate cl-callf generalized place probe");
     assert_eq!(expect_vector_ints(result), vec![1, 2, 3]);
 }
@@ -8283,7 +8355,8 @@ fn macroexpand_all_pcase_terminates() {
     tracing::debug!("Testing eager expansion on pcase with backquote pattern...");
     let test_form2 = "(pcase '(cond (t 1)) (`(cond . ,clauses) clauses) (_ nil))";
     let form_expr2 = &crate::emacs_core::parser::parse_forms(test_form2).unwrap()[0];
-    match eval.eval_expr(form_expr2) {
+    let v_form2 = eval.quote_to_runtime_value(&form_expr2);
+    match eval.eval_form(v_form2) {
         Ok(v) => tracing::debug!("  pcase backquote OK: {v}"),
         Err(e) => tracing::debug!("  pcase backquote ERR: {e:?}"),
     }
@@ -8375,7 +8448,15 @@ fn macroexp_eager_reload_preserves_symbol_identity() {
     )
     .expect("parse symbol identity probe");
     let probe_result = eval
-        .eval_expr(&probe[0])
+        .eval_str(r#"(let* ((s-if (make-symbol "if"))
+                  (s-message (make-symbol "message"))
+                  (s-when (make-symbol "when"))
+                  (s-cadr (make-symbol "cadr"))
+                  (form (list s-cadr 'y)))
+             (list (special-form-p s-if)
+                   (functionp s-message)
+                   (macrop s-when)
+                   (equal (macroexpand form) form)))"#)
         .expect("evaluate symbol identity probe");
     let values =
         crate::emacs_core::value::list_to_vec(&probe_result).expect("probe should return list");
@@ -8439,15 +8520,11 @@ fn eager_expand_toplevel_forms_keeps_recursive_progn_forms_alive_under_exact_gc(
         load_and_report(&mut eval, name, &load_path);
     }
 
-    let setup_forms = parse_forms(
-        r#"(defmacro neomacs-test-progn-macro ()
+    eval.eval_str(r#"(defmacro neomacs-test-progn-macro ()
              '(progn
                 (defvar neomacs-test-progn-var 42)
                 (defun neomacs-test-progn-fn ()
-                  neomacs-test-progn-var)))"#,
-    )
-    .expect("parse progn macro");
-    eval.eval_expr(&setup_forms[0]).expect("define progn macro");
+                  neomacs-test-progn-var)))"#).expect("define progn macro");
 
     let invoke_forms = parse_forms("(neomacs-test-progn-macro)").expect("parse progn invoke");
     let form_value = quote_to_value(&invoke_forms[0]);
@@ -8477,7 +8554,7 @@ fn eager_expand_toplevel_forms_keeps_recursive_progn_forms_alive_under_exact_gc(
     );
 
     let call_forms = parse_forms("(neomacs-test-progn-fn)").expect("parse call");
-    let result = eval.eval_expr(&call_forms[0]).expect("call progn fn");
+    let result = eval.eval_str("(neomacs-test-progn-fn)").expect("call progn fn");
     assert_eq!(result, Value::fixnum(42));
 }
 
@@ -8521,7 +8598,9 @@ fn function_get_only_exposes_cxxr_compiler_macro_on_cxxr_symbols() {
     )
     .expect("parse function-get probe");
     let result = eval
-        .eval_expr(&probe[0])
+        .eval_str(r#"(list (if (function-get 'car 'compiler-macro) t nil)
+                 (if (function-get 'cdr 'compiler-macro) t nil)
+                 (if (function-get 'cadr 'compiler-macro) t nil))"#)
         .expect("evaluate function-get probe");
     assert_eq!(
         crate::emacs_core::value::list_to_vec(&result).expect("probe should return list"),
@@ -8588,7 +8667,8 @@ fn pcase_integer_literal_pattern() {
     tracing::info!("Test 1: pcase with integer literal 32");
     let form1 = r#"(pcase 32 (32 "matched") (_ "no-match"))"#;
     let expr1 = &crate::emacs_core::parser::parse_forms(form1).unwrap()[0];
-    match eval.eval_expr(expr1) {
+    let v1 = eval.quote_to_runtime_value(&expr1);
+    match eval.eval_form(v1) {
         Ok(v) => tracing::info!("  Test 1 OK: {v}"),
         Err(e) => tracing::error!("  Test 1 FAILED: {e:?}"),
     }
@@ -8597,7 +8677,8 @@ fn pcase_integer_literal_pattern() {
     tracing::info!("Test 2: pcase with (or 'sym int) — rx.el pattern");
     let form2 = r#"(pcase ?\s ((or '\? ?\s) "matched") (_ "no-match"))"#;
     let expr2 = &crate::emacs_core::parser::parse_forms(form2).unwrap()[0];
-    match eval.eval_expr(expr2) {
+    let v2 = eval.quote_to_runtime_value(&expr2);
+    match eval.eval_form(v2) {
         Ok(v) => tracing::info!("  Test 2 OK: {v}"),
         Err(e) => tracing::error!("  Test 2 FAILED: {e:?}"),
     }
@@ -8606,7 +8687,8 @@ fn pcase_integer_literal_pattern() {
     tracing::info!("Test 3: pcase with (or int int)");
     let form3 = r#"(pcase 32 ((or 32 63) "matched") (_ "no-match"))"#;
     let expr3 = &crate::emacs_core::parser::parse_forms(form3).unwrap()[0];
-    match eval.eval_expr(expr3) {
+    let v3 = eval.quote_to_runtime_value(&expr3);
+    match eval.eval_form(v3) {
         Ok(v) => tracing::info!("  Test 3 OK: {v}"),
         Err(e) => tracing::error!("  Test 3 FAILED: {e:?}"),
     }
@@ -8624,7 +8706,8 @@ fn pcase_integer_literal_pattern() {
             (test-pcase-int '\?)
             (test-pcase-int 'foo)))"#;
     let expr4 = &crate::emacs_core::parser::parse_forms(form4).unwrap()[0];
-    match eval.eval_expr(expr4) {
+    let v4 = eval.quote_to_runtime_value(&expr4);
+    match eval.eval_form(v4) {
         Ok(v) => tracing::info!("  Test 4 OK: {v}"),
         Err(e) => tracing::error!("  Test 4 FAILED: {e:?}"),
     }
@@ -8635,7 +8718,8 @@ fn pcase_integer_literal_pattern() {
         (pcase ?\s ((or '\? ?\s) "matched") (_ "no-match"))
       (error (error-message-string err)))"#;
     let expr5 = &crate::emacs_core::parser::parse_forms(form5).unwrap()[0];
-    match eval.eval_expr(expr5) {
+    let v5 = eval.quote_to_runtime_value(&expr5);
+    match eval.eval_form(v5) {
         Ok(v) => tracing::info!("  Test 5 result: {v}"),
         Err(e) => tracing::error!("  Test 5 FAILED: {e:?}"),
     }
@@ -8644,7 +8728,8 @@ fn pcase_integer_literal_pattern() {
     tracing::info!("Test 6: (or 'sym 'sym)");
     let form6 = r#"(pcase 'foo ((or 'foo 'bar) "matched") (_ "no"))"#;
     let expr6 = &crate::emacs_core::parser::parse_forms(form6).unwrap()[0];
-    match eval.eval_expr(expr6) {
+    let v6 = eval.quote_to_runtime_value(&expr6);
+    match eval.eval_form(v6) {
         Ok(v) => tracing::info!("  Test 6 OK: {v}"),
         Err(e) => tracing::error!("  Test 6 FAILED: {e:?}"),
     }
@@ -8653,7 +8738,8 @@ fn pcase_integer_literal_pattern() {
     tracing::info!("Test 7: (or int 'sym) — reversed");
     let form7 = r#"(pcase 32 ((or 32 'foo) "matched") (_ "no"))"#;
     let expr7 = &crate::emacs_core::parser::parse_forms(form7).unwrap()[0];
-    match eval.eval_expr(expr7) {
+    let v7 = eval.quote_to_runtime_value(&expr7);
+    match eval.eval_form(v7) {
         Ok(v) => tracing::info!("  Test 7 OK: {v}"),
         Err(e) => tracing::error!("  Test 7 FAILED: {e:?}"),
     }
@@ -8662,7 +8748,8 @@ fn pcase_integer_literal_pattern() {
     tracing::info!("Test 8: macroexpand-1 the (or 'sym int) pcase");
     let form8 = r#"(macroexpand '(pcase x ((or '\? 32) "yes") (_ "no")))"#;
     let expr8 = &crate::emacs_core::parser::parse_forms(form8).unwrap()[0];
-    match eval.eval_expr(expr8) {
+    let v8 = eval.quote_to_runtime_value(&expr8);
+    match eval.eval_form(v8) {
         Ok(v) => tracing::info!("  Test 8 expansion: {v}"),
         Err(e) => tracing::error!("  Test 8 FAILED: {e:?}"),
     }
@@ -8671,7 +8758,8 @@ fn pcase_integer_literal_pattern() {
     tracing::info!("Test 9: pcase--macroexpand on raw integer");
     let form9 = r#"(pcase--macroexpand 32)"#;
     let expr9 = &crate::emacs_core::parser::parse_forms(form9).unwrap()[0];
-    match eval.eval_expr(expr9) {
+    let v9 = eval.quote_to_runtime_value(&expr9);
+    match eval.eval_form(v9) {
         Ok(v) => tracing::info!("  Test 9 result: {v}"),
         Err(e) => tracing::error!("  Test 9 FAILED: {e:?}"),
     }
@@ -8680,7 +8768,8 @@ fn pcase_integer_literal_pattern() {
     tracing::info!("Test 10: pcase--self-quoting-p 32");
     let form10 = r#"(pcase--self-quoting-p 32)"#;
     let expr10 = &crate::emacs_core::parser::parse_forms(form10).unwrap()[0];
-    match eval.eval_expr(expr10) {
+    let v10 = eval.quote_to_runtime_value(&expr10);
+    match eval.eval_form(v10) {
         Ok(v) => tracing::info!("  Test 10 result: {v}"),
         Err(e) => tracing::error!("  Test 10 FAILED: {e:?}"),
     }
@@ -8752,7 +8841,7 @@ fn key_parse_modifier_bits() {
     for (expr_str, desc) in &test_cases {
         let forms = super::super::parser::parse_forms(expr_str)
             .unwrap_or_else(|e| panic!("parse error for {expr_str}: {e:?}"));
-        match eval.eval_expr(&forms[0]) {
+        match { let _v = eval.quote_to_runtime_value(&forms[0]); eval.eval_form(_v) } {
             Ok(val) => tracing::debug!("  OK: {desc}: {expr_str} => {val}"),
             Err(e) => {
                 let msg = match &e {
@@ -8773,7 +8862,7 @@ fn key_parse_modifier_bits() {
     // The critical test: key-parse "C-x" should succeed (not error)
     let forms =
         super::super::parser::parse_forms("(key-parse \"C-x\")").expect("parse key-parse call");
-    let result = eval.eval_expr(&forms[0]);
+    let result = eval.eval_str("(key-parse \"C-x\")");
     match &result {
         Err(EvalError::Signal { symbol, data, .. }) => {
             let sym = super::super::intern::resolve_sym(*symbol);

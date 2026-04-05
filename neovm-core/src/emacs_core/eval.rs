@@ -5816,12 +5816,6 @@ impl Context {
     // Public API
     // -----------------------------------------------------------------------
 
-    pub fn eval_expr(&mut self, expr: &Expr) -> Result<Value, EvalError> {
-        crate::tagged::gc::set_tagged_heap(&mut self.tagged_heap);
-        let form = self.quote_to_runtime_value(expr);
-        self.eval_sub(form).map_err(map_flow)
-    }
-
     /// Evaluate a Lisp expression string. Convenience for tests.
     /// Reads via the Value-native reader and evaluates via eval_sub.
     pub fn eval_str(&mut self, source: &str) -> Result<Value, EvalError> {
@@ -5840,6 +5834,14 @@ impl Context {
             result = self.eval_sub(form).map_err(super::error::map_flow)?;
         }
         Ok(result)
+    }
+
+    /// Evaluate a single Value form and return a public EvalError on failure.
+    /// This is the Value-native equivalent of `eval_expr` for callers that
+    /// already have a `Value` (instead of an `&Expr`).
+    pub fn eval_form(&mut self, form: Value) -> Result<Value, EvalError> {
+        crate::tagged::gc::set_tagged_heap(&mut self.tagged_heap);
+        self.eval_sub(form).map_err(map_flow)
     }
 
     /// Evaluate a Value as code (like Elisp's `eval`).
@@ -6073,7 +6075,8 @@ impl Context {
         let saved_len = self.temp_roots.len();
         let mut results = Vec::with_capacity(forms.len());
         for form in forms {
-            let result = self.eval_expr(form);
+            let val = self.quote_to_runtime_value(form);
+            let result = self.eval_sub(val).map_err(map_flow);
             // Root successful values so they survive GC triggered by later forms.
             if let Ok(ref val) = result {
                 self.temp_roots.push(*val);

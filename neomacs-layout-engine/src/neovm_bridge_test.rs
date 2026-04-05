@@ -4,9 +4,7 @@ use neovm_core::emacs_core::value::Value;
 use neovm_core::window::{FrameManager, Rect as NeoRect, WindowId};
 
 fn eval_lisp(eval: &mut neovm_core::emacs_core::Context, source: &str) -> Value {
-    let forms = neovm_core::emacs_core::parse_forms(source).expect("parse form");
-    assert_eq!(forms.len(), 1, "expected a single form");
-    eval.eval_expr(&forms[0]).expect("evaluate form")
+    eval.eval_str(source).expect("evaluate form")
 }
 
 /// Create a minimal Context-like test fixture (FrameManager + BufferManager)

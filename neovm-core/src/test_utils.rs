@@ -2,13 +2,13 @@
 //!
 //! Provides shared helpers used across all test modules.
 
-use crate::emacs_core::intern::resolve_sym;
+use crate::emacs_core::error::map_flow;
 use crate::emacs_core::load::{
     apply_ldefs_boot_autoloads_for_names, bootstrap_load_path_entries,
     create_runtime_startup_evaluator_cached, find_file_in_load_path, get_load_path, load_file,
 };
 use crate::emacs_core::value::Value;
-use crate::emacs_core::{Context, Expr, format_eval_result, parse_forms};
+use crate::emacs_core::{Context, format_eval_result};
 use std::path::PathBuf;
 
 /// Initialize the tracing subscriber for test output.
@@ -89,12 +89,15 @@ pub fn load_minimal_gnu_help_runtime(eval: &mut Context) {
     let help_path = find_file_in_load_path("help", &load_path).expect("cannot find help");
     let help_source =
         std::fs::read_to_string(&help_path).unwrap_or_else(|err| panic!("read help.el: {err}"));
-    let help_forms = parse_forms(&help_source).expect("parse help.el");
+    let help_forms = crate::emacs_core::value_reader::read_all(&help_source)
+        .expect("parse help.el");
     let mut found_substitute_command_keys = false;
-    for form in &help_forms {
-        eval.eval_expr(form)
+    for form in help_forms {
+        let is_target = is_named_defun_value(&form, "substitute-command-keys");
+        eval.eval_sub(form)
+            .map_err(map_flow)
             .unwrap_or_else(|err| panic!("eval help.el prefix: {err:?}"));
-        if is_named_defun(form, "substitute-command-keys") {
+        if is_target {
             found_substitute_command_keys = true;
             break;
         }
@@ -105,15 +108,19 @@ pub fn load_minimal_gnu_help_runtime(eval: &mut Context) {
     );
 }
 
-fn is_named_defun(form: &Expr, name: &str) -> bool {
-    match form {
-        Expr::List(items) => matches!(
-            (items.first(), items.get(1)),
-            (Some(Expr::Symbol(id0)), Some(Expr::Symbol(id1)))
-                if resolve_sym(*id0) == "defun" && resolve_sym(*id1) == name
-        ),
-        _ => false,
+fn is_named_defun_value(form: &Value, name: &str) -> bool {
+    if !form.is_cons() {
+        return false;
     }
+    let car = form.cons_car();
+    if !car.is_symbol_named("defun") {
+        return false;
+    }
+    let cdr = form.cons_cdr();
+    if !cdr.is_cons() {
+        return false;
+    }
+    cdr.cons_car().is_symbol_named(name)
 }
 
 /// Create a bare evaluator with GNU `ldefs-boot.el` autoload cells restored
@@ -144,10 +151,13 @@ pub fn runtime_startup_context() -> Context {
 /// results, matching the common bootstrap test pattern.
 pub fn runtime_startup_eval_all(src: &str) -> Vec<String> {
     let mut eval = runtime_startup_context();
-    let forms = parse_forms(src).expect("parse");
-    eval.eval_forms(&forms)
-        .iter()
-        .map(format_eval_result)
+    let forms = crate::emacs_core::value_reader::read_all(src).expect("parse");
+    forms
+        .into_iter()
+        .map(|form| {
+            let result = eval.eval_form(form);
+            format_eval_result(&result)
+        })
         .collect()
 }
 
@@ -155,7 +165,6 @@ pub fn runtime_startup_eval_all(src: &str) -> Vec<String> {
 /// return the formatted result.
 pub fn runtime_startup_eval_one(src: &str) -> String {
     let mut eval = runtime_startup_context();
-    let forms = parse_forms(src).expect("parse");
-    let result = eval.eval_expr(&forms[0]);
+    let result = eval.eval_str(src);
     format_eval_result(&result)
 }

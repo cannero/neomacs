@@ -1359,7 +1359,7 @@ fn input_pending_p_uses_dynamic_unread_command_events_binding() {
         Value::list(vec![Value::fixnum(97)]),
     );
     let forms = parse_forms("(let ((unread-command-events nil)) (input-pending-p))").unwrap();
-    let result = ev.eval_expr(&forms[0]).unwrap();
+    let result = ev.eval_str("(let ((unread-command-events nil)) (input-pending-p))").unwrap();
     assert!(result.is_nil());
     assert_eq!(
         ev.obarray.symbol_value("unread-command-events"),
@@ -1655,7 +1655,8 @@ fn display_update_for_mouse_movement_runs_mouse_fixup_before_echo_message() {
                   (lambda (msg) (concat "fixed:" msg)))"#,
     )
     .expect("parse mouse-fixup-help-message");
-    ev.eval_expr(&forms[0])
+    ev.eval_str(r#"(fset 'mouse-fixup-help-message
+                  (lambda (msg) (concat "fixed:" msg)))"#)
         .expect("install mouse-fixup-help-message");
 
     crate::emacs_core::builtins::builtin_display_update_for_mouse_movement(
@@ -1682,7 +1683,8 @@ fn display_update_for_mouse_movement_runs_mouse_fixup_without_input_receiver() {
                   (lambda (msg) (concat "fixed:" msg)))"#,
     )
     .expect("parse mouse-fixup-help-message");
-    ev.eval_expr(&forms[0])
+    ev.eval_str(r#"(fset 'mouse-fixup-help-message
+                  (lambda (msg) (concat "fixed:" msg)))"#)
         .expect("install mouse-fixup-help-message");
 
     crate::emacs_core::builtins::builtin_display_update_for_mouse_movement(
@@ -1715,7 +1717,12 @@ fn display_update_for_mouse_movement_runs_mouse_fixup_before_show_help_function(
                    (lambda (msg) (setq show-help-collected msg))))"#,
     )
     .expect("parse help fixup/show-help-function setup");
-    ev.eval_expr(&forms[0])
+    ev.eval_str(r#"(progn
+             (setq show-help-collected nil)
+             (fset 'mouse-fixup-help-message
+                   (lambda (msg) (concat "fixed:" msg)))
+             (setq show-help-function
+                   (lambda (msg) (setq show-help-collected msg))))"#)
         .expect("install help fixup/show-help-function");
 
     crate::emacs_core::builtins::builtin_display_update_for_mouse_movement(
@@ -1729,7 +1736,7 @@ fn display_update_for_mouse_movement_runs_mouse_fixup_before_show_help_function(
         .expect("read-char should consume help-echo");
     assert!(result.is_none());
     let value = ev
-        .eval_expr(&parse_forms("show-help-collected").expect("parse symbol")[0])
+        .eval_str("show-help-collected")
         .expect("read show-help-collected");
     assert_eq!(value.as_str(), Some("fixed:tip"));
 }
@@ -1769,7 +1776,10 @@ fn input_pending_p_check_timers_does_not_run_timer_when_input_is_already_pending
                    (lambda () (setq input-pending-timer-fired 'done))))"#,
     )
     .expect("parse input-pending-p timer setup");
-    ev.eval_expr(&setup[0])
+    ev.eval_str(r#"(progn
+             (setq input-pending-timer-fired nil)
+             (fset 'input-pending-timer-callback
+                   (lambda () (setq input-pending-timer-fired 'done))))"#)
         .expect("install input-pending-p timer setup");
     ev.timers.add_timer(
         0.0,
@@ -1854,7 +1864,7 @@ fn discard_input_uses_dynamic_unread_command_events_binding() {
         "(let ((unread-command-events (list 98))) (discard-input) unread-command-events)",
     )
     .unwrap();
-    let result = ev.eval_expr(&forms[0]).unwrap();
+    let result = ev.eval_str("(let ((unread-command-events (list 98))) (discard-input) unread-command-events)").unwrap();
     assert!(result.is_nil());
     assert_eq!(
         ev.obarray.symbol_value("unread-command-events"),
@@ -2775,7 +2785,7 @@ fn with_output_to_string_captures_print_output() {
     let mut ev = Context::new();
     let forms =
         parse_forms(r#"(with-output-to-string (princ "a") (prin1 '(1 2)) (print "x"))"#).unwrap();
-    let result = ev.eval_expr(&forms[0]).unwrap();
+    let result = ev.eval_str(r#"(with-output-to-string (princ "a") (prin1 '(1 2)) (print "x"))"#).unwrap();
     assert_eq!(result.as_str(), Some("a(1 2)\n\"x\"\n"));
 }
 
@@ -2783,16 +2793,12 @@ fn with_output_to_string_captures_print_output() {
 fn with_output_to_string_keeps_explicit_destination_working() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let forms = parse_forms(
-        r#"(with-temp-buffer
+    let result = ev.eval_str(r#"(with-temp-buffer
              (let ((buf (current-buffer)))
                (with-output-to-string
                  (princ "captured")
                  (princ " to-buf" buf))
-               (buffer-string)))"#,
-    )
-    .unwrap();
-    let result = ev.eval_expr(&forms[0]).unwrap();
+               (buffer-string)))"#).unwrap();
     assert_eq!(result.as_str(), Some(" to-buf"));
 }
 

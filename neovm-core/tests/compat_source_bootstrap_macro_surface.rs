@@ -1,12 +1,12 @@
 use neovm_core::emacs_core::eval::Context;
-use neovm_core::emacs_core::{format_eval_result, parse_forms};
+use neovm_core::emacs_core::format_eval_result;
 
 #[test]
 fn compat_source_bootstrap_macro_surface_is_minimal() {
     let mut eval = Context::new();
     eval.set_lexical_binding(true);
 
-    let forms = parse_forms(
+    let result = eval.eval_str(
         r#"(let* ((pcase-macroexpander
                    (intern "`--pcase-macroexpander"))
                   (symbols (list 'eval-and-compile
@@ -26,10 +26,7 @@ fn compat_source_bootstrap_macro_surface_is_minimal() {
            (fboundp sym)
            (macrop sym)))
    symbols))"#,
-    )
-    .expect("parse");
-
-    let result = eval.eval_expr(&forms[0]);
+    );
     let rendered = format_eval_result(&result);
     assert_eq!(
         rendered,

@@ -1,15 +1,18 @@
 use super::*;
 use crate::emacs_core::builtins::symbols::{builtin_set, builtin_symbol_value};
 use crate::emacs_core::intern::{intern, intern_uninterned};
-use crate::emacs_core::{Context, format_eval_result, parse_forms};
+use crate::emacs_core::{Context, format_eval_result};
 use crate::test_utils::{runtime_startup_context, runtime_startup_eval_all};
 
 fn eval_all(src: &str) -> Vec<String> {
     let mut ev = Context::new();
-    let forms = parse_forms(src).expect("parse");
-    ev.eval_forms(&forms)
-        .iter()
-        .map(format_eval_result)
+    let forms = crate::emacs_core::value_reader::read_all(src).expect("parse");
+    forms
+        .into_iter()
+        .map(|form| {
+            let result = ev.eval_form(form);
+            format_eval_result(&result)
+        })
         .collect()
 }
 
@@ -81,8 +84,7 @@ fn defcustom_does_not_override_existing() {
 fn defcustom_marks_special() {
     crate::test_utils::init_test_tracing();
     let mut ev = bootstrap_context();
-    let forms = parse_forms(r#"(defcustom my-var 42 "Docs.")"#).expect("parse");
-    let _result = ev.eval_expr(&forms[0]);
+    let _result = ev.eval_str(r#"(defcustom my-var 42 "Docs.")"#);
     assert!(ev.obarray().is_special("my-var"));
 }
 
@@ -115,8 +117,7 @@ fn defgroup_basic() {
 fn defgroup_registers_group() {
     crate::test_utils::init_test_tracing();
     let mut ev = bootstrap_context();
-    let forms = parse_forms(r#"(defgroup my-group nil "Docs.")"#).expect("parse");
-    let _result = ev.eval_expr(&forms[0]);
+    let _result = ev.eval_str(r#"(defgroup my-group nil "Docs.")"#);
     let doc = ev
         .obarray
         .get_property("my-group", "group-documentation")
@@ -163,8 +164,7 @@ fn defvar_local_basic() {
 fn defvar_local_marks_special() {
     crate::test_utils::init_test_tracing();
     let mut ev = bootstrap_context();
-    let forms = parse_forms(r#"(defvar-local my-local 42)"#).expect("parse");
-    let _result = ev.eval_expr(&forms[0]);
+    let _result = ev.eval_str(r#"(defvar-local my-local 42)"#);
     assert!(ev.obarray().is_special("my-local"));
 }
 
@@ -172,8 +172,7 @@ fn defvar_local_marks_special() {
 fn defvar_local_marks_buffer_local() {
     crate::test_utils::init_test_tracing();
     let mut ev = bootstrap_context();
-    let forms = parse_forms(r#"(defvar-local my-local 42)"#).expect("parse");
-    let _result = ev.eval_expr(&forms[0]);
+    let _result = ev.eval_str(r#"(defvar-local my-local 42)"#);
     assert!(ev.obarray().is_buffer_local("my-local"));
     assert!(ev.custom.is_auto_buffer_local("my-local"));
 }
@@ -918,12 +917,10 @@ fn defcustom_then_setq_default() {
 fn defvar_local_then_buffer_local_check() {
     crate::test_utils::init_test_tracing();
     let mut ev = bootstrap_context();
-    let forms = parse_forms(
+    let _ = ev.eval_str(
         r#"(defvar-local my-local-var 99)
            (make-variable-buffer-local 'other-var)"#,
-    )
-    .expect("parse");
-    let _results: Vec<_> = ev.eval_forms(&forms);
+    );
     assert!(ev.obarray().is_buffer_local("my-local-var"));
     assert!(ev.custom.is_auto_buffer_local("my-local-var"));
     assert!(ev.custom.is_auto_buffer_local("other-var"));

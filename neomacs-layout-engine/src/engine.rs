@@ -16,9 +16,6 @@ use neomacs_display_protocol::frame_glyphs::{
 use neomacs_display_protocol::types::{Color, Rect};
 use neovm_core::buffer::BufferId;
 use neovm_core::emacs_core::Value;
-use neovm_core::emacs_core::eval::opaque_pool_insert;
-use neovm_core::emacs_core::expr::Expr;
-use neovm_core::emacs_core::intern::intern;
 use neovm_core::emacs_core::keymap::is_list_keymap;
 use neovm_core::emacs_core::value::list_to_vec;
 use neovm_core::window::{DisplayPointSnapshot, DisplayRowSnapshot, WindowDisplaySnapshot};
@@ -78,15 +75,15 @@ fn eval_status_line_format_value(
                 .copied()
                 .unwrap_or(Value::NIL)
         });
-    let expr = Expr::List(vec![
-        Expr::Symbol(intern("format-mode-line")),
-        Expr::OpaqueValueRef(opaque_pool_insert(format_value)),
-        Expr::Bool(false),
-        Expr::OpaqueValueRef(opaque_pool_insert(Value::make_window(window_id as u64))),
-        Expr::OpaqueValueRef(opaque_pool_insert(Value::make_buffer(BufferId(buffer_id)))),
+    let form = Value::list(vec![
+        Value::symbol("format-mode-line"),
+        format_value,
+        Value::NIL,
+        Value::make_window(window_id as u64),
+        Value::make_buffer(BufferId(buffer_id)),
     ]);
     evaluator
-        .eval_expr(&expr)
+        .eval_form(form)
         .ok()
         .filter(|val| val.as_str().is_some_and(|s| !s.is_empty()))
 }
@@ -119,10 +116,10 @@ fn build_tab_bar_plain_text(
     }
 
     let saved_frame = evaluator
-        .eval_expr(&Expr::List(vec![Expr::Symbol(intern("selected-frame"))]))
+        .eval_form(Value::list(vec![Value::symbol("selected-frame")]))
         .ok();
     let saved_window = evaluator
-        .eval_expr(&Expr::List(vec![Expr::Symbol(intern("selected-window"))]))
+        .eval_form(Value::list(vec![Value::symbol("selected-window")]))
         .ok();
     let saved_buffer = evaluator
         .buffer_manager()
@@ -130,17 +127,15 @@ fn build_tab_bar_plain_text(
         .map(|buffer| buffer.id);
 
     evaluator
-        .eval_expr(&Expr::List(vec![
-            Expr::Symbol(intern("select-frame")),
-            Expr::OpaqueValueRef(opaque_pool_insert(Value::make_frame(frame_id))),
-            Expr::OpaqueValueRef(opaque_pool_insert(Value::NIL)),
+        .eval_form(Value::list(vec![
+            Value::symbol("select-frame"),
+            Value::make_frame(frame_id),
+            Value::NIL,
         ]))
         .ok()?;
 
     let result = evaluator
-        .eval_expr(&Expr::List(vec![Expr::Symbol(intern(
-            "tab-bar-make-keymap-1",
-        ))]))
+        .eval_form(Value::list(vec![Value::symbol("tab-bar-make-keymap-1")]))
         .ok()
         .and_then(|keymap| list_to_vec(&keymap))
         .and_then(|entries| {
@@ -163,17 +158,17 @@ fn build_tab_bar_plain_text(
         });
 
     if let Some(frame) = saved_frame {
-        let _ = evaluator.eval_expr(&Expr::List(vec![
-            Expr::Symbol(intern("select-frame")),
-            Expr::OpaqueValueRef(opaque_pool_insert(frame)),
-            Expr::OpaqueValueRef(opaque_pool_insert(Value::NIL)),
+        let _ = evaluator.eval_form(Value::list(vec![
+            Value::symbol("select-frame"),
+            frame,
+            Value::NIL,
         ]));
     }
     if let Some(window) = saved_window {
-        let _ = evaluator.eval_expr(&Expr::List(vec![
-            Expr::Symbol(intern("select-window")),
-            Expr::OpaqueValueRef(opaque_pool_insert(window)),
-            Expr::OpaqueValueRef(opaque_pool_insert(Value::NIL)),
+        let _ = evaluator.eval_form(Value::list(vec![
+            Value::symbol("select-window"),
+            window,
+            Value::NIL,
         ]));
     }
     if let Some(buffer_id) = saved_buffer {
@@ -4161,15 +4156,10 @@ impl LayoutEngine {
         _to: i64,
     ) {
         // Check if fontification-functions is bound and non-nil by evaluating
-        // the symbol.  The Context does not expose a get_variable() API, so
-        // we parse and eval the symbol name.
-        let has_fontification = match neovm_core::emacs_core::parse_forms("fontification-functions")
-        {
-            Ok(forms) if !forms.is_empty() => match evaluator.eval_expr(&forms[0]) {
-                Ok(val) => !val.is_nil(),
-                Err(_) => false,
-            },
-            _ => false,
+        // the symbol.
+        let has_fontification = match evaluator.eval_str("fontification-functions") {
+            Ok(val) => !val.is_nil(),
+            Err(_) => false,
         };
 
         if !has_fontification {
@@ -4186,19 +4176,8 @@ impl LayoutEngine {
             from.saturating_add(1)
         );
 
-        match neovm_core::emacs_core::parse_forms(&expr_str) {
-            Ok(forms) => {
-                for form in &forms {
-                    if let Err(e) = evaluator.eval_expr(form) {
-                        tracing::debug!("ensure_fontified_rust: fontification error: {:?}", e);
-                        // Non-fatal: continue without fontification
-                        break;
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::debug!("ensure_fontified_rust: parse error: {}", e);
-            }
+        if let Err(e) = evaluator.eval_str(&expr_str) {
+            tracing::debug!("ensure_fontified_rust: fontification error: {:?}", e);
         }
     }
 }
@@ -6403,7 +6382,9 @@ mod tests {
         let frame_id = eval
             .frame_manager_mut()
             .create_frame("layout-tab-bar", 1600, 160, buf_id);
-        let forms = neovm_core::emacs_core::parse_forms(
+        eval.obarray_mut()
+            .set_symbol_value("layout-target-frame", Value::make_frame(frame_id.0));
+        eval.eval_str(
             r#"
               (require 'tab-bar)
               (setq tab-bar-show 1)
@@ -6418,28 +6399,20 @@ mod tests {
               (tab-bar-select-tab 1)
             "#,
         )
-        .expect("parse tab-bar forms");
-        eval.obarray_mut()
-            .set_symbol_value("layout-target-frame", Value::make_frame(frame_id.0));
-        for expr in forms {
-            let expr_text = format!("{expr:?}");
-            if let Err(err) = eval.eval_expr(&expr) {
-                panic!("eval tab-bar form failed for {expr_text}: {err}");
-            }
-        }
-        eval.eval_expr(&Expr::List(vec![
-            Expr::Symbol(intern("select-frame")),
-            Expr::OpaqueValueRef(opaque_pool_insert(Value::make_frame(frame_id.0))),
-            Expr::OpaqueValueRef(opaque_pool_insert(Value::NIL)),
+        .expect("eval tab-bar forms");
+        eval.eval_form(Value::list(vec![
+            Value::symbol("select-frame"),
+            Value::make_frame(frame_id.0),
+            Value::NIL,
         ]))
         .expect("select target frame for tab-bar debug");
-        let keymap_debug = match eval.eval_expr(&Expr::List(vec![Expr::Symbol(intern(
+        let keymap_debug = match eval.eval_form(Value::list(vec![Value::symbol(
             "tab-bar-make-keymap-1",
-        ))])) {
+        )])) {
             Ok(value) => eval
-                .eval_expr(&Expr::List(vec![
-                    Expr::Symbol(intern("prin1-to-string")),
-                    Expr::OpaqueValueRef(opaque_pool_insert(value)),
+                .eval_form(Value::list(vec![
+                    Value::symbol("prin1-to-string"),
+                    value,
                 ]))
                 .ok()
                 .and_then(|rendered| rendered.as_str_owned())
@@ -6447,29 +6420,19 @@ mod tests {
             Err(err) => format!("<error: {err}>"),
         };
         let tabs_debug = eval
-            .eval_expr(&Expr::List(vec![
-                Expr::Symbol(intern("prin1-to-string")),
-                Expr::List(vec![
-                    Expr::Symbol(intern("frame-parameter")),
-                    Expr::OpaqueValueRef(opaque_pool_insert(Value::NIL)),
-                    Expr::OpaqueValueRef(opaque_pool_insert(Value::symbol("tabs"))),
-                ]),
-            ]))
+            .eval_str("(prin1-to-string (frame-parameter nil 'tabs))")
             .ok()
             .and_then(|value| value.as_str_owned())
             .unwrap_or_else(|| "<unavailable>".to_string());
         let format_debug = eval
-            .eval_expr(&Expr::List(vec![
-                Expr::Symbol(intern("prin1-to-string")),
-                Expr::Symbol(intern("tab-bar-format")),
-            ]))
+            .eval_str("(prin1-to-string tab-bar-format)")
             .ok()
             .and_then(|value| value.as_str_owned())
             .unwrap_or_else(|| "<unavailable>".to_string());
-        eval.eval_expr(&Expr::List(vec![
-            Expr::Symbol(intern("select-frame")),
-            Expr::OpaqueValueRef(opaque_pool_insert(Value::make_frame(selected_frame.0))),
-            Expr::OpaqueValueRef(opaque_pool_insert(Value::NIL)),
+        eval.eval_form(Value::list(vec![
+            Value::symbol("select-frame"),
+            Value::make_frame(selected_frame.0),
+            Value::NIL,
         ]))
         .expect("restore selected frame");
 

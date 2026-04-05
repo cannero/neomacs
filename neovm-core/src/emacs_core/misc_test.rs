@@ -689,8 +689,7 @@ fn sf_with_syntax_table_evaluates_body() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     load_minimal_gnu_backquote_runtime(&mut ev);
-    let forms = parse_forms("(with-syntax-table (make-syntax-table) 30)").expect("parse");
-    let result = ev.eval_expr(&forms[0]).expect("eval");
+    let result = ev.eval_str("(with-syntax-table (make-syntax-table) 30)").expect("eval");
     assert!(eq_value(&result, &Value::fixnum(30)));
 }
 
@@ -700,8 +699,7 @@ fn sf_with_syntax_table_restores_original_table_on_success() {
     let mut ev = Context::new();
     load_minimal_gnu_backquote_runtime(&mut ev);
     let original = crate::emacs_core::syntax::builtin_syntax_table(&mut ev, vec![]).unwrap();
-    let forms = parse_forms("(with-syntax-table (make-syntax-table) 1)").expect("parse");
-    ev.eval_expr(&forms[0]).expect("eval");
+    ev.eval_str("(with-syntax-table (make-syntax-table) 1)").expect("eval");
     let restored = crate::emacs_core::syntax::builtin_syntax_table(&mut ev, vec![]).unwrap();
     assert!(eq_value(&restored, &original));
 }
@@ -712,9 +710,7 @@ fn with_syntax_table_restores_original_table_on_error() {
     let mut ev = Context::new();
     load_minimal_gnu_backquote_runtime(&mut ev);
     let original = crate::emacs_core::syntax::builtin_syntax_table(&mut ev, vec![]).unwrap();
-    let forms = parse_forms("(ignore-errors (with-syntax-table (make-syntax-table) missing-var))")
-        .expect("parse");
-    let _ = ev.eval_expr(&forms[0]);
+    let _ = ev.eval_str("(ignore-errors (with-syntax-table (make-syntax-table) missing-var))");
     let restored = crate::emacs_core::syntax::builtin_syntax_table(&mut ev, vec![]).unwrap();
     assert!(eq_value(&restored, &original));
 }

@@ -456,21 +456,21 @@ impl WorkerRuntime {
                 })
             })?;
 
-            // Lock the evaluator and set up thread-locals BEFORE parsing,
-            // since parse_forms needs the interner for symbols/keywords.
+            // Lock the evaluator and set up thread-locals BEFORE reading,
+            // since the value reader needs the interner for symbols/keywords.
             let mut eval = evaluator.lock().expect("elisp evaluator mutex poisoned");
             eval.setup_thread_locals();
 
-            let forms = emacs_core::parse_forms(source).map_err(|err| {
+            let forms = emacs_core::value_reader::read_all(source).map_err(|err| {
                 TaskError::Failed(Signal {
                     symbol: "invalid-read-syntax".to_string(),
-                    data: Some(err.to_string()),
+                    data: Some(err.message),
                 })
             })?;
 
             let mut last = LispValue::default();
-            for form in &forms {
-                match eval.eval_expr(form) {
+            for form in forms {
+                match eval.eval_form(form) {
                     Ok(value) => {
                         last = LispValue {
                             bytes: emacs_core::print_value_bytes_with_eval(&eval, &value),

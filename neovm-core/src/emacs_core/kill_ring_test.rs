@@ -1,19 +1,21 @@
-use crate::emacs_core::{Context, format_eval_result, parse_forms};
+use crate::emacs_core::{Context, format_eval_result};
 use crate::test_utils::{runtime_startup_eval_all, runtime_startup_eval_one};
 
 fn eval_one(src: &str) -> String {
     let mut ev = Context::new();
-    let forms = parse_forms(src).expect("parse");
-    let result = ev.eval_expr(&forms[0]);
+    let result = ev.eval_str(src);
     format_eval_result(&result)
 }
 
 fn eval_all(src: &str) -> Vec<String> {
     let mut ev = Context::new();
-    let forms = parse_forms(src).expect("parse");
-    ev.eval_forms(&forms)
-        .iter()
-        .map(format_eval_result)
+    let forms = crate::emacs_core::value_reader::read_all(src).expect("parse");
+    forms
+        .into_iter()
+        .map(|form| {
+            let result = ev.eval_form(form);
+            format_eval_result(&result)
+        })
         .collect()
 }
 

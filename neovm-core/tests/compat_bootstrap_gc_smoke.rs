@@ -18,8 +18,7 @@ fn compat_macro_cache_keeps_opaque_values_alive_across_gc() {
     eval.obarray_mut()
         .set_symbol_function("opaque-macro", opaque_macro);
 
-    let forms = parse_forms("(opaque-macro)").expect("parse macro call");
-    let first = eval.eval_expr(&forms[0]).expect("first macro expansion");
+    let first = eval.eval_str("(opaque-macro)").expect("first macro expansion");
     assert!(
         first.is_lambda(),
         "macro expansion should yield a runtime closure, got {first:?}"
@@ -32,7 +31,7 @@ fn compat_macro_cache_keeps_opaque_values_alive_across_gc() {
     // producing a new Lambda.  The key invariant is that the macro
     // expansion still succeeds and yields a valid Lambda after GC.
     let second = eval
-        .eval_expr(&forms[0])
+        .eval_str("(opaque-macro)")
         .expect("second macro expansion after GC");
     assert!(
         second.is_lambda(),

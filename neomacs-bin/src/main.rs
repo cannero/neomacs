@@ -1620,7 +1620,7 @@ fn run_gnu_startup(eval: &mut Context) {
     eval.setup_thread_locals();
     let _ = std::fs::write("/tmp/neomacs-startup-phases.trace", "");
     maybe_install_startup_phase_trace(eval);
-    let exit_helper = neovm_core::emacs_core::parse_forms(
+    eval.eval_str(
         r#"
         (progn
           (defun neomacs--test-exit-startup-recursive-edit ()
@@ -1631,9 +1631,7 @@ fn run_gnu_startup(eval: &mut Context) {
                     #'neomacs--test-exit-startup-recursive-edit))
         "#,
     )
-    .expect("startup exit helper should parse");
-    eval.eval_expr(&exit_helper[0])
-        .expect("startup exit helper should install");
+    .expect("startup exit helper should install");
     let top_level = eval.obarray().symbol_value("top-level").cloned();
     tracing::info!("top-level variable before startup: {:?}", top_level);
 
@@ -1739,12 +1737,8 @@ fn maybe_install_startup_phase_trace(eval: &mut Context) {
               (advice-add fn :around
                           (apply-partially #'neomacs--startup-trace-around fn)))))
     "#;
-    let forms =
-        neovm_core::emacs_core::parse_forms(source).expect("startup trace helper should parse");
-    for form in &forms {
-        eval.eval_expr(form)
-            .expect("startup trace helper should install");
-    }
+    eval.eval_str(source)
+        .expect("startup trace helper should install");
 }
 
 fn ensure_dir_string(path: &Path) -> String {

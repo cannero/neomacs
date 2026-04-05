@@ -78,13 +78,11 @@ fn minimal_compile_surface_eval() -> Context {
 }
 
 fn explicit_macroexpand_env_with_hidden_macro(eval: &mut Context, name: &str) -> Value {
-    let macro_form = parse_forms(&format!(
+    eval.eval_str(&format!(
         r#"(defmacro {name} (x)
                  `(let ((tmp ,x)) tmp))"#
     ))
-    .expect("parse helper macro");
-    eval.eval_expr(&macro_form[0])
-        .expect("install helper macro for explicit env");
+    .expect("install helper macro for explicit env");
 
     let definition = eval
         .obarray()
@@ -100,8 +98,6 @@ fn explicit_macroexpand_env_with_hidden_macro(eval: &mut Context, name: &str) ->
 fn eval_source_file_direct(eval: &mut Context, path: &std::path::Path) {
     let source = std::fs::read_to_string(path)
         .unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
-    let forms =
-        parse_forms(&source).unwrap_or_else(|err| panic!("parse {}: {err}", path.display()));
 
     let old_lexical = eval.lexical_binding();
     let old_lexenv = eval.lexenv;
@@ -120,15 +116,13 @@ fn eval_source_file_direct(eval: &mut Context, path: &std::path::Path) {
             Value::string(path.to_string_lossy().to_string()),
         );
 
-        for form in &forms {
-            ctx.eval_expr(form).unwrap_or_else(|err| {
-                panic!(
-                    "direct source load failed for {}: {:?}",
-                    path.display(),
-                    err
-                )
-            });
-        }
+        ctx.eval_str(&source).unwrap_or_else(|err| {
+            panic!(
+                "direct source load failed for {}: {:?}",
+                path.display(),
+                err
+            )
+        });
 
         ctx.set_lexical_binding(old_lexical);
         ctx.lexenv = old_lexenv;
@@ -591,7 +585,7 @@ fn test_compile_macroexpanded_defalias_expr_threads_explicit_macro_env_into_lamb
 
     let call = parse_forms("(test-fc-localenv 42)").expect("parse explicit-env helper call");
     assert_eq!(
-        eval.eval_expr(&call[0])
+        eval.eval_str("(test-fc-localenv 42)")
             .expect("expr lowered helper should run"),
         Value::fixnum(42)
     );
@@ -663,7 +657,7 @@ fn test_compile_macroexpanded_defalias_value_threads_explicit_macro_env_into_lam
 
     let call = parse_forms("(test-fc-localenv 42)").expect("parse explicit-env helper call");
     assert_eq!(
-        eval.eval_expr(&call[0])
+        eval.eval_str("(test-fc-localenv 42)")
             .expect("value lowered helper should run"),
         Value::fixnum(42)
     );
@@ -744,9 +738,8 @@ fn test_compile_defmacro_runtime_executes_gensym_backquote() {
     compiled_eval
         .eval_sub(*compiled_value)
         .expect("compiled defmacro should install");
-    let compiled_call = parse_forms("(test-fc-gensym 42)").unwrap();
     let compiled_result = compiled_eval
-        .eval_expr(&compiled_call[0])
+        .eval_str("(test-fc-gensym 42)")
         .expect("compiled macro call should succeed");
     assert_eq!(compiled_result, Value::fixnum(42));
 }
@@ -778,9 +771,8 @@ fn test_compile_defmacro_runtime_executes_gensym_loop_body() {
     compiled_eval
         .eval_sub(*compiled_value)
         .expect("compiled defmacro should install");
-    let compiled_call = parse_forms("(test-fc-gensym-loop '(1 2 3))").unwrap();
     let compiled_result = compiled_eval
-        .eval_expr(&compiled_call[0])
+        .eval_str("(test-fc-gensym-loop '(1 2 3))")
         .expect("compiled macro call should succeed");
     assert_eq!(compiled_result, Value::fixnum(3));
 }
@@ -806,11 +798,9 @@ fn test_compile_defmacro_runtime_preserves_easy_mmode_quote_shape() {
     let macro_forms = parse_forms(macro_src).unwrap();
 
     let mut source_eval = direct_source_compile_surface_eval(true);
-    for form in &macro_forms {
-        source_eval
-            .eval_expr(form)
-            .expect("source easy-mmode shape macro should install");
-    }
+    source_eval
+        .eval_str(macro_src)
+        .expect("source easy-mmode shape macro should install");
 
     let mut compiled_eval = direct_source_compile_surface_eval(true);
     let compiled = compile_file_forms(&mut compiled_eval, &macro_forms).unwrap();
@@ -825,10 +815,10 @@ fn test_compile_defmacro_runtime_preserves_easy_mmode_quote_shape() {
     let macroexpand =
         parse_forms("(macroexpand '(test-fc-easy-mmode-shape sample-mode sample-mode))").unwrap();
     let source_expanded = source_eval
-        .eval_expr(&macroexpand[0])
+        .eval_str("(macroexpand '(test-fc-easy-mmode-shape sample-mode sample-mode))")
         .expect("source easy-mmode shape macroexpand should succeed");
     let compiled_expanded = compiled_eval
-        .eval_expr(&macroexpand[0])
+        .eval_str("(macroexpand '(test-fc-easy-mmode-shape sample-mode sample-mode))")
         .expect("compiled easy-mmode shape macroexpand should succeed");
 
     assert_eq!(
@@ -853,11 +843,9 @@ fn test_compile_defmacro_runtime_preserves_condition_case_handler_symbols() {
     let forms = parse_forms(macro_src).unwrap();
 
     let mut source_eval = direct_source_compile_surface_eval(false);
-    for form in &forms {
-        source_eval
-            .eval_expr(form)
-            .expect("source condition-case handler forms should install");
-    }
+    source_eval
+        .eval_str(macro_src)
+        .expect("source condition-case handler forms should install");
 
     let mut compiled_eval = direct_source_compile_surface_eval(false);
     let compiled = compile_file_forms(&mut compiled_eval, &forms).unwrap();
@@ -874,10 +862,10 @@ fn test_compile_defmacro_runtime_preserves_condition_case_handler_symbols() {
 
     let macroexpand = parse_forms("(macroexpand '(test-fc-condition-case-handler))").unwrap();
     let source_expanded = source_eval
-        .eval_expr(&macroexpand[0])
+        .eval_str("(macroexpand '(test-fc-condition-case-handler))")
         .expect("source condition-case handler macroexpand should succeed");
     let compiled_expanded = compiled_eval
-        .eval_expr(&macroexpand[0])
+        .eval_str("(macroexpand '(test-fc-condition-case-handler))")
         .expect("compiled condition-case handler macroexpand should succeed");
 
     assert_eq!(
@@ -918,7 +906,7 @@ fn test_compile_defmacro_then_defun_uses_compiled_macro() {
 
     let call = parse_forms("(test-fc-gensym-user 42)").unwrap();
     let result = runtime_eval
-        .eval_expr(&call[0])
+        .eval_str("(test-fc-gensym-user 42)")
         .expect("compiled defun should use compiled macro correctly");
     assert_eq!(result, Value::fixnum(42));
 }
@@ -926,8 +914,7 @@ fn test_compile_defmacro_then_defun_uses_compiled_macro() {
 #[test]
 fn test_compile_file_forms_defmacro_compiles_after_later_helper_macro_exists() {
     crate::test_utils::init_test_tracing();
-    let forms = parse_forms(
-        r#"
+    let source = r#"
 (defmacro test-fc-outer (x)
   (test-fc-helper x))
 
@@ -936,9 +923,8 @@ fn test_compile_file_forms_defmacro_compiles_after_later_helper_macro_exists() {
 
 (defun test-fc-outer-user (x)
   (test-fc-outer x))
-"#,
-    )
-    .unwrap();
+"#;
+    let forms = parse_forms(source).unwrap();
 
     let mut compile_eval = minimal_compile_surface_eval();
     let compiled = compile_file_forms(&mut compile_eval, &forms).unwrap();
@@ -958,17 +944,15 @@ fn test_compile_file_forms_defmacro_compiles_after_later_helper_macro_exists() {
     }
 
     let mut source_eval = minimal_compile_surface_eval();
-    for form in &forms {
-        source_eval
-            .eval_expr(form)
-            .expect("source top-level form should install");
-    }
+    source_eval
+        .eval_str(source)
+        .expect("source top-level form should install");
     let macroexpand = parse_forms("(macroexpand '(test-fc-outer 41))").unwrap();
     let source_expanded = source_eval
-        .eval_expr(&macroexpand[0])
+        .eval_str("(macroexpand '(test-fc-outer 41))")
         .expect("source forward helper macro should macroexpand");
     let expanded = runtime_eval
-        .eval_expr(&macroexpand[0])
+        .eval_str("(macroexpand '(test-fc-outer 41))")
         .unwrap_or_else(|flow| match flow {
             crate::emacs_core::error::EvalError::Signal { symbol, data, .. } => panic!(
                 "compiled forward helper macro should macroexpand: {} {:?}",
@@ -1179,7 +1163,7 @@ fn test_runtime_value_lowering_defmacro_then_defun_uses_compiled_macro() {
 
     let call = parse_forms("(test-fc-gensym-user 42)").unwrap();
     let result = runtime_eval
-        .eval_expr(&call[0])
+        .eval_str("(test-fc-gensym-user 42)")
         .expect("runtime-lowered compiled defun should use compiled macro correctly");
     assert_eq!(result, Value::fixnum(42));
 }
@@ -1187,8 +1171,7 @@ fn test_runtime_value_lowering_defmacro_then_defun_uses_compiled_macro() {
 #[test]
 fn test_runtime_value_lowering_macroexp_accumulate_shape_stays_callable() {
     crate::test_utils::init_test_tracing();
-    let forms = parse_forms(
-        r#"
+    let source = r#"
 (defun macroexp--expand-all (form)
   (list 'expanded form))
 
@@ -1220,9 +1203,8 @@ fn test_runtime_value_lowering_macroexp_accumulate_shape_stays_callable() {
         (macroexp--expand-all form)
       (setq skip (1- skip))
       form)))
-"#,
-    )
-    .unwrap();
+"#;
+    let forms = parse_forms(source).unwrap();
     let macroexpand_probe = parse_forms(
         r#"(macroexpand
                  '(macroexp--accumulate (form forms)
@@ -1284,13 +1266,16 @@ fn test_runtime_value_lowering_macroexp_accumulate_shape_stays_callable() {
     }
 
     let mut source_eval = minimal_compile_surface_eval();
-    for form in &forms {
-        source_eval
-            .eval_expr(form)
-            .expect("source macroexp forms should install");
-    }
+    source_eval
+        .eval_str(source)
+        .expect("source macroexp forms should install");
     let source_expansion = source_eval
-        .eval_expr(&macroexpand_probe[0])
+        .eval_str(r#"(macroexpand
+                 '(macroexp--accumulate (form forms)
+                    (if (or (null skip) (zerop skip))
+                        (macroexp--expand-all form)
+                      (setq skip (1- skip))
+                      form)))"#)
         .expect("source macroexpand should succeed");
     let source_expansion =
         crate::emacs_core::print::print_value_with_buffers(&source_expansion, &source_eval.buffers);
@@ -1302,7 +1287,12 @@ fn test_runtime_value_lowering_macroexp_accumulate_shape_stays_callable() {
             .expect("runtime-lowered macroexp forms should install");
     }
     let runtime_expansion = runtime_eval
-        .eval_expr(&macroexpand_probe[0])
+        .eval_str(r#"(macroexpand
+                 '(macroexp--accumulate (form forms)
+                    (if (or (null skip) (zerop skip))
+                        (macroexp--expand-all form)
+                      (setq skip (1- skip))
+                      form)))"#)
         .expect("compiled macroexpand should succeed");
     let runtime_expansion = crate::emacs_core::print::print_value_with_buffers(
         &runtime_expansion,
@@ -1321,7 +1311,10 @@ fn test_runtime_value_lowering_macroexp_accumulate_shape_stays_callable() {
     )
     .unwrap();
     let result = runtime_eval
-        .eval_expr(&call[0])
+        .eval_str(r#"(list
+                 (macroexp--all-forms '(a b c))
+                 (macroexp--all-forms '(a b c) 1)
+                 (macroexp--all-forms '(a b c) 2))"#)
         .expect("runtime-lowered macroexp accumulator should stay callable");
     assert_eq!(
         result,
@@ -1348,8 +1341,7 @@ fn test_runtime_value_lowering_macroexp_accumulate_shape_stays_callable() {
 #[test]
 fn test_compile_file_forms_macroexp_accumulate_shape_stays_callable() {
     crate::test_utils::init_test_tracing();
-    let forms = parse_forms(
-        r#"
+    let source = r#"
 (defun macroexp--expand-all (form)
   (list 'expanded form))
 
@@ -1381,9 +1373,8 @@ fn test_compile_file_forms_macroexp_accumulate_shape_stays_callable() {
         (macroexp--expand-all form)
       (setq skip (1- skip))
       form)))
-"#,
-    )
-    .unwrap();
+"#;
+    let forms = parse_forms(source).unwrap();
     let macroexpand_probe = parse_forms(
         r#"(macroexpand
                  '(macroexp--accumulate (form forms)
@@ -1398,13 +1389,16 @@ fn test_compile_file_forms_macroexp_accumulate_shape_stays_callable() {
     let compiled = compile_file_forms(&mut compile_eval, &forms).unwrap();
 
     let mut source_eval = minimal_compile_surface_eval();
-    for form in &forms {
-        source_eval
-            .eval_expr(form)
-            .expect("source macroexp forms should install");
-    }
+    source_eval
+        .eval_str(source)
+        .expect("source macroexp forms should install");
     let source_expansion = source_eval
-        .eval_expr(&macroexpand_probe[0])
+        .eval_str(r#"(macroexpand
+                 '(macroexp--accumulate (form forms)
+                    (if (or (null skip) (zerop skip))
+                        (macroexp--expand-all form)
+                      (setq skip (1- skip))
+                      form)))"#)
         .expect("source macroexpand should succeed");
     let source_expansion =
         crate::emacs_core::print::print_value_with_buffers(&source_expansion, &source_eval.buffers);
@@ -1419,7 +1413,12 @@ fn test_compile_file_forms_macroexp_accumulate_shape_stays_callable() {
             .expect("compiled macroexp forms should install");
     }
     let runtime_expansion = runtime_eval
-        .eval_expr(&macroexpand_probe[0])
+        .eval_str(r#"(macroexpand
+                 '(macroexp--accumulate (form forms)
+                    (if (or (null skip) (zerop skip))
+                        (macroexp--expand-all form)
+                      (setq skip (1- skip))
+                      form)))"#)
         .expect("compiled macroexpand should succeed");
     let runtime_expansion = crate::emacs_core::print::print_value_with_buffers(
         &runtime_expansion,
@@ -1438,7 +1437,10 @@ fn test_compile_file_forms_macroexp_accumulate_shape_stays_callable() {
     )
     .unwrap();
     let result = runtime_eval
-        .eval_expr(&call[0])
+        .eval_str(r#"(list
+                 (macroexp--all-forms '(a b c))
+                 (macroexp--all-forms '(a b c) 1)
+                 (macroexp--all-forms '(a b c) 2))"#)
         .expect("compiled macroexp accumulator should stay callable");
     assert_eq!(
         result,
@@ -1628,10 +1630,37 @@ fn test_compile_defmacro_direct_macroexp_accumulate_macroexpand_matches_source()
 
     let mut source_eval = minimal_compile_surface_eval();
     source_eval
-        .eval_expr(&forms[0])
+        .eval_str(r#"
+(defmacro macroexp--accumulate (var+list &rest body)
+  (let ((var (car var+list))
+        (list (cadr var+list))
+        (shared (make-symbol "shared"))
+        (unshared (make-symbol "unshared"))
+        (tail (make-symbol "tail"))
+        (new-el (make-symbol "new-el")))
+    `(let* ((,shared ,list)
+            (,unshared nil)
+            (,tail ,shared)
+            ,var ,new-el)
+       (while (consp ,tail)
+         (setq ,var (car ,tail)
+               ,new-el (progn ,@body))
+         (unless (eq ,var ,new-el)
+           (while (not (eq ,shared ,tail))
+             (push (pop ,shared) ,unshared))
+           (setq ,shared (cdr ,shared))
+           (push ,new-el ,unshared))
+         (setq ,tail (cdr ,tail)))
+       (nconc (nreverse ,unshared) ,shared))))
+"#)
         .expect("source macro should install");
     let source_expansion = source_eval
-        .eval_expr(&macroexpand_probe[0])
+        .eval_str(r#"(macroexpand
+                 '(macroexp--accumulate (form forms)
+                    (if (or (null skip) (zerop skip))
+                        (macroexp--expand-all form)
+                      (setq skip (1- skip))
+                      form)))"#)
         .expect("source macroexpand should succeed");
     let source_expansion =
         crate::emacs_core::print::print_value_with_buffers(&source_expansion, &source_eval.buffers);
@@ -1648,7 +1677,12 @@ fn test_compile_defmacro_direct_macroexp_accumulate_macroexpand_matches_source()
         .eval_sub(compiled_value)
         .expect("compiled defmacro should install");
     let runtime_expansion = runtime_eval
-        .eval_expr(&macroexpand_probe[0])
+        .eval_str(r#"(macroexpand
+                 '(macroexp--accumulate (form forms)
+                    (if (or (null skip) (zerop skip))
+                        (macroexp--expand-all form)
+                      (setq skip (1- skip))
+                      form)))"#)
         .expect("compiled macroexpand should succeed");
     let runtime_expansion = crate::emacs_core::print::print_value_with_buffers(
         &runtime_expansion,
@@ -1701,10 +1735,37 @@ fn test_compile_file_forms_defmacro_only_macroexp_accumulate_macroexpand_matches
 
     let mut source_eval = minimal_compile_surface_eval();
     source_eval
-        .eval_expr(&forms[0])
+        .eval_str(r#"
+(defmacro macroexp--accumulate (var+list &rest body)
+  (let ((var (car var+list))
+        (list (cadr var+list))
+        (shared (make-symbol "shared"))
+        (unshared (make-symbol "unshared"))
+        (tail (make-symbol "tail"))
+        (new-el (make-symbol "new-el")))
+    `(let* ((,shared ,list)
+            (,unshared nil)
+            (,tail ,shared)
+            ,var ,new-el)
+       (while (consp ,tail)
+         (setq ,var (car ,tail)
+               ,new-el (progn ,@body))
+         (unless (eq ,var ,new-el)
+           (while (not (eq ,shared ,tail))
+             (push (pop ,shared) ,unshared))
+           (setq ,shared (cdr ,shared))
+           (push ,new-el ,unshared))
+         (setq ,tail (cdr ,tail)))
+       (nconc (nreverse ,unshared) ,shared))))
+"#)
         .expect("source macro should install");
     let source_expansion = source_eval
-        .eval_expr(&macroexpand_probe[0])
+        .eval_str(r#"(macroexpand
+                 '(macroexp--accumulate (form forms)
+                    (if (or (null skip) (zerop skip))
+                        (macroexp--expand-all form)
+                      (setq skip (1- skip))
+                      form)))"#)
         .expect("source macroexpand should succeed");
     let source_expansion =
         crate::emacs_core::print::print_value_with_buffers(&source_expansion, &source_eval.buffers);
@@ -1721,7 +1782,12 @@ fn test_compile_file_forms_defmacro_only_macroexp_accumulate_macroexpand_matches
         .eval_sub(*value)
         .expect("compiled defmacro should install");
     let runtime_expansion = runtime_eval
-        .eval_expr(&macroexpand_probe[0])
+        .eval_str(r#"(macroexpand
+                 '(macroexp--accumulate (form forms)
+                    (if (or (null skip) (zerop skip))
+                        (macroexp--expand-all form)
+                      (setq skip (1- skip))
+                      form)))"#)
         .expect("compiled macroexpand should succeed");
     let runtime_expansion = crate::emacs_core::print::print_value_with_buffers(
         &runtime_expansion,
@@ -1736,8 +1802,7 @@ fn test_compile_file_forms_defmacro_only_macroexp_accumulate_macroexpand_matches
 #[test]
 fn test_compile_file_forms_expand_all_and_macroexp_accumulate_macroexpand_matches_source() {
     crate::test_utils::init_test_tracing();
-    let forms = parse_forms(
-        r#"
+    let source = r#"
 (defun macroexp--expand-all (form)
   (list 'expanded form))
 
@@ -1762,9 +1827,8 @@ fn test_compile_file_forms_expand_all_and_macroexp_accumulate_macroexpand_matche
            (push ,new-el ,unshared))
          (setq ,tail (cdr ,tail)))
        (nconc (nreverse ,unshared) ,shared))))
-"#,
-    )
-    .unwrap();
+"#;
+    let forms = parse_forms(source).unwrap();
     let macroexpand_probe = parse_forms(
         r#"(macroexpand
                  '(macroexp--accumulate (form forms)
@@ -1776,13 +1840,16 @@ fn test_compile_file_forms_expand_all_and_macroexp_accumulate_macroexpand_matche
     .unwrap();
 
     let mut source_eval = minimal_compile_surface_eval();
-    for form in &forms {
-        source_eval
-            .eval_expr(form)
-            .expect("source forms should install");
-    }
+    source_eval
+        .eval_str(source)
+        .expect("source forms should install");
     let source_expansion = source_eval
-        .eval_expr(&macroexpand_probe[0])
+        .eval_str(r#"(macroexpand
+                 '(macroexp--accumulate (form forms)
+                    (if (or (null skip) (zerop skip))
+                        (macroexp--expand-all form)
+                      (setq skip (1- skip))
+                      form)))"#)
         .expect("source macroexpand should succeed");
     let source_expansion =
         crate::emacs_core::print::print_value_with_buffers(&source_expansion, &source_eval.buffers);
@@ -1801,7 +1868,12 @@ fn test_compile_file_forms_expand_all_and_macroexp_accumulate_macroexpand_matche
             .expect("compiled forms should install");
     }
     let runtime_expansion = runtime_eval
-        .eval_expr(&macroexpand_probe[0])
+        .eval_str(r#"(macroexpand
+                 '(macroexp--accumulate (form forms)
+                    (if (or (null skip) (zerop skip))
+                        (macroexp--expand-all form)
+                      (setq skip (1- skip))
+                      form)))"#)
         .expect("compiled macroexpand should succeed");
     let runtime_expansion = crate::emacs_core::print::print_value_with_buffers(
         &runtime_expansion,
@@ -1970,7 +2042,9 @@ fn test_compile_defun_with_macroexp_accumulate_expanded_body_stays_callable() {
     )
     .unwrap();
     let result = eval
-        .eval_expr(&call[0])
+        .eval_str(r#"(test-fc-macroexp-accumulate-expanded
+                 '(form forms)
+                 '(macroexp--expand-all form))"#)
         .expect("compiled expanded-body defun should stay callable");
     let rendered = crate::emacs_core::print::print_value_with_buffers(&result, &eval.buffers);
     assert!(
@@ -2142,7 +2216,12 @@ fn test_compile_defun_preserves_doc_named_argument_order() {
     )
     .unwrap();
     let result = eval
-        .eval_expr(&call[0])
+        .eval_str(r#"(test-fc-doc-arg-order
+                 'default
+                 '((t nil))
+                 "Basic default face."
+                 :group
+                 'basic-faces)"#)
         .expect("compiled defun should preserve argument order");
     assert_eq!(
         result,
@@ -2186,7 +2265,12 @@ fn test_compile_defun_preserves_doc_named_argument_order_through_conditional() {
     )
     .unwrap();
     let result = eval
-        .eval_expr(&call[0])
+        .eval_str(r#"(test-fc-doc-conditional
+                 'default
+                 '((t nil))
+                 "Basic default face."
+                 :group
+                 'basic-faces)"#)
         .expect("compiled defun should preserve argument order through conditional");
     assert_eq!(
         result,
@@ -2265,7 +2349,13 @@ fn test_compile_defun_preserves_required_required_rest_locals() {
     )
     .unwrap();
     let result = eval
-        .eval_expr(&call[0])
+        .eval_str(r#"(test-fc-rest-locals
+                 'default
+                 'frame-1
+                 :family
+                 "Mono"
+                 :weight
+                 'bold)"#)
         .expect("compiled defun should preserve required/rest locals");
     let rest = Value::list(vec![
         Value::symbol(":family"),
@@ -2308,18 +2398,14 @@ fn test_compile_defun_preserves_required_required_rest_through_while_and_setq() 
     eval.eval_sub(*value)
         .expect("compiled defun defalias should install");
 
-    let call = parse_forms(
-        r#"(test-fc-rest-loop
+    let result = eval
+        .eval_str(r#"(test-fc-rest-loop
                  'default
                  'frame-1
                  :family
                  "Mono"
                  :weight
-                 'bold)"#,
-    )
-    .unwrap();
-    let result = eval
-        .eval_expr(&call[0])
+                 'bold)"#)
         .expect("compiled defun should preserve rest variable through loop");
     assert_eq!(
         result,
@@ -2556,10 +2642,10 @@ fn test_compile_el_to_neobc_round_trips_easy_mmode_shape_macro() {
         parse_forms("(macroexpand '(test-compiled-easy-mmode-shape sample-mode sample-mode))")
             .unwrap();
     let source_expanded = source_eval
-        .eval_expr(&macroexpand[0])
+        .eval_str("(macroexpand '(test-compiled-easy-mmode-shape sample-mode sample-mode))")
         .expect("source easy-mmode-shaped macroexpand should succeed");
     let compiled_expanded = runtime_eval
-        .eval_expr(&macroexpand[0])
+        .eval_str("(macroexpand '(test-compiled-easy-mmode-shape sample-mode sample-mode))")
         .expect("compiled easy-mmode-shaped macroexpand should succeed");
 
     assert_eq!(

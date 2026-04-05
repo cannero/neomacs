@@ -11,12 +11,10 @@ fn eval_first_form_after_marker(eval: &mut Context, source: &str, marker: &str) 
     let start = source
         .find(marker)
         .unwrap_or_else(|| panic!("missing GNU subr.el marker: {marker}"));
-    let forms = super::super::parser::parse_forms(&source[start..])
-        .unwrap_or_else(|err| panic!("parse GNU subr.el from {marker} failed: {:?}", err));
-    let form = forms
-        .first()
+    let (form, _) = crate::emacs_core::value_reader::read_one(&source[start..], 0)
+        .unwrap_or_else(|err| panic!("parse GNU subr.el from {marker} failed: {:?}", err))
         .unwrap_or_else(|| panic!("no GNU subr.el form found after marker: {marker}"));
-    eval.eval_expr(form)
+    eval.eval_form(form)
         .unwrap_or_else(|err| panic!("evaluate GNU subr.el form {marker} failed: {:?}", err));
 }
 
@@ -34,10 +32,7 @@ fn install_bare_elisp_shims(ev: &mut Context) {
 (defalias 'unless (cons 'macro #'(lambda (cond &rest body)
   (cons 'if (cons cond (cons nil body))))))
 "#;
-    let forms = super::super::parser::parse_forms(shims).expect("parse bare elisp shims");
-    for form in &forms {
-        ev.eval_expr(form).expect("install bare elisp shim");
-    }
+    ev.eval_str(shims).expect("install bare elisp shims");
 }
 
 fn gnu_subr_sit_for_eval() -> Context {
@@ -58,7 +53,7 @@ fn gnu_subr_sit_for_eval() -> Context {
 }
 
 fn install_minimal_special_event_command_runtime(ev: &mut Context) {
-    let setup = super::super::parser::parse_forms(
+    ev.eval_str(
         r#"
 (fset 'command-execute
       (lambda (cmd &optional _record keys _special)
@@ -69,11 +64,7 @@ fn install_minimal_special_event_command_runtime(ev: &mut Context) {
         nil))
 "#,
     )
-    .expect("parse special-event command runtime");
-    for form in &setup {
-        ev.eval_expr(form)
-            .expect("install special-event command runtime");
-    }
+    .expect("install special-event command runtime");
 }
 
 fn gnu_timer_before(delay: Duration, callback: &str) -> Value {
@@ -376,16 +367,14 @@ fn gnu_sit_for_with_pending_input_does_not_run_timers_first() {
     crate::test_utils::init_test_tracing();
     let mut ev = gnu_subr_sit_for_eval();
     ev.set_variable("noninteractive", Value::NIL);
-    let setup = super::super::parser::parse_forms(
+    ev.eval_str(
         r#"(progn
              (setq sit-for-pending-input-timer-fired nil)
              (fset 'sit-for-pending-input-timer-callback
                    (lambda ()
                      (setq sit-for-pending-input-timer-fired 'done))))"#,
     )
-    .expect("parse sit-for pending-input timer setup");
-    ev.eval_expr(&setup[0])
-        .expect("install sit-for pending-input timer setup");
+    .expect("install sit-for pending-input timer setup");
     ev.timers.add_timer(
         0.0,
         0.0,
@@ -468,7 +457,7 @@ fn gnu_sit_for_zero_nodisp_runs_due_gnu_timer_without_redisplay() {
     crate::test_utils::init_test_tracing();
     let mut ev = gnu_subr_sit_for_eval();
     ev.set_variable("noninteractive", Value::NIL);
-    let setup = super::super::parser::parse_forms(
+    ev.eval_str(
         r#"(progn
              (setq sit-for-zero-timer-fired nil)
              (fset 'sit-for-zero-timer-callback
@@ -479,9 +468,7 @@ fn gnu_sit_for_zero_nodisp_runs_due_gnu_timer_without_redisplay() {
                      (setq timer-list (delq timer timer-list))
                      (funcall (aref timer 5)))))"#,
     )
-    .expect("parse zero-second sit-for timer setup");
-    ev.eval_expr(&setup[0])
-        .expect("install zero-second sit-for timer setup");
+    .expect("install zero-second sit-for timer setup");
     ev.set_variable(
         "timer-list",
         Value::list(vec![gnu_timer_before(

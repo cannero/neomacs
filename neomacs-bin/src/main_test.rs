@@ -201,8 +201,7 @@ fn eval_after_gnu_gui_startup(source: &str) -> String {
     let _frame_id = bootstrap_runtime_gui_startup(&mut eval);
     run_gnu_startup(&mut eval);
 
-    let forms = parse_forms(source).expect("probe should parse");
-    let result = eval.eval_expr(&forms[0]).expect("probe should evaluate");
+    let result = eval.eval_str(source).expect("probe should evaluate");
     print_value_with_eval(&mut eval, &result)
 }
 
@@ -467,19 +466,15 @@ fn configure_gnu_startup_state_reports_neo_window_system_for_gui_boots() {
 fn cl_generic_context_dispatch_uses_neo_window_system_method() {
     let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
         .expect("cached bootstrap evaluator");
-    let forms = parse_forms(
-        r#"
+    let rendered = eval
+        .eval_str(r#"
         (progn
           (cl-defgeneric neomacs--ctx-probe ())
           (cl-defmethod neomacs--ctx-probe (&context (window-system nil)) 'tty)
           (cl-defmethod neomacs--ctx-probe (&context (window-system neo)) 'neo)
           (let ((window-system 'neo))
             (neomacs--ctx-probe)))
-        "#,
-    )
-    .expect("context dispatch probe should parse");
-    let rendered = eval
-        .eval_expr(&forms[0])
+        "#)
         .map(|value| print_value_with_eval(&mut eval, &value))
         .unwrap_or_else(|err| format!("{err:?}"));
     assert_eq!(rendered, "neo");
@@ -490,32 +485,24 @@ fn pdump_preserves_neo_term_generic_methods() {
     let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
         .expect("cached bootstrap evaluator");
 
-    let pre_forms = parse_forms(
-        r#"
+    let pre = eval
+        .eval_str(r#"
         (let ((window-system 'neo))
           (window-system-initialization)
           neomacs-initialized)
-        "#,
-    )
-    .expect("pre probe should parse");
-    let pre = eval
-        .eval_expr(&pre_forms[0])
+        "#)
         .map(|value| print_value_with_eval(&mut eval, &value))
         .unwrap_or_else(|err| format!("{err:?}"));
 
-    let reload_forms = parse_forms(
-        r#"
+    let post = eval
+        .eval_str(r#"
         (progn
           (load "term/neo-win" nil t)
           (setq neomacs-initialized nil)
           (let ((window-system 'neo))
             (window-system-initialization)
             neomacs-initialized))
-        "#,
-    )
-    .expect("reload probe should parse");
-    let post = eval
-        .eval_expr(&reload_forms[0])
+        "#)
         .map(|value| print_value_with_eval(&mut eval, &value))
         .unwrap_or_else(|err| format!("{err:?}"));
 
@@ -769,8 +756,7 @@ fn gnu_startup_keeps_bootstrap_gui_frame_instead_of_creating_replacement_frame()
         .expect("cached bootstrap evaluator");
     let frame_id = bootstrap_runtime_gui_startup(&mut eval);
 
-    let hook_probe_forms = parse_forms(
-        r#"
+    eval.eval_str(r#"
         (progn
           (setq neomacs--probe-handle-args-called nil)
           (setq neomacs--probe-window-system-init-called nil)
@@ -808,16 +794,13 @@ fn gnu_startup_keeps_bootstrap_gui_frame_instead_of_creating_replacement_frame()
                 (lambda (&rest args)
                   (setq neomacs--probe-command-line-called t)
                   (apply neomacs--orig-command-line args))))
-        "#,
-    )
-    .expect("startup hook probe should parse");
-    eval.eval_expr(&hook_probe_forms[0])
+        "#)
         .expect("startup hook probe should install");
 
     run_gnu_startup(&mut eval);
 
-    let startup_probe_forms = parse_forms(
-        r#"
+    let startup_probe = eval
+        .eval_str(r#"
          (list
          (current-message)
          noninteractive
@@ -852,11 +835,7 @@ fn gnu_startup_keeps_bootstrap_gui_frame_instead_of_creating_replacement_frame()
                   (eq frame (selected-frame))
                   (eq frame (window-frame (minibuffer-window frame)))))
           (frame-list)))
-        "#,
-    )
-    .expect("startup probe should parse");
-    let startup_probe = eval
-        .eval_expr(&startup_probe_forms[0])
+        "#)
         .expect("startup probe should evaluate");
     let shutdown_request = eval.shutdown_request();
     let frame_ids: Vec<_> = eval.frame_manager().frame_list().into_iter().collect();
@@ -885,8 +864,7 @@ fn bootstrap_gui_state_allows_gnu_frame_initialize_to_delete_terminal_frame() {
         .expect("cached bootstrap evaluator");
     let frame_id = bootstrap_runtime_gui_startup(&mut eval);
 
-    let forms = parse_forms("(frame-initialize)").expect("frame-initialize probe should parse");
-    eval.eval_expr(&forms[0])
+    eval.eval_str("(frame-initialize)")
         .expect("frame-initialize should succeed on bootstrap gui state");
 
     let frame_ids: Vec<_> = eval.frame_manager().frame_list().into_iter().collect();
@@ -905,8 +883,8 @@ fn gnu_startup_keeps_scratch_text_accessible_under_q_startup() {
 
     run_gnu_startup(&mut eval);
 
-    let forms = parse_forms(
-        r#"(with-current-buffer (current-buffer)
+    let result = eval
+        .eval_str(r#"(with-current-buffer (current-buffer)
                  (list (buffer-name)
                        major-mode
                        (> (point-max) 1)
@@ -915,11 +893,7 @@ fn gnu_startup_keeps_scratch_text_accessible_under_q_startup() {
                            (buffer-substring-no-properties
                             (point-min)
                             (min (point-max) (+ (point-min) 16))))
-                          0)))"#,
-    )
-    .expect("parse scratch accessibility probe");
-    let result = eval
-        .eval_expr(&forms[0])
+                          0)))"#)
         .expect("scratch accessibility probe should evaluate");
     assert_eq!(
         print_value_with_eval(&mut eval, &result),
@@ -941,9 +915,8 @@ fn gnu_startup_preserves_default_fontset_alias() {
 
     run_gnu_startup(&mut eval);
 
-    let forms = parse_forms("(query-fontset \"fontset-default\")").expect("parse fontset query");
     let result = eval
-        .eval_expr(&forms[0])
+        .eval_str("(query-fontset \"fontset-default\")")
         .expect("fontset query should evaluate");
     assert_eq!(
         result,
@@ -965,13 +938,9 @@ fn gnu_startup_posts_echo_area_message() {
 
     run_gnu_startup(&mut eval);
 
-    let forms = parse_forms(
-        "(list (current-message)
-                   (substring-no-properties (startup-echo-area-message)))",
-    )
-    .expect("parse startup echo probe");
     let result = eval
-        .eval_expr(&forms[0])
+        .eval_str(r#"(list (current-message)
+                   (substring-no-properties (startup-echo-area-message)))"#)
         .expect("startup echo probe should evaluate");
     assert_eq!(
         print_value_with_eval(&mut eval, &result),
@@ -993,10 +962,8 @@ fn gnu_startup_keeps_single_row_minibuffer() {
 
     run_gnu_startup(&mut eval);
 
-    let forms = parse_forms("(window-total-height (minibuffer-window))")
-        .expect("parse minibuffer height probe");
     let result = eval
-        .eval_expr(&forms[0])
+        .eval_str("(window-total-height (minibuffer-window))")
         .expect("minibuffer height probe should evaluate");
     assert_eq!(result, Value::fixnum(1));
 }
@@ -1018,7 +985,7 @@ fn gnu_startup_runtime_load_path_finds_mail_rfc6068() {
     let forms =
         parse_forms("(locate-library \"rfc6068\")").expect("parse locate-library startup probe");
     let result = eval
-        .eval_expr(&forms[0])
+        .eval_str("(locate-library \"rfc6068\")")
         .expect("locate-library startup probe should evaluate");
     let path = result
         .as_str()
@@ -1043,16 +1010,12 @@ fn gnu_startup_where_is_internal_finds_about_emacs_on_help_prefix() {
 
     run_gnu_startup(&mut eval);
 
-    let forms = parse_forms(
-        "(list
+    let result = eval
+        .eval_str(r#"(list
                (lookup-key help-map [1])
                (lookup-key (symbol-function 'help-command) [1])
                (lookup-key (current-global-map) [8])
-               (lookup-key (current-global-map) [8 1]))",
-    )
-    .expect("parse startup help-prefix probe");
-    let result = eval
-        .eval_expr(&forms[0])
+               (lookup-key (current-global-map) [8 1]))"#)
         .expect("startup help-prefix probe should evaluate");
     assert_eq!(
         print_value_with_eval(&mut eval, &result),
@@ -1082,10 +1045,8 @@ fn gnu_startup_requests_redisplay_for_echo_area_message() {
             .push(eval.current_message_text().unwrap_or_default().to_string());
     }));
 
-    let forms = parse_forms("(display-startup-echo-area-message)")
-        .expect("parse startup echo-area display form");
     let result = eval
-        .eval_expr(&forms[0])
+        .eval_str("(display-startup-echo-area-message)")
         .expect("display-startup-echo-area-message should evaluate");
     assert_eq!(
         result,
@@ -1116,18 +1077,14 @@ fn gnu_startup_restores_meta_and_ctl_x_bindings() {
 
     run_gnu_startup(&mut eval);
 
-    let forms = parse_forms(
-        r#"(list
+    let result = eval
+        .eval_str(r#"(list
                  (key-binding (kbd "M-x"))
                  (lookup-key (current-global-map) (kbd "M-x"))
                  (key-binding (kbd "C-x 2"))
                  (lookup-key (current-global-map) (kbd "C-x 2"))
                  (key-binding (kbd "C-x 3"))
-                 (lookup-key (current-global-map) (kbd "C-x 3")))"#,
-    )
-    .expect("parse startup keybinding probe");
-    let result = eval
-        .eval_expr(&forms[0])
+                 (lookup-key (current-global-map) (kbd "C-x 3")))"#)
         .expect("startup keybinding probe should evaluate");
     assert_eq!(
         print_value_with_eval(&mut eval, &result),
@@ -1149,16 +1106,12 @@ fn gnu_startup_formats_mode_line_for_target_window_buffer() {
 
     run_gnu_startup(&mut eval);
 
-    let forms = parse_forms(
-        r#"(let* ((w (selected-window))
+    let result = eval
+        .eval_str(r#"(let* ((w (selected-window))
                       (buf (window-buffer w))
                       (mini (minibuffer-window)))
                  (with-current-buffer (window-buffer mini)
-                   (format-mode-line "%b" nil w buf)))"#,
-    )
-    .expect("parse startup mode-line probe");
-    let result = eval
-        .eval_expr(&forms[0])
+                   (format-mode-line "%b" nil w buf)))"#)
         .expect("startup mode-line probe should evaluate");
     assert_eq!(result, Value::string("*scratch*"));
 }
@@ -1192,8 +1145,8 @@ fn gnu_startup_split_window_right_succeeds_on_opening_frame() {
         )
     };
 
-    let forms = parse_forms(
-        r#"(list
+    let result = eval
+        .eval_str(r#"(list
                  (window-total-width)
                  (window-total-height)
                  (window-min-size nil t)
@@ -1202,11 +1155,7 @@ fn gnu_startup_split_window_right_succeeds_on_opening_frame() {
                  (window-size-fixed-p (selected-window) t)
                  (condition-case err
                      (progn (split-window-right) 'ok)
-                   (error (list 'error (error-message-string err)))))"#,
-    )
-    .expect("parse startup split-window probe");
-    let result = eval
-        .eval_expr(&forms[0])
+                   (error (list 'error (error-message-string err)))))"#)
         .expect("startup split-window probe should evaluate");
     let items = list_to_vec(&result).expect("split-window result list");
     assert_eq!(items[0], Value::fixnum(expected_width));
@@ -1247,8 +1196,8 @@ fn gnu_startup_split_window_below_succeeds_on_opening_frame() {
         )
     };
 
-    let forms = parse_forms(
-        r#"(list
+    let result = eval
+        .eval_str(r#"(list
                  (window-total-width)
                  (window-total-height)
                  (window-min-size nil t)
@@ -1257,11 +1206,7 @@ fn gnu_startup_split_window_below_succeeds_on_opening_frame() {
                  (window-size-fixed-p (selected-window) t)
                  (condition-case err
                      (progn (split-window-below) 'ok)
-                   (error (list 'error (error-message-string err)))))"#,
-    )
-    .expect("parse startup split-window probe");
-    let result = eval
-        .eval_expr(&forms[0])
+                   (error (list 'error (error-message-string err)))))"#)
         .expect("startup split-window probe should evaluate");
     let items = list_to_vec(&result).expect("split-window result list");
     assert_eq!(items[0], Value::fixnum(expected_width));
@@ -1287,8 +1232,8 @@ fn gnu_startup_window_pixel_queries_use_live_frame_pixels() {
 
     run_gnu_startup(&mut eval);
 
-    let forms = parse_forms(
-        r#"(list
+    let result = eval
+        .eval_str(r#"(list
                  (window-pixel-width)
                  (window-pixel-height)
                  (window-body-width nil t)
@@ -1297,11 +1242,7 @@ fn gnu_startup_window_pixel_queries_use_live_frame_pixels() {
                  (window-text-height nil t)
                  (window-fringes)
                  (window-edges nil nil nil t)
-                 (window-edges nil t nil t))"#,
-    )
-    .expect("parse startup pixel probe");
-    let result = eval
-        .eval_expr(&forms[0])
+                 (window-edges nil t nil t))"#)
         .expect("startup pixel probe should evaluate");
     let items = list_to_vec(&result).expect("pixel query result list");
     let pixel_width = items[0].as_int().expect("window-pixel-width");
@@ -1367,15 +1308,11 @@ fn gnu_startup_processes_load_option_from_forwarded_args() {
 
     run_gnu_startup(&mut eval);
 
-    let forms = parse_forms(
-        r#"(list
+    let result = eval
+        .eval_str(r#"(list
                  (fboundp 'neomacs-face-test-write-matrix-report)
                  (buffer-live-p (get-buffer "*Neomacs Face Test*"))
-                 (buffer-name (window-buffer (selected-window))))"#,
-    )
-    .expect("parse startup load-option probe");
-    let result = eval
-        .eval_expr(&forms[0])
+                 (buffer-name (window-buffer (selected-window))))"#)
         .expect("startup load-option probe should evaluate");
     let items = list_to_vec(&result).expect("load-option result list");
     assert_eq!(items[0], Value::T);
@@ -1427,15 +1364,11 @@ fn recursive_edit_processes_load_option_from_forwarded_args_before_first_input()
     }
     result.expect("close request should let the outer recursive edit exit cleanly");
 
-    let forms = parse_forms(
-        r#"(list
+    let result = eval
+        .eval_str(r#"(list
                  (fboundp 'neomacs-face-test-write-matrix-report)
                  (buffer-live-p (get-buffer "*Neomacs Face Test*"))
-                 (buffer-name (window-buffer (selected-window))))"#,
-    )
-    .expect("parse recursive-edit load-option probe");
-    let result = eval
-        .eval_expr(&forms[0])
+                 (buffer-name (window-buffer (selected-window))))"#)
         .expect("recursive-edit load-option probe should evaluate");
     let items = list_to_vec(&result).expect("recursive-edit result list");
     assert_eq!(items[0], Value::T);
@@ -1535,8 +1468,7 @@ fn gui_bootstrap_accepts_iso_8859_15_coding_primitives() {
     ];
 
     for (label, source, expected) in probes {
-        let forms = parse_forms(source).expect("parse coding probe form");
-        let result = eval.eval_expr(&forms[0]);
+        let result = eval.eval_str(source);
         let value = result.unwrap_or_else(|_| panic!("coding probe {label} should evaluate"));
         if let Some(expected_value) = expected {
             let actual_name = value
@@ -1569,18 +1501,14 @@ fn gnu_startup_next_line_moves_point_on_live_gui_frame() {
 
     run_gnu_startup(&mut eval);
 
-    let forms = parse_forms(
-        r#"(progn
+    let result = eval
+        .eval_str(r#"(progn
              (switch-to-buffer "*scratch*")
              (erase-buffer)
              (insert "abc\ndef\nghi")
              (goto-char 1)
              (command-execute 'next-line)
-             (point))"#,
-    )
-    .expect("parse startup next-line command");
-    let result = eval
-        .eval_expr(&forms[0])
+             (point))"#)
         .expect("startup next-line should evaluate");
     assert_eq!(result, Value::fixnum(5));
 }
@@ -1598,16 +1526,12 @@ fn frame_set_background_mode_uses_live_gui_window_system_after_startup_clears_in
     configure_gnu_startup_state(&mut eval, frame_id, &gui_startup());
     eval.set_variable("initial-window-system", Value::NIL);
 
-    let forms = parse_forms(
-        r#"(condition-case err
+    let result = eval
+        .eval_str(r#"(condition-case err
                   (progn
                     (frame-set-background-mode (selected-frame))
                     'ok)
-                (error (list 'error (error-message-string err))))"#,
-    )
-    .expect("parse frame-set-background-mode probe");
-    let result = eval
-        .eval_expr(&forms[0])
+                (error (list 'error (error-message-string err))))"#)
         .expect("frame-set-background-mode probe should evaluate");
     assert_eq!(result, Value::symbol("ok"));
 }
@@ -1618,8 +1542,8 @@ fn modify_frame_parameters_updates_live_default_face_colors_for_gui_frames() {
         .expect("bootstrap evaluator");
     let _frame_id = bootstrap_runtime_gui_startup(&mut eval);
 
-    let forms = parse_forms(
-        r##"(progn
+    let result = eval
+        .eval_str(r##"(progn
              (modify-frame-parameters
               (selected-frame)
               '((foreground-color . "white")
@@ -1629,11 +1553,7 @@ fn modify_frame_parameters_updates_live_default_face_colors_for_gui_frames() {
               (frame-parameter nil 'foreground-color)
               (frame-parameter nil 'background-color)
               (face-foreground 'default nil t)
-              (face-background 'default nil t)))"##,
-    )
-    .expect("parse modify-frame-parameters face probe");
-    let result = eval
-        .eval_expr(&forms[0])
+              (face-background 'default nil t)))"##)
         .expect("modify-frame-parameters face probe should evaluate");
     assert_eq!(
         print_value_with_eval(&mut eval, &result),
@@ -1647,19 +1567,15 @@ fn modify_frame_parameters_background_color_only_completes_for_gui_frames() {
         .expect("bootstrap evaluator");
     let _frame_id = bootstrap_runtime_gui_startup(&mut eval);
 
-    let forms = parse_forms(
-        r##"(progn
+    let result = eval
+        .eval_str(r##"(progn
              (modify-frame-parameters
               (selected-frame)
               '((background-color . "#000000")))
              (list
               'after-modify
               (frame-parameter nil 'background-mode)
-              (frame-parameter nil 'background-color)))"##,
-    )
-    .expect("parse background-only frame parameter probe");
-    let result = eval
-        .eval_expr(&forms[0])
+              (frame-parameter nil 'background-color)))"##)
         .expect("background-only modify-frame-parameters should evaluate");
     assert_eq!(
         print_value_with_eval(&mut eval, &result),
@@ -1682,17 +1598,13 @@ fn frame_set_background_mode_keep_face_specs_completes_after_dark_background_cha
             .insert("background-color".to_string(), Value::string("#000000"));
     }
 
-    let forms = parse_forms(
-        r##"(progn
+    let result = eval
+        .eval_str(r#"(progn
              (frame-set-background-mode (selected-frame) t)
              (list
               'after-frame-set-background-mode
               (frame-parameter nil 'background-mode)
-              (frame-parameter nil 'display-type)))"##,
-    )
-    .expect("parse keep-face-specs background-mode probe");
-    let result = eval
-        .eval_expr(&forms[0])
+              (frame-parameter nil 'display-type)))"#)
         .expect("frame-set-background-mode keep-face-specs should evaluate");
     assert_eq!(
         print_value_with_eval(&mut eval, &result),
@@ -1722,10 +1634,8 @@ fn dark_gui_background_color_values_match_gnu_shape() {
     let _frame_id = bootstrap_runtime_gui_startup(&mut eval);
     seed_selected_frame_background_color(&mut eval, "#000000");
 
-    let forms = parse_forms(r##"(color-values "#000000" (selected-frame))"##)
-        .expect("parse color-values probe");
     let result = eval
-        .eval_expr(&forms[0])
+        .eval_str(r##"(color-values "#000000" (selected-frame))"##)
         .expect("color-values probe should evaluate");
     assert_eq!(print_value_with_eval(&mut eval, &result), "(0 0 0)");
 }
@@ -1737,14 +1647,10 @@ fn dark_gui_background_color_dark_predicate_completes() {
     let _frame_id = bootstrap_runtime_gui_startup(&mut eval);
     seed_selected_frame_background_color(&mut eval, "#000000");
 
-    let forms = parse_forms(
-        r##"(color-dark-p
-             (mapcar (lambda (c) (/ c 65535.0))
-                     (color-values "#000000" (selected-frame))))"##,
-    )
-    .expect("parse color-dark-p probe");
     let result = eval
-        .eval_expr(&forms[0])
+        .eval_str(r##"(color-dark-p
+             (mapcar (lambda (c) (/ c 65535.0))
+                     (color-values "#000000" (selected-frame))))"##)
         .expect("color-dark-p probe should evaluate");
     assert_eq!(result, Value::T);
 }
@@ -1756,13 +1662,11 @@ fn dark_gui_frame_current_background_mode_completes() {
     let _frame_id = bootstrap_runtime_gui_startup(&mut eval);
     seed_selected_frame_background_color(&mut eval, "#000000");
 
-    let forms = parse_forms(r#"(frame--current-background-mode (selected-frame))"#)
-        .expect("parse current background mode probe");
     let result = eval
-        .eval_expr(&forms[0])
+        .eval_str(r#"(frame--current-background-mode (selected-frame))"#)
         .expect("current background mode probe should evaluate");
-    let debug_forms = parse_forms(
-        r##"(list
+    let debug_result = eval
+        .eval_str(r##"(list
             (frame-parameter nil 'background-color)
             (frame-parameter nil 'background-mode)
             frame-background-mode
@@ -1770,11 +1674,7 @@ fn dark_gui_frame_current_background_mode_completes() {
             (window-system (selected-frame))
             (tty-type (selected-frame))
             (color-values "#000000" (selected-frame))
-            (frame--current-background-mode (selected-frame)))"##,
-    )
-    .expect("parse current background mode debug probe");
-    let debug_result = eval
-        .eval_expr(&debug_forms[0])
+            (frame--current-background-mode (selected-frame)))"##)
         .expect("current background mode debug probe should evaluate");
     assert_eq!(
         print_value_with_eval(&mut eval, &debug_result),
@@ -1789,8 +1689,8 @@ fn modify_frame_parameters_prefers_first_duplicate_frame_parameter_like_gnu() {
         .expect("bootstrap evaluator");
     let _frame_id = bootstrap_runtime_gui_startup(&mut eval);
 
-    let forms = parse_forms(
-        r##"(progn
+    let result = eval
+        .eval_str(r##"(progn
              (modify-frame-parameters
               (selected-frame)
               '((background-color . "#000000")
@@ -1798,11 +1698,7 @@ fn modify_frame_parameters_prefers_first_duplicate_frame_parameter_like_gnu() {
              (list
               (frame-parameter nil 'background-color)
               (face-background 'default nil t)
-              (frame-parameter nil 'background-mode)))"##,
-    )
-    .expect("parse duplicate frame parameter probe");
-    let result = eval
-        .eval_expr(&forms[0])
+              (frame-parameter nil 'background-mode)))"##)
         .expect("duplicate frame parameter probe should evaluate");
     assert_eq!(
         print_value_with_eval(&mut eval, &result),
@@ -1817,8 +1713,8 @@ fn gnu_startup_seeds_light_gui_chrome_faces_from_faces_el() {
     let _frame_id = bootstrap_runtime_gui_startup(&mut eval);
     run_gnu_startup(&mut eval);
 
-    let forms = parse_forms(
-        r#"(list
+    let result = eval
+        .eval_str(r#"(list
              (window-system)
              (frame-parameter nil 'window-system)
              (display-graphic-p)
@@ -1862,11 +1758,7 @@ fn gnu_startup_seeds_light_gui_chrome_faces_from_faces_el() {
              (face-background 'mode-line-inactive nil t)
              (face-background 'header-line nil t)
              (face-background 'tab-bar nil t)
-             (face-background 'tab-line nil t))"#,
-    )
-    .expect("parse chrome face probe");
-    let result = eval
-        .eval_expr(&forms[0])
+             (face-background 'tab-line nil t))"#)
         .expect("chrome face probe should evaluate");
     let values = list_to_vec(&result).expect("chrome face probe should return a list");
     assert_eq!(values.len(), 22);

@@ -26,16 +26,12 @@ fn eval_with_process_shims() -> Context {
     (call-process shell-file-name nil standard-output nil
                   shell-command-switch command))))
 "#;
-    let forms = parse_forms(shims).expect("parse shims");
-    for form in &forms {
-        let _ = ev.eval_expr(form);
-    }
+    let _ = ev.eval_str(shims);
     ev
 }
 
 fn install_minimal_special_event_command_runtime(ev: &mut Context) {
-    let setup = parse_forms(
-        r#"
+    ev.eval_str(r#"
 (fset 'command-execute
       (lambda (cmd &optional _record keys _special)
         (funcall cmd (aref keys 0))))
@@ -43,13 +39,8 @@ fn install_minimal_special_event_command_runtime(ev: &mut Context) {
       (lambda (event)
         (setq neo-last-delete-frame-event event)
         nil))
-"#,
-    )
-    .expect("parse special-event command runtime");
-    for form in &setup {
-        ev.eval_expr(form)
-            .expect("install special-event command runtime");
-    }
+"#)
+    .expect("eval forms");
 }
 
 fn eval_one(src: &str) -> String {
@@ -69,8 +60,7 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
 }
 
 fn eval_one_in_context(ev: &mut Context, src: &str) -> String {
-    let forms = parse_forms(src).expect("parse");
-    let result = ev.eval_expr(&forms[0]);
+    let result = ev.eval_str(src);
     format_eval_result(&result)
 }
 
@@ -1297,7 +1287,7 @@ fn accept_process_output_roots_callbacks_across_gc() {
     crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let mut ev = Context::new();
-    let forms = parse_forms(&format!(
+    let result = ev.eval_str(&format!(
         r#"(progn
              (fset 'proc-root-filter
                    (lambda (_proc string)
@@ -1322,9 +1312,7 @@ fn accept_process_output_roots_callbacks_across_gc() {
                  (condition-case nil
                      (delete-process p)
                    (error nil)))))"#,
-    ))
-    .expect("parse");
-    let result = ev.eval_expr(&forms[0]);
+    ));
     assert_eq!(
         format_eval_result(&result),
         r#"OK ("out
@@ -1415,7 +1403,10 @@ fn accept_process_output_integer_just_this_one_suppresses_timers() {
              (setq apio-wait-timer-fired nil))"#,
     )
     .expect("parse timer callback setup");
-    ev.eval_expr(&setup[0]).expect("install timer callback");
+    ev.eval_str(r#"(progn
+             (fset 'apio-wait-timer-callback
+                   (lambda () (setq apio-wait-timer-fired t)))
+             (setq apio-wait-timer-fired nil))"#).expect("install timer callback");
 
     let pid = ev
         .processes
@@ -1467,7 +1458,10 @@ fn accept_process_output_timer_preserves_deactivate_mark_like_gnu() {
              (setq deactivate-mark 'keep))"#,
     )
     .expect("parse timer deactivate setup");
-    ev.eval_expr(&setup[0])
+    ev.eval_str(r#"(progn
+             (fset 'apio-timer-deactivate
+                   (lambda () (setq deactivate-mark nil)))
+             (setq deactivate-mark 'keep))"#)
         .expect("install timer deactivate setup");
     ev.timers.add_timer(
         0.0,
@@ -1511,7 +1505,22 @@ fn accept_process_output_runs_timer_before_filter_and_sentinel_like_gnu() {
                                    (list (list 'sentinel msg)))))))"#,
     )
     .expect("parse timer/filter/sentinel order setup");
-    ev.eval_expr(&setup[0])
+    ev.eval_str(r#"(progn
+             (setq apio-order-events nil)
+             (fset 'apio-order-timer
+                   (lambda ()
+                     (setq apio-order-events
+                           (append apio-order-events '(timer)))))
+             (fset 'apio-order-filter
+                   (lambda (_proc string)
+                     (setq apio-order-events
+                           (append apio-order-events
+                                   (list (list 'filter string))))))
+             (fset 'apio-order-sentinel
+                   (lambda (_proc msg)
+                     (setq apio-order-events
+                           (append apio-order-events
+                                   (list (list 'sentinel msg)))))))"#)
         .expect("install timer/filter/sentinel order setup");
     ev.timers
         .add_timer(0.0, 0.0, Value::symbol("apio-order-timer"), vec![], false);
@@ -1604,7 +1613,30 @@ fn accept_process_output_runs_gnu_timer_then_internal_timer_before_process_callb
                                    (list (list 'sentinel msg)))))))"#,
     )
     .expect("parse mixed timer ordering setup");
-    ev.eval_expr(&setup[0])
+    ev.eval_str(r#"(progn
+             (setq apio-full-order nil)
+             (fset 'apio-gnu-order-callback
+                   (lambda ()
+                     (setq apio-full-order
+                           (append apio-full-order '(gnu)))))
+             (fset 'timer-event-handler
+                   (lambda (timer)
+                     (setq timer-list (delq timer timer-list))
+                     (funcall (aref timer 5))))
+             (fset 'apio-rust-order-callback
+                   (lambda ()
+                     (setq apio-full-order
+                           (append apio-full-order '(rust)))))
+             (fset 'apio-full-order-filter
+                   (lambda (_proc string)
+                     (setq apio-full-order
+                           (append apio-full-order
+                                   (list (list 'filter string))))))
+             (fset 'apio-full-order-sentinel
+                   (lambda (_proc msg)
+                     (setq apio-full-order
+                           (append apio-full-order
+                                   (list (list 'sentinel msg)))))))"#)
         .expect("install mixed timer ordering setup");
 
     ev.set_variable(
@@ -1721,14 +1753,16 @@ fn accept_process_output_restores_current_buffer_and_match_data() {
                     (string-match "bb" "abba")))"#,
     )
     .expect("parse restore filter");
-    ev.eval_expr(&setup[0]).expect("install restore filter");
+    ev.eval_str(r#"(fset 'apio-restore-filter
+                  (lambda (_proc _string)
+                    (set-buffer (get-buffer-create "*apio-restore-other*"))
+                    (string-match "bb" "abba")))"#).expect("install restore filter");
 
     let home_id = ev.buffers.create_buffer("*apio-restore-home*");
     assert!(ev.buffers.switch_current(home_id));
     let _ = eval_one_in_context(&mut ev, r#"(string-match "yz" "xyz")"#);
-    let before_match = parse_forms("(match-data)").expect("parse match-data");
     let before_match_data = ev
-        .eval_expr(&before_match[0])
+        .eval_str("(match-data)")
         .expect("capture match-data before callback");
     let before_buffer = ev.buffers.current_buffer_id();
 
@@ -1753,7 +1787,7 @@ fn accept_process_output_restores_current_buffer_and_match_data() {
     )
     .expect("accept-process-output with restoring filter");
     let after_match_data = ev
-        .eval_expr(&before_match[0])
+        .eval_str("(match-data)")
         .expect("capture match-data after callback");
 
     assert_eq!(result, Value::T);
@@ -1917,7 +1951,13 @@ fn sleep_for_uses_shared_wait_path_for_process_output_and_timers() {
                    sleep-shared-timer-fired nil))"#,
     )
     .expect("parse sleep-for callback setup");
-    ev.eval_expr(&setup[0])
+    ev.eval_str(r#"(progn
+             (fset 'sleep-shared-filter
+                   (lambda (_proc string) (setq sleep-shared-output string)))
+             (fset 'sleep-shared-timer
+                   (lambda () (setq sleep-shared-timer-fired 'done)))
+             (setq sleep-shared-output nil
+                   sleep-shared-timer-fired nil))"#)
         .expect("install sleep-for callback setup");
 
     let pid = ev

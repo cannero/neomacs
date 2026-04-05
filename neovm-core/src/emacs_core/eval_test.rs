@@ -12,17 +12,19 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn eval_one(src: &str) -> String {
     let mut ev = Context::new();
-    let forms = parse_forms(src).expect("parse");
-    let result = ev.eval_expr(&forms[0]);
+    let result = ev.eval_str(src);
     format_eval_result(&result)
 }
 
 fn eval_all(src: &str) -> Vec<String> {
     let mut ev = Context::new();
-    let forms = parse_forms(src).expect("parse");
-    ev.eval_forms(&forms)
-        .iter()
-        .map(format_eval_result)
+    let forms = crate::emacs_core::value_reader::read_all(src).expect("parse");
+    forms
+        .into_iter()
+        .map(|form| {
+            let result = ev.eval_form(form);
+            format_eval_result(&result)
+        })
         .collect()
 }
 
@@ -31,8 +33,7 @@ fn eval_one_with_frame(src: &str) -> String {
     let buf = ev.buffers.create_buffer("*scratch*");
     ev.buffers.set_current(buf);
     ev.frames.create_frame("F1", 800, 600, buf);
-    let forms = parse_forms(src).expect("parse");
-    let result = ev.eval_expr(&forms[0]);
+    let result = ev.eval_str(src);
     format_eval_result(&result)
 }
 
@@ -59,8 +60,7 @@ fn bootstrap_eval_one(src: &str) -> String {
 }
 
 fn install_minimal_special_event_command_runtime(ev: &mut Context) {
-    let setup = parse_forms(
-        r#"
+    ev.eval_str(r#"
 (fset 'command-execute
       (lambda (cmd &optional _record keys _special)
         (funcall cmd (aref keys 0))))
@@ -74,13 +74,8 @@ fn install_minimal_special_event_command_runtime(ev: &mut Context) {
 (fset 'handle-focus-out
       (lambda (_event)
         nil))
-"#,
-    )
-    .expect("parse special-event command runtime");
-    for form in &setup {
-        ev.eval_expr(form)
-            .expect("install special-event command runtime");
-    }
+"#)
+    .expect("eval forms");
 }
 
 fn find_bin(name: &str) -> String {
@@ -221,18 +216,20 @@ fn eval_with_explicit_lexenv_shadows_special_reads_and_setq() {
 fn source_cons_macro_cache_uses_value_expansion_path() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let setup = parse_forms(
-        r#"(fset 'source-cache-macro
+    ev.eval_str(r#"(fset 'source-cache-macro
                   (cons 'macro
                         (lambda (x)
                           x)))"#,
     )
     .expect("parse macro setup");
-    ev.eval_expr(&setup[0]).expect("install macro");
+    ev.eval_str(r#"(fset 'source-cache-macro
+                  (cons 'macro
+                        (lambda (x)
+                          x)))"#).expect("install macro");
 
     let forms = parse_forms("(source-cache-macro (+ 1 2))").expect("parse source form");
-    let first = ev.eval_expr(&forms[0]);
-    let second = ev.eval_expr(&forms[0]);
+    let first = ev.eval_str("(source-cache-macro (+ 1 2))");
+    let second = ev.eval_str("(source-cache-macro (+ 1 2))");
 
     assert_eq!(format_eval_result(&first), "OK 3");
     assert_eq!(format_eval_result(&second), "OK 3");
@@ -253,12 +250,8 @@ fn runtime_macro_cache_hits_across_equivalent_explicit_environments() {
             (lambda (x)
               (setq runtime-cache-count (1+ runtime-cache-count))
               x)))
-"#,
-    )
-    .expect("parse macro setup");
-    for form in &setup {
-        ev.eval_expr(form).expect("install runtime macro fixture");
-    }
+"#)
+    .expect("eval forms");
 
     let definition = ev
         .obarray()
@@ -304,7 +297,7 @@ fn catch_leaves_shared_condition_stack_balanced() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms("(catch 'tag (throw 'tag 42))").expect("parse");
-    let result = ev.eval_expr(&forms[0]);
+    let result = ev.eval_str("(catch 'tag (throw 'tag 42))");
     assert_eq!(format_eval_result(&result), "OK 42");
     assert_eq!(ev.condition_stack_depth_for_test(), 0);
     assert!(ev.top_level_eval_state_is_clean());
@@ -315,7 +308,7 @@ fn condition_case_leaves_shared_condition_stack_balanced() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms("(condition-case err (signal 'error 1) (error err))").expect("parse");
-    let result = ev.eval_expr(&forms[0]);
+    let result = ev.eval_str("(condition-case err (signal 'error 1) (error err))");
     assert_eq!(format_eval_result(&result), "OK (error . 1)");
     assert_eq!(ev.condition_stack_depth_for_test(), 0);
     assert!(ev.top_level_eval_state_is_clean());
@@ -353,7 +346,11 @@ fn handler_bind_1_leaves_shared_condition_stack_balanced() {
          (error err))",
     )
     .expect("parse");
-    let result = ev.eval_expr(&forms[0]);
+    let result = ev.eval_str(r#"(condition-case err
+           (handler-bind-1 (lambda () (signal 'error 1))
+                           '(error)
+                           (lambda (_data) 'handled))
+         (error err))"#);
     assert_eq!(format_eval_result(&result), "OK (error . 1)");
     assert_eq!(ev.condition_stack_depth_for_test(), 0);
     assert!(ev.top_level_eval_state_is_clean());
@@ -469,7 +466,13 @@ fn signal_hook_function_sees_raw_signal_payload_before_condition_case() {
     .expect("parse");
 
     assert_eq!(
-        format_eval_result(&eval.eval_expr(&forms[0])),
+        format_eval_result(&eval.eval_str(r#"(let (seen)
+           (let ((signal-hook-function
+                  (lambda (sym data)
+                    (setq seen (cons sym data)))))
+             (condition-case nil
+                 (signal 'error 1)
+               (error seen))))"#)),
         "OK (error . 1)"
     );
 }
@@ -489,7 +492,11 @@ fn signal_hook_function_runs_before_invalid_error_symbol_canonicalization() {
     .expect("parse");
 
     assert_eq!(
-        format_eval_result(&eval.eval_expr(&forms[0])),
+        format_eval_result(&eval.eval_str(r#"(catch 'tag
+           (let ((signal-hook-function
+                  (lambda (sym data)
+                    (throw 'tag (list sym data)))))
+             (signal 'neomacs-invalid-signal 1)))"#)),
         "OK (neomacs-invalid-signal 1)"
     );
 }
@@ -529,7 +536,13 @@ fn signal_nil_error_object_uses_embedded_symbol_and_skips_signal_hook() {
     .expect("parse");
 
     assert_eq!(
-        format_eval_result(&eval.eval_expr(&forms[0])),
+        format_eval_result(&eval.eval_str(r#"(let (seen)
+           (let ((signal-hook-function
+                  (lambda (&rest xs)
+                    (setq seen xs))))
+             (condition-case err
+                 (signal nil '(error 1))
+               (error (list err seen)))))"#)),
         "OK ((error 1) nil)"
     );
 }
@@ -678,14 +691,16 @@ fn read_char_returns_macro_playback_event_value_without_reencoding() {
 fn read_char_prefers_ready_keypress_over_due_timer_callback() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let setup = parse_forms(
-        r#"(progn
+    ev.eval_str(r#"(progn
              (fset 'read-char-priority-timer
                    (lambda () (setq read-char-priority-timer-fired t)))
              (setq read-char-priority-timer-fired nil))"#,
     )
     .expect("parse timer priority setup");
-    ev.eval_expr(&setup[0])
+    ev.eval_str(r#"(progn
+             (fset 'read-char-priority-timer
+                   (lambda () (setq read-char-priority-timer-fired t)))
+             (setq read-char-priority-timer-fired nil))"#)
         .expect("install timer priority setup");
     ev.timers.add_timer(
         0.0,
@@ -731,7 +746,11 @@ fn read_char_prefers_ready_keypress_over_process_filter_callback() {
              (setq read-char-priority-filter-data nil))"#,
     )
     .expect("parse process priority setup");
-    ev.eval_expr(&setup[0])
+    ev.eval_str(r#"(progn
+             (fset 'read-char-priority-filter
+                   (lambda (_proc string)
+                     (setq read-char-priority-filter-data string)))
+             (setq read-char-priority-filter-data nil))"#)
         .expect("install process priority setup");
 
     let pid =
@@ -1118,7 +1137,7 @@ fn read_char_disconnected_input_uses_noelisp_terminal_teardown() {
     ev.input_rx = Some(rx);
     drop(tx);
 
-    let forms = parse_forms(
+    ev.eval_str(
         r#"
 (setq hook-log nil)
 (setq delete-terminal-functions
@@ -1135,11 +1154,7 @@ fn read_char_disconnected_input_uses_noelisp_terminal_teardown() {
                     (cons (list 'after (frame-live-p frame)) hook-log)))))
 "#,
     )
-    .expect("parse disconnected input hook setup");
-    for form in &forms {
-        ev.eval_expr(form)
-            .expect("install disconnected input hook setup");
-    }
+    .expect("install disconnected input hook setup");
 
     let flow = ev
         .read_char()
@@ -1160,7 +1175,7 @@ fn read_char_disconnected_input_uses_noelisp_terminal_teardown() {
         "disconnected input should tear down the display terminal via noelisp delete"
     );
     assert_eq!(
-        ev.eval_expr(&parse_forms("hook-log").expect("parse hook-log")[0])
+        ev.eval_str("hook-log")
             .expect("hook-log before flush"),
         Value::NIL
     );
@@ -1168,7 +1183,7 @@ fn read_char_disconnected_input_uses_noelisp_terminal_teardown() {
     ev.flush_pending_safe_funcalls();
 
     let post_flush = ev
-        .eval_expr(&parse_forms("(nreverse hook-log)").expect("parse nreverse hook-log")[0])
+        .eval_str("(nreverse hook-log)")
         .expect("hook-log after flush");
     assert_eq!(
         format!("{}", post_flush),
@@ -1190,7 +1205,7 @@ fn eval_list_form_throws_on_pending_host_input() {
         .set_symbol_value("throw-on-input", Value::symbol("tag"));
 
     let forms = parse_forms("(list 1 2)").expect("parse");
-    let result = ev.eval_expr(&forms[0]);
+    let result = ev.eval_str("(list 1 2)");
     assert!(matches!(
         result,
         Err(EvalError::UncaughtThrow { tag, value })
@@ -1409,7 +1424,14 @@ fn read_key_sequence_function_translation_receives_prompt() {
                      [f1])))"#,
     )
     .expect("parse");
-    ev.eval_expr(&setup[0]).expect("setup");
+    ev.eval_str(r#"(progn
+             (setq neomacs-test-read-key-sequence-prompt nil)
+             (fset 'neomacs-test-read-key-sequence-command
+                   (lambda () (interactive) 'ok))
+             (fset 'neomacs-test-key-translation
+                   (lambda (prompt)
+                     (setq neomacs-test-read-key-sequence-prompt prompt)
+                     [f1])))"#).expect("setup");
 
     crate::emacs_core::keymap::list_keymap_define_seq(
         global_map,
@@ -1448,9 +1470,8 @@ fn read_key_sequence_function_translation_receives_prompt() {
         Value::symbol("neomacs-test-read-key-sequence-command")
     );
 
-    let prompt_form = parse_forms("neomacs-test-read-key-sequence-prompt").expect("parse");
     let prompt = ev
-        .eval_expr(&prompt_form[0])
+        .eval_str("neomacs-test-read-key-sequence-prompt")
         .expect("prompt should evaluate");
     assert_eq!(prompt, Value::string("Prompt> "));
 }
@@ -1466,7 +1487,8 @@ fn read_key_sequence_continues_through_pending_suffix_translation_prefix() {
                   (lambda () (interactive) 'ok))"#,
     )
     .expect("parse");
-    ev.eval_expr(&setup[0]).expect("setup");
+    ev.eval_str(r#"(fset 'neomacs-test-suffix-translation-command
+                  (lambda () (interactive) 'ok))"#).expect("setup");
 
     crate::emacs_core::keymap::list_keymap_define_seq(
         global_map,
@@ -1518,7 +1540,8 @@ fn read_key_sequence_shift_translates_uppercase_binding() {
                   (lambda () (interactive) 'ok))"#,
     )
     .expect("parse");
-    ev.eval_expr(&setup[0]).expect("setup");
+    ev.eval_str(r#"(fset 'neomacs-test-shift-translation-command
+                  (lambda () (interactive) 'ok))"#).expect("setup");
 
     crate::emacs_core::keymap::list_keymap_define_seq(
         global_map,
@@ -1558,7 +1581,8 @@ fn read_key_sequence_dont_downcase_last_restores_original_event() {
                   (lambda () (interactive) 'ok))"#,
     )
     .expect("parse");
-    ev.eval_expr(&setup[0]).expect("setup");
+    ev.eval_str(r#"(fset 'neomacs-test-shift-translation-command
+                  (lambda () (interactive) 'ok))"#).expect("setup");
 
     crate::emacs_core::keymap::list_keymap_define_seq(
         global_map,
@@ -1630,7 +1654,8 @@ fn read_key_sequence_shift_translates_shifted_function_key() {
                   (lambda () (interactive) 'ok))"#,
     )
     .expect("parse");
-    ev.eval_expr(&setup[0]).expect("setup");
+    ev.eval_str(r#"(fset 'neomacs-test-shifted-function-command
+                  (lambda () (interactive) 'ok))"#).expect("setup");
 
     crate::emacs_core::keymap::list_keymap_define_seq(
         global_map,
@@ -1707,7 +1732,8 @@ fn read_key_sequence_defers_switch_frame_until_after_current_key_sequence() {
                   (lambda () (interactive) 'ok))"#,
     )
     .expect("parse");
-    ev.eval_expr(&setup[0]).expect("setup");
+    ev.eval_str(r#"(fset 'neomacs-test-switch-frame-deferred-command
+                  (lambda () (interactive) 'ok))"#).expect("setup");
     crate::emacs_core::keymap::list_keymap_define_seq(
         global_map,
         &[Value::fixnum('a' as i64), Value::fixnum('b' as i64)],
@@ -1837,12 +1863,8 @@ fn read_char_updates_monitor_snapshot_and_runs_display_monitor_hooks() {
 (setq display-monitors-changed-functions
       (list (lambda (term)
               (setq monitor-hook-terminal term))))
-"#,
-    )
-    .expect("parse monitor hook setup");
-    for form in &setup {
-        ev.eval_expr(form).expect("install monitor hook setup");
-    }
+"#)
+    .expect("eval forms");
 
     ev.command_loop.keyboard.pending_input_events.push_back(
         crate::keyboard::InputEvent::MonitorsChanged {
@@ -1873,9 +1895,8 @@ fn read_char_updates_monitor_snapshot_and_runs_display_monitor_hooks() {
     assert_eq!(snapshot[0].width, 2560);
     assert_eq!(snapshot[0].height, 1440);
 
-    let result_form = parse_forms("monitor-hook-terminal").expect("parse monitor hook result");
     assert_eq!(
-        ev.eval_expr(&result_form[0])
+        ev.eval_str("monitor-hook-terminal")
             .expect("display monitor hook terminal"),
         crate::emacs_core::terminal::pure::terminal_handle_value()
     );
@@ -1940,12 +1961,12 @@ fn read_key_sequence_defers_select_window_until_after_current_key_sequence() {
 
     let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
     ev.assign("global-map", global_map);
-    let setup = parse_forms(
-        r#"(fset 'neomacs-test-select-window-deferred-command
+    ev.eval_str(r#"(fset 'neomacs-test-select-window-deferred-command
                   (lambda () (interactive) 'ok))"#,
     )
     .expect("parse");
-    ev.eval_expr(&setup[0]).expect("setup");
+    ev.eval_str(r#"(fset 'neomacs-test-select-window-deferred-command
+                  (lambda () (interactive) 'ok))"#).expect("setup");
     crate::emacs_core::keymap::list_keymap_define_seq(
         global_map,
         &[Value::fixnum('a' as i64), Value::fixnum('b' as i64)],
@@ -2013,7 +2034,8 @@ fn read_key_sequence_can_return_select_window_at_sequence_start() {
                   (lambda () (interactive) 'ok))"#,
     )
     .expect("parse");
-    ev.eval_expr(&setup[0]).expect("setup");
+    ev.eval_str(r#"(fset 'neomacs-test-handle-select-window
+                  (lambda () (interactive) 'ok))"#).expect("setup");
     crate::emacs_core::keymap::list_keymap_define_seq(
         global_map,
         &[Value::symbol("select-window")],
@@ -2161,7 +2183,8 @@ fn read_key_sequence_uses_clicked_window_local_map_for_mouse_event() {
                   (lambda () (interactive) 'ok))"#,
     )
     .expect("parse");
-    ev.eval_expr(&setup[0]).expect("setup");
+    ev.eval_str(r#"(fset 'neomacs-mouse-click-target-command
+                  (lambda () (interactive) 'ok))"#).expect("setup");
 
     let local_map = crate::emacs_core::keymap::make_sparse_list_keymap();
     ev.buffers
@@ -2253,7 +2276,8 @@ fn read_key_sequence_drops_unbound_down_mouse_before_bound_click() {
                   (lambda () (interactive) 'ok))"#,
     )
     .expect("parse");
-    ev.eval_expr(&setup[0]).expect("setup");
+    ev.eval_str(r#"(fset 'neomacs-mouse-click-target-command
+                  (lambda () (interactive) 'ok))"#).expect("setup");
 
     let local_map = crate::emacs_core::keymap::make_sparse_list_keymap();
     ev.buffers
@@ -2342,7 +2366,8 @@ fn read_key_sequence_drops_unbound_down_mouse_without_losing_keyboard_prefix() {
                   (lambda () (interactive) 'ok))"#,
     )
     .expect("parse");
-    ev.eval_expr(&setup[0]).expect("setup");
+    ev.eval_str(r#"(fset 'neomacs-prefixed-mouse-command
+                  (lambda () (interactive) 'ok))"#).expect("setup");
 
     let prefix_map = crate::emacs_core::keymap::make_sparse_list_keymap();
     crate::emacs_core::keymap::list_keymap_define_seq(
@@ -2397,7 +2422,8 @@ fn read_key_sequence_reduces_unbound_triple_mouse_to_bound_click() {
                   (lambda () (interactive) 'ok))"#,
     )
     .expect("parse");
-    ev.eval_expr(&setup[0]).expect("setup");
+    ev.eval_str(r#"(fset 'neomacs-triple-mouse-command
+                  (lambda () (interactive) 'ok))"#).expect("setup");
 
     crate::emacs_core::keymap::list_keymap_define_seq(
         global_map,
@@ -2447,7 +2473,8 @@ fn read_key_sequence_uses_clicked_window_buffer_local_minor_mode_maps() {
                   (lambda () (interactive) 'ok))"#,
     )
     .expect("parse");
-    ev.eval_expr(&setup[0]).expect("setup");
+    ev.eval_str(r#"(fset 'neomacs-mouse-minor-mode-command
+                  (lambda () (interactive) 'ok))"#).expect("setup");
 
     ev.obarray
         .set_symbol_value("neomacs-click-minor-mode", Value::NIL);
@@ -2548,7 +2575,8 @@ fn read_key_sequence_prefixes_mode_line_mouse_click_for_lookup() {
                   (lambda () (interactive) 'ok))"#,
     )
     .expect("parse");
-    ev.eval_expr(&setup[0]).expect("setup");
+    ev.eval_str(r#"(fset 'neomacs-mode-line-click-command
+                  (lambda () (interactive) 'ok))"#).expect("setup");
 
     let local_map = crate::emacs_core::keymap::make_sparse_list_keymap();
     ev.buffers
@@ -2609,12 +2637,8 @@ fn clear_current_message_runs_echo_area_clear_hook_once_when_message_present() {
 (setq echo-area-clear-hook
       (list (lambda ()
               (setq echo-clear-count (1+ echo-clear-count)))))
-"#,
-    )
-    .expect("parse echo clear setup");
-    for form in &setup {
-        ev.eval_expr(form).expect("install echo clear hook");
-    }
+"#)
+    .expect("eval forms");
 
     ev.set_current_message(Some("hello".to_string()));
     ev.clear_current_message();
@@ -2622,13 +2646,13 @@ fn clear_current_message_runs_echo_area_clear_hook_once_when_message_present() {
 
     let count_form = parse_forms("echo-clear-count").expect("parse count");
     assert_eq!(
-        ev.eval_expr(&count_form[0]).expect("echo-clear-count"),
+        ev.eval_str("echo-clear-count").expect("echo-clear-count"),
         Value::fixnum(1)
     );
 
     ev.clear_current_message();
     assert_eq!(
-        ev.eval_expr(&count_form[0]).expect("echo-clear-count"),
+        ev.eval_str("echo-clear-count").expect("echo-clear-count"),
         Value::fixnum(1)
     );
 }
@@ -2638,8 +2662,7 @@ fn update_active_region_selection_after_command_calls_gnu_owned_selection_surfac
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
 
-    let setup = parse_forms(
-        r#"
+    ev.eval_str(r#"
 (setq selection-capture nil
       post-select-capture nil)
 (fset 'display-selections-p (lambda (&optional _display) t))
@@ -2658,20 +2681,13 @@ fn update_active_region_selection_after_command_calls_gnu_owned_selection_surfac
       post-select-region-hook
       (list (lambda (text)
               (setq post-select-capture text))))
-"#,
-    )
-    .expect("parse region selection setup");
-    for form in &setup {
-        ev.eval_expr(form).expect("install region selection setup");
-    }
+"#)
+    .expect("eval forms");
 
     ev.update_active_region_selection_after_command()
         .expect("update active region selection");
 
-    let result_form =
-        parse_forms("(list selection-capture post-select-capture saved-region-selection)")
-            .expect("parse result form");
-    let result = ev.eval_expr(&result_form[0]).expect("selection result");
+    let result = ev.eval_str("(list selection-capture post-select-capture saved-region-selection)").expect("selection result");
     assert_eq!(
         format!("{}", result),
         "((PRIMARY \"bcd\") \"bcd\" nil)",
@@ -2718,7 +2734,13 @@ fn fire_pending_timers_executes_lisp_callbacks() {
                    (funcall (aref timer 5)))))",
     )
     .expect("parse timer test setup");
-    ev.eval_expr(&forms[0]).expect("install timer handlers");
+    ev.eval_str(r#"(progn
+           (fset 'vm-test-timer-callback
+                 (lambda () (setq vm-timer-fired 'done)))
+           (fset 'timer-event-handler
+                 (lambda (timer)
+                   (setq timer-list nil)
+                   (funcall (aref timer 5)))))"#).expect("install timer handlers");
 
     let timer = Value::vector(vec![
         Value::NIL,
@@ -2768,7 +2790,13 @@ fn fire_pending_timers_requests_redisplay_after_callbacks() {
                    (funcall (aref timer 5)))))",
     )
     .expect("parse timer test setup");
-    ev.eval_expr(&forms[0]).expect("install timer handlers");
+    ev.eval_str(r#"(progn
+           (fset 'vm-test-timer-callback
+                 (lambda () (setq vm-timer-fired 'done)))
+           (fset 'timer-event-handler
+                 (lambda (timer)
+                   (setq timer-list nil)
+                   (funcall (aref timer 5)))))"#).expect("install timer handlers");
 
     let timer = Value::vector(vec![
         Value::NIL,
@@ -2810,7 +2838,20 @@ fn fire_pending_timers_prefers_more_overdue_ordinary_timer_over_idle_timer() {
                    (funcall (aref timer 5)))))",
     )
     .expect("parse timer ordering setup");
-    ev.eval_expr(&setup[0])
+    ev.eval_str(r#"(progn
+           (setq vm-timer-order nil)
+           (fset 'vm-ordinary-callback
+                 (lambda ()
+                   (setq vm-timer-order (append vm-timer-order '(ordinary)))))
+           (fset 'vm-idle-callback
+                 (lambda ()
+                   (setq vm-timer-order (append vm-timer-order '(idle)))))
+           (fset 'timer-event-handler
+                 (lambda (timer)
+                   (if (aref timer 7)
+                       (setq timer-idle-list (delq timer timer-idle-list))
+                     (setq timer-list (delq timer timer-list)))
+                   (funcall (aref timer 5)))))"#)
         .expect("install timer ordering setup");
 
     ev.set_variable(
@@ -2860,7 +2901,20 @@ fn fire_pending_timers_prefers_more_overdue_idle_timer_over_ordinary_timer() {
                    (funcall (aref timer 5)))))",
     )
     .expect("parse timer ordering setup");
-    ev.eval_expr(&setup[0])
+    ev.eval_str(r#"(progn
+           (setq vm-timer-order nil)
+           (fset 'vm-ordinary-callback
+                 (lambda ()
+                   (setq vm-timer-order (append vm-timer-order '(ordinary)))))
+           (fset 'vm-idle-callback
+                 (lambda ()
+                   (setq vm-timer-order (append vm-timer-order '(idle)))))
+           (fset 'timer-event-handler
+                 (lambda (timer)
+                   (if (aref timer 7)
+                       (setq timer-idle-list (delq timer timer-idle-list))
+                     (setq timer-list (delq timer timer-list)))
+                   (funcall (aref timer 5)))))"#)
         .expect("install timer ordering setup");
 
     ev.set_variable(
@@ -2958,7 +3012,11 @@ fn read_char_fires_bootstrapped_gnu_run_with_timer_while_waiting_for_input() {
             (lambda () (setq vm-timer-fired 'done))))",
     )
     .expect("parse timer program");
-    ev.eval_expr(&forms[0]).expect("schedule GNU Lisp timer");
+    ev.eval_str(r#"(progn
+           (setq vm-timer-fired nil)
+           (run-with-timer
+            0.01 nil
+            (lambda () (setq vm-timer-fired 'done))))"#).expect("schedule GNU Lisp timer");
 
     let (tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
@@ -3000,7 +3058,14 @@ fn read_char_fires_bootstrapped_gnu_run_with_idle_timer_while_waiting_for_input(
     )
     .expect("parse idle timer program");
     eprintln!("idle test: eval schedule");
-    ev.eval_expr(&forms[0])
+    ev.eval_str(r#"(progn
+           (setq vm-idle-fired nil)
+           (setq vm-idle-snapshot nil)
+           (run-with-idle-timer
+            0.01 nil
+            (lambda ()
+              (setq vm-idle-fired 'done)
+              (setq vm-idle-snapshot (current-idle-time)))))"#)
         .expect("schedule GNU Lisp idle timer");
 
     let (tx, rx) = crossbeam_channel::unbounded();
@@ -3266,7 +3331,16 @@ fn save_restriction_restores_labeled_restrictions_and_widen_semantics() {
                           (list (point-min) (point-max)))))"#,
     )
     .expect("parse");
-    let result = eval.eval_expr(&forms[0]);
+    let result = eval.eval_str(r#"(progn
+             (internal--labeled-narrow-to-region 2 5 'tag)
+             (list (point-min) (point-max)
+                   (save-restriction
+                     (internal--labeled-widen 'tag)
+                     (list (point-min) (point-max)))
+                   (point-min) (point-max)
+                   (progn (widen) (list (point-min) (point-max)))
+                   (progn (internal--labeled-widen 'tag)
+                          (list (point-min) (point-max)))))"#);
     assert_eq!(
         format_eval_result(&result),
         "OK (2 5 (1 7) 2 5 (2 5) (1 7))"
@@ -3335,7 +3409,14 @@ fn simple_defvar_declares_local_dynamic_scope_in_lexical_environment() {
     )
     .expect("parse");
 
-    let result = ev.eval_expr(&forms[0]);
+    let result = ev.eval_str(r#"
+        (progn
+          (defvar vm-local-special)
+          (let ((vm-local-special 10))
+            (let ((f (lambda () vm-local-special)))
+              (let ((vm-local-special 20))
+                (funcall f)))))
+    "#);
     assert_eq!(format_eval_result(&result), "OK 20");
 }
 
@@ -3434,8 +3515,7 @@ fn eval_and_compile_with_backtick_name() {
         .is_some();
     tracing::debug!("`--pcase-macroexpander defined: {}", has_fn);
     // Check what format produces for the backtick symbol
-    let fmt_forms = parse_forms(r#"(format "%s--pcase-macroexpander" '\`)"#).expect("parse");
-    let fmt_result = ev.eval_expr(&fmt_forms[0]);
+    let fmt_result = ev.eval_str(r#"(format "%s--pcase-macroexpander" '\`)"#);
     tracing::debug!("format result: {:?}", format_eval_result(&fmt_result));
 }
 
@@ -3886,7 +3966,7 @@ fn lambda_captures_docstring_metadata() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms("(lambda nil \"lambda-doc\" nil)").expect("parse");
-    let value = ev.eval_expr(&forms[0]).expect("eval");
+    let value = ev.eval_str("(lambda nil \"lambda-doc\" nil)").expect("eval");
     assert_eq!(value.closure_docstring().flatten(), Some("lambda-doc"));
 }
 
@@ -3897,7 +3977,7 @@ fn function_special_form_evaluates_dynamic_documentation_form() {
     let forms =
         parse_forms("(function (lambda nil (:documentation (if t \"dyn-doc\" \"bad\")) nil))")
             .expect("parse");
-    let value = ev.eval_expr(&forms[0]).expect("eval");
+    let value = ev.eval_str("(function (lambda nil (:documentation (if t \"dyn-doc\" \"bad\")) nil))").expect("eval");
     assert_eq!(value.closure_docstring().flatten(), Some("dyn-doc"));
     let body = value
         .closure_body_value()
@@ -3949,7 +4029,7 @@ fn lambda_single_string_body_is_a_return_value_not_a_docstring() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let forms = parse_forms("(lambda nil \"ok-1\")").expect("parse");
-    let value = ev.eval_expr(&forms[0]).expect("eval");
+    let value = ev.eval_str("(lambda nil \"ok-1\")").expect("eval");
     assert_eq!(value.closure_docstring().flatten(), None);
     let body = value
         .closure_body_value()
@@ -3968,7 +4048,7 @@ fn defmacro_captures_docstring_metadata() {
     let forms =
         parse_forms("(defalias 'vm-doc-macro (cons 'macro #'(lambda (x) \"macro-doc\" x)))")
             .expect("parse");
-    ev.eval_expr(&forms[0]).expect("eval defalias macro");
+    ev.eval_str("(defalias 'vm-doc-macro (cons 'macro #'(lambda (x) \"macro-doc\" x)))").expect("eval defalias macro");
     let macro_val = ev
         .obarray
         .symbol_function("vm-doc-macro")
@@ -5048,7 +5128,12 @@ fn lexical_binding_closure() {
     )
     .expect("parse");
     ev.set_lexical_binding(true);
-    let result = format_eval_result(&ev.eval_expr(&forms[0]));
+    let result = format_eval_result(&ev.eval_str(r#"
+        (let ((x 1))
+          (let ((f (lambda () x)))
+            (let ((x 2))
+              (funcall f))))
+    "#));
     // In lexical binding, the closure captures x=1, not x=2
     assert_eq!(result, "OK 1");
 }
@@ -5067,7 +5152,12 @@ fn dynamic_binding_closure() {
     "#,
     )
     .expect("parse");
-    let result = format_eval_result(&ev.eval_expr(&forms[0]));
+    let result = format_eval_result(&ev.eval_str(r#"
+        (let ((x 1))
+          (let ((f (lambda () x)))
+            (let ((x 2))
+              (funcall f))))
+    "#));
     // In dynamic binding, the lambda sees x=2 (innermost dynamic binding)
     assert_eq!(result, "OK 2");
 }
@@ -5665,7 +5755,15 @@ fn mapatoms_roots_anonymous_callback_across_exact_gc() {
                count))"#,
     )
     .expect("parse");
-    let result = format_eval_result(&ev.eval_expr(&forms[0]));
+    let result = format_eval_result(&ev.eval_str(r#"(let ((ob (make-vector 7 0)))
+             (intern "mapatoms-root-a" ob)
+             (intern "mapatoms-root-b" ob)
+             (let ((count 0))
+               (mapatoms (lambda (_sym)
+                           (garbage-collect)
+                           (setq count (1+ count)))
+                         ob)
+               count))"#));
     assert_eq!(result, "OK 2");
     assert!(ev.gc_count > 0, "callback-triggered GC should run");
 }
@@ -5687,7 +5785,15 @@ fn maphash_roots_reconstructed_keys_across_exact_gc() {
              sum)"#,
     )
     .expect("parse");
-    let result = format_eval_result(&ev.eval_expr(&forms[0]));
+    let result = format_eval_result(&ev.eval_str(r#"(let ((h (make-hash-table :test 'equal))
+                 (sum 0))
+             (puthash (list 'a 1) 'x h)
+             (puthash (list 'b 2) 'y h)
+             (maphash (lambda (k _v)
+                        (garbage-collect)
+                        (setq sum (+ sum (car (cdr k)))))
+                      h)
+             sum)"#));
     assert_eq!(result, "OK 3");
     assert!(ev.gc_count > 0, "callback-triggered GC should run");
 }
@@ -5939,7 +6045,22 @@ fn run_hook_with_args_roots_callbacks_and_args_across_exact_gc() {
 "#,
     )
     .expect("parse");
-    let result = format_eval_result(&ev.eval_expr(&forms[0]));
+    let result = format_eval_result(&ev.eval_str(r#"
+(progn
+  (setq hook-root-a nil)
+  (setq hook-root-b nil)
+  (setq hook-probe-hook
+        (list
+         (lambda (arg)
+           (garbage-collect)
+           (setq hook-root-a arg))
+         (lambda (arg)
+           (garbage-collect)
+           (setq hook-root-b arg))))
+  (let ((payload (cons 'x 'y)))
+    (run-hook-with-args 'hook-probe-hook payload)
+    (list hook-root-a hook-root-b payload)))
+"#));
     assert_eq!(result, "OK ((x . y) (x . y) (x . y))");
     assert!(ev.gc_count > 0, "hook callback GC should run");
 }
@@ -6107,7 +6228,16 @@ fn run_window_configuration_change_hook_uses_window_buffer_context() {
                        (cons (intern (concat \"global:\" (buffer-name))) hook-log)))))",
     )
     .expect("parse");
-    ev.eval_expr(&setup[0]).expect("hook setup");
+    ev.eval_str(r#"(progn
+           (setq hook-log nil)
+           (defalias 'wcch-log-current-buffer
+             #'(lambda ()
+                 (setq hook-log
+                       (cons (intern (buffer-name)) hook-log))))
+           (defalias 'wcch-log-global-buffer
+             #'(lambda ()
+                 (setq hook-log
+                       (cons (intern (concat \"global:\" (buffer-name))) hook-log)))))"#).expect("hook setup");
 
     let buf1 = ev.buffers.create_buffer("wcch-a");
     let buf2 = ev.buffers.create_buffer("wcch-b");
@@ -6121,10 +6251,7 @@ fn run_window_configuration_change_hook_uses_window_buffer_context() {
     )
     .expect("selected window buffer");
     let split_window = ev
-        .eval_expr(
-            &parse_forms("(split-window-internal (selected-window) nil nil nil)")
-                .expect("parse split")[0],
-        )
+        .eval_str("(split-window-internal (selected-window) nil nil nil)")
         .expect("split window");
     crate::emacs_core::window_cmds::builtin_set_window_buffer(
         &mut ev,
@@ -6670,7 +6797,11 @@ fn lexical_inhibit_read_only_binding_overrides_buffer_read_only() {
              (buffer-string)))",
     )
     .expect("parse");
-    let result = ev.eval_expr(&forms[0]);
+    let result = ev.eval_str(r#"(with-temp-buffer
+           (setq buffer-read-only t)
+           (let ((inhibit-read-only t))
+             (insert \"ok\")
+             (buffer-string)))"#);
     assert_eq!(format_eval_result(&result), r#"OK "ok""#);
 }
 
@@ -7135,7 +7266,12 @@ fn save_window_excursion_restores_selected_window_point_and_requests_final_redis
              (set-window-configuration wconfig)))",
     )
     .expect("parse save-window-excursion redisplay form");
-    ev.eval_expr(&forms[0])
+    ev.eval_str(r#"(let ((wconfig (current-window-configuration)))
+           (unwind-protect
+               (progn
+                 (set-window-point (selected-window) 10)
+                 (redisplay))
+             (set-window-configuration wconfig)))"#)
         .expect("save-window-excursion equivalent should evaluate");
 
     assert_eq!(*redisplayed_points.borrow(), vec![10, 37]);
@@ -7164,7 +7300,12 @@ fn current_window_configuration_saves_selected_window_live_point() {
     .expect("parse current-window-configuration point preservation form");
 
     let result = ev
-        .eval_expr(&forms[0])
+        .eval_str(r#"(let* ((w (selected-window))
+                (_ (goto-char 10))
+                (cfg (current-window-configuration)))
+           (goto-char 3)
+           (set-window-configuration cfg)
+           (list (window-point w) (point)))"#)
         .expect("current-window-configuration round-trip should evaluate");
     assert_eq!(
         result,
@@ -7945,13 +8086,13 @@ fn gc_safe_point_runs_post_gc_hook_when_incremental_collection_finishes() {
 
 fn eval_stress(src: &str) -> Vec<String> {
     let mut ev = Context::new();
-    let forms = crate::emacs_core::parse_forms(src).expect("parse");
+    let forms = crate::emacs_core::value_reader::read_all(src).expect("parse");
     ev.gc_stress = true;
     // Force very low threshold so gc_safe_point triggers on every call
     ev.tagged_heap.set_gc_threshold(1);
     let mut results = Vec::new();
-    for form in &forms {
-        let r = ev.eval_expr(form);
+    for form in forms {
+        let r = ev.eval_form(form);
         results.push(format_eval_result(&r));
         ev.gc_safe_point();
     }
@@ -8035,7 +8176,10 @@ fn gc_stress_lambda_argument_closure_survives_binding_installation() {
               (lambda () payload)))"#,
     )
     .expect("parse");
-    let result = format_eval_result(&ev.eval_expr(&forms[0]));
+    let result = format_eval_result(&ev.eval_str(r#"(let ((payload (list 1 2 3)))
+             ((lambda (orig)
+                (funcall orig))
+              (lambda () payload)))"#));
     assert_eq!(result, "OK (1 2 3)");
 }
 
@@ -8055,7 +8199,12 @@ fn gc_stress_direct_lambda_head_roots_fresh_closure_during_arg_eval() {
               (list 7 8 9)))"#,
     )
     .expect("parse");
-    let result = format_eval_result(&ev.eval_expr(&forms[0]));
+    let result = format_eval_result(&ev.eval_str(r#"((lambda (f value)
+              (funcall f value))
+            (lambda (x) x)
+            (prog1 (list 1 2 3)
+              (list 4 5 6)
+              (list 7 8 9)))"#));
     assert_eq!(result, "OK (1 2 3)");
 }
 
@@ -8072,7 +8221,9 @@ fn gc_stress_builtin_apply_roots_closure_function_argument() {
                (apply f nil)))"#,
     )
     .expect("parse");
-    let result = format_eval_result(&ev.eval_expr(&forms[0]));
+    let result = format_eval_result(&ev.eval_str(r#"(let ((payload (list 7 8 9)))
+             (let ((f (lambda () payload)))
+               (apply f nil)))"#));
     assert_eq!(result, "OK (7 8 9)");
 }
 
@@ -8090,7 +8241,10 @@ fn gc_stress_let_star_lexical_binding_roots_evaluated_values() {
                y))"#,
     )
     .expect("parse");
-    let result = format_eval_result(&ev.eval_expr(&forms[0]));
+    let result = format_eval_result(&ev.eval_str(r#"(let ((build (lambda () (list 4 5 6))))
+             (let* ((x (funcall build))
+                    (y x))
+               y))"#));
     assert_eq!(result, "OK (4 5 6)");
 }
 
@@ -8129,7 +8283,23 @@ fn gc_stress_apply_env_expander_closure_capturing_uninterned_symbol() {
         "#,
     )
     .expect("parse");
-    let result = format_eval_result(&ev.eval_expr(&forms[0]));
+    let result = format_eval_result(&ev.eval_str(r#"
+        (let ((newenv nil)
+              (magic (make-symbol "vm-magic")))
+          (let ((var (make-symbol "vm-var")))
+            (setq newenv
+                  (cons
+                   (cons 'vm-head
+                         (lambda (&rest args)
+                           (if (eq (car args) magic)
+                               (list magic var)
+                             (cons 'funcall (cons var args)))))
+                   newenv))
+            (let* ((form '(vm-head 1 2 3))
+                   (head (car form))
+                   (env-expander (assq head newenv)))
+              (apply (cdr env-expander) (cdr form)))))
+        "#));
     assert_eq!(result, "OK (funcall vm-var 1 2 3)");
 }
 
@@ -8152,7 +8322,17 @@ fn interpreted_closure_while_can_advance_lexical_loop_variable() {
         "#,
     )
     .expect("parse");
-    let result = format_eval_result(&ev.eval_expr(&forms[0]));
+    let result = format_eval_result(&ev.eval_str(r#"
+        (funcall
+         (let ((items '(a b c)))
+           (lambda ()
+             (let ((l items)
+                   (count 0))
+               (while l
+                 (setq l (cdr l))
+                 (setq count (1+ count)))
+               count))))
+        "#));
     assert_eq!(result, "OK 3");
 }
 
@@ -8162,8 +8342,7 @@ fn interpreted_closure_trim_cache_survives_exact_gc() {
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
 
-    let setup = parse_forms(
-        r#"
+    ev.eval_str(r#"
         (setq vm-interpreted-closure-count 0)
         (fset 'cconv-make-interpreted-closure
               (lambda (args body env docstring iform)
@@ -8172,13 +8351,8 @@ fn interpreted_closure_trim_cache_survives_exact_gc() {
                 (make-interpreted-closure args body env docstring iform)))
         (setq internal-make-interpreted-closure-function
               'cconv-make-interpreted-closure)
-        "#,
-    )
-    .expect("parse setup");
-    for form in &setup {
-        ev.eval_expr(form)
-            .expect("install interpreted closure trim cache runtime");
-    }
+        "#)
+    .expect("eval forms");
 
     let filter_fn = ev
         .obarray()
@@ -8188,17 +8362,15 @@ fn interpreted_closure_trim_cache_survives_exact_gc() {
     ev.set_interpreted_closure_filter_fn(Some(filter_fn));
 
     let lambda_forms = parse_forms(r#"(funcall (let ((x 1)) (lambda () x)))"#).expect("parse");
-    let first = format_eval_result(&ev.eval_expr(&lambda_forms[0]));
+    let first = format_eval_result(&ev.eval_str("(funcall (let ((x 1)) (lambda () x)))"));
     assert_eq!(first, "OK 1");
 
     ev.gc_collect_exact();
 
     let second_forms = parse_forms(r#"(funcall (let ((x 1)) (lambda () x)))"#).expect("parse");
-    let second = format_eval_result(&ev.eval_expr(&second_forms[0]));
-    assert_eq!(second, "OK 1");
 
     let count_forms = parse_forms("vm-interpreted-closure-count").expect("parse count");
-    let count = format_eval_result(&ev.eval_expr(&count_forms[0]));
+    let count = format_eval_result(&ev.eval_str("vm-interpreted-closure-count"));
     assert_eq!(count, "OK 1");
 }
 
@@ -8208,8 +8380,7 @@ fn value_lambda_instantiation_uses_interpreted_closure_trim_cache() {
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
 
-    let setup = parse_forms(
-        r#"
+    ev.eval_str(r#"
         (setq vm-interpreted-closure-count 0)
         (fset 'cconv-make-interpreted-closure
               (lambda (args body env docstring iform)
@@ -8218,13 +8389,8 @@ fn value_lambda_instantiation_uses_interpreted_closure_trim_cache() {
                 (make-interpreted-closure args body env docstring iform)))
         (setq internal-make-interpreted-closure-function
               'cconv-make-interpreted-closure)
-        "#,
-    )
-    .expect("parse setup");
-    for form in &setup {
-        ev.eval_expr(form)
-            .expect("install interpreted closure trim cache runtime");
-    }
+        "#)
+    .expect("eval forms");
 
     let filter_fn = ev
         .obarray()
@@ -8240,7 +8406,10 @@ fn value_lambda_instantiation_uses_interpreted_closure_trim_cache() {
                    vm-interpreted-closure-count))"#,
     )
     .expect("parse");
-    let rendered = format_eval_result(&ev.eval_expr(&forms[0]));
+    let rendered = format_eval_result(&ev.eval_str(r#"(let ((x 1))
+             (list (funcall '(lambda () x))
+                   (funcall '(lambda () x))
+                   vm-interpreted-closure-count))"#));
     assert_eq!(rendered, "OK (1 1 1)");
 }
 
@@ -8257,7 +8426,9 @@ fn gc_stress_aref_on_closure_survives_closure_vector_conversion() {
                (not (null (aref closure 2)))))"#,
     )
     .expect("parse");
-    let result = format_eval_result(&ev.eval_expr(&forms[0]));
+    let result = format_eval_result(&ev.eval_str(r#"(let ((payload (list 1 2 3)))
+             (let ((closure (lambda () payload)))
+               (not (null (aref closure 2)))))"#));
     assert_eq!(result, "OK t");
 }
 
@@ -8274,7 +8445,9 @@ fn gc_stress_cdr_on_lambda_survives_cons_list_conversion() {
                (not (null (car (cdr closure))))))"#,
     )
     .expect("parse");
-    let result = format_eval_result(&ev.eval_expr(&forms[0]));
+    let result = format_eval_result(&ev.eval_str(r#"(let ((payload (list 1 2 3)))
+             (let ((closure (lambda () payload)))
+               (not (null (car (cdr closure))))))"#));
     assert_eq!(result, "OK t");
 }
 
@@ -8407,7 +8580,11 @@ fn lexical_closure_mutation_visible() {
                x))"#,
     )
     .expect("parse");
-    let result = format_eval_result(&ev.eval_expr(&forms[0]));
+    let result = format_eval_result(&ev.eval_str(r#"(let ((x 0))
+             (let ((f (lambda () (setq x (1+ x)))))
+               (funcall f)
+               (funcall f)
+               x))"#));
     assert_eq!(result, "OK 2");
 }
 
@@ -8427,7 +8604,13 @@ fn lexical_closure_shared_state() {
                (funcall get)))"#,
     )
     .expect("parse");
-    let result = format_eval_result(&ev.eval_expr(&forms[0]));
+    let result = format_eval_result(&ev.eval_str(r#"(let ((x 0))
+             (let ((inc (lambda () (setq x (1+ x))))
+                   (get (lambda () x)))
+               (funcall inc)
+               (funcall inc)
+               (funcall inc)
+               (funcall get)))"#));
     assert_eq!(result, "OK 3");
 }
 
@@ -8452,7 +8635,18 @@ fn lexical_closure_make_counter() {
                  (list r1 r2))))"#,
     )
     .expect("parse");
-    let result = format_eval_result(&ev.eval_expr(&forms[0]));
+    let result = format_eval_result(&ev.eval_str(r#"(progn
+             (defalias 'make-counter #'(lambda ()
+               (let ((n 0))
+                 (lambda () (setq n (1+ n))))))
+             (let ((c1 (make-counter))
+                   (c2 (make-counter)))
+               (funcall c1)
+               (funcall c1)
+               (funcall c1)
+               (let ((r1 (funcall c1))
+                     (r2 (funcall c2)))
+                 (list r1 r2))))"#));
     // c1 called 4 times → 4; c2 called once → 1; independent counters
     assert_eq!(result, "OK (4 1)");
 }
@@ -8470,7 +8664,10 @@ fn lexical_closure_outer_mutation_visible() {
                (funcall f)))"#,
     )
     .expect("parse");
-    let result = format_eval_result(&ev.eval_expr(&forms[0]));
+    let result = format_eval_result(&ev.eval_str(r#"(let ((x 10))
+             (let ((f (lambda () x)))
+               (setq x 42)
+               (funcall f)))"#));
     assert_eq!(result, "OK 42");
 }
 
@@ -8495,7 +8692,13 @@ fn closure_inside_mapcar_lambda_captures_outer_param() {
                    (funcall (car (cdr (cdr closures))))))"#,
     )
     .expect("parse");
-    let result = format_eval_result(&ev.eval_expr(&forms[0]));
+    let result = format_eval_result(&ev.eval_str(r#"(let ((closures
+                 (mapcar (lambda (case)
+                           (lambda () case))
+                         '(a b c))))
+             (list (funcall (car closures))
+                   (funcall (car (cdr closures)))
+                   (funcall (car (cdr (cdr closures))))))"#));
     assert_eq!(result, "OK (a b c)");
 }
 
@@ -8517,7 +8720,14 @@ fn closure_inside_backquote_mapcar_captures_outer_param() {
                (funcall fn2 42)))"#,
     )
     .expect("parse");
-    let result = format_eval_result(&ev.eval_expr(&forms[0]));
+    let result = format_eval_result(&ev.eval_str(r#"(let ((closures
+                 (mapcar (lambda (case)
+                           (list (car case)
+                                 (lambda (vars)
+                                   (list case vars))))
+                         '((a 1) (b 2) (c 3)))))
+             (let ((fn2 (car (cdr (car closures)))))
+               (funcall fn2 42)))"#));
     assert_eq!(result, "OK ((a 1) 42)");
 }
 
@@ -8546,7 +8756,15 @@ fn closure_inside_real_backquote_with_fn_call_captures_outer_param() {
                  (funcall fn1 'matched))))"#,
     )
     .expect("parse");
-    let result = format_eval_result(&eval.eval_expr(&forms[0]));
+    let result = format_eval_result(&eval.eval_str(r#"(progn
+             (defalias 'my-match #'(lambda (val upat) (list val upat)))
+             (let ((closures
+                    (mapcar (lambda (case)
+                              `(,(my-match 'x (car case))
+                                ,(lambda (vars) (list case vars))))
+                            '((a 1) (b 2)))))
+               (let ((fn1 (car (cdr (car closures)))))
+                 (funcall fn1 'matched))))"#));
     assert_eq!(result, "OK ((a 1) matched)");
 }
 
@@ -8568,7 +8786,15 @@ fn real_backquote_computed_symbols_match_runtime_macro_semantics() {
                (mapcar #'eval forms)))"#,
     )
     .expect("parse");
-    let result = format_eval_result(&eval.eval_expr(&forms[0]));
+    let result = format_eval_result(&eval.eval_str(r#"(let ((prefix "neovm-bqc-test")
+                 (suffixes '("x" "y" "z")))
+             (let ((forms
+                    (let ((i 0))
+                      (mapcar (lambda (s)
+                                (setq i (1+ i))
+                                `(list ',(intern (concat prefix "-" s)) ,i))
+                              suffixes))))
+               (mapcar #'eval forms)))"#));
     assert_eq!(
         result,
         "OK ((neovm-bqc-test-x 1) (neovm-bqc-test-y 2) (neovm-bqc-test-z 3))"
@@ -8613,7 +8839,15 @@ fn loaded_subr_condition_case_unless_debug_calls_debugger_before_handler() {
     .expect("parse");
 
     assert_eq!(
-        format_eval_result(&eval.eval_expr(&forms[0])),
+        format_eval_result(&eval.eval_str(r#"(progn
+           (setq neovm-debugger-called nil)
+           (let ((debug-on-error t)
+               (debugger (lambda (&rest args)
+                           (setq neovm-debugger-called args))))
+             (list (condition-case-unless-debug nil
+                       (signal 'error 1)
+                     (error 'handled))
+                   neovm-debugger-called)))"#)),
         "OK (handled (error (error . 1)))"
     );
 }
@@ -8635,7 +8869,13 @@ fn loaded_subr_condition_case_unless_debug_macroexpand_includes_debug_marker() {
     )
     .expect("parse");
 
-    assert_eq!(format_eval_result(&eval.eval_expr(&forms[0])), "OK t");
+    assert_eq!(format_eval_result(&eval.eval_str(r#"(equal
+            (macroexpand '(condition-case-unless-debug nil
+                            (signal 'error 1)
+                            (error 42)))
+            '(condition-case nil
+               (signal 'error 1)
+               ((debug error) 42)))"#)), "OK t");
 }
 
 #[test]
@@ -8675,7 +8915,15 @@ fn lexical_condition_case_debug_marker_calls_debugger_before_handler() {
     .expect("parse");
 
     assert_eq!(
-        format_eval_result(&eval.eval_expr(&forms[0])),
+        format_eval_result(&eval.eval_str(r#"(progn
+           (setq neovm-debugger-called nil)
+           (let ((debug-on-error t)
+               (debugger (lambda (&rest args)
+                           (setq neovm-debugger-called args))))
+             (list (condition-case nil
+                       (signal 'error 1)
+                     ((debug error) 'handled))
+                   neovm-debugger-called)))"#)),
         "OK (handled (error (error . 1)))"
     );
 }
@@ -8694,7 +8942,11 @@ fn real_backquote_nested_eval_chain_matches_gnu_error_shape() {
                      (condition-case e (eval (eval template)) (error (cons 'ERR e))))))"#,
     )
     .expect("parse");
-    let result = format_eval_result(&eval.eval_expr(&forms[0]));
+    let result = format_eval_result(&eval.eval_str(r#"(let ((x 10))
+             (let ((template `(let ((y ,,x)) `(+ ,y ,,x))))
+               (list template
+                     (condition-case e (eval template) (error (cons 'ERR e)))
+                     (condition-case e (eval (eval template)) (error (cons 'ERR e))))))"#));
     assert_eq!(result, r#"ERR (void-function (\,))"#);
 }
 
@@ -8704,18 +8956,14 @@ fn condition_case_lexical_handler_binding_restores_outer_let() {
     let mut eval = Context::new();
     eval.set_lexical_binding(true);
 
-    let forms = parse_forms(
-        r#"(let ((outer 'original))
+    let result = format_eval_result(&eval.eval_str(r#"(let ((outer 'original))
              (list
               (condition-case outer
                   (/ 1 0)
                 (arith-error
                  (setq outer (list 'caught (car outer)))
                  outer))
-              outer))"#,
-    )
-    .expect("parse");
-    let result = format_eval_result(&eval.eval_expr(&forms[0]));
+              outer))"#));
     assert_eq!(result, "OK ((caught arith-error) original)");
 }
 

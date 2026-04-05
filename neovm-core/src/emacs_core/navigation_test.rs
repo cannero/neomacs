@@ -30,12 +30,10 @@ fn eval_first_form_after_marker(eval: &mut Context, source: &str, marker: &str) 
     let start = source
         .find(marker)
         .unwrap_or_else(|| panic!("missing GNU simple.el marker: {marker}"));
-    let forms = super::super::parser::parse_forms(&source[start..])
-        .unwrap_or_else(|err| panic!("parse GNU simple.el from {marker} failed: {:?}", err));
-    let form = forms
-        .first()
+    let (form, _) = crate::emacs_core::value_reader::read_one(&source[start..], 0)
+        .unwrap_or_else(|err| panic!("parse GNU simple.el from {marker} failed: {:?}", err))
         .unwrap_or_else(|| panic!("no GNU simple.el form found after marker: {marker}"));
-    eval.eval_expr(form)
+    eval.eval_form(form)
         .unwrap_or_else(|err| panic!("evaluate GNU simple.el form {marker} failed: {:?}", err));
 }
 
@@ -53,10 +51,7 @@ fn install_bare_elisp_shims(ev: &mut Context) {
 (defalias 'unless (cons 'macro #'(lambda (cond &rest body)
   (cons 'if (cons cond (cons nil body))))))
 "#;
-    let forms = super::super::parser::parse_forms(shims).expect("parse bare elisp shims");
-    for form in &forms {
-        ev.eval_expr(form).expect("install bare elisp shim");
-    }
+    ev.eval_str(shims).expect("install bare elisp shims");
 }
 
 fn gnu_simple_line_eval() -> Context {

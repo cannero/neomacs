@@ -1,4 +1,6 @@
-use neovm_core::emacs_core::{Context, parse_forms};
+use neovm_core::emacs_core::value::Value;
+use neovm_core::emacs_core::value_reader;
+use neovm_core::emacs_core::Context;
 use std::time::Instant;
 
 const INTROSPECTION_FORMS: &[&str] = &[
@@ -50,8 +52,8 @@ fn parse_args(args: &[String]) -> Result<BenchOptions, String> {
     })
 }
 
-fn eval_or_exit(evaluator: &mut Context, form: &neovm_core::emacs_core::Expr) {
-    if let Err(err) = evaluator.eval_expr(form) {
+fn eval_or_exit(evaluator: &mut Context, form: Value) {
+    if let Err(err) = evaluator.eval_form(form) {
         eprintln!("benchmark form evaluation failed: {err}");
         std::process::exit(1);
     }
@@ -74,7 +76,7 @@ fn main() {
     };
 
     let source = INTROSPECTION_FORMS.join("\n");
-    let forms = match parse_forms(&source) {
+    let forms = match value_reader::read_all(&source) {
         Ok(forms) => forms,
         Err(err) => {
             eprintln!("failed to parse benchmark forms: {err}");
@@ -88,7 +90,7 @@ fn main() {
 
     for _ in 0..options.iterations {
         for form in &forms {
-            eval_or_exit(&mut evaluator, form);
+            eval_or_exit(&mut evaluator, *form);
         }
     }
 
@@ -110,7 +112,7 @@ fn main() {
             let mut per_form_evaluator = Context::new();
             let per_form_start = Instant::now();
             for _ in 0..options.iterations {
-                eval_or_exit(&mut per_form_evaluator, form);
+                eval_or_exit(&mut per_form_evaluator, *form);
             }
             let per_form_elapsed = per_form_start.elapsed();
             let per_form_ns =

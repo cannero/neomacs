@@ -227,25 +227,19 @@ fn suspend_tty_runs_hook_and_invokes_terminal_host() {
     set_terminal_host(Box::new(RecordingTerminalHost {
         log: Rc::clone(&log),
     }));
-    let forms = crate::emacs_core::parse_forms(
+    eval.eval_str(
         r#"
 (setq suspend-log nil)
 (setq suspend-tty-functions
       (list (lambda (term) (setq suspend-log term))))
 "#,
     )
-    .expect("parse suspend hook setup");
-    for form in &forms {
-        eval.eval_expr(form).expect("install suspend hook setup");
-    }
+    .expect("install suspend hook setup");
 
     assert_eq!(builtin_suspend_tty(&mut eval, vec![]).unwrap(), Value::NIL);
     assert_eq!(log.borrow().as_slice(), &["suspend"]);
     assert_eq!(
-        eval.eval_expr(
-            &crate::emacs_core::parse_forms("suspend-log").expect("parse suspend-log")[0]
-        )
-        .expect("suspend-log value"),
+        eval.eval_str("suspend-log").expect("suspend-log value"),
         terminal_handle_value()
     );
 }
@@ -264,23 +258,19 @@ fn resume_tty_runs_hook_after_terminal_host_resume() {
         log: Rc::clone(&log),
     }));
     builtin_suspend_tty(&mut eval, vec![]).expect("suspend tty");
-    let forms = crate::emacs_core::parse_forms(
+    eval.eval_str(
         r#"
 (setq resume-log nil)
 (setq resume-tty-functions
       (list (lambda (term) (setq resume-log term))))
 "#,
     )
-    .expect("parse resume hook setup");
-    for form in &forms {
-        eval.eval_expr(form).expect("install resume hook setup");
-    }
+    .expect("install resume hook setup");
 
     assert_eq!(builtin_resume_tty(&mut eval, vec![]).unwrap(), Value::NIL);
     assert_eq!(log.borrow().as_slice(), &["suspend", "resume"]);
     assert_eq!(
-        eval.eval_expr(&crate::emacs_core::parse_forms("resume-log").expect("parse resume-log")[0])
-            .expect("resume-log value"),
+        eval.eval_str("resume-log").expect("resume-log value"),
         terminal_handle_value()
     );
 }
@@ -340,18 +330,12 @@ fn delete_terminal_force_runs_hook_and_deletes_frames_on_terminal() {
         .frame_manager_mut()
         .create_frame_on_terminal("F1", TERMINAL_ID, 80, 25, scratch);
     let handle = terminal_handle_value();
-    let forms = crate::emacs_core::parse_forms(
-        r#"
+    eval.eval_str(r#"
 (setq deleted-terminal-log nil)
 (setq delete-terminal-functions
       (list (lambda (term) (setq deleted-terminal-log term))))
-"#,
-    )
-    .expect("parse delete-terminal hook setup");
-    for form in &forms {
-        eval.eval_expr(form)
-            .expect("install delete-terminal hook setup");
-    }
+"#)
+    .expect("install hook setup");
 
     assert_eq!(
         builtin_delete_terminal(&mut eval, vec![Value::NIL, Value::T]).unwrap(),
@@ -362,10 +346,7 @@ fn delete_terminal_force_runs_hook_and_deletes_frames_on_terminal() {
         "delete-terminal should remove frames on the terminal"
     );
     assert_eq!(
-        eval.eval_expr(
-            &crate::emacs_core::parse_forms("deleted-terminal-log")
-                .expect("parse deleted-terminal-log")[0]
-        )
+        eval.eval_str("deleted-terminal-log")
         .expect("deleted-terminal-log value"),
         handle
     );
@@ -384,8 +365,7 @@ fn delete_terminal_force_defers_frame_hooks_until_pending_safe_funcalls_flush() 
     let doomed = eval
         .frame_manager_mut()
         .create_frame_on_terminal("F2", 1, 80, 25, scratch);
-    let forms = crate::emacs_core::parse_forms(
-        r#"
+    eval.eval_str(r#"
 (setq hook-log nil)
 (setq delete-terminal-functions
       (list (lambda (term)
@@ -399,13 +379,8 @@ fn delete_terminal_force_defers_frame_hooks_until_pending_safe_funcalls_flush() 
       (list (lambda (frame)
               (setq hook-log
                     (cons (list 'after (frame-live-p frame)) hook-log)))))
-"#,
-    )
-    .expect("parse delete-terminal deferred hook setup");
-    for form in &forms {
-        eval.eval_expr(form)
-            .expect("install delete-terminal deferred hook setup");
-    }
+"#)
+    .expect("install hook setup");
 
     assert_eq!(
         builtin_delete_terminal(&mut eval, vec![terminal, Value::T]).unwrap(),
@@ -416,18 +391,14 @@ fn delete_terminal_force_defers_frame_hooks_until_pending_safe_funcalls_flush() 
         "delete-terminal should remove frames on that terminal immediately"
     );
     assert_eq!(
-        eval.eval_expr(&crate::emacs_core::parse_forms("hook-log").expect("parse hook-log")[0])
+        eval.eval_str("hook-log")
             .expect("hook-log after delete-terminal"),
         Value::list(vec![Value::list(vec![Value::symbol("terminal"), Value::T])])
     );
 
     eval.flush_pending_safe_funcalls();
 
-    let post_flush = eval
-        .eval_expr(
-            &crate::emacs_core::parse_forms("(nreverse hook-log)")
-                .expect("parse nreverse hook-log")[0],
-        )
+    let post_flush = eval.eval_str("(nreverse hook-log)")
         .expect("hook-log after flush");
     assert_eq!(
         format!("{}", post_flush),
@@ -466,8 +437,7 @@ fn delete_terminal_noelisp_bypasses_sole_terminal_check_and_defers_hooks() {
     let _frame =
         eval.frame_manager_mut()
             .create_frame_on_terminal("F1", TERMINAL_ID, 80, 25, scratch);
-    let forms = crate::emacs_core::parse_forms(
-        r#"
+    eval.eval_str(r#"
 (setq hook-log nil)
 (setq delete-terminal-functions
       (list (lambda (term)
@@ -481,13 +451,8 @@ fn delete_terminal_noelisp_bypasses_sole_terminal_check_and_defers_hooks() {
       (list (lambda (frame)
               (setq hook-log
                     (cons (list 'after (frame-live-p frame)) hook-log)))))
-"#,
-    )
-    .expect("parse delete-terminal noelisp setup");
-    for form in &forms {
-        eval.eval_expr(form)
-            .expect("install delete-terminal noelisp setup");
-    }
+"#)
+    .expect("install hook setup");
 
     assert_eq!(
         delete_terminal_noelisp_owned(&mut eval, TERMINAL_ID).unwrap(),
@@ -501,18 +466,14 @@ fn delete_terminal_noelisp_bypasses_sole_terminal_check_and_defers_hooks() {
         "noelisp delete should mark the terminal dead even when it is the sole terminal"
     );
     assert_eq!(
-        eval.eval_expr(&crate::emacs_core::parse_forms("hook-log").expect("parse hook-log")[0])
+        eval.eval_str("hook-log")
             .expect("hook-log before flush"),
         Value::NIL
     );
 
     eval.flush_pending_safe_funcalls();
 
-    let post_flush = eval
-        .eval_expr(
-            &crate::emacs_core::parse_forms("(nreverse hook-log)")
-                .expect("parse nreverse hook-log")[0],
-        )
+    let post_flush = eval.eval_str("(nreverse hook-log)")
         .expect("hook-log after flush");
     assert_eq!(
         format!("{}", post_flush),

@@ -1,30 +1,35 @@
 use super::*;
-use crate::emacs_core::{Context, format_eval_result, parse_forms};
+use crate::emacs_core::{Context, format_eval_result};
 use crate::test_utils::{load_minimal_gnu_backquote_runtime, runtime_startup_eval_all};
 use std::fs;
 use std::path::PathBuf;
 
 fn eval_one(src: &str) -> String {
     let mut ev = Context::new();
-    let forms = parse_forms(src).expect("parse");
-    let result = ev.eval_expr(&forms[0]);
+    let result = ev.eval_str(src);
     format_eval_result(&result)
 }
 
 fn eval_all(src: &str) -> Vec<String> {
     let mut ev = Context::new();
-    let forms = parse_forms(src).expect("parse");
-    ev.eval_forms(&forms)
-        .iter()
-        .map(format_eval_result)
+    let forms = crate::emacs_core::value_reader::read_all(src).expect("parse");
+    forms
+        .into_iter()
+        .map(|form| {
+            let result = ev.eval_form(form);
+            format_eval_result(&result)
+        })
         .collect()
 }
 
 fn eval_all_with(ev: &mut Context, src: &str) -> Vec<String> {
-    let forms = parse_forms(src).expect("parse");
-    ev.eval_forms(&forms)
-        .iter()
-        .map(format_eval_result)
+    let forms = crate::emacs_core::value_reader::read_all(src).expect("parse");
+    forms
+        .into_iter()
+        .map(|form| {
+            let result = ev.eval_form(form);
+            format_eval_result(&result)
+        })
         .collect()
 }
 
@@ -43,12 +48,10 @@ fn eval_first_gnu_form_after_marker(eval: &mut Context, source: &str, marker: &s
     let start = source
         .find(marker)
         .unwrap_or_else(|| panic!("missing GNU source marker: {marker}"));
-    let forms = parse_forms(&source[start..])
-        .unwrap_or_else(|err| panic!("parse GNU source from {marker} failed: {:?}", err));
-    let form = forms
-        .first()
+    let (form, _) = crate::emacs_core::value_reader::read_one(&source[start..], 0)
+        .unwrap_or_else(|err| panic!("parse GNU source from {marker} failed: {:?}", err))
         .unwrap_or_else(|| panic!("no GNU form found after marker: {marker}"));
-    eval.eval_expr(form)
+    eval.eval_form(form)
         .unwrap_or_else(|err| panic!("evaluate GNU form {marker} failed: {:?}", err));
 }
 
@@ -64,10 +67,7 @@ fn install_bare_elisp_shims(ev: &mut Context) {
 (defalias 'unless (cons 'macro #'(lambda (cond &rest body)
   (cons 'if (cons cond (cons nil body))))))
 "#;
-    let forms = parse_forms(shims).expect("parse bare elisp shims");
-    for form in &forms {
-        ev.eval_expr(form).expect("install bare elisp shim");
-    }
+    ev.eval_str(shims).expect("install bare elisp shims");
 }
 
 fn load_minimal_autoload_runtime(ev: &mut Context) {

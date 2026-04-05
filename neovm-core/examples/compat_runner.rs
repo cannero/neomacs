@@ -1,5 +1,5 @@
 use neovm_core::emacs_core::{
-    Context, format_eval_result_bytes_with_eval, parse_forms, print_expr,
+    Context, format_eval_result_bytes_with_eval, print::print_value, value_reader,
 };
 use std::fs;
 use std::io::{self, Write};
@@ -18,7 +18,7 @@ fn main() {
         }
     };
 
-    let forms = match parse_forms(&source) {
+    let forms = match value_reader::read_all(&source) {
         Ok(forms) => forms,
         Err(err) => {
             eprintln!("failed to parse forms: {err}");
@@ -30,11 +30,11 @@ fn main() {
     let stdout = io::stdout();
     let mut out = io::BufWriter::new(stdout.lock());
     for (index, form) in forms.iter().enumerate() {
-        let result = evaluator.eval_expr(form);
+        let result = evaluator.eval_form(*form);
         out.write_all((index + 1).to_string().as_bytes())
             .expect("write index");
         out.write_all(b"\t").expect("write tab");
-        out.write_all(print_expr(form).as_bytes())
+        out.write_all(print_value(form).as_bytes())
             .expect("write form");
         out.write_all(b"\t").expect("write tab");
         out.write_all(&format_eval_result_bytes_with_eval(&evaluator, &result))

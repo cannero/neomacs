@@ -28,10 +28,7 @@ fn eval_with_interactive_shims() -> Context {
 (defalias 'other-window #'(lambda (count &optional all-frames)
   nil))
 "#;
-    let forms = parse_forms(shims).expect("parse shims");
-    for form in &forms {
-        let _ = ev.eval_expr(form);
-    }
+    let _ = ev.eval_str(shims);
     ev
 }
 
@@ -49,10 +46,13 @@ fn eval_one(src: &str) -> String {
 }
 
 fn eval_all_with(ev: &mut Context, src: &str) -> Vec<String> {
-    let forms = parse_forms(src).expect("parse");
-    ev.eval_forms(&forms)
-        .iter()
-        .map(format_eval_result)
+    let forms = crate::emacs_core::value_reader::read_all(src).expect("parse");
+    forms
+        .into_iter()
+        .map(|form| {
+            let result = ev.eval_form(form);
+            format_eval_result(&result)
+        })
         .collect()
 }
 
@@ -71,12 +71,10 @@ fn eval_first_form_after_marker(eval: &mut Context, source: &str, marker: &str) 
     let start = source
         .find(marker)
         .unwrap_or_else(|| panic!("missing GNU subr.el marker: {marker}"));
-    let forms = parse_forms(&source[start..])
-        .unwrap_or_else(|err| panic!("parse GNU subr.el from {marker} failed: {:?}", err));
-    let form = forms
-        .first()
+    let (form, _) = crate::emacs_core::value_reader::read_one(&source[start..], 0)
+        .unwrap_or_else(|err| panic!("parse GNU subr.el from {marker} failed: {:?}", err))
         .unwrap_or_else(|| panic!("no GNU subr.el form found after marker: {marker}"));
-    eval.eval_expr(form)
+    eval.eval_form(form)
         .unwrap_or_else(|err| panic!("evaluate GNU subr.el form {marker} failed: {:?}", err));
 }
 
@@ -94,10 +92,7 @@ fn install_bare_elisp_shims(ev: &mut Context) {
 (defalias 'unless (cons 'macro #'(lambda (cond &rest body)
   (cons 'if (cons cond (cons nil body))))))
 "#;
-    let forms = parse_forms(shims).expect("parse bare elisp shims");
-    for form in &forms {
-        ev.eval_expr(form).expect("install bare elisp shim");
-    }
+    ev.eval_str(shims).expect("install bare elisp shims");
 }
 
 fn gnu_subr_keymap_eval_all(src: &str) -> Vec<String> {

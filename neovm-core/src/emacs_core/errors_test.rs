@@ -329,8 +329,7 @@ fn obarray_unknown_signal_no_conditions() {
 fn define_error_basic() {
     crate::test_utils::init_test_tracing();
     let mut evaluator = bootstrap_context();
-    let forms = parse_forms(r#"(define-error 'my-error "My error")"#).expect("parse");
-    let result = evaluator.eval_expr(&forms[0]);
+    let result = evaluator.eval_str(r#"(define-error 'my-error "My error")"#);
     assert!(result.is_ok());
 
     // Check plist.
@@ -353,9 +352,7 @@ fn define_error_basic() {
 fn define_error_with_parent() {
     crate::test_utils::init_test_tracing();
     let mut evaluator = bootstrap_context();
-    let forms =
-        parse_forms(r#"(define-error 'my-file-error "My file error" 'file-error)"#).expect("parse");
-    let result = evaluator.eval_expr(&forms[0]);
+    let result = evaluator.eval_str(r#"(define-error 'my-file-error "My file error" 'file-error)"#);
     assert!(result.is_ok());
 
     assert!(signal_matches_hierarchical(
@@ -374,9 +371,7 @@ fn define_error_with_parent() {
 fn define_error_with_parent_list() {
     crate::test_utils::init_test_tracing();
     let mut evaluator = bootstrap_context();
-    let forms = parse_forms(r#"(define-error 'multi-error "Multi" '(file-error arith-error))"#)
-        .expect("parse");
-    let result = evaluator.eval_expr(&forms[0]);
+    let result = evaluator.eval_str(r#"(define-error 'multi-error "Multi" '(file-error arith-error))"#);
     assert!(result.is_ok());
 
     assert!(signal_matches_hierarchical(
@@ -473,9 +468,8 @@ fn builtin_signal_atom_preserves_raw_payload() {
 fn condition_case_preserves_raw_signal_binding_shape() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
-    let forms = parse_forms("(condition-case err (signal 'error 1) (error err))").expect("parse");
     let value = eval
-        .eval_expr(&forms[0])
+        .eval_str("(condition-case err (signal 'error 1) (error err))")
         .expect("condition-case should catch signal");
     assert_eq!(value, Value::cons(Value::symbol("error"), Value::fixnum(1)));
 }

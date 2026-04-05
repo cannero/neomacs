@@ -77,28 +77,20 @@ fn eval_first_gnu_form_after_marker(eval: &mut Context, source: &str, marker: &s
     let start = source
         .find(marker)
         .unwrap_or_else(|| panic!("missing GNU Lisp marker: {marker}"));
-    let forms = parse_forms(&source[start..])
-        .unwrap_or_else(|err| panic!("parse GNU Lisp from {marker} failed: {err:?}"));
-    let form = forms
-        .first()
+    let (form, _) = crate::emacs_core::value_reader::read_one(&source[start..], 0)
+        .unwrap_or_else(|err| panic!("parse GNU Lisp from {marker} failed: {err:?}"))
         .unwrap_or_else(|| panic!("no GNU Lisp form found after marker: {marker}"));
-    eval.eval_expr(form)
+    eval.eval_form(form)
         .unwrap_or_else(|err| panic!("evaluate GNU Lisp form {marker} failed: {err:?}"));
 }
 
 fn load_gnu_save_selected_window_runtime(eval: &mut Context) {
-    let shim_forms = parse_forms(
-        r#"
+    eval.eval_str(r#"
         (defalias 'frames-on-display-list
           #'(lambda (&optional _device)
               (frame-list)))
-        "#,
-    )
-    .expect("parse save-selected-window support shim");
-    for form in &shim_forms {
-        eval.eval_expr(form)
-            .unwrap_or_else(|err| panic!("install save-selected-window shim failed: {err:?}"));
-    }
+        "#)
+    .expect("eval forms");
 
     let window_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp/window.el");
     let window_source = fs::read_to_string(window_path).expect("read GNU window.el");
@@ -5372,7 +5364,11 @@ fn internal_track_mouse_binds_and_restores_track_mouse() {
     )
     .expect("parse");
 
-    let result = eval.eval_expr(&forms[0]).expect("internal--track-mouse");
+    let result = eval.eval_str(r#"(progn
+           (setq track-mouse 'outer)
+           (list
+            (internal--track-mouse (lambda () track-mouse))
+            track-mouse))"#).expect("internal--track-mouse");
     assert_eq!(result, Value::list(vec![Value::T, Value::symbol("outer")]));
 }
 
@@ -5393,7 +5389,14 @@ fn internal_track_mouse_restores_track_mouse_after_error() {
     .expect("parse");
 
     let result = eval
-        .eval_expr(&forms[0])
+        .eval_str(r#"(progn
+           (setq track-mouse 'outer)
+           (condition-case err
+               (internal--track-mouse
+                (lambda ()
+                  (setq track-mouse 'dragging)
+                  (signal 'error nil)))
+             (error (list track-mouse (car err)))))"#)
         .expect("internal--track-mouse condition-case");
     assert_eq!(
         result,
@@ -8704,7 +8707,7 @@ fn user_error_signals_user_error_symbol_and_formatted_message() {
         r#"(condition-case err (user-error "oops %s" "now") (user-error err))"#,
     )
     .expect("parse");
-    let result = eval.eval_expr(&forms[0]).expect("eval");
+    let result = eval.eval_str(r#"(condition-case err (user-error "oops %s" "now") (user-error err))"#).expect("eval");
     let printed = crate::emacs_core::print::print_value(&result);
     assert_eq!(printed, "(user-error \"oops now\")");
 }
@@ -8717,7 +8720,7 @@ fn user_error_requires_message_argument() {
     let forms =
         crate::emacs_core::parse_forms(r#"(condition-case err (user-error) (error (car err)))"#)
             .expect("parse");
-    let result = eval.eval_expr(&forms[0]).expect("eval");
+    let result = eval.eval_str(r#"(condition-case err (user-error) (error (car err)))"#).expect("eval");
     let printed = crate::emacs_core::print::print_value(&result);
     assert_eq!(printed, "wrong-number-of-arguments");
 }
@@ -8737,7 +8740,12 @@ fn internal_save_selected_window_helpers_restore_selected_window() {
                (eq (selected-window) orig)))"#,
     )
     .expect("parse");
-    let result = eval.eval_expr(&forms[0]).expect("eval");
+    let result = eval.eval_str(r#"(let* ((orig (selected-window))
+                  (new (split-window-internal (selected-window) nil nil nil)))
+             (select-window new)
+             (save-selected-window
+               (select-window orig)
+               (eq (selected-window) orig)))"#).expect("eval");
     assert!(result.is_truthy(), "save-selected-window should restore");
 }
 
@@ -9738,12 +9746,8 @@ fn variable_watchers_observe_set_setq_and_makunbound() {
     assert_eq!(set_op, Value::symbol("set"));
     assert_eq!(set_val, Value::fixnum(7));
 
-    eval.eval_expr(&Expr::List(vec![
-        Expr::Symbol(intern("setq")),
-        Expr::Symbol(intern("vm-watcher-target")),
-        Expr::Int(11),
-    ]))
-    .expect("setq should trigger watcher");
+    eval.eval_str("(setq vm-watcher-target 11)")
+        .expect("setq should trigger watcher");
     let setq_op = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-watcher-last-op")])
         .expect("watcher should record setq operation");
     let setq_val = builtin_symbol_value(&mut eval, vec![Value::symbol("vm-watcher-last-value")])
