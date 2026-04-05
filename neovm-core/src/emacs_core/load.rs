@@ -965,12 +965,17 @@ where
             ctx.lexenv = Value::list(vec![Value::T]);
         }
 
-        ctx.set_variable(
-            "load-file-name",
-            Value::string(path.to_string_lossy().to_string()),
-        );
+        let load_file_value = Value::string(path.to_string_lossy().to_string());
+        ctx.set_variable("load-file-name", load_file_value);
+        // Set the reader's #$ thread-local so value_reader produces the
+        // actual file path string (matching GNU lread.c Vload_file_name).
+        let old_reader_load_file = super::value_reader::get_reader_load_file_name_public();
+        super::value_reader::set_reader_load_file_name(Some(load_file_value));
 
         let result = body(ctx);
+
+        // Restore reader load-file-name
+        super::value_reader::set_reader_load_file_name(old_reader_load_file);
 
         ctx.set_lexical_binding(old_lexical);
         ctx.lexenv = old_lexenv;

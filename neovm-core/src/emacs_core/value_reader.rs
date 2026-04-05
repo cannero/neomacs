@@ -13,6 +13,30 @@
 use super::eval::{push_scratch_gc_root, restore_scratch_gc_roots, save_scratch_gc_roots};
 use super::intern::{intern, intern_uninterned, resolve_sym};
 use super::string_escape::{bytes_to_unibyte_storage_string, encode_nonunicode_char_for_storage};
+use std::cell::RefCell;
+
+thread_local! {
+    /// Current load-file-name for `#$` reader macro.
+    /// Set by `with_load_context` in load.rs before reading a file.
+    static READER_LOAD_FILE_NAME: RefCell<Option<Value>> = const { RefCell::new(None) };
+}
+
+/// Set the current load-file-name for the `#$` reader macro.
+pub fn set_reader_load_file_name(value: Option<Value>) {
+    READER_LOAD_FILE_NAME.with(|slot| *slot.borrow_mut() = value);
+}
+
+/// Get the current load-file-name for the `#$` reader macro.
+fn get_reader_load_file_name() -> Value {
+    READER_LOAD_FILE_NAME.with(|slot| {
+        slot.borrow().unwrap_or(Value::NIL)
+    })
+}
+
+/// Public getter for save/restore in with_load_context.
+pub fn get_reader_load_file_name_public() -> Option<Value> {
+    READER_LOAD_FILE_NAME.with(|slot| *slot.borrow())
+}
 use super::value::{HashTableTest, Value, build_hash_table_literal_value};
 
 // ---------------------------------------------------------------------------
@@ -805,10 +829,10 @@ impl<'a> Reader<'a> {
             }
             '$' => {
                 // #$ — expands to the current load file name during read.
-                // For the Value reader, we return the symbol `load-file-name`
-                // which will be resolved at eval time.
+                // Matches GNU lread.c: returns Vload_file_name (the actual
+                // file path string), not the symbol `load-file-name`.
                 self.bump();
-                Ok(Value::symbol("load-file-name"))
+                Ok(get_reader_load_file_name())
             }
             '#' => {
                 // ## — symbol with empty name.
