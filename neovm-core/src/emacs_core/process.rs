@@ -517,6 +517,7 @@ impl ProcessManager {
             pty_writer: None,
             #[cfg(unix)]
             socket: None,
+            #[cfg(unix)]
             tls_stream: None,
             mark: super::marker::make_marker_value(None, None, false),
         };

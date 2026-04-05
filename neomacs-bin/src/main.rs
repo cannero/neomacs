@@ -1762,6 +1762,7 @@ pub fn run(mode: RuntimeMode) {
 
         // 7. Connect evaluator to input system
         let wakeup_fd = emacs_comms.wakeup_read_fd;
+        #[cfg(unix)]
         evaluator.init_input_system(input_rx, wakeup_fd);
     }
 
@@ -2536,12 +2537,19 @@ fn run_gnu_startup_inner(eval: &mut Context) {
     let top_level = eval.obarray().symbol_value("top-level").cloned();
     tracing::info!("top-level variable before startup: {:?}", top_level);
 
-    let (_tx, rx) = crossbeam_channel::unbounded();
+
 
     let mut wake_pipe = [0; 2];
+    #[cfg(unix)]
     let pipe_result = unsafe { libc::pipe(wake_pipe.as_mut_ptr()) };
+    #[cfg(windows)]
+    let pipe_result = unsafe { libc::pipe(wake_pipe.as_mut_ptr(), 256, 0) };
     assert_eq!(pipe_result, 0, "pipe should initialize");
-    eval.init_input_system(rx, wake_pipe[0]);
+    #[cfg(unix)]
+    {
+        let (_tx, rx) = crossbeam_channel::unbounded();
+        eval.init_input_system(rx, wake_pipe[0]);
+    }
 
     let result = eval.recursive_edit();
     unsafe {

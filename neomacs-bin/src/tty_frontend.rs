@@ -197,6 +197,7 @@ fn read_stdin_byte(timeout_ms: i32) -> io::Result<Option<u8>> {
     }
 }
 
+#[cfg(unix)]
 fn poll_stdin(timeout_ms: i32) -> io::Result<bool> {
     let mut pollfd = libc::pollfd {
         fd: libc::STDIN_FILENO,
@@ -219,6 +220,11 @@ fn poll_stdin(timeout_ms: i32) -> io::Result<bool> {
         }
         return Err(err);
     }
+}
+
+#[cfg(not(unix))]
+fn poll_stdin(timeout_ms: i32) -> io::Result<bool> {
+    Ok(false)
 }
 
 fn parse_tty_key_event<F>(first: u8, next_byte: &mut F) -> io::Result<Option<(u32, u32)>>

@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::io::Write;
+#[cfg(unix)]
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -131,6 +132,7 @@ pub fn run_oracle_eval(form: &str) -> Result<String, String> {
             program,
         ]);
 
+    #[cfg(unix)]
     unsafe {
         cmd.pre_exec(move || {
             let rlim = libc::rlimit {
@@ -162,6 +164,7 @@ pub fn run_oracle_eval(form: &str) -> Result<String, String> {
 
 pub fn run_neovm_eval(form: &str) -> Result<String, String> {
     let mut eval = RUNTIME_TEMPLATE.with(|slot| {
+        println!("run neovm");
         if slot.borrow().is_none() {
             let mut template = create_bootstrap_evaluator_cached()
                 .map_err(|_| "NeoVM bootstrap failed".to_string())?;

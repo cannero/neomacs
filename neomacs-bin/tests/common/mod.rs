@@ -15,6 +15,7 @@
 
 #![allow(dead_code)]
 
+#[cfg(unix)]
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Output};
@@ -110,10 +111,12 @@ fn oracle_mem_limit_bytes() -> u64 {
 }
 
 fn apply_memory_limit(cmd: &mut Command) {
+    #[cfg(unix)]
     let limit = oracle_mem_limit_bytes() as libc::rlim_t;
     // Safety: `pre_exec` runs between fork and exec in the child.
     // setrlimit is async-signal-safe, so this is sound. Mirrors
     // neovm-oracle-tests/src/common.rs:278.
+    #[cfg(unix)]
     unsafe {
         cmd.pre_exec(move || {
             let rlim = libc::rlimit {

@@ -2104,8 +2104,12 @@ fn recursive_edit_processes_load_option_from_forwarded_args_before_first_input()
     .expect("queue close request");
     drop(tx);
     let mut wake_pipe = [0; 2];
+    #[cfg(unix)]
     let pipe_result = unsafe { libc::pipe(wake_pipe.as_mut_ptr()) };
+    #[cfg(windows)]
+    let pipe_result = unsafe { libc::pipe(wake_pipe.as_mut_ptr(), 256, 0) };
     assert_eq!(pipe_result, 0, "pipe should initialize");
+    #[cfg(unix)]
     eval.init_input_system(rx, wake_pipe[0]);
 
     let result = eval.recursive_edit();
@@ -2150,11 +2154,18 @@ fn bootstrap_batch_eval_exits_outer_command_loop_like_gnu() {
     let startup = tty_batch_startup_with_args(&["-Q", "--eval", "(setq neomacs--batch-probe 42)"]);
     configure_gnu_startup_state(&mut eval, frame_id, &startup);
 
-    let (_tx, rx) = crossbeam_channel::unbounded();
+
     let mut wake_pipe = [0; 2];
+    #[cfg(unix)]
     let pipe_result = unsafe { libc::pipe(wake_pipe.as_mut_ptr()) };
+    #[cfg(windows)]
+    let pipe_result = unsafe { libc::pipe(wake_pipe.as_mut_ptr(), 256, 0) };
     assert_eq!(pipe_result, 0, "pipe should initialize");
-    eval.init_input_system(rx, wake_pipe[0]);
+    #[cfg(unix)]
+    {
+        let (_tx, rx) = crossbeam_channel::unbounded();
+        eval.init_input_system(rx, wake_pipe[0]);
+    }
 
     let result = eval.recursive_edit();
     unsafe {
@@ -2662,8 +2673,12 @@ fn gnu_startup_clears_terminal_frame_without_deselecting_opening_gui_frame() {
     .expect("queue close request");
     drop(tx);
     let mut wake_pipe = [0; 2];
+    #[cfg(unix)]
     let pipe_result = unsafe { libc::pipe(wake_pipe.as_mut_ptr()) };
+    #[cfg(windows)]
+    let pipe_result = unsafe { libc::pipe(wake_pipe.as_mut_ptr(), 256, 0) };
     assert_eq!(pipe_result, 0, "pipe should initialize");
+    #[cfg(unix)]
     eval.init_input_system(rx, wake_pipe[0]);
     let result = eval.recursive_edit();
     unsafe {
