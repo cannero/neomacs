@@ -7,6 +7,8 @@ pub struct NurseryConfig {
     pub max_regular_object_bytes: usize,
     /// Survivor age at which nursery objects are promoted into old generation.
     pub promotion_age: u8,
+    /// Number of worker threads to use for stop-the-world nursery tracing.
+    pub parallel_minor_workers: usize,
 }
 
 impl Default for NurseryConfig {
@@ -15,6 +17,7 @@ impl Default for NurseryConfig {
             semispace_bytes: 16 * 1024 * 1024,
             max_regular_object_bytes: 64 * 1024,
             promotion_age: 2,
+            parallel_minor_workers: 1,
         }
     }
 }

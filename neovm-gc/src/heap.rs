@@ -1,6 +1,9 @@
 use core::any::TypeId;
+use core::marker::PhantomData;
 use core::ptr::NonNull;
+use core::slice;
 use std::collections::{HashMap, HashSet};
+use std::thread;
 
 use crate::background::{BackgroundCollectorConfig, BackgroundService, SharedHeap};
 use crate::barrier::{BarrierEvent, BarrierKind, RememberedEdge};
@@ -117,6 +120,7 @@ struct MajorMarkState {
     plan: CollectionPlan,
     worklist: MarkWorklist<usize>,
     mark_steps: u64,
+    mark_rounds: u64,
 }
 
 impl Heap {
@@ -178,6 +182,14 @@ impl Heap {
             .iter()
             .map(|region| region.hole_bytes)
             .sum::<usize>();
+        let minor_worker_count = self.config.nursery.parallel_minor_workers.max(1);
+        let minor_object_count = self
+            .objects
+            .iter()
+            .filter(|object| object.space() == SpaceKind::Nursery)
+            .count()
+            .max(1);
+        let minor_mark_slice_budget = minor_object_count.div_ceil(minor_worker_count);
         let worker_count = self.config.old.concurrent_mark_workers.max(1);
         let mark_slice_budget = self.objects.len().max(1).div_ceil(worker_count);
 
@@ -187,8 +199,8 @@ impl Heap {
                 phase: CollectionPhase::Evacuate,
                 concurrent: false,
                 parallel: true,
-                worker_count: 1,
-                mark_slice_budget: 0,
+                worker_count: minor_worker_count,
+                mark_slice_budget: minor_mark_slice_budget,
                 target_old_regions: 0,
                 selected_old_regions: Vec::new(),
                 estimated_compaction_bytes: 0,
@@ -290,6 +302,7 @@ impl Heap {
                 completed: state.worklist.is_empty(),
                 drained_objects: 0,
                 mark_steps: state.mark_steps,
+                mark_rounds: state.mark_rounds,
                 remaining_work: state.worklist.len(),
             })
     }
@@ -323,6 +336,7 @@ impl Heap {
             plan,
             worklist: tracer.into_worklist(),
             mark_steps: 0,
+            mark_rounds: 0,
         });
         Ok(())
     }
@@ -338,6 +352,7 @@ impl Heap {
         let drained_objects = tracer.drain_one_slice(state.plan.mark_slice_budget);
         if drained_objects > 0 {
             state.mark_steps = state.mark_steps.saturating_add(1);
+            state.mark_rounds = state.mark_rounds.saturating_add(1);
         }
         let remaining_work = tracer.pending_count();
         let completed = remaining_work == 0;
@@ -351,6 +366,11 @@ impl Heap {
                 .major_mark_state
                 .as_ref()
                 .map(|state| state.mark_steps)
+                .unwrap_or(0),
+            mark_rounds: self
+                .major_mark_state
+                .as_ref()
+                .map(|state| state.mark_rounds)
                 .unwrap_or(0),
             remaining_work,
         })
@@ -366,12 +386,19 @@ impl Heap {
         self.record_phase(CollectionPhase::Remark);
         let index = self.object_index();
         let mut tracer = MarkTracer::with_worklist(&self.objects, &index, state.worklist);
-        state.mark_steps = state
-            .mark_steps
-            .saturating_add(tracer.drain_sliced(state.plan.mark_slice_budget));
-        state.mark_steps = state
-            .mark_steps
-            .saturating_add(self.trace_major_ephemerons(&mut tracer, state.plan.mark_slice_budget));
+        let (mark_steps, mark_rounds) = tracer.drain_parallel_until_empty(
+            state.plan.worker_count.max(1),
+            state.plan.mark_slice_budget,
+        );
+        state.mark_steps = state.mark_steps.saturating_add(mark_steps);
+        state.mark_rounds = state.mark_rounds.saturating_add(mark_rounds);
+        let (ephemeron_steps, ephemeron_rounds) = self.trace_major_ephemerons(
+            &mut tracer,
+            state.plan.worker_count.max(1),
+            state.plan.mark_slice_budget,
+        );
+        state.mark_steps = state.mark_steps.saturating_add(ephemeron_steps);
+        state.mark_rounds = state.mark_rounds.saturating_add(ephemeron_rounds);
 
         let (forwarding, promoted_bytes) = match state.plan.kind {
             CollectionKind::Major => (HashMap::new(), 0usize),
@@ -387,7 +414,13 @@ impl Heap {
                 });
             }
         };
-        self.process_weak_references(state.plan.kind, &forwarding);
+        let index = self.object_index();
+        self.process_weak_references(
+            state.plan.kind,
+            state.plan.worker_count.max(1),
+            &forwarding,
+            &index,
+        );
         self.record_phase(CollectionPhase::Reclaim);
         let finalized_objects = self.sweep_full();
         self.prune_remembered_edges();
@@ -399,6 +432,7 @@ impl Heap {
             major_collections: 1,
             promoted_bytes: promoted_bytes as u64,
             mark_steps: state.mark_steps,
+            mark_rounds: state.mark_rounds,
             reclaimed_bytes: before_bytes.saturating_sub(after_bytes) as u64,
             finalized_objects,
             compacted_regions: old_region_stats.compacted_regions,
@@ -439,6 +473,7 @@ impl Heap {
             completed: progress.completed,
             drained_objects: total_drained_objects,
             mark_steps: progress.mark_steps,
+            mark_rounds: progress.mark_rounds,
             remaining_work: progress.remaining_work,
         }))
     }
@@ -454,16 +489,21 @@ impl Heap {
         let (drained_objects, drained_slices) =
             tracer.drain_worker_round(state.plan.worker_count.max(1), state.plan.mark_slice_budget);
         state.mark_steps = state.mark_steps.saturating_add(drained_slices);
+        if drained_objects > 0 {
+            state.mark_rounds = state.mark_rounds.saturating_add(1);
+        }
         let remaining_work = tracer.pending_count();
         let completed = remaining_work == 0;
         state.worklist = tracer.into_worklist();
         let mark_steps = state.mark_steps;
+        let mark_rounds = state.mark_rounds;
         self.major_mark_state = Some(state);
 
         Ok(Some(MajorMarkProgress {
             completed,
             drained_objects,
             mark_steps,
+            mark_rounds,
             remaining_work,
         }))
     }
@@ -485,16 +525,12 @@ impl Heap {
     pub fn service_background_collection_round(
         &mut self,
     ) -> Result<BackgroundCollectionStatus, AllocError> {
-        let Some(worker_count) = self
-            .major_mark_state
-            .as_ref()
-            .map(|state| state.plan.worker_count.max(1))
-        else {
+        if self.major_mark_state.is_none() {
             return Ok(BackgroundCollectionStatus::Idle);
-        };
+        }
 
         let progress = self
-            .assist_major_mark(worker_count)?
+            .poll_active_major_mark()?
             .expect("active major-mark session disappeared during service");
         if progress.completed {
             let cycle = self
@@ -612,10 +648,9 @@ impl Heap {
         }
 
         let index = self.object_index();
-        let mark_steps = match plan.kind {
+        let (mark_steps, mark_rounds) = match plan.kind {
             CollectionKind::Minor => {
-                self.trace_minor(&index);
-                0
+                self.trace_minor(&index, plan.worker_count.max(1), plan.mark_slice_budget)
             }
             CollectionKind::Major | CollectionKind::Full => {
                 self.record_phase(CollectionPhase::InitialMark);
@@ -623,7 +658,7 @@ impl Heap {
                     self.record_phase(CollectionPhase::ConcurrentMark);
                 }
                 self.record_phase(CollectionPhase::Remark);
-                self.trace_major(&index, plan.mark_slice_budget)
+                self.trace_major(&index, plan.worker_count.max(1), plan.mark_slice_budget)
             }
         };
 
@@ -632,7 +667,12 @@ impl Heap {
                 self.record_phase(CollectionPhase::Evacuate);
                 let evacuation = self.evacuate_marked_nursery()?;
                 self.relocate_roots_and_edges(&evacuation.forwarding);
-                self.process_weak_references(plan.kind, &evacuation.forwarding);
+                self.process_weak_references(
+                    plan.kind,
+                    plan.worker_count.max(1),
+                    &evacuation.forwarding,
+                    &index,
+                );
                 self.record_phase(CollectionPhase::Reclaim);
                 let finalized_objects = self.sweep_minor();
                 self.prune_remembered_edges();
@@ -644,6 +684,7 @@ impl Heap {
                     major_collections: 0,
                     promoted_bytes: evacuation.promoted_bytes as u64,
                     mark_steps,
+                    mark_rounds,
                     reclaimed_bytes: before_bytes.saturating_sub(after_bytes) as u64,
                     finalized_objects,
                     compacted_regions: old_region_stats.compacted_regions,
@@ -652,7 +693,12 @@ impl Heap {
             }
             CollectionKind::Major => {
                 let empty_forwarding: HashMap<NonNull<ObjectHeader>, GcErased> = HashMap::new();
-                self.process_weak_references(plan.kind, &empty_forwarding);
+                self.process_weak_references(
+                    plan.kind,
+                    plan.worker_count.max(1),
+                    &empty_forwarding,
+                    &index,
+                );
                 self.record_phase(CollectionPhase::Reclaim);
                 let finalized_objects = self.sweep_full();
                 self.prune_remembered_edges();
@@ -664,6 +710,7 @@ impl Heap {
                     major_collections: 1,
                     promoted_bytes: 0,
                     mark_steps,
+                    mark_rounds,
                     reclaimed_bytes: before_bytes.saturating_sub(after_bytes) as u64,
                     finalized_objects,
                     compacted_regions: old_region_stats.compacted_regions,
@@ -674,7 +721,12 @@ impl Heap {
                 self.record_phase(CollectionPhase::Evacuate);
                 let evacuation = self.evacuate_marked_nursery()?;
                 self.relocate_roots_and_edges(&evacuation.forwarding);
-                self.process_weak_references(plan.kind, &evacuation.forwarding);
+                self.process_weak_references(
+                    plan.kind,
+                    plan.worker_count.max(1),
+                    &evacuation.forwarding,
+                    &index,
+                );
                 self.record_phase(CollectionPhase::Reclaim);
                 let finalized_objects = self.sweep_full();
                 self.prune_remembered_edges();
@@ -686,6 +738,7 @@ impl Heap {
                     major_collections: 1,
                     promoted_bytes: evacuation.promoted_bytes as u64,
                     mark_steps,
+                    mark_rounds,
                     reclaimed_bytes: before_bytes.saturating_sub(after_bytes) as u64,
                     finalized_objects,
                     compacted_regions: old_region_stats.compacted_regions,
@@ -927,8 +980,7 @@ impl Heap {
         };
 
         let record = &self.objects[index];
-        if !record.is_marked() {
-            record.set_marked(true);
+        if record.mark_if_unmarked() {
             if let Some(state) = self.major_mark_state.as_mut() {
                 state.worklist.push(index);
             }
@@ -956,19 +1008,26 @@ impl Heap {
     fn trace_major(
         &self,
         index: &HashMap<NonNull<ObjectHeader>, usize>,
+        worker_count: usize,
         slice_budget: usize,
-    ) -> u64 {
-        let mut session = MajorMarkSession::new(&self.objects, index, slice_budget);
+    ) -> (u64, u64) {
+        let mut session = MajorMarkSession::new(&self.objects, index, worker_count, slice_budget);
         for root in self.roots.iter() {
             session.seed(root);
         }
-        session.drain();
-        session.run_ephemeron_fixpoint();
-        session.mark_steps()
+        session.drain_parallel();
+        session.run_ephemeron_fixpoint_parallel();
+        (session.mark_steps(), session.mark_rounds())
     }
 
-    fn trace_major_ephemerons(&self, tracer: &mut MarkTracer<'_>, slice_budget: usize) -> u64 {
+    fn trace_major_ephemerons(
+        &self,
+        tracer: &mut MarkTracer<'_>,
+        worker_count: usize,
+        slice_budget: usize,
+    ) -> (u64, u64) {
         let mut mark_steps = 0u64;
+        let mut mark_rounds = 0u64;
         loop {
             let mut visitor = MajorEphemeronTracer::new(tracer);
             for object in &self.objects {
@@ -978,15 +1037,23 @@ impl Heap {
             }
             let changed = visitor.changed;
             let tracer = visitor.finish();
-            mark_steps = mark_steps.saturating_add(tracer.drain_sliced(slice_budget));
+            let (steps, rounds) =
+                tracer.drain_parallel_until_empty(worker_count.max(1), slice_budget);
+            mark_steps = mark_steps.saturating_add(steps);
+            mark_rounds = mark_rounds.saturating_add(rounds);
             if !changed {
                 break;
             }
         }
-        mark_steps
+        (mark_steps, mark_rounds)
     }
 
-    fn trace_minor(&self, index: &HashMap<NonNull<ObjectHeader>, usize>) {
+    fn trace_minor(
+        &self,
+        index: &HashMap<NonNull<ObjectHeader>, usize>,
+        worker_count: usize,
+        slice_budget: usize,
+    ) -> (u64, u64) {
         let mut tracer = MinorTracer::new(&self.objects, index);
         for root in self.roots.iter() {
             tracer.scan_source(root);
@@ -999,26 +1066,99 @@ impl Heap {
                 tracer.scan_source(edge.owner.erase());
             }
         }
-        tracer.drain();
-        self.trace_minor_ephemerons(&mut tracer);
+        let (mut mark_steps, mut mark_rounds) =
+            tracer.drain_parallel_until_empty(worker_count, slice_budget);
+        let (ephemeron_steps, ephemeron_rounds) =
+            self.trace_minor_ephemerons(&mut tracer, worker_count, slice_budget);
+        mark_steps = mark_steps.saturating_add(ephemeron_steps);
+        mark_rounds = mark_rounds.saturating_add(ephemeron_rounds);
+        (mark_steps, mark_rounds)
     }
 
-    fn trace_minor_ephemerons(&self, tracer: &mut MinorTracer<'_>) {
+    fn trace_minor_ephemerons(
+        &self,
+        tracer: &mut MinorTracer<'_>,
+        worker_count: usize,
+        slice_budget: usize,
+    ) -> (u64, u64) {
+        let mut mark_steps = 0u64;
+        let mut mark_rounds = 0u64;
         loop {
-            let mut visitor = MinorEphemeronTracer::new(tracer);
-            for object in &self.objects {
-                let survives = object.space() != SpaceKind::Nursery || object.is_marked();
-                if survives {
-                    object.visit_ephemerons(&mut visitor);
+            let changed = if worker_count.max(1) == 1 || self.objects.len() <= 1 {
+                let mut visitor = MinorEphemeronTracer::new(tracer);
+                for object in &self.objects {
+                    let survives = object.space() != SpaceKind::Nursery || object.is_marked();
+                    if survives {
+                        object.visit_ephemerons(&mut visitor);
+                    }
                 }
-            }
-            let changed = visitor.changed;
-            let tracer = visitor.finish();
-            tracer.drain();
+                let changed = visitor.changed;
+                let _tracer = visitor.finish();
+                changed
+            } else {
+                self.scan_minor_ephemerons_parallel(tracer, worker_count)
+            };
+            let (steps, rounds) = tracer.drain_parallel_until_empty(worker_count, slice_budget);
+            mark_steps = mark_steps.saturating_add(steps);
+            mark_rounds = mark_rounds.saturating_add(rounds);
             if !changed {
                 break;
             }
         }
+        (mark_steps, mark_rounds)
+    }
+
+    fn scan_minor_ephemerons_parallel(
+        &self,
+        tracer: &mut MinorTracer<'_>,
+        worker_count: usize,
+    ) -> bool {
+        let workers = worker_count.max(1).min(self.objects.len().max(1));
+        let chunk_size = self.objects.len().max(1).div_ceil(workers);
+        let shared = ParallelMarkShared::new(&self.objects, tracer.index);
+        let worker_outputs = thread::scope(|scope| {
+            let mut handles = Vec::with_capacity(workers);
+            for worker_index in 0..workers {
+                let shared = shared;
+                let start = worker_index.saturating_mul(chunk_size);
+                let end = (start + chunk_size).min(self.objects.len());
+                if start >= end {
+                    continue;
+                }
+                handles.push(scope.spawn(move || {
+                    let mut worker = shared.minor_tracer(MarkWorklist::default());
+                    let changed = {
+                        let mut visitor = MinorEphemeronTracer::new(&mut worker);
+                        for object in &shared.objects()[start..end] {
+                            let survives =
+                                object.space() != SpaceKind::Nursery || object.is_marked();
+                            if survives {
+                                object.visit_ephemerons(&mut visitor);
+                            }
+                        }
+                        visitor.changed
+                    };
+                    (changed, worker.into_worklist())
+                }));
+            }
+
+            let mut outputs = Vec::with_capacity(handles.len());
+            for handle in handles {
+                outputs.push(
+                    handle
+                        .join()
+                        .expect("parallel minor ephemeron worker panicked"),
+                );
+            }
+            outputs
+        });
+
+        let mut changed = false;
+        for (worker_changed, mut worklist) in worker_outputs {
+            changed |= worker_changed;
+            tracer.young_worklist.append(&mut worklist);
+        }
+        changed
     }
 
     fn evacuate_marked_nursery(&mut self) -> Result<EvacuationOutcome, AllocError> {
@@ -1200,6 +1340,11 @@ impl Heap {
             .collections
             .mark_steps
             .saturating_add(cycle.mark_steps);
+        self.stats.collections.mark_rounds = self
+            .stats
+            .collections
+            .mark_rounds
+            .saturating_add(cycle.mark_rounds);
         self.stats.collections.reclaimed_bytes = self
             .stats
             .collections
@@ -1233,17 +1378,52 @@ impl Heap {
     fn process_weak_references(
         &self,
         kind: CollectionKind,
+        worker_count: usize,
         forwarding: &HashMap<NonNull<ObjectHeader>, GcErased>,
+        index: &HashMap<NonNull<ObjectHeader>, usize>,
     ) {
-        let mut processor = WeakRetention::new(&self.objects, forwarding, kind);
-        for object in &self.objects {
-            let survives = match kind {
-                CollectionKind::Minor => object.space() != SpaceKind::Nursery || object.is_marked(),
-                CollectionKind::Major | CollectionKind::Full => object.is_marked(),
-            };
-            if survives {
-                object.process_weak_edges(&mut processor);
+        let worker_count = worker_count.max(1);
+        if worker_count == 1 || self.objects.len() <= 1 {
+            let mut processor = WeakRetention::new(&self.objects, index, forwarding, kind);
+            for object in &self.objects {
+                if Self::survives_collection_kind(kind, object) {
+                    object.process_weak_edges(&mut processor);
+                }
             }
+            return;
+        }
+
+        let workers = worker_count.min(self.objects.len().max(1));
+        let chunk_size = self.objects.len().max(1).div_ceil(workers);
+        let shared = ParallelWeakShared::new(&self.objects, index, forwarding, kind);
+        thread::scope(|scope| {
+            let mut handles = Vec::with_capacity(workers);
+            for worker_index in 0..workers {
+                let shared = shared;
+                let start = worker_index.saturating_mul(chunk_size);
+                let end = (start + chunk_size).min(self.objects.len());
+                if start >= end {
+                    continue;
+                }
+                handles.push(scope.spawn(move || {
+                    let mut processor = shared.processor();
+                    for object in &shared.objects()[start..end] {
+                        if Heap::survives_collection_kind(kind, object) {
+                            object.process_weak_edges(&mut processor);
+                        }
+                    }
+                }));
+            }
+            for handle in handles {
+                handle.join().expect("parallel weak worker panicked");
+            }
+        });
+    }
+
+    fn survives_collection_kind(kind: CollectionKind, object: &ObjectRecord) -> bool {
+        match kind {
+            CollectionKind::Minor => object.space() != SpaceKind::Nursery || object.is_marked(),
+            CollectionKind::Major | CollectionKind::Full => object.is_marked(),
         }
     }
 
@@ -1615,6 +1795,7 @@ fn make_old_region_placement(
 
 struct WeakRetention<'a> {
     objects: &'a [ObjectRecord],
+    index: &'a HashMap<NonNull<ObjectHeader>, usize>,
     forwarding: &'a HashMap<NonNull<ObjectHeader>, GcErased>,
     kind: CollectionKind,
 }
@@ -1622,21 +1803,22 @@ struct WeakRetention<'a> {
 impl<'a> WeakRetention<'a> {
     fn new(
         objects: &'a [ObjectRecord],
+        index: &'a HashMap<NonNull<ObjectHeader>, usize>,
         forwarding: &'a HashMap<NonNull<ObjectHeader>, GcErased>,
         kind: CollectionKind,
     ) -> Self {
         Self {
             objects,
+            index,
             forwarding,
             kind,
         }
     }
 
     fn record_for(&self, object: GcErased) -> Option<&'a ObjectRecord> {
-        let header = object.header();
-        self.objects
-            .iter()
-            .find(|record| record.header_ptr() == header)
+        self.index
+            .get(&object.header())
+            .map(|&index| &self.objects[index])
     }
 }
 
@@ -1656,6 +1838,53 @@ impl WeakProcessor for WeakRetention<'_> {
         }
     }
 }
+
+#[derive(Clone, Copy)]
+struct ParallelWeakShared<'a> {
+    objects_ptr: *const ObjectRecord,
+    objects_len: usize,
+    index_ptr: *const HashMap<NonNull<ObjectHeader>, usize>,
+    forwarding_ptr: *const HashMap<NonNull<ObjectHeader>, GcErased>,
+    kind: CollectionKind,
+    _marker: PhantomData<&'a ()>,
+}
+
+impl<'a> ParallelWeakShared<'a> {
+    fn new(
+        objects: &'a [ObjectRecord],
+        index: &'a HashMap<NonNull<ObjectHeader>, usize>,
+        forwarding: &'a HashMap<NonNull<ObjectHeader>, GcErased>,
+        kind: CollectionKind,
+    ) -> Self {
+        Self {
+            objects_ptr: objects.as_ptr(),
+            objects_len: objects.len(),
+            index_ptr: index as *const _,
+            forwarding_ptr: forwarding as *const _,
+            kind,
+            _marker: PhantomData,
+        }
+    }
+
+    fn objects(self) -> &'a [ObjectRecord] {
+        unsafe { slice::from_raw_parts(self.objects_ptr, self.objects_len) }
+    }
+
+    fn processor(self) -> WeakRetention<'a> {
+        WeakRetention::new(
+            self.objects(),
+            unsafe { &*self.index_ptr },
+            unsafe { &*self.forwarding_ptr },
+            self.kind,
+        )
+    }
+}
+
+// SAFETY: `ParallelWeakShared` is used only during stop-the-world weak processing.
+// Workers read a stable liveness/forwarding view and mutate weak slots on disjoint
+// object payloads through per-object interior mutability.
+unsafe impl Send for ParallelWeakShared<'_> {}
+unsafe impl Sync for ParallelWeakShared<'_> {}
 
 struct ForwardingRelocator<'a> {
     forwarding: &'a HashMap<NonNull<ObjectHeader>, GcErased>,
@@ -1707,8 +1936,7 @@ impl EphemeronVisitor for MajorEphemeronTracer<'_, '_> {
             return;
         };
         let value_record = &self.tracer.objects[value_index];
-        if !value_record.is_marked() {
-            value_record.set_marked(true);
+        if value_record.mark_if_unmarked() {
             self.tracer.worklist.push(value_index);
             self.changed = true;
         }
@@ -1718,21 +1946,26 @@ impl EphemeronVisitor for MajorEphemeronTracer<'_, '_> {
 struct MajorMarkSession<'a> {
     objects: &'a [ObjectRecord],
     tracer: MarkTracer<'a>,
+    worker_count: usize,
     slice_budget: usize,
     mark_steps: u64,
+    mark_rounds: u64,
 }
 
 impl<'a> MajorMarkSession<'a> {
     fn new(
         objects: &'a [ObjectRecord],
         index: &'a HashMap<NonNull<ObjectHeader>, usize>,
+        worker_count: usize,
         slice_budget: usize,
     ) -> Self {
         Self {
             objects,
             tracer: MarkTracer::new(objects, index),
+            worker_count,
             slice_budget,
             mark_steps: 0,
+            mark_rounds: 0,
         }
     }
 
@@ -1740,33 +1973,89 @@ impl<'a> MajorMarkSession<'a> {
         self.tracer.mark_erased(root);
     }
 
-    fn drain(&mut self) {
-        self.mark_steps = self
-            .mark_steps
-            .saturating_add(self.tracer.drain_sliced(self.slice_budget));
+    fn drain_parallel(&mut self) {
+        let (steps, rounds) = self
+            .tracer
+            .drain_parallel_until_empty(self.worker_count, self.slice_budget);
+        self.mark_steps = self.mark_steps.saturating_add(steps);
+        self.mark_rounds = self.mark_rounds.saturating_add(rounds);
     }
 
-    fn run_ephemeron_fixpoint(&mut self) {
+    fn run_ephemeron_fixpoint_parallel(&mut self) {
         loop {
-            let mut visitor = MajorEphemeronTracer::new(&mut self.tracer);
-            for object in self.objects {
-                if object.is_marked() {
-                    object.visit_ephemerons(&mut visitor);
+            let changed = if self.worker_count.max(1) == 1 || self.objects.len() <= 1 {
+                let mut visitor = MajorEphemeronTracer::new(&mut self.tracer);
+                for object in self.objects {
+                    if object.is_marked() {
+                        object.visit_ephemerons(&mut visitor);
+                    }
                 }
-            }
-            let changed = visitor.changed;
-            let tracer = visitor.finish();
-            self.mark_steps = self
-                .mark_steps
-                .saturating_add(tracer.drain_sliced(self.slice_budget));
+                let changed = visitor.changed;
+                let _tracer = visitor.finish();
+                changed
+            } else {
+                self.scan_ephemerons_parallel()
+            };
+            let (steps, rounds) = self
+                .tracer
+                .drain_parallel_until_empty(self.worker_count, self.slice_budget);
+            self.mark_steps = self.mark_steps.saturating_add(steps);
+            self.mark_rounds = self.mark_rounds.saturating_add(rounds);
             if !changed {
                 break;
             }
         }
     }
 
+    fn scan_ephemerons_parallel(&mut self) -> bool {
+        let workers = self.worker_count.max(1).min(self.objects.len().max(1));
+        let chunk_size = self.objects.len().max(1).div_ceil(workers);
+        let shared = ParallelMarkShared::new(self.objects, self.tracer.index);
+        let worker_outputs = thread::scope(|scope| {
+            let mut handles = Vec::with_capacity(workers);
+            for worker_index in 0..workers {
+                let shared = shared;
+                let start = worker_index.saturating_mul(chunk_size);
+                let end = (start + chunk_size).min(self.objects.len());
+                if start >= end {
+                    continue;
+                }
+                handles.push(scope.spawn(move || {
+                    let mut worker = shared.tracer(MarkWorklist::default());
+                    let changed = {
+                        let mut visitor = MajorEphemeronTracer::new(&mut worker);
+                        for object in &shared.objects()[start..end] {
+                            if object.is_marked() {
+                                object.visit_ephemerons(&mut visitor);
+                            }
+                        }
+                        visitor.changed
+                    };
+                    (changed, worker.into_worklist())
+                }));
+            }
+
+            let mut outputs = Vec::with_capacity(handles.len());
+            for handle in handles {
+                outputs.push(handle.join().expect("parallel ephemeron worker panicked"));
+            }
+            outputs
+        });
+
+        let mut changed = false;
+        for (worker_changed, mut worklist) in worker_outputs {
+            changed |= worker_changed;
+            self.tracer.worklist.append(&mut worklist);
+        }
+        changed
+    }
+
     fn mark_steps(&self) -> u64 {
         self.mark_steps
+    }
+
+    fn mark_rounds(&self) -> u64 {
+        self.mark_rounds
     }
 }
 
@@ -1803,8 +2092,7 @@ impl EphemeronVisitor for MinorEphemeronTracer<'_, '_> {
             return;
         };
         let value_record = &self.tracer.objects[value_index];
-        if value_record.space() == SpaceKind::Nursery && !value_record.is_marked() {
-            value_record.set_marked(true);
+        if value_record.space() == SpaceKind::Nursery && value_record.mark_if_unmarked() {
             self.tracer.young_worklist.push(value_index);
             self.changed = true;
         }
@@ -1816,6 +2104,48 @@ struct MarkTracer<'a> {
     index: &'a HashMap<NonNull<ObjectHeader>, usize>,
     worklist: MarkWorklist<usize>,
 }
+
+#[derive(Clone, Copy)]
+struct ParallelMarkShared<'a> {
+    objects_ptr: *const ObjectRecord,
+    objects_len: usize,
+    index_ptr: *const HashMap<NonNull<ObjectHeader>, usize>,
+    _marker: PhantomData<&'a ()>,
+}
+
+impl<'a> ParallelMarkShared<'a> {
+    fn new(objects: &'a [ObjectRecord], index: &'a HashMap<NonNull<ObjectHeader>, usize>) -> Self {
+        Self {
+            objects_ptr: objects.as_ptr(),
+            objects_len: objects.len(),
+            index_ptr: index as *const _,
+            _marker: PhantomData,
+        }
+    }
+
+    fn tracer(self, worklist: MarkWorklist<usize>) -> MarkTracer<'a> {
+        MarkTracer::with_worklist(self.objects(), self.index(), worklist)
+    }
+
+    fn minor_tracer(self, worklist: MarkWorklist<usize>) -> MinorTracer<'a> {
+        MinorTracer::with_worklist(self.objects(), self.index(), worklist)
+    }
+
+    fn objects(self) -> &'a [ObjectRecord] {
+        unsafe { slice::from_raw_parts(self.objects_ptr, self.objects_len) }
+    }
+
+    fn index(self) -> &'a HashMap<NonNull<ObjectHeader>, usize> {
+        unsafe { &*self.index_ptr }
+    }
+}
+
+// SAFETY: `ParallelMarkShared` is only constructed for stop-the-world mark rounds.
+// During those rounds, the object graph and index are read-only across workers.
+// The only shared mutation is through per-object atomic mark bits, while each
+// worker owns a private worklist.
+unsafe impl Send for ParallelMarkShared<'_> {}
+unsafe impl Sync for ParallelMarkShared<'_> {}
 
 impl<'a> MarkTracer<'a> {
     const SPLIT_THRESHOLD: usize = 32;
@@ -1846,8 +2176,7 @@ impl<'a> MarkTracer<'a> {
 
     fn mark_index(&mut self, index: usize) {
         let object = &self.objects[index];
-        if !object.is_marked() {
-            object.set_marked(true);
+        if object.mark_if_unmarked() {
             self.worklist.push(index);
         }
     }
@@ -1909,29 +2238,66 @@ impl<'a> MarkTracer<'a> {
             worker_lists.push(stolen);
         }
 
+        if worker_lists.len() == 1 {
+            let mut only_worker = MarkTracer::with_worklist(
+                self.objects,
+                self.index,
+                worker_lists.pop().expect("single worker list"),
+            );
+            let drained = only_worker.drain_one_slice(slice_budget);
+            self.worklist = only_worker.into_worklist();
+            return (drained, u64::from(drained > 0));
+        }
+
         let mut drained_objects = 0usize;
         let mut drained_slices = 0u64;
-        for worker_list in worker_lists {
-            let mut worker = MarkTracer::with_worklist(self.objects, self.index, worker_list);
-            let drained = worker.drain_one_slice(slice_budget);
+        let shared = ParallelMarkShared::new(self.objects, self.index);
+        let worker_outputs = thread::scope(|scope| {
+            let mut handles = Vec::with_capacity(worker_lists.len());
+            for worker_list in worker_lists {
+                let shared = shared;
+                handles.push(scope.spawn(move || {
+                    let mut worker = shared.tracer(worker_list);
+                    let drained = worker.drain_one_slice(slice_budget);
+                    let remainder = worker.into_worklist();
+                    (drained, remainder)
+                }));
+            }
+
+            let mut outputs = Vec::with_capacity(handles.len());
+            for handle in handles {
+                outputs.push(handle.join().expect("parallel mark worker panicked"));
+            }
+            outputs
+        });
+
+        for (drained, mut remainder) in worker_outputs {
             if drained > 0 {
                 drained_objects = drained_objects.saturating_add(drained);
                 drained_slices = drained_slices.saturating_add(1);
             }
-            let mut remainder = worker.into_worklist();
             self.worklist.append(&mut remainder);
         }
 
         (drained_objects, drained_slices)
     }
 
-    fn drain_sliced(&mut self, slice_budget: usize) -> u64 {
+    fn drain_parallel_until_empty(
+        &mut self,
+        worker_count: usize,
+        slice_budget: usize,
+    ) -> (u64, u64) {
         let mut slices = 0u64;
+        let mut rounds = 0u64;
         while !self.worklist.is_empty() {
-            let _drained = self.drain_one_slice(slice_budget);
-            slices += 1;
+            let (_drained_objects, drained_slices) =
+                self.drain_worker_round(worker_count, slice_budget);
+            if drained_slices > 0 {
+                slices = slices.saturating_add(drained_slices);
+                rounds = rounds.saturating_add(1);
+            }
         }
-        slices
+        (slices, rounds)
     }
 }
 
@@ -1960,6 +2326,22 @@ impl<'a> MinorTracer<'a> {
         }
     }
 
+    fn with_worklist(
+        objects: &'a [ObjectRecord],
+        index: &'a HashMap<NonNull<ObjectHeader>, usize>,
+        young_worklist: MarkWorklist<usize>,
+    ) -> Self {
+        Self {
+            objects,
+            index,
+            young_worklist,
+        }
+    }
+
+    fn into_worklist(self) -> MarkWorklist<usize> {
+        self.young_worklist
+    }
+
     fn scan_source(&mut self, object: GcErased) {
         let Some(&index) = self.index.get(&object.header()) else {
             return;
@@ -1974,25 +2356,124 @@ impl<'a> MinorTracer<'a> {
 
     fn mark_young(&mut self, index: usize) {
         let object = &self.objects[index];
-        if object.space() == SpaceKind::Nursery && !object.is_marked() {
-            object.set_marked(true);
+        if object.space() == SpaceKind::Nursery && object.mark_if_unmarked() {
             self.young_worklist.push(index);
         }
     }
 
-    fn drain(&mut self) {
-        while !self.young_worklist.is_empty() {
-            if self.young_worklist.len() > Self::SPLIT_THRESHOLD {
-                let mut spill = self.young_worklist.split_half();
-                while let Some(index) = spill.pop() {
-                    self.objects[index].trace_edges(self);
-                }
-                continue;
+    fn drain_one_slice(&mut self, slice_budget: usize) -> usize {
+        let budget = slice_budget.max(1);
+        let mut drained = 0usize;
+
+        if self.young_worklist.len() > Self::SPLIT_THRESHOLD {
+            let mut spill = self.young_worklist.split_half();
+            while drained < budget {
+                let Some(index) = spill.pop() else {
+                    break;
+                };
+                self.objects[index].trace_edges(self);
+                drained += 1;
+            }
+            while let Some(index) = spill.pop() {
+                self.young_worklist.push(index);
+            }
+        } else {
+            while drained < budget {
+                let Some(index) = self.young_worklist.pop() else {
+                    break;
+                };
+                self.objects[index].trace_edges(self);
+                drained += 1;
+            }
+        }
+
+        drained
+    }
+
+    fn drain_worker_round(&mut self, worker_count: usize, slice_budget: usize) -> (usize, u64) {
+        let workers = worker_count.max(1);
+        if workers == 1 || self.young_worklist.len() <= 1 {
+            let drained = self.drain_one_slice(slice_budget);
+            return (drained, u64::from(drained > 0));
+        }
+
+        let mut worker_lists = vec![core::mem::take(&mut self.young_worklist)];
+        while worker_lists.len() < workers {
+            let Some((split_index, split_len)) = worker_lists
+                .iter()
+                .enumerate()
+                .map(|(index, list)| (index, list.len()))
+                .max_by_key(|(_, len)| *len)
+            else {
+                break;
+            };
+            if split_len <= 1 {
+                break;
+            }
+            let stolen = worker_lists[split_index].split_half();
+            worker_lists.push(stolen);
+        }
+
+        if worker_lists.len() == 1 {
+            let mut only_worker = MinorTracer::with_worklist(
+                self.objects,
+                self.index,
+                worker_lists.pop().expect("single worker list"),
+            );
+            let drained = only_worker.drain_one_slice(slice_budget);
+            self.young_worklist = only_worker.into_worklist();
+            return (drained, u64::from(drained > 0));
+        }
+
+        let shared = ParallelMarkShared::new(self.objects, self.index);
+        let worker_outputs = thread::scope(|scope| {
+            let mut handles = Vec::with_capacity(worker_lists.len());
+            for worker_list in worker_lists {
+                let shared = shared;
+                handles.push(scope.spawn(move || {
+                    let mut worker = shared.minor_tracer(worker_list);
+                    let drained = worker.drain_one_slice(slice_budget);
+                    let remainder = worker.into_worklist();
+                    (drained, remainder)
+                }));
             }
 
-            let index = self.young_worklist.pop().expect("non-empty worklist");
-            self.objects[index].trace_edges(self);
+            let mut outputs = Vec::with_capacity(handles.len());
+            for handle in handles {
+                outputs.push(handle.join().expect("parallel minor worker panicked"));
+            }
+            outputs
+        });
+
+        let mut drained_objects = 0usize;
+        let mut drained_slices = 0u64;
+        for (drained, mut remainder) in worker_outputs {
+            if drained > 0 {
+                drained_objects = drained_objects.saturating_add(drained);
+                drained_slices = drained_slices.saturating_add(1);
+            }
+            self.young_worklist.append(&mut remainder);
         }
+
+        (drained_objects, drained_slices)
+    }
+
+    fn drain_parallel_until_empty(
+        &mut self,
+        worker_count: usize,
+        slice_budget: usize,
+    ) -> (u64, u64) {
+        let mut slices = 0u64;
+        let mut rounds = 0u64;
+        while !self.young_worklist.is_empty() {
+            let (_drained_objects, drained_slices) =
+                self.drain_worker_round(worker_count, slice_budget);
+            if drained_slices > 0 {
+                slices = slices.saturating_add(drained_slices);
+                rounds = rounds.saturating_add(1);
+            }
+        }
+        (slices, rounds)
     }
 }
 

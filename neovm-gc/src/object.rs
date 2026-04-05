@@ -1,6 +1,7 @@
 use core::alloc::Layout;
 use core::cell::Cell;
 use core::ptr::NonNull;
+use core::sync::atomic::{AtomicU8, Ordering};
 use std::alloc::{alloc, dealloc};
 
 use crate::descriptor::{
@@ -56,7 +57,7 @@ pub(crate) struct ObjectHeader {
     space: Cell<SpaceKind>,
     generation: Cell<Generation>,
     age: Cell<u8>,
-    mark_bits: Cell<u8>,
+    mark_bits: AtomicU8,
     forwarding: Cell<Option<NonNull<ObjectHeader>>>,
     moved_out: Cell<bool>,
 }
@@ -75,7 +76,7 @@ impl ObjectHeader {
     }
 
     pub(crate) fn is_marked(&self) -> bool {
-        self.mark_bits.get() != 0
+        self.mark_bits.load(Ordering::Acquire) != 0
     }
 
     pub(crate) fn age(&self) -> u8 {
@@ -83,11 +84,17 @@ impl ObjectHeader {
     }
 
     pub(crate) fn set_marked(&self, marked: bool) {
-        self.mark_bits.set(u8::from(marked));
+        self.mark_bits.store(u8::from(marked), Ordering::Release);
     }
 
     pub(crate) fn clear_mark(&self) {
-        self.mark_bits.set(0);
+        self.mark_bits.store(0, Ordering::Release);
+    }
+
+    pub(crate) fn mark_if_unmarked(&self) -> bool {
+        self.mark_bits
+            .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
     }
 
     pub(crate) fn forward_to(&self, new_header: NonNull<ObjectHeader>) {
@@ -151,7 +158,7 @@ impl ObjectRecord {
                 space: Cell::new(space),
                 generation: Cell::new(space.initial_generation()),
                 age: Cell::new(0),
-                mark_bits: Cell::new(0),
+                mark_bits: AtomicU8::new(0),
                 forwarding: Cell::new(None),
                 moved_out: Cell::new(false),
             });
@@ -208,6 +215,10 @@ impl ObjectRecord {
 
     pub(crate) fn clear_mark(&self) {
         self.header().clear_mark();
+    }
+
+    pub(crate) fn mark_if_unmarked(&self) -> bool {
+        self.header().mark_if_unmarked()
     }
 
     pub(crate) fn payload_ptr(&self) -> NonNull<u8> {
@@ -268,7 +279,7 @@ impl ObjectRecord {
                 space: Cell::new(space),
                 generation: Cell::new(space.initial_generation()),
                 age: Cell::new(self.header().age.get().saturating_add(1)),
-                mark_bits: Cell::new(0),
+                mark_bits: AtomicU8::new(0),
                 forwarding: Cell::new(None),
                 moved_out: Cell::new(false),
             });
@@ -302,3 +313,7 @@ impl Drop for ObjectRecord {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "object_test.rs"]
+mod tests;

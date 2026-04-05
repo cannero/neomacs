@@ -9,8 +9,10 @@ pub struct CollectionStats {
     pub major_collections: u64,
     /// Bytes promoted from nursery to old generation.
     pub promoted_bytes: u64,
-    /// Number of major-mark slices drained across completed GC cycles.
+    /// Number of mark slices drained across completed GC cycles.
     pub mark_steps: u64,
+    /// Number of mark worker rounds drained across completed GC cycles.
+    pub mark_rounds: u64,
     /// Bytes reclaimed across completed GC cycles.
     pub reclaimed_bytes: u64,
     /// Number of finalized objects across completed GC cycles.

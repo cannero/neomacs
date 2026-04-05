@@ -41,7 +41,7 @@ pub struct CollectionPlan {
     pub parallel: bool,
     /// Number of collector workers planned for this cycle.
     pub worker_count: usize,
-    /// Maximum number of objects to drain from one major-mark slice.
+    /// Maximum number of objects to drain from one mark slice.
     pub mark_slice_budget: usize,
     /// Number of old regions implicated by this plan.
     pub target_old_regions: usize,
@@ -58,10 +58,12 @@ pub struct CollectionPlan {
 pub struct MajorMarkProgress {
     /// Whether the major-mark worklist is fully drained.
     pub completed: bool,
-    /// Number of objects drained in the most recent slice.
+    /// Number of objects drained in the most recent externally advanced step or round.
     pub drained_objects: usize,
     /// Total mark slices executed for this session so far.
     pub mark_steps: u64,
+    /// Total worker rounds executed for this session so far.
+    pub mark_rounds: u64,
     /// Remaining pending objects in the mark worklist.
     pub remaining_work: usize,
 }
