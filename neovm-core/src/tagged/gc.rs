@@ -1079,9 +1079,25 @@ impl TaggedHeap {
             while !check.is_null() {
                 unsafe {
                     if (*check).kind == HeapObjectKind::String {
-                        let s = &(*(check as *const StringObj)).data;
-                        let str_ptr = s.as_str().as_ptr() as usize;
+                        let obj = &*(check as *const StringObj);
+                        let str_ptr = obj.data.as_str().as_ptr() as usize;
                         if str_ptr != 0 && str_ptr < 0x1000 {
+                            if corrupt_count == 0 {
+                                // Print detailed info about the first corrupt StringObj
+                                tracing::error!(
+                                    "GC CYCLE {}: FIRST corrupt StringObj at {:p}, \
+                                     header.marked={}, header.kind={:?}, \
+                                     data.as_str().as_ptr()={:#x}, \
+                                     data.byte_len()={}, data.multibyte={}",
+                                    cycle,
+                                    check,
+                                    obj.header.marked,
+                                    obj.header.kind,
+                                    str_ptr,
+                                    obj.data.byte_len(),
+                                    obj.data.multibyte,
+                                );
+                            }
                             corrupt_count += 1;
                         }
                     }
