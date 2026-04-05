@@ -64,7 +64,7 @@ fn gnu_indent_el_eval() -> Context {
     let mut ev = Context::new();
     install_bare_elisp_shims(&mut ev);
     ev.set_lexical_binding(true);
-    let progress_stub_forms = super::super::parser::parse_forms(
+    ev.eval_str(
         r#"
         (setq fill-prefix nil)
         (setq abbrev-mode nil)
@@ -76,8 +76,7 @@ fn gnu_indent_el_eval() -> Context {
         (fset 'progress-reporter-done (lambda (&rest _args) nil))
         "#,
     )
-    .expect("parse progress reporter stubs");
-    ev.eval_forms(&progress_stub_forms);
+    .expect("eval progress reporter stubs");
     eval_first_form_after_marker(
         &mut ev,
         &syntax_source,
@@ -150,8 +149,7 @@ fn gnu_indent_el_eval() -> Context {
 }
 
 fn eval_all(ev: &mut Context, src: &str) -> Vec<String> {
-    let forms = super::super::parser::parse_forms(src).expect("parse forms");
-    ev.eval_forms(&forms)
+    ev.eval_str_each(src)
         .iter()
         .map(super::super::format_eval_result)
         .collect()
@@ -570,15 +568,12 @@ fn eval_indent_to_inserts_padding_and_returns_column() {
 fn eval_indent_to_rejects_non_fixnump_minimum() {
     crate::test_utils::init_test_tracing();
     let mut ev = super::super::eval::Context::new();
-    let forms = super::super::parser::parse_forms(
+    let results = ev.eval_str_each(
         r#"(with-temp-buffer (condition-case err (indent-to 4 nil) (error err)))
            (with-temp-buffer (condition-case err (indent-to 4 "x") (error err)))
            (with-temp-buffer (condition-case err (indent-to 4 t) (error err)))
            (with-temp-buffer (condition-case err (indent-to "x") (error err)))"#,
-    )
-    .expect("parse forms");
-
-    let results = ev.eval_forms(&forms);
+    );
     let printed: Vec<String> = results
         .iter()
         .map(super::super::format_eval_result)
@@ -594,7 +589,7 @@ fn eval_indent_to_rejects_non_fixnump_minimum() {
 fn eval_indent_builtins_respect_dynamic_and_buffer_local_settings() {
     crate::test_utils::init_test_tracing();
     let mut ev = super::super::eval::Context::new();
-    let forms = super::super::parser::parse_forms(
+    let results = ev.eval_str_each(
         r#"(let ((tab-width 4))
              (with-temp-buffer
                (insert "a\tb")
@@ -614,10 +609,7 @@ fn eval_indent_builtins_respect_dynamic_and_buffer_local_settings() {
              (insert "\tb")
              (goto-char (point-max))
              (list (current-indentation) (current-column)))"#,
-    )
-    .expect("parse forms");
-
-    let results = ev.eval_forms(&forms);
+    );
     let printed: Vec<String> = results
         .iter()
         .map(super::super::format_eval_result)

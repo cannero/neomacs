@@ -1,8 +1,6 @@
 use crate::emacs_core::eval::GuiFrameHostSize;
 use crate::emacs_core::value::{ValueKind, VecLikeType};
-use crate::emacs_core::{
-    Context, DisplayHost, GuiFrameHostRequest, Value, format_eval_result, parse_forms,
-};
+use crate::emacs_core::{Context, DisplayHost, GuiFrameHostRequest, Value, format_eval_result};
 use crate::test_utils::{runtime_startup_context, runtime_startup_eval_all};
 use std::cell::RefCell;
 use std::fs;
@@ -12,13 +10,12 @@ use std::rc::Rc;
 /// Evaluate all forms with a fresh evaluator that has a frame+window set up.
 fn eval_with_frame(src: &str) -> Vec<String> {
     let mut ev = Context::new();
-    let forms = parse_forms(src).expect("parse");
     // Create a buffer for the initial window.
     let buf = ev.buffers.create_buffer("*scratch*");
     ev.buffers.set_current(buf);
     // Create a frame so window/frame builtins have something to work with.
     ev.frames.create_frame("F1", 800, 600, buf);
-    ev.eval_forms(&forms)
+    ev.eval_str_each(src)
         .iter()
         .map(format_eval_result)
         .collect()
@@ -30,7 +27,6 @@ fn eval_one_with_frame(src: &str) -> String {
 
 fn eval_with_gui_frame(src: &str) -> Vec<String> {
     let mut ev = Context::new();
-    let forms = parse_forms(src).expect("parse");
     let buf = ev.buffers.create_buffer("*scratch*");
     ev.buffers.set_current(buf);
     let fid = ev.frames.create_frame("F1", 800, 600, buf);
@@ -38,7 +34,7 @@ fn eval_with_gui_frame(src: &str) -> Vec<String> {
         let frame = ev.frames.get_mut(fid).expect("frame");
         frame.set_window_system(Some(Value::symbol("neo")));
     }
-    ev.eval_forms(&forms)
+    ev.eval_str_each(src)
         .iter()
         .map(format_eval_result)
         .collect()

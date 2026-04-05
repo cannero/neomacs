@@ -951,20 +951,15 @@ fn text_property_any_not_found() {
 fn text_property_any_uses_live_marker_end_after_insertions() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
-    let forms = crate::emacs_core::parser::parse_forms(
-        r#"(insert "abc")
+    let result = eval
+        .eval_str(
+            r#"(insert "abc")
            (let ((end (copy-marker (point-max) t)))
              (goto-char (point-max))
              (insert "Z")
              (put-text-property 4 5 'hard t)
              (text-property-any 1 end 'hard t))"#,
-    )
-    .expect("parse text-property-any marker regression");
-    let result = eval
-        .eval_forms(&forms)
-        .into_iter()
-        .last()
-        .expect("one form")
+        )
         .expect("evaluation succeeds");
     assert_eq!(result, Value::fixnum(4));
 }

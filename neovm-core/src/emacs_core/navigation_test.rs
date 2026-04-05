@@ -107,9 +107,7 @@ fn gnu_simple_line_eval() -> Context {
 
 /// Evaluate an Elisp string and return the result Value.
 fn eval_str(ev: &mut Context, src: &str) -> Value {
-    let forms = super::super::parser::parse_forms(src).unwrap();
-    let results = ev.eval_forms(&forms);
-    results.into_iter().last().unwrap().unwrap()
+    ev.eval_str(src).unwrap()
 }
 
 /// Evaluate and expect an integer result.

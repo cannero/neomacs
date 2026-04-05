@@ -1,7 +1,7 @@
 use super::*;
 use crate::emacs_core::autoload::is_autoload_value;
 use crate::emacs_core::bytecode::opcode::Op;
-use crate::emacs_core::{format_eval_result, parse_forms};
+use crate::emacs_core::format_eval_result;
 use crate::test_utils::{
     eval_with_ldefs_boot_autoloads, runtime_startup_context, runtime_startup_eval_all,
 };
@@ -203,8 +203,7 @@ fn yank_rectangle_loaded_rejects_non_list_killed_rectangle() {
 fn yank_rectangle_loaded_function_is_simple_bytecode_call() {
     crate::test_utils::init_test_tracing();
     let mut eval = runtime_startup_context();
-    let forms = parse_forms(r#"(load "rect")"#).expect("parse rect load");
-    let results = eval.eval_forms(&forms);
+    let results = eval.eval_str_each(r#"(load "rect")"#);
     assert!(
         results.iter().all(Result::is_ok),
         "rect load failed: {:?}",

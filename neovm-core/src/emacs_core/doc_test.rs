@@ -1,7 +1,7 @@
 use super::*;
 use crate::emacs_core::Expr;
 use crate::emacs_core::builtins::builtin_documentation_stringp;
-use crate::emacs_core::{Context, format_eval_result, parse_forms};
+use crate::emacs_core::{Context, format_eval_result};
 use crate::test_utils::{
     load_minimal_gnu_help_runtime, runtime_startup_context, runtime_startup_eval_all,
 };

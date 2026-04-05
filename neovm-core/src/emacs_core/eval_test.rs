@@ -1,7 +1,7 @@
 use super::*;
 use crate::emacs_core::error::Flow;
 use crate::emacs_core::eval::{ConditionFrame, ResumeTarget};
-use crate::emacs_core::{format_eval_result, parse_forms};
+use crate::emacs_core::format_eval_result;
 use crate::test_utils::{
     load_minimal_gnu_backquote_runtime, runtime_startup_context, runtime_startup_eval_all,
 };
@@ -40,8 +40,7 @@ fn eval_one_with_frame(src: &str) -> String {
 fn eval_all_with_subr(src: &str) -> Vec<String> {
     let mut ev = Context::new();
     load_minimal_gnu_backquote_runtime(&mut ev);
-    let forms = parse_forms(src).expect("parse");
-    ev.eval_forms(&forms)
+    ev.eval_str_each(src)
         .iter()
         .map(format_eval_result)
         .collect()
