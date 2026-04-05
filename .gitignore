@@ -192,6 +192,8 @@ core
 core.*[0-9]
 gmon.out
 perf.data
+perf.data.old
+heaptrack.*
 native-lisp/
 oo/
 oo-spd/
