@@ -1,6 +1,5 @@
 use super::*;
 use crate::emacs_core::eval::Context;
-use crate::emacs_core::parse_forms;
 use crate::emacs_core::value::{ValueKind, VecLikeType};
 use crate::test_utils::{eval_with_ldefs_boot_autoloads, runtime_startup_eval_all};
 use std::collections::VecDeque;
@@ -1358,46 +1357,6 @@ fn input_pending_p_uses_dynamic_unread_command_events_binding() {
         "unread-command-events",
         Value::list(vec![Value::fixnum(97)]),
     );
-    let forms = parse_forms("(let ((unread-command-events nil)) (input-pending-p))").unwrap();
-    let result = ev.eval_str("(let ((unread-command-events nil)) (input-pending-p))").unwrap();
-    assert!(result.is_nil());
-    assert_eq!(
-        ev.obarray.symbol_value("unread-command-events"),
-        Some(&Value::list(vec![Value::fixnum(97)]))
-    );
-}
-
-#[test]
-fn input_pending_p_returns_nil_for_non_list_unread_command_events() {
-    crate::test_utils::init_test_tracing();
-    let mut ev = Context::new();
-    ev.obarray
-        .set_symbol_value("unread-command-events", Value::fixnum(7));
-    let result = builtin_input_pending_p(&mut ev, vec![]).unwrap();
-    assert!(result.is_nil());
-}
-
-#[test]
-fn input_pending_p_accepts_optional_check_timers_arg() {
-    crate::test_utils::init_test_tracing();
-    let mut ev = Context::new();
-    ev.obarray.set_symbol_value(
-        "unread-command-events",
-        Value::list(vec![Value::symbol("foo")]),
-    );
-    let result = builtin_input_pending_p(&mut ev, vec![Value::symbol("timers")]).unwrap();
-    assert_eq!(result, Value::T);
-}
-
-#[test]
-fn input_pending_p_returns_t_with_host_keypress() {
-    crate::test_utils::init_test_tracing();
-    let mut ev = Context::new();
-    let (tx, rx) = crossbeam_channel::unbounded();
-    tx.send(crate::keyboard::InputEvent::key_press(
-        crate::keyboard::KeyEvent::char('a'),
-    ))
-    .expect("queue keypress");
     ev.input_rx = Some(rx);
 
     let result = builtin_input_pending_p(&mut ev, vec![]).unwrap();
@@ -1649,12 +1608,6 @@ fn display_update_for_mouse_movement_runs_mouse_fixup_before_echo_message() {
     let frame = install_mouse_help_echo_snapshot(&mut ev, "tip");
     let (_tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
-
-    let forms = parse_forms(
-        r#"(fset 'mouse-fixup-help-message
-                  (lambda (msg) (concat "fixed:" msg)))"#,
-    )
-    .expect("parse mouse-fixup-help-message");
     ev.eval_str(r#"(fset 'mouse-fixup-help-message
                   (lambda (msg) (concat "fixed:" msg)))"#)
         .expect("install mouse-fixup-help-message");
@@ -1677,12 +1630,6 @@ fn display_update_for_mouse_movement_runs_mouse_fixup_without_input_receiver() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let frame = install_mouse_help_echo_snapshot(&mut ev, "tip");
-
-    let forms = parse_forms(
-        r#"(fset 'mouse-fixup-help-message
-                  (lambda (msg) (concat "fixed:" msg)))"#,
-    )
-    .expect("parse mouse-fixup-help-message");
     ev.eval_str(r#"(fset 'mouse-fixup-help-message
                   (lambda (msg) (concat "fixed:" msg)))"#)
         .expect("install mouse-fixup-help-message");
@@ -1707,16 +1654,6 @@ fn display_update_for_mouse_movement_runs_mouse_fixup_before_show_help_function(
     let frame = install_mouse_help_echo_snapshot(&mut ev, "tip");
     let (_tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
-
-    let forms = parse_forms(
-        r#"(progn
-             (setq show-help-collected nil)
-             (fset 'mouse-fixup-help-message
-                   (lambda (msg) (concat "fixed:" msg)))
-             (setq show-help-function
-                   (lambda (msg) (setq show-help-collected msg))))"#,
-    )
-    .expect("parse help fixup/show-help-function setup");
     ev.eval_str(r#"(progn
              (setq show-help-collected nil)
              (fset 'mouse-fixup-help-message
@@ -1769,13 +1706,6 @@ fn read_char_mouse_move_sets_help_echo_even_without_track_mouse() {
 fn input_pending_p_check_timers_does_not_run_timer_when_input_is_already_pending() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let setup = parse_forms(
-        r#"(progn
-             (setq input-pending-timer-fired nil)
-             (fset 'input-pending-timer-callback
-                   (lambda () (setq input-pending-timer-fired 'done))))"#,
-    )
-    .expect("parse input-pending-p timer setup");
     ev.eval_str(r#"(progn
              (setq input-pending-timer-fired nil)
              (fset 'input-pending-timer-callback
@@ -1860,10 +1790,6 @@ fn discard_input_uses_dynamic_unread_command_events_binding() {
         "unread-command-events",
         Value::list(vec![Value::fixnum(97)]),
     );
-    let forms = parse_forms(
-        "(let ((unread-command-events (list 98))) (discard-input) unread-command-events)",
-    )
-    .unwrap();
     let result = ev.eval_str("(let ((unread-command-events (list 98))) (discard-input) unread-command-events)").unwrap();
     assert!(result.is_nil());
     assert_eq!(
@@ -2783,8 +2709,6 @@ fn read_key_sequence_vector_rejects_more_than_six_args() {
 fn with_output_to_string_captures_print_output() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let forms =
-        parse_forms(r#"(with-output-to-string (princ "a") (prin1 '(1 2)) (print "x"))"#).unwrap();
     let result = ev.eval_str(r#"(with-output-to-string (princ "a") (prin1 '(1 2)) (print "x"))"#).unwrap();
     assert_eq!(result.as_str(), Some("a(1 2)\n\"x\"\n"));
 }

@@ -5,7 +5,7 @@ use crate::emacs_core::load::{
     create_runtime_startup_evaluator_cached,
 };
 use crate::emacs_core::value::{ValueKind, VecLikeType};
-use crate::emacs_core::{Context, format_eval_result, parse_forms};
+use crate::emacs_core::{Context, format_eval_result};
 use crate::test_utils::{eval_with_ldefs_boot_autoloads, runtime_startup_eval_all};
 use std::fs;
 use std::path::PathBuf;
@@ -34,8 +34,7 @@ fn eval_with_interactive_shims() -> Context {
 
 fn eval_all(src: &str) -> Vec<String> {
     let mut ev = eval_with_interactive_shims();
-    let forms = parse_forms(src).expect("parse");
-    ev.eval_forms(&forms)
+    ev.eval_str_each(src)
         .iter()
         .map(format_eval_result)
         .collect()
@@ -133,7 +132,7 @@ fn gnu_simple_command_execute_eval() -> Context {
 
     let mut ev = Context::new();
     install_bare_elisp_shims(&mut ev);
-    let setup_forms = parse_forms(
+    ev.eval_str(
         r#"
         (defalias 'when-let* (cons 'macro #'(lambda (bindings &rest body)
           (let ((binding (car bindings)))
@@ -150,8 +149,7 @@ fn gnu_simple_command_execute_eval() -> Context {
         (fset 'where-is-internal (lambda (&rest _args) nil))
         "#,
     )
-    .expect("parse command-execute test stubs");
-    ev.eval_forms(&setup_forms);
+    .expect("eval command-execute test stubs");
     eval_first_form_after_marker(&mut ev, &subr_source, "(defun error (string &rest args)");
     eval_first_form_after_marker(
         &mut ev,
@@ -185,7 +183,7 @@ fn gnu_simple_execute_extended_command_eval() -> Context {
     let simple_source = fs::read_to_string(&simple_path).expect("read GNU simple.el");
 
     let mut ev = gnu_simple_command_execute_eval();
-    let setup_forms = parse_forms(
+        ev.eval_str(
         r#"
         (setq suggest-key-bindings nil)
         (setq extended-command-suggest-shorter nil)
@@ -195,9 +193,7 @@ fn gnu_simple_execute_extended_command_eval() -> Context {
               (lambda (&rest _args)
                 (signal 'end-of-file '("Error reading from stdin"))))
         "#,
-    )
-    .expect("parse execute-extended-command test stubs");
-    ev.eval_forms(&setup_forms);
+    ).expect("eval setup");
     eval_first_form_after_marker(
         &mut ev,
         &simple_source,
@@ -239,15 +235,13 @@ fn load_gnu_eval_expression_into(ev: &mut Context) {
     let simple_path = project_root.join("lisp/simple.el");
     let simple_source = fs::read_to_string(&simple_path).expect("read GNU simple.el");
 
-    let setup_forms = parse_forms(
+        ev.eval_str(
         r#"
         (defalias 'read--expression #'(lambda (&rest _args)
           (signal 'end-of-file '("Error reading from stdin"))))
         (defalias 'eval-expression-get-print-arguments #'(lambda (&rest _args) nil))
         "#,
-    )
-    .expect("parse eval-expression test stubs");
-    ev.eval_forms(&setup_forms);
+    ).expect("eval setup");
     eval_first_form_after_marker(
         ev,
         &simple_source,
@@ -284,14 +278,12 @@ fn gnu_simple_universal_argument_eval_all(src: &str) -> Vec<String> {
     let simple_source = fs::read_to_string(&simple_path).expect("read GNU simple.el");
 
     let mut ev = gnu_simple_command_execute_eval();
-    let setup_forms = parse_forms(
+        ev.eval_str(
         r#"
         (fset 'prefix-command-preserve-state (lambda () nil))
         (fset 'universal-argument--mode (lambda () nil))
         "#,
-    )
-    .expect("parse universal-argument test stubs");
-    ev.eval_forms(&setup_forms);
+    ).expect("eval setup");
     eval_first_form_after_marker(&mut ev, &simple_source, "(defun universal-argument ()");
     eval_all_with(&mut ev, src)
 }
@@ -303,7 +295,7 @@ fn gnu_simple_quoted_insert_eval_all(src: &str) -> Vec<String> {
     let simple_source = fs::read_to_string(&simple_path).expect("read GNU simple.el");
 
     let mut ev = gnu_simple_command_execute_eval();
-    let setup_forms = parse_forms(
+        ev.eval_str(
         r#"
         (defun cadr (x) (car (cdr x)))
         (defmacro with-no-warnings (&rest body) (cons 'progn body))
@@ -315,9 +307,7 @@ fn gnu_simple_quoted_insert_eval_all(src: &str) -> Vec<String> {
               (lambda (&rest _args)
                 (signal 'end-of-file '("Error reading from stdin"))))
         "#,
-    )
-    .expect("parse quoted-insert test stubs");
-    ev.eval_forms(&setup_forms);
+    ).expect("eval setup");
     eval_first_form_after_marker(&mut ev, &simple_source, "(defun quoted-insert (arg)");
     eval_all_with(&mut ev, src)
 }
@@ -1286,9 +1276,7 @@ fn interactive_lambda_r_capital_spec_uses_use_region_p_semantics() {
     let _ = ev.buffers.set_buffer_mark(current, 1);
 
     let mut context = InteractiveInvocationContext::default();
-    let _ = ev.eval_forms(
-        &parse_forms("(fset 'use-region-p (lambda () nil))").expect("parse use-region-p"),
-    );
+    let _ = ev.eval_str("(fset 'use-region-p (lambda () nil))");
     let args = interactive_args_from_string_code(
         &mut ev,
         "R",
@@ -1299,9 +1287,7 @@ fn interactive_lambda_r_capital_spec_uses_use_region_p_semantics() {
     .expect("R should produce args");
     assert_eq!(args, vec![Value::NIL, Value::NIL]);
 
-    let _ = ev.eval_forms(
-        &parse_forms("(fset 'use-region-p (lambda () t))").expect("parse use-region-p"),
-    );
+    let _ = ev.eval_str("(fset 'use-region-p (lambda () t))");
     let args = interactive_args_from_string_code(
         &mut ev,
         "R",

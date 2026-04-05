@@ -2,7 +2,7 @@ use super::super::intern::intern;
 use super::*;
 use crate::emacs_core::autoload::is_autoload_value;
 use crate::emacs_core::eval::Context;
-use crate::emacs_core::{format_eval_result, parse_forms};
+use crate::emacs_core::format_eval_result;
 use crate::test_utils::{eval_with_ldefs_boot_autoloads, runtime_startup_eval_all};
 
 fn bootstrap_eval_all(src: &str) -> Vec<String> {
@@ -259,7 +259,7 @@ fn test_start_with_append_reexecutes_last_macro_when_no_exec_is_nil() {
     use super::super::eval::Context;
 
     let mut eval = Context::new();
-    let setup = parse_forms(
+    let _ = eval.eval_str_each(
         "(progn
            (setq kmacro-append-count 0)
            (setq kmacro-append-ignore-direct-called nil)
@@ -275,9 +275,7 @@ fn test_start_with_append_reexecutes_last_macro_when_no_exec_is_nil() {
                (lambda ()
                  (interactive)
                  (setq kmacro-append-count (1+ kmacro-append-count))))))",
-    )
-    .expect("parse setup");
-    let _ = eval.eval_forms(&setup);
+    );
 
     builtin_start_kbd_macro(&mut eval, vec![]).expect("start");
     builtin_store_kbd_macro_event(&mut eval, vec![Value::symbol("ignore")]).expect("store");
@@ -318,7 +316,7 @@ fn test_start_with_append_real_key_macro_reexecutes_via_command_loop_and_marks_a
     use super::super::eval::Context;
 
     let mut eval = Context::new();
-    let setup = parse_forms(
+    let _ = eval.eval_str_each(
         r#"(progn
              (setq kmacro-append-real-count 0)
              (fset 'command-execute (lambda (cmd &optional _record _keys _special) (funcall cmd)))
@@ -328,9 +326,7 @@ fn test_start_with_append_real_key_macro_reexecutes_via_command_loop_and_marks_a
                  (lambda ()
                    (interactive)
                    (setq kmacro-append-real-count (1+ kmacro-append-real-count))))))"#,
-    )
-    .expect("parse setup");
-    let _ = eval.eval_forms(&setup);
+    );
 
     builtin_start_kbd_macro(&mut eval, vec![]).expect("start");
     builtin_store_kbd_macro_event(&mut eval, vec![Value::char('a')]).expect("store a");
@@ -363,15 +359,13 @@ fn test_start_with_append_no_exec_skips_reexecution() {
     use super::super::eval::Context;
 
     let mut eval = Context::new();
-    let setup = parse_forms(
+    let _ = eval.eval_str_each(
         "(progn
            (setq kmacro-no-exec-count 0)
            (fset 'kmacro-no-exec-bump
                  (lambda ()
                    (setq kmacro-no-exec-count (1+ kmacro-no-exec-count)))))",
-    )
-    .expect("parse setup");
-    let _ = eval.eval_forms(&setup);
+    );
 
     builtin_start_kbd_macro(&mut eval, vec![]).expect("start");
     builtin_store_kbd_macro_event(&mut eval, vec![Value::symbol("kmacro-no-exec-bump")])
@@ -479,7 +473,7 @@ fn test_execute_kbd_macro_restores_outer_execution_state() {
 fn test_execute_kbd_macro_real_key_events_use_command_loop_dispatch() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
-    let forms = parse_forms(
+    let results = eval.eval_str_each(
         r#"(progn
              (setq kmacro-command-loop-count 0)
              (fset 'command-execute (lambda (cmd &optional _record _keys _special) (funcall cmd)))
@@ -491,9 +485,7 @@ fn test_execute_kbd_macro_real_key_events_use_command_loop_dispatch() {
                    (setq kmacro-command-loop-count (1+ kmacro-command-loop-count))))
                (execute-kbd-macro "a")
                kmacro-command-loop-count))"#,
-    )
-    .expect("parse");
-    let results = eval.eval_forms(&forms);
+    );
     assert_eq!(results.len(), 1);
     assert_eq!(format_eval_result(&results[0]), "OK 1");
 }
@@ -502,7 +494,7 @@ fn test_execute_kbd_macro_real_key_events_use_command_loop_dispatch() {
 fn test_execute_kbd_macro_symbol_events_use_command_loop_dispatch() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
-    let forms = parse_forms(
+    let results = eval.eval_str_each(
         r#"(progn
              (setq kmacro-symbol-event-count 0)
              (setq kmacro-ignore-direct-called nil)
@@ -518,9 +510,7 @@ fn test_execute_kbd_macro_symbol_events_use_command_loop_dispatch() {
                    (setq kmacro-symbol-event-count (1+ kmacro-symbol-event-count))))
                (execute-kbd-macro [ignore])
                (list kmacro-symbol-event-count kmacro-ignore-direct-called)))"#,
-    )
-    .expect("parse");
-    let results = eval.eval_forms(&forms);
+    );
     assert_eq!(results.len(), 1);
     assert_eq!(format_eval_result(&results[0]), "OK (1 nil)");
 }
@@ -529,7 +519,7 @@ fn test_execute_kbd_macro_symbol_events_use_command_loop_dispatch() {
 fn test_execute_kbd_macro_named_symbol_uses_function_indirection_chain() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
-    let forms = parse_forms(
+    let results = eval.eval_str_each(
         r#"(progn
              (setq kmacro-named-symbol-count 0)
              (fset 'command-execute (lambda (cmd &optional _record _keys _special) (funcall cmd)))
@@ -543,9 +533,7 @@ fn test_execute_kbd_macro_named_symbol_uses_function_indirection_chain() {
              (fset 'kmacro-alias 'kmacro-target)
              (execute-kbd-macro 'kmacro-alias)
              kmacro-named-symbol-count)"#,
-    )
-    .expect("parse");
-    let results = eval.eval_forms(&forms);
+    );
     assert_eq!(results.len(), 1);
     assert_eq!(format_eval_result(&results[0]), "OK 1");
 }
@@ -556,7 +544,7 @@ fn test_call_last_kbd_macro_raw_prefix_repeats_real_key_macro() {
     use super::super::eval::Context;
 
     let mut eval = Context::new();
-    let setup = parse_forms(
+    let _ = eval.eval_str_each(
         r#"(progn
              (setq kmacro-call-last-count 0)
              (fset 'command-execute (lambda (cmd &optional _record _keys _special) (funcall cmd)))
@@ -566,9 +554,7 @@ fn test_call_last_kbd_macro_raw_prefix_repeats_real_key_macro() {
                  (lambda ()
                    (interactive)
                    (setq kmacro-call-last-count (1+ kmacro-call-last-count))))))"#,
-    )
-    .expect("parse setup");
-    let _ = eval.eval_forms(&setup);
+    );
 
     builtin_start_kbd_macro(&mut eval, vec![]).expect("start");
     builtin_store_kbd_macro_event(&mut eval, vec![Value::char('a')]).expect("store a");
@@ -589,7 +575,7 @@ fn test_call_last_kbd_macro_raw_prefix_repeats_real_key_macro() {
 fn test_call_last_kbd_macro_symbol_events_use_command_loop_dispatch() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
-    let setup = parse_forms(
+    let _ = eval.eval_str_each(
         r#"(progn
              (setq kmacro-call-last-symbol-count 0)
              (setq kmacro-call-last-ignore-direct-called nil)
@@ -604,9 +590,7 @@ fn test_call_last_kbd_macro_symbol_events_use_command_loop_dispatch() {
                    (interactive)
                    (setq kmacro-call-last-symbol-count
                          (1+ kmacro-call-last-symbol-count))))))"#,
-    )
-    .expect("parse setup");
-    let _ = eval.eval_forms(&setup);
+    );
 
     builtin_start_kbd_macro(&mut eval, vec![]).expect("start");
     builtin_store_kbd_macro_event(&mut eval, vec![Value::symbol("ignore")]).expect("store ignore");
@@ -632,7 +616,7 @@ fn test_execute_kbd_macro_zero_count_uses_loopfunc_for_real_key_macro() {
     use super::super::eval::Context;
 
     let mut eval = Context::new();
-    let setup = parse_forms(
+    let _ = eval.eval_str_each(
         r#"(progn
              (setq kmacro-loop-count 0)
              (setq kmacro-loopfunc-count 0)
@@ -647,9 +631,7 @@ fn test_execute_kbd_macro_zero_count_uses_loopfunc_for_real_key_macro() {
                  (lambda ()
                    (interactive)
                    (setq kmacro-loop-count (1+ kmacro-loop-count))))))"#,
-    )
-    .expect("parse setup");
-    let _ = eval.eval_forms(&setup);
+    );
 
     builtin_execute_kbd_macro(
         &mut eval,
@@ -679,7 +661,7 @@ fn test_end_kbd_macro_repeat_executes_remaining_iterations() {
     use super::super::eval::Context;
 
     let mut eval = Context::new();
-    let setup = parse_forms(
+    let _ = eval.eval_str_each(
         r#"(progn
              (setq kmacro-end-repeat-count 0)
              (fset 'command-execute (lambda (cmd &optional _record _keys _special) (funcall cmd)))
@@ -689,9 +671,7 @@ fn test_end_kbd_macro_repeat_executes_remaining_iterations() {
                  (lambda ()
                    (interactive)
                    (setq kmacro-end-repeat-count (1+ kmacro-end-repeat-count))))))"#,
-    )
-    .expect("parse setup");
-    let _ = eval.eval_forms(&setup);
+    );
 
     builtin_start_kbd_macro(&mut eval, vec![]).expect("start");
     builtin_store_kbd_macro_event(&mut eval, vec![Value::char('a')]).expect("store a");
@@ -713,7 +693,7 @@ fn test_end_kbd_macro_repeat_executes_remaining_iterations() {
 fn test_execute_kbd_macro_runs_termination_hook_after_restoring_runtime_state() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
-    let forms = parse_forms(
+    let _ = eval.eval_str_each(
         r#"(progn
              (setq kmacro-term-ok nil)
              (setq real-this-command 'outer-real)
@@ -729,9 +709,7 @@ fn test_execute_kbd_macro_runs_termination_hook_after_restoring_runtime_state() 
                (use-global-map g)
                (define-key g "a" (lambda () (interactive) 'ok)))
              (execute-kbd-macro "a"))"#,
-    )
-    .expect("parse");
-    let _ = eval.eval_forms(&forms);
+    );
 
     assert_eq!(
         eval.eval_symbol("kmacro-term-ok").expect("kmacro-term-ok"),
@@ -748,7 +726,7 @@ fn test_execute_kbd_macro_runs_termination_hook_after_restoring_runtime_state() 
 fn test_execute_kbd_macro_runs_termination_hook_after_error() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
-    let forms = parse_forms(
+    let _ = eval.eval_str_each(
         r#"(progn
              (setq kmacro-error-term-ok nil)
              (setq real-this-command 'outer-real)
@@ -766,9 +744,7 @@ fn test_execute_kbd_macro_runs_termination_hook_after_error() {
              (condition-case nil
                  (execute-kbd-macro "a")
                (error nil)))"#,
-    )
-    .expect("parse");
-    let _ = eval.eval_forms(&forms);
+    );
 
     assert_eq!(
         eval.eval_symbol("kmacro-error-term-ok")
@@ -786,7 +762,7 @@ fn test_execute_kbd_macro_runs_termination_hook_after_error() {
 fn test_call_last_kbd_macro_preserves_gnu_real_this_command_shape() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
-    let setup = parse_forms(
+    let _ = eval.eval_str_each(
         r#"(progn
              (setq kmacro-call-last-term-ok nil)
              (fset 'command-execute (lambda (cmd &optional _record _keys _special) (funcall cmd)))
@@ -805,9 +781,7 @@ fn test_call_last_kbd_macro_preserves_gnu_real_this_command_shape() {
                                 (equal real-this-command last-kbd-macro)))))
              (setq kbd-macro-termination-hook '(kmacro-call-last-term-hook))
              (call-last-kbd-macro))"#,
-    )
-    .expect("parse setup");
-    let _ = eval.eval_forms(&setup);
+    );
 
     assert_eq!(
         eval.eval_symbol("kmacro-call-last-term-ok")

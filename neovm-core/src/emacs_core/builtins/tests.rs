@@ -5,7 +5,7 @@ use crate::emacs_core::editfns::{
 use crate::emacs_core::expr::Expr;
 use crate::emacs_core::textprop::builtin_make_overlay;
 use crate::emacs_core::value::{LambdaData, LambdaParams, ValueKind, VecLikeType};
-use crate::emacs_core::{Context, format_eval_result, parse_forms};
+use crate::emacs_core::{Context, format_eval_result};
 use crate::test_utils::{load_minimal_gnu_backquote_runtime, runtime_startup_eval_all};
 use std::fs;
 
@@ -225,16 +225,14 @@ fn pure_dispatch_typed_numeric_primitives_accept_markers() {
 fn eval_dispatch_typed_max_uses_live_marker_position_after_insertions() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
-    let forms = parse_forms(
+    let result = eval
+        .eval_str_each(
         r#"(insert "abc")
            (let ((m (copy-marker (point-max) t)))
              (goto-char 2)
              (insert "XYZ")
              (max 1 m))"#,
     )
-    .expect("parse max marker regression");
-    let result = eval
-        .eval_forms(&forms)
         .into_iter()
         .last()
         .expect("one form")
@@ -246,16 +244,14 @@ fn eval_dispatch_typed_max_uses_live_marker_position_after_insertions() {
 fn eval_dispatch_typed_min_uses_live_marker_position_after_insertions() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
-    let forms = parse_forms(
+    let result = eval
+        .eval_str_each(
         r#"(insert "abc")
            (let ((m (copy-marker (point-max) t)))
              (goto-char 2)
              (insert "XYZ")
              (min 10 m))"#,
     )
-    .expect("parse min marker regression");
-    let result = eval
-        .eval_forms(&forms)
         .into_iter()
         .last()
         .expect("one form")
@@ -1775,16 +1771,14 @@ fn subst_char_in_region_preserves_modified_flag_with_noundo() {
 fn subst_char_in_region_replaces_trailing_newline_with_marker_end() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
-    let forms = parse_forms(
+
+    let result = eval
+        .eval_str_each(
         r#"(insert "a\nb\n")
            (let ((end (copy-marker (point-max) t)))
              (subst-char-in-region (point-min) end ?\n ?\s t)
              (buffer-string))"#,
     )
-    .expect("parse marker-ended subst-char-in-region regression");
-
-    let result = eval
-        .eval_forms(&forms)
         .into_iter()
         .last()
         .expect("one form")
@@ -1797,7 +1791,9 @@ fn subst_char_in_region_replaces_trailing_newline_with_marker_end() {
 fn subst_char_in_region_uses_live_marker_end_after_insertions() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
-    let forms = parse_forms(
+
+    let result = eval
+        .eval_str_each(
         r#"(insert "a\n")
            (let ((end (copy-marker (point-max) t)))
              (goto-char (point-min))
@@ -1805,10 +1801,6 @@ fn subst_char_in_region_uses_live_marker_end_after_insertions() {
              (subst-char-in-region (point-min) end ?\n ?\s t)
              (buffer-string))"#,
     )
-    .expect("parse live-marker subst-char-in-region regression");
-
-    let result = eval
-        .eval_forms(&forms)
         .into_iter()
         .last()
         .expect("one form")
@@ -1821,7 +1813,9 @@ fn subst_char_in_region_uses_live_marker_end_after_insertions() {
 fn goto_char_uses_live_marker_position_after_insertions() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
-    let forms = parse_forms(
+
+    let result = eval
+        .eval_str_each(
         r#"(insert "ab")
            (let ((m (copy-marker (point-max) t)))
              (goto-char (point-min))
@@ -1829,10 +1823,6 @@ fn goto_char_uses_live_marker_position_after_insertions() {
              (goto-char m)
              (point))"#,
     )
-    .expect("parse live-marker goto-char regression");
-
-    let result = eval
-        .eval_forms(&forms)
         .into_iter()
         .last()
         .expect("one form")
@@ -1845,7 +1835,9 @@ fn goto_char_uses_live_marker_position_after_insertions() {
 fn char_queries_use_live_marker_positions_after_insertions() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
-    let forms = parse_forms(
+
+    let result = eval
+        .eval_str_each(
         r#"(insert "ab")
            (let ((m (copy-marker 2)))
              (goto-char 1)
@@ -1854,10 +1846,6 @@ fn char_queries_use_live_marker_positions_after_insertions() {
                    (char-after m)
                    (char-before m)))"#,
     )
-    .expect("parse live-marker char query regression");
-
-    let result = eval
-        .eval_forms(&forms)
         .into_iter()
         .last()
         .expect("one form")
@@ -1870,7 +1858,9 @@ fn char_queries_use_live_marker_positions_after_insertions() {
 fn search_forward_uses_live_marker_bound_after_insertions() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
-    let forms = parse_forms(
+
+    let result = eval
+        .eval_str_each(
         r#"(insert "ab")
            (let ((end (copy-marker (point-max) t)))
              (goto-char (point-min))
@@ -1880,10 +1870,6 @@ fn search_forward_uses_live_marker_bound_after_insertions() {
                    (point)
                    (marker-position end)))"#,
     )
-    .expect("parse live-marker search-forward regression");
-
-    let result = eval
-        .eval_forms(&forms)
         .into_iter()
         .last()
         .expect("one form")
@@ -5355,15 +5341,6 @@ fn pure_dispatch_internal_placeholder_cluster_matches_compat_contracts() {
 fn internal_track_mouse_binds_and_restores_track_mouse() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
-    let forms = parse_forms(
-        "(progn
-           (setq track-mouse 'outer)
-           (list
-            (internal--track-mouse (lambda () track-mouse))
-            track-mouse))",
-    )
-    .expect("parse");
-
     let result = eval.eval_str(r#"(progn
            (setq track-mouse 'outer)
            (list
@@ -5376,18 +5353,6 @@ fn internal_track_mouse_binds_and_restores_track_mouse() {
 fn internal_track_mouse_restores_track_mouse_after_error() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
-    let forms = parse_forms(
-        "(progn
-           (setq track-mouse 'outer)
-           (condition-case err
-               (internal--track-mouse
-                (lambda ()
-                  (setq track-mouse 'dragging)
-                  (signal 'error nil)))
-             (error (list track-mouse (car err)))))",
-    )
-    .expect("parse");
-
     let result = eval
         .eval_str(r#"(progn
            (setq track-mouse 'outer)
@@ -6052,7 +6017,8 @@ fn bootstrap_runtime_set_match_data_restores_multibyte_buffer_positions_like_gnu
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     load_minimal_gnu_backquote_runtime(&mut eval);
-    let forms = parse_forms(
+    let result = eval
+        .eval_str_each(
         r#"(with-temp-buffer
              (insert "a—b")
              (goto-char (point-min))
@@ -6067,9 +6033,6 @@ fn bootstrap_runtime_set_match_data_restores_multibyte_buffer_positions_like_gnu
                        (match-end 0)
                        (match-string 0)))))"#,
     )
-    .expect("parse");
-    let result = eval
-        .eval_forms(&forms)
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -8415,7 +8378,8 @@ fn assoc_delete_all_supports_default_equal_and_optional_test() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     load_minimal_gnu_backquote_runtime(&mut eval);
-    let forms = parse_forms(
+    let results = eval
+        .eval_str_each(
         r#"
         (assoc-delete-all "foo" '(("foo" . 1) ignored ("bar" . 2) ("foo" . 3)))
         (let* ((key "foo")
@@ -8424,9 +8388,6 @@ fn assoc_delete_all_supports_default_equal_and_optional_test() {
         (condition-case err (assoc-delete-all nil nil nil nil) (error (car err)))
         "#,
     )
-    .expect("parse");
-    let results = eval
-        .eval_forms(&forms)
         .iter()
         .map(format_eval_result)
         .collect::<Vec<_>>();
@@ -8703,10 +8664,6 @@ fn user_error_signals_user_error_symbol_and_formatted_message() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     load_minimal_gnu_backquote_runtime(&mut eval);
-    let forms = crate::emacs_core::parse_forms(
-        r#"(condition-case err (user-error "oops %s" "now") (user-error err))"#,
-    )
-    .expect("parse");
     let result = eval.eval_str(r#"(condition-case err (user-error "oops %s" "now") (user-error err))"#).expect("eval");
     let printed = crate::emacs_core::print::print_value(&result);
     assert_eq!(printed, "(user-error \"oops now\")");
@@ -8717,9 +8674,6 @@ fn user_error_requires_message_argument() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     load_minimal_gnu_backquote_runtime(&mut eval);
-    let forms =
-        crate::emacs_core::parse_forms(r#"(condition-case err (user-error) (error (car err)))"#)
-            .expect("parse");
     let result = eval.eval_str(r#"(condition-case err (user-error) (error (car err)))"#).expect("eval");
     let printed = crate::emacs_core::print::print_value(&result);
     assert_eq!(printed, "wrong-number-of-arguments");
@@ -8731,15 +8685,6 @@ fn internal_save_selected_window_helpers_restore_selected_window() {
     let mut eval = Context::new();
     load_minimal_gnu_backquote_runtime(&mut eval);
     load_gnu_save_selected_window_runtime(&mut eval);
-    let forms = crate::emacs_core::parse_forms(
-        r#"(let* ((orig (selected-window))
-                  (new (split-window-internal (selected-window) nil nil nil)))
-             (select-window new)
-             (save-selected-window
-               (select-window orig)
-               (eq (selected-window) orig)))"#,
-    )
-    .expect("parse");
     let result = eval.eval_str(r#"(let* ((orig (selected-window))
                   (new (split-window-internal (selected-window) nil nil nil)))
              (select-window new)
@@ -9273,14 +9218,12 @@ fn macroexpand_runtime_environment_type_and_payload_edges_match_oracle() {
 fn macroexpand_runtime_improper_lists_match_oracle_error_behavior() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
-    let setup = crate::emacs_core::parser::parse_forms(
+    let _ = eval.eval_str_each(
         r#"(fset 'vm-improper-macro
                  (cons 'macro
                        (lambda (&rest body)
                          (cons 'progn body))))"#,
-    )
-    .expect("parse local macro");
-    let _ = eval.eval_forms(&setup);
+    );
 
     let not_macro = builtin_macroexpand(
         &mut eval,
@@ -9313,14 +9256,12 @@ fn macroexpand_runtime_improper_lists_match_oracle_error_behavior() {
 fn macroexpand_runtime_cache_tracks_load_forms_without_stale_hits() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
-    let setup = crate::emacs_core::parser::parse_forms(
+    let _ = eval.eval_str_each(
         r#"(fset 'vm-cache-macro
                  (cons 'macro
                        (lambda (x)
                          x)))"#,
-    )
-    .expect("parse macro");
-    let _ = eval.eval_forms(&setup);
+    );
     eval.set_variable("load-in-progress", Value::T);
 
     let tail = Value::cons(Value::fixnum(1), Value::NIL);
@@ -9352,14 +9293,12 @@ fn macroexpand_runtime_cache_tracks_load_forms_without_stale_hits() {
 fn macroexpand_runtime_cache_survives_exact_gc() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
-    let setup = crate::emacs_core::parser::parse_forms(
+    let _ = eval.eval_str_each(
         r#"(fset 'vm-cache-macro
                  (cons 'macro
                        (lambda (x)
                          x)))"#,
-    )
-    .expect("parse macro");
-    let _ = eval.eval_forms(&setup);
+    );
     eval.set_variable("load-in-progress", Value::T);
 
     let tail = Value::cons(Value::fixnum(1), Value::NIL);

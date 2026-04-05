@@ -871,7 +871,7 @@ fn vm_variable_watcher_management_builtins_use_shared_runtime_state() {
 fn vm_kmacro_builtins_use_shared_runtime_state() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
-    let setup = parse_forms(
+    let _ = eval.eval_str_each(
         r#"(progn
              (setq vm-kmacro-shared-count 0)
              (setq vm-kmacro-ignore-direct-called nil)
@@ -885,9 +885,7 @@ fn vm_kmacro_builtins_use_shared_runtime_state() {
                  (lambda ()
                    (interactive)
                    (setq vm-kmacro-shared-count (1+ vm-kmacro-shared-count))))))"#,
-    )
-    .expect("parse setup");
-    let _ = eval.eval_forms(&setup);
+    );
 
     let mut vm = new_vm(&mut eval);
     assert_eq!(
