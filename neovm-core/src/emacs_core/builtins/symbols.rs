@@ -2705,44 +2705,6 @@ pub(crate) fn builtin_innermost_minibuffer_p(args: Vec<Value>) -> EvalResult {
     Ok(Value::NIL)
 }
 
-fn interactive_form_from_expr_body(body: &[super::expr::Expr]) -> Option<Value> {
-    fn expr_is_declare_form(expr: &super::expr::Expr) -> bool {
-        matches!(
-            expr,
-            super::expr::Expr::List(items)
-                if matches!(items.first(), Some(super::expr::Expr::Symbol(head_id)) if resolve_sym(*head_id) == "declare")
-        )
-    }
-
-    let mut index = 0;
-    if matches!(body.first(), Some(super::expr::Expr::Str(_))) {
-        index = 1;
-    }
-    while body.get(index).is_some_and(expr_is_declare_form) {
-        index += 1;
-    }
-
-    for expr in &body[index..] {
-        let super::expr::Expr::List(items) = expr else {
-            continue;
-        };
-        let super::expr::Expr::Symbol(head_id) = items.first()? else {
-            continue;
-        };
-        if resolve_sym(*head_id) != "interactive" {
-            continue;
-        }
-        let mut interactive = vec![Value::symbol("interactive")];
-        match items.get(1).map(super::eval::quote_to_value) {
-            Some(spec) => interactive.push(spec),
-            None => interactive.push(Value::NIL),
-        }
-        return Some(Value::list(interactive));
-    }
-
-    None
-}
-
 fn value_list_to_vec(list: &Value) -> Option<Vec<Value>> {
     let mut values = Vec::new();
     let mut cursor = *list;
@@ -4193,54 +4155,6 @@ pub(crate) fn builtin_make_finalizer(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_make_interpreted_closure(args: Vec<Value>) -> EvalResult {
     expect_range_args("make-interpreted-closure", &args, 3, 5)?;
     make_interpreted_closure_from_parts(&args[0], &args[1], &args[2], args.get(3), args.get(4))
-}
-
-fn parse_lambda_params_from_expr(expr: &super::super::expr::Expr) -> Result<LambdaParams, Flow> {
-    use super::super::expr::Expr;
-    use crate::emacs_core::value::{ValueKind, VecLikeType};
-    match expr {
-        Expr::Symbol(id) if resolve_sym(*id) == "nil" => Ok(LambdaParams::simple(vec![])),
-        Expr::List(items) => {
-            let mut required = Vec::new();
-            let mut optional = Vec::new();
-            let mut rest = None;
-            let mut mode = 0;
-
-            for item in items {
-                let Expr::Symbol(id) = item else {
-                    return Err(signal("wrong-type-argument", vec![]));
-                };
-                let name = resolve_sym(*id);
-                match name {
-                    "&optional" => {
-                        mode = 1;
-                        continue;
-                    }
-                    "&rest" => {
-                        mode = 2;
-                        continue;
-                    }
-                    _ => {}
-                }
-                match mode {
-                    0 => required.push(*id),
-                    1 => optional.push(*id),
-                    2 => {
-                        rest = Some(*id);
-                        break;
-                    }
-                    _ => unreachable!(),
-                }
-            }
-
-            Ok(LambdaParams {
-                required,
-                optional,
-                rest,
-            })
-        }
-        _ => Err(signal("wrong-type-argument", vec![])),
-    }
 }
 
 pub(crate) fn builtin_treesit_available_p(args: Vec<Value>) -> EvalResult {

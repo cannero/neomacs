@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 
 use super::chartable::{bool_vector_length, char_table_external_slots};
-use super::expr::{self, Expr};
 use super::intern::{SymId, lookup_interned, resolve_sym};
 use super::string_escape::{
     format_lisp_string, format_lisp_string_bytes, format_lisp_string_bytes_inner,
@@ -1227,11 +1226,6 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
             out.extend_from_slice(format!("#<unknown {:#x}>", value.0).as_bytes());
         }
     }
-}
-
-/// Re-export for compatibility.
-pub fn print_expr(expr: &Expr) -> String {
-    expr::print_expr(expr)
 }
 
 fn format_symbol(id: super::intern::SymId, options: PrintOptions) -> String {

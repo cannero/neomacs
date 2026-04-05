@@ -7,7 +7,6 @@
 //! - Eval-dependent builtins: backtrace-* helpers, recursion-depth
 
 use super::error::{EvalResult, Flow, signal};
-use super::expr::Expr;
 use super::intern::resolve_sym;
 use super::string_escape::{bytes_to_unibyte_storage_string, encode_nonunicode_char_for_storage};
 use super::value::*;
@@ -121,17 +120,6 @@ fn convert_unibyte_storage_to_multibyte(s: &str) -> String {
 // ===========================================================================
 // Special forms
 // ===========================================================================
-
-/// `(save-current-buffer BODY...)` -- save the current buffer, execute BODY,
-/// then restore the previous current buffer.
-pub(crate) fn sf_save_current_buffer(eval: &mut super::eval::Context, tail: &[Expr]) -> EvalResult {
-    let saved_buf = eval.buffers.current_buffer().map(|b| b.id);
-    let result = eval.sf_progn(tail);
-    if let Some(saved_id) = saved_buf {
-        eval.restore_current_buffer_if_live(saved_id);
-    }
-    result
-}
 
 // ===========================================================================
 // Pure builtins (no eval needed)

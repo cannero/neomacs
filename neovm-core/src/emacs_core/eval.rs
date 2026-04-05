@@ -349,23 +349,6 @@ pub(crate) struct PendingGnuTimer {
     pub(crate) when: GnuTimerTimestamp,
 }
 
-/// Compute a content fingerprint of a macro call's args slice.
-///
-/// Used to detect ABA in the macro expansion cache: when a lambda body
-/// `Rc<Vec<Expr>>` is freed and its memory reused, `tail.as_ptr()` can
-/// match a stale cache entry.  The fingerprint catches this by hashing
-/// a summary of the actual Expr nodes.
-fn tail_fingerprint(tail: &[Expr]) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    tail.len().hash(&mut hasher);
-    for (i, expr) in tail.iter().enumerate() {
-        i.hash(&mut hasher);
-        expr_fingerprint(expr, &mut hasher, 3);
-    }
-    hasher.finish()
-}
-
 fn runtime_tail_fingerprint(tail: &[Value]) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -450,39 +433,6 @@ fn value_fingerprint(
         _ => {
             9u8.hash(hasher);
             value.bits().hash(hasher);
-        }
-    }
-}
-
-fn expr_fingerprint(expr: &Expr, hasher: &mut impl std::hash::Hasher, depth: usize) {
-    use std::hash::Hash;
-    std::mem::discriminant(expr).hash(hasher);
-    if depth == 0 {
-        return;
-    }
-    match expr {
-        Expr::Symbol(id) | Expr::Keyword(id) => id.0.hash(hasher),
-        Expr::Int(n) => n.hash(hasher),
-        Expr::Char(c) => c.hash(hasher),
-        Expr::Float(f) => f.to_bits().hash(hasher),
-        Expr::Str(s) => s.hash(hasher),
-        Expr::ReaderLoadFileName => {}
-        Expr::Bool(b) => b.hash(hasher),
-        Expr::List(items) | Expr::Vector(items) => {
-            items.len().hash(hasher);
-            for item in items.iter().take(4) {
-                expr_fingerprint(item, hasher, depth - 1);
-            }
-        }
-        Expr::DottedList(items, tail) => {
-            items.len().hash(hasher);
-            for item in items.iter().take(3) {
-                expr_fingerprint(item, hasher, depth - 1);
-            }
-            expr_fingerprint(tail, hasher, depth - 1);
-        }
-        Expr::OpaqueValueRef(idx) => {
-            idx.hash(hasher);
         }
     }
 }
@@ -6061,6 +6011,7 @@ impl Context {
         self.eval_sub(*value)
     }
 
+    /// Evaluate parsed Expr forms. Used by tests; prefer eval_str_each for new code.
     pub fn eval_forms(&mut self, forms: &[Expr]) -> Vec<Result<Value, EvalError>> {
         crate::tagged::gc::set_tagged_heap(&mut self.tagged_heap);
         let saved_len = self.temp_roots.len();
@@ -6068,7 +6019,6 @@ impl Context {
         for form in forms {
             let val = self.quote_to_runtime_value(form);
             let result = self.eval_sub(val).map_err(map_flow);
-            // Root successful values so they survive GC triggered by later forms.
             if let Ok(ref val) = result {
                 self.temp_roots.push(*val);
             }
@@ -6079,8 +6029,7 @@ impl Context {
     }
 
     /// Evaluate all forms in a source string and return per-form results.
-    /// Uses the Value-native reader (no Expr intermediate).
-    /// This is the Value-reader equivalent of `eval_forms`.
+    /// Uses the Value-native reader.
     pub fn eval_str_each(&mut self, source: &str) -> Vec<Result<Value, EvalError>> {
         crate::tagged::gc::set_tagged_heap(&mut self.tagged_heap);
         let forms = match super::value_reader::read_all(source) {
@@ -7490,15 +7439,6 @@ impl Context {
         result
     }
 
-    pub(crate) fn sf_progn(&mut self, forms: &[Expr]) -> EvalResult {
-        let mut last = Value::NIL;
-        for form in forms {
-            let val = self.quote_to_runtime_value(form);
-            last = self.eval_sub(val)?;
-        }
-        Ok(last)
-    }
-
     fn validate_throw(&self, flow: Flow) -> Flow {
         match flow {
             Flow::Throw { ref tag, ref value } => {
@@ -7533,59 +7473,9 @@ impl Context {
         }
     }
 
-    pub(crate) fn quote_to_runtime_value_in_state(obarray: &Obarray, expr: &Expr) -> Value {
-        match expr {
-            Expr::ReaderLoadFileName => obarray
-                .symbol_value("load-file-name")
-                .cloned()
-                .unwrap_or(Value::NIL),
-            Expr::List(items) => {
-                let saved_roots = save_scratch_gc_roots();
-                let mut quoted = Vec::with_capacity(items.len());
-                for item in items {
-                    let value = Self::quote_to_runtime_value_in_state(obarray, item);
-                    push_scratch_gc_root(value);
-                    quoted.push(value);
-                }
-                let result = Value::list(quoted);
-                restore_scratch_gc_roots(saved_roots);
-                result
-            }
-            Expr::DottedList(items, last) => {
-                let saved_roots = save_scratch_gc_roots();
-                let mut head_vals = Vec::with_capacity(items.len());
-                for item in items {
-                    let value = Self::quote_to_runtime_value_in_state(obarray, item);
-                    push_scratch_gc_root(value);
-                    head_vals.push(value);
-                }
-                let tail_val = Self::quote_to_runtime_value_in_state(obarray, last);
-                push_scratch_gc_root(tail_val);
-                let result = head_vals
-                    .into_iter()
-                    .rev()
-                    .fold(tail_val, |acc, item| Value::cons(item, acc));
-                restore_scratch_gc_roots(saved_roots);
-                result
-            }
-            Expr::Vector(items) => {
-                let saved_roots = save_scratch_gc_roots();
-                let mut vals = Vec::with_capacity(items.len());
-                for item in items {
-                    let value = Self::quote_to_runtime_value_in_state(obarray, item);
-                    push_scratch_gc_root(value);
-                    vals.push(value);
-                }
-                let result = Value::vector(vals);
-                restore_scratch_gc_roots(saved_roots);
-                result
-            }
-            _ => quote_to_value(expr),
-        }
-    }
-
+    /// Convert an Expr to a runtime Value. Used by eval_forms (test support).
     pub(crate) fn quote_to_runtime_value(&mut self, expr: &Expr) -> Value {
-        Self::quote_to_runtime_value_in_state(&self.obarray, expr)
+        quote_to_value(expr)
     }
 
     fn sf_byte_code_literal_value(&mut self, tail: Value) -> EvalResult {
@@ -8874,68 +8764,6 @@ impl Context {
     // Macro expansion
     // -----------------------------------------------------------------------
 
-    pub(crate) fn expand_macro(&mut self, macro_val: Value, args: &[Expr]) -> Result<Value, Flow> {
-        if !macro_val.is_macro() {
-            return Err(signal("invalid-macro", vec![]));
-        };
-
-        // Check cache: same macro object + same source location (args slice
-        // pointer from Rc<Vec<Expr>> body) → same expansion.
-        // Fingerprint validation detects ABA from reused addresses.
-        let cache_key = (
-            macro_val.bits(),
-            args.as_ptr() as usize,
-            self.macro_expansion_context_key(),
-        );
-        let current_fp = tail_fingerprint(args);
-        if !self.macro_cache_disabled {
-            if let Some(cached) = self.macro_expansion_cache.get(&cache_key).cloned() {
-                if cached.fingerprint == current_fp {
-                    self.macro_cache_hits += 1;
-                    return Ok(cached.expanded);
-                }
-                // Fingerprint mismatch → ABA, fall through to re-expand
-            }
-        }
-
-        let expand_start = std::time::Instant::now();
-        // Root arg values during macro expansion to survive GC.
-        // Use cached source-literal materialization so that the same Expr
-        // pointer (from a shared Rc<Vec<Expr>> lambda body) produces the same
-        // runtime Value object when re-evaluated.
-        let scope = self.open_gc_scope();
-        let arg_values: Vec<Value> = args
-            .iter()
-            .map(|e| self.quote_to_runtime_value(e))
-            .collect();
-        for v in &arg_values {
-            self.push_temp_root(*v);
-        }
-
-        let expanded_value =
-            self.with_macro_expansion_scope(|eval| eval.apply_lambda(macro_val, arg_values))?;
-        scope.close(self);
-
-        let expand_elapsed = expand_start.elapsed();
-        self.macro_cache_misses += 1;
-        self.macro_expand_total_us += expand_elapsed.as_micros() as u64;
-        let cache_entry = Rc::new(MacroExpansionCacheEntry::new(expanded_value, current_fp));
-        // With OpaqueValuePool, expansions containing OpaqueValueRef are
-        // safe to cache — the pool keeps referenced Values GC-rooted.
-        if !self.macro_cache_disabled {
-            if expand_elapsed.as_millis() > 50 {
-                tracing::warn!(
-                    "macro_cache MISS macro={:#x} ptr={:#x} took {expand_elapsed:.2?}",
-                    macro_val.bits(),
-                    args.as_ptr() as usize
-                );
-            }
-            self.macro_expansion_cache.insert(cache_key, cache_entry);
-        }
-
-        Ok(expanded_value)
-    }
-
     pub(crate) fn with_macro_expansion_scope<T>(
         &mut self,
         f: impl FnOnce(&mut Self) -> Result<T, Flow>,
@@ -10174,11 +10002,7 @@ fn rewrite_wrong_arity_alias_function_object(flow: Flow, alias: &str, target: &s
     }
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Convert an Expr AST node to a Value (for quote).
+/// Convert an Expr AST node to a Value. Used by test code via eval_forms.
 pub fn quote_to_value(expr: &Expr) -> Value {
     match expr {
         Expr::Int(v) => Value::fixnum(*v),
@@ -10193,50 +10017,24 @@ pub fn quote_to_value(expr: &Expr) -> Value {
         Expr::Symbol(id) if resolve_sym(*id) == "t" => Value::T,
         Expr::Symbol(id) => Value::from_sym_id(*id),
         Expr::List(items) => {
-            let saved_roots = save_scratch_gc_roots();
-            let mut quoted = Vec::with_capacity(items.len());
-            for item in items {
-                let value = quote_to_value(item);
-                push_scratch_gc_root(value);
-                quoted.push(value);
-            }
-            let result = Value::list(quoted);
-            restore_scratch_gc_roots(saved_roots);
-            result
+            let quoted: Vec<Value> = items.iter().map(quote_to_value).collect();
+            Value::list(quoted)
         }
         Expr::DottedList(items, last) => {
-            let saved_roots = save_scratch_gc_roots();
-            let mut head_vals = Vec::with_capacity(items.len());
-            for item in items {
-                let value = quote_to_value(item);
-                push_scratch_gc_root(value);
-                head_vals.push(value);
-            }
+            let head_vals: Vec<Value> = items.iter().map(quote_to_value).collect();
             let tail_val = quote_to_value(last);
-            push_scratch_gc_root(tail_val);
-            let result = head_vals
+            head_vals
                 .into_iter()
                 .rev()
-                .fold(tail_val, |acc, item| Value::cons(item, acc));
-            restore_scratch_gc_roots(saved_roots);
-            result
+                .fold(tail_val, |acc, item| Value::cons(item, acc))
         }
         Expr::Vector(items) => {
-            let saved_roots = save_scratch_gc_roots();
-            let mut vals = Vec::with_capacity(items.len());
-            for item in items {
-                let value = quote_to_value(item);
-                push_scratch_gc_root(value);
-                vals.push(value);
-            }
-            let result = Value::vector(vals);
-            restore_scratch_gc_roots(saved_roots);
-            result
+            let vals: Vec<Value> = items.iter().map(quote_to_value).collect();
+            Value::vector(vals)
         }
         Expr::OpaqueValueRef(idx) => OPAQUE_POOL.with(|pool| pool.borrow().get(*idx)),
     }
 }
-
 
 fn format_startup_value(value: Option<&Value>) -> String {
     value

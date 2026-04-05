@@ -135,19 +135,6 @@ pub fn map_flow(flow: Flow) -> EvalError {
     }
 }
 
-/// Check if a condition-case pattern matches a signal symbol.
-pub(crate) fn signal_matches(pattern: &super::expr::Expr, symbol: &str) -> bool {
-    use super::expr::Expr;
-    match pattern {
-        Expr::Symbol(id) => {
-            let name = resolve_sym(*id);
-            name == symbol || name == "error" || name == "t"
-        }
-        Expr::List(items) => items.iter().any(|item| signal_matches(item, symbol)),
-        _ => false,
-    }
-}
-
 /// Build the binding value for condition-case variable: (symbol . data)
 pub(crate) fn make_signal_binding_value(sig: &SignalData) -> Value {
     if let Some(raw) = &sig.raw_data {

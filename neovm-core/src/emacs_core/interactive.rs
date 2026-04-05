@@ -14,8 +14,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::error::{EvalResult, Flow, signal};
-use super::eval::{Context, quote_to_value};
-use super::expr::Expr;
+use super::eval::Context;
 use super::intern::{intern, resolve_sym};
 use super::keyboard::pure::make_event_array_value;
 use super::keymap::{
@@ -417,28 +416,6 @@ pub(crate) fn builtin_commandp_impl(
     Ok(Value::bool_val(is_command))
 }
 
-fn command_modes_from_expr_body(body: &[Expr]) -> Option<Value> {
-    let body_index = lambda_body_metadata_end(body);
-    for expr in &body[body_index..] {
-        let Expr::List(items) = expr else {
-            continue;
-        };
-        let Some(Expr::Symbol(head_id)) = items.first() else {
-            continue;
-        };
-        if resolve_sym(*head_id) != "interactive" {
-            continue;
-        }
-        let modes = items.iter().skip(2).map(quote_to_value).collect::<Vec<_>>();
-        return Some(if modes.is_empty() {
-            Value::NIL
-        } else {
-            Value::list(modes)
-        });
-    }
-    None
-}
-
 fn command_modes_from_value_body(body: &[Value]) -> Option<Value> {
     let body_index = value_body_metadata_end(body);
     for form in &body[body_index..] {
@@ -828,40 +805,6 @@ fn builtin_command_name(name: &str) -> bool {
             | "write-region"
             | "x-menu-bar-open-internal"
     )
-}
-
-fn expr_is_interactive_form(expr: &Expr) -> bool {
-    match expr {
-        Expr::List(items) => items.first().is_some_and(
-            |head| matches!(head, Expr::Symbol(id) if resolve_sym(*id) == "interactive"),
-        ),
-        _ => false,
-    }
-}
-
-fn expr_is_declare_form(expr: &Expr) -> bool {
-    match expr {
-        Expr::List(items) => items
-            .first()
-            .is_some_and(|head| matches!(head, Expr::Symbol(id) if resolve_sym(*id) == "declare")),
-        _ => false,
-    }
-}
-
-fn lambda_body_metadata_end(body: &[Expr]) -> usize {
-    let mut body_index = 0;
-    if matches!(body.first(), Some(Expr::Str(_))) {
-        body_index = 1;
-    }
-    while body.get(body_index).is_some_and(expr_is_declare_form) {
-        body_index += 1;
-    }
-    body_index
-}
-
-fn lambda_body_has_interactive_form(body: &[Expr]) -> bool {
-    let body_index = lambda_body_metadata_end(body);
-    body.get(body_index).is_some_and(expr_is_interactive_form)
 }
 
 fn value_body_metadata_end(body: &[Value]) -> usize {
@@ -2130,23 +2073,6 @@ fn interactive_next_event_with_parameters(
         return interactive_next_event_with_parameters_from_keys(context);
     }
     interactive_last_input_event_with_parameters(eval)
-}
-
-fn parse_interactive_spec(expr: &Expr) -> Option<ParsedInteractiveSpec> {
-    let Expr::List(items) = expr else {
-        return None;
-    };
-    if !items
-        .first()
-        .is_some_and(|head| matches!(head, Expr::Symbol(id) if resolve_sym(*id) == "interactive"))
-    {
-        return None;
-    }
-    match items.get(1) {
-        Some(Expr::Str(code)) => Some(ParsedInteractiveSpec::StringCode(code.clone())),
-        Some(form) => Some(ParsedInteractiveSpec::Form(quote_to_value(form))),
-        None => Some(ParsedInteractiveSpec::NoArgs),
-    }
 }
 
 fn parse_interactive_spec_from_form_value(form: &Value) -> Option<ParsedInteractiveSpec> {

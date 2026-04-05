@@ -25,7 +25,6 @@ use crate::emacs_core::charset::{
 use crate::emacs_core::coding::{CodingSystemInfo, CodingSystemManager, EolType};
 use crate::emacs_core::custom::CustomManager;
 use crate::emacs_core::eval::Context;
-use crate::emacs_core::expr::Expr;
 use crate::emacs_core::fontset::{
     FontRepertory, FontSpecEntry, FontsetDataSnapshot, FontsetRangeEntrySnapshot,
     FontsetRegistrySnapshot, StoredFontSpec, restore_fontset_registry, snapshot_fontset_registry,
@@ -256,31 +255,6 @@ pub(crate) fn dump_value(v: &Value) -> DumpValue {
 
 pub(crate) fn dump_opt_value(v: &Option<Value>) -> Option<DumpValue> {
     v.as_ref().map(dump_value)
-}
-
-// --- Expr ---
-
-pub(crate) fn dump_expr(e: &Expr) -> DumpExpr {
-    match e {
-        Expr::Int(n) => DumpExpr::Int(*n),
-        Expr::Float(f) => DumpExpr::Float(*f),
-        Expr::Symbol(s) => DumpExpr::Symbol(dump_sym_id(*s)),
-        Expr::ReaderLoadFileName => DumpExpr::ReaderLoadFileName,
-        Expr::Keyword(s) => DumpExpr::Keyword(dump_sym_id(*s)),
-        Expr::Str(s) => DumpExpr::Str(s.clone()),
-        Expr::Char(c) => DumpExpr::Char(*c),
-        Expr::List(items) => DumpExpr::List(items.iter().map(dump_expr).collect()),
-        Expr::Vector(items) => DumpExpr::Vector(items.iter().map(dump_expr).collect()),
-        Expr::DottedList(items, tail) => DumpExpr::DottedList(
-            items.iter().map(dump_expr).collect(),
-            Box::new(dump_expr(tail)),
-        ),
-        Expr::Bool(b) => DumpExpr::Bool(*b),
-        Expr::OpaqueValueRef(idx) => {
-            let val = crate::emacs_core::eval::OPAQUE_POOL.with(|pool| pool.borrow().get(*idx));
-            DumpExpr::OpaqueValue(dump_value(&val))
-        }
-    }
 }
 
 // --- Op ---
@@ -1782,33 +1756,6 @@ pub(crate) fn load_value(v: &DumpValue) -> Value {
 
 pub(crate) fn load_opt_value(v: &Option<DumpValue>) -> Option<Value> {
     v.as_ref().map(load_value)
-}
-
-// --- Expr ---
-
-pub(crate) fn load_expr(e: &DumpExpr) -> Expr {
-    match e {
-        DumpExpr::Int(n) => Expr::Int(*n),
-        DumpExpr::Float(f) => Expr::Float(*f),
-        DumpExpr::Symbol(s) => Expr::Symbol(load_sym_id(s)),
-        DumpExpr::ReaderLoadFileName => Expr::ReaderLoadFileName,
-        DumpExpr::Keyword(s) => Expr::Keyword(load_sym_id(s)),
-        DumpExpr::Str(s) => Expr::Str(s.clone()),
-        DumpExpr::Char(c) => Expr::Char(*c),
-        DumpExpr::List(items) => Expr::List(items.iter().map(load_expr).collect()),
-        DumpExpr::Vector(items) => Expr::Vector(items.iter().map(load_expr).collect()),
-        DumpExpr::DottedList(items, tail) => Expr::DottedList(
-            items.iter().map(load_expr).collect(),
-            Box::new(load_expr(tail)),
-        ),
-        DumpExpr::Bool(b) => Expr::Bool(*b),
-        DumpExpr::OpaqueValue(v) => {
-            let val = load_value(v);
-            Expr::OpaqueValueRef(
-                crate::emacs_core::eval::OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(val)),
-            )
-        }
-    }
 }
 
 // --- Op ---

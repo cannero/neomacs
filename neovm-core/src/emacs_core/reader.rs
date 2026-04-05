@@ -3,7 +3,6 @@
 
 use super::custom::CustomManager;
 use super::error::{EvalResult, Flow, signal};
-use super::expr::Expr;
 use super::intern::{SymId, intern, resolve_sym};
 use super::symbol::Obarray;
 use super::value::*;
@@ -2126,39 +2125,6 @@ pub(crate) fn finish_read_key_sequence_vector_interactive_in_runtime(
 
     runtime.clear_read_command_keys();
     Ok(Value::vector(vec![]))
-}
-
-// ---------------------------------------------------------------------------
-// 14. with-output-to-string (special form)
-// ---------------------------------------------------------------------------
-
-/// Special form: `(with-output-to-string BODY...)`
-///
-/// Evaluate BODY, capturing output from print functions into a temporary
-/// buffer bound through `standard-output`.
-pub(crate) fn sf_with_output_to_string(
-    eval: &mut super::eval::Context,
-    tail: &[Expr],
-) -> EvalResult {
-    let temp_name = eval
-        .buffers
-        .generate_new_buffer_name(" *with-output-to-string*");
-    let temp_id = eval.buffers.create_buffer(&temp_name);
-
-    let count = eval.specpdl.len();
-    eval.specbind(intern("standard-output"), Value::make_buffer(temp_id));
-
-    let body_result = eval.sf_progn(tail);
-    let captured = eval
-        .buffers
-        .get(temp_id)
-        .map(|buf| buf.buffer_string())
-        .unwrap_or_default();
-
-    eval.unbind_to(count);
-    eval.buffers.kill_buffer(temp_id);
-
-    body_result.map(|_| Value::string(captured))
 }
 
 // ---------------------------------------------------------------------------

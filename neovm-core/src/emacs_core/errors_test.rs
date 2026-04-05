@@ -279,8 +279,8 @@ fn obarray_condition_pattern_symbol() {
     crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);
-    let pat = Expr::Symbol(intern("error"));
-    assert!(signal_matches_condition_pattern(&ob, "void-variable", &pat));
+    let pat = Value::symbol("error");
+    assert!(signal_matches_condition_value(&ob, "void-variable", &pat));
 }
 
 #[test]
@@ -288,17 +288,17 @@ fn obarray_condition_pattern_list() {
     crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);
-    let pat = Expr::List(vec![
-        Expr::Symbol(intern("arith-error")),
-        Expr::Symbol(intern("file-error")),
+    let pat = Value::list(vec![
+        Value::symbol("arith-error"),
+        Value::symbol("file-error"),
     ]);
-    assert!(signal_matches_condition_pattern(
+    assert!(signal_matches_condition_value(
         &ob,
         "overflow-error",
         &pat
     ));
-    assert!(signal_matches_condition_pattern(&ob, "file-missing", &pat));
-    assert!(!signal_matches_condition_pattern(
+    assert!(signal_matches_condition_value(&ob, "file-missing", &pat));
+    assert!(!signal_matches_condition_value(
         &ob,
         "void-variable",
         &pat

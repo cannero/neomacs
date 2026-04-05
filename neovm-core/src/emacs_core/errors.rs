@@ -19,7 +19,6 @@
 use super::error::{
     EvalResult, Flow, signal, signal_suppressed, signal_with_data, signal_with_data_suppressed,
 };
-use super::expr::Expr;
 use super::intern::resolve_sym;
 use super::symbol::Obarray;
 use super::value::*;
@@ -113,24 +112,7 @@ pub fn signal_matches_hierarchical(
     false
 }
 
-/// Like `signal_matches_hierarchical` but accepts a condition pattern that may
-/// be a single symbol or a list of symbols (as used by `condition-case`
-/// handler heads).
-pub fn signal_matches_condition_pattern(
-    obarray: &Obarray,
-    signal_sym: &str,
-    pattern: &Expr,
-) -> bool {
-    match pattern {
-        Expr::Symbol(id) => signal_matches_hierarchical(obarray, signal_sym, resolve_sym(*id)),
-        Expr::List(items) => items
-            .iter()
-            .any(|item| signal_matches_condition_pattern(obarray, signal_sym, item)),
-        _ => false,
-    }
-}
-
-/// Like `signal_matches_condition_pattern`, but matches a runtime `Value`
+/// Like `signal_matches_hierarchical` but matches a runtime `Value`
 /// produced by compiled bytecode condition handlers.
 pub fn signal_matches_condition_value(
     obarray: &Obarray,

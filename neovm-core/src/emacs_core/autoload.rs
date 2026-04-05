@@ -557,22 +557,6 @@ pub(crate) fn builtin_symbol_file(eval: &mut super::eval::Context, args: Vec<Val
 
 /// `(autoload FUNCTION FILE &optional DOCSTRING INTERACTIVE TYPE)`
 ///
-/// Register FUNCTION to be autoloaded from FILE.  Creates an autoload form
-/// `(autoload FILE DOCSTRING INTERACTIVE TYPE)` and stores it as the function
-/// cell of the symbol.  Also registers an [`AutoloadEntry`] with the
-/// evaluator's [`AutoloadManager`].  Returns the function name symbol.
-pub(crate) fn sf_autoload(
-    eval: &mut super::eval::Context,
-    tail: &[super::expr::Expr],
-) -> super::error::EvalResult {
-    let mut args = Vec::with_capacity(tail.len());
-    for expr in tail {
-        let form = eval.quote_to_runtime_value(expr);
-        args.push(eval.eval_sub(form)?);
-    }
-    register_autoload_in_state(&mut eval.obarray, &mut eval.autoloads, &args)
-}
-
 // ---------------------------------------------------------------------------
 // GcTrace
 // ---------------------------------------------------------------------------

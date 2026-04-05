@@ -664,16 +664,13 @@ fn backtrace_frame_internal_tracks_runtime_funcall_interactively_marker() {
 #[test]
 fn sf_save_current_buffer_restores() {
     crate::test_utils::init_test_tracing();
-    use super::super::expr::Expr;
-    use crate::emacs_core::value::{ValueKind, VecLikeType};
     let mut ev = super::super::eval::Context::new();
     // Create a buffer and make it current
     let buf_id = ev.buffers.create_buffer("*test*");
     ev.buffers.set_current(buf_id);
 
     // save-current-buffer with body that just returns 42
-    let tail = [Expr::Int(42)];
-    let result = sf_save_current_buffer(&mut ev, &tail).unwrap();
+    let result = ev.eval_str("(save-current-buffer 42)").unwrap();
     assert!(eq_value(&result, &Value::fixnum(42)));
     // Current buffer should still be *test*
     assert_eq!(ev.buffers.current_buffer().unwrap().id, buf_id);
