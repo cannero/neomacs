@@ -3689,9 +3689,10 @@ fn public_api_background_worker_request_stop_wakes_waiting_worker() {
 
 #[test]
 fn public_api_background_worker_new_work_wakes_busy_sleeping_worker() {
+    let leaf_bytes = neovm_gc::estimated_allocation_size::<Leaf>().expect("leaf allocation size");
     let shared = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
-            max_regular_object_bytes: 1,
+            max_regular_object_bytes: leaf_bytes,
             ..neovm_gc::spaces::NurseryConfig::default()
         },
         large: neovm_gc::spaces::LargeObjectSpaceConfig {
@@ -3773,6 +3774,90 @@ fn public_api_background_worker_new_work_wakes_busy_sleeping_worker() {
     let stats = worker.join().expect("join background worker");
     assert!(stats.collector.sessions_started >= 2);
     assert!(stats.signal_wakeups > 0);
+}
+
+#[test]
+fn public_api_background_worker_nursery_only_mutation_does_not_start_new_background_session() {
+    let leaf_bytes = neovm_gc::estimated_allocation_size::<Leaf>().expect("leaf allocation size");
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: leaf_bytes,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            region_bytes: 512,
+            line_bytes: 16,
+            concurrent_mark_workers: 2,
+            mutator_assist_slices: 0,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for byte in 0..16u8 {
+                mutator
+                    .alloc(&mut scope, OldLeaf([byte; 32]))
+                    .expect("alloc initial old leaf");
+            }
+        })
+        .expect("seed initial old objects");
+
+    let worker = shared.spawn_background_worker(neovm_gc::BackgroundWorkerConfig {
+        collector: neovm_gc::BackgroundCollectorConfig::default(),
+        idle_sleep: Duration::from_millis(1),
+        busy_sleep: Duration::from_millis(250),
+    });
+
+    let first_cycle_deadline = Instant::now() + Duration::from_secs(1);
+    let baseline_signal_wakeups = loop {
+        let status = worker
+            .status()
+            .expect("read worker status before nursery-only mutation");
+        if status.worker.collector.sessions_finished > 0 {
+            break status.worker.signal_wakeups;
+        }
+        assert!(
+            Instant::now() < first_cycle_deadline,
+            "background worker did not finish first cycle before timeout"
+        );
+        thread::sleep(Duration::from_millis(1));
+    };
+
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            let _leaf = mutator
+                .alloc(&mut scope, Leaf(123))
+                .expect("alloc nursery leaf");
+        })
+        .expect("seed nursery-only mutation");
+
+    let signal_deadline = Instant::now() + Duration::from_millis(150);
+    loop {
+        let status = worker
+            .status()
+            .expect("read worker status after nursery-only mutation");
+        if status.worker.signal_wakeups > baseline_signal_wakeups {
+            assert_eq!(status.worker.collector.sessions_started, 1);
+            break;
+        }
+        assert!(
+            Instant::now() < signal_deadline,
+            "background worker did not observe nursery-only mutation signal before timeout"
+        );
+        thread::sleep(Duration::from_millis(1));
+    }
+
+    worker.request_stop();
+    let stats = worker.join().expect("join background worker");
+    assert_eq!(stats.collector.sessions_started, 1);
 }
 
 #[test]

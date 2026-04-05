@@ -130,7 +130,7 @@ struct SharedHeapSnapshot {
     major_mark_progress: Option<MajorMarkProgress>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct SharedBackgroundSnapshot {
     recommended_background_plan: Option<CollectionPlan>,
     active_major_mark_plan: Option<CollectionPlan>,
@@ -970,10 +970,15 @@ fn worker_loop(
     let mut observed_signal_epoch = shared
         .epoch()
         .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
+    let mut observed_background = shared
+        .background_snapshot()
+        .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
 
     let wait_for_signal = |stats: &Arc<RwLock<BackgroundWorkerStats>>,
                            shared: &SharedHeap,
+                           stop: &Arc<AtomicBool>,
                            observed_signal_epoch: &mut u64,
+                           observed_background: &mut SharedBackgroundSnapshot,
                            timeout: Duration|
      -> Result<(), BackgroundWorkerError> {
         if timeout.is_zero() {
@@ -987,19 +992,39 @@ fn worker_loop(
             snapshot.wait_loops = snapshot.wait_loops.saturating_add(1);
         }
 
-        let (next_epoch, changed) = shared
-            .wait_for_change(*observed_signal_epoch, timeout)
-            .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-        *observed_signal_epoch = next_epoch;
-
-        if changed {
-            let mut snapshot = stats
-                .write()
+        let started_at = std::time::Instant::now();
+        let mut remaining = timeout;
+        loop {
+            let (next_epoch, changed) = shared
+                .wait_for_change(*observed_signal_epoch, remaining)
                 .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-            snapshot.signal_wakeups = snapshot.signal_wakeups.saturating_add(1);
-        }
+            *observed_signal_epoch = next_epoch;
 
-        Ok(())
+            if changed {
+                let mut snapshot = stats
+                    .write()
+                    .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
+                snapshot.signal_wakeups = snapshot.signal_wakeups.saturating_add(1);
+            }
+
+            if stop.load(Ordering::Acquire) {
+                return Ok(());
+            }
+
+            let next_background = shared
+                .background_snapshot()
+                .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
+            if next_background != *observed_background {
+                *observed_background = next_background;
+                return Ok(());
+            }
+
+            let elapsed = started_at.elapsed();
+            if elapsed >= timeout {
+                return Ok(());
+            }
+            remaining = timeout.saturating_sub(elapsed);
+        }
     };
 
     while !stop.load(Ordering::Acquire) {
@@ -1024,7 +1049,14 @@ fn worker_loop(
                 | BackgroundCollectionStatus::ReadyToFinish(_)
                 | BackgroundCollectionStatus::Finished(_) => config.busy_sleep,
             };
-            wait_for_signal(&stats, &shared, &mut observed_signal_epoch, wait_for)?;
+            wait_for_signal(
+                &stats,
+                &shared,
+                &stop,
+                &mut observed_signal_epoch,
+                &mut observed_background,
+                wait_for,
+            )?;
             continue;
         }
 
@@ -1042,12 +1074,18 @@ fn worker_loop(
                 wait_for_signal(
                     &stats,
                     &shared,
+                    &stop,
                     &mut observed_signal_epoch,
+                    &mut observed_background,
                     config.idle_sleep,
                 )?;
                 continue;
             }
         };
+
+        observed_background = shared
+            .background_snapshot()
+            .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
 
         {
             let mut snapshot = stats
@@ -1066,7 +1104,14 @@ fn worker_loop(
             | BackgroundCollectionStatus::ReadyToFinish(_)
             | BackgroundCollectionStatus::Finished(_) => config.busy_sleep,
         };
-        wait_for_signal(&stats, &shared, &mut observed_signal_epoch, sleep_for)?;
+        wait_for_signal(
+            &stats,
+            &shared,
+            &stop,
+            &mut observed_signal_epoch,
+            &mut observed_background,
+            sleep_for,
+        )?;
     }
 
     Ok(())
