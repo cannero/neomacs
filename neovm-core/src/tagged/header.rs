@@ -75,9 +75,9 @@ impl ConsCell {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum HeapObjectKind {
-    String = 3,
-    Float = 4,
-    VecLike = 5,
+    String = 0,
+    Float = 1,
+    VecLike = 2,
 }
 
 #[repr(C)]
