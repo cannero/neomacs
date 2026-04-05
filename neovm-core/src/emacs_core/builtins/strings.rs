@@ -268,15 +268,15 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
                     .is_some_and(|table| !table.is_empty())
             });
             if !has_text_props {
-                let mut parts = Vec::new();
+                let mut combined = String::new();
                 let mut multibyte = false;
                 for arg in &args {
                     if let Some(string) = arg.as_lisp_string() {
-                        string.append_parts_to(&mut parts);
+                        combined.push_str(string.as_str());
                         multibyte |= string.multibyte;
                     }
                 }
-                let result = crate::heap_types::LispString::from_parts(parts, multibyte);
+                let result = crate::heap_types::LispString::new(combined, multibyte);
                 return Ok(Value::heap_string(result));
             }
         }

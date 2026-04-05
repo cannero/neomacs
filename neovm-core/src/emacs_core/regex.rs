@@ -882,25 +882,6 @@ fn literal_find(text: &str, literal: &str, case_fold: bool) -> Option<(usize, us
     )
 }
 
-fn build_kmp_table(needle: &[u8]) -> Vec<usize> {
-    let mut lps = vec![0; needle.len()];
-    let mut len = 0;
-    let mut i = 1;
-    while i < needle.len() {
-        if needle[i] == needle[len] {
-            len += 1;
-            lps[i] = len;
-            i += 1;
-        } else if len != 0 {
-            len = lps[len - 1];
-        } else {
-            lps[i] = 0;
-            i += 1;
-        }
-    }
-    lps
-}
-
 fn literal_find_lisp_string(
     text: &crate::heap_types::LispString,
     literal: &str,
@@ -914,59 +895,8 @@ fn literal_find_lisp_string(
                 return None;
             }
 
-            if case_fold && (!literal.is_ascii() || !text.is_ascii()) {
-                return literal_find(&text.as_str()[start..], literal, case_fold)
-                    .map(|(match_start, match_end)| (start + match_start, start + match_end));
-            }
-
-            let mut parts = Vec::new();
-            text.append_parts_to(&mut parts);
-            if parts.len() <= 1 {
-                return literal_find(&text.as_str()[start..], literal, case_fold)
-                    .map(|(match_start, match_end)| (start + match_start, start + match_end));
-            }
-
-            let needle: Vec<u8> = if case_fold {
-                literal
-                    .as_bytes()
-                    .iter()
-                    .map(|byte| byte.to_ascii_lowercase())
-                    .collect()
-            } else {
-                literal.as_bytes().to_vec()
-            };
-            if needle.is_empty() {
-                return Some((start, start));
-            }
-
-            let lps = build_kmp_table(&needle);
-            let mut matched = 0usize;
-            let mut global = 0usize;
-
-            for part in parts {
-                let bytes = part.as_str().as_bytes();
-                let skip = start.saturating_sub(global).min(bytes.len());
-                for (offset, byte) in bytes.iter().enumerate().skip(skip) {
-                    let hay = if case_fold {
-                        byte.to_ascii_lowercase()
-                    } else {
-                        *byte
-                    };
-                    while matched > 0 && hay != needle[matched] {
-                        matched = lps[matched - 1];
-                    }
-                    if hay == needle[matched] {
-                        matched += 1;
-                        if matched == needle.len() {
-                            let match_end = global + offset + 1;
-                            return Some((match_end - needle.len(), match_end));
-                        }
-                    }
-                }
-                global += bytes.len();
-            }
-
-            None
+            literal_find(&text.as_str()[start..], literal, case_fold)
+                .map(|(match_start, match_end)| (start + match_start, start + match_end))
         },
     )
 }
