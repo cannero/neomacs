@@ -3,7 +3,7 @@ experimental = ["wrapper-scripts"]
 # Memory-limited wrapper: each test process gets a 4GB RSS limit via cgroup.
 # Prevents runaway tests from OOM-killing the system.
 [scripts.wrapper.memory-limit]
-command = 'systemd-run --user --scope -q -p MemoryMax=2G --'
+command = 'systemd-run --user --scope -q -p MemoryMax=8G --'
 
 [profile.default]
 # Many tests use the bootstrap evaluator (which loads 122 .el files)
