@@ -478,6 +478,10 @@ pub struct BackgroundWorkerStats {
     pub snapshot_idle_loops: u64,
     /// Number of worker waits woken early by one shared-heap signal.
     pub signal_wakeups: u64,
+    /// Number of signal-backed wakes that observed one real background-scheduler state change.
+    pub background_change_wakeups: u64,
+    /// Number of signal-backed wakes ignored because background-scheduler state stayed the same.
+    pub ignored_signal_wakeups: u64,
     /// Number of worker iterations that skipped due to heap lock contention.
     pub contention_loops: u64,
     /// Background collector coordinator statistics accumulated by the worker.
@@ -1015,8 +1019,19 @@ fn worker_loop(
                 .background_snapshot()
                 .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
             if next_background != *observed_background {
+                let mut snapshot = stats
+                    .write()
+                    .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
+                snapshot.background_change_wakeups =
+                    snapshot.background_change_wakeups.saturating_add(1);
                 *observed_background = next_background;
                 return Ok(());
+            }
+            if changed {
+                let mut snapshot = stats
+                    .write()
+                    .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
+                snapshot.ignored_signal_wakeups = snapshot.ignored_signal_wakeups.saturating_add(1);
             }
 
             let elapsed = started_at.elapsed();

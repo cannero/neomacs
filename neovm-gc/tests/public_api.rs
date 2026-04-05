@@ -3774,6 +3774,7 @@ fn public_api_background_worker_new_work_wakes_busy_sleeping_worker() {
     let stats = worker.join().expect("join background worker");
     assert!(stats.collector.sessions_started >= 2);
     assert!(stats.signal_wakeups > 0);
+    assert!(stats.background_change_wakeups > 0);
 }
 
 #[test]
@@ -3858,6 +3859,7 @@ fn public_api_background_worker_nursery_only_mutation_does_not_start_new_backgro
     worker.request_stop();
     let stats = worker.join().expect("join background worker");
     assert_eq!(stats.collector.sessions_started, 1);
+    assert!(stats.ignored_signal_wakeups > 0);
 }
 
 #[test]
