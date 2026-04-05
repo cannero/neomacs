@@ -84,6 +84,7 @@ pub mod perf_trace;
 pub mod print;
 pub mod process;
 pub mod reader;
+pub mod value_reader;
 pub mod rect;
 pub mod regex;
 pub mod regex_emacs;
