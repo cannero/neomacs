@@ -2,7 +2,6 @@
 
 use super::builtins::collections::builtin_make_hash_table;
 use super::error::{EvalError, Flow, map_flow, signal};
-use super::expr::Expr;
 use super::intern::{intern, resolve_sym};
 use super::keymap::{is_list_keymap, list_keymap_lookup_one};
 use super::value::{HashKey, Value, ValueKind, list_to_vec};
@@ -228,18 +227,20 @@ fn is_generated_loaddefs_source(source: &str) -> bool {
     source.contains(GENERATED_LOADDEFS_MARKER)
 }
 
-fn eval_generated_form_args(
+fn eval_generated_form_args_value(
     eval: &mut super::eval::Context,
-    args: &[Expr],
+    args: &[Value],
 ) -> Result<Vec<Value>, EvalError> {
     args.iter()
-        .map(|expr| eval_runtime_form(eval, expr))
+        .map(|v| eval.eval_sub(*v).map_err(map_flow))
         .collect()
 }
 
-fn eval_runtime_form(eval: &mut super::eval::Context, form: &Expr) -> Result<Value, EvalError> {
-    let form_value = eval.quote_to_runtime_value(form);
-    eval.eval_sub(form_value).map_err(map_flow)
+fn eval_runtime_form_value(
+    eval: &mut super::eval::Context,
+    form: Value,
+) -> Result<Value, EvalError> {
+    eval.eval_sub(form).map_err(map_flow)
 }
 
 fn cached_form_requires_eager_replay(form: Value) -> bool {
@@ -250,7 +251,10 @@ fn cached_form_requires_eager_replay(form: Value) -> bool {
             .is_some_and(|name| matches!(name, "eval-and-compile" | "eval-when-compile"))
 }
 
-fn generated_defalias(eval: &mut super::eval::Context, args: &[Expr]) -> Result<Value, EvalError> {
+fn generated_defalias(
+    eval: &mut super::eval::Context,
+    args: &[Value],
+) -> Result<Value, EvalError> {
     if !(2..=3).contains(&args.len()) {
         return Err(EvalError::Signal {
             symbol: intern("wrong-number-of-arguments"),
@@ -258,7 +262,7 @@ fn generated_defalias(eval: &mut super::eval::Context, args: &[Expr]) -> Result<
             raw_data: None,
         });
     }
-    let values = eval_generated_form_args(eval, args)?;
+    let values = eval_generated_form_args_value(eval, args)?;
     let result = eval
         .defalias_value(values[0], values[1])
         .map_err(map_flow)?;
@@ -274,41 +278,41 @@ fn generated_defalias(eval: &mut super::eval::Context, args: &[Expr]) -> Result<
 
 fn try_eval_generated_loaddefs_form(
     eval: &mut super::eval::Context,
-    form: &Expr,
+    form: Value,
 ) -> Result<Option<Value>, EvalError> {
-    let Expr::List(items) = form else {
+    let Some(items) = list_to_vec(&form) else {
         return Ok(None);
     };
-    let Some(Expr::Symbol(id)) = items.first() else {
+    let Some(head) = items.first().and_then(|v| v.as_symbol_name()) else {
         return Ok(None);
     };
     let tail = &items[1..];
     // Keep this table limited to core primitive replay.  GNU Lisp-owned
     // helpers from loaddefs (e.g. custom/obsolete metadata helpers) should
     // run through the already-loaded GNU Lisp runtime instead.
-    match resolve_sym(*id) {
+    match head {
         "progn" => {
             let mut last = Value::NIL;
-            for expr in tail {
-                last = eval_generated_loaddefs_form(eval, expr)?;
+            for val in tail {
+                last = eval_generated_loaddefs_form(eval, *val)?;
             }
             Ok(Some(last))
         }
         "autoload" => {
-            let values = eval_generated_form_args(eval, tail)?;
+            let values = eval_generated_form_args_value(eval, tail)?;
             Ok(Some(
                 super::autoload::builtin_autoload(eval, values).map_err(map_flow)?,
             ))
         }
         "put" | "function-put" => {
-            let values = eval_generated_form_args(eval, tail)?;
+            let values = eval_generated_form_args_value(eval, tail)?;
             Ok(Some(
                 super::builtins::builtin_put(eval, values).map_err(map_flow)?,
             ))
         }
         "defalias" => Ok(Some(generated_defalias(eval, tail)?)),
         "defvaralias" => {
-            let values = eval_generated_form_args(eval, tail)?;
+            let values = eval_generated_form_args_value(eval, tail)?;
             Ok(Some(
                 super::builtins::builtin_defvaralias(eval, values).map_err(map_flow)?,
             ))
@@ -319,12 +323,12 @@ fn try_eval_generated_loaddefs_form(
 
 fn eval_generated_loaddefs_form(
     eval: &mut super::eval::Context,
-    form: &Expr,
+    form: Value,
 ) -> Result<Value, EvalError> {
     if let Some(value) = try_eval_generated_loaddefs_form(eval, form)? {
         return Ok(value);
     }
-    eval_runtime_form(eval, form)
+    eval_runtime_form_value(eval, form)
 }
 
 fn has_load_suffix(name: &str) -> bool {
@@ -1875,40 +1879,52 @@ fn ensure_startup_compat_variables(eval: &mut super::eval::Context, project_root
     crate::emacs_core::xfaces::ensure_startup_compat_variables(eval);
 }
 
-fn expr_symbol_name(expr: &Expr) -> Option<String> {
-    match expr {
-        Expr::Symbol(id) => Some(resolve_sym(*id).to_owned()),
-        Expr::List(_) => expr_quoted_symbol_name(expr),
-        _ => None,
+/// Extract a symbol name from a Value that is either a bare symbol or `(quote sym)`.
+fn value_symbol_name(val: &Value) -> Option<String> {
+    if let Some(name) = val.as_symbol_name() {
+        return Some(name.to_owned());
     }
+    value_quoted_symbol_name(val)
 }
 
-fn expr_quoted_symbol_name(expr: &Expr) -> Option<String> {
-    match expr {
-        Expr::Symbol(id) => Some(resolve_sym(*id).to_owned()),
-        Expr::List(items) if items.len() == 2 => match (&items[0], &items[1]) {
-            (Expr::Symbol(head), Expr::Symbol(id)) if resolve_sym(*head) == "quote" => {
-                Some(resolve_sym(*id).to_owned())
+/// Extract a symbol name from a Value that is either a bare symbol or `(quote sym)`.
+fn value_quoted_symbol_name(val: &Value) -> Option<String> {
+    if let Some(name) = val.as_symbol_name() {
+        return Some(name.to_owned());
+    }
+    if val.is_cons() {
+        let head = val.cons_car();
+        let rest = val.cons_cdr();
+        if head.as_symbol_name() == Some("quote") && rest.is_cons() && rest.cons_cdr().is_nil() {
+            return rest.cons_car().as_symbol_name().map(|s| s.to_owned());
+        }
+    }
+    None
+}
+
+/// Convert a simple literal Value to itself (identity for Values already in runtime form).
+/// Returns None only for compound forms that aren't simple quoted symbols.
+fn value_runtime_value(val: &Value) -> Option<Value> {
+    match val.kind() {
+        ValueKind::Fixnum(_) | ValueKind::Symbol(_) | ValueKind::T | ValueKind::Nil => {
+            Some(*val)
+        }
+        ValueKind::Veclike(_) => {
+            // Strings and other veclike values pass through directly
+            if val.as_str().is_some() || val.as_char().is_some() {
+                Some(*val)
+            } else {
+                None
             }
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-fn expr_runtime_value(expr: &Expr) -> Option<Value> {
-    match expr {
-        Expr::Int(v) => Some(Value::fixnum(*v)),
-        Expr::Symbol(id) => match resolve_sym(*id) {
-            "nil" => Some(Value::NIL),
-            "t" => Some(Value::T),
-            name => Some(Value::symbol(name)),
-        },
-        Expr::Keyword(id) => Some(Value::symbol(resolve_sym(*id))),
-        Expr::Str(s) => Some(Value::string(s.clone())),
-        Expr::Char(c) => Some(Value::char(*c)),
-        Expr::List(_) => expr_quoted_symbol_name(expr).map(|name| Value::symbol(&name)),
-        _ => None,
+        }
+        _ => {
+            // cons lists: try quoted symbol
+            if val.is_cons() {
+                value_quoted_symbol_name(val).map(|name| Value::symbol(&name))
+            } else {
+                None
+            }
+        }
     }
 }
 
@@ -1916,7 +1932,7 @@ fn expr_runtime_value(expr: &Expr) -> Option<Value> {
 struct LoaddefsSurfaceState {
     names: std::collections::BTreeSet<String>,
     autoload_args: Vec<Vec<Value>>,
-    property_forms: Vec<Expr>,
+    property_forms: Vec<Value>,
     property_keys: std::collections::BTreeSet<(String, String)>,
 }
 
@@ -1937,60 +1953,60 @@ fn source_surface_insert_property(
     state.property_keys.insert((name.into(), prop.into()));
 }
 
-fn collect_source_surface(expr: &Expr, state: &mut SourceFileSurfaceState) {
-    let Expr::List(items) = expr else {
+fn collect_source_surface(form: &Value, state: &mut SourceFileSurfaceState) {
+    let Some(items) = list_to_vec(form) else {
         return;
     };
-    let Some(Expr::Symbol(head_id)) = items.first() else {
+    let Some(head) = items.first().and_then(|v| v.as_symbol_name()) else {
         return;
     };
 
-    match resolve_sym(*head_id) {
+    match head {
         "progn" | "eval-and-compile" => {
             for item in items.iter().skip(1) {
                 collect_source_surface(item, state);
             }
         }
         "defun" | "defmacro" | "defsubst" | "define-inline" => {
-            if let Some(name) = items.get(1).and_then(expr_symbol_name) {
+            if let Some(name) = items.get(1).and_then(value_symbol_name) {
                 state.function_names.insert(name);
             }
         }
         "defalias" => {
-            if let Some(name) = items.get(1).and_then(expr_quoted_symbol_name) {
+            if let Some(name) = items.get(1).and_then(value_quoted_symbol_name) {
                 state.function_names.insert(name);
             }
         }
         "defvar" | "defconst" | "defcustom" => {
-            if let Some(name) = items.get(1).and_then(expr_symbol_name) {
+            if let Some(name) = items.get(1).and_then(value_symbol_name) {
                 state.variable_names.insert(name);
             }
         }
         "defface" => {
-            if let Some(name) = items.get(1).and_then(expr_symbol_name) {
+            if let Some(name) = items.get(1).and_then(value_symbol_name) {
                 state.variable_names.insert(name.clone());
                 state.face_names.insert(name);
             }
         }
         "put" | "function-put" | "define-symbol-prop" => {
-            if let Some(name) = items.get(1).and_then(expr_quoted_symbol_name)
-                && let Some(prop) = items.get(2).and_then(expr_symbol_name)
+            if let Some(name) = items.get(1).and_then(value_quoted_symbol_name)
+                && let Some(prop) = items.get(2).and_then(value_symbol_name)
             {
                 source_surface_insert_property(state, name, prop);
             }
         }
         "def-edebug-elem-spec" => {
-            if let Some(name) = items.get(1).and_then(expr_quoted_symbol_name) {
+            if let Some(name) = items.get(1).and_then(value_quoted_symbol_name) {
                 source_surface_insert_property(state, name, "edebug-form-spec");
             }
         }
         "provide" => {
-            if let Some(feature) = items.get(1).and_then(expr_quoted_symbol_name) {
+            if let Some(feature) = items.get(1).and_then(value_quoted_symbol_name) {
                 state.features.insert(feature);
             }
         }
         "pcase-defmacro" => {
-            if let Some(name) = items.get(1).and_then(expr_symbol_name) {
+            if let Some(name) = items.get(1).and_then(value_symbol_name) {
                 let macroexpander = format!("{name}--pcase-macroexpander");
                 state.function_names.insert(macroexpander.clone());
                 source_surface_insert_property(state, &macroexpander, "edebug-form-spec");
@@ -1998,7 +2014,7 @@ fn collect_source_surface(expr: &Expr, state: &mut SourceFileSurfaceState) {
             }
         }
         "define-icon" => {
-            if let Some(name) = items.get(1).and_then(expr_symbol_name) {
+            if let Some(name) = items.get(1).and_then(value_symbol_name) {
                 source_surface_insert_property(state, name, "icon--properties");
             }
         }
@@ -2022,15 +2038,16 @@ fn collect_source_surface_from_paths(
             raw_data: None,
         })?;
         let source = decode_emacs_utf8(&bytes);
-        let forms =
-            crate::emacs_core::parser::parse_forms(&source).map_err(|err| EvalError::Signal {
+        let forms = crate::emacs_core::value_reader::read_all(&source).map_err(
+            |err| EvalError::Signal {
                 symbol: intern("error"),
                 data: vec![Value::string(format!(
                     "{error_context}: failed parsing {}: {err}",
                     path.display()
                 ))],
                 raw_data: None,
-            })?;
+            },
+        )?;
 
         for form in &forms {
             collect_source_surface(form, &mut state);
@@ -2041,29 +2058,29 @@ fn collect_source_surface_from_paths(
 }
 
 fn collect_loaddefs_autoload_args(
-    expr: &Expr,
+    form: &Value,
     allowed_files: Option<&std::collections::BTreeSet<String>>,
     allowed_names: Option<&std::collections::BTreeSet<String>>,
     state: &mut LoaddefsSurfaceState,
 ) {
-    let Expr::List(items) = expr else {
+    let Some(items) = list_to_vec(form) else {
         return;
     };
-    let Some(Expr::Symbol(head_id)) = items.first() else {
+    let Some(head) = items.first().and_then(|v| v.as_symbol_name()) else {
         return;
     };
-    if resolve_sym(*head_id) != "autoload" {
+    if head != "autoload" {
         return;
     }
 
-    let Some(name) = items.get(1).and_then(expr_quoted_symbol_name) else {
+    let Some(name) = items.get(1).and_then(value_quoted_symbol_name) else {
         return;
     };
-    let Some(Expr::Str(file)) = items.get(2) else {
+    let Some(file) = items.get(2).and_then(|v| v.as_str()).map(|s| s.to_owned()) else {
         return;
     };
     if let Some(files) = allowed_files
-        && !files.contains(file)
+        && !files.contains(&file)
     {
         return;
     }
@@ -2074,9 +2091,9 @@ fn collect_loaddefs_autoload_args(
     }
 
     state.names.insert(name.clone());
-    let mut args = vec![Value::symbol(&name), Value::string(file.clone())];
-    for expr in items.iter().skip(3).take(3) {
-        let Some(value) = expr_runtime_value(expr) else {
+    let mut args = vec![Value::symbol(&name), Value::string(file)];
+    for val in items.iter().skip(3).take(3) {
+        let Some(value) = value_runtime_value(val) else {
             return;
         };
         args.push(value);
@@ -2085,26 +2102,25 @@ fn collect_loaddefs_autoload_args(
 }
 
 fn collect_loaddefs_property_forms(
-    expr: &Expr,
+    form: &Value,
     names: &std::collections::BTreeSet<String>,
     state: &mut LoaddefsSurfaceState,
 ) {
-    let Expr::List(items) = expr else {
+    let Some(items) = list_to_vec(form) else {
         return;
     };
-    let Some(Expr::Symbol(head_id)) = items.first() else {
+    let Some(head) = items.first().and_then(|v| v.as_symbol_name()) else {
         return;
     };
-    let head = resolve_sym(*head_id);
     if head != "function-put" && head != "put" {
         return;
     }
-    let Some(name) = items.get(1).and_then(expr_quoted_symbol_name) else {
+    let Some(name) = items.get(1).and_then(value_quoted_symbol_name) else {
         return;
     };
     if names.contains(&name) {
-        state.property_forms.push(expr.clone());
-        if let Some(prop) = items.get(2).and_then(expr_symbol_name) {
+        state.property_forms.push(*form);
+        if let Some(prop) = items.get(2).and_then(value_symbol_name) {
             state.property_keys.insert((name, prop));
         }
     }
@@ -2128,15 +2144,16 @@ fn collect_loaddefs_surface_from_paths(
             raw_data: None,
         })?;
         let source = decode_emacs_utf8(&bytes);
-        let forms =
-            crate::emacs_core::parser::parse_forms(&source).map_err(|err| EvalError::Signal {
+        let forms = crate::emacs_core::value_reader::read_all(&source).map_err(
+            |err| EvalError::Signal {
                 symbol: intern("error"),
                 data: vec![Value::string(format!(
                     "{error_context}: failed parsing {}: {err}",
                     path.display()
                 ))],
                 raw_data: None,
-            })?;
+            },
+        )?;
 
         for form in &forms {
             collect_loaddefs_autoload_args(form, allowed_files, allowed_names, &mut state);
@@ -2261,7 +2278,7 @@ pub(crate) fn apply_ldefs_boot_autoloads_for_names(
         raw_data: None,
     })?;
     let forms =
-        crate::emacs_core::parser::parse_forms(&source).map_err(|err| EvalError::Signal {
+        crate::emacs_core::value_reader::read_all(&source).map_err(|err| EvalError::Signal {
             symbol: intern("error"),
             data: vec![Value::string(format!(
                 "ldefs-boot autoload restore: failed parsing {}: {err}",
@@ -2274,44 +2291,43 @@ pub(crate) fn apply_ldefs_boot_autoloads_for_names(
         .iter()
         .map(|name| (*name).to_string())
         .collect::<std::collections::BTreeSet<_>>();
-    let mut property_forms = Vec::new();
+    let mut property_forms: Vec<Value> = Vec::new();
 
     for form in &forms {
-        let Expr::List(items) = form else {
+        let Some(items) = list_to_vec(form) else {
             continue;
         };
-        let Some(Expr::Symbol(head_id)) = items.first() else {
+        let Some(head) = items.first().and_then(|v| v.as_symbol_name()) else {
             continue;
         };
-        if resolve_sym(*head_id) == "autoload"
-            && let Some(name) = items.get(1).and_then(expr_quoted_symbol_name)
+        if head == "autoload"
+            && let Some(name) = items.get(1).and_then(value_quoted_symbol_name)
             && wanted.contains(&name)
         {
-            eval_generated_loaddefs_form(eval, form)?;
+            eval_generated_loaddefs_form(eval, *form)?;
         }
     }
 
     for form in &forms {
-        let Expr::List(items) = form else {
+        let Some(items) = list_to_vec(form) else {
             continue;
         };
-        let Some(Expr::Symbol(head_id)) = items.first() else {
+        let Some(head) = items.first().and_then(|v| v.as_symbol_name()) else {
             continue;
         };
-        let head = resolve_sym(*head_id);
         if head != "function-put" && head != "put" {
             continue;
         }
-        let Some(name) = items.get(1).and_then(expr_quoted_symbol_name) else {
+        let Some(name) = items.get(1).and_then(value_quoted_symbol_name) else {
             continue;
         };
         if wanted.contains(&name) {
-            property_forms.push(form.clone());
+            property_forms.push(*form);
         }
     }
 
     for form in &property_forms {
-        eval_generated_loaddefs_form(eval, form)?;
+        eval_generated_loaddefs_form(eval, *form)?;
     }
 
     Ok(())
@@ -2419,7 +2435,7 @@ fn normalize_bootstrap_runtime_surface(
         .iter()
         .chain(runtime_loaddefs_state.property_forms.iter())
     {
-        eval_runtime_form(eval, form)?;
+        eval_runtime_form_value(eval, *form)?;
     }
 
     Ok(())
