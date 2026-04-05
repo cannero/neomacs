@@ -387,14 +387,14 @@ mod tests {
     fn test_file_load_records_pdumper_stats_and_runs_after_pdump_load_hook() {
         crate::test_utils::init_test_tracing();
         let mut eval = Context::new();
-        let setup = crate::emacs_core::parser::parse_forms(
+        let setup = crate::emacs_core::value_reader::read_all(
             "(progn
                (setq compat-pdump-hook-fired nil)
                (setq after-pdump-load-hook
                      (list (lambda () (setq compat-pdump-hook-fired t)))))",
         )
         .unwrap();
-        eval.eval_expr(&setup[0])
+        eval.eval_sub(setup[0])
             .expect("setup hook should evaluate");
 
         let dir = tempfile::tempdir().unwrap();
@@ -408,9 +408,9 @@ mod tests {
             Some(&Value::T)
         );
 
-        let forms = crate::emacs_core::parser::parse_forms("(pdumper-stats)").unwrap();
+        let forms = crate::emacs_core::value_reader::read_all("(pdumper-stats)").unwrap();
         let stats = loaded
-            .eval_expr(&forms[0])
+            .eval_sub(forms[0])
             .expect("pdumper-stats should evaluate");
         assert!(stats.is_cons(), "pdumper-stats should return an alist");
 
@@ -472,43 +472,43 @@ mod tests {
         eprintln!("pdump: load took {load_time:.2?}");
 
         // Verify the loaded evaluator can evaluate Elisp
-        let forms = crate::emacs_core::parser::parse_forms("(+ 1 2)").unwrap();
-        let result = loaded.eval_expr(&forms[0]).expect("eval should succeed");
+        let forms = crate::emacs_core::value_reader::read_all("(+ 1 2)").unwrap();
+        let result = loaded.eval_sub(forms[0]).expect("eval should succeed");
         assert_eq!(result, Value::fixnum(3));
 
         // Verify features survived (bootstrap sets many features)
         // Note: subr.el does NOT call (provide 'subr); use 'backquote instead
-        let forms = crate::emacs_core::parser::parse_forms("(featurep 'backquote)").unwrap();
+        let forms = crate::emacs_core::value_reader::read_all("(featurep 'backquote)").unwrap();
         let result = loaded
-            .eval_expr(&forms[0])
+            .eval_sub(forms[0])
             .expect("featurep should succeed");
         assert_eq!(result, Value::T, "featurep 'backquote should be t");
 
         // Verify a bootstrapped function works
-        let forms = crate::emacs_core::parser::parse_forms("(length '(a b c))").unwrap();
-        let result = loaded.eval_expr(&forms[0]).expect("eval should succeed");
+        let forms = crate::emacs_core::value_reader::read_all("(length '(a b c))").unwrap();
+        let result = loaded.eval_sub(forms[0]).expect("eval should succeed");
         assert_eq!(result, Value::fixnum(3));
 
         // Verify string operations (tests heap String objects)
         let forms =
-            crate::emacs_core::parser::parse_forms("(concat \"hello\" \" \" \"world\")").unwrap();
-        let result = loaded.eval_expr(&forms[0]).expect("eval should succeed");
+            crate::emacs_core::value_reader::read_all("(concat \"hello\" \" \" \"world\")").unwrap();
+        let result = loaded.eval_sub(forms[0]).expect("eval should succeed");
         assert_eq!(crate::emacs_core::print_value(&result), "\"hello world\"");
 
         // Verify hash table access (tests hash table round-trip)
-        let forms = crate::emacs_core::parser::parse_forms(
+        let forms = crate::emacs_core::value_reader::read_all(
             "(let ((h (make-hash-table :test 'equal))) (puthash \"key\" 42 h) (gethash \"key\" h))",
         )
         .unwrap();
-        let result = loaded.eval_expr(&forms[0]).expect("eval should succeed");
+        let result = loaded.eval_sub(forms[0]).expect("eval should succeed");
         assert_eq!(result, Value::fixnum(42));
 
         // Verify defun works (tests lambda/macro round-trip)
-        let forms = crate::emacs_core::parser::parse_forms(
+        let forms = crate::emacs_core::value_reader::read_all(
             "(progn (defun pdump-test-fn (x) (* x x)) (pdump-test-fn 7))",
         )
         .unwrap();
-        let result = loaded.eval_expr(&forms[0]).expect("eval should succeed");
+        let result = loaded.eval_sub(forms[0]).expect("eval should succeed");
         assert_eq!(result, Value::fixnum(49));
     }
 
@@ -520,8 +520,7 @@ mod tests {
         crate::emacs_core::load::apply_runtime_startup_state(&mut eval)
             .expect("runtime startup should succeed");
 
-        let probe = crate::emacs_core::parser::parse_forms(
-            r#"(list
+        let probe_src = r#"(list
                  (boundp 'lisp-data-mode-syntax-table)
                  (boundp 'emacs-lisp-mode-syntax-table)
                  (boundp 'lisp-interaction-mode-syntax-table)
@@ -533,11 +532,10 @@ mod tests {
                  (char-syntax ?\n)
                  (char-syntax ?\;)
                  (char-syntax ?{)
-                 (char-syntax ?'))"#,
-        )
-        .unwrap();
+                 (char-syntax ?'))"#;
+        let probe = crate::emacs_core::value_reader::read_all(probe_src).unwrap();
         let full_result = eval
-            .eval_expr(&probe[0])
+            .eval_sub(probe[0])
             .expect("full bootstrap probe should run");
         assert_eq!(
             crate::emacs_core::print_value_with_buffers(&full_result, &eval.buffers),
@@ -553,8 +551,9 @@ mod tests {
         crate::emacs_core::load::apply_runtime_startup_state(&mut loaded)
             .expect("runtime startup after load should succeed");
 
+        let probe = crate::emacs_core::value_reader::read_all(probe_src).unwrap();
         let loaded_result = loaded
-            .eval_expr(&probe[0])
+            .eval_sub(probe[0])
             .expect("loaded bootstrap probe should run");
         assert_eq!(
             crate::emacs_core::print_value_with_buffers(&loaded_result, &loaded.buffers),
@@ -577,7 +576,7 @@ mod tests {
         crate::emacs_core::load::apply_runtime_startup_state(&mut loaded)
             .expect("runtime startup after load should succeed");
 
-        let probe = crate::emacs_core::parser::parse_forms(
+        let probe = crate::emacs_core::value_reader::read_all(
             r#"(list
                  (eq (char-table-parent emacs-lisp-mode-syntax-table)
                      lisp-data-mode-syntax-table)
@@ -590,7 +589,7 @@ mod tests {
         )
         .unwrap();
         let result = loaded
-            .eval_expr(&probe[0])
+            .eval_sub(probe[0])
             .expect("loaded pre-runtime probe should run");
         assert_eq!(
             crate::emacs_core::print_value_with_buffers(&result, &loaded.buffers),
@@ -604,7 +603,7 @@ mod tests {
         let mut eval =
             crate::emacs_core::load::create_bootstrap_evaluator_with_features(&["neomacs"])
                 .expect("bootstrap should succeed");
-        let setup = crate::emacs_core::parser::parse_forms(
+        let setup = crate::emacs_core::value_reader::read_all(
             r#"(new-fontset
                 "fontset-default"
                 '((han
@@ -613,7 +612,7 @@ mod tests {
                    (nil . "gb18030"))))"#,
         )
         .unwrap();
-        eval.eval_expr(&setup[0])
+        eval.eval_sub(setup[0])
             .expect("han-only fontset should install before dump");
 
         let dir = tempfile::tempdir().unwrap();
@@ -622,14 +621,14 @@ mod tests {
         drop(eval);
 
         let mut loaded = load_from_dump(&dump_path).expect("load should succeed");
-        let probe = crate::emacs_core::parser::parse_forms(
+        let probe = crate::emacs_core::value_reader::read_all(
             r#"(list
                 (fontset-font t ?好 t)
                 (fontset-font t (string-to-char "好") t))"#,
         )
         .unwrap();
         let result = loaded
-            .eval_expr(&probe[0])
+            .eval_sub(probe[0])
             .expect("pdump fontset probe should run");
         let rendered = crate::emacs_core::print_value_with_buffers(&result, &loaded.buffers);
 
@@ -653,18 +652,15 @@ mod tests {
             .expect("bootstrap template should succeed");
         let snapshot = snapshot_evaluator(&template);
 
-        let setup = crate::emacs_core::parser::parse_forms(
+        let mut first = restore_snapshot(&snapshot).expect("first clone should succeed");
+        let setup = crate::emacs_core::value_reader::read_all(
             "(progn
                (setq compat-pdump-clone-smoke 'first)
                compat-pdump-clone-smoke)",
         )
         .unwrap();
-        let probe =
-            crate::emacs_core::parser::parse_forms("(boundp 'compat-pdump-clone-smoke)").unwrap();
-
-        let mut first = restore_snapshot(&snapshot).expect("first clone should succeed");
         let first_result = first
-            .eval_expr(&setup[0])
+            .eval_sub(setup[0])
             .expect("first clone evaluation should succeed");
         assert_eq!(
             crate::emacs_core::print_value_with_buffers(&first_result, &first.buffers),
@@ -672,8 +668,10 @@ mod tests {
         );
 
         let mut second = restore_snapshot(&snapshot).expect("second clone should succeed");
+        let probe =
+            crate::emacs_core::value_reader::read_all("(boundp 'compat-pdump-clone-smoke)").unwrap();
         let second_result = second
-            .eval_expr(&probe[0])
+            .eval_sub(probe[0])
             .expect("second clone evaluation should succeed");
         assert_eq!(
             crate::emacs_core::print_value_with_buffers(&second_result, &second.buffers),
@@ -688,7 +686,7 @@ mod tests {
         let snapshot = snapshot_evaluator(&template);
 
         let mut restored = restore_snapshot(&snapshot).expect("restored snapshot should succeed");
-        let forms = crate::emacs_core::parser::parse_forms(
+        let forms = crate::emacs_core::value_reader::read_all(
             r#"(list (funcall 'cons 1 2)
                      (funcall 'list 1 2 3)
                      (funcall 'intern "compat-pdump-subr-probe")
@@ -696,7 +694,7 @@ mod tests {
         )
         .expect("parse");
         let result = restored
-            .eval_expr(&forms[0])
+            .eval_sub(forms[0])
             .expect("restored runtime subrs should be callable");
         assert_eq!(
             crate::emacs_core::print_value_with_buffers(&result, &restored.buffers),
@@ -708,7 +706,7 @@ mod tests {
     fn test_restore_snapshot_does_not_report_file_based_pdump_session() {
         crate::test_utils::init_test_tracing();
         let mut template = Context::new();
-        let setup = crate::emacs_core::parser::parse_forms(
+        let setup = crate::emacs_core::value_reader::read_all(
             "(progn
                (setq compat-pdump-snapshot-hook-fired nil)
                (setq after-pdump-load-hook
@@ -716,7 +714,7 @@ mod tests {
         )
         .unwrap();
         template
-            .eval_expr(&setup[0])
+            .eval_sub(setup[0])
             .expect("setup hook should evaluate");
         let snapshot = snapshot_evaluator(&template);
 
@@ -728,9 +726,9 @@ mod tests {
             Some(&Value::NIL)
         );
 
-        let forms = crate::emacs_core::parser::parse_forms("(pdumper-stats)").unwrap();
+        let forms = crate::emacs_core::value_reader::read_all("(pdumper-stats)").unwrap();
         let stats = restored
-            .eval_expr(&forms[0])
+            .eval_sub(forms[0])
             .expect("pdumper-stats should evaluate");
         assert!(stats.is_nil());
     }
