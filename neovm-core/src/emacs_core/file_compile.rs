@@ -2164,6 +2164,55 @@ mod tests {
     }
 
     #[test]
+    fn test_compile_defmacro_runtime_preserves_condition_case_handler_symbols() {
+        crate::test_utils::init_test_tracing();
+        let macro_src = r#"
+(define-error 'test-fc-invalid-place "Invalid place")
+
+(defmacro test-fc-condition-case-handler ()
+  (condition-case err
+      (signal 'test-fc-invalid-place '(bad))
+    (test-fc-invalid-place
+     `(handled ',(car err) ',(cdr err)))))
+"#;
+        let forms = parse_forms(macro_src).unwrap();
+
+        let mut source_eval = direct_source_compile_surface_eval(false);
+        for form in &forms {
+            source_eval
+                .eval_expr(form)
+                .expect("source condition-case handler forms should install");
+        }
+
+        let mut compiled_eval = direct_source_compile_surface_eval(false);
+        let compiled = compile_file_forms(&mut compiled_eval, &forms).unwrap();
+        for form in &compiled {
+            match form {
+                CompiledForm::Eval(value) | CompiledForm::EagerEval(value) => {
+                    compiled_eval
+                        .eval_sub(*value)
+                        .expect("compiled condition-case handler form should install");
+                }
+                CompiledForm::Constant(_) => {}
+            }
+        }
+
+        let macroexpand = parse_forms("(macroexpand '(test-fc-condition-case-handler))").unwrap();
+        let source_expanded = source_eval
+            .eval_expr(&macroexpand[0])
+            .expect("source condition-case handler macroexpand should succeed");
+        let compiled_expanded = compiled_eval
+            .eval_expr(&macroexpand[0])
+            .expect("compiled condition-case handler macroexpand should succeed");
+
+        assert_eq!(
+            normalized_value(compiled_expanded),
+            normalized_value(source_expanded),
+            "compiled condition-case handler macro expansion should match source"
+        );
+    }
+
+    #[test]
     fn test_compile_defmacro_then_defun_uses_compiled_macro() {
         crate::test_utils::init_test_tracing();
         let forms = parse_forms(

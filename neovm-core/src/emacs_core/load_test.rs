@@ -894,6 +894,64 @@ fn build_pre_macroexp_reload_eval() -> Context {
     eval
 }
 
+fn build_pre_gv_eval() -> Context {
+    crate::test_utils::init_test_tracing();
+
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let lisp_dir = project_root.join("lisp");
+    assert!(
+        lisp_dir.is_dir(),
+        "lisp/ directory not found at {}",
+        lisp_dir.display()
+    );
+
+    let mut eval = Context::new();
+    let subdirs = ["", "emacs-lisp"];
+    let mut load_path_entries = Vec::new();
+    for sub in &subdirs {
+        let dir = if sub.is_empty() {
+            lisp_dir.clone()
+        } else {
+            lisp_dir.join(sub)
+        };
+        if dir.is_dir() {
+            load_path_entries.push(Value::string(dir.to_string_lossy().to_string()));
+        }
+    }
+    eval.set_variable("load-path", Value::list(load_path_entries));
+    eval.set_variable("dump-mode", Value::NIL);
+    eval.set_variable("purify-flag", Value::NIL);
+    eval.set_variable("max-lisp-eval-depth", Value::fixnum(1600));
+    eval.set_variable(
+        "macroexp--pending-eager-loads",
+        Value::list(vec![Value::symbol("skip")]),
+    );
+
+    let load_path = get_load_path(&eval.obarray());
+    for name in &[
+        "emacs-lisp/debug-early",
+        "emacs-lisp/byte-run",
+        "emacs-lisp/backquote",
+        "subr",
+        "emacs-lisp/macroexp",
+        "emacs-lisp/pcase",
+    ] {
+        let path = bootstrap_fixture_path(&load_path, name, false)
+            .unwrap_or_else(|| panic!("bootstrap file not found: {name}"));
+        load_file(&mut eval, &path).unwrap_or_else(|err| {
+            panic!(
+                "failed loading {name} from {}: {}",
+                path.display(),
+                format_eval_error(&eval, &err)
+            )
+        });
+    }
+
+    eval.set_variable("macroexp--pending-eager-loads", Value::NIL);
+    eval
+}
+
 fn minimal_eager_macroexpand_eval() -> Context {
     let mut eval = build_pre_macroexp_reload_eval();
     let load_path = get_load_path(&eval.obarray());
@@ -1010,7 +1068,7 @@ fn minimal_eager_subr_cached_replay_stays_callable() {
             }
         }
         eval.set_variable("load-path", Value::list(load_path_entries));
-        eval.set_variable("dump-mode", Value::symbol("pbootstrap"));
+        eval.set_variable("dump-mode", Value::NIL);
         eval.set_variable("purify-flag", Value::NIL);
         eval.set_variable("max-lisp-eval-depth", Value::fixnum(1600));
         eval.set_variable(
@@ -1100,6 +1158,76 @@ fn minimal_eager_subr_cached_replay_stays_callable() {
         }
     });
     replay_result.expect("subr cached replay should stay callable");
+}
+
+#[test]
+fn compiled_define_error_neobc_replay_installs_error_symbol() {
+    crate::test_utils::init_test_tracing();
+
+    let dir = tempfile::tempdir().expect("temp compiled define-error cache dir");
+    let path = dir.path().join("vm-define-error.el");
+    fs::write(&path, "(define-error 'vm-define-error \"Invalid place\")\n")
+        .expect("write define-error fixture");
+    let mut compile_eval = build_pre_gv_eval();
+    crate::emacs_core::file_compile::compile_el_to_neobc(&mut compile_eval, &path)
+        .expect("compile define-error fixture to neobc");
+
+    let source = fs::read_to_string(&path).expect("read define-error fixture");
+    let hash = crate::emacs_core::file_compile_format::source_sha256(&source);
+    let loaded =
+        crate::emacs_core::file_compile_format::read_neobc(&path.with_extension("neobc"), &hash)
+            .expect("read compiled define-error neobc");
+
+    let mut eval = build_pre_gv_eval();
+    let replay_roots: Vec<Value> = loaded.forms.iter().map(|form| form.root_value()).collect();
+    let replay_result: Result<(), EvalError> = Ok(());
+    eval.with_gc_scope(|ctx| {
+        for root in &replay_roots {
+            ctx.root(*root);
+        }
+        for (index, form) in loaded.forms.iter().enumerate() {
+            let form_desc = match form {
+                crate::emacs_core::file_compile_format::LoadedForm::Eval(value)
+                | crate::emacs_core::file_compile_format::LoadedForm::EagerEval(value) => {
+                    crate::emacs_core::print::print_value_with_buffers(value, &ctx.buffers)
+                }
+                crate::emacs_core::file_compile_format::LoadedForm::Constant(value) => {
+                    crate::emacs_core::print::print_value_with_buffers(value, &ctx.buffers)
+                }
+            };
+            let replay_result = match form {
+                crate::emacs_core::file_compile_format::LoadedForm::Eval(value) => {
+                    ctx.eval_sub(*value).map_err(map_flow)
+                }
+                crate::emacs_core::file_compile_format::LoadedForm::EagerEval(value) => {
+                    if let Some(macroexpand_fn) = get_eager_macroexpand_fn(ctx) {
+                        eager_expand_eval(ctx, *value, macroexpand_fn)
+                    } else {
+                        ctx.eval_sub(*value).map_err(map_flow)
+                    }
+                }
+                crate::emacs_core::file_compile_format::LoadedForm::Constant(_) => Ok(Value::NIL),
+            };
+            if let Err(err) = replay_result {
+                panic!(
+                    "failed replaying compiled define-error form {} from {}: {} while replaying {}",
+                    index,
+                    path.display(),
+                    format_eval_error(ctx, &err),
+                    form_desc
+                );
+            }
+            ctx.gc_safe_point_exact();
+        }
+    });
+    replay_result.expect("compiled define-error replay should stay callable");
+    assert_eq!(
+        eval_rendered(
+            &mut eval,
+            "(condition-case err (signal 'vm-define-error '(bad)) (vm-define-error (car err)))"
+        ),
+        "OK vm-define-error"
+    );
 }
 
 #[test]
@@ -3569,6 +3697,43 @@ fn find_file_with_suffix_flags() {
 }
 
 #[test]
+fn bootstrap_find_file_prefers_ldefs_boot_over_runtime_loaddefs() {
+    crate::test_utils::init_test_tracing();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock before epoch")
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("neovm-bootstrap-ldefs-{unique}"));
+    fs::create_dir_all(&dir).expect("create temp fixture dir");
+
+    let loaddefs = dir.join("loaddefs.el");
+    let ldefs_boot = dir.join("ldefs-boot.el");
+    fs::write(&loaddefs, "runtime loaddefs").expect("write runtime loaddefs fixture");
+    fs::write(&ldefs_boot, "bootstrap ldefs-boot").expect("write bootstrap ldefs fixture");
+
+    let load_path = vec![dir.to_string_lossy().to_string()];
+    assert_eq!(
+        find_file_in_load_path_with_flags("loaddefs", &load_path, false, false, false),
+        Some(loaddefs.clone())
+    );
+
+    {
+        let _guard = BootstrapLdefsBootPreferenceGuard::enable();
+        assert_eq!(
+            find_file_in_load_path_with_flags("loaddefs", &load_path, false, false, false),
+            Some(ldefs_boot.clone())
+        );
+    }
+
+    assert_eq!(
+        find_file_in_load_path_with_flags("loaddefs", &load_path, false, false, false),
+        Some(loaddefs)
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn find_file_prefers_earlier_load_path_directory() {
     crate::test_utils::init_test_tracing();
     let unique = SystemTime::now()
@@ -3725,6 +3890,53 @@ fn load_file_exact_gc_roots_load_history_and_after_load_filename() {
     );
 
     let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn runtime_neobc_surface_fingerprint_ignores_load_history_metadata_churn() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    eval.set_variable("features", Value::list(vec![Value::symbol("test-feature")]));
+    eval.set_variable("macroexp--pending-eager-loads", Value::NIL);
+    eval.set_variable("defun-declarations-alist", Value::NIL);
+    eval.set_variable("load-path", Value::list(vec![Value::string("/tmp/lisp")]));
+
+    eval.set_variable(
+        "load-history",
+        Value::list(vec![
+            Value::list(vec![
+                Value::string("/tmp/a.el"),
+                Value::symbol("first-probe"),
+            ]),
+            Value::list(vec![
+                Value::string("/tmp/b.el"),
+                Value::symbol("second-probe"),
+            ]),
+        ]),
+    );
+    let before = runtime_neobc_surface_fingerprint(&eval);
+
+    eval.set_variable(
+        "load-history",
+        Value::list(vec![
+            Value::list(vec![
+                Value::string("/tmp/a.el"),
+                Value::symbol("rewritten-probe"),
+                Value::fixnum(1),
+            ]),
+            Value::list(vec![
+                Value::string("/tmp/b.el"),
+                Value::symbol("other-probe"),
+                Value::list(vec![Value::symbol("nested")]),
+            ]),
+        ]),
+    );
+    let after = runtime_neobc_surface_fingerprint(&eval);
+
+    assert_eq!(
+        before, after,
+        "runtime neobc surface should depend on which files are loaded, not the metadata payload recorded for each load-history entry"
+    );
 }
 
 #[test]
@@ -4470,7 +4682,7 @@ fn source_cl_lib_loads_after_early_gv_without_bootstrap_gv_stubs() {
 #[test]
 fn compiled_cl_preloaded_loads_after_faces() {
     crate::test_utils::init_test_tracing();
-    let mut eval = partial_bootstrap_eval_until("emacs-lisp/cl-preloaded", true);
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
     let load_path = get_load_path(&eval.obarray());
     let path = bootstrap_fixture_path(&load_path, "emacs-lisp/cl-preloaded", true)
         .expect("compiled cl-preloaded fixture path");
@@ -4558,7 +4770,7 @@ fn neobc_cache_replays_eval_and_compile_load_side_effects() {
 }
 
 #[test]
-fn runtime_neobc_preserves_toplevel_defmacro_as_interpreted_defalias() {
+fn runtime_neobc_lowers_toplevel_defmacro_to_bytecode_defalias() {
     crate::test_utils::init_test_tracing();
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("vm-runtime-cached-macro.el");
@@ -4571,6 +4783,7 @@ fn runtime_neobc_preserves_toplevel_defmacro_as_interpreted_defalias() {
     .expect("write runtime cached macro fixture");
 
     let mut source_eval = minimal_eager_macroexpand_eval();
+    source_eval.set_variable("dump-mode", Value::NIL);
     load_file(&mut source_eval, &path).unwrap_or_else(|err| {
         panic!(
             "source load {}: {}",
@@ -4578,6 +4791,16 @@ fn runtime_neobc_preserves_toplevel_defmacro_as_interpreted_defalias() {
             format_eval_error(&source_eval, &err)
         )
     });
+    let source_func = source_eval
+        .obarray()
+        .symbol_function("vm--runtime-cached-macro")
+        .copied()
+        .expect("source macro should be installed");
+    assert_eq!(source_func.cons_car().as_symbol_name(), Some("macro"));
+    assert!(
+        source_func.cons_cdr().get_bytecode_data().is_none(),
+        "source load should still install defmacro through the GNU source path"
+    );
 
     let cache_path =
         runtime_neobc_cache_path(&path).unwrap_or_else(|| path.with_extension("neobc"));
@@ -4594,7 +4817,7 @@ fn runtime_neobc_preserves_toplevel_defmacro_as_interpreted_defalias() {
     let expr = match &loaded.forms[0] {
         crate::emacs_core::file_compile_format::LoadedForm::Eval(value) => value_to_expr(value),
         crate::emacs_core::file_compile_format::LoadedForm::EagerEval(_) => {
-            panic!("runtime neobc should keep defmacro as replayable source eval, not eager replay")
+            panic!("runtime neobc should lower defmacro directly, not preserve eager replay")
         }
         crate::emacs_core::file_compile_format::LoadedForm::Constant(_) => {
             panic!("runtime neobc should not fold defmacro to constant")
@@ -4623,11 +4846,12 @@ fn runtime_neobc_preserves_toplevel_defmacro_as_interpreted_defalias() {
         print_expr(&expr)
     );
     assert!(
-        !matches!(target.get(2), Some(Expr::OpaqueValueRef(_))),
-        "runtime neobc should not lower top-level defmacro target to bytecode"
+        matches!(target.get(2), Some(Expr::OpaqueValueRef(_))),
+        "runtime neobc should lower top-level defmacro target to bytecode"
     );
 
     let mut cached_eval = minimal_eager_macroexpand_eval();
+    cached_eval.set_variable("dump-mode", Value::NIL);
     load_file(&mut cached_eval, &path).unwrap_or_else(|err| {
         panic!(
             "cached load {}: {}",
@@ -4642,7 +4866,70 @@ fn runtime_neobc_preserves_toplevel_defmacro_as_interpreted_defalias() {
         .expect("cached macro should be installed");
     assert_eq!(func.cons_car().as_symbol_name(), Some("macro"));
     assert!(!func.cons_cdr().is_nil());
-    assert!(func.cons_cdr().get_bytecode_data().is_none());
+    assert!(func.cons_cdr().get_bytecode_data().is_some());
+}
+
+#[test]
+fn bootstrap_compile_first_waits_for_eager_macroexpand_surface() {
+    crate::test_utils::init_test_tracing();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("vm-bootstrap-compile-first.el");
+    fs::write(
+        &path,
+        r#"
+(defmacro vm--bootstrap-compile-first-macro (x) "doc" `(list ,x))
+"#,
+    )
+    .expect("write bootstrap compile-first fixture");
+
+    let mut eval = minimal_eager_macroexpand_eval();
+    eval.set_variable(
+        "macroexp--pending-eager-loads",
+        Value::list(vec![Value::symbol("skip")]),
+    );
+    assert!(
+        get_eager_macroexpand_fn(&eval).is_none(),
+        "test precondition: eager load macroexpand should be suppressed"
+    );
+    assert!(
+        eval.obarray().symbol_function("macroexpand-all").is_some(),
+        "test precondition: compiler macroexpand should still be available"
+    );
+
+    let cache_path =
+        runtime_neobc_cache_path(&path).unwrap_or_else(|| path.with_extension("neobc"));
+    if cache_path.exists() {
+        fs::remove_file(&cache_path)
+            .unwrap_or_else(|err| panic!("remove stale {}: {err}", cache_path.display()));
+    }
+
+    load_file(&mut eval, &path).unwrap_or_else(|err| {
+        panic!(
+            "source load while eager macroexpand is suppressed {}: {}",
+            path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+
+    assert!(
+        cache_path.exists(),
+        "source bootstrap may still save a runtime cache at {}",
+        cache_path.display()
+    );
+
+    let func = eval
+        .obarray()
+        .symbol_function("vm--bootstrap-compile-first-macro")
+        .copied()
+        .expect("source-installed macro should be available");
+    assert_eq!(func.cons_car().as_symbol_name(), Some("macro"));
+    assert!(
+        func.cons_cdr().get_bytecode_data().is_none(),
+        "before eager macroexpand is live, bootstrap should keep the GNU source-installed macro instead of forcing compile-first bytecode replay"
+    );
+
+    let rendered = eval_rendered(&mut eval, "(vm--bootstrap-compile-first-macro 42)");
+    assert_eq!(rendered, "OK (42)");
 }
 
 #[test]
@@ -6438,7 +6725,7 @@ fn compiled_neobc_defun_compiler_macro_declaration_sets_properties() {
     )
     .expect("write compiled cmacro fixture");
 
-    let mut eval = partial_bootstrap_eval_until("emacs-lisp/cl-preloaded", true);
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
     crate::emacs_core::file_compile::compile_el_to_neobc(&mut eval, &path)
         .expect("compile fixture to neobc");
 
@@ -6881,7 +7168,7 @@ fn compiled_neobc_replay_preserves_define_inline_compiler_macro() {
     )
     .expect("write inline compiled fixture");
 
-    let mut eval = partial_bootstrap_eval_until("emacs-lisp/cl-preloaded", true);
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
     crate::emacs_core::file_compile::compile_el_to_neobc(&mut eval, &path)
         .expect("compile inline fixture to neobc");
 
