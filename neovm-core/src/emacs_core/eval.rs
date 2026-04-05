@@ -10603,16 +10603,27 @@ impl Context {
     }
 
     fn macro_expansion_context_key_for_environment(&self, environment: Option<Value>) -> u64 {
-        use std::hash::{Hash, Hasher};
+        fn value_identity_key(value: Value) -> u64 {
+            match value.kind() {
+                ValueKind::Nil => 0,
+                ValueKind::T => 1,
+                ValueKind::Fixnum(n) => ((n as u64).wrapping_mul(0x9E37_79B1)) ^ 0x10,
+                ValueKind::Symbol(sym) => ((sym.0 as u64) << 8) ^ 0x20,
+                ValueKind::Veclike(VecLikeType::Subr) => {
+                    let sym = value.as_subr_id().unwrap();
+                    ((sym.0 as u64) << 8) ^ 0x22
+                }
+                _ => (value.bits() as u64) ^ 0x30,
+            }
+        }
 
-        fn fingerprint_macroexp_context_value(
-            value: Value,
-            tag: u8,
-            hasher: &mut impl std::hash::Hasher,
-        ) {
-            tag.hash(hasher);
+        fn semantic_fingerprint(value: Value) -> u64 {
+            use std::hash::Hasher;
+
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
             let mut seen = std::collections::HashSet::new();
-            value_fingerprint(value, hasher, 4, &mut seen);
+            value_fingerprint(value, &mut hasher, 4, &mut seen);
+            hasher.finish()
         }
 
         let current_macroexpand_env = self
@@ -10626,11 +10637,13 @@ impl Context {
             .copied()
             .unwrap_or(Value::NIL);
 
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        fingerprint_macroexp_context_value(environment.unwrap_or(Value::NIL), 0x41, &mut hasher);
-        fingerprint_macroexp_context_value(current_macroexpand_env, 0x42, &mut hasher);
-        fingerprint_macroexp_context_value(current_dynvars, 0x43, &mut hasher);
-        hasher.finish()
+        let explicit_environment_key = environment.map(semantic_fingerprint).unwrap_or(0);
+        let current_macroexpand_env_key = value_identity_key(current_macroexpand_env);
+        let current_dynvars_key = value_identity_key(current_dynvars);
+
+        explicit_environment_key.rotate_left(7)
+            ^ current_macroexpand_env_key.rotate_left(29)
+            ^ current_dynvars_key.rotate_left(43)
     }
 
     fn runtime_macro_expansion_cache_enabled(&self) -> bool {
