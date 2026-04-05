@@ -60,8 +60,8 @@ impl OpaqueValuePool {
 }
 
 thread_local! {
-    /// Thread-local opaque value pool used by `value_to_expr` and other code
-    /// that creates `Expr::OpaqueValueRef` nodes without access to `Context`.
+    /// Thread-local opaque value pool used by code that creates
+    /// `Expr::OpaqueValueRef` nodes without access to `Context`.
     pub(crate) static OPAQUE_POOL: RefCell<OpaqueValuePool> = RefCell::new(OpaqueValuePool::new());
 }
 
@@ -5850,9 +5850,7 @@ impl Context {
     /// Evaluate a runtime Value form, matching GNU Emacs's `eval_sub` in eval.c.
     ///
     /// This is the Value-based evaluator that works directly on `Value` (Lisp_Object
-    /// equivalent) WITHOUT converting to `Expr` first. This eliminates the
-    /// `value_to_expr` round-trip that was the primary performance bottleneck
-    /// in macro expansion (50-100x slowdown vs GNU).
+    /// equivalent) WITHOUT converting to `Expr` first.
     ///
     /// Dispatch order (matching GNU eval.c:2552-2766):
     /// 1. Symbol → lexenv lookup or symbol-value
@@ -5991,7 +5989,7 @@ impl Context {
             let arg_values = value_list_to_values(&original_args);
             let expanded =
                 self.with_macro_expansion_scope(|eval| eval.apply_lambda(func, arg_values))?;
-            // Evaluate expansion DIRECTLY — no value_to_expr round-trip!
+            // Evaluate expansion directly.
             return self.eval_sub(expanded);
         }
         if cons_head_symbol_id(&func) == Some(macro_symbol()) {
@@ -10346,50 +10344,6 @@ fn value_list_to_values(list: &Value) -> Vec<Value> {
         cursor = cursor.cons_cdr();
     }
     result
-}
-
-/// Convert a Value back to an Expr (for macro expansion).
-pub(crate) fn value_to_expr(value: &Value) -> Expr {
-    match value.kind() {
-        ValueKind::Nil => Expr::Symbol(intern("nil")),
-        ValueKind::T => Expr::Symbol(intern("t")),
-        ValueKind::Fixnum(n) => Expr::Int(n),
-        ValueKind::Float => Expr::Float(value.as_float().unwrap()),
-        ValueKind::Symbol(id) => Expr::Symbol(id),
-        ValueKind::String => Expr::Str(value.as_str().unwrap().to_owned()),
-        ValueKind::Cons => {
-            if let Some(items) = list_to_vec(value) {
-                Expr::List(items.iter().map(value_to_expr).collect())
-            } else {
-                // Improper list / dotted pair — traverse cons cells and
-                // produce Expr::DottedList(proper_items, tail).
-                let mut items = Vec::new();
-                let mut cursor = *value;
-                loop {
-                    match cursor.kind() {
-                        ValueKind::Cons => {
-                            items.push(value_to_expr(&cursor.cons_car()));
-                            cursor = cursor.cons_cdr();
-                        }
-                        _ => {
-                            break Expr::DottedList(items, Box::new(value_to_expr(&cursor)));
-                        }
-                    }
-                }
-            }
-        }
-        ValueKind::Veclike(VecLikeType::Vector) => {
-            let items = value.as_vector_data().unwrap().clone();
-            Expr::Vector(items.iter().map(value_to_expr).collect())
-        }
-        ValueKind::Veclike(VecLikeType::Subr) => {
-            Expr::OpaqueValueRef(OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(*value)))
-        }
-        // Lambda, Macro, ByteCode, HashTable, Buffer, etc. — preserve as
-        // opaque values so they survive the Value→Expr→Value round-trip
-        // (e.g., closures embedded in defcustom backquote expansions).
-        other => Expr::OpaqueValueRef(OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(*value))),
-    }
 }
 
 // ---------------------------------------------------------------------------

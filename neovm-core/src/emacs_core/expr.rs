@@ -27,8 +27,8 @@ pub enum Expr {
     Bool(bool),
     /// Index into the thread-local `OpaqueValuePool` for a runtime Value
     /// (Lambda, ByteCode, Subr, etc.) embedded in code.
-    /// Produced by `value_to_expr` when converting data structures containing
-    /// callable values (e.g., closures inside backquoted defcustom expansions).
+    /// Produced by the parser when reading data structures that must be stored
+    /// as opaque Values (hash-tables, records, etc.).
     /// Evaluates to the pooled value directly.  The pool is GC-rooted, so
     /// the referenced Value always survives collection.
     OpaqueValueRef(u32),

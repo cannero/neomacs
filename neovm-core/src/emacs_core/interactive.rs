@@ -14,7 +14,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::error::{EvalResult, Flow, signal};
-use super::eval::{Context, quote_to_value, value_to_expr};
+use super::eval::{Context, quote_to_value};
 use super::expr::Expr;
 use super::intern::{intern, resolve_sym};
 use super::keyboard::pure::make_event_array_value;
@@ -1074,7 +1074,7 @@ enum CommandInvocationKind {
 enum ParsedInteractiveSpec {
     NoArgs,
     StringCode(String),
-    Form(Expr),
+    Form(Value),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -2144,7 +2144,7 @@ fn parse_interactive_spec(expr: &Expr) -> Option<ParsedInteractiveSpec> {
     }
     match items.get(1) {
         Some(Expr::Str(code)) => Some(ParsedInteractiveSpec::StringCode(code.clone())),
-        Some(form) => Some(ParsedInteractiveSpec::Form(form.clone())),
+        Some(form) => Some(ParsedInteractiveSpec::Form(quote_to_value(form))),
         None => Some(ParsedInteractiveSpec::NoArgs),
     }
 }
@@ -2182,8 +2182,7 @@ fn parse_interactive_spec_from_value(spec: &Value) -> Option<ParsedInteractiveSp
         }
         _ => {
             // Could be a form to evaluate
-            let expr = super::eval::value_to_expr(spec);
-            Some(ParsedInteractiveSpec::Form(expr))
+            Some(ParsedInteractiveSpec::Form(*spec))
         }
     }
 }
@@ -2449,7 +2448,7 @@ fn resolve_interactive_invocation_args(
                         interactive_args_from_string_code(eval, &code, kind, context)?
                     }
                     ParsedInteractiveSpec::Form(form) => {
-                        let value = eval.eval(&form)?;
+                        let value = eval.eval_value(&form)?;
                         Some(interactive_form_value_to_args(value)?)
                     }
                 };
@@ -2469,7 +2468,7 @@ fn resolve_interactive_invocation_args(
                     interactive_args_from_string_code(eval, &code, kind, context)?
                 }
                 ParsedInteractiveSpec::Form(form) => {
-                    let value = eval.eval(&form)?;
+                    let value = eval.eval_value(&form)?;
                     Some(interactive_form_value_to_args(value)?)
                 }
             };
@@ -2545,15 +2544,6 @@ fn resolve_interactive_invocation_args(
         }
         CommandInvocationKind::CommandExecute => default_command_execute_args(eval, resolved_name),
     }
-}
-
-fn eval_interactive_form_expr_in_vm_runtime(
-    shared: &mut super::eval::Context,
-    vm_gc_roots: &[Value],
-    form: &Expr,
-) -> Result<Vec<Value>, Flow> {
-    let value = shared.with_extra_gc_roots(vm_gc_roots, &[], move |eval| eval.eval(form))?;
-    interactive_form_value_to_args(value)
 }
 
 fn eval_interactive_form_value_in_vm_runtime(
@@ -2868,7 +2858,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
                 .map(|maybe_args| maybe_args.map(|args| (func, args)))
             }
             ParsedInteractiveSpec::Form(form) => {
-                eval_interactive_form_expr_in_vm_runtime(shared, vm_gc_roots, &form)
+                eval_interactive_form_value_in_vm_runtime(shared, vm_gc_roots, form)
                     .map(|args| Some((func, args)))
             }
         };
