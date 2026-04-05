@@ -1,6 +1,6 @@
 use super::*;
 use crate::emacs_core::eval::{Context, quote_to_value};
-use crate::emacs_core::expr::Expr;
+use crate::emacs_core::expr::{Expr, print_expr};
 use crate::emacs_core::fontset::{
     DEFAULT_FONTSET_NAME, FontSpecEntry, matching_entries_for_fontset,
 };
