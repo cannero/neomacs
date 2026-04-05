@@ -3998,9 +3998,15 @@ impl Context {
         // Thread-local statics holding Values
         collect_thread_local_gc_roots(&mut roots);
 
-        // current_local_map is a cons-list keymap Value, trace it as a root
+        // Direct Value fields on Context that hold heap objects
         if !self.current_local_map.is_nil() {
             roots.push(self.current_local_map);
+        }
+        if self.standard_syntax_table.is_heap_object() {
+            roots.push(self.standard_syntax_table);
+        }
+        if self.standard_category_table.is_heap_object() {
+            roots.push(self.standard_category_table);
         }
 
         // Sub-managers
