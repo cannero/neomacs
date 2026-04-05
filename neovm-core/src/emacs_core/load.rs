@@ -1089,6 +1089,222 @@ where
     })
 }
 
+/// GNU-style streaming read-eval loop using the Value-native reader.
+///
+/// Reads one form at a time from `content`, optionally macro-expands it via
+/// `macroexpand_fn`, evaluates it, then advances to the next form. No
+/// parse-all-first, no neobc cache, no macro expansion cache.
+///
+/// This matches the structure of `readevalloop` in GNU Emacs `lread.c`.
+fn streaming_readevalloop(
+    eval: &mut super::eval::Context,
+    path: &Path,
+    content: &str,
+    macroexpand_fn: Option<Value>,
+) -> Result<Value, EvalError> {
+    let file_name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+
+    let mut pos = 0;
+    let mut form_idx = 0;
+
+    loop {
+        let read_result =
+            super::value_reader::read_one(content, pos).map_err(|e| EvalError::Signal {
+                symbol: intern("error"),
+                data: vec![Value::string(format!(
+                    "Read error in {}: {} at position {}",
+                    path.display(),
+                    e.message,
+                    e.position
+                ))],
+                raw_data: None,
+            })?;
+
+        let Some((form, next_pos)) = read_result else {
+            break; // EOF
+        };
+
+        // Log a preview of the form source text.
+        let form_start = pos;
+        pos = next_pos;
+
+        if tracing::enabled!(tracing::Level::DEBUG) {
+            let preview: String = content[form_start..next_pos]
+                .chars()
+                .take(80)
+                .collect();
+            tracing::debug!(
+                "{} FORM[{}/streaming]: {}",
+                file_name,
+                form_idx,
+                preview,
+            );
+        }
+
+        // Root the form value so it survives any GC triggered during
+        // macro-expansion or evaluation.
+        let saved_temp_roots = eval.save_temp_roots();
+        eval.push_temp_root(form);
+
+        let eval_result = if let Some(mexp) = macroexpand_fn {
+            // GNU-style eager expand: one level, recurse for progn,
+            // full expand + eval.
+            streaming_readevalloop_eager_expand_eval(eval, form, mexp)
+        } else {
+            eval.eval_sub(form).map_err(map_flow)
+        };
+
+        eval.restore_temp_roots(saved_temp_roots);
+
+        // Report errors with the same detail as the Expr-based readevalloop.
+        if let Err(ref e) = eval_result {
+            let err_detail = match e {
+                EvalError::Signal {
+                    symbol,
+                    data,
+                    raw_data,
+                } => {
+                    let sym_name = super::intern::resolve_sym(*symbol);
+                    let payload = if let Some(raw) = raw_data {
+                        format_value_for_error(raw)
+                    } else if data.is_empty() {
+                        "nil".to_string()
+                    } else {
+                        let data_strs: Vec<String> =
+                            data.iter().map(|v| format_value_for_error(v)).collect();
+                        format!("({})", data_strs.join(" "))
+                    };
+                    format!("({} {})", sym_name, payload)
+                }
+                other => format!("{:?}", other),
+            };
+            let preview: String = content[form_start..next_pos]
+                .chars()
+                .take(120)
+                .collect();
+            tracing::error!(
+                "  !! {} FORM[{}] FAILED: {} => {}",
+                file_name,
+                form_idx,
+                preview,
+                err_detail,
+            );
+            // Dump Lisp backtrace (like GNU's debug-early-backtrace)
+            if !eval.runtime_backtrace.is_empty() {
+                tracing::error!("  Lisp backtrace:");
+                for (j, frame) in eval.runtime_backtrace.iter().rev().enumerate() {
+                    let func_name = super::print::print_value(&frame.function);
+                    let args_str = frame
+                        .args()
+                        .iter()
+                        .take(4)
+                        .map(|a| {
+                            let s = super::print::print_value(a);
+                            if s.len() > 40 {
+                                format!("{}...", &s[..37])
+                            } else {
+                                s
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    let ellipsis = if frame.args_len() > 4 { " ..." } else { "" };
+                    tracing::error!("    {j}: ({func_name} {args_str}{ellipsis})");
+                    if j >= 20 {
+                        tracing::error!(
+                            "    ... ({} more frames)",
+                            eval.runtime_backtrace.len() - j - 1
+                        );
+                        break;
+                    }
+                }
+            }
+        }
+        eval_result?;
+
+        eval.gc_safe_point_exact();
+        form_idx += 1;
+    }
+
+    record_load_history(eval, path);
+    Ok(Value::T)
+}
+
+/// GNU-style eager macro expansion during streaming load.
+///
+/// Matches `readevalloop_eager_expand_eval` in lread.c:
+/// 1. One-level macroexpand via `internal-macroexpand-for-load(form, nil)`
+/// 2. If result is `(progn ...)`, iterate subforms (recurse for each)
+/// 3. Otherwise, full macroexpand via `internal-macroexpand-for-load(form, t)`
+///    then eval the result.
+fn streaming_readevalloop_eager_expand_eval(
+    eval: &mut super::eval::Context,
+    form: Value,
+    macroexpand: Value,
+) -> Result<Value, EvalError> {
+    // Step 1: one-level expand (full_p = nil)
+    let expanded = match eval.apply(macroexpand, vec![form, Value::NIL]) {
+        Ok(v) => v,
+        Err(_) => {
+            // Expansion failed (cycle detection, missing macro, etc.).
+            // Fall back to evaluating the original form without expansion,
+            // matching .elc behavior.
+            tracing::debug!("streaming eager_expand step1 failed, falling back to plain eval");
+            return eval.eval_sub(form).map_err(map_flow);
+        }
+    };
+
+    // Root the expanded form so it survives GC during progn iteration.
+    let saved_temp_roots = eval.save_temp_roots();
+    eval.push_temp_root(expanded);
+
+    let result = streaming_readevalloop_eager_expand_eval_inner(eval, expanded, macroexpand);
+
+    eval.restore_temp_roots(saved_temp_roots);
+    result
+}
+
+/// Inner helper for eager expansion: handles progn unwinding and full expansion.
+fn streaming_readevalloop_eager_expand_eval_inner(
+    eval: &mut super::eval::Context,
+    expanded: Value,
+    macroexpand: Value,
+) -> Result<Value, EvalError> {
+    // Step 2: if (progn ...), iterate subforms
+    if expanded.is_cons() && expanded.cons_car().is_symbol_named("progn") {
+        let mut cursor = expanded.cons_cdr();
+        let mut last_val = Value::NIL;
+        while cursor.is_cons() {
+            let subform = cursor.cons_car();
+            cursor = cursor.cons_cdr();
+            // Root cursor across recursive expansion+eval (it's a cons tail
+            // that could be collected if we don't protect it).
+            let saved = eval.save_temp_roots();
+            eval.push_temp_root(cursor);
+            last_val =
+                streaming_readevalloop_eager_expand_eval(eval, subform, macroexpand)?;
+            eval.restore_temp_roots(saved);
+        }
+        return Ok(last_val);
+    }
+
+    // Step 3: full expand (full_p = t), then eval
+    let fully_expanded = match eval.apply(macroexpand, vec![expanded, Value::T]) {
+        Ok(v) => v,
+        Err(_) => {
+            // Full expansion failed; use the one-level-expanded form.
+            tracing::debug!("streaming eager_expand step3 failed, using one-level expansion");
+            expanded
+        }
+    };
+
+    eval.eval_sub(fully_expanded).map_err(map_flow)
+}
+
 /// Shared form-by-form evaluation loop, modelled after GNU Emacs `readevalloop`
 /// in lread.c.
 ///
@@ -1331,6 +1547,20 @@ fn load_file_body(
 
     // --- Shared context setup via with_load_context ---
     with_load_context(eval, path, lexical_binding, |eval| {
+        // --- Streaming Value-reader path (opt-in via NEOVM_USE_VALUE_READER=1) ---
+        // This bypasses the Expr-based parser and neobc cache entirely,
+        // matching GNU's readevalloop: read one form, expand, eval, next.
+        // .elc files are kept on the old path because they need
+        // reify_byte_code_literals which operates on Expr, not Value.
+        if !is_elc
+            && std::env::var("NEOVM_USE_VALUE_READER").ok().as_deref() == Some("1")
+        {
+            eval.macro_expansion_cache.clear();
+            eval.source_literal_cache.clear();
+            let macroexpand_fn = get_eager_macroexpand_fn(eval);
+            return streaming_readevalloop(eval, path, &content, macroexpand_fn);
+        }
+
         if !is_elc {
             // Clear pointer-identity caches before each source file.
             eval.macro_expansion_cache.clear();
