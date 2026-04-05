@@ -7485,8 +7485,9 @@ impl Context {
         }
     }
 
-    /// Convert an `Expr` to a `Value`, treating everything as literal data
-    /// except `(byte-code-literal ...)` forms which are evaluated to produce
+    /// Recursively walk a `Value`, treating everything as literal data
+    /// except `(byte-code-literal ...)` cons cells which are converted to
+    /// `Value::ByteCode` via `sf_byte_code_literal_value`.
     fn quote_value_with_bytecode(&mut self, value: Value) -> EvalResult {
         if value.is_cons() && cons_head_symbol_id(&value) == Some(byte_code_literal_symbol()) {
             return self.sf_byte_code_literal_value(value.cons_cdr());

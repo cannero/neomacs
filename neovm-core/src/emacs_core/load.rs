@@ -1075,7 +1075,7 @@ fn streaming_readevalloop(
 
         eval.restore_temp_roots(saved_temp_roots);
 
-        // Report errors with the same detail as the Expr-based readevalloop.
+        // Report errors with human-readable detail.
         if let Err(ref e) = eval_result {
             let err_detail = match e {
                 EvalError::Signal {
