@@ -1477,7 +1477,7 @@ pub fn load_file_with_flags(
         .unwrap_or(Value::NIL);
     eval.set_variable("load-in-progress", Value::T);
 
-    let result = stacker::maybe_grow(256 * 1024, 32 * 1024 * 1024, || {
+    let result = stacker::maybe_grow(128 * 1024, 2 * 1024 * 1024, || {
         load_file_body(eval, path, noerror, nomessage)
     });
 
@@ -3281,7 +3281,7 @@ pub fn create_bootstrap_evaluator_with_startup_surface(
         "lisp/ directory not found at {}",
         lisp_dir.display()
     );
-    stacker::maybe_grow(256 * 1024, 32 * 1024 * 1024, || {
+    stacker::maybe_grow(128 * 1024, 2 * 1024 * 1024, || {
         maybe_trace_bootstrap_step("create_bootstrap_evaluator_with_features: enter");
         let mut eval = super::eval::Context::new();
         maybe_trace_bootstrap_step("create_bootstrap_evaluator_with_features: evaluator-new");

@@ -108,8 +108,8 @@ use crate::gc_trace::GcTrace;
 use crate::tagged::header::{CLOSURE_ARGLIST, SubrDispatchKind, SubrObj};
 use crate::window::FrameManager;
 
-const EVAL_STACK_RED_ZONE: usize = 256 * 1024;
-const EVAL_STACK_SEGMENT: usize = 32 * 1024 * 1024;
+const EVAL_STACK_RED_ZONE: usize = 128 * 1024;
+const EVAL_STACK_SEGMENT: usize = 2 * 1024 * 1024;
 const STACK_GROWTH_PROBE_START_DEPTH: usize = 16;
 const STACK_GROWTH_PROBE_INTERVAL: usize = 16;
 const NAMED_CALL_CACHE_CAPACITY: usize = 8;
