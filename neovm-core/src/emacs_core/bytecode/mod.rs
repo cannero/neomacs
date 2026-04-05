@@ -1,19 +1,17 @@
-//! Bytecode compiler and virtual machine.
+//! Bytecode virtual machine and decoder.
 //!
 //! Provides:
 //! - `opcode::Op` — bytecode instruction set
 //! - `chunk::ByteCodeFunction` — compiled function representation
-//! - `compiler::Compiler` — AST to bytecode compiler
 //! - `vm::Vm` — stack-based bytecode interpreter
+//! - `decode` — GNU .elc bytecode decoder
 
 pub mod chunk;
-pub mod compiler;
 pub mod decode;
 pub mod opcode;
 pub mod vm;
 
 // Re-export main types
 pub use chunk::ByteCodeFunction;
-pub use compiler::Compiler;
 pub use opcode::Op;
 pub use vm::Vm;

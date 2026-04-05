@@ -74,7 +74,6 @@ use super::advice::VariableWatcherList;
 use super::autoload::AutoloadManager;
 use super::bookmark::BookmarkManager;
 use super::builtins;
-use super::bytecode::Compiler;
 use super::coding::CodingSystemManager;
 use super::custom::CustomManager;
 use super::doc::{STARTUP_VARIABLE_DOC_STRING_PROPERTIES, STARTUP_VARIABLE_DOC_STUBS};

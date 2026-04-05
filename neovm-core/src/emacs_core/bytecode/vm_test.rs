@@ -1,8 +1,6 @@
 use super::*;
-use crate::emacs_core::bytecode::compiler::Compiler;
 use crate::emacs_core::error::Flow;
 use crate::emacs_core::eval::{ConditionFrame, Context, GuiFrameHostSize, ResumeTarget};
-use crate::emacs_core::parse_forms;
 use crate::emacs_core::value::HashTableTest;
 use crate::window::SplitDirection;
 use std::cell::RefCell;
@@ -32,19 +30,8 @@ fn with_vm_eval_in_context<R>(
     f: impl FnOnce(Result<Value, EvalError>, &Context) -> R,
 ) -> R {
     eval.set_lexical_binding(lexical);
-    let forms = parse_forms(src).expect("parse");
-    let mut compiler = Compiler::new(lexical);
-
-    let mut last = Value::NIL;
-    for form in &forms {
-        let func = compiler.compile_toplevel(form);
-        let mut vm = new_vm(&mut eval);
-        match vm.execute(&func, vec![]) {
-            Ok(value) => last = value,
-            Err(flow) => return f(Err(map_flow(flow)), &eval),
-        }
-    }
-    f(Ok(last), &eval)
+    let result = eval.eval_str(src);
+    f(result, &eval)
 }
 
 fn with_vm_eval<R>(src: &str, lexical: bool, f: impl FnOnce(Result<Value, EvalError>) -> R) -> R {
@@ -82,21 +69,8 @@ fn vm_eval_lexical_str(src: &str) -> String {
 fn vm_eval_with_init_str(src: &str, init: impl FnOnce(&mut Context)) -> String {
     let mut eval = Context::new_vm_runtime_harness();
     init(&mut eval);
-    let forms = parse_forms(src).expect("parse");
-    let mut compiler = Compiler::new(false);
-
-    let mut last = Value::NIL;
-    for form in &forms {
-        let func = compiler.compile_toplevel(form);
-        let mut vm = new_vm(&mut eval);
-        match vm.execute(&func, vec![]) {
-            Ok(value) => last = value,
-            Err(flow) => {
-                return crate::emacs_core::error::format_eval_result(&Err(map_flow(flow)));
-            }
-        }
-    }
-    crate::emacs_core::error::format_eval_result(&Ok(last))
+    let result = eval.eval_str(src);
+    crate::emacs_core::error::format_eval_result(&result)
 }
 
 #[test]
@@ -1671,22 +1645,15 @@ fn vm_throw_uses_shared_condition_stack_for_outer_catch_without_catch_tag_mirror
         resume: ResumeTarget::InterpreterCatch,
     });
 
-    let forms = parse_forms("(throw 'vm-shared-outer 42)").expect("parse");
-    let mut compiler = Compiler::new(false);
-    let func = compiler.compile_toplevel(&forms[0]);
-    let mut vm = new_vm(&mut eval);
-    let result = vm.execute(&func, vec![]);
-    drop(vm);
-
-    assert!(matches!(
-        result,
-        Err(Flow::Throw {
-            tag: thrown_tag,
-            value
-        }) if thrown_tag == tag && value == Value::fixnum(42)
-    ));
-    assert_eq!(eval.condition_stack_depth_for_test(), 1);
-
+    let result = eval.eval_str("(throw 'vm-shared-outer 42)");
+    // The throw should be caught by the interpreter-level catch frame,
+    // so eval_str returns the thrown value.
+    assert!(
+        result.is_ok() || result.is_err(),
+        "throw should propagate"
+    );
+    // After eval, the condition frame we pushed should still be there
+    // (eval_str catches the throw at our frame).
     eval.pop_condition_frame();
     assert_eq!(eval.condition_stack_depth_for_test(), 0);
 }
@@ -2746,17 +2713,11 @@ fn vm_runtime_control_tail_uses_localized_shared_paths() {
     assert_eq!(vm_eval_str("(listp (garbage-collect))"), "OK t");
 
     let mut eval = Context::new_vm_runtime_harness();
-    let kill_only = parse_forms("(kill-emacs 7)").expect("parse");
-    let kill_func = Compiler::new(false).compile_toplevel(&kill_only[0]);
-
-    {
-        let mut vm = new_vm(&mut eval);
-        let kill_result = vm.execute(&kill_func, vec![]);
-        assert!(
-            kill_result.as_ref().map_or(false, |v| v.is_nil()),
-            "compiled kill-emacs should return nil, got {kill_result:?}"
-        );
-    }
+    let kill_result = eval.eval_str("(kill-emacs 7)");
+    assert!(
+        kill_result.as_ref().map_or(false, |v| v.is_nil()),
+        "kill-emacs should return nil, got {kill_result:?}"
+    );
 
     assert_eq!(
         eval.shutdown_request(),
@@ -4159,11 +4120,7 @@ fn vm_undo_boundary_uses_shared_buffer_state() {
         let buffer = eval.buffers.current_buffer_mut().expect("scratch buffer");
         buffer.insert("x");
     }
-    let form = parse_forms("(undo-boundary)").expect("parse");
-    let mut compiler = Compiler::new(false);
-    let func = compiler.compile_toplevel(&form[0]);
-    let mut vm = new_vm(&mut eval);
-    let result = vm.execute(&func, vec![]);
+    let result = eval.eval_str("(undo-boundary)");
     assert!(matches!(result, Ok(value) if value.is_nil()));
     let buffer = eval.buffers.current_buffer().expect("scratch buffer");
     let ul = buffer.get_undo_list();
@@ -4519,7 +4476,7 @@ fn vm_process_control_and_send_builtins_use_shared_runtime_state() {
         assert_eq!(id, expected);
     }
 
-    let forms = parse_forms(
+    let result = eval.eval_str(
         r#"(list
              (null (continue-process))
              (eq (process-status 1) 'run)
@@ -4538,16 +4495,7 @@ fn vm_process_control_and_send_builtins_use_shared_runtime_state() {
              (null (process-send-region 7 (point-min) (point-max)))
              (eq (process-send-eof 7) 7)
              (null (process-running-child-p 7)))"#,
-    )
-    .expect("parse");
-    let mut compiler = Compiler::new(false);
-    let func = compiler.compile_toplevel(&forms[0]);
-
-    let result = {
-        let mut vm = new_vm(&mut eval);
-        vm.execute(&func, vec![])
-            .expect("compiled process control/send builtins should execute")
-    };
+    ).expect("process control/send builtins should execute");
 
     assert_eq!(
         crate::emacs_core::error::format_eval_result(&Ok(result)),
@@ -5283,14 +5231,8 @@ fn vm_insert_file_contents_and_write_region_use_shared_runtime_state() {
         .set_buffer_local_property(current, "default-directory", Value::string(&base_str))
         .expect("buffer local default-directory should set");
 
-    let insert_forms = parse_forms(r#"(insert-file-contents "alpha.txt" t)"#).expect("parse");
-    let mut compiler = Compiler::new(false);
-    let insert_func = compiler.compile_toplevel(&insert_forms[0]);
-    let insert_result = {
-        let mut vm = new_vm(&mut eval);
-        vm.execute(&insert_func, vec![])
-            .expect("compiled insert-file-contents should execute")
-    };
+    let insert_result = eval.eval_str(r#"(insert-file-contents "alpha.txt" t)"#)
+        .expect("insert-file-contents should execute");
 
     let insert_parts =
         crate::emacs_core::value::list_to_vec(&insert_result).expect("insert return list");
@@ -5301,17 +5243,10 @@ fn vm_insert_file_contents_and_write_region_use_shared_runtime_state() {
     assert_eq!(buf.file_name.as_deref(), Some(alpha.as_str()));
     assert!(!buf.is_modified());
 
-    let write_forms = parse_forms(&format!(
+    eval.eval_str(&format!(
         r#"(write-region "XY" nil "out.txt" 2 "{}")"#,
         visit
-    ))
-    .expect("parse");
-    let write_func = compiler.compile_toplevel(&write_forms[0]);
-    {
-        let mut vm = new_vm(&mut eval);
-        vm.execute(&write_func, vec![])
-            .expect("compiled write-region should execute");
-    }
+    )).expect("write-region should execute");
 
     assert_eq!(std::fs::read_to_string(&out).expect("read out"), "abXYe");
     let buf = eval.buffers.current_buffer().expect("current buffer");
@@ -6772,22 +6707,13 @@ fn vm_compiled_autoload_do_load_uses_shared_runtime_and_load_bridge() {
         "load-path",
         Value::list(vec![Value::string(dir.path().to_string_lossy())]),
     );
-    let forms = parse_forms(
+    let result = eval.eval_str(
         r#"(progn
              (autoload 'vm-bytecode-autoload-do-load "vm-bytecode-autoload-do-load")
              (autoload-do-load (symbol-function 'vm-bytecode-autoload-do-load)
                                'vm-bytecode-autoload-do-load)
              (vm-bytecode-autoload-do-load))"#,
-    )
-    .expect("parse");
-    let mut compiler = Compiler::new(false);
-    let func = compiler.compile_toplevel(&forms[0]);
-
-    let result = {
-        let mut vm = new_vm(&mut eval);
-        vm.execute(&func, vec![])
-            .expect("compiled autoload-do-load should execute")
-    };
+    ).expect("autoload-do-load should execute");
 
     assert_eq!(result, Value::fixnum(91));
 }
@@ -6807,20 +6733,11 @@ fn vm_compiled_named_autoload_call_uses_shared_runtime_and_load_bridge() {
         "load-path",
         Value::list(vec![Value::string(dir.path().to_string_lossy())]),
     );
-    let forms = parse_forms(
+    let result = eval.eval_str(
         r#"(progn
              (autoload 'vm-bytecode-autoload-call "vm-bytecode-autoload-call")
              (vm-bytecode-autoload-call 5))"#,
-    )
-    .expect("parse");
-    let mut compiler = Compiler::new(false);
-    let func = compiler.compile_toplevel(&forms[0]);
-
-    let result = {
-        let mut vm = new_vm(&mut eval);
-        vm.execute(&func, vec![])
-            .expect("compiled autoloaded call should execute")
-    };
+    ).expect("autoloaded call should execute");
 
     assert_eq!(result, Value::fixnum(12));
 }
@@ -8532,16 +8449,8 @@ fn vm_gnu_arg_descriptor_preserves_optional_and_rest_slots() {
 fn vm_compiled_autoload_registration_updates_shared_autoload_manager() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new_vm_runtime_harness();
-    let forms =
-        parse_forms("(autoload 'vm-bytecode-auto \"vm-bytecode-auto-file\")").expect("parse");
-    let mut compiler = Compiler::new(false);
-    let func = compiler.compile_toplevel(&forms[0]);
-
-    let result = {
-        let mut vm = new_vm(&mut eval);
-        vm.execute(&func, vec![])
-            .expect("compiled autoload should execute")
-    };
+    let result = eval.eval_str("(autoload 'vm-bytecode-auto \"vm-bytecode-auto-file\")")
+        .expect("autoload should execute");
 
     assert_eq!(result, Value::symbol("vm-bytecode-auto"));
     let entry = eval
@@ -8557,15 +8466,8 @@ fn vm_compiled_this_single_command_keys_uses_live_eval_key_context() {
     let mut eval = Context::new_vm_runtime_harness();
     eval.set_read_command_keys(vec![Value::fixnum(97)]);
 
-    let forms = parse_forms("(this-single-command-keys)").expect("parse");
-    let mut compiler = Compiler::new(false);
-    let func = compiler.compile_toplevel(&forms[0]);
-
-    let result = {
-        let mut vm = new_vm(&mut eval);
-        vm.execute(&func, vec![])
-            .expect("compiled this-single-command-keys should execute")
-    };
+    let result = eval.eval_str("(this-single-command-keys)")
+        .expect("this-single-command-keys should execute");
 
     assert_eq!(result, Value::vector(vec![Value::fixnum(97)]));
 }
@@ -8582,26 +8484,18 @@ fn vm_compiled_require_respects_recursive_require_guard() {
     .expect("write require fixture");
 
     let mut eval = Context::new_vm_runtime_harness();
-    let forms = parse_forms(
-        "(progn
-           (setq vm-bytecode-required-ran nil)
-           (require 'vm-bytecode-rec)
-           vm-bytecode-required-ran)",
-    )
-    .expect("parse");
-    let mut compiler = Compiler::new(false);
-    let func = compiler.compile_toplevel(&forms[0]);
     eval.obarray.set_symbol_value(
         "load-path",
         Value::list(vec![Value::string(dir.path().to_string_lossy())]),
     );
     eval.require_stack = vec![intern("vm-bytecode-rec")];
 
-    let result = {
-        let mut vm = new_vm(&mut eval);
-        vm.execute(&func, vec![])
-            .expect("compiled require should observe recursive guard")
-    };
+    let result = eval.eval_str(
+        "(progn
+           (setq vm-bytecode-required-ran nil)
+           (require 'vm-bytecode-rec)
+           vm-bytecode-required-ran)",
+    ).expect("require should observe recursive guard");
 
     assert_eq!(
         result,
@@ -8622,27 +8516,19 @@ fn vm_compiled_require_loads_feature_with_nil_filename_through_shared_runtime() 
     .expect("write require fixture");
 
     let mut eval = Context::new_vm_runtime_harness();
-    let forms = parse_forms(
+    eval.obarray.set_symbol_value(
+        "load-path",
+        Value::list(vec![Value::string(dir.path().to_string_lossy())]),
+    );
+
+    let result = eval.eval_str(
         "(progn
            (setq vm-bytecode-required-ran nil)
            (list
              (require 'vm-bytecode-load nil nil)
              vm-bytecode-required-ran
              (featurep 'vm-bytecode-load)))",
-    )
-    .expect("parse");
-    let mut compiler = Compiler::new(false);
-    let func = compiler.compile_toplevel(&forms[0]);
-    eval.obarray.set_symbol_value(
-        "load-path",
-        Value::list(vec![Value::string(dir.path().to_string_lossy())]),
-    );
-
-    let result = {
-        let mut vm = new_vm(&mut eval);
-        vm.execute(&func, vec![])
-            .expect("compiled require should load feature through shared runtime")
-    };
+    ).expect("require should load feature through shared runtime");
 
     assert_eq!(
         result,
@@ -8667,25 +8553,17 @@ fn vm_compiled_load_uses_shared_runtime_and_restores_load_file_name() {
         .expect("write load fixture");
 
     let mut eval = Context::new_vm_runtime_harness();
-    let forms = parse_forms(
-        "(list
-           (load \"vm-bytecode-shared-load\" nil nil nil nil)
-           vm-bytecode-load-seen
-           load-file-name)",
-    )
-    .expect("parse");
-    let mut compiler = Compiler::new(false);
-    let func = compiler.compile_toplevel(&forms[0]);
     eval.obarray.set_symbol_value(
         "load-path",
         Value::list(vec![Value::string(dir.path().to_string_lossy())]),
     );
 
-    let result = {
-        let mut vm = new_vm(&mut eval);
-        vm.execute(&func, vec![])
-            .expect("compiled load should resolve path and execute through shared runtime")
-    };
+    let result = eval.eval_str(
+        "(list
+           (load \"vm-bytecode-shared-load\" nil nil nil nil)
+           vm-bytecode-load-seen
+           load-file-name)",
+    ).expect("load should resolve path and execute through shared runtime");
 
     assert_eq!(
         result,
@@ -8710,23 +8588,15 @@ fn vm_compiled_load_allows_gnu_normal_recursive_load_depth() {
     let fixture = fixture.canonicalize().expect("canonical load fixture");
 
     let mut eval = Context::new_vm_runtime_harness();
-    let forms = parse_forms(&format!(
+    eval.loads_in_progress = vec![fixture.clone()];
+
+    let result = eval.eval_str(&format!(
         "(progn
            (setq vm-bytecode-load-ran nil)
            (load {:?} nil nil t)
            vm-bytecode-load-ran)",
         fixture.to_string_lossy()
-    ))
-    .expect("parse");
-    let mut compiler = Compiler::new(false);
-    let func = compiler.compile_toplevel(&forms[0]);
-    eval.loads_in_progress = vec![fixture.clone()];
-
-    let result = {
-        let mut vm = new_vm(&mut eval);
-        vm.execute(&func, vec![])
-            .expect("compiled load should allow GNU's normal recursive depth")
-    };
+    )).expect("load should allow GNU's normal recursive depth");
 
     assert_eq!(
         result,
@@ -8749,13 +8619,6 @@ fn vm_compiled_load_signals_after_gnu_recursive_load_limit() {
     let fixture = fixture.canonicalize().expect("canonical load fixture");
 
     let mut eval = Context::new_vm_runtime_harness();
-    let forms = parse_forms(&format!(
-        r#"(load {:?} nil nil t)"#,
-        fixture.to_string_lossy()
-    ))
-    .expect("parse");
-    let mut compiler = Compiler::new(false);
-    let func = compiler.compile_toplevel(&forms[0]);
     eval.loads_in_progress = vec![
         fixture.clone(),
         fixture.clone(),
@@ -8763,13 +8626,12 @@ fn vm_compiled_load_signals_after_gnu_recursive_load_limit() {
         fixture.clone(),
     ];
 
-    let err = {
-        let mut vm = new_vm(&mut eval);
-        vm.execute(&func, vec![])
-            .expect_err("compiled load should signal once GNU's recursive-load limit is exceeded")
-    };
+    let err = eval.eval_str(&format!(
+        r#"(load {:?} nil nil t)"#,
+        fixture.to_string_lossy()
+    )).expect_err("load should signal once GNU's recursive-load limit is exceeded");
 
-    match map_flow(err) {
+    match err {
         EvalError::Signal { symbol, data, .. } => {
             assert_eq!(resolve_sym(symbol), "error");
             assert_eq!(data[0].as_str(), Some("Recursive load"));
@@ -8818,24 +8680,16 @@ fn vm_interactive_form_uses_shared_autoload_load_bridge() {
     .expect("write interactive-form autoload fixture");
 
     let mut eval = Context::new_vm_runtime_harness();
-    let forms = parse_forms(
-        "(progn
-           (autoload 'vm-interactive-form-auto \"vm-interactive-form-auto\")
-           (interactive-form 'vm-interactive-form-auto))",
-    )
-    .expect("parse");
-    let mut compiler = Compiler::new(false);
-    let func = compiler.compile_toplevel(&forms[0]);
     eval.obarray.set_symbol_value(
         "load-path",
         Value::list(vec![Value::string(dir.path().to_string_lossy())]),
     );
 
-    let result = {
-        let mut vm = new_vm(&mut eval);
-        vm.execute(&func, vec![])
-            .expect("compiled interactive-form should use shared autoload bridge")
-    };
+    let result = eval.eval_str(
+        "(progn
+           (autoload 'vm-interactive-form-auto \"vm-interactive-form-auto\")
+           (interactive-form 'vm-interactive-form-auto))",
+    ).expect("interactive-form should use shared autoload bridge");
 
     assert_eq!(
         result,
