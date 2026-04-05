@@ -4,9 +4,9 @@ use crate::emacs_core::{
     Context, DisplayHost, GuiFrameHostRequest, Value, format_eval_result, parse_forms,
 };
 use crate::test_utils::{runtime_startup_context, runtime_startup_eval_all};
+use std::cell::RefCell;
 use std::fs;
 use std::path::PathBuf;
-use std::cell::RefCell;
 use std::rc::Rc;
 
 /// Evaluate all forms with a fresh evaluator that has a frame+window set up.

@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use super::error::{EvalResult, Flow, signal};
-use super::intern::resolve_sym;
+use super::intern::{intern, resolve_sym};
 use super::symbol::Obarray;
 use super::value::*;
 use crate::emacs_core::value::ValueKind;
@@ -312,6 +312,11 @@ pub(crate) fn plan_autoload_do_load_in_state(
                 // load already resolved it. Return the current definition.
                 return Ok(AutoloadDoLoadPlan::Return(current));
             }
+        }
+        if let Some(override_value) =
+            super::eval::compiler_function_override_in_obarray(obarray, intern(name))
+        {
+            return Ok(AutoloadDoLoadPlan::Return(override_value));
         }
     }
 

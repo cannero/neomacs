@@ -118,6 +118,34 @@ const LEXENV_SPECIAL_CACHE_CAPACITY: usize = 8;
 const GC_DEFAULT_THRESHOLD_BYTES: usize = 100_000 * std::mem::size_of::<usize>();
 const GC_THRESHOLD_FLOOR_BYTES: usize = GC_DEFAULT_THRESHOLD_BYTES / 10;
 const GC_HI_THRESHOLD_BYTES: usize = (i64::MAX as usize) / 2;
+pub(crate) const INTERNAL_COMPILER_FUNCTION_OVERRIDES: &str =
+    "internal--compiler-function-overrides";
+
+pub(crate) fn compiler_function_override_in_obarray(
+    obarray: &Obarray,
+    sym_id: SymId,
+) -> Option<Value> {
+    let mut cursor = obarray
+        .symbol_value(INTERNAL_COMPILER_FUNCTION_OVERRIDES)
+        .copied()
+        .unwrap_or(Value::NIL);
+    while cursor.is_cons() {
+        let entry = cursor.cons_car();
+        cursor = cursor.cons_cdr();
+        if entry.is_cons() && entry.cons_car().as_symbol_id() == Some(sym_id) {
+            return Some(entry.cons_cdr());
+        }
+    }
+    None
+}
+
+pub(crate) fn compiler_function_overrides_active_in_obarray(obarray: &Obarray) -> bool {
+    obarray
+        .symbol_value(INTERNAL_COMPILER_FUNCTION_OVERRIDES)
+        .copied()
+        .unwrap_or(Value::NIL)
+        .is_cons()
+}
 
 #[derive(Clone, Debug)]
 struct ExecutingKbdMacroRuntimeScope {
@@ -1220,6 +1248,12 @@ pub struct Context {
     pub(crate) gc_inhibit_depth: usize,
     /// Stress-test mode: force GC at every safe point regardless of threshold.
     pub(crate) gc_stress: bool,
+    /// Cached Lisp-visible GC tuning variables used on every safe point.
+    ///
+    /// The effective threshold still depends on live heap state and is
+    /// recomputed each time, but the backing Lisp variables are only reread
+    /// when their symbol cells actually change.
+    gc_runtime_settings_cache: GcRuntimeSettingsCache,
     /// Temporary GC roots — Values that must survive collection but aren't
     /// in any other rooted structure (e.g. intermediate results in eval_forms).
     temp_roots: Vec<Value>,
@@ -1305,6 +1339,25 @@ pub struct Context {
 pub struct ShutdownRequest {
     pub exit_code: i32,
     pub restart: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct GcRuntimeSettingsCache {
+    gc_cons_threshold_bytes: usize,
+    gc_cons_percentage: Option<f64>,
+    memory_full: bool,
+    dirty: bool,
+}
+
+impl Default for GcRuntimeSettingsCache {
+    fn default() -> Self {
+        Self {
+            gc_cons_threshold_bytes: GC_DEFAULT_THRESHOLD_BYTES,
+            gc_cons_percentage: Some(0.1),
+            memory_full: false,
+            dirty: true,
+        }
+    }
 }
 
 pub(crate) enum RequirePlan {
@@ -3672,6 +3725,7 @@ impl Context {
             gc_count: 0,
             gc_inhibit_depth: 0,
             gc_stress: false,
+            gc_runtime_settings_cache: GcRuntimeSettingsCache::default(),
             temp_roots: Vec::new(),
             vm_gc_roots: Vec::new(),
             runtime_backtrace: Vec::new(),
@@ -3714,6 +3768,7 @@ impl Context {
         lexenv: Value,
         features: Vec<SymId>,
         require_stack: Vec<SymId>,
+        loads_in_progress: Vec<std::path::PathBuf>,
         buffers: BufferManager,
         autoloads: AutoloadManager,
         custom: CustomManager,
@@ -3757,7 +3812,7 @@ impl Context {
             noninteractive,
             features,
             require_stack,
-            loads_in_progress: Vec::new(),
+            loads_in_progress,
             buffers,
             match_data: None,
             processes: ProcessManager::new(),
@@ -3801,6 +3856,7 @@ impl Context {
             gc_count: 0,
             gc_inhibit_depth: 0,
             gc_stress: false,
+            gc_runtime_settings_cache: GcRuntimeSettingsCache::default(),
             temp_roots: Vec::new(),
             vm_gc_roots: Vec::new(),
             runtime_backtrace: Vec::new(),
@@ -3988,39 +4044,59 @@ impl Context {
         self.tagged_heap.gc_threshold()
     }
 
-    fn gc_cons_threshold_bytes(&self) -> usize {
-        self.obarray
+    fn is_gc_runtime_setting_symbol(sym_id: SymId) -> bool {
+        sym_id == gc_cons_threshold_symbol()
+            || sym_id == gc_cons_percentage_symbol()
+            || sym_id == memory_full_symbol()
+    }
+
+    pub(crate) fn mark_gc_runtime_settings_dirty_by_id(&mut self, sym_id: SymId) {
+        if Self::is_gc_runtime_setting_symbol(sym_id) {
+            self.gc_runtime_settings_cache.dirty = true;
+        }
+    }
+
+    fn refresh_gc_runtime_settings_cache(&mut self) {
+        self.gc_runtime_settings_cache.gc_cons_threshold_bytes = self
+            .obarray
             .symbol_value_id(gc_cons_threshold_symbol())
             .copied()
             .and_then(|value| value.as_fixnum())
             .and_then(|n| usize::try_from(n).ok())
-            .unwrap_or(GC_DEFAULT_THRESHOLD_BYTES)
-    }
-
-    fn gc_cons_percentage(&self) -> Option<f64> {
-        let value = self
+            .unwrap_or(GC_DEFAULT_THRESHOLD_BYTES);
+        self.gc_runtime_settings_cache.gc_cons_percentage = self
             .obarray
             .symbol_value_id(gc_cons_percentage_symbol())
             .copied()
-            .unwrap_or(Value::NIL);
-        value
+            .unwrap_or(Value::NIL)
             .as_number_f64()
-            .filter(|float| float.is_finite() && *float > 0.0)
-    }
-
-    fn effective_gc_threshold_bytes(&self) -> usize {
-        if !self
+            .filter(|float| float.is_finite() && *float > 0.0);
+        self.gc_runtime_settings_cache.memory_full = !self
             .obarray
             .symbol_value_id(memory_full_symbol())
             .copied()
             .unwrap_or(Value::NIL)
-            .is_nil()
-        {
+            .is_nil();
+        self.gc_runtime_settings_cache.dirty = false;
+    }
+
+    fn ensure_gc_runtime_settings_cache(&mut self) {
+        if self.gc_runtime_settings_cache.dirty {
+            self.refresh_gc_runtime_settings_cache();
+        }
+    }
+
+    fn effective_gc_threshold_bytes(&mut self) -> usize {
+        self.ensure_gc_runtime_settings_cache();
+        if self.gc_runtime_settings_cache.memory_full {
             return self.tagged_heap.gc_threshold();
         }
 
-        let mut threshold = self.gc_cons_threshold_bytes().max(GC_THRESHOLD_FLOOR_BYTES);
-        if let Some(percentage) = self.gc_cons_percentage() {
+        let mut threshold = self
+            .gc_runtime_settings_cache
+            .gc_cons_threshold_bytes
+            .max(GC_THRESHOLD_FLOOR_BYTES);
+        if let Some(percentage) = self.gc_runtime_settings_cache.gc_cons_percentage {
             let live_estimate = self
                 .tagged_heap
                 .live_bytes()
@@ -5852,35 +5928,41 @@ impl Context {
 
         // Resolve function value
         let func = if let Some(sym_id) = sym_id {
-            match self.obarray.symbol_function_id(sym_id) {
-                Some(f) if !f.is_nil() => {
-                    let mut f = *f;
-                    // Follow symbol indirection (GNU eval.c:2604)
-                    if let Some(alias_id) = f.as_symbol_id() {
-                        if let Some(resolved) = self.obarray.indirect_function_id(alias_id) {
-                            f = resolved;
-                        }
-                    }
-                    // Handle autoload
-                    if super::autoload::is_autoload_value(&f) {
-                        let _ = super::autoload::builtin_autoload_do_load(
-                            self,
-                            vec![f, Value::from_sym_id(sym_id), Value::NIL],
-                        )?;
-                        match self.obarray.symbol_function_id(sym_id) {
-                            Some(reloaded) if !reloaded.is_nil() => *reloaded,
-                            _ => {
-                                return Err(signal(
-                                    "void-function",
-                                    vec![Value::from_sym_id(sym_id)],
-                                ));
+            if let Some(override_func) =
+                compiler_function_override_in_obarray(&self.obarray, sym_id)
+            {
+                override_func
+            } else {
+                match self.obarray.symbol_function_id(sym_id) {
+                    Some(f) if !f.is_nil() => {
+                        let mut f = *f;
+                        // Follow symbol indirection (GNU eval.c:2604)
+                        if let Some(alias_id) = f.as_symbol_id() {
+                            if let Some(resolved) = self.obarray.indirect_function_id(alias_id) {
+                                f = resolved;
                             }
                         }
-                    } else {
-                        f
+                        // Handle autoload
+                        if super::autoload::is_autoload_value(&f) {
+                            let _ = super::autoload::builtin_autoload_do_load(
+                                self,
+                                vec![f, Value::from_sym_id(sym_id), Value::NIL],
+                            )?;
+                            match self.obarray.symbol_function_id(sym_id) {
+                                Some(reloaded) if !reloaded.is_nil() => *reloaded,
+                                _ => {
+                                    return Err(signal(
+                                        "void-function",
+                                        vec![Value::from_sym_id(sym_id)],
+                                    ));
+                                }
+                            }
+                        } else {
+                            f
+                        }
                     }
+                    _ => return Err(signal("void-function", vec![Value::from_sym_id(sym_id)])),
                 }
-                _ => return Err(signal("void-function", vec![Value::from_sym_id(sym_id)])),
             }
         } else if original_fun.is_cons() {
             // Car is a list — could be (lambda ...) form
@@ -6008,11 +6090,13 @@ impl Context {
 
     /// Set a global variable.
     pub fn set_variable(&mut self, name: &str, value: Value) {
+        let sym_id = intern(name);
         if name == "noninteractive" {
             self.noninteractive = value.is_truthy();
         }
         self.note_macro_expansion_mutation();
         self.obarray.set_symbol_value(name, value);
+        self.mark_gc_runtime_settings_dirty_by_id(sym_id);
     }
 
     #[inline]
@@ -10124,58 +10208,67 @@ impl Context {
 
     #[inline]
     fn resolve_named_call_target_by_id(&mut self, sym_id: SymId) -> NamedCallTarget {
+        let compiler_overrides_active =
+            compiler_function_overrides_active_in_obarray(&self.obarray);
         let function_epoch = self.obarray.function_epoch();
-        if self
-            .named_call_cache
-            .first()
-            .is_some_and(|cache| cache.function_epoch != function_epoch)
-        {
-            self.named_call_cache.clear();
-        }
-        if let Some(cache) = self
-            .named_call_cache
-            .iter()
-            .find(|cache| cache.symbol == sym_id && cache.function_epoch == function_epoch)
-        {
-            return cache.target.clone();
+        if !compiler_overrides_active {
+            if self
+                .named_call_cache
+                .first()
+                .is_some_and(|cache| cache.function_epoch != function_epoch)
+            {
+                self.named_call_cache.clear();
+            }
+            if let Some(cache) = self
+                .named_call_cache
+                .iter()
+                .find(|cache| cache.symbol == sym_id && cache.function_epoch == function_epoch)
+            {
+                return cache.target.clone();
+            }
         }
 
         let name = resolve_sym(sym_id);
-        let target = if let Some(func) = self.obarray.symbol_function_id(sym_id).cloned() {
-            match func.kind() {
-                ValueKind::Nil => NamedCallTarget::Void,
-                // `(fset 'foo (symbol-function 'foo))` writes `#<subr foo>` into
-                // the function cell. Treat this as a direct builtin/special-form
-                // callable, not an obarray indirection cycle.
-                ValueKind::Veclike(VecLikeType::Subr)
-                    if resolve_sym(func.as_subr_id().unwrap()) == name =>
-                {
-                    match super::subr_info::subr_dispatch_kind_from_value(&func)
-                        .unwrap_or_else(|| super::subr_info::compat_subr_dispatch_kind(name))
+        let target =
+            if let Some(func) = compiler_function_override_in_obarray(&self.obarray, sym_id) {
+                NamedCallTarget::Obarray(func)
+            } else if let Some(func) = self.obarray.symbol_function_id(sym_id).cloned() {
+                match func.kind() {
+                    ValueKind::Nil => NamedCallTarget::Void,
+                    // `(fset 'foo (symbol-function 'foo))` writes `#<subr foo>` into
+                    // the function cell. Treat this as a direct builtin/special-form
+                    // callable, not an obarray indirection cycle.
+                    ValueKind::Veclike(VecLikeType::Subr)
+                        if resolve_sym(func.as_subr_id().unwrap()) == name =>
                     {
-                        SubrDispatchKind::Builtin => NamedCallTarget::Builtin,
-                        SubrDispatchKind::ContextCallable => NamedCallTarget::ContextCallable,
-                        SubrDispatchKind::SpecialForm => NamedCallTarget::SpecialForm,
+                        match super::subr_info::subr_dispatch_kind_from_value(&func)
+                            .unwrap_or_else(|| super::subr_info::compat_subr_dispatch_kind(name))
+                        {
+                            SubrDispatchKind::Builtin => NamedCallTarget::Builtin,
+                            SubrDispatchKind::ContextCallable => NamedCallTarget::ContextCallable,
+                            SubrDispatchKind::SpecialForm => NamedCallTarget::SpecialForm,
+                        }
                     }
+                    _ => NamedCallTarget::Obarray(func),
                 }
-                _ => NamedCallTarget::Obarray(func),
-            }
-        } else if self.obarray.is_function_unbound_id(sym_id) {
-            NamedCallTarget::Void
-        } else if self.has_registered_subr(intern(name)) {
-            NamedCallTarget::Builtin
-        } else {
-            NamedCallTarget::Void
-        };
+            } else if self.obarray.is_function_unbound_id(sym_id) {
+                NamedCallTarget::Void
+            } else if self.has_registered_subr(intern(name)) {
+                NamedCallTarget::Builtin
+            } else {
+                NamedCallTarget::Void
+            };
 
-        if self.named_call_cache.len() == NAMED_CALL_CACHE_CAPACITY {
-            self.named_call_cache.remove(0);
+        if !compiler_overrides_active {
+            if self.named_call_cache.len() == NAMED_CALL_CACHE_CAPACITY {
+                self.named_call_cache.remove(0);
+            }
+            self.named_call_cache.push(NamedCallCache {
+                symbol: sym_id,
+                function_epoch,
+                target: target.clone(),
+            });
         }
-        self.named_call_cache.push(NamedCallCache {
-            symbol: sym_id,
-            function_epoch,
-            target: target.clone(),
-        });
 
         target
     }
@@ -10691,6 +10784,7 @@ impl Context {
 
     pub(crate) fn store_runtime_macro_expansion(
         &mut self,
+        form: Value,
         function: Value,
         args: &[Value],
         expanded_value: &Value,
@@ -10707,8 +10801,15 @@ impl Context {
         let cache_key = self.runtime_macro_expansion_cache_key(function, current_fp, context_key);
         let cache_entry = RuntimeMacroExpansionCacheEntry::new(*expanded_value, current_fp);
         if expand_elapsed.as_millis() > 50 {
+            let macro_head = if form.is_cons() {
+                form.cons_car().as_symbol_name().unwrap_or("<non-symbol>")
+            } else {
+                "<atom>"
+            };
+            let form_str = crate::emacs_core::print::print_value(&form);
+            let form_preview: String = form_str.chars().take(200).collect();
             tracing::warn!(
-                "runtime_macro_cache MISS macro={:#x} fp={:#x} took {expand_elapsed:.2?}",
+                "runtime_macro_cache MISS head={macro_head} macro={:#x} fp={:#x} took {expand_elapsed:.2?} form={form_preview}",
                 function.bits(),
                 current_fp
             );
@@ -10809,6 +10910,7 @@ impl Context {
 
             let expand_elapsed = expand_start.elapsed();
             ctx.store_runtime_macro_expansion(
+                form,
                 definition,
                 &args_for_cache,
                 &expanded,
@@ -11533,6 +11635,7 @@ impl Context {
             self.noninteractive = value.is_truthy();
         }
         self.sync_keyboard_runtime_binding_by_id(sym_id, value);
+        self.mark_gc_runtime_settings_dirty_by_id(sym_id);
         locus
     }
 
@@ -11557,6 +11660,7 @@ impl Context {
             self.noninteractive = value.is_truthy();
         }
         self.sync_keyboard_runtime_binding_by_id(sym_id, value);
+        self.mark_gc_runtime_settings_dirty_by_id(sym_id);
         locus
     }
 
@@ -11572,6 +11676,7 @@ impl Context {
             self.noninteractive = false;
         }
         self.sync_keyboard_runtime_binding_by_id(sym_id, Value::NIL);
+        self.mark_gc_runtime_settings_dirty_by_id(sym_id);
     }
 
     fn has_local_binding_by_id(&self, sym_id: SymId) -> bool {

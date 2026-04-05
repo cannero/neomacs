@@ -26,6 +26,12 @@ slow-timeout = { period = "120s", terminate-after = 1 }
 filter = 'test(bootstrap) | test(pdump)'
 slow-timeout = { period = "600s", terminate-after = 1 }
 
+# Compiled .neobc runtime-surface tests can pay the full cold bootstrap cost
+# on the first cached-evaluator build after a Lisp fingerprint change.
+[[profile.default.overrides]]
+filter = 'package(=neovm-core) and test(/compiled_neobc_.*/)'
+slow-timeout = { period = "600s", terminate-after = 1 }
+
 # GNU-vs-NeoVM compatibility integration tests also need the cold-bootstrap budget.
 [[profile.default.overrides]]
 filter = 'package(=neovm-core) and test(/compat_.*_matches_gnu_emacs/)'

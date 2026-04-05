@@ -1014,6 +1014,7 @@ pub struct DumpContextState {
     pub lexenv: DumpValue,
     pub features: Vec<u32>,
     pub require_stack: Vec<u32>,
+    pub loads_in_progress: Vec<String>,
     pub buffers: DumpBufferManager,
     pub autoloads: DumpAutoloadManager,
     pub custom: DumpCustomManager,

@@ -48,7 +48,8 @@ fn gnu_select_el_defines_x_selection_aliases() {
     )
     .expect("read select.el");
     assert!(
-        source.contains("(define-obsolete-function-alias 'x-select-text 'gui-select-text \"25.1\")"),
+        source
+            .contains("(define-obsolete-function-alias 'x-select-text 'gui-select-text \"25.1\")"),
         "GNU select.el should own the x-select-text alias",
     );
     assert!(
@@ -64,11 +65,15 @@ fn gnu_select_el_defines_x_selection_aliases() {
         "GNU select.el should own the x-get-selection-value alias",
     );
     assert!(
-        source.contains("(define-obsolete-function-alias 'x-get-selection 'gui-get-selection \"25.1\")"),
+        source.contains(
+            "(define-obsolete-function-alias 'x-get-selection 'gui-get-selection \"25.1\")"
+        ),
         "GNU select.el should own the x-get-selection alias",
     );
     assert!(
-        source.contains("(define-obsolete-function-alias 'x-set-selection 'gui-set-selection \"25.1\")"),
+        source.contains(
+            "(define-obsolete-function-alias 'x-set-selection 'gui-set-selection \"25.1\")"
+        ),
         "GNU select.el should own the x-set-selection alias",
     );
 }

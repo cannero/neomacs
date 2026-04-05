@@ -28,6 +28,16 @@ fn loaded_runtime_form_expr(
     }
 }
 
+fn loaded_runtime_form_value(
+    form: &crate::emacs_core::file_compile_format::LoadedForm,
+) -> Option<Value> {
+    match form {
+        crate::emacs_core::file_compile_format::LoadedForm::Eval(value)
+        | crate::emacs_core::file_compile_format::LoadedForm::EagerEval(value) => Some(*value),
+        crate::emacs_core::file_compile_format::LoadedForm::Constant(_) => None,
+    }
+}
+
 fn isolated_runtime_bootstrap_eval() -> Context {
     let dump_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../target/test-cache/neovm-advice-stack-minibuffer-partial.pdump");
@@ -76,6 +86,21 @@ fn copy_source_fixture(dir: &std::path::Path, rel: &str) -> PathBuf {
     copied
 }
 
+fn prepend_fixture_load_path(eval: &mut Context, root: &std::path::Path) {
+    let mut load_path_entries = Vec::new();
+    let emacs_lisp = root.join("emacs-lisp");
+    if emacs_lisp.is_dir() {
+        load_path_entries.push(Value::string(emacs_lisp.to_string_lossy().to_string()));
+    }
+    load_path_entries.push(Value::string(root.to_string_lossy().to_string()));
+    load_path_entries.extend(
+        get_load_path(&eval.obarray())
+            .into_iter()
+            .map(Value::string),
+    );
+    eval.set_variable("load-path", Value::list(load_path_entries));
+}
+
 fn definition_is_macroish(value: Value) -> bool {
     value.is_macro() || (value.is_cons() && value.cons_car().as_symbol_name() == Some("macro"))
 }
@@ -88,6 +113,63 @@ fn is_named_defun(form: &Expr, name: &str) -> bool {
                 if resolve_sym(*id0) == "defun" && resolve_sym(*id1) == name
         ),
         _ => false,
+    }
+}
+
+fn is_named_head_symbol_form(form: &Expr, head: &str, name: &str) -> bool {
+    match form {
+        Expr::List(items) => matches!(
+            (items.first(), items.get(1)),
+            (Some(Expr::Symbol(id0)), Some(Expr::Symbol(id1)))
+                if resolve_sym(*id0) == head && resolve_sym(*id1) == name
+        ),
+        _ => false,
+    }
+}
+
+fn real_tool_bar_define_minor_mode_form() -> Expr {
+    let source = fs::read_to_string(source_bootstrap_path("tool-bar.el")).expect("read tool-bar");
+    let forms = parse_forms(&source).expect("parse tool-bar");
+    forms
+        .into_iter()
+        .find(|form| is_named_head_symbol_form(form, "define-minor-mode", "tool-bar-mode"))
+        .expect("find define-minor-mode tool-bar-mode")
+}
+
+fn real_file_named_toplevel_form(rel_path: &str, head: &str, name: &str) -> Expr {
+    let source = fs::read_to_string(source_bootstrap_path(rel_path))
+        .unwrap_or_else(|err| panic!("read {rel_path}: {err}"));
+    let forms = parse_forms(&source).unwrap_or_else(|err| panic!("parse {rel_path}: {err}"));
+    forms
+        .into_iter()
+        .find(|form| is_named_head_symbol_form(form, head, name))
+        .unwrap_or_else(|| panic!("find {head} {name} in {rel_path}"))
+}
+
+fn real_files_define_minor_mode_form(name: &str) -> Expr {
+    real_file_named_toplevel_form("files.el", "define-minor-mode", name)
+}
+
+fn eval_expanded_progn_subforms(eval: &mut Context, expanded: Value, label: &str) {
+    if let Some(forms) = list_to_vec(&expanded) {
+        if forms
+            .first()
+            .map_or(false, |value| value.is_symbol_named("progn"))
+        {
+            for (idx, form) in forms.iter().enumerate().skip(1) {
+                let expr = value_to_expr(form);
+                eval.eval_expr(&expr).unwrap_or_else(|err| {
+                    panic!(
+                        "failed evaluating expanded {label} subform {idx}: {}",
+                        format_eval_error(eval, &err)
+                    )
+                });
+            }
+        } else {
+            panic!("unexpected expanded {label} shape: {expanded:?}");
+        }
+    } else {
+        panic!("expanded {label} did not return a list: {expanded:?}");
     }
 }
 
@@ -6303,6 +6385,202 @@ conveniently adding tool bar items."
 }
 
 #[test]
+fn compiled_easy_mmode_neobc_replays_define_minor_mode_for_tool_bar() {
+    crate::test_utils::init_test_tracing();
+
+    let dir = tempdir().expect("tempdir");
+    let easy_mmode_path = copy_source_fixture(dir.path(), "emacs-lisp/easy-mmode.el");
+    let tool_bar_form = real_tool_bar_define_minor_mode_form();
+    let macroexpand_form = Expr::List(vec![
+        Expr::Symbol(intern("macroexpand")),
+        Expr::List(vec![Expr::Symbol(intern("quote")), tool_bar_form]),
+    ]);
+
+    let mut eval = partial_bootstrap_eval_until("tool-bar", false);
+    crate::emacs_core::file_compile::compile_el_to_neobc(&mut eval, &easy_mmode_path)
+        .expect("compile easy-mmode fixture to neobc");
+
+    load_file(&mut eval, &easy_mmode_path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading compiled easy-mmode from {}: {}",
+            easy_mmode_path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+
+    let define_minor_mode = eval
+        .obarray()
+        .symbol_function("define-minor-mode")
+        .copied()
+        .expect("define-minor-mode should be installed");
+    assert!(
+        definition_is_macroish(define_minor_mode),
+        "define-minor-mode should still be a macro after compiled replay"
+    );
+    assert!(
+        define_minor_mode
+            .cons_cdr()
+            .get_bytecode_data()
+            .or_else(|| define_minor_mode.get_bytecode_data())
+            .is_some(),
+        "compiled easy-mmode replay should install bytecode-backed define-minor-mode"
+    );
+
+    let expanded = eval
+        .eval_expr(&macroexpand_form)
+        .expect("macroexpand compiled tool-bar define-minor-mode");
+    eval_expanded_progn_subforms(&mut eval, expanded, "tool-bar define-minor-mode");
+
+    let forms = crate::emacs_core::parser::parse_forms(
+        r#"(list
+             (special-form-p 'define-minor-mode)
+             (commandp 'tool-bar-mode)
+             (not (and (consp (symbol-function 'tool-bar-mode))
+                       (eq (car (symbol-function 'tool-bar-mode)) 'autoload)))
+             (keymapp tool-bar-map))"#,
+    )
+    .expect("parse compiled tool-bar bootstrap probe");
+    let result = eval
+        .eval_expr(&forms[0])
+        .expect("evaluate compiled tool-bar bootstrap probe");
+    assert_eq!(
+        result,
+        Value::list(vec![Value::NIL, Value::T, Value::T, Value::T])
+    );
+}
+
+#[test]
+fn compiled_easy_mmode_neobc_macroexpands_auto_save_visited_mode_under_files_bootstrap() {
+    crate::test_utils::init_test_tracing();
+
+    let dir = tempdir().expect("tempdir");
+    let easy_mmode_path = copy_source_fixture(dir.path(), "emacs-lisp/easy-mmode.el");
+    let auto_save_form = real_files_define_minor_mode_form("auto-save-visited-mode");
+    let macroexpand_form = Expr::List(vec![
+        Expr::Symbol(intern("macroexpand")),
+        Expr::List(vec![Expr::Symbol(intern("quote")), auto_save_form]),
+    ]);
+    let pcase_path = source_bootstrap_path("emacs-lisp/pcase.el");
+    let probe = r#"
+(list
+  (commandp 'auto-save-visited-mode)
+  (boundp 'auto-save-visited-mode)
+  (not (and (consp (symbol-function 'auto-save-visited-mode))
+            (eq (car (symbol-function 'auto-save-visited-mode)) 'autoload))))"#;
+
+    let mut compiled_eval = partial_bootstrap_eval_until("files", false);
+    load_file(&mut compiled_eval, &pcase_path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading compiled pcase from {}: {}",
+            pcase_path.display(),
+            format_eval_error(&compiled_eval, &err)
+        )
+    });
+    crate::emacs_core::file_compile::compile_el_to_neobc(&mut compiled_eval, &easy_mmode_path)
+        .expect("compile easy-mmode fixture to neobc");
+    load_file(&mut compiled_eval, &easy_mmode_path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading compiled easy-mmode from {}: {}",
+            easy_mmode_path.display(),
+            format_eval_error(&compiled_eval, &err)
+        )
+    });
+    let compiled_expanded = compiled_eval
+        .eval_expr(&macroexpand_form)
+        .expect("macroexpand compiled auto-save-visited define-minor-mode under files bootstrap");
+    eval_expanded_progn_subforms(
+        &mut compiled_eval,
+        compiled_expanded,
+        "compiled auto-save-visited define-minor-mode",
+    );
+    assert_eq!(eval_rendered(&mut compiled_eval, probe), "OK (t t t)");
+}
+
+#[test]
+fn compiled_easy_mmode_neobc_helpers_run_under_files_bootstrap() {
+    crate::test_utils::init_test_tracing();
+
+    let dir = tempdir().expect("tempdir");
+    let easy_mmode_path = copy_source_fixture(dir.path(), "emacs-lisp/easy-mmode.el");
+
+    let mut eval = partial_bootstrap_eval_until("files", false);
+    crate::emacs_core::file_compile::compile_el_to_neobc(&mut eval, &easy_mmode_path)
+        .expect("compile easy-mmode fixture to neobc");
+    load_file(&mut eval, &easy_mmode_path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading compiled easy-mmode from {}: {}",
+            easy_mmode_path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+
+    for (label, src) in [
+        (
+            "pretty-name",
+            r#"(easy-mmode-pretty-mode-name 'tool-bar-mode nil)"#,
+        ),
+        (
+            "docstring",
+            r#"(easy-mmode--mode-docstring
+                 "Toggle the tool bar in all graphical frames (Tool Bar mode).
+
+See `tool-bar-add-item' and `tool-bar-add-item-from-menu' for
+conveniently adding tool bar items."
+                 "Tool-Bar mode"
+                 'tool-bar-map
+                 'tool-bar-mode
+                 t)"#,
+        ),
+    ] {
+        let forms = crate::emacs_core::parser::parse_forms(src).expect("parse easy-mmode helper");
+        eval.eval_expr(&forms[0]).unwrap_or_else(|err| {
+            panic!(
+                "compiled easy-mmode helper {label} failed under files bootstrap: {}",
+                format_eval_error(&eval, &err)
+            )
+        });
+    }
+}
+
+#[test]
+fn compiled_files_neobc_replays_auto_save_visited_mode_under_files_bootstrap() {
+    crate::test_utils::init_test_tracing();
+
+    let dir = tempdir().expect("tempdir");
+    let easy_mmode_path = copy_source_fixture(dir.path(), "emacs-lisp/easy-mmode.el");
+    let files_path = copy_source_fixture(dir.path(), "files.el");
+    let probe = r#"
+(list
+  (commandp 'auto-save-visited-mode)
+  (boundp 'auto-save-visited-mode)
+  (commandp 'lock-file-mode)
+  (boundp 'lock-file-mode)
+  (not (and (consp (symbol-function 'auto-save-visited-mode))
+            (eq (car (symbol-function 'auto-save-visited-mode)) 'autoload)))
+  (not (and (consp (symbol-function 'lock-file-mode))
+            (eq (car (symbol-function 'lock-file-mode)) 'autoload))))"#;
+
+    let mut compile_eval = partial_bootstrap_eval_until("files", false);
+    prepend_fixture_load_path(&mut compile_eval, dir.path());
+    crate::emacs_core::file_compile::compile_el_to_neobc(&mut compile_eval, &easy_mmode_path)
+        .expect("compile easy-mmode fixture to neobc");
+    crate::emacs_core::file_compile::compile_el_to_neobc(&mut compile_eval, &files_path)
+        .expect("compile files fixture to neobc");
+
+    let mut runtime_eval = partial_bootstrap_eval_until("files", false);
+    prepend_fixture_load_path(&mut runtime_eval, dir.path());
+    load_file(&mut runtime_eval, &files_path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading compiled files from {}: {}",
+            files_path.display(),
+            format_eval_error(&runtime_eval, &err)
+        )
+    });
+
+    assert_eq!(eval_rendered(&mut runtime_eval, probe), "OK (t t t t t t)");
+}
+
+#[test]
 fn evaluator_bootstrap_binds_default_frame_scroll_bars_like_gnu_frame_c() {
     crate::test_utils::init_test_tracing();
     let eval = Context::new();
@@ -6751,6 +7029,97 @@ fn compiled_neobc_defun_compiler_macro_declaration_sets_properties() {
     );
 }
 
+fn real_file_defun_form(rel_path: &str, name: &str) -> Expr {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let source = std::fs::read_to_string(project_root.join(rel_path))
+        .unwrap_or_else(|err| panic!("read {rel_path}: {err}"));
+    let forms = parse_forms(&source).unwrap_or_else(|err| panic!("parse {rel_path}: {err}"));
+    forms
+        .into_iter()
+        .find(|form| is_named_defun(form, name))
+        .unwrap_or_else(|| panic!("find defun {name} in {rel_path}"))
+}
+
+fn write_real_faces_defun_fixture(path: &std::path::Path, name: &str) {
+    let form = real_file_defun_form("lisp/faces.el", name);
+    std::fs::write(
+        path,
+        format!(
+            ";;; vm-real-{name}.el  -*- lexical-binding: t -*-\n{}\n",
+            crate::emacs_core::print::print_expr(&form)
+        ),
+    )
+    .unwrap_or_else(|err| panic!("write real faces fixture {}: {err}", path.display()));
+}
+
+fn write_real_cl_macs_defun_fixture(path: &std::path::Path, name: &str) {
+    let form = real_file_defun_form("lisp/emacs-lisp/cl-macs.el", name);
+    std::fs::write(
+        path,
+        format!(
+            ";;; vm-real-{name}.el  -*- lexical-binding: t -*-\n{}\n",
+            crate::emacs_core::print::print_expr(&form)
+        ),
+    )
+    .unwrap_or_else(|err| panic!("write real cl-macs fixture {}: {err}", path.display()));
+}
+
+fn expr_contains_symbol_named(expr: &Expr, name: &str) -> bool {
+    match expr {
+        Expr::Symbol(id) => resolve_sym(*id) == name,
+        Expr::List(items) | Expr::Vector(items) => items
+            .iter()
+            .any(|item| expr_contains_symbol_named(item, name)),
+        Expr::DottedList(items, tail) => {
+            items
+                .iter()
+                .any(|item| expr_contains_symbol_named(item, name))
+                || expr_contains_symbol_named(tail, name)
+        }
+        _ => false,
+    }
+}
+
+fn value_contains_symbol_named(value: Value, name: &str) -> bool {
+    expr_contains_symbol_named(&value_to_expr(&value), name)
+}
+
+fn bytecode_contains_symbol_named(
+    bytecode: &crate::emacs_core::bytecode::ByteCodeFunction,
+    name: &str,
+) -> bool {
+    bytecode
+        .constants
+        .iter()
+        .copied()
+        .any(|value| value_contains_symbol_named(value, name))
+        || bytecode
+            .doc_form
+            .is_some_and(|value| value_contains_symbol_named(value, name))
+        || bytecode
+            .interactive
+            .is_some_and(|value| value_contains_symbol_named(value, name))
+}
+
+fn loaded_defalias_target_bytecode(
+    value: Value,
+    name: &str,
+) -> Option<&'static crate::emacs_core::bytecode::ByteCodeFunction> {
+    let items = list_to_vec(&value)?;
+    if items.first().and_then(|item| item.as_symbol_name()) != Some("defalias") {
+        return None;
+    }
+    if items
+        .get(1)
+        .and_then(|item| expr_quoted_symbol_name(&value_to_expr(item)))
+        != Some(name.into())
+    {
+        return None;
+    }
+    items.get(2).and_then(|target| target.get_bytecode_data())
+}
+
 #[test]
 fn compiled_real_set_face_attribute_runs_before_faces() {
     crate::test_utils::init_test_tracing();
@@ -6798,6 +7167,44 @@ fn compiled_real_set_face_attribute_runs_before_faces() {
     assert_eq!(
         rendered, "OK ok",
         "compiled real set-face-attribute should run before faces.el, got: {rendered}"
+    );
+}
+
+#[test]
+fn compiled_neobc_real_set_face_attribute_loads_before_faces() {
+    crate::test_utils::init_test_tracing();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("vm-real-set-face-attribute.el");
+    write_real_faces_defun_fixture(&path, "set-face-attribute");
+
+    let mut eval = partial_bootstrap_eval_until("faces", true);
+    crate::emacs_core::file_compile::compile_el_to_neobc(&mut eval, &path)
+        .expect("compile real set-face-attribute fixture to neobc");
+
+    load_file(&mut eval, &path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading compiled real set-face-attribute fixture {}: {}",
+            path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"
+(condition-case err
+    (progn
+      (set-face-attribute 'default (selected-frame)
+                          :family "Monospace"
+                          :weight 'bold)
+      'ok)
+  (error (list 'error err)))
+"#,
+    );
+
+    assert_eq!(
+        rendered, "OK ok",
+        "compiled real set-face-attribute .neobc should load before faces.el, got: {rendered}"
     );
 }
 
@@ -6897,6 +7304,168 @@ fn compiled_real_face_spec_choose_runs_before_faces() {
         rendered, "OK (:weight bold)",
         "compiled real face-spec-choose should run before faces.el, got: {rendered}"
     );
+}
+
+#[test]
+fn compiled_neobc_real_face_spec_choose_loads_before_faces() {
+    crate::test_utils::init_test_tracing();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("vm-real-face-spec-choose.el");
+    write_real_faces_defun_fixture(&path, "face-spec-choose");
+
+    let mut eval = partial_bootstrap_eval_until("faces", true);
+    crate::emacs_core::file_compile::compile_el_to_neobc(&mut eval, &path)
+        .expect("compile real face-spec-choose fixture to neobc");
+
+    load_file(&mut eval, &path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading compiled real face-spec-choose fixture {}: {}",
+            path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"
+(condition-case err
+    (face-spec-choose '((default :weight bold)) (selected-frame) nil)
+  (error (list 'error err)))
+"#,
+    );
+
+    assert_eq!(
+        rendered, "OK (:weight bold)",
+        "compiled real face-spec-choose .neobc should load before faces.el, got: {rendered}"
+    );
+}
+
+#[test]
+fn compiled_neobc_real_face_spec_set_match_display_loads_before_faces() {
+    crate::test_utils::init_test_tracing();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("vm-real-face-spec-set-match-display.el");
+    write_real_faces_defun_fixture(&path, "face-spec-set-match-display");
+
+    let mut eval = partial_bootstrap_eval_until("faces", true);
+    crate::emacs_core::file_compile::compile_el_to_neobc(&mut eval, &path)
+        .expect("compile real face-spec-set-match-display fixture to neobc");
+
+    load_file(&mut eval, &path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading compiled real face-spec-set-match-display fixture {}: {}",
+            path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"
+(condition-case err
+    (face-spec-set-match-display '((type tty graphic)) (selected-frame))
+  (error (list 'error err)))
+"#,
+    );
+
+    assert_eq!(
+        rendered, "OK (tty graphic)",
+        "compiled real face-spec-set-match-display .neobc should load before faces.el, got: {rendered}"
+    );
+}
+
+#[test]
+fn compiled_neobc_real_cl_compiler_macro_list_star_loads_before_cl_macs() {
+    crate::test_utils::init_test_tracing();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("vm-real-cl-compiler-macro-list-star.el");
+    write_real_cl_macs_defun_fixture(&path, "cl--compiler-macro-list*");
+
+    let mut eval = partial_bootstrap_eval_until("emacs-lisp/cl-preloaded", true);
+    crate::emacs_core::file_compile::compile_el_to_neobc(&mut eval, &path)
+        .expect("compile real cl--compiler-macro-list* fixture to neobc");
+    let loaded =
+        crate::emacs_core::file_compile_format::read_neobc(&path.with_extension("neobc"), "")
+            .expect("read compiled real cl--compiler-macro-list* neobc");
+    let bytecode = loaded
+        .forms
+        .iter()
+        .filter_map(|form| loaded_runtime_form_value(form))
+        .find_map(|value| loaded_defalias_target_bytecode(value, "cl--compiler-macro-list*"))
+        .expect("compiled real cl--compiler-macro-list* should lower to bytecode");
+    for symbol in [
+        "`",
+        ",",
+        ",@",
+        "backquote",
+        "backquote-process",
+        "backquote-delay-process",
+        "backquote-list*",
+    ] {
+        assert!(
+            !bytecode_contains_symbol_named(bytecode, symbol),
+            "compiled real cl--compiler-macro-list* should not retain raw/runtime backquote symbol {symbol}"
+        );
+    }
+
+    load_file(&mut eval, &path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading compiled real cl--compiler-macro-list* fixture {}: {}",
+            path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"
+(condition-case err
+    (cl--compiler-macro-list* nil 3 2 1)
+  (error (list 'error err)))
+"#,
+    );
+
+    assert_eq!(
+        rendered, "OK (cons 3 (cons 2 1))",
+        "compiled real cl--compiler-macro-list* .neobc should load before cl-macs.el, got: {rendered}"
+    );
+}
+
+#[test]
+fn compiled_neobc_real_cl_transform_lambda_lowers_before_cl_macs() {
+    crate::test_utils::init_test_tracing();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("vm-real-cl-transform-lambda.el");
+    write_real_cl_macs_defun_fixture(&path, "cl--transform-lambda");
+
+    let mut eval = partial_bootstrap_eval_until("emacs-lisp/cl-preloaded", true);
+    eval.require_value(Value::symbol("cl-lib"), None, None)
+        .expect("require cl-lib before cl--transform-lambda fixture");
+    crate::emacs_core::file_compile::compile_el_to_neobc(&mut eval, &path)
+        .expect("compile real cl--transform-lambda fixture to neobc");
+    let loaded =
+        crate::emacs_core::file_compile_format::read_neobc(&path.with_extension("neobc"), "")
+            .expect("read compiled real cl--transform-lambda neobc");
+    let bytecode = loaded
+        .forms
+        .iter()
+        .filter_map(|form| loaded_runtime_form_value(form))
+        .find_map(|value| loaded_defalias_target_bytecode(value, "cl--transform-lambda"))
+        .expect("compiled real cl--transform-lambda should lower to bytecode");
+    for symbol in [
+        "`",
+        ",",
+        ",@",
+        "backquote",
+        "backquote-process",
+        "backquote-delay-process",
+        "backquote-list*",
+    ] {
+        assert!(
+            !bytecode_contains_symbol_named(bytecode, symbol),
+            "compiled real cl--transform-lambda should not retain raw/runtime backquote symbol {symbol}"
+        );
+    }
 }
 
 #[test]

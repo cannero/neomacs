@@ -1874,6 +1874,10 @@ impl<'a> Vm<'a> {
     }
 
     fn named_builtin_fast_path_allowed(&self, name: &str) -> bool {
+        if crate::emacs_core::eval::compiler_function_overrides_active_in_obarray(&self.ctx.obarray)
+        {
+            return false;
+        }
         match self.ctx.obarray.symbol_function(name) {
             Some(val) => match val.kind() {
                 ValueKind::Veclike(VecLikeType::Subr) => {
@@ -4390,6 +4394,7 @@ impl<'a> crate::emacs_core::builtins::symbols::MacroexpandRuntime for Vm<'a> {
             let expanded = vm.with_macro_expansion_scope(|vm| vm.call_function(function, args))?;
             let expand_elapsed = expand_start.elapsed();
             vm.ctx.store_runtime_macro_expansion(
+                form,
                 function,
                 &args_for_cache,
                 &expanded,

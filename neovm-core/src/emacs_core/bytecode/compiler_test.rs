@@ -46,6 +46,32 @@ fn compile_if() {
 }
 
 #[test]
+fn compile_if_else_ending_in_when() {
+    crate::test_utils::init_test_tracing();
+    let func = compile(
+        "(if cond
+             (foo)
+           (let ((re-narrow narrowfun))
+             (when re-narrow
+               (funcall narrowfun))))",
+    );
+    assert!(matches!(func.ops.last(), Some(Op::Return)));
+}
+
+#[test]
+fn compile_if_else_ending_in_unless() {
+    crate::test_utils::init_test_tracing();
+    let func = compile(
+        "(if cond
+             (foo)
+           (let ((re-narrow narrowfun))
+             (unless re-narrow
+               (funcall narrowfun))))",
+    );
+    assert!(matches!(func.ops.last(), Some(Op::Return)));
+}
+
+#[test]
 fn compile_let() {
     crate::test_utils::init_test_tracing();
     let func = compile("(let ((x 1)) x)");

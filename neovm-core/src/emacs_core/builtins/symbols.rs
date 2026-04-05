@@ -433,6 +433,7 @@ pub(crate) fn set_default_toplevel_value_impl(
     ) {
         ctx.obarray.set_symbol_value_id(resolved, value);
     }
+    ctx.mark_gc_runtime_settings_dirty_by_id(resolved);
     Ok(Value::NIL)
 }
 
@@ -491,6 +492,7 @@ pub(crate) fn defvaralias_impl(
     ctx.obarray.make_special_id(new_symbol);
     ctx.obarray.make_alias(new_symbol, old_symbol);
     ctx.obarray.make_special_id(old_symbol);
+    ctx.mark_gc_runtime_settings_dirty_by_id(new_symbol);
     preflight_symbol_plist_put_in_obarray(&mut ctx.obarray, new_symbol, "variable-documentation")?;
     let docstring = args.get(2).cloned().unwrap_or(Value::NIL);
     Ok(DefvaraliasStateChange {
@@ -744,6 +746,7 @@ pub(crate) fn builtin_defconst_1(eval: &mut super::eval::Context, args: Vec<Valu
     let value = args[1];
     eval.note_macro_expansion_mutation();
     eval.obarray_mut().set_symbol_value_id(resolved, value);
+    eval.mark_gc_runtime_settings_dirty_by_id(resolved);
     eval.obarray_mut().set_constant_id(resolved);
     eval.obarray_mut()
         .put_property_id(resolved, intern("risky-local-variable"), Value::T);

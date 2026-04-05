@@ -7785,6 +7785,27 @@ fn gc_threshold_adapts_after_collection() {
 }
 
 #[test]
+fn gc_safe_point_reloads_threshold_after_lisp_setq() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+
+    let forms = crate::emacs_core::parse_forms(
+        "(progn
+           (setq gc-cons-percentage nil)
+           (setq gc-cons-threshold 1234567))",
+    )
+    .unwrap();
+    ev.eval_forms(&forms);
+    ev.gc_safe_point();
+    assert_eq!(ev.tagged_heap.gc_threshold(), 1_234_567);
+
+    let forms = crate::emacs_core::parse_forms("(setq gc-cons-threshold 2345678)").unwrap();
+    ev.eval_forms(&forms);
+    ev.gc_safe_point();
+    assert_eq!(ev.tagged_heap.gc_threshold(), 2_345_678);
+}
+
+#[test]
 fn gc_collect_obeys_context_root_scan_mode() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

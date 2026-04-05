@@ -1480,6 +1480,11 @@ pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
         lexenv: dump_value(&eval.lexenv),
         features: eval.features.iter().map(|s| s.0).collect(),
         require_stack: eval.require_stack.iter().map(|s| s.0).collect(),
+        loads_in_progress: eval
+            .loads_in_progress
+            .iter()
+            .map(|path| path.to_string_lossy().to_string())
+            .collect(),
         buffers: dump_buffer_manager(&eval.buffers),
         autoloads: dump_autoload_manager(&eval.autoloads),
         custom: dump_custom_manager(&eval.custom),

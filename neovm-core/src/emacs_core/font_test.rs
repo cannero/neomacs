@@ -49,11 +49,15 @@ fn gnu_faces_el_defines_x_color_aliases() {
     )
     .expect("read faces.el");
     assert!(
-        source.contains("(define-obsolete-function-alias 'x-defined-colors #'defined-colors \"30.1\")"),
+        source.contains(
+            "(define-obsolete-function-alias 'x-defined-colors #'defined-colors \"30.1\")"
+        ),
         "GNU faces.el should own the x-defined-colors alias",
     );
     assert!(
-        source.contains("(define-obsolete-function-alias 'x-color-defined-p #'color-defined-p \"30.1\")"),
+        source.contains(
+            "(define-obsolete-function-alias 'x-color-defined-p #'color-defined-p \"30.1\")"
+        ),
         "GNU faces.el should own the x-color-defined-p alias",
     );
     assert!(

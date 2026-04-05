@@ -437,20 +437,53 @@ impl Compiler {
                         self.emit_tracked(func, Op::Nil);
                     }
                 } else {
-                    // (when COND BODY...) => (if COND (progn BODY...))
+                    let branch_entry_depth = self.stack_depth;
+                    let expected_end_depth = branch_entry_depth + i32::from(for_value);
                     self.compile_expr(func, &tail[0], true);
                     let jump_false = func.current_offset();
                     self.emit_tracked(func, Op::GotoIfNil(0)); // placeholder
                     self.compile_progn(func, &tail[1..], for_value);
+                    let then_end_depth = self.stack_depth;
                     let jump_end = func.current_offset();
                     self.emit_tracked(func, Op::Goto(0)); // placeholder
                     let else_target = func.current_offset();
                     func.patch_jump(jump_false, else_target);
+                    self.stack_depth = branch_entry_depth;
                     if for_value {
                         self.emit_tracked(func, Op::Nil);
                     }
+                    let else_end_depth = self.stack_depth;
                     let end_target = func.current_offset();
                     func.patch_jump(jump_end, end_target);
+                    debug_assert_eq!(
+                        then_end_depth,
+                        expected_end_depth,
+                        "when body stack mismatch for {} entry_depth={} for_value={}",
+                        print_expr(&Expr::List(
+                            std::iter::once(Expr::Symbol(crate::emacs_core::intern::intern(
+                                "when",
+                            )))
+                            .chain(tail.iter().cloned())
+                            .collect(),
+                        )),
+                        branch_entry_depth,
+                        for_value
+                    );
+                    debug_assert_eq!(
+                        else_end_depth,
+                        expected_end_depth,
+                        "when else stack mismatch for {} entry_depth={} for_value={}",
+                        print_expr(&Expr::List(
+                            std::iter::once(Expr::Symbol(crate::emacs_core::intern::intern(
+                                "when",
+                            )))
+                            .chain(tail.iter().cloned())
+                            .collect(),
+                        )),
+                        branch_entry_depth,
+                        for_value
+                    );
+                    self.stack_depth = expected_end_depth;
                 }
                 true
             }
@@ -460,19 +493,53 @@ impl Compiler {
                         self.emit_tracked(func, Op::Nil);
                     }
                 } else {
+                    let branch_entry_depth = self.stack_depth;
+                    let expected_end_depth = branch_entry_depth + i32::from(for_value);
                     self.compile_expr(func, &tail[0], true);
                     let jump_true = func.current_offset();
                     self.emit_tracked(func, Op::GotoIfNotNil(0)); // placeholder
                     self.compile_progn(func, &tail[1..], for_value);
+                    let then_end_depth = self.stack_depth;
                     let jump_end = func.current_offset();
                     self.emit_tracked(func, Op::Goto(0)); // placeholder
                     let else_target = func.current_offset();
                     func.patch_jump(jump_true, else_target);
+                    self.stack_depth = branch_entry_depth;
                     if for_value {
                         self.emit_tracked(func, Op::Nil);
                     }
+                    let else_end_depth = self.stack_depth;
                     let end_target = func.current_offset();
                     func.patch_jump(jump_end, end_target);
+                    debug_assert_eq!(
+                        then_end_depth,
+                        expected_end_depth,
+                        "unless body stack mismatch for {} entry_depth={} for_value={}",
+                        print_expr(&Expr::List(
+                            std::iter::once(Expr::Symbol(crate::emacs_core::intern::intern(
+                                "unless",
+                            )))
+                            .chain(tail.iter().cloned())
+                            .collect(),
+                        )),
+                        branch_entry_depth,
+                        for_value
+                    );
+                    debug_assert_eq!(
+                        else_end_depth,
+                        expected_end_depth,
+                        "unless else stack mismatch for {} entry_depth={} for_value={}",
+                        print_expr(&Expr::List(
+                            std::iter::once(Expr::Symbol(crate::emacs_core::intern::intern(
+                                "unless",
+                            )))
+                            .chain(tail.iter().cloned())
+                            .collect(),
+                        )),
+                        branch_entry_depth,
+                        for_value
+                    );
+                    self.stack_depth = expected_end_depth;
                 }
                 true
             }

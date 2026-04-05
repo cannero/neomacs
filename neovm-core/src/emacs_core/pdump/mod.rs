@@ -24,7 +24,13 @@ use sha2::{Digest, Sha256};
 use self::convert::*;
 use self::runtime::*;
 use self::types::DumpContextState;
+use crate::emacs_core::charset::{
+    CharsetRegistrySnapshot, restore_charset_registry, snapshot_charset_registry,
+};
 use crate::emacs_core::eval::Context;
+use crate::emacs_core::fontset::{
+    FontsetRegistrySnapshot, restore_fontset_registry, snapshot_fontset_registry,
+};
 use crate::emacs_core::intern;
 use crate::emacs_core::value;
 
@@ -61,6 +67,14 @@ impl From<std::io::Error> for DumpError {
     fn from(e: std::io::Error) -> Self {
         DumpError::Io(e)
     }
+}
+
+/// Thread-local semantic runtime state that must be restored when switching
+/// back from a cloned evaluator to the live evaluator on the same thread.
+#[derive(Clone, Debug)]
+pub struct ActiveRuntimeSnapshot {
+    charset_registry: CharsetRegistrySnapshot,
+    fontset_registry: FontsetRegistrySnapshot,
 }
 
 /// Serialize the evaluator state to a pdump file.
@@ -166,6 +180,29 @@ pub fn snapshot_active_evaluator(eval: &mut Context) -> DumpContextState {
     dump_evaluator(eval)
 }
 
+/// Snapshot thread-local semantic runtime registries for the active evaluator.
+///
+/// Cloning an evaluator through pdump reconstructs these registries for the
+/// cloned heap. Callers that later switch the current thread back to the live
+/// evaluator must restore this snapshot as part of runtime reactivation.
+pub fn snapshot_active_runtime(eval: &mut Context) -> ActiveRuntimeSnapshot {
+    eval.setup_thread_locals();
+    ActiveRuntimeSnapshot {
+        charset_registry: snapshot_charset_registry(),
+        fontset_registry: snapshot_fontset_registry(),
+    }
+}
+
+/// Reactivate a live evaluator after using a cloned evaluator on the same
+/// thread, restoring thread-local semantic registries alongside heap state.
+pub fn restore_active_runtime(eval: &mut Context, snapshot: &ActiveRuntimeSnapshot) {
+    eval.setup_thread_locals();
+    restore_charset_registry(snapshot.charset_registry.clone());
+    restore_fontset_registry(snapshot.fontset_registry.clone());
+    eval.sync_thread_runtime_bindings();
+    eval.sync_current_thread_buffer_state();
+}
+
 /// Reconstruct an evaluator from a previously captured in-memory pdump snapshot.
 pub fn restore_snapshot(state: &DumpContextState) -> Result<Context, DumpError> {
     reconstruct_evaluator(state)
@@ -216,6 +253,11 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
         .iter()
         .map(|id| intern::SymId(*id))
         .collect();
+    let loads_in_progress: Vec<_> = state
+        .loads_in_progress
+        .iter()
+        .map(std::path::PathBuf::from)
+        .collect();
 
     let eval = Context::from_dump(
         tagged_heap,
@@ -223,6 +265,7 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
         lexenv,
         features,
         require_stack,
+        loads_in_progress,
         load_buffer_manager(&state.buffers),
         load_autoload_manager(&state.autoloads),
         load_custom_manager(&state.custom),
@@ -249,6 +292,7 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::emacs_core::intern::intern;
     use crate::emacs_core::pdump::types::{
         DumpByteCodeFunction, DumpHeapObject, DumpLambdaParams, DumpOp,
     };
@@ -276,6 +320,66 @@ mod tests {
         assert_eq!(
             loaded.obarray.symbol_value("test-pdump-var"),
             Some(&Value::fixnum(42))
+        );
+    }
+
+    #[test]
+    fn test_clone_active_evaluator_preserves_in_progress_require_and_load_state() {
+        crate::test_utils::init_test_tracing();
+        let mut eval = Context::new();
+        eval.require_stack.push(intern("cl-macs"));
+        eval.loads_in_progress.push(std::path::PathBuf::from(
+            "/tmp/neomacs-pdump-clone-in-progress.el",
+        ));
+
+        let cloned = clone_active_evaluator(&mut eval).expect("clone should succeed");
+
+        assert_eq!(cloned.require_stack, vec![intern("cl-macs")]);
+        assert_eq!(
+            cloned.loads_in_progress,
+            vec![std::path::PathBuf::from(
+                "/tmp/neomacs-pdump-clone-in-progress.el"
+            )]
+        );
+    }
+
+    #[test]
+    fn test_restore_active_runtime_after_clone_reinstalls_live_charset_registry() {
+        crate::test_utils::init_test_tracing();
+        crate::emacs_core::charset::reset_charset_registry();
+
+        let mut eval = Context::new();
+        let mut args = vec![value::Value::NIL; 17];
+        args[0] = value::Value::symbol("charset-pdump-clone-restore-test");
+        args[1] = value::Value::fixnum(1);
+        args[2] = value::Value::vector(vec![value::Value::fixnum(0), value::Value::fixnum(127)]);
+        args[16] = value::Value::list(vec![
+            value::Value::symbol("doc"),
+            value::Value::string("live charset registry should survive clone handoff"),
+        ]);
+        crate::emacs_core::charset::builtin_define_charset_internal(args).unwrap();
+
+        let live_runtime = snapshot_active_runtime(&mut eval);
+        let cloned = clone_active_evaluator(&mut eval).expect("first clone should succeed");
+        restore_active_runtime(&mut eval, &live_runtime);
+        drop(cloned);
+
+        let cloned_again = clone_active_evaluator(&mut eval).expect("second clone should succeed");
+        restore_active_runtime(&mut eval, &live_runtime);
+        drop(cloned_again);
+
+        let registry = crate::emacs_core::charset::snapshot_charset_registry();
+        let entry = registry
+            .charsets
+            .iter()
+            .find(|info| info.name == "charset-pdump-clone-restore-test")
+            .expect("restored charset entry");
+        assert_eq!(
+            entry.plist,
+            vec![(
+                "doc".to_string(),
+                value::Value::string("live charset registry should survive clone handoff"),
+            )]
         );
     }
 
