@@ -7487,32 +7487,6 @@ impl Context {
 
     /// Convert an `Expr` to a `Value`, treating everything as literal data
     /// except `(byte-code-literal ...)` forms which are evaluated to produce
-    /// `Value::ByteCode`. This is needed because `.elc` constant vectors
-    /// contain literal values (lists, symbols, etc.) that must NOT be evaluated,
-    /// but may also contain nested `#[...]` compiled functions (parsed as
-    /// `(byte-code-literal VECTOR)`) that DO need evaluation.
-    fn quote_to_value_with_bytecode(&mut self, expr: &Expr) -> EvalResult {
-        match expr {
-            Expr::List(elts)
-                if matches!(
-                    elts.first(),
-                    Some(Expr::Symbol(s)) if *s == intern("byte-code-literal")
-                ) =>
-            {
-                let form = self.quote_to_runtime_value(expr);
-                self.eval_sub(form)
-            }
-            Expr::Vector(items) => {
-                let mut values = Vec::with_capacity(items.len());
-                for item in items {
-                    values.push(self.quote_to_value_with_bytecode(item)?);
-                }
-                Ok(Value::vector(values))
-            }
-            _ => Ok(self.quote_to_runtime_value(expr)),
-        }
-    }
-
     fn quote_value_with_bytecode(&mut self, value: Value) -> EvalResult {
         if value.is_cons() && cons_head_symbol_id(&value) == Some(byte_code_literal_symbol()) {
             return self.sf_byte_code_literal_value(value.cons_cdr());
@@ -7528,42 +7502,6 @@ impl Context {
                 Ok(Value::vector(values))
             }
             _ => Ok(value),
-        }
-    }
-
-    pub(crate) fn reify_byte_code_literals(&mut self, expr: &Expr) -> Result<Expr, Flow> {
-        match expr {
-            Expr::List(elts)
-                if matches!(
-                    elts.first(),
-                    Some(Expr::Symbol(s)) if *s == intern("byte-code-literal")
-                ) =>
-            {
-                let val = self.sf_byte_code_literal(&elts[1..])?;
-                Ok(Expr::OpaqueValueRef(
-                    OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(val)),
-                ))
-            }
-            Expr::List(items) => Ok(Expr::List(
-                items
-                    .iter()
-                    .map(|item| self.reify_byte_code_literals(item))
-                    .collect::<Result<Vec<_>, _>>()?,
-            )),
-            Expr::DottedList(items, tail) => Ok(Expr::DottedList(
-                items
-                    .iter()
-                    .map(|item| self.reify_byte_code_literals(item))
-                    .collect::<Result<Vec<_>, _>>()?,
-                Box::new(self.reify_byte_code_literals(tail)?),
-            )),
-            Expr::Vector(items) => Ok(Expr::Vector(
-                items
-                    .iter()
-                    .map(|item| self.reify_byte_code_literals(item))
-                    .collect::<Result<Vec<_>, _>>()?,
-            )),
-            _ => Ok(expr.clone()),
         }
     }
 
@@ -7620,49 +7558,6 @@ impl Context {
 
     pub(crate) fn quote_to_runtime_value(&mut self, expr: &Expr) -> Value {
         Self::quote_to_runtime_value_in_state(&self.obarray, expr)
-    }
-
-    fn sf_byte_code_literal(&mut self, tail: &[Expr]) -> EvalResult {
-        if tail.len() != 1 {
-            return Err(signal(
-                "wrong-number-of-arguments",
-                vec![
-                    Value::symbol("byte-code-literal"),
-                    Value::fixnum(tail.len() as i64),
-                ],
-            ));
-        }
-
-        let Expr::Vector(items) = &tail[0] else {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("vectorp"), quote_to_value(&tail[0])],
-            ));
-        };
-
-        // Need at least 4 elements: [arglist bytecodes constants maxdepth ...]
-        if items.len() < 4 {
-            // Not a valid bytecode object; return as a plain vector.
-            let values = items.iter().map(quote_to_value).collect::<Vec<_>>();
-            return Ok(Value::vector(values));
-        }
-
-        // Convert each element to a Value. Constants are literal data,
-        // except nested #[...] (byte-code-literal) forms that need evaluation.
-        let mut values = Vec::with_capacity(items.len());
-        for item in items {
-            values.push(self.quote_to_value_with_bytecode(item)?);
-        }
-
-        // Delegate to the shared make-byte-code construction.
-        crate::emacs_core::builtins::make_byte_code_from_parts(
-            &values[0],
-            &values[1],
-            &values[2],
-            &values[3],
-            values.get(4),
-            values.get(5),
-        )
     }
 
     fn sf_byte_code_literal_value(&mut self, tail: Value) -> EvalResult {

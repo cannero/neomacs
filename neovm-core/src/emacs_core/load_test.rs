@@ -4204,14 +4204,16 @@ fn elc_loading_defines_defcustom_variables() {
         eval.eval_str("(featurep 'general)");
     eprintln!("(featurep 'general) = {:?}", provided);
 
-    // Test Form 0 in the same evaluator
+    // Test Form 0 in the same evaluator using the streaming Value reader
     let raw_bytes = std::fs::read(general_elc).unwrap();
     let content = super::skip_elc_header(&raw_bytes);
-    let forms = crate::emacs_core::parser::parse_forms(&content).unwrap();
-    eprintln!("Parsed {} forms from general.elc source", forms.len());
+    let (form0, _next_pos) =
+        crate::emacs_core::value_reader::read_one(&content, 0)
+            .expect("read first form")
+            .expect("EOF before first form");
+    eprintln!("Read Form 0 from general.elc via value reader");
 
-    let form0 = eval.reify_byte_code_literals(&forms[0]).unwrap();
-    let result = { let _v = eval.quote_to_runtime_value(&form0); eval.eval_form(_v) };
+    let result = eval.eval_sub(form0).map_err(crate::emacs_core::error::map_flow);
     eprintln!("Form 0 result: {:?}", result);
 
     let gds_bound = eval
