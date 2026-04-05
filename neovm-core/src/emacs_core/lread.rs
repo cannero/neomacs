@@ -4,7 +4,6 @@
 //! read-non-nil-coding-system.
 
 use super::error::{EvalResult, Flow, signal};
-use super::expr::Expr;
 use super::intern::{intern, resolve_sym};
 use super::value::*;
 use std::path::Path;
@@ -72,9 +71,24 @@ fn strip_reader_prefix(source: &str) -> (&str, bool) {
     }
 }
 
-pub(crate) fn eval_forms_from_source_in_runtime(
+
+pub(crate) fn eval_forms_from_source(eval: &mut super::eval::Context, source: &str) -> EvalResult {
+    // Use eager macro expansion matching GNU Emacs's eval-buffer which calls
+    // readevalloop → readevalloop_eager_expand_eval. Without this, macros
+    // inside defun bodies won't be expanded when files are loaded through
+    // load-source-file-function (load-with-code-conversion).
+    //
+    // Uses the Value-native reader (no Expr intermediate) with streaming
+    // read-eval, matching the approach used for file loading.
+    let macroexpand_fn = super::load::get_eager_macroexpand_fn(eval);
+    eval_forms_from_source_streaming(eval, source, macroexpand_fn)
+}
+
+/// Streaming read-eval loop for source strings, using the Value reader.
+fn eval_forms_from_source_streaming(
+    eval: &mut super::eval::Context,
     source: &str,
-    mut eval_form: impl FnMut(&Expr) -> EvalResult,
+    macroexpand_fn: Option<Value>,
 ) -> EvalResult {
     let (source, shebang_only_line) = strip_reader_prefix(source);
     if shebang_only_line {
@@ -83,28 +97,25 @@ pub(crate) fn eval_forms_from_source_in_runtime(
     if source.is_empty() {
         return Ok(Value::NIL);
     }
-    let forms = super::parser::parse_forms(source).map_err(|e| {
-        signal(
-            "invalid-read-syntax",
-            vec![Value::string(e.message.clone())],
-        )
-    })?;
-    for form in forms {
-        eval_form(&form)?;
-    }
-    Ok(Value::NIL)
-}
 
-pub(crate) fn eval_forms_from_source(eval: &mut super::eval::Context, source: &str) -> EvalResult {
-    // Use eager macro expansion matching GNU Emacs's eval-buffer which calls
-    // readevalloop → readevalloop_eager_expand_eval. Without this, macros
-    // inside defun bodies won't be expanded when files are loaded through
-    // load-source-file-function (load-with-code-conversion).
-    let macroexpand_fn = super::load::get_eager_macroexpand_fn(eval);
-    eval_forms_from_source_in_runtime(source, |form| {
-        if let Some(mexp_fn) = macroexpand_fn {
-            let form_value = eval.quote_to_runtime_value(form);
-            super::load::eager_expand_eval(eval, form_value, mexp_fn).map_err(|e| match e {
+    let mut pos = 0;
+    loop {
+        let read_result = super::value_reader::read_one(source, pos).map_err(|e| {
+            signal(
+                "invalid-read-syntax",
+                vec![Value::string(format!("Read error: {}", e.message))],
+            )
+        })?;
+        let Some((form, next_pos)) = read_result else {
+            break;
+        };
+        pos = next_pos;
+
+        let saved_temp_roots = eval.save_temp_roots();
+        eval.push_temp_root(form);
+
+        let eval_result = if let Some(mexp_fn) = macroexpand_fn {
+            super::load::eager_expand_eval(eval, form, mexp_fn).map_err(|e| match e {
                 super::error::EvalError::Signal {
                     symbol,
                     data,
@@ -120,18 +131,22 @@ pub(crate) fn eval_forms_from_source(eval: &mut super::eval::Context, source: &s
                 super::error::EvalError::UncaughtThrow { tag, value } => {
                     super::error::Flow::Throw { tag, value }
                 }
-            })?;
+            })
         } else {
-            let form_val = eval.quote_to_runtime_value(form);
-            eval.eval_sub(form_val)?;
-        }
+            eval.eval_sub(form)
+        };
+
+        eval.restore_temp_roots(saved_temp_roots);
+        eval_result?;
+
         if let Some(mexp_fn) = macroexpand_fn {
             eval.gc_safe_point_exact_with_extra_roots(&[mexp_fn]);
         } else {
             eval.gc_safe_point_exact();
         }
-        Ok(Value::NIL)
-    })
+    }
+
+    Ok(Value::NIL)
 }
 
 fn map_eval_error_to_flow(err: super::error::EvalError) -> Flow {
@@ -392,14 +407,7 @@ pub(crate) fn builtin_eval_buffer_in_vm_runtime(
     args: &[Value],
 ) -> EvalResult {
     let source = eval_buffer_source_text_in_state(&shared.buffers, args.first())?;
-    eval_forms_from_source_in_runtime(&source, |form| {
-        shared.with_extra_gc_roots(vm_gc_roots, args, move |eval| {
-            let form_val = eval.quote_to_runtime_value(form);
-            eval.eval_sub(form_val)
-        })?;
-        shared.gc_safe_point_exact_with_extra_root_slices(&[vm_gc_roots, args]);
-        Ok(Value::NIL)
-    })
+    eval_forms_from_source_in_vm_runtime_streaming(shared, vm_gc_roots, args, &source)
 }
 
 pub(crate) fn builtin_eval_region_in_vm_runtime(
@@ -411,15 +419,45 @@ pub(crate) fn builtin_eval_region_in_vm_runtime(
     if source.is_empty() {
         return Ok(Value::NIL);
     }
+    eval_forms_from_source_in_vm_runtime_streaming(shared, vm_gc_roots, args, &source)
+}
 
-    eval_forms_from_source_in_runtime(&source, |form| {
+/// Streaming read-eval for VM runtime callers that need extra GC roots.
+fn eval_forms_from_source_in_vm_runtime_streaming(
+    shared: &mut super::eval::Context,
+    vm_gc_roots: &[Value],
+    args: &[Value],
+    source: &str,
+) -> EvalResult {
+    let (source, shebang_only_line) = strip_reader_prefix(source);
+    if shebang_only_line {
+        return Err(signal("end-of-file", vec![]));
+    }
+    if source.is_empty() {
+        return Ok(Value::NIL);
+    }
+
+    let mut pos = 0;
+    loop {
+        let read_result = super::value_reader::read_one(source, pos).map_err(|e| {
+            signal(
+                "invalid-read-syntax",
+                vec![Value::string(format!("Read error: {}", e.message))],
+            )
+        })?;
+        let Some((form, next_pos)) = read_result else {
+            break;
+        };
+        pos = next_pos;
+
         shared.with_extra_gc_roots(vm_gc_roots, args, move |eval| {
-            let form_val = eval.quote_to_runtime_value(form);
-            eval.eval_sub(form_val)
+            eval.push_temp_root(form);
+            eval.eval_sub(form)
         })?;
         shared.gc_safe_point_exact_with_extra_root_slices(&[vm_gc_roots, args]);
-        Ok(Value::NIL)
-    })
+    }
+
+    Ok(Value::NIL)
 }
 
 fn event_to_int(event: &Value) -> Option<i64> {
