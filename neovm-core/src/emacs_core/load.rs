@@ -3,7 +3,6 @@
 use super::builtins::collections::builtin_make_hash_table;
 use super::error::{EvalError, Flow, map_flow, signal};
 use super::expr::Expr;
-use super::expr::print_expr;
 use super::intern::{intern, resolve_sym};
 use super::keymap::{is_list_keymap, list_keymap_lookup_one};
 use super::value::{HashKey, Value, ValueKind, list_to_vec};
@@ -1221,109 +1220,6 @@ fn streaming_readevalloop_eager_expand_eval_inner(
     eval.eval_sub(fully_expanded).map_err(map_flow)
 }
 
-/// Shared form-by-form evaluation loop, modelled after GNU Emacs `readevalloop`
-/// in lread.c.
-///
-/// Iterates over `forms`, logging each form and its timing, reporting errors
-/// with human-readable detail.
-/// The `eval_one` closure controls per-form evaluation semantics (e.g. whether
-/// to reify byte-code literals, apply eager macro expansion, or collect expanded
-/// forms for caching).
-///
-/// This function does NOT handle: context save/restore (see `with_load_context`),
-/// `record_load_history`, or caching.
-fn readevalloop<F>(
-    eval: &mut super::eval::Context,
-    file_name: &str,
-    forms: &[Expr],
-    mut eval_one: F,
-) -> Result<(), EvalError>
-where
-    F: FnMut(&mut super::eval::Context, usize, &Expr) -> Result<Value, EvalError>,
-{
-    for (i, form) in forms.iter().enumerate() {
-        tracing::debug!(
-            "{} FORM[{i}/{}]: {}",
-            file_name,
-            forms.len(),
-            print_expr(form).chars().take(100).collect::<String>()
-        );
-        let start = std::time::Instant::now();
-        let (h0, m0) = (eval.macro_cache_hits, eval.macro_cache_misses);
-
-        let eval_result = eval_one(eval, i, form);
-
-        let elapsed = start.elapsed();
-        let (dh, dm) = (eval.macro_cache_hits - h0, eval.macro_cache_misses - m0);
-        if elapsed.as_millis() > 200 || dm > 0 || dh > 0 {
-            tracing::debug!(
-                "  {file_name} FORM[{i}] ({:.2?}) [cache hit={dh} miss={dm}]: {}",
-                elapsed,
-                print_expr(form).chars().take(80).collect::<String>()
-            );
-        }
-        if let Err(ref e) = eval_result {
-            let err_detail = match e {
-                EvalError::Signal {
-                    symbol,
-                    data,
-                    raw_data,
-                } => {
-                    let sym_name = super::intern::resolve_sym(*symbol);
-                    let payload = if let Some(raw) = raw_data {
-                        format_value_for_error(raw)
-                    } else if data.is_empty() {
-                        "nil".to_string()
-                    } else {
-                        let data_strs: Vec<String> =
-                            data.iter().map(|v| format_value_for_error(v)).collect();
-                        format!("({})", data_strs.join(" "))
-                    };
-                    format!("({} {})", sym_name, payload)
-                }
-                other => format!("{:?}", other),
-            };
-            tracing::error!(
-                "  !! {file_name} FORM[{i}] FAILED: {} => {}",
-                print_expr(form).chars().take(120).collect::<String>(),
-                err_detail
-            );
-            // Dump Lisp backtrace (like GNU's debug-early-backtrace)
-            if !eval.runtime_backtrace.is_empty() {
-                tracing::error!("  Lisp backtrace:");
-                for (j, frame) in eval.runtime_backtrace.iter().rev().enumerate() {
-                    let func_name = super::print::print_value(&frame.function);
-                    let args_str = frame
-                        .args()
-                        .iter()
-                        .take(4)
-                        .map(|a| {
-                            let s = super::print::print_value(a);
-                            if s.len() > 40 {
-                                format!("{}...", &s[..37])
-                            } else {
-                                s
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    let ellipsis = if frame.args_len() > 4 { " ..." } else { "" };
-                    tracing::error!("    {j}: ({func_name} {args_str}{ellipsis})");
-                    if j >= 20 {
-                        tracing::error!(
-                            "    ... ({} more frames)",
-                            eval.runtime_backtrace.len() - j - 1
-                        );
-                        break;
-                    }
-                }
-            }
-        }
-        eval_result?;
-    }
-    Ok(())
-}
-
 /// Load and evaluate a file. Returns the last result.
 #[tracing::instrument(level = "info", skip(eval), err(Debug))]
 pub fn load_file(eval: &mut super::eval::Context, path: &Path) -> Result<Value, EvalError> {
@@ -1463,55 +1359,22 @@ fn load_file_body(
 
     // --- Shared context setup via with_load_context ---
     with_load_context(eval, path, lexical_binding, |eval| {
-        // --- Streaming Value-reader path (default for .el files) ---
-        // Matches GNU's readevalloop: read one form, expand, eval, next.
-        // No Expr intermediate, no neobc cache, no macro expansion cache.
-        // .elc files use the old Expr path (needs reify_byte_code_literals).
         if !is_elc {
             eval.macro_expansion_cache.clear();
-
-            let macroexpand_fn = get_eager_macroexpand_fn(eval);
-            return streaming_readevalloop(eval, path, &content, macroexpand_fn);
         }
 
-        // --- Parse forms ---
-        let forms = super::parser::parse_forms(&content).map_err(|e| EvalError::Signal {
-            symbol: intern("error"),
-            data: vec![Value::string(format!(
-                "Parse error in {}: {}",
-                path.display(),
-                e
-            ))],
-            raw_data: None,
-        })?;
+        // Both .el and .elc use the streaming Value reader.
+        // .el files get eager macro expansion; .elc files are already compiled
+        // so no expansion is needed (macroexpand_fn = None).  The reader emits
+        // (byte-code-literal ...) wrappers for #[...] syntax, and eval_sub
+        // handles them via sf_byte_code_literal_value.
+        let macroexpand_fn = if is_elc {
+            None
+        } else {
+            get_eager_macroexpand_fn(eval)
+        };
 
-        let file_name = path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-
-        if is_elc {
-            tracing::info!(
-                "{} parsed {} ELC forms from {} bytes",
-                file_name,
-                forms.len(),
-                content.len()
-            );
-        }
-
-        // --- .elc path: reify byte-code literals + eval via shared readevalloop ---
-        if is_elc {
-            readevalloop(eval, &file_name, &forms, |eval, _i, form| {
-                let reified = eval
-                    .reify_byte_code_literals(form)
-                    .map_err(crate::emacs_core::error::map_flow)?;
-                eval_runtime_form(eval, &reified)
-            })?;
-            record_load_history(eval, path);
-            return Ok(Value::T);
-        }
-        unreachable!("non-.elc loads should return earlier");
+        streaming_readevalloop(eval, path, &content, macroexpand_fn)
     })
 }
 
