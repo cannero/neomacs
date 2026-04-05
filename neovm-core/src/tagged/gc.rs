@@ -1069,6 +1069,33 @@ impl TaggedHeap {
         roots: impl Iterator<Item = TaggedValue>,
         mode: RootScanMode,
     ) {
+        // -- Debug: check for pre-existing corruption BEFORE clearing marks --
+        #[cfg(debug_assertions)]
+        {
+            static GC_CYCLE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let cycle = GC_CYCLE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let mut corrupt_count = 0;
+            let mut check = self.all_objects;
+            while !check.is_null() {
+                unsafe {
+                    if (*check).kind == HeapObjectKind::String {
+                        let s = &(*(check as *const StringObj)).data;
+                        let str_ptr = s.as_str().as_ptr() as usize;
+                        if str_ptr != 0 && str_ptr < 0x1000 {
+                            corrupt_count += 1;
+                        }
+                    }
+                    check = (*check).next;
+                }
+            }
+            if corrupt_count > 0 {
+                tracing::error!(
+                    "GC CYCLE {}: {} corrupt StringObjs found BEFORE mark phase",
+                    cycle, corrupt_count
+                );
+            }
+        }
+
         // -- Clear marks --
         for block in &mut self.cons_blocks {
             block.clear_marks();
