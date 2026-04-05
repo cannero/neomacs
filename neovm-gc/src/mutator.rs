@@ -1,0 +1,188 @@
+use crate::background::BackgroundCollectionRuntime;
+use crate::descriptor::Trace;
+use crate::edge::EdgeCell;
+use crate::heap::{AllocError, Heap};
+use crate::plan::{BackgroundCollectionStatus, CollectionKind, CollectionPlan, MajorMarkProgress};
+use crate::root::{Gc, HandleScope, Root};
+use crate::stats::CollectionStats;
+
+/// Mutator view onto the heap.
+#[derive(Debug)]
+pub struct Mutator<'heap> {
+    heap: &'heap mut Heap,
+}
+
+impl<'heap> Mutator<'heap> {
+    pub(crate) fn new(heap: &'heap mut Heap) -> Self {
+        Self { heap }
+    }
+
+    /// Create a new rooted handle scope.
+    pub fn handle_scope<'scope>(&mut self) -> HandleScope<'scope, 'heap> {
+        HandleScope::new(self.heap.root_stack_ptr())
+    }
+
+    /// Return a shared view of the underlying heap.
+    pub fn heap(&self) -> &Heap {
+        self.heap
+    }
+
+    /// Allocate one managed object.
+    pub fn alloc<'scope, T: Trace + 'static>(
+        &mut self,
+        scope: &mut HandleScope<'scope, 'heap>,
+        value: T,
+    ) -> Result<Root<'scope, T>, AllocError> {
+        self.heap.alloc_typed(scope, value)
+    }
+
+    /// Allocate one managed object, collecting first if nursery pressure requires it.
+    pub fn alloc_auto<'scope, T: Trace + 'static>(
+        &mut self,
+        scope: &mut HandleScope<'scope, 'heap>,
+        value: T,
+    ) -> Result<Root<'scope, T>, AllocError> {
+        self.heap.alloc_typed_auto(scope, value)
+    }
+
+    /// Create a new rooted handle for an existing managed object.
+    pub fn root<'scope, T: ?Sized>(
+        &mut self,
+        scope: &mut HandleScope<'scope, 'heap>,
+        gc: Gc<T>,
+    ) -> Root<'scope, T> {
+        self.heap.root_during_active_major_mark(gc.erase());
+        scope.root(gc)
+    }
+
+    /// Run one collection cycle against this mutator's heap.
+    pub fn collect(&mut self, kind: CollectionKind) -> Result<CollectionStats, AllocError> {
+        self.heap.collect(kind)
+    }
+
+    /// Build a scheduler-visible collection plan from the current heap state.
+    pub fn plan_for(&self, kind: CollectionKind) -> CollectionPlan {
+        self.heap.plan_for(kind)
+    }
+
+    /// Recommend the next collection plan from current heap state.
+    pub fn recommended_plan(&self) -> CollectionPlan {
+        self.heap.recommended_plan()
+    }
+
+    /// Recommend the next background concurrent collection plan, if any.
+    pub fn recommended_background_plan(&self) -> Option<CollectionPlan> {
+        self.heap.recommended_background_plan()
+    }
+
+    /// Return the active major-mark plan, if one is in progress.
+    pub fn active_major_mark_plan(&self) -> Option<CollectionPlan> {
+        self.heap.active_major_mark_plan()
+    }
+
+    /// Return progress for the active major-mark session, if any.
+    pub fn major_mark_progress(&self) -> Option<MajorMarkProgress> {
+        self.heap.major_mark_progress()
+    }
+
+    /// Execute one scheduler-provided collection plan.
+    pub fn execute_plan(&mut self, plan: CollectionPlan) -> Result<CollectionStats, AllocError> {
+        self.heap.execute_plan(plan)
+    }
+
+    /// Begin a persistent major-mark session for one scheduler-provided plan.
+    pub fn begin_major_mark(&mut self, plan: CollectionPlan) -> Result<(), AllocError> {
+        self.heap.begin_major_mark(plan)
+    }
+
+    /// Advance one slice of the current persistent major-mark session.
+    pub fn advance_major_mark(&mut self) -> Result<MajorMarkProgress, AllocError> {
+        self.heap.advance_major_mark()
+    }
+
+    /// Finish the current persistent major-mark session and reclaim.
+    pub fn finish_major_collection(&mut self) -> Result<CollectionStats, AllocError> {
+        self.heap.finish_major_collection()
+    }
+
+    /// Advance up to `max_slices` of the active major-mark session.
+    pub fn assist_major_mark(
+        &mut self,
+        max_slices: usize,
+    ) -> Result<Option<MajorMarkProgress>, AllocError> {
+        self.heap.assist_major_mark(max_slices)
+    }
+
+    /// Advance one scheduler-style concurrent major-mark round using the active plan worker count.
+    pub fn poll_active_major_mark(&mut self) -> Result<Option<MajorMarkProgress>, AllocError> {
+        self.heap.poll_active_major_mark()
+    }
+
+    /// Finish the active major collection if its mark work is fully drained.
+    pub fn finish_active_major_collection_if_ready(
+        &mut self,
+    ) -> Result<Option<CollectionStats>, AllocError> {
+        self.heap.finish_active_major_collection_if_ready()
+    }
+
+    /// Service one background collection round for the active major-mark session.
+    pub fn service_background_collection_round(
+        &mut self,
+    ) -> Result<BackgroundCollectionStatus, AllocError> {
+        self.heap.service_background_collection_round()
+    }
+
+    /// Record a post-write barrier for one mutated GC edge.
+    pub fn post_write_barrier<Owner: ?Sized, Value: ?Sized>(
+        &mut self,
+        owner: Gc<Owner>,
+        slot: Option<usize>,
+        old_value: Option<Gc<Value>>,
+        new_value: Option<Gc<Value>>,
+    ) {
+        self.heap.record_post_write(
+            owner.erase(),
+            slot,
+            old_value.map(Gc::erase),
+            new_value.map(Gc::erase),
+        );
+    }
+
+    /// Store a managed edge and record the required post-write barrier.
+    pub fn store_edge<'scope, Owner: 'static, Value: ?Sized>(
+        &mut self,
+        owner: &Root<'scope, Owner>,
+        slot: usize,
+        project: impl FnOnce(&Owner) -> &EdgeCell<Value>,
+        new_value: Option<Gc<Value>>,
+    ) {
+        let owner_ref = unsafe { owner.as_gc().as_non_null().as_ref() };
+        let edge = project(owner_ref);
+        let old_value = edge.replace(new_value);
+        self.post_write_barrier(owner.as_gc(), Some(slot), old_value, new_value);
+    }
+}
+
+impl BackgroundCollectionRuntime for Mutator<'_> {
+    fn active_major_mark_plan(&self) -> Option<CollectionPlan> {
+        self.active_major_mark_plan()
+    }
+
+    fn recommended_background_plan(&self) -> Option<CollectionPlan> {
+        self.recommended_background_plan()
+    }
+
+    fn begin_major_mark(&mut self, plan: CollectionPlan) -> Result<(), AllocError> {
+        self.begin_major_mark(plan)
+    }
+
+    fn poll_background_mark_round(&mut self) -> Result<Option<MajorMarkProgress>, AllocError> {
+        self.poll_active_major_mark()
+    }
+
+    fn finish_active_major_collection_if_ready(
+        &mut self,
+    ) -> Result<Option<CollectionStats>, AllocError> {
+        self.finish_active_major_collection_if_ready()
+    }
+}

@@ -5,6 +5,7 @@ members = [
     "neomacs-display-protocol",
     "neomacs-layout-engine",
     "neomacs-renderer-wgpu",
+    "neovm-gc",
     "neovm-core",
     "neovm-host-abi",
     "neovm-oracle-tests",
@@ -23,6 +24,7 @@ license = "GPL-3.0-or-later"
 [workspace.dependencies]
 # Internal crates
 neovm-core = { path = "neovm-core", version = "0.0.1", default-features = false }
+neovm-gc = { path = "neovm-gc", version = "0.0.1" }
 neovm-host-abi = { path = "neovm-host-abi", version = "0.0.1" }
 neovm-oracle-tests = { path = "neovm-oracle-tests", version = "0.0.1" }
 neomacs-display-runtime = { path = "neomacs-display-runtime", version = "0.0.1", default-features = false }

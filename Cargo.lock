@@ -2098,6 +2098,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "neovm-gc"
+version = "0.0.1"
+dependencies = [
+ "bitflags 2.11.0",
+]
+
+[[package]]
 name = "neovm-host-abi"
 version = "0.0.1"
 
