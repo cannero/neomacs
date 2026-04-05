@@ -3987,17 +3987,6 @@ impl Context {
                 roots.push(*val);
             }
         }
-        // Macro expansion cache — holds expanded Values
-        for entry in self.macro_expansion_cache.values() {
-            roots.push(entry.expanded);
-        }
-        // Lexenv assq cache — holds cell Values
-        if let Ok(cache) = self.lexenv_assq_cache.try_borrow() {
-            for entry in cache.iter() {
-                roots.push(entry.cell);
-            }
-        }
-        // Lexenv special cache doesn't hold Values (only bool + SymId)
         for frame in &self.runtime_backtrace {
             roots.push(frame.function);
             roots.extend(frame.args().iter().copied());
