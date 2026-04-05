@@ -10385,13 +10385,6 @@ pub fn quote_to_value(expr: &Expr) -> Value {
     }
 }
 
-/// Collect all opaque value references from an Expr tree into a Vec.
-///
-/// With the OpaqueValuePool system, this is a no-op — the pool handles
-/// GC tracing.  Kept for API compatibility.
-pub(crate) fn collect_opaque_values(expr: &Expr, out: &mut Vec<Value>) {
-    expr.collect_opaque_values(out);
-}
 
 fn format_startup_value(value: Option<&Value>) -> String {
     value
