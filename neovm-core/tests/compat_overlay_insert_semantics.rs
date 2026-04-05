@@ -1,16 +1,11 @@
 mod common;
 
 use common::{oracle_enabled, run_oracle_eval};
-use neovm_core::emacs_core::{Context, format_eval_result_with_eval, parse_forms};
+use neovm_core::emacs_core::{Context, format_eval_result_with_eval};
 
 fn run_neovm_eval_minimal(form: &str) -> Result<String, String> {
     let mut eval = Context::new();
-    let forms = parse_forms(form).map_err(|err| format!("NeoVM parse error: {err}"))?;
-    let result = eval
-        .eval_forms(&forms)
-        .into_iter()
-        .last()
-        .ok_or_else(|| "NeoVM eval received no forms".to_string())?;
+    let result = eval.eval_str(form);
     Ok(format_eval_result_with_eval(&eval, &result))
 }
 

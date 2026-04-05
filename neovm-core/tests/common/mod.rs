@@ -8,7 +8,7 @@ use neovm_core::emacs_core::load::{
     apply_runtime_startup_state, create_bootstrap_evaluator_cached,
 };
 use neovm_core::emacs_core::pdump;
-use neovm_core::emacs_core::{format_eval_result_with_eval, parse_forms};
+use neovm_core::emacs_core::format_eval_result_with_eval;
 
 thread_local! {
     static RUNTIME_TEMPLATE: RefCell<Option<neovm_core::emacs_core::pdump::types::DumpContextState>> =
@@ -177,11 +177,6 @@ pub fn run_neovm_eval(form: &str) -> Result<String, String> {
         pdump::restore_snapshot(snapshot).map_err(|e| format!("NeoVM runtime clone failed: {e}"))
     })?;
     eval.set_lexical_binding(true);
-    let forms = parse_forms(form).map_err(|e| format!("NeoVM parse error: {e}"))?;
-    let result = eval
-        .eval_forms(&forms)
-        .into_iter()
-        .last()
-        .ok_or_else(|| "NeoVM eval received no forms".to_string())?;
+    let result = eval.eval_str(form);
     Ok(format_eval_result_with_eval(&eval, &result))
 }

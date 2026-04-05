@@ -1,7 +1,7 @@
 use super::*;
 use crate::emacs_core::error::Flow;
 use crate::emacs_core::eval::{ConditionFrame, ResumeTarget};
-use crate::emacs_core::{format_eval_result, parse_forms};
+use crate::emacs_core::format_eval_result;
 use crate::test_utils::{
     load_minimal_gnu_backquote_runtime, runtime_startup_context, runtime_startup_eval_all,
 };
@@ -40,8 +40,7 @@ fn eval_one_with_frame(src: &str) -> String {
 fn eval_all_with_subr(src: &str) -> Vec<String> {
     let mut ev = Context::new();
     load_minimal_gnu_backquote_runtime(&mut ev);
-    let forms = parse_forms(src).expect("parse");
-    ev.eval_forms(&forms)
+    ev.eval_str_each(&src)
         .iter()
         .map(format_eval_result)
         .collect()
@@ -227,7 +226,6 @@ fn source_cons_macro_cache_uses_value_expansion_path() {
                         (lambda (x)
                           x)))"#).expect("install macro");
 
-    let forms = parse_forms("(source-cache-macro (+ 1 2))").expect("parse source form");
     let first = ev.eval_str("(source-cache-macro (+ 1 2))");
     let second = ev.eval_str("(source-cache-macro (+ 1 2))");
 
@@ -241,18 +239,6 @@ fn source_cons_macro_cache_uses_value_expansion_path() {
 fn runtime_macro_cache_hits_across_equivalent_explicit_environments() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let setup = parse_forms(
-        r#"
-(setq load-in-progress t)
-(setq runtime-cache-count 0)
-(fset 'runtime-cache-macro
-      (cons 'macro
-            (lambda (x)
-              (setq runtime-cache-count (1+ runtime-cache-count))
-              x)))
-"#)
-    .expect("eval forms");
-
     let definition = ev
         .obarray()
         .symbol_function("runtime-cache-macro")
@@ -296,7 +282,6 @@ fn runtime_macro_cache_hits_across_equivalent_explicit_environments() {
 fn catch_leaves_shared_condition_stack_balanced() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let forms = parse_forms("(catch 'tag (throw 'tag 42))").expect("parse");
     let result = ev.eval_str("(catch 'tag (throw 'tag 42))");
     assert_eq!(format_eval_result(&result), "OK 42");
     assert_eq!(ev.condition_stack_depth_for_test(), 0);
@@ -307,7 +292,6 @@ fn catch_leaves_shared_condition_stack_balanced() {
 fn condition_case_leaves_shared_condition_stack_balanced() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let forms = parse_forms("(condition-case err (signal 'error 1) (error err))").expect("parse");
     let result = ev.eval_str("(condition-case err (signal 'error 1) (error err))");
     assert_eq!(format_eval_result(&result), "OK (error . 1)");
     assert_eq!(ev.condition_stack_depth_for_test(), 0);
@@ -318,16 +302,11 @@ fn condition_case_leaves_shared_condition_stack_balanced() {
 fn condition_case_value_path_catches_default_toplevel_value_signal() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let forms = parse_forms(
-        "(condition-case nil
+    let result = ev.eval_str("(condition-case nil
             (default-toplevel-value 'vm-unbound-value-path)
-          (error 'caught))",
-    )
-    .expect("parse");
-    let form = quote_to_value(&forms[0]);
-    let result = ev.eval_sub(form);
+          (error 'caught))");
     assert_eq!(
-        format_eval_result(&result.map_err(crate::emacs_core::error::map_flow)),
+        format_eval_result(&result),
         "OK caught"
     );
     assert_eq!(ev.condition_stack_depth_for_test(), 0);
@@ -338,14 +317,6 @@ fn condition_case_value_path_catches_default_toplevel_value_signal() {
 fn handler_bind_1_leaves_shared_condition_stack_balanced() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let forms = parse_forms(
-        "(condition-case err
-           (handler-bind-1 (lambda () (signal 'error 1))
-                           '(error)
-                           (lambda (_data) 'handled))
-         (error err))",
-    )
-    .expect("parse");
     let result = ev.eval_str(r#"(condition-case err
            (handler-bind-1 (lambda () (signal 'error 1))
                            '(error)
@@ -454,17 +425,6 @@ fn signal_hook_function_sees_raw_signal_payload_before_condition_case() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
 
-    let forms = parse_forms(
-        "(let (seen)
-           (let ((signal-hook-function
-                  (lambda (sym data)
-                    (setq seen (cons sym data)))))
-             (condition-case nil
-                 (signal 'error 1)
-               (error seen))))",
-    )
-    .expect("parse");
-
     assert_eq!(
         format_eval_result(&eval.eval_str(r#"(let (seen)
            (let ((signal-hook-function
@@ -481,15 +441,6 @@ fn signal_hook_function_sees_raw_signal_payload_before_condition_case() {
 fn signal_hook_function_runs_before_invalid_error_symbol_canonicalization() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
-
-    let forms = parse_forms(
-        "(catch 'tag
-           (let ((signal-hook-function
-                  (lambda (sym data)
-                    (throw 'tag (list sym data)))))
-             (signal 'neomacs-invalid-signal 1)))",
-    )
-    .expect("parse");
 
     assert_eq!(
         format_eval_result(&eval.eval_str(r#"(catch 'tag
@@ -523,17 +474,6 @@ fn signal_nil_symbol_with_nil_payload_becomes_plain_error() {
 fn signal_nil_error_object_uses_embedded_symbol_and_skips_signal_hook() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
-
-    let forms = parse_forms(
-        "(let (seen)
-           (let ((signal-hook-function
-                  (lambda (&rest xs)
-                    (setq seen xs))))
-             (condition-case err
-                 (signal nil '(error 1))
-               (error (list err seen)))))",
-    )
-    .expect("parse");
 
     assert_eq!(
         format_eval_result(&eval.eval_str(r#"(let (seen)
@@ -738,14 +678,6 @@ fn read_char_prefers_ready_keypress_over_process_filter_callback() {
     crate::test_utils::init_test_tracing();
     let echo = find_bin("echo");
     let mut ev = Context::new();
-    let setup = parse_forms(
-        r#"(progn
-             (fset 'read-char-priority-filter
-                   (lambda (_proc string)
-                     (setq read-char-priority-filter-data string)))
-             (setq read-char-priority-filter-data nil))"#,
-    )
-    .expect("parse process priority setup");
     ev.eval_str(r#"(progn
              (fset 'read-char-priority-filter
                    (lambda (_proc string)
@@ -1006,8 +938,7 @@ fn redisplay_syncs_opening_gui_frame_size_from_display_host() {
 fn recursive_edit_runs_top_level_before_outer_command_loop_reads_input() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let setup = parse_forms("(setq top-level '(setq neo-top-level-hit t))").expect("parse");
-    let _ = ev.eval_forms(&setup);
+    let _ = ev.eval_str_each("(setq top-level '(setq neo-top-level-hit t))");
 
     let (tx, rx) = crossbeam_channel::unbounded();
     tx.send(crate::keyboard::InputEvent::WindowClose { emacs_frame_id: 0 })
@@ -1204,7 +1135,6 @@ fn eval_list_form_throws_on_pending_host_input() {
     ev.obarray
         .set_symbol_value("throw-on-input", Value::symbol("tag"));
 
-    let forms = parse_forms("(list 1 2)").expect("parse");
     let result = ev.eval_str("(list 1 2)");
     assert!(matches!(
         result,
@@ -1413,17 +1343,6 @@ fn read_key_sequence_function_translation_receives_prompt() {
     let mut ev = Context::new();
     let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
     ev.assign("global-map", global_map);
-    let setup = parse_forms(
-        r#"(progn
-             (setq neomacs-test-read-key-sequence-prompt nil)
-             (fset 'neomacs-test-read-key-sequence-command
-                   (lambda () (interactive) 'ok))
-             (fset 'neomacs-test-key-translation
-                   (lambda (prompt)
-                     (setq neomacs-test-read-key-sequence-prompt prompt)
-                     [f1])))"#,
-    )
-    .expect("parse");
     ev.eval_str(r#"(progn
              (setq neomacs-test-read-key-sequence-prompt nil)
              (fset 'neomacs-test-read-key-sequence-command
@@ -1482,11 +1401,6 @@ fn read_key_sequence_continues_through_pending_suffix_translation_prefix() {
     let mut ev = Context::new();
     let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
     ev.assign("global-map", global_map);
-    let setup = parse_forms(
-        r#"(fset 'neomacs-test-suffix-translation-command
-                  (lambda () (interactive) 'ok))"#,
-    )
-    .expect("parse");
     ev.eval_str(r#"(fset 'neomacs-test-suffix-translation-command
                   (lambda () (interactive) 'ok))"#).expect("setup");
 
@@ -1535,11 +1449,6 @@ fn read_key_sequence_shift_translates_uppercase_binding() {
     let mut ev = Context::new();
     let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
     ev.assign("global-map", global_map);
-    let setup = parse_forms(
-        r#"(fset 'neomacs-test-shift-translation-command
-                  (lambda () (interactive) 'ok))"#,
-    )
-    .expect("parse");
     ev.eval_str(r#"(fset 'neomacs-test-shift-translation-command
                   (lambda () (interactive) 'ok))"#).expect("setup");
 
@@ -1576,11 +1485,6 @@ fn read_key_sequence_dont_downcase_last_restores_original_event() {
     let mut ev = Context::new();
     let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
     ev.assign("global-map", global_map);
-    let setup = parse_forms(
-        r#"(fset 'neomacs-test-shift-translation-command
-                  (lambda () (interactive) 'ok))"#,
-    )
-    .expect("parse");
     ev.eval_str(r#"(fset 'neomacs-test-shift-translation-command
                   (lambda () (interactive) 'ok))"#).expect("setup");
 
@@ -1649,11 +1553,6 @@ fn read_key_sequence_shift_translates_shifted_function_key() {
     let mut ev = Context::new();
     let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
     ev.assign("global-map", global_map);
-    let setup = parse_forms(
-        r#"(fset 'neomacs-test-shifted-function-command
-                  (lambda () (interactive) 'ok))"#,
-    )
-    .expect("parse");
     ev.eval_str(r#"(fset 'neomacs-test-shifted-function-command
                   (lambda () (interactive) 'ok))"#).expect("setup");
 
@@ -1727,11 +1626,6 @@ fn read_key_sequence_defers_switch_frame_until_after_current_key_sequence() {
     let target_frame = ev.frames.create_frame("F2", 960, 640, target_buffer).0;
     let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
     ev.assign("global-map", global_map);
-    let setup = parse_forms(
-        r#"(fset 'neomacs-test-switch-frame-deferred-command
-                  (lambda () (interactive) 'ok))"#,
-    )
-    .expect("parse");
     ev.eval_str(r#"(fset 'neomacs-test-switch-frame-deferred-command
                   (lambda () (interactive) 'ok))"#).expect("setup");
     crate::emacs_core::keymap::list_keymap_define_seq(
@@ -1857,15 +1751,6 @@ fn special_event_map_bootstraps_delete_frame_and_focus_handlers() {
 fn read_char_updates_monitor_snapshot_and_runs_display_monitor_hooks() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let setup = parse_forms(
-        r#"
-(setq monitor-hook-terminal nil)
-(setq display-monitors-changed-functions
-      (list (lambda (term)
-              (setq monitor-hook-terminal term))))
-"#)
-    .expect("eval forms");
-
     ev.command_loop.keyboard.pending_input_events.push_back(
         crate::keyboard::InputEvent::MonitorsChanged {
             monitors: vec![crate::emacs_core::builtins::NeomacsMonitorInfo {
@@ -2029,11 +1914,6 @@ fn read_key_sequence_can_return_select_window_at_sequence_start() {
 
     let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
     ev.assign("global-map", global_map);
-    let setup = parse_forms(
-        r#"(fset 'neomacs-test-handle-select-window
-                  (lambda () (interactive) 'ok))"#,
-    )
-    .expect("parse");
     ev.eval_str(r#"(fset 'neomacs-test-handle-select-window
                   (lambda () (interactive) 'ok))"#).expect("setup");
     crate::emacs_core::keymap::list_keymap_define_seq(
@@ -2178,11 +2058,6 @@ fn read_key_sequence_uses_clicked_window_local_map_for_mouse_event() {
         .buffers
         .replace_buffer_contents(other_buffer, &"x".repeat(96));
 
-    let setup = parse_forms(
-        r#"(fset 'neomacs-mouse-click-target-command
-                  (lambda () (interactive) 'ok))"#,
-    )
-    .expect("parse");
     ev.eval_str(r#"(fset 'neomacs-mouse-click-target-command
                   (lambda () (interactive) 'ok))"#).expect("setup");
 
@@ -2271,11 +2146,6 @@ fn read_key_sequence_drops_unbound_down_mouse_before_bound_click() {
         .buffers
         .replace_buffer_contents(other_buffer, &"x".repeat(96));
 
-    let setup = parse_forms(
-        r#"(fset 'neomacs-mouse-click-target-command
-                  (lambda () (interactive) 'ok))"#,
-    )
-    .expect("parse");
     ev.eval_str(r#"(fset 'neomacs-mouse-click-target-command
                   (lambda () (interactive) 'ok))"#).expect("setup");
 
@@ -2361,11 +2231,6 @@ fn read_key_sequence_drops_unbound_down_mouse_without_losing_keyboard_prefix() {
     let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
     ev.assign("global-map", global_map);
 
-    let setup = parse_forms(
-        r#"(fset 'neomacs-prefixed-mouse-command
-                  (lambda () (interactive) 'ok))"#,
-    )
-    .expect("parse");
     ev.eval_str(r#"(fset 'neomacs-prefixed-mouse-command
                   (lambda () (interactive) 'ok))"#).expect("setup");
 
@@ -2417,11 +2282,6 @@ fn read_key_sequence_reduces_unbound_triple_mouse_to_bound_click() {
     let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
     ev.assign("global-map", global_map);
 
-    let setup = parse_forms(
-        r#"(fset 'neomacs-triple-mouse-command
-                  (lambda () (interactive) 'ok))"#,
-    )
-    .expect("parse");
     ev.eval_str(r#"(fset 'neomacs-triple-mouse-command
                   (lambda () (interactive) 'ok))"#).expect("setup");
 
@@ -2468,11 +2328,6 @@ fn read_key_sequence_uses_clicked_window_buffer_local_minor_mode_maps() {
         .buffers
         .replace_buffer_contents(other_buffer, &"x".repeat(96));
 
-    let setup = parse_forms(
-        r#"(fset 'neomacs-mouse-minor-mode-command
-                  (lambda () (interactive) 'ok))"#,
-    )
-    .expect("parse");
     ev.eval_str(r#"(fset 'neomacs-mouse-minor-mode-command
                   (lambda () (interactive) 'ok))"#).expect("setup");
 
@@ -2570,11 +2425,6 @@ fn read_key_sequence_prefixes_mode_line_mouse_click_for_lookup() {
         )
         .expect("split window");
 
-    let setup = parse_forms(
-        r#"(fset 'neomacs-mode-line-click-command
-                  (lambda () (interactive) 'ok))"#,
-    )
-    .expect("parse");
     ev.eval_str(r#"(fset 'neomacs-mode-line-click-command
                   (lambda () (interactive) 'ok))"#).expect("setup");
 
@@ -2631,20 +2481,10 @@ fn read_key_sequence_prefixes_mode_line_mouse_click_for_lookup() {
 fn clear_current_message_runs_echo_area_clear_hook_once_when_message_present() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let setup = parse_forms(
-        r#"
-(setq echo-clear-count 0)
-(setq echo-area-clear-hook
-      (list (lambda ()
-              (setq echo-clear-count (1+ echo-clear-count)))))
-"#)
-    .expect("eval forms");
-
     ev.set_current_message(Some("hello".to_string()));
     ev.clear_current_message();
     assert_eq!(ev.current_message_text(), None);
 
-    let count_form = parse_forms("echo-clear-count").expect("parse count");
     assert_eq!(
         ev.eval_str("echo-clear-count").expect("echo-clear-count"),
         Value::fixnum(1)
@@ -2724,16 +2564,6 @@ fn fire_pending_timers_executes_lisp_callbacks() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_variable("vm-timer-fired", Value::NIL);
-    let forms = parse_forms(
-        "(progn
-           (fset 'vm-test-timer-callback
-                 (lambda () (setq vm-timer-fired 'done)))
-           (fset 'timer-event-handler
-                 (lambda (timer)
-                   (setq timer-list nil)
-                   (funcall (aref timer 5)))))",
-    )
-    .expect("parse timer test setup");
     ev.eval_str(r#"(progn
            (fset 'vm-test-timer-callback
                  (lambda () (setq vm-timer-fired 'done)))
@@ -2780,16 +2610,6 @@ fn fire_pending_timers_requests_redisplay_after_callbacks() {
         );
     }));
 
-    let forms = parse_forms(
-        "(progn
-           (fset 'vm-test-timer-callback
-                 (lambda () (setq vm-timer-fired 'done)))
-           (fset 'timer-event-handler
-                 (lambda (timer)
-                   (setq timer-list nil)
-                   (funcall (aref timer 5)))))",
-    )
-    .expect("parse timer test setup");
     ev.eval_str(r#"(progn
            (fset 'vm-test-timer-callback
                  (lambda () (setq vm-timer-fired 'done)))
@@ -2821,23 +2641,6 @@ fn fire_pending_timers_requests_redisplay_after_callbacks() {
 fn fire_pending_timers_prefers_more_overdue_ordinary_timer_over_idle_timer() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let setup = parse_forms(
-        "(progn
-           (setq vm-timer-order nil)
-           (fset 'vm-ordinary-callback
-                 (lambda ()
-                   (setq vm-timer-order (append vm-timer-order '(ordinary)))))
-           (fset 'vm-idle-callback
-                 (lambda ()
-                   (setq vm-timer-order (append vm-timer-order '(idle)))))
-           (fset 'timer-event-handler
-                 (lambda (timer)
-                   (if (aref timer 7)
-                       (setq timer-idle-list (delq timer timer-idle-list))
-                     (setq timer-list (delq timer timer-list)))
-                   (funcall (aref timer 5)))))",
-    )
-    .expect("parse timer ordering setup");
     ev.eval_str(r#"(progn
            (setq vm-timer-order nil)
            (fset 'vm-ordinary-callback
@@ -2884,23 +2687,6 @@ fn fire_pending_timers_prefers_more_overdue_ordinary_timer_over_idle_timer() {
 fn fire_pending_timers_prefers_more_overdue_idle_timer_over_ordinary_timer() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let setup = parse_forms(
-        "(progn
-           (setq vm-timer-order nil)
-           (fset 'vm-ordinary-callback
-                 (lambda ()
-                   (setq vm-timer-order (append vm-timer-order '(ordinary)))))
-           (fset 'vm-idle-callback
-                 (lambda ()
-                   (setq vm-timer-order (append vm-timer-order '(idle)))))
-           (fset 'timer-event-handler
-                 (lambda (timer)
-                   (if (aref timer 7)
-                       (setq timer-idle-list (delq timer timer-idle-list))
-                     (setq timer-list (delq timer timer-list)))
-                   (funcall (aref timer 5)))))",
-    )
-    .expect("parse timer ordering setup");
     ev.eval_str(r#"(progn
            (setq vm-timer-order nil)
            (fset 'vm-ordinary-callback
@@ -3004,14 +2790,6 @@ fn read_char_fires_bootstrapped_gnu_run_with_timer_while_waiting_for_input() {
     crate::test_utils::init_test_tracing();
     let mut ev = runtime_startup_context();
 
-    let forms = parse_forms(
-        "(progn
-           (setq vm-timer-fired nil)
-           (run-with-timer
-            0.01 nil
-            (lambda () (setq vm-timer-fired 'done))))",
-    )
-    .expect("parse timer program");
     ev.eval_str(r#"(progn
            (setq vm-timer-fired nil)
            (run-with-timer
@@ -3046,17 +2824,6 @@ fn read_char_fires_bootstrapped_gnu_run_with_idle_timer_while_waiting_for_input(
     let mut ev = runtime_startup_context();
 
     eprintln!("idle test: parse forms");
-    let forms = parse_forms(
-        "(progn
-           (setq vm-idle-fired nil)
-           (setq vm-idle-snapshot nil)
-           (run-with-idle-timer
-            0.01 nil
-            (lambda ()
-              (setq vm-idle-fired 'done)
-              (setq vm-idle-snapshot (current-idle-time)))))",
-    )
-    .expect("parse idle timer program");
     eprintln!("idle test: eval schedule");
     ev.eval_str(r#"(progn
            (setq vm-idle-fired nil)
@@ -3318,19 +3085,6 @@ fn save_restriction_restores_labeled_restrictions_and_widen_semantics() {
     let buffer_id = eval.buffers.create_buffer("eval-labeled-restriction");
     eval.buffers.set_current(buffer_id);
     let _ = eval.buffers.insert_into_buffer(buffer_id, "abcdef");
-    let forms = parse_forms(
-        r#"(progn
-             (internal--labeled-narrow-to-region 2 5 'tag)
-             (list (point-min) (point-max)
-                   (save-restriction
-                     (internal--labeled-widen 'tag)
-                     (list (point-min) (point-max)))
-                   (point-min) (point-max)
-                   (progn (widen) (list (point-min) (point-max)))
-                   (progn (internal--labeled-widen 'tag)
-                          (list (point-min) (point-max)))))"#,
-    )
-    .expect("parse");
     let result = eval.eval_str(r#"(progn
              (internal--labeled-narrow-to-region 2 5 'tag)
              (list (point-min) (point-max)
@@ -3397,18 +3151,6 @@ fn simple_defvar_declares_local_dynamic_scope_in_lexical_environment() {
     ev.set_lexical_binding(true);
     ev.lexenv = Value::list(vec![Value::T]);
 
-    let forms = parse_forms(
-        r#"
-        (progn
-          (defvar vm-local-special)
-          (let ((vm-local-special 10))
-            (let ((f (lambda () vm-local-special)))
-              (let ((vm-local-special 20))
-                (funcall f)))))
-    "#,
-    )
-    .expect("parse");
-
     let result = ev.eval_str(r#"
         (progn
           (defvar vm-local-special)
@@ -3465,46 +3207,38 @@ fn recent_input_events_are_bounded() {
 fn eval_and_compile_defines_function() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let forms = parse_forms(
-        r#"
+    let rendered: Vec<String> = ev
+        .eval_str_each(r#"
         (defalias 'eval-and-compile (cons 'macro #'(lambda (&rest body)
           (list 'quote (eval (cons 'progn body))))))
         (eval-and-compile
           (defalias 'my-test-fn #'(lambda (x) (+ x 1))))
         (my-test-fn 41)
-    "#,
-    )
-    .expect("parse");
-    let results: Vec<String> = ev
-        .eval_forms(&forms)
+    "#)
         .iter()
         .map(format_eval_result)
         .collect();
-    tracing::debug!("eval-and-compile results: {:?}", results);
+    tracing::debug!("eval-and-compile results: {:?}", rendered);
     // The function should be defined by eval-and-compile
     assert!(
         ev.obarray().symbol_function("my-test-fn").is_some(),
         "my-test-fn should be defined after eval-and-compile"
     );
-    assert_eq!(results[2], "OK 42");
+    assert_eq!(rendered[2], "OK 42");
 }
 
 #[test]
 fn eval_and_compile_with_backtick_name() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let forms = parse_forms(
-        r#"
+    let results: Vec<String> = ev
+        .eval_str_each(r#"
         (defalias 'eval-and-compile (cons 'macro #'(lambda (&rest body)
           (list 'quote (eval (cons 'progn body))))))
         (let ((fsym (intern (format "%s--pcase-macroexpander" '\`))))
           (eval (list 'eval-and-compile
                       (list 'defalias (list 'quote fsym) (list 'function (list 'lambda '(x) '(+ x 1)))))))
-    "#,
-    )
-    .expect("parse");
-    let results: Vec<String> = ev
-        .eval_forms(&forms)
+    "#)
         .iter()
         .map(format_eval_result)
         .collect();
@@ -3965,7 +3699,6 @@ fn function_special_form_symbol_and_literal_payloads() {
 fn lambda_captures_docstring_metadata() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let forms = parse_forms("(lambda nil \"lambda-doc\" nil)").expect("parse");
     let value = ev.eval_str("(lambda nil \"lambda-doc\" nil)").expect("eval");
     assert_eq!(value.closure_docstring().flatten(), Some("lambda-doc"));
 }
@@ -3974,9 +3707,6 @@ fn lambda_captures_docstring_metadata() {
 fn function_special_form_evaluates_dynamic_documentation_form() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let forms =
-        parse_forms("(function (lambda nil (:documentation (if t \"dyn-doc\" \"bad\")) nil))")
-            .expect("parse");
     let value = ev.eval_str("(function (lambda nil (:documentation (if t \"dyn-doc\" \"bad\")) nil))").expect("eval");
     assert_eq!(value.closure_docstring().flatten(), Some("dyn-doc"));
     let body = value
@@ -3990,11 +3720,7 @@ fn function_special_form_evaluates_dynamic_documentation_form() {
 fn function_special_form_value_path_evaluates_dynamic_documentation_form() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let forms =
-        parse_forms("(function (lambda nil (:documentation (if t \"dyn-doc\" \"bad\")) nil))")
-            .expect("parse");
-    let form = quote_to_value(&forms[0]);
-    let value = ev.eval_sub(form).expect("eval");
+    let value = ev.eval_str("(function (lambda nil (:documentation (if t \"dyn-doc\" \"bad\")) nil))").expect("eval");
     assert_eq!(value.closure_docstring().flatten(), Some("dyn-doc"));
     let body = value
         .closure_body_value()
@@ -4007,9 +3733,7 @@ fn function_special_form_value_path_evaluates_dynamic_documentation_form() {
 fn byte_code_literal_value_path_produces_bytecode() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let forms = parse_forms("#[(x) \"\\bT\\207\" [x] 1 (#$ . 83)]").expect("parse");
-    let form = quote_to_value(&forms[0]);
-    let value = ev.eval_sub(form).expect("eval");
+    let value = ev.eval_str(r#"#[(x) "\bT\207" [x] 1 (#$ . 83)]"#).expect("eval");
     assert!(value.is_bytecode(), "expected bytecode object, got {value}");
 }
 
@@ -4028,7 +3752,6 @@ fn quoted_lambda_funcall_strips_dynamic_documentation_form() {
 fn lambda_single_string_body_is_a_return_value_not_a_docstring() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let forms = parse_forms("(lambda nil \"ok-1\")").expect("parse");
     let value = ev.eval_str("(lambda nil \"ok-1\")").expect("eval");
     assert_eq!(value.closure_docstring().flatten(), None);
     let body = value
@@ -4045,9 +3768,6 @@ fn defmacro_captures_docstring_metadata() {
     // defmacro is no longer a bare-evaluator special form; install a
     // macro with a docstring via defalias + cons 'macro + lambda.
     let mut ev = Context::new();
-    let forms =
-        parse_forms("(defalias 'vm-doc-macro (cons 'macro #'(lambda (x) \"macro-doc\" x)))")
-            .expect("parse");
     ev.eval_str("(defalias 'vm-doc-macro (cons 'macro #'(lambda (x) \"macro-doc\" x)))").expect("eval defalias macro");
     let macro_val = ev
         .obarray
@@ -4237,14 +3957,10 @@ fn set_ignores_lexical_bindings_and_updates_dynamic_cell() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
-    let forms = parse_forms(
-        "(makunbound 'vm-lex-set)
+    let results = ev.eval_str_each("(makunbound 'vm-lex-set)
          (let ((vm-lex-set 10))
            (list (set 'vm-lex-set 20) vm-lex-set (symbol-value 'vm-lex-set)))
-         (makunbound 'vm-lex-set)",
-    )
-    .expect("parse");
-    let results = ev.eval_forms(&forms);
+         (makunbound 'vm-lex-set)");
     assert_eq!(format_eval_result(&results[1]), "OK (20 10 20)");
 }
 
@@ -4288,8 +4004,7 @@ fn makunbound_ignores_lexical_bindings_and_unbinds_runtime_cell() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
-    let forms = parse_forms(
-        "(setq vm-lex-makunbound 30)
+    let results = ev.eval_str_each("(setq vm-lex-makunbound 30)
          (let ((vm-lex-makunbound 10))
            (list (makunbound 'vm-lex-makunbound)
                  vm-lex-makunbound
@@ -4298,10 +4013,7 @@ fn makunbound_ignores_lexical_bindings_and_unbinds_runtime_cell() {
                    (error (car err)))))
          (condition-case err
              (symbol-value 'vm-lex-makunbound)
-           (error (car err)))",
-    )
-    .expect("parse");
-    let results = ev.eval_forms(&forms);
+           (error (car err)))");
     assert_eq!(
         format_eval_result(&results[1]),
         "OK (vm-lex-makunbound 10 void-variable)"
@@ -5067,9 +4779,8 @@ fn backward_compat_core_forms() {
     "#;
 
     let mut ev = Context::new();
-    let forms = parse_forms(source).expect("parse");
     let rendered: Vec<String> = ev
-        .eval_forms(&forms)
+        .eval_str_each(source)
         .iter()
         .map(format_eval_result)
         .collect();
@@ -5118,15 +4829,6 @@ fn lexical_binding_closure() {
     crate::test_utils::init_test_tracing();
     // With lexical binding, closures capture the lexical environment
     let mut ev = Context::new();
-    let forms = parse_forms(
-        r#"
-        (let ((x 1))
-          (let ((f (lambda () x)))
-            (let ((x 2))
-              (funcall f))))
-    "#,
-    )
-    .expect("parse");
     ev.set_lexical_binding(true);
     let result = format_eval_result(&ev.eval_str(r#"
         (let ((x 1))
@@ -5143,15 +4845,6 @@ fn dynamic_binding_closure() {
     crate::test_utils::init_test_tracing();
     // Without lexical binding (default), closures see dynamic scope
     let mut ev = Context::new();
-    let forms = parse_forms(
-        r#"
-        (let ((x 1))
-          (let ((f (lambda () x)))
-            (let ((x 2))
-              (funcall f))))
-    "#,
-    )
-    .expect("parse");
     let result = format_eval_result(&ev.eval_str(r#"
         (let ((x 1))
           (let ((f (lambda () x)))
@@ -5167,19 +4860,15 @@ fn lexical_binding_special_var_stays_dynamic() {
     crate::test_utils::init_test_tracing();
     // defvar makes a variable special — it stays dynamically scoped
     let mut ev = Context::new();
-    let forms = parse_forms(
-        r#"
+    ev.set_lexical_binding(true);
+    let results: Vec<String> = ev
+        .eval_str_each(r#"
         (defvar my-special 10)
         (let ((my-special 20))
           (let ((f (lambda () my-special)))
             (let ((my-special 30))
               (funcall f))))
-    "#,
-    )
-    .expect("parse");
-    ev.set_lexical_binding(true);
-    let results: Vec<String> = ev
-        .eval_forms(&forms)
+    "#)
         .iter()
         .map(format_eval_result)
         .collect();
@@ -5316,9 +5005,8 @@ fn compiled_literal_reader_form_is_not_callable() {
 fn provide_require() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let forms = parse_forms("(provide 'my-feature) (featurep 'my-feature)").expect("parse");
     let results: Vec<String> = ev
-        .eval_forms(&forms)
+        .eval_str_each("(provide 'my-feature) (featurep 'my-feature)")
         .iter()
         .map(format_eval_result)
         .collect();
@@ -5743,18 +5431,6 @@ fn mapatoms_roots_anonymous_callback_across_exact_gc() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.tagged_heap.set_gc_threshold(1);
-    let forms = parse_forms(
-        r#"(let ((ob (make-vector 7 0)))
-             (intern "mapatoms-root-a" ob)
-             (intern "mapatoms-root-b" ob)
-             (let ((count 0))
-               (mapatoms (lambda (_sym)
-                           (garbage-collect)
-                           (setq count (1+ count)))
-                         ob)
-               count))"#,
-    )
-    .expect("parse");
     let result = format_eval_result(&ev.eval_str(r#"(let ((ob (make-vector 7 0)))
              (intern "mapatoms-root-a" ob)
              (intern "mapatoms-root-b" ob)
@@ -5773,18 +5449,6 @@ fn maphash_roots_reconstructed_keys_across_exact_gc() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.tagged_heap.set_gc_threshold(1);
-    let forms = parse_forms(
-        r#"(let ((h (make-hash-table :test 'equal))
-                 (sum 0))
-             (puthash (list 'a 1) 'x h)
-             (puthash (list 'b 2) 'y h)
-             (maphash (lambda (k _v)
-                        (garbage-collect)
-                        (setq sum (+ sum (car (cdr k)))))
-                      h)
-             sum)"#,
-    )
-    .expect("parse");
     let result = format_eval_result(&ev.eval_str(r#"(let ((h (make-hash-table :test 'equal))
                  (sum 0))
              (puthash (list 'a 1) 'x h)
@@ -6026,25 +5690,6 @@ fn run_hook_with_args_roots_callbacks_and_args_across_exact_gc() {
     let mut ev = Context::new();
     ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
     ev.tagged_heap.set_gc_threshold(1);
-    let forms = parse_forms(
-        r#"
-(progn
-  (setq hook-root-a nil)
-  (setq hook-root-b nil)
-  (setq hook-probe-hook
-        (list
-         (lambda (arg)
-           (garbage-collect)
-           (setq hook-root-a arg))
-         (lambda (arg)
-           (garbage-collect)
-           (setq hook-root-b arg))))
-  (let ((payload (cons 'x 'y)))
-    (run-hook-with-args 'hook-probe-hook payload)
-    (list hook-root-a hook-root-b payload)))
-"#,
-    )
-    .expect("parse");
     let result = format_eval_result(&ev.eval_str(r#"
 (progn
   (setq hook-root-a nil)
@@ -6215,19 +5860,6 @@ fn point_motion_hooks_follow_gnu_interval_boundary_order() {
 fn run_window_configuration_change_hook_uses_window_buffer_context() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let setup = parse_forms(
-        "(progn
-           (setq hook-log nil)
-           (defalias 'wcch-log-current-buffer
-             #'(lambda ()
-                 (setq hook-log
-                       (cons (intern (buffer-name)) hook-log))))
-           (defalias 'wcch-log-global-buffer
-             #'(lambda ()
-                 (setq hook-log
-                       (cons (intern (concat \"global:\" (buffer-name))) hook-log)))))",
-    )
-    .expect("parse");
     ev.eval_str(r#"(progn
            (setq hook-log nil)
            (defalias 'wcch-log-current-buffer
@@ -6789,14 +6421,6 @@ fn lexical_inhibit_read_only_binding_overrides_buffer_read_only() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
-    let forms = parse_forms(
-        "(with-temp-buffer
-           (setq buffer-read-only t)
-           (let ((inhibit-read-only t))
-             (insert \"ok\")
-             (buffer-string)))",
-    )
-    .expect("parse");
     let result = ev.eval_str(r#"(with-temp-buffer
            (setq buffer-read-only t)
            (let ((inhibit-read-only t))
@@ -7257,15 +6881,6 @@ fn save_window_excursion_restores_selected_window_point_and_requests_final_redis
         redisplayed_points_in_cb.borrow_mut().push(point);
     }));
 
-    let forms = parse_forms(
-        "(let ((wconfig (current-window-configuration)))
-           (unwind-protect
-               (progn
-                 (set-window-point (selected-window) 10)
-                 (redisplay))
-             (set-window-configuration wconfig)))",
-    )
-    .expect("parse save-window-excursion redisplay form");
     ev.eval_str(r#"(let ((wconfig (current-window-configuration)))
            (unwind-protect
                (progn
@@ -7288,16 +6903,6 @@ fn current_window_configuration_saves_selected_window_live_point() {
         .expect("scratch buffer")
         .insert("0123456789abcdefghijklmnopqrstuvwxyz");
     ev.frames.create_frame("F1", 960, 640, buffer_id);
-
-    let forms = parse_forms(
-        "(let* ((w (selected-window))
-                (_ (goto-char 10))
-                (cfg (current-window-configuration)))
-           (goto-char 3)
-           (set-window-configuration cfg)
-           (list (window-point w) (point)))",
-    )
-    .expect("parse current-window-configuration point preservation form");
 
     let result = ev
         .eval_str(r#"(let* ((w (selected-window))
@@ -7769,8 +7374,7 @@ fn aset_string_writeback_equal_hash_key_lookup_stays_nil() {
 fn gc_collect_retains_reachable() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let forms = crate::emacs_core::parse_forms("(setq x (cons 1 2))").unwrap();
-    ev.eval_forms(&forms);
+    ev.eval_str_each("(setq x (cons 1 2))");
     let before = ev.tagged_heap.allocated_count();
     ev.gc_collect();
     let after = ev.tagged_heap.allocated_count();
@@ -7778,8 +7382,7 @@ fn gc_collect_retains_reachable() {
     assert!(after >= 1, "reachable cons was collected");
     assert!(after <= before, "gc should not increase count");
     // Verify the value is still accessible.
-    let forms2 = crate::emacs_core::parse_forms("(car x)").unwrap();
-    let results = ev.eval_forms(&forms2);
+    let results = ev.eval_str_each("(car x)");
     assert_eq!(format_eval_result(&results[0]), "OK 1");
 }
 
@@ -7792,12 +7395,10 @@ fn gc_collect_exact_retains_reachable() {
         crate::tagged::gc::RootScanMode::ExactOnly
     );
 
-    let forms = crate::emacs_core::parse_forms("(setq x (cons 11 22))").unwrap();
-    ev.eval_forms(&forms);
+    ev.eval_str_each("(setq x (cons 11 22))");
     ev.gc_collect_exact();
 
-    let forms2 = crate::emacs_core::parse_forms("(car x)").unwrap();
-    let results = ev.eval_forms(&forms2);
+    let results = ev.eval_str_each("(car x)");
     assert_eq!(format_eval_result(&results[0]), "OK 11");
 }
 
@@ -7824,9 +7425,7 @@ fn gc_collect_frees_unreachable() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     // Create orphaned conses that aren't bound to any variable.
-    let forms =
-        crate::emacs_core::parse_forms("(progn (cons 1 2) (cons 3 4) (cons 5 6) nil)").unwrap();
-    ev.eval_forms(&forms);
+    let _ = ev.eval_str("(progn (cons 1 2) (cons 3 4) (cons 5 6) nil)");
     let before = ev.tagged_heap.allocated_count();
     ev.gc_collect();
     let after = ev.tagged_heap.allocated_count();
@@ -7842,19 +7441,15 @@ fn gc_collect_handles_cycles() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     // Create a circular list: (setq x (cons 1 nil)) (setcdr x x)
-    let forms =
-        crate::emacs_core::parse_forms("(progn (setq x (cons 1 nil)) (setcdr x x) t)").unwrap();
-    ev.eval_forms(&forms);
+    let _ = ev.eval_str("(progn (setq x (cons 1 nil)) (setcdr x x) t)");
     // GC should handle cycles without infinite loop.
     ev.gc_collect();
     // x is still reachable.
-    let forms2 = crate::emacs_core::parse_forms("(car x)").unwrap();
-    let results = ev.eval_forms(&forms2);
+    let results = ev.eval_str_each("(car x)");
     assert_eq!(format_eval_result(&results[0]), "OK 1");
 
     // Now remove the root and collect — the cycle should be freed.
-    let forms3 = crate::emacs_core::parse_forms("(setq x nil)").unwrap();
-    ev.eval_forms(&forms3);
+    ev.eval_str_each("(setq x nil)");
     let before = ev.tagged_heap.allocated_count();
     ev.gc_collect();
     let after = ev.tagged_heap.allocated_count();
@@ -7870,11 +7465,7 @@ fn gc_safe_point_collects_when_threshold_reached() {
     let mut ev = Context::new();
     ev.tagged_heap.set_gc_threshold(5);
     // Allocate enough conses to exceed threshold.
-    let forms = crate::emacs_core::parse_forms(
-        "(progn (cons 1 2) (cons 3 4) (cons 5 6) (cons 7 8) (cons 9 10) nil)",
-    )
-    .unwrap();
-    ev.eval_forms(&forms);
+    ev.eval_str_each("(progn (cons 1 2) (cons 3 4) (cons 5 6) (cons 7 8) (cons 9 10) nil)");
     assert!(
         ev.gc_count > 0 || ev.gc_pending || ev.tagged_heap.should_collect(),
         "incremental GC should be pending, active, or already finished"
@@ -7891,11 +7482,7 @@ fn gc_threshold_adapts_after_collection() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     // Create 3 conses that are reachable via variables.
-    let forms = crate::emacs_core::parse_forms(
-        "(progn (setq a (cons 1 2)) (setq b (cons 3 4)) (setq c (cons 5 6)))",
-    )
-    .unwrap();
-    ev.eval_forms(&forms);
+    ev.eval_str_each("(progn (setq a (cons 1 2)) (setq b (cons 3 4)) (setq c (cons 5 6)))");
     ev.gc_collect();
     // GNU uses a byte threshold driven by `gc-cons-threshold` and
     // `gc-cons-percentage`, not a raw object-count heuristic.
@@ -7913,18 +7500,13 @@ fn gc_safe_point_reloads_threshold_after_lisp_setq() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
 
-    let forms = crate::emacs_core::parse_forms(
-        "(progn
+    ev.eval_str_each("(progn
            (setq gc-cons-percentage nil)
-           (setq gc-cons-threshold 1234567))",
-    )
-    .unwrap();
-    ev.eval_forms(&forms);
+           (setq gc-cons-threshold 1234567))");
     ev.gc_safe_point();
     assert_eq!(ev.tagged_heap.gc_threshold(), 1_234_567);
 
-    let forms = crate::emacs_core::parse_forms("(setq gc-cons-threshold 2345678)").unwrap();
-    ev.eval_forms(&forms);
+    ev.eval_str_each("(setq gc-cons-threshold 2345678)");
     ev.gc_safe_point();
     assert_eq!(ev.tagged_heap.gc_threshold(), 2_345_678);
 }
@@ -7939,12 +7521,10 @@ fn gc_collect_obeys_context_root_scan_mode() {
         crate::tagged::gc::RootScanMode::ExactOnly
     );
 
-    let forms = crate::emacs_core::parse_forms("(setq mode-root (cons 7 8))").unwrap();
-    ev.eval_forms(&forms);
+    ev.eval_str_each("(setq mode-root (cons 7 8))");
     ev.gc_collect();
 
-    let forms2 = crate::emacs_core::parse_forms("(car mode-root)").unwrap();
-    let results = ev.eval_forms(&forms2);
+    let results = ev.eval_str_each("(car mode-root)");
     assert_eq!(format_eval_result(&results[0]), "OK 7");
 }
 
@@ -7955,24 +7535,19 @@ fn gc_safe_point_obeys_context_root_scan_mode() {
     ev.set_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly);
     ev.tagged_heap.set_gc_threshold(5);
 
-    let forms = crate::emacs_core::parse_forms(
-        "(progn
+    ev.eval_str_each("(progn
            (setq mode-safe-root (cons 7 8))
            (cons 1 2)
            (cons 3 4)
            (cons 5 6)
            (cons 9 10)
-           nil)",
-    )
-    .unwrap();
-    ev.eval_forms(&forms);
+           nil)");
 
     while ev.gc_count == 0 {
         ev.gc_safe_point();
     }
 
-    let forms2 = crate::emacs_core::parse_forms("(car mode-safe-root)").unwrap();
-    let results = ev.eval_forms(&forms2);
+    let results = ev.eval_str_each("(car mode-safe-root)");
     assert_eq!(format_eval_result(&results[0]), "OK 7");
 }
 
@@ -8010,10 +7585,10 @@ fn eval_sub_exact_gc_retains_cons_form() {
             Value::cons(Value::fixnum(9), Value::fixnum(10)),
         ]),
     ]);
-    let result = ev.eval_sub(form);
+    let result = ev.eval_sub(form).map_err(crate::emacs_core::error::map_flow);
 
     assert_eq!(
-        format_eval_result(&result.map_err(crate::emacs_core::error::map_flow)),
+        format_eval_result(&result),
         "OK 9"
     );
     assert!(ev.gc_count > 0, "exact eval_sub path should trigger GC");
@@ -8026,10 +7601,10 @@ fn apply_exact_gc_retains_rooted_args() {
     ev.tagged_heap.set_gc_threshold(1);
 
     let arg = Value::cons(Value::fixnum(12), Value::fixnum(13));
-    let result = ev.apply(Value::symbol("car"), vec![arg]);
+    let result = ev.apply(Value::symbol("car"), vec![arg]).map_err(crate::emacs_core::error::map_flow);
 
     assert_eq!(
-        format_eval_result(&result.map_err(crate::emacs_core::error::map_flow)),
+        format_eval_result(&result),
         "OK 12"
     );
     assert!(ev.gc_count > 0, "exact apply path should trigger GC");
@@ -8054,21 +7629,13 @@ fn gc_collect_runs_post_gc_hook() {
 fn gc_safe_point_runs_post_gc_hook_when_incremental_collection_finishes() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let setup = crate::emacs_core::parse_forms(
-        "(progn
+    ev.eval_str_each("(progn
            (setq gc-hook-log nil)
            (setq post-gc-hook
                  (list (lambda ()
-                         (setq gc-hook-log (cons 'ran gc-hook-log))))))",
-    )
-    .expect("parse");
-    ev.eval_forms(&setup);
+                         (setq gc-hook-log (cons 'ran gc-hook-log))))))");
     ev.tagged_heap.set_gc_threshold(5);
-    let forms = crate::emacs_core::parse_forms(
-        "(progn (cons 1 2) (cons 3 4) (cons 5 6) (cons 7 8) (cons 9 10) nil)",
-    )
-    .expect("parse");
-    ev.eval_forms(&forms);
+    ev.eval_str_each("(progn (cons 1 2) (cons 3 4) (cons 5 6) (cons 7 8) (cons 9 10) nil)");
     while ev.gc_count == 0 {
         ev.gc_safe_point();
     }
@@ -8169,13 +7736,6 @@ fn gc_stress_lambda_argument_closure_survives_binding_installation() {
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
     ev.tagged_heap.set_gc_threshold(1);
-    let forms = parse_forms(
-        r#"(let ((payload (list 1 2 3)))
-             ((lambda (orig)
-                (funcall orig))
-              (lambda () payload)))"#,
-    )
-    .expect("parse");
     let result = format_eval_result(&ev.eval_str(r#"(let ((payload (list 1 2 3)))
              ((lambda (orig)
                 (funcall orig))
@@ -8190,15 +7750,6 @@ fn gc_stress_direct_lambda_head_roots_fresh_closure_during_arg_eval() {
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
     ev.tagged_heap.set_gc_threshold(1);
-    let forms = parse_forms(
-        r#"((lambda (f value)
-              (funcall f value))
-            (lambda (x) x)
-            (prog1 (list 1 2 3)
-              (list 4 5 6)
-              (list 7 8 9)))"#,
-    )
-    .expect("parse");
     let result = format_eval_result(&ev.eval_str(r#"((lambda (f value)
               (funcall f value))
             (lambda (x) x)
@@ -8215,12 +7766,6 @@ fn gc_stress_builtin_apply_roots_closure_function_argument() {
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
     ev.tagged_heap.set_gc_threshold(1);
-    let forms = parse_forms(
-        r#"(let ((payload (list 7 8 9)))
-             (let ((f (lambda () payload)))
-               (apply f nil)))"#,
-    )
-    .expect("parse");
     let result = format_eval_result(&ev.eval_str(r#"(let ((payload (list 7 8 9)))
              (let ((f (lambda () payload)))
                (apply f nil)))"#));
@@ -8234,13 +7779,6 @@ fn gc_stress_let_star_lexical_binding_roots_evaluated_values() {
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
     ev.tagged_heap.set_gc_threshold(1);
-    let forms = parse_forms(
-        r#"(let ((build (lambda () (list 4 5 6))))
-             (let* ((x (funcall build))
-                    (y x))
-               y))"#,
-    )
-    .expect("parse");
     let result = format_eval_result(&ev.eval_str(r#"(let ((build (lambda () (list 4 5 6))))
              (let* ((x (funcall build))
                     (y x))
@@ -8263,26 +7801,6 @@ fn gc_stress_apply_env_expander_closure_capturing_uninterned_symbol() {
     ev.lexenv = Value::list(vec![Value::T]);
     ev.gc_stress = true;
     ev.tagged_heap.set_gc_threshold(1);
-    let forms = parse_forms(
-        r#"
-        (let ((newenv nil)
-              (magic (make-symbol "vm-magic")))
-          (let ((var (make-symbol "vm-var")))
-            (setq newenv
-                  (cons
-                   (cons 'vm-head
-                         (lambda (&rest args)
-                           (if (eq (car args) magic)
-                               (list magic var)
-                             (cons 'funcall (cons var args)))))
-                   newenv))
-            (let* ((form '(vm-head 1 2 3))
-                   (head (car form))
-                   (env-expander (assq head newenv)))
-              (apply (cdr env-expander) (cdr form)))))
-        "#,
-    )
-    .expect("parse");
     let result = format_eval_result(&ev.eval_str(r#"
         (let ((newenv nil)
               (magic (make-symbol "vm-magic")))
@@ -8308,20 +7826,6 @@ fn interpreted_closure_while_can_advance_lexical_loop_variable() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
-    let forms = parse_forms(
-        r#"
-        (funcall
-         (let ((items '(a b c)))
-           (lambda ()
-             (let ((l items)
-                   (count 0))
-               (while l
-                 (setq l (cdr l))
-                 (setq count (1+ count)))
-               count))))
-        "#,
-    )
-    .expect("parse");
     let result = format_eval_result(&ev.eval_str(r#"
         (funcall
          (let ((items '(a b c)))
@@ -8361,15 +7865,11 @@ fn interpreted_closure_trim_cache_survives_exact_gc() {
         .expect("cconv interpreted closure filter");
     ev.set_interpreted_closure_filter_fn(Some(filter_fn));
 
-    let lambda_forms = parse_forms(r#"(funcall (let ((x 1)) (lambda () x)))"#).expect("parse");
     let first = format_eval_result(&ev.eval_str("(funcall (let ((x 1)) (lambda () x)))"));
     assert_eq!(first, "OK 1");
 
     ev.gc_collect_exact();
 
-    let second_forms = parse_forms(r#"(funcall (let ((x 1)) (lambda () x)))"#).expect("parse");
-
-    let count_forms = parse_forms("vm-interpreted-closure-count").expect("parse count");
     let count = format_eval_result(&ev.eval_str("vm-interpreted-closure-count"));
     assert_eq!(count, "OK 1");
 }
@@ -8399,13 +7899,6 @@ fn value_lambda_instantiation_uses_interpreted_closure_trim_cache() {
         .expect("cconv interpreted closure filter");
     ev.set_interpreted_closure_filter_fn(Some(filter_fn));
 
-    let forms = parse_forms(
-        r#"(let ((x 1))
-             (list (funcall '(lambda () x))
-                   (funcall '(lambda () x))
-                   vm-interpreted-closure-count))"#,
-    )
-    .expect("parse");
     let rendered = format_eval_result(&ev.eval_str(r#"(let ((x 1))
              (list (funcall '(lambda () x))
                    (funcall '(lambda () x))
@@ -8420,12 +7913,6 @@ fn gc_stress_aref_on_closure_survives_closure_vector_conversion() {
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
     ev.tagged_heap.set_gc_threshold(1);
-    let forms = parse_forms(
-        r#"(let ((payload (list 1 2 3)))
-             (let ((closure (lambda () payload)))
-               (not (null (aref closure 2)))))"#,
-    )
-    .expect("parse");
     let result = format_eval_result(&ev.eval_str(r#"(let ((payload (list 1 2 3)))
              (let ((closure (lambda () payload)))
                (not (null (aref closure 2)))))"#));
@@ -8439,12 +7926,6 @@ fn gc_stress_cdr_on_lambda_survives_cons_list_conversion() {
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
     ev.tagged_heap.set_gc_threshold(1);
-    let forms = parse_forms(
-        r#"(let ((payload (list 1 2 3)))
-             (let ((closure (lambda () payload)))
-               (not (null (car (cdr closure))))))"#,
-    )
-    .expect("parse");
     let result = format_eval_result(&ev.eval_str(r#"(let ((payload (list 1 2 3)))
              (let ((closure (lambda () payload)))
                (not (null (car (cdr closure))))))"#));
@@ -8572,14 +8053,6 @@ fn lexical_closure_mutation_visible() {
     // one closure must be visible to the outer scope.
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
-    let forms = parse_forms(
-        r#"(let ((x 0))
-             (let ((f (lambda () (setq x (1+ x)))))
-               (funcall f)
-               (funcall f)
-               x))"#,
-    )
-    .expect("parse");
     let result = format_eval_result(&ev.eval_str(r#"(let ((x 0))
              (let ((f (lambda () (setq x (1+ x)))))
                (funcall f)
@@ -8594,16 +8067,6 @@ fn lexical_closure_shared_state() {
     // Two closures sharing the same binding (inc + get).
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
-    let forms = parse_forms(
-        r#"(let ((x 0))
-             (let ((inc (lambda () (setq x (1+ x))))
-                   (get (lambda () x)))
-               (funcall inc)
-               (funcall inc)
-               (funcall inc)
-               (funcall get)))"#,
-    )
-    .expect("parse");
     let result = format_eval_result(&ev.eval_str(r#"(let ((x 0))
              (let ((inc (lambda () (setq x (1+ x))))
                    (get (lambda () x)))
@@ -8620,21 +8083,6 @@ fn lexical_closure_make_counter() {
     // Classic make-counter pattern with independent counters.
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
-    let forms = parse_forms(
-        r#"(progn
-             (defalias 'make-counter #'(lambda ()
-               (let ((n 0))
-                 (lambda () (setq n (1+ n))))))
-             (let ((c1 (make-counter))
-                   (c2 (make-counter)))
-               (funcall c1)
-               (funcall c1)
-               (funcall c1)
-               (let ((r1 (funcall c1))
-                     (r2 (funcall c2)))
-                 (list r1 r2))))"#,
-    )
-    .expect("parse");
     let result = format_eval_result(&ev.eval_str(r#"(progn
              (defalias 'make-counter #'(lambda ()
                (let ((n 0))
@@ -8657,13 +8105,6 @@ fn lexical_closure_outer_mutation_visible() {
     // Outer setq visible to closure.
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
-    let forms = parse_forms(
-        r#"(let ((x 10))
-             (let ((f (lambda () x)))
-               (setq x 42)
-               (funcall f)))"#,
-    )
-    .expect("parse");
     let result = format_eval_result(&ev.eval_str(r#"(let ((x 10))
              (let ((f (lambda () x)))
                (setq x 42)
@@ -8682,16 +8123,6 @@ fn closure_inside_mapcar_lambda_captures_outer_param() {
     // Each inner lambda should capture `case` from the outer lambda.
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
-    let forms = parse_forms(
-        r#"(let ((closures
-                 (mapcar (lambda (case)
-                           (lambda () case))
-                         '(a b c))))
-             (list (funcall (car closures))
-                   (funcall (car (cdr closures)))
-                   (funcall (car (cdr (cdr closures))))))"#,
-    )
-    .expect("parse");
     let result = format_eval_result(&ev.eval_str(r#"(let ((closures
                  (mapcar (lambda (case)
                            (lambda () case))
@@ -8709,17 +8140,6 @@ fn closure_inside_backquote_mapcar_captures_outer_param() {
     // The inner lambda is created inside a backquote, after a function call.
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
-    let forms = parse_forms(
-        r#"(let ((closures
-                 (mapcar (lambda (case)
-                           (list (car case)
-                                 (lambda (vars)
-                                   (list case vars))))
-                         '((a 1) (b 2) (c 3)))))
-             (let ((fn2 (car (cdr (car closures)))))
-               (funcall fn2 42)))"#,
-    )
-    .expect("parse");
     let result = format_eval_result(&ev.eval_str(r#"(let ((closures
                  (mapcar (lambda (case)
                            (list (car case)
@@ -8744,18 +8164,6 @@ fn closure_inside_real_backquote_with_fn_call_captures_outer_param() {
     let mut eval = Context::new();
     load_minimal_gnu_backquote_runtime(&mut eval);
 
-    let forms = parse_forms(
-        r#"(progn
-             (defalias 'my-match #'(lambda (val upat) (list val upat)))
-             (let ((closures
-                    (mapcar (lambda (case)
-                              `(,(my-match 'x (car case))
-                                ,(lambda (vars) (list case vars))))
-                            '((a 1) (b 2)))))
-               (let ((fn1 (car (cdr (car closures)))))
-                 (funcall fn1 'matched))))"#,
-    )
-    .expect("parse");
     let result = format_eval_result(&eval.eval_str(r#"(progn
              (defalias 'my-match #'(lambda (val upat) (list val upat)))
              (let ((closures
@@ -8774,18 +8182,6 @@ fn real_backquote_computed_symbols_match_runtime_macro_semantics() {
     let mut eval = Context::new();
     load_minimal_gnu_backquote_runtime(&mut eval);
 
-    let forms = parse_forms(
-        r#"(let ((prefix "neovm-bqc-test")
-                 (suffixes '("x" "y" "z")))
-             (let ((forms
-                    (let ((i 0))
-                      (mapcar (lambda (s)
-                                (setq i (1+ i))
-                                `(list ',(intern (concat prefix "-" s)) ,i))
-                              suffixes))))
-               (mapcar #'eval forms)))"#,
-    )
-    .expect("parse");
     let result = format_eval_result(&eval.eval_str(r#"(let ((prefix "neovm-bqc-test")
                  (suffixes '("x" "y" "z")))
              (let ((forms
@@ -8825,19 +8221,6 @@ fn loaded_subr_condition_case_unless_debug_calls_debugger_before_handler() {
     let mut eval = Context::new();
     load_minimal_gnu_backquote_runtime(&mut eval);
 
-    let forms = parse_forms(
-        "(progn
-           (setq neovm-debugger-called nil)
-           (let ((debug-on-error t)
-               (debugger (lambda (&rest args)
-                           (setq neovm-debugger-called args))))
-             (list (condition-case-unless-debug nil
-                       (signal 'error 1)
-                     (error 'handled))
-                   neovm-debugger-called)))",
-    )
-    .expect("parse");
-
     assert_eq!(
         format_eval_result(&eval.eval_str(r#"(progn
            (setq neovm-debugger-called nil)
@@ -8857,17 +8240,6 @@ fn loaded_subr_condition_case_unless_debug_macroexpand_includes_debug_marker() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     load_minimal_gnu_backquote_runtime(&mut eval);
-
-    let forms = parse_forms(
-        "(equal
-            (macroexpand '(condition-case-unless-debug nil
-                            (signal 'error 1)
-                            (error 42)))
-            '(condition-case nil
-               (signal 'error 1)
-               ((debug error) 42)))",
-    )
-    .expect("parse");
 
     assert_eq!(format_eval_result(&eval.eval_str(r#"(equal
             (macroexpand '(condition-case-unless-debug nil
@@ -8901,19 +8273,6 @@ fn lexical_condition_case_debug_marker_calls_debugger_before_handler() {
     let mut eval = Context::new();
     eval.set_lexical_binding(true);
 
-    let forms = parse_forms(
-        "(progn
-           (setq neovm-debugger-called nil)
-           (let ((debug-on-error t)
-               (debugger (lambda (&rest args)
-                           (setq neovm-debugger-called args))))
-             (list (condition-case nil
-                       (signal 'error 1)
-                     ((debug error) 'handled))
-                   neovm-debugger-called)))",
-    )
-    .expect("parse");
-
     assert_eq!(
         format_eval_result(&eval.eval_str(r#"(progn
            (setq neovm-debugger-called nil)
@@ -8934,14 +8293,6 @@ fn real_backquote_nested_eval_chain_matches_gnu_error_shape() {
     let mut eval = Context::new();
     load_minimal_gnu_backquote_runtime(&mut eval);
 
-    let forms = parse_forms(
-        r#"(let ((x 10))
-             (let ((template `(let ((y ,,x)) `(+ ,y ,,x))))
-               (list template
-                     (condition-case e (eval template) (error (cons 'ERR e)))
-                     (condition-case e (eval (eval template)) (error (cons 'ERR e))))))"#,
-    )
-    .expect("parse");
     let result = format_eval_result(&eval.eval_str(r#"(let ((x 10))
              (let ((template `(let ((y ,,x)) `(+ ,y ,,x))))
                (list template

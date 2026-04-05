@@ -14,7 +14,6 @@ use neovm_core::emacs_core::load::{
     LoadupDumpMode, create_bootstrap_evaluator_cached_with_features,
     create_bootstrap_evaluator_with_features,
 };
-use neovm_core::emacs_core::parse_forms;
 use neovm_core::emacs_core::print_value_with_eval;
 use neovm_core::emacs_core::terminal::pure::TerminalHost;
 use neovm_core::emacs_core::value::list_to_vec;
@@ -982,8 +981,6 @@ fn gnu_startup_runtime_load_path_finds_mail_rfc6068() {
 
     run_gnu_startup(&mut eval);
 
-    let forms =
-        parse_forms("(locate-library \"rfc6068\")").expect("parse locate-library startup probe");
     let result = eval
         .eval_str("(locate-library \"rfc6068\")")
         .expect("locate-library startup probe should evaluate");

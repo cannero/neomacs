@@ -1,5 +1,5 @@
 use neovm_core::buffer::BufferId;
-use neovm_core::emacs_core::{Context, Value, format_eval_result, parse_forms};
+use neovm_core::emacs_core::{Context, Value, format_eval_result};
 use neovm_core::window::{FrameManager, SplitDirection, Window};
 
 fn run_neovm_gui_eval(body: &str) -> String {
@@ -13,12 +13,8 @@ fn run_neovm_gui_eval(body: &str) -> String {
         .get_mut(frame_id)
         .expect("frame")
         .set_window_system(Some(Value::symbol("neo")));
-    let forms = parse_forms(&format!(r#"(progn {body})"#)).expect("parse");
-    eval.eval_forms(&forms)
-        .iter()
-        .last()
-        .map(format_eval_result)
-        .expect("result")
+    let result = eval.eval_str(&format!("(progn {body})"));
+    format_eval_result(&result)
 }
 
 #[test]
@@ -129,21 +125,14 @@ fn compat_gui_set_window_buffer_applies_display_defaults() {
         .set_buffer_local_property(buffer_id, "horizontal-scroll-bar", Value::symbol("bottom"))
         .expect("horizontal scroll bar");
 
-    let forms = parse_forms(
+    let actual = format_eval_result(&eval.eval_str(
         "(let ((w (selected-window)))
            (set-window-buffer w \" *gui-swb-display*\")
            (list (window-fringes w)
                  (window-scroll-bars w)
                  (window-scroll-bar-width w)
                  (window-scroll-bar-height w)))",
-    )
-    .expect("parse");
-    let actual = eval
-        .eval_forms(&forms)
-        .iter()
-        .last()
-        .map(format_eval_result)
-        .expect("result");
+    ));
     assert_eq!(actual, "OK ((3 5 t nil) (11 2 left 7 1 bottom nil) 11 7)");
 }
 

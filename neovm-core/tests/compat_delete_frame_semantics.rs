@@ -1,19 +1,14 @@
 mod common;
 
 use common::{oracle_enabled, run_oracle_eval};
-use neovm_core::emacs_core::{Context, format_eval_result, parse_forms};
+use neovm_core::emacs_core::{Context, format_eval_result};
 
 fn run_neovm_eval_minimal_with_frame(form: &str) -> Result<String, String> {
     let mut eval = Context::new();
     let buf = eval.buffer_manager_mut().create_buffer("*scratch*");
     eval.buffer_manager_mut().set_current(buf);
     eval.frame_manager_mut().create_frame("F1", 800, 600, buf);
-    let forms = parse_forms(form).map_err(|e| format!("NeoVM parse error: {e}"))?;
-    let result = eval
-        .eval_forms(&forms)
-        .into_iter()
-        .last()
-        .ok_or_else(|| "NeoVM eval received no forms".to_string())?;
+    let result = eval.eval_str(form);
     Ok(format_eval_result(&result))
 }
 
