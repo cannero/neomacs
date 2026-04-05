@@ -215,25 +215,6 @@ pub enum DumpOp {
 }
 
 // ---------------------------------------------------------------------------
-// Expressions (code AST)
-// ---------------------------------------------------------------------------
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum DumpExpr {
-    Int(i64),
-    Float(f64),
-    Symbol(DumpSymId),
-    ReaderLoadFileName,
-    Keyword(DumpSymId),
-    Str(String),
-    Char(char),
-    List(Vec<DumpExpr>),
-    Vector(Vec<DumpExpr>),
-    DottedList(Vec<DumpExpr>, Box<DumpExpr>),
-    Bool(bool),
-    OpaqueValue(DumpValue),
-}
-
 // ---------------------------------------------------------------------------
 // Hash tables
 // ---------------------------------------------------------------------------
