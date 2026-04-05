@@ -356,7 +356,7 @@ pub(crate) fn read_from_string_impl(
             vec![Value::string("End of file during parsing")],
         ));
     }
-    let (expr, end_pos) = super::parser::parse_form(substring)
+    let (value, end_pos) = super::value_reader::read_one(substring, 0)
         .map_err(|e| {
             if e.message.contains("unterminated") || e.message.contains("end of input") {
                 signal(
@@ -377,152 +377,9 @@ pub(crate) fn read_from_string_impl(
             )
         })?;
 
-    let value = if let Some(bytecode) = first_form_byte_code_literal_value(obarray, &expr) {
-        bytecode
-    } else if let Some(hash_table) = first_form_hash_table_literal_value(obarray, &expr) {
-        hash_table
-    } else {
-        super::eval::Context::quote_to_runtime_value_in_state(obarray, &expr)
-    };
     let absolute_end = start + end_pos;
 
     Ok(Value::cons(value, Value::fixnum(absolute_end as i64)))
-}
-
-fn first_form_byte_code_literal_value(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    expr: &Expr,
-) -> Option<Value> {
-    let Expr::List(items) = expr else {
-        return None;
-    };
-    if items.len() != 2 {
-        return None;
-    }
-    let Expr::Symbol(id) = &items[0] else {
-        return None;
-    };
-    if resolve_sym(*id) != "byte-code-literal" {
-        return None;
-    }
-    let Expr::Vector(values) = &items[1] else {
-        return None;
-    };
-    let values = values
-        .iter()
-        .map(|value| super::eval::Context::quote_to_runtime_value_in_state(obarray, value))
-        .collect();
-    Some(Value::vector(values))
-}
-
-fn first_form_hash_table_literal_value(
-    obarray: &crate::emacs_core::symbol::Obarray,
-    expr: &Expr,
-) -> Option<Value> {
-    let Expr::List(items) = expr else {
-        return None;
-    };
-    if items.len() != 2 {
-        return None;
-    }
-    let Expr::Symbol(id) = &items[0] else {
-        return None;
-    };
-    if resolve_sym(*id) != "make-hash-table-from-literal" {
-        return None;
-    }
-    let Expr::List(quoted) = &items[1] else {
-        return None;
-    };
-    if quoted.len() != 2 {
-        return None;
-    }
-    if !matches!(&quoted[0], Expr::Symbol(id) if resolve_sym(*id) == "quote") {
-        return None;
-    }
-    let Expr::List(spec) = &quoted[1] else {
-        return None;
-    };
-    if !matches!(spec.first(), Some(Expr::Symbol(id)) if resolve_sym(*id) == "hash-table") {
-        return None;
-    }
-
-    let mut test = HashTableTest::Eql;
-    let mut test_name: Option<SymId> = None;
-    let mut size = 0_i64;
-    let mut weakness: Option<HashTableWeakness> = None;
-    let mut rehash_size = 1.5_f64;
-    let mut rehash_threshold = 0.8125_f64;
-    let mut data_expr: Option<&Expr> = None;
-
-    let mut i = 1_usize;
-    while i + 1 < spec.len() {
-        let Expr::Symbol(key_id) = &spec[i] else {
-            i += 1;
-            continue;
-        };
-        let value = super::eval::Context::quote_to_runtime_value_in_state(obarray, &spec[i + 1]);
-        match resolve_sym(*key_id) {
-            "size" => {
-                size = value.as_int()?;
-            }
-            "test" => {
-                let name = value.as_symbol_name()?;
-                test = match name {
-                    "eq" => HashTableTest::Eq,
-                    "eql" => HashTableTest::Eql,
-                    "equal" => HashTableTest::Equal,
-                    _ => return None,
-                };
-                test_name = Some(intern(name));
-            }
-            "weakness" => {
-                weakness = match value.as_symbol_name() {
-                    Some("key") => Some(HashTableWeakness::Key),
-                    Some("value") => Some(HashTableWeakness::Value),
-                    Some("key-or-value") => Some(HashTableWeakness::KeyOrValue),
-                    Some("key-and-value") => Some(HashTableWeakness::KeyAndValue),
-                    Some("nil") | None => None,
-                    _ => return None,
-                };
-            }
-            "rehash-size" => {
-                rehash_size = value.as_float().unwrap_or(value.as_int()? as f64);
-            }
-            "rehash-threshold" => {
-                rehash_threshold = value.as_float().unwrap_or(value.as_int()? as f64);
-            }
-            "data" => {
-                data_expr = Some(&spec[i + 1]);
-            }
-            _ => {}
-        }
-        i += 2;
-    }
-
-    let mut entries = Vec::new();
-    if let Some(Expr::List(data_items)) = data_expr {
-        let mut idx = 0_usize;
-        while idx + 1 < data_items.len() {
-            let key_value =
-                super::eval::Context::quote_to_runtime_value_in_state(obarray, &data_items[idx]);
-            let val_value = super::eval::Context::quote_to_runtime_value_in_state(
-                obarray,
-                &data_items[idx + 1],
-            );
-            entries.push((key_value, val_value));
-            idx += 2;
-        }
-    }
-    Some(super::value::build_hash_table_literal_value(
-        test,
-        test_name,
-        size,
-        weakness,
-        rehash_size,
-        rehash_threshold,
-        entries,
-    ))
 }
 
 fn starts_with_hash_skip_dispatch(input: &str) -> bool {
@@ -627,7 +484,7 @@ pub fn builtin_read(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>
                 ));
             }
             let substring = &text[start..];
-            let (expr, end_offset) = super::parser::parse_form(substring)
+            let (value, end_offset) = super::value_reader::read_one(substring, 0)
                 .map_err(|e| {
                     if e.message.contains("unterminated") || e.message.contains("end of input") {
                         signal(
@@ -644,16 +501,6 @@ pub fn builtin_read(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>
                         vec![Value::string("End of file during parsing")],
                     )
                 })?;
-            let value =
-                if let Some(bytecode) = first_form_byte_code_literal_value(&ctx.obarray, &expr) {
-                    bytecode
-                } else if let Some(hash_table) =
-                    first_form_hash_table_literal_value(&ctx.obarray, &expr)
-                {
-                    hash_table
-                } else {
-                    super::eval::Context::quote_to_runtime_value_in_state(&ctx.obarray, &expr)
-                };
             // Advance point past the read form
             let new_pt = pt + end_offset;
             let _ = &mut ctx.buffers.goto_buffer_byte(buf_id, new_pt);
