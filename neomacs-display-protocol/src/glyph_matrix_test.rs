@@ -97,9 +97,7 @@ fn matrix_rows_are_enabled_by_default() {
 #[test]
 fn matrix_clear_resets_all_rows() {
     let mut matrix = GlyphMatrix::new(2, 10);
-    matrix.rows[0]
-        .glyphs[GlyphArea::Text as usize]
-        .push(Glyph::char('x', 0, 0));
+    matrix.rows[0].glyphs[GlyphArea::Text as usize].push(Glyph::char('x', 0, 0));
     matrix.rows[0].hash = 12345;
     matrix.rows[0].cursor_col = Some(5);
 
@@ -231,7 +229,11 @@ fn materialize_includes_borders() {
     assert_eq!(buf.glyphs.len(), 1);
     match &buf.glyphs[0] {
         FrameGlyph::Border {
-            window_id, x, width, color, ..
+            window_id,
+            x,
+            width,
+            color,
+            ..
         } => {
             assert_eq!(*window_id, 42);
             assert_eq!(*x, 100.0);
@@ -321,7 +323,14 @@ fn materialize_pixel_positions_from_grid() {
 
     // Glyph 'A' at (win_x + 0*char_w, win_y + 0*char_h)
     match &buf.glyphs[0] {
-        FrameGlyph::Char { char: ch, x, y, width, height, .. } => {
+        FrameGlyph::Char {
+            char: ch,
+            x,
+            y,
+            width,
+            height,
+            ..
+        } => {
             assert_eq!(*ch, 'A');
             assert_eq!(*x, win_x);
             assert_eq!(*y, win_y);
@@ -425,7 +434,9 @@ fn materialize_padding_glyphs_are_skipped() {
     // Should have 2 visible glyphs: wide 'W' and 'x'; padding is skipped
     assert_eq!(buf.glyphs.len(), 2);
     match &buf.glyphs[0] {
-        FrameGlyph::Char { char: ch, width, .. } => {
+        FrameGlyph::Char {
+            char: ch, width, ..
+        } => {
             assert_eq!(*ch, 'W');
             assert_eq!(*width, 16.0); // 2 * char_w for wide
         }

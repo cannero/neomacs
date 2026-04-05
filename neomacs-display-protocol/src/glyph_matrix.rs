@@ -263,7 +263,8 @@ impl GlyphMatrix {
     }
 
     pub fn resize(&mut self, nrows: usize, ncols: usize) {
-        self.rows.resize_with(nrows, || GlyphRow::new(GlyphRowRole::Text));
+        self.rows
+            .resize_with(nrows, || GlyphRow::new(GlyphRowRole::Text));
         self.rows.truncate(nrows);
         self.nrows = nrows;
         self.ncols = ncols;
@@ -427,7 +428,12 @@ impl FrameDisplayState {
             char_width,
             char_height,
             font_pixel_size: char_height,
-            background: Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 },
+            background: Color {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 1.0,
+            },
             faces: HashMap::new(),
             frame_id: 0,
             parent_id: 0,
@@ -686,8 +692,7 @@ impl FrameDisplayState {
                 let y = win_y + row_idx as f32 * char_h;
                 let mut col = 0usize;
                 let row_role = glyph_row.role;
-                let clip_rect =
-                    Some(Rect::new(win_x, win_y, win_w, entry.pixel_bounds.height));
+                let clip_rect = Some(Rect::new(win_x, win_y, win_w, entry.pixel_bounds.height));
 
                 // Process all three areas in order
                 for area_idx in 0..3 {
@@ -699,10 +704,8 @@ impl FrameDisplayState {
 
                         match &glyph.glyph_type {
                             GlyphType::Char { ch } => {
-                                let face_data =
-                                    self.resolve_face_for_materialize(glyph.face_id);
-                                let glyph_width =
-                                    if glyph.wide { char_w * 2.0 } else { char_w };
+                                let face_data = self.resolve_face_for_materialize(glyph.face_id);
+                                let glyph_width = if glyph.wide { char_w * 2.0 } else { char_w };
                                 buf.glyphs.push(FrameGlyph::Char {
                                     window_id: entry.window_id as i64,
                                     row_role,
@@ -731,8 +734,7 @@ impl FrameDisplayState {
                                 });
                             }
                             GlyphType::Composite { text } => {
-                                let face_data =
-                                    self.resolve_face_for_materialize(glyph.face_id);
+                                let face_data = self.resolve_face_for_materialize(glyph.face_id);
                                 buf.glyphs.push(FrameGlyph::Char {
                                     window_id: entry.window_id as i64,
                                     row_role,
@@ -761,8 +763,7 @@ impl FrameDisplayState {
                                 });
                             }
                             GlyphType::Stretch { width_cols } => {
-                                let face_data =
-                                    self.resolve_face_for_materialize(glyph.face_id);
+                                let face_data = self.resolve_face_for_materialize(glyph.face_id);
                                 let stretch_w = *width_cols as f32 * char_w;
                                 buf.glyphs.push(FrameGlyph::Stretch {
                                     window_id: entry.window_id as i64,
@@ -791,8 +792,7 @@ impl FrameDisplayState {
                                 });
                             }
                             GlyphType::Glyphless { ch } => {
-                                let face_data =
-                                    self.resolve_face_for_materialize(glyph.face_id);
+                                let face_data = self.resolve_face_for_materialize(glyph.face_id);
                                 buf.glyphs.push(FrameGlyph::Char {
                                     window_id: entry.window_id as i64,
                                     row_role,

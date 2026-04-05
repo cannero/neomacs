@@ -993,12 +993,8 @@ pub fn run(mode: RuntimeMode) {
                 run_layout(eval);
                 // Take the complete FrameDisplayState produced by the layout
                 // engine's GlyphMatrixBuilder.
-                let display_state = LAYOUT_ENGINE.with(|engine| {
-                    engine
-                        .borrow_mut()
-                        .last_frame_display_state
-                        .take()
-                });
+                let display_state = LAYOUT_ENGINE
+                    .with(|engine| engine.borrow_mut().last_frame_display_state.take());
                 let Some(display_state) = display_state else {
                     return;
                 };
@@ -1779,9 +1775,7 @@ fn run_layout(evaluator: &mut Context) {
     };
 
     LAYOUT_ENGINE.with(|engine| {
-        engine
-            .borrow_mut()
-            .layout_frame_rust(evaluator, frame_id);
+        engine.borrow_mut().layout_frame_rust(evaluator, frame_id);
     });
 }
 

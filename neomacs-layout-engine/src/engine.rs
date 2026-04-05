@@ -10,8 +10,8 @@ use super::status_line::*;
 use super::types::*;
 use super::unicode::*;
 use neomacs_display_protocol::frame_glyphs::{
-    CursorStyle, FrameGlyphBuffer, WindowEffectHint, WindowInfo,
-    WindowTransitionHint, WindowTransitionKind,
+    CursorStyle, FrameGlyphBuffer, WindowEffectHint, WindowInfo, WindowTransitionHint,
+    WindowTransitionKind,
 };
 use neomacs_display_protocol::types::{Color, Rect};
 use neovm_core::buffer::BufferId;
@@ -287,8 +287,7 @@ fn run_is_pure_ligature(run: &LigatureRunBuffer) -> bool {
 ///
 /// NOTE: Glyph output has been migrated to `GlyphMatrixBuilder`. This function is now
 /// a no-op retained only to keep call-sites compiling during the migration.
-fn flush_run(_run: &LigatureRunBuffer, _ligatures: bool) {
-}
+fn flush_run(_run: &LigatureRunBuffer, _ligatures: bool) {}
 
 fn push_display_point(
     points: &mut Vec<DisplayPointSnapshot>,
@@ -1040,7 +1039,10 @@ impl LayoutEngine {
         }
     }
 
-    fn find_window_cursor_y_in_builder(builder: &crate::matrix_builder::GlyphMatrixBuilder, info: &WindowInfo) -> Option<f32> {
+    fn find_window_cursor_y_in_builder(
+        builder: &crate::matrix_builder::GlyphMatrixBuilder,
+        info: &WindowInfo,
+    ) -> Option<f32> {
         for cursor in builder.cursors() {
             if cursor.x >= info.bounds.x
                 && cursor.x < info.bounds.x + info.bounds.width
@@ -1072,7 +1074,9 @@ impl LayoutEngine {
                 && prev.window_start == curr.window_start
                 && prev.buffer_size != curr.buffer_size
             {
-                if let Some(edit_y) = Self::find_window_cursor_y_in_builder(&self.matrix_builder, curr) {
+                if let Some(edit_y) =
+                    Self::find_window_cursor_y_in_builder(&self.matrix_builder, curr)
+                {
                     let offset = if curr.buffer_size > prev.buffer_size {
                         -curr.char_height
                     } else {
@@ -1091,7 +1095,8 @@ impl LayoutEngine {
     }
 
     fn update_window_switch_hint(&mut self) {
-        let new_selected = self.matrix_builder
+        let new_selected = self
+            .matrix_builder
             .window_infos()
             .iter()
             .find(|info| info.selected && !info.is_minibuffer)
@@ -1113,7 +1118,8 @@ impl LayoutEngine {
             let dg = (new_bg.1 - old_bg.1).abs();
             let db = (new_bg.2 - old_bg.2).abs();
             if dr > 0.02 || dg > 0.02 || db > 0.02 {
-                let full_h = self.matrix_builder
+                let full_h = self
+                    .matrix_builder
                     .window_infos()
                     .iter()
                     .find(|w| w.is_minibuffer)
@@ -1153,7 +1159,8 @@ impl LayoutEngine {
             return;
         }
 
-        if self.matrix_builder
+        if self
+            .matrix_builder
             .transition_hints()
             .iter()
             .any(|hint| hint.window_id == 0 && matches!(hint.kind, WindowTransitionKind::Crossfade))
@@ -1161,7 +1168,8 @@ impl LayoutEngine {
             return;
         }
 
-        let full_h = self.matrix_builder
+        let full_h = self
+            .matrix_builder
             .window_infos()
             .iter()
             .find(|w| w.is_minibuffer)
@@ -1282,7 +1290,12 @@ impl LayoutEngine {
         self.display_snapshots.clear();
         let default_resolved = face_resolver.default_face();
 
-        apply_resolved_face(&mut self.matrix_builder, 0, default_resolved, default_metrics);
+        apply_resolved_face(
+            &mut self.matrix_builder,
+            0,
+            default_resolved,
+            default_metrics,
+        );
 
         let tab_bar_height = frame_params.tab_bar_height;
         if tab_bar_height > 0.0 {
@@ -1318,10 +1331,8 @@ impl LayoutEngine {
                 params.mode_line_height,
             );
             // Add window background
-            self.matrix_builder.push_background(
-                params.bounds,
-                Color::from_pixel(params.default_bg),
-            );
+            self.matrix_builder
+                .push_background(params.bounds, Color::from_pixel(params.default_bg));
 
             // Add window info for animation detection
             let buffer_file_name = {
@@ -1363,9 +1374,7 @@ impl LayoutEngine {
                 modified,
             };
             self.matrix_builder.push_window_info(window_info);
-            self.record_transition_hint_from_latest_window_info(
-                &mut curr_window_infos,
-            );
+            self.record_transition_hint_from_latest_window_info(&mut curr_window_infos);
             self.record_effect_hints_from_latest_window_info();
 
             // Simplified layout for this window (no face resolution, no overlays)
@@ -1411,7 +1420,11 @@ impl LayoutEngine {
         self.add_line_animation_hints(&curr_window_infos);
         self.update_window_switch_hint();
         self.update_theme_transition_hint(frame_params.width, frame_params.height);
-        self.maybe_add_topology_transition_hint(frame_params.width, frame_params.height, &curr_window_infos);
+        self.maybe_add_topology_transition_hint(
+            frame_params.width,
+            frame_params.height,
+            &curr_window_infos,
+        );
 
         // Build parallel GlyphMatrix output for validation
         let frame_cols = (frame_params.width / frame_params.char_width.max(1.0)) as usize;
@@ -2031,7 +2044,10 @@ impl LayoutEngine {
             matrix_cols,
             params.bounds,
         );
-        self.matrix_builder.begin_row(0, neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text);
+        self.matrix_builder.begin_row(
+            0,
+            neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text,
+        );
 
         while byte_idx < text.len() && row < max_rows && y + row_max_height <= text_y + text_height
         {
@@ -2077,7 +2093,8 @@ impl LayoutEngine {
 
                 // Leading padding (stretch)
                 if padding > 0 {
-                    self.matrix_builder.push_left_margin_stretch(padding as u16, lnum_face_id);
+                    self.matrix_builder
+                        .push_left_margin_stretch(padding as u16, lnum_face_id);
                 }
 
                 // Number digits
@@ -2088,7 +2105,8 @@ impl LayoutEngine {
 
                 // Trailing space separator
                 let _space_x = text_x + (lnum_cols - 1) as f32 * char_w;
-                self.matrix_builder.push_left_margin_stretch(1, lnum_face_id);
+                self.matrix_builder
+                    .push_left_margin_stretch(1, lnum_face_id);
 
                 // Force face resolution to re-apply text face after line number face
                 face_next_check = 0;
@@ -2489,8 +2507,7 @@ impl LayoutEngine {
                     if trailing_ws_start_col >= 0 && trailing_ws_row == row {
                         let tw_x = trailing_ws_start_x;
                         let tw_w = x - tw_x;
-                        if tw_w > 0.0 {
-                        }
+                        if tw_w > 0.0 {}
                     }
                 }
                 trailing_ws_start_col = -1;
@@ -2499,8 +2516,7 @@ impl LayoutEngine {
                 if let Some((_ext_bg, _ext_face_id)) = row_extend_bg {
                     if row_extend_row == row as i32 {
                         let right_edge = content_x + avail_width;
-                        if x < right_edge {
-                        }
+                        if x < right_edge {}
                     }
                 }
                 row_extend_bg = None;
@@ -2552,7 +2568,10 @@ impl LayoutEngine {
 
                 self.matrix_builder.end_row();
                 row += 1;
-                self.matrix_builder.begin_row(row, neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text);
+                self.matrix_builder.begin_row(
+                    row,
+                    neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text,
+                );
                 y = text_y + row as f32 * char_h + row_extra_y;
                 row_max_height = char_h;
                 row_max_ascent = default_face_ascent;
@@ -2603,8 +2622,7 @@ impl LayoutEngine {
                                     .unwrap_or(text_y + (row - 1) as f32 * char_h);
                                 for dot_i in 0..3 {
                                     let dot_x = content_x + dot_i as f32 * face_char_w;
-                                    if dot_x + face_char_w <= content_x + avail_width {
-                                    }
+                                    if dot_x + face_char_w <= content_x + avail_width {}
                                 }
                                 shown_ellipsis = true;
                             }
@@ -3006,7 +3024,10 @@ impl LayoutEngine {
                     row_extend_row = -1;
                     self.matrix_builder.end_row();
                     row += 1;
-                    self.matrix_builder.begin_row(row, neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text);
+                    self.matrix_builder.begin_row(
+                        row,
+                        neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text,
+                    );
                     y = text_y + row as f32 * char_h + row_extra_y;
                     row_max_height = char_h;
                     row_max_ascent = default_face_ascent;
@@ -3055,7 +3076,10 @@ impl LayoutEngine {
                     row_extend_row = -1;
                     self.matrix_builder.end_row();
                     row += 1;
-                    self.matrix_builder.begin_row(row, neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text);
+                    self.matrix_builder.begin_row(
+                        row,
+                        neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text,
+                    );
                     y = text_y + row as f32 * char_h + row_extra_y;
                     row_max_height = char_h;
                     row_max_ascent = default_face_ascent;
@@ -3108,7 +3132,10 @@ impl LayoutEngine {
                     row_extend_row = -1;
                     self.matrix_builder.end_row();
                     row += 1;
-                    self.matrix_builder.begin_row(row, neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text);
+                    self.matrix_builder.begin_row(
+                        row,
+                        neomacs_display_protocol::frame_glyphs::GlyphRowRole::Text,
+                    );
                     y = text_y + row as f32 * char_h + row_extra_y;
                     row_max_height = char_h;
                     row_max_ascent = default_face_ascent;
@@ -3224,9 +3251,17 @@ impl LayoutEngine {
 
             // Record character into GlyphMatrix builder
             if char_cols == 2 {
-                self.matrix_builder.push_wide_char(ch, current_face_id.saturating_sub(1), charpos as usize);
+                self.matrix_builder.push_wide_char(
+                    ch,
+                    current_face_id.saturating_sub(1),
+                    charpos as usize,
+                );
             } else {
-                self.matrix_builder.push_char(ch, current_face_id.saturating_sub(1), charpos as usize);
+                self.matrix_builder.push_char(
+                    ch,
+                    current_face_id.saturating_sub(1),
+                    charpos as usize,
+                );
             }
 
             // Flush if run is too long
@@ -3349,7 +3384,6 @@ impl LayoutEngine {
             }
         }
 
-
         // Face :extend at end-of-buffer: fill remaining empty rows
         // with the last :extend face's background color
         if let Some((_ext_bg, _ext_face_id)) = row_extend_bg {
@@ -3397,8 +3431,7 @@ impl LayoutEngine {
                 // Left fringe: continuation from previous line
                 if params.left_fringe_width > 0.0
                     && row_continuation.get(r).copied().unwrap_or(false)
-                {
-                }
+                {}
             }
 
             // Empty line indicators (after buffer text ends)
@@ -3419,8 +3452,7 @@ impl LayoutEngine {
                     } else {
                         params.left_fringe_width
                     };
-                    if fringe_w > 0.0 {
-                    }
+                    if fringe_w > 0.0 {}
                 }
             }
         }
@@ -3444,8 +3476,7 @@ impl LayoutEngine {
                         .get(r)
                         .copied()
                         .unwrap_or(text_y + r as f32 * char_h);
-                    if indicator_x < content_x + avail_width {
-                    }
+                    if indicator_x < content_x + avail_width {}
                 }
             }
         }
@@ -3485,7 +3516,8 @@ impl LayoutEngine {
                         );
                         let cursor_w = if matches!(style, CursorStyle::Bar(_)) {
                             fallback_cursor_w
-                        } else if let Some(face) = self.matrix_builder.faces().get(&cursor_face_id) {
+                        } else if let Some(face) = self.matrix_builder.faces().get(&cursor_face_id)
+                        {
                             unsafe {
                                 cursor_point_advance(
                                     text,
@@ -3756,8 +3788,7 @@ impl LayoutEngine {
                             Color::from_pixel(params.cursor_color),
                         );
                         // Fallback cursor: compute matrix row from pixel position
-                        let fallback_cursor_row =
-                            ((cy - text_y) / char_h).floor() as usize;
+                        let fallback_cursor_row = ((cy - text_y) / char_h).floor() as usize;
                         self.matrix_builder.set_cursor_at_row(
                             fallback_cursor_row,
                             ccol as u16,
@@ -3887,9 +3918,12 @@ impl LayoutEngine {
                 new_window_start,
                 remaining_visibility_retries
             );
-            self.matrix_builder.truncate_transition_hints(transition_hints_len_before);
-            self.matrix_builder.truncate_effect_hints(effect_hints_len_before);
-            self.matrix_builder.restore_cursor_inverse(cursor_inverse_before);
+            self.matrix_builder
+                .truncate_transition_hints(transition_hints_len_before);
+            self.matrix_builder
+                .truncate_effect_hints(effect_hints_len_before);
+            self.matrix_builder
+                .restore_cursor_inverse(cursor_inverse_before);
 
             let mut retry_params = params.clone();
             retry_params.window_start = new_window_start;
@@ -4280,7 +4314,6 @@ impl LayoutEngine {
             None,
         );
     }
-
 }
 
 /// Get the advance width for a character in a specific face.

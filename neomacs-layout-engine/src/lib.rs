@@ -14,10 +14,10 @@ pub mod font_match;
 pub mod font_metrics;
 pub mod fontconfig;
 pub mod hit_test;
+pub mod matrix_builder;
 pub mod neovm_bridge;
 pub mod status_line;
 pub mod types;
-pub mod matrix_builder;
 pub mod unicode;
 
 pub use engine::*;

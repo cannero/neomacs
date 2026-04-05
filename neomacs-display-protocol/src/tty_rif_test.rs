@@ -105,9 +105,7 @@ fn glyph_to_char_returns_char_for_char_glyph() {
 #[test]
 fn glyph_to_char_returns_first_char_for_composite() {
     let g = Glyph {
-        glyph_type: GlyphType::Composite {
-            text: "ab".into(),
-        },
+        glyph_type: GlyphType::Composite { text: "ab".into() },
         face_id: 0,
         charpos: 0,
         bidi_level: 0,
@@ -359,11 +357,7 @@ fn diff_with_changes_produces_ansi_sequences() {
     // Should contain the character 'A'.
     assert!(s.contains('A'), "Missing character A: {}", s);
     // Should contain true-color foreground sequence for red.
-    assert!(
-        s.contains("\x1b[38;2;255;0;0m"),
-        "Missing fg color: {}",
-        s
-    );
+    assert!(s.contains("\x1b[38;2;255;0;0m"), "Missing fg color: {}", s);
 }
 
 #[test]
@@ -415,11 +409,7 @@ fn cursor_visible_emits_show_cursor_sequence() {
     // Should show cursor.
     assert!(s.contains("\x1b[?25h"), "Missing show cursor: {}", s);
     // Should position cursor at (4, 8) (1-based).
-    assert!(
-        s.contains("\x1b[4;8H"),
-        "Missing cursor position: {}",
-        s
-    );
+    assert!(s.contains("\x1b[4;8H"), "Missing cursor position: {}", s);
 }
 
 #[test]

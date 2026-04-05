@@ -216,11 +216,20 @@ impl GlyphMatrixBuilder {
         }
     }
 
-    pub fn set_cursor(&mut self, col: u16, style: neomacs_display_protocol::frame_glyphs::CursorStyle) {
+    pub fn set_cursor(
+        &mut self,
+        col: u16,
+        style: neomacs_display_protocol::frame_glyphs::CursorStyle,
+    ) {
         self.set_cursor_at_row(self.current_row, col, style);
     }
 
-    pub fn set_cursor_at_row(&mut self, row: usize, col: u16, style: neomacs_display_protocol::frame_glyphs::CursorStyle) {
+    pub fn set_cursor_at_row(
+        &mut self,
+        row: usize,
+        col: u16,
+        style: neomacs_display_protocol::frame_glyphs::CursorStyle,
+    ) {
         if let Some(ref mut matrix) = self.current_matrix {
             if row < matrix.rows.len() {
                 matrix.rows[row].cursor_col = Some(col);
@@ -246,15 +255,7 @@ impl GlyphMatrixBuilder {
         self.backgrounds.push(BackgroundItem { bounds, color });
     }
 
-    pub fn push_border(
-        &mut self,
-        window_id: i64,
-        x: f32,
-        y: f32,
-        w: f32,
-        h: f32,
-        color: Color,
-    ) {
+    pub fn push_border(&mut self, window_id: i64, x: f32, y: f32, w: f32, h: f32, color: Color) {
         self.borders.push(BorderItem {
             window_id,
             x,

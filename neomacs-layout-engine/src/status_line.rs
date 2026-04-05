@@ -891,7 +891,6 @@ impl LayoutEngine {
             self.render_status_line_spec(&spec, builder);
         }
     }
-
 }
 
 #[cfg(test)]

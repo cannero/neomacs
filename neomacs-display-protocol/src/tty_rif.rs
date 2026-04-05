@@ -272,9 +272,7 @@ impl TtyRif {
                     UnderlineStyle::Dotted => 4,
                     UnderlineStyle::Dashed => 5,
                 },
-                strikethrough: face
-                    .attributes
-                    .contains(FaceAttributes::STRIKE_THROUGH),
+                strikethrough: face.attributes.contains(FaceAttributes::STRIKE_THROUGH),
                 inverse: face.attributes.contains(FaceAttributes::INVERSE),
             }
         } else {
@@ -335,11 +333,7 @@ impl TtyRif {
 
         // Position cursor and show it if visible.
         if self.cursor_visible {
-            write_cursor_goto(
-                &mut self.output,
-                self.cursor_row + 1,
-                self.cursor_col + 1,
-            );
+            write_cursor_goto(&mut self.output, self.cursor_row + 1, self.cursor_col + 1);
             self.output.extend_from_slice(b"\x1b[?25h");
         }
 
@@ -389,11 +383,11 @@ fn write_sgr(buf: &mut Vec<u8>, attrs: &CellAttrs) {
         buf.extend_from_slice(b"\x1b[3m");
     }
     match attrs.underline {
-        1 => buf.extend_from_slice(b"\x1b[4m"),      // single underline
-        2 => buf.extend_from_slice(b"\x1b[4:3m"),     // curly/wave underline
-        3 => buf.extend_from_slice(b"\x1b[21m"),      // double underline
-        4 => buf.extend_from_slice(b"\x1b[4:4m"),     // dotted underline
-        5 => buf.extend_from_slice(b"\x1b[4:5m"),     // dashed underline
+        1 => buf.extend_from_slice(b"\x1b[4m"),   // single underline
+        2 => buf.extend_from_slice(b"\x1b[4:3m"), // curly/wave underline
+        3 => buf.extend_from_slice(b"\x1b[21m"),  // double underline
+        4 => buf.extend_from_slice(b"\x1b[4:4m"), // dotted underline
+        5 => buf.extend_from_slice(b"\x1b[4:5m"), // dashed underline
         _ => {}
     }
     if attrs.strikethrough {
