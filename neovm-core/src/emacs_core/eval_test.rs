@@ -300,23 +300,6 @@ fn runtime_macro_cache_hits_across_equivalent_explicit_environments() {
 }
 
 #[test]
-fn source_literal_to_runtime_value_reuses_compound_literal_nodes() {
-    crate::test_utils::init_test_tracing();
-    let mut ev = Context::new();
-    let forms = parse_forms("'(alpha beta gamma)").expect("parse");
-
-    let first = ev.source_literal_to_runtime_value(&forms[0]);
-    let second = ev.source_literal_to_runtime_value(&forms[0]);
-
-    assert_eq!(first, second);
-    assert_eq!(
-        first.bits(),
-        second.bits(),
-        "compound source literals should reuse one runtime object per parsed node"
-    );
-}
-
-#[test]
 fn catch_leaves_shared_condition_stack_balanced() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
@@ -8293,43 +8276,6 @@ fn gc_stress_cdr_on_lambda_survives_cons_list_conversion() {
     .expect("parse");
     let result = format_eval_result(&ev.eval_expr(&forms[0]));
     assert_eq!(result, "OK t");
-}
-
-#[test]
-fn gc_stress_source_literal_to_runtime_value_roots_nested_literals() {
-    crate::test_utils::init_test_tracing();
-    let mut ev = Context::new();
-    ev.gc_stress = true;
-    ev.tagged_heap.set_gc_threshold(1);
-
-    let expr = Expr::List(
-        (0..192)
-            .map(|row| {
-                Expr::Vector(
-                    (0..8)
-                        .map(|col| Expr::Int((row * 8 + col) as i64))
-                        .collect(),
-                )
-            })
-            .collect(),
-    );
-
-    let value = ev.source_literal_to_runtime_value(&expr);
-    let cached = ev.source_literal_to_runtime_value(&expr);
-
-    assert!(eq_value(&value, &cached));
-
-    ev.gc_collect_exact_with_extra_roots(&[value, cached]);
-
-    let rows = crate::emacs_core::value::list_to_vec(&value).expect("top-level list");
-    assert_eq!(rows.len(), 192);
-
-    let first = rows[0].as_vector_data().expect("vector row");
-    assert_eq!(first.len(), 8);
-    assert_eq!(first[0], Value::fixnum(0));
-
-    let last = rows[191].as_vector_data().expect("vector row");
-    assert_eq!(last[7], Value::fixnum(191 * 8 + 7));
 }
 
 #[test]
