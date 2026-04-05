@@ -118,9 +118,8 @@ pub use print::{print_value, print_value_bytes, print_value_with_buffers};
 pub use symbol::Obarray;
 pub use value::{LambdaData, LambdaParams, Value, ValueKind, VecLikeType};
 
-/// Convenience: parse and evaluate source code.
-pub fn eval_source(input: &str) -> Result<Vec<Result<Value, EvalError>>, ParseError> {
-    let forms = parse_forms(input)?;
+/// Convenience: parse and evaluate source code, returning the last form's value.
+pub fn eval_source(input: &str) -> Result<Value, EvalError> {
     let mut evaluator = Context::new();
-    Ok(evaluator.eval_forms(&forms))
+    evaluator.eval_str(input)
 }

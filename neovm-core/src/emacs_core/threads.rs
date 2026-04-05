@@ -1299,7 +1299,8 @@ pub(crate) fn sf_with_mutex(
             ],
         ));
     }
-    let mutex_val = eval.eval(&tail[0])?;
+    let mutex_form = eval.quote_to_runtime_value(&tail[0]);
+    let mutex_val = eval.eval_sub(mutex_form)?;
     let mutex_id = expect_mutex_id(&eval.threads, &mutex_val)?;
     if !eval.threads.is_mutex(mutex_id) {
         return Err(signal(

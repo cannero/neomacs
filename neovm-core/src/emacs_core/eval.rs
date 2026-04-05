@@ -65,12 +65,6 @@ thread_local! {
     pub(crate) static OPAQUE_POOL: RefCell<OpaqueValuePool> = RefCell::new(OpaqueValuePool::new());
 }
 
-/// Insert a Value into the thread-local OpaqueValuePool and return its index.
-/// Use the returned index with `Expr::OpaqueValueRef(idx)`.
-pub fn opaque_pool_insert(val: Value) -> u32 {
-    OPAQUE_POOL.with(|pool| pool.borrow_mut().insert(val))
-}
-
 pub(crate) fn reset_opaque_value_pool() {
     OPAQUE_POOL.with(|pool| pool.borrow_mut().clear());
 }

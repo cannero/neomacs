@@ -2699,15 +2699,7 @@ pub(crate) fn runtime_bootstrap_load_path() -> Vec<String> {
 }
 
 fn eval_startup_forms(eval: &mut super::eval::Context, forms_src: &str) -> Result<(), EvalError> {
-    let forms =
-        crate::emacs_core::parser::parse_forms(forms_src).map_err(|e| EvalError::Signal {
-            symbol: intern("error"),
-            data: vec![Value::string(format!("startup parse error: {e}"))],
-            raw_data: None,
-        })?;
-    for result in eval.eval_forms(&forms) {
-        result?;
-    }
+    eval.eval_str(forms_src)?;
     Ok(())
 }
 
@@ -2950,9 +2942,7 @@ pub fn create_bootstrap_evaluator_with_startup_surface(
                 "(set-char-table-extra-slot glyphless-char-display 0 'empty-box)",
             ];
             for stub in &stubs {
-                if let Ok(forms) = crate::emacs_core::parser::parse_forms(stub) {
-                    let _ = eval.eval_forms(&forms);
-                }
+                let _ = eval.eval_str(stub);
             }
         }
 
