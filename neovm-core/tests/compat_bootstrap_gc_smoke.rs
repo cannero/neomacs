@@ -1,15 +1,22 @@
-use std::rc::Rc;
-
-use neovm_core::emacs_core::{Context, LambdaData, LambdaParams, Value, parse_forms};
+use neovm_core::emacs_core::{Context, LambdaData, LambdaParams, Value};
 
 #[test]
 fn compat_macro_cache_keeps_opaque_values_alive_across_gc() {
     let mut eval = Context::new();
 
-    let macro_body = parse_forms("(function (lambda () 123))").expect("parse macro body");
+    let macro_body = vec![
+        Value::list(vec![
+            Value::symbol("function"),
+            Value::list(vec![
+                Value::symbol("lambda"),
+                Value::NIL,
+                Value::fixnum(123),
+            ]),
+        ]),
+    ];
     let opaque_macro = Value::make_macro(LambdaData {
         params: LambdaParams::simple(vec![]),
-        body: Rc::new(macro_body),
+        body: macro_body,
         env: None,
         docstring: None,
         doc_form: None,

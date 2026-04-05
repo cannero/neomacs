@@ -1,5 +1,4 @@
 use super::*;
-use crate::emacs_core::Expr;
 use crate::emacs_core::intern::resolve_sym;
 use crate::emacs_core::marker::make_marker_value_with_id;
 use crate::tagged::header::CLOSURE_ARGLIST;
@@ -127,12 +126,11 @@ fn closure_equal_is_structural() {
         let make = |env| {
             Value::make_lambda(LambdaData {
                 params: LambdaParams::simple(vec![intern("x")]),
-                body: vec![Expr::List(vec![
-                    Expr::Symbol(intern("+")),
-                    Expr::Symbol(intern("n")),
-                    Expr::Symbol(intern("x")),
-                ])]
-                .into(),
+                body: vec![Value::list(vec![
+                    Value::symbol("+"),
+                    Value::symbol("n"),
+                    Value::symbol("x"),
+                ])],
                 env: Some(env),
                 docstring: None,
                 doc_form: None,
@@ -163,7 +161,7 @@ fn recursive_closure_equal_and_hash_are_structural() {
             let env = Value::list(vec![binding]);
             let closure = Value::make_lambda(LambdaData {
                 params: LambdaParams::simple(vec![]),
-                body: vec![Expr::Symbol(intern("f"))].into(),
+                body: vec![Value::symbol("f")],
                 env: Some(env),
                 docstring: None,
                 doc_form: None,
@@ -191,7 +189,7 @@ fn closure_slot_mutation_invalidates_cached_params() {
     with_test_heap(|| {
         let closure = Value::make_lambda(LambdaData {
             params: LambdaParams::simple(vec![intern("x")]),
-            body: vec![Expr::Symbol(intern("x"))].into(),
+            body: vec![Value::symbol("x")],
             env: None,
             docstring: None,
             doc_form: None,

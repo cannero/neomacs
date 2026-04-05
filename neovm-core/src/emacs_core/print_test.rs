@@ -234,12 +234,11 @@ fn print_lambda() {
     crate::test_utils::init_test_tracing();
     let lam = Value::make_lambda(LambdaData {
         params: LambdaParams::simple(vec![intern("x"), intern("y")]),
-        body: vec![Expr::List(vec![
-            Expr::Symbol(intern("+")),
-            Expr::Symbol(intern("x")),
-            Expr::Symbol(intern("y")),
-        ])]
-        .into(),
+        body: vec![Value::list(vec![
+            Value::symbol("+"),
+            Value::symbol("x"),
+            Value::symbol("y"),
+        ])],
         env: None,
         docstring: None,
         doc_form: None,
@@ -253,13 +252,12 @@ fn print_lexical_closure_uses_gnu_vector_syntax() {
     crate::test_utils::init_test_tracing();
     let closure = Value::make_lambda(LambdaData {
         params: LambdaParams::simple(vec![intern("a"), intern("b")]),
-        body: vec![Expr::List(vec![
-            Expr::Symbol(intern("+")),
-            Expr::Symbol(intern("a")),
-            Expr::Symbol(intern("b")),
-            Expr::Symbol(intern("x")),
-        ])]
-        .into(),
+        body: vec![Value::list(vec![
+            Value::symbol("+"),
+            Value::symbol("a"),
+            Value::symbol("b"),
+            Value::symbol("x"),
+        ])],
         env: Some(Value::list(vec![Value::cons(
             Value::symbol("x"),
             Value::fixnum(42),
@@ -283,7 +281,7 @@ fn print_recursive_closure_uses_backreference() {
     let env = Value::list(vec![binding]);
     let closure = Value::make_lambda(LambdaData {
         params: LambdaParams::simple(vec![]),
-        body: vec![Expr::Symbol(intern("f"))].into(),
+        body: vec![Value::symbol("f")],
         env: Some(env),
         docstring: None,
         doc_form: None,

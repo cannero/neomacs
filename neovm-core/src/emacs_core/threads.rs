@@ -1288,7 +1288,7 @@ pub(crate) fn builtin_condition_notify(
 /// (even if BODY signals an error).
 pub(crate) fn sf_with_mutex(
     eval: &mut super::eval::Context,
-    tail: &[super::expr::Expr],
+    tail: &[Value],
 ) -> EvalResult {
     if tail.is_empty() {
         return Err(signal(
@@ -1299,8 +1299,7 @@ pub(crate) fn sf_with_mutex(
             ],
         ));
     }
-    let mutex_form = eval.quote_to_runtime_value(&tail[0]);
-    let mutex_val = eval.eval_sub(mutex_form)?;
+    let mutex_val = eval.eval_sub(tail[0])?;
     let mutex_id = expect_mutex_id(&eval.threads, &mutex_val)?;
     if !eval.threads.is_mutex(mutex_id) {
         return Err(signal(
@@ -1310,7 +1309,13 @@ pub(crate) fn sf_with_mutex(
     }
 
     eval.threads.mutex_lock(mutex_id);
-    let result = eval.sf_progn(&tail[1..]);
+    let mut result: EvalResult = Ok(Value::NIL);
+    for form in &tail[1..] {
+        result = eval.eval_sub(*form);
+        if result.is_err() {
+            break;
+        }
+    }
     eval.threads.mutex_unlock(mutex_id);
     result
 }

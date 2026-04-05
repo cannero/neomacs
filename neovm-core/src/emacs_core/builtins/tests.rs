@@ -2,9 +2,8 @@ use super::*;
 use crate::emacs_core::editfns::{
     builtin_delete_and_extract_region, builtin_delete_region, builtin_erase_buffer,
 };
-use crate::emacs_core::expr::Expr;
 use crate::emacs_core::textprop::builtin_make_overlay;
-use crate::emacs_core::value::{LambdaData, LambdaParams, ValueKind, VecLikeType};
+use crate::emacs_core::value::{LambdaData, LambdaParams, Value, ValueKind, VecLikeType};
 use crate::emacs_core::{Context, format_eval_result};
 use crate::test_utils::{load_minimal_gnu_backquote_runtime, runtime_startup_eval_all};
 use std::fs;
@@ -26,24 +25,23 @@ fn install_variable_watcher_probe(eval: &mut crate::emacs_core::eval::Context, c
             rest: None,
         },
         body: vec![
-            Expr::List(vec![
-                Expr::Symbol(intern("setq")),
-                Expr::Symbol(intern("vm-watcher-last-op")),
-                Expr::Symbol(intern("operation")),
+            Value::list(vec![
+                Value::symbol("setq"),
+                Value::symbol("vm-watcher-last-op"),
+                Value::symbol("operation"),
             ]),
-            Expr::List(vec![
-                Expr::Symbol(intern("setq")),
-                Expr::Symbol(intern("vm-watcher-last-symbol")),
-                Expr::Symbol(intern("symbol")),
+            Value::list(vec![
+                Value::symbol("setq"),
+                Value::symbol("vm-watcher-last-symbol"),
+                Value::symbol("symbol"),
             ]),
-            Expr::List(vec![
-                Expr::Symbol(intern("setq")),
-                Expr::Symbol(intern("vm-watcher-last-value")),
-                Expr::Symbol(intern("newval")),
+            Value::list(vec![
+                Value::symbol("setq"),
+                Value::symbol("vm-watcher-last-value"),
+                Value::symbol("newval"),
             ]),
-            Expr::Symbol(intern("newval")),
-        ]
-        .into(),
+            Value::symbol("newval"),
+        ],
         env: None,
         docstring: None,
         doc_form: None,
@@ -55,11 +53,11 @@ fn install_variable_watcher_probe(eval: &mut crate::emacs_core::eval::Context, c
 fn install_noarg_hook_probe(
     eval: &mut crate::emacs_core::eval::Context,
     callback: &str,
-    body: Vec<Expr>,
+    body: Vec<Value>,
 ) {
     let lambda = Value::make_lambda(LambdaData {
         params: LambdaParams::simple(vec![]),
-        body: body.into(),
+        body,
         env: None,
         docstring: None,
         doc_form: None,
@@ -499,7 +497,7 @@ fn pure_dispatch_typed_length_tracks_interpreted_closure_slot_count() {
     crate::test_utils::init_test_tracing();
     let bare = Value::make_lambda(LambdaData {
         params: LambdaParams::simple(vec![intern("x")]),
-        body: vec![Expr::Symbol(intern("x"))].into(),
+        body: vec![Value::symbol("x")],
         env: Some(Value::NIL),
         docstring: None,
         doc_form: None,
@@ -507,7 +505,7 @@ fn pure_dispatch_typed_length_tracks_interpreted_closure_slot_count() {
     });
     let with_doc = Value::make_lambda(LambdaData {
         params: LambdaParams::simple(vec![intern("x")]),
-        body: vec![Expr::Symbol(intern("x"))].into(),
+        body: vec![Value::symbol("x")],
         env: Some(Value::NIL),
         docstring: Some("doc".into()),
         doc_form: None,
@@ -1503,19 +1501,19 @@ fn make_indirect_buffer_clone_and_hook_semantics_follow_buffer_c() {
     install_noarg_hook_probe(
         &mut eval,
         "mib-clone-hook",
-        vec![Expr::List(vec![
-            Expr::Symbol(intern("setq")),
-            Expr::Symbol(intern("mib-last-clone-buffer")),
-            Expr::List(vec![Expr::Symbol(intern("buffer-name"))]),
+        vec![Value::list(vec![
+            Value::symbol("setq"),
+            Value::symbol("mib-last-clone-buffer"),
+            Value::list(vec![Value::symbol("buffer-name")]),
         ])],
     );
     install_noarg_hook_probe(
         &mut eval,
         "mib-buffer-list-hook",
-        vec![Expr::List(vec![
-            Expr::Symbol(intern("setq")),
-            Expr::Symbol(intern("mib-buffer-list-ran")),
-            Expr::Symbol(intern("t")),
+        vec![Value::list(vec![
+            Value::symbol("setq"),
+            Value::symbol("mib-buffer-list-ran"),
+            Value::symbol("t"),
         ])],
     );
     eval.obarray_mut().set_symbol_value(

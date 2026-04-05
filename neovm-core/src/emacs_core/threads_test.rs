@@ -575,8 +575,6 @@ fn test_builtin_thread_set_buffer_disposition_rejects_non_nil_main_thread_value(
 #[test]
 fn test_builtin_make_thread_preserves_caller_current_buffer() {
     crate::test_utils::init_test_tracing();
-    use super::super::expr::Expr;
-
     let mut eval = Context::new();
     let main_buffer = eval.buffers.current_buffer_id().expect("current buffer");
     let worker_buffer = eval.buffers.create_buffer("thread-worker-buffer");
@@ -586,17 +584,12 @@ fn test_builtin_make_thread_preserves_caller_current_buffer() {
         Value::make_lambda(super::super::value::LambdaData {
             params: super::super::value::LambdaParams::simple(vec![]),
             body: vec![
-                Expr::List(vec![
-                    Expr::Symbol(intern("set-buffer")),
-                    Expr::OpaqueValueRef(
-                        super::super::eval::OPAQUE_POOL.with(|pool| {
-                            pool.borrow_mut().insert(Value::make_buffer(worker_buffer))
-                        }),
-                    ),
+                Value::list(vec![
+                    Value::symbol("set-buffer"),
+                    Value::make_buffer(worker_buffer),
                 ]),
-                Expr::List(vec![Expr::Symbol(intern("current-buffer"))]),
-            ]
-            .into(),
+                Value::list(vec![Value::symbol("current-buffer")]),
+            ],
             env: None,
             docstring: None,
             doc_form: None,
@@ -811,7 +804,6 @@ fn test_builtin_condition_notify_noop() {
 #[test]
 fn test_sf_with_mutex_executes_body() {
     crate::test_utils::init_test_tracing();
-    use super::super::expr::Expr;
 
     let mut eval = Context::new();
     let mx = builtin_make_mutex(&mut eval, vec![]).unwrap();
@@ -821,7 +813,7 @@ fn test_sf_with_mutex_executes_body() {
     eval.set_variable("test-mx", mx);
 
     // (with-mutex test-mx 42)
-    let tail = vec![Expr::Symbol(intern("test-mx")), Expr::Int(42)];
+    let tail = vec![Value::symbol("test-mx"), Value::fixnum(42)];
     let result = sf_with_mutex(&mut eval, &tail);
     assert!(result.is_ok());
     assert_eq!(result.unwrap().as_int(), Some(42));
@@ -834,7 +826,6 @@ fn test_sf_with_mutex_executes_body() {
 #[test]
 fn test_sf_with_mutex_unlocks_on_error() {
     crate::test_utils::init_test_tracing();
-    use super::super::expr::Expr;
     use crate::emacs_core::value::ValueKind;
 
     let mut eval = Context::new();
@@ -844,8 +835,8 @@ fn test_sf_with_mutex_unlocks_on_error() {
 
     // (with-mutex test-mx2 (/ 1 0))  -- will signal arith-error
     let tail = vec![
-        Expr::Symbol(intern("test-mx2")),
-        Expr::List(vec![Expr::Symbol(intern("/")), Expr::Int(1), Expr::Int(0)]),
+        Value::symbol("test-mx2"),
+        Value::list(vec![Value::symbol("/"), Value::fixnum(1), Value::fixnum(0)]),
     ];
     let result = sf_with_mutex(&mut eval, &tail);
     // Should propagate the error
@@ -948,7 +939,7 @@ fn test_thread_signal_noncurrent_thread_changes_join_outcome_without_publishing_
         &mut eval,
         vec![Value::make_lambda(super::super::value::LambdaData {
             params: super::super::value::LambdaParams::simple(vec![]),
-            body: vec![super::super::expr::Expr::Int(42)].into(),
+            body: vec![Value::fixnum(42)],
             env: None,
             docstring: None,
             doc_form: None,

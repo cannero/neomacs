@@ -1,5 +1,4 @@
 use super::*;
-use crate::emacs_core::Expr;
 use crate::emacs_core::builtins::builtin_documentation_stringp;
 use crate::emacs_core::{Context, format_eval_result};
 use crate::test_utils::{
@@ -318,7 +317,7 @@ fn documentation_substitutes_command_keys_unless_raw() {
     let mut evaluator = super::super::eval::Context::new();
     let lambda = Value::make_lambda(LambdaData {
         params: LambdaParams::simple(vec![]),
-        body: vec![Expr::Symbol(crate::emacs_core::intern::intern("t"))].into(),
+        body: vec![Value::symbol("t")],
         env: None,
         docstring: Some("Press \\[save-buffer] to save.".to_string()),
         doc_form: None,

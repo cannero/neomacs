@@ -2190,8 +2190,8 @@ fn parse_interactive_spec_from_value(spec: &Value) -> Option<ParsedInteractiveSp
 fn parsed_interactive_spec_from_lambda(lambda: &LambdaData) -> Option<ParsedInteractiveSpec> {
     lambda
         .body
-        .get(lambda_body_metadata_end(&lambda.body))
-        .and_then(parse_interactive_spec)
+        .get(value_body_metadata_end(&lambda.body))
+        .and_then(parse_interactive_spec_from_form_value)
 }
 
 fn parsed_interactive_spec_from_body_values(body: &[Value]) -> Option<ParsedInteractiveSpec> {

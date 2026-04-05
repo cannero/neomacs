@@ -1,4 +1,4 @@
-use super::super::expr::Expr;
+use super::super::value::Value;
 use super::super::intern::intern;
 use super::super::value::{LambdaData, LambdaParams};
 use super::*;
@@ -105,7 +105,7 @@ fn no_duplicate_equivalent_lambda_watchers() {
             optional: Vec::new(),
             rest: None,
         },
-        body: vec![Expr::Int(0)].into(),
+        body: vec![Value::fixnum(0)],
         env: None,
         docstring: None,
         doc_form: None,
@@ -122,7 +122,7 @@ fn no_duplicate_equivalent_lambda_watchers() {
             optional: Vec::new(),
             rest: None,
         },
-        body: vec![Expr::Int(0)].into(),
+        body: vec![Value::fixnum(0)],
         env: None,
         docstring: None,
         doc_form: None,
@@ -282,7 +282,7 @@ fn remove_variable_watcher_accepts_non_symbol_callbacks() {
             optional: Vec::new(),
             rest: None,
         },
-        body: vec![Expr::Symbol(intern("newval"))].into(),
+        body: vec![Value::symbol("newval")],
         env: None,
         docstring: None,
         doc_form: None,
@@ -299,7 +299,7 @@ fn remove_variable_watcher_accepts_non_symbol_callbacks() {
             optional: Vec::new(),
             rest: None,
         },
-        body: vec![Expr::Symbol(intern("newval"))].into(),
+        body: vec![Value::symbol("newval")],
         env: None,
         docstring: None,
         doc_form: None,

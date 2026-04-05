@@ -367,7 +367,8 @@ pub fn next_float_id() -> u32 {
 #[derive(Clone, Debug)]
 pub struct LambdaData {
     pub params: LambdaParams,
-    pub body: Rc<Vec<super::expr::Expr>>,
+    /// Body forms as a list of Values (Lisp forms to evaluate).
+    pub body: Vec<Value>,
     /// For lexical closures: captured environment as a cons alist
     /// mirroring GNU Emacs's `Vinternal_interpreter_environment`.
     pub env: Option<Value>,
@@ -423,12 +424,7 @@ impl LambdaData {
         let arglist = crate::emacs_core::builtins::lambda_params_to_value(&self.params);
 
         // Slot 1: body as Lisp list of forms
-        let body_forms: Vec<Value> = self
-            .body
-            .iter()
-            .map(crate::emacs_core::eval::quote_to_value)
-            .collect();
-        let body = Value::list(body_forms);
+        let body = Value::list(self.body.clone());
 
         // Slot 2: lexical environment (or nil for dynamic)
         let env = match self.env {
