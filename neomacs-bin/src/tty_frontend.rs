@@ -202,6 +202,7 @@ fn emit_events_from_bytes(bytes: &[u8], meta_key: u8) -> Vec<InputEvent> {
 /// Block until stdin has data available or `stop` is set.
 ///
 /// Returns `Ok(true)` when data is ready, `Ok(false)` when stopped.
+#[cfg(unix)]
 fn poll_stdin_blocking(stop: &AtomicBool) -> io::Result<bool> {
     let mut pollfd = libc::pollfd {
         fd: libc::STDIN_FILENO,
@@ -228,6 +229,11 @@ fn poll_stdin_blocking(stop: &AtomicBool) -> io::Result<bool> {
         }
         return Err(err);
     }
+}
+
+#[cfg(not(unix))]
+fn poll_stdin_blocking(stop: &AtomicBool) -> io::Result<bool> {
+    Ok(false)
 }
 
 /// Read available bytes from stdin into `buf`.
