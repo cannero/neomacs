@@ -8,66 +8,6 @@ use std::sync::OnceLock;
 
 use smallvec::SmallVec;
 
-/// GC-rooted constant pool for Values embedded in Expr trees.
-/// Replaces Expr::OpaqueValue(Value) with Expr::OpaqueValueRef(u32).
-/// Values in this pool are always traced by GC — no stale references.
-pub(crate) struct OpaqueValuePool {
-    values: Vec<Option<Value>>,
-    free_list: Vec<u32>,
-}
-
-impl OpaqueValuePool {
-    pub fn new() -> Self {
-        Self {
-            values: Vec::new(),
-            free_list: Vec::new(),
-        }
-    }
-
-    pub fn insert(&mut self, val: Value) -> u32 {
-        if let Some(idx) = self.free_list.pop() {
-            self.values[idx as usize] = Some(val);
-            idx
-        } else {
-            let idx = self.values.len() as u32;
-            self.values.push(Some(val));
-            idx
-        }
-    }
-
-    pub fn get(&self, idx: u32) -> Value {
-        self.values[idx as usize].unwrap_or(Value::NIL)
-    }
-
-    #[allow(dead_code)]
-    pub fn remove(&mut self, idx: u32) {
-        self.values[idx as usize] = None;
-        self.free_list.push(idx);
-    }
-
-    pub fn trace_roots(&self, roots: &mut Vec<Value>) {
-        for val in &self.values {
-            if let Some(v) = val {
-                roots.push(*v);
-            }
-        }
-    }
-
-    pub fn clear(&mut self) {
-        self.values.clear();
-        self.free_list.clear();
-    }
-}
-
-thread_local! {
-    /// Thread-local opaque value pool used by code that creates
-    /// `Expr::OpaqueValueRef` nodes without access to `Context`.
-    pub(crate) static OPAQUE_POOL: RefCell<OpaqueValuePool> = RefCell::new(OpaqueValuePool::new());
-}
-
-pub(crate) fn reset_opaque_value_pool() {
-    OPAQUE_POOL.with(|pool| pool.borrow_mut().clear());
-}
 
 use super::abbrev::AbbrevManager;
 use super::advice::VariableWatcherList;
@@ -78,7 +18,6 @@ use super::coding::CodingSystemManager;
 use super::custom::CustomManager;
 use super::doc::{STARTUP_VARIABLE_DOC_STRING_PROPERTIES, STARTUP_VARIABLE_DOC_STUBS};
 use super::error::*;
-use super::expr::Expr;
 use super::interactive::InteractiveRegistry;
 use super::intern::{SymId, intern, intern_uninterned, resolve_sym, resolve_sym_metadata};
 use super::keymap::{
@@ -1198,7 +1137,7 @@ pub struct Context {
     /// when their symbol cells actually change.
     gc_runtime_settings_cache: GcRuntimeSettingsCache,
     /// Temporary GC roots — Values that must survive collection but aren't
-    /// in any other rooted structure (e.g. intermediate results in eval_forms).
+    /// in any other rooted structure (e.g. intermediate results in eval_str_each).
     temp_roots: Vec<Value>,
     /// VM GC roots — Values that must remain GC-visible while the bytecode VM
     /// crosses into evaluator code that may trigger collection.
@@ -1223,8 +1162,6 @@ pub struct Context {
     lexenv_assq_cache: RefCell<Vec<LexenvAssqCacheEntry>>,
     /// Small hot cache for GNU-shaped lexical special declarations.
     lexenv_special_cache: RefCell<Vec<LexenvSpecialCacheEntry>>,
-    /// Cache for source-literal materialization keyed on `Expr` pointer
-    /// identity. This is generic reader/runtime support: repeated evaluation
     /// Nested depth of active macro-expansion scopes.
     macro_expansion_scope_depth: usize,
     /// Monotonic counter for Lisp-visible mutations performed while a macro
@@ -1233,16 +1170,8 @@ pub struct Context {
     macro_expansion_mutation_epoch: u64,
     /// Cache for macro expansion results.
     ///
-    /// Key: `(macro_heap_id, args_slice_ptr)` — the macro's tagged pointer plus the
-    /// pointer to the args `&[Expr]` slice.
-    ///
-    /// Value: `(Value, u64)` — the expanded runtime Lisp object plus a
-    /// content fingerprint of the args at insertion time. On cache hit, the
-    /// fingerprint is recomputed and compared to detect ABA: when a
-    /// lambda body `Rc<Vec<Expr>>` is freed during macro expansion (e.g.
-    /// temporary lambdas in pcase), its memory can be reused by a new
-    /// lambda body, making `tail.as_ptr()` match a stale entry whose
-    /// args are completely different.  The fingerprint catches this.
+    /// Key: `(macro_heap_id, args_fingerprint, mutation_epoch)`.
+    /// Value: the expanded runtime Lisp object plus a content fingerprint.
     pub(crate) macro_expansion_cache: HashMap<(usize, usize, u64), Rc<MacroExpansionCacheEntry>>,
     /// Diagnostic counters for macro expansion cache.
     pub(crate) macro_cache_hits: u64,
@@ -1269,8 +1198,7 @@ pub struct Context {
     interpreted_closure_trim_cache: HashMap<u64, Vec<InterpretedClosureTrimCacheEntry>>,
     /// Value-native cache for runtime callable-cons lambda instantiation.
     /// Keyed by a shallow Value fingerprint of the source callable plus the
-    /// lexical environment shape, so the Value-side path avoids Expr-style
-    /// deep fingerprinting while still matching structurally equivalent forms.
+    /// lexical environment shape.
     interpreted_closure_value_cache: HashMap<(u64, u64), Vec<InterpretedClosureValueCacheEntry>>,
 }
 
@@ -3901,8 +3829,6 @@ impl Context {
             }
         }
 
-        // OpaqueValuePool — root all pooled Values (replaces per-entry opaque_roots)
-        OPAQUE_POOL.with(|pool| pool.borrow().trace_roots(&mut roots));
 
         if let Some(filter_fn) = self.interpreted_closure_filter_fn {
             roots.push(filter_fn);
@@ -5780,20 +5706,13 @@ impl Context {
     }
 
     /// Evaluate a single Value form and return a public EvalError on failure.
-    /// This is the Value-native equivalent of `eval_expr` for callers that
-    /// already have a `Value` (instead of an `&Expr`).
+    /// Evaluate a single Value form, mapping Flow errors to EvalError.
     pub fn eval_form(&mut self, form: Value) -> Result<Value, EvalError> {
         crate::tagged::gc::set_tagged_heap(&mut self.tagged_heap);
         self.eval_sub(form).map_err(map_flow)
     }
 
-    /// Evaluate a Value as code (like Elisp's `eval`).
-    /// Converts Value to Expr, then evaluates.  OpaqueValueRef entries
-    /// are rooted by the OpaqueValuePool automatically.
     /// Evaluate a runtime Value form, matching GNU Emacs's `eval_sub` in eval.c.
-    ///
-    /// This is the Value-based evaluator that works directly on `Value` (Lisp_Object
-    /// equivalent) WITHOUT converting to `Expr` first.
     ///
     /// Dispatch order (matching GNU eval.c:2552-2766):
     /// 1. Symbol → lexenv lookup or symbol-value
@@ -6011,22 +5930,6 @@ impl Context {
         self.eval_sub(*value)
     }
 
-    /// Evaluate parsed Expr forms. Used by tests; prefer eval_str_each for new code.
-    pub fn eval_forms(&mut self, forms: &[Expr]) -> Vec<Result<Value, EvalError>> {
-        crate::tagged::gc::set_tagged_heap(&mut self.tagged_heap);
-        let saved_len = self.temp_roots.len();
-        let mut results = Vec::with_capacity(forms.len());
-        for form in forms {
-            let val = self.quote_to_runtime_value(form);
-            let result = self.eval_sub(val).map_err(map_flow);
-            if let Ok(ref val) = result {
-                self.temp_roots.push(*val);
-            }
-            results.push(result);
-        }
-        self.temp_roots.truncate(saved_len);
-        results
-    }
 
     /// Evaluate all forms in a source string and return per-form results.
     /// Uses the Value-native reader.
@@ -7473,10 +7376,6 @@ impl Context {
         }
     }
 
-    /// Convert an Expr to a runtime Value. Used by eval_forms (test support).
-    pub(crate) fn quote_to_runtime_value(&mut self, expr: &Expr) -> Value {
-        quote_to_value(expr)
-    }
 
     fn sf_byte_code_literal_value(&mut self, tail: Value) -> EvalResult {
         let vector = self.one_unevalled_arg("byte-code-literal", tail)?;
@@ -10002,39 +9901,6 @@ fn rewrite_wrong_arity_alias_function_object(flow: Flow, alias: &str, target: &s
     }
 }
 
-/// Convert an Expr AST node to a Value. Used by test code via eval_forms.
-pub fn quote_to_value(expr: &Expr) -> Value {
-    match expr {
-        Expr::Int(v) => Value::fixnum(*v),
-        Expr::Float(v) => Value::make_float(*v),
-        Expr::ReaderLoadFileName => Value::symbol("load-file-name"),
-        Expr::Str(s) => Value::string(s.clone()),
-        Expr::Char(c) => Value::char(*c),
-        Expr::Keyword(id) => Value::from_kw_id(*id),
-        Expr::Bool(true) => Value::T,
-        Expr::Bool(false) => Value::NIL,
-        Expr::Symbol(id) if resolve_sym(*id) == "nil" => Value::NIL,
-        Expr::Symbol(id) if resolve_sym(*id) == "t" => Value::T,
-        Expr::Symbol(id) => Value::from_sym_id(*id),
-        Expr::List(items) => {
-            let quoted: Vec<Value> = items.iter().map(quote_to_value).collect();
-            Value::list(quoted)
-        }
-        Expr::DottedList(items, last) => {
-            let head_vals: Vec<Value> = items.iter().map(quote_to_value).collect();
-            let tail_val = quote_to_value(last);
-            head_vals
-                .into_iter()
-                .rev()
-                .fold(tail_val, |acc, item| Value::cons(item, acc))
-        }
-        Expr::Vector(items) => {
-            let vals: Vec<Value> = items.iter().map(quote_to_value).collect();
-            Value::vector(vals)
-        }
-        Expr::OpaqueValueRef(idx) => OPAQUE_POOL.with(|pool| pool.borrow().get(*idx)),
-    }
-}
 
 fn format_startup_value(value: Option<&Value>) -> String {
     value

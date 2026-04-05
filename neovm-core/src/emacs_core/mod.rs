@@ -45,7 +45,6 @@ pub mod editfns;
 pub mod error;
 pub mod errors;
 pub mod eval;
-pub mod expr;
 pub mod fileio;
 pub mod filelock;
 pub mod floatfns;
@@ -76,7 +75,6 @@ pub mod misc;
 pub mod mode;
 pub mod navigation;
 pub mod network;
-pub mod parser;
 pub mod pdump;
 pub mod perf_trace;
 pub mod print;
@@ -111,9 +109,7 @@ pub use error::{
     format_eval_result_with_eval, print_value_bytes_with_eval, print_value_with_eval,
 };
 pub use eval::{Context, DisplayHost, GuiFrameHostRequest};
-pub use expr::{Expr, ParseError, print_expr};
 pub use intern::SymId;
-pub use parser::parse_forms;
 pub use print::{print_value, print_value_bytes, print_value_with_buffers};
 pub use symbol::Obarray;
 pub use value::{LambdaData, LambdaParams, Value, ValueKind, VecLikeType};

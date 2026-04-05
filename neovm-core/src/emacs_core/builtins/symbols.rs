@@ -3791,9 +3791,8 @@ pub(crate) fn make_byte_code_from_parts(
 
     // 3b. Reify compiled literals embedded in the constants vector.
     // GNU `.elc` constants may contain nested `#[...]` bytecode objects or
-    // `#s(hash-table ...)` literals. At this point they are still represented
-    // as ordinary Values produced by `quote_to_value`, so convert them into
-    // real runtime objects before decoding/executing the bytecode.
+    // `#s(hash-table ...)` literals. Convert them into real runtime objects
+    // before decoding/executing the bytecode.
     for i in 0..constants.len() {
         constants[i] = try_convert_nested_compiled_literal(constants[i]);
     }
