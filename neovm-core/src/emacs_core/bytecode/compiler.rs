@@ -1930,11 +1930,10 @@ fn literal_to_value(expr: &Expr) -> Value {
         Expr::Symbol(id) => Value::symbol(*id),
         Expr::List(items) if items.is_empty() => Value::NIL,
         Expr::List(items) => {
-            // For quoted list, recursively convert
             if items.len() == 2 {
                 if let Expr::Symbol(id) = &items[0] {
                     if resolve_sym(*id) == "quote" {
-                        return literal_to_value(&items[1]);
+                        return Value::list(vec![Value::symbol(*id), literal_to_value(&items[1])]);
                     }
                 }
             }

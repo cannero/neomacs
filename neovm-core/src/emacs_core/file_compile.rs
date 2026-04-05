@@ -11,7 +11,7 @@ use std::{cell::RefCell, path::Path};
 use super::builtins::parse_lambda_params_from_value;
 use super::bytecode::Compiler;
 use super::error::{EvalError, Flow, map_flow};
-use super::eval::{Context, quote_to_value, value_to_expr};
+use super::eval::{Context, INTERNAL_COMPILER_FUNCTION_OVERRIDES, quote_to_value, value_to_expr};
 use super::expr::Expr;
 use super::intern::{SymId, intern, resolve_sym};
 use super::value::{Value, list_to_vec};
@@ -126,19 +126,94 @@ fn compile_replayable_toplevel_form(
 ///   `defun`, `defvar`, `require`), then emitted as `Eval(quoted_form)` to
 ///   replay at load time.
 pub fn compile_file_forms(eval: &mut Context, forms: &[Expr]) -> Result<Vec<CompiledForm>, Flow> {
-    let mut compiled = Vec::new();
-    let mut compiler_macro_env = Value::NIL;
-    for form in forms {
-        let compiled_roots: Vec<Value> = compiled.iter().map(CompiledForm::root_value).collect();
-        eval.with_gc_scope_result(|ctx| {
-            for root in &compiled_roots {
-                ctx.root(*root);
+    let compile_scope = eval.open_gc_scope();
+    let old_function_overrides = eval
+        .obarray()
+        .symbol_value(INTERNAL_COMPILER_FUNCTION_OVERRIDES)
+        .copied()
+        .unwrap_or(Value::NIL);
+    let result = (|| {
+        let mut compiled = Vec::new();
+        let mut compiler_macro_env = Value::NIL;
+        let mut compiler_function_overrides = old_function_overrides;
+        let mut deferred_defmacros = Vec::new();
+        let mut rooted_compiled_len = 0usize;
+        eval.set_variable(
+            INTERNAL_COMPILER_FUNCTION_OVERRIDES,
+            compiler_function_overrides,
+        );
+
+        for form in forms {
+            let compiled_roots: Vec<Value> =
+                compiled.iter().map(CompiledForm::root_value).collect();
+            eval.with_gc_scope_result(|ctx| {
+                for root in &compiled_roots {
+                    ctx.root(*root);
+                }
+                ctx.root(compiler_macro_env);
+                ctx.root(compiler_function_overrides);
+                compile_toplevel_file_form(
+                    ctx,
+                    form,
+                    &mut compiled,
+                    &mut compiler_macro_env,
+                    &mut compiler_function_overrides,
+                    &mut deferred_defmacros,
+                )
+            })?;
+
+            while rooted_compiled_len < compiled.len() {
+                eval.root(compiled[rooted_compiled_len].root_value());
+                rooted_compiled_len += 1;
             }
-            ctx.root(compiler_macro_env);
-            compile_toplevel_file_form(ctx, form, &mut compiled, &mut compiler_macro_env)
-        })?;
-    }
-    Ok(compiled)
+            if !compiler_macro_env.is_nil() {
+                eval.root(compiler_macro_env);
+            }
+            if !compiler_function_overrides.is_nil() {
+                eval.root(compiler_function_overrides);
+            }
+            eval.set_variable(
+                INTERNAL_COMPILER_FUNCTION_OVERRIDES,
+                compiler_function_overrides,
+            );
+        }
+
+        for deferred in deferred_defmacros {
+            let compiled_roots: Vec<Value> =
+                compiled.iter().map(CompiledForm::root_value).collect();
+            let replacement = eval.with_gc_scope_result(|ctx| {
+                for root in &compiled_roots {
+                    ctx.root(*root);
+                }
+                ctx.root(compiler_macro_env);
+                ctx.root(compiler_function_overrides);
+                compile_toplevel_defmacro_with_env(ctx, &deferred.form, compiler_macro_env)
+            })?;
+            if let Some(compiled_form) = replacement {
+                compiled[deferred.index] = CompiledForm::Eval(compiled_form);
+                eval.root(compiled[deferred.index].root_value());
+            }
+            if !compiler_macro_env.is_nil() {
+                eval.root(compiler_macro_env);
+            }
+            if !compiler_function_overrides.is_nil() {
+                eval.root(compiler_function_overrides);
+            }
+            eval.set_variable(
+                INTERNAL_COMPILER_FUNCTION_OVERRIDES,
+                compiler_function_overrides,
+            );
+        }
+        Ok(compiled)
+    })();
+    eval.set_variable(INTERNAL_COMPILER_FUNCTION_OVERRIDES, old_function_overrides);
+    compile_scope.close(eval);
+    result
+}
+
+struct DeferredDefmacro {
+    index: usize,
+    form: Expr,
 }
 
 struct LambdaMetadata {
@@ -416,6 +491,17 @@ fn expr_quoted_symbol_name(expr: &Expr) -> Option<String> {
             (Expr::Symbol(head), Expr::Symbol(id)) if resolve_sym(*head) == "quote" => {
                 Some(resolve_sym(*id).to_owned())
             }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn expr_quoted_symbol_id(expr: &Expr) -> Option<SymId> {
+    match expr {
+        Expr::Symbol(id) => Some(*id),
+        Expr::List(items) if items.len() == 2 => match (&items[0], &items[1]) {
+            (Expr::Symbol(head), Expr::Symbol(id)) if resolve_sym(*head) == "quote" => Some(*id),
             _ => None,
         },
         _ => None,
@@ -866,14 +952,43 @@ fn compile_toplevel_defmacro_with_env(
     let Expr::List(items) = form else {
         return Ok(None);
     };
-    // Source `defmacro` is semantically authoritative. Compiling it through a
-    // generic macroexpanded `defalias` shape can lose GNU macro body semantics
-    // for backquote/splicing-heavy macros like `macroexp--accumulate`.
+    // Source `defmacro` is semantically authoritative. Nested quasiquote and
+    // local binding structure in macros like `define-minor-mode` must be
+    // compiled from the original body, not from a generic macroexpanded
+    // top-level `defalias` shape.
     Ok(compile_toplevel_defmacro_direct_with_env(
         eval,
         items,
         macroexpand_env,
     ))
+}
+
+fn compile_toplevel_defalias(eval: &mut Context, form: &Expr) -> Result<Option<Value>, Flow> {
+    compile_toplevel_defalias_with_env(eval, form, Value::NIL)
+}
+
+fn compile_toplevel_defalias_with_env(
+    eval: &mut Context,
+    form: &Expr,
+    macroexpand_env: Value,
+) -> Result<Option<Value>, Flow> {
+    let form_value = quote_to_value(form);
+    let Expr::List(items) = form else {
+        return Ok(None);
+    };
+    let Some(name_id) = items.get(1).and_then(expr_quoted_symbol_id) else {
+        return Ok(None);
+    };
+
+    if let Some(expanded) =
+        expand_compiler_toplevel_expr_with_env(eval, form_value, macroexpand_env)
+        && let Some(compiled) = compile_macroexpanded_defalias_expr(eval, &expanded)
+        && compiled_defalias_name_id(compiled) == Some(name_id)
+    {
+        return Ok(Some(compiled));
+    }
+
+    Ok(compile_macroexpanded_defalias_expr(eval, form))
 }
 
 fn compile_toplevel_defmacro_value(eval: &mut Context, form_value: Value) -> Option<Value> {
@@ -886,8 +1001,6 @@ fn compile_toplevel_defmacro_value_with_env(
     macroexpand_env: Value,
 ) -> Option<Value> {
     let items = list_to_vec(&form_value)?;
-    // Match `compile_toplevel_defmacro`: source `defmacro` should compile from
-    // its original body, not from a generic expanded `defalias` wrapper.
     compile_toplevel_defmacro_direct_value_with_env(eval, &items, macroexpand_env)
 }
 
@@ -996,6 +1109,15 @@ fn compiled_defalias_name_id(compiled_form: Value) -> Option<SymId> {
     }
 }
 
+fn compiled_function_binding_from_defalias(compiled_form: Value) -> Option<(SymId, Value)> {
+    let items = list_to_vec(&compiled_form)?;
+    match items.first()?.as_symbol_name()? {
+        "defalias" => Some((quoted_symbol_id(*items.get(1)?)?, *items.get(2)?)),
+        "prog1" => compiled_function_binding_from_defalias(*items.get(1)?),
+        _ => None,
+    }
+}
+
 pub(crate) fn lower_runtime_cached_toplevel_form(
     eval: &mut Context,
     original: Value,
@@ -1062,8 +1184,8 @@ pub(crate) fn compiled_macro_binding_from_defalias(compiled_form: Value) -> Opti
     }
 }
 
-fn extend_compiler_macro_env(macro_env: &mut Value, name_id: SymId, definition: Value) {
-    let entry = Value::cons(Value::symbol(resolve_sym(name_id)), definition);
+fn extend_compiler_macro_env(macro_env: &mut Value, name_id: SymId, expander: Value) {
+    let entry = Value::cons(Value::symbol(resolve_sym(name_id)), expander);
     *macro_env = Value::cons(entry, *macro_env);
 }
 
@@ -1076,12 +1198,28 @@ pub(crate) fn maybe_extend_compiler_macro_env_from_lowered(
     }
 }
 
+fn extend_compiler_function_overrides(function_env: &mut Value, name_id: SymId, definition: Value) {
+    let entry = Value::cons(Value::symbol(resolve_sym(name_id)), definition);
+    *function_env = Value::cons(entry, *function_env);
+}
+
+fn maybe_extend_compiler_function_overrides_from_lowered(
+    function_env: &mut Value,
+    lowered_form: Value,
+) {
+    if let Some((name_id, definition)) = compiled_function_binding_from_defalias(lowered_form) {
+        extend_compiler_function_overrides(function_env, name_id, definition);
+    }
+}
+
 /// Process a single top-level form, appending results to `out`.
 fn compile_toplevel_file_form(
     eval: &mut Context,
     form: &Expr,
     out: &mut Vec<CompiledForm>,
     compiler_macro_env: &mut Value,
+    compiler_function_overrides: &mut Value,
+    deferred_defmacros: &mut Vec<DeferredDefmacro>,
 ) -> Result<(), Flow> {
     match form {
         Expr::List(items) if !items.is_empty() => {
@@ -1095,7 +1233,14 @@ fn compile_toplevel_file_form(
                             eval.with_gc_scope_result(|ctx| {
                                 root_saved_values(ctx, &prior_roots);
                                 ctx.root(*compiler_macro_env);
-                                compile_toplevel_file_form(ctx, sub, out, compiler_macro_env)
+                                compile_toplevel_file_form(
+                                    ctx,
+                                    sub,
+                                    out,
+                                    compiler_macro_env,
+                                    compiler_function_overrides,
+                                    deferred_defmacros,
+                                )
                             })?;
                         }
                         return Ok(());
@@ -1118,30 +1263,54 @@ fn compile_toplevel_file_form(
                         if let Some(compiled_form) =
                             compile_toplevel_defun_with_env(eval, form, *compiler_macro_env)?
                         {
-                            // GNU byte compilation records top-level defuns in
-                            // compiler-owned state instead of installing them
-                            // into the live macroexpansion runtime before later
-                            // forms are preprocessed.
+                            maybe_extend_compiler_function_overrides_from_lowered(
+                                compiler_function_overrides,
+                                compiled_form,
+                            );
                             out.push(CompiledForm::Eval(compiled_form));
                             return Ok(());
                         }
                     }
                     "defmacro" => {
-                        if let Some(compiled_form) =
-                            compile_toplevel_defmacro_with_env(eval, form, *compiler_macro_env)?
+                        let Some(Expr::Symbol(name_id)) = items.get(1) else {
+                            return compile_replayable_toplevel_form(eval, form, out);
+                        };
+                        let form_value = quote_to_value(form);
+                        let prior_roots = compiled_form_roots(out);
+                        eval.with_gc_scope_result(|ctx| {
+                            root_saved_values(ctx, &prior_roots);
+                            ctx.root(*compiler_macro_env);
+                            ctx.root(form_value);
+                            ctx.eval(form)
+                        })?;
+                        if let Some(definition) = eval
+                            .obarray()
+                            .symbol_function(resolve_sym(*name_id))
+                            .copied()
+                            && let Some(expander) = lowered_macro_expander(definition)
                         {
-                            if let Some((name_id, definition)) =
-                                compiled_macro_binding_from_defalias(compiled_form)
-                            {
-                                extend_compiler_macro_env(compiler_macro_env, name_id, definition);
-                            }
-                            let prior_roots = compiled_form_roots(out);
-                            eval.with_gc_scope_result(|ctx| {
-                                root_saved_values(ctx, &prior_roots);
-                                ctx.root(*compiler_macro_env);
-                                ctx.root(compiled_form);
-                                ctx.eval_value(&compiled_form)
-                            })?;
+                            extend_compiler_macro_env(compiler_macro_env, *name_id, expander);
+                        }
+                        let index = out.len();
+                        out.push(CompiledForm::EagerEval(form_value));
+                        deferred_defmacros.push(DeferredDefmacro {
+                            index,
+                            form: form.clone(),
+                        });
+                        return Ok(());
+                    }
+                    "defalias" => {
+                        if let Some(compiled_form) =
+                            compile_toplevel_defalias_with_env(eval, form, *compiler_macro_env)?
+                        {
+                            maybe_extend_compiler_macro_env_from_lowered(
+                                compiler_macro_env,
+                                compiled_form,
+                            );
+                            maybe_extend_compiler_function_overrides_from_lowered(
+                                compiler_function_overrides,
+                                compiled_form,
+                            );
                             out.push(CompiledForm::Eval(compiled_form));
                             return Ok(());
                         }
@@ -1167,6 +1336,7 @@ pub(crate) fn lower_toplevel_compiled_form_for_test(
                 match resolve_sym(*id) {
                     "defun" => return compile_toplevel_defun(eval, form),
                     "defmacro" => return compile_toplevel_defmacro(eval, form),
+                    "defalias" => return compile_toplevel_defalias(eval, form),
                     _ => {}
                 }
             }
@@ -1207,6 +1377,20 @@ impl std::fmt::Display for CompileFileError {
 /// bodies at compile time (folding results to constants), and writes
 /// the compiled output to a `.neobc` file alongside the source.
 pub fn compile_el_to_neobc(eval: &mut Context, el_path: &Path) -> Result<(), CompileFileError> {
+    compile_el_to_neobc_with_output_and_surface(
+        eval,
+        el_path,
+        &el_path.with_extension("neobc"),
+        None,
+    )
+}
+
+pub(crate) fn compile_el_to_neobc_with_output_and_surface(
+    eval: &mut Context,
+    el_path: &Path,
+    neobc_path: &Path,
+    surface_fingerprint: Option<&str>,
+) -> Result<(), CompileFileError> {
     // 1. Read the .el source.
     let raw_bytes = std::fs::read(el_path).map_err(CompileFileError::Io)?;
     let content = super::load::decode_emacs_utf8(&raw_bytes);
@@ -1242,14 +1426,15 @@ pub fn compile_el_to_neobc(eval: &mut Context, el_path: &Path) -> Result<(), Com
     // 7. Restore evaluator state.
     eval.set_lexical_binding(old_lexical);
 
-    // 8. Write .neobc alongside the source.
-    let neobc_path = el_path.with_extension("neobc");
-    let bytes =
-        super::file_compile_format::serialize_neobc_detailed(&source_hash, lexical, &compiled)
-            .map_err(|err| {
-                CompileFileError::Serialize(format!("{}: {}", err.path(), err.detail()))
-            })?;
-    std::fs::write(&neobc_path, bytes).map_err(CompileFileError::Io)?;
+    // 8. Write .neobc to the requested output path.
+    let bytes = super::file_compile_format::serialize_neobc_with_surface_detailed(
+        &source_hash,
+        lexical,
+        &compiled,
+        surface_fingerprint,
+    )
+    .map_err(|err| CompileFileError::Serialize(format!("{}: {}", err.path(), err.detail())))?;
+    std::fs::write(neobc_path, bytes).map_err(CompileFileError::Io)?;
 
     Ok(())
 }
@@ -1331,6 +1516,100 @@ mod tests {
 
         eval.require_value(Value::symbol("gv"), None, None)
             .expect("require gv for macroexpansion");
+        eval.set_variable("macroexp--pending-eager-loads", Value::NIL);
+        eval
+    }
+
+    fn eval_source_file_direct(eval: &mut Context, path: &std::path::Path) {
+        let source = std::fs::read_to_string(path)
+            .unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
+        let forms = parse_forms(&source)
+            .unwrap_or_else(|err| panic!("parse {}: {err}", path.display()));
+
+        let old_lexical = eval.lexical_binding();
+        let old_lexenv = eval.lexenv;
+        let old_load_file = eval.obarray().symbol_value("load-file-name").cloned();
+
+        eval.with_gc_scope_result(|ctx| {
+            ctx.root(old_lexenv);
+            if let Some(old) = old_load_file {
+                ctx.root(old);
+            }
+
+            ctx.set_lexical_binding(true);
+            ctx.lexenv = Value::list(vec![Value::T]);
+            ctx.set_variable(
+                "load-file-name",
+                Value::string(path.to_string_lossy().to_string()),
+            );
+
+            for form in &forms {
+                ctx.eval_expr(form).unwrap_or_else(|err| {
+                    panic!("direct source load failed for {}: {:?}", path.display(), err)
+                });
+            }
+
+            ctx.set_lexical_binding(old_lexical);
+            ctx.lexenv = old_lexenv;
+            if let Some(old) = old_load_file {
+                ctx.set_variable("load-file-name", old);
+            } else {
+                ctx.set_variable("load-file-name", Value::NIL);
+            }
+
+            Ok(Value::NIL)
+        })
+        .expect("direct source load should succeed");
+    }
+
+    fn direct_source_compile_surface_eval(include_pcase: bool) -> Context {
+        let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let project_root = manifest.parent().expect("project root");
+        let lisp_dir = project_root.join("lisp");
+
+        let mut eval = Context::new();
+        let mut load_path_entries = Vec::new();
+        for sub in ["", "emacs-lisp"] {
+            let dir = if sub.is_empty() {
+                lisp_dir.clone()
+            } else {
+                lisp_dir.join(sub)
+            };
+            if dir.is_dir() {
+                load_path_entries.push(Value::string(dir.to_string_lossy().to_string()));
+            }
+        }
+        eval.set_variable("load-path", Value::list(load_path_entries));
+        eval.set_variable("dump-mode", Value::symbol("pbootstrap"));
+        eval.set_variable("purify-flag", Value::NIL);
+        eval.set_variable("max-lisp-eval-depth", Value::fixnum(1600));
+        eval.set_variable(
+            "macroexp--pending-eager-loads",
+            Value::list(vec![Value::symbol("skip")]),
+        );
+
+        let load_path = get_load_path(&eval.obarray());
+        for name in &[
+            "emacs-lisp/debug-early",
+            "emacs-lisp/byte-run",
+            "emacs-lisp/backquote",
+            "subr",
+            "emacs-lisp/macroexp",
+        ] {
+            let path = bootstrap_fixture_path(&load_path, name);
+            eval_source_file_direct(&mut eval, &path);
+        }
+
+        if include_pcase {
+            let pcase_path = bootstrap_fixture_path(&load_path, "emacs-lisp/pcase");
+            eval_source_file_direct(&mut eval, &pcase_path);
+
+            // GNU loadup reloads macroexp after pcase defines the backquote
+            // macroexpander used by macroexpand-all.
+            let macroexp_path = bootstrap_fixture_path(&load_path, "emacs-lisp/macroexp");
+            eval_source_file_direct(&mut eval, &macroexp_path);
+        }
+
         eval.set_variable("macroexp--pending-eager-loads", Value::NIL);
         eval
     }
@@ -1691,6 +1970,86 @@ mod tests {
     }
 
     #[test]
+    fn test_compile_defalias_emits_compiled_defalias_form() {
+        crate::test_utils::init_test_tracing();
+        let mut eval = Context::new();
+        let forms =
+            parse_forms("(defalias 'test-fc-alias #'(lambda (x) \"doc\" (+ x 1)))").unwrap();
+        let compiled = compile_file_forms(&mut eval, &forms).unwrap();
+        assert_eq!(compiled.len(), 1);
+
+        let CompiledForm::Eval(value) = &compiled[0] else {
+            panic!("expected Eval form");
+        };
+        let items = list_to_vec(value).expect("compiled top-level form should be a list");
+        assert_eq!(items[0].as_symbol_name(), Some("defalias"));
+        assert_eq!(quoted_symbol_id(items[1]), Some(intern("test-fc-alias")));
+        assert!(items[2].get_bytecode_data().is_some());
+        assert_eq!(
+            items[2]
+                .get_bytecode_data()
+                .and_then(|bytecode| bytecode.docstring.as_deref()),
+            Some("doc")
+        );
+    }
+
+    #[test]
+    fn test_compile_file_forms_same_file_defalias_helper_call_uses_compiler_function_env() {
+        crate::test_utils::init_test_tracing();
+        let forms = parse_forms(
+            r#"
+(defalias 'test-fc-helper-via-defalias
+  #'(lambda (x) x))
+
+(test-fc-helper-via-defalias 42)
+"#,
+        )
+        .unwrap();
+
+        let mut eval = Context::new();
+        let mut compiled = Vec::new();
+        let mut compiler_macro_env = Value::NIL;
+        let mut compiler_function_overrides = Value::NIL;
+        let mut deferred_defmacros = Vec::new();
+
+        compile_toplevel_file_form(
+            &mut eval,
+            &forms[0],
+            &mut compiled,
+            &mut compiler_macro_env,
+            &mut compiler_function_overrides,
+            &mut deferred_defmacros,
+        )
+        .expect("helper defalias should compile");
+        eval.set_variable(
+            INTERNAL_COMPILER_FUNCTION_OVERRIDES,
+            compiler_function_overrides,
+        );
+
+        compile_toplevel_file_form(
+            &mut eval,
+            &forms[1],
+            &mut compiled,
+            &mut compiler_macro_env,
+            &mut compiler_function_overrides,
+            &mut deferred_defmacros,
+        )
+        .expect("same-file defalias helper call should compile");
+
+        let CompiledForm::Eval(first) = &compiled[0] else {
+            panic!("expected compiled defalias for helper");
+        };
+        let items = list_to_vec(first).expect("compiled defalias should be a list");
+        assert_eq!(
+            compiled_defalias_name_id(*first),
+            Some(intern("test-fc-helper-via-defalias"))
+        );
+        assert!(compiled_function_binding_from_defalias(*first).is_some());
+        assert!(defalias_target_bytecode(items[2]).is_some());
+        assert_eq!(compiled.len(), 2);
+    }
+
+    #[test]
     fn test_compile_defmacro_runtime_executes_gensym_backquote() {
         crate::test_utils::init_test_tracing();
         let macro_src = r#"
@@ -1700,7 +2059,7 @@ mod tests {
 "#;
         let macro_forms = parse_forms(macro_src).unwrap();
 
-        let mut compiled_eval = minimal_compile_surface_eval();
+        let mut compiled_eval = direct_source_compile_surface_eval(true);
         let compiled = compile_file_forms(&mut compiled_eval, &macro_forms).unwrap();
         assert_eq!(compiled.len(), 1);
         let CompiledForm::Eval(compiled_value) = &compiled[0] else {
@@ -1734,7 +2093,7 @@ mod tests {
 "#;
         let macro_forms = parse_forms(macro_src).unwrap();
 
-        let mut compiled_eval = minimal_compile_surface_eval();
+        let mut compiled_eval = direct_source_compile_surface_eval(true);
         let compiled = compile_file_forms(&mut compiled_eval, &macro_forms).unwrap();
         assert_eq!(compiled.len(), 1);
         let CompiledForm::Eval(compiled_value) = &compiled[0] else {
@@ -1748,6 +2107,60 @@ mod tests {
             .eval_expr(&compiled_call[0])
             .expect("compiled macro call should succeed");
         assert_eq!(compiled_result, Value::fixnum(3));
+    }
+
+    #[test]
+    fn test_compile_defmacro_runtime_preserves_easy_mmode_quote_shape() {
+        crate::test_utils::init_test_tracing();
+        let macro_src = r#"
+(defmacro test-fc-easy-mmode-shape (mode getter)
+  (let ((type nil))
+    (unless type (setq type '(:type 'boolean)))
+    `(progn
+       (defcustom ,mode nil "doc" ,@type)
+       ,(let ((modevar (pcase getter (`(default-value ',v) v) (_ getter)))
+              (minor-modes-var 'local-minor-modes))
+          (if (not (symbolp modevar))
+              (error "bad modevar")
+            `(with-no-warnings
+               (when (boundp ',minor-modes-var)
+                 (setq ,minor-modes-var
+                       (delq ',modevar ,minor-modes-var)))))))))
+"#;
+        let macro_forms = parse_forms(macro_src).unwrap();
+
+        let mut source_eval = direct_source_compile_surface_eval(true);
+        for form in &macro_forms {
+            source_eval
+                .eval_expr(form)
+                .expect("source easy-mmode shape macro should install");
+        }
+
+        let mut compiled_eval = direct_source_compile_surface_eval(true);
+        let compiled = compile_file_forms(&mut compiled_eval, &macro_forms).unwrap();
+        assert_eq!(compiled.len(), 1);
+        let CompiledForm::Eval(compiled_value) = &compiled[0] else {
+            panic!("expected compiled defmacro form");
+        };
+        compiled_eval
+            .eval_sub(*compiled_value)
+            .expect("compiled easy-mmode shape macro should install");
+
+        let macroexpand =
+            parse_forms("(macroexpand '(test-fc-easy-mmode-shape sample-mode sample-mode))")
+                .unwrap();
+        let source_expanded = source_eval
+            .eval_expr(&macroexpand[0])
+            .expect("source easy-mmode shape macroexpand should succeed");
+        let compiled_expanded = compiled_eval
+            .eval_expr(&macroexpand[0])
+            .expect("compiled easy-mmode shape macroexpand should succeed");
+
+        assert_eq!(
+            normalized_value(compiled_expanded),
+            normalized_value(source_expanded),
+            "compiled easy-mmode-style macro expansion should match source"
+        );
     }
 
     #[test]
@@ -1784,6 +2197,161 @@ mod tests {
             .eval_expr(&call[0])
             .expect("compiled defun should use compiled macro correctly");
         assert_eq!(result, Value::fixnum(42));
+    }
+
+    #[test]
+    fn test_compile_file_forms_defmacro_compiles_after_later_helper_macro_exists() {
+        crate::test_utils::init_test_tracing();
+        let forms = parse_forms(
+            r#"
+(defmacro test-fc-outer (x)
+  (test-fc-helper x))
+
+(defmacro test-fc-helper (x)
+  `(+ ,x 1))
+
+(defun test-fc-outer-user (x)
+  (test-fc-outer x))
+"#,
+        )
+        .unwrap();
+
+        let mut compile_eval = minimal_compile_surface_eval();
+        let compiled = compile_file_forms(&mut compile_eval, &forms).unwrap();
+        assert_eq!(compiled.len(), 3);
+        assert!(matches!(&compiled[0], CompiledForm::Eval(_)));
+        assert!(matches!(&compiled[1], CompiledForm::Eval(_)));
+        assert!(matches!(&compiled[2], CompiledForm::Eval(_)));
+
+        let mut runtime_eval = Context::new();
+        for form in &compiled {
+            let CompiledForm::Eval(value) = form else {
+                panic!("expected Eval compiled form");
+            };
+            runtime_eval
+                .eval_sub(*value)
+                .expect("compiled top-level form should install");
+        }
+
+        let mut source_eval = minimal_compile_surface_eval();
+        for form in &forms {
+            source_eval
+                .eval_expr(form)
+                .expect("source top-level form should install");
+        }
+        let macroexpand = parse_forms("(macroexpand '(test-fc-outer 41))").unwrap();
+        let source_expanded = source_eval
+            .eval_expr(&macroexpand[0])
+            .expect("source forward helper macro should macroexpand");
+        let expanded = runtime_eval
+            .eval_expr(&macroexpand[0])
+            .unwrap_or_else(|flow| match flow {
+                crate::emacs_core::error::EvalError::Signal { symbol, data, .. } => panic!(
+                    "compiled forward helper macro should macroexpand: {} {:?}",
+                    resolve_sym(symbol),
+                    data.iter()
+                        .map(|value| normalized_value(*value))
+                        .collect::<Vec<_>>()
+                ),
+                other => panic!("compiled forward helper macro should macroexpand: {other:?}"),
+            });
+        assert_eq!(
+            normalized_value(expanded),
+            normalized_value(source_expanded)
+        );
+    }
+
+    #[test]
+    fn test_compile_toplevel_defmacro_with_env_supports_later_helper_macro() {
+        crate::test_utils::init_test_tracing();
+        let forms = parse_forms(
+            r#"
+(defmacro test-fc-outer (x)
+  (test-fc-helper x))
+
+(defmacro test-fc-helper (x)
+  `(+ ,x 1))
+"#,
+        )
+        .unwrap();
+
+        let mut eval = minimal_compile_surface_eval();
+        let mut out = Vec::new();
+        let mut compiler_macro_env = Value::NIL;
+        let mut compiler_function_overrides = Value::NIL;
+        let mut deferred = Vec::new();
+
+        compile_toplevel_file_form(
+            &mut eval,
+            &forms[0],
+            &mut out,
+            &mut compiler_macro_env,
+            &mut compiler_function_overrides,
+            &mut deferred,
+        )
+        .expect("first defmacro should source-install");
+        compile_toplevel_file_form(
+            &mut eval,
+            &forms[1],
+            &mut out,
+            &mut compiler_macro_env,
+            &mut compiler_function_overrides,
+            &mut deferred,
+        )
+        .expect("helper defmacro should source-install");
+
+        let macroexpand_fn = macroexpand_all_fn(&eval).expect("macroexpand-all should exist");
+        let form_value = quote_to_value(&forms[0]);
+        let expanded = eval.with_gc_scope_result(|ctx| {
+            ctx.root(macroexpand_fn);
+            ctx.root(compiler_macro_env);
+            ctx.root(form_value);
+            ctx.apply(macroexpand_fn, vec![form_value, compiler_macro_env])
+        });
+        let expanded_err = expanded.as_ref().err().map(|flow| match flow {
+            Flow::Signal(sig) => (
+                sig.symbol_name().to_string(),
+                sig.data
+                    .iter()
+                    .map(|value| normalized_value(*value))
+                    .collect::<Vec<_>>(),
+            ),
+            other => (format!("{other:?}"), Vec::new()),
+        });
+        assert!(
+            expanded.is_ok(),
+            "top-level expansion should succeed with helper macro env: err={expanded_err:?} env={:?}",
+            normalized_value(compiler_macro_env)
+        );
+
+        let compiled = compile_toplevel_defmacro_with_env(&mut eval, &forms[0], compiler_macro_env)
+            .expect("defmacro compile should not signal");
+        assert!(
+            compiled.is_some(),
+            "deferred defmacro should compile once helper exists: expanded={:?} env={:?}",
+            expanded.ok().map(normalized_value),
+            normalized_value(compiler_macro_env)
+        );
+    }
+
+    #[test]
+    fn test_compile_file_forms_same_file_direct_helper_call_uses_compiler_function_env() {
+        crate::test_utils::init_test_tracing();
+        let forms = parse_forms(
+            r#"
+(defun test-fc-helper-direct (x)
+  x)
+
+(test-fc-helper-direct 42)
+"#,
+        )
+        .unwrap();
+
+        let mut eval = minimal_compile_surface_eval();
+        let compiled =
+            compile_file_forms(&mut eval, &forms).expect("same-file helper call should compile");
+
+        assert_eq!(compiled.len(), 2);
     }
 
     #[test]
@@ -1841,11 +2409,15 @@ mod tests {
         let mut direct_surface = minimal_compile_surface_eval();
         let mut direct_out = Vec::new();
         let mut direct_env = Value::NIL;
+        let mut direct_function_overrides = Value::NIL;
+        let mut deferred = Vec::new();
         compile_toplevel_file_form(
             &mut direct_surface,
             &forms[0],
             &mut direct_out,
             &mut direct_env,
+            &mut direct_function_overrides,
+            &mut deferred,
         )
         .expect("direct compiler surface should process macro form");
         direct_env = direct_surface.root(direct_env);

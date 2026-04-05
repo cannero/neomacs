@@ -32,10 +32,10 @@ use crate::tagged::header::VecLikeType;
 /// version in `load.rs`. Any change that makes previously emitted cached
 /// forms semantically unsafe to replay must bump it, even if the bincode
 /// layout itself stays readable.
-pub(crate) const NEOBC_FORMAT_VERSION: u32 = 14;
+pub(crate) const NEOBC_FORMAT_VERSION: u32 = 17;
 
 /// Magic bytes identifying a `.neobc` file.
-const NEOBC_MAGIC: &[u8] = b"NEOVM-BC-V14\n";
+const NEOBC_MAGIC: &[u8] = b"NEOVM-BC-V17\n";
 
 // ---------------------------------------------------------------------------
 // Serializable expression type (mirrors load.rs CachedExpr, which is private)
@@ -991,7 +991,19 @@ pub fn serialize_neobc_detailed(
     lexical_binding: bool,
     compiled_forms: &[CompiledForm],
 ) -> Result<Vec<u8>, UnsupportedValue> {
+    serialize_neobc_with_surface_detailed(source_hash, lexical_binding, compiled_forms, None)
+}
+
+pub fn serialize_neobc_with_surface_detailed(
+    source_hash: &str,
+    lexical_binding: bool,
+    compiled_forms: &[CompiledForm],
+    surface_fingerprint: Option<&str>,
+) -> Result<Vec<u8>, UnsupportedValue> {
     let mut builder = NeobcBuilder::new(source_hash, lexical_binding);
+    if let Some(surface_fingerprint) = surface_fingerprint {
+        builder.set_surface_fingerprint(surface_fingerprint);
+    }
     for (index, form) in compiled_forms.iter().enumerate() {
         let prefix = format!("forms[{index}]");
         match form {
@@ -1058,7 +1070,23 @@ pub fn write_neobc(
     lexical_binding: bool,
     compiled_forms: &[CompiledForm],
 ) -> std::io::Result<()> {
-    let bytes = serialize_neobc(source_hash, lexical_binding, compiled_forms).ok_or_else(|| {
+    write_neobc_with_surface(path, source_hash, lexical_binding, compiled_forms, None)
+}
+
+pub fn write_neobc_with_surface(
+    path: &Path,
+    source_hash: &str,
+    lexical_binding: bool,
+    compiled_forms: &[CompiledForm],
+    surface_fingerprint: Option<&str>,
+) -> std::io::Result<()> {
+    let bytes = serialize_neobc_with_surface_detailed(
+        source_hash,
+        lexical_binding,
+        compiled_forms,
+        surface_fingerprint,
+    )
+    .map_err(|_| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             "compiled forms contain non-serializable values",
