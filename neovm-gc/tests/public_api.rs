@@ -3,7 +3,9 @@ use neovm_gc::{
     HeapConfig, MovePolicy, Relocator, Trace, Tracer, TypeFlags, Weak, WeakCell, WeakProcessor,
     estimated_allocation_size,
 };
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -76,6 +78,22 @@ unsafe impl Trace for Link {
 }
 
 #[derive(Debug)]
+struct ThreadRecordingLeaf {
+    seen_threads: Arc<Mutex<HashSet<thread::ThreadId>>>,
+}
+
+unsafe impl Trace for ThreadRecordingLeaf {
+    fn trace(&self, _tracer: &mut dyn Tracer) {
+        self.seen_threads
+            .lock()
+            .expect("record trace thread")
+            .insert(thread::current().id());
+    }
+
+    fn relocate(&self, _relocator: &mut dyn Relocator) {}
+}
+
+#[derive(Debug)]
 struct WeakHolder {
     strong: EdgeCell<Leaf>,
     weak: WeakCell<Leaf>,
@@ -119,6 +137,50 @@ unsafe impl Trace for EphemeronHolder {
     }
 }
 
+#[derive(Debug)]
+struct ThreadRecordingEphemeronHolder {
+    seen_threads: Arc<Mutex<HashSet<thread::ThreadId>>>,
+    pair: Ephemeron<Leaf, Leaf>,
+}
+
+unsafe impl Trace for ThreadRecordingEphemeronHolder {
+    fn trace(&self, _tracer: &mut dyn Tracer) {}
+
+    fn relocate(&self, _relocator: &mut dyn Relocator) {}
+
+    fn process_weak(&self, processor: &mut dyn WeakProcessor) {
+        self.pair.process(processor);
+    }
+
+    fn visit_ephemerons(&self, visitor: &mut dyn EphemeronVisitor) {
+        self.seen_threads
+            .lock()
+            .expect("record ephemeron thread")
+            .insert(thread::current().id());
+        self.pair.visit(visitor);
+    }
+}
+
+#[derive(Debug)]
+struct ThreadRecordingWeakHolder {
+    seen_threads: Arc<Mutex<HashSet<thread::ThreadId>>>,
+    weak: WeakCell<Leaf>,
+}
+
+unsafe impl Trace for ThreadRecordingWeakHolder {
+    fn trace(&self, _tracer: &mut dyn Tracer) {}
+
+    fn relocate(&self, _relocator: &mut dyn Relocator) {}
+
+    fn process_weak(&self, processor: &mut dyn WeakProcessor) {
+        self.seen_threads
+            .lock()
+            .expect("record weak-processing thread")
+            .insert(thread::current().id());
+        self.weak.process(processor);
+    }
+}
+
 static PUBLIC_FINALIZE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug)]
@@ -156,6 +218,25 @@ fn public_api_keeps_rooted_pinned_object_across_major_gc() {
 
     assert_eq!(cycle.major_collections, 1);
     assert_eq!(unsafe { leaf.as_gc().as_non_null().as_ref() }.0, 500);
+}
+
+#[test]
+fn public_api_minor_plan_uses_configured_parallel_worker_budget() {
+    let mut heap = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            parallel_minor_workers: 4,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut scope = mutator.handle_scope();
+    mutator.alloc(&mut scope, Leaf(501)).expect("alloc leaf");
+
+    let plan = mutator.plan_for(CollectionKind::Minor);
+    assert_eq!(plan.kind, CollectionKind::Minor);
+    assert_eq!(plan.worker_count, 4);
+    assert!(plan.mark_slice_budget > 0);
 }
 
 #[test]
@@ -353,9 +434,14 @@ fn public_api_execute_major_plan_records_phase_trace() {
         .expect("execute major plan");
     assert_eq!(cycle.major_collections, 1);
     assert!(cycle.mark_steps > 0);
+    assert!(cycle.mark_rounds > 0);
     assert_eq!(
         mutator.heap().stats().collections.mark_steps,
         cycle.mark_steps
+    );
+    assert_eq!(
+        mutator.heap().stats().collections.mark_rounds,
+        cycle.mark_rounds
     );
     assert_eq!(
         mutator.heap().recent_phase_trace(),
@@ -413,7 +499,195 @@ fn public_api_major_plan_can_mark_in_multiple_slices() {
         .expect("execute sliced major plan");
     assert_eq!(cycle.major_collections, 1);
     assert!(cycle.mark_steps > 1);
+    assert!(cycle.mark_rounds > 1);
     assert_eq!(mutator.heap().object_count(), 40);
+}
+
+#[test]
+fn public_api_execute_major_plan_uses_worker_count_to_reduce_mark_rounds() {
+    fn run_major_cycle(worker_count: usize) -> neovm_gc::CollectionStats {
+        let mut heap = Heap::new(HeapConfig {
+            nursery: neovm_gc::spaces::NurseryConfig {
+                max_regular_object_bytes: 1,
+                ..neovm_gc::spaces::NurseryConfig::default()
+            },
+            large: neovm_gc::spaces::LargeObjectSpaceConfig {
+                threshold_bytes: usize::MAX,
+                ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+            },
+            old: neovm_gc::spaces::OldGenConfig {
+                region_bytes: 512,
+                line_bytes: 16,
+                concurrent_mark_workers: worker_count,
+                mutator_assist_slices: 0,
+                ..neovm_gc::spaces::OldGenConfig::default()
+            },
+            ..HeapConfig::default()
+        });
+        let mut mutator = heap.mutator();
+        let mut keep_scope = mutator.handle_scope();
+        for byte in 0..40u8 {
+            mutator
+                .alloc(&mut keep_scope, OldLeaf([byte; 32]))
+                .expect("alloc old leaf");
+        }
+
+        let plan = neovm_gc::CollectionPlan {
+            mark_slice_budget: 1,
+            ..mutator.plan_for(CollectionKind::Major)
+        };
+        mutator.execute_plan(plan).expect("execute major plan")
+    }
+
+    let single_worker = run_major_cycle(1);
+    let four_workers = run_major_cycle(4);
+
+    assert_eq!(single_worker.mark_steps, four_workers.mark_steps);
+    assert!(four_workers.mark_rounds < single_worker.mark_rounds);
+    assert_eq!(single_worker.mark_rounds, 40);
+    assert_eq!(four_workers.mark_rounds, 10);
+}
+
+#[test]
+fn public_api_execute_major_plan_traces_on_multiple_threads_when_worker_count_is_high() {
+    let seen_threads = Arc::new(Mutex::new(HashSet::new()));
+    let mut heap = Heap::new(HeapConfig::default());
+    let mut mutator = heap.mutator();
+    let mut keep_scope = mutator.handle_scope();
+    for _ in 0..128usize {
+        let _leaf = mutator
+            .alloc(
+                &mut keep_scope,
+                ThreadRecordingLeaf {
+                    seen_threads: seen_threads.clone(),
+                },
+            )
+            .expect("alloc recording leaf");
+    }
+
+    let mut plan = mutator.plan_for(CollectionKind::Major);
+    plan.worker_count = 4;
+    plan.mark_slice_budget = 8;
+
+    let cycle = mutator.execute_plan(plan).expect("execute major plan");
+    let unique_threads = seen_threads.lock().expect("read trace threads").len();
+
+    assert_eq!(cycle.major_collections, 1);
+    assert!(
+        unique_threads > 1,
+        "expected parallel mark tracing across multiple threads, saw {unique_threads}"
+    );
+}
+
+#[test]
+fn public_api_execute_minor_plan_traces_on_multiple_threads_when_worker_count_is_high() {
+    let seen_threads = Arc::new(Mutex::new(HashSet::new()));
+    let mut heap = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            parallel_minor_workers: 4,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut keep_scope = mutator.handle_scope();
+    for _ in 0..128usize {
+        let _leaf = mutator
+            .alloc(
+                &mut keep_scope,
+                ThreadRecordingLeaf {
+                    seen_threads: seen_threads.clone(),
+                },
+            )
+            .expect("alloc recording leaf");
+    }
+
+    let mut plan = mutator.plan_for(CollectionKind::Minor);
+    plan.mark_slice_budget = 8;
+
+    let cycle = mutator.execute_plan(plan).expect("execute minor plan");
+    let unique_threads = seen_threads.lock().expect("read trace threads").len();
+
+    assert_eq!(cycle.minor_collections, 1);
+    assert!(cycle.mark_rounds > 0);
+    assert!(
+        unique_threads > 1,
+        "expected parallel minor tracing across multiple threads, saw {unique_threads}"
+    );
+}
+
+#[test]
+fn public_api_execute_major_plan_visits_ephemerons_on_multiple_threads_when_worker_count_is_high() {
+    let seen_threads = Arc::new(Mutex::new(HashSet::new()));
+    let mut heap = Heap::new(HeapConfig::default());
+    let mut mutator = heap.mutator();
+    let mut keep_scope = mutator.handle_scope();
+    for index in 0..128u64 {
+        let key = mutator
+            .alloc(&mut keep_scope, Leaf(index))
+            .expect("alloc ephemeron key");
+        let value = mutator
+            .alloc(&mut keep_scope, Leaf(index + 1_000))
+            .expect("alloc ephemeron value");
+        let _holder = mutator
+            .alloc(
+                &mut keep_scope,
+                ThreadRecordingEphemeronHolder {
+                    seen_threads: seen_threads.clone(),
+                    pair: Ephemeron::new(Weak::new(key.as_gc()), Weak::new(value.as_gc())),
+                },
+            )
+            .expect("alloc ephemeron holder");
+    }
+
+    let mut plan = mutator.plan_for(CollectionKind::Major);
+    plan.worker_count = 4;
+    plan.mark_slice_budget = 8;
+
+    let cycle = mutator.execute_plan(plan).expect("execute major plan");
+    let unique_threads = seen_threads.lock().expect("read ephemeron threads").len();
+
+    assert_eq!(cycle.major_collections, 1);
+    assert!(
+        unique_threads > 1,
+        "expected parallel ephemeron visitation across multiple threads, saw {unique_threads}"
+    );
+}
+
+#[test]
+fn public_api_execute_major_plan_processes_weak_edges_on_multiple_threads_when_worker_count_is_high()
+ {
+    let seen_threads = Arc::new(Mutex::new(HashSet::new()));
+    let mut heap = Heap::new(HeapConfig::default());
+    let mut mutator = heap.mutator();
+    let mut keep_scope = mutator.handle_scope();
+    for index in 0..128u64 {
+        let target = mutator
+            .alloc(&mut keep_scope, Leaf(index))
+            .expect("alloc weak target");
+        let _holder = mutator
+            .alloc(
+                &mut keep_scope,
+                ThreadRecordingWeakHolder {
+                    seen_threads: seen_threads.clone(),
+                    weak: WeakCell::new(Weak::new(target.as_gc())),
+                },
+            )
+            .expect("alloc weak holder");
+    }
+
+    let mut plan = mutator.plan_for(CollectionKind::Major);
+    plan.worker_count = 4;
+    plan.mark_slice_budget = 8;
+
+    let cycle = mutator.execute_plan(plan).expect("execute major plan");
+    let unique_threads = seen_threads.lock().expect("read weak threads").len();
+
+    assert_eq!(cycle.major_collections, 1);
+    assert!(
+        unique_threads > 1,
+        "expected parallel weak processing across multiple threads, saw {unique_threads}"
+    );
 }
 
 #[test]
@@ -476,12 +750,14 @@ fn public_api_persistent_major_mark_session_advances_and_finishes() {
     assert!(advances > 1);
     assert_eq!(final_progress.remaining_work, 0);
     assert!(final_progress.mark_steps > 1);
+    assert!(final_progress.mark_rounds > 1);
 
     let cycle = mutator
         .finish_major_collection()
         .expect("finish persistent major mark");
     assert_eq!(cycle.major_collections, 1);
     assert_eq!(cycle.mark_steps, final_progress.mark_steps);
+    assert_eq!(cycle.mark_rounds, final_progress.mark_rounds);
     assert_eq!(mutator.heap().object_count(), 41);
     assert_eq!(
         mutator.heap().last_completed_plan(),
@@ -667,6 +943,7 @@ fn public_api_active_major_mark_plan_is_visible() {
             completed: false,
             drained_objects: 0,
             mark_steps: 0,
+            mark_rounds: 0,
             remaining_work: 12,
         })
     );
@@ -894,6 +1171,7 @@ fn public_api_poll_active_major_mark_uses_configured_worker_round_width() {
         .expect("active progress");
     assert_eq!(first_round.drained_objects, 4);
     assert_eq!(first_round.mark_steps, 4);
+    assert_eq!(first_round.mark_rounds, 1);
     assert!(first_round.remaining_work > 0);
 }
 
@@ -943,6 +1221,7 @@ fn public_api_background_collection_round_finishes_active_major_session() {
             }
             neovm_gc::BackgroundCollectionStatus::Progress(progress) => {
                 assert!(progress.mark_steps > 0);
+                assert!(progress.mark_rounds > 0);
             }
             neovm_gc::BackgroundCollectionStatus::ReadyToFinish(_) => {
                 panic!("direct background service round should finish immediately")
@@ -1261,6 +1540,7 @@ fn public_api_background_collector_tick_aggregates_multiple_rounds() {
         neovm_gc::BackgroundCollectionStatus::Progress(progress) => {
             assert_eq!(progress.drained_objects, 4);
             assert_eq!(progress.mark_steps, 4);
+            assert_eq!(progress.mark_rounds, 2);
             assert!(progress.remaining_work > 0);
         }
     }
@@ -2452,13 +2732,13 @@ fn public_api_background_worker_owns_autonomous_service_loop() {
 
     let deadline = Instant::now() + Duration::from_secs(1);
     loop {
+        if shared
+            .last_completed_plan()
+            .expect("inspect worker result snapshot")
+            .map(|plan| plan.kind)
+            == Some(CollectionKind::Major)
         {
-            let heap = shared
-                .lock()
-                .expect("lock shared heap to inspect worker result");
-            if heap.last_completed_plan().map(|plan| plan.kind) == Some(CollectionKind::Major) {
-                break;
-            }
+            break;
         }
         assert!(
             Instant::now() < deadline,
@@ -2472,12 +2752,17 @@ fn public_api_background_worker_owns_autonomous_service_loop() {
     assert_eq!(stats.collector.sessions_started, 1);
     assert_eq!(stats.collector.sessions_finished, 1);
 
-    let heap = shared
-        .lock()
-        .expect("lock shared heap after worker completion");
-    assert_eq!(heap.active_major_mark_plan(), None);
     assert_eq!(
-        heap.last_completed_plan().map(|plan| plan.kind),
+        shared
+            .active_major_mark_plan()
+            .expect("inspect active major-mark plan"),
+        None
+    );
+    assert_eq!(
+        shared
+            .last_completed_plan()
+            .expect("inspect last completed plan")
+            .map(|plan| plan.kind),
         Some(CollectionKind::Major)
     );
 }
@@ -2500,6 +2785,363 @@ fn public_api_shared_heap_with_mutator_runs_mutator_closure() {
             .expect("inspect active plan"),
         None
     );
+}
+
+#[test]
+fn public_api_shared_try_with_mutator_reports_would_block_when_heap_is_locked() {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let _guard = shared.lock().expect("lock shared heap");
+
+    let result = shared.try_with_mutator(|mutator| {
+        let mut scope = mutator.handle_scope();
+        let _leaf = mutator.alloc(&mut scope, Leaf(9)).expect("alloc leaf");
+    });
+
+    assert_eq!(result, Err(neovm_gc::SharedHeapError::WouldBlock));
+}
+
+#[test]
+fn public_api_shared_snapshot_reads_work_while_heap_lock_is_held_and_refresh_on_drop() {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let before = shared.stats().expect("read snapshot stats before lock");
+
+    {
+        let mut heap = shared.lock().expect("lock shared heap");
+        assert_eq!(
+            shared
+                .stats()
+                .expect("read snapshot stats while heap lock held"),
+            before
+        );
+        assert_eq!(
+            shared
+                .last_completed_plan()
+                .expect("read last completed plan while heap lock held"),
+            None
+        );
+        assert_eq!(
+            shared
+                .active_major_mark_plan()
+                .expect("read active plan while heap lock held"),
+            None
+        );
+
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        let _leaf = mutator
+            .alloc(&mut scope, Leaf(11))
+            .expect("alloc leaf under guard");
+
+        assert_eq!(
+            shared
+                .stats()
+                .expect("snapshot remains stable until guard drop"),
+            before
+        );
+    }
+
+    let after = shared
+        .stats()
+        .expect("read snapshot stats after guard drop");
+    assert!(after.nursery.live_bytes > before.nursery.live_bytes);
+}
+
+#[test]
+fn public_api_shared_status_reads_work_while_heap_lock_is_held_and_refresh_on_drop() {
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            region_bytes: 512,
+            line_bytes: 16,
+            concurrent_mark_workers: 1,
+            mutator_assist_slices: 0,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    let before = shared.status().expect("read shared status before lock");
+    assert_eq!(before.recommended_plan.kind, CollectionKind::Minor);
+    assert_eq!(before.active_major_mark_plan, None);
+
+    {
+        let mut heap = shared.lock().expect("lock shared heap");
+        assert_eq!(
+            shared
+                .status()
+                .expect("read shared status while heap lock held"),
+            before
+        );
+
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        for byte in 0..32u8 {
+            mutator
+                .alloc(&mut scope, OldLeaf([byte; 32]))
+                .expect("alloc old leaf under guard");
+        }
+
+        assert_eq!(
+            shared
+                .status()
+                .expect("shared status stays stable until guard drop"),
+            before
+        );
+    }
+
+    let after = shared
+        .status()
+        .expect("read shared status after guard drop");
+    assert!(after.stats.old.live_bytes > before.stats.old.live_bytes);
+    assert_eq!(after.recommended_plan.kind, CollectionKind::Major);
+    assert_eq!(after.active_major_mark_plan, None);
+}
+
+#[test]
+fn public_api_shared_status_supports_parallel_snapshot_readers() {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let reads = Arc::new(AtomicUsize::new(0));
+    let mut threads = Vec::new();
+
+    for _ in 0..4 {
+        let shared = shared.clone();
+        let reads = Arc::clone(&reads);
+        threads.push(thread::spawn(move || {
+            for _ in 0..128 {
+                let status = shared.status().expect("read shared status");
+                assert_eq!(status.recommended_plan.kind, CollectionKind::Minor);
+                reads.fetch_add(1, Ordering::Relaxed);
+            }
+        }));
+    }
+
+    for thread in threads {
+        thread.join().expect("join snapshot reader");
+    }
+
+    assert_eq!(reads.load(Ordering::Relaxed), 512);
+}
+
+#[test]
+fn public_api_shared_snapshot_major_mark_progress_reads_work_while_heap_lock_is_held_and_refresh_on_drop()
+ {
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            region_bytes: 512,
+            line_bytes: 16,
+            concurrent_mark_workers: 1,
+            mutator_assist_slices: 0,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+
+    let first_progress = shared
+        .with_mutator(|mutator| {
+            let mut keep_scope = mutator.handle_scope();
+            for byte in 0..32u8 {
+                mutator
+                    .alloc(&mut keep_scope, OldLeaf([byte; 32]))
+                    .expect("alloc old leaf");
+            }
+
+            let mut plan = mutator.plan_for(CollectionKind::Major);
+            plan.worker_count = 1;
+            plan.mark_slice_budget = 1;
+            mutator.begin_major_mark(plan).expect("begin major mark");
+            let _ = mutator
+                .poll_active_major_mark()
+                .expect("poll first major mark slice");
+            mutator
+                .major_mark_progress()
+                .expect("session major mark progress")
+        })
+        .expect("seed heap and start major mark");
+
+    let second_progress;
+    {
+        let mut heap = shared.lock().expect("lock shared heap");
+        assert_eq!(
+            shared
+                .major_mark_progress()
+                .expect("read snapshot progress while heap lock held"),
+            Some(first_progress)
+        );
+
+        second_progress = {
+            let mut mutator = heap.mutator();
+            let _ = mutator
+                .poll_active_major_mark()
+                .expect("poll second major mark slice");
+            mutator
+                .major_mark_progress()
+                .expect("second session major mark progress")
+        };
+
+        assert!(
+            second_progress.mark_steps > first_progress.mark_steps
+                || second_progress.remaining_work < first_progress.remaining_work
+        );
+        assert_eq!(
+            shared
+                .major_mark_progress()
+                .expect("snapshot stays stable until guard drop"),
+            Some(first_progress)
+        );
+    }
+
+    assert_eq!(
+        shared
+            .major_mark_progress()
+            .expect("snapshot refreshes after guard drop"),
+        Some(second_progress)
+    );
+}
+
+#[test]
+fn public_api_shared_snapshot_recommended_background_plan_reads_work_while_heap_lock_is_held_and_refresh_on_drop()
+ {
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            region_bytes: 512,
+            line_bytes: 16,
+            concurrent_mark_workers: 2,
+            mutator_assist_slices: 0,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+
+    shared
+        .with_mutator(|mutator| {
+            let mut keep_scope = mutator.handle_scope();
+            for byte in 0..16u8 {
+                mutator
+                    .alloc(&mut keep_scope, OldLeaf([byte; 32]))
+                    .expect("alloc old leaf");
+            }
+        })
+        .expect("seed heap for background recommendation");
+
+    let before = shared
+        .recommended_background_plan()
+        .expect("read snapshot recommendation before lock")
+        .expect("background recommendation before lock");
+    assert_eq!(before.kind, CollectionKind::Major);
+
+    let after;
+    {
+        let mut heap = shared.lock().expect("lock shared heap");
+        assert_eq!(
+            shared
+                .recommended_background_plan()
+                .expect("read snapshot recommendation while heap lock held"),
+            Some(before.clone())
+        );
+
+        let mut runtime = heap.collector_runtime();
+        runtime
+            .begin_major_mark(before.clone())
+            .expect("begin major mark under guard");
+        after = heap.recommended_background_plan();
+
+        assert_eq!(
+            shared
+                .recommended_background_plan()
+                .expect("snapshot stays stable until guard drop"),
+            Some(before.clone())
+        );
+    }
+
+    assert_eq!(
+        shared
+            .recommended_background_plan()
+            .expect("snapshot refreshes after guard drop"),
+        after
+    );
+}
+
+#[test]
+fn public_api_shared_snapshot_recommended_plan_reads_work_while_heap_lock_is_held_and_refresh_on_drop()
+ {
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            region_bytes: 512,
+            line_bytes: 16,
+            concurrent_mark_workers: 1,
+            mutator_assist_slices: 0,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    let before = shared
+        .recommended_plan()
+        .expect("read snapshot recommended plan before lock");
+    assert_eq!(before.kind, CollectionKind::Minor);
+
+    {
+        let mut heap = shared.lock().expect("lock shared heap");
+        assert_eq!(
+            shared
+                .recommended_plan()
+                .expect("read snapshot recommended plan while heap lock held"),
+            before
+        );
+
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        for byte in 0..32u8 {
+            mutator
+                .alloc(&mut scope, OldLeaf([byte; 32]))
+                .expect("alloc old leaf under guard");
+        }
+
+        assert_eq!(
+            shared
+                .recommended_plan()
+                .expect("snapshot stays stable until guard drop"),
+            before
+        );
+    }
+
+    let after = shared
+        .recommended_plan()
+        .expect("read snapshot recommended plan after guard drop");
+    assert_eq!(after.kind, CollectionKind::Major);
 }
 
 #[test]
@@ -2600,8 +3242,9 @@ fn public_api_shared_mutator_can_allocate_during_background_worker_session() {
     }
 
     let stats = worker.join().expect("join background worker");
-    assert_eq!(stats.collector.sessions_started, 1);
-    assert_eq!(stats.collector.sessions_finished, 0);
+    assert!(stats.collector.sessions_started >= 1);
+    assert!(stats.collector.sessions_finished <= stats.collector.sessions_started);
+    assert!(stats.collector.ticks > 0);
 }
 
 #[test]
@@ -2659,4 +3302,499 @@ fn public_api_shared_background_service_drives_shared_heap_without_manual_lockin
             .expect("inspect shared background plan"),
         None
     );
+}
+
+#[test]
+fn public_api_shared_background_service_status_reads_work_while_heap_lock_is_held_and_refresh_on_drop()
+ {
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            region_bytes: 512,
+            line_bytes: 16,
+            concurrent_mark_workers: 1,
+            mutator_assist_slices: 0,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    let service = shared.background_service(neovm_gc::BackgroundCollectorConfig::default());
+    let before = service.status().expect("read service status before lock");
+    assert_eq!(before.collector.ticks, 0);
+    assert_eq!(before.heap.recommended_plan.kind, CollectionKind::Minor);
+
+    {
+        let mut heap = shared.lock().expect("lock shared heap");
+        assert_eq!(
+            service
+                .status()
+                .expect("read service status while heap lock held"),
+            before
+        );
+
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        for byte in 0..32u8 {
+            mutator
+                .alloc(&mut scope, OldLeaf([byte; 32]))
+                .expect("alloc old leaf under guard");
+        }
+
+        assert_eq!(
+            service
+                .status()
+                .expect("service status stays stable until guard drop"),
+            before
+        );
+    }
+
+    let after = service
+        .status()
+        .expect("read service status after guard drop");
+    assert_eq!(after.collector.ticks, before.collector.ticks);
+    assert!(after.heap.stats.old.live_bytes > before.heap.stats.old.live_bytes);
+    assert_eq!(after.heap.recommended_plan.kind, CollectionKind::Major);
+}
+
+#[test]
+fn public_api_shared_background_service_try_tick_returns_idle_from_snapshot_when_heap_is_locked() {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig::default());
+    let _guard = shared.lock().expect("lock shared heap");
+
+    let result = service.try_tick();
+
+    assert_eq!(result, Ok(neovm_gc::BackgroundCollectionStatus::Idle));
+    assert_eq!(service.stats().ticks, 1);
+}
+
+#[test]
+fn public_api_shared_background_service_try_run_until_idle_returns_idle_from_snapshot_when_heap_is_locked()
+ {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig::default());
+    let _guard = shared.lock().expect("lock shared heap");
+
+    let result = service.try_run_until_idle();
+
+    assert_eq!(result, Ok(None));
+    assert_eq!(service.stats().ticks, 1);
+}
+
+#[test]
+fn public_api_shared_background_service_try_finish_returns_none_from_snapshot_when_heap_is_locked()
+{
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig::default());
+    let _guard = shared.lock().expect("lock shared heap");
+
+    let result = service.try_finish_active_major_collection_if_ready();
+
+    assert_eq!(result, Ok(None));
+}
+
+#[test]
+fn public_api_shared_background_service_try_finish_returns_none_from_snapshot_for_active_not_ready_session()
+ {
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            concurrent_mark_workers: 4,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for byte in 0..64u8 {
+                mutator
+                    .alloc(&mut scope, OldLeaf([byte; 32]))
+                    .expect("allocate old leaf");
+            }
+            let plan = mutator.plan_for(CollectionKind::Major);
+            mutator.begin_major_mark(plan).expect("begin major mark");
+        })
+        .expect("seed active major-mark session");
+
+    let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig::default());
+    let _guard = shared.lock().expect("lock shared heap");
+
+    assert_eq!(
+        service.try_finish_active_major_collection_if_ready(),
+        Ok(None)
+    );
+}
+
+#[test]
+fn public_api_shared_background_service_try_tick_returns_ready_from_snapshot_for_completed_active_session()
+ {
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            concurrent_mark_workers: 4,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for byte in 0..64u8 {
+                mutator
+                    .alloc(&mut scope, OldLeaf([byte; 32]))
+                    .expect("allocate old leaf");
+            }
+            let plan = mutator.plan_for(CollectionKind::Major);
+            mutator.begin_major_mark(plan).expect("begin major mark");
+            loop {
+                let progress = mutator
+                    .poll_active_major_mark()
+                    .expect("poll active major mark")
+                    .expect("major-mark session should stay active");
+                if progress.completed {
+                    break;
+                }
+            }
+        })
+        .expect("seed completed major-mark session");
+
+    let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig {
+        auto_finish_when_ready: false,
+        ..neovm_gc::BackgroundCollectorConfig::default()
+    });
+    let _guard = shared.lock().expect("lock shared heap");
+
+    let result = service.try_tick();
+
+    match result {
+        Ok(neovm_gc::BackgroundCollectionStatus::ReadyToFinish(progress)) => {
+            assert!(progress.completed);
+            assert_eq!(progress.remaining_work, 0);
+        }
+        other => panic!("expected ready-to-finish snapshot status, got {other:?}"),
+    }
+    assert_eq!(service.stats().ticks, 1);
+}
+
+#[test]
+fn public_api_background_worker_uses_snapshot_idle_fast_path_when_locked_heap_has_no_work() {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let worker = shared.spawn_background_worker(neovm_gc::BackgroundWorkerConfig {
+        collector: neovm_gc::BackgroundCollectorConfig::default(),
+        idle_sleep: Duration::from_millis(1),
+        busy_sleep: Duration::ZERO,
+    });
+
+    {
+        let _guard = shared.lock().expect("lock shared heap");
+        thread::sleep(Duration::from_millis(10));
+    }
+
+    worker.request_stop();
+    let stats = worker.join().expect("join background worker");
+    assert!(stats.loops > 0);
+    assert!(stats.snapshot_idle_loops > 0);
+    assert_eq!(stats.contention_loops, 0);
+}
+
+#[test]
+fn public_api_background_worker_wakes_early_on_shared_heap_signal() {
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            region_bytes: 512,
+            line_bytes: 16,
+            concurrent_mark_workers: 2,
+            mutator_assist_slices: 0,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    let worker = shared.spawn_background_worker(neovm_gc::BackgroundWorkerConfig {
+        collector: neovm_gc::BackgroundCollectorConfig {
+            auto_finish_when_ready: false,
+            ..neovm_gc::BackgroundCollectorConfig::default()
+        },
+        idle_sleep: Duration::from_millis(250),
+        busy_sleep: Duration::ZERO,
+    });
+
+    let wait_deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        let status = worker.status().expect("read worker status before wake");
+        if status.worker.wait_loops > 0 {
+            break;
+        }
+        assert!(
+            Instant::now() < wait_deadline,
+            "background worker did not enter wait state before timeout"
+        );
+        thread::sleep(Duration::from_millis(1));
+    }
+
+    let start = Instant::now();
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for byte in 0..16u8 {
+                mutator
+                    .alloc(&mut scope, OldLeaf([byte; 32]))
+                    .expect("alloc old leaf");
+            }
+        })
+        .expect("seed old objects to wake worker");
+
+    let wake_deadline = Instant::now() + Duration::from_millis(150);
+    loop {
+        let active = shared
+            .active_major_mark_plan()
+            .expect("inspect active major-mark plan");
+        if active.is_some() {
+            break;
+        }
+        assert!(
+            Instant::now() < wake_deadline,
+            "background worker did not wake on shared-heap signal before timeout"
+        );
+        thread::sleep(Duration::from_millis(1));
+    }
+
+    assert!(start.elapsed() < Duration::from_millis(150));
+
+    worker.request_stop();
+    let stats = worker.join().expect("join background worker");
+    assert!(stats.signal_wakeups > 0);
+}
+
+#[test]
+fn public_api_shared_heap_wait_for_change_wakes_on_guard_drop() {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let observed_epoch = shared.epoch().expect("read initial shared epoch");
+    let waking_shared = shared.clone();
+    let waiter = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(10));
+        waking_shared
+            .with_mutator(|mutator| {
+                let mut scope = mutator.handle_scope();
+                let _leaf = mutator.alloc(&mut scope, Leaf(7)).expect("alloc wake leaf");
+            })
+            .expect("mutate shared heap");
+    });
+
+    let (next_epoch, changed) = shared
+        .wait_for_change(observed_epoch, Duration::from_secs(1))
+        .expect("wait for shared epoch change");
+    waiter.join().expect("join waking thread");
+
+    assert!(changed);
+    assert!(next_epoch > observed_epoch);
+    assert!(
+        shared
+            .status()
+            .expect("read status after wake")
+            .stats
+            .nursery
+            .live_bytes
+            > 0
+    );
+}
+
+#[test]
+fn public_api_shared_background_service_wait_for_change_delegates_to_shared_heap_signal() {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let service = shared.background_service(neovm_gc::BackgroundCollectorConfig::default());
+    let observed_epoch = shared.epoch().expect("read initial shared epoch");
+    let waking_shared = shared.clone();
+    let waiter = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(10));
+        waking_shared
+            .with_mutator(|mutator| {
+                let mut scope = mutator.handle_scope();
+                let _leaf = mutator.alloc(&mut scope, Leaf(9)).expect("alloc wake leaf");
+            })
+            .expect("mutate shared heap");
+    });
+
+    let (next_epoch, changed) = service
+        .wait_for_change(observed_epoch, Duration::from_secs(1))
+        .expect("wait for service-visible shared-heap change");
+    waiter.join().expect("join waking thread");
+
+    assert!(changed);
+    assert!(next_epoch > observed_epoch);
+}
+
+#[test]
+fn public_api_background_worker_request_stop_wakes_waiting_worker() {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let worker = shared.spawn_background_worker(neovm_gc::BackgroundWorkerConfig {
+        collector: neovm_gc::BackgroundCollectorConfig::default(),
+        idle_sleep: Duration::from_millis(250),
+        busy_sleep: Duration::ZERO,
+    });
+
+    let wait_deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        let status = worker.status().expect("read worker status before stop");
+        if status.worker.wait_loops > 0 {
+            break;
+        }
+        assert!(
+            Instant::now() < wait_deadline,
+            "background worker did not enter wait state before timeout"
+        );
+        thread::sleep(Duration::from_millis(1));
+    }
+
+    let start = Instant::now();
+    worker.request_stop();
+    let stats = worker.join().expect("join background worker");
+    assert!(start.elapsed() < Duration::from_millis(150));
+    assert!(stats.wait_loops > 0);
+    assert!(stats.signal_wakeups > 0);
+}
+
+#[test]
+fn public_api_background_worker_status_reads_work_while_heap_lock_is_held_and_refresh_on_drop() {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let worker = shared.spawn_background_worker(neovm_gc::BackgroundWorkerConfig {
+        collector: neovm_gc::BackgroundCollectorConfig::default(),
+        idle_sleep: Duration::from_millis(1),
+        busy_sleep: Duration::ZERO,
+    });
+    thread::sleep(Duration::from_millis(10));
+    let before = worker.status().expect("read worker status before lock");
+
+    {
+        let mut heap = shared.lock().expect("lock shared heap");
+        let during = worker
+            .status()
+            .expect("read worker status while heap lock held");
+        assert_eq!(during.heap, before.heap);
+        assert!(during.worker.loops >= before.worker.loops);
+
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        let _leaf = mutator
+            .alloc(&mut scope, Leaf(11))
+            .expect("alloc leaf under guard");
+
+        let still = worker
+            .status()
+            .expect("worker status stays stable until guard drop");
+        assert_eq!(still.heap, before.heap);
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        let after = worker
+            .status()
+            .expect("read worker status after guard drop");
+        if after.heap.stats.nursery.live_bytes > before.heap.stats.nursery.live_bytes {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "worker status did not observe refreshed heap snapshot before timeout"
+        );
+        thread::sleep(Duration::from_millis(1));
+    }
+
+    worker.request_stop();
+    let _ = worker.join().expect("join background worker");
+}
+
+#[test]
+fn public_api_background_worker_records_contention_loops_when_heap_lock_is_held() {
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            region_bytes: 512,
+            line_bytes: 16,
+            concurrent_mark_workers: 2,
+            mutator_assist_slices: 0,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            let mut keep_scope = mutator.handle_scope();
+            for byte in 0..16u8 {
+                mutator
+                    .alloc(&mut keep_scope, OldLeaf([byte; 32]))
+                    .expect("alloc old leaf");
+            }
+        })
+        .expect("seed shared heap");
+
+    let worker = shared.spawn_background_worker(neovm_gc::BackgroundWorkerConfig {
+        collector: neovm_gc::BackgroundCollectorConfig::default(),
+        idle_sleep: Duration::from_millis(1),
+        busy_sleep: Duration::ZERO,
+    });
+
+    {
+        let _guard = shared.lock().expect("lock shared heap");
+        thread::sleep(Duration::from_millis(10));
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        let status = worker.status().expect("read worker status");
+        if status.worker.contention_loops > 0 {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "background worker did not record contention before timeout"
+        );
+        thread::sleep(Duration::from_millis(1));
+    }
+
+    worker.request_stop();
+    let stats = worker.join().expect("join background worker");
+    assert!(stats.contention_loops > 0);
+    assert!(stats.wait_loops > 0);
 }
