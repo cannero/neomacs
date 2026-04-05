@@ -46,6 +46,7 @@ pub(crate) trait MacroexpandRuntime {
         form: Value,
         definition: Value,
         args: Vec<Value>,
+        environment: Option<Value>,
     ) -> Result<Value, Flow>;
 }
 
@@ -67,8 +68,9 @@ impl MacroexpandRuntime for super::eval::Context {
         form: Value,
         definition: Value,
         args: Vec<Value>,
+        environment: Option<Value>,
     ) -> Result<Value, Flow> {
-        self.expand_macro_for_macroexpand(form, definition, args)
+        self.expand_macro_for_macroexpand(form, definition, args, environment)
     }
 }
 
@@ -1071,7 +1073,7 @@ fn macroexpand_once_with_environment<R: MacroexpandRuntime>(
     };
     let args = list_to_vec(&tail)
         .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("listp"), tail]))?;
-    let expanded = runtime.apply_macro_function(form, function, args)?;
+    let expanded = runtime.apply_macro_function(form, function, args, environment.copied())?;
     // Match real Emacs (eval.c line 1319): if the macro expander returned
     // the same form object (EQ), treat it as "no expansion occurred".
     let did_expand = !eq_value(&form, &expanded);

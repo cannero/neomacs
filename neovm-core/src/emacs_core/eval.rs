@@ -10599,26 +10599,38 @@ impl Context {
     }
 
     fn macro_expansion_context_key(&self) -> u64 {
-        fn value_identity_key(value: Value) -> u64 {
-            match value.kind() {
-                ValueKind::Nil => 0,
-                ValueKind::T => 1,
-                ValueKind::Fixnum(n) => ((n as u64).wrapping_mul(0x9E37_79B1)) ^ 0x10,
-                ValueKind::Symbol(sym) => ((sym.0 as u64) << 8) ^ 0x20,
-                ValueKind::Veclike(VecLikeType::Subr) => {
-                    let sym = value.as_subr_id().unwrap();
-                    ((sym.0 as u64) << 8) ^ 0x22
-                }
-                _ => (value.bits() as u64) ^ 0x30,
-            }
+        self.macro_expansion_context_key_for_environment(None)
+    }
+
+    fn macro_expansion_context_key_for_environment(&self, environment: Option<Value>) -> u64 {
+        use std::hash::{Hash, Hasher};
+
+        fn fingerprint_macroexp_context_value(
+            value: Value,
+            tag: u8,
+            hasher: &mut impl std::hash::Hasher,
+        ) {
+            tag.hash(hasher);
+            let mut seen = std::collections::HashSet::new();
+            value_fingerprint(value, hasher, 4, &mut seen);
         }
 
-        value_identity_key(
-            self.obarray()
-                .symbol_value("macroexpand-all-environment")
-                .copied()
-                .unwrap_or(Value::NIL),
-        )
+        let current_macroexpand_env = self
+            .obarray()
+            .symbol_value("macroexpand-all-environment")
+            .copied()
+            .unwrap_or(Value::NIL);
+        let current_dynvars = self
+            .obarray()
+            .symbol_value_id(macroexp_dynvars_symbol())
+            .copied()
+            .unwrap_or(Value::NIL);
+
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        fingerprint_macroexp_context_value(environment.unwrap_or(Value::NIL), 0x41, &mut hasher);
+        fingerprint_macroexp_context_value(current_macroexpand_env, 0x42, &mut hasher);
+        fingerprint_macroexp_context_value(current_dynvars, 0x43, &mut hasher);
+        hasher.finish()
     }
 
     fn runtime_macro_expansion_cache_enabled(&self) -> bool {
@@ -10632,11 +10644,12 @@ impl Context {
         &self,
         function: Value,
         args_fingerprint: u64,
+        context_key: u64,
     ) -> (usize, usize, u64) {
         (
             function.bits() ^ 0x9E37_79B1usize,
             args_fingerprint as usize,
-            self.macro_expansion_context_key(),
+            context_key,
         )
     }
 
@@ -10644,12 +10657,14 @@ impl Context {
         &mut self,
         function: Value,
         args: &[Value],
+        environment: Option<Value>,
     ) -> Option<Value> {
         if !self.runtime_macro_expansion_cache_enabled() {
             return None;
         }
         let current_fp = runtime_tail_fingerprint(args);
-        let cache_key = self.runtime_macro_expansion_cache_key(function, current_fp);
+        let context_key = self.macro_expansion_context_key_for_environment(environment);
+        let cache_key = self.runtime_macro_expansion_cache_key(function, current_fp, context_key);
         let cached = self
             .runtime_macro_expansion_cache
             .get(&cache_key)
@@ -10667,6 +10682,7 @@ impl Context {
         args: &[Value],
         expanded_value: &Value,
         expand_elapsed: std::time::Duration,
+        environment: Option<Value>,
     ) {
         if !self.runtime_macro_expansion_cache_enabled() {
             return;
@@ -10674,7 +10690,8 @@ impl Context {
         self.macro_cache_misses += 1;
         self.macro_expand_total_us += expand_elapsed.as_micros() as u64;
         let current_fp = runtime_tail_fingerprint(args);
-        let cache_key = self.runtime_macro_expansion_cache_key(function, current_fp);
+        let context_key = self.macro_expansion_context_key_for_environment(environment);
+        let cache_key = self.runtime_macro_expansion_cache_key(function, current_fp, context_key);
         let cache_entry = RuntimeMacroExpansionCacheEntry::new(*expanded_value, current_fp);
         if expand_elapsed.as_millis() > 50 {
             tracing::warn!(
@@ -10748,8 +10765,9 @@ impl Context {
         form: Value,
         definition: Value,
         args: Vec<Value>,
+        environment: Option<Value>,
     ) -> Result<Value, Flow> {
-        if let Some(cached) = self.lookup_runtime_macro_expansion(definition, &args) {
+        if let Some(cached) = self.lookup_runtime_macro_expansion(definition, &args, environment) {
             return Ok(cached);
         }
         let args_for_cache = args.clone();
@@ -10757,6 +10775,9 @@ impl Context {
         self.with_gc_scope_result(|ctx| {
             ctx.push_temp_root(form);
             ctx.push_temp_root(definition);
+            if let Some(environment) = environment {
+                ctx.push_temp_root(environment);
+            }
             for arg in &args {
                 ctx.push_temp_root(*arg);
             }
@@ -10779,6 +10800,7 @@ impl Context {
                 &args_for_cache,
                 &expanded,
                 expand_elapsed,
+                environment,
             );
             Ok(expanded)
         })

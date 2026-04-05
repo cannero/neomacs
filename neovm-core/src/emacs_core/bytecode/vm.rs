@@ -4369,15 +4369,22 @@ impl<'a> crate::emacs_core::builtins::symbols::MacroexpandRuntime for Vm<'a> {
         form: Value,
         function: Value,
         args: Vec<Value>,
+        environment: Option<Value>,
     ) -> Result<Value, Flow> {
-        if let Some(cached) = self.ctx.lookup_runtime_macro_expansion(function, &args) {
+        if let Some(cached) = self
+            .ctx
+            .lookup_runtime_macro_expansion(function, &args, environment)
+        {
             return Ok(cached);
         }
         let args_for_cache = args.clone();
         let expand_start = std::time::Instant::now();
-        let mut extra_roots = Vec::with_capacity(args.len() + 2);
+        let mut extra_roots = Vec::with_capacity(args.len() + 3);
         extra_roots.push(form);
         extra_roots.push(function);
+        if let Some(environment) = environment {
+            extra_roots.push(environment);
+        }
         extra_roots.extend(args.iter().copied());
         self.with_extra_roots(&extra_roots, move |vm| {
             let expanded = vm.with_macro_expansion_scope(|vm| vm.call_function(function, args))?;
@@ -4387,6 +4394,7 @@ impl<'a> crate::emacs_core::builtins::symbols::MacroexpandRuntime for Vm<'a> {
                 &args_for_cache,
                 &expanded,
                 expand_elapsed,
+                environment,
             );
             Ok(expanded)
         })

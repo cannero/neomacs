@@ -241,6 +241,65 @@ fn source_cons_macro_cache_uses_value_expansion_path() {
 }
 
 #[test]
+fn runtime_macro_cache_hits_across_equivalent_explicit_environments() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let setup = parse_forms(
+        r#"
+(setq load-in-progress t)
+(setq runtime-cache-count 0)
+(fset 'runtime-cache-macro
+      (cons 'macro
+            (lambda (x)
+              (setq runtime-cache-count (1+ runtime-cache-count))
+              x)))
+"#,
+    )
+    .expect("parse macro setup");
+    for form in &setup {
+        ev.eval_expr(form).expect("install runtime macro fixture");
+    }
+
+    let definition = ev
+        .obarray()
+        .symbol_function("runtime-cache-macro")
+        .cloned()
+        .expect("runtime-cache-macro definition");
+    let arg = Value::list(vec![Value::symbol("+"), Value::fixnum(1), Value::fixnum(2)]);
+    let form = Value::list(vec![Value::symbol("runtime-cache-macro"), arg]);
+    let env1 = Value::list(vec![Value::cons(
+        Value::symbol("context"),
+        Value::symbol("marker"),
+    )]);
+    let env2 = Value::list(vec![Value::cons(
+        Value::symbol("context"),
+        Value::symbol("marker"),
+    )]);
+
+    let hits0 = ev.macro_cache_hits;
+    let misses0 = ev.macro_cache_misses;
+
+    let first = ev
+        .expand_macro_for_macroexpand(form, definition, vec![arg], Some(env1))
+        .expect("first runtime macro expansion");
+    let second = ev
+        .expand_macro_for_macroexpand(form, definition, vec![arg], Some(env2))
+        .expect("second runtime macro expansion");
+
+    assert!(equal_value(&first, &arg, 0));
+    assert!(equal_value(&second, &arg, 0));
+    assert_eq!(ev.macro_cache_misses - misses0, 1);
+    assert_eq!(ev.macro_cache_hits - hits0, 1);
+    assert_eq!(
+        ev.obarray()
+            .symbol_value("runtime-cache-count")
+            .copied()
+            .unwrap_or(Value::NIL),
+        Value::fixnum(1)
+    );
+}
+
+#[test]
 fn source_literal_to_runtime_value_reuses_compound_literal_nodes() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
