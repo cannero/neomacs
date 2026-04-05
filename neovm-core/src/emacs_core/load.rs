@@ -732,25 +732,7 @@ pub(crate) fn source_lexical_binding_for_load(
     lexical_binding_from_cookie(eval, lexical_binding_cookie_for_source(source), from)
 }
 
-fn parse_source_forms(source_path: &Path, source: &str) -> Result<Vec<Expr>, EvalError> {
-    let (source_for_reader, shebang_only_line) = strip_reader_prefix(source);
-    if shebang_only_line {
-        return Err(EvalError::Signal {
-            symbol: intern("end-of-file"),
-            data: vec![],
-            raw_data: None,
-        });
-    }
-    super::parser::parse_forms(source_for_reader).map_err(|e| EvalError::Signal {
-        symbol: intern("invalid-read-syntax"),
-        data: vec![Value::string(format!(
-            "Parse error in {}: {:?}",
-            source_path.display(),
-            e
-        ))],
-        raw_data: None,
-    })
-}
+
 
 fn is_unsupported_compiled_path(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|s| s.to_str()) else {

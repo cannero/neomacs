@@ -6079,6 +6079,34 @@ impl Context {
         results
     }
 
+    /// Evaluate all forms in a source string and return per-form results.
+    /// Uses the Value-native reader (no Expr intermediate).
+    /// This is the Value-reader equivalent of `eval_forms`.
+    pub fn eval_str_each(&mut self, source: &str) -> Vec<Result<Value, EvalError>> {
+        crate::tagged::gc::set_tagged_heap(&mut self.tagged_heap);
+        let forms = match super::value_reader::read_all(source) {
+            Ok(f) => f,
+            Err(e) => {
+                return vec![Err(EvalError::Signal {
+                    symbol: intern("error"),
+                    data: vec![Value::string(format!("Read error: {}", e.message))],
+                    raw_data: None,
+                })];
+            }
+        };
+        let saved_len = self.temp_roots.len();
+        let mut results = Vec::with_capacity(forms.len());
+        for form in forms {
+            let result = self.eval_sub(form).map_err(map_flow);
+            if let Ok(ref val) = result {
+                self.temp_roots.push(*val);
+            }
+            results.push(result);
+        }
+        self.temp_roots.truncate(saved_len);
+        results
+    }
+
     /// Set a global variable.
     pub fn set_variable(&mut self, name: &str, value: Value) {
         let sym_id = intern(name);
