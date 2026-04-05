@@ -1282,10 +1282,6 @@ pub struct Context {
     lexenv_special_cache: RefCell<Vec<LexenvSpecialCacheEntry>>,
     /// Cache for source-literal materialization keyed on `Expr` pointer
     /// identity. This is generic reader/runtime support: repeated evaluation
-    /// of the same source literal node should reuse the same runtime object
-    /// where GNU Lisp expects `eq` identity to remain stable across calls.
-    /// GC-rooted via `collect_roots`.
-    pub(crate) source_literal_cache: HashMap<*const Expr, Value>,
     /// Nested depth of active macro-expansion scopes.
     macro_expansion_scope_depth: usize,
     /// Monotonic counter for Lisp-visible mutations performed while a macro
@@ -2015,7 +2011,7 @@ impl Context {
         ev.next_resume_id = 1;
         ev.saved_lexenvs.clear();
         ev.named_call_cache.clear();
-        ev.source_literal_cache.clear();
+
         ev.macro_expansion_cache.clear();
         ev.runtime_macro_expansion_cache.clear();
         ev.macro_cache_hits = 0;
@@ -3726,7 +3722,7 @@ impl Context {
             named_call_cache: Vec::with_capacity(NAMED_CALL_CACHE_CAPACITY),
             lexenv_assq_cache: RefCell::new(Vec::with_capacity(LEXENV_ASSQ_CACHE_CAPACITY)),
             lexenv_special_cache: RefCell::new(Vec::with_capacity(LEXENV_SPECIAL_CACHE_CAPACITY)),
-            source_literal_cache: HashMap::new(),
+
             macro_expansion_scope_depth: 0,
             macro_expansion_mutation_epoch: 0,
             macro_expansion_cache: HashMap::new(),
@@ -3857,7 +3853,7 @@ impl Context {
             named_call_cache: Vec::with_capacity(NAMED_CALL_CACHE_CAPACITY),
             lexenv_assq_cache: RefCell::new(Vec::with_capacity(LEXENV_ASSQ_CACHE_CAPACITY)),
             lexenv_special_cache: RefCell::new(Vec::with_capacity(LEXENV_SPECIAL_CACHE_CAPACITY)),
-            source_literal_cache: HashMap::new(),
+
             macro_expansion_scope_depth: 0,
             macro_expansion_mutation_epoch: 0,
             macro_expansion_cache: HashMap::new(),
@@ -3940,8 +3936,6 @@ impl Context {
             roots.push(*saved_env);
         }
 
-        // Literal cache — cached quote_to_value results for pcase eq-memoization
-        roots.extend(self.source_literal_cache.values().copied());
         roots.extend(
             self.runtime_macro_expansion_cache
                 .values()
@@ -4988,11 +4982,6 @@ impl Context {
         extra_root_slices: &[&[Value]],
     ) {
         let start = std::time::Instant::now();
-        // Clear source_literal_cache before GC — it uses *const Expr raw
-        // pointers as keys which can alias after Rc<Vec<Expr>> bodies are
-        // freed, causing ABA: a new lambda body at the same address gets
-        // a stale cached Value from a collected lambda's expression.
-        self.source_literal_cache.clear();
         self.macro_expansion_cache.clear();
         self.lexenv_assq_cache.borrow_mut().clear();
         self.lexenv_special_cache.borrow_mut().clear();
@@ -8987,7 +8976,7 @@ impl Context {
         let scope = self.open_gc_scope();
         let arg_values: Vec<Value> = args
             .iter()
-            .map(|e| self.cached_source_literal_to_value(e))
+            .map(|e| self.quote_to_runtime_value(e))
             .collect();
         for v in &arg_values {
             self.push_temp_root(*v);
@@ -10213,73 +10202,6 @@ impl Context {
         Ok(value)
     }
 
-    /// Cached version of quote construction keyed on `Expr` pointer identity.
-    ///
-    /// When the same `&Expr` node is converted multiple times, return the same
-    /// `Value` so source-literal identity stays stable across re-evaluation.
-    /// Only compound types (`List`, `DottedList`, `Vector`, `Str`) benefit
-    /// from caching; scalars like `Int`, `Symbol`, `Char` already have
-    /// identity-free representations.
-    fn cached_source_literal_to_value(&mut self, expr: &Expr) -> Value {
-        if expr.depends_on_reader_runtime_state() {
-            return self.quote_to_runtime_value(expr);
-        }
-        let key = expr as *const Expr;
-        if let Some(&cached) = self.source_literal_cache.get(&key) {
-            return cached;
-        }
-        // For compound types, recursively cache children too
-        let value = match expr {
-            Expr::List(items) => {
-                let saved_roots = save_scratch_gc_roots();
-                let mut quoted = Vec::with_capacity(items.len());
-                for item in items {
-                    let value = self.cached_source_literal_to_value(item);
-                    push_scratch_gc_root(value);
-                    quoted.push(value);
-                }
-                let result = Value::list(quoted);
-                restore_scratch_gc_roots(saved_roots);
-                result
-            }
-            Expr::DottedList(items, last) => {
-                let saved_roots = save_scratch_gc_roots();
-                let mut head_vals = Vec::with_capacity(items.len());
-                for item in items {
-                    let value = self.cached_source_literal_to_value(item);
-                    push_scratch_gc_root(value);
-                    head_vals.push(value);
-                }
-                let tail_val = self.cached_source_literal_to_value(last);
-                push_scratch_gc_root(tail_val);
-                let result = head_vals
-                    .into_iter()
-                    .rev()
-                    .fold(tail_val, |acc, item| Value::cons(item, acc));
-                restore_scratch_gc_roots(saved_roots);
-                result
-            }
-            Expr::Vector(items) => {
-                let saved_roots = save_scratch_gc_roots();
-                let mut vals = Vec::with_capacity(items.len());
-                for item in items {
-                    let value = self.cached_source_literal_to_value(item);
-                    push_scratch_gc_root(value);
-                    vals.push(value);
-                }
-                let result = Value::vector(vals);
-                restore_scratch_gc_roots(saved_roots);
-                result
-            }
-            _ => self.quote_to_runtime_value(expr),
-        };
-        self.source_literal_cache.insert(key, value);
-        value
-    }
-
-    pub(crate) fn source_literal_to_runtime_value(&mut self, expr: &Expr) -> Value {
-        self.cached_source_literal_to_value(expr)
-    }
 }
 
 fn rewrite_wrong_arity_function_object(flow: Flow, name: &str) -> Flow {

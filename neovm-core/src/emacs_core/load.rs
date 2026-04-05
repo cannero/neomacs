@@ -1469,7 +1469,7 @@ fn load_file_body(
         // .elc files use the old Expr path (needs reify_byte_code_literals).
         if !is_elc {
             eval.macro_expansion_cache.clear();
-            eval.source_literal_cache.clear();
+
             let macroexpand_fn = get_eager_macroexpand_fn(eval);
             return streaming_readevalloop(eval, path, &content, macroexpand_fn);
         }
@@ -1523,7 +1523,6 @@ pub(crate) fn eval_decoded_source_file_in_context(
 ) -> Result<Value, EvalError> {
     // Use the streaming Value-reader path (no Expr intermediate).
     eval.macro_expansion_cache.clear();
-    eval.source_literal_cache.clear();
     let macroexpand_fn = get_eager_macroexpand_fn(eval);
     streaming_readevalloop(eval, path, content, macroexpand_fn)
 }
