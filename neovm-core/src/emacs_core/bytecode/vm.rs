@@ -206,7 +206,16 @@ impl<'a> Vm<'a> {
             ));
         }
 
-        let result = self.run_frame(func, args, func_value);
+        // Root the ByteCodeObj so it (and its constants Vec) survive GC
+        // during nested function calls. Without this, the `func` reference
+        // (which points into the ByteCodeObj on the heap) can dangle if
+        // GC sweeps the ByteCodeObj during a nested call.
+        let result = self.with_dynamic_vm_roots(|vm| {
+            if func_value.is_heap_object() {
+                vm.push_dynamic_vm_root(func_value);
+            }
+            vm.run_frame(func, args, func_value)
+        });
         self.ctx.depth -= 1;
         result
     }
