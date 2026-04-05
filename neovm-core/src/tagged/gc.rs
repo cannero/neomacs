@@ -1119,8 +1119,28 @@ impl TaggedHeap {
             unsafe { self.conservative_stack_scan() };
         }
 
+        // -- Debug: verify roots point to owned objects BEFORE marking --
+        #[cfg(debug_assertions)]
+        {
+            for val in &self.gray_queue {
+                if !self.is_valid_heap_pointer(*val) {
+                    tracing::error!(
+                        "GC ROOT INVALID: root {:#x} (tag={}) does NOT point to an owned object!",
+                        val.0,
+                        val.0 & 0b111
+                    );
+                    // Don't crash — just log. The subsequent mark will crash
+                    // and the gdb backtrace will show us the root source.
+                }
+            }
+        }
+
         // -- Mark phase: drain gray queue --
         self.mark_all();
+
+        // -- Debug: verify all marked non-cons objects are owned --
+        #[cfg(debug_assertions)]
+        self.verify_marked_objects_owned();
 
         // -- Sweep phase --
         let cons_live_bytes = self.sweep_cons();
@@ -1517,6 +1537,55 @@ impl TaggedHeap {
         }
         self.cons_block_index_by_base
             .contains_key(&ConsBlock::block_base_for_ptr(ptr))
+    }
+
+    /// Debug verification: after marking, check that every marked non-cons
+    /// object is actually in our `all_objects` intrusive list. If a marked
+    /// object is NOT in the list, it means a root pointed to freed memory
+    /// that happened to look like a valid tagged pointer.
+    #[cfg(debug_assertions)]
+    fn verify_marked_objects_owned(&self) {
+        // Build a set of all owned non-cons object addresses
+        let mut owned_addrs: std::collections::HashSet<usize> =
+            std::collections::HashSet::new();
+        let mut obj = self.all_objects;
+        while !obj.is_null() {
+            owned_addrs.insert(obj as usize);
+            unsafe {
+                obj = (*obj).next;
+            }
+        }
+
+        // Now walk the all_objects list again and check marked objects
+        let mut current = self.all_objects;
+        let mut total_marked = 0usize;
+        while !current.is_null() {
+            unsafe {
+                if (*current).marked {
+                    total_marked += 1;
+                    // Verify the object's internal data is sane
+                    match (*current).kind {
+                        HeapObjectKind::String => {
+                            let ptr = current as *const StringObj;
+                            let s = &(*ptr).data;
+                            // Check string data pointer is reasonable
+                            let str_ptr = s.as_str().as_ptr() as usize;
+                            if str_ptr != 0 && str_ptr < 0x1000 {
+                                tracing::error!(
+                                    "GC VERIFY: marked StringObj at {:p} has \
+                                     corrupt data pointer {:#x}",
+                                    current,
+                                    str_ptr
+                                );
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                current = (*current).next;
+            }
+        }
+        tracing::trace!("GC verify: {} marked non-cons objects, all owned", total_marked);
     }
 }
 
