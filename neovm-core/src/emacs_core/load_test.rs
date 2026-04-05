@@ -4303,7 +4303,7 @@ fn source_cycle_spacing_form_loads_after_bootstrap_prefix() {
     let load_path = get_load_path(&eval.obarray());
     let path = bootstrap_fixture_path(&load_path, "simple", false).expect("simple.el path");
     let content = std::fs::read_to_string(&path).expect("read simple.el");
-    let forms = parse_source_forms(&path, &content).expect("parse simple.el");
+    let forms = crate::emacs_core::parser::parse_forms(&content).expect("parse simple.el");
 
     let cycle_spacing_form = forms
         .get(89)

@@ -1357,6 +1357,45 @@ fn input_pending_p_uses_dynamic_unread_command_events_binding() {
         "unread-command-events",
         Value::list(vec![Value::fixnum(97)]),
     );
+    let result = ev.eval_str("(let ((unread-command-events nil)) (input-pending-p))").unwrap();
+    assert!(result.is_nil());
+    assert_eq!(
+        ev.obarray.symbol_value("unread-command-events"),
+        Some(&Value::list(vec![Value::fixnum(97)]))
+    );
+}
+
+#[test]
+fn input_pending_p_returns_nil_for_non_list_unread_command_events() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.obarray
+        .set_symbol_value("unread-command-events", Value::fixnum(7));
+    let result = builtin_input_pending_p(&mut ev, vec![]).unwrap();
+    assert!(result.is_nil());
+}
+
+#[test]
+fn input_pending_p_accepts_optional_check_timers_arg() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.obarray.set_symbol_value(
+        "unread-command-events",
+        Value::list(vec![Value::symbol("foo")]),
+    );
+    let result = builtin_input_pending_p(&mut ev, vec![Value::symbol("timers")]).unwrap();
+    assert_eq!(result, Value::T);
+}
+
+#[test]
+fn input_pending_p_returns_t_with_host_keypress() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('a'),
+    ))
+    .expect("queue keypress");
     ev.input_rx = Some(rx);
 
     let result = builtin_input_pending_p(&mut ev, vec![]).unwrap();
@@ -1608,6 +1647,7 @@ fn display_update_for_mouse_movement_runs_mouse_fixup_before_echo_message() {
     let frame = install_mouse_help_echo_snapshot(&mut ev, "tip");
     let (_tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
+
     ev.eval_str(r#"(fset 'mouse-fixup-help-message
                   (lambda (msg) (concat "fixed:" msg)))"#)
         .expect("install mouse-fixup-help-message");
@@ -1630,6 +1670,7 @@ fn display_update_for_mouse_movement_runs_mouse_fixup_without_input_receiver() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let frame = install_mouse_help_echo_snapshot(&mut ev, "tip");
+
     ev.eval_str(r#"(fset 'mouse-fixup-help-message
                   (lambda (msg) (concat "fixed:" msg)))"#)
         .expect("install mouse-fixup-help-message");
@@ -1654,6 +1695,7 @@ fn display_update_for_mouse_movement_runs_mouse_fixup_before_show_help_function(
     let frame = install_mouse_help_echo_snapshot(&mut ev, "tip");
     let (_tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
+
     ev.eval_str(r#"(progn
              (setq show-help-collected nil)
              (fset 'mouse-fixup-help-message
