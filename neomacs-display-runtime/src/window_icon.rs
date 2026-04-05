@@ -5,7 +5,7 @@
 
 use winit::window::{Icon, Window};
 
-const WINDOW_ICON_SVG: &[u8] = include_bytes!("../../assets/window-icon.svg");
+const WINDOW_ICON_SVG: &[u8] = include_bytes!("../assets/window-icon.svg");
 const WINDOW_ICON_SIZE: u32 = 256;
 
 fn decode_svg_icon(data: &[u8], size: u32) -> Option<Icon> {
