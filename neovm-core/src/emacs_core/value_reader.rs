@@ -250,7 +250,8 @@ impl<'a> Reader<'a> {
 
     // -- Vectors [1 2 3] ----------------------------------------------------
 
-    fn read_vector(&mut self) -> Result<Value, ReadError> {
+    /// Read `[...]` and return items as a Vec<Value>.
+    fn read_vector_items(&mut self) -> Result<Vec<Value>, ReadError> {
         self.expect('[')?;
         let saved = save_scratch_gc_roots();
         let mut items = Vec::new();
@@ -259,9 +260,8 @@ impl<'a> Reader<'a> {
             match self.current() {
                 Some(']') => {
                     self.bump();
-                    let result = Value::make_vector(items);
                     restore_scratch_gc_roots(saved);
-                    return Ok(result);
+                    return Ok(items);
                 }
                 Some(_) => {
                     let item = self.read_form()?;
@@ -274,6 +274,17 @@ impl<'a> Reader<'a> {
                 }
             }
         }
+    }
+
+    fn read_vector(&mut self) -> Result<Value, ReadError> {
+        let saved = save_scratch_gc_roots();
+        let items = self.read_vector_items()?;
+        for item in &items {
+            push_scratch_gc_root(*item);
+        }
+        let result = Value::make_vector(items);
+        restore_scratch_gc_roots(saved);
+        Ok(result)
     }
 
     // -- Strings "..." -------------------------------------------------------
@@ -744,12 +755,43 @@ impl<'a> Reader<'a> {
             }
             '[' => {
                 // #[...] — compiled-function literal in .elc.
+                // Produce a ByteCode Value directly, matching GNU Emacs's reader.
+                // The vector items are [arglist bytecode-string constants-vector
+                // stack-depth docstring interactive-spec].
+                // Since read_form is called recursively for each element, any
+                // nested #[...] literals in the constants vector are already
+                // converted to ByteCode values by the time we get here.
                 let saved = save_scratch_gc_roots();
-                let vector = self.read_vector()?;
-                push_scratch_gc_root(vector);
-                let result = Value::list(vec![Value::symbol("byte-code-literal"), vector]);
+                let items = self.read_vector_items()?;
+                for item in &items {
+                    push_scratch_gc_root(*item);
+                }
+                let result = if items.len() >= 4 {
+                    crate::emacs_core::builtins::make_byte_code_from_parts(
+                        &items[0],
+                        &items[1],
+                        &items[2],
+                        &items[3],
+                        items.get(4),
+                        items.get(5),
+                    )
+                    .map_err(|e| {
+                        let msg = match &e {
+                            crate::emacs_core::error::Flow::Signal(sig) => {
+                                sig.data.first()
+                                    .and_then(|v| v.as_str().map(str::to_owned))
+                                    .unwrap_or_else(|| format!("{:?}", sig.data))
+                            }
+                            other => format!("{:?}", other),
+                        };
+                        self.error(&format!("byte-code literal: {}", msg))
+                    })
+                } else {
+                    // Too few elements — fall back to plain vector
+                    Ok(Value::make_vector(items))
+                };
                 restore_scratch_gc_roots(saved);
-                Ok(result)
+                result
             }
             '@' => {
                 // #@N<bytes> — reader skip used by .elc for inline data blocks.

@@ -408,15 +408,21 @@ fn empty_symbol() {
 }
 
 #[test]
-fn byte_code_literal() {
+fn byte_code_literal_short_vector() {
     crate::test_utils::init_test_tracing();
     let v = read1("#[1 2 3]");
-    // Should be (byte-code-literal [1 2 3])
-    assert!(v.is_cons());
-    let car = v.cons_car();
-    assert!(car.is_symbol_named("byte-code-literal"));
-    let vec = v.cons_cdr().cons_car();
-    assert!(vec.is_vector());
+    // Too few elements for a byte-code object (needs >= 4),
+    // so the reader falls back to a plain vector.
+    assert!(v.is_vector());
+}
+
+#[test]
+fn byte_code_literal_produces_bytecode() {
+    crate::test_utils::init_test_tracing();
+    // A valid byte-code literal: [arglist bytecode-string constants max-depth]
+    // arglist=0 means (&rest _), bytecode="" means empty, constants=[], maxdepth=0
+    let v = read1("#[0 \"\" [] 0]");
+    assert!(v.is_bytecode(), "expected ByteCode, got {:?}", v.kind());
 }
 
 #[test]

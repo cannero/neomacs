@@ -1365,9 +1365,8 @@ fn load_file_body(
 
         // Both .el and .elc use the streaming Value reader.
         // .el files get eager macro expansion; .elc files are already compiled
-        // so no expansion is needed (macroexpand_fn = None).  The reader emits
-        // (byte-code-literal ...) wrappers for #[...] syntax, and eval_sub
-        // handles them via sf_byte_code_literal_value.
+        // so no expansion is needed (macroexpand_fn = None).  The reader
+        // converts #[...] syntax to ByteCode values directly (like GNU Emacs).
         let macroexpand_fn = if is_elc {
             None
         } else {
