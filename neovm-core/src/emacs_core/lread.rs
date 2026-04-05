@@ -122,7 +122,8 @@ pub(crate) fn eval_forms_from_source(eval: &mut super::eval::Context, source: &s
                 }
             })?;
         } else {
-            eval.eval(form)?;
+            let form_val = eval.quote_to_runtime_value(form);
+            eval.eval_sub(form_val)?;
         }
         if let Some(mexp_fn) = macroexpand_fn {
             eval.gc_safe_point_exact_with_extra_roots(&[mexp_fn]);
@@ -392,7 +393,10 @@ pub(crate) fn builtin_eval_buffer_in_vm_runtime(
 ) -> EvalResult {
     let source = eval_buffer_source_text_in_state(&shared.buffers, args.first())?;
     eval_forms_from_source_in_runtime(&source, |form| {
-        shared.with_extra_gc_roots(vm_gc_roots, args, move |eval| eval.eval(form))?;
+        shared.with_extra_gc_roots(vm_gc_roots, args, move |eval| {
+            let form_val = eval.quote_to_runtime_value(form);
+            eval.eval_sub(form_val)
+        })?;
         shared.gc_safe_point_exact_with_extra_root_slices(&[vm_gc_roots, args]);
         Ok(Value::NIL)
     })
@@ -409,7 +413,10 @@ pub(crate) fn builtin_eval_region_in_vm_runtime(
     }
 
     eval_forms_from_source_in_runtime(&source, |form| {
-        shared.with_extra_gc_roots(vm_gc_roots, args, move |eval| eval.eval(form))?;
+        shared.with_extra_gc_roots(vm_gc_roots, args, move |eval| {
+            let form_val = eval.quote_to_runtime_value(form);
+            eval.eval_sub(form_val)
+        })?;
         shared.gc_safe_point_exact_with_extra_root_slices(&[vm_gc_roots, args]);
         Ok(Value::NIL)
     })

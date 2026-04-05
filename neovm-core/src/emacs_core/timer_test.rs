@@ -328,20 +328,14 @@ fn test_builtin_timerp() {
 fn gnu_sit_for_matches_subr_el() {
     crate::test_utils::init_test_tracing();
     let mut ev = gnu_subr_sit_for_eval();
-    let forms = super::super::parser::parse_forms(
-        r#"
-        (let ((noninteractive t))
-          (sit-for 0.0))
-        (let ((noninteractive t))
-          (sit-for 0.01 t))
-        "#,
-    )
-    .expect("parse sit-for forms");
-
-    let first = ev.eval(&forms[0]).expect("eval sit-for");
+    let first = ev
+        .eval_str("(let ((noninteractive t)) (sit-for 0.0))")
+        .expect("eval sit-for");
     assert!(first.is_truthy());
 
-    let second = ev.eval(&forms[1]).expect("eval sit-for nodisp");
+    let second = ev
+        .eval_str("(let ((noninteractive t)) (sit-for 0.01 t))")
+        .expect("eval sit-for nodisp");
     assert!(second.is_truthy());
 }
 
@@ -352,10 +346,8 @@ fn gnu_sit_for_interactive_timeout_returns_t() {
     ev.set_variable("noninteractive", Value::NIL);
     let (tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
-    let forms = super::super::parser::parse_forms("(sit-for 0.01 t)").expect("parse sit-for");
-
     let start = Instant::now();
-    let result = ev.eval(&forms[0]).expect("eval interactive sit-for");
+    let result = ev.eval_str("(sit-for 0.01 t)").expect("eval interactive sit-for");
     drop(tx);
 
     assert!(result.is_truthy());
@@ -389,9 +381,7 @@ fn gnu_sit_for_with_pending_input_does_not_run_timers_first() {
     ))
     .expect("queue keypress");
     ev.input_rx = Some(rx);
-    let forms = super::super::parser::parse_forms("(sit-for 0.5 t)").expect("parse sit-for");
-
-    let result = ev.eval(&forms[0]).expect("eval interactive sit-for");
+    let result = ev.eval_str("(sit-for 0.5 t)").expect("eval interactive sit-for");
 
     assert!(result.is_nil());
     assert!(
@@ -420,9 +410,7 @@ fn gnu_sit_for_pending_input_returns_nil_without_redisplay() {
     ))
     .expect("queue keypress");
     ev.input_rx = Some(rx);
-    let forms = super::super::parser::parse_forms("(sit-for 0.5)").expect("parse sit-for");
-
-    let result = ev.eval(&forms[0]).expect("eval interactive sit-for");
+    let result = ev.eval_str("(sit-for 0.5)").expect("eval interactive sit-for");
 
     assert!(result.is_nil());
     assert_eq!(*redisplays.borrow(), 0);
@@ -443,9 +431,7 @@ fn gnu_sit_for_zero_without_nodisp_redisplays_once() {
 
     let (tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
-    let forms = super::super::parser::parse_forms("(sit-for 0)").expect("parse sit-for");
-
-    let result = ev.eval(&forms[0]).expect("eval zero-second sit-for");
+    let result = ev.eval_str("(sit-for 0)").expect("eval zero-second sit-for");
     drop(tx);
 
     assert!(result.is_truthy());
@@ -485,9 +471,7 @@ fn gnu_sit_for_zero_nodisp_runs_due_gnu_timer_without_redisplay() {
 
     let (tx, rx) = crossbeam_channel::unbounded();
     ev.input_rx = Some(rx);
-    let forms = super::super::parser::parse_forms("(sit-for 0 t)").expect("parse sit-for");
-
-    let result = ev.eval(&forms[0]).expect("eval zero-second sit-for");
+    let result = ev.eval_str("(sit-for 0 t)").expect("eval zero-second sit-for");
     drop(tx);
 
     assert!(result.is_truthy());

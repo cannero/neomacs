@@ -161,32 +161,22 @@ fn eval_all(ev: &mut Context, src: &str) -> Vec<String> {
 fn eval_column_and_indentation_subset() {
     crate::test_utils::init_test_tracing();
     let mut ev = super::super::eval::Context::new();
-    let forms = super::super::parser::parse_forms(
-        r#"
-        (with-temp-buffer
-          (insert "abc")
-          (goto-char (+ (point-min) 2))
-          (current-column))
-        (with-temp-buffer
-          (insert "  abc")
-          (goto-char (point-max))
-          (current-indentation))
-        (with-temp-buffer
-          (insert "a\tb")
-          (goto-char (point-min))
-          (move-to-column 5)
-          (list (point) (current-column)))
-        "#,
+    let col = ev.eval_str(
+        r#"(with-temp-buffer (insert "abc") (goto-char (+ (point-min) 2)) (current-column))"#,
     )
-    .expect("parse forms");
-
-    let col = ev.eval(&forms[0]).expect("eval current-column");
+    .expect("eval current-column");
     assert_eq!(col, Value::fixnum(2));
 
-    let indent = ev.eval(&forms[1]).expect("eval current-indentation");
+    let indent = ev.eval_str(
+        r#"(with-temp-buffer (insert "  abc") (goto-char (point-max)) (current-indentation))"#,
+    )
+    .expect("eval current-indentation");
     assert_eq!(indent, Value::fixnum(2));
 
-    let move_result = ev.eval(&forms[2]).expect("eval move-to-column");
+    let move_result = ev.eval_str(
+        r#"(with-temp-buffer (insert "a\tb") (goto-char (point-min)) (move-to-column 5) (list (point) (current-column)))"#,
+    )
+    .expect("eval move-to-column");
     let items = list_to_vec(&move_result).expect("list result");
     assert_eq!(items, vec![Value::fixnum(3), Value::fixnum(8)]);
 }
@@ -212,21 +202,13 @@ fn eval_move_to_column_wholenump_validation() {
 fn eval_move_to_column_force_subset() {
     crate::test_utils::init_test_tracing();
     let mut ev = super::super::eval::Context::new();
-    let forms = super::super::parser::parse_forms(
-        r#"
-        (with-temp-buffer
+    let first = ev.eval_str(
+        r#"(with-temp-buffer
           (insert "abc")
           (goto-char (point-min))
-          (list (move-to-column 10 t) (point) (append (buffer-string) nil)))
-        (with-temp-buffer
-          (insert "a\tb")
-          (goto-char (point-min))
-          (list (move-to-column 5 t) (point) (append (buffer-string) nil)))
-        "#,
+          (list (move-to-column 10 t) (point) (append (buffer-string) nil)))"#,
     )
-    .expect("parse forms");
-
-    let first = ev.eval(&forms[0]).expect("eval first force case");
+    .expect("eval first force case");
     let first_items = list_to_vec(&first).expect("first list");
     assert_eq!(first_items[0], Value::fixnum(10));
     assert_eq!(first_items[1], Value::fixnum(7));
@@ -242,7 +224,13 @@ fn eval_move_to_column_force_subset() {
         ]
     );
 
-    let second = ev.eval(&forms[1]).expect("eval second force case");
+    let second = ev.eval_str(
+        r#"(with-temp-buffer
+          (insert "a\tb")
+          (goto-char (point-min))
+          (list (move-to-column 5 t) (point) (append (buffer-string) nil)))"#,
+    )
+    .expect("eval second force case");
     let second_items = list_to_vec(&second).expect("second list");
     assert_eq!(second_items[0], Value::fixnum(5));
     assert_eq!(second_items[1], Value::fixnum(6));
@@ -300,28 +288,13 @@ fn gnu_back_to_indentation_matches_simple_el() {
 fn gnu_indent_region_matches_indent_el() {
     crate::test_utils::init_test_tracing();
     let mut ev = gnu_indent_el_eval();
-    let forms = super::super::parser::parse_forms(
-        r#"
-        (with-temp-buffer
+    let first = ev.eval_str(
+        r#"(with-temp-buffer
           (insert (string 97 10 32 32 98 10 10 9 99))
           (indent-region (point-min) (point-max) 2)
-          (append (buffer-string) nil))
-        (with-temp-buffer
-          (insert (string 97 10 32 32 98))
-          (indent-region (point-min) (point-max))
-          (append (buffer-string) nil))
-        (with-temp-buffer
-          (insert (string 97 10 98))
-          (indent-region (point-max) (point-min) 1)
-          (append (buffer-string) nil))
-        (with-temp-buffer
-          (insert "a")
-          (indent-region (point-min) (point-max) "x"))
-        "#,
+          (append (buffer-string) nil))"#,
     )
-    .expect("parse indent-region forms");
-
-    let first = ev.eval(&forms[0]).expect("eval indent-region column");
+    .expect("eval indent-region column");
     assert_eq!(
         list_to_vec(&first).expect("first byte list"),
         vec![
@@ -340,23 +313,36 @@ fn gnu_indent_region_matches_indent_el() {
         ]
     );
 
-    let second = ev.eval(&forms[1]).expect("eval indent-region nil column");
+    let second = ev.eval_str(
+        r#"(with-temp-buffer
+          (insert (string 97 10 32 32 98))
+          (indent-region (point-min) (point-max))
+          (append (buffer-string) nil))"#,
+    )
+    .expect("eval indent-region nil column");
     assert_eq!(
         list_to_vec(&second).expect("second byte list"),
         vec![Value::fixnum(97), Value::fixnum(10), Value::fixnum(98)]
     );
 
-    let third = ev
-        .eval(&forms[2])
-        .expect("eval indent-region swapped bounds");
+    let third = ev.eval_str(
+        r#"(with-temp-buffer
+          (insert (string 97 10 98))
+          (indent-region (point-max) (point-min) 1)
+          (append (buffer-string) nil))"#,
+    )
+    .expect("eval indent-region swapped bounds");
     assert_eq!(
         list_to_vec(&third).expect("third byte list"),
         vec![Value::fixnum(97), Value::fixnum(10), Value::fixnum(98)]
     );
 
-    let fourth = ev
-        .eval(&forms[3])
-        .expect("eval indent-region non-numeric column");
+    let fourth = ev.eval_str(
+        r#"(with-temp-buffer
+          (insert "a")
+          (indent-region (point-min) (point-max) "x"))"#,
+    )
+    .expect("eval indent-region non-numeric column");
     assert_eq!(fourth, Value::T);
 }
 
@@ -364,51 +350,27 @@ fn gnu_indent_region_matches_indent_el() {
 fn gnu_indent_according_to_mode_matches_indent_el() {
     crate::test_utils::init_test_tracing();
     let mut ev = gnu_indent_el_eval();
-    let forms = super::super::parser::parse_forms(
-        r#"
-        (with-temp-buffer
+    let first = ev.eval_str(
+        r#"(with-temp-buffer
           (insert (string 32 32 97))
           (goto-char (point-max))
           (indent-according-to-mode)
-          (append (buffer-string) nil))
-        (with-temp-buffer
-          (insert (string 32 32 97))
-          (goto-char (point-max))
-          (indent-according-to-mode)
-          (point))
-        "#,
+          (append (buffer-string) nil))"#,
     )
-    .expect("parse forms");
-
-    let first = match ev.eval(&forms[0]) {
-        Ok(value) => value,
-        Err(Flow::Signal(sig)) => panic!(
-            "eval indent-according-to-mode: {} {:?}",
-            sig.symbol_name(),
-            sig.data
-                .iter()
-                .map(|value| value.as_symbol_name().unwrap_or("<non-symbol>"))
-                .collect::<Vec<_>>()
-        ),
-        Err(err) => panic!("eval indent-according-to-mode: {err:?}"),
-    };
+    .expect("eval indent-according-to-mode");
     assert_eq!(
         list_to_vec(&first).expect("first byte list"),
         vec![Value::fixnum(97)]
     );
 
-    let second = match ev.eval(&forms[1]) {
-        Ok(value) => value,
-        Err(Flow::Signal(sig)) => panic!(
-            "eval indent-according-to-mode point: {} {:?}",
-            sig.symbol_name(),
-            sig.data
-                .iter()
-                .map(|value| value.as_symbol_name().unwrap_or("<non-symbol>"))
-                .collect::<Vec<_>>()
-        ),
-        Err(err) => panic!("eval indent-according-to-mode point: {err:?}"),
-    };
+    let second = ev.eval_str(
+        r#"(with-temp-buffer
+          (insert (string 32 32 97))
+          (goto-char (point-max))
+          (indent-according-to-mode)
+          (point))"#,
+    )
+    .expect("eval indent-according-to-mode point");
     assert_eq!(second, Value::fixnum(2));
 }
 
@@ -568,15 +530,14 @@ fn init_indent_vars_sets_defaults() {
 fn indent_for_tab_command_inserts_tab() {
     crate::test_utils::init_test_tracing();
     let mut ev = gnu_indent_el_eval();
-    let forms = super::super::parser::parse_forms(
+    let value = ev.eval_str(
         r#"(with-temp-buffer
              (insert "x")
              (goto-char 1)
              (indent-for-tab-command)
              (buffer-string))"#,
     )
-    .expect("parse forms");
-    let value = ev.eval(&forms[0]).expect("eval");
+    .expect("eval");
     assert_eq!(value.as_str(), Some("\tx"));
 }
 
@@ -584,24 +545,24 @@ fn indent_for_tab_command_inserts_tab() {
 fn eval_indent_to_inserts_padding_and_returns_column() {
     crate::test_utils::init_test_tracing();
     let mut ev = super::super::eval::Context::new();
-    let forms = super::super::parser::parse_forms(
+    let first = ev.eval_str(
         r#"(with-temp-buffer
              (insert "abcdef")
              (goto-char (point-max))
              (list (current-column)
                    (indent-to 2)
-                   (current-column)))
-           (with-temp-buffer
+                   (current-column)))"#,
+    )
+    .expect("first indent-to");
+    assert_eq!(super::super::print::print_value(&first), "(6 6 6)");
+
+    let second = ev.eval_str(
+        r#"(with-temp-buffer
              (list (current-column)
                    (indent-to 2 5)
                    (current-column)))"#,
     )
-    .expect("parse forms");
-
-    let first = ev.eval(&forms[0]).expect("first indent-to");
-    assert_eq!(super::super::print::print_value(&first), "(6 6 6)");
-
-    let second = ev.eval(&forms[1]).expect("second indent-to");
+    .expect("second indent-to");
     assert_eq!(super::super::print::print_value(&second), "(0 5 5)");
 }
 
@@ -671,14 +632,13 @@ fn eval_indent_builtins_respect_dynamic_and_buffer_local_settings() {
 fn indent_for_tab_command_normalizes_leading_whitespace_at_point() {
     crate::test_utils::init_test_tracing();
     let mut ev = gnu_indent_el_eval();
-    let forms = super::super::parser::parse_forms(
+    let value = ev.eval_str(
         r#"(with-temp-buffer
              (insert "  x")
              (goto-char 3)
              (list (indent-for-tab-command) (point) (append (buffer-string) nil)))"#,
     )
-    .expect("parse forms");
-    let value = ev.eval(&forms[0]).expect("eval");
+    .expect("eval");
     let printed = super::super::print::print_value(&value);
     assert_eq!(printed, "(nil 2 (9 120))");
 }
@@ -687,7 +647,7 @@ fn indent_for_tab_command_normalizes_leading_whitespace_at_point() {
 fn save_restriction_restores_full_buffer_after_widen_insert() {
     crate::test_utils::init_test_tracing();
     let mut ev = super::super::eval::Context::new();
-    let forms = super::super::parser::parse_forms(
+    let value = ev.eval_str(
         r#"(with-temp-buffer
              (insert "x")
              (save-restriction
@@ -696,7 +656,6 @@ fn save_restriction_restores_full_buffer_after_widen_insert() {
                (insert "\t"))
              (append (buffer-string) nil))"#,
     )
-    .expect("parse forms");
-    let value = ev.eval(&forms[0]).expect("eval");
+    .expect("eval");
     assert_eq!(super::super::print::print_value(&value), "(9 120)");
 }

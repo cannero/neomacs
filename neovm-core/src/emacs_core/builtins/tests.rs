@@ -8862,13 +8862,8 @@ fn functionp_eval_matches_symbol_and_lambda_form_semantics() {
         .expect("functionp should reject special-form subr objects");
     assert!(special_subr.is_nil());
 
-    let autoload_function_forms = crate::emacs_core::parser::parse_forms(
-        r#"(autoload 'vm-test-auto-fn "vm-test-file" nil t)"#,
-    )
-    .expect("autoload function form should parse");
-    for form in &autoload_function_forms {
-        eval.eval(form).expect("autoload function should register");
-    }
+    eval.eval_str(r#"(autoload 'vm-test-auto-fn "vm-test-file" nil t)"#)
+        .expect("autoload function should register");
     let autoload_function_symbol =
         builtin_functionp(&mut eval, vec![Value::symbol("vm-test-auto-fn")])
             .expect("functionp should recognize autoload function symbol");
@@ -8881,13 +8876,8 @@ fn functionp_eval_matches_symbol_and_lambda_form_semantics() {
         .expect("functionp should reject raw autoload function cell object");
     assert!(autoload_function_cell.is_nil());
 
-    let autoload_macro_forms = crate::emacs_core::parser::parse_forms(
-        r#"(autoload 'vm-test-auto-macro "vm-test-file" nil nil 'macro)"#,
-    )
-    .expect("autoload macro form should parse");
-    for form in &autoload_macro_forms {
-        eval.eval(form).expect("autoload macro should register");
-    }
+    eval.eval_str(r#"(autoload 'vm-test-auto-macro "vm-test-file" nil nil 'macro)"#)
+        .expect("autoload macro should register");
     let autoload_macro_symbol =
         builtin_functionp(&mut eval, vec![Value::symbol("vm-test-auto-macro")])
             .expect("functionp should reject autoload macro symbol");

@@ -6107,16 +6107,6 @@ impl Context {
         self.obarray.set_symbol_function(name, value);
     }
 
-    // -----------------------------------------------------------------------
-    // Core eval
-    // -----------------------------------------------------------------------
-
-    pub(crate) fn eval(&mut self, expr: &Expr) -> EvalResult {
-        let form = self.quote_to_runtime_value(expr);
-        self.eval_sub(form)
-    }
-
-
     /// Look up a symbol by its SymId. Uses the SymId directly for lexenv
     /// lookup (preserving uninterned symbol identity, like Emacs's EQ-based
     /// Fassq on Vinternal_interpreter_environment).
@@ -7476,7 +7466,8 @@ impl Context {
     pub(crate) fn sf_progn(&mut self, forms: &[Expr]) -> EvalResult {
         let mut last = Value::NIL;
         for form in forms {
-            last = self.eval(form)?;
+            let val = self.quote_to_runtime_value(form);
+            last = self.eval_sub(val)?;
         }
         Ok(last)
     }
@@ -7508,7 +7499,8 @@ impl Context {
                     Some(Expr::Symbol(s)) if *s == intern("byte-code-literal")
                 ) =>
             {
-                self.eval(expr)
+                let form = self.quote_to_runtime_value(expr);
+                self.eval_sub(form)
             }
             Expr::Vector(items) => {
                 let mut values = Vec::with_capacity(items.len());

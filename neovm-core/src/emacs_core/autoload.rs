@@ -567,7 +567,8 @@ pub(crate) fn sf_autoload(
 ) -> super::error::EvalResult {
     let mut args = Vec::with_capacity(tail.len());
     for expr in tail {
-        args.push(eval.eval(expr)?);
+        let form = eval.quote_to_runtime_value(expr);
+        args.push(eval.eval_sub(form)?);
     }
     register_autoload_in_state(&mut eval.obarray, &mut eval.autoloads, &args)
 }

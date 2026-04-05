@@ -1051,9 +1051,9 @@ fn commandp_true_for_lambda_with_interactive_form() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let lambda = eval_all_with(&mut ev, "(lambda () (interactive) 1)");
-    let parsed = super::super::parser::parse_forms("(lambda () (interactive) 1)")
-        .expect("lambda form should parse");
-    let value = ev.eval(&parsed[0]).expect("lambda form should evaluate");
+    let value = ev
+        .eval_str("(lambda () (interactive) 1)")
+        .expect("lambda form should evaluate");
     assert_eq!(lambda[0], "OK (lambda nil (interactive) 1)");
     let result = builtin_commandp_interactive(&mut ev, vec![value]);
     assert!(result.unwrap().is_truthy());
@@ -1063,9 +1063,9 @@ fn commandp_true_for_lambda_with_interactive_form() {
 fn commandp_true_for_quoted_lambda_with_interactive_form() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let forms = super::super::parser::parse_forms("'(lambda () \"doc\" (interactive) 1)")
-        .expect("quoted lambda form should parse");
-    let quoted_lambda = ev.eval(&forms[0]).expect("quoted lambda should evaluate");
+    let quoted_lambda = ev
+        .eval_str("'(lambda () \"doc\" (interactive) 1)")
+        .expect("quoted lambda should evaluate");
     let result = builtin_commandp_interactive(&mut ev, vec![quoted_lambda]);
     assert!(result.unwrap().is_truthy());
 }
@@ -1098,9 +1098,9 @@ fn call_interactively_state_resolution_handles_default_and_noarg_cases() {
     .expect("shared-state builtin default path");
     assert_eq!(builtin_args, vec![Value::fixnum(4)]);
 
-    let lambda_forms =
-        super::super::parser::parse_forms("(lambda () (interactive) 1)").expect("parse lambda");
-    let lambda = ev.eval(&lambda_forms[0]).expect("eval lambda");
+    let lambda = ev
+        .eval_str("(lambda () (interactive) 1)")
+        .expect("eval lambda");
     let mut lambda_plan = plan_call_interactively_in_state(
         ev.obarray(),
         &ev.interactive,
@@ -1127,10 +1127,9 @@ fn call_interactively_state_resolution_handles_default_and_noarg_cases() {
 fn call_interactively_state_resolution_defers_prompting_specs_to_eval() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let lambda_forms =
-        super::super::parser::parse_forms("(lambda (x) (interactive \"sPrompt: \") x)")
-            .expect("parse prompting lambda");
-    let lambda = ev.eval(&lambda_forms[0]).expect("eval prompting lambda");
+    let lambda = ev
+        .eval_str("(lambda (x) (interactive \"sPrompt: \") x)")
+        .expect("eval prompting lambda");
     let mut plan = plan_call_interactively_in_state(
         ev.obarray(),
         &ev.interactive,
@@ -1163,25 +1162,16 @@ fn call_interactively_state_resolution_handles_simple_string_codes_without_eval(
     let _ = ev.buffers.goto_buffer_byte(current, 2);
     let _ = ev.buffers.set_buffer_mark(current, 1);
 
-    let evt_forms = super::super::parser::parse_forms(
-        "(list 'mouse-1 (list (list (selected-window) (point) '(0 . 0) 0)))",
-    )
-    .expect("parse event");
-    let event = ev.eval(&evt_forms[0]).expect("eval event");
-    let lambda_forms = super::super::parser::parse_forms(
-        "(lambda (raw num pt mk beg end evt up ignored)
-           (interactive \"P
-p
-d
-m
-r
-e
-U
-i\")
+    let event = ev
+        .eval_str("(list 'mouse-1 (list (list (selected-window) (point) '(0 . 0) 0)))")
+        .expect("eval event");
+    let lambda = ev
+        .eval_str(
+            "(lambda (raw num pt mk beg end evt up ignored)
+           (interactive \"P\np\nd\nm\nr\ne\nU\ni\")
            (list raw num pt mk beg end evt up ignored))",
-    )
-    .expect("parse lambda");
-    let lambda = ev.eval(&lambda_forms[0]).expect("eval lambda");
+        )
+        .expect("eval lambda");
     let mut plan = plan_call_interactively_in_state(
         ev.obarray(),
         &ev.interactive,
@@ -1228,9 +1218,9 @@ fn call_interactively_state_resolution_applies_shift_selection_prefix_in_state()
         .set_symbol_value("this-command-keys-shift-translated", Value::T);
     ev.obarray.set_symbol_value("shift-select-mode", Value::T);
 
-    let lambda_forms = super::super::parser::parse_forms("(lambda (pt) (interactive \"^d\") pt)")
-        .expect("parse lambda");
-    let lambda = ev.eval(&lambda_forms[0]).expect("eval lambda");
+    let lambda = ev
+        .eval_str("(lambda (pt) (interactive \"^d\") pt)")
+        .expect("eval lambda");
     let mut plan = plan_call_interactively_in_state(
         ev.obarray(),
         &ev.interactive,
@@ -1261,10 +1251,9 @@ fn call_interactively_state_resolution_applies_shift_selection_prefix_in_state()
 fn call_interactively_state_resolution_handles_optional_coding_without_prefix() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
-    let lambda_forms =
-        super::super::parser::parse_forms("(lambda (coding) (interactive \"ZCoding: \") coding)")
-            .expect("parse lambda");
-    let lambda = ev.eval(&lambda_forms[0]).expect("eval lambda");
+    let lambda = ev
+        .eval_str("(lambda (coding) (interactive \"ZCoding: \") coding)")
+        .expect("eval lambda");
     let mut plan = plan_call_interactively_in_state(
         ev.obarray(),
         &ev.interactive,
