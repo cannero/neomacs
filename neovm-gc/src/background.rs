@@ -1066,9 +1066,7 @@ fn worker_loop(
             | BackgroundCollectionStatus::ReadyToFinish(_)
             | BackgroundCollectionStatus::Finished(_) => config.busy_sleep,
         };
-        if !sleep_for.is_zero() {
-            thread::sleep(sleep_for);
-        }
+        wait_for_signal(&stats, &shared, &mut observed_signal_epoch, sleep_for)?;
     }
 
     Ok(())

@@ -3688,6 +3688,94 @@ fn public_api_background_worker_request_stop_wakes_waiting_worker() {
 }
 
 #[test]
+fn public_api_background_worker_new_work_wakes_busy_sleeping_worker() {
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            region_bytes: 512,
+            line_bytes: 16,
+            concurrent_mark_workers: 2,
+            mutator_assist_slices: 0,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for byte in 0..16u8 {
+                mutator
+                    .alloc(&mut scope, OldLeaf([byte; 32]))
+                    .expect("alloc initial old leaf");
+            }
+        })
+        .expect("seed initial old objects");
+
+    let worker = shared.spawn_background_worker(neovm_gc::BackgroundWorkerConfig {
+        collector: neovm_gc::BackgroundCollectorConfig::default(),
+        idle_sleep: Duration::from_millis(1),
+        busy_sleep: Duration::from_millis(250),
+    });
+
+    let first_cycle_deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        let status = worker
+            .status()
+            .expect("read worker status before second wake");
+        if status.worker.collector.sessions_finished > 0 {
+            break;
+        }
+        assert!(
+            Instant::now() < first_cycle_deadline,
+            "background worker did not finish first cycle before timeout"
+        );
+        thread::sleep(Duration::from_millis(1));
+    }
+
+    let start = Instant::now();
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for byte in 16..32u8 {
+                mutator
+                    .alloc(&mut scope, OldLeaf([byte; 32]))
+                    .expect("alloc second old leaf");
+            }
+        })
+        .expect("seed second old objects");
+
+    let second_cycle_deadline = Instant::now() + Duration::from_millis(150);
+    loop {
+        let status = worker
+            .status()
+            .expect("read worker status after second wake");
+        if status.worker.collector.sessions_started >= 2 {
+            break;
+        }
+        assert!(
+            Instant::now() < second_cycle_deadline,
+            "background worker did not wake from busy sleep on fresh work before timeout"
+        );
+        thread::sleep(Duration::from_millis(1));
+    }
+
+    assert!(start.elapsed() < Duration::from_millis(150));
+
+    worker.request_stop();
+    let stats = worker.join().expect("join background worker");
+    assert!(stats.collector.sessions_started >= 2);
+    assert!(stats.signal_wakeups > 0);
+}
+
+#[test]
 fn public_api_background_worker_status_reads_work_while_heap_lock_is_held_and_refresh_on_drop() {
     let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
     let worker = shared.spawn_background_worker(neovm_gc::BackgroundWorkerConfig {
