@@ -51,6 +51,10 @@ impl<'heap> Mutator<'heap> {
         scope: &mut HandleScope<'scope, 'heap>,
         gc: Gc<T>,
     ) -> Root<'scope, T> {
+        assert!(
+            !self.heap.prepared_full_reclaim_active(),
+            "cannot add new roots while prepared full reclaim is active"
+        );
         self.heap.root_during_active_major_mark(gc.erase());
         scope.root(gc)
     }
@@ -140,6 +144,10 @@ impl<'heap> Mutator<'heap> {
         old_value: Option<Gc<Value>>,
         new_value: Option<Gc<Value>>,
     ) {
+        assert!(
+            !self.heap.prepared_full_reclaim_active(),
+            "cannot mutate heap edges while prepared full reclaim is active"
+        );
         self.heap.record_post_write(
             owner.erase(),
             slot,
@@ -156,6 +164,10 @@ impl<'heap> Mutator<'heap> {
         project: impl FnOnce(&Owner) -> &EdgeCell<Value>,
         new_value: Option<Gc<Value>>,
     ) {
+        assert!(
+            !self.heap.prepared_full_reclaim_active(),
+            "cannot mutate heap edges while prepared full reclaim is active"
+        );
         let owner_ref = unsafe { owner.as_gc().as_non_null().as_ref() };
         let edge = project(owner_ref);
         let old_value = edge.replace(new_value);

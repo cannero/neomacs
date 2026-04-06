@@ -1483,6 +1483,84 @@ fn persistent_full_mark_session_finishes_with_evacuated_nursery_survivor() {
 }
 
 #[test]
+fn finish_active_major_collection_prepares_full_reclaim_before_commit() {
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            promotion_age: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: 64,
+            soft_limit_bytes: usize::MAX,
+        },
+        old: crate::spaces::OldGenConfig {
+            mutator_assist_slices: 0,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut keep_scope = mutator.handle_scope();
+    let leaf = mutator
+        .alloc(&mut keep_scope, Leaf(91))
+        .expect("alloc nursery leaf");
+    let initial_gc = leaf.as_gc();
+
+    let plan = CollectionPlan {
+        mark_slice_budget: 1,
+        ..mutator.plan_for(CollectionKind::Full)
+    };
+    mutator
+        .begin_major_mark(plan.clone())
+        .expect("begin persistent full mark");
+
+    loop {
+        let progress = mutator
+            .advance_major_mark()
+            .expect("advance persistent full mark");
+        if progress.completed {
+            break;
+        }
+    }
+
+    assert_eq!(
+        mutator.active_major_mark_plan(),
+        Some(CollectionPlan {
+            phase: CollectionPhase::Remark,
+            ..plan.clone()
+        })
+    );
+    assert_eq!(
+        mutator
+            .finish_active_major_collection_if_ready()
+            .expect("prepare persistent full reclaim"),
+        None
+    );
+    assert_eq!(
+        mutator.active_major_mark_plan(),
+        Some(CollectionPlan {
+            phase: CollectionPhase::Reclaim,
+            ..plan.clone()
+        })
+    );
+
+    let mut blocked_scope = mutator.handle_scope();
+    assert!(matches!(
+        mutator.alloc(&mut blocked_scope, Leaf(92)),
+        Err(AllocError::CollectionInProgress)
+    ));
+
+    let cycle = mutator
+        .finish_active_major_collection_if_ready()
+        .expect("finish prepared full reclaim")
+        .expect("completed cycle");
+    assert_eq!(cycle.major_collections, 1);
+    assert!(cycle.promoted_bytes > 0);
+    assert!(!mutator.heap().contains(initial_gc));
+    assert_eq!(mutator.heap().space_of(leaf.as_gc()), Some(SpaceKind::Old));
+}
+
+#[test]
 fn persistent_major_mark_session_root_keeps_existing_object() {
     let mut heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {

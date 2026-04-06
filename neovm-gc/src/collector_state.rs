@@ -51,6 +51,7 @@ pub(crate) struct PreparedReclaimSurvivor {
 
 #[derive(Debug)]
 pub(crate) struct PreparedReclaim {
+    pub(crate) promoted_bytes: usize,
     pub(crate) rebuilt_old_regions: Vec<OldRegion>,
     pub(crate) rebuilt_object_index: HashMap<ObjectKey, usize>,
     pub(crate) old_reserved_bytes: usize,
@@ -147,10 +148,16 @@ impl CollectorState {
     }
 
     pub(crate) fn active_major_mark_is_ready(&self) -> bool {
-        self.major_mark_state.as_ref().is_some_and(|state| {
-            state.worklist.is_empty()
-                && (state.plan.kind != crate::plan::CollectionKind::Major || state.reclaim_prepared)
-        })
+        self.major_mark_state
+            .as_ref()
+            .is_some_and(|state| state.worklist.is_empty() && state.reclaim_prepared)
+    }
+
+    pub(crate) fn active_major_mark_needs_reclaim_prep_plan(&self) -> Option<CollectionPlan> {
+        self.major_mark_state
+            .as_ref()
+            .filter(|state| state.worklist.is_empty() && !state.reclaim_prepared)
+            .map(|state| state.plan.clone())
     }
 
     #[cfg(test)]
@@ -171,6 +178,12 @@ impl CollectorState {
         self.major_mark_state
             .as_ref()
             .is_some_and(|state| state.ephemerons_processed)
+    }
+
+    pub(crate) fn has_prepared_full_reclaim(&self) -> bool {
+        self.major_mark_state.as_ref().is_some_and(|state| {
+            state.plan.kind == crate::plan::CollectionKind::Full && state.reclaim_prepared
+        })
     }
 
     pub(crate) fn complete_active_major_remark(

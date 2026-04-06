@@ -478,6 +478,9 @@ impl Heap {
         } else {
             Some(self.prepare_reclaim(state.plan.kind, &state.plan))
         };
+        let promoted_bytes = prepared_reclaim
+            .as_ref()
+            .map_or(promoted_bytes, |prepared| prepared.promoted_bytes);
         let cycle = self.finish_reclaim_cycle(
             state.plan.clone(),
             before_bytes,
@@ -597,6 +600,10 @@ impl Heap {
     pub fn finish_active_major_collection_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, AllocError> {
+        if self.prepare_active_reclaim_if_needed()? {
+            self.refresh_recommended_plans();
+            return Ok(None);
+        }
         if !self.collector().active_major_mark_is_ready() {
             return Ok(None);
         }
@@ -615,10 +622,11 @@ impl Heap {
             .poll_active_major_mark()?
             .expect("active major-mark session disappeared during service");
         if progress.completed {
-            let cycle = self
-                .finish_active_major_collection_if_ready()?
-                .expect("completed session should be ready to finish");
-            Ok(BackgroundCollectionStatus::Finished(cycle))
+            if let Some(cycle) = self.finish_active_major_collection_if_ready()? {
+                Ok(BackgroundCollectionStatus::Finished(cycle))
+            } else {
+                Ok(BackgroundCollectionStatus::ReadyToFinish(progress))
+            }
         } else {
             Ok(BackgroundCollectionStatus::Progress(progress))
         }
@@ -815,6 +823,9 @@ impl Heap {
         scope: &mut HandleScope<'scope, '_>,
         value: T,
     ) -> Result<Root<'scope, T>, AllocError> {
+        if self.prepared_full_reclaim_active() {
+            return Err(AllocError::CollectionInProgress);
+        }
         let desc = self.descriptor_for::<T>();
         let payload_bytes = core::mem::size_of::<T>();
         let space = self.select_space(desc, payload_bytes)?;
@@ -846,6 +857,9 @@ impl Heap {
         scope: &mut HandleScope<'scope, '_>,
         value: T,
     ) -> Result<Root<'scope, T>, AllocError> {
+        if self.prepared_full_reclaim_active() {
+            return Err(AllocError::CollectionInProgress);
+        }
         let desc = self.descriptor_for::<T>();
         let payload_bytes = core::mem::size_of::<T>();
         let total_bytes = estimated_allocation_size::<T>()?;
@@ -870,6 +884,10 @@ impl Heap {
         old_value: Option<GcErased>,
         new_value: Option<GcErased>,
     ) {
+        assert!(
+            !self.prepared_full_reclaim_active(),
+            "cannot mutate heap edges while prepared full reclaim is active"
+        );
         const MAX_BARRIER_EVENTS: usize = 1024;
 
         fn push_barrier_event(
@@ -946,9 +964,17 @@ impl Heap {
     }
 
     pub(crate) fn root_during_active_major_mark(&mut self, object: GcErased) {
+        assert!(
+            !self.prepared_full_reclaim_active(),
+            "cannot add new roots while prepared full reclaim is active"
+        );
         self.mark_for_active_major_session(object);
         self.assist_major_mark_in_place();
         self.refresh_recommended_plans();
+    }
+
+    pub(crate) fn prepared_full_reclaim_active(&self) -> bool {
+        self.collector().has_prepared_full_reclaim()
     }
 
     fn descriptor_for<T: Trace + 'static>(&mut self) -> &'static TypeDesc {
@@ -1953,6 +1979,7 @@ impl Heap {
             })
             .collect();
         PreparedReclaim {
+            promoted_bytes: 0,
             rebuilt_old_regions,
             rebuilt_object_index,
             old_reserved_bytes,
@@ -1995,9 +2022,72 @@ impl Heap {
             &self.object_index,
         );
         Ok((
-            self.prepare_reclaim(plan.kind, plan),
+            PreparedReclaim {
+                promoted_bytes: evacuation.promoted_bytes,
+                ..self.prepare_reclaim(plan.kind, plan)
+            },
             evacuation.promoted_bytes,
         ))
+    }
+
+    fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError> {
+        let plan = {
+            let collector = self.collector();
+            collector.active_major_mark_needs_reclaim_prep_plan()
+        };
+        let Some(plan) = plan else {
+            return Ok(false);
+        };
+
+        let mut mark_steps_delta = 0u64;
+        let mut mark_rounds_delta = 0u64;
+        if !self.collector().active_major_mark_ephemerons_processed() {
+            let mut tracer = MarkTracer::with_worklist(
+                &self.objects,
+                &self.object_index,
+                MarkWorklist::default(),
+            );
+            let (ephemeron_steps, ephemeron_rounds) = self.trace_major_ephemerons(
+                &mut tracer,
+                plan.worker_count.max(1),
+                plan.mark_slice_budget,
+            );
+            mark_steps_delta = mark_steps_delta.saturating_add(ephemeron_steps);
+            mark_rounds_delta = mark_rounds_delta.saturating_add(ephemeron_rounds);
+        }
+
+        let prepared_reclaim = match plan.kind {
+            CollectionKind::Major => {
+                let empty_forwarding: ForwardingMap = HashMap::new();
+                self.process_weak_references(
+                    CollectionKind::Major,
+                    plan.worker_count.max(1),
+                    &empty_forwarding,
+                    &self.object_index,
+                );
+                self.prepare_reclaim(CollectionKind::Major, &plan)
+            }
+            CollectionKind::Full => {
+                let (prepared_reclaim, _promoted_bytes) = self.prepare_full_reclaim(&plan)?;
+                prepared_reclaim
+            }
+            CollectionKind::Minor => {
+                return Err(AllocError::UnsupportedCollectionKind {
+                    kind: CollectionKind::Minor,
+                });
+            }
+        };
+
+        let prepared = self.collector().complete_active_major_reclaim_prep(
+            mark_steps_delta,
+            mark_rounds_delta,
+            prepared_reclaim,
+        );
+        debug_assert!(
+            prepared,
+            "active major reclaim prep should only complete while the session stays active"
+        );
+        Ok(prepared)
     }
 
     fn rebuild_post_sweep_old_region(

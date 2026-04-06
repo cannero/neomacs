@@ -26,6 +26,7 @@ fn full_plan() -> CollectionPlan {
 
 fn prepared_reclaim() -> PreparedReclaim {
     PreparedReclaim {
+        promoted_bytes: 0,
         rebuilt_old_regions: Vec::new(),
         rebuilt_object_index: std::collections::HashMap::new(),
         old_reserved_bytes: 0,
@@ -176,7 +177,7 @@ fn major_ready_requires_reclaim_prep_after_worklist_drains() {
 }
 
 #[test]
-fn full_ready_can_record_remark_prep_without_reclaim_prep() {
+fn full_requires_reclaim_prep_after_remark() {
     let mut state = CollectorState::default();
     let mut worklist = MarkWorklist::default();
     worklist.push(7usize);
@@ -192,12 +193,12 @@ fn full_ready_can_record_remark_prep_without_reclaim_prep() {
         .expect("mark update should succeed");
 
     assert!(progress.completed);
-    assert!(state.active_major_mark_is_ready());
+    assert!(!state.active_major_mark_is_ready());
     assert!(!state.active_major_mark_ephemerons_processed());
     assert!(!state.active_major_mark_reclaim_prepared());
 
     assert!(state.complete_active_major_remark(2, 3));
-    assert!(state.active_major_mark_is_ready());
+    assert!(!state.active_major_mark_is_ready());
     assert!(state.active_major_mark_ephemerons_processed());
     assert!(!state.active_major_mark_reclaim_prepared());
     assert_eq!(
@@ -212,4 +213,16 @@ fn full_ready_can_record_remark_prep_without_reclaim_prep() {
         .expect("active major-mark progress");
     assert_eq!(progress.mark_steps, 3);
     assert_eq!(progress.mark_rounds, 4);
+
+    assert!(state.complete_active_major_reclaim_prep(0, 0, prepared_reclaim()));
+    assert!(state.active_major_mark_is_ready());
+    assert!(state.active_major_mark_reclaim_prepared());
+    assert!(state.has_prepared_full_reclaim());
+    assert_eq!(
+        state
+            .active_major_mark_plan()
+            .expect("active major-mark plan")
+            .phase,
+        CollectionPhase::Reclaim
+    );
 }
