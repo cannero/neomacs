@@ -1538,7 +1538,10 @@ impl TaggedHeap {
                 if !self.owns_non_cons_object(ptr) {
                     return false;
                 }
-                // Verify the object type matches the tag
+                // Verify the object type matches the tag.
+                // Without this, conservative scanning false positives
+                // (e.g. string-tagged pointer to a VecLike) cause SIGSEGV
+                // in mark_value when it misinterprets the object layout.
                 let header = unsafe { &*(ptr as *const GcHeader) };
                 let expected_kind = match val.tag() {
                     0b100 => HeapObjectKind::String,
@@ -1546,7 +1549,15 @@ impl TaggedHeap {
                     0b011 => HeapObjectKind::VecLike,
                     _ => unreachable!(),
                 };
-                header.kind == expected_kind
+                if header.kind != expected_kind {
+                    return false;
+                }
+                // Also verify the pointer alignment is valid for the type
+                let addr = ptr as usize;
+                if addr % std::mem::align_of::<GcHeader>() != 0 {
+                    return false;
+                }
+                true
             }
             _ => false,
         }
