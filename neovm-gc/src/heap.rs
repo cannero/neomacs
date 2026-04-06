@@ -316,10 +316,22 @@ impl Heap {
 
     fn refresh_recommended_plans(&self) {
         let mut collector = self.collector();
-        let recommended_plan = self.compute_recommended_plan_from_collector(&collector);
+        self.refresh_collector_cached_plans(&mut collector);
+    }
+
+    fn refresh_collector_cached_plans(&self, collector: &mut CollectorState) {
+        let recommended_plan = self.compute_recommended_plan_from_collector(collector);
         let recommended_background_plan =
-            self.compute_recommended_background_plan_from_collector(&collector);
+            self.compute_recommended_background_plan_from_collector(collector);
         collector.set_cached_plans(recommended_plan, recommended_background_plan);
+    }
+
+    fn refreshed_collector_snapshot(
+        &self,
+        collector: &mut CollectorState,
+    ) -> CollectorSharedSnapshot {
+        self.refresh_collector_cached_plans(collector);
+        collector.shared_snapshot()
     }
 
     /// Return the phases traversed by the most recently executed collection.
@@ -364,11 +376,7 @@ impl Heap {
             plan,
             self.global_sources(),
         )?;
-        let recommended_plan = self.compute_recommended_plan_from_collector(&collector);
-        let recommended_background_plan =
-            self.compute_recommended_background_plan_from_collector(&collector);
-        collector.set_cached_plans(recommended_plan, recommended_background_plan);
-        Ok(collector.shared_snapshot())
+        Ok(self.refreshed_collector_snapshot(&mut collector))
     }
 
     /// Advance one slice of the current persistent major-mark session.
@@ -554,11 +562,8 @@ impl Heap {
                 collector.complete_active_major_remark(ephemeron_steps, ephemeron_rounds);
             }
         }
-        let recommended_plan = self.compute_recommended_plan_from_collector(&collector);
-        let recommended_background_plan =
-            self.compute_recommended_background_plan_from_collector(&collector);
-        collector.set_cached_plans(recommended_plan, recommended_background_plan);
-        Ok((Some(progress), collector.shared_snapshot()))
+        let snapshot = self.refreshed_collector_snapshot(&mut collector);
+        Ok((Some(progress), snapshot))
     }
 
     pub(crate) fn prepare_active_major_reclaim_with_snapshot(
@@ -607,11 +612,8 @@ impl Heap {
             })?;
         let mut collector = self.collector();
         let prepared = complete_active_reclaim_prep(&mut collector, prepared);
-        let recommended_plan = self.compute_recommended_plan_from_collector(&collector);
-        let recommended_background_plan =
-            self.compute_recommended_background_plan_from_collector(&collector);
-        collector.set_cached_plans(recommended_plan, recommended_background_plan);
-        Ok((prepared, collector.shared_snapshot()))
+        let snapshot = self.refreshed_collector_snapshot(&mut collector);
+        Ok((prepared, snapshot))
     }
 
     /// Finish the active major collection if its mark work is fully drained.
