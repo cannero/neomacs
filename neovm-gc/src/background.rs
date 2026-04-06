@@ -998,6 +998,21 @@ impl BackgroundCollector {
         None
     }
 
+    fn blocked_status_from_snapshot(
+        &self,
+        snapshot: &SharedBackgroundSnapshot,
+    ) -> Option<BackgroundCollectionStatus> {
+        let progress = snapshot.major_mark_progress?;
+        if snapshot.active_major_mark_plan.is_none() {
+            return None;
+        }
+        if progress.completed {
+            Some(BackgroundCollectionStatus::ReadyToFinish(progress))
+        } else {
+            Some(BackgroundCollectionStatus::Progress(progress))
+        }
+    }
+
     fn tick_shared_after_snapshot(
         &mut self,
         heap: &SharedHeap,
@@ -1050,7 +1065,12 @@ impl BackgroundCollector {
         if let Some(status) = self.snapshot_tick(&snapshot) {
             return Ok(status);
         }
-        self.try_tick_shared_after_snapshot(heap)
+        match self.try_tick_shared_after_snapshot(heap) {
+            Err(SharedBackgroundError::WouldBlock) => self
+                .blocked_status_from_snapshot(&snapshot)
+                .ok_or(SharedBackgroundError::WouldBlock),
+            other => other,
+        }
     }
 
     /// Run one background-collection coordinator tick.
@@ -1401,6 +1421,19 @@ impl BackgroundWorker {
     }
 }
 
+fn background_wait_duration(
+    status: &BackgroundCollectionStatus,
+    config: &BackgroundWorkerConfig,
+) -> Duration {
+    match status {
+        BackgroundCollectionStatus::Idle => config.idle_sleep,
+        BackgroundCollectionStatus::ReadyToFinish(_) | BackgroundCollectionStatus::Finished(_) => {
+            config.busy_sleep
+        }
+        BackgroundCollectionStatus::Progress(_) => Duration::ZERO,
+    }
+}
+
 fn worker_loop(
     shared: SharedHeap,
     config: BackgroundWorkerConfig,
@@ -1529,22 +1562,29 @@ fn worker_loop(
                 return Err(BackgroundWorkerError::LockPoisoned);
             }
             Err(SharedBackgroundError::WouldBlock) => {
+                let blocked_status = collector.blocked_status_from_snapshot(&snapshot);
                 stats.add_loops(1);
-                stats.add_idle_loops(1);
                 stats.add_contention_loops(1);
+                if blocked_status.is_none() {
+                    stats.add_idle_loops(1);
+                }
                 stats.store_collector(collector.stats());
                 sync_observed_background(
                     &shared,
                     &mut observed_signal_epoch,
                     &mut observed_background,
                 )?;
+                let wait_for = blocked_status
+                    .as_ref()
+                    .map(|status| background_wait_duration(status, &config))
+                    .unwrap_or(config.idle_sleep);
                 wait_for_signal(
                     &stats,
                     &shared,
                     &stop,
                     &mut observed_signal_epoch,
                     &mut observed_background,
-                    config.idle_sleep,
+                    wait_for,
                 )?;
                 continue;
             }
@@ -1562,12 +1602,7 @@ fn worker_loop(
         }
         stats.store_collector(collector.stats());
 
-        let sleep_for = match status {
-            BackgroundCollectionStatus::Idle => config.idle_sleep,
-            BackgroundCollectionStatus::ReadyToFinish(_)
-            | BackgroundCollectionStatus::Finished(_) => config.busy_sleep,
-            BackgroundCollectionStatus::Progress(_) => Duration::ZERO,
-        };
+        let sleep_for = background_wait_duration(&status, &config);
         wait_for_signal(
             &stats,
             &shared,

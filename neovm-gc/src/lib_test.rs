@@ -4864,6 +4864,54 @@ fn shared_background_service_try_tick_aggregates_multiple_rounds_with_short_lock
 }
 
 #[test]
+fn shared_background_service_try_tick_returns_progress_from_snapshot_for_active_session() {
+    let shared = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        old: crate::spaces::OldGenConfig {
+            concurrent_mark_workers: 4,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for byte in 0..64u8 {
+                mutator
+                    .alloc(&mut scope, OldLeaf([byte; 32]))
+                    .expect("allocate old leaf");
+            }
+            let plan = mutator.plan_for(CollectionKind::Major);
+            mutator.begin_major_mark(plan).expect("begin major mark");
+        })
+        .expect("seed active major-mark session");
+
+    let mut service = shared.background_service(BackgroundCollectorConfig::default());
+    let _guard = shared.lock().expect("lock shared heap");
+
+    let result = service.try_tick();
+
+    match result {
+        Ok(BackgroundCollectionStatus::Progress(progress)) => {
+            assert!(!progress.completed);
+            assert!(progress.remaining_work > 0);
+            assert_eq!(progress.drained_objects, 0);
+        }
+        other => panic!("expected progress snapshot status, got {other:?}"),
+    }
+    assert_eq!(service.stats().ticks, 1);
+    assert_eq!(service.stats().rounds, 0);
+}
+
+#[test]
 fn shared_background_service_try_tick_returns_ready_from_snapshot_for_completed_active_session() {
     let shared = Heap::new(HeapConfig {
         nursery: NurseryConfig {
@@ -4919,6 +4967,63 @@ fn shared_background_service_try_tick_returns_ready_from_snapshot_for_completed_
         other => panic!("expected ready-to-finish snapshot status, got {other:?}"),
     }
     assert_eq!(service.stats().ticks, 1);
+}
+
+#[test]
+fn shared_background_service_try_tick_returns_ready_from_snapshot_for_completed_active_session_with_auto_finish()
+ {
+    let shared = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        old: crate::spaces::OldGenConfig {
+            concurrent_mark_workers: 4,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for byte in 0..64u8 {
+                mutator
+                    .alloc(&mut scope, OldLeaf([byte; 32]))
+                    .expect("allocate old leaf");
+            }
+            let plan = mutator.plan_for(CollectionKind::Major);
+            mutator.begin_major_mark(plan).expect("begin major mark");
+            loop {
+                let progress = mutator
+                    .poll_active_major_mark()
+                    .expect("poll active major mark")
+                    .expect("major-mark session should stay active");
+                if progress.completed {
+                    break;
+                }
+            }
+        })
+        .expect("seed completed major-mark session");
+
+    let mut service = shared.background_service(BackgroundCollectorConfig::default());
+    let _guard = shared.lock().expect("lock shared heap");
+
+    let result = service.try_tick();
+
+    match result {
+        Ok(BackgroundCollectionStatus::ReadyToFinish(progress)) => {
+            assert!(progress.completed);
+            assert_eq!(progress.remaining_work, 0);
+        }
+        other => panic!("expected ready-to-finish snapshot status, got {other:?}"),
+    }
+    assert_eq!(service.stats().ticks, 1);
+    assert_eq!(service.stats().rounds, 0);
 }
 
 #[test]
@@ -5569,6 +5674,65 @@ fn background_worker_records_contention_loops_when_heap_lock_is_held() {
     let stats = worker.join().expect("join background worker");
     assert!(stats.contention_loops > 0);
     assert!(stats.wait_loops > 0);
+}
+
+#[test]
+fn background_worker_does_not_count_active_session_contention_as_idle() {
+    let shared = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        old: crate::spaces::OldGenConfig {
+            concurrent_mark_workers: 2,
+            mutator_assist_slices: 0,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for byte in 0..64u8 {
+                mutator
+                    .alloc(&mut scope, OldLeaf([byte; 32]))
+                    .expect("allocate old leaf");
+            }
+            let plan = mutator.plan_for(CollectionKind::Major);
+            mutator.begin_major_mark(plan).expect("begin major mark");
+        })
+        .expect("seed active major-mark session");
+
+    let worker = shared.spawn_background_worker(BackgroundWorkerConfig {
+        collector: BackgroundCollectorConfig::default(),
+        idle_sleep: Duration::from_millis(10),
+        busy_sleep: Duration::ZERO,
+    });
+
+    let _guard = shared.lock().expect("lock shared heap");
+    let deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        let status = worker.status().expect("read worker status");
+        if status.worker.contention_loops > 0 {
+            assert_eq!(status.worker.idle_loops, 0);
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "background worker did not record active-session contention before timeout"
+        );
+        thread::sleep(Duration::from_millis(1));
+    }
+
+    worker.request_stop();
+    let stats = worker.join().expect("join background worker");
+    assert!(stats.contention_loops > 0);
+    assert_eq!(stats.idle_loops, 0);
 }
 
 #[test]
