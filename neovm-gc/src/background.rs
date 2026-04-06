@@ -121,6 +121,8 @@ pub struct SharedBackgroundStatus {
     pub active_major_mark_plan: Option<CollectionPlan>,
     /// Active major-mark progress, if any.
     pub major_mark_progress: Option<MajorMarkProgress>,
+    /// Number of queued finalizers waiting to run.
+    pub pending_finalizers: usize,
 }
 
 /// One consistent observation of background epoch and background-visible shared heap state.
@@ -232,13 +234,15 @@ impl SharedHeapSnapshot {
     }
 }
 
-impl From<&CollectorSharedSnapshot> for SharedBackgroundStatus {
-    fn from(snapshot: &CollectorSharedSnapshot) -> Self {
-        Self {
-            recommended_background_plan: snapshot.recommended_background_plan.clone(),
-            active_major_mark_plan: snapshot.active_major_mark_plan.clone(),
-            major_mark_progress: snapshot.major_mark_progress,
-        }
+fn shared_background_status_from_parts(
+    heap_snapshot: &SharedHeapSnapshot,
+    collector_snapshot: &CollectorSharedSnapshot,
+) -> SharedBackgroundStatus {
+    SharedBackgroundStatus {
+        recommended_background_plan: collector_snapshot.recommended_background_plan.clone(),
+        active_major_mark_plan: collector_snapshot.active_major_mark_plan.clone(),
+        major_mark_progress: collector_snapshot.major_mark_progress,
+        pending_finalizers: heap_snapshot.stats.pending_finalizers,
     }
 }
 
@@ -325,13 +329,17 @@ impl Drop for SharedHeapGuard<'_> {
         self.guard.take();
         let mut heap_changed = false;
         let mut background_changed = false;
+        let mut previous_snapshot = None;
         if let Ok(mut snapshot) = self.snapshot.write() {
+            previous_snapshot = Some(snapshot.clone());
             heap_changed = *snapshot != next_snapshot;
             *snapshot = next_snapshot.clone();
         }
         if let Ok(mut collector_snapshot) = self.collector_snapshot.write() {
-            background_changed = SharedBackgroundStatus::from(&*collector_snapshot)
-                != SharedBackgroundStatus::from(&next_collector);
+            background_changed = previous_snapshot.as_ref().is_some_and(|previous_snapshot| {
+                shared_background_status_from_parts(previous_snapshot, &*collector_snapshot)
+                    != shared_background_status_from_parts(&next_snapshot, &next_collector)
+            });
             *collector_snapshot = next_collector;
         }
         if heap_changed {
@@ -530,12 +538,16 @@ impl SharedHeap {
         next_collector: CollectorSharedSnapshot,
     ) -> Result<(), SharedHeapError> {
         let background_changed = {
+            let heap_snapshot = self
+                .snapshot
+                .read()
+                .map_err(|_| SharedHeapError::LockPoisoned)?;
             let mut collector_snapshot = self
                 .collector_snapshot
                 .write()
                 .map_err(|_| SharedHeapError::LockPoisoned)?;
-            let changed = SharedBackgroundStatus::from(&*collector_snapshot)
-                != SharedBackgroundStatus::from(&next_collector);
+            let changed = shared_background_status_from_parts(&heap_snapshot, &*collector_snapshot)
+                != shared_background_status_from_parts(&heap_snapshot, &next_collector);
             *collector_snapshot = next_collector;
             changed
         };
@@ -554,6 +566,32 @@ impl SharedHeap {
             let after_epoch = self.background_signal.current_epoch()?;
             if before_epoch == after_epoch {
                 return Ok((after_epoch, snapshot));
+            }
+        }
+    }
+
+    fn observe_background_status(&self) -> Result<SharedBackgroundStatus, SharedHeapError> {
+        self.observe_background_status_with_epoch()
+            .map(|(_, status)| status)
+    }
+
+    fn observe_background_status_with_epoch(
+        &self,
+    ) -> Result<(u64, SharedBackgroundStatus), SharedHeapError> {
+        loop {
+            let before_epoch = self.background_signal.current_epoch()?;
+            let heap_snapshot = self
+                .snapshot
+                .read()
+                .map_err(|_| SharedHeapError::LockPoisoned)?;
+            let collector_snapshot = self
+                .collector_snapshot
+                .read()
+                .map_err(|_| SharedHeapError::LockPoisoned)?;
+            let status = shared_background_status_from_parts(&heap_snapshot, &collector_snapshot);
+            let after_epoch = self.background_signal.current_epoch()?;
+            if before_epoch == after_epoch {
+                return Ok((after_epoch, status));
             }
         }
     }
@@ -771,17 +809,14 @@ impl SharedHeap {
 
     /// Return background-collector-visible shared heap state from the latest shared snapshot.
     pub fn background_status(&self) -> Result<SharedBackgroundStatus, SharedHeapError> {
-        self.read_collector_snapshot(|snapshot| SharedBackgroundStatus::from(snapshot))
+        self.observe_background_status()
     }
 
     /// Return one consistent observation of background epoch and background-visible shared heap
     /// state.
     pub fn background_observation(&self) -> Result<SharedBackgroundObservation, SharedHeapError> {
-        let (epoch, snapshot) = self.observe_collector_snapshot()?;
-        Ok(SharedBackgroundObservation {
-            epoch,
-            status: SharedBackgroundStatus::from(&snapshot),
-        })
+        let (epoch, status) = self.observe_background_status_with_epoch()?;
+        Ok(SharedBackgroundObservation { epoch, status })
     }
 
     /// Return the last completed plan, if any.

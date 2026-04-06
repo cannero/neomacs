@@ -6232,6 +6232,62 @@ fn public_api_shared_background_service_wait_for_background_change_reports_old_w
 }
 
 #[test]
+fn public_api_shared_background_service_wait_for_background_change_reports_pending_finalizer_change()
+ {
+    PUBLIC_FINALIZE_COUNT.store(0, Ordering::SeqCst);
+
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    let service = shared.background_service(neovm_gc::BackgroundCollectorConfig::default());
+    let observed_epoch = shared
+        .background_epoch()
+        .expect("read initial shared background epoch");
+    let observed_status = service
+        .background_status()
+        .expect("read initial shared background status");
+    assert_eq!(observed_status.pending_finalizers, 0);
+
+    let waking_shared = shared.clone();
+    let waiter = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(10));
+        waking_shared
+            .with_mutator(|mutator| {
+                {
+                    let mut scope = mutator.handle_scope();
+                    mutator
+                        .alloc(&mut scope, FinalizableLeaf(597))
+                        .expect("alloc finalizable old leaf");
+                }
+                let cycle = mutator
+                    .collect(CollectionKind::Major)
+                    .expect("major collect");
+                assert_eq!(cycle.queued_finalizers, 1);
+            })
+            .expect("queue pending finalizer");
+    });
+
+    let wake = service
+        .wait_for_background_change(observed_epoch, &observed_status, Duration::from_secs(1))
+        .expect("wait for pending finalizer change");
+    waiter.join().expect("join finalizer queueing thread");
+
+    assert!(wake.signal_changed);
+    assert!(wake.background_changed);
+    assert!(wake.next_epoch > observed_epoch);
+    assert_eq!(wake.status.pending_finalizers, 1);
+}
+
+#[test]
 fn public_api_shared_background_service_wait_for_background_change_ignores_nursery_only_mutation() {
     let leaf_bytes = neovm_gc::estimated_allocation_size::<Leaf>().expect("leaf allocation size");
     let shared = Heap::new(HeapConfig {
