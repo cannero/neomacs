@@ -304,9 +304,10 @@ pub(crate) fn apply_prepared_reclaim(
     indexes.finalizable_candidates = prepared_reclaim.finalizable_candidates;
     indexes.weak_candidates = prepared_reclaim.weak_candidates;
     indexes.ephemeron_candidates = prepared_reclaim.ephemeron_candidates;
-    indexes.remembered_edges = prepared_reclaim.remembered_edges;
-    indexes.remembered_owners = prepared_reclaim.remembered_owners;
-    indexes.remembered_owner_set = indexes.remembered_owners.iter().copied().collect();
+    indexes.remembered.replace(
+        prepared_reclaim.remembered_edges,
+        prepared_reclaim.remembered_owners,
+    );
     stats.nursery.live_bytes = prepared_reclaim.nursery_live_bytes;
     stats.old.live_bytes = prepared_reclaim.old_live_bytes;
     stats.pinned.live_bytes = prepared_reclaim.pinned_live_bytes;

@@ -130,7 +130,7 @@ pub(crate) fn relocate_roots_and_edges(
         }
     }
 
-    for edge in &mut indexes.remembered_edges {
+    for edge in &mut indexes.remembered.edges {
         edge.owner =
             unsafe { crate::root::Gc::from_erased(relocator.relocate_erased(edge.owner.erase())) };
         edge.target =

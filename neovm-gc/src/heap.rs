@@ -185,8 +185,8 @@ impl Heap {
 
     pub(crate) fn storage_stats(&self) -> HeapStats {
         let mut stats = self.stats;
-        stats.remembered_edges = self.indexes.remembered_edges.len();
-        stats.remembered_owners = self.indexes.remembered_owners.len();
+        stats.remembered_edges = self.indexes.remembered.edges.len();
+        stats.remembered_owners = self.indexes.remembered.owners.len();
         stats.finalizable_candidates = self.indexes.finalizable_candidates.len();
         stats.weak_candidates = self.indexes.weak_candidates.len();
         stats.ephemeron_candidates = self.indexes.ephemeron_candidates.len();
@@ -575,12 +575,12 @@ impl Heap {
 
     /// Number of remembered old-to-young edges currently tracked.
     pub fn remembered_edge_count(&self) -> usize {
-        self.indexes.remembered_edges.len()
+        self.indexes.remembered.edges.len()
     }
 
     #[cfg(test)]
     pub(crate) fn remembered_owner_count(&self) -> usize {
-        self.indexes.remembered_owners.len()
+        self.indexes.remembered.owners.len()
     }
 
     /// Number of recent barrier events retained for diagnostics.
@@ -1088,7 +1088,7 @@ impl Heap {
         run_minor_trace(
             &self.objects,
             index,
-            &self.indexes.remembered_owners,
+            &self.indexes.remembered.owners,
             &ephemeron_candidates,
             worker_count,
             slice_budget,
