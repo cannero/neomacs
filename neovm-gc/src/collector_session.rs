@@ -139,6 +139,23 @@ pub(crate) fn build_prepared_active_reclaim(
     })
 }
 
+pub(crate) fn prepare_active_reclaim_request(
+    request: ActiveReclaimPrepRequest,
+    trace_ephemerons: impl FnOnce(&mut MarkTracer<'_>, &CollectionPlan) -> (u64, u64),
+    objects: &[ObjectRecord],
+    index: &ObjectIndex,
+    prepare_reclaim: impl FnOnce(&CollectionPlan) -> Result<PreparedReclaim, AllocError>,
+) -> Result<PreparedActiveReclaim, AllocError> {
+    let (mark_steps_delta, mark_rounds_delta) =
+        prepare_active_reclaim(&request, trace_ephemerons, objects, index);
+    build_prepared_active_reclaim(
+        &request,
+        mark_steps_delta,
+        mark_rounds_delta,
+        prepare_reclaim,
+    )
+}
+
 pub(crate) fn complete_active_reclaim_prep(
     collector: &mut CollectorState,
     prepared: PreparedActiveReclaim,

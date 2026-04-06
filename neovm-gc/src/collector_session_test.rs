@@ -116,6 +116,36 @@ fn prepare_active_reclaim_plan_moves_major_session_to_reclaim() {
 }
 
 #[test]
+fn prepare_active_reclaim_request_moves_major_session_to_reclaim() {
+    let mut state = CollectorState::default();
+    let plan = major_plan();
+    let index = ObjectIndex::default();
+    state.begin_major_mark(plan.clone(), MarkWorklist::default());
+    let request = active_reclaim_prep_request(&state).expect("active reclaim prep request");
+
+    let prepared = prepare_active_reclaim_request(
+        request,
+        |_tracer, _plan| (2, 3),
+        &[],
+        &index,
+        |_plan| Ok(prepared_reclaim()),
+    )
+    .expect("major reclaim prep should succeed");
+    let completed = complete_active_reclaim_prep(&mut state, prepared);
+
+    assert!(completed);
+    assert!(state.active_major_mark_is_ready());
+    assert!(state.active_major_mark_reclaim_prepared());
+    assert_eq!(
+        state.active_major_mark_plan().expect("active plan").phase,
+        CollectionPhase::Reclaim
+    );
+    let progress = state.major_mark_progress().expect("major mark progress");
+    assert_eq!(progress.mark_steps, 2);
+    assert_eq!(progress.mark_rounds, 3);
+}
+
+#[test]
 fn prepare_active_reclaim_plan_skips_ephemeron_trace_after_remark() {
     let mut state = CollectorState::default();
     let plan = full_plan();

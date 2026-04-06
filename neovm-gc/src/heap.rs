@@ -13,7 +13,7 @@ use crate::collector_exec::{
 use crate::collector_session::{
     active_reclaim_prep_request, advance_major_mark_slice, begin_major_mark,
     build_prepared_active_reclaim, complete_active_reclaim_prep, finish_major_mark,
-    poll_active_major_mark_round, prepare_active_reclaim,
+    poll_active_major_mark_round, prepare_active_reclaim, prepare_active_reclaim_request,
 };
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
 use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
@@ -582,8 +582,8 @@ impl Heap {
             return Ok((false, collector.shared_snapshot()));
         }
 
-        let (mark_steps_delta, mark_rounds_delta) = prepare_active_reclaim(
-            &request,
+        let prepared = prepare_active_reclaim_request(
+            request,
             |tracer, plan| {
                 trace_major_ephemerons_for_candidates(
                     &self.objects,
@@ -596,9 +596,7 @@ impl Heap {
             },
             &self.objects,
             &self.indexes.object_index,
-        );
-        let prepared =
-            build_prepared_active_reclaim(&request, mark_steps_delta, mark_rounds_delta, |plan| {
+            |plan| {
                 let empty_forwarding: ForwardingMap = HashMap::new();
                 process_weak_references_for_candidates(
                     &self.objects,
@@ -609,7 +607,8 @@ impl Heap {
                     &self.indexes.object_index,
                 );
                 Ok(self.prepare_reclaim(CollectionKind::Major, plan))
-            })?;
+            },
+        )?;
         let mut collector = self.collector();
         let prepared = complete_active_reclaim_prep(&mut collector, prepared);
         let snapshot = self.refreshed_collector_snapshot(&mut collector);
@@ -1384,9 +1383,7 @@ impl Heap {
                     }),
                 }
             })?;
-        Ok(complete_active_reclaim_prep(
-            &mut self.collector(),
-            prepared,
-        ))
+        let result = complete_active_reclaim_prep(&mut self.collector(), prepared);
+        Ok(result)
     }
 }
