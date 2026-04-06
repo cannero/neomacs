@@ -86,8 +86,6 @@ pub struct SharedHeap {
     inner: Arc<RwLock<Heap>>,
     runtime: SharedRuntimeHandle,
     collector: SharedCollectorHandle,
-    snapshot: Arc<RwLock<SharedHeapSnapshot>>,
-    signal: Arc<SharedHeapSignal>,
 }
 
 /// Public snapshot of shared heap state that can be read without taking the main heap mutex.
@@ -429,6 +427,30 @@ impl SharedRuntimeHandle {
         Ok(f(&snapshot))
     }
 
+    fn read_heap_snapshot<R>(
+        &self,
+        f: impl FnOnce(&SharedHeapSnapshot) -> R,
+    ) -> Result<R, SharedHeapError> {
+        let snapshot = self
+            .heap_snapshot
+            .read()
+            .map_err(|_| SharedHeapError::LockPoisoned)?;
+        Ok(f(&snapshot))
+    }
+
+    fn replace_heap_snapshot(
+        &self,
+        next_heap_snapshot: SharedHeapSnapshot,
+    ) -> Result<SharedHeapSnapshot, SharedHeapError> {
+        let mut snapshot = self
+            .heap_snapshot
+            .write()
+            .map_err(|_| SharedHeapError::LockPoisoned)?;
+        let previous = snapshot.clone();
+        *snapshot = next_heap_snapshot;
+        Ok(previous)
+    }
+
     fn replace_snapshot(
         &self,
         next_runtime_snapshot: SharedRuntimeSnapshot,
@@ -471,6 +493,132 @@ impl SharedRuntimeHandle {
             self.collector.notify();
         }
         Ok(())
+    }
+
+    fn heap_epoch(&self) -> Result<u64, SharedHeapError> {
+        self.heap_signal.current_epoch()
+    }
+
+    fn wait_for_heap_change(
+        &self,
+        observed_epoch: u64,
+        timeout: Duration,
+    ) -> Result<(u64, bool), SharedHeapError> {
+        self.heap_signal.wait_for_change(observed_epoch, timeout)
+    }
+
+    fn notify_heap(&self) {
+        self.heap_signal.notify();
+    }
+
+    fn pending_finalizer_count(&self) -> Result<usize, SharedHeapError> {
+        self.read_snapshot(|snapshot| snapshot.pending_finalizers)
+    }
+
+    fn runtime_work_status(&self) -> Result<RuntimeWorkStatus, SharedHeapError> {
+        self.read_snapshot(|snapshot| {
+            RuntimeWorkStatus::from_pending_finalizers(snapshot.pending_finalizers)
+        })
+    }
+
+    fn observe_heap_status(&self) -> Result<SharedHeapStatus, SharedHeapError> {
+        loop {
+            let before_epoch = self.heap_epoch()?;
+            let heap_snapshot = self.read_heap_snapshot(Clone::clone)?;
+            let runtime_snapshot = self.read_snapshot(|snapshot| *snapshot)?;
+            let collector = self.collector.snapshot()?;
+            let after_epoch = self.heap_epoch()?;
+            if before_epoch == after_epoch {
+                return Ok(shared_heap_status_from_parts(
+                    &heap_snapshot,
+                    &runtime_snapshot,
+                    &collector,
+                ));
+            }
+        }
+    }
+
+    fn observe_background_status(&self) -> Result<SharedBackgroundStatus, SharedHeapError> {
+        self.observe_background_status_with_epoch()
+            .map(|(_, status)| status)
+    }
+
+    fn observe_background_status_with_epoch(
+        &self,
+    ) -> Result<(u64, SharedBackgroundStatus), SharedHeapError> {
+        loop {
+            let before_epoch = self.collector.epoch()?;
+            let heap_snapshot = self.read_heap_snapshot(Clone::clone)?;
+            let runtime_snapshot = self.read_snapshot(|snapshot| *snapshot)?;
+            let collector_snapshot = self.collector.snapshot()?;
+            let status = shared_background_status_from_parts(
+                &heap_snapshot,
+                &runtime_snapshot,
+                &collector_snapshot,
+            );
+            let after_epoch = self.collector.epoch()?;
+            if before_epoch == after_epoch {
+                return Ok((after_epoch, status));
+            }
+        }
+    }
+
+    fn wait_for_background_change(
+        &self,
+        observed_epoch: &mut u64,
+        observed_status: &mut SharedBackgroundStatus,
+        timeout: Duration,
+        stop: Option<&AtomicBool>,
+    ) -> Result<SharedBackgroundWaitResult, SharedHeapError> {
+        if timeout.is_zero() {
+            return Ok(SharedBackgroundWaitResult {
+                next_epoch: *observed_epoch,
+                signal_changed: false,
+                background_changed: false,
+                status: observed_status.clone(),
+            });
+        }
+
+        let started_at = std::time::Instant::now();
+        let mut remaining = timeout;
+        let mut signal_changed = false;
+        loop {
+            let (next_epoch, changed) =
+                self.collector.wait_for_change(*observed_epoch, remaining)?;
+            *observed_epoch = next_epoch;
+            signal_changed |= changed;
+
+            if stop.is_some_and(|stop| stop.load(Ordering::Acquire)) {
+                return Ok(SharedBackgroundWaitResult {
+                    next_epoch,
+                    signal_changed,
+                    background_changed: false,
+                    status: observed_status.clone(),
+                });
+            }
+
+            let next_status = self.observe_background_status()?;
+            if next_status != *observed_status {
+                *observed_status = next_status.clone();
+                return Ok(SharedBackgroundWaitResult {
+                    next_epoch,
+                    signal_changed,
+                    background_changed: true,
+                    status: next_status,
+                });
+            }
+
+            let elapsed = started_at.elapsed();
+            if elapsed >= timeout {
+                return Ok(SharedBackgroundWaitResult {
+                    next_epoch,
+                    signal_changed,
+                    background_changed: false,
+                    status: next_status,
+                });
+            }
+            remaining = timeout.saturating_sub(elapsed);
+        }
     }
 
     fn drain_pending_finalizers(&self) -> Result<u64, SharedHeapError> {
@@ -556,9 +704,7 @@ fn shared_background_status_from_parts(
 pub struct SharedHeapGuard<'a> {
     guard: Option<RwLockWriteGuard<'a, Heap>>,
     collector: &'a SharedCollectorHandle,
-    snapshot: &'a RwLock<SharedHeapSnapshot>,
     runtime: &'a SharedRuntimeHandle,
-    signal: &'a SharedHeapSignal,
     dirty: bool,
 }
 
@@ -572,16 +718,12 @@ impl<'a> SharedHeapGuard<'a> {
     fn new(
         guard: RwLockWriteGuard<'a, Heap>,
         collector: &'a SharedCollectorHandle,
-        snapshot: &'a RwLock<SharedHeapSnapshot>,
         runtime: &'a SharedRuntimeHandle,
-        signal: &'a SharedHeapSignal,
     ) -> Self {
         Self {
             guard: Some(guard),
             collector,
-            snapshot,
             runtime,
-            signal,
             dirty: false,
         }
     }
@@ -645,10 +787,11 @@ impl Drop for SharedHeapGuard<'_> {
         let mut background_changed = false;
         let mut previous_snapshot = None;
         let mut previous_runtime_snapshot = None;
-        if let Ok(mut snapshot) = self.snapshot.write() {
-            previous_snapshot = Some(snapshot.clone());
-            heap_changed = *snapshot != next_snapshot;
-            *snapshot = next_snapshot.clone();
+        if let Ok(previous_heap_snapshot) =
+            self.runtime.replace_heap_snapshot(next_snapshot.clone())
+        {
+            heap_changed = previous_heap_snapshot != next_snapshot;
+            previous_snapshot = Some(previous_heap_snapshot);
         }
         if let Ok(previous_runtime) = self.runtime.replace_snapshot(next_runtime_snapshot) {
             runtime_changed = previous_runtime != next_runtime_snapshot;
@@ -670,10 +813,10 @@ impl Drop for SharedHeapGuard<'_> {
             );
         }
         if heap_changed {
-            self.signal.notify();
+            self.runtime.notify_heap();
         }
         if runtime_changed {
-            self.signal.notify();
+            self.runtime.notify_heap();
         }
         if background_changed {
             self.collector.notify();
@@ -710,27 +853,17 @@ impl SharedHeap {
             inner: Arc::new(RwLock::new(heap)),
             runtime,
             collector,
-            snapshot,
-            signal: heap_signal,
         }
     }
 
     /// Lock the underlying heap.
     pub fn lock(&self) -> LockResult<SharedHeapGuard<'_>> {
         match self.inner.write() {
-            Ok(guard) => Ok(SharedHeapGuard::new(
-                guard,
-                &self.collector,
-                &self.snapshot,
-                &self.runtime,
-                &self.signal,
-            )),
+            Ok(guard) => Ok(SharedHeapGuard::new(guard, &self.collector, &self.runtime)),
             Err(error) => Err(std::sync::PoisonError::new(SharedHeapGuard::new(
                 error.into_inner(),
                 &self.collector,
-                &self.snapshot,
                 &self.runtime,
-                &self.signal,
             ))),
         }
     }
@@ -738,22 +871,12 @@ impl SharedHeap {
     /// Try to lock the underlying heap without blocking.
     pub fn try_lock(&self) -> TryLockResult<SharedHeapGuard<'_>> {
         match self.inner.try_write() {
-            Ok(guard) => Ok(SharedHeapGuard::new(
-                guard,
-                &self.collector,
-                &self.snapshot,
-                &self.runtime,
-                &self.signal,
-            )),
-            Err(TryLockError::Poisoned(error)) => Err(TryLockError::Poisoned(
-                std::sync::PoisonError::new(SharedHeapGuard::new(
-                    error.into_inner(),
-                    &self.collector,
-                    &self.snapshot,
-                    &self.runtime,
-                    &self.signal,
-                )),
-            )),
+            Ok(guard) => Ok(SharedHeapGuard::new(guard, &self.collector, &self.runtime)),
+            Err(TryLockError::Poisoned(error)) => {
+                Err(TryLockError::Poisoned(std::sync::PoisonError::new(
+                    SharedHeapGuard::new(error.into_inner(), &self.collector, &self.runtime),
+                )))
+            }
             Err(TryLockError::WouldBlock) => Err(TryLockError::WouldBlock),
         }
     }
@@ -884,41 +1007,6 @@ impl SharedHeap {
         }
     }
 
-    fn read_snapshot<R>(
-        &self,
-        f: impl FnOnce(&SharedHeapSnapshot) -> R,
-    ) -> Result<R, SharedHeapError> {
-        let snapshot = self
-            .snapshot
-            .read()
-            .map_err(|_| SharedHeapError::LockPoisoned)?;
-        Ok(f(&snapshot))
-    }
-
-    fn read_runtime_snapshot<R>(
-        &self,
-        f: impl FnOnce(&SharedRuntimeSnapshot) -> R,
-    ) -> Result<R, SharedHeapError> {
-        self.runtime.read_snapshot(f)
-    }
-
-    fn observe_status(&self) -> Result<SharedHeapStatus, SharedHeapError> {
-        loop {
-            let before_epoch = self.signal.current_epoch()?;
-            let heap_snapshot = self.read_snapshot(Clone::clone)?;
-            let runtime_snapshot = self.read_runtime_snapshot(|snapshot| *snapshot)?;
-            let collector = self.collector_snapshot()?;
-            let after_epoch = self.signal.current_epoch()?;
-            if before_epoch == after_epoch {
-                return Ok(shared_heap_status_from_parts(
-                    &heap_snapshot,
-                    &runtime_snapshot,
-                    &collector,
-                ));
-            }
-        }
-    }
-
     pub(crate) fn collector_snapshot(&self) -> Result<CollectorSharedSnapshot, SharedHeapError> {
         self.collector.snapshot()
     }
@@ -927,104 +1015,15 @@ impl SharedHeap {
         &self,
         next_collector: CollectorSharedSnapshot,
     ) -> Result<(), SharedHeapError> {
-        let heap_snapshot = self
-            .snapshot
-            .read()
-            .map_err(|_| SharedHeapError::LockPoisoned)?;
+        let heap_snapshot = self.runtime.read_heap_snapshot(Clone::clone)?;
         let runtime_snapshot = self.runtime.read_snapshot(|snapshot| *snapshot)?;
         self.collector
             .publish_snapshot(next_collector, &heap_snapshot, &runtime_snapshot)
     }
 
-    fn observe_background_status(&self) -> Result<SharedBackgroundStatus, SharedHeapError> {
-        self.observe_background_status_with_epoch()
-            .map(|(_, status)| status)
-    }
-
-    fn observe_background_status_with_epoch(
-        &self,
-    ) -> Result<(u64, SharedBackgroundStatus), SharedHeapError> {
-        loop {
-            let before_epoch = self.collector.epoch()?;
-            let heap_snapshot = self
-                .snapshot
-                .read()
-                .map_err(|_| SharedHeapError::LockPoisoned)?;
-            let runtime_snapshot = self.runtime.read_snapshot(|snapshot| *snapshot)?;
-            let collector_snapshot = self.collector.snapshot()?;
-            let status = shared_background_status_from_parts(
-                &heap_snapshot,
-                &runtime_snapshot,
-                &collector_snapshot,
-            );
-            let after_epoch = self.collector.epoch()?;
-            if before_epoch == after_epoch {
-                return Ok((after_epoch, status));
-            }
-        }
-    }
-
-    fn wait_for_background_change_internal(
-        &self,
-        observed_epoch: &mut u64,
-        observed_status: &mut SharedBackgroundStatus,
-        timeout: Duration,
-        stop: Option<&AtomicBool>,
-    ) -> Result<SharedBackgroundWaitResult, SharedHeapError> {
-        if timeout.is_zero() {
-            return Ok(SharedBackgroundWaitResult {
-                next_epoch: *observed_epoch,
-                signal_changed: false,
-                background_changed: false,
-                status: observed_status.clone(),
-            });
-        }
-
-        let started_at = std::time::Instant::now();
-        let mut remaining = timeout;
-        let mut signal_changed = false;
-        loop {
-            let (next_epoch, changed) =
-                self.collector.wait_for_change(*observed_epoch, remaining)?;
-            *observed_epoch = next_epoch;
-            signal_changed |= changed;
-
-            if stop.is_some_and(|stop| stop.load(Ordering::Acquire)) {
-                return Ok(SharedBackgroundWaitResult {
-                    next_epoch,
-                    signal_changed,
-                    background_changed: false,
-                    status: observed_status.clone(),
-                });
-            }
-
-            let next_status = self.background_status()?;
-            if next_status != *observed_status {
-                *observed_status = next_status.clone();
-                return Ok(SharedBackgroundWaitResult {
-                    next_epoch,
-                    signal_changed,
-                    background_changed: true,
-                    status: next_status,
-                });
-            }
-
-            let elapsed = started_at.elapsed();
-            if elapsed >= timeout {
-                return Ok(SharedBackgroundWaitResult {
-                    next_epoch,
-                    signal_changed,
-                    background_changed: false,
-                    status: next_status,
-                });
-            }
-            remaining = timeout.saturating_sub(elapsed);
-        }
-    }
-
     /// Return the current shared-heap change epoch used by signal-backed waiters.
     pub fn epoch(&self) -> Result<u64, SharedHeapError> {
-        self.signal.current_epoch()
+        self.runtime.heap_epoch()
     }
 
     /// Return the current background-state change epoch used by background waiters.
@@ -1041,7 +1040,7 @@ impl SharedHeap {
         observed_epoch: u64,
         timeout: Duration,
     ) -> Result<(u64, bool), SharedHeapError> {
-        self.signal.wait_for_change(observed_epoch, timeout)
+        self.runtime.wait_for_heap_change(observed_epoch, timeout)
     }
 
     /// Wait for one background-collector-visible shared heap state change or for `timeout` to
@@ -1054,7 +1053,7 @@ impl SharedHeap {
     ) -> Result<SharedBackgroundWaitResult, SharedHeapError> {
         let mut observed_epoch = observed_epoch;
         let mut observed_status = observed_status.clone();
-        self.wait_for_background_change_internal(
+        self.runtime.wait_for_background_change(
             &mut observed_epoch,
             &mut observed_status,
             timeout,
@@ -1139,19 +1138,19 @@ impl SharedHeap {
 
     /// Return current heap statistics.
     pub fn stats(&self) -> Result<HeapStats, SharedHeapError> {
-        self.observe_status().map(|status| status.stats)
+        self.runtime
+            .observe_heap_status()
+            .map(|status| status.stats)
     }
 
     /// Return the number of queued finalizers waiting to run.
     pub fn pending_finalizer_count(&self) -> Result<usize, SharedHeapError> {
-        self.read_runtime_snapshot(|snapshot| snapshot.pending_finalizers)
+        self.runtime.pending_finalizer_count()
     }
 
     /// Return runtime-side follow-up work that remains outside GC commit.
     pub fn runtime_work_status(&self) -> Result<RuntimeWorkStatus, SharedHeapError> {
-        self.read_runtime_snapshot(|snapshot| {
-            RuntimeWorkStatus::from_pending_finalizers(snapshot.pending_finalizers)
-        })
+        self.runtime.runtime_work_status()
     }
 
     /// Run and drain queued finalizers.
@@ -1166,7 +1165,7 @@ impl SharedHeap {
 
     /// Return one consistent shared snapshot of heap and background-collector state.
     pub fn status(&self) -> Result<SharedHeapStatus, SharedHeapError> {
-        self.observe_status()
+        self.runtime.observe_heap_status()
     }
 
     /// Recommend the next collection plan from current heap pressure.
@@ -1185,13 +1184,13 @@ impl SharedHeap {
 
     /// Return background-collector-visible shared heap state from the latest shared snapshot.
     pub fn background_status(&self) -> Result<SharedBackgroundStatus, SharedHeapError> {
-        self.observe_background_status()
+        self.runtime.observe_background_status()
     }
 
     /// Return one consistent observation of background epoch and background-visible shared heap
     /// state.
     pub fn background_observation(&self) -> Result<SharedBackgroundObservation, SharedHeapError> {
-        let (epoch, status) = self.observe_background_status_with_epoch()?;
+        let (epoch, status) = self.runtime.observe_background_status_with_epoch()?;
         Ok(SharedBackgroundObservation { epoch, status })
     }
 
@@ -1229,7 +1228,7 @@ impl SharedHeap {
 
     /// Wake waiters blocked on `wait_for_change`.
     pub fn notify_waiters(&self) {
-        self.signal.notify();
+        self.runtime.notify_heap();
     }
 
     /// Wake waiters blocked on background-state changes.
