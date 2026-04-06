@@ -1126,10 +1126,17 @@ pub(crate) fn builtin_expand_file_name_impl(
         default_directory_in_state(obarray, dynamic, buffers)
     };
 
-    Ok(Value::string(expand_file_name(
-        &name,
-        default_dir.as_deref(),
-    )))
+    let result = expand_file_name(&name, default_dir.as_deref());
+    // Preserve the multibyte flag of the input: if the input name was
+    // unibyte (or the result is pure ASCII), return unibyte.  This
+    // matches GNU Emacs where expand-file-name preserves the encoding
+    // and avoids "default-directory must be unibyte" errors during dump.
+    let input_multibyte = args[0].string_is_multibyte();
+    if input_multibyte {
+        Ok(Value::multibyte_string(result))
+    } else {
+        Ok(Value::unibyte_string(result))
+    }
 }
 
 pub(crate) fn builtin_expand_file_name(eval: &mut Context, args: Vec<Value>) -> EvalResult {
@@ -1286,14 +1293,23 @@ pub(crate) fn builtin_file_name_nondirectory(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_file_name_as_directory(args: Vec<Value>) -> EvalResult {
     expect_args("file-name-as-directory", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    Ok(Value::string(file_name_as_directory(&filename)))
+    // Preserve multibyte flag of input
+    if args[0].string_is_multibyte() {
+        Ok(Value::multibyte_string(file_name_as_directory(&filename)))
+    } else {
+        Ok(Value::unibyte_string(file_name_as_directory(&filename)))
+    }
 }
 
 /// (directory-file-name FILENAME) -> string
 pub(crate) fn builtin_directory_file_name(args: Vec<Value>) -> EvalResult {
     expect_args("directory-file-name", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    Ok(Value::string(directory_file_name(&filename)))
+    if args[0].string_is_multibyte() {
+        Ok(Value::multibyte_string(directory_file_name(&filename)))
+    } else {
+        Ok(Value::unibyte_string(directory_file_name(&filename)))
+    }
 }
 
 /// (file-name-concat DIRECTORY &rest COMPONENTS) -> string

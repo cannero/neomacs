@@ -753,11 +753,15 @@ impl TaggedValue {
     }
 
     /// Allocate a string on the heap.
+    /// ASCII-only strings are created as unibyte (matching GNU Emacs
+    /// where make_string with pure ASCII is effectively unibyte).
+    /// Non-ASCII strings are created as multibyte.
     pub fn make_string(s: impl Into<String>) -> Self {
         let s = s.into();
+        let multibyte = !s.is_ascii();
         add_wrapping(&STRINGS_CONSED, 1);
         add_wrapping(&STRING_CHARS_CONSED, s.len() as u64);
-        with_tagged_heap(|h| h.alloc_string(LispString::new(s, true)))
+        with_tagged_heap(|h| h.alloc_string(LispString::new(s, multibyte)))
     }
 
     /// Allocate a string from a pre-built LispString.

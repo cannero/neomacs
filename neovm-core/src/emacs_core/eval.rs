@@ -6787,6 +6787,13 @@ impl Context {
             {
                 return Err(signal("setting-constant", vec![Value::symbol(name)]));
             }
+            // Debug: catch multibyte assignment to default-directory
+            if name == "default-directory" && value.is_string() && value.string_is_multibyte() {
+                tracing::error!(
+                    "SETQ default-directory to MULTIBYTE string: {:?}",
+                    value.as_str().unwrap_or("<?>"),
+                );
+            }
             if resolved != name {
                 self.assign_with_watchers(&resolved, value, "set")?;
             } else {
