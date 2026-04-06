@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex, MutexGuard, TryLockError, TryLockResult};
 use std::time::{Duration, Instant};
 
 use crate::collector_exec::MarkTracer;
+use crate::collector_policy::refresh_cached_plans as refresh_cached_collector_plans;
 use crate::collector_session::{
     self, ActiveReclaimPrepRequest, FinishedActiveCollection, PreparedActiveReclaim,
 };
@@ -9,8 +10,10 @@ use crate::heap::AllocError;
 use crate::index_state::ObjectIndex;
 use crate::mark::MarkWorklist;
 use crate::object::ObjectRecord;
-use crate::plan::{CollectionPhase, CollectionPlan, MajorMarkProgress};
+use crate::plan::{CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress};
 use crate::reclaim::PreparedReclaim;
+use crate::spaces::{OldGenConfig, OldGenState};
+use crate::stats::HeapStats;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CollectorSharedSnapshot {
@@ -109,6 +112,18 @@ impl CollectorStateHandle {
 
     pub(crate) fn recommended_background_plan(&self) -> Option<CollectionPlan> {
         self.lock().recommended_background_plan()
+    }
+
+    pub(crate) fn refresh_cached_plans(
+        &self,
+        stats: &HeapStats,
+        old_gen: &OldGenState,
+        old_config: &OldGenConfig,
+        plan_for: impl FnMut(CollectionKind) -> CollectionPlan,
+    ) {
+        self.with_state(|state| {
+            refresh_cached_collector_plans(state, stats, old_gen, old_config, plan_for)
+        });
     }
 
     pub(crate) fn begin_major_mark(

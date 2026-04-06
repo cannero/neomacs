@@ -5,7 +5,8 @@ use crate::mark::MarkWorklist;
 use crate::object::{ObjectRecord, SpaceKind};
 use crate::plan::{CollectionKind, CollectionPhase, CollectionPlan};
 use crate::reclaim::PreparedReclaimSurvivor;
-use crate::spaces::OldRegionCollectionStats;
+use crate::spaces::{OldGenConfig, OldGenState, OldRegionCollectionStats};
+use crate::stats::HeapStats;
 use std::sync::TryLockError;
 use std::time::Duration;
 
@@ -332,4 +333,37 @@ fn collector_state_handle_finish_active_collection_if_ready_finishes_prepared_se
     assert_eq!(finished.completed_plan.phase, CollectionPhase::Reclaim);
     assert_eq!(finished.reclaim_prepare_nanos, 11);
     assert!(!handle.has_active_major_mark());
+}
+
+#[test]
+fn collector_state_handle_refresh_cached_plans_prefers_active_session_plan() {
+    let handle = CollectorStateHandle::default();
+    handle.with_state(|state| state.begin_major_mark(major_plan(), MarkWorklist::default()));
+
+    handle.refresh_cached_plans(
+        &HeapStats::default(),
+        &OldGenState::default(),
+        &OldGenConfig::default(),
+        |kind| CollectionPlan {
+            kind,
+            ..major_plan()
+        },
+    );
+
+    assert_eq!(handle.recommended_plan().kind, CollectionKind::Major,);
+    assert_eq!(
+        handle
+            .active_major_mark_plan()
+            .expect("active major-mark plan")
+            .phase,
+        CollectionPhase::Remark,
+    );
+    assert_eq!(handle.recommended_plan().phase, CollectionPhase::Remark);
+    assert_eq!(
+        handle
+            .recommended_background_plan()
+            .expect("background plan")
+            .phase,
+        CollectionPhase::Remark,
+    );
 }

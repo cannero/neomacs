@@ -182,16 +182,6 @@ impl Heap {
         self.collector.shared_snapshot()
     }
 
-    pub(crate) fn refresh_collector_cached_plans_for(&self, collector: &mut CollectorState) {
-        refresh_cached_collector_plans(
-            collector,
-            &self.storage_stats(),
-            &self.old_gen,
-            &self.config.old,
-            |kind| self.plan_for(kind),
-        );
-    }
-
     /// Build a scheduler-visible collection plan from current heap state.
     pub fn plan_for(&self, kind: CollectionKind) -> CollectionPlan {
         match kind {
@@ -263,12 +253,12 @@ impl Heap {
     }
 
     fn refresh_recommended_plans(&self) {
-        self.collector
-            .with_state(|collector| self.refresh_collector_cached_plans(collector));
-    }
-
-    fn refresh_collector_cached_plans(&self, collector: &mut CollectorState) {
-        self.refresh_collector_cached_plans_for(collector);
+        self.collector.refresh_cached_plans(
+            &self.storage_stats(),
+            &self.old_gen,
+            &self.config.old,
+            |kind| self.plan_for(kind),
+        );
     }
 
     /// Return the phases traversed by the most recently executed collection.
@@ -319,7 +309,13 @@ impl Heap {
             plan,
             collect_global_sources(&self.roots, &self.objects),
         )?;
-        self.refresh_collector_cached_plans_for(collector);
+        refresh_cached_collector_plans(
+            collector,
+            &self.storage_stats(),
+            &self.old_gen,
+            &self.config.old,
+            |kind| self.plan_for(kind),
+        );
         Ok(())
     }
 
@@ -451,7 +447,13 @@ impl Heap {
         let Some(progress) = progress else {
             return Ok(None);
         };
-        self.refresh_collector_cached_plans_for(collector);
+        refresh_cached_collector_plans(
+            collector,
+            &self.storage_stats(),
+            &self.old_gen,
+            &self.config.old,
+            |kind| self.plan_for(kind),
+        );
         Ok(Some(progress))
     }
 
@@ -483,7 +485,13 @@ impl Heap {
                 )
             },
         )?;
-        self.refresh_collector_cached_plans_for(collector);
+        refresh_cached_collector_plans(
+            collector,
+            &self.storage_stats(),
+            &self.old_gen,
+            &self.config.old,
+            |kind| self.plan_for(kind),
+        );
         Ok(prepared)
     }
 
