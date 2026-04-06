@@ -1274,7 +1274,6 @@ pub struct BackgroundService<'heap> {
 #[derive(Debug)]
 pub struct SharedBackgroundService {
     collector: BackgroundCollector,
-    heap: SharedHeap,
     runtime: SharedCollectorRuntime,
 }
 
@@ -1779,7 +1778,6 @@ impl SharedBackgroundService {
         let runtime = heap.collector_runtime();
         Self {
             collector: BackgroundCollector::new(config),
-            heap,
             runtime,
         }
     }
@@ -1804,7 +1802,7 @@ impl SharedBackgroundService {
 
     /// Return the shared heap backing this service.
     pub fn heap(&self) -> &SharedHeap {
-        &self.heap
+        self.runtime.heap()
     }
 
     /// Wait for one shared-heap change visible to this service.
