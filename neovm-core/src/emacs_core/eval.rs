@@ -4831,9 +4831,8 @@ impl Context {
     /// In batch mode (no callback), this is a no-op.
     pub(crate) fn redisplay(&mut self) {
         self.sync_pending_resize_events();
-        // Take the callback out to satisfy the borrow checker:
-        // the callback receives &mut self, but we can't call a closure
-        // stored in &mut self while &mut self is borrowed.
+        let has_fn = self.redisplay_fn.is_some();
+        tracing::debug!("redisplay called (has_fn={})", has_fn);
         if let Some(mut f) = self.redisplay_fn.take() {
             let saved = self.buffers.reset_outermost_restrictions();
             f(self);

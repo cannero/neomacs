@@ -1787,11 +1787,14 @@ fn run_tty_rif_redisplay(tty_rif: &mut neomacs_display_protocol::tty_rif::TtyRif
             tty_rif.rasterize(state);
             tty_rif.diff_and_render();
             let output = tty_rif.take_output();
+            tracing::debug!("tty_rif: output {} bytes", output.len());
             if !output.is_empty() {
                 use std::io::Write;
                 let _ = std::io::stdout().write_all(&output);
                 let _ = std::io::stdout().flush();
             }
+        } else {
+            tracing::debug!("tty_rif: no last_frame_display_state");
         }
     });
 }
