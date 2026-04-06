@@ -224,17 +224,6 @@ impl SharedHeapSnapshot {
     fn capture(heap: &Heap) -> Self {
         Self::from(heap.shared_snapshot())
     }
-
-    fn public_status(&self) -> SharedHeapStatus {
-        SharedHeapStatus {
-            stats: self.stats,
-            recommended_plan: self.recommended_plan.clone(),
-            recommended_background_plan: self.recommended_background_plan.clone(),
-            last_completed_plan: self.last_completed_plan.clone(),
-            active_major_mark_plan: self.active_major_mark_plan.clone(),
-            major_mark_progress: self.major_mark_progress,
-        }
-    }
 }
 
 impl From<HeapSharedSnapshot> for SharedHeapSnapshot {
@@ -463,6 +452,25 @@ impl SharedHeap {
         Ok(f(&snapshot))
     }
 
+    fn observe_status(&self) -> Result<SharedHeapStatus, SharedHeapError> {
+        loop {
+            let before_epoch = self.signal.current_epoch()?;
+            let stats = self.read_snapshot(|snapshot| snapshot.stats)?;
+            let collector = self.collector_snapshot()?;
+            let after_epoch = self.signal.current_epoch()?;
+            if before_epoch == after_epoch {
+                return Ok(SharedHeapStatus {
+                    stats,
+                    recommended_plan: collector.recommended_plan,
+                    recommended_background_plan: collector.recommended_background_plan,
+                    last_completed_plan: collector.last_completed_plan,
+                    active_major_mark_plan: collector.active_major_mark_plan,
+                    major_mark_progress: collector.major_mark_progress,
+                });
+            }
+        }
+    }
+
     fn read_collector_snapshot<R>(
         &self,
         f: impl FnOnce(&CollectorSharedSnapshot) -> R,
@@ -667,7 +675,7 @@ impl SharedHeap {
 
     /// Return one consistent shared snapshot of heap and background-collector state.
     pub fn status(&self) -> Result<SharedHeapStatus, SharedHeapError> {
-        self.read_snapshot(SharedHeapSnapshot::public_status)
+        self.observe_status()
     }
 
     /// Recommend the next collection plan from current heap pressure.
