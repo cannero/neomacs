@@ -640,16 +640,19 @@ impl Heap {
             &self.runtime_state,
             |phase| phases.push(phase),
         )?;
-        for phase in phases {
-            self.record_phase(phase);
-        }
+        self.collector.push_phases(phases);
         cycle.pause_nanos = Self::saturating_duration_nanos(pause_start.elapsed());
         self.record_collection_stats(cycle);
-        self.collector.set_last_completed_plan(Some(CollectionPlan {
-            phase: CollectionPhase::Reclaim,
-            ..plan
-        }));
-        self.refresh_recommended_plans();
+        self.collector.record_completed_plan(
+            CollectionPlan {
+                phase: CollectionPhase::Reclaim,
+                ..plan
+            },
+            &self.storage_stats(),
+            &self.old_gen,
+            &self.config.old,
+            |kind| self.plan_for(kind),
+        );
         Ok(cycle)
     }
 
@@ -1091,9 +1094,13 @@ impl Heap {
         );
         cycle.pause_nanos = Self::saturating_duration_nanos(pause_start.elapsed());
         self.record_collection_stats(cycle);
-        self.collector
-            .set_last_completed_plan(Some(finished.completed_plan));
-        self.refresh_recommended_plans();
+        self.collector.record_completed_plan(
+            finished.completed_plan,
+            &self.storage_stats(),
+            &self.old_gen,
+            &self.config.old,
+            |kind| self.plan_for(kind),
+        );
         cycle
     }
 }

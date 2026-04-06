@@ -78,12 +78,16 @@ impl CollectorStateHandle {
         self.with_state(|state| state.push_phase(phase));
     }
 
-    pub(crate) fn last_completed_plan(&self) -> Option<CollectionPlan> {
-        self.lock().last_completed_plan()
+    pub(crate) fn push_phases(&self, phases: impl IntoIterator<Item = CollectionPhase>) {
+        self.with_state(|state| {
+            for phase in phases {
+                state.push_phase(phase);
+            }
+        });
     }
 
-    pub(crate) fn set_last_completed_plan(&self, plan: Option<CollectionPlan>) {
-        self.with_state(|state| state.set_last_completed_plan(plan));
+    pub(crate) fn last_completed_plan(&self) -> Option<CollectionPlan> {
+        self.lock().last_completed_plan()
     }
 
     pub(crate) fn active_major_mark_plan(&self) -> Option<CollectionPlan> {
@@ -123,6 +127,20 @@ impl CollectorStateHandle {
     ) {
         self.with_state(|state| {
             refresh_cached_collector_plans(state, stats, old_gen, old_config, plan_for)
+        });
+    }
+
+    pub(crate) fn record_completed_plan(
+        &self,
+        completed_plan: CollectionPlan,
+        stats: &HeapStats,
+        old_gen: &OldGenState,
+        old_config: &OldGenConfig,
+        plan_for: impl FnMut(CollectionKind) -> CollectionPlan,
+    ) {
+        self.with_state(|state| {
+            state.set_last_completed_plan(Some(completed_plan));
+            refresh_cached_collector_plans(state, stats, old_gen, old_config, plan_for);
         });
     }
 

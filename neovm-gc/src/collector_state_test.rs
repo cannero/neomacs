@@ -367,3 +367,29 @@ fn collector_state_handle_refresh_cached_plans_prefers_active_session_plan() {
         CollectionPhase::Remark,
     );
 }
+
+#[test]
+fn collector_state_handle_record_completed_plan_updates_last_plan_and_recommendations() {
+    let handle = CollectorStateHandle::default();
+    let completed_plan = CollectionPlan {
+        phase: CollectionPhase::Reclaim,
+        ..major_plan()
+    };
+    let mut stats = HeapStats::default();
+    stats.nursery.live_bytes = 8;
+
+    handle.record_completed_plan(
+        completed_plan.clone(),
+        &stats,
+        &OldGenState::default(),
+        &OldGenConfig::default(),
+        |kind| CollectionPlan {
+            kind,
+            ..major_plan()
+        },
+    );
+
+    assert_eq!(handle.last_completed_plan(), Some(completed_plan));
+    assert_eq!(handle.recommended_plan().kind, CollectionKind::Minor);
+    assert_eq!(handle.recommended_background_plan(), None);
+}
