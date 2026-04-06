@@ -43,6 +43,13 @@ pub(crate) struct OldGenState {
     pub(crate) regions: Vec<OldRegion>,
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct OldGenPlanSelection {
+    pub(crate) candidates: Vec<OldRegionStats>,
+    pub(crate) estimated_compaction_bytes: usize,
+    pub(crate) estimated_reclaim_bytes: usize,
+}
+
 impl OldGenState {
     pub(crate) fn is_empty(&self) -> bool {
         self.regions.is_empty()
@@ -107,6 +114,40 @@ impl OldGenState {
                 occupied_lines: region.occupied_lines.len(),
             })
             .collect()
+    }
+
+    pub(crate) fn major_plan_selection(&self, config: &OldGenConfig) -> OldGenPlanSelection {
+        let mut candidates: Vec<_> = self
+            .region_stats()
+            .into_iter()
+            .filter(|region| {
+                region.object_count > 0
+                    && region.hole_bytes > 0
+                    && region.hole_bytes >= config.selective_reclaim_threshold_bytes
+            })
+            .collect();
+        candidates.sort_by(compare_compaction_candidate_priority);
+
+        let max_regions = config.compaction_candidate_limit;
+        let max_bytes = config.max_compaction_bytes_per_cycle;
+        let mut selected = Vec::new();
+        let mut selected_bytes = 0usize;
+        for candidate in candidates {
+            if selected.len() >= max_regions {
+                break;
+            }
+            if selected_bytes.saturating_add(candidate.live_bytes) > max_bytes {
+                continue;
+            }
+            selected_bytes = selected_bytes.saturating_add(candidate.live_bytes);
+            selected.push(candidate);
+        }
+
+        OldGenPlanSelection {
+            estimated_compaction_bytes: selected.iter().map(|region| region.live_bytes).sum(),
+            estimated_reclaim_bytes: selected.iter().map(|region| region.hole_bytes).sum(),
+            candidates: selected,
+        }
     }
 
     pub(crate) fn prepare_rebuild(

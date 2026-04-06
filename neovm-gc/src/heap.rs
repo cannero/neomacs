@@ -25,8 +25,8 @@ use crate::root::{HandleScope, Root, RootStack};
 use crate::runtime::CollectorRuntime;
 use crate::runtime_state::RuntimeState;
 use crate::spaces::{
-    LargeObjectSpaceConfig, NurseryConfig, OldGenConfig, OldGenState, OldRegionCollectionStats,
-    PinnedSpaceConfig, compare_compaction_candidate_priority,
+    LargeObjectSpaceConfig, NurseryConfig, OldGenConfig, OldGenPlanSelection, OldGenState,
+    OldRegionCollectionStats, PinnedSpaceConfig,
 };
 use crate::stats::{CollectionStats, HeapStats, OldRegionStats};
 
@@ -223,20 +223,15 @@ impl Heap {
                 }
             }
             CollectionKind::Major | CollectionKind::Full => {
-                let old_candidates = self.major_region_candidates();
-                let selected_old_regions: Vec<_> = old_candidates
+                let old_selection = self.old_gen.major_plan_selection(&self.config.old);
+                let selected_old_regions: Vec<_> = old_selection
+                    .candidates
                     .iter()
                     .map(|region| region.region_index)
                     .collect();
                 let target_old_regions = selected_old_regions.len();
-                let estimated_compaction_bytes = old_candidates
-                    .iter()
-                    .map(|region| region.live_bytes)
-                    .sum::<usize>();
-                let old_reclaim_bytes = old_candidates
-                    .iter()
-                    .map(|region| region.hole_bytes)
-                    .sum::<usize>();
+                let estimated_compaction_bytes = old_selection.estimated_compaction_bytes;
+                let old_reclaim_bytes = old_selection.estimated_reclaim_bytes;
                 let worker_count = self.config.old.concurrent_mark_workers.max(1);
                 let mark_slice_budget = self.objects.len().max(1).div_ceil(worker_count);
                 let estimated_reclaim_bytes = match kind {
@@ -686,31 +681,9 @@ impl Heap {
 
     /// Return the currently selected old-region compaction candidates.
     pub fn major_region_candidates(&self) -> Vec<OldRegionStats> {
-        let mut candidates: Vec<_> = self
-            .old_region_stats()
-            .into_iter()
-            .filter(|region| {
-                region.object_count > 0
-                    && region.hole_bytes > 0
-                    && region.hole_bytes >= self.config.old.selective_reclaim_threshold_bytes
-            })
-            .collect();
-        candidates.sort_by(compare_compaction_candidate_priority);
-        let max_regions = self.config.old.compaction_candidate_limit;
-        let max_bytes = self.config.old.max_compaction_bytes_per_cycle;
-        let mut selected = Vec::new();
-        let mut selected_bytes = 0usize;
-        for candidate in candidates {
-            if selected.len() >= max_regions {
-                break;
-            }
-            if selected_bytes.saturating_add(candidate.live_bytes) > max_bytes {
-                continue;
-            }
-            selected_bytes = selected_bytes.saturating_add(candidate.live_bytes);
-            selected.push(candidate);
-        }
-        selected
+        let OldGenPlanSelection { candidates, .. } =
+            self.old_gen.major_plan_selection(&self.config.old);
+        candidates
     }
 
     /// Number of live objects currently tracked by the heap.
