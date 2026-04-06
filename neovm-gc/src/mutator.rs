@@ -163,7 +163,9 @@ impl<'heap> Mutator<'heap> {
     pub fn service_background_collection_round(
         &mut self,
     ) -> Result<BackgroundCollectionStatus, AllocError> {
-        self.heap.service_background_collection_round()
+        self.heap
+            .collector_runtime()
+            .service_background_collection_round()
     }
 
     /// Record a post-write barrier for one mutated GC edge.

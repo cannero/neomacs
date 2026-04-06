@@ -22,8 +22,7 @@ use crate::mark::MarkWorklist;
 use crate::mutator::Mutator;
 use crate::object::{ObjectRecord, SpaceKind, estimated_allocation_size};
 use crate::plan::{
-    BackgroundCollectionStatus, CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress,
-    RuntimeWorkStatus,
+    CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress, RuntimeWorkStatus,
 };
 use crate::reclaim::{
     PreparedReclaim, finish_prepared_reclaim_cycle,
@@ -634,28 +633,6 @@ impl Heap {
             return Ok(None);
         }
         self.finish_major_collection().map(Some)
-    }
-
-    /// Service one background collection round for the active major-mark session.
-    pub fn service_background_collection_round(
-        &mut self,
-    ) -> Result<BackgroundCollectionStatus, AllocError> {
-        if !self.collector().has_active_major_mark() {
-            return Ok(BackgroundCollectionStatus::Idle);
-        }
-
-        let progress = self
-            .poll_active_major_mark()?
-            .expect("active major-mark session disappeared during service");
-        if progress.completed {
-            if let Some(cycle) = self.finish_active_major_collection_if_ready()? {
-                Ok(BackgroundCollectionStatus::Finished(cycle))
-            } else {
-                Ok(BackgroundCollectionStatus::ReadyToFinish(progress))
-            }
-        } else {
-            Ok(BackgroundCollectionStatus::Progress(progress))
-        }
     }
 
     /// Return logical old-generation region statistics.

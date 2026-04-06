@@ -100,7 +100,22 @@ impl<'heap> CollectorRuntime<'heap> {
     pub fn service_background_collection_round(
         &mut self,
     ) -> Result<BackgroundCollectionStatus, AllocError> {
-        self.heap.service_background_collection_round()
+        if self.active_major_mark_plan().is_none() {
+            return Ok(BackgroundCollectionStatus::Idle);
+        }
+
+        let progress = self
+            .poll_active_major_mark()?
+            .expect("active major-mark session disappeared during service");
+        if progress.completed {
+            if let Some(cycle) = self.finish_active_major_collection_if_ready()? {
+                Ok(BackgroundCollectionStatus::Finished(cycle))
+            } else {
+                Ok(BackgroundCollectionStatus::ReadyToFinish(progress))
+            }
+        } else {
+            Ok(BackgroundCollectionStatus::Progress(progress))
+        }
     }
 }
 

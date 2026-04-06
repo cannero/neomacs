@@ -1707,6 +1707,63 @@ fn collector_runtime_prepare_active_reclaim_moves_full_session_to_reclaim() {
 }
 
 #[test]
+fn collector_runtime_service_background_collection_round_finishes_major_session() {
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        old: crate::spaces::OldGenConfig {
+            mutator_assist_slices: 0,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let plan = {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        for byte in 0..16u8 {
+            mutator
+                .alloc(&mut scope, OldLeaf([byte; 32]))
+                .expect("alloc old leaf");
+        }
+        CollectionPlan {
+            mark_slice_budget: 1,
+            ..mutator.plan_for(CollectionKind::Major)
+        }
+    };
+
+    let mut runtime = heap.collector_runtime();
+    runtime
+        .begin_major_mark(plan.clone())
+        .expect("begin persistent major mark");
+
+    let cycle = loop {
+        match runtime
+            .service_background_collection_round()
+            .expect("service background round")
+        {
+            BackgroundCollectionStatus::Idle => panic!("session should still be active"),
+            BackgroundCollectionStatus::Progress(progress) => {
+                assert!(progress.mark_steps > 0);
+                assert!(progress.mark_rounds > 0);
+            }
+            BackgroundCollectionStatus::ReadyToFinish(_) => {
+                panic!("runtime service round should finish immediately")
+            }
+            BackgroundCollectionStatus::Finished(cycle) => break cycle,
+        }
+    };
+
+    assert_eq!(cycle.major_collections, 1);
+    assert_eq!(runtime.active_major_mark_plan(), None);
+}
+
+#[test]
 fn collector_runtime_drain_pending_finalizers_runs_queued_finalizers() {
     MAJOR_FINALIZE_COUNT.store(0, Ordering::SeqCst);
 
