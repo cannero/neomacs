@@ -10,6 +10,7 @@ use crate::background::{BackgroundCollectorConfig, BackgroundService, SharedHeap
 use crate::barrier::{BarrierEvent, BarrierKind, RememberedEdge};
 use crate::collector_state::{
     CollectorSharedSnapshot, CollectorState, MajorMarkUpdate, PreparedMajorReclaim,
+    PreparedMajorSurvivor,
 };
 use crate::descriptor::{
     EphemeronVisitor, GcErased, ObjectKey, Relocator, Trace, Tracer, TypeDesc, TypeFlags,
@@ -1408,7 +1409,7 @@ impl Heap {
         let has_prepared_major_reclaim = prepared_major_reclaim.is_some();
         let prepared_survivor_count = prepared_major_reclaim
             .as_ref()
-            .map(|prepared| prepared.survivor_count);
+            .map(|prepared| prepared.survivors.len());
         self.stats.nursery.live_bytes = 0;
         self.stats.old.live_bytes = 0;
         self.stats.pinned.live_bytes = 0;
@@ -1436,61 +1437,59 @@ impl Heap {
         let mut rebuilt_objects =
             Vec::with_capacity(prepared_survivor_count.unwrap_or(old_objects.len()));
         let mut finalized_objects = 0u64;
-        for (object_index, mut object) in old_objects.into_iter().enumerate() {
-            let object_key = object.object_key();
-            let keep_object = if let Some(prepared) = prepared_major_reclaim.as_ref() {
-                prepared
-                    .survivor_mask
-                    .get(object_index)
-                    .copied()
-                    .unwrap_or(false)
-            } else {
-                Self::keep_object_for_collection(kind, &object)
-            };
-            if !keep_object {
-                let should_finalize = if let Some(prepared) = prepared_major_reclaim.as_ref() {
-                    prepared
-                        .finalize_mask
-                        .get(object_index)
-                        .copied()
-                        .unwrap_or(false)
-                } else {
-                    object
+        if let Some(prepared) = prepared_major_reclaim.as_ref() {
+            let mut old_objects: Vec<Option<ObjectRecord>> =
+                old_objects.into_iter().map(Some).collect();
+            for &object_index in &prepared.finalize_indices {
+                if let Some(object) = old_objects.get_mut(object_index).and_then(Option::take) {
+                    if object.run_finalizer() {
+                        finalized_objects = finalized_objects.saturating_add(1);
+                    }
+                }
+            }
+            for survivor in &prepared.survivors {
+                let mut object = old_objects
+                    .get_mut(survivor.object_index)
+                    .and_then(Option::take)
+                    .expect("prepared survivor index should refer to a live object");
+                object.clear_mark();
+                if let Some(placement) = survivor.old_region_placement {
+                    object.set_old_region_placement(placement);
+                }
+                let index = rebuilt_objects.len();
+                rebuilt_objects.push(object);
+                self.object_index.insert(survivor.object_key, index);
+            }
+        } else {
+            for mut object in old_objects {
+                if !Self::keep_object_for_collection(kind, &object) {
+                    let should_finalize = object
                         .header()
                         .desc()
                         .flags
                         .contains(TypeFlags::FINALIZABLE)
-                        && !object.header().is_moved_out()
-                };
-                if should_finalize && object.run_finalizer() {
-                    finalized_objects = finalized_objects.saturating_add(1);
-                }
-                continue;
-            }
-
-            object.clear_mark();
-            let desc = object.header().desc();
-            let space = object.space();
-            let total_size = object.total_size();
-            if space == SpaceKind::Old {
-                if let Some(prepared) = prepared_major_reclaim.as_ref() {
-                    if let Some(placement) =
-                        prepared.old_region_placements.get(&object_key).copied()
-                    {
-                        object.set_old_region_placement(placement);
+                        && !object.header().is_moved_out();
+                    if should_finalize && object.run_finalizer() {
+                        finalized_objects = finalized_objects.saturating_add(1);
                     }
-                } else {
+                    continue;
+                }
+
+                object.clear_mark();
+                let object_key = object.object_key();
+                let desc = object.header().desc();
+                let space = object.space();
+                let total_size = object.total_size();
+                if space == SpaceKind::Old {
                     self.rebuild_post_sweep_old_region(
                         &mut object,
                         total_size,
                         old_region_rebuild.as_mut(),
                     );
                 }
-            }
-            let index = rebuilt_objects.len();
-            rebuilt_objects.push(object);
-            self.object_index.insert(object_key, index);
-            if !has_prepared_major_reclaim {
+                let index = rebuilt_objects.len();
+                rebuilt_objects.push(object);
+                self.object_index.insert(object_key, index);
                 self.record_descriptor_candidates(object_key, desc);
                 match space {
                     SpaceKind::Nursery => {
@@ -1827,12 +1826,10 @@ impl Heap {
     fn prepare_major_reclaim(&self, plan: &CollectionPlan) -> PreparedMajorReclaim {
         let mut rebuild = prepare_old_region_rebuild_for_plan(&self.old_regions, Some(plan))
             .expect("major reclaim preparation requires a major/full plan");
-        let mut placements = HashMap::new();
-        let mut survivor_mask = vec![false; self.objects.len()];
-        let mut finalize_mask = vec![false; self.objects.len()];
+        let mut survivors = Vec::new();
+        let mut finalize_indices = Vec::new();
         let mut weak_candidates = Vec::new();
         let mut ephemeron_candidates = Vec::new();
-        let mut survivor_count = 0usize;
         let mut nursery_live_bytes = 0usize;
         let mut old_live_bytes = 0usize;
         let mut pinned_live_bytes = 0usize;
@@ -1844,13 +1841,11 @@ impl Heap {
             let desc = object.header().desc();
             if !Self::keep_object_for_collection(CollectionKind::Major, object) {
                 if !object.header().is_moved_out() && desc.flags.contains(TypeFlags::FINALIZABLE) {
-                    finalize_mask[object_index] = true;
+                    finalize_indices.push(object_index);
                 }
                 continue;
             }
 
-            survivor_mask[object_index] = true;
-            survivor_count = survivor_count.saturating_add(1);
             let total_size = object.total_size();
             if desc.flags.contains(TypeFlags::WEAK) {
                 weak_candidates.push(object_key);
@@ -1859,12 +1854,8 @@ impl Heap {
                 ephemeron_candidates.push(object_key);
             }
 
-            match object.space() {
-                SpaceKind::Nursery => {
-                    nursery_live_bytes = nursery_live_bytes.saturating_add(total_size);
-                }
+            let old_region_placement = match object.space() {
                 SpaceKind::Old => {
-                    old_live_bytes = old_live_bytes.saturating_add(total_size);
                     let mut placement = object
                         .old_region_placement()
                         .expect("live old object should retain old-region placement");
@@ -1900,7 +1891,22 @@ impl Heap {
                             region.occupied_lines.insert(line);
                         }
                     }
-                    placements.insert(object_key, placement);
+                    Some(placement)
+                }
+                _ => None,
+            };
+            survivors.push(PreparedMajorSurvivor {
+                object_index,
+                object_key,
+                old_region_placement,
+            });
+
+            match object.space() {
+                SpaceKind::Nursery => {
+                    nursery_live_bytes = nursery_live_bytes.saturating_add(total_size);
+                }
+                SpaceKind::Old => {
+                    old_live_bytes = old_live_bytes.saturating_add(total_size);
                 }
                 SpaceKind::Pinned => {
                     pinned_live_bytes = pinned_live_bytes.saturating_add(total_size);
@@ -1915,7 +1921,7 @@ impl Heap {
         }
 
         let (rebuilt_old_regions, old_region_stats) =
-            Self::finish_prepared_old_region_rebuild(rebuild, &mut placements);
+            Self::finish_prepared_old_region_rebuild(rebuild, &mut survivors);
         let remembered_edges = self
             .remembered_edges
             .iter()
@@ -1939,12 +1945,10 @@ impl Heap {
             })
             .collect();
         PreparedMajorReclaim {
-            old_region_placements: placements,
             rebuilt_old_regions,
             old_region_stats,
-            survivor_mask,
-            finalize_mask,
-            survivor_count,
+            survivors,
+            finalize_indices,
             weak_candidates,
             ephemeron_candidates,
             remembered_edges,
@@ -2068,7 +2072,7 @@ impl Heap {
 
     fn finish_prepared_old_region_rebuild(
         rebuild: OldRegionRebuildState,
-        placements: &mut HashMap<ObjectKey, OldRegionPlacement>,
+        survivors: &mut [PreparedMajorSurvivor],
     ) -> (Vec<OldRegion>, OldRegionCollectionStats) {
         let provisional_compacted_base = rebuild.compacted_base_index;
         let mut preserved_index_remap = vec![None; provisional_compacted_base];
@@ -2087,7 +2091,10 @@ impl Heap {
         }
         let new_compacted_base = compacted_regions.len();
         compacted_regions.extend(rebuild.compacted_regions);
-        for placement in placements.values_mut() {
+        for survivor in survivors.iter_mut() {
+            let Some(placement) = survivor.old_region_placement.as_mut() else {
+                continue;
+            };
             if placement.region_index < provisional_compacted_base {
                 let Some(new_index) = preserved_index_remap[placement.region_index] else {
                     continue;
