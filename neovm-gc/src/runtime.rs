@@ -201,15 +201,6 @@ impl SharedCollectorRuntime {
             .map_err(Self::map_shared_heap_error)
     }
 
-    /// Return one consistent observation of background epoch and collector-visible shared state.
-    pub(crate) fn observe_collector_snapshot(
-        &self,
-    ) -> Result<(u64, CollectorSharedSnapshot), SharedBackgroundError> {
-        self.heap
-            .observe_collector_snapshot()
-            .map_err(Self::map_shared_heap_error)
-    }
-
     /// Return the current background-state change epoch for this runtime.
     pub fn background_epoch(&self) -> Result<u64, SharedBackgroundError> {
         self.heap
@@ -513,6 +504,67 @@ impl SharedCollectorRuntime {
             .try_with_runtime(|runtime| runtime.commit_active_reclaim_if_ready())
             .map_err(Self::map_shared_heap_error)?
             .map_err(SharedBackgroundError::Collection)
+    }
+
+    /// Service one background collection round for the active major-mark session.
+    pub fn service_background_collection_round(
+        &self,
+    ) -> Result<BackgroundCollectionStatus, SharedBackgroundError> {
+        if self.active_major_mark_plan()?.is_none() {
+            return Ok(BackgroundCollectionStatus::Idle);
+        }
+
+        let Some(progress) = self.poll_active_major_mark()? else {
+            return Ok(BackgroundCollectionStatus::Idle);
+        };
+        if progress.completed {
+            match self.try_prepare_active_reclaim_if_needed() {
+                Ok(true) => return Ok(BackgroundCollectionStatus::ReadyToFinish(progress)),
+                Ok(false) | Err(SharedBackgroundError::WouldBlock) => {}
+                Err(error) => return Err(error),
+            }
+            match self.try_commit_active_reclaim_if_ready() {
+                Ok(Some(cycle)) => Ok(BackgroundCollectionStatus::Finished(cycle)),
+                Ok(None) | Err(SharedBackgroundError::WouldBlock) => {
+                    Ok(BackgroundCollectionStatus::ReadyToFinish(progress))
+                }
+                Err(error) => Err(error),
+            }
+        } else {
+            Ok(BackgroundCollectionStatus::Progress(progress))
+        }
+    }
+
+    /// Service one background collection round for the active major-mark session without blocking
+    /// on heap contention.
+    pub fn try_service_background_collection_round(
+        &self,
+    ) -> Result<BackgroundCollectionStatus, SharedBackgroundError> {
+        if self.active_major_mark_plan()?.is_none() {
+            return Ok(BackgroundCollectionStatus::Idle);
+        }
+
+        let Some(progress) = self.try_poll_active_major_mark()? else {
+            return Ok(BackgroundCollectionStatus::Idle);
+        };
+        if progress.completed {
+            match self.try_prepare_active_reclaim_if_needed() {
+                Ok(true) => Ok(BackgroundCollectionStatus::ReadyToFinish(progress)),
+                Ok(false) => {
+                    if let Some(cycle) = self.try_commit_active_reclaim_if_ready()? {
+                        Ok(BackgroundCollectionStatus::Finished(cycle))
+                    } else {
+                        Ok(BackgroundCollectionStatus::ReadyToFinish(progress))
+                    }
+                }
+                Err(SharedBackgroundError::WouldBlock) => {
+                    Ok(BackgroundCollectionStatus::ReadyToFinish(progress))
+                }
+                Err(error) => Err(error),
+            }
+        } else {
+            Ok(BackgroundCollectionStatus::Progress(progress))
+        }
     }
 }
 

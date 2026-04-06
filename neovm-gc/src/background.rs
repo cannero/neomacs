@@ -372,17 +372,6 @@ impl SharedCollectorHandle {
     fn notify(&self) {
         self.signal.notify();
     }
-
-    fn observe_snapshot(&self) -> Result<(u64, CollectorSharedSnapshot), SharedHeapError> {
-        loop {
-            let before_epoch = self.epoch()?;
-            let snapshot = self.snapshot()?;
-            let after_epoch = self.epoch()?;
-            if before_epoch == after_epoch {
-                return Ok((after_epoch, snapshot));
-            }
-        }
-    }
 }
 
 fn shared_heap_stats_from_parts(
@@ -834,12 +823,6 @@ impl SharedHeap {
             self.collector.notify();
         }
         Ok(())
-    }
-
-    pub(crate) fn observe_collector_snapshot(
-        &self,
-    ) -> Result<(u64, CollectorSharedSnapshot), SharedHeapError> {
-        self.collector.observe_snapshot()
     }
 
     fn observe_background_status(&self) -> Result<SharedBackgroundStatus, SharedHeapError> {
@@ -1570,37 +1553,6 @@ impl BackgroundCollector {
         runtime.active_major_mark_plan().map(|plan| plan.is_some())
     }
 
-    fn poll_shared_mark_round(
-        &mut self,
-        runtime: &SharedCollectorRuntime,
-        nonblocking: bool,
-    ) -> Result<Option<MajorMarkProgress>, SharedBackgroundError> {
-        if nonblocking {
-            runtime.try_poll_active_major_mark()
-        } else {
-            runtime.poll_active_major_mark()
-        }
-    }
-
-    fn try_finish_shared_major_collection_if_ready(
-        &mut self,
-        runtime: &SharedCollectorRuntime,
-    ) -> Result<Option<CollectionStats>, SharedBackgroundError> {
-        runtime.try_finish_active_major_collection_if_ready()
-    }
-
-    fn prepare_shared_reclaim_if_needed(
-        &mut self,
-        runtime: &SharedCollectorRuntime,
-        nonblocking: bool,
-    ) -> Result<bool, SharedBackgroundError> {
-        if nonblocking {
-            runtime.try_prepare_active_reclaim_if_needed()
-        } else {
-            runtime.prepare_active_reclaim_if_needed()
-        }
-    }
-
     fn tick_shared_round(
         &mut self,
         runtime: &SharedCollectorRuntime,
@@ -1611,24 +1563,15 @@ impl BackgroundCollector {
         }
 
         self.stats.rounds = self.stats.rounds.saturating_add(1);
-        let Some(progress) = self.poll_shared_mark_round(runtime, nonblocking)? else {
-            return Ok(BackgroundCollectionStatus::Idle);
+        let status = if nonblocking {
+            runtime.try_service_background_collection_round()?
+        } else {
+            runtime.service_background_collection_round()?
         };
-
-        if progress.completed {
-            if self.config.auto_finish_when_ready {
-                if self.prepare_shared_reclaim_if_needed(runtime, nonblocking)? {
-                    return Ok(BackgroundCollectionStatus::ReadyToFinish(progress));
-                }
-                if let Some(cycle) = self.try_finish_shared_major_collection_if_ready(runtime)? {
-                    self.stats.sessions_finished = self.stats.sessions_finished.saturating_add(1);
-                    return Ok(BackgroundCollectionStatus::Finished(cycle));
-                }
-            }
-            return Ok(BackgroundCollectionStatus::ReadyToFinish(progress));
+        if matches!(status, BackgroundCollectionStatus::Finished(_)) {
+            self.stats.sessions_finished = self.stats.sessions_finished.saturating_add(1);
         }
-
-        Ok(BackgroundCollectionStatus::Progress(progress))
+        Ok(status)
     }
 
     fn tick_shared_after_snapshot(
@@ -2108,20 +2051,37 @@ fn worker_loop(
 ) -> Result<(), BackgroundWorkerError> {
     let mut collector = BackgroundCollector::new(config.collector);
     let runtime = shared.collector_runtime();
-    let (mut observed_signal_epoch, mut observed_background) = runtime
-        .observe_collector_snapshot()
+    let mut observed_signal_epoch = shared
+        .collector
+        .epoch()
+        .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
+    let mut observed_background = runtime
+        .collector_snapshot()
         .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
 
-    let sync_observed_background = |runtime: &SharedCollectorRuntime,
+    let sync_observed_background = |shared: &SharedHeap,
+                                    runtime: &SharedCollectorRuntime,
                                     observed_signal_epoch: &mut u64,
                                     observed_background: &mut CollectorSharedSnapshot|
      -> Result<(), BackgroundWorkerError> {
-        let (epoch, snapshot) = runtime
-            .observe_collector_snapshot()
-            .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-        *observed_signal_epoch = epoch;
-        *observed_background = snapshot;
-        Ok(())
+        loop {
+            let before_epoch = shared
+                .collector
+                .epoch()
+                .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
+            let snapshot = runtime
+                .collector_snapshot()
+                .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
+            let after_epoch = shared
+                .collector
+                .epoch()
+                .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
+            if before_epoch == after_epoch {
+                *observed_signal_epoch = after_epoch;
+                *observed_background = snapshot;
+                return Ok(());
+            }
+        }
     };
 
     let wait_for_signal = |stats: &Arc<BackgroundWorkerCounters>,
@@ -2165,6 +2125,7 @@ fn worker_loop(
             }
             if changed {
                 stats.add_ignored_signal_wakeups(1);
+                return Ok(());
             }
 
             let elapsed = started_at.elapsed();
@@ -2188,6 +2149,7 @@ fn worker_loop(
             }
             stats.store_collector(collector.stats());
             sync_observed_background(
+                &shared,
                 &runtime,
                 &mut observed_signal_epoch,
                 &mut observed_background,
@@ -2227,6 +2189,7 @@ fn worker_loop(
                 }
                 stats.store_collector(collector.stats());
                 sync_observed_background(
+                    &shared,
                     &runtime,
                     &mut observed_signal_epoch,
                     &mut observed_background,
@@ -2249,6 +2212,7 @@ fn worker_loop(
         };
 
         sync_observed_background(
+            &shared,
             &runtime,
             &mut observed_signal_epoch,
             &mut observed_background,
