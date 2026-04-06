@@ -885,10 +885,9 @@ pub fn run(mode: RuntimeMode) {
             configure_terminal_runtime(detect_tty_runtime());
         }
     }
-    // Disable GC during startup — the bytecode VM's specpdl is not yet
-    // scanned by the GC, so collections during VM execution can free
-    // values that are still referenced by unwind-protect cleanup forms.
-    evaluator.set_gc_threshold(usize::MAX);
+    // GNU Emacs does NOT disable GC during startup — GC runs normally.
+    // The bc_buf refactor and conservative stack scanning ensure all
+    // bytecode VM values are reachable during collection.
     evaluator.set_variable("dump-mode", Value::NIL);
     tracing::info!("Context initialized");
 
