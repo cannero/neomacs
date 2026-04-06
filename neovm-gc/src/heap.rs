@@ -82,14 +82,8 @@ pub struct Heap {
     roots: RootStack,
     descriptors: HashMap<TypeId, &'static TypeDesc>,
     objects: Vec<ObjectRecord>,
-    object_index: ObjectIndex,
-    finalizable_candidates: Vec<ObjectKey>,
-    weak_candidates: Vec<ObjectKey>,
-    ephemeron_candidates: Vec<ObjectKey>,
+    indexes: HeapIndexState,
     old_regions: Vec<OldRegion>,
-    remembered_edges: Vec<RememberedEdge>,
-    remembered_owners: Vec<ObjectKey>,
-    remembered_owner_set: HashSet<ObjectKey>,
     recent_barrier_events: Vec<BarrierEvent>,
     runtime_state: Arc<Mutex<RuntimeState>>,
     collector: Mutex<CollectorState>,
@@ -97,6 +91,17 @@ pub struct Heap {
 
 type ObjectIndex = HashMap<ObjectKey, usize>;
 type ForwardingMap = HashMap<ObjectKey, GcErased>;
+
+#[derive(Debug, Default)]
+struct HeapIndexState {
+    object_index: ObjectIndex,
+    finalizable_candidates: Vec<ObjectKey>,
+    weak_candidates: Vec<ObjectKey>,
+    ephemeron_candidates: Vec<ObjectKey>,
+    remembered_edges: Vec<RememberedEdge>,
+    remembered_owners: Vec<ObjectKey>,
+    remembered_owner_set: HashSet<ObjectKey>,
+}
 
 // SAFETY: `Heap` owns all heap allocations and its raw pointers are internal references into that
 // owned storage or static descriptors. Sending a `Heap` to another thread does not invalidate those
@@ -228,14 +233,8 @@ impl Heap {
             roots: RootStack::default(),
             descriptors: HashMap::default(),
             objects: Vec::new(),
-            object_index: HashMap::default(),
-            finalizable_candidates: Vec::new(),
-            weak_candidates: Vec::new(),
-            ephemeron_candidates: Vec::new(),
+            indexes: HeapIndexState::default(),
             old_regions: Vec::new(),
-            remembered_edges: Vec::new(),
-            remembered_owners: Vec::new(),
-            remembered_owner_set: HashSet::new(),
             recent_barrier_events: Vec::new(),
             runtime_state: Arc::new(Mutex::new(RuntimeState::default())),
             collector: Mutex::new(CollectorState::default()),
@@ -276,11 +275,11 @@ impl Heap {
 
     pub(crate) fn storage_stats(&self) -> HeapStats {
         let mut stats = self.stats;
-        stats.remembered_edges = self.remembered_edges.len();
-        stats.remembered_owners = self.remembered_owners.len();
-        stats.finalizable_candidates = self.finalizable_candidates.len();
-        stats.weak_candidates = self.weak_candidates.len();
-        stats.ephemeron_candidates = self.ephemeron_candidates.len();
+        stats.remembered_edges = self.indexes.remembered_edges.len();
+        stats.remembered_owners = self.indexes.remembered_owners.len();
+        stats.finalizable_candidates = self.indexes.finalizable_candidates.len();
+        stats.weak_candidates = self.indexes.weak_candidates.len();
+        stats.ephemeron_candidates = self.indexes.ephemeron_candidates.len();
         stats
     }
 
@@ -470,7 +469,7 @@ impl Heap {
             collector.push_phase(CollectionPhase::ConcurrentMark);
         }
 
-        let mut tracer = MarkTracer::new(&self.objects, &self.object_index);
+        let mut tracer = MarkTracer::new(&self.objects, &self.indexes.object_index);
         self.for_each_global_source(|object| tracer.mark_erased(object));
 
         collector.begin_major_mark(plan, tracer.into_worklist());
@@ -484,7 +483,7 @@ impl Heap {
     /// Advance one slice of the current persistent major-mark session.
     pub fn advance_major_mark(&self) -> Result<MajorMarkProgress, AllocError> {
         let objects = &self.objects;
-        let index = &self.object_index;
+        let index = &self.indexes.object_index;
         let progress = self
             .collector()
             .update_active_major_mark(|plan, worklist| {
@@ -511,8 +510,11 @@ impl Heap {
         let before_bytes = self.total_tracked_bytes();
         self.record_phase(CollectionPhase::Remark);
         if !state.ephemerons_processed {
-            let mut tracer =
-                MarkTracer::with_worklist(&self.objects, &self.object_index, state.worklist);
+            let mut tracer = MarkTracer::with_worklist(
+                &self.objects,
+                &self.indexes.object_index,
+                state.worklist,
+            );
             let (mark_steps, mark_rounds) = tracer.drain_parallel_until_empty(
                 state.plan.worker_count.max(1),
                 state.plan.mark_slice_budget,
@@ -550,7 +552,7 @@ impl Heap {
                 state.plan.kind,
                 state.plan.worker_count.max(1),
                 &empty_forwarding,
-                &self.object_index,
+                &self.indexes.object_index,
             );
         }
         let prepared_reclaim = if state.reclaim_prepared {
@@ -629,7 +631,7 @@ impl Heap {
             return Ok((None, collector.shared_snapshot()));
         }
         let objects = &self.objects;
-        let index = &self.object_index;
+        let index = &self.indexes.object_index;
         let progress = collector.update_active_major_mark(|plan, worklist| {
             let mut tracer = MarkTracer::with_worklist(objects, index, worklist);
             let (drained_objects, drained_slices) =
@@ -661,7 +663,7 @@ impl Heap {
                     CollectionKind::Major,
                     active_plan.worker_count.max(1),
                     &empty_forwarding,
-                    &self.object_index,
+                    &self.indexes.object_index,
                 );
                 let reclaim_prepare_start = Instant::now();
                 let prepared_reclaim = self.prepare_reclaim(CollectionKind::Major, &active_plan);
@@ -699,7 +701,7 @@ impl Heap {
         if !collector.active_major_mark_ephemerons_processed() {
             let mut tracer = MarkTracer::with_worklist(
                 &self.objects,
-                &self.object_index,
+                &self.indexes.object_index,
                 MarkWorklist::default(),
             );
             let (ephemeron_steps, ephemeron_rounds) = self.trace_major_ephemerons(
@@ -716,7 +718,7 @@ impl Heap {
             CollectionKind::Major,
             plan.worker_count.max(1),
             &empty_forwarding,
-            &self.object_index,
+            &self.indexes.object_index,
         );
         let reclaim_prepare_start = Instant::now();
         let prepared_reclaim = self.prepare_reclaim(CollectionKind::Major, &plan);
@@ -827,12 +829,12 @@ impl Heap {
 
     /// Number of remembered old-to-young edges currently tracked.
     pub fn remembered_edge_count(&self) -> usize {
-        self.remembered_edges.len()
+        self.indexes.remembered_edges.len()
     }
 
     #[cfg(test)]
     pub(crate) fn remembered_owner_count(&self) -> usize {
-        self.remembered_owners.len()
+        self.indexes.remembered_owners.len()
     }
 
     /// Number of recent barrier events retained for diagnostics.
@@ -899,7 +901,7 @@ impl Heap {
 
         let (mark_steps, mark_rounds) = match plan.kind {
             CollectionKind::Minor => self.trace_minor(
-                &self.object_index,
+                &self.indexes.object_index,
                 plan.worker_count.max(1),
                 plan.mark_slice_budget,
             ),
@@ -910,7 +912,7 @@ impl Heap {
                 }
                 self.record_phase(CollectionPhase::Remark);
                 self.trace_major(
-                    &self.object_index,
+                    &self.indexes.object_index,
                     plan.worker_count.max(1),
                     plan.mark_slice_budget,
                 )
@@ -926,7 +928,7 @@ impl Heap {
                     plan.kind,
                     plan.worker_count.max(1),
                     &evacuation.forwarding,
-                    &self.object_index,
+                    &self.indexes.object_index,
                 );
                 self.record_phase(CollectionPhase::Reclaim);
                 let (queued_finalizers, old_region_stats) =
@@ -1005,7 +1007,7 @@ impl Heap {
         self.objects.push(record);
         let index = self.objects.len() - 1;
         let object_key = self.objects[index].object_key();
-        self.object_index.insert(object_key, index);
+        self.indexes.object_index.insert(object_key, index);
         let desc = self.objects[index].header().desc();
         self.record_descriptor_candidates(object_key, desc);
         if self.collector().has_active_major_mark() {
@@ -1116,12 +1118,12 @@ impl Heap {
         let owner_is_old = owner_space != SpaceKind::Nursery && owner_space != SpaceKind::Immortal;
         if owner_is_old && target_space == SpaceKind::Nursery {
             let owner_key = owner.object_key();
-            self.remembered_edges.push(RememberedEdge {
+            self.indexes.remembered_edges.push(RememberedEdge {
                 owner: unsafe { crate::root::Gc::from_erased(owner) },
                 target: unsafe { crate::root::Gc::from_erased(target) },
             });
-            if self.remembered_owner_set.insert(owner_key) {
-                self.remembered_owners.push(owner_key);
+            if self.indexes.remembered_owner_set.insert(owner_key) {
+                self.indexes.remembered_owners.push(owner_key);
             }
         }
 
@@ -1250,7 +1252,8 @@ impl Heap {
         if space == SpaceKind::Immortal {
             return true;
         }
-        self.object_index
+        self.indexes
+            .object_index
             .get(&object.object_key())
             .is_some_and(|&index| self.objects[index].is_marked())
     }
@@ -1260,7 +1263,7 @@ impl Heap {
             return;
         }
 
-        let Some(&index) = self.object_index.get(&object.object_key()) else {
+        let Some(&index) = self.indexes.object_index.get(&object.object_key()) else {
             return;
         };
 
@@ -1282,20 +1285,20 @@ impl Heap {
 
     fn record_descriptor_candidates(&mut self, object_key: ObjectKey, desc: &'static TypeDesc) {
         if desc.flags.contains(TypeFlags::FINALIZABLE) {
-            self.finalizable_candidates.push(object_key);
+            self.indexes.finalizable_candidates.push(object_key);
         }
         if desc.flags.contains(TypeFlags::WEAK) {
-            self.weak_candidates.push(object_key);
+            self.indexes.weak_candidates.push(object_key);
         }
         if desc.flags.contains(TypeFlags::EPHEMERON_KEY) {
-            self.ephemeron_candidates.push(object_key);
+            self.indexes.ephemeron_candidates.push(object_key);
         }
     }
 
     fn candidate_indices(&self, candidates: &[ObjectKey]) -> Vec<usize> {
         candidates
             .iter()
-            .filter_map(|key| self.object_index.get(key).copied())
+            .filter_map(|key| self.indexes.object_index.get(key).copied())
             .collect()
     }
 
@@ -1329,7 +1332,7 @@ impl Heap {
         worker_count: usize,
         slice_budget: usize,
     ) -> (u64, u64) {
-        let ephemeron_candidates = self.candidate_indices(&self.ephemeron_candidates);
+        let ephemeron_candidates = self.candidate_indices(&self.indexes.ephemeron_candidates);
         let mut mark_steps = 0u64;
         let mut mark_rounds = 0u64;
         loop {
@@ -1362,8 +1365,8 @@ impl Heap {
         let mut tracer = MinorTracer::new(&self.objects, index);
         self.for_each_global_source(|object| tracer.scan_source(object));
 
-        for &owner in &self.remembered_owners {
-            if let Some(&owner_index) = self.object_index.get(&owner) {
+        for &owner in &self.indexes.remembered_owners {
+            if let Some(&owner_index) = self.indexes.object_index.get(&owner) {
                 tracer.scan_source(self.objects[owner_index].erased());
             }
         }
@@ -1414,7 +1417,8 @@ impl Heap {
         tracer: &mut MinorTracer<'_>,
         worker_count: usize,
     ) -> bool {
-        let ephemeron_candidates = Arc::new(self.candidate_indices(&self.ephemeron_candidates));
+        let ephemeron_candidates =
+            Arc::new(self.candidate_indices(&self.indexes.ephemeron_candidates));
         let workers = worker_count.max(1).min(ephemeron_candidates.len().max(1));
         let chunk_size = ephemeron_candidates.len().max(1).div_ceil(workers);
         let shared = ParallelMarkShared::new(&self.objects, tracer.index);
@@ -1503,7 +1507,7 @@ impl Heap {
         self.objects.extend(records);
         for index in start..self.objects.len() {
             let object_key = self.objects[index].object_key();
-            self.object_index.insert(object_key, index);
+            self.indexes.object_index.insert(object_key, index);
             let desc = self.objects[index].header().desc();
             self.record_descriptor_candidates(object_key, desc);
         }
@@ -1530,7 +1534,7 @@ impl Heap {
             }
         }
 
-        for edge in &mut self.remembered_edges {
+        for edge in &mut self.indexes.remembered_edges {
             edge.owner = unsafe {
                 crate::root::Gc::from_erased(relocator.relocate_erased(edge.owner.erase()))
             };
@@ -1575,14 +1579,16 @@ impl Heap {
 
         let old_objects = core::mem::take(&mut self.objects);
         let mut old_region_rebuild = self.prepare_old_region_rebuild(completed_plan.as_ref());
-        self.object_index.clear();
-        self.object_index.reserve(old_objects.len());
-        self.finalizable_candidates.clear();
-        self.weak_candidates.clear();
-        self.ephemeron_candidates.clear();
-        self.finalizable_candidates.reserve(old_objects.len());
-        self.weak_candidates.reserve(old_objects.len());
-        self.ephemeron_candidates.reserve(old_objects.len());
+        self.indexes.object_index.clear();
+        self.indexes.object_index.reserve(old_objects.len());
+        self.indexes.finalizable_candidates.clear();
+        self.indexes.weak_candidates.clear();
+        self.indexes.ephemeron_candidates.clear();
+        self.indexes
+            .finalizable_candidates
+            .reserve(old_objects.len());
+        self.indexes.weak_candidates.reserve(old_objects.len());
+        self.indexes.ephemeron_candidates.reserve(old_objects.len());
 
         let mut rebuilt_objects = Vec::with_capacity(old_objects.len());
         let mut queued_finalizers = 0u64;
@@ -1616,7 +1622,7 @@ impl Heap {
             }
             let index = rebuilt_objects.len();
             rebuilt_objects.push(object);
-            self.object_index.insert(object_key, index);
+            self.indexes.object_index.insert(object_key, index);
             self.record_descriptor_candidates(object_key, desc);
             match space {
                 SpaceKind::Nursery => {
@@ -1659,9 +1665,9 @@ impl Heap {
             .iter()
             .map(|region| region.capacity_bytes)
             .sum();
-        let object_index = &self.object_index;
+        let object_index = &self.indexes.object_index;
         let objects = &self.objects;
-        self.remembered_edges.retain(|edge| {
+        self.indexes.remembered_edges.retain(|edge| {
             let owner = edge.owner.erase().object_key();
             let target = edge.target.erase().object_key();
             let owner_space = object_index
@@ -1674,12 +1680,12 @@ impl Heap {
                 .is_some_and(|space| space != SpaceKind::Nursery && space != SpaceKind::Immortal)
                 && target_space == Some(SpaceKind::Nursery)
         });
-        self.remembered_owner_set.clear();
-        self.remembered_owners.clear();
-        for edge in &self.remembered_edges {
+        self.indexes.remembered_owner_set.clear();
+        self.indexes.remembered_owners.clear();
+        for edge in &self.indexes.remembered_edges {
             let owner = edge.owner.erase().object_key();
-            if self.remembered_owner_set.insert(owner) {
-                self.remembered_owners.push(owner);
+            if self.indexes.remembered_owner_set.insert(owner) {
+                self.indexes.remembered_owners.push(owner);
             }
         }
         (queued_finalizers, old_region_stats)
@@ -1750,13 +1756,14 @@ impl Heap {
         let old_region_stats = prepared_reclaim.old_region_stats;
         self.objects = rebuilt_objects;
         self.old_regions = prepared_reclaim.rebuilt_old_regions;
-        self.object_index = prepared_reclaim.rebuilt_object_index;
-        self.finalizable_candidates = prepared_reclaim.finalizable_candidates;
-        self.weak_candidates = prepared_reclaim.weak_candidates;
-        self.ephemeron_candidates = prepared_reclaim.ephemeron_candidates;
-        self.remembered_edges = prepared_reclaim.remembered_edges;
-        self.remembered_owners = prepared_reclaim.remembered_owners;
-        self.remembered_owner_set = self.remembered_owners.iter().copied().collect();
+        self.indexes.object_index = prepared_reclaim.rebuilt_object_index;
+        self.indexes.finalizable_candidates = prepared_reclaim.finalizable_candidates;
+        self.indexes.weak_candidates = prepared_reclaim.weak_candidates;
+        self.indexes.ephemeron_candidates = prepared_reclaim.ephemeron_candidates;
+        self.indexes.remembered_edges = prepared_reclaim.remembered_edges;
+        self.indexes.remembered_owners = prepared_reclaim.remembered_owners;
+        self.indexes.remembered_owner_set =
+            self.indexes.remembered_owners.iter().copied().collect();
         self.stats.nursery.live_bytes = prepared_reclaim.nursery_live_bytes;
         self.stats.old.live_bytes = prepared_reclaim.old_live_bytes;
         self.stats.pinned.live_bytes = prepared_reclaim.pinned_live_bytes;
@@ -1890,7 +1897,7 @@ impl Heap {
         forwarding: &ForwardingMap,
         index: &ObjectIndex,
     ) {
-        let weak_candidates = Arc::new(self.candidate_indices(&self.weak_candidates));
+        let weak_candidates = Arc::new(self.candidate_indices(&self.indexes.weak_candidates));
         let worker_count = worker_count.max(1);
         if worker_count == 1 || weak_candidates.len() <= 1 {
             let mut processor = WeakRetention::new(&self.objects, index, forwarding, kind);
@@ -1944,33 +1951,37 @@ impl Heap {
 
     #[cfg(test)]
     pub(crate) fn contains<T>(&self, gc: crate::root::Gc<T>) -> bool {
-        self.object_index.contains_key(&gc.erase().object_key())
+        self.indexes
+            .object_index
+            .contains_key(&gc.erase().object_key())
     }
 
     #[cfg(test)]
     pub(crate) fn finalizable_candidate_count(&self) -> usize {
-        self.finalizable_candidates.len()
+        self.indexes.finalizable_candidates.len()
     }
 
     #[cfg(test)]
     pub(crate) fn weak_candidate_count(&self) -> usize {
-        self.weak_candidates.len()
+        self.indexes.weak_candidates.len()
     }
 
     #[cfg(test)]
     pub(crate) fn ephemeron_candidate_count(&self) -> usize {
-        self.ephemeron_candidates.len()
+        self.indexes.ephemeron_candidates.len()
     }
 
     #[cfg(test)]
     pub(crate) fn space_of<T>(&self, gc: crate::root::Gc<T>) -> Option<SpaceKind> {
-        self.object_index
+        self.indexes
+            .object_index
             .get(&gc.erase().object_key())
             .map(|&index| self.objects[index].space())
     }
 
     fn space_for_erased(&self, object: GcErased) -> Option<SpaceKind> {
-        self.object_index
+        self.indexes
+            .object_index
             .get(&object.object_key())
             .map(|&index| self.objects[index].space())
     }
@@ -2081,8 +2092,12 @@ impl Heap {
         let mut survivors = Vec::new();
         let mut rebuilt_object_index = HashMap::with_capacity(self.objects.len());
         let mut finalize_indices = Vec::new();
-        let finalizable_candidate_set: HashSet<_> =
-            self.finalizable_candidates.iter().copied().collect();
+        let finalizable_candidate_set: HashSet<_> = self
+            .indexes
+            .finalizable_candidates
+            .iter()
+            .copied()
+            .collect();
         let mut finalizable_candidates = Vec::new();
         let mut weak_candidates = Vec::new();
         let mut ephemeron_candidates = Vec::new();
@@ -2188,15 +2203,22 @@ impl Heap {
             .map(|region| region.capacity_bytes)
             .sum();
         let remembered_edges: Vec<RememberedEdge> = self
+            .indexes
             .remembered_edges
             .iter()
             .copied()
             .filter(|edge| {
-                let Some(&owner_index) = self.object_index.get(&edge.owner.erase().object_key())
+                let Some(&owner_index) = self
+                    .indexes
+                    .object_index
+                    .get(&edge.owner.erase().object_key())
                 else {
                     return false;
                 };
-                let Some(&target_index) = self.object_index.get(&edge.target.erase().object_key())
+                let Some(&target_index) = self
+                    .indexes
+                    .object_index
+                    .get(&edge.target.erase().object_key())
                 else {
                     return false;
                 };
@@ -2244,7 +2266,7 @@ impl Heap {
             plan.kind,
             plan.worker_count.max(1),
             &empty_forwarding,
-            &self.object_index,
+            &self.indexes.object_index,
         );
         self.prepare_reclaim(plan.kind, plan)
     }
@@ -2260,7 +2282,7 @@ impl Heap {
             plan.kind,
             plan.worker_count.max(1),
             &evacuation.forwarding,
-            &self.object_index,
+            &self.indexes.object_index,
         );
         Ok((
             PreparedReclaim {
@@ -2285,7 +2307,7 @@ impl Heap {
         if !self.collector().active_major_mark_ephemerons_processed() {
             let mut tracer = MarkTracer::with_worklist(
                 &self.objects,
-                &self.object_index,
+                &self.indexes.object_index,
                 MarkWorklist::default(),
             );
             let (ephemeron_steps, ephemeron_rounds) = self.trace_major_ephemerons(
@@ -2304,7 +2326,7 @@ impl Heap {
                     CollectionKind::Major,
                     plan.worker_count.max(1),
                     &empty_forwarding,
-                    &self.object_index,
+                    &self.indexes.object_index,
                 );
                 let reclaim_prepare_start = Instant::now();
                 let prepared_reclaim = self.prepare_reclaim(CollectionKind::Major, &plan);
