@@ -202,6 +202,16 @@ impl Heap {
         self.collector().shared_snapshot()
     }
 
+    pub(crate) fn refresh_collector_cached_plans_for(&self, collector: &mut CollectorState) {
+        refresh_cached_collector_plans(
+            collector,
+            &self.storage_stats(),
+            &self.old_gen,
+            &self.config.old,
+            |kind| self.plan_for(kind),
+        );
+    }
+
     /// Build a scheduler-visible collection plan from current heap state.
     pub fn plan_for(&self, kind: CollectionKind) -> CollectionPlan {
         match kind {
@@ -278,13 +288,7 @@ impl Heap {
     }
 
     fn refresh_collector_cached_plans(&self, collector: &mut CollectorState) {
-        refresh_cached_collector_plans(
-            collector,
-            &self.stats,
-            &self.old_gen,
-            &self.config.old,
-            |kind| self.plan_for(kind),
-        );
+        self.refresh_collector_cached_plans_for(collector);
     }
 
     /// Return the phases traversed by the most recently executed collection.
@@ -314,14 +318,23 @@ impl Heap {
 
     pub(crate) fn begin_major_mark_in_place(&self, plan: CollectionPlan) -> Result<(), AllocError> {
         let mut collector = self.collector();
+        self.begin_major_mark_with_collector(&mut collector, plan)?;
+        Ok(())
+    }
+
+    pub(crate) fn begin_major_mark_with_collector(
+        &self,
+        collector: &mut CollectorState,
+        plan: CollectionPlan,
+    ) -> Result<(), AllocError> {
         begin_major_mark(
-            &mut collector,
+            collector,
             &self.objects,
             &self.indexes.object_index,
             plan,
             collect_global_sources(&self.roots, &self.objects),
         )?;
-        self.refresh_collector_cached_plans(&mut collector);
+        self.refresh_collector_cached_plans_for(collector);
         Ok(())
     }
 
@@ -407,8 +420,16 @@ impl Heap {
     /// Advance one scheduler-style concurrent major-mark round using the plan worker count.
     pub fn poll_active_major_mark(&self) -> Result<Option<MajorMarkProgress>, AllocError> {
         let mut collector = self.collector();
+        let progress = self.poll_active_major_mark_with_collector(&mut collector)?;
+        Ok(progress)
+    }
+
+    pub(crate) fn poll_active_major_mark_with_collector(
+        &self,
+        collector: &mut CollectorState,
+    ) -> Result<Option<MajorMarkProgress>, AllocError> {
         let progress = poll_active_major_mark_with_completion(
-            &mut collector,
+            collector,
             &self.objects,
             &self.indexes.object_index,
             |tracer, plan| {
@@ -434,14 +455,16 @@ impl Heap {
         let Some(progress) = progress else {
             return Ok(None);
         };
-        self.refresh_collector_cached_plans(&mut collector);
+        self.refresh_collector_cached_plans_for(collector);
         Ok(Some(progress))
     }
 
-    pub(crate) fn prepare_active_major_reclaim(&self) -> Result<bool, AllocError> {
-        let mut collector = self.collector();
+    pub(crate) fn prepare_active_major_reclaim_with_collector(
+        &self,
+        collector: &mut CollectorState,
+    ) -> Result<bool, AllocError> {
         let prepared = prepare_active_major_reclaim_with_request(
-            &mut collector,
+            collector,
             &self.objects,
             &self.indexes.object_index,
             |tracer, plan| {
@@ -464,7 +487,7 @@ impl Heap {
                 )
             },
         )?;
-        self.refresh_collector_cached_plans(&mut collector);
+        self.refresh_collector_cached_plans_for(collector);
         Ok(prepared)
     }
 

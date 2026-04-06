@@ -610,6 +610,31 @@ impl SharedHeap {
         Ok(f(&mut runtime_state))
     }
 
+    pub(crate) fn with_collector_state<R>(
+        &self,
+        f: impl FnOnce(&mut CollectorState) -> R,
+    ) -> Result<R, SharedHeapError> {
+        let mut collector_state = self
+            .collector_state
+            .lock()
+            .map_err(|_| SharedHeapError::LockPoisoned)?;
+        Ok(f(&mut collector_state))
+    }
+
+    pub(crate) fn try_with_collector_state<R>(
+        &self,
+        f: impl FnOnce(&mut CollectorState) -> R,
+    ) -> Result<R, SharedHeapError> {
+        let mut collector_state = self
+            .collector_state
+            .try_lock()
+            .map_err(|error| match error {
+                TryLockError::Poisoned(_) => SharedHeapError::LockPoisoned,
+                TryLockError::WouldBlock => SharedHeapError::WouldBlock,
+            })?;
+        Ok(f(&mut collector_state))
+    }
+
     fn read_snapshot<R>(
         &self,
         f: impl FnOnce(&SharedHeapSnapshot) -> R,
@@ -697,15 +722,6 @@ impl SharedHeap {
             self.background_signal.notify();
         }
         Ok(())
-    }
-
-    pub(crate) fn refresh_collector_snapshot_from_state(&self) -> Result<(), SharedHeapError> {
-        let next_collector = self
-            .collector_state
-            .lock()
-            .map_err(|_| SharedHeapError::LockPoisoned)?
-            .shared_snapshot();
-        self.publish_collector_snapshot(next_collector)
     }
 
     fn publish_runtime_snapshot(

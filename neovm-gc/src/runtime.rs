@@ -2,7 +2,7 @@ use crate::background::{
     BackgroundCollectionRuntime, SharedBackgroundError, SharedBackgroundObservation,
     SharedBackgroundStatus, SharedBackgroundWaitResult, SharedHeap, SharedHeapError,
 };
-use crate::collector_state::CollectorSharedSnapshot;
+use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
 use crate::heap::{AllocError, Heap};
 use crate::plan::{
     BackgroundCollectionStatus, CollectionPhase, CollectionPlan, MajorMarkProgress,
@@ -246,25 +246,57 @@ impl SharedCollectorRuntime {
             .map_err(Self::map_shared_heap_error)
     }
 
+    fn with_heap_read_and_collector_state<R>(
+        &self,
+        f: impl FnOnce(&Heap, &mut CollectorState) -> Result<R, AllocError>,
+    ) -> Result<(R, CollectorSharedSnapshot), SharedBackgroundError> {
+        self.heap
+            .with_heap_read(|heap| {
+                self.heap.with_collector_state(|collector| {
+                    let value = f(heap, collector)?;
+                    Ok((value, collector.shared_snapshot()))
+                })
+            })
+            .map_err(Self::map_shared_heap_error)?
+            .map_err(Self::map_shared_heap_error)?
+            .map_err(SharedBackgroundError::Collection)
+    }
+
+    fn try_with_heap_read_and_collector_state<R>(
+        &self,
+        f: impl FnOnce(&Heap, &mut CollectorState) -> Result<R, AllocError>,
+    ) -> Result<(R, CollectorSharedSnapshot), SharedBackgroundError> {
+        self.heap
+            .try_with_heap_read(|heap| {
+                self.heap.try_with_collector_state(|collector| {
+                    let value = f(heap, collector)?;
+                    Ok((value, collector.shared_snapshot()))
+                })
+            })
+            .map_err(Self::map_shared_heap_error)?
+            .map_err(Self::map_shared_heap_error)?
+            .map_err(SharedBackgroundError::Collection)
+    }
+
     /// Begin a persistent major-mark session for one scheduler-provided plan.
     pub fn begin_major_mark(&self, plan: CollectionPlan) -> Result<(), SharedBackgroundError> {
+        let (_, collector_snapshot) =
+            self.with_heap_read_and_collector_state(|heap, collector| {
+                heap.begin_major_mark_with_collector(collector, plan)
+            })?;
         self.heap
-            .with_heap_read(|heap| heap.begin_major_mark_in_place(plan))
-            .map_err(Self::map_shared_heap_error)?
-            .map_err(SharedBackgroundError::Collection)?;
-        self.heap
-            .refresh_collector_snapshot_from_state()
+            .publish_collector_snapshot(collector_snapshot)
             .map_err(Self::map_shared_heap_error)
     }
 
     /// Begin a persistent major-mark session without blocking on heap contention.
     pub fn try_begin_major_mark(&self, plan: CollectionPlan) -> Result<(), SharedBackgroundError> {
+        let (_, collector_snapshot) =
+            self.try_with_heap_read_and_collector_state(|heap, collector| {
+                heap.begin_major_mark_with_collector(collector, plan)
+            })?;
         self.heap
-            .try_with_heap_read(|heap| heap.begin_major_mark_in_place(plan))
-            .map_err(Self::map_shared_heap_error)?
-            .map_err(SharedBackgroundError::Collection)?;
-        self.heap
-            .refresh_collector_snapshot_from_state()
+            .publish_collector_snapshot(collector_snapshot)
             .map_err(Self::map_shared_heap_error)
     }
 
@@ -273,13 +305,12 @@ impl SharedCollectorRuntime {
     pub fn poll_active_major_mark(
         &self,
     ) -> Result<Option<MajorMarkProgress>, SharedBackgroundError> {
-        let progress = self
-            .heap
-            .with_heap_read(|heap| heap.poll_active_major_mark())
-            .map_err(Self::map_shared_heap_error)?
-            .map_err(SharedBackgroundError::Collection)?;
+        let (progress, collector_snapshot) =
+            self.with_heap_read_and_collector_state(|heap, collector| {
+                heap.poll_active_major_mark_with_collector(collector)
+            })?;
         self.heap
-            .refresh_collector_snapshot_from_state()
+            .publish_collector_snapshot(collector_snapshot)
             .map_err(Self::map_shared_heap_error)?;
         Ok(progress)
     }
@@ -289,13 +320,12 @@ impl SharedCollectorRuntime {
     pub fn try_poll_active_major_mark(
         &self,
     ) -> Result<Option<MajorMarkProgress>, SharedBackgroundError> {
-        let progress = self
-            .heap
-            .try_with_heap_read(|heap| heap.poll_active_major_mark())
-            .map_err(Self::map_shared_heap_error)?
-            .map_err(SharedBackgroundError::Collection)?;
+        let (progress, collector_snapshot) =
+            self.try_with_heap_read_and_collector_state(|heap, collector| {
+                heap.poll_active_major_mark_with_collector(collector)
+            })?;
         self.heap
-            .refresh_collector_snapshot_from_state()
+            .publish_collector_snapshot(collector_snapshot)
             .map_err(Self::map_shared_heap_error)?;
         Ok(progress)
     }
@@ -317,13 +347,12 @@ impl SharedCollectorRuntime {
             .as_ref()
             .is_some_and(|plan| plan.kind == crate::plan::CollectionKind::Major)
         {
-            let prepared = self
-                .heap
-                .with_heap_read(|heap| heap.prepare_active_major_reclaim())
-                .map_err(Self::map_shared_heap_error)?
-                .map_err(SharedBackgroundError::Collection)?;
+            let (prepared, collector_snapshot) =
+                self.with_heap_read_and_collector_state(|heap, collector| {
+                    heap.prepare_active_major_reclaim_with_collector(collector)
+                })?;
             self.heap
-                .refresh_collector_snapshot_from_state()
+                .publish_collector_snapshot(collector_snapshot)
                 .map_err(Self::map_shared_heap_error)?;
             return Ok(prepared);
         }
@@ -351,13 +380,12 @@ impl SharedCollectorRuntime {
             .as_ref()
             .is_some_and(|plan| plan.kind == crate::plan::CollectionKind::Major)
         {
-            let prepared = self
-                .heap
-                .try_with_heap_read(|heap| heap.prepare_active_major_reclaim())
-                .map_err(Self::map_shared_heap_error)?
-                .map_err(SharedBackgroundError::Collection)?;
+            let (prepared, collector_snapshot) =
+                self.try_with_heap_read_and_collector_state(|heap, collector| {
+                    heap.prepare_active_major_reclaim_with_collector(collector)
+                })?;
             self.heap
-                .refresh_collector_snapshot_from_state()
+                .publish_collector_snapshot(collector_snapshot)
                 .map_err(Self::map_shared_heap_error)?;
             return Ok(prepared);
         }
