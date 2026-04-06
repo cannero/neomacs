@@ -983,6 +983,15 @@ fn signal_hook_payload_value(sig: &SignalData) -> Value {
     }
 }
 
+/// Metadata for a single active bytecode frame in the contiguous `bc_buf`.
+pub(crate) struct BcFrame {
+    /// Index in `Context::bc_buf` where this frame's stack region starts.
+    pub base: usize,
+    /// The function value — keeps the bytecode object (and its constants)
+    /// reachable by GC.
+    pub fun: Value,
+}
+
 pub struct Context {
     /// Tagged pointer heap — sole GC and allocator.
     pub(crate) tagged_heap: Box<crate::tagged::gc::TaggedHeap>,
@@ -1142,20 +1151,13 @@ pub struct Context {
     /// VM GC roots — Values that must remain GC-visible while the bytecode VM
     /// crosses into evaluator code that may trigger collection.
     pub(crate) vm_gc_roots: Vec<Value>,
-    /// Live bytecode VM stack pointers.  Each entry is a raw pointer to a
-    /// `Vec<Value>` that the GC re-scans on every collection, ensuring
-    /// values on the bytecode stack are always reachable even between
-    /// `with_frame_roots` snapshots.
-    ///
-    /// Matches GNU Emacs `mark_bytecode()` which walks `bc_frame` linked
-    /// list and marks every value on every bytecode stack each GC cycle.
-    ///
-    /// We store `*mut Vec<Value>` obtained via `&raw mut`.  The GC reads
-    /// through these pointers during STW collection while `run_loop` holds
-    /// the only `&mut` — this is safe because GC is synchronous (no
-    /// concurrent mutation) and we use `read_volatile` to prevent the
-    /// compiler from caching stale Vec metadata.
-    pub(crate) vm_live_stacks: Vec<*mut Vec<Value>>,
+    /// Contiguous bytecode stack buffer, matching GNU Emacs's bc_thread_state.
+    /// All bytecode frames share this single buffer. GC scans it directly.
+    pub(crate) bc_buf: Vec<Value>,
+    /// Frame metadata for each active bytecode invocation.
+    /// Each entry records where the frame's stack region starts in bc_buf
+    /// and the function object (so GC can trace its constants).
+    pub(crate) bc_frames: Vec<BcFrame>,
     /// GNU-shaped Lisp call stack used by `backtrace-frame--internal`,
     /// `mapbacktrace`, and advice-sensitive `called-interactively-p`.
     pub(crate) runtime_backtrace: Vec<RuntimeBacktraceFrame>,
@@ -3599,7 +3601,8 @@ impl Context {
             gc_runtime_settings_cache: GcRuntimeSettingsCache::default(),
             temp_roots: Vec::new(),
             vm_gc_roots: Vec::new(),
-            vm_live_stacks: Vec::new(),
+            bc_buf: Vec::with_capacity(4096),
+            bc_frames: Vec::new(),
             runtime_backtrace: Vec::new(),
             condition_stack: Vec::new(),
             next_resume_id: 1,
@@ -3731,7 +3734,8 @@ impl Context {
             gc_runtime_settings_cache: GcRuntimeSettingsCache::default(),
             temp_roots: Vec::new(),
             vm_gc_roots: Vec::new(),
-            vm_live_stacks: Vec::new(),
+            bc_buf: Vec::with_capacity(4096),
+            bc_frames: Vec::new(),
             runtime_backtrace: Vec::new(),
             condition_stack: Vec::new(),
             next_resume_id: 1,
@@ -3787,23 +3791,12 @@ impl Context {
         // Direct Context fields
         roots.extend(self.temp_roots.iter().cloned());
         roots.extend(self.vm_gc_roots.iter().cloned());
-        // Re-scan live bytecode VM stacks.
-        // Matches GNU Emacs mark_bytecode() which walks bc_frame linked
-        // list and marks every value on every bytecode stack each GC cycle.
-        for stack_ptr in &self.vm_live_stacks {
-            // Safety: stack_ptr was obtained via &raw mut from a Vec<Value>
-            // on the Rust call stack of a run_frame() that hasn't returned.
-            // GC is STW so no concurrent mutation.
-            //
-            // We volatile-read the entire Vec<Value> struct to get its
-            // current (ptr, len, cap) triple, defeating any compiler
-            // optimizations that might cache stale Vec metadata from the
-            // &mut borrow in run_loop.
-            unsafe {
-                let vec_snapshot: Vec<Value> = std::ptr::read_volatile(*stack_ptr);
-                roots.extend(vec_snapshot.iter().copied());
-                // Forget the snapshot so we don't drop/free the Vec's buffer
-                std::mem::forget(vec_snapshot);
+        // Scan bytecode stack buffer — all live stack values across all frames
+        roots.extend(self.bc_buf.iter().copied());
+        // Root function objects from active bytecode frames
+        for frame in &self.bc_frames {
+            if frame.fun.is_heap_object() {
+                roots.push(frame.fun);
             }
         }
         for frame in &self.condition_stack {
