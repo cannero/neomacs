@@ -146,7 +146,7 @@ pub enum SharedBackgroundError {
     Collection(AllocError),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct SharedHeapSnapshot {
     stats: HeapStats,
     recommended_plan: CollectionPlan,
@@ -306,15 +306,19 @@ impl Drop for SharedHeapGuard<'_> {
     fn drop(&mut self) {
         let next_snapshot = SharedHeapSnapshot::capture(&self.guard);
         let next_background = SharedBackgroundSnapshot::from(&next_snapshot);
+        let mut heap_changed = false;
         let mut background_changed = false;
         if let Ok(mut snapshot) = self.snapshot.write() {
+            heap_changed = *snapshot != next_snapshot;
             *snapshot = next_snapshot.clone();
         }
         if let Ok(mut background_snapshot) = self.background_snapshot.write() {
             background_changed = *background_snapshot != next_background;
             *background_snapshot = next_background;
         }
-        self.signal.notify();
+        if heap_changed {
+            self.signal.notify();
+        }
         if background_changed {
             self.background_signal.notify();
         }
@@ -1096,6 +1100,16 @@ impl SharedBackgroundService {
 
     /// Run one background-collection coordinator tick.
     pub fn tick(&mut self) -> Result<BackgroundCollectionStatus, SharedBackgroundError> {
+        let snapshot = self
+            .heap
+            .background_snapshot()
+            .map_err(|error| match error {
+                SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
+                SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
+            })?;
+        if let Some(status) = self.collector.snapshot_tick(&snapshot) {
+            return Ok(status);
+        }
         self.heap
             .with_runtime(|runtime| self.collector.tick(runtime))
             .map_err(|_| SharedBackgroundError::LockPoisoned)?
@@ -1149,6 +1163,22 @@ impl SharedBackgroundService {
     pub fn finish_active_major_collection_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, SharedBackgroundError> {
+        let snapshot = self
+            .heap
+            .background_snapshot()
+            .map_err(|error| match error {
+                SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
+                SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
+            })?;
+        if snapshot.active_major_mark_plan.is_none() {
+            return Ok(None);
+        }
+        if snapshot
+            .major_mark_progress
+            .is_some_and(|progress| !progress.completed)
+        {
+            return Ok(None);
+        }
         self.heap
             .with_runtime(|runtime| runtime.finish_active_major_collection_if_ready())
             .map_err(|_| SharedBackgroundError::LockPoisoned)?

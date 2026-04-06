@@ -3386,6 +3386,18 @@ fn public_api_shared_background_service_status_reads_work_while_heap_lock_is_hel
 }
 
 #[test]
+fn public_api_shared_background_service_tick_returns_idle_from_snapshot_when_heap_is_locked() {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig::default());
+    let _guard = shared.lock().expect("lock shared heap");
+
+    let result = service.tick();
+
+    assert_eq!(result, Ok(neovm_gc::BackgroundCollectionStatus::Idle));
+    assert_eq!(service.stats().ticks, 1);
+}
+
+#[test]
 fn public_api_shared_background_service_try_tick_returns_idle_from_snapshot_when_heap_is_locked() {
     let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
     let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig::default());
@@ -3411,6 +3423,17 @@ fn public_api_shared_background_service_try_run_until_idle_returns_idle_from_sna
 }
 
 #[test]
+fn public_api_shared_background_service_finish_returns_none_from_snapshot_when_heap_is_locked() {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig::default());
+    let _guard = shared.lock().expect("lock shared heap");
+
+    let result = service.finish_active_major_collection_if_ready();
+
+    assert_eq!(result, Ok(None));
+}
+
+#[test]
 fn public_api_shared_background_service_try_finish_returns_none_from_snapshot_when_heap_is_locked()
 {
     let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
@@ -3420,6 +3443,44 @@ fn public_api_shared_background_service_try_finish_returns_none_from_snapshot_wh
     let result = service.try_finish_active_major_collection_if_ready();
 
     assert_eq!(result, Ok(None));
+}
+
+#[test]
+fn public_api_shared_background_service_finish_returns_none_from_snapshot_for_active_not_ready_session()
+ {
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            concurrent_mark_workers: 4,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for byte in 0..64u8 {
+                mutator
+                    .alloc(&mut scope, OldLeaf([byte; 32]))
+                    .expect("allocate old leaf");
+            }
+            let plan = mutator.plan_for(CollectionKind::Major);
+            mutator.begin_major_mark(plan).expect("begin major mark");
+        })
+        .expect("seed active major-mark session");
+
+    let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig::default());
+    let _guard = shared.lock().expect("lock shared heap");
+
+    assert_eq!(service.finish_active_major_collection_if_ready(), Ok(None));
 }
 
 #[test]
@@ -3461,6 +3522,63 @@ fn public_api_shared_background_service_try_finish_returns_none_from_snapshot_fo
         service.try_finish_active_major_collection_if_ready(),
         Ok(None)
     );
+}
+
+#[test]
+fn public_api_shared_background_service_tick_returns_ready_from_snapshot_for_completed_active_session()
+ {
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            concurrent_mark_workers: 4,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for byte in 0..64u8 {
+                mutator
+                    .alloc(&mut scope, OldLeaf([byte; 32]))
+                    .expect("allocate old leaf");
+            }
+            let plan = mutator.plan_for(CollectionKind::Major);
+            mutator.begin_major_mark(plan).expect("begin major mark");
+            loop {
+                let progress = mutator
+                    .poll_active_major_mark()
+                    .expect("poll active major mark")
+                    .expect("active major-mark progress");
+                if progress.completed {
+                    break;
+                }
+            }
+        })
+        .expect("complete active major-mark session");
+
+    let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig {
+        auto_finish_when_ready: false,
+        ..neovm_gc::BackgroundCollectorConfig::default()
+    });
+    let _guard = shared.lock().expect("lock shared heap");
+
+    let result = service.tick();
+
+    match result {
+        Ok(neovm_gc::BackgroundCollectionStatus::ReadyToFinish(progress)) => {
+            assert!(progress.completed);
+        }
+        other => panic!("expected ready-to-finish snapshot status, got {other:?}"),
+    }
 }
 
 #[test]
@@ -3651,6 +3769,28 @@ fn public_api_shared_heap_wait_for_change_wakes_on_guard_drop() {
             .live_bytes
             > 0
     );
+}
+
+#[test]
+fn public_api_shared_heap_wait_for_change_ignores_read_only_guard_drop() {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let observed_epoch = shared.epoch().expect("read initial shared epoch");
+    let waking_shared = shared.clone();
+    let waiter = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(10));
+        let _guard = waking_shared
+            .lock()
+            .expect("lock shared heap without mutation");
+        thread::sleep(Duration::from_millis(10));
+    });
+
+    let (next_epoch, changed) = shared
+        .wait_for_change(observed_epoch, Duration::from_millis(80))
+        .expect("wait for shared epoch change");
+    waiter.join().expect("join read-only thread");
+
+    assert!(!changed);
+    assert_eq!(next_epoch, observed_epoch);
 }
 
 #[test]
