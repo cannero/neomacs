@@ -973,8 +973,10 @@ pub fn run(mode: RuntimeMode) {
         .name("input-bridge".to_string())
         .spawn(move || {
             while let Ok(event) = display_input_rx.recv() {
+                tracing::info!("input-bridge: received event");
                 record_primary_window_resize(&primary_window_size_for_input, &event);
                 if let Some(kb_event) = input_bridge::convert_display_event(event) {
+                    tracing::info!("input-bridge: converted to kb event");
                     if input_tx.send(kb_event).is_err() {
                         break; // Context dropped
                     }

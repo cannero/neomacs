@@ -27,7 +27,9 @@ fn read_tty_input(
         }
         match read_one_input_event(&stop) {
             Ok(Some(event)) => {
+                tracing::info!("tty_input: got event {:?}", event);
                 if tx.send(event).is_err() {
+                    tracing::warn!("tty_input: channel closed");
                     break;
                 }
             }
