@@ -3,7 +3,7 @@ use core::slice;
 use std::sync::Arc;
 use std::thread;
 
-use crate::descriptor::{EphemeronVisitor, GcErased, Relocator, Tracer, WeakProcessor};
+use crate::descriptor::{EphemeronVisitor, GcErased, ObjectKey, Relocator, Tracer, WeakProcessor};
 use crate::index_state::{ForwardingMap, ObjectIndex};
 use crate::mark::MarkWorklist;
 use crate::object::{ObjectRecord, SpaceKind};
@@ -276,6 +276,56 @@ impl<'a> MajorMarkSession<'a> {
     pub(crate) fn mark_rounds(&self) -> u64 {
         self.mark_rounds
     }
+}
+
+pub(crate) fn trace_major(
+    objects: &[ObjectRecord],
+    index: &ObjectIndex,
+    worker_count: usize,
+    slice_budget: usize,
+    sources: impl IntoIterator<Item = GcErased>,
+) -> (u64, u64) {
+    let mut session = MajorMarkSession::new(objects, index, worker_count, slice_budget);
+    for source in sources {
+        session.seed(source);
+    }
+    session.drain_parallel();
+    session.run_ephemeron_fixpoint_parallel();
+    (session.mark_steps(), session.mark_rounds())
+}
+
+pub(crate) fn trace_minor(
+    objects: &[ObjectRecord],
+    index: &ObjectIndex,
+    remembered_owners: &[ObjectKey],
+    ephemeron_candidates: &[usize],
+    worker_count: usize,
+    slice_budget: usize,
+    sources: impl IntoIterator<Item = GcErased>,
+) -> (u64, u64) {
+    let mut tracer = MinorTracer::new(objects, index);
+    for source in sources {
+        tracer.scan_source(source);
+    }
+
+    for &owner in remembered_owners {
+        if let Some(&owner_index) = index.get(&owner) {
+            tracer.scan_source(objects[owner_index].erased());
+        }
+    }
+
+    let (mut mark_steps, mut mark_rounds) =
+        tracer.drain_parallel_until_empty(worker_count, slice_budget);
+    let (ephemeron_steps, ephemeron_rounds) = trace_minor_ephemerons(
+        objects,
+        ephemeron_candidates,
+        &mut tracer,
+        worker_count,
+        slice_budget,
+    );
+    mark_steps = mark_steps.saturating_add(ephemeron_steps);
+    mark_rounds = mark_rounds.saturating_add(ephemeron_rounds);
+    (mark_steps, mark_rounds)
 }
 
 pub(crate) struct MinorEphemeronTracer<'a, 'b> {
@@ -885,3 +935,7 @@ fn survives_collection_kind(kind: CollectionKind, object: &ObjectRecord) -> bool
         CollectionKind::Major | CollectionKind::Full => object.is_marked(),
     }
 }
+
+#[cfg(test)]
+#[path = "collector_exec_test.rs"]
+mod tests;

@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 use crate::background::{BackgroundCollectorConfig, BackgroundService, SharedHeap};
 use crate::barrier::{BarrierEvent, BarrierKind};
 use crate::collector_exec::{
-    MajorMarkSession, MarkTracer, MinorTracer, process_weak_references, trace_major_ephemerons,
-    trace_minor_ephemerons,
+    MarkTracer, process_weak_references, trace_major as run_major_trace, trace_major_ephemerons,
+    trace_minor as run_minor_trace,
 };
 use crate::collector_session::{
     active_reclaim_prep_request, advance_major_mark_slice, begin_major_mark,
@@ -1165,11 +1165,18 @@ impl Heap {
         worker_count: usize,
         slice_budget: usize,
     ) -> (u64, u64) {
-        let mut session = MajorMarkSession::new(&self.objects, index, worker_count, slice_budget);
-        self.for_each_global_source(|object| session.seed(object));
-        session.drain_parallel();
-        session.run_ephemeron_fixpoint_parallel();
-        (session.mark_steps(), session.mark_rounds())
+        run_major_trace(
+            &self.objects,
+            index,
+            worker_count,
+            slice_budget,
+            self.roots.iter().chain(
+                self.objects
+                    .iter()
+                    .filter(|object| object.space() == SpaceKind::Immortal)
+                    .map(ObjectRecord::erased),
+            ),
+        )
     }
 
     fn trace_major_ephemerons(
@@ -1196,38 +1203,22 @@ impl Heap {
         worker_count: usize,
         slice_budget: usize,
     ) -> (u64, u64) {
-        let mut tracer = MinorTracer::new(&self.objects, index);
-        self.for_each_global_source(|object| tracer.scan_source(object));
-
-        for &owner in &self.indexes.remembered_owners {
-            if let Some(&owner_index) = self.indexes.object_index.get(&owner) {
-                tracer.scan_source(self.objects[owner_index].erased());
-            }
-        }
-        let (mut mark_steps, mut mark_rounds) =
-            tracer.drain_parallel_until_empty(worker_count, slice_budget);
-        let (ephemeron_steps, ephemeron_rounds) =
-            self.trace_minor_ephemerons(&mut tracer, worker_count, slice_budget);
-        mark_steps = mark_steps.saturating_add(ephemeron_steps);
-        mark_rounds = mark_rounds.saturating_add(ephemeron_rounds);
-        (mark_steps, mark_rounds)
-    }
-
-    fn trace_minor_ephemerons(
-        &self,
-        tracer: &mut MinorTracer<'_>,
-        worker_count: usize,
-        slice_budget: usize,
-    ) -> (u64, u64) {
         let ephemeron_candidates = self
             .indexes
             .candidate_indices(&self.indexes.ephemeron_candidates);
-        trace_minor_ephemerons(
+        run_minor_trace(
             &self.objects,
+            index,
+            &self.indexes.remembered_owners,
             &ephemeron_candidates,
-            tracer,
             worker_count,
             slice_budget,
+            self.roots.iter().chain(
+                self.objects
+                    .iter()
+                    .filter(|object| object.space() == SpaceKind::Immortal)
+                    .map(ObjectRecord::erased),
+            ),
         )
     }
 
