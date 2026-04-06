@@ -5605,6 +5605,121 @@ fn shared_collector_runtime_prepare_active_major_reclaim_works_while_heap_is_rea
 }
 
 #[test]
+fn shared_collector_runtime_finish_prepares_major_reclaim_while_heap_is_read_locked() {
+    let shared = SharedHeap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        old: crate::spaces::OldGenConfig {
+            concurrent_mark_workers: 2,
+            mutator_assist_slices: 0,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let plan = shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for byte in 0..8u8 {
+                mutator
+                    .alloc(&mut scope, OldLeaf([byte; 32]))
+                    .expect("alloc old leaf");
+            }
+            let plan = CollectionPlan {
+                mark_slice_budget: 1,
+                ..mutator.plan_for(CollectionKind::Major)
+            };
+            mutator
+                .begin_major_mark(plan.clone())
+                .expect("begin persistent major mark");
+            while !mutator
+                .advance_major_mark()
+                .expect("advance persistent major mark")
+                .completed
+            {}
+            plan
+        })
+        .expect("seed and drain major mark");
+    let runtime = shared.collector_runtime();
+    let _guard = shared.read().expect("read-lock shared heap");
+
+    assert_eq!(runtime.finish_active_major_collection_if_ready(), Ok(None));
+    assert_eq!(
+        runtime
+            .active_major_mark_plan()
+            .expect("inspect active plan after finish-triggered major reclaim prep"),
+        Some(CollectionPlan {
+            phase: CollectionPhase::Reclaim,
+            ..plan
+        })
+    );
+}
+
+#[test]
+fn shared_collector_runtime_try_finish_prepares_major_reclaim_while_heap_is_read_locked() {
+    let shared = SharedHeap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        old: crate::spaces::OldGenConfig {
+            concurrent_mark_workers: 2,
+            mutator_assist_slices: 0,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let plan = shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for byte in 0..8u8 {
+                mutator
+                    .alloc(&mut scope, OldLeaf([byte; 32]))
+                    .expect("alloc old leaf");
+            }
+            let plan = CollectionPlan {
+                mark_slice_budget: 1,
+                ..mutator.plan_for(CollectionKind::Major)
+            };
+            mutator
+                .begin_major_mark(plan.clone())
+                .expect("begin persistent major mark");
+            while !mutator
+                .advance_major_mark()
+                .expect("advance persistent major mark")
+                .completed
+            {}
+            plan
+        })
+        .expect("seed and drain major mark");
+    let runtime = shared.collector_runtime();
+    let _guard = shared.read().expect("read-lock shared heap");
+
+    assert_eq!(
+        runtime.try_finish_active_major_collection_if_ready(),
+        Ok(None)
+    );
+    assert_eq!(
+        runtime
+            .active_major_mark_plan()
+            .expect("inspect active plan after try-finish-triggered major reclaim prep"),
+        Some(CollectionPlan {
+            phase: CollectionPhase::Reclaim,
+            ..plan
+        })
+    );
+}
+
+#[test]
 fn shared_collector_runtime_try_commit_returns_none_from_snapshot_before_reclaim_when_heap_is_locked()
  {
     let shared = SharedHeap::new(HeapConfig {

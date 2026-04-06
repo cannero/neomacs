@@ -368,6 +368,18 @@ impl SharedCollectorRuntime {
         {
             return Ok(None);
         }
+        if snapshot
+            .active_major_mark_plan
+            .as_ref()
+            .is_some_and(|plan| {
+                plan.kind == crate::plan::CollectionKind::Major
+                    && plan.phase != CollectionPhase::Reclaim
+            })
+        {
+            if self.prepare_active_reclaim_if_needed()? {
+                return Ok(None);
+            }
+        }
         self.heap
             .with_runtime(|runtime| runtime.finish_active_major_collection_if_ready())
             .map_err(Self::map_shared_heap_error)?
@@ -415,6 +427,18 @@ impl SharedCollectorRuntime {
             .is_some_and(|progress| !progress.completed)
         {
             return Ok(None);
+        }
+        if snapshot
+            .active_major_mark_plan
+            .as_ref()
+            .is_some_and(|plan| {
+                plan.kind == crate::plan::CollectionKind::Major
+                    && plan.phase != CollectionPhase::Reclaim
+            })
+        {
+            if self.try_prepare_active_reclaim_if_needed()? {
+                return Ok(None);
+            }
         }
         self.heap
             .try_with_runtime(|runtime| runtime.finish_active_major_collection_if_ready())
