@@ -3,10 +3,11 @@ use std::time::{Duration, Instant};
 
 use crate::barrier::RememberedEdge;
 use crate::descriptor::ObjectKey;
-use crate::heap::{AllocError, OldRegion, OldRegionCollectionStats};
+use crate::heap::AllocError;
 use crate::mark::MarkWorklist;
 use crate::object::OldRegionPlacement;
 use crate::plan::{CollectionPhase, CollectionPlan, MajorMarkProgress};
+use crate::spaces::{OldRegion, OldRegionCollectionStats};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CollectorSharedSnapshot {
