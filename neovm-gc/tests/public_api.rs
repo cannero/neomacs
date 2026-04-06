@@ -2362,6 +2362,75 @@ fn public_api_background_collector_can_leave_ready_session_for_explicit_finish()
 }
 
 #[test]
+fn public_api_background_collector_prepares_full_reclaim_before_finishing_runtime_session() {
+    let mut heap = Heap::new(HeapConfig {
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: 64,
+            soft_limit_bytes: usize::MAX,
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            concurrent_mark_workers: 2,
+            mutator_assist_slices: 0,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        mutator
+            .alloc(&mut scope, LargeLeaf([11; 80]))
+            .expect("alloc large leaf");
+    }
+
+    let mut runtime = heap.collector_runtime();
+    let plan = neovm_gc::CollectionPlan {
+        mark_slice_budget: usize::MAX,
+        ..runtime
+            .recommended_background_plan()
+            .expect("background plan")
+    };
+    assert_eq!(plan.kind, CollectionKind::Full);
+    runtime
+        .begin_major_mark(plan.clone())
+        .expect("begin persistent full mark");
+
+    let mut collector = neovm_gc::BackgroundCollector::new(neovm_gc::BackgroundCollectorConfig {
+        auto_start_concurrent: false,
+        auto_finish_when_ready: true,
+        max_rounds_per_tick: 1,
+    });
+
+    let progress = match collector
+        .tick(&mut runtime)
+        .expect("tick background collector")
+    {
+        neovm_gc::BackgroundCollectionStatus::ReadyToFinish(progress) => progress,
+        other => panic!("expected prepared reclaim transition, got {other:?}"),
+    };
+    assert!(progress.completed);
+    assert_eq!(
+        runtime.active_major_mark_plan(),
+        Some(neovm_gc::CollectionPlan {
+            phase: CollectionPhase::Reclaim,
+            ..plan.clone()
+        })
+    );
+    assert_eq!(collector.stats().sessions_finished, 0);
+
+    let cycle = match collector
+        .tick(&mut runtime)
+        .expect("finish prepared full reclaim")
+    {
+        neovm_gc::BackgroundCollectionStatus::Finished(cycle) => cycle,
+        other => panic!("expected finished full cycle, got {other:?}"),
+    };
+    assert_eq!(cycle.major_collections, 1);
+    assert_eq!(runtime.active_major_mark_plan(), None);
+    assert_eq!(collector.stats().sessions_finished, 1);
+}
+
+#[test]
 fn public_api_reports_finalized_objects() {
     PUBLIC_FINALIZE_COUNT.store(0, Ordering::SeqCst);
 

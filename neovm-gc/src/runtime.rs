@@ -330,6 +330,10 @@ impl BackgroundCollectionRuntime for CollectorRuntime<'_> {
         self.poll_active_major_mark()
     }
 
+    fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError> {
+        self.prepare_active_reclaim_if_needed()
+    }
+
     fn finish_active_major_collection_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, AllocError> {
@@ -364,6 +368,17 @@ impl BackgroundCollectionRuntime for SharedCollectorRuntime {
             }
             SharedBackgroundError::Collection(error) => error,
         })
+    }
+
+    fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError> {
+        SharedCollectorRuntime::prepare_active_reclaim_if_needed(self).map_err(
+            |error| match error {
+                SharedBackgroundError::LockPoisoned | SharedBackgroundError::WouldBlock => {
+                    AllocError::CollectionInProgress
+                }
+                SharedBackgroundError::Collection(error) => error,
+            },
+        )
     }
 
     fn finish_active_major_collection_if_ready(

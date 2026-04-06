@@ -192,6 +192,10 @@ impl BackgroundCollectionRuntime for Mutator<'_> {
         self.poll_active_major_mark()
     }
 
+    fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError> {
+        self.heap.prepare_active_reclaim_if_needed()
+    }
+
     fn finish_active_major_collection_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, AllocError> {

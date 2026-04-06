@@ -2866,6 +2866,75 @@ fn background_collector_can_leave_ready_session_for_explicit_finish() {
 }
 
 #[test]
+fn background_collector_prepares_full_reclaim_before_finishing_runtime_session() {
+    let mut heap = Heap::new(HeapConfig {
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: 64,
+            soft_limit_bytes: usize::MAX,
+        },
+        old: crate::spaces::OldGenConfig {
+            concurrent_mark_workers: 2,
+            mutator_assist_slices: 0,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        mutator
+            .alloc(&mut scope, LargeLeaf([11; 80]))
+            .expect("alloc large leaf");
+    }
+
+    let mut runtime = heap.collector_runtime();
+    let plan = CollectionPlan {
+        mark_slice_budget: usize::MAX,
+        ..runtime
+            .recommended_background_plan()
+            .expect("background plan")
+    };
+    assert_eq!(plan.kind, CollectionKind::Full);
+    runtime
+        .begin_major_mark(plan.clone())
+        .expect("begin persistent full mark");
+
+    let mut collector = BackgroundCollector::new(BackgroundCollectorConfig {
+        auto_start_concurrent: false,
+        auto_finish_when_ready: true,
+        max_rounds_per_tick: 1,
+    });
+
+    let progress = match collector
+        .tick(&mut runtime)
+        .expect("tick background collector")
+    {
+        BackgroundCollectionStatus::ReadyToFinish(progress) => progress,
+        other => panic!("expected prepared reclaim transition, got {other:?}"),
+    };
+    assert!(progress.completed);
+    assert_eq!(
+        runtime.active_major_mark_plan(),
+        Some(CollectionPlan {
+            phase: CollectionPhase::Reclaim,
+            ..plan.clone()
+        })
+    );
+    assert_eq!(collector.stats().sessions_finished, 0);
+
+    let cycle = match collector
+        .tick(&mut runtime)
+        .expect("finish prepared full reclaim")
+    {
+        BackgroundCollectionStatus::Finished(cycle) => cycle,
+        other => panic!("expected finished full cycle, got {other:?}"),
+    };
+    assert_eq!(cycle.major_collections, 1);
+    assert_eq!(runtime.active_major_mark_plan(), None);
+    assert_eq!(collector.stats().sessions_finished, 1);
+}
+
+#[test]
 fn major_region_candidates_respect_limit_and_sort_by_hole_bytes() {
     let mut heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {

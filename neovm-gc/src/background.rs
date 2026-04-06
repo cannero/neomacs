@@ -29,6 +29,9 @@ pub trait BackgroundCollectionRuntime {
         &mut self,
     ) -> Result<Option<crate::plan::MajorMarkProgress>, AllocError>;
 
+    /// Prepare reclaim for the active major collection once mark work is fully drained.
+    fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError>;
+
     /// Finish the active major collection if its mark work is fully drained.
     fn finish_active_major_collection_if_ready(
         &mut self,
@@ -1043,11 +1046,14 @@ impl BackgroundCollector {
         };
 
         if progress.completed {
-            if self.config.auto_finish_when_ready
-                && let Some(cycle) = runtime.finish_active_major_collection_if_ready()?
-            {
-                self.stats.sessions_finished = self.stats.sessions_finished.saturating_add(1);
-                return Ok(BackgroundCollectionStatus::Finished(cycle));
+            if self.config.auto_finish_when_ready {
+                if runtime.prepare_active_reclaim_if_needed()? {
+                    return Ok(BackgroundCollectionStatus::ReadyToFinish(progress));
+                }
+                if let Some(cycle) = runtime.finish_active_major_collection_if_ready()? {
+                    self.stats.sessions_finished = self.stats.sessions_finished.saturating_add(1);
+                    return Ok(BackgroundCollectionStatus::Finished(cycle));
+                }
             }
             return Ok(BackgroundCollectionStatus::ReadyToFinish(progress));
         }
@@ -1217,6 +1223,18 @@ impl BackgroundCollector {
         runtime.try_finish_active_major_collection_if_ready()
     }
 
+    fn prepare_shared_reclaim_if_needed(
+        &mut self,
+        runtime: &SharedCollectorRuntime,
+        nonblocking: bool,
+    ) -> Result<bool, SharedBackgroundError> {
+        if nonblocking {
+            runtime.try_prepare_active_reclaim_if_needed()
+        } else {
+            runtime.prepare_active_reclaim_if_needed()
+        }
+    }
+
     fn tick_shared_round(
         &mut self,
         runtime: &SharedCollectorRuntime,
@@ -1232,11 +1250,14 @@ impl BackgroundCollector {
         };
 
         if progress.completed {
-            if self.config.auto_finish_when_ready
-                && let Some(cycle) = self.try_finish_shared_major_collection_if_ready(runtime)?
-            {
-                self.stats.sessions_finished = self.stats.sessions_finished.saturating_add(1);
-                return Ok(BackgroundCollectionStatus::Finished(cycle));
+            if self.config.auto_finish_when_ready {
+                if self.prepare_shared_reclaim_if_needed(runtime, nonblocking)? {
+                    return Ok(BackgroundCollectionStatus::ReadyToFinish(progress));
+                }
+                if let Some(cycle) = self.try_finish_shared_major_collection_if_ready(runtime)? {
+                    self.stats.sessions_finished = self.stats.sessions_finished.saturating_add(1);
+                    return Ok(BackgroundCollectionStatus::Finished(cycle));
+                }
             }
             return Ok(BackgroundCollectionStatus::ReadyToFinish(progress));
         }
