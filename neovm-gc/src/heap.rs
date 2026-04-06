@@ -155,6 +155,63 @@ impl HeapIndexState {
             }
         }
     }
+
+    fn remembered_edges_for_collection(
+        &self,
+        objects: &[ObjectRecord],
+        kind: CollectionKind,
+    ) -> (Vec<RememberedEdge>, Vec<ObjectKey>) {
+        let remembered_edges: Vec<_> = self
+            .remembered_edges
+            .iter()
+            .copied()
+            .filter(|edge| {
+                let Some(&owner_index) = self.object_index.get(&edge.owner.erase().object_key())
+                else {
+                    return false;
+                };
+                let Some(&target_index) = self.object_index.get(&edge.target.erase().object_key())
+                else {
+                    return false;
+                };
+                let owner = &objects[owner_index];
+                let target = &objects[target_index];
+                Heap::keep_object_for_collection(kind, owner)
+                    && owner.space() != SpaceKind::Nursery
+                    && owner.space() != SpaceKind::Immortal
+                    && Heap::keep_object_for_collection(kind, target)
+                    && target.space() == SpaceKind::Nursery
+            })
+            .collect();
+
+        let mut remembered_owners = Vec::new();
+        let mut remembered_owner_set = HashSet::new();
+        for edge in &remembered_edges {
+            let owner = edge.owner.erase().object_key();
+            if remembered_owner_set.insert(owner) {
+                remembered_owners.push(owner);
+            }
+        }
+        (remembered_edges, remembered_owners)
+    }
+
+    fn retain_remembered_edges_for_post_sweep_objects(&mut self, objects: &[ObjectRecord]) {
+        let object_index = &self.object_index;
+        self.remembered_edges.retain(|edge| {
+            let owner = edge.owner.erase().object_key();
+            let target = edge.target.erase().object_key();
+            let owner_space = object_index
+                .get(&owner)
+                .map(|&index| objects[index].space());
+            let target_space = object_index
+                .get(&target)
+                .map(|&index| objects[index].space());
+            owner_space
+                .is_some_and(|space| space != SpaceKind::Nursery && space != SpaceKind::Immortal)
+                && target_space == Some(SpaceKind::Nursery)
+        });
+        self.rebuild_remembered_owners();
+    }
 }
 
 #[derive(Debug, Default)]
@@ -264,7 +321,207 @@ impl OldGenState {
         offset_bytes: usize,
         bytes: usize,
     ) -> OldRegionPlacement {
-        make_old_region_placement(config, region_index, offset_bytes, bytes)
+        Self::make_placement_for_config(config, region_index, offset_bytes, bytes)
+    }
+
+    fn rebuild_post_sweep_object(
+        config: &OldGenConfig,
+        object: &mut ObjectRecord,
+        total_size: usize,
+        rebuild: Option<&mut OldRegionRebuildState>,
+    ) {
+        let Some(rebuild) = rebuild else {
+            return;
+        };
+        let Some(mut placement) = object.old_region_placement() else {
+            return;
+        };
+        if rebuild.selected_regions.contains(&placement.region_index) {
+            let compacted =
+                Self::reserve_rebuild_placement(&mut rebuild.compacted_regions, config, total_size);
+            placement.region_index = rebuild.compacted_base_index + compacted.region_index;
+            placement.offset_bytes = compacted.offset_bytes;
+            placement.line_start = compacted.line_start;
+            placement.line_count = compacted.line_count;
+            object.set_old_region_placement(placement);
+            let region = &mut rebuild.compacted_regions[compacted.region_index];
+            region.live_bytes = region.live_bytes.saturating_add(total_size);
+            region.object_count = region.object_count.saturating_add(1);
+            for line in placement.line_start..placement.line_start + placement.line_count {
+                region.occupied_lines.insert(line);
+            }
+            return;
+        }
+
+        let Some(&new_index) = rebuild.preserved_index_map.get(&placement.region_index) else {
+            return;
+        };
+        if placement.region_index != new_index {
+            placement.region_index = new_index;
+            object.set_old_region_placement(placement);
+        }
+        let region = &mut rebuild.rebuilt_regions[new_index];
+        region.live_bytes = region.live_bytes.saturating_add(total_size);
+        region.object_count = region.object_count.saturating_add(1);
+        for line in placement.line_start..placement.line_start + placement.line_count {
+            region.occupied_lines.insert(line);
+        }
+    }
+
+    fn finish_rebuild(
+        rebuild: Option<OldRegionRebuildState>,
+        objects: &mut [ObjectRecord],
+    ) -> (Option<Vec<OldRegion>>, OldRegionCollectionStats) {
+        let Some(rebuild) = rebuild else {
+            return (None, OldRegionCollectionStats::default());
+        };
+        let provisional_compacted_base = rebuild.compacted_base_index;
+        let mut preserved_index_remap = vec![None; provisional_compacted_base];
+        let mut compacted_regions = Vec::with_capacity(
+            rebuild
+                .rebuilt_regions
+                .len()
+                .saturating_add(rebuild.compacted_regions.len()),
+        );
+        for (old_index, region) in rebuild.rebuilt_regions.into_iter().enumerate() {
+            if region.object_count == 0 {
+                continue;
+            }
+            preserved_index_remap[old_index] = Some(compacted_regions.len());
+            compacted_regions.push(region);
+        }
+        let new_compacted_base = compacted_regions.len();
+        compacted_regions.extend(rebuild.compacted_regions);
+        for object in objects.iter_mut() {
+            if object.space() != SpaceKind::Old {
+                continue;
+            }
+            let Some(mut placement) = object.old_region_placement() else {
+                continue;
+            };
+            if placement.region_index < provisional_compacted_base {
+                let Some(new_index) = preserved_index_remap[placement.region_index] else {
+                    continue;
+                };
+                if placement.region_index != new_index {
+                    placement.region_index = new_index;
+                    object.set_old_region_placement(placement);
+                }
+                continue;
+            }
+
+            let compacted_offset = placement
+                .region_index
+                .saturating_sub(provisional_compacted_base);
+            let new_index = new_compacted_base.saturating_add(compacted_offset);
+            if placement.region_index != new_index {
+                placement.region_index = new_index;
+                object.set_old_region_placement(placement);
+            }
+        }
+        let reclaimed_regions = rebuild
+            .previous_region_count
+            .saturating_sub(compacted_regions.len()) as u64;
+        (
+            Some(compacted_regions),
+            OldRegionCollectionStats {
+                compacted_regions: rebuild.compacted_regions_count,
+                reclaimed_regions,
+            },
+        )
+    }
+
+    fn finish_prepared_rebuild(
+        rebuild: OldRegionRebuildState,
+        survivors: &mut [PreparedReclaimSurvivor],
+    ) -> (Vec<OldRegion>, OldRegionCollectionStats) {
+        let provisional_compacted_base = rebuild.compacted_base_index;
+        let mut preserved_index_remap = vec![None; provisional_compacted_base];
+        let mut compacted_regions = Vec::with_capacity(
+            rebuild
+                .rebuilt_regions
+                .len()
+                .saturating_add(rebuild.compacted_regions.len()),
+        );
+        for (old_index, region) in rebuild.rebuilt_regions.into_iter().enumerate() {
+            if region.object_count == 0 {
+                continue;
+            }
+            preserved_index_remap[old_index] = Some(compacted_regions.len());
+            compacted_regions.push(region);
+        }
+        let new_compacted_base = compacted_regions.len();
+        compacted_regions.extend(rebuild.compacted_regions);
+        for survivor in survivors.iter_mut() {
+            let Some(placement) = survivor.old_region_placement.as_mut() else {
+                continue;
+            };
+            if placement.region_index < provisional_compacted_base {
+                let Some(new_index) = preserved_index_remap[placement.region_index] else {
+                    continue;
+                };
+                placement.region_index = new_index;
+            } else {
+                placement.region_index = placement
+                    .region_index
+                    .saturating_sub(provisional_compacted_base)
+                    .saturating_add(new_compacted_base);
+            }
+        }
+        let reclaimed_regions = rebuild
+            .previous_region_count
+            .saturating_sub(compacted_regions.len()) as u64;
+        (
+            compacted_regions,
+            OldRegionCollectionStats {
+                compacted_regions: rebuild.compacted_regions_count,
+                reclaimed_regions,
+            },
+        )
+    }
+
+    fn reserve_rebuild_placement(
+        regions: &mut Vec<OldRegion>,
+        config: &OldGenConfig,
+        bytes: usize,
+    ) -> OldRegionPlacement {
+        let align = config.line_bytes.max(8);
+
+        for (region_index, region) in regions.iter_mut().enumerate() {
+            let offset = align_up(region.used_bytes, align);
+            if offset.saturating_add(bytes) <= region.capacity_bytes {
+                region.used_bytes = offset.saturating_add(bytes);
+                return Self::make_placement_for_config(config, region_index, offset, bytes);
+            }
+        }
+
+        let capacity_bytes = config.region_bytes.max(bytes);
+        regions.push(OldRegion {
+            capacity_bytes,
+            used_bytes: bytes,
+            live_bytes: 0,
+            object_count: 0,
+            occupied_lines: HashSet::new(),
+        });
+        let region_index = regions.len() - 1;
+        Self::make_placement_for_config(config, region_index, 0, bytes)
+    }
+
+    fn make_placement_for_config(
+        config: &OldGenConfig,
+        region_index: usize,
+        offset_bytes: usize,
+        bytes: usize,
+    ) -> OldRegionPlacement {
+        let line_bytes = config.line_bytes.max(1);
+        let line_start = offset_bytes / line_bytes;
+        let line_count = bytes.div_ceil(line_bytes).max(1);
+        OldRegionPlacement {
+            region_index,
+            offset_bytes,
+            line_start,
+            line_count,
+        }
     }
 }
 
@@ -1750,7 +2007,8 @@ impl Heap {
             let space = object.space();
             let total_size = object.total_size();
             if space == SpaceKind::Old {
-                self.rebuild_post_sweep_old_region(
+                OldGenState::rebuild_post_sweep_object(
+                    &self.config.old,
                     &mut object,
                     total_size,
                     old_region_rebuild.as_mut(),
@@ -1792,27 +2050,13 @@ impl Heap {
         }
         self.objects = rebuilt_objects;
         let (rebuilt_old_regions, old_region_stats) =
-            Self::finish_old_region_rebuild(old_region_rebuild, &mut self.objects);
+            OldGenState::finish_rebuild(old_region_rebuild, &mut self.objects);
         if let Some(rebuilt_old_regions) = rebuilt_old_regions {
             self.old_gen.regions = rebuilt_old_regions;
         }
         self.stats.old.reserved_bytes = self.old_gen.reserved_bytes();
-        let object_index = &self.indexes.object_index;
-        let objects = &self.objects;
-        self.indexes.remembered_edges.retain(|edge| {
-            let owner = edge.owner.erase().object_key();
-            let target = edge.target.erase().object_key();
-            let owner_space = object_index
-                .get(&owner)
-                .map(|&index| objects[index].space());
-            let target_space = object_index
-                .get(&target)
-                .map(|&index| objects[index].space());
-            owner_space
-                .is_some_and(|space| space != SpaceKind::Nursery && space != SpaceKind::Immortal)
-                && target_space == Some(SpaceKind::Nursery)
-        });
-        self.indexes.rebuild_remembered_owners();
+        self.indexes
+            .retain_remembered_edges_for_post_sweep_objects(&self.objects);
         (queued_finalizers, old_region_stats)
     }
 
@@ -2163,7 +2407,7 @@ impl Heap {
                         .old_region_placement()
                         .expect("live old object should retain old-region placement");
                     if rebuild.selected_regions.contains(&placement.region_index) {
-                        let compacted = reserve_old_region_placement_in(
+                        let compacted = OldGenState::reserve_rebuild_placement(
                             &mut rebuild.compacted_regions,
                             &self.config.old,
                             total_size,
@@ -2224,48 +2468,14 @@ impl Heap {
         }
 
         let (rebuilt_old_regions, old_region_stats) =
-            Self::finish_prepared_old_region_rebuild(rebuild, &mut survivors);
+            OldGenState::finish_prepared_rebuild(rebuild, &mut survivors);
         let old_reserved_bytes = rebuilt_old_regions
             .iter()
             .map(|region| region.capacity_bytes)
             .sum();
-        let remembered_edges: Vec<RememberedEdge> = self
+        let (remembered_edges, remembered_owners) = self
             .indexes
-            .remembered_edges
-            .iter()
-            .copied()
-            .filter(|edge| {
-                let Some(&owner_index) = self
-                    .indexes
-                    .object_index
-                    .get(&edge.owner.erase().object_key())
-                else {
-                    return false;
-                };
-                let Some(&target_index) = self
-                    .indexes
-                    .object_index
-                    .get(&edge.target.erase().object_key())
-                else {
-                    return false;
-                };
-                let owner = &self.objects[owner_index];
-                let target = &self.objects[target_index];
-                Self::keep_object_for_collection(kind, owner)
-                    && owner.space() != SpaceKind::Nursery
-                    && owner.space() != SpaceKind::Immortal
-                    && Self::keep_object_for_collection(kind, target)
-                    && target.space() == SpaceKind::Nursery
-            })
-            .collect();
-        let mut remembered_owners = Vec::new();
-        let mut remembered_owner_set = HashSet::new();
-        for edge in &remembered_edges {
-            let owner = edge.owner.erase().object_key();
-            if remembered_owner_set.insert(owner) {
-                remembered_owners.push(owner);
-            }
-        }
+            .remembered_edges_for_collection(&self.objects, kind);
         PreparedReclaim {
             promoted_bytes: 0,
             rebuilt_old_regions,
@@ -2386,165 +2596,6 @@ impl Heap {
         );
         Ok(prepared)
     }
-
-    fn rebuild_post_sweep_old_region(
-        &self,
-        object: &mut ObjectRecord,
-        total_size: usize,
-        rebuild: Option<&mut OldRegionRebuildState>,
-    ) {
-        let Some(rebuild) = rebuild else {
-            return;
-        };
-        let Some(mut placement) = object.old_region_placement() else {
-            return;
-        };
-        if rebuild.selected_regions.contains(&placement.region_index) {
-            let compacted = reserve_old_region_placement_in(
-                &mut rebuild.compacted_regions,
-                &self.config.old,
-                total_size,
-            );
-            placement.region_index = rebuild.compacted_base_index + compacted.region_index;
-            placement.offset_bytes = compacted.offset_bytes;
-            placement.line_start = compacted.line_start;
-            placement.line_count = compacted.line_count;
-            object.set_old_region_placement(placement);
-            let region = &mut rebuild.compacted_regions[compacted.region_index];
-            region.live_bytes = region.live_bytes.saturating_add(total_size);
-            region.object_count = region.object_count.saturating_add(1);
-            for line in placement.line_start..placement.line_start + placement.line_count {
-                region.occupied_lines.insert(line);
-            }
-            return;
-        }
-
-        let Some(&new_index) = rebuild.preserved_index_map.get(&placement.region_index) else {
-            return;
-        };
-        if placement.region_index != new_index {
-            placement.region_index = new_index;
-            object.set_old_region_placement(placement);
-        }
-        let region = &mut rebuild.rebuilt_regions[new_index];
-        region.live_bytes = region.live_bytes.saturating_add(total_size);
-        region.object_count = region.object_count.saturating_add(1);
-        for line in placement.line_start..placement.line_start + placement.line_count {
-            region.occupied_lines.insert(line);
-        }
-    }
-
-    fn finish_old_region_rebuild(
-        rebuild: Option<OldRegionRebuildState>,
-        objects: &mut [ObjectRecord],
-    ) -> (Option<Vec<OldRegion>>, OldRegionCollectionStats) {
-        let Some(rebuild) = rebuild else {
-            return (None, OldRegionCollectionStats::default());
-        };
-        let provisional_compacted_base = rebuild.compacted_base_index;
-        let mut preserved_index_remap = vec![None; provisional_compacted_base];
-        let mut compacted_regions = Vec::with_capacity(
-            rebuild
-                .rebuilt_regions
-                .len()
-                .saturating_add(rebuild.compacted_regions.len()),
-        );
-        for (old_index, region) in rebuild.rebuilt_regions.into_iter().enumerate() {
-            if region.object_count == 0 {
-                continue;
-            }
-            preserved_index_remap[old_index] = Some(compacted_regions.len());
-            compacted_regions.push(region);
-        }
-        let new_compacted_base = compacted_regions.len();
-        compacted_regions.extend(rebuild.compacted_regions);
-        for object in objects.iter_mut() {
-            if object.space() != SpaceKind::Old {
-                continue;
-            }
-            let Some(mut placement) = object.old_region_placement() else {
-                continue;
-            };
-            if placement.region_index < provisional_compacted_base {
-                let Some(new_index) = preserved_index_remap[placement.region_index] else {
-                    continue;
-                };
-                if placement.region_index != new_index {
-                    placement.region_index = new_index;
-                    object.set_old_region_placement(placement);
-                }
-                continue;
-            }
-
-            let compacted_offset = placement
-                .region_index
-                .saturating_sub(provisional_compacted_base);
-            let new_index = new_compacted_base.saturating_add(compacted_offset);
-            if placement.region_index != new_index {
-                placement.region_index = new_index;
-                object.set_old_region_placement(placement);
-            }
-        }
-        let reclaimed_regions = rebuild
-            .previous_region_count
-            .saturating_sub(compacted_regions.len()) as u64;
-        (
-            Some(compacted_regions),
-            OldRegionCollectionStats {
-                compacted_regions: rebuild.compacted_regions_count,
-                reclaimed_regions,
-            },
-        )
-    }
-
-    fn finish_prepared_old_region_rebuild(
-        rebuild: OldRegionRebuildState,
-        survivors: &mut [PreparedReclaimSurvivor],
-    ) -> (Vec<OldRegion>, OldRegionCollectionStats) {
-        let provisional_compacted_base = rebuild.compacted_base_index;
-        let mut preserved_index_remap = vec![None; provisional_compacted_base];
-        let mut compacted_regions = Vec::with_capacity(
-            rebuild
-                .rebuilt_regions
-                .len()
-                .saturating_add(rebuild.compacted_regions.len()),
-        );
-        for (old_index, region) in rebuild.rebuilt_regions.into_iter().enumerate() {
-            if region.object_count == 0 {
-                continue;
-            }
-            preserved_index_remap[old_index] = Some(compacted_regions.len());
-            compacted_regions.push(region);
-        }
-        let new_compacted_base = compacted_regions.len();
-        compacted_regions.extend(rebuild.compacted_regions);
-        for survivor in survivors.iter_mut() {
-            let Some(placement) = survivor.old_region_placement.as_mut() else {
-                continue;
-            };
-            if placement.region_index < provisional_compacted_base {
-                let Some(new_index) = preserved_index_remap[placement.region_index] else {
-                    continue;
-                };
-                placement.region_index = new_index;
-            } else {
-                placement.region_index = placement
-                    .region_index
-                    .saturating_sub(provisional_compacted_base)
-                    .saturating_add(new_compacted_base);
-            }
-        }
-        let reclaimed_regions = rebuild
-            .previous_region_count
-            .saturating_sub(compacted_regions.len()) as u64;
-        (
-            compacted_regions,
-            OldRegionCollectionStats {
-                compacted_regions: rebuild.compacted_regions_count,
-                reclaimed_regions,
-            },
-        )
-    }
 }
 
 fn compare_compaction_candidate_priority(
@@ -2575,50 +2626,6 @@ fn align_up(value: usize, align: usize) -> usize {
         } else {
             value + (align - rem)
         }
-    }
-}
-
-fn reserve_old_region_placement_in(
-    regions: &mut Vec<OldRegion>,
-    config: &OldGenConfig,
-    bytes: usize,
-) -> OldRegionPlacement {
-    let align = config.line_bytes.max(8);
-
-    for (region_index, region) in regions.iter_mut().enumerate() {
-        let offset = align_up(region.used_bytes, align);
-        if offset.saturating_add(bytes) <= region.capacity_bytes {
-            region.used_bytes = offset.saturating_add(bytes);
-            return make_old_region_placement(config, region_index, offset, bytes);
-        }
-    }
-
-    let capacity_bytes = config.region_bytes.max(bytes);
-    regions.push(OldRegion {
-        capacity_bytes,
-        used_bytes: bytes,
-        live_bytes: 0,
-        object_count: 0,
-        occupied_lines: HashSet::new(),
-    });
-    let region_index = regions.len() - 1;
-    make_old_region_placement(config, region_index, 0, bytes)
-}
-
-fn make_old_region_placement(
-    config: &OldGenConfig,
-    region_index: usize,
-    offset_bytes: usize,
-    bytes: usize,
-) -> OldRegionPlacement {
-    let line_bytes = config.line_bytes.max(1);
-    let line_start = offset_bytes / line_bytes;
-    let line_count = bytes.div_ceil(line_bytes).max(1);
-    OldRegionPlacement {
-        region_index,
-        offset_bytes,
-        line_start,
-        line_count,
     }
 }
 
