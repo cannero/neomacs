@@ -76,6 +76,37 @@ The major collection model is:
 - selective evacuation / compaction
 - concurrent or parallel reclamation where profitable
 
+## Implementation Status
+
+This document describes the target architecture first. The current crate is
+already a real implementation, but some parts are still staging compromises.
+
+Implemented today:
+
+- standalone workspace crate with `Heap`, `Mutator`, `Root`, `HandleScope`,
+  `Gc`, weak refs, ephemerons, and background-collection surfaces
+- moving/copying nursery with promotion into old and pinned spaces
+- pinned, large, and immortal spaces
+- descriptor-driven tracing and relocation
+- parallel marking/weak/ephemeron work
+- persistent `Major` and `Full` collection sessions with prepared reclaim
+- aggressive finish-path narrowing: major/full finish is now mostly prepared
+  reclaim commit, not broad recomputation
+- extensive unit and public integration coverage
+
+Still staging compromises:
+
+- shared/background execution still relies on split locking around
+  `RwLock<Heap>` plus `Mutex<CollectorState>` rather than the final data-plane
+  split
+- nursery allocation is not yet per-mutator TLAB/lock-free fast path
+- old-generation "compaction" is still logical region relayout/packing metadata,
+  not true moving old-gen compaction
+- remembered tracking is still coarser than the final region/card-table model
+- finalization currently runs during GC commit; the queued runtime-boundary model
+  described below is still the design target
+- telemetry is useful but not yet the full observability surface described below
+
 ## Core Principles
 
 ### 1. Rooting is explicit
@@ -279,8 +310,14 @@ The collector should decide space placement from policy plus allocation size.
 Implementation:
 
 - semispace
-- thread-local allocation buffers
+- target: thread-local allocation buffers
 - copied into survivor space or promoted into old generation
+
+Current implementation note:
+
+- nursery movement/copying is real
+- allocation is still heap-owned mutator allocation, not final TLAB-style
+  fast-path allocation yet
 
 Metadata:
 
@@ -320,6 +357,12 @@ Major GC should be able to:
 - evacuate profitable regions
 - leave dense or pinned-heavy regions alone
 
+Current implementation note:
+
+- region metadata, region ranking, and selective relayout planning are real
+- current "compaction" is logical old-region relayout, not physical movement of
+  old objects
+
 ### Pinned space
 
 Used for:
@@ -350,8 +393,8 @@ LOS objects should typically:
 Fast path allocation must be:
 
 - bump-pointer in the nursery
-- thread-local
-- lock-free for the common case
+- target: thread-local
+- target: lock-free for the common case
 
 Slow path allocation decides:
 
@@ -452,6 +495,12 @@ Finalization should be explicit and isolated:
 The crate should expose a queue of finalized handles rather than language-level
 behavior.
 
+Current implementation note:
+
+- finalizable objects are indexed and prepared during reclaim planning
+- finalizers currently run during reclaim commit, not through a deferred runtime
+  queue yet
+
 ## Safepoints
 
 The crate must define a clear safepoint protocol:
@@ -505,11 +554,16 @@ neovm-gc/
   Cargo.toml
   src/
     lib.rs
-    api.rs
+    background.rs
     barrier.rs
+    collector_state.rs
     descriptor.rs
+    edge.rs
     heap.rs
+    mark.rs
     mutator.rs
+    object.rs
+    runtime.rs
     root.rs
     spaces/
       mod.rs
@@ -520,16 +574,25 @@ neovm-gc/
     plan.rs
     stats.rs
     weak.rs
+    *_test.rs
+  tests/
+    public_api.rs
 ```
 
 Suggested ownership:
 
-- `api.rs`: public entry points
+- `lib.rs`: public entry points and reexports
+- `background.rs`: shared/background worker and service surfaces
+- `collector_state.rs`: active collection session state and prepared reclaim
 - `root.rs`: `Root`, `HandleScope`, root stack
 - `descriptor.rs`: `Trace`, `Tracer`, `TypeDesc`
+- `edge.rs`: strong managed edge helpers
+- `object.rs`: object headers and relocation/move bookkeeping
+- `mark.rs`: mark worklists and worker-side mark helpers
 - `spaces/*`: space-specific allocation/reclamation
 - `barrier.rs`: write barriers and remembered-set plumbing
 - `plan.rs`: collection cycle state machine
+- `runtime.rs`: collector runtime view
 - `stats.rs`: metrics and telemetry
 - `weak.rs`: weak refs, weak maps, ephemerons
 
