@@ -677,6 +677,11 @@ impl Heap {
         self.remembered_edges.len()
     }
 
+    #[cfg(test)]
+    pub(crate) fn remembered_owner_count(&self) -> usize {
+        self.remembered_owners.len()
+    }
+
     /// Number of recent barrier events retained for diagnostics.
     pub fn barrier_event_count(&self) -> usize {
         self.recent_barrier_events.len()

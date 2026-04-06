@@ -152,6 +152,25 @@ unsafe impl Trace for ImmortalHolder {
 }
 
 #[derive(Debug)]
+struct PairHolder {
+    _pad: [u8; 32],
+    first: EdgeCell<Leaf>,
+    second: EdgeCell<Leaf>,
+}
+
+unsafe impl Trace for PairHolder {
+    fn trace(&self, tracer: &mut dyn Tracer) {
+        self.first.trace(tracer);
+        self.second.trace(tracer);
+    }
+
+    fn relocate(&self, relocator: &mut dyn Relocator) {
+        self.first.relocate(relocator);
+        self.second.relocate(relocator);
+    }
+}
+
+#[derive(Debug)]
 struct LargeLeaf([u8; 80]);
 
 unsafe impl Trace for LargeLeaf {
@@ -408,6 +427,46 @@ fn alloc_small_object_into_nursery() {
     assert_eq!(mutator.heap().stats().pinned.live_bytes, 0);
     assert_eq!(mutator.heap().stats().large.live_bytes, 0);
     assert_eq!(unsafe { root.as_gc().as_non_null().as_ref() }.0, 7);
+}
+
+#[test]
+fn remembered_owner_cache_deduplicates_multiple_edges_from_one_owner() {
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 8,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut keep_scope = mutator.handle_scope();
+
+    let holder = mutator
+        .alloc(
+            &mut keep_scope,
+            PairHolder {
+                _pad: [0; 32],
+                first: EdgeCell::default(),
+                second: EdgeCell::default(),
+            },
+        )
+        .expect("alloc old pair holder");
+    let first = mutator
+        .alloc(&mut keep_scope, Leaf(1))
+        .expect("alloc first child");
+    let second = mutator
+        .alloc(&mut keep_scope, Leaf(2))
+        .expect("alloc second child");
+
+    mutator.store_edge(&holder, 0, |holder| &holder.first, Some(first.as_gc()));
+    mutator.store_edge(&holder, 1, |holder| &holder.second, Some(second.as_gc()));
+
+    assert_eq!(mutator.heap().remembered_edge_count(), 2);
+    assert_eq!(mutator.heap().remembered_owner_count(), 1);
 }
 
 #[test]
