@@ -1283,7 +1283,7 @@ pub struct SharedBackgroundService {
 pub struct BackgroundWorker {
     stop: Arc<AtomicBool>,
     stats: Arc<BackgroundWorkerCounters>,
-    shared: SharedHeap,
+    runtime: SharedCollectorRuntime,
     handle: Option<JoinHandle<Result<(), BackgroundWorkerError>>>,
 }
 
@@ -2005,13 +2005,14 @@ impl BackgroundWorker {
         let stats = Arc::new(BackgroundWorkerCounters::default());
         let worker_stop = Arc::clone(&stop);
         let worker_stats = Arc::clone(&stats);
-        let worker_shared = shared.clone();
+        let runtime = shared.collector_runtime();
+        let worker_runtime = runtime.clone();
         let handle =
-            thread::spawn(move || worker_loop(worker_shared, config, worker_stop, worker_stats));
+            thread::spawn(move || worker_loop(worker_runtime, config, worker_stop, worker_stats));
         Self {
             stop,
             stats,
-            shared,
+            runtime,
             handle: Some(handle),
         }
     }
@@ -2019,8 +2020,8 @@ impl BackgroundWorker {
     /// Request that the worker stop after its current loop iteration.
     pub fn request_stop(&self) {
         self.stop.store(true, Ordering::Release);
-        self.shared.notify_waiters();
-        self.shared.notify_background_waiters();
+        self.runtime.notify_waiters();
+        self.runtime.notify_background_waiters();
     }
 
     /// Return whether the worker thread has already finished.
@@ -2040,7 +2041,7 @@ impl BackgroundWorker {
         Ok(BackgroundWorkerStatus {
             worker: self.stats()?,
             heap: self
-                .shared
+                .runtime
                 .status()
                 .map_err(|_| BackgroundWorkerError::LockPoisoned)?,
         })
@@ -2074,13 +2075,12 @@ fn background_wait_duration(
 }
 
 fn worker_loop(
-    shared: SharedHeap,
+    runtime: SharedCollectorRuntime,
     config: BackgroundWorkerConfig,
     stop: Arc<AtomicBool>,
     stats: Arc<BackgroundWorkerCounters>,
 ) -> Result<(), BackgroundWorkerError> {
     let mut collector = BackgroundCollector::new(config.collector);
-    let runtime = shared.collector_runtime();
 
     let wait_for_signal = |stats: &Arc<BackgroundWorkerCounters>,
                            runtime: &SharedCollectorRuntime,
@@ -2117,9 +2117,8 @@ fn worker_loop(
     };
 
     while !stop.load(Ordering::Acquire) {
-        let snapshot = shared
-            .collector
-            .snapshot()
+        let snapshot = runtime
+            .collector_snapshot()
             .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
         if let Some(status) = collector.snapshot_tick(&snapshot) {
             stats.add_loops(1);

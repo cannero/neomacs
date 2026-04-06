@@ -251,6 +251,14 @@ impl SharedCollectorRuntime {
             .map_err(Self::map_shared_heap_error)
     }
 
+    pub(crate) fn notify_waiters(&self) {
+        self.runtime.notify_heap();
+    }
+
+    pub(crate) fn notify_background_waiters(&self) {
+        self.collector.notify();
+    }
+
     /// Return the number of queued finalizers waiting to run.
     pub fn pending_finalizer_count(&self) -> Result<usize, SharedBackgroundError> {
         self.runtime
