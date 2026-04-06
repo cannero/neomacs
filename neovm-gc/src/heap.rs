@@ -15,6 +15,7 @@ use crate::collector_session::{
     active_reclaim_prep_request, advance_major_mark_slice, begin_major_mark,
     build_prepared_active_reclaim, complete_active_reclaim_prep, finish_major_mark,
     poll_active_major_mark_round, prepare_active_reclaim, prepare_active_reclaim_request,
+    take_or_prepare_reclaim_for_finish,
 };
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
 use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
@@ -380,29 +381,14 @@ impl Heap {
             },
         );
 
-        let mut reclaim_prepare_nanos = state.reclaim_prepare_nanos;
-        let prepared_reclaim = if state.reclaim_prepared {
-            state.prepared_reclaim.take()
-        } else {
-            let request = crate::collector_session::ActiveReclaimPrepRequest {
-                plan: state.plan.clone(),
-                ephemerons_processed: state.ephemerons_processed,
-            };
-            let prepared = build_prepared_active_reclaim(&request, 0, 0, |plan| match plan.kind {
+        let (prepared_reclaim, reclaim_prepare_nanos) =
+            take_or_prepare_reclaim_for_finish(&mut state, |plan| match plan.kind {
                 CollectionKind::Major => Ok(self.prepare_major_reclaim(plan)),
                 CollectionKind::Full => self.prepare_full_reclaim(plan),
                 CollectionKind::Minor => Err(AllocError::UnsupportedCollectionKind {
                     kind: CollectionKind::Minor,
                 }),
             })?;
-            if reclaim_prepare_nanos == 0 {
-                reclaim_prepare_nanos =
-                    Self::saturating_duration_nanos(prepared.reclaim_prepare_time);
-            }
-            Some(prepared.prepared_reclaim)
-        };
-        let prepared_reclaim =
-            prepared_reclaim.expect("major/full finish should always have prepared reclaim");
         self.record_phase(CollectionPhase::Reclaim);
         let runtime_state = self.runtime_state_handle();
         let mut cycle = finish_prepared_reclaim_cycle(

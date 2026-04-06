@@ -173,6 +173,29 @@ pub(crate) fn complete_active_reclaim_prep(
     completed
 }
 
+pub(crate) fn take_or_prepare_reclaim_for_finish(
+    state: &mut MajorMarkState,
+    prepare_reclaim: impl FnOnce(&CollectionPlan) -> Result<PreparedReclaim, AllocError>,
+) -> Result<(PreparedReclaim, u64), AllocError> {
+    let mut reclaim_prepare_nanos = state.reclaim_prepare_nanos;
+    let prepared_reclaim = if state.reclaim_prepared {
+        state.prepared_reclaim.take()
+    } else {
+        let request = ActiveReclaimPrepRequest {
+            plan: state.plan.clone(),
+            ephemerons_processed: state.ephemerons_processed,
+        };
+        let prepared = build_prepared_active_reclaim(&request, 0, 0, prepare_reclaim)?;
+        if reclaim_prepare_nanos == 0 {
+            reclaim_prepare_nanos = saturating_duration_nanos(prepared.reclaim_prepare_time);
+        }
+        Some(prepared.prepared_reclaim)
+    };
+    let prepared_reclaim =
+        prepared_reclaim.expect("major/full finish should always have prepared reclaim");
+    Ok((prepared_reclaim, reclaim_prepare_nanos))
+}
+
 pub(crate) fn finish_major_mark(
     state: &mut MajorMarkState,
     objects: &[ObjectRecord],

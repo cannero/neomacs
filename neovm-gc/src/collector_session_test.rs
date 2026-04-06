@@ -175,6 +175,49 @@ fn prepare_active_reclaim_plan_skips_ephemeron_trace_after_remark() {
 }
 
 #[test]
+fn take_or_prepare_reclaim_for_finish_returns_existing_prepared_reclaim() {
+    let mut state = CollectorState::default();
+    let plan = major_plan();
+    state.begin_major_mark(plan, MarkWorklist::default());
+    assert!(state.complete_active_major_reclaim_prep(
+        2,
+        3,
+        Duration::from_nanos(11),
+        prepared_reclaim()
+    ));
+
+    let mut state = state
+        .take_major_mark_state()
+        .expect("active major mark state should exist");
+    let (prepared, reclaim_prepare_nanos) =
+        take_or_prepare_reclaim_for_finish(&mut state, |_plan| {
+            panic!("existing prepared reclaim should be reused")
+        })
+        .expect("take prepared reclaim");
+
+    assert_eq!(reclaim_prepare_nanos, 11);
+    assert_eq!(prepared.survivors.len(), 1);
+}
+
+#[test]
+fn take_or_prepare_reclaim_for_finish_builds_missing_reclaim() {
+    let mut state = CollectorState::default();
+    let plan = full_plan();
+    state.begin_major_mark(plan, MarkWorklist::default());
+    assert!(state.complete_active_major_remark(5, 7));
+
+    let mut state = state
+        .take_major_mark_state()
+        .expect("active major mark state should exist");
+    let (prepared, reclaim_prepare_nanos) =
+        take_or_prepare_reclaim_for_finish(&mut state, |_plan| Ok(prepared_reclaim()))
+            .expect("build missing prepared reclaim");
+
+    assert_eq!(prepared.survivors.len(), 1);
+    assert!(reclaim_prepare_nanos > 0);
+}
+
+#[test]
 fn finish_major_mark_updates_state_and_marks_ephemerons_processed() {
     let mut state = CollectorState::default();
     let plan = major_plan();
