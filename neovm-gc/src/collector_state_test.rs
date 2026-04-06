@@ -87,7 +87,7 @@ fn update_active_major_mark_switches_phase_to_remark_when_drained() {
 }
 
 #[test]
-fn major_ready_requires_weak_processing_after_worklist_drains() {
+fn major_ready_requires_reclaim_prep_after_worklist_drains() {
     let mut state = CollectorState::default();
     let mut worklist = MarkWorklist::default();
     worklist.push(5usize);
@@ -104,7 +104,7 @@ fn major_ready_requires_weak_processing_after_worklist_drains() {
 
     assert!(progress.completed);
     assert!(!state.active_major_mark_is_ready());
-    assert!(!state.active_major_mark_weak_processed());
+    assert!(!state.active_major_mark_reclaim_prepared());
     assert_eq!(
         state
             .active_major_mark_plan()
@@ -113,9 +113,9 @@ fn major_ready_requires_weak_processing_after_worklist_drains() {
         CollectionPhase::Remark
     );
 
-    assert!(state.mark_active_major_weak_processed());
+    assert!(state.complete_active_major_reclaim_prep(2, 3));
     assert!(state.active_major_mark_is_ready());
-    assert!(state.active_major_mark_weak_processed());
+    assert!(state.active_major_mark_reclaim_prepared());
     assert_eq!(
         state
             .active_major_mark_plan()
@@ -123,10 +123,15 @@ fn major_ready_requires_weak_processing_after_worklist_drains() {
             .phase,
         CollectionPhase::Reclaim
     );
+    let progress = state
+        .major_mark_progress()
+        .expect("active major-mark progress");
+    assert_eq!(progress.mark_steps, 3);
+    assert_eq!(progress.mark_rounds, 4);
 
     assert!(state.enqueue_active_major_mark_index(9));
     assert!(!state.active_major_mark_is_ready());
-    assert!(!state.active_major_mark_weak_processed());
+    assert!(!state.active_major_mark_reclaim_prepared());
     assert_eq!(
         state
             .active_major_mark_plan()

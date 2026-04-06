@@ -394,21 +394,24 @@ impl Heap {
 
         let before_bytes = self.total_tracked_bytes();
         self.record_phase(CollectionPhase::Remark);
-        let mut tracer =
-            MarkTracer::with_worklist(&self.objects, &self.object_index, state.worklist);
-        let (mark_steps, mark_rounds) = tracer.drain_parallel_until_empty(
-            state.plan.worker_count.max(1),
-            state.plan.mark_slice_budget,
-        );
-        state.mark_steps = state.mark_steps.saturating_add(mark_steps);
-        state.mark_rounds = state.mark_rounds.saturating_add(mark_rounds);
-        let (ephemeron_steps, ephemeron_rounds) = self.trace_major_ephemerons(
-            &mut tracer,
-            state.plan.worker_count.max(1),
-            state.plan.mark_slice_budget,
-        );
-        state.mark_steps = state.mark_steps.saturating_add(ephemeron_steps);
-        state.mark_rounds = state.mark_rounds.saturating_add(ephemeron_rounds);
+        if !state.reclaim_prepared {
+            let mut tracer =
+                MarkTracer::with_worklist(&self.objects, &self.object_index, state.worklist);
+            let (mark_steps, mark_rounds) = tracer.drain_parallel_until_empty(
+                state.plan.worker_count.max(1),
+                state.plan.mark_slice_budget,
+            );
+            state.mark_steps = state.mark_steps.saturating_add(mark_steps);
+            state.mark_rounds = state.mark_rounds.saturating_add(mark_rounds);
+            let (ephemeron_steps, ephemeron_rounds) = self.trace_major_ephemerons(
+                &mut tracer,
+                state.plan.worker_count.max(1),
+                state.plan.mark_slice_budget,
+            );
+            state.mark_steps = state.mark_steps.saturating_add(ephemeron_steps);
+            state.mark_rounds = state.mark_rounds.saturating_add(ephemeron_rounds);
+            state.worklist = tracer.into_worklist();
+        }
 
         let (forwarding, promoted_bytes) = match state.plan.kind {
             CollectionKind::Major => (HashMap::new(), 0usize),
@@ -424,7 +427,7 @@ impl Heap {
                 });
             }
         };
-        if !state.weak_processed {
+        if !state.reclaim_prepared {
             self.process_weak_references(
                 state.plan.kind,
                 state.plan.worker_count.max(1),
@@ -517,10 +520,16 @@ impl Heap {
             }
         })?;
         if progress.completed
-            && !collector.active_major_mark_weak_processed()
+            && !collector.active_major_mark_reclaim_prepared()
             && let Some(active_plan) = collector.active_major_mark_plan()
             && active_plan.kind == CollectionKind::Major
         {
+            let mut tracer = MarkTracer::with_worklist(objects, index, MarkWorklist::default());
+            let (ephemeron_steps, ephemeron_rounds) = self.trace_major_ephemerons(
+                &mut tracer,
+                active_plan.worker_count.max(1),
+                active_plan.mark_slice_budget,
+            );
             let empty_forwarding: ForwardingMap = HashMap::new();
             self.process_weak_references(
                 CollectionKind::Major,
@@ -528,7 +537,7 @@ impl Heap {
                 &empty_forwarding,
                 &self.object_index,
             );
-            collector.mark_active_major_weak_processed();
+            collector.complete_active_major_reclaim_prep(ephemeron_steps, ephemeron_rounds);
         }
         let recommended_plan = self.compute_recommended_plan_from_collector(&collector);
         let recommended_background_plan =

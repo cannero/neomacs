@@ -26,7 +26,7 @@ pub(crate) struct MajorMarkState {
     pub(crate) worklist: MarkWorklist<usize>,
     pub(crate) mark_steps: u64,
     pub(crate) mark_rounds: u64,
-    pub(crate) weak_processed: bool,
+    pub(crate) reclaim_prepared: bool,
 }
 
 pub(crate) struct MajorMarkUpdate {
@@ -60,7 +60,7 @@ impl CollectorState {
     pub(crate) fn active_major_mark_plan(&self) -> Option<CollectionPlan> {
         self.major_mark_state.as_ref().map(|state| CollectionPlan {
             phase: if state.worklist.is_empty() {
-                if state.weak_processed {
+                if state.reclaim_prepared {
                     CollectionPhase::Reclaim
                 } else {
                     CollectionPhase::Remark
@@ -94,7 +94,7 @@ impl CollectorState {
             worklist,
             mark_steps: 0,
             mark_rounds: 0,
-            weak_processed: false,
+            reclaim_prepared: false,
         });
     }
 
@@ -103,7 +103,7 @@ impl CollectorState {
             return false;
         };
         state.worklist.push(index);
-        state.weak_processed = false;
+        state.reclaim_prepared = false;
         true
     }
 
@@ -114,24 +114,30 @@ impl CollectorState {
     pub(crate) fn active_major_mark_is_ready(&self) -> bool {
         self.major_mark_state.as_ref().is_some_and(|state| {
             state.worklist.is_empty()
-                && (state.plan.kind != crate::plan::CollectionKind::Major || state.weak_processed)
+                && (state.plan.kind != crate::plan::CollectionKind::Major || state.reclaim_prepared)
         })
     }
 
-    pub(crate) fn active_major_mark_weak_processed(&self) -> bool {
+    pub(crate) fn active_major_mark_reclaim_prepared(&self) -> bool {
         self.major_mark_state
             .as_ref()
-            .is_some_and(|state| state.weak_processed)
+            .is_some_and(|state| state.reclaim_prepared)
     }
 
-    pub(crate) fn mark_active_major_weak_processed(&mut self) -> bool {
+    pub(crate) fn complete_active_major_reclaim_prep(
+        &mut self,
+        mark_steps_delta: u64,
+        mark_rounds_delta: u64,
+    ) -> bool {
         let Some(state) = self.major_mark_state.as_mut() else {
             return false;
         };
         if !state.worklist.is_empty() {
             return false;
         }
-        state.weak_processed = true;
+        state.mark_steps = state.mark_steps.saturating_add(mark_steps_delta);
+        state.mark_rounds = state.mark_rounds.saturating_add(mark_rounds_delta);
+        state.reclaim_prepared = true;
         true
     }
 
@@ -148,7 +154,7 @@ impl CollectorState {
         state.mark_steps = state.mark_steps.saturating_add(update.mark_steps_delta);
         state.mark_rounds = state.mark_rounds.saturating_add(update.mark_rounds_delta);
         if !state.worklist.is_empty() {
-            state.weak_processed = false;
+            state.reclaim_prepared = false;
         }
 
         let progress = MajorMarkProgress {
