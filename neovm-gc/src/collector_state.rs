@@ -26,6 +26,7 @@ pub(crate) struct MajorMarkState {
     pub(crate) worklist: MarkWorklist<usize>,
     pub(crate) mark_steps: u64,
     pub(crate) mark_rounds: u64,
+    pub(crate) ephemerons_processed: bool,
     pub(crate) reclaim_prepared: bool,
 }
 
@@ -94,6 +95,7 @@ impl CollectorState {
             worklist,
             mark_steps: 0,
             mark_rounds: 0,
+            ephemerons_processed: false,
             reclaim_prepared: false,
         });
     }
@@ -103,6 +105,7 @@ impl CollectorState {
             return false;
         };
         state.worklist.push(index);
+        state.ephemerons_processed = false;
         state.reclaim_prepared = false;
         true
     }
@@ -118,10 +121,34 @@ impl CollectorState {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn active_major_mark_reclaim_prepared(&self) -> bool {
         self.major_mark_state
             .as_ref()
             .is_some_and(|state| state.reclaim_prepared)
+    }
+
+    pub(crate) fn active_major_mark_ephemerons_processed(&self) -> bool {
+        self.major_mark_state
+            .as_ref()
+            .is_some_and(|state| state.ephemerons_processed)
+    }
+
+    pub(crate) fn complete_active_major_remark(
+        &mut self,
+        mark_steps_delta: u64,
+        mark_rounds_delta: u64,
+    ) -> bool {
+        let Some(state) = self.major_mark_state.as_mut() else {
+            return false;
+        };
+        if !state.worklist.is_empty() {
+            return false;
+        }
+        state.mark_steps = state.mark_steps.saturating_add(mark_steps_delta);
+        state.mark_rounds = state.mark_rounds.saturating_add(mark_rounds_delta);
+        state.ephemerons_processed = true;
+        true
     }
 
     pub(crate) fn complete_active_major_reclaim_prep(
@@ -137,6 +164,7 @@ impl CollectorState {
         }
         state.mark_steps = state.mark_steps.saturating_add(mark_steps_delta);
         state.mark_rounds = state.mark_rounds.saturating_add(mark_rounds_delta);
+        state.ephemerons_processed = true;
         state.reclaim_prepared = true;
         true
     }
@@ -154,6 +182,7 @@ impl CollectorState {
         state.mark_steps = state.mark_steps.saturating_add(update.mark_steps_delta);
         state.mark_rounds = state.mark_rounds.saturating_add(update.mark_rounds_delta);
         if !state.worklist.is_empty() {
+            state.ephemerons_processed = false;
             state.reclaim_prepared = false;
         }
 

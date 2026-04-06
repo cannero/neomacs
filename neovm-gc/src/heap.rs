@@ -394,7 +394,7 @@ impl Heap {
 
         let before_bytes = self.total_tracked_bytes();
         self.record_phase(CollectionPhase::Remark);
-        if !state.reclaim_prepared {
+        if !state.ephemerons_processed {
             let mut tracer =
                 MarkTracer::with_worklist(&self.objects, &self.object_index, state.worklist);
             let (mark_steps, mark_rounds) = tracer.drain_parallel_until_empty(
@@ -520,9 +520,12 @@ impl Heap {
             }
         })?;
         if progress.completed
-            && !collector.active_major_mark_reclaim_prepared()
+            && !collector.active_major_mark_ephemerons_processed()
             && let Some(active_plan) = collector.active_major_mark_plan()
-            && active_plan.kind == CollectionKind::Major
+            && matches!(
+                active_plan.kind,
+                CollectionKind::Major | CollectionKind::Full
+            )
         {
             let mut tracer = MarkTracer::with_worklist(objects, index, MarkWorklist::default());
             let (ephemeron_steps, ephemeron_rounds) = self.trace_major_ephemerons(
@@ -530,14 +533,18 @@ impl Heap {
                 active_plan.worker_count.max(1),
                 active_plan.mark_slice_budget,
             );
-            let empty_forwarding: ForwardingMap = HashMap::new();
-            self.process_weak_references(
-                CollectionKind::Major,
-                active_plan.worker_count.max(1),
-                &empty_forwarding,
-                &self.object_index,
-            );
-            collector.complete_active_major_reclaim_prep(ephemeron_steps, ephemeron_rounds);
+            if active_plan.kind == CollectionKind::Major {
+                let empty_forwarding: ForwardingMap = HashMap::new();
+                self.process_weak_references(
+                    CollectionKind::Major,
+                    active_plan.worker_count.max(1),
+                    &empty_forwarding,
+                    &self.object_index,
+                );
+                collector.complete_active_major_reclaim_prep(ephemeron_steps, ephemeron_rounds);
+            } else {
+                collector.complete_active_major_remark(ephemeron_steps, ephemeron_rounds);
+            }
         }
         let recommended_plan = self.compute_recommended_plan_from_collector(&collector);
         let recommended_background_plan =

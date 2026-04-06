@@ -17,6 +17,13 @@ fn major_plan() -> CollectionPlan {
     }
 }
 
+fn full_plan() -> CollectionPlan {
+    CollectionPlan {
+        kind: CollectionKind::Full,
+        ..major_plan()
+    }
+}
+
 #[test]
 fn enqueue_active_major_mark_index_requires_active_session() {
     let mut state = CollectorState::default();
@@ -139,4 +146,43 @@ fn major_ready_requires_reclaim_prep_after_worklist_drains() {
             .phase,
         CollectionPhase::ConcurrentMark
     );
+}
+
+#[test]
+fn full_ready_can_record_remark_prep_without_reclaim_prep() {
+    let mut state = CollectorState::default();
+    let mut worklist = MarkWorklist::default();
+    worklist.push(7usize);
+    state.begin_major_mark(full_plan(), worklist);
+
+    let progress = state
+        .update_active_major_mark(|_plan, mut worklist| MajorMarkUpdate {
+            drained_objects: usize::from(worklist.pop().is_some()),
+            worklist,
+            mark_steps_delta: 1,
+            mark_rounds_delta: 1,
+        })
+        .expect("mark update should succeed");
+
+    assert!(progress.completed);
+    assert!(state.active_major_mark_is_ready());
+    assert!(!state.active_major_mark_ephemerons_processed());
+    assert!(!state.active_major_mark_reclaim_prepared());
+
+    assert!(state.complete_active_major_remark(2, 3));
+    assert!(state.active_major_mark_is_ready());
+    assert!(state.active_major_mark_ephemerons_processed());
+    assert!(!state.active_major_mark_reclaim_prepared());
+    assert_eq!(
+        state
+            .active_major_mark_plan()
+            .expect("active major-mark plan")
+            .phase,
+        CollectionPhase::Remark
+    );
+    let progress = state
+        .major_mark_progress()
+        .expect("active major-mark progress");
+    assert_eq!(progress.mark_steps, 3);
+    assert_eq!(progress.mark_rounds, 4);
 }
