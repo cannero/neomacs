@@ -1331,8 +1331,7 @@ impl Heap {
         self.stats.immortal.reserved_bytes = 0;
 
         let old_objects = core::mem::take(&mut self.objects);
-        let mut old_region_rebuild =
-            self.prepare_old_region_rebuild(completed_plan.as_ref(), &old_objects, kind);
+        let mut old_region_rebuild = self.prepare_old_region_rebuild(completed_plan.as_ref());
         self.object_index.clear();
         self.object_index.reserve(old_objects.len());
         self.weak_candidates.clear();
@@ -1397,7 +1396,11 @@ impl Heap {
             }
         }
         self.objects = rebuilt_objects;
-        let old_region_stats = self.finish_old_region_rebuild(old_region_rebuild);
+        let (rebuilt_old_regions, old_region_stats) =
+            Self::finish_old_region_rebuild(old_region_rebuild, &mut self.objects);
+        if let Some(rebuilt_old_regions) = rebuilt_old_regions {
+            self.old_regions = rebuilt_old_regions;
+        }
         self.stats.old.reserved_bytes = self
             .old_regions
             .iter()
@@ -1665,31 +1668,16 @@ impl Heap {
     fn prepare_old_region_rebuild(
         &mut self,
         completed_plan: Option<&CollectionPlan>,
-        objects: &[ObjectRecord],
-        kind: CollectionKind,
     ) -> Option<OldRegionRebuildState> {
         let plan = completed_plan
             .filter(|plan| matches!(plan.kind, CollectionKind::Major | CollectionKind::Full))?;
         let previous_regions = core::mem::take(&mut self.old_regions);
         let previous_region_count = previous_regions.len();
         let selected_regions: HashSet<_> = plan.selected_old_regions.iter().copied().collect();
-        let mut live_region_flags = vec![false; previous_region_count];
-        for object in objects {
-            if object.space() != SpaceKind::Old || !Self::keep_object_for_collection(kind, object) {
-                continue;
-            }
-            let Some(placement) = object.old_region_placement() else {
-                continue;
-            };
-            if let Some(flag) = live_region_flags.get_mut(placement.region_index) {
-                *flag = true;
-            }
-        }
-
         let mut rebuilt_regions = Vec::new();
         let mut preserved_index_map = HashMap::new();
         for (old_index, region) in previous_regions.iter().enumerate() {
-            if !live_region_flags[old_index] || selected_regions.contains(&old_index) {
+            if selected_regions.contains(&old_index) {
                 continue;
             }
             preserved_index_map.insert(old_index, rebuilt_regions.len());
@@ -1761,21 +1749,66 @@ impl Heap {
     }
 
     fn finish_old_region_rebuild(
-        &mut self,
         rebuild: Option<OldRegionRebuildState>,
-    ) -> OldRegionCollectionStats {
-        let Some(mut rebuild) = rebuild else {
-            return OldRegionCollectionStats::default();
+        objects: &mut [ObjectRecord],
+    ) -> (Option<Vec<OldRegion>>, OldRegionCollectionStats) {
+        let Some(rebuild) = rebuild else {
+            return (None, OldRegionCollectionStats::default());
         };
-        rebuild.rebuilt_regions.extend(rebuild.compacted_regions);
+        let provisional_compacted_base = rebuild.compacted_base_index;
+        let mut preserved_index_remap = vec![None; provisional_compacted_base];
+        let mut compacted_regions = Vec::with_capacity(
+            rebuild
+                .rebuilt_regions
+                .len()
+                .saturating_add(rebuild.compacted_regions.len()),
+        );
+        for (old_index, region) in rebuild.rebuilt_regions.into_iter().enumerate() {
+            if region.object_count == 0 {
+                continue;
+            }
+            preserved_index_remap[old_index] = Some(compacted_regions.len());
+            compacted_regions.push(region);
+        }
+        let new_compacted_base = compacted_regions.len();
+        compacted_regions.extend(rebuild.compacted_regions);
+        for object in objects.iter_mut() {
+            if object.space() != SpaceKind::Old {
+                continue;
+            }
+            let Some(mut placement) = object.old_region_placement() else {
+                continue;
+            };
+            if placement.region_index < provisional_compacted_base {
+                let Some(new_index) = preserved_index_remap[placement.region_index] else {
+                    continue;
+                };
+                if placement.region_index != new_index {
+                    placement.region_index = new_index;
+                    object.set_old_region_placement(placement);
+                }
+                continue;
+            }
+
+            let compacted_offset = placement
+                .region_index
+                .saturating_sub(provisional_compacted_base);
+            let new_index = new_compacted_base.saturating_add(compacted_offset);
+            if placement.region_index != new_index {
+                placement.region_index = new_index;
+                object.set_old_region_placement(placement);
+            }
+        }
         let reclaimed_regions = rebuild
             .previous_region_count
-            .saturating_sub(rebuild.rebuilt_regions.len()) as u64;
-        self.old_regions = rebuild.rebuilt_regions;
-        OldRegionCollectionStats {
-            compacted_regions: rebuild.compacted_regions_count,
-            reclaimed_regions,
-        }
+            .saturating_sub(compacted_regions.len()) as u64;
+        (
+            Some(compacted_regions),
+            OldRegionCollectionStats {
+                compacted_regions: rebuild.compacted_regions_count,
+                reclaimed_regions,
+            },
+        )
     }
 }
 
