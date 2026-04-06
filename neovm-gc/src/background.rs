@@ -194,14 +194,14 @@ struct SharedRuntimeSnapshot {
 }
 
 #[derive(Clone, Debug)]
-struct SharedCollectorHandle {
+pub(crate) struct SharedCollectorHandle {
     state: Arc<Mutex<CollectorState>>,
     snapshot: Arc<RwLock<CollectorSharedSnapshot>>,
     signal: Arc<SharedHeapSignal>,
 }
 
 #[derive(Clone, Debug)]
-struct SharedRuntimeHandle {
+pub(crate) struct SharedRuntimeHandle {
     state: Arc<Mutex<RuntimeState>>,
     snapshot: Arc<RwLock<SharedRuntimeSnapshot>>,
     heap_snapshot: Arc<RwLock<SharedHeapSnapshot>>,
@@ -285,7 +285,7 @@ impl SharedCollectorHandle {
         }
     }
 
-    fn with_state<R>(
+    pub(crate) fn with_state<R>(
         &self,
         f: impl FnOnce(&mut CollectorState) -> R,
     ) -> Result<R, SharedHeapError> {
@@ -296,7 +296,7 @@ impl SharedCollectorHandle {
         Ok(f(&mut state))
     }
 
-    fn try_with_state<R>(
+    pub(crate) fn try_with_state<R>(
         &self,
         f: impl FnOnce(&mut CollectorState) -> R,
     ) -> Result<R, SharedHeapError> {
@@ -307,7 +307,7 @@ impl SharedCollectorHandle {
         Ok(f(&mut state))
     }
 
-    fn read_snapshot<R>(
+    pub(crate) fn read_snapshot<R>(
         &self,
         f: impl FnOnce(&CollectorSharedSnapshot) -> R,
     ) -> Result<R, SharedHeapError> {
@@ -318,7 +318,7 @@ impl SharedCollectorHandle {
         Ok(f(&snapshot))
     }
 
-    fn snapshot(&self) -> Result<CollectorSharedSnapshot, SharedHeapError> {
+    pub(crate) fn snapshot(&self) -> Result<CollectorSharedSnapshot, SharedHeapError> {
         self.read_snapshot(Clone::clone)
     }
 
@@ -363,11 +363,11 @@ impl SharedCollectorHandle {
         Ok(())
     }
 
-    fn epoch(&self) -> Result<u64, SharedHeapError> {
+    pub(crate) fn epoch(&self) -> Result<u64, SharedHeapError> {
         self.signal.current_epoch()
     }
 
-    fn wait_for_change(
+    pub(crate) fn wait_for_change(
         &self,
         observed_epoch: u64,
         timeout: Duration,
@@ -375,7 +375,7 @@ impl SharedCollectorHandle {
         self.signal.wait_for_change(observed_epoch, timeout)
     }
 
-    fn notify(&self) {
+    pub(crate) fn notify(&self) {
         self.signal.notify();
     }
 }
@@ -495,11 +495,11 @@ impl SharedRuntimeHandle {
         Ok(())
     }
 
-    fn heap_epoch(&self) -> Result<u64, SharedHeapError> {
+    pub(crate) fn heap_epoch(&self) -> Result<u64, SharedHeapError> {
         self.heap_signal.current_epoch()
     }
 
-    fn wait_for_heap_change(
+    pub(crate) fn wait_for_heap_change(
         &self,
         observed_epoch: u64,
         timeout: Duration,
@@ -507,21 +507,21 @@ impl SharedRuntimeHandle {
         self.heap_signal.wait_for_change(observed_epoch, timeout)
     }
 
-    fn notify_heap(&self) {
+    pub(crate) fn notify_heap(&self) {
         self.heap_signal.notify();
     }
 
-    fn pending_finalizer_count(&self) -> Result<usize, SharedHeapError> {
+    pub(crate) fn pending_finalizer_count(&self) -> Result<usize, SharedHeapError> {
         self.read_snapshot(|snapshot| snapshot.pending_finalizers)
     }
 
-    fn runtime_work_status(&self) -> Result<RuntimeWorkStatus, SharedHeapError> {
+    pub(crate) fn runtime_work_status(&self) -> Result<RuntimeWorkStatus, SharedHeapError> {
         self.read_snapshot(|snapshot| {
             RuntimeWorkStatus::from_pending_finalizers(snapshot.pending_finalizers)
         })
     }
 
-    fn observe_heap_status(&self) -> Result<SharedHeapStatus, SharedHeapError> {
+    pub(crate) fn observe_heap_status(&self) -> Result<SharedHeapStatus, SharedHeapError> {
         loop {
             let before_epoch = self.heap_epoch()?;
             let heap_snapshot = self.read_heap_snapshot(Clone::clone)?;
@@ -538,12 +538,14 @@ impl SharedRuntimeHandle {
         }
     }
 
-    fn observe_background_status(&self) -> Result<SharedBackgroundStatus, SharedHeapError> {
+    pub(crate) fn observe_background_status(
+        &self,
+    ) -> Result<SharedBackgroundStatus, SharedHeapError> {
         self.observe_background_status_with_epoch()
             .map(|(_, status)| status)
     }
 
-    fn observe_background_status_with_epoch(
+    pub(crate) fn observe_background_status_with_epoch(
         &self,
     ) -> Result<(u64, SharedBackgroundStatus), SharedHeapError> {
         loop {
@@ -563,7 +565,7 @@ impl SharedRuntimeHandle {
         }
     }
 
-    fn wait_for_background_change(
+    pub(crate) fn wait_for_background_change(
         &self,
         observed_epoch: &mut u64,
         observed_status: &mut SharedBackgroundStatus,
@@ -621,7 +623,7 @@ impl SharedRuntimeHandle {
         }
     }
 
-    fn drain_pending_finalizers(&self) -> Result<u64, SharedHeapError> {
+    pub(crate) fn drain_pending_finalizers(&self) -> Result<u64, SharedHeapError> {
         let (ran, next_runtime_snapshot) = self.with_state(|runtime_state| {
             let ran = runtime_state.drain_pending_finalizers();
             let (finalizers_run, pending_finalizers) = runtime_state.snapshot();
@@ -637,7 +639,7 @@ impl SharedRuntimeHandle {
         Ok(ran)
     }
 
-    fn try_drain_pending_finalizers(&self) -> Result<u64, SharedHeapError> {
+    pub(crate) fn try_drain_pending_finalizers(&self) -> Result<u64, SharedHeapError> {
         let (ran, next_runtime_snapshot) = self.try_with_state(|runtime_state| {
             let ran = runtime_state.drain_pending_finalizers();
             let (finalizers_run, pending_finalizers) = runtime_state.snapshot();
@@ -1007,8 +1009,12 @@ impl SharedHeap {
         }
     }
 
-    pub(crate) fn collector_snapshot(&self) -> Result<CollectorSharedSnapshot, SharedHeapError> {
-        self.collector.snapshot()
+    pub(crate) fn collector_handle(&self) -> SharedCollectorHandle {
+        self.collector.clone()
+    }
+
+    pub(crate) fn runtime_handle(&self) -> SharedRuntimeHandle {
+        self.runtime.clone()
     }
 
     pub(crate) fn publish_collector_snapshot(

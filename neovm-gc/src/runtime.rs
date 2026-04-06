@@ -1,6 +1,7 @@
 use crate::background::{
     BackgroundCollectionRuntime, SharedBackgroundError, SharedBackgroundObservation,
-    SharedBackgroundStatus, SharedBackgroundWaitResult, SharedHeap, SharedHeapError,
+    SharedBackgroundStatus, SharedBackgroundWaitResult, SharedCollectorHandle, SharedHeap,
+    SharedHeapError, SharedRuntimeHandle,
 };
 use crate::collector_state::CollectorSharedSnapshot;
 use crate::heap::{AllocError, Heap};
@@ -20,6 +21,8 @@ pub struct CollectorRuntime<'heap> {
 #[derive(Clone, Debug)]
 pub struct SharedCollectorRuntime {
     heap: SharedHeap,
+    runtime: SharedRuntimeHandle,
+    collector: SharedCollectorHandle,
 }
 
 impl<'heap> CollectorRuntime<'heap> {
@@ -121,7 +124,13 @@ impl<'heap> CollectorRuntime<'heap> {
 
 impl SharedCollectorRuntime {
     pub(crate) fn new(heap: SharedHeap) -> Self {
-        Self { heap }
+        let runtime = heap.runtime_handle();
+        let collector = heap.collector_handle();
+        Self {
+            heap,
+            runtime,
+            collector,
+        }
     }
 
     /// Return the shared heap backing this runtime.
@@ -138,33 +147,36 @@ impl SharedCollectorRuntime {
 
     /// Return current heap statistics.
     pub fn stats(&self) -> Result<HeapStats, SharedBackgroundError> {
-        self.heap.stats().map_err(Self::map_shared_heap_error)
+        self.runtime
+            .observe_heap_status()
+            .map(|status| status.stats)
+            .map_err(Self::map_shared_heap_error)
     }
 
     /// Return the number of queued finalizers waiting to run.
     pub fn pending_finalizer_count(&self) -> Result<usize, SharedBackgroundError> {
-        self.heap
+        self.runtime
             .pending_finalizer_count()
             .map_err(Self::map_shared_heap_error)
     }
 
     /// Return runtime-side follow-up work that remains outside GC commit.
     pub fn runtime_work_status(&self) -> Result<RuntimeWorkStatus, SharedBackgroundError> {
-        self.heap
+        self.runtime
             .runtime_work_status()
             .map_err(Self::map_shared_heap_error)
     }
 
     /// Run and drain queued finalizers.
     pub fn drain_pending_finalizers(&self) -> Result<u64, SharedBackgroundError> {
-        self.heap
+        self.runtime
             .drain_pending_finalizers()
             .map_err(Self::map_shared_heap_error)
     }
 
     /// Run and drain queued finalizers without blocking on heap contention.
     pub fn try_drain_pending_finalizers(&self) -> Result<u64, SharedBackgroundError> {
-        self.heap
+        self.runtime
             .try_drain_pending_finalizers()
             .map_err(Self::map_shared_heap_error)
     }
@@ -173,22 +185,22 @@ impl SharedCollectorRuntime {
     pub fn recommended_background_plan(
         &self,
     ) -> Result<Option<CollectionPlan>, SharedBackgroundError> {
-        self.heap
-            .recommended_background_plan()
+        self.collector
+            .read_snapshot(|snapshot| snapshot.recommended_background_plan.clone())
             .map_err(Self::map_shared_heap_error)
     }
 
     /// Return the active major-mark plan, if one is in progress.
     pub fn active_major_mark_plan(&self) -> Result<Option<CollectionPlan>, SharedBackgroundError> {
-        self.heap
-            .active_major_mark_plan()
+        self.collector
+            .read_snapshot(|snapshot| snapshot.active_major_mark_plan.clone())
             .map_err(Self::map_shared_heap_error)
     }
 
     /// Return progress for the active major-mark session, if any.
     pub fn major_mark_progress(&self) -> Result<Option<MajorMarkProgress>, SharedBackgroundError> {
-        self.heap
-            .major_mark_progress()
+        self.collector
+            .read_snapshot(|snapshot| snapshot.major_mark_progress)
             .map_err(Self::map_shared_heap_error)
     }
 
@@ -196,22 +208,20 @@ impl SharedCollectorRuntime {
     pub(crate) fn collector_snapshot(
         &self,
     ) -> Result<CollectorSharedSnapshot, SharedBackgroundError> {
-        self.heap
-            .collector_snapshot()
+        self.collector
+            .snapshot()
             .map_err(Self::map_shared_heap_error)
     }
 
     /// Return the current background-state change epoch for this runtime.
     pub fn background_epoch(&self) -> Result<u64, SharedBackgroundError> {
-        self.heap
-            .background_epoch()
-            .map_err(Self::map_shared_heap_error)
+        self.collector.epoch().map_err(Self::map_shared_heap_error)
     }
 
     /// Return background-collector-visible shared heap state for this runtime.
     pub fn background_status(&self) -> Result<SharedBackgroundStatus, SharedBackgroundError> {
-        self.heap
-            .background_status()
+        self.runtime
+            .observe_background_status()
             .map_err(Self::map_shared_heap_error)
     }
 
@@ -220,8 +230,9 @@ impl SharedCollectorRuntime {
     pub fn background_observation(
         &self,
     ) -> Result<SharedBackgroundObservation, SharedBackgroundError> {
-        self.heap
-            .background_observation()
+        self.runtime
+            .observe_background_status_with_epoch()
+            .map(|(epoch, status)| SharedBackgroundObservation { epoch, status })
             .map_err(Self::map_shared_heap_error)
     }
 
@@ -232,8 +243,10 @@ impl SharedCollectorRuntime {
         observed_status: &SharedBackgroundStatus,
         timeout: std::time::Duration,
     ) -> Result<SharedBackgroundWaitResult, SharedBackgroundError> {
-        self.heap
-            .wait_for_background_change(observed_epoch, observed_status, timeout)
+        let mut observed_epoch = observed_epoch;
+        let mut observed_status = observed_status.clone();
+        self.runtime
+            .wait_for_background_change(&mut observed_epoch, &mut observed_status, timeout, None)
             .map_err(Self::map_shared_heap_error)
     }
 
