@@ -174,23 +174,19 @@ struct SharedBackgroundSnapshot {
 
 #[derive(Debug, Default)]
 struct SharedHeapSignal {
-    epoch: Mutex<u64>,
+    epoch: AtomicU64,
+    wait_lock: Mutex<()>,
     cv: Condvar,
 }
 
 impl SharedHeapSignal {
     fn current_epoch(&self) -> Result<u64, SharedHeapError> {
-        self.epoch
-            .lock()
-            .map(|epoch| *epoch)
-            .map_err(|_| SharedHeapError::LockPoisoned)
+        Ok(self.epoch.load(Ordering::Acquire))
     }
 
     fn notify(&self) {
-        if let Ok(mut epoch) = self.epoch.lock() {
-            *epoch = epoch.saturating_add(1);
-            self.cv.notify_all();
-        }
+        self.epoch.fetch_add(1, Ordering::AcqRel);
+        self.cv.notify_all();
     }
 
     fn wait_for_change(
@@ -202,15 +198,21 @@ impl SharedHeapSignal {
             return Ok((observed_epoch, false));
         }
 
-        let epoch = self
-            .epoch
+        let wait_guard = self
+            .wait_lock
             .lock()
             .map_err(|_| SharedHeapError::LockPoisoned)?;
-        let (epoch, _) = self
+        if self.epoch.load(Ordering::Acquire) != observed_epoch {
+            let next_epoch = self.epoch.load(Ordering::Acquire);
+            return Ok((next_epoch, true));
+        }
+        let (_wait_guard, _) = self
             .cv
-            .wait_timeout_while(epoch, timeout, |epoch| *epoch == observed_epoch)
+            .wait_timeout_while(wait_guard, timeout, |_| {
+                self.epoch.load(Ordering::Acquire) == observed_epoch
+            })
             .map_err(|_| SharedHeapError::LockPoisoned)?;
-        let next_epoch = *epoch;
+        let next_epoch = self.epoch.load(Ordering::Acquire);
         Ok((next_epoch, next_epoch != observed_epoch))
     }
 }
