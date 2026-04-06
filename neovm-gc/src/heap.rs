@@ -301,35 +301,12 @@ impl Heap {
 
     /// Begin a persistent major-mark session for `plan`.
     pub fn begin_major_mark(&mut self, plan: CollectionPlan) -> Result<(), AllocError> {
-        self.begin_major_mark_in_place(plan)
-    }
-
-    pub(crate) fn begin_major_mark_in_place(&self, plan: CollectionPlan) -> Result<(), AllocError> {
-        self.collector.begin_major_mark_and_refresh(
-            &self.objects,
-            &self.indexes.object_index,
-            plan,
-            collect_global_sources(&self.roots, &self.objects),
-            &self.storage_stats(),
-            &self.old_gen,
-            &self.config.old,
-            |kind| self.plan_for(kind),
-        )
+        CollectorRuntime::new(self).begin_major_mark(plan)
     }
 
     /// Advance one slice of the current persistent major-mark session.
-    pub fn advance_major_mark(&self) -> Result<MajorMarkProgress, AllocError> {
-        let progress = self.collector.assist_active_major_mark_slices_and_refresh(
-            &self.objects,
-            &self.indexes.object_index,
-            1,
-            &self.storage_stats(),
-            &self.old_gen,
-            &self.config.old,
-            |kind| self.plan_for(kind),
-        )?;
-        let progress = progress.expect("single-slice assist should require an active session");
-        Ok(progress)
+    pub fn advance_major_mark(&mut self) -> Result<MajorMarkProgress, AllocError> {
+        CollectorRuntime::new(self).advance_major_mark()
     }
 
     /// Finish the current persistent major-mark session and reclaim.
@@ -339,56 +316,15 @@ impl Heap {
 
     /// Advance up to `max_slices` of the active major-mark session.
     pub fn assist_major_mark(
-        &self,
+        &mut self,
         max_slices: usize,
     ) -> Result<Option<MajorMarkProgress>, AllocError> {
-        if !self.collector.has_active_major_mark() {
-            return Ok(None);
-        }
-        if max_slices == 0 {
-            return Ok(self.major_mark_progress());
-        }
-        self.collector.assist_active_major_mark_slices_and_refresh(
-            &self.objects,
-            &self.indexes.object_index,
-            max_slices,
-            &self.storage_stats(),
-            &self.old_gen,
-            &self.config.old,
-            |kind| self.plan_for(kind),
-        )
+        CollectorRuntime::new(self).assist_major_mark(max_slices)
     }
 
     /// Advance one scheduler-style concurrent major-mark round using the plan worker count.
-    pub fn poll_active_major_mark(&self) -> Result<Option<MajorMarkProgress>, AllocError> {
-        self.collector
-            .poll_active_major_mark_with_completion_and_refresh(
-                &self.objects,
-                &self.indexes.object_index,
-                |tracer, plan| {
-                    trace_major_ephemerons_for_candidates(
-                        &self.objects,
-                        &self.indexes.object_index,
-                        &self.indexes.ephemeron_candidates,
-                        tracer,
-                        plan.worker_count.max(1),
-                        plan.mark_slice_budget,
-                    )
-                },
-                |plan| {
-                    prepare_major_reclaim_for_plan(
-                        plan,
-                        &self.objects,
-                        &self.indexes,
-                        &self.old_gen,
-                        &self.config.old,
-                    )
-                },
-                &self.storage_stats(),
-                &self.old_gen,
-                &self.config.old,
-                |kind| self.plan_for(kind),
-            )
+    pub fn poll_active_major_mark(&mut self) -> Result<Option<MajorMarkProgress>, AllocError> {
+        CollectorRuntime::new(self).poll_active_major_mark()
     }
 
     /// Finish the active major collection if its mark work is fully drained.

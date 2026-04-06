@@ -1780,6 +1780,34 @@ fn collector_runtime_advance_major_mark_reports_progress() {
 }
 
 #[test]
+fn heap_advance_major_mark_reports_progress_directly() {
+    let mut heap = Heap::new(HeapConfig::default());
+    let plan = {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        for byte in 0..8u64 {
+            mutator
+                .alloc(&mut scope, ImmortalLeaf(byte))
+                .expect("alloc immortal leaf");
+        }
+        CollectionPlan {
+            mark_slice_budget: 1,
+            ..mutator.plan_for(CollectionKind::Major)
+        }
+    };
+
+    heap.begin_major_mark(plan)
+        .expect("begin persistent major mark through heap");
+
+    let progress = heap
+        .advance_major_mark()
+        .expect("advance persistent major mark through heap");
+    assert!(progress.mark_steps > 0);
+    assert!(progress.mark_rounds > 0);
+    assert!(heap.active_major_mark_plan().is_some());
+}
+
+#[test]
 fn collector_runtime_commit_active_reclaim_returns_none_before_full_reclaim_is_prepared() {
     let mut heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
