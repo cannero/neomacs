@@ -7,6 +7,7 @@ use std::thread;
 
 use crate::background::{BackgroundCollectorConfig, BackgroundService, SharedHeap};
 use crate::barrier::{BarrierEvent, BarrierKind, RememberedEdge};
+use crate::collector_state::{CollectorState, MajorMarkState};
 use crate::descriptor::{
     EphemeronVisitor, GcErased, Relocator, Trace, Tracer, TypeDesc, WeakProcessor, fixed_type_desc,
 };
@@ -79,11 +80,7 @@ pub struct Heap {
     old_regions: Vec<OldRegion>,
     remembered_edges: Vec<RememberedEdge>,
     recent_barrier_events: Vec<BarrierEvent>,
-    recent_phase_trace: Vec<CollectionPhase>,
-    last_completed_plan: Option<CollectionPlan>,
-    major_mark_state: Option<MajorMarkState>,
-    cached_recommended_plan: CollectionPlan,
-    cached_recommended_background_plan: Option<CollectionPlan>,
+    collector: CollectorState,
 }
 
 // SAFETY: `Heap` owns all heap allocations and its raw pointers are internal references into that
@@ -110,14 +107,6 @@ struct EvacuationOutcome {
 struct OldRegionCollectionStats {
     compacted_regions: u64,
     reclaimed_regions: u64,
-}
-
-#[derive(Debug)]
-struct MajorMarkState {
-    plan: CollectionPlan,
-    worklist: MarkWorklist<usize>,
-    mark_steps: u64,
-    mark_rounds: u64,
 }
 
 impl Heap {
@@ -148,11 +137,7 @@ impl Heap {
             old_regions: Vec::new(),
             remembered_edges: Vec::new(),
             recent_barrier_events: Vec::new(),
-            recent_phase_trace: Vec::new(),
-            last_completed_plan: None,
-            major_mark_state: None,
-            cached_recommended_plan: CollectionPlan::default(),
-            cached_recommended_background_plan: None,
+            collector: CollectorState::default(),
         };
         heap.refresh_recommended_plans();
         heap
@@ -235,12 +220,12 @@ impl Heap {
 
     /// Recommend the next collection plan from current heap pressure.
     pub fn recommended_plan(&self) -> CollectionPlan {
-        self.cached_recommended_plan.clone()
+        self.collector.recommended_plan()
     }
 
     /// Recommend the next background concurrent collection plan, if any.
     pub fn recommended_background_plan(&self) -> Option<CollectionPlan> {
-        self.cached_recommended_background_plan.clone()
+        self.collector.recommended_background_plan()
     }
 
     fn compute_recommended_plan(&self) -> CollectionPlan {
@@ -276,55 +261,42 @@ impl Heap {
     }
 
     fn refresh_recommended_plans(&mut self) {
-        self.cached_recommended_plan = self.compute_recommended_plan();
-        self.cached_recommended_background_plan = self.compute_recommended_background_plan();
+        self.collector.set_cached_plans(
+            self.compute_recommended_plan(),
+            self.compute_recommended_background_plan(),
+        );
     }
 
     /// Return the phases traversed by the most recently executed collection.
     pub fn recent_phase_trace(&self) -> &[CollectionPhase] {
-        &self.recent_phase_trace
+        self.collector.recent_phase_trace()
     }
 
     /// Return the most recently completed collection plan, if any.
     pub fn last_completed_plan(&self) -> Option<CollectionPlan> {
-        self.last_completed_plan.clone()
+        self.collector.last_completed_plan()
     }
 
     /// Return the active major-mark plan, if one is in progress.
     pub fn active_major_mark_plan(&self) -> Option<CollectionPlan> {
-        self.major_mark_state.as_ref().map(|state| CollectionPlan {
-            phase: if state.worklist.is_empty() {
-                CollectionPhase::Remark
-            } else {
-                CollectionPhase::ConcurrentMark
-            },
-            ..state.plan.clone()
-        })
+        self.collector.active_major_mark_plan()
     }
 
     /// Return current progress for the active major-mark session, if any.
     pub fn major_mark_progress(&self) -> Option<MajorMarkProgress> {
-        self.major_mark_state
-            .as_ref()
-            .map(|state| MajorMarkProgress {
-                completed: state.worklist.is_empty(),
-                drained_objects: 0,
-                mark_steps: state.mark_steps,
-                mark_rounds: state.mark_rounds,
-                remaining_work: state.worklist.len(),
-            })
+        self.collector.major_mark_progress()
     }
 
     /// Begin a persistent major-mark session for `plan`.
     pub fn begin_major_mark(&mut self, plan: CollectionPlan) -> Result<(), AllocError> {
-        if self.major_mark_state.is_some() {
+        if self.collector.has_active_major_mark() {
             return Err(AllocError::CollectionInProgress);
         }
         if !matches!(plan.kind, CollectionKind::Major | CollectionKind::Full) {
             return Err(AllocError::UnsupportedCollectionKind { kind: plan.kind });
         }
 
-        self.recent_phase_trace.clear();
+        self.collector.clear_recent_phase_trace();
         for object in &self.objects {
             object.clear_mark();
         }
@@ -338,7 +310,7 @@ impl Heap {
         let mut tracer = MarkTracer::new(&self.objects, &index);
         self.for_each_global_source(|object| tracer.mark_erased(object));
 
-        self.major_mark_state = Some(MajorMarkState {
+        self.collector.begin_major_mark(MajorMarkState {
             plan,
             worklist: tracer.into_worklist(),
             mark_steps: 0,
@@ -350,7 +322,7 @@ impl Heap {
 
     /// Advance one slice of the current persistent major-mark session.
     pub fn advance_major_mark(&mut self) -> Result<MajorMarkProgress, AllocError> {
-        let Some(mut state) = self.major_mark_state.take() else {
+        let Some(mut state) = self.collector.take_major_mark_state() else {
             return Err(AllocError::NoCollectionInProgress);
         };
 
@@ -364,29 +336,23 @@ impl Heap {
         let remaining_work = tracer.pending_count();
         let completed = remaining_work == 0;
         state.worklist = tracer.into_worklist();
-        self.major_mark_state = Some(state);
+        let mark_steps = state.mark_steps;
+        let mark_rounds = state.mark_rounds;
+        self.collector.restore_major_mark_state(state);
         self.refresh_recommended_plans();
 
         Ok(MajorMarkProgress {
             completed,
             drained_objects,
-            mark_steps: self
-                .major_mark_state
-                .as_ref()
-                .map(|state| state.mark_steps)
-                .unwrap_or(0),
-            mark_rounds: self
-                .major_mark_state
-                .as_ref()
-                .map(|state| state.mark_rounds)
-                .unwrap_or(0),
+            mark_steps,
+            mark_rounds,
             remaining_work,
         })
     }
 
     /// Finish the current persistent major-mark session and reclaim.
     pub fn finish_major_collection(&mut self) -> Result<CollectionStats, AllocError> {
-        let Some(mut state) = self.major_mark_state.take() else {
+        let Some(mut state) = self.collector.take_major_mark_state() else {
             return Err(AllocError::NoCollectionInProgress);
         };
 
@@ -447,10 +413,10 @@ impl Heap {
             reclaimed_regions: old_region_stats.reclaimed_regions,
         };
         self.record_collection_stats(cycle);
-        self.last_completed_plan = Some(CollectionPlan {
+        self.collector.set_last_completed_plan(Some(CollectionPlan {
             phase: CollectionPhase::Reclaim,
             ..state.plan
-        });
+        }));
         self.refresh_recommended_plans();
         Ok(cycle)
     }
@@ -460,7 +426,7 @@ impl Heap {
         &mut self,
         max_slices: usize,
     ) -> Result<Option<MajorMarkProgress>, AllocError> {
-        if self.major_mark_state.is_none() {
+        if !self.collector.has_active_major_mark() {
             return Ok(None);
         }
         if max_slices == 0 {
@@ -489,7 +455,7 @@ impl Heap {
 
     /// Advance one scheduler-style concurrent major-mark round using the plan worker count.
     pub fn poll_active_major_mark(&mut self) -> Result<Option<MajorMarkProgress>, AllocError> {
-        let Some(mut state) = self.major_mark_state.take() else {
+        let Some(mut state) = self.collector.take_major_mark_state() else {
             return Ok(None);
         };
 
@@ -506,7 +472,7 @@ impl Heap {
         state.worklist = tracer.into_worklist();
         let mark_steps = state.mark_steps;
         let mark_rounds = state.mark_rounds;
-        self.major_mark_state = Some(state);
+        self.collector.restore_major_mark_state(state);
         self.refresh_recommended_plans();
 
         Ok(Some(MajorMarkProgress {
@@ -522,7 +488,7 @@ impl Heap {
     pub fn finish_active_major_collection_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, AllocError> {
-        let Some(state) = self.major_mark_state.as_ref() else {
+        let Some(state) = self.collector.active_major_mark_state() else {
             return Ok(None);
         };
         if !state.worklist.is_empty() {
@@ -535,7 +501,7 @@ impl Heap {
     pub fn service_background_collection_round(
         &mut self,
     ) -> Result<BackgroundCollectionStatus, AllocError> {
-        if self.major_mark_state.is_none() {
+        if !self.collector.has_active_major_mark() {
             return Ok(BackgroundCollectionStatus::Idle);
         }
 
@@ -640,7 +606,7 @@ impl Heap {
 
     /// Run one stop-the-world collection cycle.
     pub fn collect(&mut self, kind: CollectionKind) -> Result<CollectionStats, AllocError> {
-        if self.major_mark_state.is_some() {
+        if self.collector.has_active_major_mark() {
             return Err(AllocError::CollectionInProgress);
         }
         self.execute_plan(self.plan_for(kind))
@@ -648,10 +614,10 @@ impl Heap {
 
     /// Execute one scheduler-provided collection plan.
     pub fn execute_plan(&mut self, plan: CollectionPlan) -> Result<CollectionStats, AllocError> {
-        if self.major_mark_state.is_some() {
+        if self.collector.has_active_major_mark() {
             return Err(AllocError::CollectionInProgress);
         }
-        self.recent_phase_trace.clear();
+        self.collector.clear_recent_phase_trace();
         let before_bytes = self.total_tracked_bytes();
         for object in &self.objects {
             object.clear_mark();
@@ -757,10 +723,10 @@ impl Heap {
             }
         };
         self.record_collection_stats(cycle);
-        self.last_completed_plan = Some(CollectionPlan {
+        self.collector.set_last_completed_plan(Some(CollectionPlan {
             phase: CollectionPhase::Reclaim,
             ..plan
-        });
+        }));
         self.refresh_recommended_plans();
         Ok(cycle)
     }
@@ -783,7 +749,7 @@ impl Heap {
         let gc = unsafe { crate::root::Gc::from_erased(record.erased()) };
         self.account_allocation(space, total_size);
         self.objects.push(record);
-        if self.major_mark_state.is_some() {
+        if self.collector.has_active_major_mark() {
             self.mark_for_active_major_session(gc.erase());
             self.assist_major_mark_in_place();
         }
@@ -800,7 +766,7 @@ impl Heap {
         let payload_bytes = core::mem::size_of::<T>();
         let total_bytes = estimated_allocation_size::<T>()?;
         let space = self.select_space(desc, payload_bytes)?;
-        if self.major_mark_state.is_none()
+        if !self.collector.has_active_major_mark()
             && let Some(plan) = self.allocation_pressure_plan(space, total_bytes)
         {
             if plan.concurrent && matches!(plan.kind, CollectionKind::Major | CollectionKind::Full)
@@ -838,7 +804,7 @@ impl Heap {
 
         push_event(BarrierKind::PostWrite);
 
-        if self.major_mark_state.is_some() {
+        if self.collector.has_active_major_mark() {
             if let Some(value) = old_value {
                 push_event(BarrierKind::SatbPreWrite);
                 self.mark_for_active_major_session(value);
@@ -869,7 +835,7 @@ impl Heap {
         }
 
         self.assist_major_mark_in_place();
-        if self.major_mark_state.is_some() {
+        if self.collector.has_active_major_mark() {
             self.refresh_recommended_plans();
         }
     }
@@ -1006,7 +972,7 @@ impl Heap {
 
         let record = &self.objects[index];
         if record.mark_if_unmarked() {
-            if let Some(state) = self.major_mark_state.as_mut() {
+            if let Some(state) = self.collector.active_major_mark_state_mut() {
                 state.worklist.push(index);
             }
         }
@@ -1014,7 +980,7 @@ impl Heap {
 
     fn assist_major_mark_in_place(&mut self) {
         let assist_slices = self.config.old.mutator_assist_slices;
-        if assist_slices == 0 || self.major_mark_state.is_none() {
+        if assist_slices == 0 || !self.collector.has_active_major_mark() {
             return;
         }
         let _progress = self
@@ -1418,7 +1384,7 @@ impl Heap {
     }
 
     fn record_phase(&mut self, phase: CollectionPhase) {
-        self.recent_phase_trace.push(phase);
+        self.collector.push_phase(phase);
     }
 
     fn total_tracked_bytes(&self) -> usize {
