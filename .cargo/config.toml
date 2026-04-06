@@ -1,4 +1,5 @@
 [env]
-# 64 MB stack for test threads -- debug builds have larger frames and the
-# bootstrap evaluator recurses deeply through nested file loads.
-RUST_MIN_STACK = "67108864"
+# 128 MB stack for test threads.  Conservative GC scans the main thread
+# stack, so we avoid stacker::maybe_grow (which creates separate mmap
+# segments invisible to the scanner) and use a large stack instead.
+RUST_MIN_STACK = "134217728"

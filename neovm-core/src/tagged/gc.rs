@@ -1476,7 +1476,15 @@ impl TaggedHeap {
             (stack_top, self.stack_bottom)
         };
         let span = (hi as usize).saturating_sub(lo as usize);
-        if span == 0 || span > 64 * 1024 * 1024 {
+        if span == 0 {
+            return;
+        }
+        // With stacker::maybe_grow, the stack can span multiple mmap
+        // segments far apart in the address space.  Use the current rsp
+        // as the authoritative top and scan from there to stack_bottom,
+        // but cap at a sane limit to avoid scanning gigabytes of memory
+        // if pointers are wildly wrong.
+        if span > 512 * 1024 * 1024 {
             return;
         }
 

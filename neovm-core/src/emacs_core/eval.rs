@@ -5323,7 +5323,10 @@ impl Context {
         {
             return callback(self);
         }
-        stacker::maybe_grow(EVAL_STACK_RED_ZONE, EVAL_STACK_SEGMENT, || callback(self))
+        // Disabled: stacker::maybe_grow creates separate mmap segments
+        // that the conservative GC stack scanner cannot reach.  We rely
+        // on a large thread stack (RUST_MIN_STACK=128MB) instead.
+        callback(self)
     }
 
     /// Whether lexical-binding is currently enabled.
