@@ -1431,18 +1431,12 @@ impl SharedBackgroundService {
 
     /// Return the current background-state change epoch for this service.
     pub fn background_epoch(&self) -> Result<u64, SharedBackgroundError> {
-        self.heap.background_epoch().map_err(|error| match error {
-            SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-            SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-        })
+        self.runtime.background_epoch()
     }
 
     /// Return background-collector-visible shared heap state for this service.
     pub fn background_status(&self) -> Result<SharedBackgroundStatus, SharedBackgroundError> {
-        self.heap.background_status().map_err(|error| match error {
-            SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-            SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-        })
+        self.runtime.background_status()
     }
 
     /// Return one consistent observation of background epoch and background-visible shared heap
@@ -1450,12 +1444,7 @@ impl SharedBackgroundService {
     pub fn background_observation(
         &self,
     ) -> Result<SharedBackgroundObservation, SharedBackgroundError> {
-        self.heap
-            .background_observation()
-            .map_err(|error| match error {
-                SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-                SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-            })
+        self.runtime.background_observation()
     }
 
     /// Wait for one background-collector-visible shared heap state change for this service.
@@ -1465,12 +1454,8 @@ impl SharedBackgroundService {
         observed_status: &SharedBackgroundStatus,
         timeout: Duration,
     ) -> Result<SharedBackgroundWaitResult, SharedBackgroundError> {
-        self.heap
+        self.runtime
             .wait_for_background_change(observed_epoch, observed_status, timeout)
-            .map_err(|error| match error {
-                SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-                SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-            })
     }
 
     /// Return the active major-mark plan, if one is in progress.

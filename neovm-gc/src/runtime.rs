@@ -1,5 +1,6 @@
 use crate::background::{
-    BackgroundCollectionRuntime, SharedBackgroundError, SharedHeap, SharedHeapError,
+    BackgroundCollectionRuntime, SharedBackgroundError, SharedBackgroundObservation,
+    SharedBackgroundStatus, SharedBackgroundWaitResult, SharedHeap, SharedHeapError,
 };
 use crate::collector_state::CollectorSharedSnapshot;
 use crate::heap::{AllocError, Heap};
@@ -133,6 +134,42 @@ impl SharedCollectorRuntime {
     ) -> Result<(u64, CollectorSharedSnapshot), SharedBackgroundError> {
         self.heap
             .observe_collector_snapshot()
+            .map_err(Self::map_shared_heap_error)
+    }
+
+    /// Return the current background-state change epoch for this runtime.
+    pub fn background_epoch(&self) -> Result<u64, SharedBackgroundError> {
+        self.heap
+            .background_epoch()
+            .map_err(Self::map_shared_heap_error)
+    }
+
+    /// Return background-collector-visible shared heap state for this runtime.
+    pub fn background_status(&self) -> Result<SharedBackgroundStatus, SharedBackgroundError> {
+        self.heap
+            .background_status()
+            .map_err(Self::map_shared_heap_error)
+    }
+
+    /// Return one consistent observation of background epoch and background-visible shared heap
+    /// state for this runtime.
+    pub fn background_observation(
+        &self,
+    ) -> Result<SharedBackgroundObservation, SharedBackgroundError> {
+        self.heap
+            .background_observation()
+            .map_err(Self::map_shared_heap_error)
+    }
+
+    /// Wait for one background-collector-visible shared heap state change for this runtime.
+    pub fn wait_for_background_change(
+        &self,
+        observed_epoch: u64,
+        observed_status: &SharedBackgroundStatus,
+        timeout: std::time::Duration,
+    ) -> Result<SharedBackgroundWaitResult, SharedBackgroundError> {
+        self.heap
+            .wait_for_background_change(observed_epoch, observed_status, timeout)
             .map_err(Self::map_shared_heap_error)
     }
 
