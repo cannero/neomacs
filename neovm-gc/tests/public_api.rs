@@ -3015,6 +3015,31 @@ fn public_api_shared_try_with_mutator_reports_would_block_when_heap_is_locked() 
 }
 
 #[test]
+fn public_api_shared_try_with_heap_read_succeeds_while_heap_is_read_locked() {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let _guard = shared.read().expect("read-lock shared heap");
+
+    let nursery_live_bytes = shared
+        .try_with_heap_read(|heap| heap.stats().nursery.live_bytes)
+        .expect("read heap while another reader is active");
+
+    assert_eq!(nursery_live_bytes, 0);
+}
+
+#[test]
+fn public_api_shared_try_with_mutator_reports_would_block_when_heap_is_read_locked() {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let _guard = shared.read().expect("read-lock shared heap");
+
+    let result = shared.try_with_mutator(|mutator| {
+        let mut scope = mutator.handle_scope();
+        let _leaf = mutator.alloc(&mut scope, Leaf(9)).expect("alloc leaf");
+    });
+
+    assert_eq!(result, Err(neovm_gc::SharedHeapError::WouldBlock));
+}
+
+#[test]
 fn public_api_shared_try_with_mutator_status_returns_snapshot_when_heap_is_locked() {
     let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
     let _guard = shared.lock().expect("lock shared heap");

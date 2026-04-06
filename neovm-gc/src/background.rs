@@ -6,7 +6,10 @@ use crate::runtime::CollectorRuntime;
 use crate::stats::{CollectionStats, HeapStats};
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, LockResult, Mutex, MutexGuard, RwLock, TryLockError, TryLockResult};
+use std::sync::{
+    Arc, Condvar, LockResult, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard, TryLockError,
+    TryLockResult,
+};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -70,7 +73,7 @@ pub struct BackgroundCollectorStats {
 /// Shared synchronized heap wrapper for worker-owned collector services.
 #[derive(Clone, Debug)]
 pub struct SharedHeap {
-    inner: Arc<Mutex<Heap>>,
+    inner: Arc<RwLock<Heap>>,
     snapshot: Arc<RwLock<SharedHeapSnapshot>>,
     collector_snapshot: Arc<RwLock<CollectorSharedSnapshot>>,
     signal: Arc<SharedHeapSignal>,
@@ -236,7 +239,7 @@ impl From<&CollectorSharedSnapshot> for SharedBackgroundStatus {
 /// Guard returned by `SharedHeap::lock()` and `SharedHeap::try_lock()`.
 #[derive(Debug)]
 pub struct SharedHeapGuard<'a> {
-    guard: Option<MutexGuard<'a, Heap>>,
+    guard: Option<RwLockWriteGuard<'a, Heap>>,
     snapshot: &'a RwLock<SharedHeapSnapshot>,
     collector_snapshot: &'a RwLock<CollectorSharedSnapshot>,
     signal: &'a SharedHeapSignal,
@@ -244,9 +247,15 @@ pub struct SharedHeapGuard<'a> {
     dirty: bool,
 }
 
+/// Guard returned by `SharedHeap::read()` and `SharedHeap::try_read()`.
+#[derive(Debug)]
+pub struct SharedHeapReadGuard<'a> {
+    guard: RwLockReadGuard<'a, Heap>,
+}
+
 impl<'a> SharedHeapGuard<'a> {
     fn new(
-        guard: MutexGuard<'a, Heap>,
+        guard: RwLockWriteGuard<'a, Heap>,
         snapshot: &'a RwLock<SharedHeapSnapshot>,
         collector_snapshot: &'a RwLock<CollectorSharedSnapshot>,
         signal: &'a SharedHeapSignal,
@@ -260,6 +269,14 @@ impl<'a> SharedHeapGuard<'a> {
             background_signal,
             dirty: false,
         }
+    }
+}
+
+impl Deref for SharedHeapReadGuard<'_> {
+    type Target = Heap;
+
+    fn deref(&self) -> &Self::Target {
+        &self.guard
     }
 }
 
@@ -331,7 +348,7 @@ impl SharedHeap {
         let snapshot = SharedHeapSnapshot::capture(&heap);
         let collector_snapshot = heap.collector_shared_snapshot();
         Self {
-            inner: Arc::new(Mutex::new(heap)),
+            inner: Arc::new(RwLock::new(heap)),
             snapshot: Arc::new(RwLock::new(snapshot)),
             collector_snapshot: Arc::new(RwLock::new(collector_snapshot)),
             signal: Arc::new(SharedHeapSignal::default()),
@@ -341,7 +358,7 @@ impl SharedHeap {
 
     /// Lock the underlying heap.
     pub fn lock(&self) -> LockResult<SharedHeapGuard<'_>> {
-        match self.inner.lock() {
+        match self.inner.write() {
             Ok(guard) => Ok(SharedHeapGuard::new(
                 guard,
                 &self.snapshot,
@@ -361,7 +378,7 @@ impl SharedHeap {
 
     /// Try to lock the underlying heap without blocking.
     pub fn try_lock(&self) -> TryLockResult<SharedHeapGuard<'_>> {
-        match self.inner.try_lock() {
+        match self.inner.try_write() {
             Ok(guard) => Ok(SharedHeapGuard::new(
                 guard,
                 &self.snapshot,
@@ -382,10 +399,43 @@ impl SharedHeap {
         }
     }
 
+    /// Acquire a shared read guard for the underlying heap.
+    pub fn read(&self) -> LockResult<SharedHeapReadGuard<'_>> {
+        self.inner
+            .read()
+            .map(|guard| SharedHeapReadGuard { guard })
+            .map_err(|error| {
+                std::sync::PoisonError::new(SharedHeapReadGuard {
+                    guard: error.into_inner(),
+                })
+            })
+    }
+
+    /// Try to acquire a shared read guard for the underlying heap without blocking.
+    pub fn try_read(&self) -> TryLockResult<SharedHeapReadGuard<'_>> {
+        self.inner
+            .try_read()
+            .map(|guard| SharedHeapReadGuard { guard })
+            .map_err(|error| match error {
+                TryLockError::Poisoned(error) => {
+                    TryLockError::Poisoned(std::sync::PoisonError::new(SharedHeapReadGuard {
+                        guard: error.into_inner(),
+                    }))
+                }
+                TryLockError::WouldBlock => TryLockError::WouldBlock,
+            })
+    }
+
     /// Execute one closure with exclusive access to the underlying heap.
     pub fn with_heap<R>(&self, f: impl FnOnce(&mut Heap) -> R) -> Result<R, SharedHeapError> {
         let mut heap = self.lock().map_err(|_| SharedHeapError::LockPoisoned)?;
         Ok(f(&mut heap))
+    }
+
+    /// Execute one closure with shared read access to the underlying heap.
+    pub fn with_heap_read<R>(&self, f: impl FnOnce(&Heap) -> R) -> Result<R, SharedHeapError> {
+        let heap = self.read().map_err(|_| SharedHeapError::LockPoisoned)?;
+        Ok(f(&heap))
     }
 
     /// Execute one closure with exclusive access to the underlying heap without blocking.
@@ -395,6 +445,15 @@ impl SharedHeap {
             TryLockError::WouldBlock => SharedHeapError::WouldBlock,
         })?;
         Ok(f(&mut heap))
+    }
+
+    /// Execute one closure with shared read access to the underlying heap without blocking.
+    pub fn try_with_heap_read<R>(&self, f: impl FnOnce(&Heap) -> R) -> Result<R, SharedHeapError> {
+        let heap = self.try_read().map_err(|error| match error {
+            TryLockError::Poisoned(_) => SharedHeapError::LockPoisoned,
+            TryLockError::WouldBlock => SharedHeapError::WouldBlock,
+        })?;
+        Ok(f(&heap))
     }
 
     /// Execute one closure with exclusive access to the underlying heap without blocking.
