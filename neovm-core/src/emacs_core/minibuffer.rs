@@ -1509,7 +1509,11 @@ pub(crate) fn builtin_all_completions_with_candidates(
         return apply(collection, vec![args[0], predicate, Value::T]);
     };
 
-    let mut matches = Vec::new();
+    // Two-pass approach: first filter candidates using the predicate
+    // (which may trigger GC via apply), then create string Values.
+    // This avoids holding unrooted Value strings across GC-triggering
+    // predicate calls.
+    let mut matching_completions: Vec<String> = Vec::new();
     for candidate in &candidates {
         if !completion_matches_prefix(&string, &candidate.completion, ignore_case) {
             continue;
@@ -1518,22 +1522,14 @@ pub(crate) fn builtin_all_completions_with_candidates(
             continue;
         }
         if completion_predicate_matches_with(predicate, candidate, &mut apply)? {
-            let sv = Value::string(candidate.completion.clone());
-            // Validate the freshly created string
-            if sv.is_string() {
-                let ptr = sv.as_string_ptr().unwrap();
-                let hdr = unsafe { &(*(ptr as *const crate::tagged::header::StringObj)).header };
-                if !matches!(hdr.kind, crate::tagged::header::HeapObjectKind::String) {
-                    panic!(
-                        "ALL-COMPLETIONS BUG: freshly created string {:#x} (ptr {:?}, kind={:?}) \
-                         for completion {:?} is corrupt!",
-                        sv.0, ptr, hdr.kind, &candidate.completion,
-                    );
-                }
-            }
-            matches.push(sv);
+            matching_completions.push(candidate.completion.clone());
         }
     }
+    // Now create Values — no GC can trigger between creation and list building
+    let matches: Vec<Value> = matching_completions
+        .into_iter()
+        .map(Value::string)
+        .collect();
     Ok(Value::list(matches))
 }
 
