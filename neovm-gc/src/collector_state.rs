@@ -56,6 +56,50 @@ impl CollectorStateHandle {
     pub(crate) fn shared_snapshot(&self) -> CollectorSharedSnapshot {
         self.lock().shared_snapshot()
     }
+
+    pub(crate) fn recent_phase_trace(&self) -> Vec<CollectionPhase> {
+        self.lock().recent_phase_trace().to_vec()
+    }
+
+    pub(crate) fn clear_recent_phase_trace(&self) {
+        self.with_state(|state| state.clear_recent_phase_trace());
+    }
+
+    pub(crate) fn push_phase(&self, phase: CollectionPhase) {
+        self.with_state(|state| state.push_phase(phase));
+    }
+
+    pub(crate) fn last_completed_plan(&self) -> Option<CollectionPlan> {
+        self.lock().last_completed_plan()
+    }
+
+    pub(crate) fn set_last_completed_plan(&self, plan: Option<CollectionPlan>) {
+        self.with_state(|state| state.set_last_completed_plan(plan));
+    }
+
+    pub(crate) fn active_major_mark_plan(&self) -> Option<CollectionPlan> {
+        self.lock().active_major_mark_plan()
+    }
+
+    pub(crate) fn major_mark_progress(&self) -> Option<MajorMarkProgress> {
+        self.lock().major_mark_progress()
+    }
+
+    pub(crate) fn has_active_major_mark(&self) -> bool {
+        self.lock().has_active_major_mark()
+    }
+
+    pub(crate) fn has_prepared_full_reclaim(&self) -> bool {
+        self.lock().has_prepared_full_reclaim()
+    }
+
+    pub(crate) fn recommended_plan(&self) -> CollectionPlan {
+        self.lock().recommended_plan()
+    }
+
+    pub(crate) fn recommended_background_plan(&self) -> Option<CollectionPlan> {
+        self.lock().recommended_background_plan()
+    }
 }
 
 #[derive(Debug)]

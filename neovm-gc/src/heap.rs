@@ -264,12 +264,12 @@ impl Heap {
 
     /// Recommend the next collection plan from current heap pressure.
     pub fn recommended_plan(&self) -> CollectionPlan {
-        self.collector().recommended_plan()
+        self.collector.recommended_plan()
     }
 
     /// Recommend the next background concurrent collection plan, if any.
     pub fn recommended_background_plan(&self) -> Option<CollectionPlan> {
-        self.collector().recommended_background_plan()
+        self.collector.recommended_background_plan()
     }
 
     fn refresh_recommended_plans(&self) {
@@ -283,22 +283,22 @@ impl Heap {
 
     /// Return the phases traversed by the most recently executed collection.
     pub fn recent_phase_trace(&self) -> Vec<CollectionPhase> {
-        self.collector().recent_phase_trace().to_vec()
+        self.collector.recent_phase_trace()
     }
 
     /// Return the most recently completed collection plan, if any.
     pub fn last_completed_plan(&self) -> Option<CollectionPlan> {
-        self.collector().last_completed_plan()
+        self.collector.last_completed_plan()
     }
 
     /// Return the active major-mark plan, if one is in progress.
     pub fn active_major_mark_plan(&self) -> Option<CollectionPlan> {
-        self.collector().active_major_mark_plan()
+        self.collector.active_major_mark_plan()
     }
 
     /// Return current progress for the active major-mark session, if any.
     pub fn major_mark_progress(&self) -> Option<MajorMarkProgress> {
-        self.collector().major_mark_progress()
+        self.collector.major_mark_progress()
     }
 
     /// Begin a persistent major-mark session for `plan`.
@@ -344,7 +344,10 @@ impl Heap {
     /// Finish the current persistent major-mark session and reclaim.
     pub fn finish_major_collection(&mut self) -> Result<CollectionStats, AllocError> {
         let pause_start = Instant::now();
-        let Some(state) = self.collector().take_major_mark_state() else {
+        let Some(state) = self
+            .collector
+            .with_state(CollectorState::take_major_mark_state)
+        else {
             return Err(AllocError::NoCollectionInProgress);
         };
         let before_bytes = self.stats.total_live_bytes();
@@ -381,7 +384,7 @@ impl Heap {
         &self,
         max_slices: usize,
     ) -> Result<Option<MajorMarkProgress>, AllocError> {
-        if !self.collector().has_active_major_mark() {
+        if !self.collector.has_active_major_mark() {
             return Ok(None);
         }
         if max_slices == 0 {
@@ -603,7 +606,7 @@ impl Heap {
             return Err(AllocError::CollectionInProgress);
         }
         let pause_start = Instant::now();
-        self.collector().clear_recent_phase_trace();
+        self.collector.clear_recent_phase_trace();
         let mut phases = Vec::new();
         let mut cycle = execute_collection_plan(
             &plan,
@@ -622,11 +625,10 @@ impl Heap {
         }
         cycle.pause_nanos = Self::saturating_duration_nanos(pause_start.elapsed());
         self.record_collection_stats(cycle);
-        self.collector()
-            .set_last_completed_plan(Some(CollectionPlan {
-                phase: CollectionPhase::Reclaim,
-                ..plan
-            }));
+        self.collector.set_last_completed_plan(Some(CollectionPlan {
+            phase: CollectionPhase::Reclaim,
+            ..plan
+        }));
         self.refresh_recommended_plans();
         Ok(cycle)
     }
@@ -683,7 +685,7 @@ impl Heap {
         let payload_bytes = core::mem::size_of::<T>();
         let total_bytes = estimated_allocation_size::<T>()?;
         let space = self.select_space(desc, payload_bytes)?;
-        if !self.collector().has_active_major_mark()
+        if !self.collector.has_active_major_mark()
             && let Some(plan) = self.allocation_pressure_plan(space, total_bytes)
         {
             if plan.concurrent && matches!(plan.kind, CollectionKind::Major | CollectionKind::Full)
@@ -739,7 +741,7 @@ impl Heap {
             new_value,
         );
 
-        if old_value.is_some() && self.collector().has_active_major_mark() {
+        if old_value.is_some() && self.collector.has_active_major_mark() {
             push_barrier_event(
                 &mut self.recent_barrier_events,
                 BarrierKind::SatbPreWrite,
@@ -809,7 +811,7 @@ impl Heap {
     }
 
     pub(crate) fn prepared_full_reclaim_active(&self) -> bool {
-        self.collector().has_prepared_full_reclaim()
+        self.collector.has_prepared_full_reclaim()
     }
 
     fn descriptor_for<T: Trace + 'static>(&mut self) -> &'static TypeDesc {
@@ -911,7 +913,7 @@ impl Heap {
     }
 
     fn record_phase(&self, phase: CollectionPhase) {
-        self.collector().push_phase(phase);
+        self.collector.push_phase(phase);
     }
 
     fn saturating_duration_nanos(duration: Duration) -> u64 {
@@ -1076,7 +1078,7 @@ impl Heap {
         );
         cycle.pause_nanos = Self::saturating_duration_nanos(pause_start.elapsed());
         self.record_collection_stats(cycle);
-        self.collector()
+        self.collector
             .set_last_completed_plan(Some(finished.completed_plan));
         self.refresh_recommended_plans();
         cycle
