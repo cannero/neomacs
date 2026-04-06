@@ -8,6 +8,7 @@
 pub mod background;
 pub mod barrier;
 mod collector_exec;
+mod collector_policy;
 mod collector_session;
 mod collector_state;
 pub mod descriptor;

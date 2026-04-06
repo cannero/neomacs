@@ -10,6 +10,7 @@ use crate::collector_exec::{
     MarkTracer, process_weak_references_for_candidates, trace_major as run_major_trace,
     trace_major_ephemerons_for_candidates, trace_minor as run_minor_trace,
 };
+use crate::collector_policy::refresh_cached_plans as refresh_cached_collector_plans;
 use crate::collector_session::{
     active_reclaim_prep_request, advance_major_mark_slice, begin_major_mark,
     build_prepared_active_reclaim, complete_active_reclaim_prep, finish_major_mark,
@@ -275,54 +276,19 @@ impl Heap {
         self.collector().recommended_background_plan()
     }
 
-    fn compute_recommended_plan_from_collector(
-        &self,
-        collector: &CollectorState,
-    ) -> CollectionPlan {
-        if let Some(plan) = collector.active_major_mark_plan() {
-            return plan;
-        }
-        if self.stats.nursery.live_bytes > 0 {
-            return self.plan_for(CollectionKind::Minor);
-        }
-        if self.stats.large.live_bytes > 0 {
-            return self.plan_for(CollectionKind::Full);
-        }
-        if !self.old_gen.is_empty() || self.stats.pinned.live_bytes > 0 {
-            return self.plan_for(CollectionKind::Major);
-        }
-        self.plan_for(CollectionKind::Minor)
-    }
-
-    fn compute_recommended_background_plan_from_collector(
-        &self,
-        collector: &CollectorState,
-    ) -> Option<CollectionPlan> {
-        if let Some(plan) = collector.active_major_mark_plan() {
-            return Some(plan);
-        }
-        if self.config.old.concurrent_mark_workers <= 1 {
-            return None;
-        }
-        if self.stats.large.live_bytes > 0 {
-            return Some(self.plan_for(CollectionKind::Full));
-        }
-        if !self.old_gen.is_empty() || self.stats.pinned.live_bytes > 0 {
-            return Some(self.plan_for(CollectionKind::Major));
-        }
-        None
-    }
-
     fn refresh_recommended_plans(&self) {
         let mut collector = self.collector();
         self.refresh_collector_cached_plans(&mut collector);
     }
 
     fn refresh_collector_cached_plans(&self, collector: &mut CollectorState) {
-        let recommended_plan = self.compute_recommended_plan_from_collector(collector);
-        let recommended_background_plan =
-            self.compute_recommended_background_plan_from_collector(collector);
-        collector.set_cached_plans(recommended_plan, recommended_background_plan);
+        refresh_cached_collector_plans(
+            collector,
+            &self.stats,
+            &self.old_gen,
+            &self.config.old,
+            |kind| self.plan_for(kind),
+        );
     }
 
     fn refreshed_collector_snapshot(
