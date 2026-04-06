@@ -63,7 +63,8 @@ pub(crate) struct PreparedReclaim {
     /// `objects` vector, so ordering is part of the prepared-state contract.
     pub(crate) survivors: Vec<PreparedReclaimSurvivor>,
     /// Dead finalizable object indices in ascending original `object_index`
-    /// order.
+    /// order. `commit_prepared_reclaim` drains these into the pending-finalizer
+    /// queue in lockstep with the original `objects` vector.
     pub(crate) finalize_indices: Vec<usize>,
     pub(crate) finalizable_candidates: Vec<ObjectKey>,
     pub(crate) weak_candidates: Vec<ObjectKey>,

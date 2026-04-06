@@ -80,6 +80,7 @@ pub struct Heap {
     roots: RootStack,
     descriptors: HashMap<TypeId, &'static TypeDesc>,
     objects: Vec<ObjectRecord>,
+    pending_finalizers: Vec<ObjectRecord>,
     object_index: ObjectIndex,
     finalizable_candidates: Vec<ObjectKey>,
     weak_candidates: Vec<ObjectKey>,
@@ -186,11 +187,14 @@ impl Heap {
                 large: crate::stats::SpaceStats::default(),
                 immortal: crate::stats::SpaceStats::default(),
                 collections: crate::stats::CollectionStats::default(),
+                finalizers_run: 0,
+                pending_finalizers: 0,
             },
             config,
             roots: RootStack::default(),
             descriptors: HashMap::default(),
             objects: Vec::new(),
+            pending_finalizers: Vec::new(),
             object_index: HashMap::default(),
             finalizable_candidates: Vec::new(),
             weak_candidates: Vec::new(),
@@ -730,6 +734,24 @@ impl Heap {
         self.objects.len()
     }
 
+    /// Return the number of queued finalizers waiting to run.
+    pub fn pending_finalizer_count(&self) -> usize {
+        self.pending_finalizers.len()
+    }
+
+    /// Run and drain queued finalizers.
+    pub fn drain_pending_finalizers(&mut self) -> u64 {
+        let mut ran = 0u64;
+        for object in core::mem::take(&mut self.pending_finalizers) {
+            if object.run_finalizer() {
+                ran = ran.saturating_add(1);
+            }
+        }
+        self.stats.finalizers_run = self.stats.finalizers_run.saturating_add(ran);
+        self.stats.pending_finalizers = self.pending_finalizers.len();
+        ran
+    }
+
     /// Number of remembered old-to-young edges currently tracked.
     pub fn remembered_edge_count(&self) -> usize {
         self.remembered_edges.len()
@@ -833,7 +855,7 @@ impl Heap {
                     &self.object_index,
                 );
                 self.record_phase(CollectionPhase::Reclaim);
-                let (finalized_objects, old_region_stats) =
+                let (queued_finalizers, old_region_stats) =
                     self.sweep_minor_and_rebuild_post_collection(plan.kind, Some(plan.clone()));
                 let after_bytes = self.total_tracked_bytes();
                 CollectionStats {
@@ -844,7 +866,8 @@ impl Heap {
                     mark_steps,
                     mark_rounds,
                     reclaimed_bytes: before_bytes.saturating_sub(after_bytes) as u64,
-                    finalized_objects,
+                    finalized_objects: 0,
+                    queued_finalizers,
                     compacted_regions: old_region_stats.compacted_regions,
                     reclaimed_regions: old_region_stats.reclaimed_regions,
                 }
@@ -1440,6 +1463,12 @@ impl Heap {
         }
     }
 
+    fn enqueue_pending_finalizer(&mut self, object: ObjectRecord) -> u64 {
+        self.pending_finalizers.push(object);
+        self.stats.pending_finalizers = self.pending_finalizers.len();
+        1
+    }
+
     fn sweep_minor_and_rebuild_post_collection(
         &mut self,
         kind: CollectionKind,
@@ -1465,7 +1494,7 @@ impl Heap {
         self.ephemeron_candidates.reserve(old_objects.len());
 
         let mut rebuilt_objects = Vec::with_capacity(old_objects.len());
-        let mut finalized_objects = 0u64;
+        let mut queued_finalizers = 0u64;
         for mut object in old_objects {
             if !Self::keep_object_for_collection(kind, &object) {
                 let should_finalize = object
@@ -1474,8 +1503,10 @@ impl Heap {
                     .flags
                     .contains(TypeFlags::FINALIZABLE)
                     && !object.header().is_moved_out();
-                if should_finalize && object.run_finalizer() {
-                    finalized_objects = finalized_objects.saturating_add(1);
+                if should_finalize {
+                    queued_finalizers =
+                        queued_finalizers.saturating_add(self.enqueue_pending_finalizer(object));
+                    continue;
                 }
                 continue;
             }
@@ -1560,7 +1591,8 @@ impl Heap {
                 self.remembered_owners.push(owner);
             }
         }
-        (finalized_objects, old_region_stats)
+        self.stats.pending_finalizers = self.pending_finalizers.len();
+        (queued_finalizers, old_region_stats)
     }
 
     fn commit_prepared_reclaim(
@@ -1581,15 +1613,17 @@ impl Heap {
                 .all(|window| window[0] < window[1]),
             "prepared reclaim finalizer indices must stay sorted by original object index"
         );
-        let mut finalized_objects = 0u64;
+        let mut queued_finalizers = 0u64;
         let mut survivor_iter = prepared_reclaim.survivors.iter().peekable();
         let mut finalize_iter = prepared_reclaim.finalize_indices.iter().copied().peekable();
         let mut object_index = 0usize;
-        let mut rebuilt_objects = core::mem::take(&mut self.objects);
+        let old_objects = core::mem::take(&mut self.objects);
+        let mut rebuilt_objects = Vec::with_capacity(old_objects.len());
         // Prepared reclaim is assembled in original object order. Finish drains
         // that prepared order in lockstep with the owned `objects` vector so
-        // the commit path can stay linear and allocation-light.
-        rebuilt_objects.retain_mut(|object| {
+        // commit stays linear while dead finalizable objects are transferred to
+        // the pending-finalizer queue instead of running inline during GC.
+        for mut object in old_objects {
             let current_index = object_index;
             object_index = object_index.saturating_add(1);
             let should_finalize = finalize_iter
@@ -1597,23 +1631,23 @@ impl Heap {
                 .is_some_and(|&pending_index| pending_index == current_index);
             if should_finalize {
                 finalize_iter.next();
-                if object.run_finalizer() {
-                    finalized_objects = finalized_objects.saturating_add(1);
-                }
+                queued_finalizers =
+                    queued_finalizers.saturating_add(self.enqueue_pending_finalizer(object));
+                continue;
             }
 
             let Some(survivor) =
                 survivor_iter.next_if(|survivor| survivor.object_index == current_index)
             else {
-                return false;
+                continue;
             };
 
             object.clear_mark();
             if let Some(placement) = survivor.old_region_placement {
                 object.set_old_region_placement(placement);
             }
-            true
-        });
+            rebuilt_objects.push(object);
+        }
         debug_assert!(
             survivor_iter.next().is_none(),
             "prepared reclaim survivors should all be drained during finish"
@@ -1641,7 +1675,8 @@ impl Heap {
         self.stats.immortal.live_bytes = prepared_reclaim.immortal_live_bytes;
         self.stats.immortal.reserved_bytes = prepared_reclaim.immortal_live_bytes;
         self.stats.old.reserved_bytes = prepared_reclaim.old_reserved_bytes;
-        (finalized_objects, old_region_stats)
+        self.stats.pending_finalizers = self.pending_finalizers.len();
+        (queued_finalizers, old_region_stats)
     }
 
     fn finish_reclaim_cycle(
@@ -1653,7 +1688,7 @@ impl Heap {
     ) -> CollectionStats {
         self.record_phase(CollectionPhase::Reclaim);
         let promoted_bytes = prepared_reclaim.promoted_bytes;
-        let (finalized_objects, old_region_stats) = self.commit_prepared_reclaim(prepared_reclaim);
+        let (queued_finalizers, old_region_stats) = self.commit_prepared_reclaim(prepared_reclaim);
         let after_bytes = self.total_tracked_bytes();
         CollectionStats {
             collections: 1,
@@ -1663,7 +1698,8 @@ impl Heap {
             mark_steps,
             mark_rounds,
             reclaimed_bytes: before_bytes.saturating_sub(after_bytes) as u64,
-            finalized_objects,
+            finalized_objects: 0,
+            queued_finalizers,
             compacted_regions: old_region_stats.compacted_regions,
             reclaimed_regions: old_region_stats.reclaimed_regions,
         }
@@ -1710,6 +1746,11 @@ impl Heap {
             .collections
             .finalized_objects
             .saturating_add(cycle.finalized_objects);
+        self.stats.collections.queued_finalizers = self
+            .stats
+            .collections
+            .queued_finalizers
+            .saturating_add(cycle.queued_finalizers);
         self.stats.collections.compacted_regions = self
             .stats
             .collections

@@ -737,6 +737,21 @@ impl SharedHeap {
         self.read_snapshot(|snapshot| snapshot.stats)
     }
 
+    /// Return the number of queued finalizers waiting to run.
+    pub fn pending_finalizer_count(&self) -> Result<usize, SharedHeapError> {
+        self.read_snapshot(|snapshot| snapshot.stats.pending_finalizers)
+    }
+
+    /// Run and drain queued finalizers.
+    pub fn drain_pending_finalizers(&self) -> Result<u64, SharedHeapError> {
+        self.with_runtime(|runtime| runtime.drain_pending_finalizers())
+    }
+
+    /// Run and drain queued finalizers without blocking on heap contention.
+    pub fn try_drain_pending_finalizers(&self) -> Result<u64, SharedHeapError> {
+        self.try_with_runtime(|runtime| runtime.drain_pending_finalizers())
+    }
+
     /// Return one consistent shared snapshot of heap and background-collector state.
     pub fn status(&self) -> Result<SharedHeapStatus, SharedHeapError> {
         self.observe_status()

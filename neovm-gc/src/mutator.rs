@@ -64,6 +64,16 @@ impl<'heap> Mutator<'heap> {
         self.heap.collect(kind)
     }
 
+    /// Return the number of queued finalizers waiting to run.
+    pub fn pending_finalizer_count(&self) -> usize {
+        self.heap.pending_finalizer_count()
+    }
+
+    /// Run and drain queued finalizers.
+    pub fn drain_pending_finalizers(&mut self) -> u64 {
+        self.heap.drain_pending_finalizers()
+    }
+
     /// Build a scheduler-visible collection plan from the current heap state.
     pub fn plan_for(&self, kind: CollectionKind) -> CollectionPlan {
         self.heap.plan_for(kind)

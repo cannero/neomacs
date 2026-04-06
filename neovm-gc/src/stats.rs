@@ -15,8 +15,10 @@ pub struct CollectionStats {
     pub mark_rounds: u64,
     /// Bytes reclaimed across completed GC cycles.
     pub reclaimed_bytes: u64,
-    /// Number of finalized objects across completed GC cycles.
+    /// Number of finalizers run synchronously during completed GC cycles.
     pub finalized_objects: u64,
+    /// Number of dead finalizable objects queued for later draining across completed GC cycles.
+    pub queued_finalizers: u64,
     /// Number of old-generation regions compacted across completed GC cycles.
     pub compacted_regions: u64,
     /// Number of old-generation regions reclaimed across completed GC cycles.
@@ -70,4 +72,8 @@ pub struct HeapStats {
     pub immortal: SpaceStats,
     /// Collection counters.
     pub collections: CollectionStats,
+    /// Number of queued finalizers that have run through explicit drain calls.
+    pub finalizers_run: u64,
+    /// Number of queued finalizers that are waiting to run.
+    pub pending_finalizers: usize,
 }

@@ -34,6 +34,16 @@ impl<'heap> CollectorRuntime<'heap> {
         self.heap.stats()
     }
 
+    /// Return the number of queued finalizers waiting to run.
+    pub fn pending_finalizer_count(&self) -> usize {
+        self.heap.pending_finalizer_count()
+    }
+
+    /// Run and drain queued finalizers.
+    pub fn drain_pending_finalizers(&mut self) -> u64 {
+        self.heap.drain_pending_finalizers()
+    }
+
     /// Recommend the next background concurrent collection plan, if any.
     pub fn recommended_background_plan(&self) -> Option<CollectionPlan> {
         self.heap.recommended_background_plan()
@@ -106,6 +116,27 @@ impl SharedCollectorRuntime {
     /// Return current heap statistics.
     pub fn stats(&self) -> Result<HeapStats, SharedBackgroundError> {
         self.heap.stats().map_err(Self::map_shared_heap_error)
+    }
+
+    /// Return the number of queued finalizers waiting to run.
+    pub fn pending_finalizer_count(&self) -> Result<usize, SharedBackgroundError> {
+        self.heap
+            .pending_finalizer_count()
+            .map_err(Self::map_shared_heap_error)
+    }
+
+    /// Run and drain queued finalizers.
+    pub fn drain_pending_finalizers(&self) -> Result<u64, SharedBackgroundError> {
+        self.heap
+            .drain_pending_finalizers()
+            .map_err(Self::map_shared_heap_error)
+    }
+
+    /// Run and drain queued finalizers without blocking on heap contention.
+    pub fn try_drain_pending_finalizers(&self) -> Result<u64, SharedBackgroundError> {
+        self.heap
+            .try_drain_pending_finalizers()
+            .map_err(Self::map_shared_heap_error)
     }
 
     /// Recommend the next background concurrent collection plan, if any.

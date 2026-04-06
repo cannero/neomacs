@@ -103,8 +103,9 @@ Still staging compromises:
 - old-generation "compaction" is still logical region relayout/packing metadata,
   not true moving old-gen compaction
 - remembered tracking is still coarser than the final region/card-table model
-- finalization currently runs during GC commit; the queued runtime-boundary model
-  described below is still the design target
+- finalization is now queued and drained explicitly through runtime surfaces, but
+  it still retains whole `ObjectRecord`s rather than a lower-level VM-facing
+  finalization handoff
 - telemetry is useful but not yet the full observability surface described below
 
 ## Core Principles
@@ -498,8 +499,9 @@ behavior.
 Current implementation note:
 
 - finalizable objects are indexed and prepared during reclaim planning
-- finalizers currently run during reclaim commit, not through a deferred runtime
-  queue yet
+- reclaim commits now enqueue dead finalizable objects into a pending queue
+- `Heap`/`Mutator`/collector runtime surfaces explicitly drain that queue at a
+  controlled boundary
 
 ## Safepoints
 
