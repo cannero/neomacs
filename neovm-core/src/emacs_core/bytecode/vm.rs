@@ -206,14 +206,16 @@ impl<'a> Vm<'a> {
             ));
         }
 
-        // Root the ByteCodeObj so it (and its constants Vec) survive GC
-        // during nested function calls. Without this, the `func` reference
-        // (which points into the ByteCodeObj on the heap) can dangle if
-        // GC sweeps the ByteCodeObj during a nested call.
+        // Root the bytecode function's constants so they survive GC during
+        // nested calls.  Always push constants directly into vm_gc_roots
+        // so they remain reachable even if the ByteCodeObj tracing has a
+        // gap (e.g. cloned ByteCodeFunction whose constants diverge from
+        // the heap object, or NIL func_value from sf_byte_code_value).
         let result = self.with_dynamic_vm_roots(|vm| {
             if func_value.is_heap_object() {
                 vm.push_dynamic_vm_root(func_value);
             }
+            vm.ctx.vm_gc_roots.extend(func.constants.iter().copied());
             vm.run_frame(func, args, func_value)
         });
         self.ctx.depth -= 1;
@@ -231,6 +233,12 @@ impl<'a> Vm<'a> {
         let mut pc: usize = 0;
         let mut handlers: Vec<Handler> = Vec::new();
         let mut specpdl: Vec<VmUnwindEntry> = Vec::new();
+
+        // Register the live stack so the GC can always scan it.
+        // This closes the gap where values on the bytecode stack are
+        // unreachable between with_frame_roots snapshots.
+        let stack_ptr: *const Vec<Value> = &stack;
+        self.ctx.vm_live_stacks.push(stack_ptr);
 
         // Unified calling convention: push args onto the stack.
         // Both NeoVM-compiled and GNU-compiled bytecode use StackRef(n)
@@ -332,6 +340,7 @@ impl<'a> Vm<'a> {
                 self.ctx.truncate_condition_stack(condition_stack_base);
                 self.ctx.lexenv = saved_lexenv;
                 let cleanup = self.unwind_specpdl_all(&mut specpdl);
+                self.ctx.vm_live_stacks.pop();
                 return merge_result_with_cleanup(result, cleanup);
             }
 
@@ -354,6 +363,7 @@ impl<'a> Vm<'a> {
                 specpdl_count,
             );
             let cleanup = self.unwind_specpdl_all(&mut specpdl);
+            self.ctx.vm_live_stacks.pop();
             return merge_result_with_cleanup(result, cleanup);
         }
 
@@ -379,6 +389,7 @@ impl<'a> Vm<'a> {
             self.with_frame_roots(func, &stack, &handlers, &[], &cleanup_extra_roots, |vm| {
                 vm.unwind_specpdl_all(&mut specpdl)
             });
+        self.ctx.vm_live_stacks.pop();
         merge_result_with_cleanup(result, cleanup)
     }
 
@@ -392,6 +403,9 @@ impl<'a> Vm<'a> {
     ) -> EvalResult {
         let ops = &func.ops;
         let constants = &func.constants;
+
+        // The live stack is registered by run_frame, so the GC can always
+        // reach it. No need to register here.
 
         macro_rules! vm_try {
             ($expr:expr) => {{
@@ -3402,6 +3416,8 @@ impl<'a> Vm<'a> {
         let mut pc: usize = 0;
         let mut handlers: Vec<Handler> = Vec::new();
         let mut specpdl: Vec<VmUnwindEntry> = Vec::new();
+        let stack_ptr: *const Vec<Value> = &stack;
+        self.ctx.vm_live_stacks.push(stack_ptr);
         let result = self.run_loop(func, &mut stack, &mut pc, &mut handlers, &mut specpdl);
         self.ctx.truncate_condition_stack(condition_stack_base);
         let cleanup_roots = Self::result_roots(&result);
@@ -3411,6 +3427,7 @@ impl<'a> Vm<'a> {
             self.with_frame_roots(func, &stack, &handlers, &[], &cleanup_extra_roots, |vm| {
                 vm.unwind_specpdl_all(&mut specpdl)
             });
+        self.ctx.vm_live_stacks.pop();
         merge_result_with_cleanup(result, cleanup)
     }
 
@@ -3465,7 +3482,16 @@ impl<'a> Vm<'a> {
                 Err(signal("no-catch", vec![tag, value]))
             }
             Flow::Signal(sig) => {
-                let sig = match self.ctx.dispatch_signal_if_needed(sig) {
+                // dispatch_signal_if_needed may call signal hooks and
+                // handler-bind handlers via eval.apply(), which can trigger
+                // GC.  We must root the current frame so stack values
+                // survive collection.
+                let mut sig_extra = Vec::new();
+                Self::collect_flow_roots(&Flow::Signal(sig.clone()), &mut sig_extra);
+                let sig = match self.with_frame_roots(
+                    _func, stack, handlers, specpdl, &sig_extra,
+                    |vm| vm.ctx.dispatch_signal_if_needed(sig),
+                ) {
                     Ok(sig) => sig,
                     Err(flow) => {
                         return self.resume_nonlocal(_func, stack, pc, handlers, specpdl, flow);

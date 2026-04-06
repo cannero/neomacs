@@ -1,0 +1,4 @@
+[env]
+# 64 MB stack for test threads -- debug builds have larger frames and the
+# bootstrap evaluator recurses deeply through nested file loads.
+RUST_MIN_STACK = "67108864"

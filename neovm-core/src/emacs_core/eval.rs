@@ -1142,6 +1142,11 @@ pub struct Context {
     /// VM GC roots — Values that must remain GC-visible while the bytecode VM
     /// crosses into evaluator code that may trigger collection.
     pub(crate) vm_gc_roots: Vec<Value>,
+    /// Live bytecode VM stack pointers.  Each entry is a raw pointer to a
+    /// `Vec<Value>` that the GC re-scans on every collection, ensuring
+    /// values on the bytecode stack are always reachable even between
+    /// `with_frame_roots` snapshots.
+    pub(crate) vm_live_stacks: Vec<*const Vec<Value>>,
     /// GNU-shaped Lisp call stack used by `backtrace-frame--internal`,
     /// `mapbacktrace`, and advice-sensitive `called-interactively-p`.
     pub(crate) runtime_backtrace: Vec<RuntimeBacktraceFrame>,
@@ -3585,6 +3590,7 @@ impl Context {
             gc_runtime_settings_cache: GcRuntimeSettingsCache::default(),
             temp_roots: Vec::new(),
             vm_gc_roots: Vec::new(),
+            vm_live_stacks: Vec::new(),
             runtime_backtrace: Vec::new(),
             condition_stack: Vec::new(),
             next_resume_id: 1,
@@ -3716,6 +3722,7 @@ impl Context {
             gc_runtime_settings_cache: GcRuntimeSettingsCache::default(),
             temp_roots: Vec::new(),
             vm_gc_roots: Vec::new(),
+            vm_live_stacks: Vec::new(),
             runtime_backtrace: Vec::new(),
             condition_stack: Vec::new(),
             next_resume_id: 1,
@@ -3771,6 +3778,12 @@ impl Context {
         // Direct Context fields
         roots.extend(self.temp_roots.iter().cloned());
         roots.extend(self.vm_gc_roots.iter().cloned());
+        // Re-scan live bytecode VM stacks (catches values between with_frame_roots snapshots)
+        for stack_ptr in &self.vm_live_stacks {
+            // Safety: the stack pointer is valid while the VM frame is on the call stack.
+            let stack = unsafe { &**stack_ptr };
+            roots.extend(stack.iter().copied());
+        }
         for frame in &self.condition_stack {
             match frame {
                 ConditionFrame::Catch { tag, .. } => roots.push(*tag),

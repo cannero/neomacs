@@ -1132,8 +1132,6 @@ impl TaggedHeap {
                         val.0,
                         val.0 & 0b111
                     );
-                    // Don't crash — just log. The subsequent mark will crash
-                    // and the gdb backtrace will show us the root source.
                 }
             }
         }
