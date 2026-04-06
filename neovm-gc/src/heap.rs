@@ -451,25 +451,25 @@ impl Heap {
             state.worklist = tracer.into_worklist();
         }
 
-        let (forwarding, promoted_bytes) = match state.plan.kind {
-            CollectionKind::Major => (HashMap::new(), 0usize),
+        match state.plan.kind {
+            CollectionKind::Major => {}
             CollectionKind::Full => {
-                let (prepared_reclaim, promoted_bytes) = self.prepare_full_reclaim(&state.plan)?;
+                let (prepared_reclaim, _promoted_bytes) = self.prepare_full_reclaim(&state.plan)?;
                 state.reclaim_prepared = true;
                 state.prepared_reclaim = Some(prepared_reclaim);
-                (HashMap::new(), promoted_bytes)
             }
             CollectionKind::Minor => {
                 return Err(AllocError::UnsupportedCollectionKind {
                     kind: state.plan.kind,
                 });
             }
-        };
+        }
         if !state.reclaim_prepared {
+            let empty_forwarding: ForwardingMap = HashMap::new();
             self.process_weak_references(
                 state.plan.kind,
                 state.plan.worker_count.max(1),
-                &forwarding,
+                &empty_forwarding,
                 &self.object_index,
             );
         }
@@ -478,15 +478,12 @@ impl Heap {
         } else {
             Some(self.prepare_reclaim(state.plan.kind, &state.plan))
         };
-        let promoted_bytes = prepared_reclaim
-            .as_ref()
-            .map_or(promoted_bytes, |prepared| prepared.promoted_bytes);
+        let prepared_reclaim =
+            prepared_reclaim.expect("major/full finish should always have prepared reclaim");
         let cycle = self.finish_reclaim_cycle(
-            state.plan.clone(),
             before_bytes,
             state.mark_steps,
             state.mark_rounds,
-            promoted_bytes,
             prepared_reclaim,
         );
         self.record_collection_stats(cycle);
@@ -770,7 +767,7 @@ impl Heap {
                 );
                 self.record_phase(CollectionPhase::Reclaim);
                 let (finalized_objects, old_region_stats) =
-                    self.sweep_and_rebuild_post_collection(plan.kind, Some(plan.clone()), None);
+                    self.sweep_minor_and_rebuild_post_collection(plan.kind, Some(plan.clone()));
                 let after_bytes = self.total_tracked_bytes();
                 CollectionStats {
                     collections: 1,
@@ -787,25 +784,11 @@ impl Heap {
             }
             CollectionKind::Major => {
                 let prepared_reclaim = self.prepare_major_reclaim(&plan);
-                self.finish_reclaim_cycle(
-                    plan.clone(),
-                    before_bytes,
-                    mark_steps,
-                    mark_rounds,
-                    0,
-                    Some(prepared_reclaim),
-                )
+                self.finish_reclaim_cycle(before_bytes, mark_steps, mark_rounds, prepared_reclaim)
             }
             CollectionKind::Full => {
-                let (prepared_reclaim, promoted_bytes) = self.prepare_full_reclaim(&plan)?;
-                self.finish_reclaim_cycle(
-                    plan.clone(),
-                    before_bytes,
-                    mark_steps,
-                    mark_rounds,
-                    promoted_bytes,
-                    Some(prepared_reclaim),
-                )
+                let (prepared_reclaim, _promoted_bytes) = self.prepare_full_reclaim(&plan)?;
+                self.finish_reclaim_cycle(before_bytes, mark_steps, mark_rounds, prepared_reclaim)
             }
         };
         self.record_collection_stats(cycle);
@@ -1385,16 +1368,11 @@ impl Heap {
         }
     }
 
-    fn sweep_and_rebuild_post_collection(
+    fn sweep_minor_and_rebuild_post_collection(
         &mut self,
         kind: CollectionKind,
         completed_plan: Option<CollectionPlan>,
-        prepared_reclaim: Option<PreparedReclaim>,
     ) -> (u64, OldRegionCollectionStats) {
-        let has_prepared_reclaim = prepared_reclaim.is_some();
-        let prepared_survivor_count = prepared_reclaim
-            .as_ref()
-            .map(|prepared| prepared.survivors.len());
         self.stats.nursery.live_bytes = 0;
         self.stats.old.live_bytes = 0;
         self.stats.pinned.live_bytes = 0;
@@ -1404,185 +1382,175 @@ impl Heap {
         self.stats.immortal.reserved_bytes = 0;
 
         let old_objects = core::mem::take(&mut self.objects);
-        let mut old_region_rebuild = if !has_prepared_reclaim {
-            self.prepare_old_region_rebuild(completed_plan.as_ref())
-        } else {
-            None
-        };
-        if !has_prepared_reclaim {
-            self.object_index.clear();
-            self.object_index
-                .reserve(prepared_survivor_count.unwrap_or(old_objects.len()));
-        }
+        let mut old_region_rebuild = self.prepare_old_region_rebuild(completed_plan.as_ref());
+        self.object_index.clear();
+        self.object_index.reserve(old_objects.len());
         self.weak_candidates.clear();
         self.ephemeron_candidates.clear();
-        if !has_prepared_reclaim {
-            self.weak_candidates.reserve(old_objects.len());
-            self.ephemeron_candidates.reserve(old_objects.len());
-        }
+        self.weak_candidates.reserve(old_objects.len());
+        self.ephemeron_candidates.reserve(old_objects.len());
 
-        let mut rebuilt_objects =
-            Vec::with_capacity(prepared_survivor_count.unwrap_or(old_objects.len()));
+        let mut rebuilt_objects = Vec::with_capacity(old_objects.len());
         let mut finalized_objects = 0u64;
-        if let Some(prepared) = prepared_reclaim.as_ref() {
-            let mut survivor_iter = prepared.survivors.iter().peekable();
-            let mut finalize_iter = prepared.finalize_indices.iter().copied().peekable();
-            for (object_index, mut object) in old_objects.into_iter().enumerate() {
-                let should_finalize = finalize_iter
-                    .peek()
-                    .is_some_and(|&pending_index| pending_index == object_index);
-                if should_finalize {
-                    finalize_iter.next();
-                    if object.run_finalizer() {
-                        finalized_objects = finalized_objects.saturating_add(1);
-                    }
+        for mut object in old_objects {
+            if !Self::keep_object_for_collection(kind, &object) {
+                let should_finalize = object
+                    .header()
+                    .desc()
+                    .flags
+                    .contains(TypeFlags::FINALIZABLE)
+                    && !object.header().is_moved_out();
+                if should_finalize && object.run_finalizer() {
+                    finalized_objects = finalized_objects.saturating_add(1);
                 }
-
-                let Some(survivor) =
-                    survivor_iter.next_if(|survivor| survivor.object_index == object_index)
-                else {
-                    continue;
-                };
-
-                object.clear_mark();
-                if let Some(placement) = survivor.old_region_placement {
-                    object.set_old_region_placement(placement);
-                }
-                rebuilt_objects.push(object);
+                continue;
             }
-            debug_assert!(
-                survivor_iter.next().is_none(),
-                "prepared major reclaim survivors should all be drained during finish"
-            );
-            debug_assert!(
-                finalize_iter.next().is_none(),
-                "prepared major reclaim finalizers should all be drained during finish"
-            );
-        } else {
-            for mut object in old_objects {
-                if !Self::keep_object_for_collection(kind, &object) {
-                    let should_finalize = object
-                        .header()
-                        .desc()
-                        .flags
-                        .contains(TypeFlags::FINALIZABLE)
-                        && !object.header().is_moved_out();
-                    if should_finalize && object.run_finalizer() {
-                        finalized_objects = finalized_objects.saturating_add(1);
-                    }
-                    continue;
-                }
 
-                object.clear_mark();
-                let object_key = object.object_key();
-                let desc = object.header().desc();
-                let space = object.space();
-                let total_size = object.total_size();
-                if space == SpaceKind::Old {
-                    self.rebuild_post_sweep_old_region(
-                        &mut object,
-                        total_size,
-                        old_region_rebuild.as_mut(),
-                    );
+            object.clear_mark();
+            let object_key = object.object_key();
+            let desc = object.header().desc();
+            let space = object.space();
+            let total_size = object.total_size();
+            if space == SpaceKind::Old {
+                self.rebuild_post_sweep_old_region(
+                    &mut object,
+                    total_size,
+                    old_region_rebuild.as_mut(),
+                );
+            }
+            let index = rebuilt_objects.len();
+            rebuilt_objects.push(object);
+            self.object_index.insert(object_key, index);
+            self.record_descriptor_candidates(object_key, desc);
+            match space {
+                SpaceKind::Nursery => {
+                    self.stats.nursery.live_bytes =
+                        self.stats.nursery.live_bytes.saturating_add(total_size);
                 }
-                let index = rebuilt_objects.len();
-                rebuilt_objects.push(object);
-                self.object_index.insert(object_key, index);
-                self.record_descriptor_candidates(object_key, desc);
-                match space {
-                    SpaceKind::Nursery => {
-                        self.stats.nursery.live_bytes =
-                            self.stats.nursery.live_bytes.saturating_add(total_size);
-                    }
-                    SpaceKind::Old => {
-                        self.stats.old.live_bytes =
-                            self.stats.old.live_bytes.saturating_add(total_size);
-                    }
-                    SpaceKind::Pinned => {
-                        self.stats.pinned.live_bytes =
-                            self.stats.pinned.live_bytes.saturating_add(total_size);
-                    }
-                    SpaceKind::Large => {
-                        self.stats.large.live_bytes =
-                            self.stats.large.live_bytes.saturating_add(total_size);
-                        self.stats.large.reserved_bytes =
-                            self.stats.large.reserved_bytes.saturating_add(total_size);
-                    }
-                    SpaceKind::Immortal => {
-                        self.stats.immortal.live_bytes =
-                            self.stats.immortal.live_bytes.saturating_add(total_size);
-                        self.stats.immortal.reserved_bytes = self
-                            .stats
-                            .immortal
-                            .reserved_bytes
-                            .saturating_add(total_size);
-                    }
+                SpaceKind::Old => {
+                    self.stats.old.live_bytes =
+                        self.stats.old.live_bytes.saturating_add(total_size);
+                }
+                SpaceKind::Pinned => {
+                    self.stats.pinned.live_bytes =
+                        self.stats.pinned.live_bytes.saturating_add(total_size);
+                }
+                SpaceKind::Large => {
+                    self.stats.large.live_bytes =
+                        self.stats.large.live_bytes.saturating_add(total_size);
+                    self.stats.large.reserved_bytes =
+                        self.stats.large.reserved_bytes.saturating_add(total_size);
+                }
+                SpaceKind::Immortal => {
+                    self.stats.immortal.live_bytes =
+                        self.stats.immortal.live_bytes.saturating_add(total_size);
+                    self.stats.immortal.reserved_bytes = self
+                        .stats
+                        .immortal
+                        .reserved_bytes
+                        .saturating_add(total_size);
                 }
             }
         }
         self.objects = rebuilt_objects;
-        let old_region_stats = if let Some(prepared) = prepared_reclaim {
-            self.old_regions = prepared.rebuilt_old_regions;
-            self.object_index = prepared.rebuilt_object_index;
-            self.weak_candidates = prepared.weak_candidates;
-            self.ephemeron_candidates = prepared.ephemeron_candidates;
-            self.remembered_edges = prepared.remembered_edges;
-            self.stats.nursery.live_bytes = prepared.nursery_live_bytes;
-            self.stats.old.live_bytes = prepared.old_live_bytes;
-            self.stats.pinned.live_bytes = prepared.pinned_live_bytes;
-            self.stats.large.live_bytes = prepared.large_live_bytes;
-            self.stats.large.reserved_bytes = prepared.large_live_bytes;
-            self.stats.immortal.live_bytes = prepared.immortal_live_bytes;
-            self.stats.immortal.reserved_bytes = prepared.immortal_live_bytes;
-            self.stats.old.reserved_bytes = prepared.old_reserved_bytes;
-            prepared.old_region_stats
-        } else {
-            let (rebuilt_old_regions, old_region_stats) =
-                Self::finish_old_region_rebuild(old_region_rebuild, &mut self.objects);
-            if let Some(rebuilt_old_regions) = rebuilt_old_regions {
-                self.old_regions = rebuilt_old_regions;
+        let (rebuilt_old_regions, old_region_stats) =
+            Self::finish_old_region_rebuild(old_region_rebuild, &mut self.objects);
+        if let Some(rebuilt_old_regions) = rebuilt_old_regions {
+            self.old_regions = rebuilt_old_regions;
+        }
+        self.stats.old.reserved_bytes = self
+            .old_regions
+            .iter()
+            .map(|region| region.capacity_bytes)
+            .sum();
+        let object_index = &self.object_index;
+        let objects = &self.objects;
+        self.remembered_edges.retain(|edge| {
+            let owner = edge.owner.erase().object_key();
+            let target = edge.target.erase().object_key();
+            let owner_space = object_index
+                .get(&owner)
+                .map(|&index| objects[index].space());
+            let target_space = object_index
+                .get(&target)
+                .map(|&index| objects[index].space());
+            owner_space
+                .is_some_and(|space| space != SpaceKind::Nursery && space != SpaceKind::Immortal)
+                && target_space == Some(SpaceKind::Nursery)
+        });
+        (finalized_objects, old_region_stats)
+    }
+
+    fn commit_prepared_reclaim(
+        &mut self,
+        prepared_reclaim: PreparedReclaim,
+    ) -> (u64, OldRegionCollectionStats) {
+        let mut rebuilt_objects = Vec::with_capacity(prepared_reclaim.survivors.len());
+        let mut finalized_objects = 0u64;
+        let mut survivor_iter = prepared_reclaim.survivors.iter().peekable();
+        let mut finalize_iter = prepared_reclaim.finalize_indices.iter().copied().peekable();
+
+        for (object_index, mut object) in core::mem::take(&mut self.objects).into_iter().enumerate()
+        {
+            let should_finalize = finalize_iter
+                .peek()
+                .is_some_and(|&pending_index| pending_index == object_index);
+            if should_finalize {
+                finalize_iter.next();
+                if object.run_finalizer() {
+                    finalized_objects = finalized_objects.saturating_add(1);
+                }
             }
-            old_region_stats
-        };
-        if !has_prepared_reclaim {
-            self.stats.old.reserved_bytes = self
-                .old_regions
-                .iter()
-                .map(|region| region.capacity_bytes)
-                .sum();
+
+            let Some(survivor) =
+                survivor_iter.next_if(|survivor| survivor.object_index == object_index)
+            else {
+                continue;
+            };
+
+            object.clear_mark();
+            if let Some(placement) = survivor.old_region_placement {
+                object.set_old_region_placement(placement);
+            }
+            rebuilt_objects.push(object);
         }
-        if !has_prepared_reclaim {
-            let object_index = &self.object_index;
-            let objects = &self.objects;
-            self.remembered_edges.retain(|edge| {
-                let owner = edge.owner.erase().object_key();
-                let target = edge.target.erase().object_key();
-                let owner_space = object_index
-                    .get(&owner)
-                    .map(|&index| objects[index].space());
-                let target_space = object_index
-                    .get(&target)
-                    .map(|&index| objects[index].space());
-                owner_space.is_some_and(|space| {
-                    space != SpaceKind::Nursery && space != SpaceKind::Immortal
-                }) && target_space == Some(SpaceKind::Nursery)
-            });
-        }
+        debug_assert!(
+            survivor_iter.next().is_none(),
+            "prepared reclaim survivors should all be drained during finish"
+        );
+        debug_assert!(
+            finalize_iter.next().is_none(),
+            "prepared reclaim finalizers should all be drained during finish"
+        );
+
+        let old_region_stats = prepared_reclaim.old_region_stats;
+        self.objects = rebuilt_objects;
+        self.old_regions = prepared_reclaim.rebuilt_old_regions;
+        self.object_index = prepared_reclaim.rebuilt_object_index;
+        self.weak_candidates = prepared_reclaim.weak_candidates;
+        self.ephemeron_candidates = prepared_reclaim.ephemeron_candidates;
+        self.remembered_edges = prepared_reclaim.remembered_edges;
+        self.stats.nursery.live_bytes = prepared_reclaim.nursery_live_bytes;
+        self.stats.old.live_bytes = prepared_reclaim.old_live_bytes;
+        self.stats.pinned.live_bytes = prepared_reclaim.pinned_live_bytes;
+        self.stats.large.live_bytes = prepared_reclaim.large_live_bytes;
+        self.stats.large.reserved_bytes = prepared_reclaim.large_live_bytes;
+        self.stats.immortal.live_bytes = prepared_reclaim.immortal_live_bytes;
+        self.stats.immortal.reserved_bytes = prepared_reclaim.immortal_live_bytes;
+        self.stats.old.reserved_bytes = prepared_reclaim.old_reserved_bytes;
         (finalized_objects, old_region_stats)
     }
 
     fn finish_reclaim_cycle(
         &mut self,
-        plan: CollectionPlan,
         before_bytes: usize,
         mark_steps: u64,
         mark_rounds: u64,
-        promoted_bytes: usize,
-        prepared_reclaim: Option<PreparedReclaim>,
+        prepared_reclaim: PreparedReclaim,
     ) -> CollectionStats {
         self.record_phase(CollectionPhase::Reclaim);
-        let (finalized_objects, old_region_stats) =
-            self.sweep_and_rebuild_post_collection(plan.kind, Some(plan), prepared_reclaim);
+        let promoted_bytes = prepared_reclaim.promoted_bytes;
+        let (finalized_objects, old_region_stats) = self.commit_prepared_reclaim(prepared_reclaim);
         let after_bytes = self.total_tracked_bytes();
         CollectionStats {
             collections: 1,
