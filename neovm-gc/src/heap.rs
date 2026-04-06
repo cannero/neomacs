@@ -417,9 +417,9 @@ impl Heap {
             &self.object_index,
         );
         self.record_phase(CollectionPhase::Reclaim);
-        let finalized_objects = self.sweep_full();
+        let finalized_objects = self.finalize_and_retain_objects(state.plan.kind);
+        let old_region_stats = self.rebuild_post_sweep_state(Some(state.plan.clone()));
         self.prune_remembered_edges();
-        let old_region_stats = self.recompute_live_bytes(Some(state.plan.clone()));
         let after_bytes = self.total_tracked_bytes();
         let cycle = CollectionStats {
             collections: 1,
@@ -676,9 +676,9 @@ impl Heap {
                     &self.object_index,
                 );
                 self.record_phase(CollectionPhase::Reclaim);
-                let finalized_objects = self.sweep_minor();
+                let finalized_objects = self.finalize_and_retain_objects(plan.kind);
+                let old_region_stats = self.rebuild_post_sweep_state(Some(plan.clone()));
                 self.prune_remembered_edges();
-                let old_region_stats = self.recompute_live_bytes(Some(plan.clone()));
                 let after_bytes = self.total_tracked_bytes();
                 CollectionStats {
                     collections: 1,
@@ -702,9 +702,9 @@ impl Heap {
                     &self.object_index,
                 );
                 self.record_phase(CollectionPhase::Reclaim);
-                let finalized_objects = self.sweep_full();
+                let finalized_objects = self.finalize_and_retain_objects(plan.kind);
+                let old_region_stats = self.rebuild_post_sweep_state(Some(plan.clone()));
                 self.prune_remembered_edges();
-                let old_region_stats = self.recompute_live_bytes(Some(plan.clone()));
                 let after_bytes = self.total_tracked_bytes();
                 CollectionStats {
                     collections: 1,
@@ -730,9 +730,9 @@ impl Heap {
                     &self.object_index,
                 );
                 self.record_phase(CollectionPhase::Reclaim);
-                let finalized_objects = self.sweep_full();
+                let finalized_objects = self.finalize_and_retain_objects(plan.kind);
+                let old_region_stats = self.rebuild_post_sweep_state(Some(plan.clone()));
                 self.prune_remembered_edges();
-                let old_region_stats = self.recompute_live_bytes(Some(plan.clone()));
                 let after_bytes = self.total_tracked_bytes();
                 CollectionStats {
                     collections: 1,
@@ -1032,14 +1032,6 @@ impl Heap {
             .expect("mutator assist on active major-mark session should not fail");
     }
 
-    fn rebuild_object_index(&mut self) {
-        self.object_index.clear();
-        self.object_index.reserve(self.objects.len());
-        for (index, object) in self.objects.iter().enumerate() {
-            self.object_index.insert(object.object_key(), index);
-        }
-    }
-
     fn for_each_global_source(&self, mut f: impl FnMut(GcErased)) {
         for root in self.roots.iter() {
             f(root);
@@ -1276,42 +1268,29 @@ impl Heap {
         }
     }
 
-    fn sweep_minor(&mut self) -> u64 {
+    fn finalize_and_retain_objects(&mut self, kind: CollectionKind) -> u64 {
         let mut finalized_objects = 0u64;
         self.objects.retain(|object| {
-            let keep = object.space() == SpaceKind::Immortal
-                || object.space() != SpaceKind::Nursery
-                || (object.is_marked() && !object.header().is_moved_out());
+            let keep = match kind {
+                CollectionKind::Minor => {
+                    object.space() == SpaceKind::Immortal
+                        || object.space() != SpaceKind::Nursery
+                        || (object.is_marked() && !object.header().is_moved_out())
+                }
+                CollectionKind::Major | CollectionKind::Full => {
+                    object.space() == SpaceKind::Immortal
+                        || (object.is_marked() && !object.header().is_moved_out())
+                }
+            };
             if !keep && object.run_finalizer() {
                 finalized_objects = finalized_objects.saturating_add(1);
             }
             keep
         });
-        for object in &self.objects {
-            object.clear_mark();
-        }
-        self.rebuild_object_index();
         finalized_objects
     }
 
-    fn sweep_full(&mut self) -> u64 {
-        let mut finalized_objects = 0u64;
-        self.objects.retain(|object| {
-            let keep = object.space() == SpaceKind::Immortal
-                || (object.is_marked() && !object.header().is_moved_out());
-            if !keep && object.run_finalizer() {
-                finalized_objects = finalized_objects.saturating_add(1);
-            }
-            keep
-        });
-        for object in &self.objects {
-            object.clear_mark();
-        }
-        self.rebuild_object_index();
-        finalized_objects
-    }
-
-    fn recompute_live_bytes(
+    fn rebuild_post_sweep_state(
         &mut self,
         completed_plan: Option<CollectionPlan>,
     ) -> OldRegionCollectionStats {
@@ -1324,7 +1303,11 @@ impl Heap {
         self.stats.immortal.reserved_bytes = 0;
         let old_region_stats = self.recompute_old_region_metadata_for_plan(completed_plan);
 
-        for object in &self.objects {
+        self.object_index.clear();
+        self.object_index.reserve(self.objects.len());
+        for (index, object) in self.objects.iter().enumerate() {
+            object.clear_mark();
+            self.object_index.insert(object.object_key(), index);
             match object.space() {
                 SpaceKind::Nursery => {
                     self.stats.nursery.live_bytes = self
