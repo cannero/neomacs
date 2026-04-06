@@ -2326,11 +2326,19 @@ fn normalize_bootstrap_runtime_surface(
     eval: &mut super::eval::Context,
     project_root: &Path,
 ) -> Result<(), EvalError> {
-    let compile_only_state = compile_only_cl_loaddefs_state(project_root)?;
-    let runtime_loaddefs_state = runtime_loaddefs_restore_state(project_root)?;
-    let runtime_source_state = runtime_source_bootstrap_surface_state(project_root)?;
+    let compile_only_state = compile_only_cl_loaddefs_state(project_root).map_err(|e| {
+        tracing::error!("compile_only_cl_loaddefs_state failed: {e:?}"); e
+    })?;
+    let runtime_loaddefs_state = runtime_loaddefs_restore_state(project_root).map_err(|e| {
+        tracing::error!("runtime_loaddefs_restore_state failed: {e:?}"); e
+    })?;
+    let runtime_source_state = runtime_source_bootstrap_surface_state(project_root).map_err(|e| {
+        tracing::error!("runtime_source_bootstrap_surface_state failed: {e:?}"); e
+    })?;
     let runtime_loaded_state =
-        runtime_loaded_source_restore_state(eval, project_root, &compile_only_state.names)?;
+        runtime_loaded_source_restore_state(eval, project_root, &compile_only_state.names).map_err(|e| {
+            tracing::error!("runtime_loaded_source_restore_state failed: {e:?}"); e
+        })?;
     let mut strip_names = compile_only_state.names.clone();
     strip_names.extend(runtime_loaddefs_state.names.iter().cloned());
     strip_names.extend(runtime_loaded_state.names.iter().cloned());
@@ -2490,15 +2498,14 @@ fn finalize_cached_bootstrap_eval(
     // Register all builtins — pdump doesn't preserve live Rust entry-point
     // pointers on heap subr objects, so the callable surface must be rebuilt.
     super::builtins::init_builtins(eval);
-    // Restore the created-lisp-faces set from the face table — pdump
-    // doesn't preserve the thread-local CREATED_LISP_FACES HashSet, so
-    // faces like 'warning (defined by defface in faces.el) would be
-    // unrecognized without this.
     super::font::restore_created_faces_from_table(&eval.face_table.face_list());
     clear_runtime_loader_state(eval);
     ensure_startup_compat_variables(eval, project_root);
     restore_cached_runtime_window_system_surface(eval);
-    normalize_bootstrap_runtime_surface(eval, project_root)?;
+    normalize_bootstrap_runtime_surface(eval, project_root).map_err(|e| {
+        tracing::error!("normalize_bootstrap_runtime_surface failed: {e:?}");
+        e
+    })?;
 
     let lisp_dir = project_root.join("lisp");
     eval.set_variable(
@@ -2960,7 +2967,10 @@ pub fn load_runtime_image_with_features(
         }
     }
 
-    finalize_cached_bootstrap_eval(&mut eval, &project_root)?;
+    finalize_cached_bootstrap_eval(&mut eval, &project_root).map_err(|e| {
+        tracing::error!("finalize_cached_bootstrap_eval failed: {e:?}");
+        e
+    })?;
     Ok(eval)
 }
 
