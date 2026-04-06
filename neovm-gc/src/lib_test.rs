@@ -33,6 +33,38 @@ unsafe impl Trace for PinnedLeaf {
 }
 
 #[derive(Debug)]
+struct PromoteToPinnedLeaf(u64);
+
+unsafe impl Trace for PromoteToPinnedLeaf {
+    fn trace(&self, _tracer: &mut dyn Tracer) {}
+
+    fn relocate(&self, _relocator: &mut dyn Relocator) {}
+
+    fn move_policy() -> MovePolicy
+    where
+        Self: Sized,
+    {
+        MovePolicy::PromoteToPinned
+    }
+}
+
+#[derive(Debug)]
+struct OversizePromoteToPinnedLeaf([u8; 32]);
+
+unsafe impl Trace for OversizePromoteToPinnedLeaf {
+    fn trace(&self, _tracer: &mut dyn Tracer) {}
+
+    fn relocate(&self, _relocator: &mut dyn Relocator) {}
+
+    fn move_policy() -> MovePolicy
+    where
+        Self: Sized,
+    {
+        MovePolicy::PromoteToPinned
+    }
+}
+
+#[derive(Debug)]
 struct LargeLeaf([u8; 80]);
 
 unsafe impl Trace for LargeLeaf {
@@ -493,6 +525,72 @@ fn alloc_pinned_object_into_pinned_space() {
     assert!(mutator.heap().stats().pinned.live_bytes > 0);
     assert_eq!(mutator.heap().stats().nursery.live_bytes, 0);
     assert_eq!(unsafe { root.as_gc().as_non_null().as_ref() }.0, 11);
+}
+
+#[test]
+fn alloc_oversize_promote_to_pinned_object_into_pinned_space() {
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 8,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut scope = mutator.handle_scope();
+
+    let root = mutator
+        .alloc(&mut scope, OversizePromoteToPinnedLeaf([9; 32]))
+        .expect("alloc oversize promotable pinned leaf");
+
+    assert_eq!(
+        mutator.heap().space_of(root.as_gc()),
+        Some(SpaceKind::Pinned)
+    );
+    assert!(mutator.heap().stats().pinned.live_bytes > 0);
+    assert_eq!(mutator.heap().stats().nursery.live_bytes, 0);
+    assert_eq!(unsafe { root.as_gc().as_non_null().as_ref() }.0[0], 9);
+}
+
+#[test]
+fn minor_collection_promotes_promote_to_pinned_object_into_pinned_space() {
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            promotion_age: 1,
+            ..NurseryConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut scope = mutator.handle_scope();
+
+    let root = mutator
+        .alloc(&mut scope, PromoteToPinnedLeaf(33))
+        .expect("alloc promotable pinned leaf");
+
+    assert_eq!(
+        mutator.heap().space_of(root.as_gc()),
+        Some(SpaceKind::Nursery)
+    );
+    assert!(mutator.heap().stats().nursery.live_bytes > 0);
+    assert_eq!(mutator.heap().stats().pinned.live_bytes, 0);
+
+    let cycle = mutator
+        .collect(CollectionKind::Minor)
+        .expect("minor collect promotable pinned leaf");
+
+    assert_eq!(cycle.minor_collections, 1);
+    assert_eq!(
+        mutator.heap().space_of(root.as_gc()),
+        Some(SpaceKind::Pinned)
+    );
+    assert_eq!(mutator.heap().stats().nursery.live_bytes, 0);
+    assert!(mutator.heap().stats().pinned.live_bytes > 0);
+    assert_eq!(unsafe { root.as_gc().as_non_null().as_ref() }.0, 33);
 }
 
 #[test]

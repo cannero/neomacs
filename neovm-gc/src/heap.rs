@@ -907,12 +907,21 @@ impl Heap {
             MovePolicy::Immortal => Err(AllocError::UnsupportedMovePolicy {
                 policy: desc.move_policy,
             }),
-            MovePolicy::Movable | MovePolicy::PromoteToPinned => {
+            MovePolicy::Movable => {
                 if payload_bytes >= self.config.large.threshold_bytes {
                     return Ok(SpaceKind::Large);
                 }
                 if payload_bytes > self.config.nursery.max_regular_object_bytes {
                     return Ok(SpaceKind::Old);
+                }
+                Ok(SpaceKind::Nursery)
+            }
+            MovePolicy::PromoteToPinned => {
+                if payload_bytes >= self.config.large.threshold_bytes {
+                    return Ok(SpaceKind::Large);
+                }
+                if payload_bytes > self.config.nursery.max_regular_object_bytes {
+                    return Ok(SpaceKind::Pinned);
                 }
                 Ok(SpaceKind::Nursery)
             }
@@ -1192,7 +1201,10 @@ impl Heap {
             if object.space() == SpaceKind::Nursery && object.is_marked() {
                 let next_age = object.header().age().saturating_add(1);
                 let target_space = if next_age >= self.config.nursery.promotion_age {
-                    SpaceKind::Old
+                    match object.header().desc().move_policy {
+                        crate::descriptor::MovePolicy::PromoteToPinned => SpaceKind::Pinned,
+                        _ => SpaceKind::Old,
+                    }
                 } else {
                     SpaceKind::Nursery
                 };
