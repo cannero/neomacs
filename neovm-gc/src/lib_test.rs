@@ -4858,6 +4858,44 @@ fn background_service_owns_collector_runtime_loop() {
 }
 
 #[test]
+fn background_service_drains_pending_finalizers() {
+    MAJOR_FINALIZE_COUNT.store(0, Ordering::SeqCst);
+
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    {
+        let mut mutator = heap.mutator();
+        {
+            let mut scope = mutator.handle_scope();
+            mutator
+                .alloc(&mut scope, FinalizableOldLeaf([75; 32]))
+                .expect("alloc finalizable old leaf");
+        }
+        let cycle = mutator
+            .collect(CollectionKind::Major)
+            .expect("major collect");
+        assert_eq!(cycle.queued_finalizers, 1);
+    }
+
+    let mut service = heap.background_service(BackgroundCollectorConfig::default());
+    assert_eq!(service.pending_finalizer_count(), 1);
+    assert_eq!(MAJOR_FINALIZE_COUNT.load(Ordering::SeqCst), 0);
+    assert_eq!(service.drain_pending_finalizers(), 1);
+    assert_eq!(service.pending_finalizer_count(), 0);
+    assert_eq!(service.heap().stats().finalizers_run, 1);
+    assert_eq!(MAJOR_FINALIZE_COUNT.load(Ordering::SeqCst), 1);
+}
+
+#[test]
 fn shared_background_service_prepare_active_reclaim_moves_full_session_to_reclaim() {
     let shared = SharedHeap::new(HeapConfig {
         large: LargeObjectSpaceConfig {
@@ -6100,6 +6138,58 @@ fn shared_background_service_drives_shared_heap_without_manual_locking() {
             .expect("inspect shared background plan"),
         None
     );
+}
+
+#[test]
+fn shared_background_service_drains_pending_finalizers() {
+    MAJOR_FINALIZE_COUNT.store(0, Ordering::SeqCst);
+
+    let shared = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            {
+                let mut scope = mutator.handle_scope();
+                mutator
+                    .alloc(&mut scope, FinalizableOldLeaf([77; 32]))
+                    .expect("alloc finalizable old leaf");
+            }
+            let cycle = mutator
+                .collect(CollectionKind::Major)
+                .expect("major collect");
+            assert_eq!(cycle.queued_finalizers, 1);
+        })
+        .expect("collect shared finalizable object");
+
+    let mut service = shared.background_service(BackgroundCollectorConfig::default());
+    assert_eq!(service.pending_finalizer_count().expect("pending count"), 1);
+    assert_eq!(MAJOR_FINALIZE_COUNT.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        service
+            .drain_pending_finalizers()
+            .expect("drain pending finalizers"),
+        1
+    );
+    assert_eq!(service.pending_finalizer_count().expect("pending count"), 0);
+    assert_eq!(
+        service
+            .heap()
+            .stats()
+            .expect("shared heap stats")
+            .finalizers_run,
+        1
+    );
+    assert_eq!(MAJOR_FINALIZE_COUNT.load(Ordering::SeqCst), 1);
 }
 
 #[test]

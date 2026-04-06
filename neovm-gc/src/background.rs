@@ -1421,6 +1421,16 @@ impl<'heap> BackgroundService<'heap> {
         self.runtime.commit_active_reclaim_if_ready()
     }
 
+    /// Return the number of queued finalizers waiting to run.
+    pub fn pending_finalizer_count(&self) -> usize {
+        self.runtime.pending_finalizer_count()
+    }
+
+    /// Run and drain queued finalizers.
+    pub fn drain_pending_finalizers(&mut self) -> u64 {
+        self.runtime.drain_pending_finalizers()
+    }
+
     /// Finish the active major collection if its mark work is fully drained.
     pub fn finish_active_major_collection_if_ready(
         &mut self,
@@ -1593,6 +1603,21 @@ impl SharedBackgroundService {
             Err(SharedBackgroundError::WouldBlock) => Ok(None),
             Err(error) => Err(error),
         }
+    }
+
+    /// Return the number of queued finalizers waiting to run.
+    pub fn pending_finalizer_count(&self) -> Result<usize, SharedBackgroundError> {
+        self.runtime.pending_finalizer_count()
+    }
+
+    /// Run and drain queued finalizers.
+    pub fn drain_pending_finalizers(&mut self) -> Result<u64, SharedBackgroundError> {
+        self.runtime.drain_pending_finalizers()
+    }
+
+    /// Run and drain queued finalizers without blocking on heap contention.
+    pub fn try_drain_pending_finalizers(&mut self) -> Result<u64, SharedBackgroundError> {
+        self.runtime.try_drain_pending_finalizers()
     }
 
     /// Commit the active major collection once reclaim has already been prepared, without
