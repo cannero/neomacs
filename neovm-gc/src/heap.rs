@@ -12,11 +12,11 @@ use crate::collector_exec::{
 };
 use crate::collector_policy::refresh_cached_plans as refresh_cached_collector_plans;
 use crate::collector_session::{
-    active_reclaim_prep_request, advance_major_mark_slice, begin_major_mark,
+    active_reclaim_prep_request, assist_active_major_mark_slices, begin_major_mark,
     build_prepared_active_reclaim, complete_active_reclaim_prep, finish_active_collection,
-    finish_active_collection_if_ready, finish_major_mark, poll_active_major_mark_with_completion,
-    prepare_active_collection_reclaim_if_needed, prepare_active_major_reclaim_with_request,
-    prepare_active_reclaim,
+    finish_active_collection_if_ready, finish_major_mark, mark_active_major_session_object,
+    poll_active_major_mark_with_completion, prepare_active_collection_reclaim_if_needed,
+    prepare_active_major_reclaim_with_request, prepare_active_reclaim,
 };
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
 use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
@@ -340,11 +340,13 @@ impl Heap {
 
     /// Advance one slice of the current persistent major-mark session.
     pub fn advance_major_mark(&self) -> Result<MajorMarkProgress, AllocError> {
-        let progress = advance_major_mark_slice(
+        let progress = assist_active_major_mark_slices(
             &mut self.collector(),
             &self.objects,
             &self.indexes.object_index,
+            1,
         )?;
+        let progress = progress.expect("single-slice assist should require an active session");
         self.refresh_recommended_plans();
         Ok(progress)
     }
@@ -395,26 +397,14 @@ impl Heap {
         if max_slices == 0 {
             return Ok(self.major_mark_progress());
         }
-
-        let mut total_drained_objects = 0usize;
-        let mut final_progress = None;
-        for _ in 0..max_slices {
-            let progress = self.advance_major_mark()?;
-            total_drained_objects = total_drained_objects.saturating_add(progress.drained_objects);
-            let completed = progress.completed;
-            final_progress = Some(progress);
-            if completed {
-                break;
-            }
-        }
-        Ok(final_progress.map(|progress| MajorMarkProgress {
-            completed: progress.completed,
-            drained_objects: total_drained_objects,
-            elapsed_nanos: progress.elapsed_nanos,
-            mark_steps: progress.mark_steps,
-            mark_rounds: progress.mark_rounds,
-            remaining_work: progress.remaining_work,
-        }))
+        let progress = assist_active_major_mark_slices(
+            &mut self.collector(),
+            &self.objects,
+            &self.indexes.object_index,
+            max_slices,
+        )?;
+        self.refresh_recommended_plans();
+        Ok(progress)
     }
 
     /// Advance one scheduler-style concurrent major-mark round using the plan worker count.
@@ -918,18 +908,12 @@ impl Heap {
     }
 
     fn mark_for_active_major_session(&self, object: GcErased) {
-        if self.space_for_erased(object).is_none() {
-            return;
-        }
-
-        let Some(&index) = self.indexes.object_index.get(&object.object_key()) else {
-            return;
-        };
-
-        let record = &self.objects[index];
-        if record.mark_if_unmarked() {
-            let _enqueued = self.collector().enqueue_active_major_mark_index(index);
-        }
+        let _enqueued = mark_active_major_session_object(
+            &mut self.collector(),
+            &self.objects,
+            &self.indexes.object_index,
+            object,
+        );
     }
 
     fn assist_major_mark_in_place(&self) {

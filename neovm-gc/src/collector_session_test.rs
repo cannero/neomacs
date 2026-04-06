@@ -88,6 +88,69 @@ fn begin_major_mark_seeds_sources_into_initial_worklist() {
 }
 
 #[test]
+fn mark_active_major_session_object_marks_and_enqueues_existing_record() {
+    let mut state = CollectorState::default();
+    let desc = Box::leak(Box::new(fixed_type_desc::<Leaf>()));
+    let object =
+        ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate pinned leaf");
+    let index = [(object.object_key(), 0usize)]
+        .into_iter()
+        .collect::<HashMap<_, _>>();
+    let objects = [object];
+    state.begin_major_mark(major_plan(), MarkWorklist::default());
+
+    assert!(mark_active_major_session_object(
+        &mut state,
+        &objects,
+        &index,
+        objects[0].erased(),
+    ));
+    assert_eq!(
+        state
+            .major_mark_progress()
+            .expect("major mark progress after enqueue")
+            .remaining_work,
+        1
+    );
+    assert!(!mark_active_major_session_object(
+        &mut state,
+        &objects,
+        &index,
+        objects[0].erased(),
+    ));
+}
+
+#[test]
+fn assist_active_major_mark_slices_accumulates_progress_across_slices() {
+    let mut state = CollectorState::default();
+    let desc = Box::leak(Box::new(fixed_type_desc::<Leaf>()));
+    let first =
+        ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate first pinned leaf");
+    let second =
+        ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate second pinned leaf");
+    let index = [(first.object_key(), 0usize), (second.object_key(), 1usize)]
+        .into_iter()
+        .collect::<HashMap<_, _>>();
+    let objects = [first, second];
+    let mut worklist = MarkWorklist::default();
+    worklist.push(0);
+    worklist.push(1);
+    let mut plan = major_plan();
+    plan.mark_slice_budget = 1;
+    state.begin_major_mark(plan, worklist);
+
+    let progress = assist_active_major_mark_slices(&mut state, &objects, &index, 2)
+        .expect("assist active major mark")
+        .expect("active major-mark progress");
+
+    assert!(progress.completed);
+    assert_eq!(progress.drained_objects, 2);
+    assert_eq!(progress.mark_steps, 2);
+    assert_eq!(progress.mark_rounds, 2);
+    assert_eq!(progress.remaining_work, 0);
+}
+
+#[test]
 fn prepare_active_reclaim_plan_moves_major_session_to_reclaim() {
     let mut state = CollectorState::default();
     let plan = major_plan();

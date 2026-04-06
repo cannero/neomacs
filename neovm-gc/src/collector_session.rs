@@ -1,4 +1,4 @@
-use crate::descriptor::Tracer;
+use crate::descriptor::{GcErased, Tracer};
 use std::time::{Duration, Instant};
 
 use crate::collector_exec::MarkTracer;
@@ -79,6 +79,63 @@ pub(crate) fn advance_major_mark_slice(
             mark_rounds_delta: u64::from(drained_objects > 0),
         }
     })
+}
+
+pub(crate) fn assist_active_major_mark_slices(
+    collector: &mut CollectorState,
+    objects: &[ObjectRecord],
+    index: &ObjectIndex,
+    max_slices: usize,
+) -> Result<Option<MajorMarkProgress>, AllocError> {
+    if !collector.has_active_major_mark() {
+        return Ok(None);
+    }
+    if max_slices == 0 {
+        return Ok(collector.major_mark_progress());
+    }
+
+    let mut total_drained_objects = 0usize;
+    let mut final_progress = None;
+    for _ in 0..max_slices {
+        let progress = advance_major_mark_slice(collector, objects, index)?;
+        total_drained_objects = total_drained_objects.saturating_add(progress.drained_objects);
+        let completed = progress.completed;
+        final_progress = Some(progress);
+        if completed {
+            break;
+        }
+    }
+
+    Ok(final_progress.map(|progress| MajorMarkProgress {
+        completed: progress.completed,
+        drained_objects: total_drained_objects,
+        elapsed_nanos: progress.elapsed_nanos,
+        mark_steps: progress.mark_steps,
+        mark_rounds: progress.mark_rounds,
+        remaining_work: progress.remaining_work,
+    }))
+}
+
+pub(crate) fn mark_active_major_session_object(
+    collector: &mut CollectorState,
+    objects: &[ObjectRecord],
+    index: &ObjectIndex,
+    object: GcErased,
+) -> bool {
+    if !collector.has_active_major_mark() {
+        return false;
+    }
+
+    let Some(&object_index) = index.get(&object.object_key()) else {
+        return false;
+    };
+
+    let record = &objects[object_index];
+    if !record.mark_if_unmarked() {
+        return false;
+    }
+
+    collector.enqueue_active_major_mark_index(object_index)
 }
 
 pub(crate) fn poll_active_major_mark_round(
