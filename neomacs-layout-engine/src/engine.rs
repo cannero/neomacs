@@ -1231,9 +1231,22 @@ impl LayoutEngine {
 
         if let Some(metrics) = default_metrics {
             if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
-                frame.char_width = metrics.char_width;
-                frame.char_height = metrics.line_height;
+                frame.char_width = metrics.char_width.max(1.0);
+                frame.char_height = metrics.line_height.max(1.0);
                 frame.font_pixel_size = default_resolved.font_size;
+            }
+        } else {
+            // GNU Emacs TTY frames use 1x1 character cell metrics
+            // (frame.c:1184-1185: column_width=1, line_height=1).
+            // Ensure char_height is never zero to prevent cosmic-text
+            // assertion "line height cannot be 0".
+            if let Some(frame) = evaluator.frame_manager_mut().get_mut(frame_id) {
+                if frame.char_height < 1.0 {
+                    frame.char_height = 1.0;
+                }
+                if frame.char_width < 1.0 {
+                    frame.char_width = 1.0;
+                }
             }
         }
 

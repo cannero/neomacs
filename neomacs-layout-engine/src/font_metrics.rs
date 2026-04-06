@@ -8,7 +8,15 @@
 //! C fontconfig and cosmic-text resolving different font files.
 
 use crate::font_loader::FontFileCache;
-use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Style, Weight};
+use cosmic_text::{Attrs, Buffer, Family, FontSystem, Style, Weight};
+
+/// Safe wrapper around cosmic_text::Metrics that ensures font_size and
+/// line_height are never zero.  cosmic-text panics with "line height
+/// cannot be 0" if either value is 0.0.  GNU Emacs TTY frames use
+/// 1x1 cell metrics; we enforce a minimum of 1.0 for safety.
+fn safe_metrics(font_size: f32, line_height: f32) -> cosmic_text::Metrics {
+    cosmic_text::Metrics::new(font_size.max(1.0), line_height.max(1.0))
+}
 use neovm_core::face::{FontSlant, FontWeight, FontWidth};
 use std::collections::HashMap;
 use ttf_parser::Face as TtfFace;
@@ -189,7 +197,7 @@ impl FontMetricsService {
                 FontSlant::Normal
             },
         );
-        let metrics = Metrics::new(font_size, font_size * 1.3);
+        let metrics = safe_metrics(font_size, font_size * 1.3);
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
         buffer.set_size(
             &mut self.font_system,
@@ -270,7 +278,7 @@ impl FontMetricsService {
         let resolved = self.resolve_font_for_char(ch, family, weight, italic);
         let attrs = self.build_attrs(&resolved.family, resolved.weight, resolved.slant);
         let line_height = font_size * 1.3;
-        let metrics = Metrics::new(font_size, line_height);
+        let metrics = safe_metrics(font_size, line_height);
 
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
         buffer.set_size(
@@ -330,7 +338,7 @@ impl FontMetricsService {
         let resolved = self.resolve_font_for_char(ch, family, weight, italic);
         let attrs = self.build_attrs(&resolved.family, resolved.weight, resolved.slant);
         let line_height = font_size * 1.3;
-        let metrics = Metrics::new(font_size, line_height);
+        let metrics = safe_metrics(font_size, line_height);
 
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
         buffer.set_size(
@@ -479,7 +487,7 @@ impl FontMetricsService {
             },
         );
         let line_height = font_size * 1.3;
-        let metrics = Metrics::new(font_size, line_height);
+        let metrics = safe_metrics(font_size, line_height);
 
         // Measure each printable ASCII character individually.
         // Characters 0-31 are control chars — use space width as fallback.
@@ -603,7 +611,7 @@ impl FontMetricsService {
             },
         );
         let line_height = font_size * 1.3;
-        let metrics = Metrics::new(font_size, line_height);
+        let metrics = safe_metrics(font_size, line_height);
 
         // Fallback only: measure a representative glyph box when the selected
         // font's global tables are unavailable or obviously pathological.
@@ -713,7 +721,7 @@ mod tests {
         let resolved = svc.resolve_font_for_char(ch, family, weight, italic);
         let attrs = svc.build_attrs(&resolved.family, resolved.weight, resolved.slant);
         let line_height = font_size * 1.3;
-        let metrics = Metrics::new(font_size, line_height);
+        let metrics = safe_metrics(font_size, line_height);
 
         let mut buffer = Buffer::new(&mut svc.font_system, metrics);
         buffer.set_size(
@@ -1273,7 +1281,7 @@ mod tests {
             attrs = attrs.style(style);
         }
         let line_height = font_size * 1.3;
-        let metrics = Metrics::new(font_size, line_height);
+        let metrics = safe_metrics(font_size, line_height);
         let mut buffer = Buffer::new(font_system, metrics);
         buffer.set_size(font_system, Some(font_size * 8.0), Some(font_size * 3.0));
         let text = String::from(ch);
@@ -1613,7 +1621,7 @@ mod tests {
         let mut fs = FontSystem::new();
         let font_size = 14.0;
         let line_height = font_size * 1.3;
-        let metrics = Metrics::new(font_size, line_height);
+        let metrics = safe_metrics(font_size, line_height);
         let attrs = Attrs::new().family(Family::Monospace).weight(Weight(400));
 
         for cp in 32u32..127 {
