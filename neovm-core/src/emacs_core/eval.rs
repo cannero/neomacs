@@ -1149,6 +1149,12 @@ pub struct Context {
     ///
     /// Matches GNU Emacs `mark_bytecode()` which walks `bc_frame` linked
     /// list and marks every value on every bytecode stack each GC cycle.
+    ///
+    /// We store `*mut Vec<Value>` obtained via `&raw mut`.  The GC reads
+    /// through these pointers during STW collection while `run_loop` holds
+    /// the only `&mut` — this is safe because GC is synchronous (no
+    /// concurrent mutation) and we use `read_volatile` to prevent the
+    /// compiler from caching stale Vec metadata.
     pub(crate) vm_live_stacks: Vec<*mut Vec<Value>>,
     /// GNU-shaped Lisp call stack used by `backtrace-frame--internal`,
     /// `mapbacktrace`, and advice-sensitive `called-interactively-p`.
@@ -3787,11 +3793,17 @@ impl Context {
         for stack_ptr in &self.vm_live_stacks {
             // Safety: stack_ptr was obtained via &raw mut from a Vec<Value>
             // on the Rust call stack of a run_frame() that hasn't returned.
-            // We read through the raw pointer to avoid aliasing UB.
+            // GC is STW so no concurrent mutation.
+            //
+            // We volatile-read the entire Vec<Value> struct to get its
+            // current (ptr, len, cap) triple, defeating any compiler
+            // optimizations that might cache stale Vec metadata from the
+            // &mut borrow in run_loop.
             unsafe {
-                let len = (**stack_ptr).len();
-                let data = (**stack_ptr).as_ptr();
-                roots.extend(std::slice::from_raw_parts(data, len).iter().copied());
+                let vec_snapshot: Vec<Value> = std::ptr::read_volatile(*stack_ptr);
+                roots.extend(vec_snapshot.iter().copied());
+                // Forget the snapshot so we don't drop/free the Vec's buffer
+                std::mem::forget(vec_snapshot);
             }
         }
         for frame in &self.condition_stack {
