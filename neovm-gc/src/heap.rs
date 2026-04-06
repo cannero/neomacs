@@ -83,7 +83,7 @@ pub struct Heap {
     descriptors: HashMap<TypeId, &'static TypeDesc>,
     objects: Vec<ObjectRecord>,
     indexes: HeapIndexState,
-    old_regions: Vec<OldRegion>,
+    old_gen: OldGenState,
     recent_barrier_events: Vec<BarrierEvent>,
     runtime_state: Arc<Mutex<RuntimeState>>,
     collector: Mutex<CollectorState>,
@@ -101,6 +101,24 @@ struct HeapIndexState {
     remembered_edges: Vec<RememberedEdge>,
     remembered_owners: Vec<ObjectKey>,
     remembered_owner_set: HashSet<ObjectKey>,
+}
+
+#[derive(Debug, Default)]
+struct OldGenState {
+    regions: Vec<OldRegion>,
+}
+
+impl OldGenState {
+    fn is_empty(&self) -> bool {
+        self.regions.is_empty()
+    }
+
+    fn reserved_bytes(&self) -> usize {
+        self.regions
+            .iter()
+            .map(|region| region.capacity_bytes)
+            .sum()
+    }
 }
 
 // SAFETY: `Heap` owns all heap allocations and its raw pointers are internal references into that
@@ -234,7 +252,7 @@ impl Heap {
             descriptors: HashMap::default(),
             objects: Vec::new(),
             indexes: HeapIndexState::default(),
-            old_regions: Vec::new(),
+            old_gen: OldGenState::default(),
             recent_barrier_events: Vec::new(),
             runtime_state: Arc::new(Mutex::new(RuntimeState::default())),
             collector: Mutex::new(CollectorState::default()),
@@ -384,7 +402,7 @@ impl Heap {
         if self.stats.large.live_bytes > 0 {
             return self.plan_for(CollectionKind::Full);
         }
-        if !self.old_regions.is_empty() || self.stats.pinned.live_bytes > 0 {
+        if !self.old_gen.is_empty() || self.stats.pinned.live_bytes > 0 {
             return self.plan_for(CollectionKind::Major);
         }
         self.plan_for(CollectionKind::Minor)
@@ -403,7 +421,7 @@ impl Heap {
         if self.stats.large.live_bytes > 0 {
             return Some(self.plan_for(CollectionKind::Full));
         }
-        if !self.old_regions.is_empty() || self.stats.pinned.live_bytes > 0 {
+        if !self.old_gen.is_empty() || self.stats.pinned.live_bytes > 0 {
             return Some(self.plan_for(CollectionKind::Major));
         }
         None
@@ -780,7 +798,7 @@ impl Heap {
 
     /// Return logical old-generation region statistics.
     pub fn old_region_stats(&self) -> Vec<OldRegionStats> {
-        self.region_stats_from_metadata(&self.old_regions)
+        self.region_stats_from_metadata(&self.old_gen.regions)
     }
 
     /// Return the currently selected old-region compaction candidates.
@@ -1194,11 +1212,7 @@ impl Heap {
             }
             SpaceKind::Old => {
                 self.stats.old.live_bytes = self.stats.old.live_bytes.saturating_add(bytes);
-                self.stats.old.reserved_bytes = self
-                    .old_regions
-                    .iter()
-                    .map(|region| region.capacity_bytes)
-                    .sum();
+                self.stats.old.reserved_bytes = self.old_gen.reserved_bytes();
             }
             SpaceKind::Pinned => {
                 self.stats.pinned.live_bytes = self.stats.pinned.live_bytes.saturating_add(bytes);
@@ -1658,13 +1672,9 @@ impl Heap {
         let (rebuilt_old_regions, old_region_stats) =
             Self::finish_old_region_rebuild(old_region_rebuild, &mut self.objects);
         if let Some(rebuilt_old_regions) = rebuilt_old_regions {
-            self.old_regions = rebuilt_old_regions;
+            self.old_gen.regions = rebuilt_old_regions;
         }
-        self.stats.old.reserved_bytes = self
-            .old_regions
-            .iter()
-            .map(|region| region.capacity_bytes)
-            .sum();
+        self.stats.old.reserved_bytes = self.old_gen.reserved_bytes();
         let object_index = &self.indexes.object_index;
         let objects = &self.objects;
         self.indexes.remembered_edges.retain(|edge| {
@@ -1755,7 +1765,7 @@ impl Heap {
 
         let old_region_stats = prepared_reclaim.old_region_stats;
         self.objects = rebuilt_objects;
-        self.old_regions = prepared_reclaim.rebuilt_old_regions;
+        self.old_gen.regions = prepared_reclaim.rebuilt_old_regions;
         self.indexes.object_index = prepared_reclaim.rebuilt_object_index;
         self.indexes.finalizable_candidates = prepared_reclaim.finalizable_candidates;
         self.indexes.weak_candidates = prepared_reclaim.weak_candidates;
@@ -1993,16 +2003,16 @@ impl Heap {
         }
 
         let capacity_bytes = self.config.old.region_bytes.max(bytes);
-        self.old_regions.push(OldRegion {
+        self.old_gen.regions.push(OldRegion {
             capacity_bytes,
             used_bytes: 0,
             live_bytes: 0,
             object_count: 0,
             occupied_lines: HashSet::new(),
         });
-        let region_index = self.old_regions.len() - 1;
-        let offset = self.old_regions[region_index].used_bytes;
-        self.old_regions[region_index].used_bytes = bytes;
+        let region_index = self.old_gen.regions.len() - 1;
+        let offset = self.old_gen.regions[region_index].used_bytes;
+        self.old_gen.regions[region_index].used_bytes = bytes;
         self.make_old_region_placement(region_index, offset, bytes)
     }
 
@@ -2011,7 +2021,7 @@ impl Heap {
         bytes: usize,
         align: usize,
     ) -> Option<(usize, usize)> {
-        for (region_index, region) in self.old_regions.iter_mut().enumerate() {
+        for (region_index, region) in self.old_gen.regions.iter_mut().enumerate() {
             let offset = align_up(region.used_bytes, align);
             if offset.saturating_add(bytes) <= region.capacity_bytes {
                 region.used_bytes = offset.saturating_add(bytes);
@@ -2042,17 +2052,13 @@ impl Heap {
         let Some(placement) = object.old_region_placement() else {
             return;
         };
-        let region = &mut self.old_regions[placement.region_index];
+        let region = &mut self.old_gen.regions[placement.region_index];
         region.live_bytes = region.live_bytes.saturating_add(object.total_size());
         region.object_count = region.object_count.saturating_add(1);
         for line in placement.line_start..placement.line_start + placement.line_count {
             region.occupied_lines.insert(line);
         }
-        self.stats.old.reserved_bytes = self
-            .old_regions
-            .iter()
-            .map(|entry| entry.capacity_bytes)
-            .sum();
+        self.stats.old.reserved_bytes = self.old_gen.reserved_bytes();
     }
 
     fn region_stats_from_metadata(&self, regions: &[OldRegion]) -> Vec<OldRegionStats> {
@@ -2082,12 +2088,12 @@ impl Heap {
         {
             return None;
         }
-        let previous_regions = core::mem::take(&mut self.old_regions);
+        let previous_regions = core::mem::take(&mut self.old_gen.regions);
         prepare_old_region_rebuild_for_plan(&previous_regions, completed_plan)
     }
 
     fn prepare_reclaim(&self, kind: CollectionKind, plan: &CollectionPlan) -> PreparedReclaim {
-        let mut rebuild = prepare_old_region_rebuild_for_plan(&self.old_regions, Some(plan))
+        let mut rebuild = prepare_old_region_rebuild_for_plan(&self.old_gen.regions, Some(plan))
             .expect("major reclaim preparation requires a major/full plan");
         let mut survivors = Vec::new();
         let mut rebuilt_object_index = HashMap::with_capacity(self.objects.len());
