@@ -4307,6 +4307,11 @@ fn public_api_shared_collector_runtime_drains_pending_finalizers_while_heap_is_r
             .expect("drain pending finalizers under read lock"),
         1
     );
+    let status = shared
+        .status()
+        .expect("read shared status after finalizer drain");
+    assert_eq!(status.stats.pending_finalizers, 0);
+    assert_eq!(status.stats.finalizers_run, 1);
     assert_eq!(
         runtime.runtime_work_status().expect("runtime work status"),
         RuntimeWorkStatus::Idle

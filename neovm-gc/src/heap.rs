@@ -243,6 +243,18 @@ impl Heap {
         stats
     }
 
+    pub(crate) fn storage_stats(&self) -> HeapStats {
+        self.stats
+    }
+
+    pub(crate) fn runtime_finalizer_stats(&self) -> (u64, usize) {
+        let runtime_state = self.runtime_state();
+        (
+            runtime_state.finalizers_run,
+            runtime_state.pending_finalizers.len(),
+        )
+    }
+
     /// Return runtime-side follow-up work that remains outside GC commit.
     pub fn runtime_work_status(&self) -> RuntimeWorkStatus {
         RuntimeWorkStatus::from_pending_finalizers(self.pending_finalizer_count())
