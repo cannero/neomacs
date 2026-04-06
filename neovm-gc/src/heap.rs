@@ -87,6 +87,8 @@ pub struct Heap {
     recent_phase_trace: Vec<CollectionPhase>,
     last_completed_plan: Option<CollectionPlan>,
     major_mark_state: Option<MajorMarkState>,
+    cached_recommended_plan: CollectionPlan,
+    cached_recommended_background_plan: Option<CollectionPlan>,
 }
 
 // SAFETY: `Heap` owns all heap allocations and its raw pointers are internal references into that
@@ -126,7 +128,7 @@ struct MajorMarkState {
 impl Heap {
     /// Create a new heap with `config`.
     pub fn new(config: HeapConfig) -> Self {
-        Self {
+        let mut heap = Self {
             stats: HeapStats {
                 nursery: crate::stats::SpaceStats {
                     reserved_bytes: config.nursery.semispace_bytes.saturating_mul(2),
@@ -153,7 +155,11 @@ impl Heap {
             recent_phase_trace: Vec::new(),
             last_completed_plan: None,
             major_mark_state: None,
-        }
+            cached_recommended_plan: CollectionPlan::default(),
+            cached_recommended_background_plan: None,
+        };
+        heap.refresh_recommended_plans();
+        heap
     }
 
     /// Return the heap configuration.
@@ -168,75 +174,80 @@ impl Heap {
 
     /// Build a scheduler-visible collection plan from current heap state.
     pub fn plan_for(&self, kind: CollectionKind) -> CollectionPlan {
-        let old_candidates = self.major_region_candidates();
-        let selected_old_regions: Vec<_> = old_candidates
-            .iter()
-            .map(|region| region.region_index)
-            .collect();
-        let target_old_regions = selected_old_regions.len();
-        let old_compaction_bytes = old_candidates
-            .iter()
-            .map(|region| region.live_bytes)
-            .sum::<usize>();
-        let old_reclaim_bytes = old_candidates
-            .iter()
-            .map(|region| region.hole_bytes)
-            .sum::<usize>();
-        let minor_worker_count = self.config.nursery.parallel_minor_workers.max(1);
-        let minor_object_count = self
-            .objects
-            .iter()
-            .filter(|object| object.space() == SpaceKind::Nursery)
-            .count()
-            .max(1);
-        let minor_mark_slice_budget = minor_object_count.div_ceil(minor_worker_count);
-        let worker_count = self.config.old.concurrent_mark_workers.max(1);
-        let mark_slice_budget = self.objects.len().max(1).div_ceil(worker_count);
-
         match kind {
-            CollectionKind::Minor => CollectionPlan {
-                kind,
-                phase: CollectionPhase::Evacuate,
-                concurrent: false,
-                parallel: true,
-                worker_count: minor_worker_count,
-                mark_slice_budget: minor_mark_slice_budget,
-                target_old_regions: 0,
-                selected_old_regions: Vec::new(),
-                estimated_compaction_bytes: 0,
-                estimated_reclaim_bytes: self.stats.nursery.live_bytes,
-            },
-            CollectionKind::Major => CollectionPlan {
-                kind,
-                phase: CollectionPhase::InitialMark,
-                concurrent: self.config.old.concurrent_mark_workers > 1,
-                parallel: true,
-                worker_count,
-                mark_slice_budget,
-                target_old_regions,
-                selected_old_regions: selected_old_regions.clone(),
-                estimated_compaction_bytes: old_compaction_bytes,
-                estimated_reclaim_bytes: old_reclaim_bytes,
-            },
-            CollectionKind::Full => CollectionPlan {
-                kind,
-                phase: CollectionPhase::InitialMark,
-                concurrent: self.config.old.concurrent_mark_workers > 1,
-                parallel: true,
-                worker_count,
-                mark_slice_budget,
-                target_old_regions,
-                selected_old_regions,
-                estimated_compaction_bytes: old_compaction_bytes,
-                estimated_reclaim_bytes: old_reclaim_bytes
-                    .saturating_add(self.stats.nursery.live_bytes)
-                    .saturating_add(self.stats.large.live_bytes),
-            },
+            CollectionKind::Minor => {
+                let worker_count = self.config.nursery.parallel_minor_workers.max(1);
+                let mark_slice_budget = self
+                    .objects
+                    .iter()
+                    .filter(|object| object.space() == SpaceKind::Nursery)
+                    .count()
+                    .max(1)
+                    .div_ceil(worker_count);
+                CollectionPlan {
+                    kind,
+                    phase: CollectionPhase::Evacuate,
+                    concurrent: false,
+                    parallel: true,
+                    worker_count,
+                    mark_slice_budget,
+                    target_old_regions: 0,
+                    selected_old_regions: Vec::new(),
+                    estimated_compaction_bytes: 0,
+                    estimated_reclaim_bytes: self.stats.nursery.live_bytes,
+                }
+            }
+            CollectionKind::Major | CollectionKind::Full => {
+                let old_candidates = self.major_region_candidates();
+                let selected_old_regions: Vec<_> = old_candidates
+                    .iter()
+                    .map(|region| region.region_index)
+                    .collect();
+                let target_old_regions = selected_old_regions.len();
+                let estimated_compaction_bytes = old_candidates
+                    .iter()
+                    .map(|region| region.live_bytes)
+                    .sum::<usize>();
+                let old_reclaim_bytes = old_candidates
+                    .iter()
+                    .map(|region| region.hole_bytes)
+                    .sum::<usize>();
+                let worker_count = self.config.old.concurrent_mark_workers.max(1);
+                let mark_slice_budget = self.objects.len().max(1).div_ceil(worker_count);
+                let estimated_reclaim_bytes = match kind {
+                    CollectionKind::Major => old_reclaim_bytes,
+                    CollectionKind::Full => old_reclaim_bytes
+                        .saturating_add(self.stats.nursery.live_bytes)
+                        .saturating_add(self.stats.large.live_bytes),
+                    CollectionKind::Minor => unreachable!(),
+                };
+                CollectionPlan {
+                    kind,
+                    phase: CollectionPhase::InitialMark,
+                    concurrent: self.config.old.concurrent_mark_workers > 1,
+                    parallel: true,
+                    worker_count,
+                    mark_slice_budget,
+                    target_old_regions,
+                    selected_old_regions,
+                    estimated_compaction_bytes,
+                    estimated_reclaim_bytes,
+                }
+            }
         }
     }
 
     /// Recommend the next collection plan from current heap pressure.
     pub fn recommended_plan(&self) -> CollectionPlan {
+        self.cached_recommended_plan.clone()
+    }
+
+    /// Recommend the next background concurrent collection plan, if any.
+    pub fn recommended_background_plan(&self) -> Option<CollectionPlan> {
+        self.cached_recommended_background_plan.clone()
+    }
+
+    fn compute_recommended_plan(&self) -> CollectionPlan {
         if let Some(plan) = self.active_major_mark_plan() {
             return plan;
         }
@@ -252,24 +263,25 @@ impl Heap {
         self.plan_for(CollectionKind::Minor)
     }
 
-    /// Recommend the next background concurrent collection plan, if any.
-    pub fn recommended_background_plan(&self) -> Option<CollectionPlan> {
+    fn compute_recommended_background_plan(&self) -> Option<CollectionPlan> {
         if let Some(plan) = self.active_major_mark_plan() {
             return Some(plan);
         }
+        if self.config.old.concurrent_mark_workers <= 1 {
+            return None;
+        }
         if self.stats.large.live_bytes > 0 {
-            let plan = self.plan_for(CollectionKind::Full);
-            if plan.concurrent {
-                return Some(plan);
-            }
+            return Some(self.plan_for(CollectionKind::Full));
         }
         if !self.old_regions.is_empty() || self.stats.pinned.live_bytes > 0 {
-            let plan = self.plan_for(CollectionKind::Major);
-            if plan.concurrent {
-                return Some(plan);
-            }
+            return Some(self.plan_for(CollectionKind::Major));
         }
         None
+    }
+
+    fn refresh_recommended_plans(&mut self) {
+        self.cached_recommended_plan = self.compute_recommended_plan();
+        self.cached_recommended_background_plan = self.compute_recommended_background_plan();
     }
 
     /// Return the phases traversed by the most recently executed collection.
@@ -338,6 +350,7 @@ impl Heap {
             mark_steps: 0,
             mark_rounds: 0,
         });
+        self.refresh_recommended_plans();
         Ok(())
     }
 
@@ -358,6 +371,7 @@ impl Heap {
         let completed = remaining_work == 0;
         state.worklist = tracer.into_worklist();
         self.major_mark_state = Some(state);
+        self.refresh_recommended_plans();
 
         Ok(MajorMarkProgress {
             completed,
@@ -443,6 +457,7 @@ impl Heap {
             phase: CollectionPhase::Reclaim,
             ..state.plan
         });
+        self.refresh_recommended_plans();
         Ok(cycle)
     }
 
@@ -498,6 +513,7 @@ impl Heap {
         let mark_steps = state.mark_steps;
         let mark_rounds = state.mark_rounds;
         self.major_mark_state = Some(state);
+        self.refresh_recommended_plans();
 
         Ok(Some(MajorMarkProgress {
             completed,
@@ -751,6 +767,7 @@ impl Heap {
             phase: CollectionPhase::Reclaim,
             ..plan
         });
+        self.refresh_recommended_plans();
         Ok(cycle)
     }
 
@@ -776,6 +793,7 @@ impl Heap {
             self.mark_for_active_major_session(gc.erase());
             self.assist_major_mark_in_place();
         }
+        self.refresh_recommended_plans();
         Ok(scope.root(gc))
     }
 
@@ -857,11 +875,15 @@ impl Heap {
         }
 
         self.assist_major_mark_in_place();
+        if self.major_mark_state.is_some() {
+            self.refresh_recommended_plans();
+        }
     }
 
     pub(crate) fn root_during_active_major_mark(&mut self, object: GcErased) {
         self.mark_for_active_major_session(object);
         self.assist_major_mark_in_place();
+        self.refresh_recommended_plans();
     }
 
     fn descriptor_for<T: Trace + 'static>(&mut self) -> &'static TypeDesc {

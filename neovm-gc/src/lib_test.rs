@@ -1756,6 +1756,27 @@ fn recommended_background_plan_prefers_major_even_with_live_nursery() {
 }
 
 #[test]
+fn recommended_background_plan_is_none_when_concurrency_is_disabled() {
+    let mut heap = Heap::new(HeapConfig {
+        pinned: crate::spaces::PinnedSpaceConfig {
+            reserved_bytes: usize::MAX,
+        },
+        old: crate::spaces::OldGenConfig {
+            concurrent_mark_workers: 1,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut scope = mutator.handle_scope();
+    mutator
+        .alloc(&mut scope, PinnedLeaf(3))
+        .expect("alloc pinned leaf");
+
+    assert_eq!(mutator.recommended_background_plan(), None);
+}
+
+#[test]
 fn background_collector_prefers_full_even_with_live_nursery() {
     let mut heap = Heap::new(HeapConfig {
         large: LargeObjectSpaceConfig {

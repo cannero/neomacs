@@ -1437,6 +1437,27 @@ fn public_api_recommended_background_plan_prefers_major_even_with_live_nursery()
 }
 
 #[test]
+fn public_api_recommended_background_plan_is_none_when_concurrency_is_disabled() {
+    let mut heap = Heap::new(HeapConfig {
+        pinned: neovm_gc::spaces::PinnedSpaceConfig {
+            reserved_bytes: usize::MAX,
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            concurrent_mark_workers: 1,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut scope = mutator.handle_scope();
+    mutator
+        .alloc(&mut scope, PinnedLeaf(3))
+        .expect("alloc pinned leaf");
+
+    assert_eq!(mutator.recommended_background_plan(), None);
+}
+
+#[test]
 fn public_api_background_collector_prefers_full_even_with_live_nursery() {
     let mut heap = Heap::new(HeapConfig {
         large: neovm_gc::spaces::LargeObjectSpaceConfig {
