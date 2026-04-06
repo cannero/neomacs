@@ -6728,6 +6728,61 @@ fn public_api_shared_heap_wait_for_change_wakes_on_guard_drop() {
 }
 
 #[test]
+fn public_api_shared_heap_wait_for_change_wakes_on_runtime_only_drain() {
+    PUBLIC_FINALIZE_COUNT.store(0, Ordering::SeqCst);
+
+    let shared = neovm_gc::SharedHeap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+
+    shared
+        .with_mutator(|mutator| {
+            {
+                let mut scope = mutator.handle_scope();
+                mutator
+                    .alloc(&mut scope, FinalizableLeaf(91))
+                    .expect("alloc finalizable old leaf");
+            }
+            let cycle = mutator
+                .collect(neovm_gc::CollectionKind::Major)
+                .expect("major collect");
+            assert_eq!(cycle.queued_finalizers, 1);
+        })
+        .expect("collect through shared mutator");
+
+    let observed_epoch = shared.epoch().expect("read initial shared epoch");
+    let waking_runtime = shared.collector_runtime();
+    let waiter = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(10));
+        waking_runtime
+            .drain_pending_finalizers()
+            .expect("drain pending finalizers");
+    });
+
+    let (next_epoch, changed) = shared
+        .wait_for_change(observed_epoch, Duration::from_secs(1))
+        .expect("wait for shared epoch change");
+    waiter.join().expect("join runtime drain thread");
+
+    assert!(changed);
+    assert!(next_epoch > observed_epoch);
+    let status = shared
+        .status()
+        .expect("read status after runtime drain wake");
+    assert_eq!(status.stats.pending_finalizers, 0);
+    assert_eq!(status.stats.finalizers_run, 1);
+    assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 1);
+}
+
+#[test]
 fn public_api_shared_heap_wait_for_change_ignores_read_only_guard_drop() {
     let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
     let observed_epoch = shared.epoch().expect("read initial shared epoch");
