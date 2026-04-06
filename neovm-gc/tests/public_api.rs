@@ -1318,6 +1318,49 @@ fn public_api_collector_runtime_prepare_active_reclaim_moves_full_session_to_rec
 }
 
 #[test]
+fn public_api_collector_runtime_finish_major_collection_finishes_active_session_directly() {
+    let mut heap = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            mutator_assist_slices: 0,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let plan = {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        for byte in 0..8u8 {
+            mutator
+                .alloc(&mut scope, OldLeaf([byte; 32]))
+                .expect("alloc old leaf");
+        }
+        neovm_gc::CollectionPlan {
+            mark_slice_budget: 1,
+            ..mutator.plan_for(CollectionKind::Major)
+        }
+    };
+
+    let mut runtime = heap.collector_runtime();
+    runtime
+        .begin_major_mark(plan.clone())
+        .expect("begin persistent major mark");
+
+    let cycle = runtime
+        .finish_major_collection()
+        .expect("finish persistent major session directly");
+    assert_eq!(cycle.major_collections, 1);
+    assert_eq!(runtime.active_major_mark_plan(), None);
+}
+
+#[test]
 fn public_api_collector_runtime_commit_active_reclaim_returns_none_before_full_reclaim_is_prepared()
 {
     let mut heap = Heap::new(HeapConfig {

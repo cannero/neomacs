@@ -124,7 +124,7 @@ impl<'heap> Mutator<'heap> {
 
     /// Finish the current persistent major-mark session and reclaim.
     pub fn finish_major_collection(&mut self) -> Result<CollectionStats, AllocError> {
-        self.heap.finish_major_collection()
+        self.heap.collector_runtime().finish_major_collection()
     }
 
     /// Advance up to `max_slices` of the active major-mark session.

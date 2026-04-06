@@ -1707,6 +1707,49 @@ fn collector_runtime_prepare_active_reclaim_moves_full_session_to_reclaim() {
 }
 
 #[test]
+fn collector_runtime_finish_major_collection_finishes_active_session_directly() {
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        old: crate::spaces::OldGenConfig {
+            mutator_assist_slices: 0,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let plan = {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        for byte in 0..8u8 {
+            mutator
+                .alloc(&mut scope, OldLeaf([byte; 32]))
+                .expect("alloc old leaf");
+        }
+        CollectionPlan {
+            mark_slice_budget: 1,
+            ..mutator.plan_for(CollectionKind::Major)
+        }
+    };
+
+    let mut runtime = heap.collector_runtime();
+    runtime
+        .begin_major_mark(plan.clone())
+        .expect("begin persistent major mark");
+
+    let cycle = runtime
+        .finish_major_collection()
+        .expect("finish persistent major session directly");
+    assert_eq!(cycle.major_collections, 1);
+    assert_eq!(runtime.active_major_mark_plan(), None);
+}
+
+#[test]
 fn collector_runtime_commit_active_reclaim_returns_none_before_full_reclaim_is_prepared() {
     let mut heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {

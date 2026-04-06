@@ -105,6 +105,39 @@ impl<'heap> CollectorRuntime<'heap> {
             )
     }
 
+    /// Finish the current persistent major-mark session and reclaim.
+    pub fn finish_major_collection(&mut self) -> Result<CollectionStats, AllocError> {
+        let pause_start = Instant::now();
+        let Some(state) = self.heap.collector_handle().take_major_mark_state() else {
+            return Err(AllocError::NoCollectionInProgress);
+        };
+        let before_bytes = self.heap.stats().total_live_bytes();
+        self.heap
+            .collector_handle()
+            .push_phase(CollectionPhase::Remark);
+        let mut state = state;
+        collector_session::finish_major_mark(
+            &mut state,
+            self.heap.objects(),
+            &self.heap.indexes().object_index,
+            |tracer, plan| self.heap.trace_major_ephemerons(tracer, plan),
+        );
+        let finished =
+            collector_session::finish_active_collection(state, |plan| match plan.kind {
+                crate::plan::CollectionKind::Major => Ok(self.heap.prepare_major_reclaim(plan)),
+                crate::plan::CollectionKind::Full => self.heap.prepare_full_reclaim(plan),
+                crate::plan::CollectionKind::Minor => Err(AllocError::UnsupportedCollectionKind {
+                    kind: crate::plan::CollectionKind::Minor,
+                }),
+            })?;
+        self.heap
+            .collector_handle()
+            .push_phase(CollectionPhase::Reclaim);
+        Ok(self
+            .heap
+            .commit_finished_active_collection(finished, before_bytes, pause_start))
+    }
+
     /// Prepare reclaim for the active major collection once mark work is fully drained.
     pub fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError> {
         let snapshot = self.heap.collector_shared_snapshot();

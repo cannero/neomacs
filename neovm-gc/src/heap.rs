@@ -9,7 +9,6 @@ use crate::collector_exec::{
     collect_global_sources, execute_collection_plan, prepare_full_reclaim_for_plan,
     prepare_major_reclaim_for_plan, trace_major_ephemerons_for_candidates,
 };
-use crate::collector_session;
 use crate::collector_state::{CollectorSharedSnapshot, CollectorStateHandle};
 use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
 use crate::index_state::HeapIndexState;
@@ -335,38 +334,7 @@ impl Heap {
 
     /// Finish the current persistent major-mark session and reclaim.
     pub fn finish_major_collection(&mut self) -> Result<CollectionStats, AllocError> {
-        let pause_start = Instant::now();
-        let Some(state) = self.collector.take_major_mark_state() else {
-            return Err(AllocError::NoCollectionInProgress);
-        };
-        let before_bytes = self.stats.total_live_bytes();
-        self.record_phase(CollectionPhase::Remark);
-        let mut state = state;
-        collector_session::finish_major_mark(
-            &mut state,
-            &self.objects,
-            &self.indexes.object_index,
-            |tracer, plan| {
-                trace_major_ephemerons_for_candidates(
-                    &self.objects,
-                    &self.indexes.object_index,
-                    &self.indexes.ephemeron_candidates,
-                    tracer,
-                    plan.worker_count.max(1),
-                    plan.mark_slice_budget,
-                )
-            },
-        );
-        let finished =
-            collector_session::finish_active_collection(state, |plan| match plan.kind {
-                CollectionKind::Major => Ok(self.prepare_major_reclaim(plan)),
-                CollectionKind::Full => self.prepare_full_reclaim(plan),
-                CollectionKind::Minor => Err(AllocError::UnsupportedCollectionKind {
-                    kind: CollectionKind::Minor,
-                }),
-            })?;
-        self.record_phase(CollectionPhase::Reclaim);
-        Ok(self.commit_finished_active_collection(finished, before_bytes, pause_start))
+        CollectorRuntime::new(self).finish_major_collection()
     }
 
     /// Advance up to `max_slices` of the active major-mark session.
