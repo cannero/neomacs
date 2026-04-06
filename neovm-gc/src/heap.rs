@@ -287,14 +287,6 @@ impl Heap {
         );
     }
 
-    fn refreshed_collector_snapshot(
-        &self,
-        collector: &mut CollectorState,
-    ) -> CollectorSharedSnapshot {
-        self.refresh_collector_cached_plans(collector);
-        collector.shared_snapshot()
-    }
-
     /// Return the phases traversed by the most recently executed collection.
     pub fn recent_phase_trace(&self) -> Vec<CollectionPhase> {
         self.collector().recent_phase_trace().to_vec()
@@ -321,14 +313,6 @@ impl Heap {
     }
 
     pub(crate) fn begin_major_mark_in_place(&self, plan: CollectionPlan) -> Result<(), AllocError> {
-        self.begin_major_mark_in_place_with_snapshot(plan)
-            .map(|_| ())
-    }
-
-    pub(crate) fn begin_major_mark_in_place_with_snapshot(
-        &self,
-        plan: CollectionPlan,
-    ) -> Result<CollectorSharedSnapshot, AllocError> {
         let mut collector = self.collector();
         begin_major_mark(
             &mut collector,
@@ -337,7 +321,8 @@ impl Heap {
             plan,
             collect_global_sources(&self.roots, &self.objects),
         )?;
-        Ok(self.refreshed_collector_snapshot(&mut collector))
+        self.refresh_collector_cached_plans(&mut collector);
+        Ok(())
     }
 
     /// Advance one slice of the current persistent major-mark session.
@@ -421,13 +406,6 @@ impl Heap {
 
     /// Advance one scheduler-style concurrent major-mark round using the plan worker count.
     pub fn poll_active_major_mark(&self) -> Result<Option<MajorMarkProgress>, AllocError> {
-        self.poll_active_major_mark_with_snapshot()
-            .map(|(progress, _)| progress)
-    }
-
-    pub(crate) fn poll_active_major_mark_with_snapshot(
-        &self,
-    ) -> Result<(Option<MajorMarkProgress>, CollectorSharedSnapshot), AllocError> {
         let mut collector = self.collector();
         let progress = poll_active_major_mark_with_completion(
             &mut collector,
@@ -454,15 +432,13 @@ impl Heap {
             },
         )?;
         let Some(progress) = progress else {
-            return Ok((None, collector.shared_snapshot()));
+            return Ok(None);
         };
-        let snapshot = self.refreshed_collector_snapshot(&mut collector);
-        Ok((Some(progress), snapshot))
+        self.refresh_collector_cached_plans(&mut collector);
+        Ok(Some(progress))
     }
 
-    pub(crate) fn prepare_active_major_reclaim_with_snapshot(
-        &self,
-    ) -> Result<(bool, CollectorSharedSnapshot), AllocError> {
+    pub(crate) fn prepare_active_major_reclaim(&self) -> Result<bool, AllocError> {
         let mut collector = self.collector();
         let prepared = prepare_active_major_reclaim_with_request(
             &mut collector,
@@ -488,8 +464,8 @@ impl Heap {
                 )
             },
         )?;
-        let snapshot = self.refreshed_collector_snapshot(&mut collector);
-        Ok((prepared, snapshot))
+        self.refresh_collector_cached_plans(&mut collector);
+        Ok(prepared)
     }
 
     /// Finish the active major collection if its mark work is fully drained.

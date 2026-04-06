@@ -699,6 +699,15 @@ impl SharedHeap {
         Ok(())
     }
 
+    pub(crate) fn refresh_collector_snapshot_from_state(&self) -> Result<(), SharedHeapError> {
+        let next_collector = self
+            .collector_state
+            .lock()
+            .map_err(|_| SharedHeapError::LockPoisoned)?
+            .shared_snapshot();
+        self.publish_collector_snapshot(next_collector)
+    }
+
     fn publish_runtime_snapshot(
         &self,
         next_runtime_snapshot: SharedRuntimeSnapshot,
