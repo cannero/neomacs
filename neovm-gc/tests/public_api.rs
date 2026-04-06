@@ -7078,6 +7078,60 @@ fn public_api_shared_background_service_wait_for_background_change_reports_old_w
 }
 
 #[test]
+fn public_api_shared_collector_runtime_can_create_background_service() {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let runtime = shared.collector_runtime();
+    let mut service = runtime.background_service(neovm_gc::BackgroundCollectorConfig::default());
+
+    assert_eq!(
+        service
+            .status()
+            .expect("read runtime-backed service status")
+            .heap,
+        runtime
+            .status()
+            .expect("read shared collector runtime status")
+    );
+    assert_eq!(
+        service.tick().expect("tick runtime-backed shared service"),
+        neovm_gc::BackgroundCollectionStatus::Idle
+    );
+}
+
+#[test]
+fn public_api_shared_collector_runtime_can_spawn_background_worker() {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
+    let runtime = shared.collector_runtime();
+    let worker = runtime.spawn_background_worker(neovm_gc::BackgroundWorkerConfig {
+        collector: neovm_gc::BackgroundCollectorConfig::default(),
+        idle_sleep: Duration::from_millis(250),
+        busy_sleep: Duration::ZERO,
+    });
+
+    let wait_deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        let status = worker
+            .status()
+            .expect("read runtime-backed worker status before stop");
+        if status.worker.wait_loops > 0 {
+            break;
+        }
+        assert!(
+            Instant::now() < wait_deadline,
+            "runtime-backed background worker did not enter wait state before timeout"
+        );
+        thread::sleep(Duration::from_millis(1));
+    }
+
+    worker.request_stop();
+    let stats = worker
+        .join()
+        .expect("join runtime-backed background worker");
+    assert!(stats.wait_loops > 0);
+    assert!(stats.signal_wakeups > 0);
+}
+
+#[test]
 fn public_api_shared_background_service_wait_for_background_change_reports_pending_finalizer_change()
  {
     PUBLIC_FINALIZE_COUNT.store(0, Ordering::SeqCst);

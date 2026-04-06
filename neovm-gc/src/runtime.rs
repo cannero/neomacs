@@ -1,7 +1,8 @@
 use crate::background::{
-    BackgroundCollectionRuntime, SharedBackgroundError, SharedBackgroundObservation,
-    SharedBackgroundStatus, SharedBackgroundWaitResult, SharedCollectorHandle, SharedHeap,
-    SharedHeapError, SharedHeapStatus, SharedRuntimeHandle,
+    BackgroundCollectionRuntime, BackgroundCollectorConfig, BackgroundWorker,
+    BackgroundWorkerConfig, SharedBackgroundError, SharedBackgroundObservation,
+    SharedBackgroundService, SharedBackgroundStatus, SharedBackgroundWaitResult,
+    SharedCollectorHandle, SharedHeap, SharedHeapError, SharedHeapStatus, SharedRuntimeHandle,
 };
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
 use crate::heap::{AllocError, Heap};
@@ -138,6 +139,16 @@ impl SharedCollectorRuntime {
     /// Return the shared heap backing this runtime.
     pub fn heap(&self) -> &SharedHeap {
         &self.heap
+    }
+
+    /// Create a shared background service loop bound to this runtime.
+    pub fn background_service(&self, config: BackgroundCollectorConfig) -> SharedBackgroundService {
+        SharedBackgroundService::from_runtime(self.clone(), config)
+    }
+
+    /// Spawn a worker-owned background collector thread bound to this runtime.
+    pub fn spawn_background_worker(&self, config: BackgroundWorkerConfig) -> BackgroundWorker {
+        BackgroundWorker::spawn(self.clone(), config)
     }
 
     fn map_shared_heap_error(error: SharedHeapError) -> SharedBackgroundError {

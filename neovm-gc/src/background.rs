@@ -1173,12 +1173,12 @@ impl SharedHeap {
 
     /// Spawn a worker-owned background collector thread for this heap.
     pub fn spawn_background_worker(&self, config: BackgroundWorkerConfig) -> BackgroundWorker {
-        BackgroundWorker::spawn(self.clone(), config)
+        self.collector_runtime().spawn_background_worker(config)
     }
 
     /// Create a shared background service loop for this heap.
     pub fn background_service(&self, config: BackgroundCollectorConfig) -> SharedBackgroundService {
-        SharedBackgroundService::new(self.clone(), config)
+        self.collector_runtime().background_service(config)
     }
 
     /// Wake waiters blocked on `wait_for_change`.
@@ -1775,7 +1775,13 @@ impl<'heap> BackgroundService<'heap> {
 impl SharedBackgroundService {
     /// Create a new shared background service loop bound to one `SharedHeap`.
     pub fn new(heap: SharedHeap, config: BackgroundCollectorConfig) -> Self {
-        let runtime = heap.collector_runtime();
+        Self::from_runtime(heap.collector_runtime(), config)
+    }
+
+    pub(crate) fn from_runtime(
+        runtime: SharedCollectorRuntime,
+        config: BackgroundCollectorConfig,
+    ) -> Self {
         Self {
             collector: BackgroundCollector::new(config),
             runtime,
@@ -1998,12 +2004,11 @@ impl SharedBackgroundService {
 }
 
 impl BackgroundWorker {
-    fn spawn(shared: SharedHeap, config: BackgroundWorkerConfig) -> Self {
+    pub(crate) fn spawn(runtime: SharedCollectorRuntime, config: BackgroundWorkerConfig) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let stats = Arc::new(BackgroundWorkerCounters::default());
         let worker_stop = Arc::clone(&stop);
         let worker_stats = Arc::clone(&stats);
-        let runtime = shared.collector_runtime();
         let worker_runtime = runtime.clone();
         let handle =
             thread::spawn(move || worker_loop(worker_runtime, config, worker_stop, worker_stats));
