@@ -114,7 +114,7 @@ impl<'heap> Mutator<'heap> {
 
     /// Begin a persistent major-mark session for one scheduler-provided plan.
     pub fn begin_major_mark(&mut self, plan: CollectionPlan) -> Result<(), AllocError> {
-        self.heap.begin_major_mark(plan)
+        self.heap.collector_runtime().begin_major_mark(plan)
     }
 
     /// Advance one slice of the current persistent major-mark session.
@@ -137,26 +137,32 @@ impl<'heap> Mutator<'heap> {
 
     /// Advance one scheduler-style concurrent major-mark round using the active plan worker count.
     pub fn poll_active_major_mark(&mut self) -> Result<Option<MajorMarkProgress>, AllocError> {
-        self.heap.poll_active_major_mark()
+        self.heap.collector_runtime().poll_active_major_mark()
     }
 
     /// Prepare reclaim for the active major collection once mark work is fully drained.
     pub fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError> {
-        self.heap.prepare_active_reclaim_if_needed()
+        self.heap
+            .collector_runtime()
+            .prepare_active_reclaim_if_needed()
     }
 
     /// Finish the active major collection if its mark work is fully drained.
     pub fn finish_active_major_collection_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, AllocError> {
-        self.heap.finish_active_major_collection_if_ready()
+        self.heap
+            .collector_runtime()
+            .finish_active_major_collection_if_ready()
     }
 
     /// Commit the active major collection once reclaim has already been prepared.
     pub fn commit_active_reclaim_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, AllocError> {
-        self.heap.commit_active_reclaim_if_ready()
+        self.heap
+            .collector_runtime()
+            .commit_active_reclaim_if_ready()
     }
 
     /// Service one background collection round for the active major-mark session.
@@ -225,7 +231,7 @@ impl BackgroundCollectionRuntime for Mutator<'_> {
     }
 
     fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError> {
-        self.heap.prepare_active_reclaim_if_needed()
+        self.prepare_active_reclaim_if_needed()
     }
 
     fn finish_active_major_collection_if_ready(

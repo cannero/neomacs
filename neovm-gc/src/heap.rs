@@ -9,7 +9,7 @@ use crate::collector_exec::{
     collect_global_sources, execute_collection_plan, prepare_full_reclaim_for_plan,
     prepare_major_reclaim_for_plan, trace_major_ephemerons_for_candidates,
 };
-use crate::collector_session::{self, build_prepared_active_reclaim, prepare_active_reclaim};
+use crate::collector_session;
 use crate::collector_state::{CollectorSharedSnapshot, CollectorStateHandle};
 use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
 use crate::index_state::HeapIndexState;
@@ -427,37 +427,14 @@ impl Heap {
     pub fn finish_active_major_collection_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, AllocError> {
-        if self.prepare_active_reclaim_if_needed()? {
-            return Ok(None);
-        }
-        self.commit_active_reclaim_if_ready()
+        CollectorRuntime::new(self).finish_active_major_collection_if_ready()
     }
 
     /// Commit the active major collection once reclaim has already been prepared.
     pub fn commit_active_reclaim_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, AllocError> {
-        let before_bytes = self.stats.total_live_bytes();
-        let pause_start = Instant::now();
-        let finished = self.collector.finish_active_collection_if_ready(
-            &self.objects,
-            &self.indexes.object_index,
-            |tracer, plan| {
-                trace_major_ephemerons_for_candidates(
-                    &self.objects,
-                    &self.indexes.object_index,
-                    &self.indexes.ephemeron_candidates,
-                    tracer,
-                    plan.worker_count.max(1),
-                    plan.mark_slice_budget,
-                )
-            },
-            |plan| Err(AllocError::UnsupportedCollectionKind { kind: plan.kind }),
-        )?;
-        Ok(finished.map(|finished| {
-            self.record_phase(CollectionPhase::Reclaim);
-            self.commit_finished_active_collection(finished, before_bytes, pause_start)
-        }))
+        CollectorRuntime::new(self).commit_active_reclaim_if_ready()
     }
 
     /// Return logical old-generation region statistics.
@@ -932,7 +909,7 @@ impl Heap {
         )
     }
 
-    fn prepare_full_reclaim(
+    pub(crate) fn prepare_full_reclaim(
         &mut self,
         plan: &CollectionPlan,
     ) -> Result<PreparedReclaim, AllocError> {
@@ -954,77 +931,7 @@ impl Heap {
         Ok(prepared)
     }
 
-    pub(crate) fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError> {
-        let request = self.collector.active_reclaim_prep_request();
-        let Some(request) = request else {
-            return Ok(false);
-        };
-
-        if request.plan.kind == CollectionKind::Major {
-            return self
-                .collector
-                .prepare_active_major_reclaim_with_request_and_refresh(
-                    &self.objects,
-                    &self.indexes.object_index,
-                    |tracer, plan| {
-                        trace_major_ephemerons_for_candidates(
-                            &self.objects,
-                            &self.indexes.object_index,
-                            &self.indexes.ephemeron_candidates,
-                            tracer,
-                            plan.worker_count.max(1),
-                            plan.mark_slice_budget,
-                        )
-                    },
-                    |plan| {
-                        prepare_major_reclaim_for_plan(
-                            plan,
-                            &self.objects,
-                            &self.indexes,
-                            &self.old_gen,
-                            &self.config.old,
-                        )
-                    },
-                    &self.storage_stats(),
-                    &self.old_gen,
-                    &self.config.old,
-                    |kind| self.plan_for(kind),
-                );
-        }
-
-        let (mark_steps_delta, mark_rounds_delta) = prepare_active_reclaim(
-            &request,
-            |tracer, plan| {
-                trace_major_ephemerons_for_candidates(
-                    &self.objects,
-                    &self.indexes.object_index,
-                    &self.indexes.ephemeron_candidates,
-                    tracer,
-                    plan.worker_count.max(1),
-                    plan.mark_slice_budget,
-                )
-            },
-            &self.objects,
-            &self.indexes.object_index,
-        );
-        let prepared =
-            build_prepared_active_reclaim(&request, mark_steps_delta, mark_rounds_delta, |plan| {
-                match plan.kind {
-                    CollectionKind::Major => Ok(self.prepare_major_reclaim(plan)),
-                    CollectionKind::Full => self.prepare_full_reclaim(plan),
-                    CollectionKind::Minor => Err(AllocError::UnsupportedCollectionKind {
-                        kind: CollectionKind::Minor,
-                    }),
-                }
-            })?;
-        let prepared = self.collector.complete_active_reclaim_prep(prepared);
-        if prepared {
-            self.refresh_recommended_plans();
-        }
-        Ok(prepared)
-    }
-
-    fn commit_finished_active_collection(
+    pub(crate) fn commit_finished_active_collection(
         &mut self,
         finished: crate::collector_session::FinishedActiveCollection,
         before_bytes: usize,

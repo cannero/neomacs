@@ -5,7 +5,7 @@ use crate::background::{
     SharedCollectorHandle, SharedHeap, SharedHeapError, SharedHeapStatus, SharedRuntimeHandle,
 };
 use crate::collector_policy::refresh_cached_plans as refresh_cached_collector_plans;
-use crate::collector_session;
+use crate::collector_session::{self, build_prepared_active_reclaim, prepare_active_reclaim};
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
 use crate::heap::{AllocError, Heap};
 use crate::plan::{
@@ -136,7 +136,42 @@ impl<'heap> CollectorRuntime<'heap> {
                     |kind| self.heap.plan_for(kind),
                 );
         }
-        self.heap.prepare_active_reclaim_if_needed()
+        let request = self.heap.collector_handle().active_reclaim_prep_request();
+        let Some(request) = request else {
+            return Ok(false);
+        };
+
+        let (mark_steps_delta, mark_rounds_delta) = prepare_active_reclaim(
+            &request,
+            |tracer, plan| self.heap.trace_major_ephemerons(tracer, plan),
+            self.heap.objects(),
+            &self.heap.indexes().object_index,
+        );
+        let prepared =
+            build_prepared_active_reclaim(&request, mark_steps_delta, mark_rounds_delta, |plan| {
+                match plan.kind {
+                    crate::plan::CollectionKind::Major => Ok(self.heap.prepare_major_reclaim(plan)),
+                    crate::plan::CollectionKind::Full => self.heap.prepare_full_reclaim(plan),
+                    crate::plan::CollectionKind::Minor => {
+                        Err(AllocError::UnsupportedCollectionKind {
+                            kind: crate::plan::CollectionKind::Minor,
+                        })
+                    }
+                }
+            })?;
+        let prepared = self
+            .heap
+            .collector_handle()
+            .complete_active_reclaim_prep(prepared);
+        if prepared {
+            self.heap.collector_handle().refresh_cached_plans(
+                &self.heap.storage_stats(),
+                self.heap.old_gen(),
+                self.heap.old_config(),
+                |kind| self.heap.plan_for(kind),
+            );
+        }
+        Ok(prepared)
     }
 
     /// Finish the active major collection if its mark work is fully drained.
@@ -156,10 +191,7 @@ impl<'heap> CollectorRuntime<'heap> {
         if snapshot
             .active_major_mark_plan
             .as_ref()
-            .is_some_and(|plan| {
-                plan.kind == crate::plan::CollectionKind::Major
-                    && plan.phase != CollectionPhase::Reclaim
-            })
+            .is_some_and(|plan| plan.phase != CollectionPhase::Reclaim)
         {
             if self.prepare_active_reclaim_if_needed()? {
                 return Ok(None);
@@ -189,7 +221,24 @@ impl<'heap> CollectorRuntime<'heap> {
         {
             return Ok(None);
         }
-        self.heap.commit_active_reclaim_if_ready()
+        let before_bytes = self.heap.stats().total_live_bytes();
+        let pause_start = Instant::now();
+        let finished = self
+            .heap
+            .collector_handle()
+            .finish_active_collection_if_ready(
+                self.heap.objects(),
+                &self.heap.indexes().object_index,
+                |tracer, plan| self.heap.trace_major_ephemerons(tracer, plan),
+                |plan| Err(AllocError::UnsupportedCollectionKind { kind: plan.kind }),
+            )?;
+        Ok(finished.map(|finished| {
+            self.heap
+                .collector_handle()
+                .push_phase(CollectionPhase::Reclaim);
+            self.heap
+                .commit_finished_active_collection(finished, before_bytes, pause_start)
+        }))
     }
 
     /// Service one background collection round for the active major-mark session.

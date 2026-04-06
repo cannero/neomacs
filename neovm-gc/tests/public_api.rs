@@ -1683,6 +1683,73 @@ fn public_api_mutator_commit_active_reclaim_requires_reclaim_phase() {
 }
 
 #[test]
+fn public_api_mutator_commit_active_reclaim_returns_none_before_full_reclaim_is_prepared() {
+    let mut heap = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            promotion_age: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: 64,
+            soft_limit_bytes: usize::MAX,
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            mutator_assist_slices: 0,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let plan = {
+        let mut scope = mutator.handle_scope();
+        mutator
+            .alloc(&mut scope, Leaf(194))
+            .expect("alloc nursery leaf");
+        neovm_gc::CollectionPlan {
+            mark_slice_budget: 1,
+            ..mutator.plan_for(CollectionKind::Full)
+        }
+    };
+
+    mutator
+        .begin_major_mark(plan.clone())
+        .expect("begin persistent full mark");
+    while let Some(progress) = mutator
+        .poll_active_major_mark()
+        .expect("poll persistent full mark")
+    {
+        if progress.completed {
+            break;
+        }
+    }
+
+    assert_eq!(
+        mutator.active_major_mark_plan(),
+        Some(neovm_gc::CollectionPlan {
+            phase: CollectionPhase::Remark,
+            ..plan.clone()
+        })
+    );
+    assert_eq!(
+        mutator
+            .commit_active_reclaim_if_ready()
+            .expect("commit before full reclaim prep"),
+        None
+    );
+    assert!(
+        mutator
+            .prepare_active_reclaim_if_needed()
+            .expect("prepare persistent full reclaim")
+    );
+    assert!(
+        mutator
+            .commit_active_reclaim_if_ready()
+            .expect("commit prepared full reclaim")
+            .is_some()
+    );
+}
+
+#[test]
 fn public_api_persistent_major_mark_root_keeps_existing_object() {
     let mut heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
