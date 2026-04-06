@@ -3779,10 +3779,20 @@ impl Context {
         roots.extend(self.temp_roots.iter().cloned());
         roots.extend(self.vm_gc_roots.iter().cloned());
         // Re-scan live bytecode VM stacks (catches values between with_frame_roots snapshots)
+        let live_stack_count = self.vm_live_stacks.len();
+        let mut live_stack_total_values = 0usize;
         for stack_ptr in &self.vm_live_stacks {
             // Safety: the stack pointer is valid while the VM frame is on the call stack.
             let stack = unsafe { &**stack_ptr };
+            live_stack_total_values += stack.len();
             roots.extend(stack.iter().copied());
+        }
+        if live_stack_count > 0 {
+            tracing::trace!(
+                "GC roots: {} live stacks, {} total stack values",
+                live_stack_count,
+                live_stack_total_values,
+            );
         }
         for frame in &self.condition_stack {
             match frame {

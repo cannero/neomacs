@@ -237,7 +237,7 @@ impl<'a> Vm<'a> {
         // Register the live stack so the GC can always scan it.
         // This closes the gap where values on the bytecode stack are
         // unreachable between with_frame_roots snapshots.
-        let stack_ptr: *const Vec<Value> = &stack;
+        let stack_ptr: *const Vec<Value> = &raw const stack;
         self.ctx.vm_live_stacks.push(stack_ptr);
 
         // Unified calling convention: push args onto the stack.
@@ -260,6 +260,7 @@ impl<'a> Vm<'a> {
                 Value::fixnum(nonrest as i64)
             };
             let arity = Value::cons(Value::fixnum(n_required as i64), max_val);
+            self.ctx.vm_live_stacks.pop();
             return Err(signal(
                 "wrong-number-of-arguments",
                 vec![arity, Value::fixnum(nargs as i64)],
@@ -3416,7 +3417,7 @@ impl<'a> Vm<'a> {
         let mut pc: usize = 0;
         let mut handlers: Vec<Handler> = Vec::new();
         let mut specpdl: Vec<VmUnwindEntry> = Vec::new();
-        let stack_ptr: *const Vec<Value> = &stack;
+        let stack_ptr: *const Vec<Value> = &raw const stack;
         self.ctx.vm_live_stacks.push(stack_ptr);
         let result = self.run_loop(func, &mut stack, &mut pc, &mut handlers, &mut specpdl);
         self.ctx.truncate_condition_stack(condition_stack_base);
