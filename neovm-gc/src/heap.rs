@@ -57,11 +57,6 @@ pub enum AllocError {
         /// Total allocation size requested from the system allocator.
         requested_bytes: usize,
     },
-    /// The requested policy does not have a concrete allocator yet.
-    UnsupportedMovePolicy {
-        /// Move policy that could not be honored.
-        policy: crate::descriptor::MovePolicy,
-    },
     /// A persistent major collection session is already active.
     CollectionInProgress,
     /// No persistent major collection session is currently active.
