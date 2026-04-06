@@ -11,7 +11,9 @@ use crate::collector_exec::{
     trace_major_ephemerons, trace_minor_ephemerons,
 };
 use crate::collector_session::{
-    advance_major_mark_slice, begin_major_mark, poll_active_major_mark_round,
+    active_reclaim_prep_request, advance_major_mark_slice, begin_major_mark,
+    build_prepared_active_reclaim, complete_active_reclaim_prep, poll_active_major_mark_round,
+    prepare_active_reclaim,
 };
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
 use crate::descriptor::{GcErased, Relocator, Trace, Tracer, TypeDesc, TypeFlags, fixed_type_desc};
@@ -559,47 +561,44 @@ impl Heap {
     pub(crate) fn prepare_active_major_reclaim_with_snapshot(
         &self,
     ) -> Result<(bool, CollectorSharedSnapshot), AllocError> {
-        let mut collector = self.collector();
-        let plan = collector.active_major_mark_needs_reclaim_prep_plan();
-        let Some(plan) = plan else {
+        let request = {
+            let collector = self.collector();
+            active_reclaim_prep_request(&collector)
+        };
+        let Some(request) = request else {
+            let collector = self.collector();
             return Ok((false, collector.shared_snapshot()));
         };
-        if plan.kind != CollectionKind::Major {
+        if request.plan.kind != CollectionKind::Major {
+            let collector = self.collector();
             return Ok((false, collector.shared_snapshot()));
         }
 
-        let mut mark_steps_delta = 0u64;
-        let mut mark_rounds_delta = 0u64;
-        if !collector.active_major_mark_ephemerons_processed() {
-            let mut tracer = MarkTracer::with_worklist(
-                &self.objects,
-                &self.indexes.object_index,
-                MarkWorklist::default(),
-            );
-            let (ephemeron_steps, ephemeron_rounds) = self.trace_major_ephemerons(
-                &mut tracer,
-                plan.worker_count.max(1),
-                plan.mark_slice_budget,
-            );
-            mark_steps_delta = mark_steps_delta.saturating_add(ephemeron_steps);
-            mark_rounds_delta = mark_rounds_delta.saturating_add(ephemeron_rounds);
-        }
-
-        let empty_forwarding: ForwardingMap = HashMap::new();
-        self.process_weak_references(
-            CollectionKind::Major,
-            plan.worker_count.max(1),
-            &empty_forwarding,
+        let (mark_steps_delta, mark_rounds_delta) = prepare_active_reclaim(
+            &request,
+            |tracer, plan| {
+                self.trace_major_ephemerons(
+                    tracer,
+                    plan.worker_count.max(1),
+                    plan.mark_slice_budget,
+                )
+            },
+            &self.objects,
             &self.indexes.object_index,
         );
-        let reclaim_prepare_start = Instant::now();
-        let prepared_reclaim = self.prepare_reclaim(CollectionKind::Major, &plan);
-        let prepared = collector.complete_active_major_reclaim_prep(
-            mark_steps_delta,
-            mark_rounds_delta,
-            reclaim_prepare_start.elapsed(),
-            prepared_reclaim,
-        );
+        let prepared =
+            build_prepared_active_reclaim(&request, mark_steps_delta, mark_rounds_delta, |plan| {
+                let empty_forwarding: ForwardingMap = HashMap::new();
+                self.process_weak_references(
+                    CollectionKind::Major,
+                    plan.worker_count.max(1),
+                    &empty_forwarding,
+                    &self.indexes.object_index,
+                );
+                Ok(self.prepare_reclaim(CollectionKind::Major, plan))
+            })?;
+        let mut collector = self.collector();
+        let prepared = complete_active_reclaim_prep(&mut collector, prepared);
         let recommended_plan = self.compute_recommended_plan_from_collector(&collector);
         let recommended_background_plan =
             self.compute_recommended_background_plan_from_collector(&collector);
@@ -1648,69 +1647,40 @@ impl Heap {
     }
 
     pub(crate) fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError> {
-        let plan = {
+        let request = {
             let collector = self.collector();
-            collector.active_major_mark_needs_reclaim_prep_plan()
+            active_reclaim_prep_request(&collector)
         };
-        let Some(plan) = plan else {
+        let Some(request) = request else {
             return Ok(false);
         };
-
-        let mut mark_steps_delta = 0u64;
-        let mut mark_rounds_delta = 0u64;
-        if !self.collector().active_major_mark_ephemerons_processed() {
-            let mut tracer = MarkTracer::with_worklist(
-                &self.objects,
-                &self.indexes.object_index,
-                MarkWorklist::default(),
-            );
-            let (ephemeron_steps, ephemeron_rounds) = self.trace_major_ephemerons(
-                &mut tracer,
-                plan.worker_count.max(1),
-                plan.mark_slice_budget,
-            );
-            mark_steps_delta = mark_steps_delta.saturating_add(ephemeron_steps);
-            mark_rounds_delta = mark_rounds_delta.saturating_add(ephemeron_rounds);
-        }
-
-        let prepared = match plan.kind {
-            CollectionKind::Major => {
-                let empty_forwarding: ForwardingMap = HashMap::new();
-                self.process_weak_references(
-                    CollectionKind::Major,
+        let (mark_steps_delta, mark_rounds_delta) = prepare_active_reclaim(
+            &request,
+            |tracer, plan| {
+                self.trace_major_ephemerons(
+                    tracer,
                     plan.worker_count.max(1),
-                    &empty_forwarding,
-                    &self.indexes.object_index,
-                );
-                let reclaim_prepare_start = Instant::now();
-                let prepared_reclaim = self.prepare_reclaim(CollectionKind::Major, &plan);
-                self.collector().complete_active_major_reclaim_prep(
-                    mark_steps_delta,
-                    mark_rounds_delta,
-                    reclaim_prepare_start.elapsed(),
-                    prepared_reclaim,
+                    plan.mark_slice_budget,
                 )
-            }
-            CollectionKind::Full => {
-                let reclaim_prepare_start = Instant::now();
-                let (prepared_reclaim, _promoted_bytes) = self.prepare_full_reclaim(&plan)?;
-                self.collector().complete_active_major_reclaim_prep(
-                    mark_steps_delta,
-                    mark_rounds_delta,
-                    reclaim_prepare_start.elapsed(),
-                    prepared_reclaim,
-                )
-            }
-            CollectionKind::Minor => {
-                return Err(AllocError::UnsupportedCollectionKind {
-                    kind: CollectionKind::Minor,
-                });
-            }
-        };
-        debug_assert!(
-            prepared,
-            "active major reclaim prep should only complete while the session stays active"
+            },
+            &self.objects,
+            &self.indexes.object_index,
         );
-        Ok(prepared)
+        let prepared =
+            build_prepared_active_reclaim(&request, mark_steps_delta, mark_rounds_delta, |plan| {
+                match plan.kind {
+                    CollectionKind::Major => Ok(self.prepare_major_reclaim(plan)),
+                    CollectionKind::Full => {
+                        self.prepare_full_reclaim(plan).map(|(reclaim, _)| reclaim)
+                    }
+                    CollectionKind::Minor => Err(AllocError::UnsupportedCollectionKind {
+                        kind: CollectionKind::Minor,
+                    }),
+                }
+            })?;
+        Ok(complete_active_reclaim_prep(
+            &mut self.collector(),
+            prepared,
+        ))
     }
 }
