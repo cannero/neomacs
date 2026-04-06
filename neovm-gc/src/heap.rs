@@ -304,6 +304,10 @@ impl Heap {
 
     /// Begin a persistent major-mark session for `plan`.
     pub fn begin_major_mark(&mut self, plan: CollectionPlan) -> Result<(), AllocError> {
+        self.begin_major_mark_in_place(plan)
+    }
+
+    pub(crate) fn begin_major_mark_in_place(&self, plan: CollectionPlan) -> Result<(), AllocError> {
         if self.collector().has_active_major_mark() {
             return Err(AllocError::CollectionInProgress);
         }

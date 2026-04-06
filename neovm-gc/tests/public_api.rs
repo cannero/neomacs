@@ -5,7 +5,7 @@ use neovm_gc::{
 };
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -16,6 +16,48 @@ unsafe impl Trace for Leaf {
     fn trace(&self, _tracer: &mut dyn Tracer) {}
 
     fn relocate(&self, _relocator: &mut dyn Relocator) {}
+}
+
+fn lock_shared_heap_on_other_thread(
+    shared: neovm_gc::SharedHeap,
+) -> (mpsc::SyncSender<()>, thread::JoinHandle<()>) {
+    let (locked_tx, locked_rx) = mpsc::sync_channel(0);
+    let (release_tx, release_rx) = mpsc::sync_channel(0);
+    let waiter = thread::spawn(move || {
+        let _guard = shared.lock().expect("lock shared heap on helper thread");
+        locked_tx
+            .send(())
+            .expect("signal shared heap write-lock acquisition");
+        release_rx
+            .recv()
+            .expect("wait to release shared heap write lock");
+    });
+    locked_rx
+        .recv()
+        .expect("wait for helper thread to hold shared heap write lock");
+    (release_tx, waiter)
+}
+
+fn read_lock_shared_heap_on_other_thread(
+    shared: neovm_gc::SharedHeap,
+) -> (mpsc::SyncSender<()>, thread::JoinHandle<()>) {
+    let (locked_tx, locked_rx) = mpsc::sync_channel(0);
+    let (release_tx, release_rx) = mpsc::sync_channel(0);
+    let waiter = thread::spawn(move || {
+        let _guard = shared
+            .read()
+            .expect("read-lock shared heap on helper thread");
+        locked_tx
+            .send(())
+            .expect("signal shared heap read-lock acquisition");
+        release_rx
+            .recv()
+            .expect("wait to release shared heap read lock");
+    });
+    locked_rx
+        .recv()
+        .expect("wait for helper thread to hold shared heap read lock");
+    (release_tx, waiter)
 }
 
 #[derive(Debug)]
@@ -3965,9 +4007,13 @@ fn public_api_shared_background_service_tick_returns_progress_from_snapshot_for_
         .expect("seed active major-mark session");
 
     let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig::default());
-    let _guard = shared.lock().expect("lock shared heap");
+    let (release_tx, waiter) = lock_shared_heap_on_other_thread(shared.clone());
 
     let result = service.tick();
+    release_tx
+        .send(())
+        .expect("release helper-thread shared heap write lock");
+    waiter.join().expect("join helper write-lock thread");
 
     match result {
         Ok(neovm_gc::BackgroundCollectionStatus::Progress(progress)) => {
@@ -3978,7 +4024,7 @@ fn public_api_shared_background_service_tick_returns_progress_from_snapshot_for_
         other => panic!("expected progress snapshot status, got {other:?}"),
     }
     assert_eq!(service.stats().ticks, 1);
-    assert_eq!(service.stats().rounds, 0);
+    assert_eq!(service.stats().rounds, 1);
 }
 
 #[test]
@@ -4023,9 +4069,13 @@ fn public_api_shared_background_service_tick_returns_ready_from_snapshot_for_com
         .expect("seed completed major-mark session");
 
     let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig::default());
-    let _guard = shared.lock().expect("lock shared heap");
+    let (release_tx, waiter) = lock_shared_heap_on_other_thread(shared.clone());
 
     let result = service.tick();
+    release_tx
+        .send(())
+        .expect("release helper-thread shared heap write lock");
+    waiter.join().expect("join helper write-lock thread");
 
     match result {
         Ok(neovm_gc::BackgroundCollectionStatus::ReadyToFinish(progress)) => {
@@ -4035,7 +4085,7 @@ fn public_api_shared_background_service_tick_returns_ready_from_snapshot_for_com
         other => panic!("expected ready-to-finish snapshot status, got {other:?}"),
     }
     assert_eq!(service.stats().ticks, 1);
-    assert_eq!(service.stats().rounds, 0);
+    assert_eq!(service.stats().rounds, 1);
 }
 
 #[test]
@@ -4196,9 +4246,13 @@ fn public_api_shared_background_service_try_tick_returns_progress_from_snapshot_
         .expect("seed active major-mark session");
 
     let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig::default());
-    let _guard = shared.lock().expect("lock shared heap");
+    let (release_tx, waiter) = lock_shared_heap_on_other_thread(shared.clone());
 
     let result = service.try_tick();
+    release_tx
+        .send(())
+        .expect("release helper-thread shared heap write lock");
+    waiter.join().expect("join helper write-lock thread");
 
     match result {
         Ok(neovm_gc::BackgroundCollectionStatus::Progress(progress)) => {
@@ -4209,7 +4263,117 @@ fn public_api_shared_background_service_try_tick_returns_progress_from_snapshot_
         other => panic!("expected progress snapshot status, got {other:?}"),
     }
     assert_eq!(service.stats().ticks, 1);
-    assert_eq!(service.stats().rounds, 0);
+    assert_eq!(service.stats().rounds, 1);
+}
+
+#[test]
+fn public_api_shared_background_service_try_tick_reports_progress_while_heap_is_read_locked() {
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            concurrent_mark_workers: 2,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for byte in 0..64u8 {
+                mutator
+                    .alloc(&mut scope, OldLeaf([byte; 32]))
+                    .expect("allocate old leaf");
+            }
+            let plan = mutator.plan_for(CollectionKind::Major);
+            mutator.begin_major_mark(plan).expect("begin major mark");
+        })
+        .expect("seed active major-mark session");
+
+    let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig::default());
+    let (release_tx, waiter) = read_lock_shared_heap_on_other_thread(shared.clone());
+
+    let result = service.try_tick();
+    release_tx
+        .send(())
+        .expect("release helper-thread shared heap read lock");
+    waiter.join().expect("join helper read-lock thread");
+
+    match result {
+        Ok(neovm_gc::BackgroundCollectionStatus::Progress(progress)) => {
+            assert!(!progress.completed);
+            assert!(progress.remaining_work > 0);
+        }
+        other => panic!("expected shared-read progress status, got {other:?}"),
+    }
+    assert_eq!(service.stats().ticks, 1);
+    assert!(service.stats().rounds > 0);
+}
+
+#[test]
+fn public_api_shared_background_service_tick_starts_active_session_while_heap_is_read_locked() {
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            concurrent_mark_workers: 2,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for byte in 0..64u8 {
+                mutator
+                    .alloc(&mut scope, OldLeaf([byte; 32]))
+                    .expect("allocate old leaf");
+            }
+        })
+        .expect("seed shared heap for background auto-start");
+
+    let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig {
+        auto_finish_when_ready: false,
+        ..neovm_gc::BackgroundCollectorConfig::default()
+    });
+    let _guard = shared.read().expect("read-lock shared heap");
+
+    let result = service.tick();
+
+    match result {
+        Ok(neovm_gc::BackgroundCollectionStatus::Progress(progress)) => {
+            assert!(!progress.completed);
+            assert!(progress.drained_objects > 0);
+        }
+        Ok(neovm_gc::BackgroundCollectionStatus::ReadyToFinish(progress)) => {
+            assert!(progress.completed);
+            assert_eq!(progress.remaining_work, 0);
+        }
+        other => panic!("expected shared-read auto-start progress, got {other:?}"),
+    }
+    assert_eq!(service.stats().ticks, 1);
+    assert_eq!(service.stats().sessions_started, 1);
+    assert!(service.stats().rounds > 0);
+    assert!(
+        shared
+            .active_major_mark_plan()
+            .expect("read shared active plan after shared-read auto-start")
+            .is_some()
+    );
 }
 
 #[test]
@@ -4313,9 +4477,13 @@ fn public_api_shared_background_service_try_tick_returns_ready_from_snapshot_for
         .expect("seed completed major-mark session");
 
     let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig::default());
-    let _guard = shared.lock().expect("lock shared heap");
+    let (release_tx, waiter) = lock_shared_heap_on_other_thread(shared.clone());
 
     let result = service.try_tick();
+    release_tx
+        .send(())
+        .expect("release helper-thread shared heap write lock");
+    waiter.join().expect("join helper write-lock thread");
 
     match result {
         Ok(neovm_gc::BackgroundCollectionStatus::ReadyToFinish(progress)) => {
@@ -4325,7 +4493,7 @@ fn public_api_shared_background_service_try_tick_returns_ready_from_snapshot_for
         other => panic!("expected ready-to-finish snapshot status, got {other:?}"),
     }
     assert_eq!(service.stats().ticks, 1);
-    assert_eq!(service.stats().rounds, 0);
+    assert_eq!(service.stats().rounds, 1);
 }
 
 #[test]
