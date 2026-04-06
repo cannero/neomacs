@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 use crate::background::{BackgroundCollectorConfig, BackgroundService, SharedHeap};
 use crate::barrier::{BarrierEvent, BarrierKind};
 use crate::collector_exec::{
-    MarkTracer, process_weak_references, trace_major as run_major_trace, trace_major_ephemerons,
-    trace_minor as run_minor_trace,
+    MarkTracer, process_weak_references_for_candidates, trace_major as run_major_trace,
+    trace_major_ephemerons_for_candidates, trace_minor as run_minor_trace,
 };
 use crate::collector_session::{
     active_reclaim_prep_request, advance_major_mark_slice, begin_major_mark,
@@ -396,7 +396,10 @@ impl Heap {
             &self.objects,
             &self.indexes.object_index,
             |tracer, plan| {
-                self.trace_major_ephemerons(
+                trace_major_ephemerons_for_candidates(
+                    &self.objects,
+                    &self.indexes.object_index,
+                    &self.indexes.ephemeron_candidates,
                     tracer,
                     plan.worker_count.max(1),
                     plan.mark_slice_budget,
@@ -521,14 +524,19 @@ impl Heap {
                 &self.indexes.object_index,
                 MarkWorklist::default(),
             );
-            let (ephemeron_steps, ephemeron_rounds) = self.trace_major_ephemerons(
+            let (ephemeron_steps, ephemeron_rounds) = trace_major_ephemerons_for_candidates(
+                &self.objects,
+                &self.indexes.object_index,
+                &self.indexes.ephemeron_candidates,
                 &mut tracer,
                 active_plan.worker_count.max(1),
                 active_plan.mark_slice_budget,
             );
             if active_plan.kind == CollectionKind::Major {
                 let empty_forwarding: ForwardingMap = HashMap::new();
-                self.process_weak_references(
+                process_weak_references_for_candidates(
+                    &self.objects,
+                    &self.indexes.weak_candidates,
                     CollectionKind::Major,
                     active_plan.worker_count.max(1),
                     &empty_forwarding,
@@ -572,7 +580,10 @@ impl Heap {
         let (mark_steps_delta, mark_rounds_delta) = prepare_active_reclaim(
             &request,
             |tracer, plan| {
-                self.trace_major_ephemerons(
+                trace_major_ephemerons_for_candidates(
+                    &self.objects,
+                    &self.indexes.object_index,
+                    &self.indexes.ephemeron_candidates,
                     tracer,
                     plan.worker_count.max(1),
                     plan.mark_slice_budget,
@@ -584,7 +595,9 @@ impl Heap {
         let prepared =
             build_prepared_active_reclaim(&request, mark_steps_delta, mark_rounds_delta, |plan| {
                 let empty_forwarding: ForwardingMap = HashMap::new();
-                self.process_weak_references(
+                process_weak_references_for_candidates(
+                    &self.objects,
+                    &self.indexes.weak_candidates,
                     CollectionKind::Major,
                     plan.worker_count.max(1),
                     &empty_forwarding,
@@ -780,7 +793,9 @@ impl Heap {
                     &mut self.indexes,
                     &evacuation.forwarding,
                 );
-                self.process_weak_references(
+                process_weak_references_for_candidates(
+                    &self.objects,
+                    &self.indexes.weak_candidates,
                     plan.kind,
                     plan.worker_count.max(1),
                     &evacuation.forwarding,
@@ -1179,24 +1194,6 @@ impl Heap {
         )
     }
 
-    fn trace_major_ephemerons(
-        &self,
-        tracer: &mut MarkTracer<'_>,
-        worker_count: usize,
-        slice_budget: usize,
-    ) -> (u64, u64) {
-        let ephemeron_candidates = self
-            .indexes
-            .candidate_indices(&self.indexes.ephemeron_candidates);
-        trace_major_ephemerons(
-            &self.objects,
-            &ephemeron_candidates,
-            tracer,
-            worker_count,
-            slice_budget,
-        )
-    }
-
     fn trace_minor(
         &self,
         index: &ObjectIndex,
@@ -1257,26 +1254,6 @@ impl Heap {
         duration.as_nanos().min(u128::from(u64::MAX)) as u64
     }
 
-    fn process_weak_references(
-        &self,
-        kind: CollectionKind,
-        worker_count: usize,
-        forwarding: &ForwardingMap,
-        index: &ObjectIndex,
-    ) {
-        let weak_candidates = self
-            .indexes
-            .candidate_indices(&self.indexes.weak_candidates);
-        process_weak_references(
-            &self.objects,
-            &weak_candidates,
-            kind,
-            worker_count,
-            forwarding,
-            index,
-        );
-    }
-
     #[cfg(test)]
     pub(crate) fn contains<T>(&self, gc: crate::root::Gc<T>) -> bool {
         self.indexes
@@ -1330,7 +1307,9 @@ impl Heap {
             plan,
             |plan| {
                 let empty_forwarding: ForwardingMap = HashMap::new();
-                self.process_weak_references(
+                process_weak_references_for_candidates(
+                    &self.objects,
+                    &self.indexes.weak_candidates,
                     plan.kind,
                     plan.worker_count.max(1),
                     &empty_forwarding,
@@ -1369,7 +1348,9 @@ impl Heap {
                 )
             },
             |heap, plan, forwarding| {
-                heap.process_weak_references(
+                process_weak_references_for_candidates(
+                    &heap.objects,
+                    &heap.indexes.weak_candidates,
                     plan.kind,
                     plan.worker_count.max(1),
                     forwarding,
@@ -1391,7 +1372,10 @@ impl Heap {
         let (mark_steps_delta, mark_rounds_delta) = prepare_active_reclaim(
             &request,
             |tracer, plan| {
-                self.trace_major_ephemerons(
+                trace_major_ephemerons_for_candidates(
+                    &self.objects,
+                    &self.indexes.object_index,
+                    &self.indexes.ephemeron_candidates,
                     tracer,
                     plan.worker_count.max(1),
                     plan.mark_slice_budget,

@@ -23,7 +23,8 @@ fn object_index_for(objects: &[ObjectRecord]) -> ObjectIndex {
 #[test]
 fn trace_major_marks_seeded_source() {
     let desc = Box::leak(Box::new(fixed_type_desc::<Leaf>()));
-    let object = ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate pinned leaf");
+    let object =
+        ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate pinned leaf");
     let source = object.erased();
     let objects = vec![object];
     let index = object_index_for(&objects);

@@ -786,6 +786,27 @@ pub(crate) fn trace_major_ephemerons(
     (mark_steps, mark_rounds)
 }
 
+pub(crate) fn trace_major_ephemerons_for_candidates(
+    objects: &[ObjectRecord],
+    index: &ObjectIndex,
+    ephemeron_candidates: &[ObjectKey],
+    tracer: &mut MarkTracer<'_>,
+    worker_count: usize,
+    slice_budget: usize,
+) -> (u64, u64) {
+    let ephemeron_candidate_indices = ephemeron_candidates
+        .iter()
+        .filter_map(|key| index.get(key).copied())
+        .collect::<Vec<_>>();
+    trace_major_ephemerons(
+        objects,
+        &ephemeron_candidate_indices,
+        tracer,
+        worker_count,
+        slice_budget,
+    )
+}
+
 pub(crate) fn trace_minor_ephemerons(
     objects: &[ObjectRecord],
     ephemeron_candidates: &[usize],
@@ -924,6 +945,28 @@ pub(crate) fn process_weak_references(
             handle.join().expect("parallel weak worker panicked");
         }
     });
+}
+
+pub(crate) fn process_weak_references_for_candidates(
+    objects: &[ObjectRecord],
+    weak_candidates: &[ObjectKey],
+    kind: CollectionKind,
+    worker_count: usize,
+    forwarding: &ForwardingMap,
+    index: &ObjectIndex,
+) {
+    let weak_candidate_indices = weak_candidates
+        .iter()
+        .filter_map(|key| index.get(key).copied())
+        .collect::<Vec<_>>();
+    process_weak_references(
+        objects,
+        &weak_candidate_indices,
+        kind,
+        worker_count,
+        forwarding,
+        index,
+    );
 }
 
 fn survives_collection_kind(kind: CollectionKind, object: &ObjectRecord) -> bool {
