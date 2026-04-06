@@ -654,6 +654,46 @@ impl SharedRuntimeHandle {
         self.publish_snapshot(next_runtime_snapshot)?;
         Ok(ran)
     }
+
+    fn publish_heap_change(
+        &self,
+        next_heap_snapshot: SharedHeapSnapshot,
+        next_runtime_snapshot: SharedRuntimeSnapshot,
+    ) -> Result<(), SharedHeapError> {
+        let next_collector = self
+            .collector
+            .with_state(|collector| collector.shared_snapshot())?;
+        let previous_collector = self
+            .collector
+            .snapshot()
+            .unwrap_or_else(|_| next_collector.clone());
+        let previous_heap_snapshot = self.replace_heap_snapshot(next_heap_snapshot.clone())?;
+        let previous_runtime_snapshot = self.replace_snapshot(next_runtime_snapshot)?;
+        self.collector.store_snapshot(next_collector.clone())?;
+
+        let heap_changed = previous_heap_snapshot != next_heap_snapshot;
+        let runtime_changed = previous_runtime_snapshot != next_runtime_snapshot;
+        let background_changed = shared_background_status_from_parts(
+            &previous_heap_snapshot,
+            &previous_runtime_snapshot,
+            &previous_collector,
+        ) != shared_background_status_from_parts(
+            &next_heap_snapshot,
+            &next_runtime_snapshot,
+            &next_collector,
+        );
+
+        if heap_changed {
+            self.notify_heap();
+        }
+        if runtime_changed {
+            self.notify_heap();
+        }
+        if background_changed {
+            self.collector.notify();
+        }
+        Ok(())
+    }
 }
 
 fn shared_heap_stats_from_parts(
@@ -705,7 +745,6 @@ fn shared_background_status_from_parts(
 #[derive(Debug)]
 pub struct SharedHeapGuard<'a> {
     guard: Option<RwLockWriteGuard<'a, Heap>>,
-    collector: &'a SharedCollectorHandle,
     runtime: &'a SharedRuntimeHandle,
     dirty: bool,
 }
@@ -717,14 +756,9 @@ pub struct SharedHeapReadGuard<'a> {
 }
 
 impl<'a> SharedHeapGuard<'a> {
-    fn new(
-        guard: RwLockWriteGuard<'a, Heap>,
-        collector: &'a SharedCollectorHandle,
-        runtime: &'a SharedRuntimeHandle,
-    ) -> Self {
+    fn new(guard: RwLockWriteGuard<'a, Heap>, runtime: &'a SharedRuntimeHandle) -> Self {
         Self {
             guard: Some(guard),
-            collector,
             runtime,
             dirty: false,
         }
@@ -776,53 +810,9 @@ impl Drop for SharedHeapGuard<'_> {
         // Release the heap mutex before touching shared snapshot locks so readers do not extend
         // the main heap lock window.
         self.guard.take();
-        let next_collector = self
-            .collector
-            .with_state(|collector| collector.shared_snapshot())
-            .expect("collector state should not be poisoned");
-        let previous_collector = self
-            .collector
-            .snapshot()
-            .unwrap_or_else(|_| next_collector.clone());
-        let mut heap_changed = false;
-        let mut runtime_changed = false;
-        let mut background_changed = false;
-        let mut previous_snapshot = None;
-        let mut previous_runtime_snapshot = None;
-        if let Ok(previous_heap_snapshot) =
-            self.runtime.replace_heap_snapshot(next_snapshot.clone())
-        {
-            heap_changed = previous_heap_snapshot != next_snapshot;
-            previous_snapshot = Some(previous_heap_snapshot);
-        }
-        if let Ok(previous_runtime) = self.runtime.replace_snapshot(next_runtime_snapshot) {
-            runtime_changed = previous_runtime != next_runtime_snapshot;
-            previous_runtime_snapshot = Some(previous_runtime);
-        }
-        let _ = self.collector.store_snapshot(next_collector.clone());
-        if let (Some(previous_snapshot), Some(previous_runtime_snapshot)) = (
-            previous_snapshot.as_ref(),
-            previous_runtime_snapshot.as_ref(),
-        ) {
-            background_changed = shared_background_status_from_parts(
-                previous_snapshot,
-                previous_runtime_snapshot,
-                &previous_collector,
-            ) != shared_background_status_from_parts(
-                &next_snapshot,
-                &next_runtime_snapshot,
-                &next_collector,
-            );
-        }
-        if heap_changed {
-            self.runtime.notify_heap();
-        }
-        if runtime_changed {
-            self.runtime.notify_heap();
-        }
-        if background_changed {
-            self.collector.notify();
-        }
+        let _ = self
+            .runtime
+            .publish_heap_change(next_snapshot, next_runtime_snapshot);
     }
 }
 
@@ -861,10 +851,9 @@ impl SharedHeap {
     /// Lock the underlying heap.
     pub fn lock(&self) -> LockResult<SharedHeapGuard<'_>> {
         match self.inner.write() {
-            Ok(guard) => Ok(SharedHeapGuard::new(guard, &self.collector, &self.runtime)),
+            Ok(guard) => Ok(SharedHeapGuard::new(guard, &self.runtime)),
             Err(error) => Err(std::sync::PoisonError::new(SharedHeapGuard::new(
                 error.into_inner(),
-                &self.collector,
                 &self.runtime,
             ))),
         }
@@ -873,10 +862,10 @@ impl SharedHeap {
     /// Try to lock the underlying heap without blocking.
     pub fn try_lock(&self) -> TryLockResult<SharedHeapGuard<'_>> {
         match self.inner.try_write() {
-            Ok(guard) => Ok(SharedHeapGuard::new(guard, &self.collector, &self.runtime)),
+            Ok(guard) => Ok(SharedHeapGuard::new(guard, &self.runtime)),
             Err(TryLockError::Poisoned(error)) => {
                 Err(TryLockError::Poisoned(std::sync::PoisonError::new(
-                    SharedHeapGuard::new(error.into_inner(), &self.collector, &self.runtime),
+                    SharedHeapGuard::new(error.into_inner(), &self.runtime),
                 )))
             }
             Err(TryLockError::WouldBlock) => Err(TryLockError::WouldBlock),
