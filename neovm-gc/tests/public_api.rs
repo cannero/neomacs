@@ -503,6 +503,68 @@ fn public_api_minor_plan_uses_configured_parallel_worker_budget() {
 }
 
 #[test]
+fn public_api_full_collection_prunes_remembered_edges_for_dead_old_owner() {
+    let mut heap = Heap::new(HeapConfig::default());
+    let mut mutator = heap.mutator();
+    let mut root_scope = mutator.handle_scope();
+    let root = mutator
+        .alloc(
+            &mut root_scope,
+            Link {
+                label: 820,
+                next: EdgeCell::default(),
+            },
+        )
+        .expect("alloc root");
+    let _stale_mid_gc = {
+        let mut mid_scope = mutator.handle_scope();
+        let mid = mutator
+            .alloc(
+                &mut mid_scope,
+                Link {
+                    label: 821,
+                    next: EdgeCell::default(),
+                },
+            )
+            .expect("alloc mid");
+        mutator.store_edge(&root, 0, |link| &link.next, Some(mid.as_gc()));
+        mid.as_gc()
+    };
+    mutator
+        .collect(CollectionKind::Minor)
+        .expect("minor collect");
+    mutator
+        .collect(CollectionKind::Minor)
+        .expect("minor collect");
+    let live_mid_gc = unsafe { root.as_gc().as_non_null().as_ref() }
+        .next
+        .get()
+        .expect("moved mid");
+
+    {
+        let mut child_scope = mutator.handle_scope();
+        let child = mutator
+            .alloc(
+                &mut child_scope,
+                Link {
+                    label: 822,
+                    next: EdgeCell::default(),
+                },
+            )
+            .expect("alloc child");
+        let mid = mutator.root(&mut child_scope, live_mid_gc);
+        mutator.store_edge(&mid, 0, |link| &link.next, Some(child.as_gc()));
+    }
+
+    assert_eq!(mutator.heap().remembered_edge_count(), 1);
+    drop(root_scope);
+
+    let cycle = mutator.collect(CollectionKind::Full).expect("full collect");
+    assert_eq!(cycle.major_collections, 1);
+    assert_eq!(mutator.heap().remembered_edge_count(), 0);
+}
+
+#[test]
 fn public_api_alloc_auto_collects_under_nursery_pressure() {
     let leaf_bytes = estimated_allocation_size::<Leaf>().expect("leaf allocation size");
     let mut heap = Heap::new(HeapConfig {

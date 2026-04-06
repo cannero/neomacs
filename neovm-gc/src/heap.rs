@@ -423,7 +423,6 @@ impl Heap {
         self.record_phase(CollectionPhase::Reclaim);
         let finalized_objects = self.finalize_and_retain_objects(state.plan.kind);
         let old_region_stats = self.rebuild_post_sweep_state(Some(state.plan.clone()));
-        self.prune_remembered_edges();
         let after_bytes = self.total_tracked_bytes();
         let cycle = CollectionStats {
             collections: 1,
@@ -682,7 +681,6 @@ impl Heap {
                 self.record_phase(CollectionPhase::Reclaim);
                 let finalized_objects = self.finalize_and_retain_objects(plan.kind);
                 let old_region_stats = self.rebuild_post_sweep_state(Some(plan.clone()));
-                self.prune_remembered_edges();
                 let after_bytes = self.total_tracked_bytes();
                 CollectionStats {
                     collections: 1,
@@ -708,7 +706,6 @@ impl Heap {
                 self.record_phase(CollectionPhase::Reclaim);
                 let finalized_objects = self.finalize_and_retain_objects(plan.kind);
                 let old_region_stats = self.rebuild_post_sweep_state(Some(plan.clone()));
-                self.prune_remembered_edges();
                 let after_bytes = self.total_tracked_bytes();
                 CollectionStats {
                     collections: 1,
@@ -736,7 +733,6 @@ impl Heap {
                 self.record_phase(CollectionPhase::Reclaim);
                 let finalized_objects = self.finalize_and_retain_objects(plan.kind);
                 let old_region_stats = self.rebuild_post_sweep_state(Some(plan.clone()));
-                self.prune_remembered_edges();
                 let after_bytes = self.total_tracked_bytes();
                 CollectionStats {
                     collections: 1,
@@ -1386,6 +1382,21 @@ impl Heap {
             .iter()
             .map(|region| region.capacity_bytes)
             .sum();
+        let object_index = &self.object_index;
+        let objects = &self.objects;
+        self.remembered_edges.retain(|edge| {
+            let owner = edge.owner.erase().object_key();
+            let target = edge.target.erase().object_key();
+            let owner_space = object_index
+                .get(&owner)
+                .map(|&index| objects[index].space());
+            let target_space = object_index
+                .get(&target)
+                .map(|&index| objects[index].space());
+            owner_space
+                .is_some_and(|space| space != SpaceKind::Nursery && space != SpaceKind::Immortal)
+                && target_space == Some(SpaceKind::Nursery)
+        });
         old_region_stats
     }
 
@@ -1507,24 +1518,6 @@ impl Heap {
             CollectionKind::Minor => object.space() != SpaceKind::Nursery || object.is_marked(),
             CollectionKind::Major | CollectionKind::Full => object.is_marked(),
         }
-    }
-
-    fn prune_remembered_edges(&mut self) {
-        let object_index = &self.object_index;
-        let objects = &self.objects;
-        self.remembered_edges.retain(|edge| {
-            let owner = edge.owner.erase().object_key();
-            let target = edge.target.erase().object_key();
-            let owner_space = object_index
-                .get(&owner)
-                .map(|&index| objects[index].space());
-            let target_space = object_index
-                .get(&target)
-                .map(|&index| objects[index].space());
-            owner_space
-                .is_some_and(|space| space != SpaceKind::Nursery && space != SpaceKind::Immortal)
-                && target_space == Some(SpaceKind::Nursery)
-        });
     }
 
     #[cfg(test)]
