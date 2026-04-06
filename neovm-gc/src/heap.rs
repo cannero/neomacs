@@ -7,7 +7,7 @@ use std::thread;
 
 use crate::background::{BackgroundCollectorConfig, BackgroundService, SharedHeap};
 use crate::barrier::{BarrierEvent, BarrierKind, RememberedEdge};
-use crate::collector_state::{CollectorState, MajorMarkState};
+use crate::collector_state::{CollectorSharedSnapshot, CollectorState, MajorMarkState};
 use crate::descriptor::{
     EphemeronVisitor, GcErased, Relocator, Trace, Tracer, TypeDesc, WeakProcessor, fixed_type_desc,
 };
@@ -163,14 +163,19 @@ impl Heap {
         self.stats
     }
 
+    pub(crate) fn collector_shared_snapshot(&self) -> CollectorSharedSnapshot {
+        self.collector.shared_snapshot()
+    }
+
     pub(crate) fn shared_snapshot(&self) -> HeapSharedSnapshot {
+        let collector = self.collector_shared_snapshot();
         HeapSharedSnapshot {
             stats: self.stats(),
-            recommended_plan: self.recommended_plan(),
-            recommended_background_plan: self.recommended_background_plan(),
-            last_completed_plan: self.last_completed_plan(),
-            active_major_mark_plan: self.active_major_mark_plan(),
-            major_mark_progress: self.major_mark_progress(),
+            recommended_plan: collector.recommended_plan,
+            recommended_background_plan: collector.recommended_background_plan,
+            last_completed_plan: collector.last_completed_plan,
+            active_major_mark_plan: collector.active_major_mark_plan,
+            major_mark_progress: collector.major_mark_progress,
         }
     }
 

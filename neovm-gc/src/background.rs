@@ -1,3 +1,4 @@
+use crate::collector_state::CollectorSharedSnapshot;
 use crate::heap::{AllocError, Heap, HeapSharedSnapshot};
 use crate::mutator::Mutator;
 use crate::plan::{BackgroundCollectionStatus, CollectionKind, CollectionPlan, MajorMarkProgress};
@@ -256,6 +257,16 @@ impl From<HeapSharedSnapshot> for SharedHeapSnapshot {
     }
 }
 
+impl From<CollectorSharedSnapshot> for SharedBackgroundSnapshot {
+    fn from(snapshot: CollectorSharedSnapshot) -> Self {
+        Self {
+            recommended_background_plan: snapshot.recommended_background_plan,
+            active_major_mark_plan: snapshot.active_major_mark_plan,
+            major_mark_progress: snapshot.major_mark_progress,
+        }
+    }
+}
+
 impl From<&SharedHeapSnapshot> for SharedBackgroundSnapshot {
     fn from(snapshot: &SharedHeapSnapshot) -> Self {
         Self {
@@ -337,7 +348,8 @@ impl Drop for SharedHeapGuard<'_> {
             return;
         }
         let next_snapshot = SharedHeapSnapshot::capture(&self.guard);
-        let next_background = SharedBackgroundSnapshot::from(&next_snapshot);
+        let next_background =
+            SharedBackgroundSnapshot::from(self.guard.collector_shared_snapshot());
         let mut heap_changed = false;
         let mut background_changed = false;
         if let Ok(mut snapshot) = self.snapshot.write() {
@@ -366,7 +378,7 @@ impl SharedHeap {
     /// Wrap one heap for shared synchronized access.
     pub fn from_heap(heap: Heap) -> Self {
         let snapshot = SharedHeapSnapshot::capture(&heap);
-        let background_snapshot = SharedBackgroundSnapshot::from(&snapshot);
+        let background_snapshot = SharedBackgroundSnapshot::from(heap.collector_shared_snapshot());
         Self {
             inner: Arc::new(Mutex::new(heap)),
             snapshot: Arc::new(RwLock::new(snapshot)),
