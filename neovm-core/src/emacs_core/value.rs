@@ -816,6 +816,26 @@ impl TaggedValue {
 
     /// Allocate a cons cell.
     pub fn make_cons(car: Value, cdr: Value) -> Self {
+        // Validate string values aren't corrupt before storing in cons
+        if car.is_string() {
+            let ptr = car.as_string_ptr().unwrap();
+            let hdr = unsafe { &(*(ptr as *const crate::tagged::header::StringObj)).header };
+            if !matches!(hdr.kind, crate::tagged::header::HeapObjectKind::String) {
+                // Check if the address is actually a VecLike — dump its type_tag
+                let vlh = unsafe { &*(ptr as *const crate::tagged::header::VecLikeHeader) };
+                let expected_tagged = ptr as usize | 0b011; // what the VecLike tag would be
+                panic!(
+                    "CONS CAR BUG: car={:#x} (ptr {:?}, kind={:?}) is corrupt string.\n\
+                     VecLikeHeader.type_tag={:?}\n\
+                     If this were tagged as VecLike it would be {:#x}\n\
+                     car XOR veclike_tagged = {:#x}",
+                    car.0, ptr, hdr.kind,
+                    vlh.type_tag,
+                    expected_tagged,
+                    car.0 ^ expected_tagged,
+                );
+            }
+        }
         add_wrapping(&CONS_CELLS_CONSED, 1);
         with_tagged_heap(|h| h.alloc_cons(car, cdr))
     }

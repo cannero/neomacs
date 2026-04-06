@@ -268,7 +268,21 @@ impl<'a> Vm<'a> {
         // Push required + optional args (pad with nil for missing optionals)
         for i in 0..nonrest {
             if i < nargs {
-                self.ctx.bc_buf.push(args[i]);
+                let v = args[i];
+                if v.is_string() {
+                    let ptr = v.as_string_ptr().unwrap();
+                    let hdr = unsafe { &(*(ptr as *const crate::tagged::header::StringObj)).header };
+                    if !matches!(hdr.kind, crate::tagged::header::HeapObjectKind::String) {
+                        panic!(
+                            "RUN_FRAME ARG BUG: arg[{}] = {:#x} (ptr {:?}, kind={:?}) is corrupt string. \
+                             nargs={}, func has {} required, {} optional, rest={}",
+                            i, v.0, ptr, hdr.kind, nargs,
+                            func.params.required.len(), func.params.optional.len(),
+                            func.params.rest.is_some(),
+                        );
+                    }
+                }
+                self.ctx.bc_buf.push(v);
             } else {
                 self.ctx.bc_buf.push(Value::NIL);
             }

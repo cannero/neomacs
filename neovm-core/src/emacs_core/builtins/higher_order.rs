@@ -27,6 +27,18 @@ pub(crate) fn builtin_apply(eval: &mut super::eval::Context, args: Vec<Value>) -
                     ValueKind::Cons => {
                         let pair_car = cursor.cons_car();
                         let pair_cdr = cursor.cons_cdr();
+                        // Validate extracted value
+                        if pair_car.is_string() {
+                            let ptr = pair_car.as_string_ptr().unwrap();
+                            let hdr = unsafe { &(*(ptr as *const crate::tagged::header::StringObj)).header };
+                            if !matches!(hdr.kind, crate::tagged::header::HeapObjectKind::String) {
+                                panic!(
+                                    "APPLY SPREAD BUG: cons_car = {:#x} (ptr {:?}, kind={:?}) \
+                                     is corrupt string from spread list",
+                                    pair_car.0, ptr, hdr.kind,
+                                );
+                            }
+                        }
                         call_args.push(pair_car);
                         cursor = pair_cdr;
                     }

@@ -1518,7 +1518,20 @@ pub(crate) fn builtin_all_completions_with_candidates(
             continue;
         }
         if completion_predicate_matches_with(predicate, candidate, &mut apply)? {
-            matches.push(Value::string(candidate.completion.clone()));
+            let sv = Value::string(candidate.completion.clone());
+            // Validate the freshly created string
+            if sv.is_string() {
+                let ptr = sv.as_string_ptr().unwrap();
+                let hdr = unsafe { &(*(ptr as *const crate::tagged::header::StringObj)).header };
+                if !matches!(hdr.kind, crate::tagged::header::HeapObjectKind::String) {
+                    panic!(
+                        "ALL-COMPLETIONS BUG: freshly created string {:#x} (ptr {:?}, kind={:?}) \
+                         for completion {:?} is corrupt!",
+                        sv.0, ptr, hdr.kind, &candidate.completion,
+                    );
+                }
+            }
+            matches.push(sv);
         }
     }
     Ok(Value::list(matches))
