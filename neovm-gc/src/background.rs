@@ -168,11 +168,6 @@ pub enum SharedBackgroundError {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct SharedHeapSnapshot {
     stats: HeapStats,
-    recommended_plan: CollectionPlan,
-    recommended_background_plan: Option<CollectionPlan>,
-    last_completed_plan: Option<CollectionPlan>,
-    active_major_mark_plan: Option<CollectionPlan>,
-    major_mark_progress: Option<MajorMarkProgress>,
 }
 
 #[derive(Debug, Default)]
@@ -230,21 +225,6 @@ impl From<HeapSharedSnapshot> for SharedHeapSnapshot {
     fn from(snapshot: HeapSharedSnapshot) -> Self {
         Self {
             stats: snapshot.stats,
-            recommended_plan: snapshot.recommended_plan,
-            recommended_background_plan: snapshot.recommended_background_plan,
-            last_completed_plan: snapshot.last_completed_plan,
-            active_major_mark_plan: snapshot.active_major_mark_plan,
-            major_mark_progress: snapshot.major_mark_progress,
-        }
-    }
-}
-
-impl From<&SharedHeapSnapshot> for SharedBackgroundStatus {
-    fn from(snapshot: &SharedHeapSnapshot) -> Self {
-        Self {
-            recommended_background_plan: snapshot.recommended_background_plan.clone(),
-            active_major_mark_plan: snapshot.active_major_mark_plan.clone(),
-            major_mark_progress: snapshot.major_mark_progress,
         }
     }
 }

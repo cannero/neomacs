@@ -5534,17 +5534,6 @@ fn heap_shared_snapshot_matches_shared_status_view() {
     let status = shared.status().expect("read shared status");
 
     assert_eq!(snapshot.stats, status.stats);
-    assert_eq!(snapshot.recommended_plan, status.recommended_plan);
-    assert_eq!(
-        snapshot.recommended_background_plan,
-        status.recommended_background_plan
-    );
-    assert_eq!(snapshot.last_completed_plan, status.last_completed_plan);
-    assert_eq!(
-        snapshot.active_major_mark_plan,
-        status.active_major_mark_plan
-    );
-    assert_eq!(snapshot.major_mark_progress, status.major_mark_progress);
 }
 
 #[test]

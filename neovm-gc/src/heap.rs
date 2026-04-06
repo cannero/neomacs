@@ -86,11 +86,6 @@ pub struct Heap {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct HeapSharedSnapshot {
     pub(crate) stats: HeapStats,
-    pub(crate) recommended_plan: CollectionPlan,
-    pub(crate) recommended_background_plan: Option<CollectionPlan>,
-    pub(crate) last_completed_plan: Option<CollectionPlan>,
-    pub(crate) active_major_mark_plan: Option<CollectionPlan>,
-    pub(crate) major_mark_progress: Option<MajorMarkProgress>,
 }
 
 // SAFETY: `Heap` owns all heap allocations and its raw pointers are internal references into that
@@ -168,14 +163,8 @@ impl Heap {
     }
 
     pub(crate) fn shared_snapshot(&self) -> HeapSharedSnapshot {
-        let collector = self.collector_shared_snapshot();
         HeapSharedSnapshot {
             stats: self.stats(),
-            recommended_plan: collector.recommended_plan,
-            recommended_background_plan: collector.recommended_background_plan,
-            last_completed_plan: collector.last_completed_plan,
-            active_major_mark_plan: collector.active_major_mark_plan,
-            major_mark_progress: collector.major_mark_progress,
         }
     }
 
