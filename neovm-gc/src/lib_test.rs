@@ -4640,6 +4640,71 @@ fn shared_try_with_heap_read_succeeds_while_heap_is_read_locked() {
 }
 
 #[test]
+fn shared_collector_runtime_begin_and_poll_work_while_heap_is_read_locked() {
+    let shared = SharedHeap::new(HeapConfig::default());
+    let plan = shared
+        .with_mutator(|mutator| mutator.plan_for(CollectionKind::Major))
+        .expect("compute major plan");
+    let runtime = shared.collector_runtime();
+    let _guard = shared.read().expect("read-lock shared heap");
+
+    runtime.begin_major_mark(plan).expect("begin major mark");
+    let progress = runtime
+        .poll_active_major_mark()
+        .expect("poll major mark under read lock")
+        .expect("active major-mark progress");
+    assert!(progress.completed || progress.remaining_work > 0);
+    assert!(
+        runtime
+            .active_major_mark_plan()
+            .expect("inspect active shared major-mark plan")
+            .is_some()
+    );
+    assert_eq!(
+        runtime.try_finish_active_major_collection_if_ready(),
+        Err(SharedBackgroundError::WouldBlock)
+    );
+}
+
+#[test]
+fn shared_collector_runtime_can_finish_after_read_lock_is_released() {
+    let shared = SharedHeap::new(HeapConfig::default());
+    let plan = shared
+        .with_mutator(|mutator| mutator.plan_for(CollectionKind::Major))
+        .expect("compute major plan");
+    let runtime = shared.collector_runtime();
+
+    {
+        let _guard = shared.read().expect("read-lock shared heap");
+        runtime.begin_major_mark(plan).expect("begin major mark");
+        let _ = runtime
+            .poll_active_major_mark()
+            .expect("poll major mark under read lock");
+    }
+
+    while let Some(progress) = runtime
+        .poll_active_major_mark()
+        .expect("poll major mark to completion")
+    {
+        if progress.completed {
+            break;
+        }
+    }
+
+    let stats = runtime
+        .finish_active_major_collection_if_ready()
+        .expect("finish major collection after read lock release")
+        .expect("completed major collection");
+    assert_eq!(stats.major_collections, 1);
+    assert_eq!(
+        runtime
+            .active_major_mark_plan()
+            .expect("inspect active plan after finish"),
+        None
+    );
+}
+
+#[test]
 fn shared_try_with_mutator_reports_would_block_when_heap_is_read_locked() {
     let shared = SharedHeap::new(HeapConfig::default());
     let _guard = shared.read().expect("read-lock shared heap");

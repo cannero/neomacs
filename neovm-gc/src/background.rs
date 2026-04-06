@@ -2,7 +2,7 @@ use crate::collector_state::CollectorSharedSnapshot;
 use crate::heap::{AllocError, Heap};
 use crate::mutator::Mutator;
 use crate::plan::{BackgroundCollectionStatus, CollectionKind, CollectionPlan, MajorMarkProgress};
-use crate::runtime::CollectorRuntime;
+use crate::runtime::{CollectorRuntime, SharedCollectorRuntime};
 use crate::stats::{CollectionStats, HeapStats};
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -515,11 +515,11 @@ impl SharedHeap {
         Ok(f(&snapshot))
     }
 
-    fn collector_snapshot(&self) -> Result<CollectorSharedSnapshot, SharedHeapError> {
+    pub(crate) fn collector_snapshot(&self) -> Result<CollectorSharedSnapshot, SharedHeapError> {
         self.read_collector_snapshot(Clone::clone)
     }
 
-    fn publish_collector_snapshot(
+    pub(crate) fn publish_collector_snapshot(
         &self,
         next_collector: CollectorSharedSnapshot,
     ) -> Result<(), SharedHeapError> {
@@ -719,6 +719,11 @@ impl SharedHeap {
             let mut runtime = heap.collector_runtime();
             f(&mut runtime)
         })
+    }
+
+    /// Create a shared collector-side runtime bound to this heap.
+    pub fn collector_runtime(&self) -> SharedCollectorRuntime {
+        SharedCollectorRuntime::new(self.clone())
     }
 
     /// Return current heap statistics.
@@ -1171,48 +1176,26 @@ impl BackgroundCollector {
         }
     }
 
-    fn map_shared_heap_error(error: SharedHeapError) -> SharedBackgroundError {
-        match error {
-            SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-            SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-        }
-    }
-
     fn ensure_active_shared_session(
         &mut self,
         heap: &SharedHeap,
         nonblocking: bool,
     ) -> Result<bool, SharedBackgroundError> {
-        if heap
-            .active_major_mark_plan()
-            .map_err(Self::map_shared_heap_error)?
-            .is_none()
-            && self.config.auto_start_concurrent
-        {
-            if let Some(plan) = heap
-                .recommended_background_plan()
-                .map_err(Self::map_shared_heap_error)?
+        let runtime = heap.collector_runtime();
+        if runtime.active_major_mark_plan()?.is_none() && self.config.auto_start_concurrent {
+            if let Some(plan) = runtime.recommended_background_plan()?
                 && matches!(plan.kind, CollectionKind::Major | CollectionKind::Full)
             {
-                let collector_snapshot = if nonblocking {
-                    heap.try_with_heap_read(|heap| {
-                        heap.begin_major_mark_in_place_with_snapshot(plan)
-                    })
+                if nonblocking {
+                    runtime.try_begin_major_mark(plan)?;
                 } else {
-                    heap.with_heap_read(|heap| heap.begin_major_mark_in_place_with_snapshot(plan))
+                    runtime.begin_major_mark(plan)?;
                 }
-                .map_err(Self::map_shared_heap_error)?;
-                let collector_snapshot =
-                    collector_snapshot.map_err(SharedBackgroundError::Collection)?;
-                heap.publish_collector_snapshot(collector_snapshot)
-                    .map_err(Self::map_shared_heap_error)?;
                 self.stats.sessions_started = self.stats.sessions_started.saturating_add(1);
             }
         }
 
-        heap.active_major_mark_plan()
-            .map_err(Self::map_shared_heap_error)
-            .map(|plan| plan.is_some())
+        runtime.active_major_mark_plan().map(|plan| plan.is_some())
     }
 
     fn poll_shared_mark_round(
@@ -1220,26 +1203,20 @@ impl BackgroundCollector {
         heap: &SharedHeap,
         nonblocking: bool,
     ) -> Result<Option<MajorMarkProgress>, SharedBackgroundError> {
-        let poll_result = if nonblocking {
-            heap.try_with_heap_read(|heap| heap.poll_active_major_mark_with_snapshot())
+        let runtime = heap.collector_runtime();
+        if nonblocking {
+            runtime.try_poll_active_major_mark()
         } else {
-            heap.with_heap_read(|heap| heap.poll_active_major_mark_with_snapshot())
+            runtime.poll_active_major_mark()
         }
-        .map_err(Self::map_shared_heap_error)?;
-        let (progress, collector_snapshot) =
-            poll_result.map_err(SharedBackgroundError::Collection)?;
-        heap.publish_collector_snapshot(collector_snapshot)
-            .map_err(Self::map_shared_heap_error)?;
-        Ok(progress)
     }
 
     fn try_finish_shared_major_collection_if_ready(
         &mut self,
         heap: &SharedHeap,
     ) -> Result<Option<CollectionStats>, SharedBackgroundError> {
-        heap.try_with_runtime(|runtime| runtime.finish_active_major_collection_if_ready())
-            .map_err(Self::map_shared_heap_error)?
-            .map_err(SharedBackgroundError::Collection)
+        heap.collector_runtime()
+            .try_finish_active_major_collection_if_ready()
     }
 
     fn tick_shared_round(

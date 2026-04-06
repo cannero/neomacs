@@ -1,4 +1,6 @@
-use crate::background::BackgroundCollectionRuntime;
+use crate::background::{
+    BackgroundCollectionRuntime, SharedBackgroundError, SharedHeap, SharedHeapError,
+};
 use crate::heap::{AllocError, Heap};
 use crate::plan::{BackgroundCollectionStatus, CollectionPlan, MajorMarkProgress};
 use crate::stats::{CollectionStats, HeapStats};
@@ -7,6 +9,12 @@ use crate::stats::{CollectionStats, HeapStats};
 #[derive(Debug)]
 pub struct CollectorRuntime<'heap> {
     heap: &'heap mut Heap,
+}
+
+/// Collector-side runtime bound to one shared heap.
+#[derive(Clone, Debug)]
+pub struct SharedCollectorRuntime {
+    heap: SharedHeap,
 }
 
 impl<'heap> CollectorRuntime<'heap> {
@@ -64,6 +72,155 @@ impl<'heap> CollectorRuntime<'heap> {
     }
 }
 
+impl SharedCollectorRuntime {
+    pub(crate) fn new(heap: SharedHeap) -> Self {
+        Self { heap }
+    }
+
+    /// Return the shared heap backing this runtime.
+    pub fn heap(&self) -> &SharedHeap {
+        &self.heap
+    }
+
+    fn map_shared_heap_error(error: SharedHeapError) -> SharedBackgroundError {
+        match error {
+            SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
+            SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
+        }
+    }
+
+    /// Return current heap statistics.
+    pub fn stats(&self) -> Result<HeapStats, SharedBackgroundError> {
+        self.heap.stats().map_err(Self::map_shared_heap_error)
+    }
+
+    /// Recommend the next background concurrent collection plan, if any.
+    pub fn recommended_background_plan(
+        &self,
+    ) -> Result<Option<CollectionPlan>, SharedBackgroundError> {
+        self.heap
+            .recommended_background_plan()
+            .map_err(Self::map_shared_heap_error)
+    }
+
+    /// Return the active major-mark plan, if one is in progress.
+    pub fn active_major_mark_plan(&self) -> Result<Option<CollectionPlan>, SharedBackgroundError> {
+        self.heap
+            .active_major_mark_plan()
+            .map_err(Self::map_shared_heap_error)
+    }
+
+    /// Return progress for the active major-mark session, if any.
+    pub fn major_mark_progress(&self) -> Result<Option<MajorMarkProgress>, SharedBackgroundError> {
+        self.heap
+            .major_mark_progress()
+            .map_err(Self::map_shared_heap_error)
+    }
+
+    /// Begin a persistent major-mark session for one scheduler-provided plan.
+    pub fn begin_major_mark(&self, plan: CollectionPlan) -> Result<(), SharedBackgroundError> {
+        let collector_snapshot = self
+            .heap
+            .with_heap_read(|heap| heap.begin_major_mark_in_place_with_snapshot(plan))
+            .map_err(Self::map_shared_heap_error)?
+            .map_err(SharedBackgroundError::Collection)?;
+        self.heap
+            .publish_collector_snapshot(collector_snapshot)
+            .map_err(Self::map_shared_heap_error)
+    }
+
+    /// Begin a persistent major-mark session without blocking on heap contention.
+    pub fn try_begin_major_mark(&self, plan: CollectionPlan) -> Result<(), SharedBackgroundError> {
+        let collector_snapshot = self
+            .heap
+            .try_with_heap_read(|heap| heap.begin_major_mark_in_place_with_snapshot(plan))
+            .map_err(Self::map_shared_heap_error)?
+            .map_err(SharedBackgroundError::Collection)?;
+        self.heap
+            .publish_collector_snapshot(collector_snapshot)
+            .map_err(Self::map_shared_heap_error)
+    }
+
+    /// Advance one scheduler-style concurrent major-mark round using the active plan worker
+    /// count.
+    pub fn poll_active_major_mark(
+        &self,
+    ) -> Result<Option<MajorMarkProgress>, SharedBackgroundError> {
+        let (progress, collector_snapshot) = self
+            .heap
+            .with_heap_read(|heap| heap.poll_active_major_mark_with_snapshot())
+            .map_err(Self::map_shared_heap_error)?
+            .map_err(SharedBackgroundError::Collection)?;
+        self.heap
+            .publish_collector_snapshot(collector_snapshot)
+            .map_err(Self::map_shared_heap_error)?;
+        Ok(progress)
+    }
+
+    /// Advance one scheduler-style concurrent major-mark round without blocking on heap
+    /// contention.
+    pub fn try_poll_active_major_mark(
+        &self,
+    ) -> Result<Option<MajorMarkProgress>, SharedBackgroundError> {
+        let (progress, collector_snapshot) = self
+            .heap
+            .try_with_heap_read(|heap| heap.poll_active_major_mark_with_snapshot())
+            .map_err(Self::map_shared_heap_error)?
+            .map_err(SharedBackgroundError::Collection)?;
+        self.heap
+            .publish_collector_snapshot(collector_snapshot)
+            .map_err(Self::map_shared_heap_error)?;
+        Ok(progress)
+    }
+
+    /// Finish the active major collection if its mark work is fully drained.
+    pub fn finish_active_major_collection_if_ready(
+        &self,
+    ) -> Result<Option<CollectionStats>, SharedBackgroundError> {
+        let snapshot = self
+            .heap
+            .collector_snapshot()
+            .map_err(Self::map_shared_heap_error)?;
+        if snapshot.active_major_mark_plan.is_none() {
+            return Ok(None);
+        }
+        if snapshot
+            .major_mark_progress
+            .is_some_and(|progress| !progress.completed)
+        {
+            return Ok(None);
+        }
+        self.heap
+            .with_runtime(|runtime| runtime.finish_active_major_collection_if_ready())
+            .map_err(Self::map_shared_heap_error)?
+            .map_err(SharedBackgroundError::Collection)
+    }
+
+    /// Finish the active major collection if its mark work is fully drained, without blocking on
+    /// heap contention.
+    pub fn try_finish_active_major_collection_if_ready(
+        &self,
+    ) -> Result<Option<CollectionStats>, SharedBackgroundError> {
+        let snapshot = self
+            .heap
+            .collector_snapshot()
+            .map_err(Self::map_shared_heap_error)?;
+        if snapshot.active_major_mark_plan.is_none() {
+            return Ok(None);
+        }
+        if snapshot
+            .major_mark_progress
+            .is_some_and(|progress| !progress.completed)
+        {
+            return Ok(None);
+        }
+        self.heap
+            .try_with_runtime(|runtime| runtime.finish_active_major_collection_if_ready())
+            .map_err(Self::map_shared_heap_error)?
+            .map_err(SharedBackgroundError::Collection)
+    }
+}
+
 impl BackgroundCollectionRuntime for CollectorRuntime<'_> {
     fn active_major_mark_plan(&self) -> Option<CollectionPlan> {
         self.active_major_mark_plan()
@@ -85,5 +242,48 @@ impl BackgroundCollectionRuntime for CollectorRuntime<'_> {
         &mut self,
     ) -> Result<Option<CollectionStats>, AllocError> {
         self.finish_active_major_collection_if_ready()
+    }
+}
+
+impl BackgroundCollectionRuntime for SharedCollectorRuntime {
+    fn active_major_mark_plan(&self) -> Option<CollectionPlan> {
+        SharedCollectorRuntime::active_major_mark_plan(self)
+            .expect("shared collector runtime should not be poisoned")
+    }
+
+    fn recommended_background_plan(&self) -> Option<CollectionPlan> {
+        SharedCollectorRuntime::recommended_background_plan(self)
+            .expect("shared collector runtime should not be poisoned")
+    }
+
+    fn begin_major_mark(&mut self, plan: CollectionPlan) -> Result<(), AllocError> {
+        SharedCollectorRuntime::begin_major_mark(self, plan).map_err(|error| match error {
+            SharedBackgroundError::LockPoisoned | SharedBackgroundError::WouldBlock => {
+                AllocError::CollectionInProgress
+            }
+            SharedBackgroundError::Collection(error) => error,
+        })
+    }
+
+    fn poll_background_mark_round(&mut self) -> Result<Option<MajorMarkProgress>, AllocError> {
+        SharedCollectorRuntime::poll_active_major_mark(self).map_err(|error| match error {
+            SharedBackgroundError::LockPoisoned | SharedBackgroundError::WouldBlock => {
+                AllocError::CollectionInProgress
+            }
+            SharedBackgroundError::Collection(error) => error,
+        })
+    }
+
+    fn finish_active_major_collection_if_ready(
+        &mut self,
+    ) -> Result<Option<CollectionStats>, AllocError> {
+        SharedCollectorRuntime::finish_active_major_collection_if_ready(self).map_err(|error| {
+            match error {
+                SharedBackgroundError::LockPoisoned | SharedBackgroundError::WouldBlock => {
+                    AllocError::CollectionInProgress
+                }
+                SharedBackgroundError::Collection(error) => error,
+            }
+        })
     }
 }

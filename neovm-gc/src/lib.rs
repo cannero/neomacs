@@ -42,7 +42,7 @@ pub use plan::{
     BackgroundCollectionStatus, CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress,
 };
 pub use root::{Gc, HandleScope, Root};
-pub use runtime::CollectorRuntime;
+pub use runtime::{CollectorRuntime, SharedCollectorRuntime};
 pub use stats::{CollectionStats, HeapStats, OldRegionStats, SpaceStats};
 pub use weak::{Ephemeron, Weak, WeakCell, WeakMapToken};
 
