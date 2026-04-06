@@ -107,3 +107,22 @@ fn prepare_active_reclaim_plan_skips_ephemeron_trace_after_remark() {
     assert_eq!(progress.mark_steps, 5);
     assert_eq!(progress.mark_rounds, 7);
 }
+
+#[test]
+fn finish_major_mark_updates_state_and_marks_ephemerons_processed() {
+    let mut state = CollectorState::default();
+    let plan = major_plan();
+    let index = ObjectIndex::default();
+    state.begin_major_mark(plan, MarkWorklist::default());
+
+    let state = state
+        .take_major_mark_state()
+        .expect("active major mark state should exist");
+    let mut state = state;
+    finish_major_mark(&mut state, &[], &index, |_tracer, _plan| (2, 3));
+
+    assert!(state.ephemerons_processed);
+    assert!(state.worklist.is_empty());
+    assert_eq!(state.mark_steps, 2);
+    assert_eq!(state.mark_rounds, 3);
+}

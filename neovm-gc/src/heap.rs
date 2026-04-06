@@ -12,8 +12,8 @@ use crate::collector_exec::{
 };
 use crate::collector_session::{
     active_reclaim_prep_request, advance_major_mark_slice, begin_major_mark,
-    build_prepared_active_reclaim, complete_active_reclaim_prep, poll_active_major_mark_round,
-    prepare_active_reclaim,
+    build_prepared_active_reclaim, complete_active_reclaim_prep, finish_major_mark,
+    poll_active_major_mark_round, prepare_active_reclaim,
 };
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
 use crate::descriptor::{GcErased, Relocator, Trace, Tracer, TypeDesc, TypeFlags, fixed_type_desc};
@@ -387,61 +387,40 @@ impl Heap {
 
         let before_bytes = self.total_tracked_bytes();
         self.record_phase(CollectionPhase::Remark);
-        if !state.ephemerons_processed {
-            let mut tracer = MarkTracer::with_worklist(
-                &self.objects,
-                &self.indexes.object_index,
-                state.worklist,
-            );
-            let (mark_steps, mark_rounds) = tracer.drain_parallel_until_empty(
-                state.plan.worker_count.max(1),
-                state.plan.mark_slice_budget,
-            );
-            state.mark_steps = state.mark_steps.saturating_add(mark_steps);
-            state.mark_rounds = state.mark_rounds.saturating_add(mark_rounds);
-            let (ephemeron_steps, ephemeron_rounds) = self.trace_major_ephemerons(
-                &mut tracer,
-                state.plan.worker_count.max(1),
-                state.plan.mark_slice_budget,
-            );
-            state.mark_steps = state.mark_steps.saturating_add(ephemeron_steps);
-            state.mark_rounds = state.mark_rounds.saturating_add(ephemeron_rounds);
-            state.worklist = tracer.into_worklist();
-        }
+        finish_major_mark(
+            &mut state,
+            &self.objects,
+            &self.indexes.object_index,
+            |tracer, plan| {
+                self.trace_major_ephemerons(
+                    tracer,
+                    plan.worker_count.max(1),
+                    plan.mark_slice_budget,
+                )
+            },
+        );
 
         let mut reclaim_prepare_nanos = state.reclaim_prepare_nanos;
-        let reclaim_prepare_start = Instant::now();
-        match state.plan.kind {
-            CollectionKind::Major => {}
-            CollectionKind::Full => {
-                let (prepared_reclaim, _promoted_bytes) = self.prepare_full_reclaim(&state.plan)?;
-                state.reclaim_prepared = true;
-                state.prepared_reclaim = Some(prepared_reclaim);
-            }
-            CollectionKind::Minor => {
-                return Err(AllocError::UnsupportedCollectionKind {
-                    kind: state.plan.kind,
-                });
-            }
-        }
-        if !state.reclaim_prepared {
-            let empty_forwarding: ForwardingMap = HashMap::new();
-            self.process_weak_references(
-                state.plan.kind,
-                state.plan.worker_count.max(1),
-                &empty_forwarding,
-                &self.indexes.object_index,
-            );
-        }
         let prepared_reclaim = if state.reclaim_prepared {
             state.prepared_reclaim.take()
         } else {
-            Some(self.prepare_reclaim(state.plan.kind, &state.plan))
+            let request = crate::collector_session::ActiveReclaimPrepRequest {
+                plan: state.plan.clone(),
+                ephemerons_processed: state.ephemerons_processed,
+            };
+            let prepared = build_prepared_active_reclaim(&request, 0, 0, |plan| match plan.kind {
+                CollectionKind::Major => Ok(self.prepare_major_reclaim(plan)),
+                CollectionKind::Full => self.prepare_full_reclaim(plan).map(|(reclaim, _)| reclaim),
+                CollectionKind::Minor => Err(AllocError::UnsupportedCollectionKind {
+                    kind: CollectionKind::Minor,
+                }),
+            })?;
+            if reclaim_prepare_nanos == 0 {
+                reclaim_prepare_nanos =
+                    Self::saturating_duration_nanos(prepared.reclaim_prepare_time);
+            }
+            Some(prepared.prepared_reclaim)
         };
-        if reclaim_prepare_nanos == 0 {
-            reclaim_prepare_nanos =
-                Self::saturating_duration_nanos(reclaim_prepare_start.elapsed());
-        }
         let prepared_reclaim =
             prepared_reclaim.expect("major/full finish should always have prepared reclaim");
         let mut cycle = self.finish_reclaim_cycle(

@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use crate::collector_exec::MarkTracer;
-use crate::collector_state::{CollectorState, MajorMarkUpdate};
+use crate::collector_state::{CollectorState, MajorMarkState, MajorMarkUpdate};
 use crate::heap::AllocError;
 use crate::index_state::ObjectIndex;
 use crate::object::ObjectRecord;
@@ -151,6 +151,34 @@ pub(crate) fn complete_active_reclaim_prep(
         "active major reclaim prep should only complete while the session stays active"
     );
     completed
+}
+
+pub(crate) fn finish_major_mark(
+    state: &mut MajorMarkState,
+    objects: &[ObjectRecord],
+    index: &ObjectIndex,
+    trace_ephemerons: impl FnOnce(&mut MarkTracer<'_>, &CollectionPlan) -> (u64, u64),
+) {
+    if state.ephemerons_processed {
+        return;
+    }
+
+    let mut tracer =
+        MarkTracer::with_worklist(objects, index, core::mem::take(&mut state.worklist));
+    let (mark_steps, mark_rounds) = tracer
+        .drain_parallel_until_empty(state.plan.worker_count.max(1), state.plan.mark_slice_budget);
+    state.mark_steps = state.mark_steps.saturating_add(mark_steps);
+    state.mark_rounds = state.mark_rounds.saturating_add(mark_rounds);
+    let (ephemeron_steps, ephemeron_rounds) = trace_ephemerons(&mut tracer, &state.plan);
+    state.mark_steps = state.mark_steps.saturating_add(ephemeron_steps);
+    state.mark_rounds = state.mark_rounds.saturating_add(ephemeron_rounds);
+    state.worklist = tracer.into_worklist();
+    state.mark_elapsed_nanos = saturating_duration_nanos(state.mark_started_at.elapsed());
+    state.ephemerons_processed = true;
+}
+
+fn saturating_duration_nanos(duration: Duration) -> u64 {
+    duration.as_nanos().min(u128::from(u64::MAX)) as u64
 }
 
 #[cfg(test)]
