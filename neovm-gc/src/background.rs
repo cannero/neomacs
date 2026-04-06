@@ -135,6 +135,15 @@ pub enum SharedHeapError {
     WouldBlock,
 }
 
+/// Shared heap access failure modes with a snapshot-backed contention state.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SharedHeapAccessError {
+    /// Shared heap state was poisoned by another panic.
+    LockPoisoned,
+    /// Shared heap state is currently locked by another thread.
+    WouldBlock(SharedHeapStatus),
+}
+
 /// Shared background service failure modes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SharedBackgroundError {
@@ -402,6 +411,24 @@ impl SharedHeap {
         Ok(f(&mut heap))
     }
 
+    /// Execute one closure with exclusive access to the underlying heap without blocking.
+    ///
+    /// If the heap is contended, returns the latest shared snapshot instead of a bare
+    /// `WouldBlock`, so callers can react based on current heap/background state.
+    pub fn try_with_heap_status<R>(
+        &self,
+        f: impl FnOnce(&mut Heap) -> R,
+    ) -> Result<R, SharedHeapAccessError> {
+        match self.try_lock() {
+            Ok(mut heap) => Ok(f(&mut heap)),
+            Err(TryLockError::Poisoned(_)) => Err(SharedHeapAccessError::LockPoisoned),
+            Err(TryLockError::WouldBlock) => Err(SharedHeapAccessError::WouldBlock(
+                self.status()
+                    .map_err(|_| SharedHeapAccessError::LockPoisoned)?,
+            )),
+        }
+    }
+
     fn read_snapshot<R>(
         &self,
         f: impl FnOnce(&SharedHeapSnapshot) -> R,
@@ -550,6 +577,18 @@ impl SharedHeap {
         })
     }
 
+    /// Execute one closure with exclusive access to a mutator bound to this heap without
+    /// blocking, returning a snapshot-backed contention state on lock miss.
+    pub fn try_with_mutator_status<R>(
+        &self,
+        f: impl for<'heap> FnOnce(&mut Mutator<'heap>) -> R,
+    ) -> Result<R, SharedHeapAccessError> {
+        self.try_with_heap_status(|heap| {
+            let mut mutator = heap.mutator();
+            f(&mut mutator)
+        })
+    }
+
     /// Execute one closure with exclusive access to a collector runtime bound to this heap.
     pub fn with_runtime<R>(
         &self,
@@ -568,6 +607,18 @@ impl SharedHeap {
         f: impl for<'heap> FnOnce(&mut CollectorRuntime<'heap>) -> R,
     ) -> Result<R, SharedHeapError> {
         self.try_with_heap(|heap| {
+            let mut runtime = heap.collector_runtime();
+            f(&mut runtime)
+        })
+    }
+
+    /// Execute one closure with exclusive access to a collector runtime bound to this heap
+    /// without blocking, returning a snapshot-backed contention state on lock miss.
+    pub fn try_with_runtime_status<R>(
+        &self,
+        f: impl for<'heap> FnOnce(&mut CollectorRuntime<'heap>) -> R,
+    ) -> Result<R, SharedHeapAccessError> {
+        self.try_with_heap_status(|heap| {
             let mut runtime = heap.collector_runtime();
             f(&mut runtime)
         })

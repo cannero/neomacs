@@ -3988,6 +3988,92 @@ fn shared_try_with_mutator_reports_would_block_when_heap_is_locked() {
 }
 
 #[test]
+fn shared_try_with_mutator_status_returns_snapshot_when_heap_is_locked() {
+    let shared = SharedHeap::new(HeapConfig::default());
+    let _guard = shared.lock().expect("lock shared heap");
+
+    let result = shared.try_with_mutator_status(|mutator| {
+        let mut scope = mutator.handle_scope();
+        let _leaf = mutator.alloc(&mut scope, Leaf(9)).expect("alloc leaf");
+    });
+
+    match result {
+        Err(SharedHeapAccessError::WouldBlock(status)) => {
+            assert_eq!(status.stats.nursery.live_bytes, 0);
+            assert!(status.active_major_mark_plan.is_none());
+            assert!(status.major_mark_progress.is_none());
+        }
+        other => panic!("expected snapshot-backed would-block, got {other:?}"),
+    }
+}
+
+#[test]
+fn shared_try_with_mutator_status_reports_active_major_mark_snapshot_when_heap_is_locked() {
+    let shared = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        old: crate::spaces::OldGenConfig {
+            concurrent_mark_workers: 2,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for byte in 0..32u8 {
+                mutator
+                    .alloc(&mut scope, OldLeaf([byte; 32]))
+                    .expect("allocate old leaf");
+            }
+            let plan = mutator.plan_for(CollectionKind::Major);
+            mutator.begin_major_mark(plan).expect("begin major mark");
+        })
+        .expect("seed active major-mark session");
+    let _guard = shared.lock().expect("lock shared heap");
+
+    let result = shared.try_with_mutator_status(|mutator| {
+        let mut scope = mutator.handle_scope();
+        let _leaf = mutator.alloc(&mut scope, Leaf(11)).expect("alloc leaf");
+    });
+
+    match result {
+        Err(SharedHeapAccessError::WouldBlock(status)) => {
+            assert!(status.active_major_mark_plan.is_some());
+            let progress = status
+                .major_mark_progress
+                .expect("active major-mark progress");
+            assert!(!progress.completed);
+            assert!(progress.remaining_work > 0);
+        }
+        other => panic!("expected active-session snapshot-backed would-block, got {other:?}"),
+    }
+}
+
+#[test]
+fn shared_try_with_runtime_status_returns_snapshot_when_heap_is_locked() {
+    let shared = SharedHeap::new(HeapConfig::default());
+    let _guard = shared.lock().expect("lock shared heap");
+
+    let result = shared.try_with_runtime_status(|runtime| runtime.recommended_background_plan());
+
+    match result {
+        Err(SharedHeapAccessError::WouldBlock(status)) => {
+            assert_eq!(status.stats.nursery.live_bytes, 0);
+            assert!(status.recommended_background_plan.is_none());
+        }
+        other => panic!("expected snapshot-backed runtime would-block, got {other:?}"),
+    }
+}
+
+#[test]
 fn shared_snapshot_reads_work_while_heap_lock_is_held_and_refresh_on_drop() {
     let shared = SharedHeap::new(HeapConfig::default());
     let before = shared.stats().expect("read snapshot stats before lock");
