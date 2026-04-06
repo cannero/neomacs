@@ -2089,41 +2089,8 @@ fn worker_loop(
 ) -> Result<(), BackgroundWorkerError> {
     let mut collector = BackgroundCollector::new(config.collector);
     let runtime = shared.collector_runtime();
-    let mut observed_signal_epoch = shared
-        .collector
-        .epoch()
-        .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-    let mut observed_background = runtime
-        .collector_snapshot()
-        .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-
-    let sync_observed_background = |shared: &SharedHeap,
-                                    runtime: &SharedCollectorRuntime,
-                                    observed_signal_epoch: &mut u64,
-                                    observed_background: &mut CollectorSharedSnapshot|
-     -> Result<(), BackgroundWorkerError> {
-        loop {
-            let before_epoch = shared
-                .collector
-                .epoch()
-                .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-            let snapshot = runtime
-                .collector_snapshot()
-                .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-            let after_epoch = shared
-                .collector
-                .epoch()
-                .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-            if before_epoch == after_epoch {
-                *observed_signal_epoch = after_epoch;
-                *observed_background = snapshot;
-                return Ok(());
-            }
-        }
-    };
 
     let wait_for_signal = |stats: &Arc<BackgroundWorkerCounters>,
-                           shared: &SharedHeap,
                            runtime: &SharedCollectorRuntime,
                            stop: &Arc<AtomicBool>,
                            observed_signal_epoch: &mut u64,
@@ -2136,42 +2103,25 @@ fn worker_loop(
 
         stats.add_wait_loops(1);
 
-        let started_at = std::time::Instant::now();
-        let mut remaining = timeout;
-        loop {
-            let (next_epoch, changed) = shared
-                .collector
-                .wait_for_change(*observed_signal_epoch, remaining)
-                .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-            *observed_signal_epoch = next_epoch;
+        let (signal_changed, collector_changed) = runtime
+            .wait_for_collector_change(
+                observed_signal_epoch,
+                observed_background,
+                timeout,
+                Some(stop),
+            )
+            .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
 
-            if changed {
-                stats.add_signal_wakeups(1);
-            }
-
-            if stop.load(Ordering::Acquire) {
-                return Ok(());
-            }
-
-            let next_background = runtime
-                .collector_snapshot()
-                .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-            if next_background != *observed_background {
-                stats.add_background_change_wakeups(1);
-                *observed_background = next_background;
-                return Ok(());
-            }
-            if changed {
-                stats.add_ignored_signal_wakeups(1);
-                return Ok(());
-            }
-
-            let elapsed = started_at.elapsed();
-            if elapsed >= timeout {
-                return Ok(());
-            }
-            remaining = timeout.saturating_sub(elapsed);
+        if signal_changed {
+            stats.add_signal_wakeups(1);
         }
+        if collector_changed {
+            stats.add_background_change_wakeups(1);
+        } else if signal_changed && !stop.load(Ordering::Acquire) {
+            stats.add_ignored_signal_wakeups(1);
+        }
+
+        Ok(())
     };
 
     while !stop.load(Ordering::Acquire) {
@@ -2186,12 +2136,9 @@ fn worker_loop(
                 stats.add_snapshot_idle_loops(1);
             }
             stats.store_collector(collector.stats());
-            sync_observed_background(
-                &shared,
-                &runtime,
-                &mut observed_signal_epoch,
-                &mut observed_background,
-            )?;
+            let (mut observed_signal_epoch, mut observed_background) = runtime
+                .collector_observation()
+                .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
             let wait_for = match status {
                 BackgroundCollectionStatus::Idle => config.idle_sleep,
                 BackgroundCollectionStatus::ReadyToFinish(_)
@@ -2200,7 +2147,6 @@ fn worker_loop(
             };
             wait_for_signal(
                 &stats,
-                &shared,
                 &runtime,
                 &stop,
                 &mut observed_signal_epoch,
@@ -2226,19 +2172,15 @@ fn worker_loop(
                     stats.add_idle_loops(1);
                 }
                 stats.store_collector(collector.stats());
-                sync_observed_background(
-                    &shared,
-                    &runtime,
-                    &mut observed_signal_epoch,
-                    &mut observed_background,
-                )?;
+                let (mut observed_signal_epoch, mut observed_background) = runtime
+                    .collector_observation()
+                    .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
                 let wait_for = blocked_status
                     .as_ref()
                     .map(|status| background_wait_duration(status, &config))
                     .unwrap_or(config.idle_sleep);
                 wait_for_signal(
                     &stats,
-                    &shared,
                     &runtime,
                     &stop,
                     &mut observed_signal_epoch,
@@ -2249,12 +2191,9 @@ fn worker_loop(
             }
         };
 
-        sync_observed_background(
-            &shared,
-            &runtime,
-            &mut observed_signal_epoch,
-            &mut observed_background,
-        )?;
+        let (mut observed_signal_epoch, mut observed_background) = runtime
+            .collector_observation()
+            .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
 
         stats.add_loops(1);
         if matches!(status, BackgroundCollectionStatus::Idle) {
@@ -2265,7 +2204,6 @@ fn worker_loop(
         let sleep_for = background_wait_duration(&status, &config);
         wait_for_signal(
             &stats,
-            &shared,
             &runtime,
             &stop,
             &mut observed_signal_epoch,

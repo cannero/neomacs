@@ -10,6 +10,8 @@ use crate::plan::{
     RuntimeWorkStatus,
 };
 use crate::stats::{CollectionStats, HeapStats};
+use std::sync::atomic::AtomicBool;
+use std::time::{Duration, Instant};
 
 /// Collector-side runtime bound to one heap.
 #[derive(Debug)]
@@ -284,6 +286,63 @@ impl SharedCollectorRuntime {
             .map_err(Self::map_shared_heap_error)
     }
 
+    pub(crate) fn collector_observation(
+        &self,
+    ) -> Result<(u64, CollectorSharedSnapshot), SharedBackgroundError> {
+        loop {
+            let before_epoch = self.background_epoch()?;
+            let snapshot = self.collector_snapshot()?;
+            let after_epoch = self.background_epoch()?;
+            if before_epoch == after_epoch {
+                return Ok((after_epoch, snapshot));
+            }
+        }
+    }
+
+    pub(crate) fn wait_for_collector_change(
+        &self,
+        observed_epoch: &mut u64,
+        observed_snapshot: &mut CollectorSharedSnapshot,
+        timeout: Duration,
+        stop: Option<&AtomicBool>,
+    ) -> Result<(bool, bool), SharedBackgroundError> {
+        if timeout.is_zero() {
+            return Ok((false, false));
+        }
+
+        let started_at = Instant::now();
+        let mut remaining = timeout;
+        let mut signal_changed = false;
+        loop {
+            let (next_epoch, changed) = self
+                .collector
+                .wait_for_change(*observed_epoch, remaining)
+                .map_err(Self::map_shared_heap_error)?;
+            *observed_epoch = next_epoch;
+            signal_changed |= changed;
+
+            if stop.is_some_and(|stop| stop.load(std::sync::atomic::Ordering::Acquire)) {
+                return Ok((signal_changed, false));
+            }
+
+            let next_snapshot = self.collector_snapshot()?;
+            if next_snapshot != *observed_snapshot {
+                *observed_snapshot = next_snapshot;
+                return Ok((signal_changed, true));
+            }
+
+            if changed {
+                return Ok((signal_changed, false));
+            }
+
+            let elapsed = started_at.elapsed();
+            if elapsed >= timeout {
+                return Ok((signal_changed, false));
+            }
+            remaining = timeout.saturating_sub(elapsed);
+        }
+    }
+
     /// Return the current background-state change epoch for this runtime.
     pub fn background_epoch(&self) -> Result<u64, SharedBackgroundError> {
         self.collector.epoch().map_err(Self::map_shared_heap_error)
@@ -312,7 +371,7 @@ impl SharedCollectorRuntime {
         &self,
         observed_epoch: u64,
         observed_status: &SharedBackgroundStatus,
-        timeout: std::time::Duration,
+        timeout: Duration,
     ) -> Result<SharedBackgroundWaitResult, SharedBackgroundError> {
         let mut observed_epoch = observed_epoch;
         let mut observed_status = observed_status.clone();
