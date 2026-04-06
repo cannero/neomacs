@@ -5,7 +5,8 @@ use crate::background::{
 use crate::collector_state::CollectorSharedSnapshot;
 use crate::heap::{AllocError, Heap};
 use crate::plan::{
-    BackgroundCollectionStatus, CollectionPlan, MajorMarkProgress, RuntimeWorkStatus,
+    BackgroundCollectionStatus, CollectionPhase, CollectionPlan, MajorMarkProgress,
+    RuntimeWorkStatus,
 };
 use crate::stats::{CollectionStats, HeapStats};
 
@@ -387,6 +388,13 @@ impl SharedCollectorRuntime {
         {
             return Ok(None);
         }
+        if snapshot
+            .active_major_mark_plan
+            .as_ref()
+            .is_some_and(|plan| plan.phase != CollectionPhase::Reclaim)
+        {
+            return Ok(None);
+        }
         self.heap
             .with_runtime(|runtime| runtime.commit_active_reclaim_if_ready())
             .map_err(Self::map_shared_heap_error)?
@@ -426,6 +434,13 @@ impl SharedCollectorRuntime {
         if snapshot
             .major_mark_progress
             .is_some_and(|progress| !progress.completed)
+        {
+            return Ok(None);
+        }
+        if snapshot
+            .active_major_mark_plan
+            .as_ref()
+            .is_some_and(|plan| plan.phase != CollectionPhase::Reclaim)
         {
             return Ok(None);
         }

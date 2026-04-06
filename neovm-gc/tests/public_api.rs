@@ -4340,6 +4340,54 @@ fn public_api_shared_collector_runtime_prepare_active_major_reclaim_works_while_
 }
 
 #[test]
+fn public_api_shared_collector_runtime_try_commit_returns_none_from_snapshot_before_reclaim_when_heap_is_locked()
+ {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig {
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: 64,
+            soft_limit_bytes: usize::MAX,
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            concurrent_mark_workers: 2,
+            mutator_assist_slices: 0,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            mutator
+                .alloc(&mut scope, LargeLeaf([21; 80]))
+                .expect("alloc large leaf");
+            let plan = neovm_gc::CollectionPlan {
+                mark_slice_budget: 1,
+                ..mutator.plan_for(CollectionKind::Full)
+            };
+            mutator
+                .begin_major_mark(plan.clone())
+                .expect("begin persistent full mark");
+            while !mutator
+                .advance_major_mark()
+                .expect("advance persistent full mark")
+                .completed
+            {}
+            assert_eq!(
+                mutator.active_major_mark_plan(),
+                Some(neovm_gc::CollectionPlan {
+                    phase: CollectionPhase::Remark,
+                    ..plan
+                })
+            );
+        })
+        .expect("seed and drain full mark");
+    let runtime = shared.collector_runtime();
+    let _guard = shared.lock().expect("lock shared heap");
+
+    assert_eq!(runtime.try_commit_active_reclaim_if_ready(), Ok(None));
+}
+
+#[test]
 fn public_api_shared_collector_runtime_background_observation_stays_stable_under_lock_and_refreshes_on_drop()
  {
     let shared = Heap::new(HeapConfig {
@@ -5351,6 +5399,55 @@ fn public_api_shared_background_service_finish_returns_none_from_snapshot_for_co
     let _guard = shared.lock().expect("lock shared heap");
 
     assert_eq!(service.finish_active_major_collection_if_ready(), Ok(None));
+}
+
+#[test]
+fn public_api_shared_background_service_try_commit_returns_none_from_snapshot_before_reclaim_when_heap_is_locked()
+ {
+    let shared = neovm_gc::SharedHeap::new(HeapConfig {
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: 64,
+            soft_limit_bytes: usize::MAX,
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            concurrent_mark_workers: 2,
+            mutator_assist_slices: 0,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            mutator
+                .alloc(&mut scope, LargeLeaf([31; 80]))
+                .expect("alloc large leaf");
+            let plan = neovm_gc::CollectionPlan {
+                mark_slice_budget: 1,
+                ..mutator.plan_for(CollectionKind::Full)
+            };
+            mutator
+                .begin_major_mark(plan.clone())
+                .expect("begin persistent full mark");
+            while !mutator
+                .advance_major_mark()
+                .expect("advance persistent full mark")
+                .completed
+            {}
+            assert_eq!(
+                mutator.active_major_mark_plan(),
+                Some(neovm_gc::CollectionPlan {
+                    phase: CollectionPhase::Remark,
+                    ..plan
+                })
+            );
+        })
+        .expect("seed and drain full mark");
+
+    let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig::default());
+    let _guard = shared.lock().expect("lock shared heap");
+
+    assert_eq!(service.try_commit_active_reclaim_if_ready(), Ok(None));
 }
 
 #[test]
