@@ -243,8 +243,11 @@ impl Heap {
         self.collector().recommended_background_plan()
     }
 
-    fn compute_recommended_plan(&self) -> CollectionPlan {
-        if let Some(plan) = self.active_major_mark_plan() {
+    fn compute_recommended_plan_from_collector(
+        &self,
+        collector: &CollectorState,
+    ) -> CollectionPlan {
+        if let Some(plan) = collector.active_major_mark_plan() {
             return plan;
         }
         if self.stats.nursery.live_bytes > 0 {
@@ -259,8 +262,11 @@ impl Heap {
         self.plan_for(CollectionKind::Minor)
     }
 
-    fn compute_recommended_background_plan(&self) -> Option<CollectionPlan> {
-        if let Some(plan) = self.active_major_mark_plan() {
+    fn compute_recommended_background_plan_from_collector(
+        &self,
+        collector: &CollectorState,
+    ) -> Option<CollectionPlan> {
+        if let Some(plan) = collector.active_major_mark_plan() {
             return Some(plan);
         }
         if self.config.old.concurrent_mark_workers <= 1 {
@@ -276,10 +282,11 @@ impl Heap {
     }
 
     fn refresh_recommended_plans(&self) {
-        let recommended_plan = self.compute_recommended_plan();
-        let recommended_background_plan = self.compute_recommended_background_plan();
-        self.collector()
-            .set_cached_plans(recommended_plan, recommended_background_plan);
+        let mut collector = self.collector();
+        let recommended_plan = self.compute_recommended_plan_from_collector(&collector);
+        let recommended_background_plan =
+            self.compute_recommended_background_plan_from_collector(&collector);
+        collector.set_cached_plans(recommended_plan, recommended_background_plan);
     }
 
     /// Return the phases traversed by the most recently executed collection.
@@ -308,30 +315,41 @@ impl Heap {
     }
 
     pub(crate) fn begin_major_mark_in_place(&self, plan: CollectionPlan) -> Result<(), AllocError> {
-        if self.collector().has_active_major_mark() {
+        self.begin_major_mark_in_place_with_snapshot(plan)
+            .map(|_| ())
+    }
+
+    pub(crate) fn begin_major_mark_in_place_with_snapshot(
+        &self,
+        plan: CollectionPlan,
+    ) -> Result<CollectorSharedSnapshot, AllocError> {
+        let mut collector = self.collector();
+        if collector.has_active_major_mark() {
             return Err(AllocError::CollectionInProgress);
         }
         if !matches!(plan.kind, CollectionKind::Major | CollectionKind::Full) {
             return Err(AllocError::UnsupportedCollectionKind { kind: plan.kind });
         }
 
-        self.collector().clear_recent_phase_trace();
+        collector.clear_recent_phase_trace();
         for object in &self.objects {
             object.clear_mark();
         }
 
-        self.record_phase(CollectionPhase::InitialMark);
+        collector.push_phase(CollectionPhase::InitialMark);
         if plan.concurrent {
-            self.record_phase(CollectionPhase::ConcurrentMark);
+            collector.push_phase(CollectionPhase::ConcurrentMark);
         }
 
         let mut tracer = MarkTracer::new(&self.objects, &self.object_index);
         self.for_each_global_source(|object| tracer.mark_erased(object));
 
-        self.collector()
-            .begin_major_mark(plan, tracer.into_worklist());
-        self.refresh_recommended_plans();
-        Ok(())
+        collector.begin_major_mark(plan, tracer.into_worklist());
+        let recommended_plan = self.compute_recommended_plan_from_collector(&collector);
+        let recommended_background_plan =
+            self.compute_recommended_background_plan_from_collector(&collector);
+        collector.set_cached_plans(recommended_plan, recommended_background_plan);
+        Ok(collector.shared_snapshot())
     }
 
     /// Advance one slice of the current persistent major-mark session.
@@ -459,26 +477,35 @@ impl Heap {
 
     /// Advance one scheduler-style concurrent major-mark round using the plan worker count.
     pub fn poll_active_major_mark(&self) -> Result<Option<MajorMarkProgress>, AllocError> {
-        if !self.collector().has_active_major_mark() {
-            return Ok(None);
+        self.poll_active_major_mark_with_snapshot()
+            .map(|(progress, _)| progress)
+    }
+
+    pub(crate) fn poll_active_major_mark_with_snapshot(
+        &self,
+    ) -> Result<(Option<MajorMarkProgress>, CollectorSharedSnapshot), AllocError> {
+        let mut collector = self.collector();
+        if !collector.has_active_major_mark() {
+            return Ok((None, collector.shared_snapshot()));
         }
         let objects = &self.objects;
         let index = &self.object_index;
-        let progress = self
-            .collector()
-            .update_active_major_mark(|plan, worklist| {
-                let mut tracer = MarkTracer::with_worklist(objects, index, worklist);
-                let (drained_objects, drained_slices) =
-                    tracer.drain_worker_round(plan.worker_count.max(1), plan.mark_slice_budget);
-                MajorMarkUpdate {
-                    worklist: tracer.into_worklist(),
-                    drained_objects,
-                    mark_steps_delta: drained_slices,
-                    mark_rounds_delta: u64::from(drained_objects > 0),
-                }
-            })?;
-        self.refresh_recommended_plans();
-        Ok(Some(progress))
+        let progress = collector.update_active_major_mark(|plan, worklist| {
+            let mut tracer = MarkTracer::with_worklist(objects, index, worklist);
+            let (drained_objects, drained_slices) =
+                tracer.drain_worker_round(plan.worker_count.max(1), plan.mark_slice_budget);
+            MajorMarkUpdate {
+                worklist: tracer.into_worklist(),
+                drained_objects,
+                mark_steps_delta: drained_slices,
+                mark_rounds_delta: u64::from(drained_objects > 0),
+            }
+        })?;
+        let recommended_plan = self.compute_recommended_plan_from_collector(&collector);
+        let recommended_background_plan =
+            self.compute_recommended_background_plan_from_collector(&collector);
+        collector.set_cached_plans(recommended_plan, recommended_background_plan);
+        Ok((Some(progress), collector.shared_snapshot()))
     }
 
     /// Finish the active major collection if its mark work is fully drained.

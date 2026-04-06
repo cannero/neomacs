@@ -1194,25 +1194,18 @@ impl BackgroundCollector {
                 .map_err(Self::map_shared_heap_error)?
                 && matches!(plan.kind, CollectionKind::Major | CollectionKind::Full)
             {
-                let (begin_result, collector_snapshot) = if nonblocking {
+                let collector_snapshot = if nonblocking {
                     heap.try_with_heap_read(|heap| {
-                        (
-                            heap.begin_major_mark_in_place(plan),
-                            heap.collector_shared_snapshot(),
-                        )
+                        heap.begin_major_mark_in_place_with_snapshot(plan)
                     })
                 } else {
-                    heap.with_heap_read(|heap| {
-                        (
-                            heap.begin_major_mark_in_place(plan),
-                            heap.collector_shared_snapshot(),
-                        )
-                    })
+                    heap.with_heap_read(|heap| heap.begin_major_mark_in_place_with_snapshot(plan))
                 }
                 .map_err(Self::map_shared_heap_error)?;
+                let collector_snapshot =
+                    collector_snapshot.map_err(SharedBackgroundError::Collection)?;
                 heap.publish_collector_snapshot(collector_snapshot)
                     .map_err(Self::map_shared_heap_error)?;
-                begin_result.map_err(SharedBackgroundError::Collection)?;
                 self.stats.sessions_started = self.stats.sessions_started.saturating_add(1);
             }
         }
@@ -1227,25 +1220,17 @@ impl BackgroundCollector {
         heap: &SharedHeap,
         nonblocking: bool,
     ) -> Result<Option<MajorMarkProgress>, SharedBackgroundError> {
-        let (progress, collector_snapshot) = if nonblocking {
-            heap.try_with_heap_read(|heap| {
-                (
-                    heap.poll_active_major_mark(),
-                    heap.collector_shared_snapshot(),
-                )
-            })
+        let poll_result = if nonblocking {
+            heap.try_with_heap_read(|heap| heap.poll_active_major_mark_with_snapshot())
         } else {
-            heap.with_heap_read(|heap| {
-                (
-                    heap.poll_active_major_mark(),
-                    heap.collector_shared_snapshot(),
-                )
-            })
+            heap.with_heap_read(|heap| heap.poll_active_major_mark_with_snapshot())
         }
         .map_err(Self::map_shared_heap_error)?;
+        let (progress, collector_snapshot) =
+            poll_result.map_err(SharedBackgroundError::Collection)?;
         heap.publish_collector_snapshot(collector_snapshot)
             .map_err(Self::map_shared_heap_error)?;
-        progress.map_err(SharedBackgroundError::Collection)
+        Ok(progress)
     }
 
     fn try_finish_shared_major_collection_if_ready(
