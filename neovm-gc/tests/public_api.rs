@@ -557,11 +557,17 @@ fn public_api_full_collection_prunes_remembered_edges_for_dead_old_owner() {
     }
 
     assert_eq!(mutator.heap().remembered_edge_count(), 1);
+    let stats = mutator.heap().stats();
+    assert_eq!(stats.remembered_edges, 1);
+    assert_eq!(stats.remembered_owners, 1);
     drop(root_scope);
 
     let cycle = mutator.collect(CollectionKind::Full).expect("full collect");
     assert_eq!(cycle.major_collections, 1);
     assert_eq!(mutator.heap().remembered_edge_count(), 0);
+    let stats = mutator.heap().stats();
+    assert_eq!(stats.remembered_edges, 0);
+    assert_eq!(stats.remembered_owners, 0);
 }
 
 #[test]
@@ -2805,6 +2811,78 @@ fn public_api_ephemeron_clears_when_key_is_dead() {
             .value(),
         None
     );
+}
+
+#[test]
+fn public_api_heap_stats_report_candidate_counts() {
+    let mut heap = Heap::new(HeapConfig::default());
+    let mut mutator = heap.mutator();
+
+    let (weak_holder_gc, ephemeron_holder_gc, finalizable_gc) = {
+        let mut setup_scope = mutator.handle_scope();
+        let weak_target = mutator
+            .alloc(&mut setup_scope, Leaf(533))
+            .expect("alloc weak target");
+        let weak_holder = mutator
+            .alloc(
+                &mut setup_scope,
+                WeakHolder {
+                    strong: EdgeCell::default(),
+                    weak: WeakCell::new(Weak::new(weak_target.as_gc())),
+                },
+            )
+            .expect("alloc weak holder");
+        let eph_key = mutator
+            .alloc(&mut setup_scope, Leaf(534))
+            .expect("alloc ephemeron key");
+        let eph_value = mutator
+            .alloc(&mut setup_scope, Leaf(535))
+            .expect("alloc ephemeron value");
+        let ephemeron_holder = mutator
+            .alloc(
+                &mut setup_scope,
+                EphemeronHolder {
+                    strong: EdgeCell::default(),
+                    pair: Ephemeron::new(Weak::new(eph_key.as_gc()), Weak::new(eph_value.as_gc())),
+                },
+            )
+            .expect("alloc ephemeron holder");
+        let finalizable = mutator
+            .alloc(&mut setup_scope, FinalizableLeaf(536))
+            .expect("alloc finalizable holder");
+        (
+            weak_holder.as_gc(),
+            ephemeron_holder.as_gc(),
+            finalizable.as_gc(),
+        )
+    };
+
+    let mut keep_scope = mutator.handle_scope();
+    let _weak_holder = mutator.root(&mut keep_scope, weak_holder_gc);
+    let _ephemeron_holder = mutator.root(&mut keep_scope, ephemeron_holder_gc);
+    let _finalizable = mutator.root(&mut keep_scope, finalizable_gc);
+
+    let stats = mutator.heap().stats();
+    assert_eq!(stats.finalizable_candidates, 1);
+    assert_eq!(stats.weak_candidates, 2);
+    assert_eq!(stats.ephemeron_candidates, 1);
+
+    mutator
+        .collect(CollectionKind::Major)
+        .expect("major collect with live holders");
+    let stats = mutator.heap().stats();
+    assert_eq!(stats.finalizable_candidates, 1);
+    assert_eq!(stats.weak_candidates, 2);
+    assert_eq!(stats.ephemeron_candidates, 1);
+
+    drop(keep_scope);
+    mutator
+        .collect(CollectionKind::Major)
+        .expect("major collect after dropping holders");
+    let stats = mutator.heap().stats();
+    assert_eq!(stats.finalizable_candidates, 0);
+    assert_eq!(stats.weak_candidates, 0);
+    assert_eq!(stats.ephemeron_candidates, 0);
 }
 
 #[test]

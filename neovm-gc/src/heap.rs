@@ -216,6 +216,11 @@ impl Heap {
                 large: crate::stats::SpaceStats::default(),
                 immortal: crate::stats::SpaceStats::default(),
                 collections: crate::stats::CollectionStats::default(),
+                remembered_edges: 0,
+                remembered_owners: 0,
+                finalizable_candidates: 0,
+                weak_candidates: 0,
+                ephemeron_candidates: 0,
                 finalizers_run: 0,
                 pending_finalizers: 0,
             },
@@ -263,14 +268,20 @@ impl Heap {
     /// Return current heap statistics.
     pub fn stats(&self) -> HeapStats {
         let runtime_state = self.runtime_state();
-        let mut stats = self.stats;
+        let mut stats = self.storage_stats();
         stats.finalizers_run = runtime_state.finalizers_run;
         stats.pending_finalizers = runtime_state.pending_finalizers.len();
         stats
     }
 
     pub(crate) fn storage_stats(&self) -> HeapStats {
-        self.stats
+        let mut stats = self.stats;
+        stats.remembered_edges = self.remembered_edges.len();
+        stats.remembered_owners = self.remembered_owners.len();
+        stats.finalizable_candidates = self.finalizable_candidates.len();
+        stats.weak_candidates = self.weak_candidates.len();
+        stats.ephemeron_candidates = self.ephemeron_candidates.len();
+        stats
     }
 
     pub(crate) fn runtime_finalizer_stats(&self) -> (u64, usize) {

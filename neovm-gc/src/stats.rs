@@ -76,6 +76,16 @@ pub struct HeapStats {
     pub immortal: SpaceStats,
     /// Collection counters.
     pub collections: CollectionStats,
+    /// Number of remembered old-to-young edges currently tracked.
+    pub remembered_edges: usize,
+    /// Number of distinct old owners represented in the remembered set.
+    pub remembered_owners: usize,
+    /// Number of finalizable objects currently tracked as reclaim candidates.
+    pub finalizable_candidates: usize,
+    /// Number of weak-bearing objects currently tracked as reclaim candidates.
+    pub weak_candidates: usize,
+    /// Number of ephemeron-bearing objects currently tracked as reclaim candidates.
+    pub ephemeron_candidates: usize,
     /// Number of queued finalizers that have run through explicit drain calls.
     pub finalizers_run: u64,
     /// Number of queued finalizers that are waiting to run.

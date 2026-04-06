@@ -467,6 +467,9 @@ fn remembered_owner_cache_deduplicates_multiple_edges_from_one_owner() {
 
     assert_eq!(mutator.heap().remembered_edge_count(), 2);
     assert_eq!(mutator.heap().remembered_owner_count(), 1);
+    let stats = mutator.heap().stats();
+    assert_eq!(stats.remembered_edges, 2);
+    assert_eq!(stats.remembered_owners, 1);
 }
 
 #[test]
@@ -4641,6 +4644,10 @@ fn post_sweep_rebuild_refreshes_weak_and_ephemeron_candidate_indexes() {
     assert_eq!(mutator.heap().finalizable_candidate_count(), 1);
     assert_eq!(mutator.heap().weak_candidate_count(), 2);
     assert_eq!(mutator.heap().ephemeron_candidate_count(), 1);
+    let stats = mutator.heap().stats();
+    assert_eq!(stats.finalizable_candidates, 1);
+    assert_eq!(stats.weak_candidates, 2);
+    assert_eq!(stats.ephemeron_candidates, 1);
 
     mutator
         .collect(CollectionKind::Major)
@@ -4648,6 +4655,10 @@ fn post_sweep_rebuild_refreshes_weak_and_ephemeron_candidate_indexes() {
     assert_eq!(mutator.heap().finalizable_candidate_count(), 1);
     assert_eq!(mutator.heap().weak_candidate_count(), 2);
     assert_eq!(mutator.heap().ephemeron_candidate_count(), 1);
+    let stats = mutator.heap().stats();
+    assert_eq!(stats.finalizable_candidates, 1);
+    assert_eq!(stats.weak_candidates, 2);
+    assert_eq!(stats.ephemeron_candidates, 1);
 
     drop(keep_scope);
     mutator
@@ -4659,6 +4670,10 @@ fn post_sweep_rebuild_refreshes_weak_and_ephemeron_candidate_indexes() {
     assert_eq!(mutator.heap().finalizable_candidate_count(), 0);
     assert_eq!(mutator.heap().weak_candidate_count(), 0);
     assert_eq!(mutator.heap().ephemeron_candidate_count(), 0);
+    let stats = mutator.heap().stats();
+    assert_eq!(stats.finalizable_candidates, 0);
+    assert_eq!(stats.weak_candidates, 0);
+    assert_eq!(stats.ephemeron_candidates, 0);
 }
 
 #[test]
