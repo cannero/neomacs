@@ -2327,13 +2327,15 @@ impl Context {
         obarray.set_symbol_value("emacs-minor-version", Value::fixnum(0));
         obarray.set_symbol_value("emacs-build-number", Value::fixnum(1));
         obarray.set_symbol_value("system-type", Value::symbol("gnu/linux"));
+        // GNU Emacs uses unibyte for default-directory during dump because
+        // the locale isn't set up yet (see init_buffer in buffer.c).
         obarray.set_symbol_value(
             "default-directory",
-            Value::string(default_directory.clone()),
+            Value::unibyte_string(default_directory.clone()),
         );
         obarray.set_symbol_value(
             "command-line-default-directory",
-            Value::string(default_directory),
+            Value::unibyte_string(default_directory),
         );
         let obarray_object = Value::vector(vec![Value::NIL]);
         obarray.set_symbol_value("obarray", obarray_object);
@@ -3448,7 +3450,11 @@ impl Context {
                         s
                     })
                     .unwrap_or_else(|_| "/".to_string());
-                defvar_per_buffer!("default-directory", Value::string(cwd));
+                // GNU Emacs uses make_unibyte_string for default-directory
+                // because the locale isn't set up yet during dump.  loadup.el
+                // checks (multibyte-string-p default-directory) and errors
+                // if it's multibyte.
+                defvar_per_buffer!("default-directory", Value::unibyte_string(cwd));
             }
             defvar_per_buffer!("buffer-read-only", Value::NIL);
             defvar_per_buffer!("buffer-undo-list", Value::NIL);
