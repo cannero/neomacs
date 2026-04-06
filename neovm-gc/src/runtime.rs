@@ -1,7 +1,7 @@
 use crate::background::{
     BackgroundCollectionRuntime, SharedBackgroundError, SharedBackgroundObservation,
     SharedBackgroundStatus, SharedBackgroundWaitResult, SharedCollectorHandle, SharedHeap,
-    SharedHeapError, SharedRuntimeHandle,
+    SharedHeapError, SharedHeapStatus, SharedRuntimeHandle,
 };
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
 use crate::heap::{AllocError, Heap};
@@ -223,6 +223,31 @@ impl SharedCollectorRuntime {
         self.runtime
             .observe_heap_status()
             .map(|status| status.stats)
+            .map_err(Self::map_shared_heap_error)
+    }
+
+    /// Return one consistent shared heap status snapshot for this runtime.
+    pub fn status(&self) -> Result<SharedHeapStatus, SharedBackgroundError> {
+        self.runtime
+            .observe_heap_status()
+            .map_err(Self::map_shared_heap_error)
+    }
+
+    /// Return the current shared-heap change epoch for this runtime.
+    pub fn epoch(&self) -> Result<u64, SharedBackgroundError> {
+        self.runtime
+            .heap_epoch()
+            .map_err(Self::map_shared_heap_error)
+    }
+
+    /// Wait for one shared-heap change visible to this runtime.
+    pub fn wait_for_change(
+        &self,
+        observed_epoch: u64,
+        timeout: Duration,
+    ) -> Result<(u64, bool), SharedBackgroundError> {
+        self.runtime
+            .wait_for_heap_change(observed_epoch, timeout)
             .map_err(Self::map_shared_heap_error)
     }
 

@@ -1798,10 +1798,7 @@ impl SharedBackgroundService {
     pub fn status(&self) -> Result<SharedBackgroundServiceStatus, SharedBackgroundError> {
         Ok(SharedBackgroundServiceStatus {
             collector: self.collector.stats(),
-            heap: self.heap.status().map_err(|error| match error {
-                SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-                SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-            })?,
+            heap: self.runtime.status()?,
         })
     }
 
@@ -1816,12 +1813,7 @@ impl SharedBackgroundService {
         observed_epoch: u64,
         timeout: Duration,
     ) -> Result<(u64, bool), SharedBackgroundError> {
-        self.heap
-            .wait_for_change(observed_epoch, timeout)
-            .map_err(|error| match error {
-                SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-                SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-            })
+        self.runtime.wait_for_change(observed_epoch, timeout)
     }
 
     /// Return the current background-state change epoch for this service.
