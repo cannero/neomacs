@@ -17,6 +17,7 @@ mod mark;
 pub mod mutator;
 mod object;
 pub mod plan;
+mod reclaim;
 pub mod root;
 pub mod runtime;
 mod runtime_state;

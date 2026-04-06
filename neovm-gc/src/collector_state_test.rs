@@ -1,6 +1,8 @@
 use super::*;
 use crate::mark::MarkWorklist;
 use crate::plan::{CollectionKind, CollectionPhase, CollectionPlan};
+use crate::reclaim::PreparedReclaimSurvivor;
+use crate::spaces::OldRegionCollectionStats;
 use std::time::Duration;
 
 fn major_plan() -> CollectionPlan {

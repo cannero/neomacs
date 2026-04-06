@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::collector_state::PreparedReclaimSurvivor;
 use crate::object::{ObjectRecord, OldRegionPlacement, SpaceKind};
 use crate::plan::{CollectionKind, CollectionPlan};
+use crate::reclaim::PreparedReclaimSurvivor;
 use crate::stats::OldRegionStats;
 
 /// Old-generation configuration.

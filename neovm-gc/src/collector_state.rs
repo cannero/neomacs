@@ -1,13 +1,9 @@
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use crate::barrier::RememberedEdge;
-use crate::descriptor::ObjectKey;
 use crate::heap::AllocError;
 use crate::mark::MarkWorklist;
-use crate::object::OldRegionPlacement;
 use crate::plan::{CollectionPhase, CollectionPlan, MajorMarkProgress};
-use crate::spaces::{OldRegion, OldRegionCollectionStats};
+use crate::reclaim::PreparedReclaim;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CollectorSharedSnapshot {
@@ -46,41 +42,6 @@ pub(crate) struct MajorMarkUpdate {
     pub(crate) drained_objects: usize,
     pub(crate) mark_steps_delta: u64,
     pub(crate) mark_rounds_delta: u64,
-}
-
-#[derive(Debug)]
-pub(crate) struct PreparedReclaimSurvivor {
-    /// Original index in `Heap::objects` before reclaim commit.
-    pub(crate) object_index: usize,
-    pub(crate) old_region_placement: Option<OldRegionPlacement>,
-}
-
-#[derive(Debug)]
-pub(crate) struct PreparedReclaim {
-    pub(crate) promoted_bytes: usize,
-    pub(crate) rebuilt_old_regions: Vec<OldRegion>,
-    pub(crate) rebuilt_object_index: HashMap<ObjectKey, usize>,
-    pub(crate) old_reserved_bytes: usize,
-    pub(crate) old_region_stats: OldRegionCollectionStats,
-    /// Survivors in ascending original `object_index` order.
-    ///
-    /// `commit_prepared_reclaim` drains this in lockstep with the original
-    /// `objects` vector, so ordering is part of the prepared-state contract.
-    pub(crate) survivors: Vec<PreparedReclaimSurvivor>,
-    /// Dead finalizable object indices in ascending original `object_index`
-    /// order. `commit_prepared_reclaim` drains these into the pending-finalizer
-    /// queue in lockstep with the original `objects` vector.
-    pub(crate) finalize_indices: Vec<usize>,
-    pub(crate) finalizable_candidates: Vec<ObjectKey>,
-    pub(crate) weak_candidates: Vec<ObjectKey>,
-    pub(crate) ephemeron_candidates: Vec<ObjectKey>,
-    pub(crate) remembered_edges: Vec<RememberedEdge>,
-    pub(crate) remembered_owners: Vec<ObjectKey>,
-    pub(crate) nursery_live_bytes: usize,
-    pub(crate) old_live_bytes: usize,
-    pub(crate) pinned_live_bytes: usize,
-    pub(crate) large_live_bytes: usize,
-    pub(crate) immortal_live_bytes: usize,
 }
 
 impl CollectorState {
