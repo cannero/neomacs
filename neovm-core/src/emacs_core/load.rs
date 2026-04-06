@@ -1274,8 +1274,9 @@ pub fn load_file_with_flags(
         .unwrap_or(Value::NIL);
     eval.set_variable("load-in-progress", Value::T);
 
-    // Disabled stacker: conservative GC cannot scan stacker segments.
-    let result = load_file_body(eval, path, noerror, nomessage);
+    let result = stacker::maybe_grow(128 * 1024, 2 * 1024 * 1024, || {
+        load_file_body(eval, path, noerror, nomessage)
+    });
 
     eval.set_variable("load-in-progress", old_load_in_progress);
     eval.loads_in_progress.pop();

@@ -1470,23 +1470,23 @@ impl TaggedHeap {
             stack_top = &marker as *const usize as *const u8;
         }
 
-        let (lo, hi) = if self.stack_bottom < stack_top {
-            (self.stack_bottom, stack_top)
-        } else {
-            (stack_top, self.stack_bottom)
+        // Scan only the stack segment containing rsp.  With stacker,
+        // the call stack may span multiple mmap segments.  We find the
+        // mapped region containing rsp by reading /proc/self/maps.
+        let rsp = stack_top as usize;
+        let (seg_lo, seg_hi) = match find_stack_segment_containing(rsp) {
+            Some(range) => range,
+            None => {
+                // Fallback: scan from stack_bottom if it's close
+                let lo = std::cmp::min(self.stack_bottom as usize, rsp);
+                let hi = std::cmp::max(self.stack_bottom as usize, rsp);
+                if hi - lo > 8 * 1024 * 1024 { return; }
+                (lo, hi)
+            }
         };
-        let span = (hi as usize).saturating_sub(lo as usize);
-        if span == 0 {
-            return;
-        }
-        // With stacker::maybe_grow, the stack can span multiple mmap
-        // segments far apart in the address space.  Use the current rsp
-        // as the authoritative top and scan from there to stack_bottom,
-        // but cap at a sane limit to avoid scanning gigabytes of memory
-        // if pointers are wildly wrong.
-        if span > 512 * 1024 * 1024 {
-            return;
-        }
+        let lo = seg_lo as *const u8;
+        let hi = seg_hi as *const u8;
+        let span = seg_hi - seg_lo;
 
         // Scan 8-byte aligned positions for tagged pointer values
         let mut ptr = lo as usize;
@@ -1615,6 +1615,28 @@ impl Drop for TaggedHeap {
 
 /// Read the thread's stack upper bound from `/proc/self/maps` (Linux only).
 /// Returns the highest address of the `[stack]` mapping.
+/// Find the mapped memory segment containing `addr` by reading /proc/self/maps.
+/// Returns (start, end) of the segment, or None if not found.
+#[cfg(target_os = "linux")]
+fn find_stack_segment_containing(addr: usize) -> Option<(usize, usize)> {
+    let maps = std::fs::read_to_string("/proc/self/maps").ok()?;
+    for line in maps.lines() {
+        let dash = line.find('-')?;
+        let space = line.find(' ')?;
+        let start = usize::from_str_radix(&line[..dash], 16).ok()?;
+        let end = usize::from_str_radix(&line[dash + 1..space], 16).ok()?;
+        if addr >= start && addr < end {
+            return Some((start, end));
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "linux"))]
+fn find_stack_segment_containing(_addr: usize) -> Option<(usize, usize)> {
+    None
+}
+
 pub fn read_stack_end_from_proc() -> Option<usize> {
     let maps = std::fs::read_to_string("/proc/self/maps").ok()?;
     for line in maps.lines() {
