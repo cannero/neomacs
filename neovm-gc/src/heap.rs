@@ -1479,7 +1479,13 @@ impl Heap {
     }
 
     fn total_tracked_bytes(&self) -> usize {
-        self.objects.iter().map(ObjectRecord::total_size).sum()
+        self.stats
+            .nursery
+            .live_bytes
+            .saturating_add(self.stats.old.live_bytes)
+            .saturating_add(self.stats.pinned.live_bytes)
+            .saturating_add(self.stats.large.live_bytes)
+            .saturating_add(self.stats.immortal.live_bytes)
     }
 
     fn process_weak_references(
