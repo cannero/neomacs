@@ -4323,6 +4323,61 @@ fn public_api_shared_collector_runtime_drains_pending_finalizers_while_heap_is_r
 }
 
 #[test]
+fn public_api_shared_collector_runtime_drains_pending_finalizers_while_heap_is_write_locked() {
+    PUBLIC_FINALIZE_COUNT.store(0, Ordering::SeqCst);
+
+    let shared = neovm_gc::SharedHeap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+
+    shared
+        .with_mutator(|mutator| {
+            {
+                let mut scope = mutator.handle_scope();
+                mutator
+                    .alloc(&mut scope, FinalizableLeaf(5922))
+                    .expect("alloc finalizable old leaf");
+            }
+            let cycle = mutator
+                .collect(CollectionKind::Major)
+                .expect("major collect");
+            assert_eq!(cycle.queued_finalizers, 1);
+        })
+        .expect("collect through shared mutator");
+
+    let runtime = shared.collector_runtime();
+    let (release_tx, waiter) = lock_shared_heap_on_other_thread(shared.clone());
+
+    assert_eq!(
+        runtime
+            .drain_pending_finalizers()
+            .expect("drain pending finalizers under write lock"),
+        1
+    );
+    let status = shared
+        .status()
+        .expect("read shared status after finalizer drain");
+    assert_eq!(status.stats.pending_finalizers, 0);
+    assert_eq!(status.stats.finalizers_run, 1);
+    assert_eq!(
+        runtime.runtime_work_status().expect("runtime work status"),
+        RuntimeWorkStatus::Idle
+    );
+    assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 1);
+
+    release_tx.send(()).expect("release shared heap write lock");
+    waiter.join().expect("join write-lock helper thread");
+}
+
+#[test]
 fn public_api_shared_collector_runtime_prepare_active_major_reclaim_works_while_heap_is_read_locked()
  {
     let shared = neovm_gc::SharedHeap::new(HeapConfig {
@@ -5258,6 +5313,61 @@ fn public_api_shared_background_service_drains_pending_finalizers_while_heap_is_
 
     release_tx.send(()).expect("release shared heap read lock");
     waiter.join().expect("join read-lock helper thread");
+}
+
+#[test]
+fn public_api_shared_background_service_drains_pending_finalizers_while_heap_is_write_locked() {
+    PUBLIC_FINALIZE_COUNT.store(0, Ordering::SeqCst);
+
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            {
+                let mut scope = mutator.handle_scope();
+                mutator
+                    .alloc(&mut scope, FinalizableLeaf(5962))
+                    .expect("alloc finalizable old leaf");
+            }
+            let cycle = mutator
+                .collect(CollectionKind::Major)
+                .expect("major collect");
+            assert_eq!(cycle.queued_finalizers, 1);
+        })
+        .expect("collect shared finalizable object");
+
+    let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig::default());
+    let (release_tx, waiter) = lock_shared_heap_on_other_thread(shared.clone());
+
+    assert_eq!(
+        service
+            .drain_pending_finalizers()
+            .expect("drain pending finalizers under write lock"),
+        1
+    );
+    let status = shared
+        .status()
+        .expect("read shared status after finalizer drain");
+    assert_eq!(status.stats.pending_finalizers, 0);
+    assert_eq!(status.stats.finalizers_run, 1);
+    assert_eq!(
+        service.runtime_work_status().expect("runtime work status"),
+        RuntimeWorkStatus::Idle
+    );
+    assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 1);
+
+    release_tx.send(()).expect("release shared heap write lock");
+    waiter.join().expect("join write-lock helper thread");
 }
 
 #[test]

@@ -90,7 +90,7 @@ pub struct Heap {
     remembered_owners: Vec<ObjectKey>,
     remembered_owner_set: HashSet<ObjectKey>,
     recent_barrier_events: Vec<BarrierEvent>,
-    runtime_state: Mutex<RuntimeState>,
+    runtime_state: Arc<Mutex<RuntimeState>>,
     collector: Mutex<CollectorState>,
 }
 
@@ -118,9 +118,30 @@ struct EvacuationOutcome {
 }
 
 #[derive(Debug, Default)]
-struct RuntimeState {
+pub(crate) struct RuntimeState {
     pending_finalizers: Vec<ObjectRecord>,
     finalizers_run: u64,
+}
+
+impl RuntimeState {
+    pub(crate) fn snapshot(&self) -> (u64, usize) {
+        (self.finalizers_run, self.pending_finalizers.len())
+    }
+
+    pub(crate) fn pending_finalizer_count(&self) -> usize {
+        self.pending_finalizers.len()
+    }
+
+    pub(crate) fn drain_pending_finalizers(&mut self) -> u64 {
+        let mut ran = 0u64;
+        for object in core::mem::take(&mut self.pending_finalizers) {
+            if object.run_finalizer() {
+                ran = ran.saturating_add(1);
+            }
+        }
+        self.finalizers_run = self.finalizers_run.saturating_add(ran);
+        ran
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -210,7 +231,7 @@ impl Heap {
             remembered_owners: Vec::new(),
             remembered_owner_set: HashSet::new(),
             recent_barrier_events: Vec::new(),
-            runtime_state: Mutex::new(RuntimeState::default()),
+            runtime_state: Arc::new(Mutex::new(RuntimeState::default())),
             collector: Mutex::new(CollectorState::default()),
         };
         heap.refresh_recommended_plans();
@@ -227,6 +248,10 @@ impl Heap {
         self.runtime_state
             .lock()
             .expect("runtime state should not be poisoned")
+    }
+
+    pub(crate) fn runtime_state_handle(&self) -> Arc<Mutex<RuntimeState>> {
+        Arc::clone(&self.runtime_state)
     }
 
     /// Return the heap configuration.
@@ -248,11 +273,7 @@ impl Heap {
     }
 
     pub(crate) fn runtime_finalizer_stats(&self) -> (u64, usize) {
-        let runtime_state = self.runtime_state();
-        (
-            runtime_state.finalizers_run,
-            runtime_state.pending_finalizers.len(),
-        )
+        self.runtime_state().snapshot()
     }
 
     /// Return runtime-side follow-up work that remains outside GC commit.
@@ -770,20 +791,12 @@ impl Heap {
 
     /// Return the number of queued finalizers waiting to run.
     pub fn pending_finalizer_count(&self) -> usize {
-        self.runtime_state().pending_finalizers.len()
+        self.runtime_state().pending_finalizer_count()
     }
 
     /// Run and drain queued finalizers.
     pub fn drain_pending_finalizers(&self) -> u64 {
-        let mut runtime_state = self.runtime_state();
-        let mut ran = 0u64;
-        for object in core::mem::take(&mut runtime_state.pending_finalizers) {
-            if object.run_finalizer() {
-                ran = ran.saturating_add(1);
-            }
-        }
-        runtime_state.finalizers_run = runtime_state.finalizers_run.saturating_add(ran);
-        ran
+        self.runtime_state().drain_pending_finalizers()
     }
 
     /// Number of remembered old-to-young edges currently tracked.

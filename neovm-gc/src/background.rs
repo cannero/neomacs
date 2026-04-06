@@ -1,5 +1,5 @@
 use crate::collector_state::CollectorSharedSnapshot;
-use crate::heap::{AllocError, Heap};
+use crate::heap::{AllocError, Heap, RuntimeState};
 use crate::mutator::Mutator;
 use crate::plan::{
     BackgroundCollectionStatus, CollectionKind, CollectionPlan, MajorMarkProgress,
@@ -83,6 +83,7 @@ pub struct BackgroundCollectorStats {
 #[derive(Clone, Debug)]
 pub struct SharedHeap {
     inner: Arc<RwLock<Heap>>,
+    runtime_state: Arc<Mutex<RuntimeState>>,
     snapshot: Arc<RwLock<SharedHeapSnapshot>>,
     runtime_snapshot: Arc<RwLock<SharedRuntimeSnapshot>>,
     collector_snapshot: Arc<RwLock<CollectorSharedSnapshot>>,
@@ -438,8 +439,10 @@ impl SharedHeap {
         let snapshot = SharedHeapSnapshot::capture(&heap);
         let runtime_snapshot = SharedRuntimeSnapshot::capture(&heap);
         let collector_snapshot = heap.collector_shared_snapshot();
+        let runtime_state = heap.runtime_state_handle();
         Self {
             inner: Arc::new(RwLock::new(heap)),
+            runtime_state,
             snapshot: Arc::new(RwLock::new(snapshot)),
             runtime_snapshot: Arc::new(RwLock::new(runtime_snapshot)),
             collector_snapshot: Arc::new(RwLock::new(collector_snapshot)),
@@ -568,6 +571,28 @@ impl SharedHeap {
                     .map_err(|_| SharedHeapAccessError::LockPoisoned)?,
             )),
         }
+    }
+
+    fn with_runtime_state<R>(
+        &self,
+        f: impl FnOnce(&mut RuntimeState) -> R,
+    ) -> Result<R, SharedHeapError> {
+        let mut runtime_state = self
+            .runtime_state
+            .lock()
+            .map_err(|_| SharedHeapError::LockPoisoned)?;
+        Ok(f(&mut runtime_state))
+    }
+
+    fn try_with_runtime_state<R>(
+        &self,
+        f: impl FnOnce(&mut RuntimeState) -> R,
+    ) -> Result<R, SharedHeapError> {
+        let mut runtime_state = self.runtime_state.try_lock().map_err(|error| match error {
+            TryLockError::Poisoned(_) => SharedHeapError::LockPoisoned,
+            TryLockError::WouldBlock => SharedHeapError::WouldBlock,
+        })?;
+        Ok(f(&mut runtime_state))
     }
 
     fn read_snapshot<R>(
@@ -938,9 +963,16 @@ impl SharedHeap {
 
     /// Run and drain queued finalizers.
     pub fn drain_pending_finalizers(&self) -> Result<u64, SharedHeapError> {
-        let (ran, next_runtime_snapshot) = self.with_heap_read(|heap| {
-            let ran = heap.drain_pending_finalizers();
-            (ran, SharedRuntimeSnapshot::capture(heap))
+        let (ran, next_runtime_snapshot) = self.with_runtime_state(|runtime_state| {
+            let ran = runtime_state.drain_pending_finalizers();
+            let (finalizers_run, pending_finalizers) = runtime_state.snapshot();
+            (
+                ran,
+                SharedRuntimeSnapshot {
+                    finalizers_run,
+                    pending_finalizers,
+                },
+            )
         })?;
         self.publish_runtime_snapshot(next_runtime_snapshot)?;
         Ok(ran)
@@ -948,9 +980,16 @@ impl SharedHeap {
 
     /// Run and drain queued finalizers without blocking on heap contention.
     pub fn try_drain_pending_finalizers(&self) -> Result<u64, SharedHeapError> {
-        let (ran, next_runtime_snapshot) = self.try_with_heap_read(|heap| {
-            let ran = heap.drain_pending_finalizers();
-            (ran, SharedRuntimeSnapshot::capture(heap))
+        let (ran, next_runtime_snapshot) = self.try_with_runtime_state(|runtime_state| {
+            let ran = runtime_state.drain_pending_finalizers();
+            let (finalizers_run, pending_finalizers) = runtime_state.snapshot();
+            (
+                ran,
+                SharedRuntimeSnapshot {
+                    finalizers_run,
+                    pending_finalizers,
+                },
+            )
         })?;
         self.publish_runtime_snapshot(next_runtime_snapshot)?;
         Ok(ran)
