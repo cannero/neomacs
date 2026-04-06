@@ -32,6 +32,9 @@ pub trait BackgroundCollectionRuntime {
     /// Prepare reclaim for the active major collection once mark work is fully drained.
     fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError>;
 
+    /// Commit the active major collection once reclaim has already been prepared.
+    fn commit_active_reclaim_if_ready(&mut self) -> Result<Option<CollectionStats>, AllocError>;
+
     /// Finish the active major collection if its mark work is fully drained.
     fn finish_active_major_collection_if_ready(
         &mut self,
@@ -1050,7 +1053,7 @@ impl BackgroundCollector {
                 if runtime.prepare_active_reclaim_if_needed()? {
                     return Ok(BackgroundCollectionStatus::ReadyToFinish(progress));
                 }
-                if let Some(cycle) = runtime.finish_active_major_collection_if_ready()? {
+                if let Some(cycle) = runtime.commit_active_reclaim_if_ready()? {
                     self.stats.sessions_finished = self.stats.sessions_finished.saturating_add(1);
                     return Ok(BackgroundCollectionStatus::Finished(cycle));
                 }
@@ -1396,6 +1399,13 @@ impl<'heap> BackgroundService<'heap> {
         self.runtime.prepare_active_reclaim_if_needed()
     }
 
+    /// Commit the active major collection once reclaim has already been prepared.
+    pub fn commit_active_reclaim_if_ready(
+        &mut self,
+    ) -> Result<Option<CollectionStats>, AllocError> {
+        self.runtime.commit_active_reclaim_if_ready()
+    }
+
     /// Finish the active major collection if its mark work is fully drained.
     pub fn finish_active_major_collection_if_ready(
         &mut self,
@@ -1559,6 +1569,25 @@ impl SharedBackgroundService {
         self.runtime.try_prepare_active_reclaim_if_needed()
     }
 
+    /// Commit the active major collection once reclaim has already been prepared.
+    pub fn commit_active_reclaim_if_ready(
+        &mut self,
+    ) -> Result<Option<CollectionStats>, SharedBackgroundError> {
+        match self.runtime.try_commit_active_reclaim_if_ready() {
+            Ok(result) => Ok(result),
+            Err(SharedBackgroundError::WouldBlock) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Commit the active major collection once reclaim has already been prepared, without
+    /// blocking on heap lock contention.
+    pub fn try_commit_active_reclaim_if_ready(
+        &mut self,
+    ) -> Result<Option<CollectionStats>, SharedBackgroundError> {
+        self.runtime.try_commit_active_reclaim_if_ready()
+    }
+
     /// Finish the active major collection if its mark work is fully drained.
     pub fn finish_active_major_collection_if_ready(
         &mut self,
@@ -1568,11 +1597,7 @@ impl SharedBackgroundService {
             Ok(false) | Err(SharedBackgroundError::WouldBlock) => {}
             Err(error) => return Err(error),
         }
-        match self.runtime.try_finish_active_major_collection_if_ready() {
-            Ok(result) => Ok(result),
-            Err(SharedBackgroundError::WouldBlock) => Ok(None),
-            Err(error) => Err(error),
-        }
+        self.commit_active_reclaim_if_ready()
     }
 
     /// Finish the active major collection if its mark work is fully drained, without blocking on
@@ -1583,7 +1608,7 @@ impl SharedBackgroundService {
         if self.runtime.try_prepare_active_reclaim_if_needed()? {
             return Ok(None);
         }
-        self.runtime.try_finish_active_major_collection_if_ready()
+        self.try_commit_active_reclaim_if_ready()
     }
 
     /// Service background collection until no active session remains or one collection finishes,

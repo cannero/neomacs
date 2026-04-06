@@ -134,6 +134,13 @@ impl<'heap> Mutator<'heap> {
         self.heap.finish_active_major_collection_if_ready()
     }
 
+    /// Commit the active major collection once reclaim has already been prepared.
+    pub fn commit_active_reclaim_if_ready(
+        &mut self,
+    ) -> Result<Option<CollectionStats>, AllocError> {
+        self.heap.commit_active_reclaim_if_ready()
+    }
+
     /// Service one background collection round for the active major-mark session.
     pub fn service_background_collection_round(
         &mut self,
@@ -205,5 +212,9 @@ impl BackgroundCollectionRuntime for Mutator<'_> {
         &mut self,
     ) -> Result<Option<CollectionStats>, AllocError> {
         self.finish_active_major_collection_if_ready()
+    }
+
+    fn commit_active_reclaim_if_ready(&mut self) -> Result<Option<CollectionStats>, AllocError> {
+        self.commit_active_reclaim_if_ready()
     }
 }

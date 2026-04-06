@@ -656,6 +656,13 @@ impl Heap {
             self.refresh_recommended_plans();
             return Ok(None);
         }
+        self.commit_active_reclaim_if_ready()
+    }
+
+    /// Commit the active major collection once reclaim has already been prepared.
+    pub fn commit_active_reclaim_if_ready(
+        &mut self,
+    ) -> Result<Option<CollectionStats>, AllocError> {
         if !self.collector().active_major_mark_is_ready() {
             return Ok(None);
         }
