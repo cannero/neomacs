@@ -1,6 +1,7 @@
 use super::*;
 use crate::descriptor::{Trace, fixed_type_desc};
 use crate::index_state::ObjectIndex;
+use crate::root::RootStack;
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -50,4 +51,27 @@ fn trace_minor_marks_seeded_nursery_source() {
     assert_eq!(steps, 1);
     assert_eq!(rounds, 1);
     assert!(objects[0].is_marked());
+}
+
+#[test]
+fn collect_global_sources_includes_roots_and_immortal_objects() {
+    let desc = Box::leak(Box::new(fixed_type_desc::<Leaf>()));
+    let rooted =
+        ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate rooted object");
+    let immortal =
+        ObjectRecord::allocate(desc, SpaceKind::Immortal, Leaf).expect("allocate immortal object");
+    let nursery =
+        ObjectRecord::allocate(desc, SpaceKind::Nursery, Leaf).expect("allocate nursery object");
+    let rooted_source = rooted.erased();
+    let immortal_source = immortal.erased();
+    let nursery_source = nursery.erased();
+    let objects = vec![rooted, immortal, nursery];
+    let mut roots = RootStack::default();
+    roots.push(rooted_source);
+
+    let sources = super::collect_global_sources(&roots, &objects);
+
+    assert!(sources.contains(&rooted_source));
+    assert!(sources.contains(&immortal_source));
+    assert!(!sources.contains(&nursery_source));
 }

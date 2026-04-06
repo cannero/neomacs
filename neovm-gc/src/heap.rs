@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use crate::background::{BackgroundCollectorConfig, BackgroundService, SharedHeap};
 use crate::barrier::{BarrierEvent, BarrierKind};
 use crate::collector_exec::{
-    process_weak_references_for_candidates, trace_major as run_major_trace,
+    collect_global_sources, process_weak_references_for_candidates, trace_major as run_major_trace,
     trace_major_ephemerons_for_candidates, trace_minor as run_minor_trace,
 };
 use crate::collector_policy::refresh_cached_plans as refresh_cached_collector_plans;
@@ -19,7 +19,7 @@ use crate::collector_session::{
 };
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
 use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
-use crate::index_state::{ForwardingMap, HeapIndexState, ObjectIndex};
+use crate::index_state::{ForwardingMap, HeapIndexState};
 use crate::mutator::Mutator;
 use crate::object::{ObjectRecord, SpaceKind, estimated_allocation_size};
 use crate::plan::{
@@ -339,7 +339,7 @@ impl Heap {
             &self.objects,
             &self.indexes.object_index,
             plan,
-            self.global_sources(),
+            collect_global_sources(&self.roots, &self.objects),
         )?;
         Ok(self.refreshed_collector_snapshot(&mut collector))
     }
@@ -645,11 +645,18 @@ impl Heap {
             object.clear_mark();
         }
 
+        let sources = collect_global_sources(&self.roots, &self.objects);
         let (mark_steps, mark_rounds) = match plan.kind {
-            CollectionKind::Minor => self.trace_minor(
+            CollectionKind::Minor => run_minor_trace(
+                &self.objects,
                 &self.indexes.object_index,
+                &self.indexes.remembered.owners,
+                &self
+                    .indexes
+                    .candidate_indices(&self.indexes.ephemeron_candidates),
                 plan.worker_count.max(1),
                 plan.mark_slice_budget,
+                sources.iter().copied(),
             ),
             CollectionKind::Major | CollectionKind::Full => {
                 self.record_phase(CollectionPhase::InitialMark);
@@ -657,10 +664,12 @@ impl Heap {
                     self.record_phase(CollectionPhase::ConcurrentMark);
                 }
                 self.record_phase(CollectionPhase::Remark);
-                self.trace_major(
+                run_major_trace(
+                    &self.objects,
                     &self.indexes.object_index,
                     plan.worker_count.max(1),
                     plan.mark_slice_budget,
+                    sources.iter().copied(),
                 )
             }
         };
@@ -1050,50 +1059,6 @@ impl Heap {
         let _progress = self
             .assist_major_mark(assist_slices)
             .expect("mutator assist on active major-mark session should not fail");
-    }
-
-    fn global_sources(&self) -> impl Iterator<Item = GcErased> + '_ {
-        self.roots.iter().chain(
-            self.objects
-                .iter()
-                .filter(|object| object.space() == SpaceKind::Immortal)
-                .map(ObjectRecord::erased),
-        )
-    }
-
-    fn trace_major(
-        &self,
-        index: &ObjectIndex,
-        worker_count: usize,
-        slice_budget: usize,
-    ) -> (u64, u64) {
-        run_major_trace(
-            &self.objects,
-            index,
-            worker_count,
-            slice_budget,
-            self.global_sources(),
-        )
-    }
-
-    fn trace_minor(
-        &self,
-        index: &ObjectIndex,
-        worker_count: usize,
-        slice_budget: usize,
-    ) -> (u64, u64) {
-        let ephemeron_candidates = self
-            .indexes
-            .candidate_indices(&self.indexes.ephemeron_candidates);
-        run_minor_trace(
-            &self.objects,
-            index,
-            &self.indexes.remembered.owners,
-            &ephemeron_candidates,
-            worker_count,
-            slice_budget,
-            self.global_sources(),
-        )
     }
 
     fn sweep_minor_and_rebuild_post_collection(

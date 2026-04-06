@@ -8,6 +8,7 @@ use crate::index_state::{ForwardingMap, ObjectIndex};
 use crate::mark::MarkWorklist;
 use crate::object::{ObjectRecord, SpaceKind};
 use crate::plan::CollectionKind;
+use crate::root::RootStack;
 
 pub(crate) struct WeakRetention<'a> {
     objects: &'a [ObjectRecord],
@@ -292,6 +293,18 @@ pub(crate) fn trace_major(
     session.drain_parallel();
     session.run_ephemeron_fixpoint_parallel();
     (session.mark_steps(), session.mark_rounds())
+}
+
+pub(crate) fn collect_global_sources(roots: &RootStack, objects: &[ObjectRecord]) -> Vec<GcErased> {
+    roots
+        .iter()
+        .chain(
+            objects
+                .iter()
+                .filter(|object| object.space() == SpaceKind::Immortal)
+                .map(ObjectRecord::erased),
+        )
+        .collect()
 }
 
 pub(crate) fn trace_minor(
