@@ -160,10 +160,9 @@ pub(crate) fn bytecode_to_closure_vector(value: &Value) -> Vec<Value> {
         .unwrap_or(Value::NIL);
     let slot5 = bc.interactive.unwrap_or(Value::NIL);
 
-    let mut result = vec![args, code, env, depth];
-    if !slot4.is_nil() || !slot5.is_nil() {
-        result.push(slot4);
-    }
+    // GNU Emacs bytecode objects always have at least 5 slots (indices 0-4).
+    // Some code (e.g. advice--p) does (aref func 4) unconditionally.
+    let mut result = vec![args, code, env, depth, slot4];
     if !slot5.is_nil() {
         result.push(slot5);
     }
