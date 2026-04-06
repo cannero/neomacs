@@ -287,14 +287,16 @@ impl Heap {
     }
 
     pub(crate) fn begin_major_mark_in_place(&self, plan: CollectionPlan) -> Result<(), AllocError> {
-        self.collector.begin_major_mark(
+        self.collector.begin_major_mark_and_refresh(
             &self.objects,
             &self.indexes.object_index,
             plan,
             collect_global_sources(&self.roots, &self.objects),
-        )?;
-        self.refresh_recommended_plans();
-        Ok(())
+            &self.storage_stats(),
+            &self.old_gen,
+            &self.config.old,
+            |kind| self.plan_for(kind),
+        )
     }
 
     pub(crate) fn begin_major_mark_with_collector(
@@ -321,13 +323,16 @@ impl Heap {
 
     /// Advance one slice of the current persistent major-mark session.
     pub fn advance_major_mark(&self) -> Result<MajorMarkProgress, AllocError> {
-        let progress = self.collector.assist_active_major_mark_slices(
+        let progress = self.collector.assist_active_major_mark_slices_and_refresh(
             &self.objects,
             &self.indexes.object_index,
             1,
+            &self.storage_stats(),
+            &self.old_gen,
+            &self.config.old,
+            |kind| self.plan_for(kind),
         )?;
         let progress = progress.expect("single-slice assist should require an active session");
-        self.refresh_recommended_plans();
         Ok(progress)
     }
 
@@ -378,42 +383,47 @@ impl Heap {
         if max_slices == 0 {
             return Ok(self.major_mark_progress());
         }
-        let progress = self.collector.assist_active_major_mark_slices(
+        self.collector.assist_active_major_mark_slices_and_refresh(
             &self.objects,
             &self.indexes.object_index,
             max_slices,
-        )?;
-        self.refresh_recommended_plans();
-        Ok(progress)
+            &self.storage_stats(),
+            &self.old_gen,
+            &self.config.old,
+            |kind| self.plan_for(kind),
+        )
     }
 
     /// Advance one scheduler-style concurrent major-mark round using the plan worker count.
     pub fn poll_active_major_mark(&self) -> Result<Option<MajorMarkProgress>, AllocError> {
-        let progress = self.collector.poll_active_major_mark_with_completion(
-            &self.objects,
-            &self.indexes.object_index,
-            |tracer, plan| {
-                trace_major_ephemerons_for_candidates(
-                    &self.objects,
-                    &self.indexes.object_index,
-                    &self.indexes.ephemeron_candidates,
-                    tracer,
-                    plan.worker_count.max(1),
-                    plan.mark_slice_budget,
-                )
-            },
-            |plan| {
-                prepare_major_reclaim_for_plan(
-                    plan,
-                    &self.objects,
-                    &self.indexes,
-                    &self.old_gen,
-                    &self.config.old,
-                )
-            },
-        )?;
-        self.refresh_recommended_plans();
-        Ok(progress)
+        self.collector
+            .poll_active_major_mark_with_completion_and_refresh(
+                &self.objects,
+                &self.indexes.object_index,
+                |tracer, plan| {
+                    trace_major_ephemerons_for_candidates(
+                        &self.objects,
+                        &self.indexes.object_index,
+                        &self.indexes.ephemeron_candidates,
+                        tracer,
+                        plan.worker_count.max(1),
+                        plan.mark_slice_budget,
+                    )
+                },
+                |plan| {
+                    prepare_major_reclaim_for_plan(
+                        plan,
+                        &self.objects,
+                        &self.indexes,
+                        &self.old_gen,
+                        &self.config.old,
+                    )
+                },
+                &self.storage_stats(),
+                &self.old_gen,
+                &self.config.old,
+                |kind| self.plan_for(kind),
+            )
     }
 
     pub(crate) fn poll_active_major_mark_with_collector(
@@ -500,7 +510,6 @@ impl Heap {
         &mut self,
     ) -> Result<Option<CollectionStats>, AllocError> {
         if self.prepare_active_reclaim_if_needed()? {
-            self.refresh_recommended_plans();
             return Ok(None);
         }
         self.commit_active_reclaim_if_ready()
@@ -685,13 +694,21 @@ impl Heap {
         self.indexes.object_index.insert(object_key, index);
         let desc = self.objects[index].header().desc();
         self.indexes.record_descriptor_candidates(object_key, desc);
-        self.collector.record_active_major_reachable_object(
-            &self.objects,
-            &self.indexes.object_index,
-            gc.erase(),
-            self.config.old.mutator_assist_slices,
-        )?;
-        self.refresh_recommended_plans();
+        let had_active_major_mark = self.collector.has_active_major_mark();
+        self.collector
+            .record_active_major_reachable_object_and_refresh(
+                &self.objects,
+                &self.indexes.object_index,
+                gc.erase(),
+                self.config.old.mutator_assist_slices,
+                &self.storage_stats(),
+                &self.old_gen,
+                &self.config.old,
+                |kind| self.plan_for(kind),
+            )?;
+        if !had_active_major_mark {
+            self.refresh_recommended_plans();
+        }
         Ok(scope.root(gc))
     }
 
@@ -774,44 +791,34 @@ impl Heap {
             );
         }
 
-        let active_major_mark_updated = self
-            .collector
-            .record_active_major_post_write(
+        self.collector
+            .record_active_major_post_write_and_refresh(
                 &self.objects,
                 &self.indexes.object_index,
                 owner,
                 old_value,
                 new_value,
                 self.config.old.mutator_assist_slices,
+                &self.storage_stats(),
+                &self.old_gen,
+                &self.config.old,
+                |kind| self.plan_for(kind),
             )
             .expect("post-write active major-mark assist should not fail");
 
         let Some(owner_space) = self.space_for_erased(owner) else {
-            if active_major_mark_updated {
-                self.refresh_recommended_plans();
-            }
             return;
         };
         let Some(target) = new_value else {
-            if active_major_mark_updated {
-                self.refresh_recommended_plans();
-            }
             return;
         };
         let Some(target_space) = self.space_for_erased(target) else {
-            if active_major_mark_updated {
-                self.refresh_recommended_plans();
-            }
             return;
         };
 
         let owner_is_old = owner_space != SpaceKind::Nursery && owner_space != SpaceKind::Immortal;
         if owner_is_old && target_space == SpaceKind::Nursery {
             self.indexes.record_remembered_edge(owner, target);
-        }
-
-        if active_major_mark_updated {
-            self.refresh_recommended_plans();
         }
     }
 
@@ -820,18 +827,19 @@ impl Heap {
             !self.prepared_full_reclaim_active(),
             "cannot add new roots while prepared full reclaim is active"
         );
-        if self
+        let _ = self
             .collector
-            .record_active_major_reachable_object(
+            .record_active_major_reachable_object_and_refresh(
                 &self.objects,
                 &self.indexes.object_index,
                 object,
                 self.config.old.mutator_assist_slices,
+                &self.storage_stats(),
+                &self.old_gen,
+                &self.config.old,
+                |kind| self.plan_for(kind),
             )
-            .expect("rooting during active major-mark should not fail")
-        {
-            self.refresh_recommended_plans();
-        }
+            .expect("rooting during active major-mark should not fail");
     }
 
     pub(crate) fn prepared_full_reclaim_active(&self) -> bool {
@@ -1020,29 +1028,35 @@ impl Heap {
         };
 
         if request.plan.kind == CollectionKind::Major {
-            return self.collector.prepare_active_major_reclaim_with_request(
-                &self.objects,
-                &self.indexes.object_index,
-                |tracer, plan| {
-                    trace_major_ephemerons_for_candidates(
-                        &self.objects,
-                        &self.indexes.object_index,
-                        &self.indexes.ephemeron_candidates,
-                        tracer,
-                        plan.worker_count.max(1),
-                        plan.mark_slice_budget,
-                    )
-                },
-                |plan| {
-                    prepare_major_reclaim_for_plan(
-                        plan,
-                        &self.objects,
-                        &self.indexes,
-                        &self.old_gen,
-                        &self.config.old,
-                    )
-                },
-            );
+            return self
+                .collector
+                .prepare_active_major_reclaim_with_request_and_refresh(
+                    &self.objects,
+                    &self.indexes.object_index,
+                    |tracer, plan| {
+                        trace_major_ephemerons_for_candidates(
+                            &self.objects,
+                            &self.indexes.object_index,
+                            &self.indexes.ephemeron_candidates,
+                            tracer,
+                            plan.worker_count.max(1),
+                            plan.mark_slice_budget,
+                        )
+                    },
+                    |plan| {
+                        prepare_major_reclaim_for_plan(
+                            plan,
+                            &self.objects,
+                            &self.indexes,
+                            &self.old_gen,
+                            &self.config.old,
+                        )
+                    },
+                    &self.storage_stats(),
+                    &self.old_gen,
+                    &self.config.old,
+                    |kind| self.plan_for(kind),
+                );
         }
 
         let (mark_steps_delta, mark_rounds_delta) = prepare_active_reclaim(
@@ -1070,7 +1084,11 @@ impl Heap {
                     }),
                 }
             })?;
-        Ok(self.collector.complete_active_reclaim_prep(prepared))
+        let prepared = self.collector.complete_active_reclaim_prep(prepared);
+        if prepared {
+            self.refresh_recommended_plans();
+        }
+        Ok(prepared)
     }
 
     fn commit_finished_active_collection(

@@ -308,6 +308,47 @@ fn collector_state_handle_begin_and_record_reachable_object_updates_progress() {
 }
 
 #[test]
+fn collector_state_handle_begin_major_mark_and_refresh_updates_recommended_plan() {
+    let handle = CollectorStateHandle::default();
+    let desc = Box::leak(Box::new(fixed_type_desc::<Leaf>()));
+    let object =
+        ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate pinned leaf");
+    let index = [(object.object_key(), 0usize)]
+        .into_iter()
+        .collect::<ObjectIndex>();
+    let objects = [object];
+
+    handle
+        .begin_major_mark_and_refresh(
+            &objects,
+            &index,
+            major_plan(),
+            [objects[0].erased()],
+            &HeapStats::default(),
+            &OldGenState::default(),
+            &OldGenConfig::default(),
+            |kind| CollectionPlan {
+                kind,
+                ..major_plan()
+            },
+        )
+        .expect("begin and refresh major mark through handle");
+
+    assert_eq!(
+        handle
+            .active_major_mark_plan()
+            .expect("active major-mark plan")
+            .phase,
+        CollectionPhase::ConcurrentMark
+    );
+    assert_eq!(handle.recommended_plan().kind, CollectionKind::Major);
+    assert_eq!(
+        handle.recommended_plan().phase,
+        CollectionPhase::ConcurrentMark
+    );
+}
+
+#[test]
 fn collector_state_handle_finish_active_collection_if_ready_finishes_prepared_session() {
     let handle = CollectorStateHandle::default();
     handle.with_state(|state| {
@@ -333,6 +374,42 @@ fn collector_state_handle_finish_active_collection_if_ready_finishes_prepared_se
     assert_eq!(finished.completed_plan.phase, CollectionPhase::Reclaim);
     assert_eq!(finished.reclaim_prepare_nanos, 11);
     assert!(!handle.has_active_major_mark());
+}
+
+#[test]
+fn collector_state_handle_prepare_active_major_reclaim_and_refresh_updates_recommended_plan() {
+    let handle = CollectorStateHandle::default();
+    handle.with_state(|state| {
+        state.begin_major_mark(major_plan(), MarkWorklist::default());
+        assert!(state.complete_active_major_remark(2, 3));
+    });
+
+    let prepared = handle
+        .prepare_active_major_reclaim_with_request_and_refresh(
+            &[],
+            &ObjectIndex::default(),
+            |_tracer, _plan| (0, 0),
+            |_plan| prepared_reclaim(),
+            &HeapStats::default(),
+            &OldGenState::default(),
+            &OldGenConfig::default(),
+            |kind| CollectionPlan {
+                kind,
+                ..major_plan()
+            },
+        )
+        .expect("prepare and refresh active major reclaim through handle");
+
+    assert!(prepared);
+    assert_eq!(
+        handle
+            .active_major_mark_plan()
+            .expect("active major-mark plan")
+            .phase,
+        CollectionPhase::Reclaim
+    );
+    assert_eq!(handle.recommended_plan().kind, CollectionKind::Major);
+    assert_eq!(handle.recommended_plan().phase, CollectionPhase::Reclaim);
 }
 
 #[test]

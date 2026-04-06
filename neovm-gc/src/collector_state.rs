@@ -144,6 +144,25 @@ impl CollectorStateHandle {
         });
     }
 
+    pub(crate) fn begin_major_mark_and_refresh(
+        &self,
+        objects: &[ObjectRecord],
+        index: &ObjectIndex,
+        plan: CollectionPlan,
+        sources: impl IntoIterator<Item = crate::descriptor::GcErased>,
+        stats: &HeapStats,
+        old_gen: &OldGenState,
+        old_config: &OldGenConfig,
+        plan_for: impl FnMut(CollectionKind) -> CollectionPlan,
+    ) -> Result<(), AllocError> {
+        self.with_state(|state| {
+            collector_session::begin_major_mark(state, objects, index, plan, sources)?;
+            refresh_cached_collector_plans(state, stats, old_gen, old_config, plan_for);
+            Ok(())
+        })
+    }
+
+    #[cfg(test)]
     pub(crate) fn begin_major_mark(
         &self,
         objects: &[ObjectRecord],
@@ -156,17 +175,26 @@ impl CollectorStateHandle {
         })
     }
 
-    pub(crate) fn assist_active_major_mark_slices(
+    pub(crate) fn assist_active_major_mark_slices_and_refresh(
         &self,
         objects: &[ObjectRecord],
         index: &ObjectIndex,
         max_slices: usize,
+        stats: &HeapStats,
+        old_gen: &OldGenState,
+        old_config: &OldGenConfig,
+        plan_for: impl FnMut(CollectionKind) -> CollectionPlan,
     ) -> Result<Option<MajorMarkProgress>, AllocError> {
         self.with_state(|state| {
-            collector_session::assist_active_major_mark_slices(state, objects, index, max_slices)
+            let progress = collector_session::assist_active_major_mark_slices(
+                state, objects, index, max_slices,
+            )?;
+            refresh_cached_collector_plans(state, stats, old_gen, old_config, plan_for);
+            Ok(progress)
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn record_active_major_reachable_object(
         &self,
         objects: &[ObjectRecord],
@@ -185,7 +213,33 @@ impl CollectorStateHandle {
         })
     }
 
-    pub(crate) fn record_active_major_post_write(
+    pub(crate) fn record_active_major_reachable_object_and_refresh(
+        &self,
+        objects: &[ObjectRecord],
+        index: &ObjectIndex,
+        object: crate::descriptor::GcErased,
+        assist_slices: usize,
+        stats: &HeapStats,
+        old_gen: &OldGenState,
+        old_config: &OldGenConfig,
+        plan_for: impl FnMut(CollectionKind) -> CollectionPlan,
+    ) -> Result<bool, AllocError> {
+        self.with_state(|state| {
+            let recorded = collector_session::record_active_major_reachable_object(
+                state,
+                objects,
+                index,
+                object,
+                assist_slices,
+            )?;
+            if recorded {
+                refresh_cached_collector_plans(state, stats, old_gen, old_config, plan_for);
+            }
+            Ok(recorded)
+        })
+    }
+
+    pub(crate) fn record_active_major_post_write_and_refresh(
         &self,
         objects: &[ObjectRecord],
         index: &ObjectIndex,
@@ -193,9 +247,13 @@ impl CollectorStateHandle {
         old_value: Option<crate::descriptor::GcErased>,
         new_value: Option<crate::descriptor::GcErased>,
         assist_slices: usize,
+        stats: &HeapStats,
+        old_gen: &OldGenState,
+        old_config: &OldGenConfig,
+        plan_for: impl FnMut(CollectionKind) -> CollectionPlan,
     ) -> Result<bool, AllocError> {
         self.with_state(|state| {
-            collector_session::record_active_major_post_write(
+            let updated = collector_session::record_active_major_post_write(
                 state,
                 objects,
                 index,
@@ -203,43 +261,59 @@ impl CollectorStateHandle {
                 old_value,
                 new_value,
                 assist_slices,
-            )
+            )?;
+            if updated {
+                refresh_cached_collector_plans(state, stats, old_gen, old_config, plan_for);
+            }
+            Ok(updated)
         })
     }
 
-    pub(crate) fn poll_active_major_mark_with_completion(
+    pub(crate) fn poll_active_major_mark_with_completion_and_refresh(
         &self,
         objects: &[ObjectRecord],
         index: &ObjectIndex,
         trace_ephemerons: impl FnOnce(&mut MarkTracer<'_>, &CollectionPlan) -> (u64, u64),
         prepare_major_reclaim: impl FnOnce(&CollectionPlan) -> PreparedReclaim,
+        stats: &HeapStats,
+        old_gen: &OldGenState,
+        old_config: &OldGenConfig,
+        plan_for: impl FnMut(CollectionKind) -> CollectionPlan,
     ) -> Result<Option<MajorMarkProgress>, AllocError> {
         self.with_state(|state| {
-            collector_session::poll_active_major_mark_with_completion(
+            let progress = collector_session::poll_active_major_mark_with_completion(
                 state,
                 objects,
                 index,
                 trace_ephemerons,
                 prepare_major_reclaim,
-            )
+            )?;
+            refresh_cached_collector_plans(state, stats, old_gen, old_config, plan_for);
+            Ok(progress)
         })
     }
 
-    pub(crate) fn prepare_active_major_reclaim_with_request(
+    pub(crate) fn prepare_active_major_reclaim_with_request_and_refresh(
         &self,
         objects: &[ObjectRecord],
         index: &ObjectIndex,
         trace_ephemerons: impl FnOnce(&mut MarkTracer<'_>, &CollectionPlan) -> (u64, u64),
         prepare_major_reclaim: impl FnOnce(&CollectionPlan) -> PreparedReclaim,
+        stats: &HeapStats,
+        old_gen: &OldGenState,
+        old_config: &OldGenConfig,
+        plan_for: impl FnMut(CollectionKind) -> CollectionPlan,
     ) -> Result<bool, AllocError> {
         self.with_state(|state| {
-            collector_session::prepare_active_major_reclaim_with_request(
+            let prepared = collector_session::prepare_active_major_reclaim_with_request(
                 state,
                 objects,
                 index,
                 trace_ephemerons,
                 prepare_major_reclaim,
-            )
+            )?;
+            refresh_cached_collector_plans(state, stats, old_gen, old_config, plan_for);
+            Ok(prepared)
         })
     }
 
