@@ -122,6 +122,11 @@ impl<'heap> Mutator<'heap> {
         self.heap.poll_active_major_mark()
     }
 
+    /// Prepare reclaim for the active major collection once mark work is fully drained.
+    pub fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError> {
+        self.heap.prepare_active_reclaim_if_needed()
+    }
+
     /// Finish the active major collection if its mark work is fully drained.
     pub fn finish_active_major_collection_if_ready(
         &mut self,

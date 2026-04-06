@@ -1391,6 +1391,11 @@ impl<'heap> BackgroundService<'heap> {
         self.collector.run_until_idle(&mut self.runtime)
     }
 
+    /// Prepare reclaim for the active major collection once mark work is fully drained.
+    pub fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError> {
+        self.runtime.prepare_active_reclaim_if_needed()
+    }
+
     /// Finish the active major collection if its mark work is fully drained.
     pub fn finish_active_major_collection_if_ready(
         &mut self,
@@ -1541,6 +1546,17 @@ impl SharedBackgroundService {
                 BackgroundCollectionStatus::Finished(cycle) => return Ok(Some(cycle)),
             }
         }
+    }
+
+    /// Prepare reclaim for the active major collection once mark work is fully drained.
+    pub fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, SharedBackgroundError> {
+        self.runtime.prepare_active_reclaim_if_needed()
+    }
+
+    /// Prepare reclaim for the active major collection once mark work is fully drained, without
+    /// blocking on heap lock contention.
+    pub fn try_prepare_active_reclaim_if_needed(&mut self) -> Result<bool, SharedBackgroundError> {
+        self.runtime.try_prepare_active_reclaim_if_needed()
     }
 
     /// Finish the active major collection if its mark work is fully drained.
