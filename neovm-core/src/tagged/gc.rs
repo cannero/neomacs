@@ -402,6 +402,11 @@ pub struct TaggedHeap {
     /// Root discovery policy for full-heap collections.
     root_scan_mode: RootScanMode,
 
+    /// Cached HashSet of non-cons object addresses for O(1) lookup
+    /// during conservative stack scanning.  Built lazily before each
+    /// scan and cleared after.
+    non_cons_object_set: Option<std::collections::HashSet<usize>>,
+
     /// Reclaimed cons cells threaded through the dead cells themselves,
     /// matching GNU alloc.c's `cons_free_list`.
     cons_free_list: *mut ConsCell,
@@ -449,6 +454,7 @@ impl TaggedHeap {
             gray_queue: Vec::new(),
             stack_bottom: std::ptr::null(),
             root_scan_mode: RootScanMode::ConservativeStack,
+            non_cons_object_set: None,
             cons_free_list: std::ptr::null_mut(),
             cons_live_count: 0,
             marker_ptrs: Vec::new(),
@@ -1119,7 +1125,16 @@ impl TaggedHeap {
         }
 
         if matches!(mode, RootScanMode::ConservativeStack) {
+            // Build O(1) lookup set for non-cons objects before scanning
+            let mut set = std::collections::HashSet::new();
+            let mut obj = self.all_objects;
+            while !obj.is_null() {
+                set.insert(obj as usize);
+                obj = unsafe { (*obj).next };
+            }
+            self.non_cons_object_set = Some(set);
             unsafe { self.conservative_stack_scan() };
+            self.non_cons_object_set = None;
         }
 
         // -- Debug: verify roots point to owned objects BEFORE marking --
@@ -1511,13 +1526,27 @@ impl TaggedHeap {
         }
     }
 
-    /// Check if a tagged value points to a valid heap object we own.
+    /// Check if a tagged value points to a valid heap object we own,
+    /// AND that the object's header.kind matches the tag.  This prevents
+    /// conservative scanning false positives where a stack word has
+    /// (e.g.) string tag bits but points to a VecLike object.
     fn is_valid_heap_pointer(&self, val: TaggedValue) -> bool {
         match val.tag() {
             0b010 => self.owns_cons_ptr(val.xcons_ptr()),
             0b011 | 0b100 | 0b110 => {
                 let ptr = val.heap_ptr().unwrap();
-                self.owns_non_cons_object(ptr)
+                if !self.owns_non_cons_object(ptr) {
+                    return false;
+                }
+                // Verify the object type matches the tag
+                let header = unsafe { &*(ptr as *const GcHeader) };
+                let expected_kind = match val.tag() {
+                    0b100 => HeapObjectKind::String,
+                    0b110 => HeapObjectKind::Float,
+                    0b011 => HeapObjectKind::VecLike,
+                    _ => unreachable!(),
+                };
+                header.kind == expected_kind
             }
             _ => false,
         }
@@ -1527,6 +1556,11 @@ impl TaggedHeap {
         if ptr.is_null() {
             return false;
         }
+        // Use the cached object set if available (built for conservative scan)
+        if let Some(ref set) = self.non_cons_object_set {
+            return set.contains(&(ptr as usize));
+        }
+        // Fallback: O(N) walk
         let mut current = self.all_objects;
         while !current.is_null() {
             if std::ptr::eq(current as *const u8, ptr) {
