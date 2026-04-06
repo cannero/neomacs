@@ -897,6 +897,52 @@ fn direct_old_allocation_tracks_old_region_stats() {
 }
 
 #[test]
+fn minor_collection_preserves_old_region_layout_metadata() {
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 16,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        old: crate::spaces::OldGenConfig {
+            region_bytes: 128,
+            line_bytes: 16,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut keep_scope = mutator.handle_scope();
+    let old_leaf = mutator
+        .alloc(&mut keep_scope, OldLeaf([8; 32]))
+        .expect("alloc direct-old leaf");
+    let before_regions = mutator.heap().old_region_stats();
+
+    {
+        let mut nursery_scope = mutator.handle_scope();
+        mutator
+            .alloc(&mut nursery_scope, Leaf(9))
+            .expect("alloc nursery leaf");
+    }
+
+    let cycle = mutator
+        .collect(CollectionKind::Minor)
+        .expect("minor collect");
+    let after_regions = mutator.heap().old_region_stats();
+
+    assert_eq!(cycle.minor_collections, 1);
+    assert_eq!(after_regions, before_regions);
+    assert_eq!(
+        mutator.heap().space_of(old_leaf.as_gc()),
+        Some(SpaceKind::Old)
+    );
+    assert_eq!(unsafe { old_leaf.as_gc().as_non_null().as_ref() }.0[0], 8);
+}
+
+#[test]
 fn major_plan_reports_old_region_targets_and_reclaim_headroom() {
     let mut heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {

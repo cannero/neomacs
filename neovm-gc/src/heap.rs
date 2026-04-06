@@ -1628,6 +1628,15 @@ impl Heap {
         &mut self,
         completed_plan: Option<CollectionPlan>,
     ) -> OldRegionCollectionStats {
+        if completed_plan
+            .as_ref()
+            .is_some_and(|plan| plan.kind == CollectionKind::Minor)
+        {
+            return OldRegionCollectionStats {
+                compacted_regions: 0,
+                reclaimed_regions: 0,
+            };
+        }
         let target_old_regions = completed_plan
             .filter(|plan| matches!(plan.kind, CollectionKind::Major | CollectionKind::Full))
             .map_or_else(Vec::new, |plan| plan.selected_old_regions);
