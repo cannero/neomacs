@@ -83,10 +83,6 @@ impl CollectorState {
         self.major_mark_state.is_some()
     }
 
-    pub(crate) fn active_major_mark_state_mut(&mut self) -> Option<&mut MajorMarkState> {
-        self.major_mark_state.as_mut()
-    }
-
     pub(crate) fn begin_major_mark(&mut self, plan: CollectionPlan, worklist: MarkWorklist<usize>) {
         self.major_mark_state = Some(MajorMarkState {
             plan,
@@ -94,6 +90,14 @@ impl CollectorState {
             mark_steps: 0,
             mark_rounds: 0,
         });
+    }
+
+    pub(crate) fn enqueue_active_major_mark_index(&mut self, index: usize) -> bool {
+        let Some(state) = self.major_mark_state.as_mut() else {
+            return false;
+        };
+        state.worklist.push(index);
+        true
     }
 
     pub(crate) fn take_major_mark_state(&mut self) -> Option<MajorMarkState> {
@@ -158,3 +162,7 @@ impl CollectorState {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "collector_state_test.rs"]
+mod tests;

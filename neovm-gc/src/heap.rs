@@ -77,6 +77,7 @@ pub struct Heap {
     roots: RootStack,
     descriptors: HashMap<TypeId, &'static TypeDesc>,
     objects: Vec<ObjectRecord>,
+    object_index: HashMap<NonNull<ObjectHeader>, usize>,
     old_regions: Vec<OldRegion>,
     remembered_edges: Vec<RememberedEdge>,
     recent_barrier_events: Vec<BarrierEvent>,
@@ -134,6 +135,7 @@ impl Heap {
             roots: RootStack::default(),
             descriptors: HashMap::default(),
             objects: Vec::new(),
+            object_index: HashMap::default(),
             old_regions: Vec::new(),
             remembered_edges: Vec::new(),
             recent_barrier_events: Vec::new(),
@@ -310,8 +312,7 @@ impl Heap {
             self.record_phase(CollectionPhase::ConcurrentMark);
         }
 
-        let index = self.object_index();
-        let mut tracer = MarkTracer::new(&self.objects, &index);
+        let mut tracer = MarkTracer::new(&self.objects, &self.object_index);
         self.for_each_global_source(|object| tracer.mark_erased(object));
 
         self.collector
@@ -322,9 +323,10 @@ impl Heap {
 
     /// Advance one slice of the current persistent major-mark session.
     pub fn advance_major_mark(&mut self) -> Result<MajorMarkProgress, AllocError> {
-        let index = self.object_index();
+        let objects = &self.objects;
+        let index = &self.object_index;
         let progress = self.collector.update_active_major_mark(|plan, worklist| {
-            let mut tracer = MarkTracer::with_worklist(&self.objects, &index, worklist);
+            let mut tracer = MarkTracer::with_worklist(objects, index, worklist);
             let drained_objects = tracer.drain_one_slice(plan.mark_slice_budget);
             MajorMarkUpdate {
                 worklist: tracer.into_worklist(),
@@ -345,8 +347,8 @@ impl Heap {
 
         let before_bytes = self.total_tracked_bytes();
         self.record_phase(CollectionPhase::Remark);
-        let index = self.object_index();
-        let mut tracer = MarkTracer::with_worklist(&self.objects, &index, state.worklist);
+        let mut tracer =
+            MarkTracer::with_worklist(&self.objects, &self.object_index, state.worklist);
         let (mark_steps, mark_rounds) = tracer.drain_parallel_until_empty(
             state.plan.worker_count.max(1),
             state.plan.mark_slice_budget,
@@ -375,12 +377,11 @@ impl Heap {
                 });
             }
         };
-        let index = self.object_index();
         self.process_weak_references(
             state.plan.kind,
             state.plan.worker_count.max(1),
             &forwarding,
-            &index,
+            &self.object_index,
         );
         self.record_phase(CollectionPhase::Reclaim);
         let finalized_objects = self.sweep_full();
@@ -445,9 +446,10 @@ impl Heap {
         if !self.collector.has_active_major_mark() {
             return Ok(None);
         }
-        let index = self.object_index();
+        let objects = &self.objects;
+        let index = &self.object_index;
         let progress = self.collector.update_active_major_mark(|plan, worklist| {
-            let mut tracer = MarkTracer::with_worklist(&self.objects, &index, worklist);
+            let mut tracer = MarkTracer::with_worklist(objects, index, worklist);
             let (drained_objects, drained_slices) =
                 tracer.drain_worker_round(plan.worker_count.max(1), plan.mark_slice_budget);
             MajorMarkUpdate {
@@ -597,18 +599,23 @@ impl Heap {
             object.clear_mark();
         }
 
-        let index = self.object_index();
         let (mark_steps, mark_rounds) = match plan.kind {
-            CollectionKind::Minor => {
-                self.trace_minor(&index, plan.worker_count.max(1), plan.mark_slice_budget)
-            }
+            CollectionKind::Minor => self.trace_minor(
+                &self.object_index,
+                plan.worker_count.max(1),
+                plan.mark_slice_budget,
+            ),
             CollectionKind::Major | CollectionKind::Full => {
                 self.record_phase(CollectionPhase::InitialMark);
                 if plan.concurrent {
                     self.record_phase(CollectionPhase::ConcurrentMark);
                 }
                 self.record_phase(CollectionPhase::Remark);
-                self.trace_major(&index, plan.worker_count.max(1), plan.mark_slice_budget)
+                self.trace_major(
+                    &self.object_index,
+                    plan.worker_count.max(1),
+                    plan.mark_slice_budget,
+                )
             }
         };
 
@@ -621,7 +628,7 @@ impl Heap {
                     plan.kind,
                     plan.worker_count.max(1),
                     &evacuation.forwarding,
-                    &index,
+                    &self.object_index,
                 );
                 self.record_phase(CollectionPhase::Reclaim);
                 let finalized_objects = self.sweep_minor();
@@ -647,7 +654,7 @@ impl Heap {
                     plan.kind,
                     plan.worker_count.max(1),
                     &empty_forwarding,
-                    &index,
+                    &self.object_index,
                 );
                 self.record_phase(CollectionPhase::Reclaim);
                 let finalized_objects = self.sweep_full();
@@ -675,7 +682,7 @@ impl Heap {
                     plan.kind,
                     plan.worker_count.max(1),
                     &evacuation.forwarding,
-                    &index,
+                    &self.object_index,
                 );
                 self.record_phase(CollectionPhase::Reclaim);
                 let finalized_objects = self.sweep_full();
@@ -723,6 +730,9 @@ impl Heap {
         let gc = unsafe { crate::root::Gc::from_erased(record.erased()) };
         self.account_allocation(space, total_size);
         self.objects.push(record);
+        let index = self.objects.len() - 1;
+        let header = self.objects[index].header_ptr();
+        self.object_index.insert(header, index);
         if self.collector.has_active_major_mark() {
             self.mark_for_active_major_session(gc.erase());
             self.assist_major_mark_in_place();
@@ -925,10 +935,9 @@ impl Heap {
         if space == SpaceKind::Immortal {
             return true;
         }
-        self.objects
-            .iter()
-            .find(|record| record.header_ptr() == object.header())
-            .is_some_and(ObjectRecord::is_marked)
+        self.object_index
+            .get(&object.header())
+            .is_some_and(|&index| self.objects[index].is_marked())
     }
 
     fn mark_for_active_major_session(&mut self, object: GcErased) {
@@ -936,19 +945,13 @@ impl Heap {
             return;
         }
 
-        let Some(index) = self
-            .objects
-            .iter()
-            .position(|record| record.header_ptr() == object.header())
-        else {
+        let Some(&index) = self.object_index.get(&object.header()) else {
             return;
         };
 
         let record = &self.objects[index];
         if record.mark_if_unmarked() {
-            if let Some(state) = self.collector.active_major_mark_state_mut() {
-                state.worklist.push(index);
-            }
+            let _enqueued = self.collector.enqueue_active_major_mark_index(index);
         }
     }
 
@@ -962,12 +965,12 @@ impl Heap {
             .expect("mutator assist on active major-mark session should not fail");
     }
 
-    fn object_index(&self) -> HashMap<NonNull<ObjectHeader>, usize> {
-        self.objects
-            .iter()
-            .enumerate()
-            .map(|(index, object)| (object.header_ptr(), index))
-            .collect()
+    fn rebuild_object_index(&mut self) {
+        self.object_index.clear();
+        self.object_index.reserve(self.objects.len());
+        for (index, object) in self.objects.iter().enumerate() {
+            self.object_index.insert(object.header_ptr(), index);
+        }
     }
 
     fn for_each_global_source(&self, mut f: impl FnMut(GcErased)) {
@@ -1167,7 +1170,12 @@ impl Heap {
             records.push(new_record);
         }
 
+        let start = self.objects.len();
         self.objects.extend(records);
+        for index in start..self.objects.len() {
+            let header = self.objects[index].header_ptr();
+            self.object_index.insert(header, index);
+        }
         Ok(EvacuationOutcome {
             forwarding,
             promoted_bytes,
@@ -1215,6 +1223,7 @@ impl Heap {
         for object in &self.objects {
             object.clear_mark();
         }
+        self.rebuild_object_index();
         finalized_objects
     }
 
@@ -1231,6 +1240,7 @@ impl Heap {
         for object in &self.objects {
             object.clear_mark();
         }
+        self.rebuild_object_index();
         finalized_objects
     }
 
@@ -1441,27 +1451,20 @@ impl Heap {
 
     #[cfg(test)]
     pub(crate) fn contains<T>(&self, gc: crate::root::Gc<T>) -> bool {
-        let header = gc.erase().header();
-        self.objects
-            .iter()
-            .any(|object| object.header_ptr() == header)
+        self.object_index.contains_key(&gc.erase().header())
     }
 
     #[cfg(test)]
     pub(crate) fn space_of<T>(&self, gc: crate::root::Gc<T>) -> Option<SpaceKind> {
-        let header = gc.erase().header();
-        self.objects
-            .iter()
-            .find(|object| object.header_ptr() == header)
-            .map(ObjectRecord::space)
+        self.object_index
+            .get(&gc.erase().header())
+            .map(|&index| self.objects[index].space())
     }
 
     fn space_for_erased(&self, object: GcErased) -> Option<SpaceKind> {
-        let header = object.header();
-        self.objects
-            .iter()
-            .find(|record| record.header_ptr() == header)
-            .map(ObjectRecord::space)
+        self.object_index
+            .get(&object.header())
+            .map(|&index| self.objects[index].space())
     }
 
     fn allocate_old_region_placement(&mut self, bytes: usize) -> OldRegionPlacement {
