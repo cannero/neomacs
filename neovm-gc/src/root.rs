@@ -10,7 +10,7 @@ use crate::object::ObjectHeader;
 #[derive(Debug)]
 pub struct Gc<T: ?Sized> {
     object: GcErased,
-    _marker: PhantomData<*const T>,
+    _marker: PhantomData<fn() -> T>,
 }
 
 impl<T: ?Sized> Gc<T> {

@@ -23,6 +23,7 @@ impl Relocator for NoopRelocator {
 fn root_stack_is_send_and_sync() {
     fn assert_send_sync<T: Send + Sync>() {}
 
+    assert_send_sync::<super::Gc<RootLeaf>>();
     assert_send_sync::<RootSlot>();
     assert_send_sync::<RootStack>();
 }

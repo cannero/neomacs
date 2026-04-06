@@ -9,6 +9,20 @@ use crate::object::ObjectHeader;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct GcErased(NonNull<ObjectHeader>);
 
+// Safety: `GcErased` is a non-owning identity handle into the managed heap.
+// Sharing or moving the handle between threads does not transfer ownership of
+// the underlying object; heap lifetime and mutation are governed by the
+// collector/heap protocols.
+unsafe impl Send for GcErased {}
+unsafe impl Sync for GcErased {}
+
+/// Stable identity key for one managed-object header.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub struct ObjectKey(usize);
+
+unsafe impl Send for ObjectKey {}
+unsafe impl Sync for ObjectKey {}
+
 impl GcErased {
     /// Construct an erased GC pointer from a managed object header.
     ///
@@ -29,6 +43,16 @@ impl GcErased {
 
     pub(crate) fn as_raw(self) -> *mut ObjectHeader {
         self.0.as_ptr()
+    }
+
+    pub(crate) fn object_key(self) -> ObjectKey {
+        ObjectKey::from_header(self.0)
+    }
+}
+
+impl ObjectKey {
+    pub(crate) fn from_header(header: NonNull<ObjectHeader>) -> Self {
+        Self(header.as_ptr() as usize)
     }
 }
 

@@ -10,13 +10,12 @@ use crate::background::{BackgroundCollectorConfig, BackgroundService, SharedHeap
 use crate::barrier::{BarrierEvent, BarrierKind, RememberedEdge};
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState, MajorMarkUpdate};
 use crate::descriptor::{
-    EphemeronVisitor, GcErased, Relocator, Trace, Tracer, TypeDesc, WeakProcessor, fixed_type_desc,
+    EphemeronVisitor, GcErased, ObjectKey, Relocator, Trace, Tracer, TypeDesc, WeakProcessor,
+    fixed_type_desc,
 };
 use crate::mark::MarkWorklist;
 use crate::mutator::Mutator;
-use crate::object::{
-    ObjectHeader, ObjectRecord, OldRegionPlacement, SpaceKind, estimated_allocation_size,
-};
+use crate::object::{ObjectRecord, OldRegionPlacement, SpaceKind, estimated_allocation_size};
 use crate::plan::{
     BackgroundCollectionStatus, CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress,
 };
@@ -78,12 +77,15 @@ pub struct Heap {
     roots: RootStack,
     descriptors: HashMap<TypeId, &'static TypeDesc>,
     objects: Vec<ObjectRecord>,
-    object_index: HashMap<NonNull<ObjectHeader>, usize>,
+    object_index: ObjectIndex,
     old_regions: Vec<OldRegion>,
     remembered_edges: Vec<RememberedEdge>,
     recent_barrier_events: Vec<BarrierEvent>,
     collector: Mutex<CollectorState>,
 }
+
+type ObjectIndex = HashMap<ObjectKey, usize>;
+type ForwardingMap = HashMap<ObjectKey, GcErased>;
 
 // SAFETY: `Heap` owns all heap allocations and its raw pointers are internal references into that
 // owned storage or static descriptors. Sending a `Heap` to another thread does not invalidate those
@@ -101,7 +103,7 @@ struct OldRegion {
 }
 
 struct EvacuationOutcome {
-    forwarding: HashMap<NonNull<ObjectHeader>, GcErased>,
+    forwarding: ForwardingMap,
     promoted_bytes: usize,
 }
 
@@ -661,7 +663,7 @@ impl Heap {
                 }
             }
             CollectionKind::Major => {
-                let empty_forwarding: HashMap<NonNull<ObjectHeader>, GcErased> = HashMap::new();
+                let empty_forwarding: ForwardingMap = HashMap::new();
                 self.process_weak_references(
                     plan.kind,
                     plan.worker_count.max(1),
@@ -744,8 +746,8 @@ impl Heap {
         self.account_allocation(space, total_size);
         self.objects.push(record);
         let index = self.objects.len() - 1;
-        let header = self.objects[index].header_ptr();
-        self.object_index.insert(header, index);
+        let object_key = self.objects[index].object_key();
+        self.object_index.insert(object_key, index);
         if self.collector().has_active_major_mark() {
             self.mark_for_active_major_session(gc.erase());
             self.assist_major_mark_in_place();
@@ -970,7 +972,7 @@ impl Heap {
             return true;
         }
         self.object_index
-            .get(&object.header())
+            .get(&object.object_key())
             .is_some_and(|&index| self.objects[index].is_marked())
     }
 
@@ -979,7 +981,7 @@ impl Heap {
             return;
         }
 
-        let Some(&index) = self.object_index.get(&object.header()) else {
+        let Some(&index) = self.object_index.get(&object.object_key()) else {
             return;
         };
 
@@ -1003,7 +1005,7 @@ impl Heap {
         self.object_index.clear();
         self.object_index.reserve(self.objects.len());
         for (index, object) in self.objects.iter().enumerate() {
-            self.object_index.insert(object.header_ptr(), index);
+            self.object_index.insert(object.object_key(), index);
         }
     }
 
@@ -1020,7 +1022,7 @@ impl Heap {
 
     fn trace_major(
         &self,
-        index: &HashMap<NonNull<ObjectHeader>, usize>,
+        index: &ObjectIndex,
         worker_count: usize,
         slice_budget: usize,
     ) -> (u64, u64) {
@@ -1061,7 +1063,7 @@ impl Heap {
 
     fn trace_minor(
         &self,
-        index: &HashMap<NonNull<ObjectHeader>, usize>,
+        index: &ObjectIndex,
         worker_count: usize,
         slice_budget: usize,
     ) -> (u64, u64) {
@@ -1070,7 +1072,7 @@ impl Heap {
 
         let mut scanned_owners = HashSet::new();
         for edge in &self.remembered_edges {
-            let owner = edge.owner.erase().header();
+            let owner = edge.owner.erase().object_key();
             if scanned_owners.insert(owner) {
                 tracer.scan_source(edge.owner.erase());
             }
@@ -1188,7 +1190,7 @@ impl Heap {
                 };
                 let new_record = object.evacuate_to_space(target_space)?;
                 new_record.set_marked(true);
-                forwarding.insert(object.header_ptr(), new_record.erased());
+                forwarding.insert(object.object_key(), new_record.erased());
                 evacuated.push((new_record, target_space));
             }
         }
@@ -1207,8 +1209,8 @@ impl Heap {
         let start = self.objects.len();
         self.objects.extend(records);
         for index in start..self.objects.len() {
-            let header = self.objects[index].header_ptr();
-            self.object_index.insert(header, index);
+            let object_key = self.objects[index].object_key();
+            self.object_index.insert(object_key, index);
         }
         Ok(EvacuationOutcome {
             forwarding,
@@ -1216,7 +1218,7 @@ impl Heap {
         })
     }
 
-    fn relocate_roots_and_edges(&mut self, forwarding: &HashMap<NonNull<ObjectHeader>, GcErased>) {
+    fn relocate_roots_and_edges(&mut self, forwarding: &ForwardingMap) {
         if forwarding.is_empty() {
             return;
         }
@@ -1413,8 +1415,8 @@ impl Heap {
         &self,
         kind: CollectionKind,
         worker_count: usize,
-        forwarding: &HashMap<NonNull<ObjectHeader>, GcErased>,
-        index: &HashMap<NonNull<ObjectHeader>, usize>,
+        forwarding: &ForwardingMap,
+        index: &ObjectIndex,
     ) {
         let worker_count = worker_count.max(1);
         if worker_count == 1 || self.objects.len() <= 1 {
@@ -1468,8 +1470,8 @@ impl Heap {
         let object_index = &self.object_index;
         let objects = &self.objects;
         self.remembered_edges.retain(|edge| {
-            let owner = edge.owner.erase().header();
-            let target = edge.target.erase().header();
+            let owner = edge.owner.erase().object_key();
+            let target = edge.target.erase().object_key();
             let owner_space = object_index
                 .get(&owner)
                 .map(|&index| objects[index].space());
@@ -1484,19 +1486,19 @@ impl Heap {
 
     #[cfg(test)]
     pub(crate) fn contains<T>(&self, gc: crate::root::Gc<T>) -> bool {
-        self.object_index.contains_key(&gc.erase().header())
+        self.object_index.contains_key(&gc.erase().object_key())
     }
 
     #[cfg(test)]
     pub(crate) fn space_of<T>(&self, gc: crate::root::Gc<T>) -> Option<SpaceKind> {
         self.object_index
-            .get(&gc.erase().header())
+            .get(&gc.erase().object_key())
             .map(|&index| self.objects[index].space())
     }
 
     fn space_for_erased(&self, object: GcErased) -> Option<SpaceKind> {
         self.object_index
-            .get(&object.header())
+            .get(&object.object_key())
             .map(|&index| self.objects[index].space())
     }
 
@@ -1824,16 +1826,16 @@ fn make_old_region_placement(
 
 struct WeakRetention<'a> {
     objects: &'a [ObjectRecord],
-    index: &'a HashMap<NonNull<ObjectHeader>, usize>,
-    forwarding: &'a HashMap<NonNull<ObjectHeader>, GcErased>,
+    index: &'a ObjectIndex,
+    forwarding: &'a ForwardingMap,
     kind: CollectionKind,
 }
 
 impl<'a> WeakRetention<'a> {
     fn new(
         objects: &'a [ObjectRecord],
-        index: &'a HashMap<NonNull<ObjectHeader>, usize>,
-        forwarding: &'a HashMap<NonNull<ObjectHeader>, GcErased>,
+        index: &'a ObjectIndex,
+        forwarding: &'a ForwardingMap,
         kind: CollectionKind,
     ) -> Self {
         Self {
@@ -1846,14 +1848,14 @@ impl<'a> WeakRetention<'a> {
 
     fn record_for(&self, object: GcErased) -> Option<&'a ObjectRecord> {
         self.index
-            .get(&object.header())
+            .get(&object.object_key())
             .map(|&index| &self.objects[index])
     }
 }
 
 impl WeakProcessor for WeakRetention<'_> {
     fn remap_or_drop(&mut self, object: GcErased) -> Option<GcErased> {
-        if let Some(&forwarded) = self.forwarding.get(&object.header()) {
+        if let Some(&forwarded) = self.forwarding.get(&object.object_key()) {
             return Some(forwarded);
         }
         let Some(record) = self.record_for(object) else {
@@ -1875,8 +1877,8 @@ impl WeakProcessor for WeakRetention<'_> {
 struct ParallelWeakShared<'a> {
     objects_ptr: *const ObjectRecord,
     objects_len: usize,
-    index_ptr: *const HashMap<NonNull<ObjectHeader>, usize>,
-    forwarding_ptr: *const HashMap<NonNull<ObjectHeader>, GcErased>,
+    index_ptr: *const ObjectIndex,
+    forwarding_ptr: *const ForwardingMap,
     kind: CollectionKind,
     _marker: PhantomData<&'a ()>,
 }
@@ -1884,8 +1886,8 @@ struct ParallelWeakShared<'a> {
 impl<'a> ParallelWeakShared<'a> {
     fn new(
         objects: &'a [ObjectRecord],
-        index: &'a HashMap<NonNull<ObjectHeader>, usize>,
-        forwarding: &'a HashMap<NonNull<ObjectHeader>, GcErased>,
+        index: &'a ObjectIndex,
+        forwarding: &'a ForwardingMap,
         kind: CollectionKind,
     ) -> Self {
         Self {
@@ -1919,11 +1921,11 @@ unsafe impl Send for ParallelWeakShared<'_> {}
 unsafe impl Sync for ParallelWeakShared<'_> {}
 
 struct ForwardingRelocator<'a> {
-    forwarding: &'a HashMap<NonNull<ObjectHeader>, GcErased>,
+    forwarding: &'a ForwardingMap,
 }
 
 impl<'a> ForwardingRelocator<'a> {
-    fn new(forwarding: &'a HashMap<NonNull<ObjectHeader>, GcErased>) -> Self {
+    fn new(forwarding: &'a ForwardingMap) -> Self {
         Self { forwarding }
     }
 }
@@ -1931,7 +1933,7 @@ impl<'a> ForwardingRelocator<'a> {
 impl Relocator for ForwardingRelocator<'_> {
     fn relocate_erased(&mut self, object: GcErased) -> GcErased {
         self.forwarding
-            .get(&object.header())
+            .get(&object.object_key())
             .copied()
             .unwrap_or(object)
     }
@@ -1957,14 +1959,14 @@ impl<'a, 'b> MajorEphemeronTracer<'a, 'b> {
 
 impl EphemeronVisitor for MajorEphemeronTracer<'_, '_> {
     fn visit_ephemeron(&mut self, key: GcErased, value: GcErased) {
-        let Some(&key_index) = self.tracer.index.get(&key.header()) else {
+        let Some(&key_index) = self.tracer.index.get(&key.object_key()) else {
             return;
         };
         if !self.tracer.objects[key_index].is_marked() {
             return;
         }
 
-        let Some(&value_index) = self.tracer.index.get(&value.header()) else {
+        let Some(&value_index) = self.tracer.index.get(&value.object_key()) else {
             return;
         };
         let value_record = &self.tracer.objects[value_index];
@@ -1987,7 +1989,7 @@ struct MajorMarkSession<'a> {
 impl<'a> MajorMarkSession<'a> {
     fn new(
         objects: &'a [ObjectRecord],
-        index: &'a HashMap<NonNull<ObjectHeader>, usize>,
+        index: &'a ObjectIndex,
         worker_count: usize,
         slice_budget: usize,
     ) -> Self {
@@ -2111,7 +2113,7 @@ impl<'a, 'b> MinorEphemeronTracer<'a, 'b> {
 
 impl EphemeronVisitor for MinorEphemeronTracer<'_, '_> {
     fn visit_ephemeron(&mut self, key: GcErased, value: GcErased) {
-        let Some(&key_index) = self.tracer.index.get(&key.header()) else {
+        let Some(&key_index) = self.tracer.index.get(&key.object_key()) else {
             return;
         };
         let key_record = &self.tracer.objects[key_index];
@@ -2120,7 +2122,7 @@ impl EphemeronVisitor for MinorEphemeronTracer<'_, '_> {
             return;
         }
 
-        let Some(&value_index) = self.tracer.index.get(&value.header()) else {
+        let Some(&value_index) = self.tracer.index.get(&value.object_key()) else {
             return;
         };
         let value_record = &self.tracer.objects[value_index];
@@ -2133,7 +2135,7 @@ impl EphemeronVisitor for MinorEphemeronTracer<'_, '_> {
 
 struct MarkTracer<'a> {
     objects: &'a [ObjectRecord],
-    index: &'a HashMap<NonNull<ObjectHeader>, usize>,
+    index: &'a ObjectIndex,
     worklist: MarkWorklist<usize>,
 }
 
@@ -2141,12 +2143,12 @@ struct MarkTracer<'a> {
 struct ParallelMarkShared<'a> {
     objects_ptr: *const ObjectRecord,
     objects_len: usize,
-    index_ptr: *const HashMap<NonNull<ObjectHeader>, usize>,
+    index_ptr: *const ObjectIndex,
     _marker: PhantomData<&'a ()>,
 }
 
 impl<'a> ParallelMarkShared<'a> {
-    fn new(objects: &'a [ObjectRecord], index: &'a HashMap<NonNull<ObjectHeader>, usize>) -> Self {
+    fn new(objects: &'a [ObjectRecord], index: &'a ObjectIndex) -> Self {
         Self {
             objects_ptr: objects.as_ptr(),
             objects_len: objects.len(),
@@ -2167,7 +2169,7 @@ impl<'a> ParallelMarkShared<'a> {
         unsafe { slice::from_raw_parts(self.objects_ptr, self.objects_len) }
     }
 
-    fn index(self) -> &'a HashMap<NonNull<ObjectHeader>, usize> {
+    fn index(self) -> &'a ObjectIndex {
         unsafe { &*self.index_ptr }
     }
 }
@@ -2182,7 +2184,7 @@ unsafe impl Sync for ParallelMarkShared<'_> {}
 impl<'a> MarkTracer<'a> {
     const SPLIT_THRESHOLD: usize = 32;
 
-    fn new(objects: &'a [ObjectRecord], index: &'a HashMap<NonNull<ObjectHeader>, usize>) -> Self {
+    fn new(objects: &'a [ObjectRecord], index: &'a ObjectIndex) -> Self {
         Self {
             objects,
             index,
@@ -2192,7 +2194,7 @@ impl<'a> MarkTracer<'a> {
 
     fn with_worklist(
         objects: &'a [ObjectRecord],
-        index: &'a HashMap<NonNull<ObjectHeader>, usize>,
+        index: &'a ObjectIndex,
         worklist: MarkWorklist<usize>,
     ) -> Self {
         Self {
@@ -2331,7 +2333,7 @@ impl<'a> MarkTracer<'a> {
 
 impl Tracer for MarkTracer<'_> {
     fn mark_erased(&mut self, object: GcErased) {
-        if let Some(&index) = self.index.get(&object.header()) {
+        if let Some(&index) = self.index.get(&object.object_key()) {
             self.mark_index(index);
         }
     }
@@ -2339,14 +2341,14 @@ impl Tracer for MarkTracer<'_> {
 
 struct MinorTracer<'a> {
     objects: &'a [ObjectRecord],
-    index: &'a HashMap<NonNull<ObjectHeader>, usize>,
+    index: &'a ObjectIndex,
     young_worklist: MarkWorklist<usize>,
 }
 
 impl<'a> MinorTracer<'a> {
     const SPLIT_THRESHOLD: usize = 32;
 
-    fn new(objects: &'a [ObjectRecord], index: &'a HashMap<NonNull<ObjectHeader>, usize>) -> Self {
+    fn new(objects: &'a [ObjectRecord], index: &'a ObjectIndex) -> Self {
         Self {
             objects,
             index,
@@ -2356,7 +2358,7 @@ impl<'a> MinorTracer<'a> {
 
     fn with_worklist(
         objects: &'a [ObjectRecord],
-        index: &'a HashMap<NonNull<ObjectHeader>, usize>,
+        index: &'a ObjectIndex,
         young_worklist: MarkWorklist<usize>,
     ) -> Self {
         Self {
@@ -2371,7 +2373,7 @@ impl<'a> MinorTracer<'a> {
     }
 
     fn scan_source(&mut self, object: GcErased) {
-        let Some(&index) = self.index.get(&object.header()) else {
+        let Some(&index) = self.index.get(&object.object_key()) else {
             return;
         };
         let source = &self.objects[index];
@@ -2507,7 +2509,7 @@ impl<'a> MinorTracer<'a> {
 
 impl Tracer for MinorTracer<'_> {
     fn mark_erased(&mut self, object: GcErased) {
-        let Some(&index) = self.index.get(&object.header()) else {
+        let Some(&index) = self.index.get(&object.object_key()) else {
             return;
         };
         if self.objects[index].space() == SpaceKind::Nursery {

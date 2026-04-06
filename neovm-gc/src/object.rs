@@ -4,7 +4,7 @@ use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicU8, Ordering};
 use std::alloc::{alloc, dealloc};
 
 use crate::descriptor::{
-    EphemeronVisitor, GcErased, Relocator, Trace, TypeDesc, TypeFlags, WeakProcessor,
+    EphemeronVisitor, GcErased, ObjectKey, Relocator, Trace, TypeDesc, TypeFlags, WeakProcessor,
 };
 use crate::heap::AllocError;
 
@@ -152,6 +152,13 @@ pub(crate) struct ObjectRecord {
     old_region: Option<OldRegionPlacement>,
 }
 
+// Safety: `ObjectRecord` is the heap-owned metadata for one allocation. The raw
+// pointers are stable allocation identities; sharing the record does not grant
+// independent ownership of the allocation, and mutation/reclamation still flows
+// through heap collection protocols.
+unsafe impl Send for ObjectRecord {}
+unsafe impl Sync for ObjectRecord {}
+
 pub(crate) fn allocation_layout_for<T>() -> Result<(Layout, usize), AllocError> {
     let header_layout = Layout::new::<ObjectHeader>();
     let payload_layout = Layout::new::<T>();
@@ -215,8 +222,8 @@ impl ObjectRecord {
         unsafe { self.header.as_ref() }
     }
 
-    pub(crate) fn header_ptr(&self) -> NonNull<ObjectHeader> {
-        self.header
+    pub(crate) fn object_key(&self) -> ObjectKey {
+        ObjectKey::from_header(self.header)
     }
 
     pub(crate) fn old_region_placement(&self) -> Option<OldRegionPlacement> {

@@ -16,6 +16,13 @@ unsafe impl Trace for Leaf {
     fn relocate(&self, _relocator: &mut dyn Relocator) {}
 }
 
+#[test]
+fn heap_is_send_and_sync_after_atomic_metadata_split() {
+    fn assert_send_sync<T: Send + Sync>() {}
+
+    assert_send_sync::<Heap>();
+}
+
 #[derive(Debug)]
 struct PinnedLeaf(u64);
 
