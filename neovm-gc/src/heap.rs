@@ -431,8 +431,8 @@ impl Heap {
             &self.object_index,
         );
         self.record_phase(CollectionPhase::Reclaim);
-        let finalized_objects = self.finalize_and_retain_objects(state.plan.kind);
-        let old_region_stats = self.rebuild_post_sweep_state(Some(state.plan.clone()));
+        let (finalized_objects, old_region_stats) =
+            self.sweep_and_rebuild_post_collection(state.plan.kind, Some(state.plan.clone()));
         let after_bytes = self.total_tracked_bytes();
         let cycle = CollectionStats {
             collections: 1,
@@ -689,8 +689,8 @@ impl Heap {
                     &self.object_index,
                 );
                 self.record_phase(CollectionPhase::Reclaim);
-                let finalized_objects = self.finalize_and_retain_objects(plan.kind);
-                let old_region_stats = self.rebuild_post_sweep_state(Some(plan.clone()));
+                let (finalized_objects, old_region_stats) =
+                    self.sweep_and_rebuild_post_collection(plan.kind, Some(plan.clone()));
                 let after_bytes = self.total_tracked_bytes();
                 CollectionStats {
                     collections: 1,
@@ -714,8 +714,8 @@ impl Heap {
                     &self.object_index,
                 );
                 self.record_phase(CollectionPhase::Reclaim);
-                let finalized_objects = self.finalize_and_retain_objects(plan.kind);
-                let old_region_stats = self.rebuild_post_sweep_state(Some(plan.clone()));
+                let (finalized_objects, old_region_stats) =
+                    self.sweep_and_rebuild_post_collection(plan.kind, Some(plan.clone()));
                 let after_bytes = self.total_tracked_bytes();
                 CollectionStats {
                     collections: 1,
@@ -741,8 +741,8 @@ impl Heap {
                     &self.object_index,
                 );
                 self.record_phase(CollectionPhase::Reclaim);
-                let finalized_objects = self.finalize_and_retain_objects(plan.kind);
-                let old_region_stats = self.rebuild_post_sweep_state(Some(plan.clone()));
+                let (finalized_objects, old_region_stats) =
+                    self.sweep_and_rebuild_post_collection(plan.kind, Some(plan.clone()));
                 let after_bytes = self.total_tracked_bytes();
                 CollectionStats {
                     collections: 1,
@@ -1303,32 +1303,25 @@ impl Heap {
         }
     }
 
-    fn finalize_and_retain_objects(&mut self, kind: CollectionKind) -> u64 {
-        let mut finalized_objects = 0u64;
-        self.objects.retain(|object| {
-            let keep = match kind {
-                CollectionKind::Minor => {
-                    object.space() == SpaceKind::Immortal
-                        || object.space() != SpaceKind::Nursery
-                        || (object.is_marked() && !object.header().is_moved_out())
-                }
-                CollectionKind::Major | CollectionKind::Full => {
-                    object.space() == SpaceKind::Immortal
-                        || (object.is_marked() && !object.header().is_moved_out())
-                }
-            };
-            if !keep && object.run_finalizer() {
-                finalized_objects = finalized_objects.saturating_add(1);
+    fn keep_object_for_collection(kind: CollectionKind, object: &ObjectRecord) -> bool {
+        match kind {
+            CollectionKind::Minor => {
+                object.space() == SpaceKind::Immortal
+                    || object.space() != SpaceKind::Nursery
+                    || (object.is_marked() && !object.header().is_moved_out())
             }
-            keep
-        });
-        finalized_objects
+            CollectionKind::Major | CollectionKind::Full => {
+                object.space() == SpaceKind::Immortal
+                    || (object.is_marked() && !object.header().is_moved_out())
+            }
+        }
     }
 
-    fn rebuild_post_sweep_state(
+    fn sweep_and_rebuild_post_collection(
         &mut self,
+        kind: CollectionKind,
         completed_plan: Option<CollectionPlan>,
-    ) -> OldRegionCollectionStats {
+    ) -> (u64, OldRegionCollectionStats) {
         self.stats.nursery.live_bytes = 0;
         self.stats.old.live_bytes = 0;
         self.stats.pinned.live_bytes = 0;
@@ -1336,30 +1329,43 @@ impl Heap {
         self.stats.large.reserved_bytes = 0;
         self.stats.immortal.live_bytes = 0;
         self.stats.immortal.reserved_bytes = 0;
-        let mut old_region_rebuild = self.prepare_old_region_rebuild(completed_plan.as_ref());
 
+        let old_objects = core::mem::take(&mut self.objects);
+        let mut old_region_rebuild =
+            self.prepare_old_region_rebuild(completed_plan.as_ref(), &old_objects, kind);
         self.object_index.clear();
-        self.object_index.reserve(self.objects.len());
+        self.object_index.reserve(old_objects.len());
         self.weak_candidates.clear();
-        self.weak_candidates.reserve(self.objects.len());
+        self.weak_candidates.reserve(old_objects.len());
         self.ephemeron_candidates.clear();
-        self.ephemeron_candidates.reserve(self.objects.len());
-        for index in 0..self.objects.len() {
-            let (object_key, desc, space, total_size) = {
-                let object = &self.objects[index];
-                object.clear_mark();
-                (
-                    object.object_key(),
-                    object.header().desc(),
-                    object.space(),
-                    object.total_size(),
-                )
-            };
+        self.ephemeron_candidates.reserve(old_objects.len());
+
+        let mut rebuilt_objects = Vec::with_capacity(old_objects.len());
+        let mut finalized_objects = 0u64;
+        for mut object in old_objects {
+            if !Self::keep_object_for_collection(kind, &object) {
+                if object.run_finalizer() {
+                    finalized_objects = finalized_objects.saturating_add(1);
+                }
+                continue;
+            }
+
+            object.clear_mark();
+            let object_key = object.object_key();
+            let desc = object.header().desc();
+            let space = object.space();
+            let total_size = object.total_size();
+            if space == SpaceKind::Old {
+                self.rebuild_post_sweep_old_region(
+                    &mut object,
+                    total_size,
+                    old_region_rebuild.as_mut(),
+                );
+            }
+            let index = rebuilt_objects.len();
+            rebuilt_objects.push(object);
             self.object_index.insert(object_key, index);
             self.record_descriptor_candidates(object_key, desc);
-            if space == SpaceKind::Old {
-                self.rebuild_post_sweep_old_region(index, total_size, old_region_rebuild.as_mut());
-            }
             match space {
                 SpaceKind::Nursery => {
                     self.stats.nursery.live_bytes =
@@ -1390,6 +1396,7 @@ impl Heap {
                 }
             }
         }
+        self.objects = rebuilt_objects;
         let old_region_stats = self.finish_old_region_rebuild(old_region_rebuild);
         self.stats.old.reserved_bytes = self
             .old_regions
@@ -1411,7 +1418,7 @@ impl Heap {
                 .is_some_and(|space| space != SpaceKind::Nursery && space != SpaceKind::Immortal)
                 && target_space == Some(SpaceKind::Nursery)
         });
-        old_region_stats
+        (finalized_objects, old_region_stats)
     }
 
     fn record_collection_stats(&mut self, cycle: CollectionStats) {
@@ -1652,6 +1659,8 @@ impl Heap {
     fn prepare_old_region_rebuild(
         &mut self,
         completed_plan: Option<&CollectionPlan>,
+        objects: &[ObjectRecord],
+        kind: CollectionKind,
     ) -> Option<OldRegionRebuildState> {
         let plan = completed_plan
             .filter(|plan| matches!(plan.kind, CollectionKind::Major | CollectionKind::Full))?;
@@ -1659,8 +1668,8 @@ impl Heap {
         let previous_region_count = previous_regions.len();
         let selected_regions: HashSet<_> = plan.selected_old_regions.iter().copied().collect();
         let mut live_region_flags = vec![false; previous_region_count];
-        for object in &self.objects {
-            if object.space() != SpaceKind::Old {
+        for object in objects {
+            if object.space() != SpaceKind::Old || !Self::keep_object_for_collection(kind, object) {
                 continue;
             }
             let Some(placement) = object.old_region_placement() else {
@@ -1699,15 +1708,15 @@ impl Heap {
     }
 
     fn rebuild_post_sweep_old_region(
-        &mut self,
-        index: usize,
+        &self,
+        object: &mut ObjectRecord,
         total_size: usize,
         rebuild: Option<&mut OldRegionRebuildState>,
     ) {
         let Some(rebuild) = rebuild else {
             return;
         };
-        let Some(mut placement) = self.objects[index].old_region_placement() else {
+        let Some(mut placement) = object.old_region_placement() else {
             return;
         };
         if rebuild.selected_regions.contains(&placement.region_index) {
@@ -1720,7 +1729,7 @@ impl Heap {
             placement.offset_bytes = compacted.offset_bytes;
             placement.line_start = compacted.line_start;
             placement.line_count = compacted.line_count;
-            self.objects[index].set_old_region_placement(placement);
+            object.set_old_region_placement(placement);
             let region = &mut rebuild.compacted_regions[compacted.region_index];
             region.live_bytes = region.live_bytes.saturating_add(total_size);
             region.object_count = region.object_count.saturating_add(1);
@@ -1735,7 +1744,7 @@ impl Heap {
         };
         if placement.region_index != new_index {
             placement.region_index = new_index;
-            self.objects[index].set_old_region_placement(placement);
+            object.set_old_region_placement(placement);
         }
         let region = &mut rebuild.rebuilt_regions[new_index];
         region.live_bytes = region.live_bytes.saturating_add(total_size);
