@@ -1,14 +1,30 @@
 use core::marker::PhantomData;
 use core::slice;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::thread;
+use std::time::Instant;
 
 use crate::descriptor::{EphemeronVisitor, GcErased, ObjectKey, Relocator, Tracer, WeakProcessor};
-use crate::index_state::{ForwardingMap, ObjectIndex};
+use crate::heap::AllocError;
+use crate::index_state::{ForwardingMap, HeapIndexState, ObjectIndex};
 use crate::mark::MarkWorklist;
 use crate::object::{ObjectRecord, SpaceKind};
-use crate::plan::CollectionKind;
+use crate::plan::{CollectionKind, CollectionPhase, CollectionPlan};
+use crate::reclaim::{
+    PreparedReclaim, finish_prepared_reclaim_cycle,
+    prepare_full_reclaim as orchestrate_full_reclaim,
+    prepare_major_reclaim as orchestrate_major_reclaim, prepare_reclaim,
+    sweep_minor_and_rebuild_post_collection as rebuild_minor_after_collection,
+};
 use crate::root::RootStack;
+use crate::runtime_state::RuntimeState;
+use crate::spaces::nursery::{
+    NurseryConfig, evacuate_marked_nursery as evacuate_nursery_space,
+    relocate_roots_and_edges as relocate_forwarded_roots_and_edges,
+};
+use crate::spaces::{OldGenConfig, OldGenState};
+use crate::stats::{CollectionStats, HeapStats};
 
 pub(crate) struct WeakRetention<'a> {
     objects: &'a [ObjectRecord],
@@ -305,6 +321,273 @@ pub(crate) fn collect_global_sources(roots: &RootStack, objects: &[ObjectRecord]
                 .map(ObjectRecord::erased),
         )
         .collect()
+}
+
+pub(crate) fn trace_collection(
+    plan: &CollectionPlan,
+    objects: &[ObjectRecord],
+    indexes: &HeapIndexState,
+    sources: &[GcErased],
+    mut record_phase: impl FnMut(CollectionPhase),
+) -> (u64, u64) {
+    match plan.kind {
+        CollectionKind::Minor => trace_minor(
+            objects,
+            &indexes.object_index,
+            &indexes.remembered.owners,
+            &indexes.candidate_indices(&indexes.ephemeron_candidates),
+            plan.worker_count.max(1),
+            plan.mark_slice_budget,
+            sources.iter().copied(),
+        ),
+        CollectionKind::Major | CollectionKind::Full => {
+            record_phase(CollectionPhase::InitialMark);
+            if plan.concurrent {
+                record_phase(CollectionPhase::ConcurrentMark);
+            }
+            record_phase(CollectionPhase::Remark);
+            trace_major(
+                objects,
+                &indexes.object_index,
+                plan.worker_count.max(1),
+                plan.mark_slice_budget,
+                sources.iter().copied(),
+            )
+        }
+    }
+}
+
+pub(crate) fn prepare_major_reclaim_for_plan(
+    plan: &CollectionPlan,
+    objects: &[ObjectRecord],
+    indexes: &HeapIndexState,
+    old_gen: &OldGenState,
+    old_config: &OldGenConfig,
+) -> PreparedReclaim {
+    orchestrate_major_reclaim(
+        plan,
+        |plan| {
+            let empty_forwarding = ForwardingMap::default();
+            process_weak_references_for_candidates(
+                objects,
+                &indexes.weak_candidates,
+                plan.kind,
+                plan.worker_count.max(1),
+                &empty_forwarding,
+                &indexes.object_index,
+            );
+        },
+        |plan| prepare_reclaim(objects, indexes, old_gen, old_config, plan.kind, plan),
+    )
+}
+
+pub(crate) fn prepare_full_reclaim_for_plan(
+    plan: &CollectionPlan,
+    roots: &mut RootStack,
+    objects: &mut Vec<ObjectRecord>,
+    indexes: &mut HeapIndexState,
+    old_gen: &mut OldGenState,
+    old_config: &OldGenConfig,
+    nursery_config: &NurseryConfig,
+    stats: &mut HeapStats,
+    mut record_phase: impl FnMut(CollectionPhase),
+) -> Result<PreparedReclaim, AllocError> {
+    struct FullReclaimState<'a> {
+        roots: &'a mut RootStack,
+        objects: &'a mut Vec<ObjectRecord>,
+        indexes: &'a mut HeapIndexState,
+        old_gen: &'a mut OldGenState,
+        old_config: &'a OldGenConfig,
+        nursery_config: &'a NurseryConfig,
+        stats: &'a mut HeapStats,
+    }
+
+    let mut state = FullReclaimState {
+        roots,
+        objects,
+        indexes,
+        old_gen,
+        old_config,
+        nursery_config,
+        stats,
+    };
+    record_phase(CollectionPhase::Evacuate);
+    orchestrate_full_reclaim(
+        &mut state,
+        plan,
+        |state| {
+            let evacuation = evacuate_nursery_space(
+                state.objects,
+                state.indexes,
+                state.old_gen,
+                state.old_config,
+                state.nursery_config,
+                state.stats,
+            )?;
+            Ok((evacuation.forwarding, evacuation.promoted_bytes))
+        },
+        |state, forwarding| {
+            relocate_forwarded_roots_and_edges(
+                state.roots,
+                state.objects,
+                state.indexes,
+                forwarding,
+            )
+        },
+        |state, plan, forwarding| {
+            process_weak_references_for_candidates(
+                state.objects,
+                &state.indexes.weak_candidates,
+                plan.kind,
+                plan.worker_count.max(1),
+                forwarding,
+                &state.indexes.object_index,
+            );
+        },
+        |state, plan| {
+            prepare_reclaim(
+                state.objects,
+                state.indexes,
+                state.old_gen,
+                state.old_config,
+                plan.kind,
+                plan,
+            )
+        },
+    )
+}
+
+pub(crate) fn execute_collection_plan(
+    plan: &CollectionPlan,
+    roots: &mut RootStack,
+    objects: &mut Vec<ObjectRecord>,
+    indexes: &mut HeapIndexState,
+    old_gen: &mut OldGenState,
+    old_config: &OldGenConfig,
+    nursery_config: &NurseryConfig,
+    stats: &mut HeapStats,
+    runtime_state: &Arc<Mutex<RuntimeState>>,
+    mut record_phase: impl FnMut(CollectionPhase),
+) -> Result<CollectionStats, AllocError> {
+    let before_bytes = stats.total_live_bytes();
+    for object in objects.iter() {
+        object.clear_mark();
+    }
+
+    let sources = collect_global_sources(roots, objects);
+    let (mark_steps, mark_rounds) = trace_collection(plan, objects, indexes, &sources, |phase| {
+        record_phase(phase)
+    });
+
+    match plan.kind {
+        CollectionKind::Minor => {
+            record_phase(CollectionPhase::Evacuate);
+            let evacuation = evacuate_nursery_space(
+                objects,
+                indexes,
+                old_gen,
+                old_config,
+                nursery_config,
+                stats,
+            )?;
+            relocate_forwarded_roots_and_edges(roots, objects, indexes, &evacuation.forwarding);
+            process_weak_references_for_candidates(
+                objects,
+                &indexes.weak_candidates,
+                plan.kind,
+                plan.worker_count.max(1),
+                &evacuation.forwarding,
+                &indexes.object_index,
+            );
+            record_phase(CollectionPhase::Reclaim);
+            let runtime_state = Arc::clone(runtime_state);
+            let rebuild = rebuild_minor_after_collection(
+                objects,
+                indexes,
+                old_gen,
+                old_config,
+                stats,
+                plan.kind,
+                Some(plan.clone()),
+                move |object| {
+                    let mut runtime_state = runtime_state
+                        .lock()
+                        .expect("runtime state should not be poisoned");
+                    runtime_state.enqueue_pending_finalizer(object)
+                },
+            );
+            Ok(CollectionStats::completed_minor_cycle(
+                mark_steps,
+                mark_rounds,
+                evacuation.promoted_bytes,
+                before_bytes,
+                rebuild.after_bytes,
+                rebuild.queued_finalizers,
+                rebuild.old_region_stats,
+            ))
+        }
+        CollectionKind::Major => {
+            let reclaim_prepare_start = Instant::now();
+            let prepared_reclaim =
+                prepare_major_reclaim_for_plan(plan, objects, indexes, old_gen, old_config);
+            record_phase(CollectionPhase::Reclaim);
+            let runtime_state = Arc::clone(runtime_state);
+            Ok(finish_prepared_reclaim_cycle(
+                objects,
+                indexes,
+                old_gen,
+                stats,
+                before_bytes,
+                mark_steps,
+                mark_rounds,
+                saturating_duration_nanos(reclaim_prepare_start.elapsed()),
+                prepared_reclaim,
+                move |object| {
+                    let mut runtime_state = runtime_state
+                        .lock()
+                        .expect("runtime state should not be poisoned");
+                    runtime_state.enqueue_pending_finalizer(object)
+                },
+            ))
+        }
+        CollectionKind::Full => {
+            let reclaim_prepare_start = Instant::now();
+            let prepared_reclaim = prepare_full_reclaim_for_plan(
+                plan,
+                roots,
+                objects,
+                indexes,
+                old_gen,
+                old_config,
+                nursery_config,
+                stats,
+                |phase| record_phase(phase),
+            )?;
+            record_phase(CollectionPhase::Reclaim);
+            let runtime_state = Arc::clone(runtime_state);
+            Ok(finish_prepared_reclaim_cycle(
+                objects,
+                indexes,
+                old_gen,
+                stats,
+                before_bytes,
+                mark_steps,
+                mark_rounds,
+                saturating_duration_nanos(reclaim_prepare_start.elapsed()),
+                prepared_reclaim,
+                move |object| {
+                    let mut runtime_state = runtime_state
+                        .lock()
+                        .expect("runtime state should not be poisoned");
+                    runtime_state.enqueue_pending_finalizer(object)
+                },
+            ))
+        }
+    }
+}
+
+fn saturating_duration_nanos(duration: std::time::Duration) -> u64 {
+    u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
 }
 
 pub(crate) fn trace_minor(

@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 use crate::background::{BackgroundCollectorConfig, BackgroundService, SharedHeap};
 use crate::barrier::{BarrierEvent, BarrierKind};
 use crate::collector_exec::{
-    collect_global_sources, process_weak_references_for_candidates, trace_major as run_major_trace,
-    trace_major_ephemerons_for_candidates, trace_minor as run_minor_trace,
+    collect_global_sources, execute_collection_plan, prepare_full_reclaim_for_plan,
+    prepare_major_reclaim_for_plan, trace_major_ephemerons_for_candidates,
 };
 use crate::collector_policy::refresh_cached_plans as refresh_cached_collector_plans;
 use crate::collector_session::{
@@ -19,25 +19,16 @@ use crate::collector_session::{
 };
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
 use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
-use crate::index_state::{ForwardingMap, HeapIndexState};
+use crate::index_state::HeapIndexState;
 use crate::mutator::Mutator;
 use crate::object::{ObjectRecord, SpaceKind, estimated_allocation_size};
 use crate::plan::{
     CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress, RuntimeWorkStatus,
 };
-use crate::reclaim::{
-    PreparedReclaim, finish_prepared_reclaim_cycle,
-    prepare_full_reclaim as orchestrate_full_reclaim,
-    prepare_major_reclaim as orchestrate_major_reclaim, prepare_reclaim,
-    sweep_minor_and_rebuild_post_collection as rebuild_minor_after_collection,
-};
+use crate::reclaim::{PreparedReclaim, finish_prepared_reclaim_cycle};
 use crate::root::{HandleScope, Root, RootStack};
 use crate::runtime::CollectorRuntime;
 use crate::runtime_state::RuntimeState;
-use crate::spaces::nursery::{
-    evacuate_marked_nursery as evacuate_nursery_space,
-    relocate_roots_and_edges as relocate_forwarded_roots_and_edges,
-};
 use crate::spaces::{
     LargeObjectSpaceConfig, NurseryConfig, OldGenConfig, OldGenPlanSelection, OldGenState,
     PinnedSpaceConfig,
@@ -471,16 +462,13 @@ impl Heap {
                 )
             },
             |plan| {
-                let empty_forwarding: ForwardingMap = HashMap::new();
-                process_weak_references_for_candidates(
+                prepare_major_reclaim_for_plan(
+                    plan,
                     &self.objects,
-                    &self.indexes.weak_candidates,
-                    CollectionKind::Major,
-                    plan.worker_count.max(1),
-                    &empty_forwarding,
-                    &self.indexes.object_index,
-                );
-                self.prepare_reclaim(CollectionKind::Major, plan)
+                    &self.indexes,
+                    &self.old_gen,
+                    &self.config.old,
+                )
             },
         )?;
         let Some(progress) = progress else {
@@ -509,16 +497,13 @@ impl Heap {
                 )
             },
             |plan| {
-                let empty_forwarding: ForwardingMap = HashMap::new();
-                process_weak_references_for_candidates(
+                prepare_major_reclaim_for_plan(
+                    plan,
                     &self.objects,
-                    &self.indexes.weak_candidates,
-                    CollectionKind::Major,
-                    plan.worker_count.max(1),
-                    &empty_forwarding,
-                    &self.indexes.object_index,
-                );
-                self.prepare_reclaim(CollectionKind::Major, plan)
+                    &self.indexes,
+                    &self.old_gen,
+                    &self.config.old,
+                )
             },
         )?;
         let snapshot = self.refreshed_collector_snapshot(&mut collector);
@@ -640,125 +625,22 @@ impl Heap {
         }
         let pause_start = Instant::now();
         self.collector().clear_recent_phase_trace();
-        let before_bytes = self.stats.total_live_bytes();
-        for object in &self.objects {
-            object.clear_mark();
+        let mut phases = Vec::new();
+        let mut cycle = execute_collection_plan(
+            &plan,
+            &mut self.roots,
+            &mut self.objects,
+            &mut self.indexes,
+            &mut self.old_gen,
+            &self.config.old,
+            &self.config.nursery,
+            &mut self.stats,
+            &self.runtime_state,
+            |phase| phases.push(phase),
+        )?;
+        for phase in phases {
+            self.record_phase(phase);
         }
-
-        let sources = collect_global_sources(&self.roots, &self.objects);
-        let (mark_steps, mark_rounds) = match plan.kind {
-            CollectionKind::Minor => run_minor_trace(
-                &self.objects,
-                &self.indexes.object_index,
-                &self.indexes.remembered.owners,
-                &self
-                    .indexes
-                    .candidate_indices(&self.indexes.ephemeron_candidates),
-                plan.worker_count.max(1),
-                plan.mark_slice_budget,
-                sources.iter().copied(),
-            ),
-            CollectionKind::Major | CollectionKind::Full => {
-                self.record_phase(CollectionPhase::InitialMark);
-                if plan.concurrent {
-                    self.record_phase(CollectionPhase::ConcurrentMark);
-                }
-                self.record_phase(CollectionPhase::Remark);
-                run_major_trace(
-                    &self.objects,
-                    &self.indexes.object_index,
-                    plan.worker_count.max(1),
-                    plan.mark_slice_budget,
-                    sources.iter().copied(),
-                )
-            }
-        };
-
-        let mut cycle = match plan.kind {
-            CollectionKind::Minor => {
-                self.record_phase(CollectionPhase::Evacuate);
-                let evacuation = evacuate_nursery_space(
-                    &mut self.objects,
-                    &mut self.indexes,
-                    &mut self.old_gen,
-                    &self.config.old,
-                    &self.config.nursery,
-                    &mut self.stats,
-                )?;
-                relocate_forwarded_roots_and_edges(
-                    &mut self.roots,
-                    &self.objects,
-                    &mut self.indexes,
-                    &evacuation.forwarding,
-                );
-                process_weak_references_for_candidates(
-                    &self.objects,
-                    &self.indexes.weak_candidates,
-                    plan.kind,
-                    plan.worker_count.max(1),
-                    &evacuation.forwarding,
-                    &self.indexes.object_index,
-                );
-                self.record_phase(CollectionPhase::Reclaim);
-                let rebuild =
-                    self.sweep_minor_and_rebuild_post_collection(plan.kind, Some(plan.clone()));
-                CollectionStats::completed_minor_cycle(
-                    mark_steps,
-                    mark_rounds,
-                    evacuation.promoted_bytes,
-                    before_bytes,
-                    rebuild.after_bytes,
-                    rebuild.queued_finalizers,
-                    rebuild.old_region_stats,
-                )
-            }
-            CollectionKind::Major => {
-                let reclaim_prepare_start = Instant::now();
-                let prepared_reclaim = self.prepare_major_reclaim(&plan);
-                self.record_phase(CollectionPhase::Reclaim);
-                let runtime_state = self.runtime_state_handle();
-                finish_prepared_reclaim_cycle(
-                    &mut self.objects,
-                    &mut self.indexes,
-                    &mut self.old_gen,
-                    &mut self.stats,
-                    before_bytes,
-                    mark_steps,
-                    mark_rounds,
-                    Self::saturating_duration_nanos(reclaim_prepare_start.elapsed()),
-                    prepared_reclaim,
-                    move |object| {
-                        let mut runtime_state = runtime_state
-                            .lock()
-                            .expect("runtime state should not be poisoned");
-                        runtime_state.enqueue_pending_finalizer(object)
-                    },
-                )
-            }
-            CollectionKind::Full => {
-                let reclaim_prepare_start = Instant::now();
-                let prepared_reclaim = self.prepare_full_reclaim(&plan)?;
-                self.record_phase(CollectionPhase::Reclaim);
-                let runtime_state = self.runtime_state_handle();
-                finish_prepared_reclaim_cycle(
-                    &mut self.objects,
-                    &mut self.indexes,
-                    &mut self.old_gen,
-                    &mut self.stats,
-                    before_bytes,
-                    mark_steps,
-                    mark_rounds,
-                    Self::saturating_duration_nanos(reclaim_prepare_start.elapsed()),
-                    prepared_reclaim,
-                    move |object| {
-                        let mut runtime_state = runtime_state
-                            .lock()
-                            .expect("runtime state should not be poisoned");
-                        runtime_state.enqueue_pending_finalizer(object)
-                    },
-                )
-            }
-        };
         cycle.pause_nanos = Self::saturating_duration_nanos(pause_start.elapsed());
         self.record_collection_stats(cycle);
         self.collector()
@@ -1061,29 +943,6 @@ impl Heap {
             .expect("mutator assist on active major-mark session should not fail");
     }
 
-    fn sweep_minor_and_rebuild_post_collection(
-        &mut self,
-        kind: CollectionKind,
-        completed_plan: Option<CollectionPlan>,
-    ) -> crate::reclaim::MinorRebuildResult {
-        let runtime_state = self.runtime_state_handle();
-        rebuild_minor_after_collection(
-            &mut self.objects,
-            &mut self.indexes,
-            &mut self.old_gen,
-            &self.config.old,
-            &mut self.stats,
-            kind,
-            completed_plan,
-            move |object| {
-                let mut runtime_state = runtime_state
-                    .lock()
-                    .expect("runtime state should not be poisoned");
-                runtime_state.enqueue_pending_finalizer(object)
-            },
-        )
-    }
-
     fn record_collection_stats(&mut self, cycle: CollectionStats) {
         self.stats.collections.saturating_add_assign(cycle);
     }
@@ -1133,32 +992,13 @@ impl Heap {
             .map(|&index| self.objects[index].space())
     }
 
-    fn prepare_reclaim(&self, kind: CollectionKind, plan: &CollectionPlan) -> PreparedReclaim {
-        prepare_reclaim(
+    fn prepare_major_reclaim(&mut self, plan: &CollectionPlan) -> PreparedReclaim {
+        prepare_major_reclaim_for_plan(
+            plan,
             &self.objects,
             &self.indexes,
             &self.old_gen,
             &self.config.old,
-            kind,
-            plan,
-        )
-    }
-
-    fn prepare_major_reclaim(&mut self, plan: &CollectionPlan) -> PreparedReclaim {
-        orchestrate_major_reclaim(
-            plan,
-            |plan| {
-                let empty_forwarding: ForwardingMap = HashMap::new();
-                process_weak_references_for_candidates(
-                    &self.objects,
-                    &self.indexes.weak_candidates,
-                    plan.kind,
-                    plan.worker_count.max(1),
-                    &empty_forwarding,
-                    &self.indexes.object_index,
-                );
-            },
-            |plan| self.prepare_reclaim(plan.kind, plan),
         )
     }
 
@@ -1166,41 +1006,22 @@ impl Heap {
         &mut self,
         plan: &CollectionPlan,
     ) -> Result<PreparedReclaim, AllocError> {
-        self.record_phase(CollectionPhase::Evacuate);
-        orchestrate_full_reclaim(
-            self,
+        let mut phases = Vec::new();
+        let prepared = prepare_full_reclaim_for_plan(
             plan,
-            |heap| {
-                let evacuation = evacuate_nursery_space(
-                    &mut heap.objects,
-                    &mut heap.indexes,
-                    &mut heap.old_gen,
-                    &heap.config.old,
-                    &heap.config.nursery,
-                    &mut heap.stats,
-                )?;
-                Ok((evacuation.forwarding, evacuation.promoted_bytes))
-            },
-            |heap, forwarding| {
-                relocate_forwarded_roots_and_edges(
-                    &mut heap.roots,
-                    &heap.objects,
-                    &mut heap.indexes,
-                    forwarding,
-                )
-            },
-            |heap, plan, forwarding| {
-                process_weak_references_for_candidates(
-                    &heap.objects,
-                    &heap.indexes.weak_candidates,
-                    plan.kind,
-                    plan.worker_count.max(1),
-                    forwarding,
-                    &heap.indexes.object_index,
-                );
-            },
-            |heap, plan| heap.prepare_reclaim(plan.kind, plan),
-        )
+            &mut self.roots,
+            &mut self.objects,
+            &mut self.indexes,
+            &mut self.old_gen,
+            &self.config.old,
+            &self.config.nursery,
+            &mut self.stats,
+            |phase| phases.push(phase),
+        )?;
+        for phase in phases {
+            self.record_phase(phase);
+        }
+        Ok(prepared)
     }
 
     pub(crate) fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError> {
