@@ -25,6 +25,39 @@ pub(crate) fn builtin_ignore(_args: Vec<Value>) -> EvalResult {
     Ok(Value::NIL)
 }
 
+/// Log a message to the *Messages* buffer, matching GNU Emacs message_dolog
+/// in xdisp.c.  Creates the buffer if it doesn't exist.
+fn message_dolog(ctx: &mut super::eval::Context, msg: &str) {
+    // GNU: check message-log-max; if nil, don't log
+    let log_max = ctx
+        .visible_variable_value_or_nil("message-log-max")
+        ;
+    if log_max.is_nil() {
+        return;
+    }
+
+    // Get or create *Messages* buffer (GNU uses " *Messages*" with leading space)
+    let messages_name = " *Messages*";
+    let buf_id = if let Some(id) = ctx.buffers.find_buffer_by_name(messages_name) {
+        id
+    } else {
+        ctx.buffers.create_buffer(messages_name)
+    };
+
+    // Insert the message text at the end, followed by newline.
+    // Save and restore current buffer like GNU does.
+    let old_buf = ctx.buffers.current_buffer().map(|b| b.id);
+    ctx.buffers.switch_current(buf_id);
+    if let Some(buf) = ctx.buffers.get_mut(buf_id) {
+        let end = buf.point_max();
+        buf.goto_char(end);
+        buf.insert(&format!("{msg}\n"));
+    }
+    if let Some(old) = old_buf {
+        ctx.buffers.switch_current(old);
+    }
+}
+
 pub(crate) fn builtin_message(ctx: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("message", &args, 1)?;
     // GNU Emacs: nil or empty string clears the echo area and returns as-is.
@@ -51,7 +84,9 @@ pub(crate) fn builtin_message(ctx: &mut super::eval::Context, args: Vec<Value>) 
         _ => String::new(),
     };
     ctx.set_current_message(Some(msg.clone()));
-    eprintln!("{}", msg);
+    // GNU Emacs message_dolog: log to *Messages* buffer
+    message_dolog(ctx, &msg);
+    tracing::info!(msg = %msg);
     ctx.redisplay();
     Ok(Value::string(msg))
 }
