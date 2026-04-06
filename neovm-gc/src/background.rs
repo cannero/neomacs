@@ -1,4 +1,4 @@
-use crate::collector_state::CollectorSharedSnapshot;
+use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
 use crate::heap::{AllocError, Heap};
 use crate::mutator::Mutator;
 use crate::plan::{
@@ -85,6 +85,7 @@ pub struct BackgroundCollectorStats {
 pub struct SharedHeap {
     inner: Arc<RwLock<Heap>>,
     runtime_state: Arc<Mutex<RuntimeState>>,
+    collector_state: Arc<Mutex<CollectorState>>,
     snapshot: Arc<RwLock<SharedHeapSnapshot>>,
     runtime_snapshot: Arc<RwLock<SharedRuntimeSnapshot>>,
     collector_snapshot: Arc<RwLock<CollectorSharedSnapshot>>,
@@ -309,6 +310,7 @@ fn shared_background_status_from_parts(
 #[derive(Debug)]
 pub struct SharedHeapGuard<'a> {
     guard: Option<RwLockWriteGuard<'a, Heap>>,
+    collector_state: &'a Arc<Mutex<CollectorState>>,
     snapshot: &'a RwLock<SharedHeapSnapshot>,
     runtime_snapshot: &'a RwLock<SharedRuntimeSnapshot>,
     collector_snapshot: &'a RwLock<CollectorSharedSnapshot>,
@@ -326,6 +328,7 @@ pub struct SharedHeapReadGuard<'a> {
 impl<'a> SharedHeapGuard<'a> {
     fn new(
         guard: RwLockWriteGuard<'a, Heap>,
+        collector_state: &'a Arc<Mutex<CollectorState>>,
         snapshot: &'a RwLock<SharedHeapSnapshot>,
         runtime_snapshot: &'a RwLock<SharedRuntimeSnapshot>,
         collector_snapshot: &'a RwLock<CollectorSharedSnapshot>,
@@ -334,6 +337,7 @@ impl<'a> SharedHeapGuard<'a> {
     ) -> Self {
         Self {
             guard: Some(guard),
+            collector_state,
             snapshot,
             runtime_snapshot,
             collector_snapshot,
@@ -376,7 +380,7 @@ impl Drop for SharedHeapGuard<'_> {
         if !self.dirty {
             return;
         }
-        let (next_snapshot, next_runtime_snapshot, next_collector) = {
+        let (next_snapshot, next_runtime_snapshot) = {
             let heap = self
                 .guard
                 .as_deref()
@@ -384,12 +388,16 @@ impl Drop for SharedHeapGuard<'_> {
             (
                 SharedHeapSnapshot::capture(heap),
                 SharedRuntimeSnapshot::capture(heap),
-                heap.collector_shared_snapshot(),
             )
         };
         // Release the heap mutex before touching shared snapshot locks so readers do not extend
         // the main heap lock window.
         self.guard.take();
+        let next_collector = self
+            .collector_state
+            .lock()
+            .expect("collector state should not be poisoned")
+            .shared_snapshot();
         let mut heap_changed = false;
         let mut background_changed = false;
         let mut previous_snapshot = None;
@@ -441,9 +449,11 @@ impl SharedHeap {
         let runtime_snapshot = SharedRuntimeSnapshot::capture(&heap);
         let collector_snapshot = heap.collector_shared_snapshot();
         let runtime_state = heap.runtime_state_handle();
+        let collector_state = heap.collector_handle();
         Self {
             inner: Arc::new(RwLock::new(heap)),
             runtime_state,
+            collector_state,
             snapshot: Arc::new(RwLock::new(snapshot)),
             runtime_snapshot: Arc::new(RwLock::new(runtime_snapshot)),
             collector_snapshot: Arc::new(RwLock::new(collector_snapshot)),
@@ -457,6 +467,7 @@ impl SharedHeap {
         match self.inner.write() {
             Ok(guard) => Ok(SharedHeapGuard::new(
                 guard,
+                &self.collector_state,
                 &self.snapshot,
                 &self.runtime_snapshot,
                 &self.collector_snapshot,
@@ -465,6 +476,7 @@ impl SharedHeap {
             )),
             Err(error) => Err(std::sync::PoisonError::new(SharedHeapGuard::new(
                 error.into_inner(),
+                &self.collector_state,
                 &self.snapshot,
                 &self.runtime_snapshot,
                 &self.collector_snapshot,
@@ -479,6 +491,7 @@ impl SharedHeap {
         match self.inner.try_write() {
             Ok(guard) => Ok(SharedHeapGuard::new(
                 guard,
+                &self.collector_state,
                 &self.snapshot,
                 &self.runtime_snapshot,
                 &self.collector_snapshot,
@@ -488,6 +501,7 @@ impl SharedHeap {
             Err(TryLockError::Poisoned(error)) => Err(TryLockError::Poisoned(
                 std::sync::PoisonError::new(SharedHeapGuard::new(
                     error.into_inner(),
+                    &self.collector_state,
                     &self.snapshot,
                     &self.runtime_snapshot,
                     &self.collector_snapshot,

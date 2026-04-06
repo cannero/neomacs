@@ -93,7 +93,7 @@ pub struct Heap {
     old_gen: OldGenState,
     recent_barrier_events: Vec<BarrierEvent>,
     runtime_state: Arc<Mutex<RuntimeState>>,
-    collector: Mutex<CollectorState>,
+    collector: Arc<Mutex<CollectorState>>,
 }
 
 // SAFETY: `Heap` owns all heap allocations and its raw pointers are internal references into that
@@ -138,7 +138,7 @@ impl Heap {
             old_gen: OldGenState::default(),
             recent_barrier_events: Vec::new(),
             runtime_state: Arc::new(Mutex::new(RuntimeState::default())),
-            collector: Mutex::new(CollectorState::default()),
+            collector: Arc::new(Mutex::new(CollectorState::default())),
         };
         heap.refresh_recommended_plans();
         heap
@@ -158,6 +158,10 @@ impl Heap {
 
     pub(crate) fn runtime_state_handle(&self) -> Arc<Mutex<RuntimeState>> {
         Arc::clone(&self.runtime_state)
+    }
+
+    pub(crate) fn collector_handle(&self) -> Arc<Mutex<CollectorState>> {
+        Arc::clone(&self.collector)
     }
 
     /// Return the heap configuration.
