@@ -1,9 +1,10 @@
 experimental = ["wrapper-scripts"]
 
-# Memory-limited wrapper: each test process gets a 1GB cgroup memory limit.
-# Prevents runaway tests from OOM-killing the system.
+# Memory-limited wrapper: each test process gets an 8GB virtual address space limit.
+# Uses prlimit (RLIMIT_AS) so allocation failures produce a Rust abort with
+# backtrace instead of a silent SIGKILL from cgroup OOM killer.
 [scripts.wrapper.memory-limit]
-command = 'systemd-run --user --scope -q -p MemoryMax=1G --'
+command = 'prlimit --as=8589934592 --'
 
 [test-groups]
 # neovm-gc now has a large integration-style suite. Keep aggregate memory bounded even though
@@ -26,27 +27,26 @@ run-wrapper = 'memory-limit'
 filter = 'test(/^emacs_core::oracle_test::/)'
 slow-timeout = { period = "120s", terminate-after = 1 }
 
-# Bootstrap tests need much longer timeouts
+# Bootstrap tests — conservative GC reduced debug from ~590s to ~55s
 [[profile.default.overrides]]
 filter = 'test(bootstrap) | test(pdump) | test(loadup)'
-slow-timeout = { period = "600s", terminate-after = 1 }
+slow-timeout = { period = "120s", terminate-after = 1 }
 threads-required = 1
 
-# Compiled .neobc runtime-surface tests can pay the full cold bootstrap cost
-# on the first cached-evaluator build after a Lisp fingerprint change.
+# Compiled .neobc runtime-surface tests
 [[profile.default.overrides]]
 filter = 'package(=neovm-core) and test(/compiled_neobc_.*/)'
-slow-timeout = { period = "600s", terminate-after = 1 }
+slow-timeout = { period = "120s", terminate-after = 1 }
 
-# GNU-vs-NeoVM compatibility integration tests also need the cold-bootstrap budget.
+# GNU-vs-NeoVM compatibility integration tests
 [[profile.default.overrides]]
 filter = 'package(=neovm-core) and test(/compat_.*_matches_gnu_emacs/)'
-slow-timeout = { period = "600s", terminate-after = 1 }
+slow-timeout = { period = "120s", terminate-after = 1 }
 
-# Loadup bootstrap is the slowest (cold start can take >300s)
+# Loadup bootstrap: ~2s release, ~55s debug
 [[profile.default.overrides]]
 filter = 'package(=neovm-core) and test(=emacs_core::load::tests::neovm_loadup_bootstrap)'
-slow-timeout = { period = "600s", terminate-after = 1 }
+slow-timeout = { period = "120s", terminate-after = 1 }
 
 [[profile.default.overrides]]
 filter = 'package(=neovm-gc)'
