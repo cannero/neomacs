@@ -1,9 +1,11 @@
 experimental = ["wrapper-scripts"]
 
-# Memory-limited wrapper: each test process gets a 4GB RSS limit via cgroup.
+# Memory-limited wrapper: each test process gets an 8GB virtual address space limit.
 # Prevents runaway tests from OOM-killing the system.
+# Uses prlimit (RLIMIT_AS) instead of cgroups so allocation failures produce
+# a proper Rust abort with backtrace rather than a silent SIGKILL.
 [scripts.wrapper.memory-limit]
-command = 'systemd-run --user --scope -q -p MemoryMax=8G --'
+command = 'prlimit --as=8589934592 --'
 
 [profile.default]
 # Many tests use the bootstrap evaluator (which loads 122 .el files)

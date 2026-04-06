@@ -691,7 +691,19 @@ impl TaggedValue {
             let ptr = self.as_string_ptr().unwrap();
             // Safety: the string object is alive (caller must ensure no GC).
             // Lifetime is extended to 'static — same pattern as old Value::as_str.
-            unsafe { Some((*ptr).data.as_str()) }
+            unsafe {
+                let header = &(*(ptr as *const super::header::StringObj)).header;
+                if !matches!(header.kind, super::header::HeapObjectKind::String) {
+                    panic!(
+                        "BUG: StringObj header.kind = {:?} (expected String) — \
+                         possible use-after-free. Tagged value = {:#x}, ptr = {:?}",
+                        header.kind,
+                        self.0,
+                        ptr,
+                    );
+                }
+                Some((*ptr).data.as_str())
+            }
         } else {
             None
         }
