@@ -192,6 +192,47 @@ fn prepare_active_major_reclaim_with_request_skips_full_session() {
 }
 
 #[test]
+fn prepare_active_collection_reclaim_if_needed_moves_full_session_to_reclaim() {
+    let mut state = CollectorState::default();
+    let plan = full_plan();
+    let index = ObjectIndex::default();
+    state.begin_major_mark(plan, MarkWorklist::default());
+    assert!(state.complete_active_major_remark(5, 7));
+
+    let completed = prepare_active_collection_reclaim_if_needed(
+        &mut state,
+        &[],
+        &index,
+        |_tracer, _plan| panic!("remarked full session should skip ephemeron trace"),
+        |_plan| Ok(prepared_reclaim()),
+    )
+    .expect("full reclaim prep should succeed");
+
+    assert!(completed);
+    assert!(state.active_major_mark_is_ready());
+    assert_eq!(
+        state.active_major_mark_plan().expect("active plan").phase,
+        CollectionPhase::Reclaim
+    );
+}
+
+#[test]
+fn prepare_active_collection_reclaim_if_needed_returns_false_without_request() {
+    let mut state = CollectorState::default();
+
+    let completed = prepare_active_collection_reclaim_if_needed(
+        &mut state,
+        &[],
+        &ObjectIndex::default(),
+        |_tracer, _plan| panic!("inactive session should not trace"),
+        |_plan| Ok(prepared_reclaim()),
+    )
+    .expect("inactive session should be ignored");
+
+    assert!(!completed);
+}
+
+#[test]
 fn prepare_active_reclaim_plan_skips_ephemeron_trace_after_remark() {
     let mut state = CollectorState::default();
     let plan = full_plan();
@@ -429,4 +470,70 @@ fn finish_active_collection_builds_missing_full_reclaim() {
     assert_eq!(finished.mark_rounds, 7);
     assert!(finished.reclaim_prepare_nanos > 0);
     assert_eq!(finished.prepared_reclaim.survivors.len(), 1);
+}
+
+#[test]
+fn finalize_active_collection_state_finishes_major_reclaim_state() {
+    let mut collector = CollectorState::default();
+    collector.begin_major_mark(major_plan(), MarkWorklist::default());
+    let state = collector
+        .take_major_mark_state()
+        .expect("active major mark state should exist");
+
+    let finished = finalize_active_collection_state(
+        state,
+        &[],
+        &ObjectIndex::default(),
+        |_tracer, _plan| (2, 3),
+        |_plan| Ok(prepared_reclaim()),
+    )
+    .expect("finalize active collection state");
+
+    assert_eq!(finished.completed_plan.phase, CollectionPhase::Reclaim);
+    assert_eq!(finished.mark_steps, 2);
+    assert_eq!(finished.mark_rounds, 3);
+}
+
+#[test]
+fn finish_active_collection_if_ready_returns_none_when_not_ready() {
+    let mut collector = CollectorState::default();
+    collector.begin_major_mark(major_plan(), MarkWorklist::default());
+
+    let finished = finish_active_collection_if_ready(
+        &mut collector,
+        &[],
+        &ObjectIndex::default(),
+        |_tracer, _plan| panic!("unfinished session should not trace"),
+        |_plan| Ok(prepared_reclaim()),
+    )
+    .expect("finish active collection if ready");
+
+    assert!(finished.is_none());
+    assert!(collector.has_active_major_mark());
+}
+
+#[test]
+fn finish_active_collection_if_ready_takes_prepared_major_session() {
+    let mut collector = CollectorState::default();
+    collector.begin_major_mark(major_plan(), MarkWorklist::default());
+    assert!(collector.complete_active_major_reclaim_prep(
+        2,
+        3,
+        Duration::from_nanos(11),
+        prepared_reclaim()
+    ));
+
+    let finished = finish_active_collection_if_ready(
+        &mut collector,
+        &[],
+        &ObjectIndex::default(),
+        |_tracer, _plan| panic!("prepared session should not re-run remark"),
+        |_plan| Ok(prepared_reclaim()),
+    )
+    .expect("finish active collection if ready")
+    .expect("prepared session should finish");
+
+    assert_eq!(finished.completed_plan.phase, CollectionPhase::Reclaim);
+    assert_eq!(finished.reclaim_prepare_nanos, 11);
+    assert!(!collector.has_active_major_mark());
 }

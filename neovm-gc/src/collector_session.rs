@@ -207,6 +207,21 @@ pub(crate) fn prepare_active_major_reclaim_with_request(
     Ok(complete_active_reclaim_prep(collector, prepared))
 }
 
+pub(crate) fn prepare_active_collection_reclaim_if_needed(
+    collector: &mut CollectorState,
+    objects: &[ObjectRecord],
+    index: &ObjectIndex,
+    trace_ephemerons: impl FnOnce(&mut MarkTracer<'_>, &CollectionPlan) -> (u64, u64),
+    prepare_reclaim: impl FnOnce(&CollectionPlan) -> Result<PreparedReclaim, AllocError>,
+) -> Result<bool, AllocError> {
+    let Some(request) = active_reclaim_prep_request(collector) else {
+        return Ok(false);
+    };
+    let prepared =
+        prepare_active_reclaim_request(request, trace_ephemerons, objects, index, prepare_reclaim)?;
+    Ok(complete_active_reclaim_prep(collector, prepared))
+}
+
 pub(crate) fn complete_active_reclaim_prep(
     collector: &mut CollectorState,
     prepared: PreparedActiveReclaim,
@@ -264,6 +279,34 @@ pub(crate) fn finish_active_collection(
         reclaim_prepare_nanos,
         prepared_reclaim,
     })
+}
+
+pub(crate) fn finalize_active_collection_state(
+    mut state: MajorMarkState,
+    objects: &[ObjectRecord],
+    index: &ObjectIndex,
+    trace_ephemerons: impl FnOnce(&mut MarkTracer<'_>, &CollectionPlan) -> (u64, u64),
+    prepare_reclaim: impl FnOnce(&CollectionPlan) -> Result<PreparedReclaim, AllocError>,
+) -> Result<FinishedActiveCollection, AllocError> {
+    finish_major_mark(&mut state, objects, index, trace_ephemerons);
+    finish_active_collection(state, prepare_reclaim)
+}
+
+pub(crate) fn finish_active_collection_if_ready(
+    collector: &mut CollectorState,
+    objects: &[ObjectRecord],
+    index: &ObjectIndex,
+    trace_ephemerons: impl FnOnce(&mut MarkTracer<'_>, &CollectionPlan) -> (u64, u64),
+    prepare_reclaim: impl FnOnce(&CollectionPlan) -> Result<PreparedReclaim, AllocError>,
+) -> Result<Option<FinishedActiveCollection>, AllocError> {
+    if !collector.active_major_mark_is_ready() {
+        return Ok(None);
+    }
+    let Some(state) = collector.take_major_mark_state() else {
+        return Ok(None);
+    };
+    finalize_active_collection_state(state, objects, index, trace_ephemerons, prepare_reclaim)
+        .map(Some)
 }
 
 pub(crate) fn complete_drained_major_mark_round(

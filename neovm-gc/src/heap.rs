@@ -14,8 +14,9 @@ use crate::collector_policy::refresh_cached_plans as refresh_cached_collector_pl
 use crate::collector_session::{
     active_reclaim_prep_request, advance_major_mark_slice, begin_major_mark,
     build_prepared_active_reclaim, complete_active_reclaim_prep, finish_active_collection,
-    finish_major_mark, poll_active_major_mark_with_completion,
-    prepare_active_major_reclaim_with_request, prepare_active_reclaim,
+    finish_active_collection_if_ready, finish_major_mark, poll_active_major_mark_with_completion,
+    prepare_active_collection_reclaim_if_needed, prepare_active_major_reclaim_with_request,
+    prepare_active_reclaim,
 };
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
 use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
@@ -378,30 +379,7 @@ impl Heap {
             }),
         })?;
         self.record_phase(CollectionPhase::Reclaim);
-        let runtime_state = self.runtime_state_handle();
-        let mut cycle = finish_prepared_reclaim_cycle(
-            &mut self.objects,
-            &mut self.indexes,
-            &mut self.old_gen,
-            &mut self.stats,
-            before_bytes,
-            finished.mark_steps,
-            finished.mark_rounds,
-            finished.reclaim_prepare_nanos,
-            finished.prepared_reclaim,
-            move |object| {
-                let mut runtime_state = runtime_state
-                    .lock()
-                    .expect("runtime state should not be poisoned");
-                runtime_state.enqueue_pending_finalizer(object)
-            },
-        );
-        cycle.pause_nanos = Self::saturating_duration_nanos(pause_start.elapsed());
-        self.record_collection_stats(cycle);
-        self.collector()
-            .set_last_completed_plan(Some(finished.completed_plan));
-        self.refresh_recommended_plans();
-        Ok(cycle)
+        Ok(self.commit_finished_active_collection(finished, before_bytes, pause_start))
     }
 
     /// Advance up to `max_slices` of the active major-mark session.
@@ -525,10 +503,28 @@ impl Heap {
     pub fn commit_active_reclaim_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, AllocError> {
-        if !self.collector().active_major_mark_is_ready() {
-            return Ok(None);
-        }
-        self.finish_major_collection().map(Some)
+        let before_bytes = self.stats.total_live_bytes();
+        let pause_start = Instant::now();
+        let finished = finish_active_collection_if_ready(
+            &mut self.collector(),
+            &self.objects,
+            &self.indexes.object_index,
+            |tracer, plan| {
+                trace_major_ephemerons_for_candidates(
+                    &self.objects,
+                    &self.indexes.object_index,
+                    &self.indexes.ephemeron_candidates,
+                    tracer,
+                    plan.worker_count.max(1),
+                    plan.mark_slice_budget,
+                )
+            },
+            |plan| Err(AllocError::UnsupportedCollectionKind { kind: plan.kind }),
+        )?;
+        Ok(finished.map(|finished| {
+            self.record_phase(CollectionPhase::Reclaim);
+            self.commit_finished_active_collection(finished, before_bytes, pause_start)
+        }))
     }
 
     /// Return logical old-generation region statistics.
@@ -1032,6 +1028,35 @@ impl Heap {
         let Some(request) = request else {
             return Ok(false);
         };
+
+        if request.plan.kind == CollectionKind::Major {
+            let mut collector = self.collector();
+            return prepare_active_collection_reclaim_if_needed(
+                &mut collector,
+                &self.objects,
+                &self.indexes.object_index,
+                |tracer, plan| {
+                    trace_major_ephemerons_for_candidates(
+                        &self.objects,
+                        &self.indexes.object_index,
+                        &self.indexes.ephemeron_candidates,
+                        tracer,
+                        plan.worker_count.max(1),
+                        plan.mark_slice_budget,
+                    )
+                },
+                |plan| {
+                    Ok(prepare_major_reclaim_for_plan(
+                        plan,
+                        &self.objects,
+                        &self.indexes,
+                        &self.old_gen,
+                        &self.config.old,
+                    ))
+                },
+            );
+        }
+
         let (mark_steps_delta, mark_rounds_delta) = prepare_active_reclaim(
             &request,
             |tracer, plan| {
@@ -1057,7 +1082,41 @@ impl Heap {
                     }),
                 }
             })?;
-        let result = complete_active_reclaim_prep(&mut self.collector(), prepared);
-        Ok(result)
+        Ok(complete_active_reclaim_prep(
+            &mut self.collector(),
+            prepared,
+        ))
+    }
+
+    fn commit_finished_active_collection(
+        &mut self,
+        finished: crate::collector_session::FinishedActiveCollection,
+        before_bytes: usize,
+        pause_start: Instant,
+    ) -> CollectionStats {
+        let runtime_state = self.runtime_state_handle();
+        let mut cycle = finish_prepared_reclaim_cycle(
+            &mut self.objects,
+            &mut self.indexes,
+            &mut self.old_gen,
+            &mut self.stats,
+            before_bytes,
+            finished.mark_steps,
+            finished.mark_rounds,
+            finished.reclaim_prepare_nanos,
+            finished.prepared_reclaim,
+            move |object| {
+                let mut runtime_state = runtime_state
+                    .lock()
+                    .expect("runtime state should not be poisoned");
+                runtime_state.enqueue_pending_finalizer(object)
+            },
+        );
+        cycle.pause_nanos = Self::saturating_duration_nanos(pause_start.elapsed());
+        self.record_collection_stats(cycle);
+        self.collector()
+            .set_last_completed_plan(Some(finished.completed_plan));
+        self.refresh_recommended_plans();
+        cycle
     }
 }
