@@ -13,9 +13,9 @@ use crate::collector_exec::{
 use crate::collector_policy::refresh_cached_plans as refresh_cached_collector_plans;
 use crate::collector_session::{
     active_reclaim_prep_request, advance_major_mark_slice, begin_major_mark,
-    build_prepared_active_reclaim, complete_active_reclaim_prep, complete_drained_major_mark_round,
-    finish_active_collection, finish_major_mark, poll_active_major_mark_round,
-    prepare_active_reclaim, prepare_active_reclaim_request,
+    build_prepared_active_reclaim, complete_active_reclaim_prep, finish_active_collection,
+    finish_major_mark, poll_active_major_mark_with_completion,
+    prepare_active_major_reclaim_with_request, prepare_active_reclaim,
 };
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
 use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
@@ -456,65 +456,10 @@ impl Heap {
         &self,
     ) -> Result<(Option<MajorMarkProgress>, CollectorSharedSnapshot), AllocError> {
         let mut collector = self.collector();
-        let progress = poll_active_major_mark_round(
+        let progress = poll_active_major_mark_with_completion(
             &mut collector,
             &self.objects,
             &self.indexes.object_index,
-        )?;
-        let Some(progress) = progress else {
-            return Ok((None, collector.shared_snapshot()));
-        };
-        if progress.completed {
-            complete_drained_major_mark_round(
-                &mut collector,
-                &self.objects,
-                &self.indexes.object_index,
-                |tracer, plan| {
-                    trace_major_ephemerons_for_candidates(
-                        &self.objects,
-                        &self.indexes.object_index,
-                        &self.indexes.ephemeron_candidates,
-                        tracer,
-                        plan.worker_count.max(1),
-                        plan.mark_slice_budget,
-                    )
-                },
-                |plan| {
-                    let empty_forwarding: ForwardingMap = HashMap::new();
-                    process_weak_references_for_candidates(
-                        &self.objects,
-                        &self.indexes.weak_candidates,
-                        CollectionKind::Major,
-                        plan.worker_count.max(1),
-                        &empty_forwarding,
-                        &self.indexes.object_index,
-                    );
-                    self.prepare_reclaim(CollectionKind::Major, plan)
-                },
-            );
-        }
-        let snapshot = self.refreshed_collector_snapshot(&mut collector);
-        Ok((Some(progress), snapshot))
-    }
-
-    pub(crate) fn prepare_active_major_reclaim_with_snapshot(
-        &self,
-    ) -> Result<(bool, CollectorSharedSnapshot), AllocError> {
-        let request = {
-            let collector = self.collector();
-            active_reclaim_prep_request(&collector)
-        };
-        let Some(request) = request else {
-            let collector = self.collector();
-            return Ok((false, collector.shared_snapshot()));
-        };
-        if request.plan.kind != CollectionKind::Major {
-            let collector = self.collector();
-            return Ok((false, collector.shared_snapshot()));
-        }
-
-        let prepared = prepare_active_reclaim_request(
-            request,
             |tracer, plan| {
                 trace_major_ephemerons_for_candidates(
                     &self.objects,
@@ -525,8 +470,6 @@ impl Heap {
                     plan.mark_slice_budget,
                 )
             },
-            &self.objects,
-            &self.indexes.object_index,
             |plan| {
                 let empty_forwarding: ForwardingMap = HashMap::new();
                 process_weak_references_for_candidates(
@@ -537,11 +480,47 @@ impl Heap {
                     &empty_forwarding,
                     &self.indexes.object_index,
                 );
-                Ok(self.prepare_reclaim(CollectionKind::Major, plan))
+                self.prepare_reclaim(CollectionKind::Major, plan)
             },
         )?;
+        let Some(progress) = progress else {
+            return Ok((None, collector.shared_snapshot()));
+        };
+        let snapshot = self.refreshed_collector_snapshot(&mut collector);
+        Ok((Some(progress), snapshot))
+    }
+
+    pub(crate) fn prepare_active_major_reclaim_with_snapshot(
+        &self,
+    ) -> Result<(bool, CollectorSharedSnapshot), AllocError> {
         let mut collector = self.collector();
-        let prepared = complete_active_reclaim_prep(&mut collector, prepared);
+        let prepared = prepare_active_major_reclaim_with_request(
+            &mut collector,
+            &self.objects,
+            &self.indexes.object_index,
+            |tracer, plan| {
+                trace_major_ephemerons_for_candidates(
+                    &self.objects,
+                    &self.indexes.object_index,
+                    &self.indexes.ephemeron_candidates,
+                    tracer,
+                    plan.worker_count.max(1),
+                    plan.mark_slice_budget,
+                )
+            },
+            |plan| {
+                let empty_forwarding: ForwardingMap = HashMap::new();
+                process_weak_references_for_candidates(
+                    &self.objects,
+                    &self.indexes.weak_candidates,
+                    CollectionKind::Major,
+                    plan.worker_count.max(1),
+                    &empty_forwarding,
+                    &self.indexes.object_index,
+                );
+                self.prepare_reclaim(CollectionKind::Major, plan)
+            },
+        )?;
         let snapshot = self.refreshed_collector_snapshot(&mut collector);
         Ok((prepared, snapshot))
     }

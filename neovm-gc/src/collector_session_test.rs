@@ -146,6 +146,52 @@ fn prepare_active_reclaim_request_moves_major_session_to_reclaim() {
 }
 
 #[test]
+fn prepare_active_major_reclaim_with_request_moves_major_session_to_reclaim() {
+    let mut state = CollectorState::default();
+    let plan = major_plan();
+    let index = ObjectIndex::default();
+    state.begin_major_mark(plan.clone(), MarkWorklist::default());
+
+    let completed = prepare_active_major_reclaim_with_request(
+        &mut state,
+        &[],
+        &index,
+        |_tracer, _plan| (2, 3),
+        |_plan| prepared_reclaim(),
+    )
+    .expect("major reclaim prep should succeed");
+
+    assert!(completed);
+    assert!(state.active_major_mark_is_ready());
+    assert_eq!(
+        state.active_major_mark_plan().expect("active plan").phase,
+        CollectionPhase::Reclaim
+    );
+}
+
+#[test]
+fn prepare_active_major_reclaim_with_request_skips_full_session() {
+    let mut state = CollectorState::default();
+    state.begin_major_mark(full_plan(), MarkWorklist::default());
+
+    let completed = prepare_active_major_reclaim_with_request(
+        &mut state,
+        &[],
+        &ObjectIndex::default(),
+        |_tracer, _plan| panic!("full session should not use major-only reclaim prep"),
+        |_plan| panic!("full session should not build major-only reclaim prep"),
+    )
+    .expect("full session should be ignored");
+
+    assert!(!completed);
+    assert!(!state.active_major_mark_is_ready());
+    assert_eq!(
+        state.active_major_mark_plan().expect("active plan").phase,
+        CollectionPhase::Remark
+    );
+}
+
+#[test]
 fn prepare_active_reclaim_plan_skips_ephemeron_trace_after_remark() {
     let mut state = CollectorState::default();
     let plan = full_plan();
@@ -267,6 +313,56 @@ fn complete_drained_major_mark_round_moves_full_session_to_remark() {
     let progress = state.major_mark_progress().expect("major mark progress");
     assert_eq!(progress.mark_steps, 5);
     assert_eq!(progress.mark_rounds, 7);
+}
+
+#[test]
+fn poll_active_major_mark_with_completion_moves_major_session_to_reclaim() {
+    let mut state = CollectorState::default();
+    let plan = major_plan();
+    let index = ObjectIndex::default();
+    state.begin_major_mark(plan, MarkWorklist::default());
+
+    let progress = poll_active_major_mark_with_completion(
+        &mut state,
+        &[],
+        &index,
+        |_tracer, _plan| (2, 3),
+        |_plan| prepared_reclaim(),
+    )
+    .expect("poll active major mark");
+
+    let progress = progress.expect("major mark progress");
+    assert!(progress.completed);
+    assert!(state.active_major_mark_is_ready());
+    assert_eq!(
+        state.active_major_mark_plan().expect("active plan").phase,
+        CollectionPhase::Reclaim
+    );
+}
+
+#[test]
+fn poll_active_major_mark_with_completion_moves_full_session_to_remark() {
+    let mut state = CollectorState::default();
+    let plan = full_plan();
+    let index = ObjectIndex::default();
+    state.begin_major_mark(plan, MarkWorklist::default());
+
+    let progress = poll_active_major_mark_with_completion(
+        &mut state,
+        &[],
+        &index,
+        |_tracer, _plan| (5, 7),
+        |_plan| panic!("full poll should not build reclaim yet"),
+    )
+    .expect("poll active full mark");
+
+    let progress = progress.expect("major mark progress");
+    assert!(progress.completed);
+    assert!(!state.active_major_mark_is_ready());
+    assert_eq!(
+        state.active_major_mark_plan().expect("active plan").phase,
+        CollectionPhase::Remark
+    );
 }
 
 #[test]

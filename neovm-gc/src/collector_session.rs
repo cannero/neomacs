@@ -104,6 +104,28 @@ pub(crate) fn poll_active_major_mark_round(
         .map(Some)
 }
 
+pub(crate) fn poll_active_major_mark_with_completion(
+    collector: &mut CollectorState,
+    objects: &[ObjectRecord],
+    index: &ObjectIndex,
+    trace_ephemerons: impl FnOnce(&mut MarkTracer<'_>, &CollectionPlan) -> (u64, u64),
+    prepare_major_reclaim: impl FnOnce(&CollectionPlan) -> PreparedReclaim,
+) -> Result<Option<MajorMarkProgress>, AllocError> {
+    let progress = poll_active_major_mark_round(collector, objects, index)?;
+    if let Some(progress) = progress.as_ref()
+        && progress.completed
+    {
+        complete_drained_major_mark_round(
+            collector,
+            objects,
+            index,
+            trace_ephemerons,
+            prepare_major_reclaim,
+        );
+    }
+    Ok(progress)
+}
+
 pub(crate) fn active_reclaim_prep_request(
     collector: &CollectorState,
 ) -> Option<ActiveReclaimPrepRequest> {
@@ -163,6 +185,26 @@ pub(crate) fn prepare_active_reclaim_request(
         mark_rounds_delta,
         prepare_reclaim,
     )
+}
+
+pub(crate) fn prepare_active_major_reclaim_with_request(
+    collector: &mut CollectorState,
+    objects: &[ObjectRecord],
+    index: &ObjectIndex,
+    trace_ephemerons: impl FnOnce(&mut MarkTracer<'_>, &CollectionPlan) -> (u64, u64),
+    prepare_major_reclaim: impl FnOnce(&CollectionPlan) -> PreparedReclaim,
+) -> Result<bool, AllocError> {
+    let Some(request) = active_reclaim_prep_request(collector) else {
+        return Ok(false);
+    };
+    if request.plan.kind != CollectionKind::Major {
+        return Ok(false);
+    }
+    let prepared =
+        prepare_active_reclaim_request(request, trace_ephemerons, objects, index, |plan| {
+            Ok(prepare_major_reclaim(plan))
+        })?;
+    Ok(complete_active_reclaim_prep(collector, prepared))
 }
 
 pub(crate) fn complete_active_reclaim_prep(
