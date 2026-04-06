@@ -1146,7 +1146,10 @@ pub struct Context {
     /// `Vec<Value>` that the GC re-scans on every collection, ensuring
     /// values on the bytecode stack are always reachable even between
     /// `with_frame_roots` snapshots.
-    pub(crate) vm_live_stacks: Vec<*const Vec<Value>>,
+    ///
+    /// Matches GNU Emacs `mark_bytecode()` which walks `bc_frame` linked
+    /// list and marks every value on every bytecode stack each GC cycle.
+    pub(crate) vm_live_stacks: Vec<*mut Vec<Value>>,
     /// GNU-shaped Lisp call stack used by `backtrace-frame--internal`,
     /// `mapbacktrace`, and advice-sensitive `called-interactively-p`.
     pub(crate) runtime_backtrace: Vec<RuntimeBacktraceFrame>,
@@ -3778,21 +3781,18 @@ impl Context {
         // Direct Context fields
         roots.extend(self.temp_roots.iter().cloned());
         roots.extend(self.vm_gc_roots.iter().cloned());
-        // Re-scan live bytecode VM stacks (catches values between with_frame_roots snapshots)
-        let live_stack_count = self.vm_live_stacks.len();
-        let mut live_stack_total_values = 0usize;
+        // Re-scan live bytecode VM stacks.
+        // Matches GNU Emacs mark_bytecode() which walks bc_frame linked
+        // list and marks every value on every bytecode stack each GC cycle.
         for stack_ptr in &self.vm_live_stacks {
-            // Safety: the stack pointer is valid while the VM frame is on the call stack.
-            let stack = unsafe { &**stack_ptr };
-            live_stack_total_values += stack.len();
-            roots.extend(stack.iter().copied());
-        }
-        if live_stack_count > 0 {
-            tracing::trace!(
-                "GC roots: {} live stacks, {} total stack values",
-                live_stack_count,
-                live_stack_total_values,
-            );
+            // Safety: stack_ptr was obtained via &raw mut from a Vec<Value>
+            // on the Rust call stack of a run_frame() that hasn't returned.
+            // We read through the raw pointer to avoid aliasing UB.
+            unsafe {
+                let len = (**stack_ptr).len();
+                let data = (**stack_ptr).as_ptr();
+                roots.extend(std::slice::from_raw_parts(data, len).iter().copied());
+            }
         }
         for frame in &self.condition_stack {
             match frame {
