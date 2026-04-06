@@ -77,16 +77,65 @@ impl<'heap> CollectorRuntime<'heap> {
 
     /// Begin a persistent major-mark session for one scheduler-provided plan.
     pub fn begin_major_mark(&mut self, plan: CollectionPlan) -> Result<(), AllocError> {
-        self.heap.begin_major_mark(plan)
+        self.heap.collector_handle().begin_major_mark_and_refresh(
+            self.heap.objects(),
+            &self.heap.indexes().object_index,
+            plan,
+            self.heap.global_sources(),
+            &self.heap.storage_stats(),
+            self.heap.old_gen(),
+            self.heap.old_config(),
+            |kind| self.heap.plan_for(kind),
+        )
     }
 
     /// Advance one scheduler-style concurrent major-mark round using the active plan worker count.
     pub fn poll_active_major_mark(&mut self) -> Result<Option<MajorMarkProgress>, AllocError> {
-        self.heap.poll_active_major_mark()
+        self.heap
+            .collector_handle()
+            .poll_active_major_mark_with_completion_and_refresh(
+                self.heap.objects(),
+                &self.heap.indexes().object_index,
+                |tracer, plan| self.heap.trace_major_ephemerons(tracer, plan),
+                |plan| self.heap.prepare_major_reclaim(plan),
+                &self.heap.storage_stats(),
+                self.heap.old_gen(),
+                self.heap.old_config(),
+                |kind| self.heap.plan_for(kind),
+            )
     }
 
     /// Prepare reclaim for the active major collection once mark work is fully drained.
     pub fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError> {
+        let snapshot = self.heap.collector_shared_snapshot();
+        if snapshot.active_major_mark_plan.is_none() {
+            return Ok(false);
+        }
+        if snapshot
+            .major_mark_progress
+            .is_some_and(|progress| !progress.completed)
+        {
+            return Ok(false);
+        }
+        if snapshot
+            .active_major_mark_plan
+            .as_ref()
+            .is_some_and(|plan| plan.kind == crate::plan::CollectionKind::Major)
+        {
+            return self
+                .heap
+                .collector_handle()
+                .prepare_active_major_reclaim_with_request_and_refresh(
+                    self.heap.objects(),
+                    &self.heap.indexes().object_index,
+                    |tracer, plan| self.heap.trace_major_ephemerons(tracer, plan),
+                    |plan| self.heap.prepare_major_reclaim(plan),
+                    &self.heap.storage_stats(),
+                    self.heap.old_gen(),
+                    self.heap.old_config(),
+                    |kind| self.heap.plan_for(kind),
+                );
+        }
         self.heap.prepare_active_reclaim_if_needed()
     }
 
@@ -94,13 +143,52 @@ impl<'heap> CollectorRuntime<'heap> {
     pub fn finish_active_major_collection_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, AllocError> {
-        self.heap.finish_active_major_collection_if_ready()
+        let snapshot = self.heap.collector_shared_snapshot();
+        if snapshot.active_major_mark_plan.is_none() {
+            return Ok(None);
+        }
+        if snapshot
+            .major_mark_progress
+            .is_some_and(|progress| !progress.completed)
+        {
+            return Ok(None);
+        }
+        if snapshot
+            .active_major_mark_plan
+            .as_ref()
+            .is_some_and(|plan| {
+                plan.kind == crate::plan::CollectionKind::Major
+                    && plan.phase != CollectionPhase::Reclaim
+            })
+        {
+            if self.prepare_active_reclaim_if_needed()? {
+                return Ok(None);
+            }
+        }
+        self.commit_active_reclaim_if_ready()
     }
 
     /// Commit the active major collection once reclaim has already been prepared.
     pub fn commit_active_reclaim_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, AllocError> {
+        let snapshot = self.heap.collector_shared_snapshot();
+        if snapshot.active_major_mark_plan.is_none() {
+            return Ok(None);
+        }
+        if snapshot
+            .major_mark_progress
+            .is_some_and(|progress| !progress.completed)
+        {
+            return Ok(None);
+        }
+        if snapshot
+            .active_major_mark_plan
+            .as_ref()
+            .is_some_and(|plan| plan.phase != CollectionPhase::Reclaim)
+        {
+            return Ok(None);
+        }
         self.heap.commit_active_reclaim_if_ready()
     }
 

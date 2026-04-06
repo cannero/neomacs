@@ -1707,6 +1707,134 @@ fn collector_runtime_prepare_active_reclaim_moves_full_session_to_reclaim() {
 }
 
 #[test]
+fn collector_runtime_commit_active_reclaim_returns_none_before_full_reclaim_is_prepared() {
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            promotion_age: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: 64,
+            soft_limit_bytes: usize::MAX,
+        },
+        old: crate::spaces::OldGenConfig {
+            mutator_assist_slices: 0,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let plan = {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        mutator
+            .alloc(&mut scope, Leaf(193))
+            .expect("alloc nursery leaf");
+        CollectionPlan {
+            mark_slice_budget: 1,
+            ..mutator.plan_for(CollectionKind::Full)
+        }
+    };
+
+    let mut runtime = heap.collector_runtime();
+    runtime
+        .begin_major_mark(plan.clone())
+        .expect("begin persistent full mark");
+
+    while let Some(progress) = runtime
+        .poll_active_major_mark()
+        .expect("poll persistent full mark")
+    {
+        if progress.completed {
+            break;
+        }
+    }
+
+    assert_eq!(
+        runtime.active_major_mark_plan(),
+        Some(CollectionPlan {
+            phase: CollectionPhase::Remark,
+            ..plan.clone()
+        })
+    );
+    assert_eq!(
+        runtime
+            .commit_active_reclaim_if_ready()
+            .expect("commit before full reclaim is prepared"),
+        None
+    );
+    assert!(
+        runtime
+            .prepare_active_reclaim_if_needed()
+            .expect("prepare persistent full reclaim")
+    );
+    assert!(
+        runtime
+            .commit_active_reclaim_if_ready()
+            .expect("commit prepared full reclaim")
+            .is_some()
+    );
+}
+
+#[test]
+fn collector_runtime_prepare_active_major_reclaim_moves_major_session_to_reclaim() {
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        old: crate::spaces::OldGenConfig {
+            mutator_assist_slices: 0,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let plan = {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        for byte in 0..8u8 {
+            mutator
+                .alloc(&mut scope, OldLeaf([byte; 32]))
+                .expect("alloc old leaf");
+        }
+        CollectionPlan {
+            mark_slice_budget: 1,
+            ..mutator.plan_for(CollectionKind::Major)
+        }
+    };
+
+    let mut runtime = heap.collector_runtime();
+    runtime
+        .begin_major_mark(plan.clone())
+        .expect("begin persistent major mark");
+
+    while let Some(progress) = runtime
+        .poll_active_major_mark()
+        .expect("poll persistent major mark")
+    {
+        if progress.completed {
+            break;
+        }
+    }
+
+    assert_eq!(
+        runtime.active_major_mark_plan(),
+        Some(CollectionPlan {
+            phase: CollectionPhase::Reclaim,
+            ..plan.clone()
+        })
+    );
+    assert!(
+        !runtime
+            .prepare_active_reclaim_if_needed()
+            .expect("prepared major reclaim should already be complete")
+    );
+}
+
+#[test]
 fn collector_runtime_service_background_collection_round_finishes_major_session() {
     let mut heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
