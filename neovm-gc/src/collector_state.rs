@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::barrier::RememberedEdge;
 use crate::descriptor::ObjectKey;
@@ -30,6 +30,8 @@ pub(crate) struct CollectorState {
 pub(crate) struct MajorMarkState {
     pub(crate) plan: CollectionPlan,
     pub(crate) worklist: MarkWorklist<usize>,
+    pub(crate) mark_started_at: Instant,
+    pub(crate) mark_elapsed_nanos: u64,
     pub(crate) mark_steps: u64,
     pub(crate) mark_rounds: u64,
     pub(crate) reclaim_prepare_nanos: u64,
@@ -122,6 +124,7 @@ impl CollectorState {
             .map(|state| MajorMarkProgress {
                 completed: state.worklist.is_empty(),
                 drained_objects: 0,
+                elapsed_nanos: state.mark_elapsed_nanos,
                 mark_steps: state.mark_steps,
                 mark_rounds: state.mark_rounds,
                 remaining_work: state.worklist.len(),
@@ -136,6 +139,8 @@ impl CollectorState {
         self.major_mark_state = Some(MajorMarkState {
             plan,
             worklist,
+            mark_started_at: Instant::now(),
+            mark_elapsed_nanos: 0,
             mark_steps: 0,
             mark_rounds: 0,
             reclaim_prepare_nanos: 0,
@@ -150,6 +155,7 @@ impl CollectorState {
             return false;
         };
         state.worklist.push(index);
+        state.mark_elapsed_nanos = saturating_duration_nanos(state.mark_started_at.elapsed());
         state.reclaim_prepare_nanos = 0;
         state.ephemerons_processed = false;
         state.reclaim_prepared = false;
@@ -211,6 +217,7 @@ impl CollectorState {
         if !state.worklist.is_empty() {
             return false;
         }
+        state.mark_elapsed_nanos = saturating_duration_nanos(state.mark_started_at.elapsed());
         state.mark_steps = state.mark_steps.saturating_add(mark_steps_delta);
         state.mark_rounds = state.mark_rounds.saturating_add(mark_rounds_delta);
         state.ephemerons_processed = true;
@@ -230,6 +237,7 @@ impl CollectorState {
         if !state.worklist.is_empty() {
             return false;
         }
+        state.mark_elapsed_nanos = saturating_duration_nanos(state.mark_started_at.elapsed());
         state.mark_steps = state.mark_steps.saturating_add(mark_steps_delta);
         state.mark_rounds = state.mark_rounds.saturating_add(mark_rounds_delta);
         state.reclaim_prepare_nanos = saturating_duration_nanos(reclaim_prepare_time);
@@ -249,6 +257,7 @@ impl CollectorState {
 
         let update = update(&state.plan, state.worklist);
         state.worklist = update.worklist;
+        state.mark_elapsed_nanos = saturating_duration_nanos(state.mark_started_at.elapsed());
         state.mark_steps = state.mark_steps.saturating_add(update.mark_steps_delta);
         state.mark_rounds = state.mark_rounds.saturating_add(update.mark_rounds_delta);
         if !state.worklist.is_empty() {
@@ -261,6 +270,7 @@ impl CollectorState {
         let progress = MajorMarkProgress {
             completed: state.worklist.is_empty(),
             drained_objects: update.drained_objects,
+            elapsed_nanos: state.mark_elapsed_nanos,
             mark_steps: state.mark_steps,
             mark_rounds: state.mark_rounds,
             remaining_work: state.worklist.len(),

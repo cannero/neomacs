@@ -1662,6 +1662,7 @@ fn public_api_active_major_mark_plan_is_visible() {
         Some(neovm_gc::MajorMarkProgress {
             completed: false,
             drained_objects: 0,
+            elapsed_nanos: 0,
             mark_steps: 0,
             mark_rounds: 0,
             remaining_work: 12,
@@ -4907,6 +4908,7 @@ fn public_api_shared_snapshot_major_mark_progress_reads_work_while_heap_lock_is_
             second_progress.mark_steps > first_progress.mark_steps
                 || second_progress.remaining_work < first_progress.remaining_work
         );
+        assert!(second_progress.elapsed_nanos >= first_progress.elapsed_nanos);
         assert_eq!(
             shared
                 .major_mark_progress()

@@ -1327,6 +1327,7 @@ impl BackgroundCollector {
         crate::plan::MajorMarkProgress {
             completed: progress.completed,
             drained_objects: *total_drained_objects,
+            elapsed_nanos: progress.elapsed_nanos,
             mark_steps: progress.mark_steps,
             mark_rounds: progress.mark_rounds,
             remaining_work: progress.remaining_work,

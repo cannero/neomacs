@@ -60,6 +60,8 @@ pub struct MajorMarkProgress {
     pub completed: bool,
     /// Number of objects drained in the most recent externally advanced step or round.
     pub drained_objects: usize,
+    /// Elapsed time for this active major-mark session in nanoseconds.
+    pub elapsed_nanos: u64,
     /// Total mark slices executed for this session so far.
     pub mark_steps: u64,
     /// Total worker rounds executed for this session so far.

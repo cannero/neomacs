@@ -2128,6 +2128,7 @@ fn active_major_mark_plan_is_visible_through_recommended_plan() {
         Some(MajorMarkProgress {
             completed: false,
             drained_objects: 0,
+            elapsed_nanos: 0,
             mark_steps: 0,
             mark_rounds: 0,
             remaining_work: 12,
@@ -2959,6 +2960,7 @@ fn background_collector_try_tick_preserves_partial_progress_before_would_block()
             1 => Ok(BackgroundCollectionStatus::Progress(MajorMarkProgress {
                 completed: false,
                 drained_objects: 2,
+                elapsed_nanos: 0,
                 mark_steps: 1,
                 mark_rounds: 1,
                 remaining_work: 3,
@@ -6034,6 +6036,7 @@ fn shared_snapshot_major_mark_progress_reads_work_while_heap_lock_is_held_and_re
             second_progress.mark_steps > first_progress.mark_steps
                 || second_progress.remaining_work < first_progress.remaining_work
         );
+        assert!(second_progress.elapsed_nanos >= first_progress.elapsed_nanos);
         assert_eq!(
             shared
                 .major_mark_progress()
