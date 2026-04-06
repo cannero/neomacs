@@ -424,12 +424,14 @@ impl Heap {
                 });
             }
         };
-        self.process_weak_references(
-            state.plan.kind,
-            state.plan.worker_count.max(1),
-            &forwarding,
-            &self.object_index,
-        );
+        if !state.weak_processed {
+            self.process_weak_references(
+                state.plan.kind,
+                state.plan.worker_count.max(1),
+                &forwarding,
+                &self.object_index,
+            );
+        }
         self.record_phase(CollectionPhase::Reclaim);
         let (finalized_objects, old_region_stats) =
             self.sweep_and_rebuild_post_collection(state.plan.kind, Some(state.plan.clone()));
@@ -514,6 +516,20 @@ impl Heap {
                 mark_rounds_delta: u64::from(drained_objects > 0),
             }
         })?;
+        if progress.completed
+            && !collector.active_major_mark_weak_processed()
+            && let Some(active_plan) = collector.active_major_mark_plan()
+            && active_plan.kind == CollectionKind::Major
+        {
+            let empty_forwarding: ForwardingMap = HashMap::new();
+            self.process_weak_references(
+                CollectionKind::Major,
+                active_plan.worker_count.max(1),
+                &empty_forwarding,
+                &self.object_index,
+            );
+            collector.mark_active_major_weak_processed();
+        }
         let recommended_plan = self.compute_recommended_plan_from_collector(&collector);
         let recommended_background_plan =
             self.compute_recommended_background_plan_from_collector(&collector);

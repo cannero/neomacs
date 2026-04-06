@@ -1848,7 +1848,7 @@ fn poll_active_major_mark_round_and_finish_ready_complete_session() {
     assert_eq!(
         mutator.active_major_mark_plan(),
         Some(CollectionPlan {
-            phase: CollectionPhase::Remark,
+            phase: CollectionPhase::Reclaim,
             ..plan
         })
     );
@@ -1904,6 +1904,63 @@ fn poll_active_major_mark_uses_configured_worker_round_width() {
     assert_eq!(first_round.mark_steps, 4);
     assert_eq!(first_round.mark_rounds, 1);
     assert!(first_round.remaining_work > 0);
+}
+
+#[test]
+fn poll_active_major_mark_processes_major_weak_edges_before_finish() {
+    let mut heap = Heap::new(HeapConfig::default());
+    let mut mutator = heap.mutator();
+    let mut keep_scope = mutator.handle_scope();
+    let holder_gc = {
+        let mut setup_scope = mutator.handle_scope();
+        let target = mutator
+            .alloc(&mut setup_scope, Leaf(987))
+            .expect("alloc weak target");
+        let holder = mutator
+            .alloc(
+                &mut setup_scope,
+                WeakHolder {
+                    label: 988,
+                    strong: EdgeCell::default(),
+                    weak: WeakCell::new(Weak::new(target.as_gc())),
+                },
+            )
+            .expect("alloc weak holder");
+        holder.as_gc()
+    };
+    let holder = mutator.root(&mut keep_scope, holder_gc);
+
+    let plan = mutator.plan_for(CollectionKind::Major);
+    mutator
+        .begin_major_mark(plan.clone())
+        .expect("begin persistent major mark");
+
+    while !mutator
+        .poll_active_major_mark()
+        .expect("poll active major mark")
+        .expect("active progress")
+        .completed
+    {}
+
+    assert_eq!(
+        mutator.active_major_mark_plan(),
+        Some(CollectionPlan {
+            phase: CollectionPhase::Reclaim,
+            ..plan
+        })
+    );
+    assert_eq!(
+        unsafe { holder.as_gc().as_non_null().as_ref() }
+            .weak
+            .target(),
+        None
+    );
+
+    let cycle = mutator
+        .finish_active_major_collection_if_ready()
+        .expect("finish if ready")
+        .expect("completed cycle");
+    assert_eq!(cycle.major_collections, 1);
 }
 
 #[test]

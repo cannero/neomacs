@@ -26,6 +26,7 @@ pub(crate) struct MajorMarkState {
     pub(crate) worklist: MarkWorklist<usize>,
     pub(crate) mark_steps: u64,
     pub(crate) mark_rounds: u64,
+    pub(crate) weak_processed: bool,
 }
 
 pub(crate) struct MajorMarkUpdate {
@@ -59,7 +60,11 @@ impl CollectorState {
     pub(crate) fn active_major_mark_plan(&self) -> Option<CollectionPlan> {
         self.major_mark_state.as_ref().map(|state| CollectionPlan {
             phase: if state.worklist.is_empty() {
-                CollectionPhase::Remark
+                if state.weak_processed {
+                    CollectionPhase::Reclaim
+                } else {
+                    CollectionPhase::Remark
+                }
             } else {
                 CollectionPhase::ConcurrentMark
             },
@@ -89,6 +94,7 @@ impl CollectorState {
             worklist,
             mark_steps: 0,
             mark_rounds: 0,
+            weak_processed: false,
         });
     }
 
@@ -97,6 +103,7 @@ impl CollectorState {
             return false;
         };
         state.worklist.push(index);
+        state.weak_processed = false;
         true
     }
 
@@ -105,9 +112,27 @@ impl CollectorState {
     }
 
     pub(crate) fn active_major_mark_is_ready(&self) -> bool {
+        self.major_mark_state.as_ref().is_some_and(|state| {
+            state.worklist.is_empty()
+                && (state.plan.kind != crate::plan::CollectionKind::Major || state.weak_processed)
+        })
+    }
+
+    pub(crate) fn active_major_mark_weak_processed(&self) -> bool {
         self.major_mark_state
             .as_ref()
-            .is_some_and(|state| state.worklist.is_empty())
+            .is_some_and(|state| state.weak_processed)
+    }
+
+    pub(crate) fn mark_active_major_weak_processed(&mut self) -> bool {
+        let Some(state) = self.major_mark_state.as_mut() else {
+            return false;
+        };
+        if !state.worklist.is_empty() {
+            return false;
+        }
+        state.weak_processed = true;
+        true
     }
 
     pub(crate) fn update_active_major_mark(
@@ -122,6 +147,9 @@ impl CollectorState {
         state.worklist = update.worklist;
         state.mark_steps = state.mark_steps.saturating_add(update.mark_steps_delta);
         state.mark_rounds = state.mark_rounds.saturating_add(update.mark_rounds_delta);
+        if !state.worklist.is_empty() {
+            state.weak_processed = false;
+        }
 
         let progress = MajorMarkProgress {
             completed: state.worklist.is_empty(),

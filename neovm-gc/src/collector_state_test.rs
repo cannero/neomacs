@@ -85,3 +85,53 @@ fn update_active_major_mark_switches_phase_to_remark_when_drained() {
         0
     );
 }
+
+#[test]
+fn major_ready_requires_weak_processing_after_worklist_drains() {
+    let mut state = CollectorState::default();
+    let mut worklist = MarkWorklist::default();
+    worklist.push(5usize);
+    state.begin_major_mark(major_plan(), worklist);
+
+    let progress = state
+        .update_active_major_mark(|_plan, mut worklist| MajorMarkUpdate {
+            drained_objects: usize::from(worklist.pop().is_some()),
+            worklist,
+            mark_steps_delta: 1,
+            mark_rounds_delta: 1,
+        })
+        .expect("mark update should succeed");
+
+    assert!(progress.completed);
+    assert!(!state.active_major_mark_is_ready());
+    assert!(!state.active_major_mark_weak_processed());
+    assert_eq!(
+        state
+            .active_major_mark_plan()
+            .expect("active major-mark plan")
+            .phase,
+        CollectionPhase::Remark
+    );
+
+    assert!(state.mark_active_major_weak_processed());
+    assert!(state.active_major_mark_is_ready());
+    assert!(state.active_major_mark_weak_processed());
+    assert_eq!(
+        state
+            .active_major_mark_plan()
+            .expect("active major-mark plan")
+            .phase,
+        CollectionPhase::Reclaim
+    );
+
+    assert!(state.enqueue_active_major_mark_index(9));
+    assert!(!state.active_major_mark_is_ready());
+    assert!(!state.active_major_mark_weak_processed());
+    assert_eq!(
+        state
+            .active_major_mark_plan()
+            .expect("active major-mark plan")
+            .phase,
+        CollectionPhase::ConcurrentMark
+    );
+}
