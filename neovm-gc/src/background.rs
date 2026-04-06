@@ -1,7 +1,10 @@
 use crate::collector_state::CollectorSharedSnapshot;
 use crate::heap::{AllocError, Heap};
 use crate::mutator::Mutator;
-use crate::plan::{BackgroundCollectionStatus, CollectionKind, CollectionPlan, MajorMarkProgress};
+use crate::plan::{
+    BackgroundCollectionStatus, CollectionKind, CollectionPlan, MajorMarkProgress,
+    RuntimeWorkStatus,
+};
 use crate::runtime::{CollectorRuntime, SharedCollectorRuntime};
 use crate::stats::{CollectionStats, HeapStats};
 use std::ops::{Deref, DerefMut};
@@ -91,6 +94,8 @@ pub struct SharedHeap {
 pub struct SharedHeapStatus {
     /// Current heap statistics.
     pub stats: HeapStats,
+    /// Runtime-side follow-up work that remains outside GC commit.
+    pub runtime_work: RuntimeWorkStatus,
     /// Scheduler-visible recommended collection plan from the latest shared snapshot.
     pub recommended_plan: CollectionPlan,
     /// Background collector recommendation from the latest shared snapshot.
@@ -121,6 +126,8 @@ pub struct SharedBackgroundStatus {
     pub active_major_mark_plan: Option<CollectionPlan>,
     /// Active major-mark progress, if any.
     pub major_mark_progress: Option<MajorMarkProgress>,
+    /// Runtime-side follow-up work that remains outside GC commit.
+    pub runtime_work: RuntimeWorkStatus,
     /// Number of queued finalizers waiting to run.
     pub pending_finalizers: usize,
 }
@@ -238,10 +245,13 @@ fn shared_background_status_from_parts(
     heap_snapshot: &SharedHeapSnapshot,
     collector_snapshot: &CollectorSharedSnapshot,
 ) -> SharedBackgroundStatus {
+    let runtime_work =
+        RuntimeWorkStatus::from_pending_finalizers(heap_snapshot.stats.pending_finalizers);
     SharedBackgroundStatus {
         recommended_background_plan: collector_snapshot.recommended_background_plan.clone(),
         active_major_mark_plan: collector_snapshot.active_major_mark_plan.clone(),
         major_mark_progress: collector_snapshot.major_mark_progress,
+        runtime_work,
         pending_finalizers: heap_snapshot.stats.pending_finalizers,
     }
 }
@@ -508,6 +518,9 @@ impl SharedHeap {
             if before_epoch == after_epoch {
                 return Ok(SharedHeapStatus {
                     stats,
+                    runtime_work: RuntimeWorkStatus::from_pending_finalizers(
+                        stats.pending_finalizers,
+                    ),
                     recommended_plan: collector.recommended_plan,
                     recommended_background_plan: collector.recommended_background_plan,
                     last_completed_plan: collector.last_completed_plan,
@@ -778,6 +791,13 @@ impl SharedHeap {
     /// Return the number of queued finalizers waiting to run.
     pub fn pending_finalizer_count(&self) -> Result<usize, SharedHeapError> {
         self.read_snapshot(|snapshot| snapshot.stats.pending_finalizers)
+    }
+
+    /// Return runtime-side follow-up work that remains outside GC commit.
+    pub fn runtime_work_status(&self) -> Result<RuntimeWorkStatus, SharedHeapError> {
+        self.read_snapshot(|snapshot| {
+            RuntimeWorkStatus::from_pending_finalizers(snapshot.stats.pending_finalizers)
+        })
     }
 
     /// Run and drain queued finalizers.
@@ -1466,6 +1486,11 @@ impl<'heap> BackgroundService<'heap> {
         self.runtime.drain_pending_finalizers()
     }
 
+    /// Return runtime-side follow-up work that remains outside GC commit.
+    pub fn runtime_work_status(&self) -> RuntimeWorkStatus {
+        self.runtime.runtime_work_status()
+    }
+
     /// Finish the active major collection if its mark work is fully drained.
     pub fn finish_active_major_collection_if_ready(
         &mut self,
@@ -1648,6 +1673,11 @@ impl SharedBackgroundService {
     /// Run and drain queued finalizers.
     pub fn drain_pending_finalizers(&mut self) -> Result<u64, SharedBackgroundError> {
         self.runtime.drain_pending_finalizers()
+    }
+
+    /// Return runtime-side follow-up work that remains outside GC commit.
+    pub fn runtime_work_status(&self) -> Result<RuntimeWorkStatus, SharedBackgroundError> {
+        self.runtime.runtime_work_status()
     }
 
     /// Run and drain queued finalizers without blocking on heap contention.

@@ -21,6 +21,7 @@ use crate::mutator::Mutator;
 use crate::object::{ObjectRecord, OldRegionPlacement, SpaceKind, estimated_allocation_size};
 use crate::plan::{
     BackgroundCollectionStatus, CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress,
+    RuntimeWorkStatus,
 };
 use crate::root::{HandleScope, Root, RootStack};
 use crate::runtime::CollectorRuntime;
@@ -224,6 +225,11 @@ impl Heap {
     /// Return current heap statistics.
     pub fn stats(&self) -> HeapStats {
         self.stats
+    }
+
+    /// Return runtime-side follow-up work that remains outside GC commit.
+    pub fn runtime_work_status(&self) -> RuntimeWorkStatus {
+        RuntimeWorkStatus::from_pending_finalizers(self.pending_finalizers.len())
     }
 
     pub(crate) fn collector_shared_snapshot(&self) -> CollectorSharedSnapshot {

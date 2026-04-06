@@ -2,7 +2,10 @@ use crate::background::BackgroundCollectionRuntime;
 use crate::descriptor::Trace;
 use crate::edge::EdgeCell;
 use crate::heap::{AllocError, Heap};
-use crate::plan::{BackgroundCollectionStatus, CollectionKind, CollectionPlan, MajorMarkProgress};
+use crate::plan::{
+    BackgroundCollectionStatus, CollectionKind, CollectionPlan, MajorMarkProgress,
+    RuntimeWorkStatus,
+};
 use crate::root::{Gc, HandleScope, Root};
 use crate::stats::CollectionStats;
 
@@ -72,6 +75,11 @@ impl<'heap> Mutator<'heap> {
     /// Run and drain queued finalizers.
     pub fn drain_pending_finalizers(&mut self) -> u64 {
         self.heap.drain_pending_finalizers()
+    }
+
+    /// Return runtime-side follow-up work that remains outside GC commit.
+    pub fn runtime_work_status(&self) -> RuntimeWorkStatus {
+        self.heap.runtime_work_status()
     }
 
     /// Build a scheduler-visible collection plan from the current heap state.

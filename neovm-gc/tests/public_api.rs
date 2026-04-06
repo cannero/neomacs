@@ -1,7 +1,7 @@
 use neovm_gc::{
     BarrierKind, CollectionKind, CollectionPhase, EdgeCell, Ephemeron, EphemeronVisitor, Heap,
-    HeapConfig, MovePolicy, Relocator, Trace, Tracer, TypeFlags, Weak, WeakCell, WeakProcessor,
-    estimated_allocation_size,
+    HeapConfig, MovePolicy, Relocator, RuntimeWorkStatus, Trace, Tracer, TypeFlags, Weak, WeakCell,
+    WeakProcessor, estimated_allocation_size,
 };
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1332,8 +1332,13 @@ fn public_api_collector_runtime_drain_pending_finalizers_runs_queued_finalizers(
 
     let mut runtime = heap.collector_runtime();
     assert_eq!(runtime.pending_finalizer_count(), 1);
+    assert_eq!(
+        runtime.runtime_work_status(),
+        RuntimeWorkStatus::PendingFinalizers { count: 1 }
+    );
     assert_eq!(runtime.drain_pending_finalizers(), 1);
     assert_eq!(runtime.pending_finalizer_count(), 0);
+    assert_eq!(runtime.runtime_work_status(), RuntimeWorkStatus::Idle);
     assert_eq!(runtime.stats().finalizers_run, 1);
     assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 1);
 }
@@ -2066,10 +2071,15 @@ fn public_api_poll_active_major_mark_prepares_major_finalizer_before_finish() {
     assert_eq!(cycle.queued_finalizers, 1);
     assert_eq!(cycle.finalized_objects, 0);
     assert_eq!(mutator.pending_finalizer_count(), 1);
+    assert_eq!(
+        mutator.runtime_work_status(),
+        RuntimeWorkStatus::PendingFinalizers { count: 1 }
+    );
     assert_eq!(mutator.heap().stats().pending_finalizers, 1);
     assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 0);
     assert_eq!(mutator.drain_pending_finalizers(), 1);
     assert_eq!(mutator.pending_finalizer_count(), 0);
+    assert_eq!(mutator.runtime_work_status(), RuntimeWorkStatus::Idle);
     assert_eq!(mutator.heap().stats().finalizers_run, 1);
     assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 1);
     assert_eq!(mutator.heap().object_count(), 0);
@@ -2630,10 +2640,15 @@ fn public_api_reports_queued_finalizers_and_finalizer_drains() {
     assert_eq!(cycle.finalized_objects, 0);
     assert_eq!(heap.stats().collections.queued_finalizers, 1);
     assert_eq!(heap.pending_finalizer_count(), 1);
+    assert_eq!(
+        heap.runtime_work_status(),
+        RuntimeWorkStatus::PendingFinalizers { count: 1 }
+    );
     assert_eq!(heap.stats().pending_finalizers, 1);
     assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 0);
     assert_eq!(heap.drain_pending_finalizers(), 1);
     assert_eq!(heap.pending_finalizer_count(), 0);
+    assert_eq!(heap.runtime_work_status(), RuntimeWorkStatus::Idle);
     assert_eq!(heap.stats().finalizers_run, 1);
     assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 1);
 }
@@ -3762,9 +3777,14 @@ fn public_api_background_service_drains_pending_finalizers() {
 
     let mut service = heap.background_service(neovm_gc::BackgroundCollectorConfig::default());
     assert_eq!(service.pending_finalizer_count(), 1);
+    assert_eq!(
+        service.runtime_work_status(),
+        RuntimeWorkStatus::PendingFinalizers { count: 1 }
+    );
     assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 0);
     assert_eq!(service.drain_pending_finalizers(), 1);
     assert_eq!(service.pending_finalizer_count(), 0);
+    assert_eq!(service.runtime_work_status(), RuntimeWorkStatus::Idle);
     assert_eq!(service.heap().stats().finalizers_run, 1);
     assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 1);
 }
@@ -4227,6 +4247,10 @@ fn public_api_shared_collector_runtime_drain_pending_finalizers_runs_queued_fina
 
     let runtime = shared.collector_runtime();
     assert_eq!(runtime.pending_finalizer_count().expect("pending count"), 1);
+    assert_eq!(
+        runtime.runtime_work_status().expect("runtime work status"),
+        RuntimeWorkStatus::PendingFinalizers { count: 1 }
+    );
     assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 0);
     assert_eq!(
         runtime
@@ -4235,6 +4259,10 @@ fn public_api_shared_collector_runtime_drain_pending_finalizers_runs_queued_fina
         1
     );
     assert_eq!(runtime.pending_finalizer_count().expect("pending count"), 0);
+    assert_eq!(
+        runtime.runtime_work_status().expect("runtime work status"),
+        RuntimeWorkStatus::Idle
+    );
     assert_eq!(runtime.stats().expect("runtime stats").finalizers_run, 1);
     assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 1);
 }
@@ -5052,6 +5080,10 @@ fn public_api_shared_background_service_drains_pending_finalizers() {
 
     let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig::default());
     assert_eq!(service.pending_finalizer_count().expect("pending count"), 1);
+    assert_eq!(
+        service.runtime_work_status().expect("runtime work status"),
+        RuntimeWorkStatus::PendingFinalizers { count: 1 }
+    );
     assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 0);
     assert_eq!(
         service
@@ -5060,6 +5092,10 @@ fn public_api_shared_background_service_drains_pending_finalizers() {
         1
     );
     assert_eq!(service.pending_finalizer_count().expect("pending count"), 0);
+    assert_eq!(
+        service.runtime_work_status().expect("runtime work status"),
+        RuntimeWorkStatus::Idle
+    );
     assert_eq!(
         service
             .heap()
@@ -6127,6 +6163,7 @@ fn public_api_shared_background_status_matches_shared_heap_status_background_vie
         background_status.major_mark_progress,
         heap_status.major_mark_progress
     );
+    assert_eq!(background_status.runtime_work, heap_status.runtime_work);
 }
 
 #[test]
@@ -6256,6 +6293,7 @@ fn public_api_shared_background_service_wait_for_background_change_reports_pendi
         .background_status()
         .expect("read initial shared background status");
     assert_eq!(observed_status.pending_finalizers, 0);
+    assert_eq!(observed_status.runtime_work, RuntimeWorkStatus::Idle);
 
     let waking_shared = shared.clone();
     let waiter = thread::spawn(move || {
@@ -6284,6 +6322,10 @@ fn public_api_shared_background_service_wait_for_background_change_reports_pendi
     assert!(wake.signal_changed);
     assert!(wake.background_changed);
     assert!(wake.next_epoch > observed_epoch);
+    assert_eq!(
+        wake.status.runtime_work,
+        RuntimeWorkStatus::PendingFinalizers { count: 1 }
+    );
     assert_eq!(wake.status.pending_finalizers, 1);
 }
 

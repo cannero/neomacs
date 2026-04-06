@@ -82,6 +82,28 @@ pub enum BackgroundCollectionStatus {
     Finished(CollectionStats),
 }
 
+/// Runtime-visible work that remains outside GC commit itself.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RuntimeWorkStatus {
+    /// No runtime-side follow-up work is pending.
+    Idle,
+    /// Queued finalizers are waiting to be drained at a runtime boundary.
+    PendingFinalizers {
+        /// Number of queued finalizers waiting to run.
+        count: usize,
+    },
+}
+
+impl RuntimeWorkStatus {
+    pub(crate) const fn from_pending_finalizers(count: usize) -> Self {
+        if count == 0 {
+            Self::Idle
+        } else {
+            Self::PendingFinalizers { count }
+        }
+    }
+}
+
 impl Default for CollectionPlan {
     fn default() -> Self {
         Self {

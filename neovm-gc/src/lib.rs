@@ -40,6 +40,7 @@ pub use mutator::Mutator;
 pub use object::estimated_allocation_size;
 pub use plan::{
     BackgroundCollectionStatus, CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress,
+    RuntimeWorkStatus,
 };
 pub use root::{Gc, HandleScope, Root};
 pub use runtime::{CollectorRuntime, SharedCollectorRuntime};

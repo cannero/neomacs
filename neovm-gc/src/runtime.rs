@@ -4,7 +4,9 @@ use crate::background::{
 };
 use crate::collector_state::CollectorSharedSnapshot;
 use crate::heap::{AllocError, Heap};
-use crate::plan::{BackgroundCollectionStatus, CollectionPlan, MajorMarkProgress};
+use crate::plan::{
+    BackgroundCollectionStatus, CollectionPlan, MajorMarkProgress, RuntimeWorkStatus,
+};
 use crate::stats::{CollectionStats, HeapStats};
 
 /// Collector-side runtime bound to one heap.
@@ -37,6 +39,11 @@ impl<'heap> CollectorRuntime<'heap> {
     /// Return the number of queued finalizers waiting to run.
     pub fn pending_finalizer_count(&self) -> usize {
         self.heap.pending_finalizer_count()
+    }
+
+    /// Return runtime-side follow-up work that remains outside GC commit.
+    pub fn runtime_work_status(&self) -> RuntimeWorkStatus {
+        self.heap.runtime_work_status()
     }
 
     /// Run and drain queued finalizers.
@@ -122,6 +129,13 @@ impl SharedCollectorRuntime {
     pub fn pending_finalizer_count(&self) -> Result<usize, SharedBackgroundError> {
         self.heap
             .pending_finalizer_count()
+            .map_err(Self::map_shared_heap_error)
+    }
+
+    /// Return runtime-side follow-up work that remains outside GC commit.
+    pub fn runtime_work_status(&self) -> Result<RuntimeWorkStatus, SharedBackgroundError> {
+        self.heap
+            .runtime_work_status()
             .map_err(Self::map_shared_heap_error)
     }
 
