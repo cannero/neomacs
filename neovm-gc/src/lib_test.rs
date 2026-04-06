@@ -6526,6 +6526,109 @@ fn shared_snapshot_recommended_plan_reads_work_while_heap_lock_is_held_and_refre
 }
 
 #[test]
+fn shared_collector_runtime_recommended_plan_reads_work_while_heap_lock_is_held_and_refresh_on_drop()
+ {
+    let shared = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        old: crate::spaces::OldGenConfig {
+            region_bytes: 512,
+            line_bytes: 16,
+            concurrent_mark_workers: 1,
+            mutator_assist_slices: 0,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    let runtime = shared.collector_runtime();
+    let before = runtime
+        .recommended_plan()
+        .expect("read runtime recommended plan before lock");
+    assert_eq!(before.kind, CollectionKind::Minor);
+
+    {
+        let mut heap = shared.lock().expect("lock shared heap");
+        assert_eq!(
+            runtime
+                .recommended_plan()
+                .expect("read runtime recommended plan while heap lock held"),
+            before
+        );
+
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        for byte in 0..32u8 {
+            mutator
+                .alloc(&mut scope, OldLeaf([byte; 32]))
+                .expect("alloc old leaf under guard");
+        }
+
+        assert_eq!(
+            runtime
+                .recommended_plan()
+                .expect("runtime recommended plan stays stable until guard drop"),
+            before
+        );
+    }
+
+    let after = runtime
+        .recommended_plan()
+        .expect("read runtime recommended plan after guard drop");
+    assert_eq!(after.kind, CollectionKind::Major);
+}
+
+#[test]
+fn shared_collector_runtime_last_completed_plan_tracks_finished_collection() {
+    let shared = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    let runtime = shared.collector_runtime();
+    assert_eq!(
+        runtime
+            .last_completed_plan()
+            .expect("read runtime last completed plan before collection"),
+        None
+    );
+
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            mutator
+                .alloc(&mut scope, OldLeaf([17; 32]))
+                .expect("alloc old leaf");
+            let cycle = mutator
+                .collect(CollectionKind::Major)
+                .expect("collect major cycle");
+            assert_eq!(cycle.major_collections, 1);
+        })
+        .expect("run major collection through shared mutator");
+
+    assert_eq!(
+        runtime
+            .last_completed_plan()
+            .expect("read runtime last completed plan after collection")
+            .map(|plan| plan.kind),
+        Some(CollectionKind::Major)
+    );
+}
+
+#[test]
 fn shared_mutator_can_allocate_during_background_worker_session() {
     let shared = Heap::new(HeapConfig {
         nursery: NurseryConfig {

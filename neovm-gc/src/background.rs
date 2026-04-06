@@ -1125,8 +1125,13 @@ impl SharedHeap {
 
     /// Recommend the next collection plan from current heap pressure.
     pub fn recommended_plan(&self) -> Result<crate::plan::CollectionPlan, SharedHeapError> {
-        self.collector
-            .read_snapshot(|snapshot| snapshot.recommended_plan.clone())
+        self.collector_runtime()
+            .recommended_plan()
+            .map_err(|error| match error {
+                SharedBackgroundError::LockPoisoned => SharedHeapError::LockPoisoned,
+                SharedBackgroundError::WouldBlock => SharedHeapError::WouldBlock,
+                SharedBackgroundError::Collection(_) => SharedHeapError::LockPoisoned,
+            })
     }
 
     /// Recommend the next background concurrent collection plan, if any.
@@ -1153,8 +1158,13 @@ impl SharedHeap {
     pub fn last_completed_plan(
         &self,
     ) -> Result<Option<crate::plan::CollectionPlan>, SharedHeapError> {
-        self.collector
-            .read_snapshot(|snapshot| snapshot.last_completed_plan.clone())
+        self.collector_runtime()
+            .last_completed_plan()
+            .map_err(|error| match error {
+                SharedBackgroundError::LockPoisoned => SharedHeapError::LockPoisoned,
+                SharedBackgroundError::WouldBlock => SharedHeapError::WouldBlock,
+                SharedBackgroundError::Collection(_) => SharedHeapError::LockPoisoned,
+            })
     }
 
     /// Return the active major-mark plan, if any.

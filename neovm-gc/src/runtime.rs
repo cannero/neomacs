@@ -237,6 +237,13 @@ impl SharedCollectorRuntime {
             .map_err(Self::map_shared_heap_error)
     }
 
+    /// Recommend the next collection plan from the current shared snapshot.
+    pub fn recommended_plan(&self) -> Result<CollectionPlan, SharedBackgroundError> {
+        self.collector
+            .read_snapshot(|snapshot| snapshot.recommended_plan.clone())
+            .map_err(Self::map_shared_heap_error)
+    }
+
     /// Return one consistent shared heap status snapshot for this runtime.
     pub fn status(&self) -> Result<SharedHeapStatus, SharedBackgroundError> {
         self.runtime
@@ -318,6 +325,13 @@ impl SharedCollectorRuntime {
     pub fn major_mark_progress(&self) -> Result<Option<MajorMarkProgress>, SharedBackgroundError> {
         self.collector
             .read_snapshot(|snapshot| snapshot.major_mark_progress)
+            .map_err(Self::map_shared_heap_error)
+    }
+
+    /// Return the last completed collection plan, if any.
+    pub fn last_completed_plan(&self) -> Result<Option<CollectionPlan>, SharedBackgroundError> {
+        self.collector
+            .read_snapshot(|snapshot| snapshot.last_completed_plan.clone())
             .map_err(Self::map_shared_heap_error)
     }
 
