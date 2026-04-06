@@ -244,6 +244,14 @@ impl Window {
         }
     }
 
+    /// Set the window's point from a buffer position.
+    /// GNU Emacs xdisp.c:20616 syncs w->pointm from buffer PT before redisplay.
+    pub fn set_point(&mut self, pos: usize) {
+        if let Window::Leaf { point, .. } = self {
+            *point = pos;
+        }
+    }
+
     /// Window ID.
     pub fn id(&self) -> WindowId {
         match self {

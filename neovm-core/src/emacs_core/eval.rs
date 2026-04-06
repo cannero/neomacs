@@ -4831,6 +4831,21 @@ impl Context {
     /// In batch mode (no callback), this is a no-op.
     pub(crate) fn redisplay(&mut self) {
         self.sync_pending_resize_events();
+        // GNU Emacs xdisp.c:20616 — sync selected window's pointm from
+        // the buffer's current PT before redisplay.  NeoMacs Window::point
+        // is a plain usize, not a marker, so it doesn't auto-update.
+        // Only sync when the buffer has been modified (to avoid breaking
+        // the initial render where window.point=1 is correct).
+        if let Some(buffer) = self.buffers.current_buffer() {
+            if buffer.is_modified() {
+                let pt = buffer.point_char();
+                if let Some(frame) = self.frames.selected_frame_mut() {
+                    if let Some(win) = frame.selected_window_mut() {
+                        win.set_point(pt);
+                    }
+                }
+            }
+        }
         let has_fn = self.redisplay_fn.is_some();
         tracing::debug!("redisplay called (has_fn={})", has_fn);
         if let Some(mut f) = self.redisplay_fn.take() {
