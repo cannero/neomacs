@@ -1961,6 +1961,7 @@ fn poll_active_major_mark_processes_major_weak_edges_before_finish() {
         .expect("finish if ready")
         .expect("completed cycle");
     assert_eq!(cycle.major_collections, 1);
+    assert_eq!(mutator.heap().weak_candidate_count(), 1);
 }
 
 #[test]

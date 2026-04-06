@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::barrier::RememberedEdge;
 use crate::descriptor::ObjectKey;
 use crate::heap::{AllocError, OldRegion, OldRegionCollectionStats};
 use crate::mark::MarkWorklist;
@@ -47,6 +48,15 @@ pub(crate) struct PreparedMajorReclaim {
     pub(crate) old_region_placements: HashMap<ObjectKey, OldRegionPlacement>,
     pub(crate) rebuilt_old_regions: Vec<OldRegion>,
     pub(crate) old_region_stats: OldRegionCollectionStats,
+    pub(crate) survivor_count: usize,
+    pub(crate) weak_candidates: Vec<ObjectKey>,
+    pub(crate) ephemeron_candidates: Vec<ObjectKey>,
+    pub(crate) remembered_edges: Vec<RememberedEdge>,
+    pub(crate) nursery_live_bytes: usize,
+    pub(crate) old_live_bytes: usize,
+    pub(crate) pinned_live_bytes: usize,
+    pub(crate) large_live_bytes: usize,
+    pub(crate) immortal_live_bytes: usize,
 }
 
 impl CollectorState {

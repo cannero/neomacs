@@ -32,6 +32,15 @@ fn prepared_major_reclaim() -> PreparedMajorReclaim {
             compacted_regions: 1,
             reclaimed_regions: 0,
         },
+        survivor_count: 0,
+        weak_candidates: Vec::new(),
+        ephemeron_candidates: Vec::new(),
+        remembered_edges: Vec::new(),
+        nursery_live_bytes: 0,
+        old_live_bytes: 0,
+        pinned_live_bytes: 0,
+        large_live_bytes: 0,
+        immortal_live_bytes: 0,
     }
 }
 

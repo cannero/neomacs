@@ -1405,6 +1405,10 @@ impl Heap {
         completed_plan: Option<CollectionPlan>,
         prepared_major_reclaim: Option<PreparedMajorReclaim>,
     ) -> (u64, OldRegionCollectionStats) {
+        let has_prepared_major_reclaim = prepared_major_reclaim.is_some();
+        let prepared_survivor_count = prepared_major_reclaim
+            .as_ref()
+            .map(|prepared| prepared.survivor_count);
         self.stats.nursery.live_bytes = 0;
         self.stats.old.live_bytes = 0;
         self.stats.pinned.live_bytes = 0;
@@ -1414,19 +1418,23 @@ impl Heap {
         self.stats.immortal.reserved_bytes = 0;
 
         let old_objects = core::mem::take(&mut self.objects);
-        let mut old_region_rebuild = if prepared_major_reclaim.is_none() {
+        let mut old_region_rebuild = if !has_prepared_major_reclaim {
             self.prepare_old_region_rebuild(completed_plan.as_ref())
         } else {
             None
         };
         self.object_index.clear();
-        self.object_index.reserve(old_objects.len());
+        self.object_index
+            .reserve(prepared_survivor_count.unwrap_or(old_objects.len()));
         self.weak_candidates.clear();
-        self.weak_candidates.reserve(old_objects.len());
         self.ephemeron_candidates.clear();
-        self.ephemeron_candidates.reserve(old_objects.len());
+        if !has_prepared_major_reclaim {
+            self.weak_candidates.reserve(old_objects.len());
+            self.ephemeron_candidates.reserve(old_objects.len());
+        }
 
-        let mut rebuilt_objects = Vec::with_capacity(old_objects.len());
+        let mut rebuilt_objects =
+            Vec::with_capacity(prepared_survivor_count.unwrap_or(old_objects.len()));
         let mut finalized_objects = 0u64;
         for mut object in old_objects {
             if !Self::keep_object_for_collection(kind, &object) {
@@ -1459,40 +1467,52 @@ impl Heap {
             let index = rebuilt_objects.len();
             rebuilt_objects.push(object);
             self.object_index.insert(object_key, index);
-            self.record_descriptor_candidates(object_key, desc);
-            match space {
-                SpaceKind::Nursery => {
-                    self.stats.nursery.live_bytes =
-                        self.stats.nursery.live_bytes.saturating_add(total_size);
-                }
-                SpaceKind::Old => {
-                    self.stats.old.live_bytes =
-                        self.stats.old.live_bytes.saturating_add(total_size);
-                }
-                SpaceKind::Pinned => {
-                    self.stats.pinned.live_bytes =
-                        self.stats.pinned.live_bytes.saturating_add(total_size);
-                }
-                SpaceKind::Large => {
-                    self.stats.large.live_bytes =
-                        self.stats.large.live_bytes.saturating_add(total_size);
-                    self.stats.large.reserved_bytes =
-                        self.stats.large.reserved_bytes.saturating_add(total_size);
-                }
-                SpaceKind::Immortal => {
-                    self.stats.immortal.live_bytes =
-                        self.stats.immortal.live_bytes.saturating_add(total_size);
-                    self.stats.immortal.reserved_bytes = self
-                        .stats
-                        .immortal
-                        .reserved_bytes
-                        .saturating_add(total_size);
+            if !has_prepared_major_reclaim {
+                self.record_descriptor_candidates(object_key, desc);
+                match space {
+                    SpaceKind::Nursery => {
+                        self.stats.nursery.live_bytes =
+                            self.stats.nursery.live_bytes.saturating_add(total_size);
+                    }
+                    SpaceKind::Old => {
+                        self.stats.old.live_bytes =
+                            self.stats.old.live_bytes.saturating_add(total_size);
+                    }
+                    SpaceKind::Pinned => {
+                        self.stats.pinned.live_bytes =
+                            self.stats.pinned.live_bytes.saturating_add(total_size);
+                    }
+                    SpaceKind::Large => {
+                        self.stats.large.live_bytes =
+                            self.stats.large.live_bytes.saturating_add(total_size);
+                        self.stats.large.reserved_bytes =
+                            self.stats.large.reserved_bytes.saturating_add(total_size);
+                    }
+                    SpaceKind::Immortal => {
+                        self.stats.immortal.live_bytes =
+                            self.stats.immortal.live_bytes.saturating_add(total_size);
+                        self.stats.immortal.reserved_bytes = self
+                            .stats
+                            .immortal
+                            .reserved_bytes
+                            .saturating_add(total_size);
+                    }
                 }
             }
         }
         self.objects = rebuilt_objects;
         let old_region_stats = if let Some(prepared) = prepared_major_reclaim {
             self.old_regions = prepared.rebuilt_old_regions;
+            self.weak_candidates = prepared.weak_candidates;
+            self.ephemeron_candidates = prepared.ephemeron_candidates;
+            self.remembered_edges = prepared.remembered_edges;
+            self.stats.nursery.live_bytes = prepared.nursery_live_bytes;
+            self.stats.old.live_bytes = prepared.old_live_bytes;
+            self.stats.pinned.live_bytes = prepared.pinned_live_bytes;
+            self.stats.large.live_bytes = prepared.large_live_bytes;
+            self.stats.large.reserved_bytes = prepared.large_live_bytes;
+            self.stats.immortal.live_bytes = prepared.immortal_live_bytes;
+            self.stats.immortal.reserved_bytes = prepared.immortal_live_bytes;
             prepared.old_region_stats
         } else {
             let (rebuilt_old_regions, old_region_stats) =
@@ -1507,21 +1527,23 @@ impl Heap {
             .iter()
             .map(|region| region.capacity_bytes)
             .sum();
-        let object_index = &self.object_index;
-        let objects = &self.objects;
-        self.remembered_edges.retain(|edge| {
-            let owner = edge.owner.erase().object_key();
-            let target = edge.target.erase().object_key();
-            let owner_space = object_index
-                .get(&owner)
-                .map(|&index| objects[index].space());
-            let target_space = object_index
-                .get(&target)
-                .map(|&index| objects[index].space());
-            owner_space
-                .is_some_and(|space| space != SpaceKind::Nursery && space != SpaceKind::Immortal)
-                && target_space == Some(SpaceKind::Nursery)
-        });
+        if !has_prepared_major_reclaim {
+            let object_index = &self.object_index;
+            let objects = &self.objects;
+            self.remembered_edges.retain(|edge| {
+                let owner = edge.owner.erase().object_key();
+                let target = edge.target.erase().object_key();
+                let owner_space = object_index
+                    .get(&owner)
+                    .map(|&index| objects[index].space());
+                let target_space = object_index
+                    .get(&target)
+                    .map(|&index| objects[index].space());
+                owner_space.is_some_and(|space| {
+                    space != SpaceKind::Nursery && space != SpaceKind::Immortal
+                }) && target_space == Some(SpaceKind::Nursery)
+            });
+        }
         (finalized_objects, old_region_stats)
     }
 
@@ -1783,55 +1805,123 @@ impl Heap {
         let mut rebuild = prepare_old_region_rebuild_for_plan(&self.old_regions, Some(plan))
             .expect("major reclaim preparation requires a major/full plan");
         let mut placements = HashMap::new();
+        let mut weak_candidates = Vec::new();
+        let mut ephemeron_candidates = Vec::new();
+        let mut survivor_count = 0usize;
+        let mut nursery_live_bytes = 0usize;
+        let mut old_live_bytes = 0usize;
+        let mut pinned_live_bytes = 0usize;
+        let mut large_live_bytes = 0usize;
+        let mut immortal_live_bytes = 0usize;
 
         for object in &self.objects {
-            if object.space() != SpaceKind::Old
-                || !object.is_marked()
-                || object.header().is_moved_out()
-            {
+            if !Self::keep_object_for_collection(CollectionKind::Major, object) {
                 continue;
             }
 
+            survivor_count = survivor_count.saturating_add(1);
+            let object_key = object.object_key();
             let total_size = object.total_size();
-            let mut placement = object
-                .old_region_placement()
-                .expect("live old object should retain old-region placement");
-            if rebuild.selected_regions.contains(&placement.region_index) {
-                let compacted = reserve_old_region_placement_in(
-                    &mut rebuild.compacted_regions,
-                    &self.config.old,
-                    total_size,
-                );
-                placement.region_index = rebuild.compacted_base_index + compacted.region_index;
-                placement.offset_bytes = compacted.offset_bytes;
-                placement.line_start = compacted.line_start;
-                placement.line_count = compacted.line_count;
-                let region = &mut rebuild.compacted_regions[compacted.region_index];
-                region.live_bytes = region.live_bytes.saturating_add(total_size);
-                region.object_count = region.object_count.saturating_add(1);
-                for line in placement.line_start..placement.line_start + placement.line_count {
-                    region.occupied_lines.insert(line);
+            let desc = object.header().desc();
+            if desc.flags.contains(TypeFlags::WEAK) {
+                weak_candidates.push(object_key);
+            }
+            if desc.flags.contains(TypeFlags::EPHEMERON_KEY) {
+                ephemeron_candidates.push(object_key);
+            }
+
+            match object.space() {
+                SpaceKind::Nursery => {
+                    nursery_live_bytes = nursery_live_bytes.saturating_add(total_size);
                 }
-            } else if let Some(&new_index) =
-                rebuild.preserved_index_map.get(&placement.region_index)
-            {
-                placement.region_index = new_index;
-                let region = &mut rebuild.rebuilt_regions[new_index];
-                region.live_bytes = region.live_bytes.saturating_add(total_size);
-                region.object_count = region.object_count.saturating_add(1);
-                for line in placement.line_start..placement.line_start + placement.line_count {
-                    region.occupied_lines.insert(line);
+                SpaceKind::Old => {
+                    old_live_bytes = old_live_bytes.saturating_add(total_size);
+                    let mut placement = object
+                        .old_region_placement()
+                        .expect("live old object should retain old-region placement");
+                    if rebuild.selected_regions.contains(&placement.region_index) {
+                        let compacted = reserve_old_region_placement_in(
+                            &mut rebuild.compacted_regions,
+                            &self.config.old,
+                            total_size,
+                        );
+                        placement.region_index =
+                            rebuild.compacted_base_index + compacted.region_index;
+                        placement.offset_bytes = compacted.offset_bytes;
+                        placement.line_start = compacted.line_start;
+                        placement.line_count = compacted.line_count;
+                        let region = &mut rebuild.compacted_regions[compacted.region_index];
+                        region.live_bytes = region.live_bytes.saturating_add(total_size);
+                        region.object_count = region.object_count.saturating_add(1);
+                        for line in
+                            placement.line_start..placement.line_start + placement.line_count
+                        {
+                            region.occupied_lines.insert(line);
+                        }
+                    } else if let Some(&new_index) =
+                        rebuild.preserved_index_map.get(&placement.region_index)
+                    {
+                        placement.region_index = new_index;
+                        let region = &mut rebuild.rebuilt_regions[new_index];
+                        region.live_bytes = region.live_bytes.saturating_add(total_size);
+                        region.object_count = region.object_count.saturating_add(1);
+                        for line in
+                            placement.line_start..placement.line_start + placement.line_count
+                        {
+                            region.occupied_lines.insert(line);
+                        }
+                    }
+                    placements.insert(object_key, placement);
+                }
+                SpaceKind::Pinned => {
+                    pinned_live_bytes = pinned_live_bytes.saturating_add(total_size);
+                }
+                SpaceKind::Large => {
+                    large_live_bytes = large_live_bytes.saturating_add(total_size);
+                }
+                SpaceKind::Immortal => {
+                    immortal_live_bytes = immortal_live_bytes.saturating_add(total_size);
                 }
             }
-            placements.insert(object.object_key(), placement);
         }
 
         let (rebuilt_old_regions, old_region_stats) =
             Self::finish_prepared_old_region_rebuild(rebuild, &mut placements);
+        let remembered_edges = self
+            .remembered_edges
+            .iter()
+            .copied()
+            .filter(|edge| {
+                let Some(&owner_index) = self.object_index.get(&edge.owner.erase().object_key())
+                else {
+                    return false;
+                };
+                let Some(&target_index) = self.object_index.get(&edge.target.erase().object_key())
+                else {
+                    return false;
+                };
+                let owner = &self.objects[owner_index];
+                let target = &self.objects[target_index];
+                Self::keep_object_for_collection(CollectionKind::Major, owner)
+                    && owner.space() != SpaceKind::Nursery
+                    && owner.space() != SpaceKind::Immortal
+                    && Self::keep_object_for_collection(CollectionKind::Major, target)
+                    && target.space() == SpaceKind::Nursery
+            })
+            .collect();
         PreparedMajorReclaim {
             old_region_placements: placements,
             rebuilt_old_regions,
             old_region_stats,
+            survivor_count,
+            weak_candidates,
+            ephemeron_candidates,
+            remembered_edges,
+            nursery_live_bytes,
+            old_live_bytes,
+            pinned_live_bytes,
+            large_live_bytes,
+            immortal_live_bytes,
         }
     }
 
