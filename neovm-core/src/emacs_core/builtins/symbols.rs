@@ -1255,6 +1255,29 @@ pub(crate) fn is_global_obarray_proxy(eval: &super::eval::Context, value: &Value
 pub(crate) fn builtin_intern_fn(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("intern", &args, 1)?;
     expect_max_args("intern", &args, 2)?;
+    // Debug: validate string arg before access
+    if args[0].is_string() {
+        let ptr = args[0].as_string_ptr().unwrap();
+        let header = unsafe {
+            &(*(ptr as *const crate::tagged::header::StringObj)).header
+        };
+        if !matches!(header.kind, crate::tagged::header::HeapObjectKind::String) {
+            // Dump bc_buf state for debugging
+            let bc_buf_len = eval.bc_buf.len();
+            let bc_frames_len = eval.bc_frames.len();
+            let bc_frames_info: Vec<String> = eval.bc_frames.iter()
+                .map(|f| format!("base={} fun={:#x}", f.base, f.fun.0))
+                .collect();
+            panic!(
+                "INTERN BUG: string arg {:#x} (ptr {:?}) has header.kind={:?}\n\
+                 bc_buf.len()={}, bc_frames={:?}\n\
+                 All args: {:?}",
+                args[0].0, ptr, header.kind,
+                bc_buf_len, bc_frames_info,
+                args.iter().map(|a| format!("{:#x}", a.0)).collect::<Vec<_>>(),
+            );
+        }
+    }
     if let Some(obarray) = args.get(1) {
         if !obarray.is_nil() && !obarray.is_vector() {
             return Err(signal(
