@@ -410,6 +410,25 @@ impl<'a> Vm<'a> {
             () => { self.ctx.bc_buf };
         }
 
+        // Debug: validate string values before pushing to bc_buf
+        macro_rules! stk_push {
+            ($val:expr) => {{
+                let v = $val;
+                if v.is_string() {
+                    let ptr = v.as_string_ptr().unwrap();
+                    let hdr = unsafe { &(*(ptr as *const crate::tagged::header::StringObj)).header };
+                    if !matches!(hdr.kind, crate::tagged::header::HeapObjectKind::String) {
+                        panic!(
+                            "BC_BUF PUSH BUG: pushing corrupt string {:#x} (ptr {:?}, kind={:?}) \
+                             at pc={}, op={:?}, bc_buf.len()={}, frame_base={}",
+                            v.0, ptr, hdr.kind, *pc - 1, ops.get(*pc - 1), stk!().len(), frame_base,
+                        );
+                    }
+                }
+                self.ctx.bc_buf.push(v);
+            }};
+        }
+
         macro_rules! vm_try {
             ($expr:expr) => {{
                 match $expr {
@@ -429,22 +448,22 @@ impl<'a> Vm<'a> {
             match op {
                 // -- Constants and stack --
                 Op::Constant(idx) => {
-                    stk!().push(constants[*idx as usize]);
+                    stk_push!(constants[*idx as usize]);
                 }
-                Op::Nil => stk!().push(Value::NIL),
-                Op::True => stk!().push(Value::T),
+                Op::Nil => stk_push!(Value::NIL),
+                Op::True => stk_push!(Value::T),
                 Op::Pop => {
                     stk!().pop();
                 }
                 Op::Dup => {
                     if let Some(&top) = stk!().last() {
-                        stk!().push(top);
+                        stk_push!(top);
                     }
                 }
                 Op::StackRef(n) => {
                     let idx = stk!().len().saturating_sub(1 + *n as usize);
                     let val = stk!()[idx];
-                    stk!().push(val);
+                    stk_push!(val);
                 }
                 Op::StackSet(n) => {
                     if stk!().is_empty() {
@@ -481,7 +500,7 @@ impl<'a> Vm<'a> {
                 Op::VarRef(idx) => {
                     let name = sym_name(constants, *idx);
                     let val = vm_try!(self.lookup_var(&name));
-                    stk!().push(val);
+                    stk_push!(val);
                 }
                 Op::VarSet(idx) => {
                     let name = sym_name(constants, *idx);
@@ -559,7 +578,7 @@ impl<'a> Vm<'a> {
                             &result,
                         );
                     }
-                    stk!().push(result);
+                    stk_push!(result);
                 }
                 Op::Apply(n) => {
                     let n = *n as usize;
@@ -573,7 +592,7 @@ impl<'a> Vm<'a> {
                             &call_roots,
                             |vm| vm.call_function(func_val, vec![]),
                         ));
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
                         let args_start = stk!().len().saturating_sub(n);
                         let mut args: Vec<Value> = stk!().drain(args_start..).collect();
@@ -603,7 +622,7 @@ impl<'a> Vm<'a> {
                                 &result,
                             );
                         }
-                        stk!().push(result);
+                        stk_push!(result);
                     }
                 }
 
@@ -723,9 +742,9 @@ impl<'a> Vm<'a> {
                         "+",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(vm_try!(arith_add(self, &call_args[0], &call_args[1])));
+                        stk_push!(vm_try!(arith_add(self, &call_args[0], &call_args[1])));
                     }
                 }
                 Op::Sub => {
@@ -739,9 +758,9 @@ impl<'a> Vm<'a> {
                         "-",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(vm_try!(arith_sub(self, &call_args[0], &call_args[1])));
+                        stk_push!(vm_try!(arith_sub(self, &call_args[0], &call_args[1])));
                     }
                 }
                 Op::Mul => {
@@ -755,9 +774,9 @@ impl<'a> Vm<'a> {
                         "*",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(vm_try!(arith_mul(self, &call_args[0], &call_args[1])));
+                        stk_push!(vm_try!(arith_mul(self, &call_args[0], &call_args[1])));
                     }
                 }
                 Op::Div => {
@@ -771,9 +790,9 @@ impl<'a> Vm<'a> {
                         "/",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(vm_try!(arith_div(self, &call_args[0], &call_args[1])));
+                        stk_push!(vm_try!(arith_div(self, &call_args[0], &call_args[1])));
                     }
                 }
                 Op::Rem => {
@@ -787,9 +806,9 @@ impl<'a> Vm<'a> {
                         "%",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(vm_try!(arith_rem(&call_args[0], &call_args[1])));
+                        stk_push!(vm_try!(arith_rem(&call_args[0], &call_args[1])));
                     }
                 }
                 Op::Add1 => {
@@ -802,9 +821,9 @@ impl<'a> Vm<'a> {
                         "1+",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(vm_try!(arith_add1(self, &call_args[0])));
+                        stk_push!(vm_try!(arith_add1(self, &call_args[0])));
                     }
                 }
                 Op::Sub1 => {
@@ -817,9 +836,9 @@ impl<'a> Vm<'a> {
                         "1-",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(vm_try!(arith_sub1(self, &call_args[0])));
+                        stk_push!(vm_try!(arith_sub1(self, &call_args[0])));
                     }
                 }
                 Op::Negate => {
@@ -832,9 +851,9 @@ impl<'a> Vm<'a> {
                         "-",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(vm_try!(arith_negate(self, &call_args[0])));
+                        stk_push!(vm_try!(arith_negate(self, &call_args[0])));
                     }
                 }
 
@@ -850,9 +869,9 @@ impl<'a> Vm<'a> {
                         "=",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(Value::bool_val(vm_try!(num_eq(
+                        stk_push!(Value::bool_val(vm_try!(num_eq(
                             self,
                             &call_args[0],
                             &call_args[1],
@@ -870,9 +889,9 @@ impl<'a> Vm<'a> {
                         ">",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(Value::bool_val(
+                        stk_push!(Value::bool_val(
                             vm_try!(num_cmp(self, &call_args[0], &call_args[1],)) > 0,
                         ));
                     }
@@ -888,9 +907,9 @@ impl<'a> Vm<'a> {
                         "<",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(Value::bool_val(
+                        stk_push!(Value::bool_val(
                             vm_try!(num_cmp(self, &call_args[0], &call_args[1],)) < 0,
                         ));
                     }
@@ -906,9 +925,9 @@ impl<'a> Vm<'a> {
                         "<=",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(Value::bool_val(
+                        stk_push!(Value::bool_val(
                             vm_try!(num_cmp(self, &call_args[0], &call_args[1],)) <= 0,
                         ));
                     }
@@ -924,9 +943,9 @@ impl<'a> Vm<'a> {
                         ">=",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(Value::bool_val(
+                        stk_push!(Value::bool_val(
                             vm_try!(num_cmp(self, &call_args[0], &call_args[1],)) >= 0,
                         ));
                     }
@@ -942,15 +961,14 @@ impl<'a> Vm<'a> {
                         "max",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(
-                            if vm_try!(num_cmp(self, &call_args[0], &call_args[1])) >= 0 {
+                        let max_val = if vm_try!(num_cmp(self, &call_args[0], &call_args[1])) >= 0 {
                                 call_args[0]
                             } else {
                                 call_args[1]
-                            },
-                        );
+                            };
+                        stk_push!(max_val);
                     }
                 }
                 Op::Min => {
@@ -964,15 +982,14 @@ impl<'a> Vm<'a> {
                         "min",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(
-                            if vm_try!(num_cmp(self, &call_args[0], &call_args[1])) <= 0 {
+                        let min_val = if vm_try!(num_cmp(self, &call_args[0], &call_args[1])) <= 0 {
                                 call_args[0]
                             } else {
                                 call_args[1]
-                            },
-                        );
+                            };
+                        stk_push!(min_val);
                     }
                 }
 
@@ -993,7 +1010,7 @@ impl<'a> Vm<'a> {
                             func, handlers, specpdl, "car", call_args,
                         ))
                     };
-                    stk!().push(result);
+                    stk_push!(result);
                 }
                 Op::Cdr => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
@@ -1011,7 +1028,7 @@ impl<'a> Vm<'a> {
                             func, handlers, specpdl, "cdr", call_args,
                         ))
                     };
-                    stk!().push(result);
+                    stk_push!(result);
                 }
                 Op::CarSafe => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
@@ -1023,21 +1040,21 @@ impl<'a> Vm<'a> {
                         "car-safe",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
                         match call_args[0].kind() {
                             ValueKind::Cons => {
-                                stk!().push(call_args[0].cons_car());
+                                stk_push!(call_args[0].cons_car());
                             }
                             // Closures are cons lists in official Emacs.
                             ValueKind::Veclike(VecLikeType::Lambda) => {
-                                stk!().push(if call_args[0].closure_env().flatten().is_some() {
+                                stk_push!(if call_args[0].closure_env().flatten().is_some() {
                                     Value::symbol("closure")
                                 } else {
                                     Value::symbol("lambda")
                                 });
                             }
-                            _ => stk!().push(Value::NIL),
+                            _ => stk_push!(Value::NIL),
                         }
                     }
                 }
@@ -1051,11 +1068,11 @@ impl<'a> Vm<'a> {
                         "cdr-safe",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
                         match call_args[0].kind() {
                             ValueKind::Cons => {
-                                stk!().push(call_args[0].cons_cdr());
+                                stk_push!(call_args[0].cons_cdr());
                             }
                             // Closures are cons lists in official Emacs.
                             ValueKind::Veclike(VecLikeType::Lambda) => {
@@ -1063,12 +1080,12 @@ impl<'a> Vm<'a> {
                                 let list = lambda_to_cons_list(&call_args[0]).unwrap_or(Value::NIL);
                                 match list.kind() {
                                     ValueKind::Cons => {
-                                        stk!().push(list.cons_cdr());
+                                        stk_push!(list.cons_cdr());
                                     }
-                                    _ => stk!().push(Value::NIL),
+                                    _ => stk_push!(Value::NIL),
                                 }
                             }
-                            _ => stk!().push(Value::NIL),
+                            _ => stk_push!(Value::NIL),
                         }
                     }
                 }
@@ -1083,9 +1100,9 @@ impl<'a> Vm<'a> {
                         "cons",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(Value::cons(call_args[0], call_args[1]));
+                        stk_push!(Value::cons(call_args[0], call_args[1]));
                     }
                 }
                 Op::List(n) => {
@@ -1099,9 +1116,9 @@ impl<'a> Vm<'a> {
                         "list",
                         items.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(Value::list(items));
+                        stk_push!(Value::list(items));
                     }
                 }
                 Op::Length => {
@@ -1114,9 +1131,9 @@ impl<'a> Vm<'a> {
                         "length",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(vm_try!(length_value(&call_args[0])));
+                        stk_push!(vm_try!(length_value(&call_args[0])));
                     }
                 }
                 Op::Nth => {
@@ -1136,7 +1153,7 @@ impl<'a> Vm<'a> {
                             func, handlers, specpdl, "nth", call_args,
                         ))
                     };
-                    stk!().push(result);
+                    stk_push!(result);
                 }
                 Op::Nthcdr => {
                     let list = stk!().pop().unwrap_or(Value::NIL);
@@ -1155,7 +1172,7 @@ impl<'a> Vm<'a> {
                             func, handlers, specpdl, "nthcdr", call_args,
                         ))
                     };
-                    stk!().push(result);
+                    stk_push!(result);
                 }
                 Op::Elt => {
                     let idx = stk!().pop().unwrap_or(Value::NIL);
@@ -1174,14 +1191,14 @@ impl<'a> Vm<'a> {
                             func, handlers, specpdl, "elt", call_args,
                         ))
                     };
-                    stk!().push(result);
+                    stk_push!(result);
                 }
                 Op::Setcar => {
                     let newcar = stk!().pop().unwrap_or(Value::NIL);
                     let cell = stk!().pop().unwrap_or(Value::NIL);
                     if cell.is_cons() {
                         cell.set_car(newcar);
-                        stk!().push(newcar);
+                        stk_push!(newcar);
                     } else {
                         vm_try!(Err(signal(
                             "wrong-type-argument",
@@ -1194,7 +1211,7 @@ impl<'a> Vm<'a> {
                     let cell = stk!().pop().unwrap_or(Value::NIL);
                     if cell.is_cons() {
                         cell.set_cdr(newcdr);
-                        stk!().push(newcdr);
+                        stk_push!(newcdr);
                     } else {
                         vm_try!(Err(signal(
                             "wrong-type-argument",
@@ -1219,7 +1236,7 @@ impl<'a> Vm<'a> {
                             func, handlers, specpdl, "nconc", call_args,
                         ))
                     };
-                    stk!().push(result);
+                    stk_push!(result);
                 }
                 Op::Nreverse => {
                     let list = stk!().pop().unwrap_or(Value::NIL);
@@ -1237,7 +1254,7 @@ impl<'a> Vm<'a> {
                             func, handlers, specpdl, "nreverse", call_args,
                         ))
                     };
-                    stk!().push(result);
+                    stk_push!(result);
                 }
                 Op::Member => {
                     let list = stk!().pop().unwrap_or(Value::NIL);
@@ -1256,7 +1273,7 @@ impl<'a> Vm<'a> {
                             func, handlers, specpdl, "member", call_args,
                         ))
                     };
-                    stk!().push(result);
+                    stk_push!(result);
                 }
                 Op::Memq => {
                     let list = stk!().pop().unwrap_or(Value::NIL);
@@ -1275,7 +1292,7 @@ impl<'a> Vm<'a> {
                             func, handlers, specpdl, "memq", call_args,
                         ))
                     };
-                    stk!().push(result);
+                    stk_push!(result);
                 }
                 Op::Assq => {
                     let alist = stk!().pop().unwrap_or(Value::NIL);
@@ -1294,7 +1311,7 @@ impl<'a> Vm<'a> {
                             func, handlers, specpdl, "assq", call_args,
                         ))
                     };
-                    stk!().push(result);
+                    stk_push!(result);
                 }
 
                 // -- Type predicates --
@@ -1308,9 +1325,9 @@ impl<'a> Vm<'a> {
                         "symbolp",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(Value::bool_val(call_args[0].is_symbol()));
+                        stk_push!(Value::bool_val(call_args[0].is_symbol()));
                     }
                 }
                 Op::Consp => {
@@ -1323,9 +1340,9 @@ impl<'a> Vm<'a> {
                         "consp",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(Value::bool_val(call_args[0].is_cons()));
+                        stk_push!(Value::bool_val(call_args[0].is_cons()));
                     }
                 }
                 Op::Stringp => {
@@ -1338,9 +1355,9 @@ impl<'a> Vm<'a> {
                         "stringp",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(Value::bool_val(call_args[0].is_string()));
+                        stk_push!(Value::bool_val(call_args[0].is_string()));
                     }
                 }
                 Op::Listp => {
@@ -1353,9 +1370,9 @@ impl<'a> Vm<'a> {
                         "listp",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(Value::bool_val(call_args[0].is_list()));
+                        stk_push!(Value::bool_val(call_args[0].is_list()));
                     }
                 }
                 Op::Integerp => {
@@ -1368,9 +1385,9 @@ impl<'a> Vm<'a> {
                         "integerp",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(Value::bool_val(call_args[0].is_integer()));
+                        stk_push!(Value::bool_val(call_args[0].is_integer()));
                     }
                 }
                 Op::Numberp => {
@@ -1383,9 +1400,9 @@ impl<'a> Vm<'a> {
                         "numberp",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(Value::bool_val(call_args[0].is_number()));
+                        stk_push!(Value::bool_val(call_args[0].is_number()));
                     }
                 }
                 Op::Null | Op::Not => {
@@ -1403,9 +1420,9 @@ impl<'a> Vm<'a> {
                         opname,
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(Value::bool_val(call_args[0].is_nil()));
+                        stk_push!(Value::bool_val(call_args[0].is_nil()));
                     }
                 }
                 Op::Eq => {
@@ -1419,9 +1436,9 @@ impl<'a> Vm<'a> {
                         "eq",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(Value::bool_val(eq_value(&call_args[0], &call_args[1])));
+                        stk_push!(Value::bool_val(eq_value(&call_args[0], &call_args[1])));
                     }
                 }
                 Op::Equal => {
@@ -1435,9 +1452,9 @@ impl<'a> Vm<'a> {
                         "equal",
                         call_args.clone(),
                     )) {
-                        stk!().push(result);
+                        stk_push!(result);
                     } else {
-                        stk!().push(Value::bool_val(equal_value(
+                        stk_push!(Value::bool_val(equal_value(
                             &call_args[0],
                             &call_args[1],
                             0,
@@ -1463,7 +1480,7 @@ impl<'a> Vm<'a> {
                             func, handlers, specpdl, "concat", parts,
                         ))
                     };
-                    stk!().push(result);
+                    stk_push!(result);
                 }
                 Op::Substring => {
                     let to = stk!().pop().unwrap_or(Value::NIL);
@@ -1481,7 +1498,7 @@ impl<'a> Vm<'a> {
                     } else {
                         vm_try!(substring_value(&call_args[0], &call_args[1], &call_args[2]))
                     };
-                    stk!().push(result);
+                    stk_push!(result);
                 }
                 Op::StringEqual => {
                     let b = stk!().pop().unwrap_or(Value::NIL);
@@ -1500,7 +1517,7 @@ impl<'a> Vm<'a> {
                             func, handlers, specpdl, "string=", call_args,
                         ))
                     };
-                    stk!().push(result);
+                    stk_push!(result);
                 }
                 Op::StringLessp => {
                     let b = stk!().pop().unwrap_or(Value::NIL);
@@ -1523,7 +1540,7 @@ impl<'a> Vm<'a> {
                             call_args,
                         ))
                     };
-                    stk!().push(result);
+                    stk_push!(result);
                 }
 
                 // -- Vector operations --
@@ -1542,7 +1559,7 @@ impl<'a> Vm<'a> {
                     } else {
                         vm_try!(builtins::builtin_aref(call_args))
                     };
-                    stk!().push(result);
+                    stk_push!(result);
                 }
                 Op::Aset => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
@@ -1563,7 +1580,7 @@ impl<'a> Vm<'a> {
                     self.maybe_writeback_mutating_first_arg(
                         "aset", None, &call_args, &result,
                     );
-                    stk!().push(result);
+                    stk_push!(result);
                 }
 
                 // -- Symbol operations --
@@ -1587,7 +1604,7 @@ impl<'a> Vm<'a> {
                             call_args,
                         ))
                     };
-                    stk!().push(result);
+                    stk_push!(result);
                 }
                 Op::SymbolFunction => {
                     let sym = stk!().pop().unwrap_or(Value::NIL);
@@ -1609,7 +1626,7 @@ impl<'a> Vm<'a> {
                             call_args,
                         ))
                     };
-                    stk!().push(result);
+                    stk_push!(result);
                 }
                 Op::Set => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
@@ -1628,7 +1645,7 @@ impl<'a> Vm<'a> {
                             func, handlers, specpdl, "set", call_args,
                         ))
                     };
-                    stk!().push(result);
+                    stk_push!(result);
                 }
                 Op::Fset => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
@@ -1647,7 +1664,7 @@ impl<'a> Vm<'a> {
                             func, handlers, specpdl, "fset", call_args,
                         ))
                     };
-                    stk!().push(result);
+                    stk_push!(result);
                 }
                 Op::Get => {
                     let prop = stk!().pop().unwrap_or(Value::NIL);
@@ -1666,7 +1683,7 @@ impl<'a> Vm<'a> {
                             func, handlers, specpdl, "get", call_args,
                         ))
                     };
-                    stk!().push(result);
+                    stk_push!(result);
                 }
                 Op::Put => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
@@ -1686,7 +1703,7 @@ impl<'a> Vm<'a> {
                             func, handlers, specpdl, "put", call_args,
                         ))
                     };
-                    stk!().push(result);
+                    stk_push!(result);
                 }
 
                 // -- Error handling --
@@ -1769,9 +1786,9 @@ impl<'a> Vm<'a> {
                     if let Some(bc_data) = val.get_bytecode_data() {
                         let mut closure = bc_data.clone();
                         closure.env = Some(self.ctx.lexenv);
-                        stk!().push(Value::make_bytecode(closure));
+                        stk_push!(Value::make_bytecode(closure));
                     } else {
-                        stk!().push(val);
+                        stk_push!(val);
                     }
                 }
 
@@ -1801,7 +1818,7 @@ impl<'a> Vm<'a> {
                         &writeback_args,
                         &result,
                     );
-                    stk!().push(result);
+                    stk_push!(result);
                 }
             }
         }
