@@ -33,7 +33,7 @@ pub(crate) struct MajorMarkState {
     pub(crate) mark_rounds: u64,
     pub(crate) ephemerons_processed: bool,
     pub(crate) reclaim_prepared: bool,
-    pub(crate) prepared_major_reclaim: Option<PreparedMajorReclaim>,
+    pub(crate) prepared_reclaim: Option<PreparedReclaim>,
 }
 
 pub(crate) struct MajorMarkUpdate {
@@ -44,18 +44,18 @@ pub(crate) struct MajorMarkUpdate {
 }
 
 #[derive(Debug)]
-pub(crate) struct PreparedMajorSurvivor {
+pub(crate) struct PreparedReclaimSurvivor {
     pub(crate) object_index: usize,
     pub(crate) old_region_placement: Option<OldRegionPlacement>,
 }
 
 #[derive(Debug)]
-pub(crate) struct PreparedMajorReclaim {
+pub(crate) struct PreparedReclaim {
     pub(crate) rebuilt_old_regions: Vec<OldRegion>,
     pub(crate) rebuilt_object_index: HashMap<ObjectKey, usize>,
     pub(crate) old_reserved_bytes: usize,
     pub(crate) old_region_stats: OldRegionCollectionStats,
-    pub(crate) survivors: Vec<PreparedMajorSurvivor>,
+    pub(crate) survivors: Vec<PreparedReclaimSurvivor>,
     pub(crate) finalize_indices: Vec<usize>,
     pub(crate) weak_candidates: Vec<ObjectKey>,
     pub(crate) ephemeron_candidates: Vec<ObjectKey>,
@@ -127,7 +127,7 @@ impl CollectorState {
             mark_rounds: 0,
             ephemerons_processed: false,
             reclaim_prepared: false,
-            prepared_major_reclaim: None,
+            prepared_reclaim: None,
         });
     }
 
@@ -138,7 +138,7 @@ impl CollectorState {
         state.worklist.push(index);
         state.ephemerons_processed = false;
         state.reclaim_prepared = false;
-        state.prepared_major_reclaim = None;
+        state.prepared_reclaim = None;
         true
     }
 
@@ -164,7 +164,7 @@ impl CollectorState {
     pub(crate) fn active_major_mark_has_prepared_reclaim(&self) -> bool {
         self.major_mark_state
             .as_ref()
-            .is_some_and(|state| state.prepared_major_reclaim.is_some())
+            .is_some_and(|state| state.prepared_reclaim.is_some())
     }
 
     pub(crate) fn active_major_mark_ephemerons_processed(&self) -> bool {
@@ -194,7 +194,7 @@ impl CollectorState {
         &mut self,
         mark_steps_delta: u64,
         mark_rounds_delta: u64,
-        prepared_major_reclaim: PreparedMajorReclaim,
+        prepared_reclaim: PreparedReclaim,
     ) -> bool {
         let Some(state) = self.major_mark_state.as_mut() else {
             return false;
@@ -206,7 +206,7 @@ impl CollectorState {
         state.mark_rounds = state.mark_rounds.saturating_add(mark_rounds_delta);
         state.ephemerons_processed = true;
         state.reclaim_prepared = true;
-        state.prepared_major_reclaim = Some(prepared_major_reclaim);
+        state.prepared_reclaim = Some(prepared_reclaim);
         true
     }
 
@@ -225,7 +225,7 @@ impl CollectorState {
         if !state.worklist.is_empty() {
             state.ephemerons_processed = false;
             state.reclaim_prepared = false;
-            state.prepared_major_reclaim = None;
+            state.prepared_reclaim = None;
         }
 
         let progress = MajorMarkProgress {

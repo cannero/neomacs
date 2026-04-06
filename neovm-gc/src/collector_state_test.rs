@@ -24,8 +24,8 @@ fn full_plan() -> CollectionPlan {
     }
 }
 
-fn prepared_major_reclaim() -> PreparedMajorReclaim {
-    PreparedMajorReclaim {
+fn prepared_reclaim() -> PreparedReclaim {
+    PreparedReclaim {
         rebuilt_old_regions: Vec::new(),
         rebuilt_object_index: std::collections::HashMap::new(),
         old_reserved_bytes: 0,
@@ -33,7 +33,7 @@ fn prepared_major_reclaim() -> PreparedMajorReclaim {
             compacted_regions: 1,
             reclaimed_regions: 0,
         },
-        survivors: vec![PreparedMajorSurvivor {
+        survivors: vec![PreparedReclaimSurvivor {
             object_index: 0,
             old_region_placement: None,
         }],
@@ -145,7 +145,7 @@ fn major_ready_requires_reclaim_prep_after_worklist_drains() {
         CollectionPhase::Remark
     );
 
-    assert!(state.complete_active_major_reclaim_prep(2, 3, prepared_major_reclaim()));
+    assert!(state.complete_active_major_reclaim_prep(2, 3, prepared_reclaim()));
     assert!(state.active_major_mark_is_ready());
     assert!(state.active_major_mark_reclaim_prepared());
     assert!(state.active_major_mark_has_prepared_reclaim());

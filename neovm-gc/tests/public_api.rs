@@ -1094,6 +1094,61 @@ fn public_api_persistent_major_mark_session_advances_and_finishes() {
 }
 
 #[test]
+fn public_api_persistent_full_mark_session_finishes_with_evacuated_nursery_survivor() {
+    let mut heap = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            promotion_age: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: 64,
+            soft_limit_bytes: usize::MAX,
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut scope = mutator.handle_scope();
+    let leaf = mutator
+        .alloc(&mut scope, Leaf(577))
+        .expect("alloc nursery leaf");
+    let initial_gc = leaf.as_gc();
+
+    let plan = neovm_gc::CollectionPlan {
+        mark_slice_budget: 1,
+        ..mutator.plan_for(CollectionKind::Full)
+    };
+    mutator
+        .begin_major_mark(plan.clone())
+        .expect("begin persistent full mark");
+
+    loop {
+        let progress = mutator
+            .advance_major_mark()
+            .expect("advance persistent full mark");
+        if progress.completed {
+            break;
+        }
+    }
+
+    let cycle = mutator
+        .finish_major_collection()
+        .expect("finish persistent full mark");
+    assert_eq!(cycle.major_collections, 1);
+    assert!(cycle.promoted_bytes > 0);
+    assert_ne!(leaf.as_gc(), initial_gc);
+    assert_eq!(unsafe { leaf.as_gc().as_non_null().as_ref() }.0, 577);
+    assert_eq!(mutator.heap().stats().nursery.live_bytes, 0);
+    assert!(mutator.heap().stats().old.live_bytes > 0);
+    assert_eq!(
+        mutator.heap().last_completed_plan(),
+        Some(neovm_gc::CollectionPlan {
+            phase: CollectionPhase::Reclaim,
+            ..plan
+        })
+    );
+}
+
+#[test]
 fn public_api_persistent_major_mark_root_keeps_existing_object() {
     let mut heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {

@@ -9,8 +9,8 @@ use std::thread;
 use crate::background::{BackgroundCollectorConfig, BackgroundService, SharedHeap};
 use crate::barrier::{BarrierEvent, BarrierKind, RememberedEdge};
 use crate::collector_state::{
-    CollectorSharedSnapshot, CollectorState, MajorMarkUpdate, PreparedMajorReclaim,
-    PreparedMajorSurvivor,
+    CollectorSharedSnapshot, CollectorState, MajorMarkUpdate, PreparedReclaim,
+    PreparedReclaimSurvivor,
 };
 use crate::descriptor::{
     EphemeronVisitor, GcErased, ObjectKey, Relocator, Trace, Tracer, TypeDesc, TypeFlags,
@@ -473,16 +473,16 @@ impl Heap {
                 &self.object_index,
             );
         }
-        let prepared_major_reclaim = if state.plan.kind == CollectionKind::Major {
-            state.prepared_major_reclaim.take()
+        let prepared_reclaim = if state.reclaim_prepared {
+            state.prepared_reclaim.take()
         } else {
-            None
+            Some(self.prepare_reclaim(state.plan.kind, &state.plan))
         };
         self.record_phase(CollectionPhase::Reclaim);
         let (finalized_objects, old_region_stats) = self.sweep_and_rebuild_post_collection(
             state.plan.kind,
             Some(state.plan.clone()),
-            prepared_major_reclaim,
+            prepared_reclaim,
         );
         let after_bytes = self.total_tracked_bytes();
         let cycle = CollectionStats {
@@ -587,7 +587,7 @@ impl Heap {
                     &empty_forwarding,
                     &self.object_index,
                 );
-                let prepared_reclaim = self.prepare_major_reclaim(&active_plan);
+                let prepared_reclaim = self.prepare_reclaim(CollectionKind::Major, &active_plan);
                 collector.complete_active_major_reclaim_prep(
                     ephemeron_steps,
                     ephemeron_rounds,
@@ -796,9 +796,13 @@ impl Heap {
                     &empty_forwarding,
                     &self.object_index,
                 );
+                let prepared_reclaim = self.prepare_reclaim(plan.kind, &plan);
                 self.record_phase(CollectionPhase::Reclaim);
-                let (finalized_objects, old_region_stats) =
-                    self.sweep_and_rebuild_post_collection(plan.kind, Some(plan.clone()), None);
+                let (finalized_objects, old_region_stats) = self.sweep_and_rebuild_post_collection(
+                    plan.kind,
+                    Some(plan.clone()),
+                    Some(prepared_reclaim),
+                );
                 let after_bytes = self.total_tracked_bytes();
                 CollectionStats {
                     collections: 1,
@@ -823,9 +827,13 @@ impl Heap {
                     &evacuation.forwarding,
                     &self.object_index,
                 );
+                let prepared_reclaim = self.prepare_reclaim(plan.kind, &plan);
                 self.record_phase(CollectionPhase::Reclaim);
-                let (finalized_objects, old_region_stats) =
-                    self.sweep_and_rebuild_post_collection(plan.kind, Some(plan.clone()), None);
+                let (finalized_objects, old_region_stats) = self.sweep_and_rebuild_post_collection(
+                    plan.kind,
+                    Some(plan.clone()),
+                    Some(prepared_reclaim),
+                );
                 let after_bytes = self.total_tracked_bytes();
                 CollectionStats {
                     collections: 1,
@@ -1404,10 +1412,10 @@ impl Heap {
         &mut self,
         kind: CollectionKind,
         completed_plan: Option<CollectionPlan>,
-        prepared_major_reclaim: Option<PreparedMajorReclaim>,
+        prepared_reclaim: Option<PreparedReclaim>,
     ) -> (u64, OldRegionCollectionStats) {
-        let has_prepared_major_reclaim = prepared_major_reclaim.is_some();
-        let prepared_survivor_count = prepared_major_reclaim
+        let has_prepared_reclaim = prepared_reclaim.is_some();
+        let prepared_survivor_count = prepared_reclaim
             .as_ref()
             .map(|prepared| prepared.survivors.len());
         self.stats.nursery.live_bytes = 0;
@@ -1419,19 +1427,19 @@ impl Heap {
         self.stats.immortal.reserved_bytes = 0;
 
         let old_objects = core::mem::take(&mut self.objects);
-        let mut old_region_rebuild = if !has_prepared_major_reclaim {
+        let mut old_region_rebuild = if !has_prepared_reclaim {
             self.prepare_old_region_rebuild(completed_plan.as_ref())
         } else {
             None
         };
-        if !has_prepared_major_reclaim {
+        if !has_prepared_reclaim {
             self.object_index.clear();
             self.object_index
                 .reserve(prepared_survivor_count.unwrap_or(old_objects.len()));
         }
         self.weak_candidates.clear();
         self.ephemeron_candidates.clear();
-        if !has_prepared_major_reclaim {
+        if !has_prepared_reclaim {
             self.weak_candidates.reserve(old_objects.len());
             self.ephemeron_candidates.reserve(old_objects.len());
         }
@@ -1439,7 +1447,7 @@ impl Heap {
         let mut rebuilt_objects =
             Vec::with_capacity(prepared_survivor_count.unwrap_or(old_objects.len()));
         let mut finalized_objects = 0u64;
-        if let Some(prepared) = prepared_major_reclaim.as_ref() {
+        if let Some(prepared) = prepared_reclaim.as_ref() {
             let mut survivor_iter = prepared.survivors.iter().peekable();
             let mut finalize_iter = prepared.finalize_indices.iter().copied().peekable();
             for (object_index, mut object) in old_objects.into_iter().enumerate() {
@@ -1536,7 +1544,7 @@ impl Heap {
             }
         }
         self.objects = rebuilt_objects;
-        let old_region_stats = if let Some(prepared) = prepared_major_reclaim {
+        let old_region_stats = if let Some(prepared) = prepared_reclaim {
             self.old_regions = prepared.rebuilt_old_regions;
             self.object_index = prepared.rebuilt_object_index;
             self.weak_candidates = prepared.weak_candidates;
@@ -1559,14 +1567,14 @@ impl Heap {
             }
             old_region_stats
         };
-        if !has_prepared_major_reclaim {
+        if !has_prepared_reclaim {
             self.stats.old.reserved_bytes = self
                 .old_regions
                 .iter()
                 .map(|region| region.capacity_bytes)
                 .sum();
         }
-        if !has_prepared_major_reclaim {
+        if !has_prepared_reclaim {
             let object_index = &self.object_index;
             let objects = &self.objects;
             self.remembered_edges.retain(|edge| {
@@ -1840,7 +1848,7 @@ impl Heap {
         prepare_old_region_rebuild_for_plan(&previous_regions, completed_plan)
     }
 
-    fn prepare_major_reclaim(&self, plan: &CollectionPlan) -> PreparedMajorReclaim {
+    fn prepare_reclaim(&self, kind: CollectionKind, plan: &CollectionPlan) -> PreparedReclaim {
         let mut rebuild = prepare_old_region_rebuild_for_plan(&self.old_regions, Some(plan))
             .expect("major reclaim preparation requires a major/full plan");
         let mut survivors = Vec::new();
@@ -1857,7 +1865,7 @@ impl Heap {
         for (object_index, object) in self.objects.iter().enumerate() {
             let object_key = object.object_key();
             let desc = object.header().desc();
-            if !Self::keep_object_for_collection(CollectionKind::Major, object) {
+            if !Self::keep_object_for_collection(kind, object) {
                 if !object.header().is_moved_out() && desc.flags.contains(TypeFlags::FINALIZABLE) {
                     finalize_indices.push(object_index);
                 }
@@ -1913,7 +1921,7 @@ impl Heap {
                 }
                 _ => None,
             };
-            survivors.push(PreparedMajorSurvivor {
+            survivors.push(PreparedReclaimSurvivor {
                 object_index,
                 old_region_placement,
             });
@@ -1959,14 +1967,14 @@ impl Heap {
                 };
                 let owner = &self.objects[owner_index];
                 let target = &self.objects[target_index];
-                Self::keep_object_for_collection(CollectionKind::Major, owner)
+                Self::keep_object_for_collection(kind, owner)
                     && owner.space() != SpaceKind::Nursery
                     && owner.space() != SpaceKind::Immortal
-                    && Self::keep_object_for_collection(CollectionKind::Major, target)
+                    && Self::keep_object_for_collection(kind, target)
                     && target.space() == SpaceKind::Nursery
             })
             .collect();
-        PreparedMajorReclaim {
+        PreparedReclaim {
             rebuilt_old_regions,
             rebuilt_object_index,
             old_reserved_bytes,
@@ -2096,7 +2104,7 @@ impl Heap {
 
     fn finish_prepared_old_region_rebuild(
         rebuild: OldRegionRebuildState,
-        survivors: &mut [PreparedMajorSurvivor],
+        survivors: &mut [PreparedReclaimSurvivor],
     ) -> (Vec<OldRegion>, OldRegionCollectionStats) {
         let provisional_compacted_base = rebuild.compacted_base_index;
         let mut preserved_index_remap = vec![None; provisional_compacted_base];
