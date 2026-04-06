@@ -7,7 +7,7 @@ use std::thread;
 
 use crate::background::{BackgroundCollectorConfig, BackgroundService, SharedHeap};
 use crate::barrier::{BarrierEvent, BarrierKind, RememberedEdge};
-use crate::collector_state::{CollectorSharedSnapshot, CollectorState, MajorMarkState};
+use crate::collector_state::{CollectorSharedSnapshot, CollectorState, MajorMarkUpdate};
 use crate::descriptor::{
     EphemeronVisitor, GcErased, Relocator, Trace, Tracer, TypeDesc, WeakProcessor, fixed_type_desc,
 };
@@ -314,44 +314,27 @@ impl Heap {
         let mut tracer = MarkTracer::new(&self.objects, &index);
         self.for_each_global_source(|object| tracer.mark_erased(object));
 
-        self.collector.begin_major_mark(MajorMarkState {
-            plan,
-            worklist: tracer.into_worklist(),
-            mark_steps: 0,
-            mark_rounds: 0,
-        });
+        self.collector
+            .begin_major_mark(plan, tracer.into_worklist());
         self.refresh_recommended_plans();
         Ok(())
     }
 
     /// Advance one slice of the current persistent major-mark session.
     pub fn advance_major_mark(&mut self) -> Result<MajorMarkProgress, AllocError> {
-        let Some(mut state) = self.collector.take_major_mark_state() else {
-            return Err(AllocError::NoCollectionInProgress);
-        };
-
         let index = self.object_index();
-        let mut tracer = MarkTracer::with_worklist(&self.objects, &index, state.worklist);
-        let drained_objects = tracer.drain_one_slice(state.plan.mark_slice_budget);
-        if drained_objects > 0 {
-            state.mark_steps = state.mark_steps.saturating_add(1);
-            state.mark_rounds = state.mark_rounds.saturating_add(1);
-        }
-        let remaining_work = tracer.pending_count();
-        let completed = remaining_work == 0;
-        state.worklist = tracer.into_worklist();
-        let mark_steps = state.mark_steps;
-        let mark_rounds = state.mark_rounds;
-        self.collector.restore_major_mark_state(state);
+        let progress = self.collector.update_active_major_mark(|plan, worklist| {
+            let mut tracer = MarkTracer::with_worklist(&self.objects, &index, worklist);
+            let drained_objects = tracer.drain_one_slice(plan.mark_slice_budget);
+            MajorMarkUpdate {
+                worklist: tracer.into_worklist(),
+                drained_objects,
+                mark_steps_delta: u64::from(drained_objects > 0),
+                mark_rounds_delta: u64::from(drained_objects > 0),
+            }
+        })?;
         self.refresh_recommended_plans();
-
-        Ok(MajorMarkProgress {
-            completed,
-            drained_objects,
-            mark_steps,
-            mark_rounds,
-            remaining_work,
-        })
+        Ok(progress)
     }
 
     /// Finish the current persistent major-mark session and reclaim.
@@ -459,43 +442,30 @@ impl Heap {
 
     /// Advance one scheduler-style concurrent major-mark round using the plan worker count.
     pub fn poll_active_major_mark(&mut self) -> Result<Option<MajorMarkProgress>, AllocError> {
-        let Some(mut state) = self.collector.take_major_mark_state() else {
+        if !self.collector.has_active_major_mark() {
             return Ok(None);
-        };
-
-        let index = self.object_index();
-        let mut tracer = MarkTracer::with_worklist(&self.objects, &index, state.worklist);
-        let (drained_objects, drained_slices) =
-            tracer.drain_worker_round(state.plan.worker_count.max(1), state.plan.mark_slice_budget);
-        state.mark_steps = state.mark_steps.saturating_add(drained_slices);
-        if drained_objects > 0 {
-            state.mark_rounds = state.mark_rounds.saturating_add(1);
         }
-        let remaining_work = tracer.pending_count();
-        let completed = remaining_work == 0;
-        state.worklist = tracer.into_worklist();
-        let mark_steps = state.mark_steps;
-        let mark_rounds = state.mark_rounds;
-        self.collector.restore_major_mark_state(state);
+        let index = self.object_index();
+        let progress = self.collector.update_active_major_mark(|plan, worklist| {
+            let mut tracer = MarkTracer::with_worklist(&self.objects, &index, worklist);
+            let (drained_objects, drained_slices) =
+                tracer.drain_worker_round(plan.worker_count.max(1), plan.mark_slice_budget);
+            MajorMarkUpdate {
+                worklist: tracer.into_worklist(),
+                drained_objects,
+                mark_steps_delta: drained_slices,
+                mark_rounds_delta: u64::from(drained_objects > 0),
+            }
+        })?;
         self.refresh_recommended_plans();
-
-        Ok(Some(MajorMarkProgress {
-            completed,
-            drained_objects,
-            mark_steps,
-            mark_rounds,
-            remaining_work,
-        }))
+        Ok(Some(progress))
     }
 
     /// Finish the active major collection if its mark work is fully drained.
     pub fn finish_active_major_collection_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, AllocError> {
-        let Some(state) = self.collector.active_major_mark_state() else {
-            return Ok(None);
-        };
-        if !state.worklist.is_empty() {
+        if !self.collector.active_major_mark_is_ready() {
             return Ok(None);
         }
         self.finish_major_collection().map(Some)
@@ -2205,10 +2175,6 @@ impl<'a> MarkTracer<'a> {
         if object.mark_if_unmarked() {
             self.worklist.push(index);
         }
-    }
-
-    fn pending_count(&self) -> usize {
-        self.worklist.len()
     }
 
     fn drain_one_slice(&mut self, slice_budget: usize) -> usize {

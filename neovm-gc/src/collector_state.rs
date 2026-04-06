@@ -1,3 +1,4 @@
+use crate::heap::AllocError;
 use crate::mark::MarkWorklist;
 use crate::plan::{CollectionPhase, CollectionPlan, MajorMarkProgress};
 
@@ -25,6 +26,13 @@ pub(crate) struct MajorMarkState {
     pub(crate) worklist: MarkWorklist<usize>,
     pub(crate) mark_steps: u64,
     pub(crate) mark_rounds: u64,
+}
+
+pub(crate) struct MajorMarkUpdate {
+    pub(crate) worklist: MarkWorklist<usize>,
+    pub(crate) drained_objects: usize,
+    pub(crate) mark_steps_delta: u64,
+    pub(crate) mark_rounds_delta: u64,
 }
 
 impl CollectorState {
@@ -75,24 +83,52 @@ impl CollectorState {
         self.major_mark_state.is_some()
     }
 
-    pub(crate) fn active_major_mark_state(&self) -> Option<&MajorMarkState> {
-        self.major_mark_state.as_ref()
-    }
-
     pub(crate) fn active_major_mark_state_mut(&mut self) -> Option<&mut MajorMarkState> {
         self.major_mark_state.as_mut()
     }
 
-    pub(crate) fn begin_major_mark(&mut self, state: MajorMarkState) {
-        self.major_mark_state = Some(state);
+    pub(crate) fn begin_major_mark(&mut self, plan: CollectionPlan, worklist: MarkWorklist<usize>) {
+        self.major_mark_state = Some(MajorMarkState {
+            plan,
+            worklist,
+            mark_steps: 0,
+            mark_rounds: 0,
+        });
     }
 
     pub(crate) fn take_major_mark_state(&mut self) -> Option<MajorMarkState> {
         self.major_mark_state.take()
     }
 
-    pub(crate) fn restore_major_mark_state(&mut self, state: MajorMarkState) {
+    pub(crate) fn active_major_mark_is_ready(&self) -> bool {
+        self.major_mark_state
+            .as_ref()
+            .is_some_and(|state| state.worklist.is_empty())
+    }
+
+    pub(crate) fn update_active_major_mark(
+        &mut self,
+        update: impl FnOnce(&CollectionPlan, MarkWorklist<usize>) -> MajorMarkUpdate,
+    ) -> Result<MajorMarkProgress, AllocError> {
+        let Some(mut state) = self.major_mark_state.take() else {
+            return Err(AllocError::NoCollectionInProgress);
+        };
+
+        let update = update(&state.plan, state.worklist);
+        state.worklist = update.worklist;
+        state.mark_steps = state.mark_steps.saturating_add(update.mark_steps_delta);
+        state.mark_rounds = state.mark_rounds.saturating_add(update.mark_rounds_delta);
+
+        let progress = MajorMarkProgress {
+            completed: state.worklist.is_empty(),
+            drained_objects: update.drained_objects,
+            mark_steps: state.mark_steps,
+            mark_rounds: state.mark_rounds,
+            remaining_work: state.worklist.len(),
+        };
+
         self.major_mark_state = Some(state);
+        Ok(progress)
     }
 
     pub(crate) fn recommended_plan(&self) -> CollectionPlan {
