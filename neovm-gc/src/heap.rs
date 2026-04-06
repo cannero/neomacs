@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 use crate::background::{BackgroundCollectorConfig, BackgroundService, SharedHeap};
 use crate::barrier::{BarrierEvent, BarrierKind};
 use crate::collector_exec::{
-    ForwardingRelocator, MajorMarkSession, MarkTracer, MinorTracer, process_weak_references,
-    trace_major_ephemerons, trace_minor_ephemerons,
+    MajorMarkSession, MarkTracer, MinorTracer, process_weak_references, trace_major_ephemerons,
+    trace_minor_ephemerons,
 };
 use crate::collector_session::{
     active_reclaim_prep_request, advance_major_mark_slice, begin_major_mark,
@@ -16,7 +16,7 @@ use crate::collector_session::{
     poll_active_major_mark_round, prepare_active_reclaim,
 };
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
-use crate::descriptor::{GcErased, Relocator, Trace, Tracer, TypeDesc, fixed_type_desc};
+use crate::descriptor::{GcErased, Trace, Tracer, TypeDesc, fixed_type_desc};
 use crate::index_state::{ForwardingMap, HeapIndexState, ObjectIndex};
 use crate::mark::MarkWorklist;
 use crate::mutator::Mutator;
@@ -34,6 +34,10 @@ use crate::reclaim::{
 use crate::root::{HandleScope, Root, RootStack};
 use crate::runtime::CollectorRuntime;
 use crate::runtime_state::RuntimeState;
+use crate::spaces::nursery::{
+    evacuate_marked_nursery as evacuate_nursery_space,
+    relocate_roots_and_edges as relocate_forwarded_roots_and_edges,
+};
 use crate::spaces::{
     LargeObjectSpaceConfig, NurseryConfig, OldGenConfig, OldGenPlanSelection, OldGenState,
     PinnedSpaceConfig,
@@ -105,11 +109,6 @@ pub struct Heap {
 // pointers. Concurrent access is still not allowed without external synchronization, so `Heap` is
 // `Send` but intentionally not `Sync`.
 unsafe impl Send for Heap {}
-
-struct EvacuationOutcome {
-    forwarding: ForwardingMap,
-    promoted_bytes: usize,
-}
 
 impl Heap {
     /// Create a new heap with `config`.
@@ -767,8 +766,20 @@ impl Heap {
         let mut cycle = match plan.kind {
             CollectionKind::Minor => {
                 self.record_phase(CollectionPhase::Evacuate);
-                let evacuation = self.evacuate_marked_nursery()?;
-                self.relocate_roots_and_edges(&evacuation.forwarding);
+                let evacuation = evacuate_nursery_space(
+                    &mut self.objects,
+                    &mut self.indexes,
+                    &mut self.old_gen,
+                    &self.config.old,
+                    &self.config.nursery,
+                    &mut self.stats,
+                )?;
+                relocate_forwarded_roots_and_edges(
+                    &mut self.roots,
+                    &self.objects,
+                    &mut self.indexes,
+                    &evacuation.forwarding,
+                );
                 self.process_weak_references(
                     plan.kind,
                     plan.worker_count.max(1),
@@ -1220,84 +1231,6 @@ impl Heap {
         )
     }
 
-    fn evacuate_marked_nursery(&mut self) -> Result<EvacuationOutcome, AllocError> {
-        let mut forwarding = HashMap::new();
-        let mut evacuated: Vec<(ObjectRecord, SpaceKind)> = Vec::new();
-        let mut promoted_bytes = 0usize;
-
-        for object in &self.objects {
-            if object.space() == SpaceKind::Nursery && object.is_marked() {
-                let next_age = object.header().age().saturating_add(1);
-                let target_space = if next_age >= self.config.nursery.promotion_age {
-                    match object.header().desc().move_policy {
-                        crate::descriptor::MovePolicy::PromoteToPinned => SpaceKind::Pinned,
-                        _ => SpaceKind::Old,
-                    }
-                } else {
-                    SpaceKind::Nursery
-                };
-                let new_record = object.evacuate_to_space(target_space)?;
-                new_record.set_marked(true);
-                forwarding.insert(object.object_key(), new_record.erased());
-                evacuated.push((new_record, target_space));
-            }
-        }
-
-        let mut records = Vec::with_capacity(evacuated.len());
-        for (mut new_record, target_space) in evacuated {
-            if target_space == SpaceKind::Old {
-                let placement = self
-                    .old_gen
-                    .allocate_placement(&self.config.old, new_record.total_size());
-                new_record.set_old_region_placement(placement);
-                self.old_gen.record_object(&new_record);
-                self.stats.old.reserved_bytes = self.old_gen.reserved_bytes();
-                promoted_bytes = promoted_bytes.saturating_add(new_record.total_size());
-            }
-            records.push(new_record);
-        }
-
-        let start = self.objects.len();
-        self.objects.extend(records);
-        for index in start..self.objects.len() {
-            let object_key = self.objects[index].object_key();
-            self.indexes.object_index.insert(object_key, index);
-            let desc = self.objects[index].header().desc();
-            self.indexes.record_descriptor_candidates(object_key, desc);
-        }
-        Ok(EvacuationOutcome {
-            forwarding,
-            promoted_bytes,
-        })
-    }
-
-    fn relocate_roots_and_edges(&mut self, forwarding: &ForwardingMap) {
-        if forwarding.is_empty() {
-            return;
-        }
-
-        let mut relocator = ForwardingRelocator::new(forwarding);
-        self.roots.relocate_all(&mut relocator);
-
-        for object in &self.objects {
-            let copied_nursery_survivor = object.space() == SpaceKind::Nursery
-                && object.is_marked()
-                && !object.header().is_moved_out();
-            if object.space() != SpaceKind::Nursery || copied_nursery_survivor {
-                object.relocate_edges(&mut relocator);
-            }
-        }
-
-        for edge in &mut self.indexes.remembered_edges {
-            edge.owner = unsafe {
-                crate::root::Gc::from_erased(relocator.relocate_erased(edge.owner.erase()))
-            };
-            edge.target = unsafe {
-                crate::root::Gc::from_erased(relocator.relocate_erased(edge.target.erase()))
-            };
-        }
-    }
-
     fn sweep_minor_and_rebuild_post_collection(
         &mut self,
         kind: CollectionKind,
@@ -1426,10 +1359,24 @@ impl Heap {
             self,
             plan,
             |heap| {
-                let evacuation = heap.evacuate_marked_nursery()?;
+                let evacuation = evacuate_nursery_space(
+                    &mut heap.objects,
+                    &mut heap.indexes,
+                    &mut heap.old_gen,
+                    &heap.config.old,
+                    &heap.config.nursery,
+                    &mut heap.stats,
+                )?;
                 Ok((evacuation.forwarding, evacuation.promoted_bytes))
             },
-            |heap, forwarding| heap.relocate_roots_and_edges(forwarding),
+            |heap, forwarding| {
+                relocate_forwarded_roots_and_edges(
+                    &mut heap.roots,
+                    &heap.objects,
+                    &mut heap.indexes,
+                    forwarding,
+                )
+            },
             |heap, plan, forwarding| {
                 heap.process_weak_references(
                     plan.kind,
