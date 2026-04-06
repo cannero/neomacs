@@ -539,7 +539,7 @@ impl SharedHeap {
         Ok(())
     }
 
-    fn observe_collector_snapshot(
+    pub(crate) fn observe_collector_snapshot(
         &self,
     ) -> Result<(u64, CollectorSharedSnapshot), SharedHeapError> {
         loop {
@@ -1262,13 +1262,7 @@ impl BackgroundCollector {
         &mut self,
         runtime: &SharedCollectorRuntime,
     ) -> Result<BackgroundCollectionStatus, SharedBackgroundError> {
-        let snapshot = runtime
-            .heap()
-            .collector_snapshot()
-            .map_err(|error| match error {
-                SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-                SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-            })?;
+        let snapshot = runtime.collector_snapshot()?;
         if let Some(status) = self.snapshot_tick(&snapshot) {
             return Ok(status);
         }
@@ -1288,13 +1282,7 @@ impl BackgroundCollector {
         &mut self,
         runtime: &SharedCollectorRuntime,
     ) -> Result<BackgroundCollectionStatus, SharedBackgroundError> {
-        let snapshot = runtime
-            .heap()
-            .collector_snapshot()
-            .map_err(|error| match error {
-                SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-                SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-            })?;
+        let snapshot = runtime.collector_snapshot()?;
         if let Some(status) = self.snapshot_tick(&snapshot) {
             return Ok(status);
         }
@@ -1671,15 +1659,15 @@ fn worker_loop(
 ) -> Result<(), BackgroundWorkerError> {
     let mut collector = BackgroundCollector::new(config.collector);
     let runtime = shared.collector_runtime();
-    let (mut observed_signal_epoch, mut observed_background) = shared
+    let (mut observed_signal_epoch, mut observed_background) = runtime
         .observe_collector_snapshot()
         .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
 
-    let sync_observed_background = |shared: &SharedHeap,
+    let sync_observed_background = |runtime: &SharedCollectorRuntime,
                                     observed_signal_epoch: &mut u64,
                                     observed_background: &mut CollectorSharedSnapshot|
      -> Result<(), BackgroundWorkerError> {
-        let (epoch, snapshot) = shared
+        let (epoch, snapshot) = runtime
             .observe_collector_snapshot()
             .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
         *observed_signal_epoch = epoch;
@@ -1689,6 +1677,7 @@ fn worker_loop(
 
     let wait_for_signal = |stats: &Arc<BackgroundWorkerCounters>,
                            shared: &SharedHeap,
+                           runtime: &SharedCollectorRuntime,
                            stop: &Arc<AtomicBool>,
                            observed_signal_epoch: &mut u64,
                            observed_background: &mut CollectorSharedSnapshot,
@@ -1717,7 +1706,7 @@ fn worker_loop(
                 return Ok(());
             }
 
-            let next_background = shared
+            let next_background = runtime
                 .collector_snapshot()
                 .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
             if next_background != *observed_background {
@@ -1749,7 +1738,7 @@ fn worker_loop(
             }
             stats.store_collector(collector.stats());
             sync_observed_background(
-                &shared,
+                &runtime,
                 &mut observed_signal_epoch,
                 &mut observed_background,
             )?;
@@ -1762,6 +1751,7 @@ fn worker_loop(
             wait_for_signal(
                 &stats,
                 &shared,
+                &runtime,
                 &stop,
                 &mut observed_signal_epoch,
                 &mut observed_background,
@@ -1787,7 +1777,7 @@ fn worker_loop(
                 }
                 stats.store_collector(collector.stats());
                 sync_observed_background(
-                    &shared,
+                    &runtime,
                     &mut observed_signal_epoch,
                     &mut observed_background,
                 )?;
@@ -1798,6 +1788,7 @@ fn worker_loop(
                 wait_for_signal(
                     &stats,
                     &shared,
+                    &runtime,
                     &stop,
                     &mut observed_signal_epoch,
                     &mut observed_background,
@@ -1808,7 +1799,7 @@ fn worker_loop(
         };
 
         sync_observed_background(
-            &shared,
+            &runtime,
             &mut observed_signal_epoch,
             &mut observed_background,
         )?;
@@ -1823,6 +1814,7 @@ fn worker_loop(
         wait_for_signal(
             &stats,
             &shared,
+            &runtime,
             &stop,
             &mut observed_signal_epoch,
             &mut observed_background,

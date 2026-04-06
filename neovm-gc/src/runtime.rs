@@ -1,6 +1,7 @@
 use crate::background::{
     BackgroundCollectionRuntime, SharedBackgroundError, SharedHeap, SharedHeapError,
 };
+use crate::collector_state::CollectorSharedSnapshot;
 use crate::heap::{AllocError, Heap};
 use crate::plan::{BackgroundCollectionStatus, CollectionPlan, MajorMarkProgress};
 use crate::stats::{CollectionStats, HeapStats};
@@ -117,6 +118,24 @@ impl SharedCollectorRuntime {
             .map_err(Self::map_shared_heap_error)
     }
 
+    /// Return one consistent collector-visible shared snapshot.
+    pub(crate) fn collector_snapshot(
+        &self,
+    ) -> Result<CollectorSharedSnapshot, SharedBackgroundError> {
+        self.heap
+            .collector_snapshot()
+            .map_err(Self::map_shared_heap_error)
+    }
+
+    /// Return one consistent observation of background epoch and collector-visible shared state.
+    pub(crate) fn observe_collector_snapshot(
+        &self,
+    ) -> Result<(u64, CollectorSharedSnapshot), SharedBackgroundError> {
+        self.heap
+            .observe_collector_snapshot()
+            .map_err(Self::map_shared_heap_error)
+    }
+
     /// Begin a persistent major-mark session for one scheduler-provided plan.
     pub fn begin_major_mark(&self, plan: CollectionPlan) -> Result<(), SharedBackgroundError> {
         let collector_snapshot = self
@@ -177,10 +196,7 @@ impl SharedCollectorRuntime {
     pub fn finish_active_major_collection_if_ready(
         &self,
     ) -> Result<Option<CollectionStats>, SharedBackgroundError> {
-        let snapshot = self
-            .heap
-            .collector_snapshot()
-            .map_err(Self::map_shared_heap_error)?;
+        let snapshot = self.collector_snapshot()?;
         if snapshot.active_major_mark_plan.is_none() {
             return Ok(None);
         }
@@ -201,10 +217,7 @@ impl SharedCollectorRuntime {
     pub fn try_finish_active_major_collection_if_ready(
         &self,
     ) -> Result<Option<CollectionStats>, SharedBackgroundError> {
-        let snapshot = self
-            .heap
-            .collector_snapshot()
-            .map_err(Self::map_shared_heap_error)?;
+        let snapshot = self.collector_snapshot()?;
         if snapshot.active_major_mark_plan.is_none() {
             return Ok(None);
         }
