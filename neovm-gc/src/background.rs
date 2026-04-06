@@ -1363,10 +1363,14 @@ impl SharedBackgroundService {
         {
             return Ok(None);
         }
-        self.heap
-            .with_runtime(|runtime| runtime.finish_active_major_collection_if_ready())
-            .map_err(|_| SharedBackgroundError::LockPoisoned)?
-            .map_err(SharedBackgroundError::Collection)
+        match self
+            .heap
+            .try_with_runtime(|runtime| runtime.finish_active_major_collection_if_ready())
+        {
+            Ok(result) => result.map_err(SharedBackgroundError::Collection),
+            Err(SharedHeapError::LockPoisoned) => Err(SharedBackgroundError::LockPoisoned),
+            Err(SharedHeapError::WouldBlock) => Ok(None),
+        }
     }
 
     /// Finish the active major collection if its mark work is fully drained, without blocking on

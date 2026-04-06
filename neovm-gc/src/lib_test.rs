@@ -4770,6 +4770,53 @@ fn shared_background_service_try_finish_returns_none_from_snapshot_for_active_no
 }
 
 #[test]
+fn shared_background_service_finish_returns_none_from_snapshot_for_completed_active_session_when_heap_is_locked()
+ {
+    let shared = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        old: crate::spaces::OldGenConfig {
+            concurrent_mark_workers: 4,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for byte in 0..64u8 {
+                mutator
+                    .alloc(&mut scope, OldLeaf([byte; 32]))
+                    .expect("allocate old leaf");
+            }
+            let plan = mutator.plan_for(CollectionKind::Major);
+            mutator.begin_major_mark(plan).expect("begin major mark");
+            loop {
+                let progress = mutator
+                    .poll_active_major_mark()
+                    .expect("poll active major mark")
+                    .expect("major-mark session should stay active");
+                if progress.completed {
+                    break;
+                }
+            }
+        })
+        .expect("seed completed major-mark session");
+
+    let mut service = shared.background_service(BackgroundCollectorConfig::default());
+    let _guard = shared.lock().expect("lock shared heap");
+
+    assert_eq!(service.finish_active_major_collection_if_ready(), Ok(None));
+}
+
+#[test]
 fn shared_background_service_tick_returns_ready_from_snapshot_for_completed_active_session() {
     let shared = Heap::new(HeapConfig {
         nursery: NurseryConfig {
