@@ -4397,6 +4397,9 @@ The mode's hook is called both when the mode is enabled and when it is
 disabled.
 
 (fn &optional ARG)" t)
+(autoload 'checkdoc-batch "checkdoc" "\
+Check current buffer in batch mode.
+Report any errors and signal the first found error.")
 (autoload 'checkdoc-package-keywords "checkdoc" "\
 Find package keywords that aren't in `finder-known-keywords'." '(emacs-lisp-mode))
 (register-definition-prefixes "checkdoc" '("checkdoc-"))
@@ -13690,6 +13693,8 @@ evaluate the variable `flymake-mode'.
 
 The mode's hook is called both when the mode is enabled and when it is
 disabled.
+
+\\{flymake-mode-map}
 
 (fn &optional ARG)" t)
 (autoload 'flymake-mode-on "flymake" "\
@@ -27772,6 +27777,8 @@ evaluate the variable `rectangle-mark-mode'.
 
 The mode's hook is called both when the mode is enabled and when it is
 disabled.
+
+\\{rectangle-mark-mode-map}
 
 (fn &optional ARG)" t)
 (register-definition-prefixes "rect" '("apply-on-rectangle" "clear-rectangle-line" "delete-" "extract-rectangle-" "killed-rectangle" "ope" "rectangle-" "spaces-string" "string-rectangle-"))

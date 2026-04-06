@@ -2497,15 +2497,16 @@ fn finalize_cached_bootstrap_eval(
 ) -> Result<(), EvalError> {
     // Register all builtins — pdump doesn't preserve live Rust entry-point
     // pointers on heap subr objects, so the callable surface must be rebuilt.
+    // GNU Emacs loads the pdump as-is with no cleanup/normalization.
+    // We only need to:
+    // 1. Re-register builtins (pdump can't preserve Rust function pointers)
+    // 2. Reset thread-local caches
+    // 3. Set path variables for the current runtime location
     super::builtins::init_builtins(eval);
     super::font::restore_created_faces_from_table(&eval.face_table.face_list());
     clear_runtime_loader_state(eval);
     ensure_startup_compat_variables(eval, project_root);
     restore_cached_runtime_window_system_surface(eval);
-    normalize_bootstrap_runtime_surface(eval, project_root).map_err(|e| {
-        tracing::error!("normalize_bootstrap_runtime_surface failed: {e:?}");
-        e
-    })?;
 
     let lisp_dir = project_root.join("lisp");
     eval.set_variable(
