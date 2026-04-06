@@ -58,6 +58,7 @@ pub(crate) struct PreparedReclaim {
     pub(crate) old_region_stats: OldRegionCollectionStats,
     pub(crate) survivors: Vec<PreparedReclaimSurvivor>,
     pub(crate) finalize_indices: Vec<usize>,
+    pub(crate) finalizable_candidates: Vec<ObjectKey>,
     pub(crate) weak_candidates: Vec<ObjectKey>,
     pub(crate) ephemeron_candidates: Vec<ObjectKey>,
     pub(crate) remembered_edges: Vec<RememberedEdge>,

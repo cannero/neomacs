@@ -81,6 +81,7 @@ pub struct Heap {
     descriptors: HashMap<TypeId, &'static TypeDesc>,
     objects: Vec<ObjectRecord>,
     object_index: ObjectIndex,
+    finalizable_candidates: Vec<ObjectKey>,
     weak_candidates: Vec<ObjectKey>,
     ephemeron_candidates: Vec<ObjectKey>,
     old_regions: Vec<OldRegion>,
@@ -191,6 +192,7 @@ impl Heap {
             descriptors: HashMap::default(),
             objects: Vec::new(),
             object_index: HashMap::default(),
+            finalizable_candidates: Vec::new(),
             weak_candidates: Vec::new(),
             ephemeron_candidates: Vec::new(),
             old_regions: Vec::new(),
@@ -1109,6 +1111,9 @@ impl Heap {
     }
 
     fn record_descriptor_candidates(&mut self, object_key: ObjectKey, desc: &'static TypeDesc) {
+        if desc.flags.contains(TypeFlags::FINALIZABLE) {
+            self.finalizable_candidates.push(object_key);
+        }
         if desc.flags.contains(TypeFlags::WEAK) {
             self.weak_candidates.push(object_key);
         }
@@ -1396,8 +1401,10 @@ impl Heap {
         let mut old_region_rebuild = self.prepare_old_region_rebuild(completed_plan.as_ref());
         self.object_index.clear();
         self.object_index.reserve(old_objects.len());
+        self.finalizable_candidates.clear();
         self.weak_candidates.clear();
         self.ephemeron_candidates.clear();
+        self.finalizable_candidates.reserve(old_objects.len());
         self.weak_candidates.reserve(old_objects.len());
         self.ephemeron_candidates.reserve(old_objects.len());
 
@@ -1546,6 +1553,7 @@ impl Heap {
         self.objects = rebuilt_objects;
         self.old_regions = prepared_reclaim.rebuilt_old_regions;
         self.object_index = prepared_reclaim.rebuilt_object_index;
+        self.finalizable_candidates = prepared_reclaim.finalizable_candidates;
         self.weak_candidates = prepared_reclaim.weak_candidates;
         self.ephemeron_candidates = prepared_reclaim.ephemeron_candidates;
         self.remembered_edges = prepared_reclaim.remembered_edges;
@@ -1719,6 +1727,11 @@ impl Heap {
     }
 
     #[cfg(test)]
+    pub(crate) fn finalizable_candidate_count(&self) -> usize {
+        self.finalizable_candidates.len()
+    }
+
+    #[cfg(test)]
     pub(crate) fn weak_candidate_count(&self) -> usize {
         self.weak_candidates.len()
     }
@@ -1847,6 +1860,9 @@ impl Heap {
         let mut survivors = Vec::new();
         let mut rebuilt_object_index = HashMap::with_capacity(self.objects.len());
         let mut finalize_indices = Vec::new();
+        let finalizable_candidate_set: HashSet<_> =
+            self.finalizable_candidates.iter().copied().collect();
+        let mut finalizable_candidates = Vec::new();
         let mut weak_candidates = Vec::new();
         let mut ephemeron_candidates = Vec::new();
         let mut nursery_live_bytes = 0usize;
@@ -1859,13 +1875,17 @@ impl Heap {
             let object_key = object.object_key();
             let desc = object.header().desc();
             if !Self::keep_object_for_collection(kind, object) {
-                if !object.header().is_moved_out() && desc.flags.contains(TypeFlags::FINALIZABLE) {
+                if !object.header().is_moved_out() && finalizable_candidate_set.contains(&object_key)
+                {
                     finalize_indices.push(object_index);
                 }
                 continue;
             }
 
             let total_size = object.total_size();
+            if finalizable_candidate_set.contains(&object_key) {
+                finalizable_candidates.push(object_key);
+            }
             if desc.flags.contains(TypeFlags::WEAK) {
                 weak_candidates.push(object_key);
             }
@@ -1983,6 +2003,7 @@ impl Heap {
             old_region_stats,
             survivors,
             finalize_indices,
+            finalizable_candidates,
             weak_candidates,
             ephemeron_candidates,
             remembered_edges,

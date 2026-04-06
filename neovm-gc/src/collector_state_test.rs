@@ -39,6 +39,7 @@ fn prepared_reclaim() -> PreparedReclaim {
             old_region_placement: None,
         }],
         finalize_indices: Vec::new(),
+        finalizable_candidates: Vec::new(),
         weak_candidates: Vec::new(),
         ephemeron_candidates: Vec::new(),
         remembered_edges: Vec::new(),

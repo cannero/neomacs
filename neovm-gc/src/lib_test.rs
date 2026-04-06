@@ -4224,7 +4224,7 @@ fn post_sweep_rebuild_refreshes_weak_and_ephemeron_candidate_indexes() {
     let mut heap = Heap::new(HeapConfig::default());
     let mut mutator = heap.mutator();
 
-    let (weak_holder_gc, ephemeron_holder_gc) = {
+    let (weak_holder_gc, ephemeron_holder_gc, finalizable_gc) = {
         let mut setup_scope = mutator.handle_scope();
         let weak_target = mutator
             .alloc(&mut setup_scope, Leaf(313))
@@ -4255,19 +4255,29 @@ fn post_sweep_rebuild_refreshes_weak_and_ephemeron_candidate_indexes() {
                 },
             )
             .expect("alloc ephemeron holder");
-        (weak_holder.as_gc(), ephemeron_holder.as_gc())
+        let finalizable = mutator
+            .alloc(&mut setup_scope, FinalizableNurseryLeaf(318))
+            .expect("alloc finalizable holder");
+        (
+            weak_holder.as_gc(),
+            ephemeron_holder.as_gc(),
+            finalizable.as_gc(),
+        )
     };
 
     let mut keep_scope = mutator.handle_scope();
     let _weak_holder = mutator.root(&mut keep_scope, weak_holder_gc);
     let _ephemeron_holder = mutator.root(&mut keep_scope, ephemeron_holder_gc);
+    let _finalizable = mutator.root(&mut keep_scope, finalizable_gc);
 
+    assert_eq!(mutator.heap().finalizable_candidate_count(), 1);
     assert_eq!(mutator.heap().weak_candidate_count(), 2);
     assert_eq!(mutator.heap().ephemeron_candidate_count(), 1);
 
     mutator
         .collect(CollectionKind::Major)
         .expect("major collect with live holders");
+    assert_eq!(mutator.heap().finalizable_candidate_count(), 1);
     assert_eq!(mutator.heap().weak_candidate_count(), 2);
     assert_eq!(mutator.heap().ephemeron_candidate_count(), 1);
 
@@ -4277,6 +4287,8 @@ fn post_sweep_rebuild_refreshes_weak_and_ephemeron_candidate_indexes() {
         .expect("major collect after dropping holders");
     assert!(!mutator.heap().contains(weak_holder_gc));
     assert!(!mutator.heap().contains(ephemeron_holder_gc));
+    assert!(!mutator.heap().contains(finalizable_gc));
+    assert_eq!(mutator.heap().finalizable_candidate_count(), 0);
     assert_eq!(mutator.heap().weak_candidate_count(), 0);
     assert_eq!(mutator.heap().ephemeron_candidate_count(), 0);
 }
