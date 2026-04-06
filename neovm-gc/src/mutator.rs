@@ -119,7 +119,7 @@ impl<'heap> Mutator<'heap> {
 
     /// Advance one slice of the current persistent major-mark session.
     pub fn advance_major_mark(&mut self) -> Result<MajorMarkProgress, AllocError> {
-        self.heap.advance_major_mark()
+        self.heap.collector_runtime().advance_major_mark()
     }
 
     /// Finish the current persistent major-mark session and reclaim.
@@ -132,7 +132,7 @@ impl<'heap> Mutator<'heap> {
         &mut self,
         max_slices: usize,
     ) -> Result<Option<MajorMarkProgress>, AllocError> {
-        self.heap.assist_major_mark(max_slices)
+        self.heap.collector_runtime().assist_major_mark(max_slices)
     }
 
     /// Advance one scheduler-style concurrent major-mark round using the active plan worker count.

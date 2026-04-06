@@ -105,6 +105,37 @@ impl<'heap> CollectorRuntime<'heap> {
             )
     }
 
+    /// Advance one slice of the current persistent major-mark session.
+    pub fn advance_major_mark(&mut self) -> Result<MajorMarkProgress, AllocError> {
+        let progress = self.assist_major_mark(1)?;
+        let progress = progress.expect("single-slice assist should require an active session");
+        Ok(progress)
+    }
+
+    /// Advance up to `max_slices` of the active major-mark session.
+    pub fn assist_major_mark(
+        &mut self,
+        max_slices: usize,
+    ) -> Result<Option<MajorMarkProgress>, AllocError> {
+        if !self.heap.collector_handle().has_active_major_mark() {
+            return Ok(None);
+        }
+        if max_slices == 0 {
+            return Ok(self.heap.major_mark_progress());
+        }
+        self.heap
+            .collector_handle()
+            .assist_active_major_mark_slices_and_refresh(
+                self.heap.objects(),
+                &self.heap.indexes().object_index,
+                max_slices,
+                &self.heap.storage_stats(),
+                self.heap.old_gen(),
+                self.heap.old_config(),
+                |kind| self.heap.plan_for(kind),
+            )
+    }
+
     /// Finish the current persistent major-mark session and reclaim.
     pub fn finish_major_collection(&mut self) -> Result<CollectionStats, AllocError> {
         let pause_start = Instant::now();
