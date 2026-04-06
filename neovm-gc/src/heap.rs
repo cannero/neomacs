@@ -8,15 +8,16 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::background::{BackgroundCollectorConfig, BackgroundService, SharedHeap};
-use crate::barrier::{BarrierEvent, BarrierKind, RememberedEdge};
+use crate::barrier::{BarrierEvent, BarrierKind};
 use crate::collector_state::{
     CollectorSharedSnapshot, CollectorState, MajorMarkUpdate, PreparedReclaim,
     PreparedReclaimSurvivor,
 };
 use crate::descriptor::{
-    EphemeronVisitor, GcErased, ObjectKey, Relocator, Trace, Tracer, TypeDesc, TypeFlags,
-    WeakProcessor, fixed_type_desc,
+    EphemeronVisitor, GcErased, Relocator, Trace, Tracer, TypeDesc, TypeFlags, WeakProcessor,
+    fixed_type_desc,
 };
+use crate::index_state::{ForwardingMap, HeapIndexState, ObjectIndex};
 use crate::mark::MarkWorklist;
 use crate::mutator::Mutator;
 use crate::object::{ObjectRecord, SpaceKind, estimated_allocation_size};
@@ -26,6 +27,7 @@ use crate::plan::{
 };
 use crate::root::{HandleScope, Root, RootStack};
 use crate::runtime::CollectorRuntime;
+use crate::runtime_state::RuntimeState;
 use crate::spaces::{
     LargeObjectSpaceConfig, NurseryConfig, OldGenConfig, OldGenState, OldRegionCollectionStats,
     PinnedSpaceConfig, compare_compaction_candidate_priority,
@@ -92,131 +94,6 @@ pub struct Heap {
     collector: Mutex<CollectorState>,
 }
 
-type ObjectIndex = HashMap<ObjectKey, usize>;
-type ForwardingMap = HashMap<ObjectKey, GcErased>;
-
-#[derive(Debug, Default)]
-struct HeapIndexState {
-    object_index: ObjectIndex,
-    finalizable_candidates: Vec<ObjectKey>,
-    weak_candidates: Vec<ObjectKey>,
-    ephemeron_candidates: Vec<ObjectKey>,
-    remembered_edges: Vec<RememberedEdge>,
-    remembered_owners: Vec<ObjectKey>,
-    remembered_owner_set: HashSet<ObjectKey>,
-}
-
-impl HeapIndexState {
-    fn record_descriptor_candidates(&mut self, object_key: ObjectKey, desc: &'static TypeDesc) {
-        if desc.flags.contains(TypeFlags::FINALIZABLE) {
-            self.finalizable_candidates.push(object_key);
-        }
-        if desc.flags.contains(TypeFlags::WEAK) {
-            self.weak_candidates.push(object_key);
-        }
-        if desc.flags.contains(TypeFlags::EPHEMERON_KEY) {
-            self.ephemeron_candidates.push(object_key);
-        }
-    }
-
-    fn candidate_indices(&self, candidates: &[ObjectKey]) -> Vec<usize> {
-        candidates
-            .iter()
-            .filter_map(|key| self.object_index.get(key).copied())
-            .collect()
-    }
-
-    fn record_remembered_edge(&mut self, owner: GcErased, target: GcErased) {
-        let owner_key = owner.object_key();
-        self.remembered_edges.push(RememberedEdge {
-            owner: unsafe { crate::root::Gc::from_erased(owner) },
-            target: unsafe { crate::root::Gc::from_erased(target) },
-        });
-        if self.remembered_owner_set.insert(owner_key) {
-            self.remembered_owners.push(owner_key);
-        }
-    }
-
-    fn reset_candidate_indexes(&mut self, capacity: usize) {
-        self.object_index.clear();
-        self.object_index.reserve(capacity);
-        self.finalizable_candidates.clear();
-        self.weak_candidates.clear();
-        self.ephemeron_candidates.clear();
-        self.finalizable_candidates.reserve(capacity);
-        self.weak_candidates.reserve(capacity);
-        self.ephemeron_candidates.reserve(capacity);
-    }
-
-    fn rebuild_remembered_owners(&mut self) {
-        self.remembered_owner_set.clear();
-        self.remembered_owners.clear();
-        for edge in &self.remembered_edges {
-            let owner = edge.owner.erase().object_key();
-            if self.remembered_owner_set.insert(owner) {
-                self.remembered_owners.push(owner);
-            }
-        }
-    }
-
-    fn remembered_edges_for_collection(
-        &self,
-        objects: &[ObjectRecord],
-        kind: CollectionKind,
-    ) -> (Vec<RememberedEdge>, Vec<ObjectKey>) {
-        let remembered_edges: Vec<_> = self
-            .remembered_edges
-            .iter()
-            .copied()
-            .filter(|edge| {
-                let Some(&owner_index) = self.object_index.get(&edge.owner.erase().object_key())
-                else {
-                    return false;
-                };
-                let Some(&target_index) = self.object_index.get(&edge.target.erase().object_key())
-                else {
-                    return false;
-                };
-                let owner = &objects[owner_index];
-                let target = &objects[target_index];
-                Heap::keep_object_for_collection(kind, owner)
-                    && owner.space() != SpaceKind::Nursery
-                    && owner.space() != SpaceKind::Immortal
-                    && Heap::keep_object_for_collection(kind, target)
-                    && target.space() == SpaceKind::Nursery
-            })
-            .collect();
-
-        let mut remembered_owners = Vec::new();
-        let mut remembered_owner_set = HashSet::new();
-        for edge in &remembered_edges {
-            let owner = edge.owner.erase().object_key();
-            if remembered_owner_set.insert(owner) {
-                remembered_owners.push(owner);
-            }
-        }
-        (remembered_edges, remembered_owners)
-    }
-
-    fn retain_remembered_edges_for_post_sweep_objects(&mut self, objects: &[ObjectRecord]) {
-        let object_index = &self.object_index;
-        self.remembered_edges.retain(|edge| {
-            let owner = edge.owner.erase().object_key();
-            let target = edge.target.erase().object_key();
-            let owner_space = object_index
-                .get(&owner)
-                .map(|&index| objects[index].space());
-            let target_space = object_index
-                .get(&target)
-                .map(|&index| objects[index].space());
-            owner_space
-                .is_some_and(|space| space != SpaceKind::Nursery && space != SpaceKind::Immortal)
-                && target_space == Some(SpaceKind::Nursery)
-        });
-        self.rebuild_remembered_owners();
-    }
-}
-
 // SAFETY: `Heap` owns all heap allocations and its raw pointers are internal references into that
 // owned storage or static descriptors. Sending a `Heap` to another thread does not invalidate those
 // pointers. Concurrent access is still not allowed without external synchronization, so `Heap` is
@@ -226,33 +103,6 @@ unsafe impl Send for Heap {}
 struct EvacuationOutcome {
     forwarding: ForwardingMap,
     promoted_bytes: usize,
-}
-
-#[derive(Debug, Default)]
-pub(crate) struct RuntimeState {
-    pending_finalizers: Vec<ObjectRecord>,
-    finalizers_run: u64,
-}
-
-impl RuntimeState {
-    pub(crate) fn snapshot(&self) -> (u64, usize) {
-        (self.finalizers_run, self.pending_finalizers.len())
-    }
-
-    pub(crate) fn pending_finalizer_count(&self) -> usize {
-        self.pending_finalizers.len()
-    }
-
-    pub(crate) fn drain_pending_finalizers(&mut self) -> u64 {
-        let mut ran = 0u64;
-        for object in core::mem::take(&mut self.pending_finalizers) {
-            if object.run_finalizer() {
-                ran = ran.saturating_add(1);
-            }
-        }
-        self.finalizers_run = self.finalizers_run.saturating_add(ran);
-        ran
-    }
 }
 
 impl Heap {
@@ -322,8 +172,9 @@ impl Heap {
     pub fn stats(&self) -> HeapStats {
         let runtime_state = self.runtime_state();
         let mut stats = self.storage_stats();
-        stats.finalizers_run = runtime_state.finalizers_run;
-        stats.pending_finalizers = runtime_state.pending_finalizers.len();
+        let (finalizers_run, pending_finalizers) = runtime_state.snapshot();
+        stats.finalizers_run = finalizers_run;
+        stats.pending_finalizers = pending_finalizers;
         stats
     }
 
@@ -1594,8 +1445,7 @@ impl Heap {
 
     fn enqueue_pending_finalizer(&self, object: ObjectRecord) -> u64 {
         let mut runtime_state = self.runtime_state();
-        runtime_state.pending_finalizers.push(object);
-        1
+        runtime_state.enqueue_pending_finalizer(object)
     }
 
     fn sweep_minor_and_rebuild_post_collection(

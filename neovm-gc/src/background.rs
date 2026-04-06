@@ -1,11 +1,12 @@
 use crate::collector_state::CollectorSharedSnapshot;
-use crate::heap::{AllocError, Heap, RuntimeState};
+use crate::heap::{AllocError, Heap};
 use crate::mutator::Mutator;
 use crate::plan::{
     BackgroundCollectionStatus, CollectionKind, CollectionPlan, MajorMarkProgress,
     RuntimeWorkStatus,
 };
 use crate::runtime::{CollectorRuntime, SharedCollectorRuntime};
+use crate::runtime_state::RuntimeState;
 use crate::stats::{CollectionStats, HeapStats};
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
