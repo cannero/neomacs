@@ -119,6 +119,99 @@ impl OldGenState {
             .map(|region| region.capacity_bytes)
             .sum()
     }
+
+    fn allocate_placement(&mut self, config: &OldGenConfig, bytes: usize) -> OldRegionPlacement {
+        let align = config.line_bytes.max(8);
+        if let Some((region_index, offset)) = self.try_reserve_in_existing_region(bytes, align) {
+            return self.make_placement(config, region_index, offset, bytes);
+        }
+
+        let capacity_bytes = config.region_bytes.max(bytes);
+        self.regions.push(OldRegion {
+            capacity_bytes,
+            used_bytes: 0,
+            live_bytes: 0,
+            object_count: 0,
+            occupied_lines: HashSet::new(),
+        });
+        let region_index = self.regions.len() - 1;
+        let offset = self.regions[region_index].used_bytes;
+        self.regions[region_index].used_bytes = bytes;
+        self.make_placement(config, region_index, offset, bytes)
+    }
+
+    fn record_object(&mut self, object: &ObjectRecord) {
+        let Some(placement) = object.old_region_placement() else {
+            return;
+        };
+        let region = &mut self.regions[placement.region_index];
+        region.live_bytes = region.live_bytes.saturating_add(object.total_size());
+        region.object_count = region.object_count.saturating_add(1);
+        for line in placement.line_start..placement.line_start + placement.line_count {
+            region.occupied_lines.insert(line);
+        }
+    }
+
+    fn region_stats(&self) -> Vec<OldRegionStats> {
+        self.regions
+            .iter()
+            .enumerate()
+            .map(|(region_index, region)| OldRegionStats {
+                region_index,
+                reserved_bytes: region.capacity_bytes,
+                used_bytes: region.used_bytes,
+                live_bytes: region.live_bytes,
+                free_bytes: region.capacity_bytes.saturating_sub(region.live_bytes),
+                hole_bytes: region.used_bytes.saturating_sub(region.live_bytes),
+                tail_bytes: region.capacity_bytes.saturating_sub(region.used_bytes),
+                object_count: region.object_count,
+                occupied_lines: region.occupied_lines.len(),
+            })
+            .collect()
+    }
+
+    fn prepare_rebuild(
+        &mut self,
+        completed_plan: Option<&CollectionPlan>,
+    ) -> Option<OldRegionRebuildState> {
+        if !completed_plan
+            .is_some_and(|plan| matches!(plan.kind, CollectionKind::Major | CollectionKind::Full))
+        {
+            return None;
+        }
+        let previous_regions = core::mem::take(&mut self.regions);
+        prepare_old_region_rebuild_for_plan(&previous_regions, completed_plan)
+    }
+
+    fn prepare_rebuild_for_plan(&self, plan: &CollectionPlan) -> OldRegionRebuildState {
+        prepare_old_region_rebuild_for_plan(&self.regions, Some(plan))
+            .expect("major reclaim preparation requires a major/full plan")
+    }
+
+    fn try_reserve_in_existing_region(
+        &mut self,
+        bytes: usize,
+        align: usize,
+    ) -> Option<(usize, usize)> {
+        for (region_index, region) in self.regions.iter_mut().enumerate() {
+            let offset = align_up(region.used_bytes, align);
+            if offset.saturating_add(bytes) <= region.capacity_bytes {
+                region.used_bytes = offset.saturating_add(bytes);
+                return Some((region_index, offset));
+            }
+        }
+        None
+    }
+
+    fn make_placement(
+        &self,
+        config: &OldGenConfig,
+        region_index: usize,
+        offset_bytes: usize,
+        bytes: usize,
+    ) -> OldRegionPlacement {
+        make_old_region_placement(config, region_index, offset_bytes, bytes)
+    }
 }
 
 // SAFETY: `Heap` owns all heap allocations and its raw pointers are internal references into that
@@ -798,7 +891,7 @@ impl Heap {
 
     /// Return logical old-generation region statistics.
     pub fn old_region_stats(&self) -> Vec<OldRegionStats> {
-        self.region_stats_from_metadata(&self.old_gen.regions)
+        self.old_gen.region_stats()
     }
 
     /// Return the currently selected old-region compaction candidates.
@@ -1016,9 +1109,12 @@ impl Heap {
         let mut record = ObjectRecord::allocate(desc, space, value)?;
         let total_size = record.header().total_size();
         if space == SpaceKind::Old {
-            let placement = self.allocate_old_region_placement(total_size);
+            let placement = self
+                .old_gen
+                .allocate_placement(&self.config.old, total_size);
             record.set_old_region_placement(placement);
-            self.record_old_region_object(&record);
+            self.old_gen.record_object(&record);
+            self.stats.old.reserved_bytes = self.old_gen.reserved_bytes();
         }
         let gc = unsafe { crate::root::Gc::from_erased(record.erased()) };
         self.account_allocation(space, total_size);
@@ -1509,9 +1605,12 @@ impl Heap {
         let mut records = Vec::with_capacity(evacuated.len());
         for (mut new_record, target_space) in evacuated {
             if target_space == SpaceKind::Old {
-                let placement = self.allocate_old_region_placement(new_record.total_size());
+                let placement = self
+                    .old_gen
+                    .allocate_placement(&self.config.old, new_record.total_size());
                 new_record.set_old_region_placement(placement);
-                self.record_old_region_object(&new_record);
+                self.old_gen.record_object(&new_record);
+                self.stats.old.reserved_bytes = self.old_gen.reserved_bytes();
                 promoted_bytes = promoted_bytes.saturating_add(new_record.total_size());
             }
             records.push(new_record);
@@ -1592,7 +1691,7 @@ impl Heap {
         self.stats.immortal.reserved_bytes = 0;
 
         let old_objects = core::mem::take(&mut self.objects);
-        let mut old_region_rebuild = self.prepare_old_region_rebuild(completed_plan.as_ref());
+        let mut old_region_rebuild = self.old_gen.prepare_rebuild(completed_plan.as_ref());
         self.indexes.object_index.clear();
         self.indexes.object_index.reserve(old_objects.len());
         self.indexes.finalizable_candidates.clear();
@@ -1996,105 +2095,8 @@ impl Heap {
             .map(|&index| self.objects[index].space())
     }
 
-    fn allocate_old_region_placement(&mut self, bytes: usize) -> OldRegionPlacement {
-        let align = self.config.old.line_bytes.max(8);
-        if let Some((region_index, offset)) = self.try_reserve_in_existing_region(bytes, align) {
-            return self.make_old_region_placement(region_index, offset, bytes);
-        }
-
-        let capacity_bytes = self.config.old.region_bytes.max(bytes);
-        self.old_gen.regions.push(OldRegion {
-            capacity_bytes,
-            used_bytes: 0,
-            live_bytes: 0,
-            object_count: 0,
-            occupied_lines: HashSet::new(),
-        });
-        let region_index = self.old_gen.regions.len() - 1;
-        let offset = self.old_gen.regions[region_index].used_bytes;
-        self.old_gen.regions[region_index].used_bytes = bytes;
-        self.make_old_region_placement(region_index, offset, bytes)
-    }
-
-    fn try_reserve_in_existing_region(
-        &mut self,
-        bytes: usize,
-        align: usize,
-    ) -> Option<(usize, usize)> {
-        for (region_index, region) in self.old_gen.regions.iter_mut().enumerate() {
-            let offset = align_up(region.used_bytes, align);
-            if offset.saturating_add(bytes) <= region.capacity_bytes {
-                region.used_bytes = offset.saturating_add(bytes);
-                return Some((region_index, offset));
-            }
-        }
-        None
-    }
-
-    fn make_old_region_placement(
-        &self,
-        region_index: usize,
-        offset_bytes: usize,
-        bytes: usize,
-    ) -> OldRegionPlacement {
-        let line_bytes = self.config.old.line_bytes.max(1);
-        let line_start = offset_bytes / line_bytes;
-        let line_count = bytes.div_ceil(line_bytes).max(1);
-        OldRegionPlacement {
-            region_index,
-            offset_bytes,
-            line_start,
-            line_count,
-        }
-    }
-
-    fn record_old_region_object(&mut self, object: &ObjectRecord) {
-        let Some(placement) = object.old_region_placement() else {
-            return;
-        };
-        let region = &mut self.old_gen.regions[placement.region_index];
-        region.live_bytes = region.live_bytes.saturating_add(object.total_size());
-        region.object_count = region.object_count.saturating_add(1);
-        for line in placement.line_start..placement.line_start + placement.line_count {
-            region.occupied_lines.insert(line);
-        }
-        self.stats.old.reserved_bytes = self.old_gen.reserved_bytes();
-    }
-
-    fn region_stats_from_metadata(&self, regions: &[OldRegion]) -> Vec<OldRegionStats> {
-        regions
-            .iter()
-            .enumerate()
-            .map(|(region_index, region)| OldRegionStats {
-                region_index,
-                reserved_bytes: region.capacity_bytes,
-                used_bytes: region.used_bytes,
-                live_bytes: region.live_bytes,
-                free_bytes: region.capacity_bytes.saturating_sub(region.live_bytes),
-                hole_bytes: region.used_bytes.saturating_sub(region.live_bytes),
-                tail_bytes: region.capacity_bytes.saturating_sub(region.used_bytes),
-                object_count: region.object_count,
-                occupied_lines: region.occupied_lines.len(),
-            })
-            .collect()
-    }
-
-    fn prepare_old_region_rebuild(
-        &mut self,
-        completed_plan: Option<&CollectionPlan>,
-    ) -> Option<OldRegionRebuildState> {
-        if !completed_plan
-            .is_some_and(|plan| matches!(plan.kind, CollectionKind::Major | CollectionKind::Full))
-        {
-            return None;
-        }
-        let previous_regions = core::mem::take(&mut self.old_gen.regions);
-        prepare_old_region_rebuild_for_plan(&previous_regions, completed_plan)
-    }
-
     fn prepare_reclaim(&self, kind: CollectionKind, plan: &CollectionPlan) -> PreparedReclaim {
-        let mut rebuild = prepare_old_region_rebuild_for_plan(&self.old_gen.regions, Some(plan))
-            .expect("major reclaim preparation requires a major/full plan");
+        let mut rebuild = self.old_gen.prepare_rebuild_for_plan(plan);
         let mut survivors = Vec::new();
         let mut rebuilt_object_index = HashMap::with_capacity(self.objects.len());
         let mut finalize_indices = Vec::new();
