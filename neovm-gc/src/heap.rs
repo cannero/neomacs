@@ -10,13 +10,7 @@ use crate::collector_exec::{
     prepare_major_reclaim_for_plan, trace_major_ephemerons_for_candidates,
 };
 use crate::collector_policy::refresh_cached_plans as refresh_cached_collector_plans;
-use crate::collector_session::{
-    active_reclaim_prep_request, assist_active_major_mark_slices, begin_major_mark,
-    build_prepared_active_reclaim, complete_active_reclaim_prep, finish_active_collection,
-    finish_active_collection_if_ready, finish_major_mark, poll_active_major_mark_with_completion,
-    prepare_active_collection_reclaim_if_needed, prepare_active_major_reclaim_with_request,
-    prepare_active_reclaim, record_active_major_post_write, record_active_major_reachable_object,
-};
+use crate::collector_session::{self, build_prepared_active_reclaim, prepare_active_reclaim};
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState, CollectorStateHandle};
 use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
 use crate::index_state::HeapIndexState;
@@ -303,8 +297,14 @@ impl Heap {
     }
 
     pub(crate) fn begin_major_mark_in_place(&self, plan: CollectionPlan) -> Result<(), AllocError> {
-        self.collector
-            .with_state(|collector| self.begin_major_mark_with_collector(collector, plan))
+        self.collector.begin_major_mark(
+            &self.objects,
+            &self.indexes.object_index,
+            plan,
+            collect_global_sources(&self.roots, &self.objects),
+        )?;
+        self.refresh_recommended_plans();
+        Ok(())
     }
 
     pub(crate) fn begin_major_mark_with_collector(
@@ -312,7 +312,7 @@ impl Heap {
         collector: &mut CollectorState,
         plan: CollectionPlan,
     ) -> Result<(), AllocError> {
-        begin_major_mark(
+        collector_session::begin_major_mark(
             collector,
             &self.objects,
             &self.indexes.object_index,
@@ -325,9 +325,11 @@ impl Heap {
 
     /// Advance one slice of the current persistent major-mark session.
     pub fn advance_major_mark(&self) -> Result<MajorMarkProgress, AllocError> {
-        let progress = self.collector.with_state(|collector| {
-            assist_active_major_mark_slices(collector, &self.objects, &self.indexes.object_index, 1)
-        })?;
+        let progress = self.collector.assist_active_major_mark_slices(
+            &self.objects,
+            &self.indexes.object_index,
+            1,
+        )?;
         let progress = progress.expect("single-slice assist should require an active session");
         self.refresh_recommended_plans();
         Ok(progress)
@@ -336,16 +338,13 @@ impl Heap {
     /// Finish the current persistent major-mark session and reclaim.
     pub fn finish_major_collection(&mut self) -> Result<CollectionStats, AllocError> {
         let pause_start = Instant::now();
-        let Some(state) = self
-            .collector
-            .with_state(CollectorState::take_major_mark_state)
-        else {
+        let Some(state) = self.collector.take_major_mark_state() else {
             return Err(AllocError::NoCollectionInProgress);
         };
         let before_bytes = self.stats.total_live_bytes();
         self.record_phase(CollectionPhase::Remark);
         let mut state = state;
-        finish_major_mark(
+        collector_session::finish_major_mark(
             &mut state,
             &self.objects,
             &self.indexes.object_index,
@@ -360,13 +359,14 @@ impl Heap {
                 )
             },
         );
-        let finished = finish_active_collection(state, |plan| match plan.kind {
-            CollectionKind::Major => Ok(self.prepare_major_reclaim(plan)),
-            CollectionKind::Full => self.prepare_full_reclaim(plan),
-            CollectionKind::Minor => Err(AllocError::UnsupportedCollectionKind {
-                kind: CollectionKind::Minor,
-            }),
-        })?;
+        let finished =
+            collector_session::finish_active_collection(state, |plan| match plan.kind {
+                CollectionKind::Major => Ok(self.prepare_major_reclaim(plan)),
+                CollectionKind::Full => self.prepare_full_reclaim(plan),
+                CollectionKind::Minor => Err(AllocError::UnsupportedCollectionKind {
+                    kind: CollectionKind::Minor,
+                }),
+            })?;
         self.record_phase(CollectionPhase::Reclaim);
         Ok(self.commit_finished_active_collection(finished, before_bytes, pause_start))
     }
@@ -382,29 +382,49 @@ impl Heap {
         if max_slices == 0 {
             return Ok(self.major_mark_progress());
         }
-        let progress = self.collector.with_state(|collector| {
-            assist_active_major_mark_slices(
-                collector,
-                &self.objects,
-                &self.indexes.object_index,
-                max_slices,
-            )
-        })?;
+        let progress = self.collector.assist_active_major_mark_slices(
+            &self.objects,
+            &self.indexes.object_index,
+            max_slices,
+        )?;
         self.refresh_recommended_plans();
         Ok(progress)
     }
 
     /// Advance one scheduler-style concurrent major-mark round using the plan worker count.
     pub fn poll_active_major_mark(&self) -> Result<Option<MajorMarkProgress>, AllocError> {
-        self.collector
-            .with_state(|collector| self.poll_active_major_mark_with_collector(collector))
+        let progress = self.collector.poll_active_major_mark_with_completion(
+            &self.objects,
+            &self.indexes.object_index,
+            |tracer, plan| {
+                trace_major_ephemerons_for_candidates(
+                    &self.objects,
+                    &self.indexes.object_index,
+                    &self.indexes.ephemeron_candidates,
+                    tracer,
+                    plan.worker_count.max(1),
+                    plan.mark_slice_budget,
+                )
+            },
+            |plan| {
+                prepare_major_reclaim_for_plan(
+                    plan,
+                    &self.objects,
+                    &self.indexes,
+                    &self.old_gen,
+                    &self.config.old,
+                )
+            },
+        )?;
+        self.refresh_recommended_plans();
+        Ok(progress)
     }
 
     pub(crate) fn poll_active_major_mark_with_collector(
         &self,
         collector: &mut CollectorState,
     ) -> Result<Option<MajorMarkProgress>, AllocError> {
-        let progress = poll_active_major_mark_with_completion(
+        let progress = collector_session::poll_active_major_mark_with_completion(
             collector,
             &self.objects,
             &self.indexes.object_index,
@@ -439,7 +459,7 @@ impl Heap {
         &self,
         collector: &mut CollectorState,
     ) -> Result<bool, AllocError> {
-        let prepared = prepare_active_major_reclaim_with_request(
+        let prepared = collector_session::prepare_active_major_reclaim_with_request(
             collector,
             &self.objects,
             &self.indexes.object_index,
@@ -484,24 +504,21 @@ impl Heap {
     ) -> Result<Option<CollectionStats>, AllocError> {
         let before_bytes = self.stats.total_live_bytes();
         let pause_start = Instant::now();
-        let finished = self.collector.with_state(|collector| {
-            finish_active_collection_if_ready(
-                collector,
-                &self.objects,
-                &self.indexes.object_index,
-                |tracer, plan| {
-                    trace_major_ephemerons_for_candidates(
-                        &self.objects,
-                        &self.indexes.object_index,
-                        &self.indexes.ephemeron_candidates,
-                        tracer,
-                        plan.worker_count.max(1),
-                        plan.mark_slice_budget,
-                    )
-                },
-                |plan| Err(AllocError::UnsupportedCollectionKind { kind: plan.kind }),
-            )
-        })?;
+        let finished = self.collector.finish_active_collection_if_ready(
+            &self.objects,
+            &self.indexes.object_index,
+            |tracer, plan| {
+                trace_major_ephemerons_for_candidates(
+                    &self.objects,
+                    &self.indexes.object_index,
+                    &self.indexes.ephemeron_candidates,
+                    tracer,
+                    plan.worker_count.max(1),
+                    plan.mark_slice_budget,
+                )
+            },
+            |plan| Err(AllocError::UnsupportedCollectionKind { kind: plan.kind }),
+        )?;
         Ok(finished.map(|finished| {
             self.record_phase(CollectionPhase::Reclaim);
             self.commit_finished_active_collection(finished, before_bytes, pause_start)
@@ -657,15 +674,12 @@ impl Heap {
         self.indexes.object_index.insert(object_key, index);
         let desc = self.objects[index].header().desc();
         self.indexes.record_descriptor_candidates(object_key, desc);
-        self.collector.with_state(|collector| {
-            record_active_major_reachable_object(
-                collector,
-                &self.objects,
-                &self.indexes.object_index,
-                gc.erase(),
-                self.config.old.mutator_assist_slices,
-            )
-        })?;
+        self.collector.record_active_major_reachable_object(
+            &self.objects,
+            &self.indexes.object_index,
+            gc.erase(),
+            self.config.old.mutator_assist_slices,
+        )?;
         self.refresh_recommended_plans();
         Ok(scope.root(gc))
     }
@@ -751,17 +765,14 @@ impl Heap {
 
         let active_major_mark_updated = self
             .collector
-            .with_state(|collector| {
-                record_active_major_post_write(
-                    collector,
-                    &self.objects,
-                    &self.indexes.object_index,
-                    owner,
-                    old_value,
-                    new_value,
-                    self.config.old.mutator_assist_slices,
-                )
-            })
+            .record_active_major_post_write(
+                &self.objects,
+                &self.indexes.object_index,
+                owner,
+                old_value,
+                new_value,
+                self.config.old.mutator_assist_slices,
+            )
             .expect("post-write active major-mark assist should not fail");
 
         let Some(owner_space) = self.space_for_erased(owner) else {
@@ -800,15 +811,12 @@ impl Heap {
         );
         if self
             .collector
-            .with_state(|collector| {
-                record_active_major_reachable_object(
-                    collector,
-                    &self.objects,
-                    &self.indexes.object_index,
-                    object,
-                    self.config.old.mutator_assist_slices,
-                )
-            })
+            .record_active_major_reachable_object(
+                &self.objects,
+                &self.indexes.object_index,
+                object,
+                self.config.old.mutator_assist_slices,
+            )
             .expect("rooting during active major-mark should not fail")
         {
             self.refresh_recommended_plans();
@@ -995,41 +1003,35 @@ impl Heap {
     }
 
     pub(crate) fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError> {
-        let request = {
-            self.collector
-                .with_state(|collector| active_reclaim_prep_request(collector))
-        };
+        let request = self.collector.active_reclaim_prep_request();
         let Some(request) = request else {
             return Ok(false);
         };
 
         if request.plan.kind == CollectionKind::Major {
-            return self.collector.with_state(|collector| {
-                prepare_active_collection_reclaim_if_needed(
-                    collector,
-                    &self.objects,
-                    &self.indexes.object_index,
-                    |tracer, plan| {
-                        trace_major_ephemerons_for_candidates(
-                            &self.objects,
-                            &self.indexes.object_index,
-                            &self.indexes.ephemeron_candidates,
-                            tracer,
-                            plan.worker_count.max(1),
-                            plan.mark_slice_budget,
-                        )
-                    },
-                    |plan| {
-                        Ok(prepare_major_reclaim_for_plan(
-                            plan,
-                            &self.objects,
-                            &self.indexes,
-                            &self.old_gen,
-                            &self.config.old,
-                        ))
-                    },
-                )
-            });
+            return self.collector.prepare_active_major_reclaim_with_request(
+                &self.objects,
+                &self.indexes.object_index,
+                |tracer, plan| {
+                    trace_major_ephemerons_for_candidates(
+                        &self.objects,
+                        &self.indexes.object_index,
+                        &self.indexes.ephemeron_candidates,
+                        tracer,
+                        plan.worker_count.max(1),
+                        plan.mark_slice_budget,
+                    )
+                },
+                |plan| {
+                    prepare_major_reclaim_for_plan(
+                        plan,
+                        &self.objects,
+                        &self.indexes,
+                        &self.old_gen,
+                        &self.config.old,
+                    )
+                },
+            );
         }
 
         let (mark_steps_delta, mark_rounds_delta) = prepare_active_reclaim(
@@ -1057,9 +1059,7 @@ impl Heap {
                     }),
                 }
             })?;
-        Ok(self
-            .collector
-            .with_state(|collector| complete_active_reclaim_prep(collector, prepared)))
+        Ok(self.collector.complete_active_reclaim_prep(prepared))
     }
 
     fn commit_finished_active_collection(

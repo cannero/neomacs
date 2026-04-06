@@ -321,6 +321,7 @@ pub(crate) fn prepare_active_major_reclaim_with_request(
     Ok(complete_active_reclaim_prep(collector, prepared))
 }
 
+#[cfg(test)]
 pub(crate) fn prepare_active_collection_reclaim_if_needed(
     collector: &mut CollectorState,
     objects: &[ObjectRecord],
@@ -395,6 +396,19 @@ pub(crate) fn finish_active_collection(
     })
 }
 
+pub(crate) fn finish_active_collection_now(
+    collector: &mut CollectorState,
+    objects: &[ObjectRecord],
+    index: &ObjectIndex,
+    trace_ephemerons: impl FnOnce(&mut MarkTracer<'_>, &CollectionPlan) -> (u64, u64),
+    prepare_reclaim: impl FnOnce(&CollectionPlan) -> Result<PreparedReclaim, AllocError>,
+) -> Result<FinishedActiveCollection, AllocError> {
+    let Some(state) = collector.take_major_mark_state() else {
+        return Err(AllocError::NoCollectionInProgress);
+    };
+    finalize_active_collection_state(state, objects, index, trace_ephemerons, prepare_reclaim)
+}
+
 pub(crate) fn finalize_active_collection_state(
     mut state: MajorMarkState,
     objects: &[ObjectRecord],
@@ -416,10 +430,7 @@ pub(crate) fn finish_active_collection_if_ready(
     if !collector.active_major_mark_is_ready() {
         return Ok(None);
     }
-    let Some(state) = collector.take_major_mark_state() else {
-        return Ok(None);
-    };
-    finalize_active_collection_state(state, objects, index, trace_ephemerons, prepare_reclaim)
+    finish_active_collection_now(collector, objects, index, trace_ephemerons, prepare_reclaim)
         .map(Some)
 }
 

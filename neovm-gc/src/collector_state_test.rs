@@ -1,5 +1,8 @@
 use super::*;
+use crate::descriptor::{Relocator, Trace, Tracer, fixed_type_desc};
+use crate::index_state::ObjectIndex;
 use crate::mark::MarkWorklist;
+use crate::object::{ObjectRecord, SpaceKind};
 use crate::plan::{CollectionKind, CollectionPhase, CollectionPlan};
 use crate::reclaim::PreparedReclaimSurvivor;
 use crate::spaces::OldRegionCollectionStats;
@@ -54,6 +57,15 @@ fn prepared_reclaim() -> PreparedReclaim {
         large_live_bytes: 0,
         immortal_live_bytes: 0,
     }
+}
+
+#[derive(Debug)]
+struct Leaf;
+
+unsafe impl Trace for Leaf {
+    fn trace(&self, _tracer: &mut dyn Tracer) {}
+
+    fn relocate(&self, _relocator: &mut dyn Relocator) {}
 }
 
 #[test]
@@ -263,4 +275,61 @@ fn collector_state_handle_try_with_state_reports_would_block_while_locked() {
         .expect_err("try_with_state should report contention while the collector is locked");
 
     assert!(matches!(error, TryLockError::WouldBlock));
+}
+
+#[test]
+fn collector_state_handle_begin_and_record_reachable_object_updates_progress() {
+    let handle = CollectorStateHandle::default();
+    let desc = Box::leak(Box::new(fixed_type_desc::<Leaf>()));
+    let object =
+        ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate pinned leaf");
+    let index = [(object.object_key(), 0usize)]
+        .into_iter()
+        .collect::<ObjectIndex>();
+    let objects = [object];
+
+    handle
+        .begin_major_mark(&objects, &index, major_plan(), std::iter::empty())
+        .expect("begin major mark through handle");
+    let recorded = handle
+        .record_active_major_reachable_object(&objects, &index, objects[0].erased(), 0)
+        .expect("record active major reachable object through handle");
+
+    assert!(recorded);
+    assert!(objects[0].is_marked());
+    assert_eq!(
+        handle
+            .major_mark_progress()
+            .expect("major mark progress after handle record")
+            .remaining_work,
+        1
+    );
+}
+
+#[test]
+fn collector_state_handle_finish_active_collection_if_ready_finishes_prepared_session() {
+    let handle = CollectorStateHandle::default();
+    handle.with_state(|state| {
+        state.begin_major_mark(major_plan(), MarkWorklist::default());
+        assert!(state.complete_active_major_reclaim_prep(
+            2,
+            3,
+            Duration::from_nanos(11),
+            prepared_reclaim(),
+        ));
+    });
+
+    let finished = handle
+        .finish_active_collection_if_ready(
+            &[],
+            &ObjectIndex::default(),
+            |_tracer, _plan| panic!("prepared session should not re-run remark"),
+            |_plan| Ok(prepared_reclaim()),
+        )
+        .expect("finish prepared active collection through handle")
+        .expect("prepared session should finish");
+
+    assert_eq!(finished.completed_plan.phase, CollectionPhase::Reclaim);
+    assert_eq!(finished.reclaim_prepare_nanos, 11);
+    assert!(!handle.has_active_major_mark());
 }

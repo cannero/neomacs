@@ -1,8 +1,14 @@
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError, TryLockResult};
 use std::time::{Duration, Instant};
 
+use crate::collector_exec::MarkTracer;
+use crate::collector_session::{
+    self, ActiveReclaimPrepRequest, FinishedActiveCollection, PreparedActiveReclaim,
+};
 use crate::heap::AllocError;
+use crate::index_state::ObjectIndex;
 use crate::mark::MarkWorklist;
+use crate::object::ObjectRecord;
 use crate::plan::{CollectionPhase, CollectionPlan, MajorMarkProgress};
 use crate::reclaim::PreparedReclaim;
 
@@ -93,12 +99,142 @@ impl CollectorStateHandle {
         self.lock().has_prepared_full_reclaim()
     }
 
+    pub(crate) fn take_major_mark_state(&self) -> Option<MajorMarkState> {
+        self.with_state(CollectorState::take_major_mark_state)
+    }
+
     pub(crate) fn recommended_plan(&self) -> CollectionPlan {
         self.lock().recommended_plan()
     }
 
     pub(crate) fn recommended_background_plan(&self) -> Option<CollectionPlan> {
         self.lock().recommended_background_plan()
+    }
+
+    pub(crate) fn begin_major_mark(
+        &self,
+        objects: &[ObjectRecord],
+        index: &ObjectIndex,
+        plan: CollectionPlan,
+        sources: impl IntoIterator<Item = crate::descriptor::GcErased>,
+    ) -> Result<(), AllocError> {
+        self.with_state(|state| {
+            collector_session::begin_major_mark(state, objects, index, plan, sources)
+        })
+    }
+
+    pub(crate) fn assist_active_major_mark_slices(
+        &self,
+        objects: &[ObjectRecord],
+        index: &ObjectIndex,
+        max_slices: usize,
+    ) -> Result<Option<MajorMarkProgress>, AllocError> {
+        self.with_state(|state| {
+            collector_session::assist_active_major_mark_slices(state, objects, index, max_slices)
+        })
+    }
+
+    pub(crate) fn record_active_major_reachable_object(
+        &self,
+        objects: &[ObjectRecord],
+        index: &ObjectIndex,
+        object: crate::descriptor::GcErased,
+        assist_slices: usize,
+    ) -> Result<bool, AllocError> {
+        self.with_state(|state| {
+            collector_session::record_active_major_reachable_object(
+                state,
+                objects,
+                index,
+                object,
+                assist_slices,
+            )
+        })
+    }
+
+    pub(crate) fn record_active_major_post_write(
+        &self,
+        objects: &[ObjectRecord],
+        index: &ObjectIndex,
+        owner: crate::descriptor::GcErased,
+        old_value: Option<crate::descriptor::GcErased>,
+        new_value: Option<crate::descriptor::GcErased>,
+        assist_slices: usize,
+    ) -> Result<bool, AllocError> {
+        self.with_state(|state| {
+            collector_session::record_active_major_post_write(
+                state,
+                objects,
+                index,
+                owner,
+                old_value,
+                new_value,
+                assist_slices,
+            )
+        })
+    }
+
+    pub(crate) fn poll_active_major_mark_with_completion(
+        &self,
+        objects: &[ObjectRecord],
+        index: &ObjectIndex,
+        trace_ephemerons: impl FnOnce(&mut MarkTracer<'_>, &CollectionPlan) -> (u64, u64),
+        prepare_major_reclaim: impl FnOnce(&CollectionPlan) -> PreparedReclaim,
+    ) -> Result<Option<MajorMarkProgress>, AllocError> {
+        self.with_state(|state| {
+            collector_session::poll_active_major_mark_with_completion(
+                state,
+                objects,
+                index,
+                trace_ephemerons,
+                prepare_major_reclaim,
+            )
+        })
+    }
+
+    pub(crate) fn prepare_active_major_reclaim_with_request(
+        &self,
+        objects: &[ObjectRecord],
+        index: &ObjectIndex,
+        trace_ephemerons: impl FnOnce(&mut MarkTracer<'_>, &CollectionPlan) -> (u64, u64),
+        prepare_major_reclaim: impl FnOnce(&CollectionPlan) -> PreparedReclaim,
+    ) -> Result<bool, AllocError> {
+        self.with_state(|state| {
+            collector_session::prepare_active_major_reclaim_with_request(
+                state,
+                objects,
+                index,
+                trace_ephemerons,
+                prepare_major_reclaim,
+            )
+        })
+    }
+
+    pub(crate) fn active_reclaim_prep_request(&self) -> Option<ActiveReclaimPrepRequest> {
+        let state = self.lock();
+        collector_session::active_reclaim_prep_request(&state)
+    }
+
+    pub(crate) fn complete_active_reclaim_prep(&self, prepared: PreparedActiveReclaim) -> bool {
+        self.with_state(|state| collector_session::complete_active_reclaim_prep(state, prepared))
+    }
+
+    pub(crate) fn finish_active_collection_if_ready(
+        &self,
+        objects: &[ObjectRecord],
+        index: &ObjectIndex,
+        trace_ephemerons: impl FnOnce(&mut MarkTracer<'_>, &CollectionPlan) -> (u64, u64),
+        prepare_reclaim: impl FnOnce(&CollectionPlan) -> Result<PreparedReclaim, AllocError>,
+    ) -> Result<Option<FinishedActiveCollection>, AllocError> {
+        self.with_state(|state| {
+            collector_session::finish_active_collection_if_ready(
+                state,
+                objects,
+                index,
+                trace_ephemerons,
+                prepare_reclaim,
+            )
+        })
     }
 }
 
