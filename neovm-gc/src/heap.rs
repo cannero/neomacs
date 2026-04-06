@@ -10,7 +10,10 @@ use crate::collector_exec::{
     ForwardingRelocator, MajorMarkSession, MarkTracer, MinorTracer, process_weak_references,
     trace_major_ephemerons, trace_minor_ephemerons,
 };
-use crate::collector_state::{CollectorSharedSnapshot, CollectorState, MajorMarkUpdate};
+use crate::collector_session::{
+    advance_major_mark_slice, begin_major_mark, poll_active_major_mark_round,
+};
+use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
 use crate::descriptor::{GcErased, Relocator, Trace, Tracer, TypeDesc, TypeFlags, fixed_type_desc};
 use crate::index_state::{ForwardingMap, HeapIndexState, ObjectIndex};
 use crate::mark::MarkWorklist;
@@ -348,27 +351,13 @@ impl Heap {
         plan: CollectionPlan,
     ) -> Result<CollectorSharedSnapshot, AllocError> {
         let mut collector = self.collector();
-        if collector.has_active_major_mark() {
-            return Err(AllocError::CollectionInProgress);
-        }
-        if !matches!(plan.kind, CollectionKind::Major | CollectionKind::Full) {
-            return Err(AllocError::UnsupportedCollectionKind { kind: plan.kind });
-        }
-
-        collector.clear_recent_phase_trace();
-        for object in &self.objects {
-            object.clear_mark();
-        }
-
-        collector.push_phase(CollectionPhase::InitialMark);
-        if plan.concurrent {
-            collector.push_phase(CollectionPhase::ConcurrentMark);
-        }
-
-        let mut tracer = MarkTracer::new(&self.objects, &self.indexes.object_index);
-        self.for_each_global_source(|object| tracer.mark_erased(object));
-
-        collector.begin_major_mark(plan, tracer.into_worklist());
+        begin_major_mark(
+            &mut collector,
+            &self.objects,
+            &self.indexes.object_index,
+            plan,
+            |tracer| self.for_each_global_source(|object| tracer.mark_erased(object)),
+        )?;
         let recommended_plan = self.compute_recommended_plan_from_collector(&collector);
         let recommended_background_plan =
             self.compute_recommended_background_plan_from_collector(&collector);
@@ -378,20 +367,11 @@ impl Heap {
 
     /// Advance one slice of the current persistent major-mark session.
     pub fn advance_major_mark(&self) -> Result<MajorMarkProgress, AllocError> {
-        let objects = &self.objects;
-        let index = &self.indexes.object_index;
-        let progress = self
-            .collector()
-            .update_active_major_mark(|plan, worklist| {
-                let mut tracer = MarkTracer::with_worklist(objects, index, worklist);
-                let drained_objects = tracer.drain_one_slice(plan.mark_slice_budget);
-                MajorMarkUpdate {
-                    worklist: tracer.into_worklist(),
-                    drained_objects,
-                    mark_steps_delta: u64::from(drained_objects > 0),
-                    mark_rounds_delta: u64::from(drained_objects > 0),
-                }
-            })?;
+        let progress = advance_major_mark_slice(
+            &mut self.collector(),
+            &self.objects,
+            &self.indexes.object_index,
+        )?;
         self.refresh_recommended_plans();
         Ok(progress)
     }
@@ -523,22 +503,14 @@ impl Heap {
         &self,
     ) -> Result<(Option<MajorMarkProgress>, CollectorSharedSnapshot), AllocError> {
         let mut collector = self.collector();
-        if !collector.has_active_major_mark() {
+        let progress = poll_active_major_mark_round(
+            &mut collector,
+            &self.objects,
+            &self.indexes.object_index,
+        )?;
+        let Some(progress) = progress else {
             return Ok((None, collector.shared_snapshot()));
-        }
-        let objects = &self.objects;
-        let index = &self.indexes.object_index;
-        let progress = collector.update_active_major_mark(|plan, worklist| {
-            let mut tracer = MarkTracer::with_worklist(objects, index, worklist);
-            let (drained_objects, drained_slices) =
-                tracer.drain_worker_round(plan.worker_count.max(1), plan.mark_slice_budget);
-            MajorMarkUpdate {
-                worklist: tracer.into_worklist(),
-                drained_objects,
-                mark_steps_delta: drained_slices,
-                mark_rounds_delta: u64::from(drained_objects > 0),
-            }
-        })?;
+        };
         if progress.completed
             && !collector.active_major_mark_ephemerons_processed()
             && let Some(active_plan) = collector.active_major_mark_plan()
@@ -547,7 +519,11 @@ impl Heap {
                 CollectionKind::Major | CollectionKind::Full
             )
         {
-            let mut tracer = MarkTracer::with_worklist(objects, index, MarkWorklist::default());
+            let mut tracer = MarkTracer::with_worklist(
+                &self.objects,
+                &self.indexes.object_index,
+                MarkWorklist::default(),
+            );
             let (ephemeron_steps, ephemeron_rounds) = self.trace_major_ephemerons(
                 &mut tracer,
                 active_plan.worker_count.max(1),
