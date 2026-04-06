@@ -496,7 +496,7 @@ impl Heap {
 
     /// Return logical old-generation region statistics.
     pub fn old_region_stats(&self) -> Vec<OldRegionStats> {
-        self.region_stats_from_metadata(&self.layout_regions_with_live_objects())
+        self.region_stats_from_metadata(&self.old_regions)
     }
 
     /// Return the currently selected old-region compaction candidates.
@@ -1431,21 +1431,20 @@ impl Heap {
     }
 
     fn prune_remembered_edges(&mut self) {
-        let live_headers: HashSet<_> = self.objects.iter().map(ObjectRecord::header_ptr).collect();
-        let header_spaces: HashMap<_, _> = self
-            .objects
-            .iter()
-            .map(|object| (object.header_ptr(), object.space()))
-            .collect();
+        let object_index = &self.object_index;
+        let objects = &self.objects;
         self.remembered_edges.retain(|edge| {
             let owner = edge.owner.erase().header();
             let target = edge.target.erase().header();
-            live_headers.contains(&owner)
-                && live_headers.contains(&target)
-                && header_spaces.get(&owner).copied().is_some_and(|space| {
-                    space != SpaceKind::Nursery && space != SpaceKind::Immortal
-                })
-                && header_spaces.get(&target).copied() == Some(SpaceKind::Nursery)
+            let owner_space = object_index
+                .get(&owner)
+                .map(|&index| objects[index].space());
+            let target_space = object_index
+                .get(&target)
+                .map(|&index| objects[index].space());
+            owner_space
+                .is_some_and(|space| space != SpaceKind::Nursery && space != SpaceKind::Immortal)
+                && target_space == Some(SpaceKind::Nursery)
         });
     }
 
