@@ -727,6 +727,43 @@ impl SharedHeap {
         self.collector.try_with_state(f)
     }
 
+    pub(crate) fn with_heap_read_collector_update<R>(
+        &self,
+        f: impl FnOnce(&Heap, &mut CollectorState) -> Result<R, AllocError>,
+    ) -> Result<Result<R, AllocError>, SharedHeapError> {
+        let heap = self.read().map_err(|_| SharedHeapError::LockPoisoned)?;
+        let result = self.with_collector_state(|collector| {
+            f(&heap, collector).map(|value| (value, collector.shared_snapshot()))
+        })?;
+        match result {
+            Ok((value, collector_snapshot)) => {
+                self.publish_collector_snapshot(collector_snapshot)?;
+                Ok(Ok(value))
+            }
+            Err(error) => Ok(Err(error)),
+        }
+    }
+
+    pub(crate) fn try_with_heap_read_collector_update<R>(
+        &self,
+        f: impl FnOnce(&Heap, &mut CollectorState) -> Result<R, AllocError>,
+    ) -> Result<Result<R, AllocError>, SharedHeapError> {
+        let heap = self.try_read().map_err(|error| match error {
+            TryLockError::Poisoned(_) => SharedHeapError::LockPoisoned,
+            TryLockError::WouldBlock => SharedHeapError::WouldBlock,
+        })?;
+        let result = self.try_with_collector_state(|collector| {
+            f(&heap, collector).map(|value| (value, collector.shared_snapshot()))
+        })?;
+        match result {
+            Ok((value, collector_snapshot)) => {
+                self.publish_collector_snapshot(collector_snapshot)?;
+                Ok(Ok(value))
+            }
+            Err(error) => Ok(Err(error)),
+        }
+    }
+
     fn read_snapshot<R>(
         &self,
         f: impl FnOnce(&SharedHeapSnapshot) -> R,
