@@ -3582,6 +3582,131 @@ fn public_api_shared_background_service_tick_returns_ready_from_snapshot_for_com
 }
 
 #[test]
+fn public_api_shared_background_service_tick_aggregates_multiple_rounds_with_short_lock_windows() {
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            region_bytes: 512,
+            line_bytes: 16,
+            concurrent_mark_workers: 2,
+            mutator_assist_slices: 0,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            let mut keep_scope = mutator.handle_scope();
+            for byte in 0..40u8 {
+                mutator
+                    .alloc(&mut keep_scope, OldLeaf([byte; 32]))
+                    .expect("alloc old leaf");
+            }
+            let plan = neovm_gc::CollectionPlan {
+                mark_slice_budget: 1,
+                ..mutator.plan_for(CollectionKind::Major)
+            };
+            mutator.begin_major_mark(plan).expect("begin major mark");
+        })
+        .expect("seed shared active major-mark session");
+
+    let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig {
+        auto_start_concurrent: false,
+        auto_finish_when_ready: true,
+        max_rounds_per_tick: 2,
+    });
+
+    match service.tick().expect("shared service tick") {
+        neovm_gc::BackgroundCollectionStatus::Idle => panic!("session should be active"),
+        neovm_gc::BackgroundCollectionStatus::Finished(_) => {
+            panic!("single shared tick should not finish whole session")
+        }
+        neovm_gc::BackgroundCollectionStatus::ReadyToFinish(_) => {
+            panic!("single shared tick should not drain the whole session")
+        }
+        neovm_gc::BackgroundCollectionStatus::Progress(progress) => {
+            assert_eq!(progress.drained_objects, 4);
+            assert_eq!(progress.mark_steps, 4);
+            assert_eq!(progress.mark_rounds, 2);
+            assert!(progress.remaining_work > 0);
+        }
+    }
+    assert_eq!(service.stats().ticks, 1);
+    assert_eq!(service.stats().rounds, 2);
+}
+
+#[test]
+fn public_api_shared_background_service_try_tick_aggregates_multiple_rounds_with_short_lock_windows()
+ {
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            region_bytes: 512,
+            line_bytes: 16,
+            concurrent_mark_workers: 2,
+            mutator_assist_slices: 0,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            let mut keep_scope = mutator.handle_scope();
+            for byte in 0..40u8 {
+                mutator
+                    .alloc(&mut keep_scope, OldLeaf([byte; 32]))
+                    .expect("alloc old leaf");
+            }
+            let plan = neovm_gc::CollectionPlan {
+                mark_slice_budget: 1,
+                ..mutator.plan_for(CollectionKind::Major)
+            };
+            mutator.begin_major_mark(plan).expect("begin major mark");
+        })
+        .expect("seed shared active major-mark session");
+
+    let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig {
+        auto_start_concurrent: false,
+        auto_finish_when_ready: true,
+        max_rounds_per_tick: 2,
+    });
+
+    match service.try_tick().expect("shared service try_tick") {
+        neovm_gc::BackgroundCollectionStatus::Idle => panic!("session should be active"),
+        neovm_gc::BackgroundCollectionStatus::Finished(_) => {
+            panic!("single shared try_tick should not finish whole session")
+        }
+        neovm_gc::BackgroundCollectionStatus::ReadyToFinish(_) => {
+            panic!("single shared try_tick should not drain the whole session")
+        }
+        neovm_gc::BackgroundCollectionStatus::Progress(progress) => {
+            assert_eq!(progress.drained_objects, 4);
+            assert_eq!(progress.mark_steps, 4);
+            assert_eq!(progress.mark_rounds, 2);
+            assert!(progress.remaining_work > 0);
+        }
+    }
+    assert_eq!(service.stats().ticks, 1);
+    assert_eq!(service.stats().rounds, 2);
+}
+
+#[test]
 fn public_api_shared_background_service_try_tick_returns_ready_from_snapshot_for_completed_active_session()
  {
     let shared = Heap::new(HeapConfig {

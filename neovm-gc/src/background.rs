@@ -845,6 +845,101 @@ impl BackgroundCollector {
         BackgroundCollectionStatus::ReadyToFinish(progress)
     }
 
+    fn begin_tick(&mut self) {
+        self.stats.ticks = self.stats.ticks.saturating_add(1);
+    }
+
+    fn ensure_active_session<R: BackgroundCollectionRuntime>(
+        &mut self,
+        runtime: &mut R,
+    ) -> Result<bool, AllocError> {
+        if runtime.active_major_mark_plan().is_none() && self.config.auto_start_concurrent {
+            if let Some(plan) = runtime.recommended_background_plan()
+                && matches!(plan.kind, CollectionKind::Major | CollectionKind::Full)
+            {
+                runtime.begin_major_mark(plan)?;
+                self.stats.sessions_started = self.stats.sessions_started.saturating_add(1);
+            }
+        }
+
+        Ok(runtime.active_major_mark_plan().is_some())
+    }
+
+    fn tick_round<R: BackgroundCollectionRuntime>(
+        &mut self,
+        runtime: &mut R,
+    ) -> Result<BackgroundCollectionStatus, AllocError> {
+        if !self.ensure_active_session(runtime)? {
+            return Ok(BackgroundCollectionStatus::Idle);
+        }
+
+        self.stats.rounds = self.stats.rounds.saturating_add(1);
+        let Some(progress) = runtime.poll_background_mark_round()? else {
+            return Ok(BackgroundCollectionStatus::Idle);
+        };
+
+        if progress.completed {
+            if self.config.auto_finish_when_ready
+                && let Some(cycle) = runtime.finish_active_major_collection_if_ready()?
+            {
+                self.stats.sessions_finished = self.stats.sessions_finished.saturating_add(1);
+                return Ok(BackgroundCollectionStatus::Finished(cycle));
+            }
+            return Ok(BackgroundCollectionStatus::ReadyToFinish(progress));
+        }
+
+        Ok(BackgroundCollectionStatus::Progress(progress))
+    }
+
+    fn aggregate_progress(
+        total_drained_objects: &mut usize,
+        progress: MajorMarkProgress,
+    ) -> MajorMarkProgress {
+        *total_drained_objects = total_drained_objects.saturating_add(progress.drained_objects);
+        crate::plan::MajorMarkProgress {
+            completed: progress.completed,
+            drained_objects: *total_drained_objects,
+            mark_steps: progress.mark_steps,
+            mark_rounds: progress.mark_rounds,
+            remaining_work: progress.remaining_work,
+        }
+    }
+
+    fn tick_with_rounds<E>(
+        &mut self,
+        mut tick_round: impl FnMut(&mut Self) -> Result<BackgroundCollectionStatus, E>,
+    ) -> Result<BackgroundCollectionStatus, E> {
+        self.begin_tick();
+
+        let rounds = self.config.max_rounds_per_tick.max(1);
+        let mut total_drained_objects = 0usize;
+        let mut last_progress = None;
+        for _ in 0..rounds {
+            match tick_round(self)? {
+                BackgroundCollectionStatus::Idle => break,
+                BackgroundCollectionStatus::Finished(cycle) => {
+                    return Ok(BackgroundCollectionStatus::Finished(cycle));
+                }
+                BackgroundCollectionStatus::Progress(progress) => {
+                    last_progress = Some(Self::aggregate_progress(
+                        &mut total_drained_objects,
+                        progress,
+                    ));
+                }
+                BackgroundCollectionStatus::ReadyToFinish(progress) => {
+                    return Ok(BackgroundCollectionStatus::ReadyToFinish(
+                        Self::aggregate_progress(&mut total_drained_objects, progress),
+                    ));
+                }
+            }
+        }
+
+        Ok(match last_progress {
+            Some(progress) => BackgroundCollectionStatus::Progress(progress),
+            None => BackgroundCollectionStatus::Idle,
+        })
+    }
+
     fn snapshot_tick(
         &mut self,
         snapshot: &SharedBackgroundSnapshot,
@@ -869,63 +964,7 @@ impl BackgroundCollector {
         &mut self,
         runtime: &mut R,
     ) -> Result<BackgroundCollectionStatus, AllocError> {
-        self.stats.ticks = self.stats.ticks.saturating_add(1);
-
-        if runtime.active_major_mark_plan().is_none() && self.config.auto_start_concurrent {
-            if let Some(plan) = runtime.recommended_background_plan()
-                && matches!(plan.kind, CollectionKind::Major | CollectionKind::Full)
-            {
-                runtime.begin_major_mark(plan)?;
-                self.stats.sessions_started = self.stats.sessions_started.saturating_add(1);
-            }
-        }
-
-        if runtime.active_major_mark_plan().is_none() {
-            return Ok(BackgroundCollectionStatus::Idle);
-        }
-
-        let rounds = self.config.max_rounds_per_tick.max(1);
-        let mut total_drained_objects = 0usize;
-        let mut last_progress = None;
-        let mut ready_to_finish = false;
-        for _ in 0..rounds {
-            self.stats.rounds = self.stats.rounds.saturating_add(1);
-            let Some(progress) = runtime.poll_background_mark_round()? else {
-                break;
-            };
-            total_drained_objects = total_drained_objects.saturating_add(progress.drained_objects);
-
-            if progress.completed {
-                if self.config.auto_finish_when_ready
-                    && let Some(cycle) = runtime.finish_active_major_collection_if_ready()?
-                {
-                    self.stats.sessions_finished = self.stats.sessions_finished.saturating_add(1);
-                    return Ok(BackgroundCollectionStatus::Finished(cycle));
-                }
-                last_progress = Some(progress);
-                ready_to_finish = true;
-                break;
-            }
-            last_progress = Some(progress);
-        }
-
-        Ok(match last_progress {
-            Some(progress) => {
-                let status = crate::plan::MajorMarkProgress {
-                    completed: progress.completed,
-                    drained_objects: total_drained_objects,
-                    mark_steps: progress.mark_steps,
-                    mark_rounds: progress.mark_rounds,
-                    remaining_work: progress.remaining_work,
-                };
-                if ready_to_finish {
-                    BackgroundCollectionStatus::ReadyToFinish(status)
-                } else {
-                    BackgroundCollectionStatus::Progress(status)
-                }
-            }
-            None => BackgroundCollectionStatus::Idle,
-        })
+        self.tick_with_rounds(|collector| collector.tick_round(runtime))
     }
 
     /// Service background collection until no active session remains or one collection finishes.
@@ -1110,10 +1149,12 @@ impl SharedBackgroundService {
         if let Some(status) = self.collector.snapshot_tick(&snapshot) {
             return Ok(status);
         }
-        self.heap
-            .with_runtime(|runtime| self.collector.tick(runtime))
-            .map_err(|_| SharedBackgroundError::LockPoisoned)?
-            .map_err(SharedBackgroundError::Collection)
+        let heap = self.heap.clone();
+        self.collector.tick_with_rounds(|collector| {
+            heap.with_runtime(|runtime| collector.tick_round(runtime))
+                .map_err(|_| SharedBackgroundError::LockPoisoned)?
+                .map_err(SharedBackgroundError::Collection)
+        })
     }
 
     /// Run one background-collection coordinator tick without blocking on heap lock contention.
@@ -1128,13 +1169,15 @@ impl SharedBackgroundService {
         if let Some(status) = self.collector.snapshot_tick(&snapshot) {
             return Ok(status);
         }
-        self.heap
-            .try_with_runtime(|runtime| self.collector.tick(runtime))
-            .map_err(|error| match error {
-                SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-                SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-            })?
-            .map_err(SharedBackgroundError::Collection)
+        let heap = self.heap.clone();
+        self.collector.tick_with_rounds(|collector| {
+            heap.try_with_runtime(|runtime| collector.tick_round(runtime))
+                .map_err(|error| match error {
+                    SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
+                    SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
+                })?
+                .map_err(SharedBackgroundError::Collection)
+        })
     }
 
     /// Service background collection until no active session remains or one collection finishes.

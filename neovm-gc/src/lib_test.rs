@@ -4405,6 +4405,130 @@ fn shared_background_service_tick_returns_ready_from_snapshot_for_completed_acti
 }
 
 #[test]
+fn shared_background_service_tick_aggregates_multiple_rounds_with_short_lock_windows() {
+    let shared = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        old: crate::spaces::OldGenConfig {
+            region_bytes: 512,
+            line_bytes: 16,
+            concurrent_mark_workers: 2,
+            mutator_assist_slices: 0,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            let mut keep_scope = mutator.handle_scope();
+            for byte in 0..40u8 {
+                mutator
+                    .alloc(&mut keep_scope, OldLeaf([byte; 32]))
+                    .expect("alloc old leaf");
+            }
+            let plan = CollectionPlan {
+                mark_slice_budget: 1,
+                ..mutator.plan_for(CollectionKind::Major)
+            };
+            mutator.begin_major_mark(plan).expect("begin major mark");
+        })
+        .expect("seed shared active major-mark session");
+
+    let mut service = shared.background_service(BackgroundCollectorConfig {
+        auto_start_concurrent: false,
+        auto_finish_when_ready: true,
+        max_rounds_per_tick: 2,
+    });
+
+    match service.tick().expect("shared service tick") {
+        BackgroundCollectionStatus::Idle => panic!("session should be active"),
+        BackgroundCollectionStatus::Finished(_) => {
+            panic!("single shared tick should not finish whole session")
+        }
+        BackgroundCollectionStatus::ReadyToFinish(_) => {
+            panic!("single shared tick should not drain the whole session")
+        }
+        BackgroundCollectionStatus::Progress(progress) => {
+            assert_eq!(progress.drained_objects, 4);
+            assert_eq!(progress.mark_steps, 4);
+            assert_eq!(progress.mark_rounds, 2);
+            assert!(progress.remaining_work > 0);
+        }
+    }
+    assert_eq!(service.stats().ticks, 1);
+    assert_eq!(service.stats().rounds, 2);
+}
+
+#[test]
+fn shared_background_service_try_tick_aggregates_multiple_rounds_with_short_lock_windows() {
+    let shared = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        old: crate::spaces::OldGenConfig {
+            region_bytes: 512,
+            line_bytes: 16,
+            concurrent_mark_workers: 2,
+            mutator_assist_slices: 0,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            let mut keep_scope = mutator.handle_scope();
+            for byte in 0..40u8 {
+                mutator
+                    .alloc(&mut keep_scope, OldLeaf([byte; 32]))
+                    .expect("alloc old leaf");
+            }
+            let plan = CollectionPlan {
+                mark_slice_budget: 1,
+                ..mutator.plan_for(CollectionKind::Major)
+            };
+            mutator.begin_major_mark(plan).expect("begin major mark");
+        })
+        .expect("seed shared active major-mark session");
+
+    let mut service = shared.background_service(BackgroundCollectorConfig {
+        auto_start_concurrent: false,
+        auto_finish_when_ready: true,
+        max_rounds_per_tick: 2,
+    });
+
+    match service.try_tick().expect("shared service try_tick") {
+        BackgroundCollectionStatus::Idle => panic!("session should be active"),
+        BackgroundCollectionStatus::Finished(_) => {
+            panic!("single shared try_tick should not finish whole session")
+        }
+        BackgroundCollectionStatus::ReadyToFinish(_) => {
+            panic!("single shared try_tick should not drain the whole session")
+        }
+        BackgroundCollectionStatus::Progress(progress) => {
+            assert_eq!(progress.drained_objects, 4);
+            assert_eq!(progress.mark_steps, 4);
+            assert_eq!(progress.mark_rounds, 2);
+            assert!(progress.remaining_work > 0);
+        }
+    }
+    assert_eq!(service.stats().ticks, 1);
+    assert_eq!(service.stats().rounds, 2);
+}
+
+#[test]
 fn shared_background_service_try_tick_returns_ready_from_snapshot_for_completed_active_session() {
     let shared = Heap::new(HeapConfig {
         nursery: NurseryConfig {
