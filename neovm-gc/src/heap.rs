@@ -103,6 +103,60 @@ struct HeapIndexState {
     remembered_owner_set: HashSet<ObjectKey>,
 }
 
+impl HeapIndexState {
+    fn record_descriptor_candidates(&mut self, object_key: ObjectKey, desc: &'static TypeDesc) {
+        if desc.flags.contains(TypeFlags::FINALIZABLE) {
+            self.finalizable_candidates.push(object_key);
+        }
+        if desc.flags.contains(TypeFlags::WEAK) {
+            self.weak_candidates.push(object_key);
+        }
+        if desc.flags.contains(TypeFlags::EPHEMERON_KEY) {
+            self.ephemeron_candidates.push(object_key);
+        }
+    }
+
+    fn candidate_indices(&self, candidates: &[ObjectKey]) -> Vec<usize> {
+        candidates
+            .iter()
+            .filter_map(|key| self.object_index.get(key).copied())
+            .collect()
+    }
+
+    fn record_remembered_edge(&mut self, owner: GcErased, target: GcErased) {
+        let owner_key = owner.object_key();
+        self.remembered_edges.push(RememberedEdge {
+            owner: unsafe { crate::root::Gc::from_erased(owner) },
+            target: unsafe { crate::root::Gc::from_erased(target) },
+        });
+        if self.remembered_owner_set.insert(owner_key) {
+            self.remembered_owners.push(owner_key);
+        }
+    }
+
+    fn reset_candidate_indexes(&mut self, capacity: usize) {
+        self.object_index.clear();
+        self.object_index.reserve(capacity);
+        self.finalizable_candidates.clear();
+        self.weak_candidates.clear();
+        self.ephemeron_candidates.clear();
+        self.finalizable_candidates.reserve(capacity);
+        self.weak_candidates.reserve(capacity);
+        self.ephemeron_candidates.reserve(capacity);
+    }
+
+    fn rebuild_remembered_owners(&mut self) {
+        self.remembered_owner_set.clear();
+        self.remembered_owners.clear();
+        for edge in &self.remembered_edges {
+            let owner = edge.owner.erase().object_key();
+            if self.remembered_owner_set.insert(owner) {
+                self.remembered_owners.push(owner);
+            }
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 struct OldGenState {
     regions: Vec<OldRegion>,
@@ -1123,7 +1177,7 @@ impl Heap {
         let object_key = self.objects[index].object_key();
         self.indexes.object_index.insert(object_key, index);
         let desc = self.objects[index].header().desc();
-        self.record_descriptor_candidates(object_key, desc);
+        self.indexes.record_descriptor_candidates(object_key, desc);
         if self.collector().has_active_major_mark() {
             self.mark_for_active_major_session(gc.erase());
             self.assist_major_mark_in_place();
@@ -1231,14 +1285,7 @@ impl Heap {
 
         let owner_is_old = owner_space != SpaceKind::Nursery && owner_space != SpaceKind::Immortal;
         if owner_is_old && target_space == SpaceKind::Nursery {
-            let owner_key = owner.object_key();
-            self.indexes.remembered_edges.push(RememberedEdge {
-                owner: unsafe { crate::root::Gc::from_erased(owner) },
-                target: unsafe { crate::root::Gc::from_erased(target) },
-            });
-            if self.indexes.remembered_owner_set.insert(owner_key) {
-                self.indexes.remembered_owners.push(owner_key);
-            }
+            self.indexes.record_remembered_edge(owner, target);
         }
 
         self.assist_major_mark_in_place();
@@ -1393,25 +1440,6 @@ impl Heap {
             .expect("mutator assist on active major-mark session should not fail");
     }
 
-    fn record_descriptor_candidates(&mut self, object_key: ObjectKey, desc: &'static TypeDesc) {
-        if desc.flags.contains(TypeFlags::FINALIZABLE) {
-            self.indexes.finalizable_candidates.push(object_key);
-        }
-        if desc.flags.contains(TypeFlags::WEAK) {
-            self.indexes.weak_candidates.push(object_key);
-        }
-        if desc.flags.contains(TypeFlags::EPHEMERON_KEY) {
-            self.indexes.ephemeron_candidates.push(object_key);
-        }
-    }
-
-    fn candidate_indices(&self, candidates: &[ObjectKey]) -> Vec<usize> {
-        candidates
-            .iter()
-            .filter_map(|key| self.indexes.object_index.get(key).copied())
-            .collect()
-    }
-
     fn for_each_global_source(&self, mut f: impl FnMut(GcErased)) {
         for root in self.roots.iter() {
             f(root);
@@ -1442,7 +1470,9 @@ impl Heap {
         worker_count: usize,
         slice_budget: usize,
     ) -> (u64, u64) {
-        let ephemeron_candidates = self.candidate_indices(&self.indexes.ephemeron_candidates);
+        let ephemeron_candidates = self
+            .indexes
+            .candidate_indices(&self.indexes.ephemeron_candidates);
         let mut mark_steps = 0u64;
         let mut mark_rounds = 0u64;
         loop {
@@ -1527,8 +1557,10 @@ impl Heap {
         tracer: &mut MinorTracer<'_>,
         worker_count: usize,
     ) -> bool {
-        let ephemeron_candidates =
-            Arc::new(self.candidate_indices(&self.indexes.ephemeron_candidates));
+        let ephemeron_candidates = Arc::new(
+            self.indexes
+                .candidate_indices(&self.indexes.ephemeron_candidates),
+        );
         let workers = worker_count.max(1).min(ephemeron_candidates.len().max(1));
         let chunk_size = ephemeron_candidates.len().max(1).div_ceil(workers);
         let shared = ParallelMarkShared::new(&self.objects, tracer.index);
@@ -1622,7 +1654,7 @@ impl Heap {
             let object_key = self.objects[index].object_key();
             self.indexes.object_index.insert(object_key, index);
             let desc = self.objects[index].header().desc();
-            self.record_descriptor_candidates(object_key, desc);
+            self.indexes.record_descriptor_candidates(object_key, desc);
         }
         Ok(EvacuationOutcome {
             forwarding,
@@ -1692,16 +1724,7 @@ impl Heap {
 
         let old_objects = core::mem::take(&mut self.objects);
         let mut old_region_rebuild = self.old_gen.prepare_rebuild(completed_plan.as_ref());
-        self.indexes.object_index.clear();
-        self.indexes.object_index.reserve(old_objects.len());
-        self.indexes.finalizable_candidates.clear();
-        self.indexes.weak_candidates.clear();
-        self.indexes.ephemeron_candidates.clear();
-        self.indexes
-            .finalizable_candidates
-            .reserve(old_objects.len());
-        self.indexes.weak_candidates.reserve(old_objects.len());
-        self.indexes.ephemeron_candidates.reserve(old_objects.len());
+        self.indexes.reset_candidate_indexes(old_objects.len());
 
         let mut rebuilt_objects = Vec::with_capacity(old_objects.len());
         let mut queued_finalizers = 0u64;
@@ -1736,7 +1759,7 @@ impl Heap {
             let index = rebuilt_objects.len();
             rebuilt_objects.push(object);
             self.indexes.object_index.insert(object_key, index);
-            self.record_descriptor_candidates(object_key, desc);
+            self.indexes.record_descriptor_candidates(object_key, desc);
             match space {
                 SpaceKind::Nursery => {
                     self.stats.nursery.live_bytes =
@@ -1789,14 +1812,7 @@ impl Heap {
                 .is_some_and(|space| space != SpaceKind::Nursery && space != SpaceKind::Immortal)
                 && target_space == Some(SpaceKind::Nursery)
         });
-        self.indexes.remembered_owner_set.clear();
-        self.indexes.remembered_owners.clear();
-        for edge in &self.indexes.remembered_edges {
-            let owner = edge.owner.erase().object_key();
-            if self.indexes.remembered_owner_set.insert(owner) {
-                self.indexes.remembered_owners.push(owner);
-            }
-        }
+        self.indexes.rebuild_remembered_owners();
         (queued_finalizers, old_region_stats)
     }
 
@@ -2006,7 +2022,10 @@ impl Heap {
         forwarding: &ForwardingMap,
         index: &ObjectIndex,
     ) {
-        let weak_candidates = Arc::new(self.candidate_indices(&self.indexes.weak_candidates));
+        let weak_candidates = Arc::new(
+            self.indexes
+                .candidate_indices(&self.indexes.weak_candidates),
+        );
         let worker_count = worker_count.max(1);
         if worker_count == 1 || weak_candidates.len() <= 1 {
             let mut processor = WeakRetention::new(&self.objects, index, forwarding, kind);
