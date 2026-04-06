@@ -1,3 +1,6 @@
+[alias]
+xtask = "run -p xtask --"
+
 [env]
 # 128 MB stack for test threads.  Conservative GC scans the main thread
 # stack, so we avoid stacker::maybe_grow (which creates separate mmap
