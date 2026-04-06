@@ -78,6 +78,23 @@ unsafe impl Trace for Link {
 }
 
 #[derive(Debug)]
+struct SlowLink {
+    delay: Duration,
+    next: EdgeCell<SlowLink>,
+}
+
+unsafe impl Trace for SlowLink {
+    fn trace(&self, tracer: &mut dyn Tracer) {
+        thread::sleep(self.delay);
+        self.next.trace(tracer);
+    }
+
+    fn relocate(&self, relocator: &mut dyn Relocator) {
+        self.next.relocate(relocator);
+    }
+}
+
+#[derive(Debug)]
 struct ThreadRecordingLeaf {
     seen_threads: Arc<Mutex<HashSet<thread::ThreadId>>>,
 }
@@ -4413,4 +4430,96 @@ fn public_api_background_worker_records_contention_loops_when_heap_lock_is_held(
     let stats = worker.join().expect("join background worker");
     assert!(stats.contention_loops > 0);
     assert!(stats.wait_loops > 0);
+}
+
+#[test]
+fn public_api_background_worker_publishes_one_round_snapshot_between_multi_round_ticks() {
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            region_bytes: 512,
+            line_bytes: 16,
+            concurrent_mark_workers: 1,
+            mutator_assist_slices: 0,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            let mut keep_scope = mutator.handle_scope();
+            let tail = mutator
+                .alloc(
+                    &mut keep_scope,
+                    SlowLink {
+                        delay: Duration::from_millis(25),
+                        next: EdgeCell::new(None),
+                    },
+                )
+                .expect("alloc tail");
+            let mid = mutator
+                .alloc(
+                    &mut keep_scope,
+                    SlowLink {
+                        delay: Duration::from_millis(25),
+                        next: EdgeCell::new(Some(tail.as_gc())),
+                    },
+                )
+                .expect("alloc mid");
+            let root = mutator
+                .alloc(
+                    &mut keep_scope,
+                    SlowLink {
+                        delay: Duration::from_millis(25),
+                        next: EdgeCell::new(None),
+                    },
+                )
+                .expect("alloc root");
+            mutator.store_edge(&root, 0, |link| &link.next, Some(mid.as_gc()));
+            let mut plan = mutator.plan_for(CollectionKind::Major);
+            plan.worker_count = 1;
+            plan.mark_slice_budget = 1;
+            mutator.begin_major_mark(plan).expect("begin major mark");
+        })
+        .expect("seed active major-mark session");
+
+    let observed_epoch = shared
+        .background_epoch()
+        .expect("read initial background epoch");
+    let observed_status = shared
+        .background_status()
+        .expect("read initial background status");
+
+    let worker = shared.spawn_background_worker(neovm_gc::BackgroundWorkerConfig {
+        collector: neovm_gc::BackgroundCollectorConfig {
+            auto_start_concurrent: false,
+            auto_finish_when_ready: false,
+            max_rounds_per_tick: 2,
+        },
+        idle_sleep: Duration::from_millis(1),
+        busy_sleep: Duration::ZERO,
+    });
+
+    let first_change = shared
+        .wait_for_background_change(observed_epoch, &observed_status, Duration::from_secs(1))
+        .expect("wait for first background change");
+    let progress = first_change
+        .status
+        .major_mark_progress
+        .expect("background change should publish major-mark progress");
+    assert_eq!(progress.mark_rounds, 1);
+    assert_eq!(progress.mark_steps, 1);
+    assert!(!progress.completed);
+
+    worker.request_stop();
+    let stats = worker.join().expect("join background worker");
+    assert!(stats.collector.rounds >= 1);
 }

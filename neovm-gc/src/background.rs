@@ -959,6 +959,61 @@ impl BackgroundCollector {
         None
     }
 
+    fn tick_shared_after_snapshot(
+        &mut self,
+        heap: &SharedHeap,
+    ) -> Result<BackgroundCollectionStatus, SharedBackgroundError> {
+        let heap = heap.clone();
+        self.tick_with_rounds(|collector| {
+            heap.with_runtime(|runtime| collector.tick_round(runtime))
+                .map_err(|_| SharedBackgroundError::LockPoisoned)?
+                .map_err(SharedBackgroundError::Collection)
+        })
+    }
+
+    fn try_tick_shared_after_snapshot(
+        &mut self,
+        heap: &SharedHeap,
+    ) -> Result<BackgroundCollectionStatus, SharedBackgroundError> {
+        let heap = heap.clone();
+        self.tick_with_rounds(|collector| {
+            heap.try_with_runtime(|runtime| collector.tick_round(runtime))
+                .map_err(|error| match error {
+                    SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
+                    SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
+                })?
+                .map_err(SharedBackgroundError::Collection)
+        })
+    }
+
+    fn tick_shared(
+        &mut self,
+        heap: &SharedHeap,
+    ) -> Result<BackgroundCollectionStatus, SharedBackgroundError> {
+        let snapshot = heap.background_snapshot().map_err(|error| match error {
+            SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
+            SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
+        })?;
+        if let Some(status) = self.snapshot_tick(&snapshot) {
+            return Ok(status);
+        }
+        self.tick_shared_after_snapshot(heap)
+    }
+
+    fn try_tick_shared(
+        &mut self,
+        heap: &SharedHeap,
+    ) -> Result<BackgroundCollectionStatus, SharedBackgroundError> {
+        let snapshot = heap.background_snapshot().map_err(|error| match error {
+            SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
+            SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
+        })?;
+        if let Some(status) = self.snapshot_tick(&snapshot) {
+            return Ok(status);
+        }
+        self.try_tick_shared_after_snapshot(heap)
+    }
+
     /// Run one background-collection coordinator tick.
     pub fn tick<R: BackgroundCollectionRuntime>(
         &mut self,
@@ -1139,45 +1194,12 @@ impl SharedBackgroundService {
 
     /// Run one background-collection coordinator tick.
     pub fn tick(&mut self) -> Result<BackgroundCollectionStatus, SharedBackgroundError> {
-        let snapshot = self
-            .heap
-            .background_snapshot()
-            .map_err(|error| match error {
-                SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-                SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-            })?;
-        if let Some(status) = self.collector.snapshot_tick(&snapshot) {
-            return Ok(status);
-        }
-        let heap = self.heap.clone();
-        self.collector.tick_with_rounds(|collector| {
-            heap.with_runtime(|runtime| collector.tick_round(runtime))
-                .map_err(|_| SharedBackgroundError::LockPoisoned)?
-                .map_err(SharedBackgroundError::Collection)
-        })
+        self.collector.tick_shared(&self.heap)
     }
 
     /// Run one background-collection coordinator tick without blocking on heap lock contention.
     pub fn try_tick(&mut self) -> Result<BackgroundCollectionStatus, SharedBackgroundError> {
-        let snapshot = self
-            .heap
-            .background_snapshot()
-            .map_err(|error| match error {
-                SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-                SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-            })?;
-        if let Some(status) = self.collector.snapshot_tick(&snapshot) {
-            return Ok(status);
-        }
-        let heap = self.heap.clone();
-        self.collector.tick_with_rounds(|collector| {
-            heap.try_with_runtime(|runtime| collector.tick_round(runtime))
-                .map_err(|error| match error {
-                    SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
-                    SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
-                })?
-                .map_err(SharedBackgroundError::Collection)
-        })
+        self.collector.try_tick_shared(&self.heap)
     }
 
     /// Service background collection until no active session remains or one collection finishes.
@@ -1459,10 +1481,15 @@ fn worker_loop(
             continue;
         }
 
-        let status = match shared.try_with_runtime(|runtime| collector.tick(runtime)) {
-            Ok(result) => result.map_err(BackgroundWorkerError::Collection)?,
-            Err(SharedHeapError::LockPoisoned) => return Err(BackgroundWorkerError::LockPoisoned),
-            Err(SharedHeapError::WouldBlock) => {
+        let status = match collector.try_tick_shared_after_snapshot(&shared) {
+            Ok(status) => status,
+            Err(SharedBackgroundError::Collection(error)) => {
+                return Err(BackgroundWorkerError::Collection(error));
+            }
+            Err(SharedBackgroundError::LockPoisoned) => {
+                return Err(BackgroundWorkerError::LockPoisoned);
+            }
+            Err(SharedBackgroundError::WouldBlock) => {
                 stats.add_loops(1);
                 stats.add_idle_loops(1);
                 stats.add_contention_loops(1);
