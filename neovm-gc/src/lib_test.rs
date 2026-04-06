@@ -4670,10 +4670,10 @@ fn background_worker_request_stop_wakes_waiting_worker() {
 
 #[test]
 fn background_worker_new_work_wakes_busy_sleeping_worker() {
-    let leaf_bytes = estimated_allocation_size::<Leaf>().expect("leaf allocation size");
+    let nursery_payload_limit = core::mem::size_of::<Leaf>();
     let shared = Heap::new(HeapConfig {
         nursery: NurseryConfig {
-            max_regular_object_bytes: leaf_bytes,
+            max_regular_object_bytes: nursery_payload_limit,
             ..NurseryConfig::default()
         },
         large: LargeObjectSpaceConfig {
@@ -4760,10 +4760,10 @@ fn background_worker_new_work_wakes_busy_sleeping_worker() {
 
 #[test]
 fn background_worker_nursery_only_mutation_does_not_start_new_background_session() {
-    let leaf_bytes = estimated_allocation_size::<Leaf>().expect("leaf allocation size");
+    let nursery_payload_limit = core::mem::size_of::<Leaf>();
     let shared = Heap::new(HeapConfig {
         nursery: NurseryConfig {
-            max_regular_object_bytes: leaf_bytes,
+            max_regular_object_bytes: nursery_payload_limit,
             ..NurseryConfig::default()
         },
         large: LargeObjectSpaceConfig {

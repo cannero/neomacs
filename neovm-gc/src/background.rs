@@ -4,7 +4,7 @@ use crate::plan::{BackgroundCollectionStatus, CollectionKind, CollectionPlan, Ma
 use crate::runtime::CollectorRuntime;
 use crate::stats::{CollectionStats, HeapStats};
 use std::ops::{Deref, DerefMut};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, LockResult, Mutex, MutexGuard, RwLock, TryLockError, TryLockResult};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -643,7 +643,7 @@ pub struct BackgroundWorkerConfig {
     pub collector: BackgroundCollectorConfig,
     /// Sleep duration after an idle worker round.
     pub idle_sleep: Duration,
-    /// Sleep duration after a progress or finish round.
+    /// Sleep duration after one ready-to-finish or finished round.
     pub busy_sleep: Duration,
 }
 
@@ -725,9 +725,91 @@ pub struct SharedBackgroundService {
 #[derive(Debug)]
 pub struct BackgroundWorker {
     stop: Arc<AtomicBool>,
-    stats: Arc<RwLock<BackgroundWorkerStats>>,
+    stats: Arc<BackgroundWorkerCounters>,
     shared: SharedHeap,
     handle: Option<JoinHandle<Result<(), BackgroundWorkerError>>>,
+}
+
+#[derive(Debug, Default)]
+struct BackgroundWorkerCounters {
+    loops: AtomicU64,
+    idle_loops: AtomicU64,
+    wait_loops: AtomicU64,
+    snapshot_idle_loops: AtomicU64,
+    signal_wakeups: AtomicU64,
+    background_change_wakeups: AtomicU64,
+    ignored_signal_wakeups: AtomicU64,
+    contention_loops: AtomicU64,
+    collector_ticks: AtomicU64,
+    collector_rounds: AtomicU64,
+    collector_sessions_started: AtomicU64,
+    collector_sessions_finished: AtomicU64,
+}
+
+impl BackgroundWorkerCounters {
+    fn snapshot(&self) -> BackgroundWorkerStats {
+        BackgroundWorkerStats {
+            loops: self.loops.load(Ordering::Relaxed),
+            idle_loops: self.idle_loops.load(Ordering::Relaxed),
+            wait_loops: self.wait_loops.load(Ordering::Relaxed),
+            snapshot_idle_loops: self.snapshot_idle_loops.load(Ordering::Relaxed),
+            signal_wakeups: self.signal_wakeups.load(Ordering::Relaxed),
+            background_change_wakeups: self.background_change_wakeups.load(Ordering::Relaxed),
+            ignored_signal_wakeups: self.ignored_signal_wakeups.load(Ordering::Relaxed),
+            contention_loops: self.contention_loops.load(Ordering::Relaxed),
+            collector: BackgroundCollectorStats {
+                ticks: self.collector_ticks.load(Ordering::Relaxed),
+                rounds: self.collector_rounds.load(Ordering::Relaxed),
+                sessions_started: self.collector_sessions_started.load(Ordering::Relaxed),
+                sessions_finished: self.collector_sessions_finished.load(Ordering::Relaxed),
+            },
+        }
+    }
+
+    fn add_loops(&self, delta: u64) {
+        self.loops.fetch_add(delta, Ordering::Relaxed);
+    }
+
+    fn add_idle_loops(&self, delta: u64) {
+        self.idle_loops.fetch_add(delta, Ordering::Relaxed);
+    }
+
+    fn add_wait_loops(&self, delta: u64) {
+        self.wait_loops.fetch_add(delta, Ordering::Relaxed);
+    }
+
+    fn add_snapshot_idle_loops(&self, delta: u64) {
+        self.snapshot_idle_loops.fetch_add(delta, Ordering::Relaxed);
+    }
+
+    fn add_signal_wakeups(&self, delta: u64) {
+        self.signal_wakeups.fetch_add(delta, Ordering::Relaxed);
+    }
+
+    fn add_background_change_wakeups(&self, delta: u64) {
+        self.background_change_wakeups
+            .fetch_add(delta, Ordering::Relaxed);
+    }
+
+    fn add_ignored_signal_wakeups(&self, delta: u64) {
+        self.ignored_signal_wakeups
+            .fetch_add(delta, Ordering::Relaxed);
+    }
+
+    fn add_contention_loops(&self, delta: u64) {
+        self.contention_loops.fetch_add(delta, Ordering::Relaxed);
+    }
+
+    fn store_collector(&self, collector: BackgroundCollectorStats) {
+        self.collector_ticks
+            .store(collector.ticks, Ordering::Relaxed);
+        self.collector_rounds
+            .store(collector.rounds, Ordering::Relaxed);
+        self.collector_sessions_started
+            .store(collector.sessions_started, Ordering::Relaxed);
+        self.collector_sessions_finished
+            .store(collector.sessions_finished, Ordering::Relaxed);
+    }
 }
 
 impl BackgroundCollector {
@@ -1127,7 +1209,7 @@ impl SharedBackgroundService {
 impl BackgroundWorker {
     fn spawn(shared: SharedHeap, config: BackgroundWorkerConfig) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
-        let stats = Arc::new(RwLock::new(BackgroundWorkerStats::default()));
+        let stats = Arc::new(BackgroundWorkerCounters::default());
         let worker_stop = Arc::clone(&stop);
         let worker_stats = Arc::clone(&stats);
         let worker_shared = shared.clone();
@@ -1157,10 +1239,7 @@ impl BackgroundWorker {
 
     /// Return a snapshot of current worker statistics.
     pub fn stats(&self) -> Result<BackgroundWorkerStats, BackgroundWorkerError> {
-        self.stats
-            .read()
-            .map(|stats| *stats)
-            .map_err(|_| BackgroundWorkerError::LockPoisoned)
+        Ok(self.stats.snapshot())
     }
 
     /// Return a combined snapshot of worker and shared heap state.
@@ -1192,7 +1271,7 @@ fn worker_loop(
     shared: SharedHeap,
     config: BackgroundWorkerConfig,
     stop: Arc<AtomicBool>,
-    stats: Arc<RwLock<BackgroundWorkerStats>>,
+    stats: Arc<BackgroundWorkerCounters>,
 ) -> Result<(), BackgroundWorkerError> {
     let mut collector = BackgroundCollector::new(config.collector);
     let mut observed_signal_epoch = shared
@@ -1202,7 +1281,29 @@ fn worker_loop(
         .background_snapshot()
         .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
 
-    let wait_for_signal = |stats: &Arc<RwLock<BackgroundWorkerStats>>,
+    let sync_observed_background = |shared: &SharedHeap,
+                                    observed_signal_epoch: &mut u64,
+                                    observed_background: &mut SharedBackgroundSnapshot|
+     -> Result<(), BackgroundWorkerError> {
+        loop {
+            let before = shared
+                .background_snapshot()
+                .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
+            let epoch = shared
+                .background_epoch()
+                .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
+            let after = shared
+                .background_snapshot()
+                .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
+            if before == after {
+                *observed_signal_epoch = epoch;
+                *observed_background = after;
+                return Ok(());
+            }
+        }
+    };
+
+    let wait_for_signal = |stats: &Arc<BackgroundWorkerCounters>,
                            shared: &SharedHeap,
                            stop: &Arc<AtomicBool>,
                            observed_signal_epoch: &mut u64,
@@ -1213,12 +1314,7 @@ fn worker_loop(
             return Ok(());
         }
 
-        {
-            let mut snapshot = stats
-                .write()
-                .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-            snapshot.wait_loops = snapshot.wait_loops.saturating_add(1);
-        }
+        stats.add_wait_loops(1);
 
         let started_at = std::time::Instant::now();
         let mut remaining = timeout;
@@ -1230,10 +1326,7 @@ fn worker_loop(
             *observed_signal_epoch = next_epoch;
 
             if changed {
-                let mut snapshot = stats
-                    .write()
-                    .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-                snapshot.signal_wakeups = snapshot.signal_wakeups.saturating_add(1);
+                stats.add_signal_wakeups(1);
             }
 
             if stop.load(Ordering::Acquire) {
@@ -1244,19 +1337,12 @@ fn worker_loop(
                 .background_snapshot()
                 .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
             if next_background != *observed_background {
-                let mut snapshot = stats
-                    .write()
-                    .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-                snapshot.background_change_wakeups =
-                    snapshot.background_change_wakeups.saturating_add(1);
+                stats.add_background_change_wakeups(1);
                 *observed_background = next_background;
                 return Ok(());
             }
             if changed {
-                let mut snapshot = stats
-                    .write()
-                    .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-                snapshot.ignored_signal_wakeups = snapshot.ignored_signal_wakeups.saturating_add(1);
+                stats.add_ignored_signal_wakeups(1);
             }
 
             let elapsed = started_at.elapsed();
@@ -1272,22 +1358,22 @@ fn worker_loop(
             .background_snapshot()
             .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
         if let Some(status) = collector.snapshot_tick(&snapshot) {
-            let mut snapshot = stats
-                .write()
-                .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-            snapshot.loops = snapshot.loops.saturating_add(1);
+            stats.add_loops(1);
             if matches!(status, BackgroundCollectionStatus::Idle) {
-                snapshot.idle_loops = snapshot.idle_loops.saturating_add(1);
+                stats.add_idle_loops(1);
+                stats.add_snapshot_idle_loops(1);
             }
-            if matches!(status, BackgroundCollectionStatus::Idle) {
-                snapshot.snapshot_idle_loops = snapshot.snapshot_idle_loops.saturating_add(1);
-            }
-            snapshot.collector = collector.stats();
+            stats.store_collector(collector.stats());
+            sync_observed_background(
+                &shared,
+                &mut observed_signal_epoch,
+                &mut observed_background,
+            )?;
             let wait_for = match status {
                 BackgroundCollectionStatus::Idle => config.idle_sleep,
-                BackgroundCollectionStatus::Progress(_)
-                | BackgroundCollectionStatus::ReadyToFinish(_)
+                BackgroundCollectionStatus::ReadyToFinish(_)
                 | BackgroundCollectionStatus::Finished(_) => config.busy_sleep,
+                BackgroundCollectionStatus::Progress(_) => Duration::ZERO,
             };
             wait_for_signal(
                 &stats,
@@ -1304,13 +1390,15 @@ fn worker_loop(
             Ok(result) => result.map_err(BackgroundWorkerError::Collection)?,
             Err(SharedHeapError::LockPoisoned) => return Err(BackgroundWorkerError::LockPoisoned),
             Err(SharedHeapError::WouldBlock) => {
-                let mut snapshot = stats
-                    .write()
-                    .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-                snapshot.loops = snapshot.loops.saturating_add(1);
-                snapshot.idle_loops = snapshot.idle_loops.saturating_add(1);
-                snapshot.contention_loops = snapshot.contention_loops.saturating_add(1);
-                snapshot.collector = collector.stats();
+                stats.add_loops(1);
+                stats.add_idle_loops(1);
+                stats.add_contention_loops(1);
+                stats.store_collector(collector.stats());
+                sync_observed_background(
+                    &shared,
+                    &mut observed_signal_epoch,
+                    &mut observed_background,
+                )?;
                 wait_for_signal(
                     &stats,
                     &shared,
@@ -1323,26 +1411,23 @@ fn worker_loop(
             }
         };
 
-        observed_background = shared
-            .background_snapshot()
-            .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
+        sync_observed_background(
+            &shared,
+            &mut observed_signal_epoch,
+            &mut observed_background,
+        )?;
 
-        {
-            let mut snapshot = stats
-                .write()
-                .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-            snapshot.loops = snapshot.loops.saturating_add(1);
-            if matches!(status, BackgroundCollectionStatus::Idle) {
-                snapshot.idle_loops = snapshot.idle_loops.saturating_add(1);
-            }
-            snapshot.collector = collector.stats();
+        stats.add_loops(1);
+        if matches!(status, BackgroundCollectionStatus::Idle) {
+            stats.add_idle_loops(1);
         }
+        stats.store_collector(collector.stats());
 
         let sleep_for = match status {
             BackgroundCollectionStatus::Idle => config.idle_sleep,
-            BackgroundCollectionStatus::Progress(_)
-            | BackgroundCollectionStatus::ReadyToFinish(_)
+            BackgroundCollectionStatus::ReadyToFinish(_)
             | BackgroundCollectionStatus::Finished(_) => config.busy_sleep,
+            BackgroundCollectionStatus::Progress(_) => Duration::ZERO,
         };
         wait_for_signal(
             &stats,
