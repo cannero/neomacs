@@ -1,35 +1,51 @@
-use core::cell::Cell;
 use core::fmt;
+use core::marker::PhantomData;
+use core::sync::atomic::{AtomicPtr, Ordering};
 
-use crate::descriptor::{Relocator, Trace, Tracer, trace_edge};
+use crate::descriptor::{GcErased, Relocator, Trace, Tracer, trace_edge};
+use crate::object::ObjectHeader;
 use crate::root::Gc;
 
 /// Interior-mutable managed edge slot.
 pub struct EdgeCell<T: ?Sized> {
-    value: Cell<Option<Gc<T>>>,
+    value: AtomicPtr<ObjectHeader>,
+    _marker: PhantomData<fn() -> T>,
 }
 
 impl<T: ?Sized> EdgeCell<T> {
     /// Create a new edge slot with `value`.
-    pub const fn new(value: Option<Gc<T>>) -> Self {
+    pub fn new(value: Option<Gc<T>>) -> Self {
         Self {
-            value: Cell::new(value),
+            value: AtomicPtr::new(match value {
+                Some(value) => value.erase().as_raw(),
+                None => core::ptr::null_mut(),
+            }),
+            _marker: PhantomData,
         }
     }
 
     /// Read the current edge value.
     pub fn get(&self) -> Option<Gc<T>> {
-        self.value.get()
+        let raw = self.value.load(Ordering::Acquire);
+        unsafe { GcErased::from_raw(raw).map(|value| Gc::from_erased(value)) }
     }
 
     /// Replace the current edge value and return the previous one.
     pub fn replace(&self, value: Option<Gc<T>>) -> Option<Gc<T>> {
-        self.value.replace(value)
+        let previous = self.value.swap(Self::raw_value(value), Ordering::AcqRel);
+        unsafe { GcErased::from_raw(previous).map(|value| Gc::from_erased(value)) }
     }
 
     /// Overwrite the current edge value.
     pub fn set(&self, value: Option<Gc<T>>) {
-        self.value.set(value);
+        self.value.store(Self::raw_value(value), Ordering::Release);
+    }
+
+    fn raw_value(value: Option<Gc<T>>) -> *mut ObjectHeader {
+        match value {
+            Some(value) => value.erase().as_raw(),
+            None => core::ptr::null_mut(),
+        }
     }
 }
 
@@ -61,3 +77,7 @@ unsafe impl<T: ?Sized> Trace for EdgeCell<T> {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "edge_test.rs"]
+mod tests;

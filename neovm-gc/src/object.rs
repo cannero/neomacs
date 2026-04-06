@@ -1,7 +1,6 @@
 use core::alloc::Layout;
-use core::cell::Cell;
 use core::ptr::NonNull;
-use core::sync::atomic::{AtomicU8, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicU8, Ordering};
 use std::alloc::{alloc, dealloc};
 
 use crate::descriptor::{
@@ -11,6 +10,7 @@ use crate::heap::AllocError;
 
 /// Coarse heap space identity.
 #[allow(dead_code)]
+#[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SpaceKind {
     Nursery,
@@ -22,6 +22,7 @@ pub(crate) enum SpaceKind {
 
 /// High-level generation bucket.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
 pub(crate) enum Generation {
     Young,
     Old,
@@ -34,6 +35,29 @@ impl SpaceKind {
             Self::Nursery => Generation::Young,
             Self::Old | Self::Pinned | Self::Large => Generation::Old,
             Self::Immortal => Generation::Immortal,
+        }
+    }
+
+    fn from_u8(raw: u8) -> Self {
+        match raw {
+            raw if raw == Self::Nursery as u8 => Self::Nursery,
+            raw if raw == Self::Old as u8 => Self::Old,
+            raw if raw == Self::Pinned as u8 => Self::Pinned,
+            raw if raw == Self::Large as u8 => Self::Large,
+            raw if raw == Self::Immortal as u8 => Self::Immortal,
+            _ => panic!("invalid space kind byte: {raw}"),
+        }
+    }
+}
+
+impl Generation {
+    #[allow(dead_code)]
+    fn from_u8(raw: u8) -> Self {
+        match raw {
+            raw if raw == Self::Young as u8 => Self::Young,
+            raw if raw == Self::Old as u8 => Self::Old,
+            raw if raw == Self::Immortal as u8 => Self::Immortal,
+            _ => panic!("invalid generation byte: {raw}"),
         }
     }
 }
@@ -54,12 +78,12 @@ pub(crate) struct ObjectHeader {
     total_size: usize,
     payload_size: usize,
     payload_offset: usize,
-    space: Cell<SpaceKind>,
-    generation: Cell<Generation>,
-    age: Cell<u8>,
+    space: AtomicU8,
+    generation: AtomicU8,
+    age: AtomicU8,
     mark_bits: AtomicU8,
-    forwarding: Cell<Option<NonNull<ObjectHeader>>>,
-    moved_out: Cell<bool>,
+    forwarding: AtomicPtr<ObjectHeader>,
+    moved_out: AtomicBool,
 }
 
 impl ObjectHeader {
@@ -72,7 +96,12 @@ impl ObjectHeader {
     }
 
     pub(crate) fn space(&self) -> SpaceKind {
-        self.space.get()
+        SpaceKind::from_u8(self.space.load(Ordering::Acquire))
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn generation(&self) -> Generation {
+        Generation::from_u8(self.generation.load(Ordering::Acquire))
     }
 
     pub(crate) fn is_marked(&self) -> bool {
@@ -80,7 +109,7 @@ impl ObjectHeader {
     }
 
     pub(crate) fn age(&self) -> u8 {
-        self.age.get()
+        self.age.load(Ordering::Acquire)
     }
 
     pub(crate) fn set_marked(&self, marked: bool) {
@@ -98,12 +127,13 @@ impl ObjectHeader {
     }
 
     pub(crate) fn forward_to(&self, new_header: NonNull<ObjectHeader>) {
-        self.forwarding.set(Some(new_header));
-        self.moved_out.set(true);
+        self.forwarding
+            .store(new_header.as_ptr(), Ordering::Release);
+        self.moved_out.store(true, Ordering::Release);
     }
 
     pub(crate) fn is_moved_out(&self) -> bool {
-        self.moved_out.get()
+        self.moved_out.load(Ordering::Acquire)
     }
 
     pub(crate) unsafe fn payload_ptr(header: NonNull<Self>) -> NonNull<u8> {
@@ -155,12 +185,12 @@ impl ObjectRecord {
                 total_size: layout.size(),
                 payload_size: core::mem::size_of::<T>(),
                 payload_offset,
-                space: Cell::new(space),
-                generation: Cell::new(space.initial_generation()),
-                age: Cell::new(0),
+                space: AtomicU8::new(space as u8),
+                generation: AtomicU8::new(space.initial_generation() as u8),
+                age: AtomicU8::new(0),
                 mark_bits: AtomicU8::new(0),
-                forwarding: Cell::new(None),
-                moved_out: Cell::new(false),
+                forwarding: AtomicPtr::new(core::ptr::null_mut()),
+                moved_out: AtomicBool::new(false),
             });
         }
 
@@ -276,12 +306,12 @@ impl ObjectRecord {
                 total_size,
                 payload_size: self.header().payload_size,
                 payload_offset: self.header().payload_offset,
-                space: Cell::new(space),
-                generation: Cell::new(space.initial_generation()),
-                age: Cell::new(self.header().age.get().saturating_add(1)),
+                space: AtomicU8::new(space as u8),
+                generation: AtomicU8::new(space.initial_generation() as u8),
+                age: AtomicU8::new(self.header().age().saturating_add(1)),
                 mark_bits: AtomicU8::new(0),
-                forwarding: Cell::new(None),
-                moved_out: Cell::new(false),
+                forwarding: AtomicPtr::new(core::ptr::null_mut()),
+                moved_out: AtomicBool::new(false),
             });
         }
 

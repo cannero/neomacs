@@ -1,7 +1,7 @@
-use core::cell::Cell;
 use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
 use core::ptr::NonNull;
+use core::sync::atomic::{AtomicPtr, Ordering};
 
 use crate::descriptor::{GcErased, Relocator};
 use crate::object::ObjectHeader;
@@ -163,21 +163,35 @@ impl RootStack {
 
 #[derive(Debug)]
 struct RootSlot {
-    object: Cell<Option<GcErased>>,
+    object: AtomicPtr<ObjectHeader>,
 }
 
 impl RootSlot {
     fn new(object: Option<GcErased>) -> Self {
         Self {
-            object: Cell::new(object),
+            object: AtomicPtr::new(match object {
+                Some(object) => object.as_raw(),
+                None => core::ptr::null_mut(),
+            }),
         }
     }
 
     pub(crate) fn get(&self) -> Option<GcErased> {
-        self.object.get()
+        let raw = self.object.load(Ordering::Acquire);
+        unsafe { GcErased::from_raw(raw) }
     }
 
     pub(crate) fn set(&self, object: Option<GcErased>) {
-        self.object.set(object);
+        self.object.store(
+            match object {
+                Some(object) => object.as_raw(),
+                None => core::ptr::null_mut(),
+            },
+            Ordering::Release,
+        );
     }
 }
+
+#[cfg(test)]
+#[path = "root_test.rs"]
+mod tests;

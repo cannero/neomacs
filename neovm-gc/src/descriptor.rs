@@ -19,8 +19,16 @@ impl GcErased {
         Self(header)
     }
 
+    pub(crate) unsafe fn from_raw(raw: *mut ObjectHeader) -> Option<Self> {
+        NonNull::new(raw).map(Self)
+    }
+
     pub(crate) fn header(self) -> NonNull<ObjectHeader> {
         self.0
+    }
+
+    pub(crate) fn as_raw(self) -> *mut ObjectHeader {
+        self.0.as_ptr()
     }
 }
 

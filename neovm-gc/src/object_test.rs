@@ -23,3 +23,26 @@ fn mark_if_unmarked_is_idempotent() {
     assert!(!record.is_marked());
     assert!(record.mark_if_unmarked());
 }
+
+#[test]
+fn object_header_is_send_and_sync() {
+    fn assert_send_sync<T: Send + Sync>() {}
+
+    assert_send_sync::<super::ObjectHeader>();
+}
+
+#[test]
+fn evacuating_object_marks_source_moved_out_and_ages_copy() {
+    let desc = Box::leak(Box::new(fixed_type_desc::<MarkLeaf>()));
+    let record =
+        ObjectRecord::allocate(desc, SpaceKind::Nursery, MarkLeaf).expect("allocate test record");
+
+    let evacuated = record
+        .evacuate_to_space(SpaceKind::Old)
+        .expect("evacuate test record");
+
+    assert!(record.header().is_moved_out());
+    assert_eq!(evacuated.header().space(), SpaceKind::Old);
+    assert_eq!(evacuated.header().generation(), super::Generation::Old);
+    assert_eq!(evacuated.header().age(), 1);
+}

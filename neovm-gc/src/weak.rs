@@ -1,9 +1,10 @@
-use core::cell::Cell;
 use core::fmt;
 use core::hash::{Hash, Hasher};
 use core::marker::PhantomData;
+use core::sync::atomic::{AtomicPtr, Ordering};
 
-use crate::descriptor::{EphemeronVisitor, WeakProcessor};
+use crate::descriptor::{EphemeronVisitor, GcErased, WeakProcessor};
+use crate::object::ObjectHeader;
 use crate::root::Gc;
 
 /// Weak reference to a managed object.
@@ -55,30 +56,35 @@ impl<T: ?Sized> Hash for Weak<T> {
 
 /// Interior-mutable weak edge slot.
 pub struct WeakCell<T: ?Sized> {
-    value: Cell<Weak<T>>,
+    value: AtomicPtr<ObjectHeader>,
+    _marker: PhantomData<fn() -> T>,
 }
 
 impl<T: ?Sized> WeakCell<T> {
     /// Create a weak slot with `value`.
-    pub const fn new(value: Weak<T>) -> Self {
+    pub fn new(value: Weak<T>) -> Self {
         Self {
-            value: Cell::new(value),
+            value: AtomicPtr::new(Self::raw_value(value)),
+            _marker: PhantomData,
         }
     }
 
     /// Read the current weak value.
     pub fn get(&self) -> Weak<T> {
-        self.value.get()
+        match self.load_target() {
+            Some(target) => Weak::new(target),
+            None => Weak::empty(),
+        }
     }
 
     /// Return the current weak target when still known.
     pub fn target(&self) -> Option<Gc<T>> {
-        self.get().target()
+        self.load_target()
     }
 
     /// Overwrite the current weak value.
     pub fn set(&self, value: Weak<T>) {
-        self.value.set(value);
+        self.value.store(Self::raw_value(value), Ordering::Release);
     }
 
     /// Clear the current weak target.
@@ -96,6 +102,18 @@ impl<T: ?Sized> WeakCell<T> {
                 self.clear();
             }
         }
+    }
+
+    fn raw_value(value: Weak<T>) -> *mut ObjectHeader {
+        match value.target() {
+            Some(target) => target.erase().as_raw(),
+            None => core::ptr::null_mut(),
+        }
+    }
+
+    fn load_target(&self) -> Option<Gc<T>> {
+        let raw = self.value.load(Ordering::Acquire);
+        unsafe { GcErased::from_raw(raw).map(|value| Gc::from_erased(value)) }
     }
 }
 
@@ -119,40 +137,44 @@ pub struct WeakMapToken(pub u64);
 
 /// Interior-mutable ephemeron slot.
 pub struct Ephemeron<K: ?Sized, V: ?Sized> {
-    key: Cell<Weak<K>>,
-    value: Cell<Weak<V>>,
-    _marker: PhantomData<(*const K, *const V)>,
+    key: AtomicPtr<ObjectHeader>,
+    value: AtomicPtr<ObjectHeader>,
+    _key_marker: PhantomData<fn() -> K>,
+    _value_marker: PhantomData<fn() -> V>,
 }
 
 impl<K: ?Sized, V: ?Sized> Ephemeron<K, V> {
     /// Create a new ephemeron entry.
-    pub const fn new(key: Weak<K>, value: Weak<V>) -> Self {
+    pub fn new(key: Weak<K>, value: Weak<V>) -> Self {
         Self {
-            key: Cell::new(key),
-            value: Cell::new(value),
-            _marker: PhantomData,
+            key: AtomicPtr::new(Self::raw_value(key)),
+            value: AtomicPtr::new(Self::raw_value(value)),
+            _key_marker: PhantomData,
+            _value_marker: PhantomData,
         }
     }
 
     /// Create an empty ephemeron entry.
-    pub const fn empty() -> Self {
+    pub fn empty() -> Self {
         Self::new(Weak::empty(), Weak::empty())
     }
 
     /// Return the current ephemeron key when still known.
     pub fn key(&self) -> Option<Gc<K>> {
-        self.key.get().target()
+        let raw = self.key.load(Ordering::Acquire);
+        unsafe { GcErased::from_raw(raw).map(|value| Gc::from_erased(value)) }
     }
 
     /// Return the current ephemeron value when still known.
     pub fn value(&self) -> Option<Gc<V>> {
-        self.value.get().target()
+        let raw = self.value.load(Ordering::Acquire);
+        unsafe { GcErased::from_raw(raw).map(|value| Gc::from_erased(value)) }
     }
 
     /// Overwrite the current ephemeron pair.
     pub fn set(&self, key: Weak<K>, value: Weak<V>) {
-        self.key.set(key);
-        self.value.set(value);
+        self.key.store(Self::raw_value(key), Ordering::Release);
+        self.value.store(Self::raw_value(value), Ordering::Release);
     }
 
     /// Clear the current ephemeron pair.
@@ -186,6 +208,13 @@ impl<K: ?Sized, V: ?Sized> Ephemeron<K, V> {
             Weak::new(unsafe { Gc::from_erased(remapped_value) }),
         );
     }
+
+    fn raw_value<T: ?Sized>(value: Weak<T>) -> *mut ObjectHeader {
+        match value.target() {
+            Some(target) => target.erase().as_raw(),
+            None => core::ptr::null_mut(),
+        }
+    }
 }
 
 impl<K: ?Sized, V: ?Sized> Default for Ephemeron<K, V> {
@@ -202,3 +231,7 @@ impl<K: ?Sized, V: ?Sized> fmt::Debug for Ephemeron<K, V> {
             .finish()
     }
 }
+
+#[cfg(test)]
+#[path = "weak_test.rs"]
+mod tests;
