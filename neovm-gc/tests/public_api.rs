@@ -3658,6 +3658,107 @@ fn public_api_shared_background_service_wait_for_change_delegates_to_shared_heap
 }
 
 #[test]
+fn public_api_shared_background_service_wait_for_background_change_reports_old_work_change() {
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            region_bytes: 512,
+            line_bytes: 16,
+            concurrent_mark_workers: 2,
+            mutator_assist_slices: 0,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    let service = shared.background_service(neovm_gc::BackgroundCollectorConfig::default());
+    let observed_epoch = shared
+        .background_epoch()
+        .expect("read initial shared background epoch");
+    let observed_status = service
+        .background_status()
+        .expect("read initial shared background status");
+    let waking_shared = shared.clone();
+    let waiter = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(10));
+        waking_shared
+            .with_mutator(|mutator| {
+                let mut scope = mutator.handle_scope();
+                for byte in 0..16u8 {
+                    mutator
+                        .alloc(&mut scope, OldLeaf([byte; 32]))
+                        .expect("alloc old leaf");
+                }
+            })
+            .expect("mutate shared heap");
+    });
+
+    let wake = service
+        .wait_for_background_change(observed_epoch, &observed_status, Duration::from_secs(1))
+        .expect("wait for shared background-state change");
+    waiter.join().expect("join waking thread");
+
+    assert!(wake.signal_changed);
+    assert!(wake.background_changed);
+    assert!(wake.next_epoch > observed_epoch);
+    assert_ne!(wake.status, observed_status);
+    assert!(wake.status.recommended_background_plan.is_some());
+}
+
+#[test]
+fn public_api_shared_background_service_wait_for_background_change_ignores_nursery_only_mutation() {
+    let leaf_bytes = neovm_gc::estimated_allocation_size::<Leaf>().expect("leaf allocation size");
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: leaf_bytes,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    let service = shared.background_service(neovm_gc::BackgroundCollectorConfig::default());
+    let observed_epoch = shared
+        .background_epoch()
+        .expect("read initial shared background epoch");
+    let observed_status = service
+        .background_status()
+        .expect("read initial shared background status");
+    let waking_shared = shared.clone();
+    let waiter = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(10));
+        waking_shared
+            .with_mutator(|mutator| {
+                let mut scope = mutator.handle_scope();
+                let _leaf = mutator
+                    .alloc(&mut scope, Leaf(42))
+                    .expect("alloc nursery leaf");
+            })
+            .expect("mutate shared heap");
+    });
+
+    let wake = service
+        .wait_for_background_change(observed_epoch, &observed_status, Duration::from_millis(100))
+        .expect("wait for shared background-state change");
+    waiter.join().expect("join waking thread");
+
+    assert!(!wake.signal_changed);
+    assert!(!wake.background_changed);
+    assert_eq!(wake.next_epoch, observed_epoch);
+    assert_eq!(wake.status, observed_status);
+}
+
+#[test]
 fn public_api_background_worker_request_stop_wakes_waiting_worker() {
     let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
     let worker = shared.spawn_background_worker(neovm_gc::BackgroundWorkerConfig {
@@ -3817,12 +3918,15 @@ fn public_api_background_worker_nursery_only_mutation_does_not_start_new_backgro
     });
 
     let first_cycle_deadline = Instant::now() + Duration::from_secs(1);
-    let baseline_signal_wakeups = loop {
+    let (baseline_signal_wakeups, baseline_background_change_wakeups) = loop {
         let status = worker
             .status()
             .expect("read worker status before nursery-only mutation");
         if status.worker.collector.sessions_finished > 0 {
-            break status.worker.signal_wakeups;
+            break (
+                status.worker.signal_wakeups,
+                status.worker.background_change_wakeups,
+            );
         }
         assert!(
             Instant::now() < first_cycle_deadline,
@@ -3840,26 +3944,21 @@ fn public_api_background_worker_nursery_only_mutation_does_not_start_new_backgro
         })
         .expect("seed nursery-only mutation");
 
-    let signal_deadline = Instant::now() + Duration::from_millis(150);
-    loop {
-        let status = worker
-            .status()
-            .expect("read worker status after nursery-only mutation");
-        if status.worker.signal_wakeups > baseline_signal_wakeups {
-            assert_eq!(status.worker.collector.sessions_started, 1);
-            break;
-        }
-        assert!(
-            Instant::now() < signal_deadline,
-            "background worker did not observe nursery-only mutation signal before timeout"
-        );
-        thread::sleep(Duration::from_millis(1));
-    }
+    thread::sleep(Duration::from_millis(150));
+    let status = worker
+        .status()
+        .expect("read worker status after nursery-only mutation");
+    assert_eq!(status.worker.collector.sessions_started, 1);
+    assert_eq!(status.worker.signal_wakeups, baseline_signal_wakeups);
+    assert_eq!(
+        status.worker.background_change_wakeups,
+        baseline_background_change_wakeups
+    );
 
     worker.request_stop();
     let stats = worker.join().expect("join background worker");
     assert_eq!(stats.collector.sessions_started, 1);
-    assert!(stats.ignored_signal_wakeups > 0);
+    assert_eq!(stats.ignored_signal_wakeups, 0);
 }
 
 #[test]

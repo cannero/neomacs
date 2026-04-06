@@ -72,6 +72,7 @@ pub struct SharedHeap {
     inner: Arc<Mutex<Heap>>,
     snapshot: Arc<RwLock<SharedHeapSnapshot>>,
     signal: Arc<SharedHeapSignal>,
+    background_signal: Arc<SharedHeapSignal>,
 }
 
 /// Public snapshot of shared heap state that can be read without taking the main heap mutex.
@@ -98,6 +99,30 @@ pub struct SharedBackgroundServiceStatus {
     pub collector: BackgroundCollectorStats,
     /// Current shared heap snapshot.
     pub heap: SharedHeapStatus,
+}
+
+/// Public snapshot of background-collector-visible shared heap state.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SharedBackgroundStatus {
+    /// Background collector recommendation from the latest shared snapshot.
+    pub recommended_background_plan: Option<CollectionPlan>,
+    /// Active major-mark plan, if any.
+    pub active_major_mark_plan: Option<CollectionPlan>,
+    /// Active major-mark progress, if any.
+    pub major_mark_progress: Option<MajorMarkProgress>,
+}
+
+/// Result of waiting for one background-collector-visible shared heap state change.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SharedBackgroundWaitResult {
+    /// Background-state change epoch observed at the end of the wait.
+    pub next_epoch: u64,
+    /// Whether at least one background-state signal advanced the epoch during the wait.
+    pub signal_changed: bool,
+    /// Whether background-collector-visible state changed during the wait.
+    pub background_changed: bool,
+    /// Background-collector-visible state observed at the end of the wait.
+    pub status: SharedBackgroundStatus,
 }
 
 /// Shared-heap failure modes.
@@ -204,12 +229,33 @@ impl SharedHeapSnapshot {
     }
 }
 
+impl From<&SharedHeapSnapshot> for SharedBackgroundSnapshot {
+    fn from(snapshot: &SharedHeapSnapshot) -> Self {
+        Self {
+            recommended_background_plan: snapshot.recommended_background_plan.clone(),
+            active_major_mark_plan: snapshot.active_major_mark_plan.clone(),
+            major_mark_progress: snapshot.major_mark_progress,
+        }
+    }
+}
+
+impl From<&SharedHeapSnapshot> for SharedBackgroundStatus {
+    fn from(snapshot: &SharedHeapSnapshot) -> Self {
+        Self {
+            recommended_background_plan: snapshot.recommended_background_plan.clone(),
+            active_major_mark_plan: snapshot.active_major_mark_plan.clone(),
+            major_mark_progress: snapshot.major_mark_progress,
+        }
+    }
+}
+
 /// Guard returned by `SharedHeap::lock()` and `SharedHeap::try_lock()`.
 #[derive(Debug)]
 pub struct SharedHeapGuard<'a> {
     guard: MutexGuard<'a, Heap>,
     snapshot: &'a RwLock<SharedHeapSnapshot>,
     signal: &'a SharedHeapSignal,
+    background_signal: &'a SharedHeapSignal,
 }
 
 impl<'a> SharedHeapGuard<'a> {
@@ -217,11 +263,13 @@ impl<'a> SharedHeapGuard<'a> {
         guard: MutexGuard<'a, Heap>,
         snapshot: &'a RwLock<SharedHeapSnapshot>,
         signal: &'a SharedHeapSignal,
+        background_signal: &'a SharedHeapSignal,
     ) -> Self {
         Self {
             guard,
             snapshot,
             signal,
+            background_signal,
         }
     }
 }
@@ -242,10 +290,17 @@ impl DerefMut for SharedHeapGuard<'_> {
 
 impl Drop for SharedHeapGuard<'_> {
     fn drop(&mut self) {
+        let next_snapshot = SharedHeapSnapshot::capture(&self.guard);
+        let next_background = SharedBackgroundSnapshot::from(&next_snapshot);
+        let mut background_changed = false;
         if let Ok(mut snapshot) = self.snapshot.write() {
-            *snapshot = SharedHeapSnapshot::capture(&self.guard);
+            background_changed = SharedBackgroundSnapshot::from(&*snapshot) != next_background;
+            *snapshot = next_snapshot;
         }
         self.signal.notify();
+        if background_changed {
+            self.background_signal.notify();
+        }
     }
 }
 
@@ -262,17 +317,24 @@ impl SharedHeap {
             inner: Arc::new(Mutex::new(heap)),
             snapshot: Arc::new(RwLock::new(snapshot)),
             signal: Arc::new(SharedHeapSignal::default()),
+            background_signal: Arc::new(SharedHeapSignal::default()),
         }
     }
 
     /// Lock the underlying heap.
     pub fn lock(&self) -> LockResult<SharedHeapGuard<'_>> {
         match self.inner.lock() {
-            Ok(guard) => Ok(SharedHeapGuard::new(guard, &self.snapshot, &self.signal)),
+            Ok(guard) => Ok(SharedHeapGuard::new(
+                guard,
+                &self.snapshot,
+                &self.signal,
+                &self.background_signal,
+            )),
             Err(error) => Err(std::sync::PoisonError::new(SharedHeapGuard::new(
                 error.into_inner(),
                 &self.snapshot,
                 &self.signal,
+                &self.background_signal,
             ))),
         }
     }
@@ -280,12 +342,20 @@ impl SharedHeap {
     /// Try to lock the underlying heap without blocking.
     pub fn try_lock(&self) -> TryLockResult<SharedHeapGuard<'_>> {
         match self.inner.try_lock() {
-            Ok(guard) => Ok(SharedHeapGuard::new(guard, &self.snapshot, &self.signal)),
-            Err(TryLockError::Poisoned(error)) => {
-                Err(TryLockError::Poisoned(std::sync::PoisonError::new(
-                    SharedHeapGuard::new(error.into_inner(), &self.snapshot, &self.signal),
-                )))
-            }
+            Ok(guard) => Ok(SharedHeapGuard::new(
+                guard,
+                &self.snapshot,
+                &self.signal,
+                &self.background_signal,
+            )),
+            Err(TryLockError::Poisoned(error)) => Err(TryLockError::Poisoned(
+                std::sync::PoisonError::new(SharedHeapGuard::new(
+                    error.into_inner(),
+                    &self.snapshot,
+                    &self.signal,
+                    &self.background_signal,
+                )),
+            )),
             Err(TryLockError::WouldBlock) => Err(TryLockError::WouldBlock),
         }
     }
@@ -317,16 +387,76 @@ impl SharedHeap {
     }
 
     fn background_snapshot(&self) -> Result<SharedBackgroundSnapshot, SharedHeapError> {
-        self.read_snapshot(|snapshot| SharedBackgroundSnapshot {
-            recommended_background_plan: snapshot.recommended_background_plan.clone(),
-            active_major_mark_plan: snapshot.active_major_mark_plan.clone(),
-            major_mark_progress: snapshot.major_mark_progress,
-        })
+        self.read_snapshot(|snapshot| SharedBackgroundSnapshot::from(snapshot))
+    }
+
+    fn wait_for_background_change_internal(
+        &self,
+        observed_epoch: &mut u64,
+        observed_status: &mut SharedBackgroundStatus,
+        timeout: Duration,
+        stop: Option<&AtomicBool>,
+    ) -> Result<SharedBackgroundWaitResult, SharedHeapError> {
+        if timeout.is_zero() {
+            return Ok(SharedBackgroundWaitResult {
+                next_epoch: *observed_epoch,
+                signal_changed: false,
+                background_changed: false,
+                status: observed_status.clone(),
+            });
+        }
+
+        let started_at = std::time::Instant::now();
+        let mut remaining = timeout;
+        let mut signal_changed = false;
+        loop {
+            let (next_epoch, changed) = self
+                .background_signal
+                .wait_for_change(*observed_epoch, remaining)?;
+            *observed_epoch = next_epoch;
+            signal_changed |= changed;
+
+            if stop.is_some_and(|stop| stop.load(Ordering::Acquire)) {
+                return Ok(SharedBackgroundWaitResult {
+                    next_epoch,
+                    signal_changed,
+                    background_changed: false,
+                    status: observed_status.clone(),
+                });
+            }
+
+            let next_status = self.background_status()?;
+            if next_status != *observed_status {
+                *observed_status = next_status.clone();
+                return Ok(SharedBackgroundWaitResult {
+                    next_epoch,
+                    signal_changed,
+                    background_changed: true,
+                    status: next_status,
+                });
+            }
+
+            let elapsed = started_at.elapsed();
+            if elapsed >= timeout {
+                return Ok(SharedBackgroundWaitResult {
+                    next_epoch,
+                    signal_changed,
+                    background_changed: false,
+                    status: next_status,
+                });
+            }
+            remaining = timeout.saturating_sub(elapsed);
+        }
     }
 
     /// Return the current shared-heap change epoch used by signal-backed waiters.
     pub fn epoch(&self) -> Result<u64, SharedHeapError> {
         self.signal.current_epoch()
+    }
+
+    /// Return the current background-state change epoch used by background waiters.
+    pub fn background_epoch(&self) -> Result<u64, SharedHeapError> {
+        self.background_signal.current_epoch()
     }
 
     /// Wait for the shared-heap change epoch to advance or for `timeout` to elapse.
@@ -339,6 +469,24 @@ impl SharedHeap {
         timeout: Duration,
     ) -> Result<(u64, bool), SharedHeapError> {
         self.signal.wait_for_change(observed_epoch, timeout)
+    }
+
+    /// Wait for one background-collector-visible shared heap state change or for `timeout` to
+    /// elapse.
+    pub fn wait_for_background_change(
+        &self,
+        observed_epoch: u64,
+        observed_status: &SharedBackgroundStatus,
+        timeout: Duration,
+    ) -> Result<SharedBackgroundWaitResult, SharedHeapError> {
+        let mut observed_epoch = observed_epoch;
+        let mut observed_status = observed_status.clone();
+        self.wait_for_background_change_internal(
+            &mut observed_epoch,
+            &mut observed_status,
+            timeout,
+            None,
+        )
     }
 
     /// Execute one closure with exclusive access to a mutator bound to this heap.
@@ -409,6 +557,11 @@ impl SharedHeap {
         self.read_snapshot(|snapshot| snapshot.recommended_background_plan.clone())
     }
 
+    /// Return background-collector-visible shared heap state from the latest shared snapshot.
+    pub fn background_status(&self) -> Result<SharedBackgroundStatus, SharedHeapError> {
+        self.read_snapshot(|snapshot| SharedBackgroundStatus::from(snapshot))
+    }
+
     /// Return the last completed plan, if any.
     pub fn last_completed_plan(
         &self,
@@ -441,6 +594,11 @@ impl SharedHeap {
     /// Wake waiters blocked on `wait_for_change`.
     pub fn notify_waiters(&self) {
         self.signal.notify();
+    }
+
+    /// Wake waiters blocked on background-state changes.
+    pub fn notify_background_waiters(&self) {
+        self.background_signal.notify();
     }
 }
 
@@ -775,6 +933,37 @@ impl SharedBackgroundService {
             })
     }
 
+    /// Return the current background-state change epoch for this service.
+    pub fn background_epoch(&self) -> Result<u64, SharedBackgroundError> {
+        self.heap.background_epoch().map_err(|error| match error {
+            SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
+            SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
+        })
+    }
+
+    /// Return background-collector-visible shared heap state for this service.
+    pub fn background_status(&self) -> Result<SharedBackgroundStatus, SharedBackgroundError> {
+        self.heap.background_status().map_err(|error| match error {
+            SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
+            SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
+        })
+    }
+
+    /// Wait for one background-collector-visible shared heap state change for this service.
+    pub fn wait_for_background_change(
+        &self,
+        observed_epoch: u64,
+        observed_status: &SharedBackgroundStatus,
+        timeout: Duration,
+    ) -> Result<SharedBackgroundWaitResult, SharedBackgroundError> {
+        self.heap
+            .wait_for_background_change(observed_epoch, observed_status, timeout)
+            .map_err(|error| match error {
+                SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
+                SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
+            })
+    }
+
     /// Return the active major-mark plan, if one is in progress.
     pub fn active_major_mark_plan(
         &self,
@@ -922,6 +1111,7 @@ impl BackgroundWorker {
     pub fn request_stop(&self) {
         self.stop.store(true, Ordering::Release);
         self.shared.notify_waiters();
+        self.shared.notify_background_waiters();
     }
 
     /// Return whether the worker thread has already finished.
@@ -972,7 +1162,7 @@ fn worker_loop(
 ) -> Result<(), BackgroundWorkerError> {
     let mut collector = BackgroundCollector::new(config.collector);
     let mut observed_signal_epoch = shared
-        .epoch()
+        .background_epoch()
         .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
     let mut observed_background = shared
         .background_snapshot()
@@ -1000,6 +1190,7 @@ fn worker_loop(
         let mut remaining = timeout;
         loop {
             let (next_epoch, changed) = shared
+                .background_signal
                 .wait_for_change(*observed_signal_epoch, remaining)
                 .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
             *observed_signal_epoch = next_epoch;
