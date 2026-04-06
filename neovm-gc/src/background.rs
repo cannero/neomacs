@@ -1884,12 +1884,11 @@ impl SharedBackgroundService {
     pub fn finish_active_major_collection_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, SharedBackgroundError> {
-        match self.runtime.try_prepare_active_reclaim_if_needed() {
-            Ok(true) => return Ok(None),
-            Ok(false) | Err(SharedBackgroundError::WouldBlock) => {}
-            Err(error) => return Err(error),
+        match self.runtime.try_finish_active_major_collection_if_ready() {
+            Ok(result) => Ok(result),
+            Err(SharedBackgroundError::WouldBlock) => Ok(None),
+            Err(error) => Err(error),
         }
-        self.commit_active_reclaim_if_ready()
     }
 
     /// Finish the active major collection if its mark work is fully drained, without blocking on
@@ -1897,10 +1896,7 @@ impl SharedBackgroundService {
     pub fn try_finish_active_major_collection_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, SharedBackgroundError> {
-        if self.runtime.try_prepare_active_reclaim_if_needed()? {
-            return Ok(None);
-        }
-        self.try_commit_active_reclaim_if_ready()
+        self.runtime.try_finish_active_major_collection_if_ready()
     }
 
     /// Service background collection until no active session remains or one collection finishes,
