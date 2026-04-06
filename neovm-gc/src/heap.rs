@@ -16,7 +16,7 @@ use crate::collector_session::{
     poll_active_major_mark_round, prepare_active_reclaim,
 };
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
-use crate::descriptor::{GcErased, Relocator, Trace, Tracer, TypeDesc, TypeFlags, fixed_type_desc};
+use crate::descriptor::{GcErased, Relocator, Trace, Tracer, TypeDesc, fixed_type_desc};
 use crate::index_state::{ForwardingMap, HeapIndexState, ObjectIndex};
 use crate::mark::MarkWorklist;
 use crate::mutator::Mutator;
@@ -28,6 +28,7 @@ use crate::plan::{
 use crate::reclaim::{
     PreparedReclaim, apply_prepared_reclaim, prepare_full_reclaim as orchestrate_full_reclaim,
     prepare_major_reclaim as orchestrate_major_reclaim, prepare_reclaim,
+    sweep_minor_and_rebuild_post_collection as rebuild_minor_after_collection,
 };
 use crate::root::{HandleScope, Root, RootStack};
 use crate::runtime::CollectorRuntime;
@@ -1267,117 +1268,27 @@ impl Heap {
         }
     }
 
-    fn keep_object_for_collection(kind: CollectionKind, object: &ObjectRecord) -> bool {
-        match kind {
-            CollectionKind::Minor => {
-                object.space() == SpaceKind::Immortal
-                    || object.space() != SpaceKind::Nursery
-                    || (object.is_marked() && !object.header().is_moved_out())
-            }
-            CollectionKind::Major | CollectionKind::Full => {
-                object.space() == SpaceKind::Immortal
-                    || (object.is_marked() && !object.header().is_moved_out())
-            }
-        }
-    }
-
-    fn enqueue_pending_finalizer(&self, object: ObjectRecord) -> u64 {
-        let mut runtime_state = self.runtime_state();
-        runtime_state.enqueue_pending_finalizer(object)
-    }
-
     fn sweep_minor_and_rebuild_post_collection(
         &mut self,
         kind: CollectionKind,
         completed_plan: Option<CollectionPlan>,
     ) -> (u64, OldRegionCollectionStats) {
-        self.stats.nursery.live_bytes = 0;
-        self.stats.old.live_bytes = 0;
-        self.stats.pinned.live_bytes = 0;
-        self.stats.large.live_bytes = 0;
-        self.stats.large.reserved_bytes = 0;
-        self.stats.immortal.live_bytes = 0;
-        self.stats.immortal.reserved_bytes = 0;
-
-        let old_objects = core::mem::take(&mut self.objects);
-        let mut old_region_rebuild = self.old_gen.prepare_rebuild(completed_plan.as_ref());
-        self.indexes.reset_candidate_indexes(old_objects.len());
-
-        let mut rebuilt_objects = Vec::with_capacity(old_objects.len());
-        let mut queued_finalizers = 0u64;
-        for mut object in old_objects {
-            if !Self::keep_object_for_collection(kind, &object) {
-                let should_finalize = object
-                    .header()
-                    .desc()
-                    .flags
-                    .contains(TypeFlags::FINALIZABLE)
-                    && !object.header().is_moved_out();
-                if should_finalize {
-                    queued_finalizers =
-                        queued_finalizers.saturating_add(self.enqueue_pending_finalizer(object));
-                    continue;
-                }
-                continue;
-            }
-
-            object.clear_mark();
-            let object_key = object.object_key();
-            let desc = object.header().desc();
-            let space = object.space();
-            let total_size = object.total_size();
-            if space == SpaceKind::Old {
-                OldGenState::rebuild_post_sweep_object(
-                    &self.config.old,
-                    &mut object,
-                    total_size,
-                    old_region_rebuild.as_mut(),
-                );
-            }
-            let index = rebuilt_objects.len();
-            rebuilt_objects.push(object);
-            self.indexes.object_index.insert(object_key, index);
-            self.indexes.record_descriptor_candidates(object_key, desc);
-            match space {
-                SpaceKind::Nursery => {
-                    self.stats.nursery.live_bytes =
-                        self.stats.nursery.live_bytes.saturating_add(total_size);
-                }
-                SpaceKind::Old => {
-                    self.stats.old.live_bytes =
-                        self.stats.old.live_bytes.saturating_add(total_size);
-                }
-                SpaceKind::Pinned => {
-                    self.stats.pinned.live_bytes =
-                        self.stats.pinned.live_bytes.saturating_add(total_size);
-                }
-                SpaceKind::Large => {
-                    self.stats.large.live_bytes =
-                        self.stats.large.live_bytes.saturating_add(total_size);
-                    self.stats.large.reserved_bytes =
-                        self.stats.large.reserved_bytes.saturating_add(total_size);
-                }
-                SpaceKind::Immortal => {
-                    self.stats.immortal.live_bytes =
-                        self.stats.immortal.live_bytes.saturating_add(total_size);
-                    self.stats.immortal.reserved_bytes = self
-                        .stats
-                        .immortal
-                        .reserved_bytes
-                        .saturating_add(total_size);
-                }
-            }
-        }
-        self.objects = rebuilt_objects;
-        let (rebuilt_old_regions, old_region_stats) =
-            OldGenState::finish_rebuild(old_region_rebuild, &mut self.objects);
-        if let Some(rebuilt_old_regions) = rebuilt_old_regions {
-            self.old_gen.regions = rebuilt_old_regions;
-        }
-        self.stats.old.reserved_bytes = self.old_gen.reserved_bytes();
-        self.indexes
-            .retain_remembered_edges_for_post_sweep_objects(&self.objects);
-        (queued_finalizers, old_region_stats)
+        let runtime_state = self.runtime_state_handle();
+        rebuild_minor_after_collection(
+            &mut self.objects,
+            &mut self.indexes,
+            &mut self.old_gen,
+            &self.config.old,
+            &mut self.stats,
+            kind,
+            completed_plan,
+            move |object| {
+                let mut runtime_state = runtime_state
+                    .lock()
+                    .expect("runtime state should not be poisoned");
+                runtime_state.enqueue_pending_finalizer(object)
+            },
+        )
     }
 
     fn commit_prepared_reclaim(
@@ -1430,71 +1341,7 @@ impl Heap {
     }
 
     fn record_collection_stats(&mut self, cycle: CollectionStats) {
-        self.stats.collections.collections = self
-            .stats
-            .collections
-            .collections
-            .saturating_add(cycle.collections);
-        self.stats.collections.minor_collections = self
-            .stats
-            .collections
-            .minor_collections
-            .saturating_add(cycle.minor_collections);
-        self.stats.collections.major_collections = self
-            .stats
-            .collections
-            .major_collections
-            .saturating_add(cycle.major_collections);
-        self.stats.collections.pause_nanos = self
-            .stats
-            .collections
-            .pause_nanos
-            .saturating_add(cycle.pause_nanos);
-        self.stats.collections.reclaim_prepare_nanos = self
-            .stats
-            .collections
-            .reclaim_prepare_nanos
-            .saturating_add(cycle.reclaim_prepare_nanos);
-        self.stats.collections.promoted_bytes = self
-            .stats
-            .collections
-            .promoted_bytes
-            .saturating_add(cycle.promoted_bytes);
-        self.stats.collections.mark_steps = self
-            .stats
-            .collections
-            .mark_steps
-            .saturating_add(cycle.mark_steps);
-        self.stats.collections.mark_rounds = self
-            .stats
-            .collections
-            .mark_rounds
-            .saturating_add(cycle.mark_rounds);
-        self.stats.collections.reclaimed_bytes = self
-            .stats
-            .collections
-            .reclaimed_bytes
-            .saturating_add(cycle.reclaimed_bytes);
-        self.stats.collections.finalized_objects = self
-            .stats
-            .collections
-            .finalized_objects
-            .saturating_add(cycle.finalized_objects);
-        self.stats.collections.queued_finalizers = self
-            .stats
-            .collections
-            .queued_finalizers
-            .saturating_add(cycle.queued_finalizers);
-        self.stats.collections.compacted_regions = self
-            .stats
-            .collections
-            .compacted_regions
-            .saturating_add(cycle.compacted_regions);
-        self.stats.collections.reclaimed_regions = self
-            .stats
-            .collections
-            .reclaimed_regions
-            .saturating_add(cycle.reclaimed_regions);
+        self.stats.collections.saturating_add_assign(cycle);
     }
 
     fn record_phase(&self, phase: CollectionPhase) {

@@ -304,6 +304,95 @@ pub(crate) fn apply_prepared_reclaim(
     (queued_finalizers, old_region_stats)
 }
 
+pub(crate) fn sweep_minor_and_rebuild_post_collection(
+    objects: &mut Vec<ObjectRecord>,
+    indexes: &mut HeapIndexState,
+    old_gen: &mut OldGenState,
+    old_config: &OldGenConfig,
+    stats: &mut HeapStats,
+    kind: CollectionKind,
+    completed_plan: Option<CollectionPlan>,
+    mut enqueue_pending_finalizer: impl FnMut(ObjectRecord) -> u64,
+) -> (u64, OldRegionCollectionStats) {
+    stats.nursery.live_bytes = 0;
+    stats.old.live_bytes = 0;
+    stats.pinned.live_bytes = 0;
+    stats.large.live_bytes = 0;
+    stats.large.reserved_bytes = 0;
+    stats.immortal.live_bytes = 0;
+    stats.immortal.reserved_bytes = 0;
+
+    let old_objects = core::mem::take(objects);
+    let mut old_region_rebuild = old_gen.prepare_rebuild(completed_plan.as_ref());
+    indexes.reset_candidate_indexes(old_objects.len());
+
+    let mut rebuilt_objects = Vec::with_capacity(old_objects.len());
+    let mut queued_finalizers = 0u64;
+    for mut object in old_objects {
+        if !keep_object_for_collection(kind, &object) {
+            let should_finalize = object
+                .header()
+                .desc()
+                .flags
+                .contains(TypeFlags::FINALIZABLE)
+                && !object.header().is_moved_out();
+            if should_finalize {
+                queued_finalizers =
+                    queued_finalizers.saturating_add(enqueue_pending_finalizer(object));
+            }
+            continue;
+        }
+
+        object.clear_mark();
+        let object_key = object.object_key();
+        let desc = object.header().desc();
+        let space = object.space();
+        let total_size = object.total_size();
+        if space == SpaceKind::Old {
+            OldGenState::rebuild_post_sweep_object(
+                old_config,
+                &mut object,
+                total_size,
+                old_region_rebuild.as_mut(),
+            );
+        }
+        let index = rebuilt_objects.len();
+        rebuilt_objects.push(object);
+        indexes.object_index.insert(object_key, index);
+        indexes.record_descriptor_candidates(object_key, desc);
+        match space {
+            SpaceKind::Nursery => {
+                stats.nursery.live_bytes = stats.nursery.live_bytes.saturating_add(total_size);
+            }
+            SpaceKind::Old => {
+                stats.old.live_bytes = stats.old.live_bytes.saturating_add(total_size);
+            }
+            SpaceKind::Pinned => {
+                stats.pinned.live_bytes = stats.pinned.live_bytes.saturating_add(total_size);
+            }
+            SpaceKind::Large => {
+                stats.large.live_bytes = stats.large.live_bytes.saturating_add(total_size);
+                stats.large.reserved_bytes = stats.large.reserved_bytes.saturating_add(total_size);
+            }
+            SpaceKind::Immortal => {
+                stats.immortal.live_bytes = stats.immortal.live_bytes.saturating_add(total_size);
+                stats.immortal.reserved_bytes =
+                    stats.immortal.reserved_bytes.saturating_add(total_size);
+            }
+        }
+    }
+
+    *objects = rebuilt_objects;
+    let (rebuilt_old_regions, old_region_stats) =
+        OldGenState::finish_rebuild(old_region_rebuild, objects);
+    if let Some(rebuilt_old_regions) = rebuilt_old_regions {
+        old_gen.regions = rebuilt_old_regions;
+    }
+    stats.old.reserved_bytes = old_gen.reserved_bytes();
+    indexes.retain_remembered_edges_for_post_sweep_objects(objects);
+    (queued_finalizers, old_region_stats)
+}
+
 fn keep_object_for_collection(kind: CollectionKind, object: &ObjectRecord) -> bool {
     match kind {
         CollectionKind::Minor => {

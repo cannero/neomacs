@@ -29,6 +29,38 @@ pub struct CollectionStats {
     pub reclaimed_regions: u64,
 }
 
+impl CollectionStats {
+    pub(crate) fn saturating_add_assign(&mut self, other: CollectionStats) {
+        self.collections = self.collections.saturating_add(other.collections);
+        self.minor_collections = self
+            .minor_collections
+            .saturating_add(other.minor_collections);
+        self.major_collections = self
+            .major_collections
+            .saturating_add(other.major_collections);
+        self.pause_nanos = self.pause_nanos.saturating_add(other.pause_nanos);
+        self.reclaim_prepare_nanos = self
+            .reclaim_prepare_nanos
+            .saturating_add(other.reclaim_prepare_nanos);
+        self.promoted_bytes = self.promoted_bytes.saturating_add(other.promoted_bytes);
+        self.mark_steps = self.mark_steps.saturating_add(other.mark_steps);
+        self.mark_rounds = self.mark_rounds.saturating_add(other.mark_rounds);
+        self.reclaimed_bytes = self.reclaimed_bytes.saturating_add(other.reclaimed_bytes);
+        self.finalized_objects = self
+            .finalized_objects
+            .saturating_add(other.finalized_objects);
+        self.queued_finalizers = self
+            .queued_finalizers
+            .saturating_add(other.queued_finalizers);
+        self.compacted_regions = self
+            .compacted_regions
+            .saturating_add(other.compacted_regions);
+        self.reclaimed_regions = self
+            .reclaimed_regions
+            .saturating_add(other.reclaimed_regions);
+    }
+}
+
 /// Per-space storage statistics.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct SpaceStats {
@@ -91,3 +123,7 @@ pub struct HeapStats {
     /// Number of queued finalizers that are waiting to run.
     pub pending_finalizers: usize,
 }
+
+#[cfg(test)]
+#[path = "stats_test.rs"]
+mod tests;
