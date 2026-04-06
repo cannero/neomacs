@@ -83,11 +83,6 @@ pub struct Heap {
     collector: CollectorState,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct HeapSharedSnapshot {
-    pub(crate) stats: HeapStats,
-}
-
 // SAFETY: `Heap` owns all heap allocations and its raw pointers are internal references into that
 // owned storage or static descriptors. Sending a `Heap` to another thread does not invalidate those
 // pointers. Concurrent access is still not allowed without external synchronization, so `Heap` is
@@ -160,12 +155,6 @@ impl Heap {
 
     pub(crate) fn collector_shared_snapshot(&self) -> CollectorSharedSnapshot {
         self.collector.shared_snapshot()
-    }
-
-    pub(crate) fn shared_snapshot(&self) -> HeapSharedSnapshot {
-        HeapSharedSnapshot {
-            stats: self.stats(),
-        }
     }
 
     /// Build a scheduler-visible collection plan from current heap state.

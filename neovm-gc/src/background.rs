@@ -1,5 +1,5 @@
 use crate::collector_state::CollectorSharedSnapshot;
-use crate::heap::{AllocError, Heap, HeapSharedSnapshot};
+use crate::heap::{AllocError, Heap};
 use crate::mutator::Mutator;
 use crate::plan::{BackgroundCollectionStatus, CollectionKind, CollectionPlan, MajorMarkProgress};
 use crate::runtime::CollectorRuntime;
@@ -217,14 +217,8 @@ impl SharedHeapSignal {
 
 impl SharedHeapSnapshot {
     fn capture(heap: &Heap) -> Self {
-        Self::from(heap.shared_snapshot())
-    }
-}
-
-impl From<HeapSharedSnapshot> for SharedHeapSnapshot {
-    fn from(snapshot: HeapSharedSnapshot) -> Self {
         Self {
-            stats: snapshot.stats,
+            stats: heap.stats(),
         }
     }
 }

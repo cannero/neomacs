@@ -5529,11 +5529,11 @@ fn heap_shared_snapshot_matches_shared_status_view() {
         .expect("seed old objects");
 
     let snapshot = shared
-        .with_heap(|heap| heap.shared_snapshot())
-        .expect("capture heap shared snapshot");
+        .with_heap(|heap| heap.stats())
+        .expect("capture heap stats snapshot");
     let status = shared.status().expect("read shared status");
 
-    assert_eq!(snapshot.stats, status.stats);
+    assert_eq!(snapshot, status.stats);
 }
 
 #[test]
