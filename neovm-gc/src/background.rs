@@ -273,7 +273,7 @@ impl From<&CollectorSharedSnapshot> for SharedBackgroundStatus {
 /// Guard returned by `SharedHeap::lock()` and `SharedHeap::try_lock()`.
 #[derive(Debug)]
 pub struct SharedHeapGuard<'a> {
-    guard: MutexGuard<'a, Heap>,
+    guard: Option<MutexGuard<'a, Heap>>,
     snapshot: &'a RwLock<SharedHeapSnapshot>,
     collector_snapshot: &'a RwLock<CollectorSharedSnapshot>,
     signal: &'a SharedHeapSignal,
@@ -290,7 +290,7 @@ impl<'a> SharedHeapGuard<'a> {
         background_signal: &'a SharedHeapSignal,
     ) -> Self {
         Self {
-            guard,
+            guard: Some(guard),
             snapshot,
             collector_snapshot,
             signal,
@@ -304,14 +304,18 @@ impl Deref for SharedHeapGuard<'_> {
     type Target = Heap;
 
     fn deref(&self) -> &Self::Target {
-        &self.guard
+        self.guard
+            .as_deref()
+            .expect("shared heap guard should hold heap lock")
     }
 }
 
 impl DerefMut for SharedHeapGuard<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.dirty = true;
-        &mut self.guard
+        self.guard
+            .as_deref_mut()
+            .expect("shared heap guard should hold heap lock")
     }
 }
 
@@ -320,8 +324,19 @@ impl Drop for SharedHeapGuard<'_> {
         if !self.dirty {
             return;
         }
-        let next_snapshot = SharedHeapSnapshot::capture(&self.guard);
-        let next_collector = self.guard.collector_shared_snapshot();
+        let (next_snapshot, next_collector) = {
+            let heap = self
+                .guard
+                .as_deref()
+                .expect("shared heap guard should hold heap lock");
+            (
+                SharedHeapSnapshot::capture(heap),
+                heap.collector_shared_snapshot(),
+            )
+        };
+        // Release the heap mutex before touching shared snapshot locks so readers do not extend
+        // the main heap lock window.
+        self.guard.take();
         let mut heap_changed = false;
         let mut background_changed = false;
         if let Ok(mut snapshot) = self.snapshot.write() {
