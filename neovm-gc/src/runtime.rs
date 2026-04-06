@@ -59,6 +59,11 @@ impl<'heap> CollectorRuntime<'heap> {
         self.heap.poll_active_major_mark()
     }
 
+    /// Prepare reclaim for the active major collection once mark work is fully drained.
+    pub fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError> {
+        self.heap.prepare_active_reclaim_if_needed()
+    }
+
     /// Finish the active major collection if its mark work is fully drained.
     pub fn finish_active_major_collection_if_ready(
         &mut self,
@@ -227,6 +232,43 @@ impl SharedCollectorRuntime {
             .publish_collector_snapshot(collector_snapshot)
             .map_err(Self::map_shared_heap_error)?;
         Ok(progress)
+    }
+
+    /// Prepare reclaim for the active major collection once mark work is fully drained.
+    pub fn prepare_active_reclaim_if_needed(&self) -> Result<bool, SharedBackgroundError> {
+        let snapshot = self.collector_snapshot()?;
+        if snapshot.active_major_mark_plan.is_none() {
+            return Ok(false);
+        }
+        if snapshot
+            .major_mark_progress
+            .is_some_and(|progress| !progress.completed)
+        {
+            return Ok(false);
+        }
+        self.heap
+            .with_runtime(|runtime| runtime.prepare_active_reclaim_if_needed())
+            .map_err(Self::map_shared_heap_error)?
+            .map_err(SharedBackgroundError::Collection)
+    }
+
+    /// Prepare reclaim for the active major collection once mark work is fully drained, without
+    /// blocking on heap contention.
+    pub fn try_prepare_active_reclaim_if_needed(&self) -> Result<bool, SharedBackgroundError> {
+        let snapshot = self.collector_snapshot()?;
+        if snapshot.active_major_mark_plan.is_none() {
+            return Ok(false);
+        }
+        if snapshot
+            .major_mark_progress
+            .is_some_and(|progress| !progress.completed)
+        {
+            return Ok(false);
+        }
+        self.heap
+            .try_with_runtime(|runtime| runtime.prepare_active_reclaim_if_needed())
+            .map_err(Self::map_shared_heap_error)?
+            .map_err(SharedBackgroundError::Collection)
     }
 
     /// Finish the active major collection if its mark work is fully drained.

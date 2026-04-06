@@ -2068,7 +2068,7 @@ impl Heap {
         ))
     }
 
-    fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError> {
+    pub(crate) fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError> {
         let plan = {
             let collector = self.collector();
             collector.active_major_mark_needs_reclaim_prep_plan()

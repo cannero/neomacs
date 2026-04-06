@@ -1526,6 +1526,11 @@ impl SharedBackgroundService {
     pub fn finish_active_major_collection_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, SharedBackgroundError> {
+        match self.runtime.try_prepare_active_reclaim_if_needed() {
+            Ok(true) => return Ok(None),
+            Ok(false) | Err(SharedBackgroundError::WouldBlock) => {}
+            Err(error) => return Err(error),
+        }
         match self.runtime.try_finish_active_major_collection_if_ready() {
             Ok(result) => Ok(result),
             Err(SharedBackgroundError::WouldBlock) => Ok(None),
@@ -1538,6 +1543,9 @@ impl SharedBackgroundService {
     pub fn try_finish_active_major_collection_if_ready(
         &mut self,
     ) -> Result<Option<CollectionStats>, SharedBackgroundError> {
+        if self.runtime.try_prepare_active_reclaim_if_needed()? {
+            return Ok(None);
+        }
         self.runtime.try_finish_active_major_collection_if_ready()
     }
 
