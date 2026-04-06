@@ -1222,6 +1222,14 @@ fn public_api_finish_active_major_collection_prepares_full_reclaim_before_commit
         .expect("completed cycle");
     assert_eq!(cycle.major_collections, 1);
     assert!(cycle.promoted_bytes > 0);
+    assert_eq!(
+        mutator.heap().stats().collections.pause_nanos,
+        cycle.pause_nanos
+    );
+    assert_eq!(
+        mutator.heap().stats().collections.reclaim_prepare_nanos,
+        cycle.reclaim_prepare_nanos
+    );
     assert_ne!(leaf.as_gc(), initial_gc);
     assert_eq!(mutator.heap().stats().nursery.live_bytes, 0);
     assert!(mutator.heap().stats().old.live_bytes > 0);

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::Duration;
 
 use crate::barrier::RememberedEdge;
 use crate::descriptor::ObjectKey;
@@ -31,6 +32,7 @@ pub(crate) struct MajorMarkState {
     pub(crate) worklist: MarkWorklist<usize>,
     pub(crate) mark_steps: u64,
     pub(crate) mark_rounds: u64,
+    pub(crate) reclaim_prepare_nanos: u64,
     pub(crate) ephemerons_processed: bool,
     pub(crate) reclaim_prepared: bool,
     pub(crate) prepared_reclaim: Option<PreparedReclaim>,
@@ -136,6 +138,7 @@ impl CollectorState {
             worklist,
             mark_steps: 0,
             mark_rounds: 0,
+            reclaim_prepare_nanos: 0,
             ephemerons_processed: false,
             reclaim_prepared: false,
             prepared_reclaim: None,
@@ -147,6 +150,7 @@ impl CollectorState {
             return false;
         };
         state.worklist.push(index);
+        state.reclaim_prepare_nanos = 0;
         state.ephemerons_processed = false;
         state.reclaim_prepared = false;
         state.prepared_reclaim = None;
@@ -217,6 +221,7 @@ impl CollectorState {
         &mut self,
         mark_steps_delta: u64,
         mark_rounds_delta: u64,
+        reclaim_prepare_time: Duration,
         prepared_reclaim: PreparedReclaim,
     ) -> bool {
         let Some(state) = self.major_mark_state.as_mut() else {
@@ -227,6 +232,7 @@ impl CollectorState {
         }
         state.mark_steps = state.mark_steps.saturating_add(mark_steps_delta);
         state.mark_rounds = state.mark_rounds.saturating_add(mark_rounds_delta);
+        state.reclaim_prepare_nanos = saturating_duration_nanos(reclaim_prepare_time);
         state.ephemerons_processed = true;
         state.reclaim_prepared = true;
         state.prepared_reclaim = Some(prepared_reclaim);
@@ -246,6 +252,7 @@ impl CollectorState {
         state.mark_steps = state.mark_steps.saturating_add(update.mark_steps_delta);
         state.mark_rounds = state.mark_rounds.saturating_add(update.mark_rounds_delta);
         if !state.worklist.is_empty() {
+            state.reclaim_prepare_nanos = 0;
             state.ephemerons_processed = false;
             state.reclaim_prepared = false;
             state.prepared_reclaim = None;
@@ -289,6 +296,10 @@ impl CollectorState {
             major_mark_progress: self.major_mark_progress(),
         }
     }
+}
+
+fn saturating_duration_nanos(duration: Duration) -> u64 {
+    duration.as_nanos().min(u128::from(u64::MAX)) as u64
 }
 
 #[cfg(test)]

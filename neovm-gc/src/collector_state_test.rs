@@ -1,6 +1,7 @@
 use super::*;
 use crate::mark::MarkWorklist;
 use crate::plan::{CollectionKind, CollectionPhase, CollectionPlan};
+use std::time::Duration;
 
 fn major_plan() -> CollectionPlan {
     CollectionPlan {
@@ -148,7 +149,12 @@ fn major_ready_requires_reclaim_prep_after_worklist_drains() {
         CollectionPhase::Remark
     );
 
-    assert!(state.complete_active_major_reclaim_prep(2, 3, prepared_reclaim()));
+    assert!(state.complete_active_major_reclaim_prep(
+        2,
+        3,
+        Duration::from_nanos(7),
+        prepared_reclaim(),
+    ));
     assert!(state.active_major_mark_is_ready());
     assert!(state.active_major_mark_reclaim_prepared());
     assert!(state.active_major_mark_has_prepared_reclaim());
@@ -216,7 +222,12 @@ fn full_requires_reclaim_prep_after_remark() {
     assert_eq!(progress.mark_steps, 3);
     assert_eq!(progress.mark_rounds, 4);
 
-    assert!(state.complete_active_major_reclaim_prep(0, 0, prepared_reclaim()));
+    assert!(state.complete_active_major_reclaim_prep(
+        0,
+        0,
+        Duration::from_nanos(11),
+        prepared_reclaim(),
+    ));
     assert!(state.active_major_mark_is_ready());
     assert!(state.active_major_mark_reclaim_prepared());
     assert!(state.has_prepared_full_reclaim());

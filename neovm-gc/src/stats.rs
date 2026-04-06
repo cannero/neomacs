@@ -7,6 +7,10 @@ pub struct CollectionStats {
     pub minor_collections: u64,
     /// Number of old-generation collections.
     pub major_collections: u64,
+    /// Stop-the-world time spent inside the call that completed this cycle.
+    pub pause_nanos: u64,
+    /// Time spent preparing reclaim state ahead of the final commit for this cycle.
+    pub reclaim_prepare_nanos: u64,
     /// Bytes promoted from nursery to old generation.
     pub promoted_bytes: u64,
     /// Number of mark slices drained across completed GC cycles.

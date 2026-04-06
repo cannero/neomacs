@@ -5,6 +5,7 @@ use core::slice;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use crate::background::{BackgroundCollectorConfig, BackgroundService, SharedHeap};
 use crate::barrier::{BarrierEvent, BarrierKind, RememberedEdge};
@@ -491,6 +492,7 @@ impl Heap {
 
     /// Finish the current persistent major-mark session and reclaim.
     pub fn finish_major_collection(&mut self) -> Result<CollectionStats, AllocError> {
+        let pause_start = Instant::now();
         let Some(mut state) = self.collector().take_major_mark_state() else {
             return Err(AllocError::NoCollectionInProgress);
         };
@@ -516,6 +518,8 @@ impl Heap {
             state.worklist = tracer.into_worklist();
         }
 
+        let mut reclaim_prepare_nanos = state.reclaim_prepare_nanos;
+        let reclaim_prepare_start = Instant::now();
         match state.plan.kind {
             CollectionKind::Major => {}
             CollectionKind::Full => {
@@ -543,14 +547,20 @@ impl Heap {
         } else {
             Some(self.prepare_reclaim(state.plan.kind, &state.plan))
         };
+        if reclaim_prepare_nanos == 0 {
+            reclaim_prepare_nanos =
+                Self::saturating_duration_nanos(reclaim_prepare_start.elapsed());
+        }
         let prepared_reclaim =
             prepared_reclaim.expect("major/full finish should always have prepared reclaim");
-        let cycle = self.finish_reclaim_cycle(
+        let mut cycle = self.finish_reclaim_cycle(
             before_bytes,
             state.mark_steps,
             state.mark_rounds,
+            reclaim_prepare_nanos,
             prepared_reclaim,
         );
+        cycle.pause_nanos = Self::saturating_duration_nanos(pause_start.elapsed());
         self.record_collection_stats(cycle);
         self.collector()
             .set_last_completed_plan(Some(CollectionPlan {
@@ -641,10 +651,12 @@ impl Heap {
                     &empty_forwarding,
                     &self.object_index,
                 );
+                let reclaim_prepare_start = Instant::now();
                 let prepared_reclaim = self.prepare_reclaim(CollectionKind::Major, &active_plan);
                 collector.complete_active_major_reclaim_prep(
                     ephemeron_steps,
                     ephemeron_rounds,
+                    reclaim_prepare_start.elapsed(),
                     prepared_reclaim,
                 );
             } else {
@@ -694,10 +706,12 @@ impl Heap {
             &empty_forwarding,
             &self.object_index,
         );
+        let reclaim_prepare_start = Instant::now();
         let prepared_reclaim = self.prepare_reclaim(CollectionKind::Major, &plan);
         let prepared = collector.complete_active_major_reclaim_prep(
             mark_steps_delta,
             mark_rounds_delta,
+            reclaim_prepare_start.elapsed(),
             prepared_reclaim,
         );
         let recommended_plan = self.compute_recommended_plan_from_collector(&collector);
@@ -864,6 +878,7 @@ impl Heap {
         if self.collector().has_active_major_mark() {
             return Err(AllocError::CollectionInProgress);
         }
+        let pause_start = Instant::now();
         self.collector().clear_recent_phase_trace();
         let before_bytes = self.total_tracked_bytes();
         for object in &self.objects {
@@ -890,7 +905,7 @@ impl Heap {
             }
         };
 
-        let cycle = match plan.kind {
+        let mut cycle = match plan.kind {
             CollectionKind::Minor => {
                 self.record_phase(CollectionPhase::Evacuate);
                 let evacuation = self.evacuate_marked_nursery()?;
@@ -909,6 +924,8 @@ impl Heap {
                     collections: 1,
                     minor_collections: 1,
                     major_collections: 0,
+                    pause_nanos: 0,
+                    reclaim_prepare_nanos: 0,
                     promoted_bytes: evacuation.promoted_bytes as u64,
                     mark_steps,
                     mark_rounds,
@@ -920,14 +937,29 @@ impl Heap {
                 }
             }
             CollectionKind::Major => {
+                let reclaim_prepare_start = Instant::now();
                 let prepared_reclaim = self.prepare_major_reclaim(&plan);
-                self.finish_reclaim_cycle(before_bytes, mark_steps, mark_rounds, prepared_reclaim)
+                self.finish_reclaim_cycle(
+                    before_bytes,
+                    mark_steps,
+                    mark_rounds,
+                    Self::saturating_duration_nanos(reclaim_prepare_start.elapsed()),
+                    prepared_reclaim,
+                )
             }
             CollectionKind::Full => {
+                let reclaim_prepare_start = Instant::now();
                 let (prepared_reclaim, _promoted_bytes) = self.prepare_full_reclaim(&plan)?;
-                self.finish_reclaim_cycle(before_bytes, mark_steps, mark_rounds, prepared_reclaim)
+                self.finish_reclaim_cycle(
+                    before_bytes,
+                    mark_steps,
+                    mark_rounds,
+                    Self::saturating_duration_nanos(reclaim_prepare_start.elapsed()),
+                    prepared_reclaim,
+                )
             }
         };
+        cycle.pause_nanos = Self::saturating_duration_nanos(pause_start.elapsed());
         self.record_collection_stats(cycle);
         self.collector()
             .set_last_completed_plan(Some(CollectionPlan {
@@ -1729,6 +1761,7 @@ impl Heap {
         before_bytes: usize,
         mark_steps: u64,
         mark_rounds: u64,
+        reclaim_prepare_nanos: u64,
         prepared_reclaim: PreparedReclaim,
     ) -> CollectionStats {
         self.record_phase(CollectionPhase::Reclaim);
@@ -1739,6 +1772,8 @@ impl Heap {
             collections: 1,
             minor_collections: 0,
             major_collections: 1,
+            pause_nanos: 0,
+            reclaim_prepare_nanos,
             promoted_bytes: promoted_bytes as u64,
             mark_steps,
             mark_rounds,
@@ -1766,6 +1801,16 @@ impl Heap {
             .collections
             .major_collections
             .saturating_add(cycle.major_collections);
+        self.stats.collections.pause_nanos = self
+            .stats
+            .collections
+            .pause_nanos
+            .saturating_add(cycle.pause_nanos);
+        self.stats.collections.reclaim_prepare_nanos = self
+            .stats
+            .collections
+            .reclaim_prepare_nanos
+            .saturating_add(cycle.reclaim_prepare_nanos);
         self.stats.collections.promoted_bytes = self
             .stats
             .collections
@@ -1820,6 +1865,10 @@ impl Heap {
             .saturating_add(self.stats.pinned.live_bytes)
             .saturating_add(self.stats.large.live_bytes)
             .saturating_add(self.stats.immortal.live_bytes)
+    }
+
+    fn saturating_duration_nanos(duration: Duration) -> u64 {
+        duration.as_nanos().min(u128::from(u64::MAX)) as u64
     }
 
     fn process_weak_references(
@@ -2236,7 +2285,7 @@ impl Heap {
             mark_rounds_delta = mark_rounds_delta.saturating_add(ephemeron_rounds);
         }
 
-        let prepared_reclaim = match plan.kind {
+        let prepared = match plan.kind {
             CollectionKind::Major => {
                 let empty_forwarding: ForwardingMap = HashMap::new();
                 self.process_weak_references(
@@ -2245,11 +2294,24 @@ impl Heap {
                     &empty_forwarding,
                     &self.object_index,
                 );
-                self.prepare_reclaim(CollectionKind::Major, &plan)
+                let reclaim_prepare_start = Instant::now();
+                let prepared_reclaim = self.prepare_reclaim(CollectionKind::Major, &plan);
+                self.collector().complete_active_major_reclaim_prep(
+                    mark_steps_delta,
+                    mark_rounds_delta,
+                    reclaim_prepare_start.elapsed(),
+                    prepared_reclaim,
+                )
             }
             CollectionKind::Full => {
+                let reclaim_prepare_start = Instant::now();
                 let (prepared_reclaim, _promoted_bytes) = self.prepare_full_reclaim(&plan)?;
-                prepared_reclaim
+                self.collector().complete_active_major_reclaim_prep(
+                    mark_steps_delta,
+                    mark_rounds_delta,
+                    reclaim_prepare_start.elapsed(),
+                    prepared_reclaim,
+                )
             }
             CollectionKind::Minor => {
                 return Err(AllocError::UnsupportedCollectionKind {
@@ -2257,12 +2319,6 @@ impl Heap {
                 });
             }
         };
-
-        let prepared = self.collector().complete_active_major_reclaim_prep(
-            mark_steps_delta,
-            mark_rounds_delta,
-            prepared_reclaim,
-        );
         debug_assert!(
             prepared,
             "active major reclaim prep should only complete while the session stays active"
