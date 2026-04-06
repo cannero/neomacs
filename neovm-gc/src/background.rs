@@ -294,6 +294,7 @@ pub struct SharedHeapGuard<'a> {
     background_snapshot: &'a RwLock<SharedBackgroundSnapshot>,
     signal: &'a SharedHeapSignal,
     background_signal: &'a SharedHeapSignal,
+    dirty: bool,
 }
 
 impl<'a> SharedHeapGuard<'a> {
@@ -310,6 +311,7 @@ impl<'a> SharedHeapGuard<'a> {
             background_snapshot,
             signal,
             background_signal,
+            dirty: false,
         }
     }
 }
@@ -324,12 +326,16 @@ impl Deref for SharedHeapGuard<'_> {
 
 impl DerefMut for SharedHeapGuard<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
+        self.dirty = true;
         &mut self.guard
     }
 }
 
 impl Drop for SharedHeapGuard<'_> {
     fn drop(&mut self) {
+        if !self.dirty {
+            return;
+        }
         let next_snapshot = SharedHeapSnapshot::capture(&self.guard);
         let next_background = SharedBackgroundSnapshot::from(&next_snapshot);
         let mut heap_changed = false;
