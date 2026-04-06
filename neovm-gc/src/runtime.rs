@@ -3,7 +3,7 @@ use crate::background::{
     SharedBackgroundStatus, SharedBackgroundWaitResult, SharedCollectorHandle, SharedHeap,
     SharedHeapError, SharedRuntimeHandle,
 };
-use crate::collector_state::CollectorSharedSnapshot;
+use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
 use crate::heap::{AllocError, Heap};
 use crate::plan::{
     BackgroundCollectionStatus, CollectionPhase, CollectionPlan, MajorMarkProgress,
@@ -145,6 +145,53 @@ impl SharedCollectorRuntime {
         }
     }
 
+    fn publish_collector_snapshot(
+        &self,
+        next_collector: CollectorSharedSnapshot,
+    ) -> Result<(), SharedHeapError> {
+        self.heap.publish_collector_snapshot(next_collector)
+    }
+
+    fn with_heap_read_collector_update<R>(
+        &self,
+        f: impl FnOnce(&Heap, &mut CollectorState) -> Result<R, AllocError>,
+    ) -> Result<Result<R, AllocError>, SharedHeapError> {
+        let heap = self
+            .heap
+            .read()
+            .map_err(|_| SharedHeapError::LockPoisoned)?;
+        let result = self.collector.with_state(|collector| {
+            f(&heap, collector).map(|value| (value, collector.shared_snapshot()))
+        })?;
+        match result {
+            Ok((value, collector_snapshot)) => {
+                self.publish_collector_snapshot(collector_snapshot)?;
+                Ok(Ok(value))
+            }
+            Err(error) => Ok(Err(error)),
+        }
+    }
+
+    fn try_with_heap_read_collector_update<R>(
+        &self,
+        f: impl FnOnce(&Heap, &mut CollectorState) -> Result<R, AllocError>,
+    ) -> Result<Result<R, AllocError>, SharedHeapError> {
+        let heap = self.heap.try_read().map_err(|error| match error {
+            std::sync::TryLockError::Poisoned(_) => SharedHeapError::LockPoisoned,
+            std::sync::TryLockError::WouldBlock => SharedHeapError::WouldBlock,
+        })?;
+        let result = self.collector.try_with_state(|collector| {
+            f(&heap, collector).map(|value| (value, collector.shared_snapshot()))
+        })?;
+        match result {
+            Ok((value, collector_snapshot)) => {
+                self.publish_collector_snapshot(collector_snapshot)?;
+                Ok(Ok(value))
+            }
+            Err(error) => Ok(Err(error)),
+        }
+    }
+
     /// Return current heap statistics.
     pub fn stats(&self) -> Result<HeapStats, SharedBackgroundError> {
         self.runtime
@@ -252,22 +299,20 @@ impl SharedCollectorRuntime {
 
     /// Begin a persistent major-mark session for one scheduler-provided plan.
     pub fn begin_major_mark(&self, plan: CollectionPlan) -> Result<(), SharedBackgroundError> {
-        self.heap
-            .with_heap_read_collector_update(|heap, collector| {
-                heap.begin_major_mark_with_collector(collector, plan)
-            })
-            .map_err(Self::map_shared_heap_error)?
-            .map_err(SharedBackgroundError::Collection)
+        self.with_heap_read_collector_update(|heap, collector| {
+            heap.begin_major_mark_with_collector(collector, plan)
+        })
+        .map_err(Self::map_shared_heap_error)?
+        .map_err(SharedBackgroundError::Collection)
     }
 
     /// Begin a persistent major-mark session without blocking on heap contention.
     pub fn try_begin_major_mark(&self, plan: CollectionPlan) -> Result<(), SharedBackgroundError> {
-        self.heap
-            .try_with_heap_read_collector_update(|heap, collector| {
-                heap.begin_major_mark_with_collector(collector, plan)
-            })
-            .map_err(Self::map_shared_heap_error)?
-            .map_err(SharedBackgroundError::Collection)
+        self.try_with_heap_read_collector_update(|heap, collector| {
+            heap.begin_major_mark_with_collector(collector, plan)
+        })
+        .map_err(Self::map_shared_heap_error)?
+        .map_err(SharedBackgroundError::Collection)
     }
 
     /// Advance one scheduler-style concurrent major-mark round using the active plan worker
@@ -275,12 +320,11 @@ impl SharedCollectorRuntime {
     pub fn poll_active_major_mark(
         &self,
     ) -> Result<Option<MajorMarkProgress>, SharedBackgroundError> {
-        self.heap
-            .with_heap_read_collector_update(|heap, collector| {
-                heap.poll_active_major_mark_with_collector(collector)
-            })
-            .map_err(Self::map_shared_heap_error)?
-            .map_err(SharedBackgroundError::Collection)
+        self.with_heap_read_collector_update(|heap, collector| {
+            heap.poll_active_major_mark_with_collector(collector)
+        })
+        .map_err(Self::map_shared_heap_error)?
+        .map_err(SharedBackgroundError::Collection)
     }
 
     /// Advance one scheduler-style concurrent major-mark round without blocking on heap
@@ -288,12 +332,11 @@ impl SharedCollectorRuntime {
     pub fn try_poll_active_major_mark(
         &self,
     ) -> Result<Option<MajorMarkProgress>, SharedBackgroundError> {
-        self.heap
-            .try_with_heap_read_collector_update(|heap, collector| {
-                heap.poll_active_major_mark_with_collector(collector)
-            })
-            .map_err(Self::map_shared_heap_error)?
-            .map_err(SharedBackgroundError::Collection)
+        self.try_with_heap_read_collector_update(|heap, collector| {
+            heap.poll_active_major_mark_with_collector(collector)
+        })
+        .map_err(Self::map_shared_heap_error)?
+        .map_err(SharedBackgroundError::Collection)
     }
 
     /// Prepare reclaim for the active major collection once mark work is fully drained.
@@ -314,7 +357,6 @@ impl SharedCollectorRuntime {
             .is_some_and(|plan| plan.kind == crate::plan::CollectionKind::Major)
         {
             return self
-                .heap
                 .with_heap_read_collector_update(|heap, collector| {
                     heap.prepare_active_major_reclaim_with_collector(collector)
                 })
@@ -346,7 +388,6 @@ impl SharedCollectorRuntime {
             .is_some_and(|plan| plan.kind == crate::plan::CollectionKind::Major)
         {
             return self
-                .heap
                 .try_with_heap_read_collector_update(|heap, collector| {
                     heap.prepare_active_major_reclaim_with_collector(collector)
                 })
