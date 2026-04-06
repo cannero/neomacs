@@ -1436,16 +1436,24 @@ impl Heap {
         let mut rebuilt_objects =
             Vec::with_capacity(prepared_survivor_count.unwrap_or(old_objects.len()));
         let mut finalized_objects = 0u64;
-        for mut object in old_objects {
+        for (object_index, mut object) in old_objects.into_iter().enumerate() {
             let object_key = object.object_key();
             let keep_object = if let Some(prepared) = prepared_major_reclaim.as_ref() {
-                prepared.survivor_keys.contains(&object_key)
+                prepared
+                    .survivor_mask
+                    .get(object_index)
+                    .copied()
+                    .unwrap_or(false)
             } else {
                 Self::keep_object_for_collection(kind, &object)
             };
             if !keep_object {
                 let should_finalize = if let Some(prepared) = prepared_major_reclaim.as_ref() {
-                    prepared.finalizable_dead_keys.contains(&object_key)
+                    prepared
+                        .finalize_mask
+                        .get(object_index)
+                        .copied()
+                        .unwrap_or(false)
                 } else {
                     object
                         .header()
@@ -1820,8 +1828,8 @@ impl Heap {
         let mut rebuild = prepare_old_region_rebuild_for_plan(&self.old_regions, Some(plan))
             .expect("major reclaim preparation requires a major/full plan");
         let mut placements = HashMap::new();
-        let mut survivor_keys = HashSet::new();
-        let mut finalizable_dead_keys = HashSet::new();
+        let mut survivor_mask = vec![false; self.objects.len()];
+        let mut finalize_mask = vec![false; self.objects.len()];
         let mut weak_candidates = Vec::new();
         let mut ephemeron_candidates = Vec::new();
         let mut survivor_count = 0usize;
@@ -1831,17 +1839,17 @@ impl Heap {
         let mut large_live_bytes = 0usize;
         let mut immortal_live_bytes = 0usize;
 
-        for object in &self.objects {
+        for (object_index, object) in self.objects.iter().enumerate() {
             let object_key = object.object_key();
             let desc = object.header().desc();
             if !Self::keep_object_for_collection(CollectionKind::Major, object) {
                 if !object.header().is_moved_out() && desc.flags.contains(TypeFlags::FINALIZABLE) {
-                    finalizable_dead_keys.insert(object_key);
+                    finalize_mask[object_index] = true;
                 }
                 continue;
             }
 
-            survivor_keys.insert(object_key);
+            survivor_mask[object_index] = true;
             survivor_count = survivor_count.saturating_add(1);
             let total_size = object.total_size();
             if desc.flags.contains(TypeFlags::WEAK) {
@@ -1934,8 +1942,8 @@ impl Heap {
             old_region_placements: placements,
             rebuilt_old_regions,
             old_region_stats,
-            survivor_keys,
-            finalizable_dead_keys,
+            survivor_mask,
+            finalize_mask,
             survivor_count,
             weak_candidates,
             ephemeron_candidates,

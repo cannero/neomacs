@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::barrier::RememberedEdge;
 use crate::descriptor::ObjectKey;
@@ -48,8 +48,8 @@ pub(crate) struct PreparedMajorReclaim {
     pub(crate) old_region_placements: HashMap<ObjectKey, OldRegionPlacement>,
     pub(crate) rebuilt_old_regions: Vec<OldRegion>,
     pub(crate) old_region_stats: OldRegionCollectionStats,
-    pub(crate) survivor_keys: HashSet<ObjectKey>,
-    pub(crate) finalizable_dead_keys: HashSet<ObjectKey>,
+    pub(crate) survivor_mask: Vec<bool>,
+    pub(crate) finalize_mask: Vec<bool>,
     pub(crate) survivor_count: usize,
     pub(crate) weak_candidates: Vec<ObjectKey>,
     pub(crate) ephemeron_candidates: Vec<ObjectKey>,
