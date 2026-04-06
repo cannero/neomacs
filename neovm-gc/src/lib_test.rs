@@ -5399,6 +5399,56 @@ fn shared_collector_runtime_drain_pending_finalizers_runs_queued_finalizers() {
 }
 
 #[test]
+fn shared_collector_runtime_drains_pending_finalizers_while_heap_is_read_locked() {
+    MAJOR_FINALIZE_COUNT.store(0, Ordering::SeqCst);
+
+    let shared = SharedHeap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+
+    shared
+        .with_mutator(|mutator| {
+            {
+                let mut scope = mutator.handle_scope();
+                mutator
+                    .alloc(&mut scope, FinalizableOldLeaf([74; 32]))
+                    .expect("alloc finalizable old leaf");
+            }
+            let cycle = mutator
+                .collect(CollectionKind::Major)
+                .expect("major collect");
+            assert_eq!(cycle.queued_finalizers, 1);
+        })
+        .expect("collect through shared mutator");
+
+    let runtime = shared.collector_runtime();
+    let (release_tx, waiter) = read_lock_shared_heap_on_other_thread(shared.clone());
+
+    assert_eq!(
+        runtime
+            .drain_pending_finalizers()
+            .expect("drain pending finalizers under read lock"),
+        1
+    );
+    assert_eq!(
+        runtime.runtime_work_status().expect("runtime work status"),
+        RuntimeWorkStatus::Idle
+    );
+    assert_eq!(MAJOR_FINALIZE_COUNT.load(Ordering::SeqCst), 1);
+
+    release_tx.send(()).expect("release shared heap read lock");
+    waiter.join().expect("join read-lock helper thread");
+}
+
+#[test]
 fn shared_collector_runtime_prepare_active_major_reclaim_works_while_heap_is_read_locked() {
     let shared = SharedHeap::new(HeapConfig {
         nursery: NurseryConfig {
@@ -6279,6 +6329,56 @@ fn shared_background_service_drains_pending_finalizers() {
         1
     );
     assert_eq!(MAJOR_FINALIZE_COUNT.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn shared_background_service_drains_pending_finalizers_while_heap_is_read_locked() {
+    MAJOR_FINALIZE_COUNT.store(0, Ordering::SeqCst);
+
+    let shared = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            {
+                let mut scope = mutator.handle_scope();
+                mutator
+                    .alloc(&mut scope, FinalizableOldLeaf([78; 32]))
+                    .expect("alloc finalizable old leaf");
+            }
+            let cycle = mutator
+                .collect(CollectionKind::Major)
+                .expect("major collect");
+            assert_eq!(cycle.queued_finalizers, 1);
+        })
+        .expect("collect shared finalizable object");
+
+    let mut service = shared.background_service(BackgroundCollectorConfig::default());
+    let (release_tx, waiter) = read_lock_shared_heap_on_other_thread(shared.clone());
+
+    assert_eq!(
+        service
+            .drain_pending_finalizers()
+            .expect("drain pending finalizers under read lock"),
+        1
+    );
+    assert_eq!(
+        service.runtime_work_status().expect("runtime work status"),
+        RuntimeWorkStatus::Idle
+    );
+    assert_eq!(MAJOR_FINALIZE_COUNT.load(Ordering::SeqCst), 1);
+
+    release_tx.send(()).expect("release shared heap read lock");
+    waiter.join().expect("join read-lock helper thread");
 }
 
 #[test]

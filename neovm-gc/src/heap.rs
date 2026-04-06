@@ -81,7 +81,6 @@ pub struct Heap {
     roots: RootStack,
     descriptors: HashMap<TypeId, &'static TypeDesc>,
     objects: Vec<ObjectRecord>,
-    pending_finalizers: Vec<ObjectRecord>,
     object_index: ObjectIndex,
     finalizable_candidates: Vec<ObjectKey>,
     weak_candidates: Vec<ObjectKey>,
@@ -91,6 +90,7 @@ pub struct Heap {
     remembered_owners: Vec<ObjectKey>,
     remembered_owner_set: HashSet<ObjectKey>,
     recent_barrier_events: Vec<BarrierEvent>,
+    runtime_state: Mutex<RuntimeState>,
     collector: Mutex<CollectorState>,
 }
 
@@ -115,6 +115,12 @@ pub(crate) struct OldRegion {
 struct EvacuationOutcome {
     forwarding: ForwardingMap,
     promoted_bytes: usize,
+}
+
+#[derive(Debug, Default)]
+struct RuntimeState {
+    pending_finalizers: Vec<ObjectRecord>,
+    finalizers_run: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -195,7 +201,6 @@ impl Heap {
             roots: RootStack::default(),
             descriptors: HashMap::default(),
             objects: Vec::new(),
-            pending_finalizers: Vec::new(),
             object_index: HashMap::default(),
             finalizable_candidates: Vec::new(),
             weak_candidates: Vec::new(),
@@ -205,6 +210,7 @@ impl Heap {
             remembered_owners: Vec::new(),
             remembered_owner_set: HashSet::new(),
             recent_barrier_events: Vec::new(),
+            runtime_state: Mutex::new(RuntimeState::default()),
             collector: Mutex::new(CollectorState::default()),
         };
         heap.refresh_recommended_plans();
@@ -217,6 +223,12 @@ impl Heap {
             .expect("collector state should not be poisoned")
     }
 
+    fn runtime_state(&self) -> std::sync::MutexGuard<'_, RuntimeState> {
+        self.runtime_state
+            .lock()
+            .expect("runtime state should not be poisoned")
+    }
+
     /// Return the heap configuration.
     pub fn config(&self) -> &HeapConfig {
         &self.config
@@ -224,12 +236,16 @@ impl Heap {
 
     /// Return current heap statistics.
     pub fn stats(&self) -> HeapStats {
-        self.stats
+        let runtime_state = self.runtime_state();
+        let mut stats = self.stats;
+        stats.finalizers_run = runtime_state.finalizers_run;
+        stats.pending_finalizers = runtime_state.pending_finalizers.len();
+        stats
     }
 
     /// Return runtime-side follow-up work that remains outside GC commit.
     pub fn runtime_work_status(&self) -> RuntimeWorkStatus {
-        RuntimeWorkStatus::from_pending_finalizers(self.pending_finalizers.len())
+        RuntimeWorkStatus::from_pending_finalizers(self.pending_finalizer_count())
     }
 
     pub(crate) fn collector_shared_snapshot(&self) -> CollectorSharedSnapshot {
@@ -742,19 +758,19 @@ impl Heap {
 
     /// Return the number of queued finalizers waiting to run.
     pub fn pending_finalizer_count(&self) -> usize {
-        self.pending_finalizers.len()
+        self.runtime_state().pending_finalizers.len()
     }
 
     /// Run and drain queued finalizers.
-    pub fn drain_pending_finalizers(&mut self) -> u64 {
+    pub fn drain_pending_finalizers(&self) -> u64 {
+        let mut runtime_state = self.runtime_state();
         let mut ran = 0u64;
-        for object in core::mem::take(&mut self.pending_finalizers) {
+        for object in core::mem::take(&mut runtime_state.pending_finalizers) {
             if object.run_finalizer() {
                 ran = ran.saturating_add(1);
             }
         }
-        self.stats.finalizers_run = self.stats.finalizers_run.saturating_add(ran);
-        self.stats.pending_finalizers = self.pending_finalizers.len();
+        runtime_state.finalizers_run = runtime_state.finalizers_run.saturating_add(ran);
         ran
     }
 
@@ -1469,9 +1485,9 @@ impl Heap {
         }
     }
 
-    fn enqueue_pending_finalizer(&mut self, object: ObjectRecord) -> u64 {
-        self.pending_finalizers.push(object);
-        self.stats.pending_finalizers = self.pending_finalizers.len();
+    fn enqueue_pending_finalizer(&self, object: ObjectRecord) -> u64 {
+        let mut runtime_state = self.runtime_state();
+        runtime_state.pending_finalizers.push(object);
         1
     }
 
@@ -1597,7 +1613,6 @@ impl Heap {
                 self.remembered_owners.push(owner);
             }
         }
-        self.stats.pending_finalizers = self.pending_finalizers.len();
         (queued_finalizers, old_region_stats)
     }
 
@@ -1681,7 +1696,6 @@ impl Heap {
         self.stats.immortal.live_bytes = prepared_reclaim.immortal_live_bytes;
         self.stats.immortal.reserved_bytes = prepared_reclaim.immortal_live_bytes;
         self.stats.old.reserved_bytes = prepared_reclaim.old_reserved_bytes;
-        self.stats.pending_finalizers = self.pending_finalizers.len();
         (queued_finalizers, old_region_stats)
     }
 

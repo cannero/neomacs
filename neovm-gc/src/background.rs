@@ -570,6 +570,33 @@ impl SharedHeap {
         Ok(())
     }
 
+    fn publish_heap_snapshot(
+        &self,
+        next_snapshot: SharedHeapSnapshot,
+    ) -> Result<(), SharedHeapError> {
+        let mut heap_changed = false;
+        let mut background_changed = false;
+        let mut previous_snapshot = None;
+        if let Ok(mut snapshot) = self.snapshot.write() {
+            previous_snapshot = Some(snapshot.clone());
+            heap_changed = *snapshot != next_snapshot;
+            *snapshot = next_snapshot.clone();
+        }
+        if let Ok(collector_snapshot) = self.collector_snapshot.read() {
+            background_changed = previous_snapshot.as_ref().is_some_and(|previous_snapshot| {
+                shared_background_status_from_parts(previous_snapshot, &collector_snapshot)
+                    != shared_background_status_from_parts(&next_snapshot, &collector_snapshot)
+            });
+        }
+        if heap_changed {
+            self.signal.notify();
+        }
+        if background_changed {
+            self.background_signal.notify();
+        }
+        Ok(())
+    }
+
     pub(crate) fn observe_collector_snapshot(
         &self,
     ) -> Result<(u64, CollectorSharedSnapshot), SharedHeapError> {
@@ -802,12 +829,22 @@ impl SharedHeap {
 
     /// Run and drain queued finalizers.
     pub fn drain_pending_finalizers(&self) -> Result<u64, SharedHeapError> {
-        self.with_runtime(|runtime| runtime.drain_pending_finalizers())
+        let (ran, next_snapshot) = self.with_heap_read(|heap| {
+            let ran = heap.drain_pending_finalizers();
+            (ran, SharedHeapSnapshot::capture(heap))
+        })?;
+        self.publish_heap_snapshot(next_snapshot)?;
+        Ok(ran)
     }
 
     /// Run and drain queued finalizers without blocking on heap contention.
     pub fn try_drain_pending_finalizers(&self) -> Result<u64, SharedHeapError> {
-        self.try_with_runtime(|runtime| runtime.drain_pending_finalizers())
+        let (ran, next_snapshot) = self.try_with_heap_read(|heap| {
+            let ran = heap.drain_pending_finalizers();
+            (ran, SharedHeapSnapshot::capture(heap))
+        })?;
+        self.publish_heap_snapshot(next_snapshot)?;
+        Ok(ran)
     }
 
     /// Return one consistent shared snapshot of heap and background-collector state.
