@@ -1,8 +1,6 @@
 use super::*;
-use crate::descriptor::ObjectKey;
 use crate::mark::MarkWorklist;
 use crate::plan::{CollectionKind, CollectionPhase, CollectionPlan};
-use core::ptr::NonNull;
 
 fn major_plan() -> CollectionPlan {
     CollectionPlan {
@@ -29,13 +27,14 @@ fn full_plan() -> CollectionPlan {
 fn prepared_major_reclaim() -> PreparedMajorReclaim {
     PreparedMajorReclaim {
         rebuilt_old_regions: Vec::new(),
+        rebuilt_object_index: std::collections::HashMap::new(),
+        old_reserved_bytes: 0,
         old_region_stats: OldRegionCollectionStats {
             compacted_regions: 1,
             reclaimed_regions: 0,
         },
         survivors: vec![PreparedMajorSurvivor {
             object_index: 0,
-            object_key: ObjectKey::from_header(NonNull::dangling()),
             old_region_placement: None,
         }],
         finalize_indices: Vec::new(),

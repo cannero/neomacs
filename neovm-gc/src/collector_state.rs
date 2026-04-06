@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::barrier::RememberedEdge;
 use crate::descriptor::ObjectKey;
 use crate::heap::{AllocError, OldRegion, OldRegionCollectionStats};
@@ -44,13 +46,14 @@ pub(crate) struct MajorMarkUpdate {
 #[derive(Debug)]
 pub(crate) struct PreparedMajorSurvivor {
     pub(crate) object_index: usize,
-    pub(crate) object_key: ObjectKey,
     pub(crate) old_region_placement: Option<OldRegionPlacement>,
 }
 
 #[derive(Debug)]
 pub(crate) struct PreparedMajorReclaim {
     pub(crate) rebuilt_old_regions: Vec<OldRegion>,
+    pub(crate) rebuilt_object_index: HashMap<ObjectKey, usize>,
+    pub(crate) old_reserved_bytes: usize,
     pub(crate) old_region_stats: OldRegionCollectionStats,
     pub(crate) survivors: Vec<PreparedMajorSurvivor>,
     pub(crate) finalize_indices: Vec<usize>,

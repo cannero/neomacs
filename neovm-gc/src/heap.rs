@@ -1424,9 +1424,11 @@ impl Heap {
         } else {
             None
         };
-        self.object_index.clear();
-        self.object_index
-            .reserve(prepared_survivor_count.unwrap_or(old_objects.len()));
+        if !has_prepared_major_reclaim {
+            self.object_index.clear();
+            self.object_index
+                .reserve(prepared_survivor_count.unwrap_or(old_objects.len()));
+        }
         self.weak_candidates.clear();
         self.ephemeron_candidates.clear();
         if !has_prepared_major_reclaim {
@@ -1456,9 +1458,7 @@ impl Heap {
                 if let Some(placement) = survivor.old_region_placement {
                     object.set_old_region_placement(placement);
                 }
-                let index = rebuilt_objects.len();
                 rebuilt_objects.push(object);
-                self.object_index.insert(survivor.object_key, index);
             }
         } else {
             for mut object in old_objects {
@@ -1525,6 +1525,7 @@ impl Heap {
         self.objects = rebuilt_objects;
         let old_region_stats = if let Some(prepared) = prepared_major_reclaim {
             self.old_regions = prepared.rebuilt_old_regions;
+            self.object_index = prepared.rebuilt_object_index;
             self.weak_candidates = prepared.weak_candidates;
             self.ephemeron_candidates = prepared.ephemeron_candidates;
             self.remembered_edges = prepared.remembered_edges;
@@ -1535,6 +1536,7 @@ impl Heap {
             self.stats.large.reserved_bytes = prepared.large_live_bytes;
             self.stats.immortal.live_bytes = prepared.immortal_live_bytes;
             self.stats.immortal.reserved_bytes = prepared.immortal_live_bytes;
+            self.stats.old.reserved_bytes = prepared.old_reserved_bytes;
             prepared.old_region_stats
         } else {
             let (rebuilt_old_regions, old_region_stats) =
@@ -1544,11 +1546,13 @@ impl Heap {
             }
             old_region_stats
         };
-        self.stats.old.reserved_bytes = self
-            .old_regions
-            .iter()
-            .map(|region| region.capacity_bytes)
-            .sum();
+        if !has_prepared_major_reclaim {
+            self.stats.old.reserved_bytes = self
+                .old_regions
+                .iter()
+                .map(|region| region.capacity_bytes)
+                .sum();
+        }
         if !has_prepared_major_reclaim {
             let object_index = &self.object_index;
             let objects = &self.objects;
@@ -1827,6 +1831,7 @@ impl Heap {
         let mut rebuild = prepare_old_region_rebuild_for_plan(&self.old_regions, Some(plan))
             .expect("major reclaim preparation requires a major/full plan");
         let mut survivors = Vec::new();
+        let mut rebuilt_object_index = HashMap::with_capacity(self.objects.len());
         let mut finalize_indices = Vec::new();
         let mut weak_candidates = Vec::new();
         let mut ephemeron_candidates = Vec::new();
@@ -1897,9 +1902,9 @@ impl Heap {
             };
             survivors.push(PreparedMajorSurvivor {
                 object_index,
-                object_key,
                 old_region_placement,
             });
+            rebuilt_object_index.insert(object_key, survivors.len().saturating_sub(1));
 
             match object.space() {
                 SpaceKind::Nursery => {
@@ -1922,6 +1927,10 @@ impl Heap {
 
         let (rebuilt_old_regions, old_region_stats) =
             Self::finish_prepared_old_region_rebuild(rebuild, &mut survivors);
+        let old_reserved_bytes = rebuilt_old_regions
+            .iter()
+            .map(|region| region.capacity_bytes)
+            .sum();
         let remembered_edges = self
             .remembered_edges
             .iter()
@@ -1946,6 +1955,8 @@ impl Heap {
             .collect();
         PreparedMajorReclaim {
             rebuilt_old_regions,
+            rebuilt_object_index,
+            old_reserved_bytes,
             old_region_stats,
             survivors,
             finalize_indices,
