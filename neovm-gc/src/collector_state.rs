@@ -45,6 +45,7 @@ pub(crate) struct MajorMarkUpdate {
 
 #[derive(Debug)]
 pub(crate) struct PreparedReclaimSurvivor {
+    /// Original index in `Heap::objects` before reclaim commit.
     pub(crate) object_index: usize,
     pub(crate) old_region_placement: Option<OldRegionPlacement>,
 }
@@ -56,7 +57,13 @@ pub(crate) struct PreparedReclaim {
     pub(crate) rebuilt_object_index: HashMap<ObjectKey, usize>,
     pub(crate) old_reserved_bytes: usize,
     pub(crate) old_region_stats: OldRegionCollectionStats,
+    /// Survivors in ascending original `object_index` order.
+    ///
+    /// `commit_prepared_reclaim` drains this in lockstep with the original
+    /// `objects` vector, so ordering is part of the prepared-state contract.
     pub(crate) survivors: Vec<PreparedReclaimSurvivor>,
+    /// Dead finalizable object indices in ascending original `object_index`
+    /// order.
     pub(crate) finalize_indices: Vec<usize>,
     pub(crate) finalizable_candidates: Vec<ObjectKey>,
     pub(crate) weak_candidates: Vec<ObjectKey>,

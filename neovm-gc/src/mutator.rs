@@ -53,7 +53,7 @@ impl<'heap> Mutator<'heap> {
     ) -> Root<'scope, T> {
         assert!(
             !self.heap.prepared_full_reclaim_active(),
-            "cannot add new roots while prepared full reclaim is active"
+            "cannot add new roots while prepared full reclaim is active; finish the active full collection first"
         );
         self.heap.root_during_active_major_mark(gc.erase());
         scope.root(gc)
@@ -146,7 +146,7 @@ impl<'heap> Mutator<'heap> {
     ) {
         assert!(
             !self.heap.prepared_full_reclaim_active(),
-            "cannot mutate heap edges while prepared full reclaim is active"
+            "cannot mutate heap edges while prepared full reclaim is active; finish the active full collection first"
         );
         self.heap.record_post_write(
             owner.erase(),
@@ -166,7 +166,7 @@ impl<'heap> Mutator<'heap> {
     ) {
         assert!(
             !self.heap.prepared_full_reclaim_active(),
-            "cannot mutate heap edges while prepared full reclaim is active"
+            "cannot mutate heap edges while prepared full reclaim is active; finish the active full collection first"
         );
         let owner_ref = unsafe { owner.as_gc().as_non_null().as_ref() };
         let edge = project(owner_ref);

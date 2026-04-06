@@ -1511,11 +1511,28 @@ impl Heap {
         &mut self,
         prepared_reclaim: PreparedReclaim,
     ) -> (u64, OldRegionCollectionStats) {
+        debug_assert!(
+            prepared_reclaim
+                .survivors
+                .windows(2)
+                .all(|window| window[0].object_index < window[1].object_index),
+            "prepared reclaim survivors must stay sorted by original object index"
+        );
+        debug_assert!(
+            prepared_reclaim
+                .finalize_indices
+                .windows(2)
+                .all(|window| window[0] < window[1]),
+            "prepared reclaim finalizer indices must stay sorted by original object index"
+        );
         let mut finalized_objects = 0u64;
         let mut survivor_iter = prepared_reclaim.survivors.iter().peekable();
         let mut finalize_iter = prepared_reclaim.finalize_indices.iter().copied().peekable();
         let mut object_index = 0usize;
         let mut rebuilt_objects = core::mem::take(&mut self.objects);
+        // Prepared reclaim is assembled in original object order. Finish drains
+        // that prepared order in lockstep with the owned `objects` vector so
+        // the commit path can stay linear and allocation-light.
         rebuilt_objects.retain_mut(|object| {
             let current_index = object_index;
             object_index = object_index.saturating_add(1);
