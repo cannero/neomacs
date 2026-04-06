@@ -25,7 +25,10 @@ use crate::plan::{
     BackgroundCollectionStatus, CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress,
     RuntimeWorkStatus,
 };
-use crate::reclaim::{PreparedReclaim, apply_prepared_reclaim, prepare_reclaim};
+use crate::reclaim::{
+    PreparedReclaim, apply_prepared_reclaim, prepare_full_reclaim as orchestrate_full_reclaim,
+    prepare_major_reclaim as orchestrate_major_reclaim, prepare_reclaim,
+};
 use crate::root::{HandleScope, Root, RootStack};
 use crate::runtime::CollectorRuntime;
 use crate::runtime_state::RuntimeState;
@@ -410,7 +413,7 @@ impl Heap {
             };
             let prepared = build_prepared_active_reclaim(&request, 0, 0, |plan| match plan.kind {
                 CollectionKind::Major => Ok(self.prepare_major_reclaim(plan)),
-                CollectionKind::Full => self.prepare_full_reclaim(plan).map(|(reclaim, _)| reclaim),
+                CollectionKind::Full => self.prepare_full_reclaim(plan),
                 CollectionKind::Minor => Err(AllocError::UnsupportedCollectionKind {
                     kind: CollectionKind::Minor,
                 }),
@@ -791,7 +794,7 @@ impl Heap {
             }
             CollectionKind::Full => {
                 let reclaim_prepare_start = Instant::now();
-                let (prepared_reclaim, _promoted_bytes) = self.prepare_full_reclaim(&plan)?;
+                let prepared_reclaim = self.prepare_full_reclaim(&plan)?;
                 self.finish_reclaim_cycle(
                     before_bytes,
                     mark_steps,
@@ -1581,36 +1584,44 @@ impl Heap {
     }
 
     fn prepare_major_reclaim(&mut self, plan: &CollectionPlan) -> PreparedReclaim {
-        let empty_forwarding: ForwardingMap = HashMap::new();
-        self.process_weak_references(
-            plan.kind,
-            plan.worker_count.max(1),
-            &empty_forwarding,
-            &self.indexes.object_index,
-        );
-        self.prepare_reclaim(plan.kind, plan)
+        orchestrate_major_reclaim(
+            plan,
+            |plan| {
+                let empty_forwarding: ForwardingMap = HashMap::new();
+                self.process_weak_references(
+                    plan.kind,
+                    plan.worker_count.max(1),
+                    &empty_forwarding,
+                    &self.indexes.object_index,
+                );
+            },
+            |plan| self.prepare_reclaim(plan.kind, plan),
+        )
     }
 
     fn prepare_full_reclaim(
         &mut self,
         plan: &CollectionPlan,
-    ) -> Result<(PreparedReclaim, usize), AllocError> {
+    ) -> Result<PreparedReclaim, AllocError> {
         self.record_phase(CollectionPhase::Evacuate);
-        let evacuation = self.evacuate_marked_nursery()?;
-        self.relocate_roots_and_edges(&evacuation.forwarding);
-        self.process_weak_references(
-            plan.kind,
-            plan.worker_count.max(1),
-            &evacuation.forwarding,
-            &self.indexes.object_index,
-        );
-        Ok((
-            PreparedReclaim {
-                promoted_bytes: evacuation.promoted_bytes,
-                ..self.prepare_reclaim(plan.kind, plan)
+        orchestrate_full_reclaim(
+            self,
+            plan,
+            |heap| {
+                let evacuation = heap.evacuate_marked_nursery()?;
+                Ok((evacuation.forwarding, evacuation.promoted_bytes))
             },
-            evacuation.promoted_bytes,
-        ))
+            |heap, forwarding| heap.relocate_roots_and_edges(forwarding),
+            |heap, plan, forwarding| {
+                heap.process_weak_references(
+                    plan.kind,
+                    plan.worker_count.max(1),
+                    forwarding,
+                    &heap.indexes.object_index,
+                );
+            },
+            |heap, plan| heap.prepare_reclaim(plan.kind, plan),
+        )
     }
 
     pub(crate) fn prepare_active_reclaim_if_needed(&mut self) -> Result<bool, AllocError> {
@@ -1637,9 +1648,7 @@ impl Heap {
             build_prepared_active_reclaim(&request, mark_steps_delta, mark_rounds_delta, |plan| {
                 match plan.kind {
                     CollectionKind::Major => Ok(self.prepare_major_reclaim(plan)),
-                    CollectionKind::Full => {
-                        self.prepare_full_reclaim(plan).map(|(reclaim, _)| reclaim)
-                    }
+                    CollectionKind::Full => self.prepare_full_reclaim(plan),
                     CollectionKind::Minor => Err(AllocError::UnsupportedCollectionKind {
                         kind: CollectionKind::Minor,
                     }),

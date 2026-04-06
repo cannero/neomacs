@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::barrier::RememberedEdge;
 use crate::descriptor::{ObjectKey, TypeFlags};
+use crate::heap::AllocError;
 use crate::index_state::HeapIndexState;
 use crate::object::{ObjectRecord, OldRegionPlacement, SpaceKind};
 use crate::plan::{CollectionKind, CollectionPlan};
@@ -177,6 +178,32 @@ pub(crate) fn prepare_reclaim(
     }
 }
 
+pub(crate) fn prepare_major_reclaim(
+    plan: &CollectionPlan,
+    process_weak_references: impl FnOnce(&CollectionPlan),
+    prepare_reclaim: impl FnOnce(&CollectionPlan) -> PreparedReclaim,
+) -> PreparedReclaim {
+    process_weak_references(plan);
+    prepare_reclaim(plan)
+}
+
+pub(crate) fn prepare_full_reclaim<Heap, Forwarding>(
+    heap: &mut Heap,
+    plan: &CollectionPlan,
+    evacuate_marked_nursery: impl FnOnce(&mut Heap) -> Result<(Forwarding, usize), AllocError>,
+    relocate_roots_and_edges: impl FnOnce(&mut Heap, &Forwarding),
+    process_weak_references: impl FnOnce(&mut Heap, &CollectionPlan, &Forwarding),
+    prepare_reclaim: impl FnOnce(&Heap, &CollectionPlan) -> PreparedReclaim,
+) -> Result<PreparedReclaim, AllocError> {
+    let (forwarding, promoted_bytes) = evacuate_marked_nursery(heap)?;
+    relocate_roots_and_edges(heap, &forwarding);
+    process_weak_references(heap, plan, &forwarding);
+    Ok(PreparedReclaim {
+        promoted_bytes,
+        ..prepare_reclaim(heap, plan)
+    })
+}
+
 pub(crate) fn commit_prepared_reclaim_objects(
     old_objects: Vec<ObjectRecord>,
     prepared_reclaim: &PreparedReclaim,
@@ -290,3 +317,7 @@ fn keep_object_for_collection(kind: CollectionKind, object: &ObjectRecord) -> bo
         }
     }
 }
+
+#[cfg(test)]
+#[path = "reclaim_test.rs"]
+mod tests;
