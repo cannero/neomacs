@@ -454,10 +454,10 @@ impl Heap {
         let (forwarding, promoted_bytes) = match state.plan.kind {
             CollectionKind::Major => (HashMap::new(), 0usize),
             CollectionKind::Full => {
-                self.record_phase(CollectionPhase::Evacuate);
-                let evacuation = self.evacuate_marked_nursery()?;
-                self.relocate_roots_and_edges(&evacuation.forwarding);
-                (evacuation.forwarding, evacuation.promoted_bytes)
+                let (prepared_reclaim, promoted_bytes) = self.prepare_full_reclaim(&state.plan)?;
+                state.reclaim_prepared = true;
+                state.prepared_reclaim = Some(prepared_reclaim);
+                (HashMap::new(), promoted_bytes)
             }
             CollectionKind::Minor => {
                 return Err(AllocError::UnsupportedCollectionKind {
@@ -478,25 +478,14 @@ impl Heap {
         } else {
             Some(self.prepare_reclaim(state.plan.kind, &state.plan))
         };
-        self.record_phase(CollectionPhase::Reclaim);
-        let (finalized_objects, old_region_stats) = self.sweep_and_rebuild_post_collection(
-            state.plan.kind,
-            Some(state.plan.clone()),
+        let cycle = self.finish_reclaim_cycle(
+            state.plan.clone(),
+            before_bytes,
+            state.mark_steps,
+            state.mark_rounds,
+            promoted_bytes,
             prepared_reclaim,
         );
-        let after_bytes = self.total_tracked_bytes();
-        let cycle = CollectionStats {
-            collections: 1,
-            minor_collections: 0,
-            major_collections: 1,
-            promoted_bytes: promoted_bytes as u64,
-            mark_steps: state.mark_steps,
-            mark_rounds: state.mark_rounds,
-            reclaimed_bytes: before_bytes.saturating_sub(after_bytes) as u64,
-            finalized_objects,
-            compacted_regions: old_region_stats.compacted_regions,
-            reclaimed_regions: old_region_stats.reclaimed_regions,
-        };
         self.record_collection_stats(cycle);
         self.collector()
             .set_last_completed_plan(Some(CollectionPlan {
@@ -789,64 +778,26 @@ impl Heap {
                 }
             }
             CollectionKind::Major => {
-                let empty_forwarding: ForwardingMap = HashMap::new();
-                self.process_weak_references(
-                    plan.kind,
-                    plan.worker_count.max(1),
-                    &empty_forwarding,
-                    &self.object_index,
-                );
-                let prepared_reclaim = self.prepare_reclaim(plan.kind, &plan);
-                self.record_phase(CollectionPhase::Reclaim);
-                let (finalized_objects, old_region_stats) = self.sweep_and_rebuild_post_collection(
-                    plan.kind,
-                    Some(plan.clone()),
-                    Some(prepared_reclaim),
-                );
-                let after_bytes = self.total_tracked_bytes();
-                CollectionStats {
-                    collections: 1,
-                    minor_collections: 0,
-                    major_collections: 1,
-                    promoted_bytes: 0,
+                let prepared_reclaim = self.prepare_major_reclaim(&plan);
+                self.finish_reclaim_cycle(
+                    plan.clone(),
+                    before_bytes,
                     mark_steps,
                     mark_rounds,
-                    reclaimed_bytes: before_bytes.saturating_sub(after_bytes) as u64,
-                    finalized_objects,
-                    compacted_regions: old_region_stats.compacted_regions,
-                    reclaimed_regions: old_region_stats.reclaimed_regions,
-                }
+                    0,
+                    Some(prepared_reclaim),
+                )
             }
             CollectionKind::Full => {
-                self.record_phase(CollectionPhase::Evacuate);
-                let evacuation = self.evacuate_marked_nursery()?;
-                self.relocate_roots_and_edges(&evacuation.forwarding);
-                self.process_weak_references(
-                    plan.kind,
-                    plan.worker_count.max(1),
-                    &evacuation.forwarding,
-                    &self.object_index,
-                );
-                let prepared_reclaim = self.prepare_reclaim(plan.kind, &plan);
-                self.record_phase(CollectionPhase::Reclaim);
-                let (finalized_objects, old_region_stats) = self.sweep_and_rebuild_post_collection(
-                    plan.kind,
-                    Some(plan.clone()),
-                    Some(prepared_reclaim),
-                );
-                let after_bytes = self.total_tracked_bytes();
-                CollectionStats {
-                    collections: 1,
-                    minor_collections: 0,
-                    major_collections: 1,
-                    promoted_bytes: evacuation.promoted_bytes as u64,
+                let (prepared_reclaim, promoted_bytes) = self.prepare_full_reclaim(&plan)?;
+                self.finish_reclaim_cycle(
+                    plan.clone(),
+                    before_bytes,
                     mark_steps,
                     mark_rounds,
-                    reclaimed_bytes: before_bytes.saturating_sub(after_bytes) as u64,
-                    finalized_objects,
-                    compacted_regions: old_region_stats.compacted_regions,
-                    reclaimed_regions: old_region_stats.reclaimed_regions,
-                }
+                    promoted_bytes,
+                    Some(prepared_reclaim),
+                )
             }
         };
         self.record_collection_stats(cycle);
@@ -1594,6 +1545,33 @@ impl Heap {
         (finalized_objects, old_region_stats)
     }
 
+    fn finish_reclaim_cycle(
+        &mut self,
+        plan: CollectionPlan,
+        before_bytes: usize,
+        mark_steps: u64,
+        mark_rounds: u64,
+        promoted_bytes: usize,
+        prepared_reclaim: Option<PreparedReclaim>,
+    ) -> CollectionStats {
+        self.record_phase(CollectionPhase::Reclaim);
+        let (finalized_objects, old_region_stats) =
+            self.sweep_and_rebuild_post_collection(plan.kind, Some(plan), prepared_reclaim);
+        let after_bytes = self.total_tracked_bytes();
+        CollectionStats {
+            collections: 1,
+            minor_collections: 0,
+            major_collections: 1,
+            promoted_bytes: promoted_bytes as u64,
+            mark_steps,
+            mark_rounds,
+            reclaimed_bytes: before_bytes.saturating_sub(after_bytes) as u64,
+            finalized_objects,
+            compacted_regions: old_region_stats.compacted_regions,
+            reclaimed_regions: old_region_stats.reclaimed_regions,
+        }
+    }
+
     fn record_collection_stats(&mut self, cycle: CollectionStats) {
         self.stats.collections.collections = self
             .stats
@@ -1990,6 +1968,36 @@ impl Heap {
             large_live_bytes,
             immortal_live_bytes,
         }
+    }
+
+    fn prepare_major_reclaim(&mut self, plan: &CollectionPlan) -> PreparedReclaim {
+        let empty_forwarding: ForwardingMap = HashMap::new();
+        self.process_weak_references(
+            plan.kind,
+            plan.worker_count.max(1),
+            &empty_forwarding,
+            &self.object_index,
+        );
+        self.prepare_reclaim(plan.kind, plan)
+    }
+
+    fn prepare_full_reclaim(
+        &mut self,
+        plan: &CollectionPlan,
+    ) -> Result<(PreparedReclaim, usize), AllocError> {
+        self.record_phase(CollectionPhase::Evacuate);
+        let evacuation = self.evacuate_marked_nursery()?;
+        self.relocate_roots_and_edges(&evacuation.forwarding);
+        self.process_weak_references(
+            plan.kind,
+            plan.worker_count.max(1),
+            &evacuation.forwarding,
+            &self.object_index,
+        );
+        Ok((
+            self.prepare_reclaim(plan.kind, plan),
+            evacuation.promoted_bytes,
+        ))
     }
 
     fn rebuild_post_sweep_old_region(
