@@ -1102,7 +1102,16 @@ impl BackgroundCollector {
         if let Some(status) = self.snapshot_tick(&snapshot) {
             return Ok(status);
         }
-        self.tick_shared_after_snapshot(heap)
+        match self.try_tick_shared_after_snapshot(heap) {
+            Err(SharedBackgroundError::WouldBlock) => {
+                if let Some(status) = self.blocked_status_from_snapshot(&snapshot) {
+                    Ok(status)
+                } else {
+                    self.tick_shared_after_snapshot(heap)
+                }
+            }
+            other => other,
+        }
     }
 
     fn try_tick_shared(

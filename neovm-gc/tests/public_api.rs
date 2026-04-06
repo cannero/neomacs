@@ -3862,6 +3862,111 @@ fn public_api_shared_background_service_tick_returns_ready_from_snapshot_for_com
 }
 
 #[test]
+fn public_api_shared_background_service_tick_returns_progress_from_snapshot_for_active_session() {
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            concurrent_mark_workers: 4,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for byte in 0..64u8 {
+                mutator
+                    .alloc(&mut scope, OldLeaf([byte; 32]))
+                    .expect("allocate old leaf");
+            }
+            let plan = mutator.plan_for(CollectionKind::Major);
+            mutator.begin_major_mark(plan).expect("begin major mark");
+        })
+        .expect("seed active major-mark session");
+
+    let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig::default());
+    let _guard = shared.lock().expect("lock shared heap");
+
+    let result = service.tick();
+
+    match result {
+        Ok(neovm_gc::BackgroundCollectionStatus::Progress(progress)) => {
+            assert!(!progress.completed);
+            assert!(progress.remaining_work > 0);
+            assert_eq!(progress.drained_objects, 0);
+        }
+        other => panic!("expected progress snapshot status, got {other:?}"),
+    }
+    assert_eq!(service.stats().ticks, 1);
+    assert_eq!(service.stats().rounds, 0);
+}
+
+#[test]
+fn public_api_shared_background_service_tick_returns_ready_from_snapshot_for_completed_active_session_with_auto_finish()
+ {
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            concurrent_mark_workers: 4,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for byte in 0..64u8 {
+                mutator
+                    .alloc(&mut scope, OldLeaf([byte; 32]))
+                    .expect("allocate old leaf");
+            }
+            let plan = mutator.plan_for(CollectionKind::Major);
+            mutator.begin_major_mark(plan).expect("begin major mark");
+            loop {
+                let progress = mutator
+                    .poll_active_major_mark()
+                    .expect("poll active major mark")
+                    .expect("major-mark session should stay active");
+                if progress.completed {
+                    break;
+                }
+            }
+        })
+        .expect("seed completed major-mark session");
+
+    let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig::default());
+    let _guard = shared.lock().expect("lock shared heap");
+
+    let result = service.tick();
+
+    match result {
+        Ok(neovm_gc::BackgroundCollectionStatus::ReadyToFinish(progress)) => {
+            assert!(progress.completed);
+            assert_eq!(progress.remaining_work, 0);
+        }
+        other => panic!("expected ready-to-finish snapshot status, got {other:?}"),
+    }
+    assert_eq!(service.stats().ticks, 1);
+    assert_eq!(service.stats().rounds, 0);
+}
+
+#[test]
 fn public_api_shared_background_service_tick_aggregates_multiple_rounds_with_short_lock_windows() {
     let shared = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
