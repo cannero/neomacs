@@ -1,7 +1,6 @@
 use core::marker::PhantomData;
 use core::slice;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::thread;
 use std::time::Instant;
 
@@ -18,7 +17,7 @@ use crate::reclaim::{
     sweep_minor_and_rebuild_post_collection as rebuild_minor_after_collection,
 };
 use crate::root::RootStack;
-use crate::runtime_state::RuntimeState;
+use crate::runtime_state::RuntimeStateHandle;
 use crate::spaces::nursery::{
     NurseryConfig, evacuate_marked_nursery as evacuate_nursery_space,
     relocate_roots_and_edges as relocate_forwarded_roots_and_edges,
@@ -466,7 +465,7 @@ pub(crate) fn execute_collection_plan(
     old_config: &OldGenConfig,
     nursery_config: &NurseryConfig,
     stats: &mut HeapStats,
-    runtime_state: &Arc<Mutex<RuntimeState>>,
+    runtime_state: &RuntimeStateHandle,
     mut record_phase: impl FnMut(CollectionPhase),
 ) -> Result<CollectionStats, AllocError> {
     let before_bytes = stats.total_live_bytes();
@@ -500,7 +499,7 @@ pub(crate) fn execute_collection_plan(
                 &indexes.object_index,
             );
             record_phase(CollectionPhase::Reclaim);
-            let runtime_state = Arc::clone(runtime_state);
+            let runtime_state = runtime_state.clone();
             let rebuild = rebuild_minor_after_collection(
                 objects,
                 indexes,
@@ -509,12 +508,7 @@ pub(crate) fn execute_collection_plan(
                 stats,
                 plan.kind,
                 Some(plan.clone()),
-                move |object| {
-                    let mut runtime_state = runtime_state
-                        .lock()
-                        .expect("runtime state should not be poisoned");
-                    runtime_state.enqueue_pending_finalizer(object)
-                },
+                move |object| runtime_state.enqueue_pending_finalizer(object),
             );
             Ok(CollectionStats::completed_minor_cycle(
                 mark_steps,
@@ -531,7 +525,7 @@ pub(crate) fn execute_collection_plan(
             let prepared_reclaim =
                 prepare_major_reclaim_for_plan(plan, objects, indexes, old_gen, old_config);
             record_phase(CollectionPhase::Reclaim);
-            let runtime_state = Arc::clone(runtime_state);
+            let runtime_state = runtime_state.clone();
             Ok(finish_prepared_reclaim_cycle(
                 objects,
                 indexes,
@@ -542,12 +536,7 @@ pub(crate) fn execute_collection_plan(
                 mark_rounds,
                 saturating_duration_nanos(reclaim_prepare_start.elapsed()),
                 prepared_reclaim,
-                move |object| {
-                    let mut runtime_state = runtime_state
-                        .lock()
-                        .expect("runtime state should not be poisoned");
-                    runtime_state.enqueue_pending_finalizer(object)
-                },
+                move |object| runtime_state.enqueue_pending_finalizer(object),
             ))
         }
         CollectionKind::Full => {
@@ -564,7 +553,7 @@ pub(crate) fn execute_collection_plan(
                 |phase| record_phase(phase),
             )?;
             record_phase(CollectionPhase::Reclaim);
-            let runtime_state = Arc::clone(runtime_state);
+            let runtime_state = runtime_state.clone();
             Ok(finish_prepared_reclaim_cycle(
                 objects,
                 indexes,
@@ -575,12 +564,7 @@ pub(crate) fn execute_collection_plan(
                 mark_rounds,
                 saturating_duration_nanos(reclaim_prepare_start.elapsed()),
                 prepared_reclaim,
-                move |object| {
-                    let mut runtime_state = runtime_state
-                        .lock()
-                        .expect("runtime state should not be poisoned");
-                    runtime_state.enqueue_pending_finalizer(object)
-                },
+                move |object| runtime_state.enqueue_pending_finalizer(object),
             ))
         }
     }

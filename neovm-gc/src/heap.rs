@@ -29,7 +29,7 @@ use crate::plan::{
 use crate::reclaim::{PreparedReclaim, finish_prepared_reclaim_cycle};
 use crate::root::{HandleScope, Root, RootStack};
 use crate::runtime::CollectorRuntime;
-use crate::runtime_state::RuntimeState;
+use crate::runtime_state::RuntimeStateHandle;
 use crate::spaces::{
     LargeObjectSpaceConfig, NurseryConfig, OldGenConfig, OldGenPlanSelection, OldGenState,
     PinnedSpaceConfig,
@@ -92,7 +92,7 @@ pub struct Heap {
     indexes: HeapIndexState,
     old_gen: OldGenState,
     recent_barrier_events: Vec<BarrierEvent>,
-    runtime_state: Arc<Mutex<RuntimeState>>,
+    runtime_state: RuntimeStateHandle,
     collector: Arc<Mutex<CollectorState>>,
 }
 
@@ -137,7 +137,7 @@ impl Heap {
             indexes: HeapIndexState::default(),
             old_gen: OldGenState::default(),
             recent_barrier_events: Vec::new(),
-            runtime_state: Arc::new(Mutex::new(RuntimeState::default())),
+            runtime_state: RuntimeStateHandle::default(),
             collector: Arc::new(Mutex::new(CollectorState::default())),
         };
         heap.refresh_recommended_plans();
@@ -150,14 +150,8 @@ impl Heap {
             .expect("collector state should not be poisoned")
     }
 
-    fn runtime_state(&self) -> std::sync::MutexGuard<'_, RuntimeState> {
-        self.runtime_state
-            .lock()
-            .expect("runtime state should not be poisoned")
-    }
-
-    pub(crate) fn runtime_state_handle(&self) -> Arc<Mutex<RuntimeState>> {
-        Arc::clone(&self.runtime_state)
+    pub(crate) fn runtime_state_handle(&self) -> RuntimeStateHandle {
+        self.runtime_state.clone()
     }
 
     pub(crate) fn collector_handle(&self) -> Arc<Mutex<CollectorState>> {
@@ -171,9 +165,8 @@ impl Heap {
 
     /// Return current heap statistics.
     pub fn stats(&self) -> HeapStats {
-        let runtime_state = self.runtime_state();
         let mut stats = self.storage_stats();
-        let (finalizers_run, pending_finalizers) = runtime_state.snapshot();
+        let (finalizers_run, pending_finalizers) = self.runtime_state.snapshot();
         stats.finalizers_run = finalizers_run;
         stats.pending_finalizers = pending_finalizers;
         stats
@@ -190,12 +183,12 @@ impl Heap {
     }
 
     pub(crate) fn runtime_finalizer_stats(&self) -> (u64, usize) {
-        self.runtime_state().snapshot()
+        self.runtime_state.snapshot()
     }
 
     /// Return runtime-side follow-up work that remains outside GC commit.
     pub fn runtime_work_status(&self) -> RuntimeWorkStatus {
-        RuntimeWorkStatus::from_pending_finalizers(self.pending_finalizer_count())
+        self.runtime_state.runtime_work_status()
     }
 
     pub(crate) fn collector_shared_snapshot(&self) -> CollectorSharedSnapshot {
@@ -539,12 +532,12 @@ impl Heap {
 
     /// Return the number of queued finalizers waiting to run.
     pub fn pending_finalizer_count(&self) -> usize {
-        self.runtime_state().pending_finalizer_count()
+        self.runtime_state.pending_finalizer_count()
     }
 
     /// Run and drain queued finalizers.
     pub fn drain_pending_finalizers(&self) -> u64 {
-        self.runtime_state().drain_pending_finalizers()
+        self.runtime_state.drain_pending_finalizers()
     }
 
     /// Number of remembered old-to-young edges currently tracked.
@@ -1082,12 +1075,7 @@ impl Heap {
             finished.mark_rounds,
             finished.reclaim_prepare_nanos,
             finished.prepared_reclaim,
-            move |object| {
-                let mut runtime_state = runtime_state
-                    .lock()
-                    .expect("runtime state should not be poisoned");
-                runtime_state.enqueue_pending_finalizer(object)
-            },
+            move |object| runtime_state.enqueue_pending_finalizer(object),
         );
         cycle.pause_nanos = Self::saturating_duration_nanos(pause_start.elapsed());
         self.record_collection_stats(cycle);

@@ -3,11 +3,10 @@ use crate::descriptor::{Trace, fixed_type_desc};
 use crate::index_state::{HeapIndexState, ObjectIndex};
 use crate::plan::{CollectionKind, CollectionPhase, CollectionPlan};
 use crate::root::RootStack;
-use crate::runtime_state::RuntimeState;
+use crate::runtime_state::RuntimeStateHandle;
 use crate::spaces::{NurseryConfig, OldGenConfig, OldGenState};
 use crate::stats::{HeapStats, SpaceStats};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
 #[derive(Debug)]
 struct Leaf;
@@ -122,7 +121,7 @@ fn execute_collection_plan_records_minor_phases() {
         },
         ..HeapStats::default()
     };
-    let runtime_state = Arc::new(Mutex::new(RuntimeState::default()));
+    let runtime_state = RuntimeStateHandle::default();
     let mut phases = Vec::new();
 
     let cycle = execute_collection_plan(

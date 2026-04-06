@@ -1,9 +1,62 @@
+use std::sync::{Arc, Mutex, MutexGuard, TryLockError, TryLockResult};
+
 use crate::object::ObjectRecord;
+use crate::plan::RuntimeWorkStatus;
 
 #[derive(Debug, Default)]
 pub(crate) struct RuntimeState {
     pending_finalizers: Vec<ObjectRecord>,
     finalizers_run: u64,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct RuntimeStateHandle {
+    state: Arc<Mutex<RuntimeState>>,
+}
+
+impl RuntimeStateHandle {
+    pub(crate) fn lock(&self) -> MutexGuard<'_, RuntimeState> {
+        self.state
+            .lock()
+            .expect("runtime state should not be poisoned")
+    }
+
+    pub(crate) fn try_lock(&self) -> TryLockResult<MutexGuard<'_, RuntimeState>> {
+        self.state.try_lock()
+    }
+
+    pub(crate) fn snapshot(&self) -> (u64, usize) {
+        self.lock().snapshot()
+    }
+
+    pub(crate) fn pending_finalizer_count(&self) -> usize {
+        self.lock().pending_finalizer_count()
+    }
+
+    pub(crate) fn runtime_work_status(&self) -> RuntimeWorkStatus {
+        RuntimeWorkStatus::from_pending_finalizers(self.pending_finalizer_count())
+    }
+
+    pub(crate) fn enqueue_pending_finalizer(&self, object: ObjectRecord) -> u64 {
+        self.lock().enqueue_pending_finalizer(object)
+    }
+
+    pub(crate) fn drain_pending_finalizers(&self) -> u64 {
+        self.lock().drain_pending_finalizers()
+    }
+
+    pub(crate) fn with_state<R>(&self, f: impl FnOnce(&mut RuntimeState) -> R) -> R {
+        let mut state = self.lock();
+        f(&mut state)
+    }
+
+    pub(crate) fn try_with_state<R>(
+        &self,
+        f: impl FnOnce(&mut RuntimeState) -> R,
+    ) -> Result<R, TryLockError<MutexGuard<'_, RuntimeState>>> {
+        let mut state = self.try_lock()?;
+        Ok(f(&mut state))
+    }
 }
 
 impl RuntimeState {
@@ -31,3 +84,7 @@ impl RuntimeState {
         ran
     }
 }
+
+#[cfg(test)]
+#[path = "runtime_state_test.rs"]
+mod tests;
