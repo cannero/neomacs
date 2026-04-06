@@ -61,6 +61,7 @@ pub(crate) struct PreparedReclaim {
     pub(crate) weak_candidates: Vec<ObjectKey>,
     pub(crate) ephemeron_candidates: Vec<ObjectKey>,
     pub(crate) remembered_edges: Vec<RememberedEdge>,
+    pub(crate) remembered_owners: Vec<ObjectKey>,
     pub(crate) nursery_live_bytes: usize,
     pub(crate) old_live_bytes: usize,
     pub(crate) pinned_live_bytes: usize,

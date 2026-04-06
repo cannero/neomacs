@@ -42,6 +42,7 @@ fn prepared_reclaim() -> PreparedReclaim {
         weak_candidates: Vec::new(),
         ephemeron_candidates: Vec::new(),
         remembered_edges: Vec::new(),
+        remembered_owners: Vec::new(),
         nursery_live_bytes: 0,
         old_live_bytes: 0,
         pinned_live_bytes: 0,

@@ -85,6 +85,8 @@ pub struct Heap {
     ephemeron_candidates: Vec<ObjectKey>,
     old_regions: Vec<OldRegion>,
     remembered_edges: Vec<RememberedEdge>,
+    remembered_owners: Vec<ObjectKey>,
+    remembered_owner_set: HashSet<ObjectKey>,
     recent_barrier_events: Vec<BarrierEvent>,
     collector: Mutex<CollectorState>,
 }
@@ -193,6 +195,8 @@ impl Heap {
             ephemeron_candidates: Vec::new(),
             old_regions: Vec::new(),
             remembered_edges: Vec::new(),
+            remembered_owners: Vec::new(),
+            remembered_owner_set: HashSet::new(),
             recent_barrier_events: Vec::new(),
             collector: Mutex::new(CollectorState::default()),
         };
@@ -934,10 +938,14 @@ impl Heap {
 
         let owner_is_old = owner_space != SpaceKind::Nursery && owner_space != SpaceKind::Immortal;
         if owner_is_old && target_space == SpaceKind::Nursery {
+            let owner_key = owner.object_key();
             self.remembered_edges.push(RememberedEdge {
                 owner: unsafe { crate::root::Gc::from_erased(owner) },
                 target: unsafe { crate::root::Gc::from_erased(target) },
             });
+            if self.remembered_owner_set.insert(owner_key) {
+                self.remembered_owners.push(owner_key);
+            }
         }
 
         self.assist_major_mark_in_place();
@@ -1174,11 +1182,9 @@ impl Heap {
         let mut tracer = MinorTracer::new(&self.objects, index);
         self.for_each_global_source(|object| tracer.scan_source(object));
 
-        let mut scanned_owners = HashSet::new();
-        for edge in &self.remembered_edges {
-            let owner = edge.owner.erase().object_key();
-            if scanned_owners.insert(owner) {
-                tracer.scan_source(edge.owner.erase());
+        for &owner in &self.remembered_owners {
+            if let Some(&owner_index) = self.object_index.get(&owner) {
+                tracer.scan_source(self.objects[owner_index].erased());
             }
         }
         let (mut mark_steps, mut mark_rounds) =
@@ -1478,6 +1484,14 @@ impl Heap {
                 .is_some_and(|space| space != SpaceKind::Nursery && space != SpaceKind::Immortal)
                 && target_space == Some(SpaceKind::Nursery)
         });
+        self.remembered_owner_set.clear();
+        self.remembered_owners.clear();
+        for edge in &self.remembered_edges {
+            let owner = edge.owner.erase().object_key();
+            if self.remembered_owner_set.insert(owner) {
+                self.remembered_owners.push(owner);
+            }
+        }
         (finalized_objects, old_region_stats)
     }
 
@@ -1530,6 +1544,8 @@ impl Heap {
         self.weak_candidates = prepared_reclaim.weak_candidates;
         self.ephemeron_candidates = prepared_reclaim.ephemeron_candidates;
         self.remembered_edges = prepared_reclaim.remembered_edges;
+        self.remembered_owners = prepared_reclaim.remembered_owners;
+        self.remembered_owner_set = self.remembered_owners.iter().copied().collect();
         self.stats.nursery.live_bytes = prepared_reclaim.nursery_live_bytes;
         self.stats.old.live_bytes = prepared_reclaim.old_live_bytes;
         self.stats.pinned.live_bytes = prepared_reclaim.pinned_live_bytes;
@@ -1924,7 +1940,7 @@ impl Heap {
             .iter()
             .map(|region| region.capacity_bytes)
             .sum();
-        let remembered_edges = self
+        let remembered_edges: Vec<RememberedEdge> = self
             .remembered_edges
             .iter()
             .copied()
@@ -1946,6 +1962,14 @@ impl Heap {
                     && target.space() == SpaceKind::Nursery
             })
             .collect();
+        let mut remembered_owners = Vec::new();
+        let mut remembered_owner_set = HashSet::new();
+        for edge in &remembered_edges {
+            let owner = edge.owner.erase().object_key();
+            if remembered_owner_set.insert(owner) {
+                remembered_owners.push(owner);
+            }
+        }
         PreparedReclaim {
             promoted_bytes: 0,
             rebuilt_old_regions,
@@ -1957,6 +1981,7 @@ impl Heap {
             weak_candidates,
             ephemeron_candidates,
             remembered_edges,
+            remembered_owners,
             nursery_live_bytes,
             old_live_bytes,
             pinned_live_bytes,
