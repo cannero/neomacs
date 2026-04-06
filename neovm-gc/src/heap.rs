@@ -1437,15 +1437,30 @@ impl Heap {
             Vec::with_capacity(prepared_survivor_count.unwrap_or(old_objects.len()));
         let mut finalized_objects = 0u64;
         for mut object in old_objects {
-            if !Self::keep_object_for_collection(kind, &object) {
-                if object.run_finalizer() {
+            let object_key = object.object_key();
+            let keep_object = if let Some(prepared) = prepared_major_reclaim.as_ref() {
+                prepared.survivor_keys.contains(&object_key)
+            } else {
+                Self::keep_object_for_collection(kind, &object)
+            };
+            if !keep_object {
+                let should_finalize = if let Some(prepared) = prepared_major_reclaim.as_ref() {
+                    prepared.finalizable_dead_keys.contains(&object_key)
+                } else {
+                    object
+                        .header()
+                        .desc()
+                        .flags
+                        .contains(TypeFlags::FINALIZABLE)
+                        && !object.header().is_moved_out()
+                };
+                if should_finalize && object.run_finalizer() {
                     finalized_objects = finalized_objects.saturating_add(1);
                 }
                 continue;
             }
 
             object.clear_mark();
-            let object_key = object.object_key();
             let desc = object.header().desc();
             let space = object.space();
             let total_size = object.total_size();
@@ -1805,6 +1820,8 @@ impl Heap {
         let mut rebuild = prepare_old_region_rebuild_for_plan(&self.old_regions, Some(plan))
             .expect("major reclaim preparation requires a major/full plan");
         let mut placements = HashMap::new();
+        let mut survivor_keys = HashSet::new();
+        let mut finalizable_dead_keys = HashSet::new();
         let mut weak_candidates = Vec::new();
         let mut ephemeron_candidates = Vec::new();
         let mut survivor_count = 0usize;
@@ -1815,14 +1832,18 @@ impl Heap {
         let mut immortal_live_bytes = 0usize;
 
         for object in &self.objects {
+            let object_key = object.object_key();
+            let desc = object.header().desc();
             if !Self::keep_object_for_collection(CollectionKind::Major, object) {
+                if !object.header().is_moved_out() && desc.flags.contains(TypeFlags::FINALIZABLE) {
+                    finalizable_dead_keys.insert(object_key);
+                }
                 continue;
             }
 
+            survivor_keys.insert(object_key);
             survivor_count = survivor_count.saturating_add(1);
-            let object_key = object.object_key();
             let total_size = object.total_size();
-            let desc = object.header().desc();
             if desc.flags.contains(TypeFlags::WEAK) {
                 weak_candidates.push(object_key);
             }
@@ -1913,6 +1934,8 @@ impl Heap {
             old_region_placements: placements,
             rebuilt_old_regions,
             old_region_stats,
+            survivor_keys,
+            finalizable_dead_keys,
             survivor_count,
             weak_candidates,
             ephemeron_candidates,

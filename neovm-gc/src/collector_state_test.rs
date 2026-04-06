@@ -32,6 +32,8 @@ fn prepared_major_reclaim() -> PreparedMajorReclaim {
             compacted_regions: 1,
             reclaimed_regions: 0,
         },
+        survivor_keys: std::collections::HashSet::new(),
+        finalizable_dead_keys: std::collections::HashSet::new(),
         survivor_count: 0,
         weak_candidates: Vec::new(),
         ephemeron_candidates: Vec::new(),

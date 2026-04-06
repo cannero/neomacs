@@ -1634,6 +1634,59 @@ fn public_api_poll_active_major_mark_prepares_major_old_region_rebuild_before_fi
 }
 
 #[test]
+fn public_api_poll_active_major_mark_prepares_major_finalizer_before_finish() {
+    PUBLIC_FINALIZE_COUNT.store(0, Ordering::SeqCst);
+
+    let mut heap = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    {
+        let mut scope = mutator.handle_scope();
+        mutator
+            .alloc(&mut scope, FinalizableLeaf(42))
+            .expect("alloc finalizable old leaf");
+    }
+
+    let plan = mutator.plan_for(CollectionKind::Major);
+    mutator
+        .begin_major_mark(plan.clone())
+        .expect("begin persistent major mark");
+
+    while !mutator
+        .poll_active_major_mark()
+        .expect("poll active major mark")
+        .expect("active progress")
+        .completed
+    {}
+
+    assert_eq!(
+        mutator.active_major_mark_plan(),
+        Some(neovm_gc::CollectionPlan {
+            phase: CollectionPhase::Reclaim,
+            ..plan
+        })
+    );
+
+    let cycle = mutator
+        .finish_active_major_collection_if_ready()
+        .expect("finish if ready")
+        .expect("completed cycle");
+    assert_eq!(cycle.major_collections, 1);
+    assert_eq!(cycle.finalized_objects, 1);
+    assert_eq!(PUBLIC_FINALIZE_COUNT.load(Ordering::SeqCst), 1);
+    assert_eq!(mutator.heap().object_count(), 0);
+}
+
+#[test]
 fn public_api_background_collection_round_finishes_active_major_session() {
     let mut heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
