@@ -65,6 +65,44 @@ unsafe impl Trace for OversizePromoteToPinnedLeaf {
 }
 
 #[derive(Debug)]
+struct ImmortalLeaf(u64);
+
+unsafe impl Trace for ImmortalLeaf {
+    fn trace(&self, _tracer: &mut dyn Tracer) {}
+
+    fn relocate(&self, _relocator: &mut dyn Relocator) {}
+
+    fn move_policy() -> MovePolicy
+    where
+        Self: Sized,
+    {
+        MovePolicy::Immortal
+    }
+}
+
+#[derive(Debug)]
+struct ImmortalHolder {
+    child: EdgeCell<Leaf>,
+}
+
+unsafe impl Trace for ImmortalHolder {
+    fn trace(&self, tracer: &mut dyn Tracer) {
+        self.child.trace(tracer);
+    }
+
+    fn relocate(&self, relocator: &mut dyn Relocator) {
+        self.child.relocate(relocator);
+    }
+
+    fn move_policy() -> MovePolicy
+    where
+        Self: Sized,
+    {
+        MovePolicy::Immortal
+    }
+}
+
+#[derive(Debug)]
 struct LargeLeaf([u8; 80]);
 
 unsafe impl Trace for LargeLeaf {
@@ -591,6 +629,138 @@ fn minor_collection_promotes_promote_to_pinned_object_into_pinned_space() {
     assert_eq!(mutator.heap().stats().nursery.live_bytes, 0);
     assert!(mutator.heap().stats().pinned.live_bytes > 0);
     assert_eq!(unsafe { root.as_gc().as_non_null().as_ref() }.0, 33);
+}
+
+#[test]
+fn alloc_immortal_object_into_immortal_space() {
+    let mut heap = Heap::new(HeapConfig::default());
+    let mut mutator = heap.mutator();
+    let mut scope = mutator.handle_scope();
+
+    let root = mutator
+        .alloc(&mut scope, ImmortalLeaf(77))
+        .expect("alloc immortal leaf");
+
+    assert_eq!(
+        mutator.heap().space_of(root.as_gc()),
+        Some(SpaceKind::Immortal)
+    );
+    assert_eq!(mutator.heap().object_count(), 1);
+    assert_eq!(mutator.heap().stats().nursery.live_bytes, 0);
+    assert_eq!(mutator.heap().stats().old.live_bytes, 0);
+    assert_eq!(mutator.heap().stats().pinned.live_bytes, 0);
+    assert_eq!(mutator.heap().stats().large.live_bytes, 0);
+    assert!(mutator.heap().stats().immortal.live_bytes > 0);
+    assert_eq!(unsafe { root.as_gc().as_non_null().as_ref() }.0, 77);
+}
+
+#[test]
+fn immortal_object_survives_unrooted_major_collection() {
+    let mut heap = Heap::new(HeapConfig::default());
+    let mut mutator = heap.mutator();
+    let immortal_gc = {
+        let mut scope = mutator.handle_scope();
+        let root = mutator
+            .alloc(&mut scope, ImmortalLeaf(211))
+            .expect("alloc immortal leaf");
+        root.as_gc()
+    };
+
+    let cycle = mutator
+        .collect(CollectionKind::Major)
+        .expect("major collect immortal leaf");
+
+    assert_eq!(cycle.major_collections, 1);
+    assert!(mutator.heap().contains(immortal_gc));
+    assert_eq!(
+        mutator.heap().space_of(immortal_gc),
+        Some(SpaceKind::Immortal)
+    );
+    assert_eq!(unsafe { immortal_gc.as_non_null().as_ref() }.0, 211);
+}
+
+#[test]
+fn minor_collection_immortal_object_keeps_young_child_alive() {
+    let mut heap = Heap::new(HeapConfig::default());
+    let mut mutator = heap.mutator();
+    let mut scope = mutator.handle_scope();
+    let holder = mutator
+        .alloc(
+            &mut scope,
+            ImmortalHolder {
+                child: EdgeCell::default(),
+            },
+        )
+        .expect("alloc immortal holder");
+
+    let child_gc = {
+        let mut child_scope = mutator.handle_scope();
+        let child = mutator
+            .alloc(&mut child_scope, Leaf(314))
+            .expect("alloc child leaf");
+        mutator.store_edge(&holder, 0, |holder| &holder.child, Some(child.as_gc()));
+        child.as_gc()
+    };
+
+    let cycle = mutator
+        .collect(CollectionKind::Minor)
+        .expect("minor collect immortal holder");
+
+    assert_eq!(cycle.minor_collections, 1);
+    assert_eq!(
+        mutator.heap().space_of(holder.as_gc()),
+        Some(SpaceKind::Immortal)
+    );
+    assert!(mutator.heap().stats().immortal.live_bytes > 0);
+    assert_eq!(mutator.heap().remembered_edge_count(), 0);
+    assert!(!mutator.heap().contains(child_gc));
+    let moved_child = unsafe { holder.as_gc().as_non_null().as_ref() }
+        .child
+        .get()
+        .expect("immortal child");
+    assert!(mutator.heap().contains(moved_child));
+    assert_eq!(unsafe { moved_child.as_non_null().as_ref() }.0, 314);
+}
+
+#[test]
+fn active_major_mark_keeps_newly_allocated_unrooted_immortal_object_alive() {
+    let mut heap = Heap::new(HeapConfig::default());
+    let mut mutator = heap.mutator();
+    let mut scope = mutator.handle_scope();
+    let _anchor = mutator
+        .alloc(&mut scope, Leaf(9))
+        .expect("alloc anchor leaf");
+
+    let plan = mutator.plan_for(CollectionKind::Major);
+    mutator
+        .begin_major_mark(plan)
+        .expect("begin persistent major mark");
+
+    let immortal_gc = {
+        let mut immortal_scope = mutator.handle_scope();
+        let immortal = mutator
+            .alloc(&mut immortal_scope, ImmortalLeaf(401))
+            .expect("alloc immortal during active major mark");
+        immortal.as_gc()
+    };
+
+    while !mutator
+        .advance_major_mark()
+        .expect("advance persistent major mark")
+        .completed
+    {}
+
+    let cycle = mutator
+        .finish_major_collection()
+        .expect("finish persistent major mark");
+
+    assert_eq!(cycle.major_collections, 1);
+    assert!(mutator.heap().contains(immortal_gc));
+    assert_eq!(
+        mutator.heap().space_of(immortal_gc),
+        Some(SpaceKind::Immortal)
+    );
+    assert_eq!(unsafe { immortal_gc.as_non_null().as_ref() }.0, 401);
 }
 
 #[test]

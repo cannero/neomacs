@@ -66,6 +66,8 @@ pub struct HeapStats {
     pub pinned: SpaceStats,
     /// Large-object-space statistics.
     pub large: SpaceStats,
+    /// Immortal-space statistics.
+    pub immortal: SpaceStats,
     /// Collection counters.
     pub collections: CollectionStats,
 }

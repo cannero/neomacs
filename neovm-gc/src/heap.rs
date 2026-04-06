@@ -143,6 +143,7 @@ impl Heap {
                     live_bytes: 0,
                 },
                 large: crate::stats::SpaceStats::default(),
+                immortal: crate::stats::SpaceStats::default(),
                 collections: crate::stats::CollectionStats::default(),
             },
             config,
@@ -340,9 +341,7 @@ impl Heap {
 
         let index = self.object_index();
         let mut tracer = MarkTracer::new(&self.objects, &index);
-        for root in self.roots.iter() {
-            tracer.mark_erased(root);
-        }
+        self.for_each_global_source(|object| tracer.mark_erased(object));
 
         self.major_mark_state = Some(MajorMarkState {
             plan,
@@ -904,9 +903,7 @@ impl Heap {
         match desc.move_policy {
             MovePolicy::Pinned => Ok(SpaceKind::Pinned),
             MovePolicy::LargeObject => Ok(SpaceKind::Large),
-            MovePolicy::Immortal => Err(AllocError::UnsupportedMovePolicy {
-                policy: desc.move_policy,
-            }),
+            MovePolicy::Immortal => Ok(SpaceKind::Immortal),
             MovePolicy::Movable => {
                 if payload_bytes >= self.config.large.threshold_bytes {
                     return Ok(SpaceKind::Large);
@@ -949,7 +946,12 @@ impl Heap {
                 self.stats.large.reserved_bytes =
                     self.stats.large.reserved_bytes.saturating_add(bytes);
             }
-            SpaceKind::Immortal => {}
+            SpaceKind::Immortal => {
+                self.stats.immortal.live_bytes =
+                    self.stats.immortal.live_bytes.saturating_add(bytes);
+                self.stats.immortal.reserved_bytes =
+                    self.stats.immortal.reserved_bytes.saturating_add(bytes);
+            }
         }
     }
 
@@ -995,10 +997,7 @@ impl Heap {
     }
 
     fn mark_for_active_major_session(&mut self, object: GcErased) {
-        let Some(space) = self.space_for_erased(object) else {
-            return;
-        };
-        if space == SpaceKind::Immortal {
+        if self.space_for_erased(object).is_none() {
             return;
         }
 
@@ -1036,6 +1035,17 @@ impl Heap {
             .collect()
     }
 
+    fn for_each_global_source(&self, mut f: impl FnMut(GcErased)) {
+        for root in self.roots.iter() {
+            f(root);
+        }
+        for object in &self.objects {
+            if object.space() == SpaceKind::Immortal {
+                f(object.erased());
+            }
+        }
+    }
+
     fn trace_major(
         &self,
         index: &HashMap<NonNull<ObjectHeader>, usize>,
@@ -1043,9 +1053,7 @@ impl Heap {
         slice_budget: usize,
     ) -> (u64, u64) {
         let mut session = MajorMarkSession::new(&self.objects, index, worker_count, slice_budget);
-        for root in self.roots.iter() {
-            session.seed(root);
-        }
+        self.for_each_global_source(|object| session.seed(object));
         session.drain_parallel();
         session.run_ephemeron_fixpoint_parallel();
         (session.mark_steps(), session.mark_rounds())
@@ -1086,9 +1094,7 @@ impl Heap {
         slice_budget: usize,
     ) -> (u64, u64) {
         let mut tracer = MinorTracer::new(&self.objects, index);
-        for root in self.roots.iter() {
-            tracer.scan_source(root);
-        }
+        self.for_each_global_source(|object| tracer.scan_source(object));
 
         let mut scanned_owners = HashSet::new();
         for edge in &self.remembered_edges {
@@ -1263,7 +1269,8 @@ impl Heap {
     fn sweep_minor(&mut self) -> u64 {
         let mut finalized_objects = 0u64;
         self.objects.retain(|object| {
-            let keep = object.space() != SpaceKind::Nursery
+            let keep = object.space() == SpaceKind::Immortal
+                || object.space() != SpaceKind::Nursery
                 || (object.is_marked() && !object.header().is_moved_out());
             if !keep && object.run_finalizer() {
                 finalized_objects = finalized_objects.saturating_add(1);
@@ -1279,7 +1286,8 @@ impl Heap {
     fn sweep_full(&mut self) -> u64 {
         let mut finalized_objects = 0u64;
         self.objects.retain(|object| {
-            let keep = object.is_marked() && !object.header().is_moved_out();
+            let keep = object.space() == SpaceKind::Immortal
+                || (object.is_marked() && !object.header().is_moved_out());
             if !keep && object.run_finalizer() {
                 finalized_objects = finalized_objects.saturating_add(1);
             }
@@ -1300,6 +1308,8 @@ impl Heap {
         self.stats.pinned.live_bytes = 0;
         self.stats.large.live_bytes = 0;
         self.stats.large.reserved_bytes = 0;
+        self.stats.immortal.live_bytes = 0;
+        self.stats.immortal.reserved_bytes = 0;
         let old_region_stats = self.recompute_old_region_metadata_for_plan(completed_plan);
 
         for object in &self.objects {
@@ -1337,7 +1347,18 @@ impl Heap {
                         .reserved_bytes
                         .saturating_add(object.total_size());
                 }
-                SpaceKind::Immortal => {}
+                SpaceKind::Immortal => {
+                    self.stats.immortal.live_bytes = self
+                        .stats
+                        .immortal
+                        .live_bytes
+                        .saturating_add(object.total_size());
+                    self.stats.immortal.reserved_bytes = self
+                        .stats
+                        .immortal
+                        .reserved_bytes
+                        .saturating_add(object.total_size());
+                }
             }
         }
         self.stats.old.reserved_bytes = self
@@ -1455,6 +1476,9 @@ impl Heap {
     }
 
     fn survives_collection_kind(kind: CollectionKind, object: &ObjectRecord) -> bool {
+        if object.space() == SpaceKind::Immortal {
+            return true;
+        }
         match kind {
             CollectionKind::Minor => object.space() != SpaceKind::Nursery || object.is_marked(),
             CollectionKind::Major | CollectionKind::Full => object.is_marked(),
@@ -1864,6 +1888,9 @@ impl WeakProcessor for WeakRetention<'_> {
         let Some(record) = self.record_for(object) else {
             return None;
         };
+        if record.space() == SpaceKind::Immortal {
+            return Some(object);
+        }
         match self.kind {
             CollectionKind::Minor => {
                 (record.space() != SpaceKind::Nursery || record.is_marked()).then_some(object)
