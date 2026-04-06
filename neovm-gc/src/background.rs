@@ -495,6 +495,16 @@ impl SharedRuntimeHandle {
         Ok(())
     }
 
+    pub(crate) fn publish_collector_snapshot(
+        &self,
+        next_collector: CollectorSharedSnapshot,
+    ) -> Result<(), SharedHeapError> {
+        let heap_snapshot = self.read_heap_snapshot(Clone::clone)?;
+        let runtime_snapshot = self.read_snapshot(|snapshot| *snapshot)?;
+        self.collector
+            .publish_snapshot(next_collector, &heap_snapshot, &runtime_snapshot)
+    }
+
     pub(crate) fn heap_epoch(&self) -> Result<u64, SharedHeapError> {
         self.heap_signal.current_epoch()
     }
@@ -964,16 +974,6 @@ impl SharedHeap {
 
     pub(crate) fn runtime_handle(&self) -> SharedRuntimeHandle {
         self.runtime.clone()
-    }
-
-    pub(crate) fn publish_collector_snapshot(
-        &self,
-        next_collector: CollectorSharedSnapshot,
-    ) -> Result<(), SharedHeapError> {
-        let heap_snapshot = self.runtime.read_heap_snapshot(Clone::clone)?;
-        let runtime_snapshot = self.runtime.read_snapshot(|snapshot| *snapshot)?;
-        self.collector
-            .publish_snapshot(next_collector, &heap_snapshot, &runtime_snapshot)
     }
 
     /// Return the current shared-heap change epoch used by signal-backed waiters.

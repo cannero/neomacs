@@ -149,7 +149,7 @@ impl SharedCollectorRuntime {
         &self,
         next_collector: CollectorSharedSnapshot,
     ) -> Result<(), SharedHeapError> {
-        self.heap.publish_collector_snapshot(next_collector)
+        self.runtime.publish_collector_snapshot(next_collector)
     }
 
     fn with_heap_read_collector_update<R>(
@@ -190,6 +190,30 @@ impl SharedCollectorRuntime {
             }
             Err(error) => Ok(Err(error)),
         }
+    }
+
+    fn with_runtime_update<R>(
+        &self,
+        f: impl for<'heap> FnOnce(&mut CollectorRuntime<'heap>) -> Result<R, AllocError>,
+    ) -> Result<Result<R, AllocError>, SharedHeapError> {
+        let mut heap = self
+            .heap
+            .lock()
+            .map_err(|_| SharedHeapError::LockPoisoned)?;
+        let mut runtime = heap.collector_runtime();
+        Ok(f(&mut runtime))
+    }
+
+    fn try_with_runtime_update<R>(
+        &self,
+        f: impl for<'heap> FnOnce(&mut CollectorRuntime<'heap>) -> Result<R, AllocError>,
+    ) -> Result<Result<R, AllocError>, SharedHeapError> {
+        let mut heap = self.heap.try_lock().map_err(|error| match error {
+            std::sync::TryLockError::Poisoned(_) => SharedHeapError::LockPoisoned,
+            std::sync::TryLockError::WouldBlock => SharedHeapError::WouldBlock,
+        })?;
+        let mut runtime = heap.collector_runtime();
+        Ok(f(&mut runtime))
     }
 
     /// Return current heap statistics.
@@ -363,8 +387,7 @@ impl SharedCollectorRuntime {
                 .map_err(Self::map_shared_heap_error)?
                 .map_err(SharedBackgroundError::Collection);
         }
-        self.heap
-            .with_runtime(|runtime| runtime.prepare_active_reclaim_if_needed())
+        self.with_runtime_update(|runtime| runtime.prepare_active_reclaim_if_needed())
             .map_err(Self::map_shared_heap_error)?
             .map_err(SharedBackgroundError::Collection)
     }
@@ -394,8 +417,7 @@ impl SharedCollectorRuntime {
                 .map_err(Self::map_shared_heap_error)?
                 .map_err(SharedBackgroundError::Collection);
         }
-        self.heap
-            .try_with_runtime(|runtime| runtime.prepare_active_reclaim_if_needed())
+        self.try_with_runtime_update(|runtime| runtime.prepare_active_reclaim_if_needed())
             .map_err(Self::map_shared_heap_error)?
             .map_err(SharedBackgroundError::Collection)
     }
@@ -426,8 +448,7 @@ impl SharedCollectorRuntime {
                 return Ok(None);
             }
         }
-        self.heap
-            .with_runtime(|runtime| runtime.finish_active_major_collection_if_ready())
+        self.with_runtime_update(|runtime| runtime.finish_active_major_collection_if_ready())
             .map_err(Self::map_shared_heap_error)?
             .map_err(SharedBackgroundError::Collection)
     }
@@ -453,8 +474,7 @@ impl SharedCollectorRuntime {
         {
             return Ok(None);
         }
-        self.heap
-            .with_runtime(|runtime| runtime.commit_active_reclaim_if_ready())
+        self.with_runtime_update(|runtime| runtime.commit_active_reclaim_if_ready())
             .map_err(Self::map_shared_heap_error)?
             .map_err(SharedBackgroundError::Collection)
     }
@@ -486,8 +506,7 @@ impl SharedCollectorRuntime {
                 return Ok(None);
             }
         }
-        self.heap
-            .try_with_runtime(|runtime| runtime.finish_active_major_collection_if_ready())
+        self.try_with_runtime_update(|runtime| runtime.finish_active_major_collection_if_ready())
             .map_err(Self::map_shared_heap_error)?
             .map_err(SharedBackgroundError::Collection)
     }
@@ -514,8 +533,7 @@ impl SharedCollectorRuntime {
         {
             return Ok(None);
         }
-        self.heap
-            .try_with_runtime(|runtime| runtime.commit_active_reclaim_if_ready())
+        self.try_with_runtime_update(|runtime| runtime.commit_active_reclaim_if_ready())
             .map_err(Self::map_shared_heap_error)?
             .map_err(SharedBackgroundError::Collection)
     }
