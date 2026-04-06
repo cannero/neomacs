@@ -15,6 +15,7 @@ struct FreshBuildOptions {
     repo_root: PathBuf,
     runtime_root: PathBuf,
     bin_dir: PathBuf,
+    release: bool,
     dry_run: bool,
     native_comp: bool,
     skip_build: bool,
@@ -59,7 +60,8 @@ impl FreshBuildOptions {
         }
 
         let mut runtime_root = repo_root.clone();
-        let mut bin_dir = default_bin_dir(&repo_root);
+        let mut bin_dir = None;
+        let mut release = false;
         let mut dry_run = false;
         let mut native_comp =
             env::var("NEOMACS_NATIVE_COMP").is_ok_and(|value| value.eq_ignore_ascii_case("yes"));
@@ -71,7 +73,7 @@ impl FreshBuildOptions {
                     let value = args
                         .next()
                         .ok_or_else(|| "--bin-dir requires a path".to_string())?;
-                    bin_dir = resolve_cli_path(&repo_root, value);
+                    bin_dir = Some(resolve_cli_path(&repo_root, value));
                 }
                 "--runtime-root" => {
                     let value = args
@@ -79,6 +81,7 @@ impl FreshBuildOptions {
                         .ok_or_else(|| "--runtime-root requires a path".to_string())?;
                     runtime_root = resolve_cli_path(&repo_root, value);
                 }
+                "--release" => release = true,
                 "--dry-run" => dry_run = true,
                 "--native-comp" => native_comp = true,
                 "--no-native-comp" => native_comp = false,
@@ -93,10 +96,13 @@ impl FreshBuildOptions {
             }
         }
 
+        let bin_dir = bin_dir.unwrap_or_else(|| default_bin_dir(&repo_root, release));
+
         Ok(FreshBuildOptions {
             repo_root,
             runtime_root,
             bin_dir,
+            release,
             dry_run,
             native_comp,
             skip_build,
@@ -111,7 +117,7 @@ fn repository_root() -> PathBuf {
         .to_path_buf()
 }
 
-fn default_bin_dir(repo_root: &Path) -> PathBuf {
+fn default_bin_dir(repo_root: &Path, release: bool) -> PathBuf {
     env::var_os("CARGO_TARGET_DIR")
         .map(PathBuf::from)
         .map(|path| {
@@ -122,7 +128,7 @@ fn default_bin_dir(repo_root: &Path) -> PathBuf {
             }
         })
         .unwrap_or_else(|| repo_root.join("target"))
-        .join("debug")
+        .join(if release { "release" } else { "debug" })
 }
 
 fn resolve_cli_path(repo_root: &Path, raw: OsString) -> PathBuf {
@@ -139,15 +145,19 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
     ensure_runtime_inputs(&paths)?;
 
     if !options.skip_build {
+        let mut cargo_args = vec![
+            OsString::from("build"),
+            OsString::from("-p"),
+            OsString::from("neomacs-bin"),
+        ];
+        if options.release {
+            cargo_args.push(OsString::from("--release"));
+        }
         run_command(
             options,
             &options.repo_root,
             &cargo_program(),
-            &[
-                OsString::from("build"),
-                OsString::from("-p"),
-                OsString::from("neomacs-bin"),
-            ],
+            &cargo_args,
             &[],
         )?;
     }
@@ -511,10 +521,10 @@ fn print_usage() {
 
 fn usage_text() -> &'static str {
     "\
-Usage: cargo xtask [fresh-build] [--bin-dir DIR] [--runtime-root DIR] [--dry-run] [--native-comp|--no-native-comp] [--skip-build]
+Usage: cargo xtask [fresh-build] [--bin-dir DIR] [--runtime-root DIR] [--release] [--dry-run] [--native-comp|--no-native-comp] [--skip-build]
 
 Build the GNU-shaped Neomacs runtime pipeline:
-  1. cargo build -p neomacs-bin
+  1. cargo build -p neomacs-bin [--release]
   2. neomacs-temacs --temacs=pbootstrap
   3. bootstrap-neomacs generates loaddefs / ldefs-boot
   4. bootstrap-neomacs warms the GNU COMPILE_FIRST set into .neobc cache files
@@ -523,6 +533,7 @@ Build the GNU-shaped Neomacs runtime pipeline:
 Options:
   --bin-dir DIR       Directory containing neomacs-temacs/bootstrap-neomacs/neomacs
   --runtime-root DIR  Runtime root containing lisp/ and etc/
+  --release           Build neomacs-bin in release mode and use target/release by default
   --dry-run           Print planned commands without running them
   --native-comp       Include native-comp-only COMPILE_FIRST entries
   --no-native-comp    Exclude native-comp-only COMPILE_FIRST entries
@@ -537,6 +548,42 @@ Environment:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn parse_options(args: &[&str]) -> FreshBuildOptions {
+        FreshBuildOptions::parse(
+            PathBuf::from("/repo"),
+            args.iter().map(|arg| OsString::from(arg)),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn parse_defaults_to_debug_bin_dir() {
+        let options = parse_options(&[]);
+        assert!(!options.release);
+        assert_eq!(options.bin_dir, PathBuf::from("/repo/target/debug"));
+    }
+
+    #[test]
+    fn parse_release_uses_release_bin_dir() {
+        let options = parse_options(&["--release"]);
+        assert!(options.release);
+        assert_eq!(options.bin_dir, PathBuf::from("/repo/target/release"));
+    }
+
+    #[test]
+    fn explicit_bin_dir_overrides_release_default() {
+        let options = parse_options(&["--release", "--bin-dir", "out/neomacs-bin"]);
+        assert!(options.release);
+        assert_eq!(options.bin_dir, PathBuf::from("/repo/out/neomacs-bin"));
+    }
+
+    #[test]
+    fn explicit_bin_dir_before_release_stays_in_effect() {
+        let options = parse_options(&["--bin-dir", "out/neomacs-bin", "--release"]);
+        assert!(options.release);
+        assert_eq!(options.bin_dir, PathBuf::from("/repo/out/neomacs-bin"));
+    }
 
     #[test]
     fn parse_compile_first_skips_native_entries_by_default() {
