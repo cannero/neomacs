@@ -4260,14 +4260,20 @@ impl Context {
             match result {
                 // top-level throw → restart the loop
                 Err(Flow::Throw { ref tag, .. }) if tag.is_symbol_named("top-level") => {
+                    tracing::debug!("command_loop_inner: top-level throw, restarting loop");
                     continue;
                 }
                 Ok(value) if outermost_command_loop && self.command_loop_noninteractive() => {
+                    // GNU keyboard.c:1145 — end of file in batch run
+                    tracing::info!("command_loop_inner: noninteractive EOF, calling kill-emacs");
                     super::builtins::symbols::builtin_kill_emacs(self, vec![Value::T])?;
                     return Ok(value);
                 }
                 // Any other result propagates up
-                other => return other,
+                other => {
+                    tracing::debug!("command_loop_inner: result={:?}, propagating", other.is_ok());
+                    return other;
+                }
             }
         }
     }
