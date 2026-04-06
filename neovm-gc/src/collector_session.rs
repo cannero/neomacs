@@ -138,6 +138,63 @@ pub(crate) fn mark_active_major_session_object(
     collector.enqueue_active_major_mark_index(object_index)
 }
 
+pub(crate) fn record_active_major_reachable_object(
+    collector: &mut CollectorState,
+    objects: &[ObjectRecord],
+    index: &ObjectIndex,
+    object: GcErased,
+    assist_slices: usize,
+) -> Result<bool, AllocError> {
+    if !collector.has_active_major_mark() {
+        return Ok(false);
+    }
+
+    let _enqueued = mark_active_major_session_object(collector, objects, index, object);
+    if assist_slices > 0 {
+        let _progress = assist_active_major_mark_slices(collector, objects, index, assist_slices)?;
+    }
+    Ok(true)
+}
+
+fn is_marked_active_major_session_object(
+    objects: &[ObjectRecord],
+    index: &ObjectIndex,
+    object: GcErased,
+) -> bool {
+    let Some(&object_index) = index.get(&object.object_key()) else {
+        return false;
+    };
+    let record = &objects[object_index];
+    record.space() == crate::object::SpaceKind::Immortal || record.is_marked()
+}
+
+pub(crate) fn record_active_major_post_write(
+    collector: &mut CollectorState,
+    objects: &[ObjectRecord],
+    index: &ObjectIndex,
+    owner: GcErased,
+    old_value: Option<GcErased>,
+    new_value: Option<GcErased>,
+    assist_slices: usize,
+) -> Result<bool, AllocError> {
+    if !collector.has_active_major_mark() {
+        return Ok(false);
+    }
+
+    if let Some(value) = old_value {
+        let _enqueued = mark_active_major_session_object(collector, objects, index, value);
+    }
+    if is_marked_active_major_session_object(objects, index, owner)
+        && let Some(value) = new_value
+    {
+        let _enqueued = mark_active_major_session_object(collector, objects, index, value);
+    }
+    if assist_slices > 0 {
+        let _progress = assist_active_major_mark_slices(collector, objects, index, assist_slices)?;
+    }
+    Ok(true)
+}
+
 pub(crate) fn poll_active_major_mark_round(
     collector: &mut CollectorState,
     objects: &[ObjectRecord],

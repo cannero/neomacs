@@ -14,9 +14,9 @@ use crate::collector_policy::refresh_cached_plans as refresh_cached_collector_pl
 use crate::collector_session::{
     active_reclaim_prep_request, assist_active_major_mark_slices, begin_major_mark,
     build_prepared_active_reclaim, complete_active_reclaim_prep, finish_active_collection,
-    finish_active_collection_if_ready, finish_major_mark, mark_active_major_session_object,
-    poll_active_major_mark_with_completion, prepare_active_collection_reclaim_if_needed,
-    prepare_active_major_reclaim_with_request, prepare_active_reclaim,
+    finish_active_collection_if_ready, finish_major_mark, poll_active_major_mark_with_completion,
+    prepare_active_collection_reclaim_if_needed, prepare_active_major_reclaim_with_request,
+    prepare_active_reclaim, record_active_major_post_write, record_active_major_reachable_object,
 };
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
 use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
@@ -670,10 +670,13 @@ impl Heap {
         self.indexes.object_index.insert(object_key, index);
         let desc = self.objects[index].header().desc();
         self.indexes.record_descriptor_candidates(object_key, desc);
-        if self.collector().has_active_major_mark() {
-            self.mark_for_active_major_session(gc.erase());
-            self.assist_major_mark_in_place();
-        }
+        if record_active_major_reachable_object(
+            &mut self.collector(),
+            &self.objects,
+            &self.indexes.object_index,
+            gc.erase(),
+            self.config.old.mutator_assist_slices,
+        )? {}
         self.refresh_recommended_plans();
         Ok(scope.root(gc))
     }
@@ -746,32 +749,44 @@ impl Heap {
             new_value,
         );
 
-        if self.collector().has_active_major_mark() {
-            if let Some(value) = old_value {
-                push_barrier_event(
-                    &mut self.recent_barrier_events,
-                    BarrierKind::SatbPreWrite,
-                    owner,
-                    slot,
-                    old_value,
-                    new_value,
-                );
-                self.mark_for_active_major_session(value);
-            }
-            if self.is_marked_erased(owner)
-                && let Some(value) = new_value
-            {
-                self.mark_for_active_major_session(value);
-            }
+        if old_value.is_some() && self.collector().has_active_major_mark() {
+            push_barrier_event(
+                &mut self.recent_barrier_events,
+                BarrierKind::SatbPreWrite,
+                owner,
+                slot,
+                old_value,
+                new_value,
+            );
         }
 
+        let active_major_mark_updated = record_active_major_post_write(
+            &mut self.collector(),
+            &self.objects,
+            &self.indexes.object_index,
+            owner,
+            old_value,
+            new_value,
+            self.config.old.mutator_assist_slices,
+        )
+        .expect("post-write active major-mark assist should not fail");
+
         let Some(owner_space) = self.space_for_erased(owner) else {
+            if active_major_mark_updated {
+                self.refresh_recommended_plans();
+            }
             return;
         };
         let Some(target) = new_value else {
+            if active_major_mark_updated {
+                self.refresh_recommended_plans();
+            }
             return;
         };
         let Some(target_space) = self.space_for_erased(target) else {
+            if active_major_mark_updated {
+                self.refresh_recommended_plans();
+            }
             return;
         };
 
@@ -780,8 +795,7 @@ impl Heap {
             self.indexes.record_remembered_edge(owner, target);
         }
 
-        self.assist_major_mark_in_place();
-        if self.collector().has_active_major_mark() {
+        if active_major_mark_updated {
             self.refresh_recommended_plans();
         }
     }
@@ -791,9 +805,17 @@ impl Heap {
             !self.prepared_full_reclaim_active(),
             "cannot add new roots while prepared full reclaim is active"
         );
-        self.mark_for_active_major_session(object);
-        self.assist_major_mark_in_place();
-        self.refresh_recommended_plans();
+        if record_active_major_reachable_object(
+            &mut self.collector(),
+            &self.objects,
+            &self.indexes.object_index,
+            object,
+            self.config.old.mutator_assist_slices,
+        )
+        .expect("rooting during active major-mark should not fail")
+        {
+            self.refresh_recommended_plans();
+        }
     }
 
     pub(crate) fn prepared_full_reclaim_active(&self) -> bool {
@@ -892,38 +914,6 @@ impl Heap {
             | SpaceKind::Nursery
             | SpaceKind::Immortal => None,
         }
-    }
-
-    fn is_marked_erased(&self, object: GcErased) -> bool {
-        let Some(space) = self.space_for_erased(object) else {
-            return false;
-        };
-        if space == SpaceKind::Immortal {
-            return true;
-        }
-        self.indexes
-            .object_index
-            .get(&object.object_key())
-            .is_some_and(|&index| self.objects[index].is_marked())
-    }
-
-    fn mark_for_active_major_session(&self, object: GcErased) {
-        let _enqueued = mark_active_major_session_object(
-            &mut self.collector(),
-            &self.objects,
-            &self.indexes.object_index,
-            object,
-        );
-    }
-
-    fn assist_major_mark_in_place(&self) {
-        let assist_slices = self.config.old.mutator_assist_slices;
-        if assist_slices == 0 || !self.collector().has_active_major_mark() {
-            return;
-        }
-        let _progress = self
-            .assist_major_mark(assist_slices)
-            .expect("mutator assist on active major-mark session should not fail");
     }
 
     fn record_collection_stats(&mut self, cycle: CollectionStats) {

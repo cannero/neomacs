@@ -151,6 +151,76 @@ fn assist_active_major_mark_slices_accumulates_progress_across_slices() {
 }
 
 #[test]
+fn record_active_major_reachable_object_marks_and_enqueues_object() {
+    let mut state = CollectorState::default();
+    let desc = Box::leak(Box::new(fixed_type_desc::<Leaf>()));
+    let object =
+        ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate pinned leaf");
+    let index = [(object.object_key(), 0usize)]
+        .into_iter()
+        .collect::<HashMap<_, _>>();
+    let objects = [object];
+    state.begin_major_mark(major_plan(), MarkWorklist::default());
+
+    let recorded =
+        record_active_major_reachable_object(&mut state, &objects, &index, objects[0].erased(), 0)
+            .expect("record active major reachable object");
+
+    assert!(recorded);
+    assert!(objects[0].is_marked());
+    assert_eq!(
+        state
+            .major_mark_progress()
+            .expect("major mark progress after reachable object")
+            .remaining_work,
+        1
+    );
+}
+
+#[test]
+fn record_active_major_post_write_marks_satb_and_incremental_targets() {
+    let mut state = CollectorState::default();
+    let desc = Box::leak(Box::new(fixed_type_desc::<Leaf>()));
+    let owner = ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate owner leaf");
+    let old_value =
+        ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate old target leaf");
+    let new_value =
+        ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate new target leaf");
+    let index = [
+        (owner.object_key(), 0usize),
+        (old_value.object_key(), 1usize),
+        (new_value.object_key(), 2usize),
+    ]
+    .into_iter()
+    .collect::<HashMap<_, _>>();
+    let objects = [owner, old_value, new_value];
+    objects[0].mark_if_unmarked();
+    state.begin_major_mark(major_plan(), MarkWorklist::default());
+
+    let recorded = record_active_major_post_write(
+        &mut state,
+        &objects,
+        &index,
+        objects[0].erased(),
+        Some(objects[1].erased()),
+        Some(objects[2].erased()),
+        0,
+    )
+    .expect("record active major post write");
+
+    assert!(recorded);
+    assert!(objects[1].is_marked());
+    assert!(objects[2].is_marked());
+    assert_eq!(
+        state
+            .major_mark_progress()
+            .expect("major mark progress after post write")
+            .remaining_work,
+        2
+    );
+}
+
+#[test]
 fn prepare_active_reclaim_plan_moves_major_session_to_reclaim() {
     let mut state = CollectorState::default();
     let plan = major_plan();
