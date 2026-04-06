@@ -1,3 +1,4 @@
+use std::sync::{Arc, Mutex, MutexGuard, TryLockError, TryLockResult};
 use std::time::{Duration, Instant};
 
 use crate::heap::AllocError;
@@ -21,6 +22,40 @@ pub(crate) struct CollectorState {
     major_mark_state: Option<MajorMarkState>,
     cached_recommended_plan: CollectionPlan,
     cached_recommended_background_plan: Option<CollectionPlan>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct CollectorStateHandle {
+    state: Arc<Mutex<CollectorState>>,
+}
+
+impl CollectorStateHandle {
+    pub(crate) fn lock(&self) -> MutexGuard<'_, CollectorState> {
+        self.state
+            .lock()
+            .expect("collector state should not be poisoned")
+    }
+
+    pub(crate) fn try_lock(&self) -> TryLockResult<MutexGuard<'_, CollectorState>> {
+        self.state.try_lock()
+    }
+
+    pub(crate) fn with_state<R>(&self, f: impl FnOnce(&mut CollectorState) -> R) -> R {
+        let mut state = self.lock();
+        f(&mut state)
+    }
+
+    pub(crate) fn try_with_state<R>(
+        &self,
+        f: impl FnOnce(&mut CollectorState) -> R,
+    ) -> Result<R, TryLockError<MutexGuard<'_, CollectorState>>> {
+        let mut state = self.try_lock()?;
+        Ok(f(&mut state))
+    }
+
+    pub(crate) fn shared_snapshot(&self) -> CollectorSharedSnapshot {
+        self.lock().shared_snapshot()
+    }
 }
 
 #[derive(Debug)]

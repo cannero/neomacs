@@ -1,4 +1,4 @@
-use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
+use crate::collector_state::{CollectorSharedSnapshot, CollectorState, CollectorStateHandle};
 use crate::heap::{AllocError, Heap};
 use crate::mutator::Mutator;
 use crate::plan::{
@@ -195,7 +195,7 @@ struct SharedRuntimeSnapshot {
 
 #[derive(Clone, Debug)]
 pub(crate) struct SharedCollectorHandle {
-    state: Arc<Mutex<CollectorState>>,
+    state: CollectorStateHandle,
     snapshot: Arc<RwLock<CollectorSharedSnapshot>>,
     signal: Arc<SharedHeapSignal>,
 }
@@ -274,7 +274,7 @@ impl SharedRuntimeSnapshot {
 
 impl SharedCollectorHandle {
     fn new(
-        state: Arc<Mutex<CollectorState>>,
+        state: CollectorStateHandle,
         snapshot: CollectorSharedSnapshot,
         signal: Arc<SharedHeapSignal>,
     ) -> Self {
@@ -289,22 +289,17 @@ impl SharedCollectorHandle {
         &self,
         f: impl FnOnce(&mut CollectorState) -> R,
     ) -> Result<R, SharedHeapError> {
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| SharedHeapError::LockPoisoned)?;
-        Ok(f(&mut state))
+        Ok(self.state.with_state(f))
     }
 
     pub(crate) fn try_with_state<R>(
         &self,
         f: impl FnOnce(&mut CollectorState) -> R,
     ) -> Result<R, SharedHeapError> {
-        let mut state = self.state.try_lock().map_err(|error| match error {
+        self.state.try_with_state(f).map_err(|error| match error {
             TryLockError::Poisoned(_) => SharedHeapError::LockPoisoned,
             TryLockError::WouldBlock => SharedHeapError::WouldBlock,
-        })?;
-        Ok(f(&mut state))
+        })
     }
 
     pub(crate) fn read_snapshot<R>(

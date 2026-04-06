@@ -1,7 +1,6 @@
 use core::any::TypeId;
 use core::ptr::NonNull;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::background::{BackgroundCollectorConfig, BackgroundService, SharedHeap};
@@ -18,7 +17,7 @@ use crate::collector_session::{
     prepare_active_collection_reclaim_if_needed, prepare_active_major_reclaim_with_request,
     prepare_active_reclaim, record_active_major_post_write, record_active_major_reachable_object,
 };
-use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
+use crate::collector_state::{CollectorSharedSnapshot, CollectorState, CollectorStateHandle};
 use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
 use crate::index_state::HeapIndexState;
 use crate::mutator::Mutator;
@@ -93,7 +92,7 @@ pub struct Heap {
     old_gen: OldGenState,
     recent_barrier_events: Vec<BarrierEvent>,
     runtime_state: RuntimeStateHandle,
-    collector: Arc<Mutex<CollectorState>>,
+    collector: CollectorStateHandle,
 }
 
 // SAFETY: `Heap` owns all heap allocations and its raw pointers are internal references into that
@@ -138,24 +137,22 @@ impl Heap {
             old_gen: OldGenState::default(),
             recent_barrier_events: Vec::new(),
             runtime_state: RuntimeStateHandle::default(),
-            collector: Arc::new(Mutex::new(CollectorState::default())),
+            collector: CollectorStateHandle::default(),
         };
         heap.refresh_recommended_plans();
         heap
     }
 
     fn collector(&self) -> std::sync::MutexGuard<'_, CollectorState> {
-        self.collector
-            .lock()
-            .expect("collector state should not be poisoned")
+        self.collector.lock()
     }
 
     pub(crate) fn runtime_state_handle(&self) -> RuntimeStateHandle {
         self.runtime_state.clone()
     }
 
-    pub(crate) fn collector_handle(&self) -> Arc<Mutex<CollectorState>> {
-        Arc::clone(&self.collector)
+    pub(crate) fn collector_handle(&self) -> CollectorStateHandle {
+        self.collector.clone()
     }
 
     /// Return the heap configuration.
@@ -192,7 +189,7 @@ impl Heap {
     }
 
     pub(crate) fn collector_shared_snapshot(&self) -> CollectorSharedSnapshot {
-        self.collector().shared_snapshot()
+        self.collector.shared_snapshot()
     }
 
     pub(crate) fn refresh_collector_cached_plans_for(&self, collector: &mut CollectorState) {

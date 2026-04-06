@@ -3,6 +3,7 @@ use crate::mark::MarkWorklist;
 use crate::plan::{CollectionKind, CollectionPhase, CollectionPlan};
 use crate::reclaim::PreparedReclaimSurvivor;
 use crate::spaces::OldRegionCollectionStats;
+use std::sync::TryLockError;
 use std::time::Duration;
 
 fn major_plan() -> CollectionPlan {
@@ -240,4 +241,26 @@ fn full_requires_reclaim_prep_after_remark() {
             .phase,
         CollectionPhase::Reclaim
     );
+}
+
+#[test]
+fn collector_state_handle_shares_state_across_clones() {
+    let handle = CollectorStateHandle::default();
+    let clone = handle.clone();
+
+    handle.with_state(|state| state.set_last_completed_plan(Some(major_plan())));
+
+    assert_eq!(clone.lock().last_completed_plan(), Some(major_plan()));
+}
+
+#[test]
+fn collector_state_handle_try_with_state_reports_would_block_while_locked() {
+    let handle = CollectorStateHandle::default();
+    let _guard = handle.lock();
+
+    let error = handle
+        .try_with_state(|state| state.set_last_completed_plan(Some(major_plan())))
+        .expect_err("try_with_state should report contention while the collector is locked");
+
+    assert!(matches!(error, TryLockError::WouldBlock));
 }
