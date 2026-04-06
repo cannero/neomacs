@@ -218,6 +218,58 @@ fn take_or_prepare_reclaim_for_finish_builds_missing_reclaim() {
 }
 
 #[test]
+fn complete_drained_major_mark_round_moves_major_session_to_reclaim() {
+    let mut state = CollectorState::default();
+    let plan = major_plan();
+    let index = ObjectIndex::default();
+    state.begin_major_mark(plan.clone(), MarkWorklist::default());
+
+    let completed = complete_drained_major_mark_round(
+        &mut state,
+        &[],
+        &index,
+        |_tracer, _plan| (2, 3),
+        |_plan| prepared_reclaim(),
+    );
+
+    assert!(completed);
+    assert!(state.active_major_mark_is_ready());
+    assert_eq!(
+        state.active_major_mark_plan().expect("active plan").phase,
+        CollectionPhase::Reclaim
+    );
+    let progress = state.major_mark_progress().expect("major mark progress");
+    assert_eq!(progress.mark_steps, 2);
+    assert_eq!(progress.mark_rounds, 3);
+}
+
+#[test]
+fn complete_drained_major_mark_round_moves_full_session_to_remark() {
+    let mut state = CollectorState::default();
+    let plan = full_plan();
+    let index = ObjectIndex::default();
+    state.begin_major_mark(plan.clone(), MarkWorklist::default());
+
+    let completed = complete_drained_major_mark_round(
+        &mut state,
+        &[],
+        &index,
+        |_tracer, _plan| (5, 7),
+        |_plan| panic!("full round should not prepare reclaim yet"),
+    );
+
+    assert!(completed);
+    assert!(!state.active_major_mark_is_ready());
+    assert_eq!(
+        state.active_major_mark_plan().expect("active plan").phase,
+        CollectionPhase::Remark
+    );
+    let progress = state.major_mark_progress().expect("major mark progress");
+    assert_eq!(progress.mark_steps, 5);
+    assert_eq!(progress.mark_rounds, 7);
+}
+
+#[test]
 fn finish_major_mark_updates_state_and_marks_ephemerons_processed() {
     let mut state = CollectorState::default();
     let plan = major_plan();
@@ -234,4 +286,51 @@ fn finish_major_mark_updates_state_and_marks_ephemerons_processed() {
     assert!(state.worklist.is_empty());
     assert_eq!(state.mark_steps, 2);
     assert_eq!(state.mark_rounds, 3);
+}
+
+#[test]
+fn finish_active_collection_reuses_existing_prepared_reclaim() {
+    let mut collector = CollectorState::default();
+    collector.begin_major_mark(major_plan(), MarkWorklist::default());
+    assert!(collector.complete_active_major_reclaim_prep(
+        2,
+        3,
+        Duration::from_nanos(11),
+        prepared_reclaim()
+    ));
+    let state = collector
+        .take_major_mark_state()
+        .expect("active major mark state should exist");
+
+    let finished = finish_active_collection(state, |_plan| {
+        panic!("existing prepared reclaim should be reused")
+    })
+    .expect("finish active collection");
+
+    assert_eq!(finished.completed_plan.phase, CollectionPhase::Reclaim);
+    assert_eq!(finished.completed_plan.kind, CollectionKind::Major);
+    assert_eq!(finished.mark_steps, 2);
+    assert_eq!(finished.mark_rounds, 3);
+    assert_eq!(finished.reclaim_prepare_nanos, 11);
+    assert_eq!(finished.prepared_reclaim.survivors.len(), 1);
+}
+
+#[test]
+fn finish_active_collection_builds_missing_full_reclaim() {
+    let mut collector = CollectorState::default();
+    collector.begin_major_mark(full_plan(), MarkWorklist::default());
+    assert!(collector.complete_active_major_remark(5, 7));
+    let state = collector
+        .take_major_mark_state()
+        .expect("active major mark state should exist");
+
+    let finished = finish_active_collection(state, |_plan| Ok(prepared_reclaim()))
+        .expect("finish active collection");
+
+    assert_eq!(finished.completed_plan.phase, CollectionPhase::Reclaim);
+    assert_eq!(finished.completed_plan.kind, CollectionKind::Full);
+    assert_eq!(finished.mark_steps, 5);
+    assert_eq!(finished.mark_rounds, 7);
+    assert!(finished.reclaim_prepare_nanos > 0);
+    assert_eq!(finished.prepared_reclaim.survivors.len(), 1);
 }

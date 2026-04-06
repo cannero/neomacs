@@ -7,20 +7,19 @@ use std::time::{Duration, Instant};
 use crate::background::{BackgroundCollectorConfig, BackgroundService, SharedHeap};
 use crate::barrier::{BarrierEvent, BarrierKind};
 use crate::collector_exec::{
-    MarkTracer, process_weak_references_for_candidates, trace_major as run_major_trace,
+    process_weak_references_for_candidates, trace_major as run_major_trace,
     trace_major_ephemerons_for_candidates, trace_minor as run_minor_trace,
 };
 use crate::collector_policy::refresh_cached_plans as refresh_cached_collector_plans;
 use crate::collector_session::{
     active_reclaim_prep_request, advance_major_mark_slice, begin_major_mark,
-    build_prepared_active_reclaim, complete_active_reclaim_prep, finish_major_mark,
-    poll_active_major_mark_round, prepare_active_reclaim, prepare_active_reclaim_request,
-    take_or_prepare_reclaim_for_finish,
+    build_prepared_active_reclaim, complete_active_reclaim_prep, complete_drained_major_mark_round,
+    finish_active_collection, finish_major_mark, poll_active_major_mark_round,
+    prepare_active_reclaim, prepare_active_reclaim_request,
 };
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
 use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
 use crate::index_state::{ForwardingMap, HeapIndexState, ObjectIndex};
-use crate::mark::MarkWorklist;
 use crate::mutator::Mutator;
 use crate::object::{ObjectRecord, SpaceKind, estimated_allocation_size};
 use crate::plan::{
@@ -359,12 +358,12 @@ impl Heap {
     /// Finish the current persistent major-mark session and reclaim.
     pub fn finish_major_collection(&mut self) -> Result<CollectionStats, AllocError> {
         let pause_start = Instant::now();
-        let Some(mut state) = self.collector().take_major_mark_state() else {
+        let Some(state) = self.collector().take_major_mark_state() else {
             return Err(AllocError::NoCollectionInProgress);
         };
-
         let before_bytes = self.stats.total_live_bytes();
         self.record_phase(CollectionPhase::Remark);
+        let mut state = state;
         finish_major_mark(
             &mut state,
             &self.objects,
@@ -380,15 +379,13 @@ impl Heap {
                 )
             },
         );
-
-        let (prepared_reclaim, reclaim_prepare_nanos) =
-            take_or_prepare_reclaim_for_finish(&mut state, |plan| match plan.kind {
-                CollectionKind::Major => Ok(self.prepare_major_reclaim(plan)),
-                CollectionKind::Full => self.prepare_full_reclaim(plan),
-                CollectionKind::Minor => Err(AllocError::UnsupportedCollectionKind {
-                    kind: CollectionKind::Minor,
-                }),
-            })?;
+        let finished = finish_active_collection(state, |plan| match plan.kind {
+            CollectionKind::Major => Ok(self.prepare_major_reclaim(plan)),
+            CollectionKind::Full => self.prepare_full_reclaim(plan),
+            CollectionKind::Minor => Err(AllocError::UnsupportedCollectionKind {
+                kind: CollectionKind::Minor,
+            }),
+        })?;
         self.record_phase(CollectionPhase::Reclaim);
         let runtime_state = self.runtime_state_handle();
         let mut cycle = finish_prepared_reclaim_cycle(
@@ -397,10 +394,10 @@ impl Heap {
             &mut self.old_gen,
             &mut self.stats,
             before_bytes,
-            state.mark_steps,
-            state.mark_rounds,
-            reclaim_prepare_nanos,
-            prepared_reclaim,
+            finished.mark_steps,
+            finished.mark_rounds,
+            finished.reclaim_prepare_nanos,
+            finished.prepared_reclaim,
             move |object| {
                 let mut runtime_state = runtime_state
                     .lock()
@@ -411,10 +408,7 @@ impl Heap {
         cycle.pause_nanos = Self::saturating_duration_nanos(pause_start.elapsed());
         self.record_collection_stats(cycle);
         self.collector()
-            .set_last_completed_plan(Some(CollectionPlan {
-                phase: CollectionPhase::Reclaim,
-                ..state.plan
-            }));
+            .set_last_completed_plan(Some(finished.completed_plan));
         self.refresh_recommended_plans();
         Ok(cycle)
     }
@@ -470,48 +464,34 @@ impl Heap {
         let Some(progress) = progress else {
             return Ok((None, collector.shared_snapshot()));
         };
-        if progress.completed
-            && !collector.active_major_mark_ephemerons_processed()
-            && let Some(active_plan) = collector.active_major_mark_plan()
-            && matches!(
-                active_plan.kind,
-                CollectionKind::Major | CollectionKind::Full
-            )
-        {
-            let mut tracer = MarkTracer::with_worklist(
+        if progress.completed {
+            complete_drained_major_mark_round(
+                &mut collector,
                 &self.objects,
                 &self.indexes.object_index,
-                MarkWorklist::default(),
+                |tracer, plan| {
+                    trace_major_ephemerons_for_candidates(
+                        &self.objects,
+                        &self.indexes.object_index,
+                        &self.indexes.ephemeron_candidates,
+                        tracer,
+                        plan.worker_count.max(1),
+                        plan.mark_slice_budget,
+                    )
+                },
+                |plan| {
+                    let empty_forwarding: ForwardingMap = HashMap::new();
+                    process_weak_references_for_candidates(
+                        &self.objects,
+                        &self.indexes.weak_candidates,
+                        CollectionKind::Major,
+                        plan.worker_count.max(1),
+                        &empty_forwarding,
+                        &self.indexes.object_index,
+                    );
+                    self.prepare_reclaim(CollectionKind::Major, plan)
+                },
             );
-            let (ephemeron_steps, ephemeron_rounds) = trace_major_ephemerons_for_candidates(
-                &self.objects,
-                &self.indexes.object_index,
-                &self.indexes.ephemeron_candidates,
-                &mut tracer,
-                active_plan.worker_count.max(1),
-                active_plan.mark_slice_budget,
-            );
-            if active_plan.kind == CollectionKind::Major {
-                let empty_forwarding: ForwardingMap = HashMap::new();
-                process_weak_references_for_candidates(
-                    &self.objects,
-                    &self.indexes.weak_candidates,
-                    CollectionKind::Major,
-                    active_plan.worker_count.max(1),
-                    &empty_forwarding,
-                    &self.indexes.object_index,
-                );
-                let reclaim_prepare_start = Instant::now();
-                let prepared_reclaim = self.prepare_reclaim(CollectionKind::Major, &active_plan);
-                collector.complete_active_major_reclaim_prep(
-                    ephemeron_steps,
-                    ephemeron_rounds,
-                    reclaim_prepare_start.elapsed(),
-                    prepared_reclaim,
-                );
-            } else {
-                collector.complete_active_major_remark(ephemeron_steps, ephemeron_rounds);
-            }
         }
         let snapshot = self.refreshed_collector_snapshot(&mut collector);
         Ok((Some(progress), snapshot))

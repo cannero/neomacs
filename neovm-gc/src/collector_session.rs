@@ -23,6 +23,15 @@ pub(crate) struct PreparedActiveReclaim {
     pub(crate) prepared_reclaim: PreparedReclaim,
 }
 
+#[derive(Debug)]
+pub(crate) struct FinishedActiveCollection {
+    pub(crate) completed_plan: CollectionPlan,
+    pub(crate) mark_steps: u64,
+    pub(crate) mark_rounds: u64,
+    pub(crate) reclaim_prepare_nanos: u64,
+    pub(crate) prepared_reclaim: PreparedReclaim,
+}
+
 pub(crate) fn begin_major_mark(
     collector: &mut CollectorState,
     objects: &[ObjectRecord],
@@ -194,6 +203,57 @@ pub(crate) fn take_or_prepare_reclaim_for_finish(
     let prepared_reclaim =
         prepared_reclaim.expect("major/full finish should always have prepared reclaim");
     Ok((prepared_reclaim, reclaim_prepare_nanos))
+}
+
+pub(crate) fn finish_active_collection(
+    mut state: MajorMarkState,
+    prepare_reclaim: impl FnOnce(&CollectionPlan) -> Result<PreparedReclaim, AllocError>,
+) -> Result<FinishedActiveCollection, AllocError> {
+    let (prepared_reclaim, reclaim_prepare_nanos) =
+        take_or_prepare_reclaim_for_finish(&mut state, prepare_reclaim)?;
+
+    Ok(FinishedActiveCollection {
+        completed_plan: CollectionPlan {
+            phase: CollectionPhase::Reclaim,
+            ..state.plan
+        },
+        mark_steps: state.mark_steps,
+        mark_rounds: state.mark_rounds,
+        reclaim_prepare_nanos,
+        prepared_reclaim,
+    })
+}
+
+pub(crate) fn complete_drained_major_mark_round(
+    collector: &mut CollectorState,
+    objects: &[ObjectRecord],
+    index: &ObjectIndex,
+    trace_ephemerons: impl FnOnce(&mut MarkTracer<'_>, &CollectionPlan) -> (u64, u64),
+    prepare_major_reclaim: impl FnOnce(&CollectionPlan) -> PreparedReclaim,
+) -> bool {
+    let Some(plan) = collector.active_major_mark_needs_reclaim_prep_plan() else {
+        return false;
+    };
+    if collector.active_major_mark_ephemerons_processed()
+        || !matches!(plan.kind, CollectionKind::Major | CollectionKind::Full)
+    {
+        return false;
+    }
+
+    let mut tracer = MarkTracer::with_worklist(objects, index, Default::default());
+    let (ephemeron_steps, ephemeron_rounds) = trace_ephemerons(&mut tracer, &plan);
+    if plan.kind == CollectionKind::Major {
+        let reclaim_prepare_start = Instant::now();
+        let prepared_reclaim = prepare_major_reclaim(&plan);
+        collector.complete_active_major_reclaim_prep(
+            ephemeron_steps,
+            ephemeron_rounds,
+            reclaim_prepare_start.elapsed(),
+            prepared_reclaim,
+        )
+    } else {
+        collector.complete_active_major_remark(ephemeron_steps, ephemeron_rounds)
+    }
 }
 
 pub(crate) fn finish_major_mark(
