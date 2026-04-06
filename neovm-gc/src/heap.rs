@@ -2,14 +2,13 @@ use core::any::TypeId;
 use core::ptr::NonNull;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::background::{BackgroundCollectorConfig, BackgroundService, SharedHeap};
 use crate::barrier::{BarrierEvent, BarrierKind};
 use crate::collector_exec::{
-    ForwardingRelocator, MajorEphemeronTracer, MajorMarkSession, MarkTracer, MinorEphemeronTracer,
-    MinorTracer, ParallelMarkShared, ParallelWeakShared, WeakRetention,
+    ForwardingRelocator, MajorMarkSession, MarkTracer, MinorTracer, process_weak_references,
+    trace_major_ephemerons, trace_minor_ephemerons,
 };
 use crate::collector_state::{
     CollectorSharedSnapshot, CollectorState, MajorMarkUpdate, PreparedReclaim,
@@ -1212,27 +1211,13 @@ impl Heap {
         let ephemeron_candidates = self
             .indexes
             .candidate_indices(&self.indexes.ephemeron_candidates);
-        let mut mark_steps = 0u64;
-        let mut mark_rounds = 0u64;
-        loop {
-            let mut visitor = MajorEphemeronTracer::new(tracer);
-            for &index in &ephemeron_candidates {
-                let object = &self.objects[index];
-                if object.is_marked() {
-                    object.visit_ephemerons(&mut visitor);
-                }
-            }
-            let changed = visitor.changed;
-            let tracer = visitor.finish();
-            let (steps, rounds) =
-                tracer.drain_parallel_until_empty(worker_count.max(1), slice_budget);
-            mark_steps = mark_steps.saturating_add(steps);
-            mark_rounds = mark_rounds.saturating_add(rounds);
-            if !changed {
-                break;
-            }
-        }
-        (mark_steps, mark_rounds)
+        trace_major_ephemerons(
+            &self.objects,
+            &ephemeron_candidates,
+            tracer,
+            worker_count,
+            slice_budget,
+        )
     }
 
     fn trace_minor(
@@ -1264,90 +1249,16 @@ impl Heap {
         worker_count: usize,
         slice_budget: usize,
     ) -> (u64, u64) {
-        let mut mark_steps = 0u64;
-        let mut mark_rounds = 0u64;
-        loop {
-            let changed = if worker_count.max(1) == 1 || self.objects.len() <= 1 {
-                let mut visitor = MinorEphemeronTracer::new(tracer);
-                for object in &self.objects {
-                    let survives = object.space() != SpaceKind::Nursery || object.is_marked();
-                    if survives {
-                        object.visit_ephemerons(&mut visitor);
-                    }
-                }
-                let changed = visitor.changed;
-                let _tracer = visitor.finish();
-                changed
-            } else {
-                self.scan_minor_ephemerons_parallel(tracer, worker_count)
-            };
-            let (steps, rounds) = tracer.drain_parallel_until_empty(worker_count, slice_budget);
-            mark_steps = mark_steps.saturating_add(steps);
-            mark_rounds = mark_rounds.saturating_add(rounds);
-            if !changed {
-                break;
-            }
-        }
-        (mark_steps, mark_rounds)
-    }
-
-    fn scan_minor_ephemerons_parallel(
-        &self,
-        tracer: &mut MinorTracer<'_>,
-        worker_count: usize,
-    ) -> bool {
-        let ephemeron_candidates = Arc::new(
-            self.indexes
-                .candidate_indices(&self.indexes.ephemeron_candidates),
-        );
-        let workers = worker_count.max(1).min(ephemeron_candidates.len().max(1));
-        let chunk_size = ephemeron_candidates.len().max(1).div_ceil(workers);
-        let shared = ParallelMarkShared::new(&self.objects, tracer.index);
-        let worker_outputs = thread::scope(|scope| {
-            let mut handles = Vec::with_capacity(workers);
-            for worker_index in 0..workers {
-                let shared = shared;
-                let ephemeron_candidates = Arc::clone(&ephemeron_candidates);
-                let start = worker_index.saturating_mul(chunk_size);
-                let end = (start + chunk_size).min(ephemeron_candidates.len());
-                if start >= end {
-                    continue;
-                }
-                handles.push(scope.spawn(move || {
-                    let mut worker = shared.minor_tracer(MarkWorklist::default());
-                    let changed = {
-                        let mut visitor = MinorEphemeronTracer::new(&mut worker);
-                        for &candidate_index in &ephemeron_candidates[start..end] {
-                            let object = &shared.objects()[candidate_index];
-                            let survives =
-                                object.space() != SpaceKind::Nursery || object.is_marked();
-                            if survives {
-                                object.visit_ephemerons(&mut visitor);
-                            }
-                        }
-                        visitor.changed
-                    };
-                    (changed, worker.into_worklist())
-                }));
-            }
-
-            let mut outputs = Vec::with_capacity(handles.len());
-            for handle in handles {
-                outputs.push(
-                    handle
-                        .join()
-                        .expect("parallel minor ephemeron worker panicked"),
-                );
-            }
-            outputs
-        });
-
-        let mut changed = false;
-        for (worker_changed, mut worklist) in worker_outputs {
-            changed |= worker_changed;
-            tracer.young_worklist.append(&mut worklist);
-        }
-        changed
+        let ephemeron_candidates = self
+            .indexes
+            .candidate_indices(&self.indexes.ephemeron_candidates);
+        trace_minor_ephemerons(
+            &self.objects,
+            &ephemeron_candidates,
+            tracer,
+            worker_count,
+            slice_budget,
+        )
     }
 
     fn evacuate_marked_nursery(&mut self) -> Result<EvacuationOutcome, AllocError> {
@@ -1747,59 +1658,17 @@ impl Heap {
         forwarding: &ForwardingMap,
         index: &ObjectIndex,
     ) {
-        let weak_candidates = Arc::new(
-            self.indexes
-                .candidate_indices(&self.indexes.weak_candidates),
+        let weak_candidates = self
+            .indexes
+            .candidate_indices(&self.indexes.weak_candidates);
+        process_weak_references(
+            &self.objects,
+            &weak_candidates,
+            kind,
+            worker_count,
+            forwarding,
+            index,
         );
-        let worker_count = worker_count.max(1);
-        if worker_count == 1 || weak_candidates.len() <= 1 {
-            let mut processor = WeakRetention::new(&self.objects, index, forwarding, kind);
-            for &index in weak_candidates.iter() {
-                let object = &self.objects[index];
-                if Self::survives_collection_kind(kind, object) {
-                    object.process_weak_edges(&mut processor);
-                }
-            }
-            return;
-        }
-
-        let workers = worker_count.min(weak_candidates.len().max(1));
-        let chunk_size = weak_candidates.len().max(1).div_ceil(workers);
-        let shared = ParallelWeakShared::new(&self.objects, index, forwarding, kind);
-        thread::scope(|scope| {
-            let mut handles = Vec::with_capacity(workers);
-            for worker_index in 0..workers {
-                let shared = shared;
-                let weak_candidates = Arc::clone(&weak_candidates);
-                let start = worker_index.saturating_mul(chunk_size);
-                let end = (start + chunk_size).min(weak_candidates.len());
-                if start >= end {
-                    continue;
-                }
-                handles.push(scope.spawn(move || {
-                    let mut processor = shared.processor();
-                    for &candidate_index in &weak_candidates[start..end] {
-                        let object = &shared.objects()[candidate_index];
-                        if Heap::survives_collection_kind(kind, object) {
-                            object.process_weak_edges(&mut processor);
-                        }
-                    }
-                }));
-            }
-            for handle in handles {
-                handle.join().expect("parallel weak worker panicked");
-            }
-        });
-    }
-
-    fn survives_collection_kind(kind: CollectionKind, object: &ObjectRecord) -> bool {
-        if object.space() == SpaceKind::Immortal {
-            return true;
-        }
-        match kind {
-            CollectionKind::Minor => object.space() != SpaceKind::Nursery || object.is_marked(),
-            CollectionKind::Major | CollectionKind::Full => object.is_marked(),
-        }
     }
 
     #[cfg(test)]
