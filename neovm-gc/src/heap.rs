@@ -25,7 +25,7 @@ use crate::plan::{
     BackgroundCollectionStatus, CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress,
     RuntimeWorkStatus,
 };
-use crate::reclaim::{PreparedReclaim, commit_prepared_reclaim_objects, prepare_reclaim};
+use crate::reclaim::{PreparedReclaim, apply_prepared_reclaim, prepare_reclaim};
 use crate::root::{HandleScope, Root, RootStack};
 use crate::runtime::CollectorRuntime;
 use crate::runtime_state::RuntimeState;
@@ -1381,32 +1381,20 @@ impl Heap {
         &mut self,
         prepared_reclaim: PreparedReclaim,
     ) -> (u64, OldRegionCollectionStats) {
-        let old_objects = core::mem::take(&mut self.objects);
-        let (rebuilt_objects, queued_finalizers) =
-            commit_prepared_reclaim_objects(old_objects, &prepared_reclaim, |object| {
-                self.enqueue_pending_finalizer(object)
-            });
-
-        let old_region_stats = prepared_reclaim.old_region_stats;
-        self.objects = rebuilt_objects;
-        self.old_gen.regions = prepared_reclaim.rebuilt_old_regions;
-        self.indexes.object_index = prepared_reclaim.rebuilt_object_index;
-        self.indexes.finalizable_candidates = prepared_reclaim.finalizable_candidates;
-        self.indexes.weak_candidates = prepared_reclaim.weak_candidates;
-        self.indexes.ephemeron_candidates = prepared_reclaim.ephemeron_candidates;
-        self.indexes.remembered_edges = prepared_reclaim.remembered_edges;
-        self.indexes.remembered_owners = prepared_reclaim.remembered_owners;
-        self.indexes.remembered_owner_set =
-            self.indexes.remembered_owners.iter().copied().collect();
-        self.stats.nursery.live_bytes = prepared_reclaim.nursery_live_bytes;
-        self.stats.old.live_bytes = prepared_reclaim.old_live_bytes;
-        self.stats.pinned.live_bytes = prepared_reclaim.pinned_live_bytes;
-        self.stats.large.live_bytes = prepared_reclaim.large_live_bytes;
-        self.stats.large.reserved_bytes = prepared_reclaim.large_live_bytes;
-        self.stats.immortal.live_bytes = prepared_reclaim.immortal_live_bytes;
-        self.stats.immortal.reserved_bytes = prepared_reclaim.immortal_live_bytes;
-        self.stats.old.reserved_bytes = prepared_reclaim.old_reserved_bytes;
-        (queued_finalizers, old_region_stats)
+        let runtime_state = self.runtime_state_handle();
+        apply_prepared_reclaim(
+            &mut self.objects,
+            &mut self.indexes,
+            &mut self.old_gen,
+            &mut self.stats,
+            prepared_reclaim,
+            move |object| {
+                let mut runtime_state = runtime_state
+                    .lock()
+                    .expect("runtime state should not be poisoned");
+                runtime_state.enqueue_pending_finalizer(object)
+            },
+        )
     }
 
     fn finish_reclaim_cycle(

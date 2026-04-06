@@ -6,6 +6,7 @@ use crate::index_state::HeapIndexState;
 use crate::object::{ObjectRecord, OldRegionPlacement, SpaceKind};
 use crate::plan::{CollectionKind, CollectionPlan};
 use crate::spaces::{OldGenConfig, OldGenState, OldRegion, OldRegionCollectionStats};
+use crate::stats::HeapStats;
 
 #[derive(Debug)]
 pub(crate) struct PreparedReclaimSurvivor {
@@ -241,6 +242,39 @@ pub(crate) fn commit_prepared_reclaim_objects(
     );
 
     (rebuilt_objects, queued_finalizers)
+}
+
+pub(crate) fn apply_prepared_reclaim(
+    objects: &mut Vec<ObjectRecord>,
+    indexes: &mut HeapIndexState,
+    old_gen: &mut OldGenState,
+    stats: &mut HeapStats,
+    prepared_reclaim: PreparedReclaim,
+    enqueue_pending_finalizer: impl FnMut(ObjectRecord) -> u64,
+) -> (u64, OldRegionCollectionStats) {
+    let old_objects = core::mem::take(objects);
+    let (rebuilt_objects, queued_finalizers) =
+        commit_prepared_reclaim_objects(old_objects, &prepared_reclaim, enqueue_pending_finalizer);
+
+    let old_region_stats = prepared_reclaim.old_region_stats;
+    *objects = rebuilt_objects;
+    old_gen.regions = prepared_reclaim.rebuilt_old_regions;
+    indexes.object_index = prepared_reclaim.rebuilt_object_index;
+    indexes.finalizable_candidates = prepared_reclaim.finalizable_candidates;
+    indexes.weak_candidates = prepared_reclaim.weak_candidates;
+    indexes.ephemeron_candidates = prepared_reclaim.ephemeron_candidates;
+    indexes.remembered_edges = prepared_reclaim.remembered_edges;
+    indexes.remembered_owners = prepared_reclaim.remembered_owners;
+    indexes.remembered_owner_set = indexes.remembered_owners.iter().copied().collect();
+    stats.nursery.live_bytes = prepared_reclaim.nursery_live_bytes;
+    stats.old.live_bytes = prepared_reclaim.old_live_bytes;
+    stats.pinned.live_bytes = prepared_reclaim.pinned_live_bytes;
+    stats.large.live_bytes = prepared_reclaim.large_live_bytes;
+    stats.large.reserved_bytes = prepared_reclaim.large_live_bytes;
+    stats.immortal.live_bytes = prepared_reclaim.immortal_live_bytes;
+    stats.immortal.reserved_bytes = prepared_reclaim.immortal_live_bytes;
+    stats.old.reserved_bytes = prepared_reclaim.old_reserved_bytes;
+    (queued_finalizers, old_region_stats)
 }
 
 fn keep_object_for_collection(kind: CollectionKind, object: &ObjectRecord) -> bool {
