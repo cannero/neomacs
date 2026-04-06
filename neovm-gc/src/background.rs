@@ -983,7 +983,13 @@ impl SharedHeap {
 
     /// Return the current background-state change epoch used by background waiters.
     pub fn background_epoch(&self) -> Result<u64, SharedHeapError> {
-        self.collector.epoch()
+        self.collector_runtime()
+            .background_epoch()
+            .map_err(|error| match error {
+                SharedBackgroundError::LockPoisoned => SharedHeapError::LockPoisoned,
+                SharedBackgroundError::WouldBlock => SharedHeapError::WouldBlock,
+                SharedBackgroundError::Collection(_) => SharedHeapError::LockPoisoned,
+            })
     }
 
     /// Wait for the shared-heap change epoch to advance or for `timeout` to elapse.
@@ -1138,8 +1144,13 @@ impl SharedHeap {
     pub fn recommended_background_plan(
         &self,
     ) -> Result<Option<crate::plan::CollectionPlan>, SharedHeapError> {
-        self.collector
-            .read_snapshot(|snapshot| snapshot.recommended_background_plan.clone())
+        self.collector_runtime()
+            .recommended_background_plan()
+            .map_err(|error| match error {
+                SharedBackgroundError::LockPoisoned => SharedHeapError::LockPoisoned,
+                SharedBackgroundError::WouldBlock => SharedHeapError::WouldBlock,
+                SharedBackgroundError::Collection(_) => SharedHeapError::LockPoisoned,
+            })
     }
 
     /// Return background-collector-visible shared heap state from the latest shared snapshot.
@@ -1171,14 +1182,24 @@ impl SharedHeap {
     pub fn active_major_mark_plan(
         &self,
     ) -> Result<Option<crate::plan::CollectionPlan>, SharedHeapError> {
-        self.collector
-            .read_snapshot(|snapshot| snapshot.active_major_mark_plan.clone())
+        self.collector_runtime()
+            .active_major_mark_plan()
+            .map_err(|error| match error {
+                SharedBackgroundError::LockPoisoned => SharedHeapError::LockPoisoned,
+                SharedBackgroundError::WouldBlock => SharedHeapError::WouldBlock,
+                SharedBackgroundError::Collection(_) => SharedHeapError::LockPoisoned,
+            })
     }
 
     /// Return progress for the active major-mark session, if any.
     pub fn major_mark_progress(&self) -> Result<Option<MajorMarkProgress>, SharedHeapError> {
-        self.collector
-            .read_snapshot(|snapshot| snapshot.major_mark_progress)
+        self.collector_runtime()
+            .major_mark_progress()
+            .map_err(|error| match error {
+                SharedBackgroundError::LockPoisoned => SharedHeapError::LockPoisoned,
+                SharedBackgroundError::WouldBlock => SharedHeapError::WouldBlock,
+                SharedBackgroundError::Collection(_) => SharedHeapError::LockPoisoned,
+            })
     }
 
     /// Spawn a worker-owned background collector thread for this heap.
