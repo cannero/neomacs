@@ -448,7 +448,7 @@ impl TaggedHeap {
             live_bytes: 0,
             gray_queue: Vec::new(),
             stack_bottom: std::ptr::null(),
-            root_scan_mode: RootScanMode::ExactOnly,
+            root_scan_mode: RootScanMode::ConservativeStack,
             cons_free_list: std::ptr::null_mut(),
             cons_live_count: 0,
             marker_ptrs: Vec::new(),

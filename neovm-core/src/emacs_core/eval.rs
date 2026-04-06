@@ -4848,20 +4848,16 @@ impl Context {
     /// Perform a full mark-and-sweep garbage collection using only explicit roots.
     #[tracing::instrument(level = "debug", skip(self))]
     pub fn gc_collect_exact(&mut self) {
-        self.with_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly, |ctx| {
-            ctx.gc_collect();
-        });
+        self.gc_collect();
     }
 
-    /// Perform an exact-root collection while retaining additional caller-owned roots.
+    /// Perform a collection while retaining additional caller-owned roots.
     pub(crate) fn gc_collect_exact_with_extra_root_slices(
         &mut self,
         extra_root_slices: &[&[Value]],
     ) {
-        self.with_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly, |ctx| {
-            let mode = ctx.tagged_heap.root_scan_mode();
-            ctx.gc_collect_with_mode_and_extra_root_slices(mode, extra_root_slices);
-        });
+        let mode = self.tagged_heap.root_scan_mode();
+        self.gc_collect_with_mode_and_extra_root_slices(mode, extra_root_slices);
     }
 
     /// Convenience wrapper for a single additional root slice.
@@ -4926,15 +4922,14 @@ impl Context {
         self.gc_safe_point_with_mode_and_extra_root_slices(self.tagged_heap.root_scan_mode(), &[]);
     }
 
-    /// Trigger a safe-point collection using exact roots plus explicit caller roots.
+    /// Trigger a safe-point collection using the configured root scan mode
+    /// plus explicit caller roots.
     pub(crate) fn gc_safe_point_exact_with_extra_root_slices(
         &mut self,
         extra_root_slices: &[&[Value]],
     ) {
-        self.with_gc_root_scan_mode(crate::tagged::gc::RootScanMode::ExactOnly, |ctx| {
-            let mode = ctx.tagged_heap.root_scan_mode();
-            ctx.gc_safe_point_with_mode_and_extra_root_slices(mode, extra_root_slices);
-        });
+        let mode = self.tagged_heap.root_scan_mode();
+        self.gc_safe_point_with_mode_and_extra_root_slices(mode, extra_root_slices);
     }
 
     /// Convenience wrapper for a single extra-root slice at an exact safe point.
