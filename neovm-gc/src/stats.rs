@@ -1,3 +1,5 @@
+use crate::spaces::OldRegionCollectionStats;
+
 /// Collection statistics for one completed GC cycle.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct CollectionStats {
@@ -30,6 +32,59 @@ pub struct CollectionStats {
 }
 
 impl CollectionStats {
+    pub(crate) fn completed_minor_cycle(
+        mark_steps: u64,
+        mark_rounds: u64,
+        promoted_bytes: usize,
+        before_bytes: usize,
+        after_bytes: usize,
+        queued_finalizers: u64,
+        old_region_stats: OldRegionCollectionStats,
+    ) -> Self {
+        Self {
+            collections: 1,
+            minor_collections: 1,
+            major_collections: 0,
+            pause_nanos: 0,
+            reclaim_prepare_nanos: 0,
+            promoted_bytes: promoted_bytes as u64,
+            mark_steps,
+            mark_rounds,
+            reclaimed_bytes: before_bytes.saturating_sub(after_bytes) as u64,
+            finalized_objects: 0,
+            queued_finalizers,
+            compacted_regions: old_region_stats.compacted_regions,
+            reclaimed_regions: old_region_stats.reclaimed_regions,
+        }
+    }
+
+    pub(crate) fn completed_old_gen_cycle(
+        mark_steps: u64,
+        mark_rounds: u64,
+        promoted_bytes: usize,
+        reclaim_prepare_nanos: u64,
+        before_bytes: usize,
+        after_bytes: usize,
+        queued_finalizers: u64,
+        old_region_stats: OldRegionCollectionStats,
+    ) -> Self {
+        Self {
+            collections: 1,
+            minor_collections: 0,
+            major_collections: 1,
+            pause_nanos: 0,
+            reclaim_prepare_nanos,
+            promoted_bytes: promoted_bytes as u64,
+            mark_steps,
+            mark_rounds,
+            reclaimed_bytes: before_bytes.saturating_sub(after_bytes) as u64,
+            finalized_objects: 0,
+            queued_finalizers,
+            compacted_regions: old_region_stats.compacted_regions,
+            reclaimed_regions: old_region_stats.reclaimed_regions,
+        }
+    }
+
     pub(crate) fn saturating_add_assign(&mut self, other: CollectionStats) {
         self.collections = self.collections.saturating_add(other.collections);
         self.minor_collections = self
@@ -122,6 +177,17 @@ pub struct HeapStats {
     pub finalizers_run: u64,
     /// Number of queued finalizers that are waiting to run.
     pub pending_finalizers: usize,
+}
+
+impl HeapStats {
+    pub(crate) fn total_live_bytes(&self) -> usize {
+        self.nursery
+            .live_bytes
+            .saturating_add(self.old.live_bytes)
+            .saturating_add(self.pinned.live_bytes)
+            .saturating_add(self.large.live_bytes)
+            .saturating_add(self.immortal.live_bytes)
+    }
 }
 
 #[cfg(test)]

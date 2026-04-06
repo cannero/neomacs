@@ -1,4 +1,5 @@
 use super::*;
+use crate::spaces::OldRegionCollectionStats;
 
 #[test]
 fn collection_stats_saturating_add_assign_accumulates_all_fields() {
@@ -53,4 +54,104 @@ fn collection_stats_saturating_add_assign_accumulates_all_fields() {
             reclaimed_regions: 143,
         }
     );
+}
+
+#[test]
+fn collection_stats_completed_minor_cycle_tracks_reclaim_and_regions() {
+    let stats = CollectionStats::completed_minor_cycle(
+        7,
+        8,
+        9,
+        100,
+        60,
+        3,
+        OldRegionCollectionStats {
+            compacted_regions: 4,
+            reclaimed_regions: 5,
+        },
+    );
+
+    assert_eq!(
+        stats,
+        CollectionStats {
+            collections: 1,
+            minor_collections: 1,
+            major_collections: 0,
+            pause_nanos: 0,
+            reclaim_prepare_nanos: 0,
+            promoted_bytes: 9,
+            mark_steps: 7,
+            mark_rounds: 8,
+            reclaimed_bytes: 40,
+            finalized_objects: 0,
+            queued_finalizers: 3,
+            compacted_regions: 4,
+            reclaimed_regions: 5,
+        }
+    );
+}
+
+#[test]
+fn collection_stats_completed_old_gen_cycle_tracks_prepare_and_regions() {
+    let stats = CollectionStats::completed_old_gen_cycle(
+        11,
+        12,
+        13,
+        14,
+        120,
+        70,
+        6,
+        OldRegionCollectionStats {
+            compacted_regions: 7,
+            reclaimed_regions: 8,
+        },
+    );
+
+    assert_eq!(
+        stats,
+        CollectionStats {
+            collections: 1,
+            minor_collections: 0,
+            major_collections: 1,
+            pause_nanos: 0,
+            reclaim_prepare_nanos: 14,
+            promoted_bytes: 13,
+            mark_steps: 11,
+            mark_rounds: 12,
+            reclaimed_bytes: 50,
+            finalized_objects: 0,
+            queued_finalizers: 6,
+            compacted_regions: 7,
+            reclaimed_regions: 8,
+        }
+    );
+}
+
+#[test]
+fn heap_stats_total_live_bytes_sums_all_spaces() {
+    let stats = HeapStats {
+        nursery: SpaceStats {
+            reserved_bytes: 99,
+            live_bytes: 1,
+        },
+        old: SpaceStats {
+            reserved_bytes: 98,
+            live_bytes: 2,
+        },
+        pinned: SpaceStats {
+            reserved_bytes: 97,
+            live_bytes: 3,
+        },
+        large: SpaceStats {
+            reserved_bytes: 96,
+            live_bytes: 4,
+        },
+        immortal: SpaceStats {
+            reserved_bytes: 95,
+            live_bytes: 5,
+        },
+        ..HeapStats::default()
+    };
+
+    assert_eq!(stats.total_live_bytes(), 15);
 }

@@ -26,7 +26,8 @@ use crate::plan::{
     RuntimeWorkStatus,
 };
 use crate::reclaim::{
-    PreparedReclaim, apply_prepared_reclaim, prepare_full_reclaim as orchestrate_full_reclaim,
+    PreparedReclaim, finish_prepared_reclaim_cycle,
+    prepare_full_reclaim as orchestrate_full_reclaim,
     prepare_major_reclaim as orchestrate_major_reclaim, prepare_reclaim,
     sweep_minor_and_rebuild_post_collection as rebuild_minor_after_collection,
 };
@@ -35,7 +36,7 @@ use crate::runtime::CollectorRuntime;
 use crate::runtime_state::RuntimeState;
 use crate::spaces::{
     LargeObjectSpaceConfig, NurseryConfig, OldGenConfig, OldGenPlanSelection, OldGenState,
-    OldRegionCollectionStats, PinnedSpaceConfig,
+    PinnedSpaceConfig,
 };
 use crate::stats::{CollectionStats, HeapStats, OldRegionStats};
 
@@ -389,7 +390,7 @@ impl Heap {
             return Err(AllocError::NoCollectionInProgress);
         };
 
-        let before_bytes = self.total_tracked_bytes();
+        let before_bytes = self.stats.total_live_bytes();
         self.record_phase(CollectionPhase::Remark);
         finish_major_mark(
             &mut state,
@@ -427,12 +428,24 @@ impl Heap {
         };
         let prepared_reclaim =
             prepared_reclaim.expect("major/full finish should always have prepared reclaim");
-        let mut cycle = self.finish_reclaim_cycle(
+        self.record_phase(CollectionPhase::Reclaim);
+        let runtime_state = self.runtime_state_handle();
+        let mut cycle = finish_prepared_reclaim_cycle(
+            &mut self.objects,
+            &mut self.indexes,
+            &mut self.old_gen,
+            &mut self.stats,
             before_bytes,
             state.mark_steps,
             state.mark_rounds,
             reclaim_prepare_nanos,
             prepared_reclaim,
+            move |object| {
+                let mut runtime_state = runtime_state
+                    .lock()
+                    .expect("runtime state should not be poisoned");
+                runtime_state.enqueue_pending_finalizer(object)
+            },
         );
         cycle.pause_nanos = Self::saturating_duration_nanos(pause_start.elapsed());
         self.record_collection_stats(cycle);
@@ -726,7 +739,7 @@ impl Heap {
         }
         let pause_start = Instant::now();
         self.collector().clear_recent_phase_trace();
-        let before_bytes = self.total_tracked_bytes();
+        let before_bytes = self.stats.total_live_bytes();
         for object in &self.objects {
             object.clear_mark();
         }
@@ -763,45 +776,62 @@ impl Heap {
                     &self.indexes.object_index,
                 );
                 self.record_phase(CollectionPhase::Reclaim);
-                let (queued_finalizers, old_region_stats) =
+                let rebuild =
                     self.sweep_minor_and_rebuild_post_collection(plan.kind, Some(plan.clone()));
-                let after_bytes = self.total_tracked_bytes();
-                CollectionStats {
-                    collections: 1,
-                    minor_collections: 1,
-                    major_collections: 0,
-                    pause_nanos: 0,
-                    reclaim_prepare_nanos: 0,
-                    promoted_bytes: evacuation.promoted_bytes as u64,
+                CollectionStats::completed_minor_cycle(
                     mark_steps,
                     mark_rounds,
-                    reclaimed_bytes: before_bytes.saturating_sub(after_bytes) as u64,
-                    finalized_objects: 0,
-                    queued_finalizers,
-                    compacted_regions: old_region_stats.compacted_regions,
-                    reclaimed_regions: old_region_stats.reclaimed_regions,
-                }
+                    evacuation.promoted_bytes,
+                    before_bytes,
+                    rebuild.after_bytes,
+                    rebuild.queued_finalizers,
+                    rebuild.old_region_stats,
+                )
             }
             CollectionKind::Major => {
                 let reclaim_prepare_start = Instant::now();
                 let prepared_reclaim = self.prepare_major_reclaim(&plan);
-                self.finish_reclaim_cycle(
+                self.record_phase(CollectionPhase::Reclaim);
+                let runtime_state = self.runtime_state_handle();
+                finish_prepared_reclaim_cycle(
+                    &mut self.objects,
+                    &mut self.indexes,
+                    &mut self.old_gen,
+                    &mut self.stats,
                     before_bytes,
                     mark_steps,
                     mark_rounds,
                     Self::saturating_duration_nanos(reclaim_prepare_start.elapsed()),
                     prepared_reclaim,
+                    move |object| {
+                        let mut runtime_state = runtime_state
+                            .lock()
+                            .expect("runtime state should not be poisoned");
+                        runtime_state.enqueue_pending_finalizer(object)
+                    },
                 )
             }
             CollectionKind::Full => {
                 let reclaim_prepare_start = Instant::now();
                 let prepared_reclaim = self.prepare_full_reclaim(&plan)?;
-                self.finish_reclaim_cycle(
+                self.record_phase(CollectionPhase::Reclaim);
+                let runtime_state = self.runtime_state_handle();
+                finish_prepared_reclaim_cycle(
+                    &mut self.objects,
+                    &mut self.indexes,
+                    &mut self.old_gen,
+                    &mut self.stats,
                     before_bytes,
                     mark_steps,
                     mark_rounds,
                     Self::saturating_duration_nanos(reclaim_prepare_start.elapsed()),
                     prepared_reclaim,
+                    move |object| {
+                        let mut runtime_state = runtime_state
+                            .lock()
+                            .expect("runtime state should not be poisoned");
+                        runtime_state.enqueue_pending_finalizer(object)
+                    },
                 )
             }
         };
@@ -1272,7 +1302,7 @@ impl Heap {
         &mut self,
         kind: CollectionKind,
         completed_plan: Option<CollectionPlan>,
-    ) -> (u64, OldRegionCollectionStats) {
+    ) -> crate::reclaim::MinorRebuildResult {
         let runtime_state = self.runtime_state_handle();
         rebuild_minor_after_collection(
             &mut self.objects,
@@ -1291,71 +1321,12 @@ impl Heap {
         )
     }
 
-    fn commit_prepared_reclaim(
-        &mut self,
-        prepared_reclaim: PreparedReclaim,
-    ) -> (u64, OldRegionCollectionStats) {
-        let runtime_state = self.runtime_state_handle();
-        apply_prepared_reclaim(
-            &mut self.objects,
-            &mut self.indexes,
-            &mut self.old_gen,
-            &mut self.stats,
-            prepared_reclaim,
-            move |object| {
-                let mut runtime_state = runtime_state
-                    .lock()
-                    .expect("runtime state should not be poisoned");
-                runtime_state.enqueue_pending_finalizer(object)
-            },
-        )
-    }
-
-    fn finish_reclaim_cycle(
-        &mut self,
-        before_bytes: usize,
-        mark_steps: u64,
-        mark_rounds: u64,
-        reclaim_prepare_nanos: u64,
-        prepared_reclaim: PreparedReclaim,
-    ) -> CollectionStats {
-        self.record_phase(CollectionPhase::Reclaim);
-        let promoted_bytes = prepared_reclaim.promoted_bytes;
-        let (queued_finalizers, old_region_stats) = self.commit_prepared_reclaim(prepared_reclaim);
-        let after_bytes = self.total_tracked_bytes();
-        CollectionStats {
-            collections: 1,
-            minor_collections: 0,
-            major_collections: 1,
-            pause_nanos: 0,
-            reclaim_prepare_nanos,
-            promoted_bytes: promoted_bytes as u64,
-            mark_steps,
-            mark_rounds,
-            reclaimed_bytes: before_bytes.saturating_sub(after_bytes) as u64,
-            finalized_objects: 0,
-            queued_finalizers,
-            compacted_regions: old_region_stats.compacted_regions,
-            reclaimed_regions: old_region_stats.reclaimed_regions,
-        }
-    }
-
     fn record_collection_stats(&mut self, cycle: CollectionStats) {
         self.stats.collections.saturating_add_assign(cycle);
     }
 
     fn record_phase(&self, phase: CollectionPhase) {
         self.collector().push_phase(phase);
-    }
-
-    fn total_tracked_bytes(&self) -> usize {
-        self.stats
-            .nursery
-            .live_bytes
-            .saturating_add(self.stats.old.live_bytes)
-            .saturating_add(self.stats.pinned.live_bytes)
-            .saturating_add(self.stats.large.live_bytes)
-            .saturating_add(self.stats.immortal.live_bytes)
     }
 
     fn saturating_duration_nanos(duration: Duration) -> u64 {

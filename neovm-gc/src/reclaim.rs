@@ -7,7 +7,7 @@ use crate::index_state::HeapIndexState;
 use crate::object::{ObjectRecord, OldRegionPlacement, SpaceKind};
 use crate::plan::{CollectionKind, CollectionPlan};
 use crate::spaces::{OldGenConfig, OldGenState, OldRegion, OldRegionCollectionStats};
-use crate::stats::HeapStats;
+use crate::stats::{CollectionStats, HeapStats};
 
 #[derive(Debug)]
 pub(crate) struct PreparedReclaimSurvivor {
@@ -42,6 +42,20 @@ pub(crate) struct PreparedReclaim {
     pub(crate) pinned_live_bytes: usize,
     pub(crate) large_live_bytes: usize,
     pub(crate) immortal_live_bytes: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct MinorRebuildResult {
+    pub(crate) queued_finalizers: u64,
+    pub(crate) old_region_stats: OldRegionCollectionStats,
+    pub(crate) after_bytes: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ReclaimCommitResult {
+    pub(crate) queued_finalizers: u64,
+    pub(crate) old_region_stats: OldRegionCollectionStats,
+    pub(crate) after_bytes: usize,
 }
 
 pub(crate) fn prepare_reclaim(
@@ -278,7 +292,7 @@ pub(crate) fn apply_prepared_reclaim(
     stats: &mut HeapStats,
     prepared_reclaim: PreparedReclaim,
     enqueue_pending_finalizer: impl FnMut(ObjectRecord) -> u64,
-) -> (u64, OldRegionCollectionStats) {
+) -> ReclaimCommitResult {
     let old_objects = core::mem::take(objects);
     let (rebuilt_objects, queued_finalizers) =
         commit_prepared_reclaim_objects(old_objects, &prepared_reclaim, enqueue_pending_finalizer);
@@ -301,7 +315,44 @@ pub(crate) fn apply_prepared_reclaim(
     stats.immortal.live_bytes = prepared_reclaim.immortal_live_bytes;
     stats.immortal.reserved_bytes = prepared_reclaim.immortal_live_bytes;
     stats.old.reserved_bytes = prepared_reclaim.old_reserved_bytes;
-    (queued_finalizers, old_region_stats)
+    ReclaimCommitResult {
+        queued_finalizers,
+        old_region_stats,
+        after_bytes: stats.total_live_bytes(),
+    }
+}
+
+pub(crate) fn finish_prepared_reclaim_cycle(
+    objects: &mut Vec<ObjectRecord>,
+    indexes: &mut HeapIndexState,
+    old_gen: &mut OldGenState,
+    stats: &mut HeapStats,
+    before_bytes: usize,
+    mark_steps: u64,
+    mark_rounds: u64,
+    reclaim_prepare_nanos: u64,
+    prepared_reclaim: PreparedReclaim,
+    enqueue_pending_finalizer: impl FnMut(ObjectRecord) -> u64,
+) -> CollectionStats {
+    let promoted_bytes = prepared_reclaim.promoted_bytes;
+    let commit = apply_prepared_reclaim(
+        objects,
+        indexes,
+        old_gen,
+        stats,
+        prepared_reclaim,
+        enqueue_pending_finalizer,
+    );
+    CollectionStats::completed_old_gen_cycle(
+        mark_steps,
+        mark_rounds,
+        promoted_bytes,
+        reclaim_prepare_nanos,
+        before_bytes,
+        commit.after_bytes,
+        commit.queued_finalizers,
+        commit.old_region_stats,
+    )
 }
 
 pub(crate) fn sweep_minor_and_rebuild_post_collection(
@@ -313,7 +364,7 @@ pub(crate) fn sweep_minor_and_rebuild_post_collection(
     kind: CollectionKind,
     completed_plan: Option<CollectionPlan>,
     mut enqueue_pending_finalizer: impl FnMut(ObjectRecord) -> u64,
-) -> (u64, OldRegionCollectionStats) {
+) -> MinorRebuildResult {
     stats.nursery.live_bytes = 0;
     stats.old.live_bytes = 0;
     stats.pinned.live_bytes = 0;
@@ -390,7 +441,11 @@ pub(crate) fn sweep_minor_and_rebuild_post_collection(
     }
     stats.old.reserved_bytes = old_gen.reserved_bytes();
     indexes.retain_remembered_edges_for_post_sweep_objects(objects);
-    (queued_finalizers, old_region_stats)
+    MinorRebuildResult {
+        queued_finalizers,
+        old_region_stats,
+        after_bytes: stats.total_live_bytes(),
+    }
 }
 
 fn keep_object_for_collection(kind: CollectionKind, object: &ObjectRecord) -> bool {
