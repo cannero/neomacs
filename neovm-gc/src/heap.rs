@@ -8,7 +8,9 @@ use std::thread;
 
 use crate::background::{BackgroundCollectorConfig, BackgroundService, SharedHeap};
 use crate::barrier::{BarrierEvent, BarrierKind, RememberedEdge};
-use crate::collector_state::{CollectorSharedSnapshot, CollectorState, MajorMarkUpdate};
+use crate::collector_state::{
+    CollectorSharedSnapshot, CollectorState, MajorMarkUpdate, PreparedMajorReclaim,
+};
 use crate::descriptor::{
     EphemeronVisitor, GcErased, ObjectKey, Relocator, Trace, Tracer, TypeDesc, TypeFlags,
     WeakProcessor, fixed_type_desc,
@@ -96,7 +98,7 @@ type ForwardingMap = HashMap<ObjectKey, GcErased>;
 unsafe impl Send for Heap {}
 
 #[derive(Debug)]
-struct OldRegion {
+pub(crate) struct OldRegion {
     capacity_bytes: usize,
     used_bytes: usize,
     live_bytes: usize,
@@ -110,9 +112,9 @@ struct EvacuationOutcome {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-struct OldRegionCollectionStats {
-    compacted_regions: u64,
-    reclaimed_regions: u64,
+pub(crate) struct OldRegionCollectionStats {
+    pub(crate) compacted_regions: u64,
+    pub(crate) reclaimed_regions: u64,
 }
 
 struct OldRegionRebuildState {
@@ -123,6 +125,41 @@ struct OldRegionRebuildState {
     compacted_regions_count: u64,
     rebuilt_regions: Vec<OldRegion>,
     compacted_regions: Vec<OldRegion>,
+}
+
+fn prepare_old_region_rebuild_for_plan(
+    previous_regions: &[OldRegion],
+    completed_plan: Option<&CollectionPlan>,
+) -> Option<OldRegionRebuildState> {
+    let plan = completed_plan
+        .filter(|plan| matches!(plan.kind, CollectionKind::Major | CollectionKind::Full))?;
+    let previous_region_count = previous_regions.len();
+    let selected_regions: HashSet<_> = plan.selected_old_regions.iter().copied().collect();
+    let mut rebuilt_regions = Vec::new();
+    let mut preserved_index_map = HashMap::new();
+    for (old_index, region) in previous_regions.iter().enumerate() {
+        if selected_regions.contains(&old_index) {
+            continue;
+        }
+        preserved_index_map.insert(old_index, rebuilt_regions.len());
+        rebuilt_regions.push(OldRegion {
+            capacity_bytes: region.capacity_bytes,
+            used_bytes: region.used_bytes,
+            live_bytes: 0,
+            object_count: 0,
+            occupied_lines: HashSet::new(),
+        });
+    }
+    let compacted_base_index = rebuilt_regions.len();
+    Some(OldRegionRebuildState {
+        previous_region_count,
+        preserved_index_map,
+        selected_regions,
+        compacted_base_index,
+        compacted_regions_count: plan.selected_old_regions.len() as u64,
+        rebuilt_regions,
+        compacted_regions: Vec::new(),
+    })
 }
 
 impl Heap {
@@ -435,9 +472,17 @@ impl Heap {
                 &self.object_index,
             );
         }
+        let prepared_major_reclaim = if state.plan.kind == CollectionKind::Major {
+            state.prepared_major_reclaim.take()
+        } else {
+            None
+        };
         self.record_phase(CollectionPhase::Reclaim);
-        let (finalized_objects, old_region_stats) =
-            self.sweep_and_rebuild_post_collection(state.plan.kind, Some(state.plan.clone()));
+        let (finalized_objects, old_region_stats) = self.sweep_and_rebuild_post_collection(
+            state.plan.kind,
+            Some(state.plan.clone()),
+            prepared_major_reclaim,
+        );
         let after_bytes = self.total_tracked_bytes();
         let cycle = CollectionStats {
             collections: 1,
@@ -541,7 +586,12 @@ impl Heap {
                     &empty_forwarding,
                     &self.object_index,
                 );
-                collector.complete_active_major_reclaim_prep(ephemeron_steps, ephemeron_rounds);
+                let prepared_reclaim = self.prepare_major_reclaim(&active_plan);
+                collector.complete_active_major_reclaim_prep(
+                    ephemeron_steps,
+                    ephemeron_rounds,
+                    prepared_reclaim,
+                );
             } else {
                 collector.complete_active_major_remark(ephemeron_steps, ephemeron_rounds);
             }
@@ -722,7 +772,7 @@ impl Heap {
                 );
                 self.record_phase(CollectionPhase::Reclaim);
                 let (finalized_objects, old_region_stats) =
-                    self.sweep_and_rebuild_post_collection(plan.kind, Some(plan.clone()));
+                    self.sweep_and_rebuild_post_collection(plan.kind, Some(plan.clone()), None);
                 let after_bytes = self.total_tracked_bytes();
                 CollectionStats {
                     collections: 1,
@@ -747,7 +797,7 @@ impl Heap {
                 );
                 self.record_phase(CollectionPhase::Reclaim);
                 let (finalized_objects, old_region_stats) =
-                    self.sweep_and_rebuild_post_collection(plan.kind, Some(plan.clone()));
+                    self.sweep_and_rebuild_post_collection(plan.kind, Some(plan.clone()), None);
                 let after_bytes = self.total_tracked_bytes();
                 CollectionStats {
                     collections: 1,
@@ -774,7 +824,7 @@ impl Heap {
                 );
                 self.record_phase(CollectionPhase::Reclaim);
                 let (finalized_objects, old_region_stats) =
-                    self.sweep_and_rebuild_post_collection(plan.kind, Some(plan.clone()));
+                    self.sweep_and_rebuild_post_collection(plan.kind, Some(plan.clone()), None);
                 let after_bytes = self.total_tracked_bytes();
                 CollectionStats {
                     collections: 1,
@@ -1353,6 +1403,7 @@ impl Heap {
         &mut self,
         kind: CollectionKind,
         completed_plan: Option<CollectionPlan>,
+        prepared_major_reclaim: Option<PreparedMajorReclaim>,
     ) -> (u64, OldRegionCollectionStats) {
         self.stats.nursery.live_bytes = 0;
         self.stats.old.live_bytes = 0;
@@ -1363,7 +1414,11 @@ impl Heap {
         self.stats.immortal.reserved_bytes = 0;
 
         let old_objects = core::mem::take(&mut self.objects);
-        let mut old_region_rebuild = self.prepare_old_region_rebuild(completed_plan.as_ref());
+        let mut old_region_rebuild = if prepared_major_reclaim.is_none() {
+            self.prepare_old_region_rebuild(completed_plan.as_ref())
+        } else {
+            None
+        };
         self.object_index.clear();
         self.object_index.reserve(old_objects.len());
         self.weak_candidates.clear();
@@ -1387,11 +1442,19 @@ impl Heap {
             let space = object.space();
             let total_size = object.total_size();
             if space == SpaceKind::Old {
-                self.rebuild_post_sweep_old_region(
-                    &mut object,
-                    total_size,
-                    old_region_rebuild.as_mut(),
-                );
+                if let Some(prepared) = prepared_major_reclaim.as_ref() {
+                    if let Some(placement) =
+                        prepared.old_region_placements.get(&object_key).copied()
+                    {
+                        object.set_old_region_placement(placement);
+                    }
+                } else {
+                    self.rebuild_post_sweep_old_region(
+                        &mut object,
+                        total_size,
+                        old_region_rebuild.as_mut(),
+                    );
+                }
             }
             let index = rebuilt_objects.len();
             rebuilt_objects.push(object);
@@ -1428,11 +1491,17 @@ impl Heap {
             }
         }
         self.objects = rebuilt_objects;
-        let (rebuilt_old_regions, old_region_stats) =
-            Self::finish_old_region_rebuild(old_region_rebuild, &mut self.objects);
-        if let Some(rebuilt_old_regions) = rebuilt_old_regions {
-            self.old_regions = rebuilt_old_regions;
-        }
+        let old_region_stats = if let Some(prepared) = prepared_major_reclaim {
+            self.old_regions = prepared.rebuilt_old_regions;
+            prepared.old_region_stats
+        } else {
+            let (rebuilt_old_regions, old_region_stats) =
+                Self::finish_old_region_rebuild(old_region_rebuild, &mut self.objects);
+            if let Some(rebuilt_old_regions) = rebuilt_old_regions {
+                self.old_regions = rebuilt_old_regions;
+            }
+            old_region_stats
+        };
         self.stats.old.reserved_bytes = self
             .old_regions
             .iter()
@@ -1701,36 +1770,69 @@ impl Heap {
         &mut self,
         completed_plan: Option<&CollectionPlan>,
     ) -> Option<OldRegionRebuildState> {
-        let plan = completed_plan
-            .filter(|plan| matches!(plan.kind, CollectionKind::Major | CollectionKind::Full))?;
+        if !completed_plan
+            .is_some_and(|plan| matches!(plan.kind, CollectionKind::Major | CollectionKind::Full))
+        {
+            return None;
+        }
         let previous_regions = core::mem::take(&mut self.old_regions);
-        let previous_region_count = previous_regions.len();
-        let selected_regions: HashSet<_> = plan.selected_old_regions.iter().copied().collect();
-        let mut rebuilt_regions = Vec::new();
-        let mut preserved_index_map = HashMap::new();
-        for (old_index, region) in previous_regions.iter().enumerate() {
-            if selected_regions.contains(&old_index) {
+        prepare_old_region_rebuild_for_plan(&previous_regions, completed_plan)
+    }
+
+    fn prepare_major_reclaim(&self, plan: &CollectionPlan) -> PreparedMajorReclaim {
+        let mut rebuild = prepare_old_region_rebuild_for_plan(&self.old_regions, Some(plan))
+            .expect("major reclaim preparation requires a major/full plan");
+        let mut placements = HashMap::new();
+
+        for object in &self.objects {
+            if object.space() != SpaceKind::Old
+                || !object.is_marked()
+                || object.header().is_moved_out()
+            {
                 continue;
             }
-            preserved_index_map.insert(old_index, rebuilt_regions.len());
-            rebuilt_regions.push(OldRegion {
-                capacity_bytes: region.capacity_bytes,
-                used_bytes: region.used_bytes,
-                live_bytes: 0,
-                object_count: 0,
-                occupied_lines: HashSet::new(),
-            });
+
+            let total_size = object.total_size();
+            let mut placement = object
+                .old_region_placement()
+                .expect("live old object should retain old-region placement");
+            if rebuild.selected_regions.contains(&placement.region_index) {
+                let compacted = reserve_old_region_placement_in(
+                    &mut rebuild.compacted_regions,
+                    &self.config.old,
+                    total_size,
+                );
+                placement.region_index = rebuild.compacted_base_index + compacted.region_index;
+                placement.offset_bytes = compacted.offset_bytes;
+                placement.line_start = compacted.line_start;
+                placement.line_count = compacted.line_count;
+                let region = &mut rebuild.compacted_regions[compacted.region_index];
+                region.live_bytes = region.live_bytes.saturating_add(total_size);
+                region.object_count = region.object_count.saturating_add(1);
+                for line in placement.line_start..placement.line_start + placement.line_count {
+                    region.occupied_lines.insert(line);
+                }
+            } else if let Some(&new_index) =
+                rebuild.preserved_index_map.get(&placement.region_index)
+            {
+                placement.region_index = new_index;
+                let region = &mut rebuild.rebuilt_regions[new_index];
+                region.live_bytes = region.live_bytes.saturating_add(total_size);
+                region.object_count = region.object_count.saturating_add(1);
+                for line in placement.line_start..placement.line_start + placement.line_count {
+                    region.occupied_lines.insert(line);
+                }
+            }
+            placements.insert(object.object_key(), placement);
         }
-        let compacted_base_index = rebuilt_regions.len();
-        Some(OldRegionRebuildState {
-            previous_region_count,
-            preserved_index_map,
-            selected_regions,
-            compacted_base_index,
-            compacted_regions_count: plan.selected_old_regions.len() as u64,
-            rebuilt_regions,
-            compacted_regions: Vec::new(),
-        })
+
+        let (rebuilt_old_regions, old_region_stats) =
+            Self::finish_prepared_old_region_rebuild(rebuild, &mut placements);
+        PreparedMajorReclaim {
+            old_region_placements: placements,
+            rebuilt_old_regions,
+            old_region_stats,
+        }
     }
 
     fn rebuild_post_sweep_old_region(
@@ -1836,6 +1938,52 @@ impl Heap {
             .saturating_sub(compacted_regions.len()) as u64;
         (
             Some(compacted_regions),
+            OldRegionCollectionStats {
+                compacted_regions: rebuild.compacted_regions_count,
+                reclaimed_regions,
+            },
+        )
+    }
+
+    fn finish_prepared_old_region_rebuild(
+        rebuild: OldRegionRebuildState,
+        placements: &mut HashMap<ObjectKey, OldRegionPlacement>,
+    ) -> (Vec<OldRegion>, OldRegionCollectionStats) {
+        let provisional_compacted_base = rebuild.compacted_base_index;
+        let mut preserved_index_remap = vec![None; provisional_compacted_base];
+        let mut compacted_regions = Vec::with_capacity(
+            rebuild
+                .rebuilt_regions
+                .len()
+                .saturating_add(rebuild.compacted_regions.len()),
+        );
+        for (old_index, region) in rebuild.rebuilt_regions.into_iter().enumerate() {
+            if region.object_count == 0 {
+                continue;
+            }
+            preserved_index_remap[old_index] = Some(compacted_regions.len());
+            compacted_regions.push(region);
+        }
+        let new_compacted_base = compacted_regions.len();
+        compacted_regions.extend(rebuild.compacted_regions);
+        for placement in placements.values_mut() {
+            if placement.region_index < provisional_compacted_base {
+                let Some(new_index) = preserved_index_remap[placement.region_index] else {
+                    continue;
+                };
+                placement.region_index = new_index;
+            } else {
+                placement.region_index = placement
+                    .region_index
+                    .saturating_sub(provisional_compacted_base)
+                    .saturating_add(new_compacted_base);
+            }
+        }
+        let reclaimed_regions = rebuild
+            .previous_region_count
+            .saturating_sub(compacted_regions.len()) as u64;
+        (
+            compacted_regions,
             OldRegionCollectionStats {
                 compacted_regions: rebuild.compacted_regions_count,
                 reclaimed_regions,

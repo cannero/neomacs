@@ -1,5 +1,9 @@
-use crate::heap::AllocError;
+use std::collections::HashMap;
+
+use crate::descriptor::ObjectKey;
+use crate::heap::{AllocError, OldRegion, OldRegionCollectionStats};
 use crate::mark::MarkWorklist;
+use crate::object::OldRegionPlacement;
 use crate::plan::{CollectionPhase, CollectionPlan, MajorMarkProgress};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -28,6 +32,7 @@ pub(crate) struct MajorMarkState {
     pub(crate) mark_rounds: u64,
     pub(crate) ephemerons_processed: bool,
     pub(crate) reclaim_prepared: bool,
+    pub(crate) prepared_major_reclaim: Option<PreparedMajorReclaim>,
 }
 
 pub(crate) struct MajorMarkUpdate {
@@ -35,6 +40,13 @@ pub(crate) struct MajorMarkUpdate {
     pub(crate) drained_objects: usize,
     pub(crate) mark_steps_delta: u64,
     pub(crate) mark_rounds_delta: u64,
+}
+
+#[derive(Debug)]
+pub(crate) struct PreparedMajorReclaim {
+    pub(crate) old_region_placements: HashMap<ObjectKey, OldRegionPlacement>,
+    pub(crate) rebuilt_old_regions: Vec<OldRegion>,
+    pub(crate) old_region_stats: OldRegionCollectionStats,
 }
 
 impl CollectorState {
@@ -97,6 +109,7 @@ impl CollectorState {
             mark_rounds: 0,
             ephemerons_processed: false,
             reclaim_prepared: false,
+            prepared_major_reclaim: None,
         });
     }
 
@@ -107,6 +120,7 @@ impl CollectorState {
         state.worklist.push(index);
         state.ephemerons_processed = false;
         state.reclaim_prepared = false;
+        state.prepared_major_reclaim = None;
         true
     }
 
@@ -126,6 +140,13 @@ impl CollectorState {
         self.major_mark_state
             .as_ref()
             .is_some_and(|state| state.reclaim_prepared)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn active_major_mark_has_prepared_reclaim(&self) -> bool {
+        self.major_mark_state
+            .as_ref()
+            .is_some_and(|state| state.prepared_major_reclaim.is_some())
     }
 
     pub(crate) fn active_major_mark_ephemerons_processed(&self) -> bool {
@@ -155,6 +176,7 @@ impl CollectorState {
         &mut self,
         mark_steps_delta: u64,
         mark_rounds_delta: u64,
+        prepared_major_reclaim: PreparedMajorReclaim,
     ) -> bool {
         let Some(state) = self.major_mark_state.as_mut() else {
             return false;
@@ -166,6 +188,7 @@ impl CollectorState {
         state.mark_rounds = state.mark_rounds.saturating_add(mark_rounds_delta);
         state.ephemerons_processed = true;
         state.reclaim_prepared = true;
+        state.prepared_major_reclaim = Some(prepared_major_reclaim);
         true
     }
 
@@ -184,6 +207,7 @@ impl CollectorState {
         if !state.worklist.is_empty() {
             state.ephemerons_processed = false;
             state.reclaim_prepared = false;
+            state.prepared_major_reclaim = None;
         }
 
         let progress = MajorMarkProgress {

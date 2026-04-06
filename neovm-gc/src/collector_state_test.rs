@@ -24,6 +24,17 @@ fn full_plan() -> CollectionPlan {
     }
 }
 
+fn prepared_major_reclaim() -> PreparedMajorReclaim {
+    PreparedMajorReclaim {
+        old_region_placements: std::collections::HashMap::new(),
+        rebuilt_old_regions: Vec::new(),
+        old_region_stats: OldRegionCollectionStats {
+            compacted_regions: 1,
+            reclaimed_regions: 0,
+        },
+    }
+}
+
 #[test]
 fn enqueue_active_major_mark_index_requires_active_session() {
     let mut state = CollectorState::default();
@@ -120,9 +131,10 @@ fn major_ready_requires_reclaim_prep_after_worklist_drains() {
         CollectionPhase::Remark
     );
 
-    assert!(state.complete_active_major_reclaim_prep(2, 3));
+    assert!(state.complete_active_major_reclaim_prep(2, 3, prepared_major_reclaim()));
     assert!(state.active_major_mark_is_ready());
     assert!(state.active_major_mark_reclaim_prepared());
+    assert!(state.active_major_mark_has_prepared_reclaim());
     assert_eq!(
         state
             .active_major_mark_plan()
@@ -139,6 +151,7 @@ fn major_ready_requires_reclaim_prep_after_worklist_drains() {
     assert!(state.enqueue_active_major_mark_index(9));
     assert!(!state.active_major_mark_is_ready());
     assert!(!state.active_major_mark_reclaim_prepared());
+    assert!(!state.active_major_mark_has_prepared_reclaim());
     assert_eq!(
         state
             .active_major_mark_plan()

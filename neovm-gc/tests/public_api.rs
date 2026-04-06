@@ -1557,6 +1557,83 @@ fn public_api_poll_active_major_mark_processes_major_weak_edges_before_finish() 
 }
 
 #[test]
+fn public_api_poll_active_major_mark_prepares_major_old_region_rebuild_before_finish() {
+    let old_bytes = neovm_gc::estimated_allocation_size::<OldLeaf>().expect("old allocation size");
+    let mut heap = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            region_bytes: old_bytes.saturating_mul(4),
+            line_bytes: 16,
+            selective_reclaim_threshold_bytes: 1,
+            compaction_candidate_limit: 1,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut keep_scope = mutator.handle_scope();
+
+    let (first_gc, third_gc) = {
+        let mut setup_scope = mutator.handle_scope();
+        let first = mutator
+            .alloc(&mut setup_scope, OldLeaf([30; 32]))
+            .expect("alloc first old leaf");
+        mutator
+            .alloc(&mut setup_scope, OldLeaf([31; 32]))
+            .expect("alloc middle old leaf");
+        let third = mutator
+            .alloc(&mut setup_scope, OldLeaf([32; 32]))
+            .expect("alloc third old leaf");
+        (first.as_gc(), third.as_gc())
+    };
+    let first = mutator.root(&mut keep_scope, first_gc);
+    let third = mutator.root(&mut keep_scope, third_gc);
+
+    let plan = mutator.plan_for(CollectionKind::Major);
+    assert_eq!(plan.selected_old_regions.len(), 1);
+    mutator
+        .begin_major_mark(plan.clone())
+        .expect("begin persistent major mark");
+
+    while !mutator
+        .poll_active_major_mark()
+        .expect("poll active major mark")
+        .expect("active progress")
+        .completed
+    {}
+
+    assert_eq!(
+        mutator.active_major_mark_plan(),
+        Some(neovm_gc::CollectionPlan {
+            phase: CollectionPhase::Reclaim,
+            ..plan
+        })
+    );
+
+    let cycle = mutator
+        .finish_active_major_collection_if_ready()
+        .expect("finish if ready")
+        .expect("completed cycle");
+    assert_eq!(cycle.major_collections, 1);
+    assert_eq!(cycle.compacted_regions, 1);
+
+    let regions = mutator.heap().old_region_stats();
+    assert_eq!(regions.len(), 1);
+    assert_eq!(regions[0].object_count, 2);
+    assert!(regions[0].hole_bytes < old_bytes);
+    assert!(regions[0].tail_bytes > 0);
+    assert_eq!(unsafe { first.as_gc().as_non_null().as_ref() }.0[0], 30);
+    assert_eq!(unsafe { third.as_gc().as_non_null().as_ref() }.0[0], 32);
+}
+
+#[test]
 fn public_api_background_collection_round_finishes_active_major_session() {
     let mut heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
