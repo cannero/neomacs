@@ -1440,26 +1440,39 @@ impl Heap {
             Vec::with_capacity(prepared_survivor_count.unwrap_or(old_objects.len()));
         let mut finalized_objects = 0u64;
         if let Some(prepared) = prepared_major_reclaim.as_ref() {
-            let mut old_objects: Vec<Option<ObjectRecord>> =
-                old_objects.into_iter().map(Some).collect();
-            for &object_index in &prepared.finalize_indices {
-                if let Some(object) = old_objects.get_mut(object_index).and_then(Option::take) {
+            let mut survivor_iter = prepared.survivors.iter().peekable();
+            let mut finalize_iter = prepared.finalize_indices.iter().copied().peekable();
+            for (object_index, mut object) in old_objects.into_iter().enumerate() {
+                let should_finalize = finalize_iter
+                    .peek()
+                    .is_some_and(|&pending_index| pending_index == object_index);
+                if should_finalize {
+                    finalize_iter.next();
                     if object.run_finalizer() {
                         finalized_objects = finalized_objects.saturating_add(1);
                     }
                 }
-            }
-            for survivor in &prepared.survivors {
-                let mut object = old_objects
-                    .get_mut(survivor.object_index)
-                    .and_then(Option::take)
-                    .expect("prepared survivor index should refer to a live object");
+
+                let Some(survivor) =
+                    survivor_iter.next_if(|survivor| survivor.object_index == object_index)
+                else {
+                    continue;
+                };
+
                 object.clear_mark();
                 if let Some(placement) = survivor.old_region_placement {
                     object.set_old_region_placement(placement);
                 }
                 rebuilt_objects.push(object);
             }
+            debug_assert!(
+                survivor_iter.next().is_none(),
+                "prepared major reclaim survivors should all be drained during finish"
+            );
+            debug_assert!(
+                finalize_iter.next().is_none(),
+                "prepared major reclaim finalizers should all be drained during finish"
+            );
         } else {
             for mut object in old_objects {
                 if !Self::keep_object_for_collection(kind, &object) {
