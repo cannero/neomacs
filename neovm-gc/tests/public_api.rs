@@ -240,6 +240,13 @@ unsafe impl Trace for WeakHolder {
     fn process_weak(&self, processor: &mut dyn WeakProcessor) {
         self.weak.process(processor);
     }
+
+    fn type_flags() -> TypeFlags
+    where
+        Self: Sized,
+    {
+        TypeFlags::WEAK
+    }
 }
 
 #[derive(Debug)]
@@ -263,6 +270,13 @@ unsafe impl Trace for EphemeronHolder {
 
     fn visit_ephemerons(&self, visitor: &mut dyn EphemeronVisitor) {
         self.pair.visit(visitor);
+    }
+
+    fn type_flags() -> TypeFlags
+    where
+        Self: Sized,
+    {
+        TypeFlags::WEAK | TypeFlags::EPHEMERON_KEY
     }
 }
 
@@ -288,6 +302,13 @@ unsafe impl Trace for ThreadRecordingEphemeronHolder {
             .insert(thread::current().id());
         self.pair.visit(visitor);
     }
+
+    fn type_flags() -> TypeFlags
+    where
+        Self: Sized,
+    {
+        TypeFlags::WEAK | TypeFlags::EPHEMERON_KEY
+    }
 }
 
 #[derive(Debug)]
@@ -307,6 +328,13 @@ unsafe impl Trace for ThreadRecordingWeakHolder {
             .expect("record weak-processing thread")
             .insert(thread::current().id());
         self.weak.process(processor);
+    }
+
+    fn type_flags() -> TypeFlags
+    where
+        Self: Sized,
+    {
+        TypeFlags::WEAK
     }
 }
 

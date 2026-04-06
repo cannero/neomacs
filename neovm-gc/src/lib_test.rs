@@ -246,6 +246,13 @@ unsafe impl Trace for WeakHolder {
     fn process_weak(&self, processor: &mut dyn WeakProcessor) {
         self.weak.process(processor);
     }
+
+    fn type_flags() -> TypeFlags
+    where
+        Self: Sized,
+    {
+        TypeFlags::WEAK
+    }
 }
 
 #[derive(Debug)]
@@ -271,6 +278,13 @@ unsafe impl Trace for EphemeronHolder {
     fn visit_ephemerons(&self, visitor: &mut dyn EphemeronVisitor) {
         self.pair.visit(visitor);
     }
+
+    fn type_flags() -> TypeFlags
+    where
+        Self: Sized,
+    {
+        TypeFlags::WEAK | TypeFlags::EPHEMERON_KEY
+    }
 }
 
 #[derive(Debug)]
@@ -295,6 +309,13 @@ unsafe impl Trace for ThreadRecordingEphemeronHolder {
             .insert(thread::current().id());
         self.pair.visit(visitor);
     }
+
+    fn type_flags() -> TypeFlags
+    where
+        Self: Sized,
+    {
+        TypeFlags::WEAK | TypeFlags::EPHEMERON_KEY
+    }
 }
 
 #[derive(Debug)]
@@ -314,6 +335,13 @@ unsafe impl Trace for ThreadRecordingWeakHolder {
             .expect("record weak-processing thread")
             .insert(thread::current().id());
         self.weak.process(processor);
+    }
+
+    fn type_flags() -> TypeFlags
+    where
+        Self: Sized,
+    {
+        TypeFlags::WEAK
     }
 }
 
@@ -3700,6 +3728,68 @@ fn major_collection_ephemeron_clears_when_key_is_dead() {
             .value(),
         None
     );
+}
+
+#[test]
+fn post_sweep_rebuild_refreshes_weak_and_ephemeron_candidate_indexes() {
+    let mut heap = Heap::new(HeapConfig::default());
+    let mut mutator = heap.mutator();
+
+    let (weak_holder_gc, ephemeron_holder_gc) = {
+        let mut setup_scope = mutator.handle_scope();
+        let weak_target = mutator
+            .alloc(&mut setup_scope, Leaf(313))
+            .expect("alloc weak target");
+        let weak_holder = mutator
+            .alloc(
+                &mut setup_scope,
+                WeakHolder {
+                    label: 314,
+                    strong: EdgeCell::default(),
+                    weak: WeakCell::new(Weak::new(weak_target.as_gc())),
+                },
+            )
+            .expect("alloc weak holder");
+        let eph_key = mutator
+            .alloc(&mut setup_scope, Leaf(315))
+            .expect("alloc ephemeron key");
+        let eph_value = mutator
+            .alloc(&mut setup_scope, Leaf(316))
+            .expect("alloc ephemeron value");
+        let ephemeron_holder = mutator
+            .alloc(
+                &mut setup_scope,
+                EphemeronHolder {
+                    label: 317,
+                    strong: EdgeCell::default(),
+                    pair: Ephemeron::new(Weak::new(eph_key.as_gc()), Weak::new(eph_value.as_gc())),
+                },
+            )
+            .expect("alloc ephemeron holder");
+        (weak_holder.as_gc(), ephemeron_holder.as_gc())
+    };
+
+    let mut keep_scope = mutator.handle_scope();
+    let _weak_holder = mutator.root(&mut keep_scope, weak_holder_gc);
+    let _ephemeron_holder = mutator.root(&mut keep_scope, ephemeron_holder_gc);
+
+    assert_eq!(mutator.heap().weak_candidate_count(), 2);
+    assert_eq!(mutator.heap().ephemeron_candidate_count(), 1);
+
+    mutator
+        .collect(CollectionKind::Major)
+        .expect("major collect with live holders");
+    assert_eq!(mutator.heap().weak_candidate_count(), 2);
+    assert_eq!(mutator.heap().ephemeron_candidate_count(), 1);
+
+    drop(keep_scope);
+    mutator
+        .collect(CollectionKind::Major)
+        .expect("major collect after dropping holders");
+    assert!(!mutator.heap().contains(weak_holder_gc));
+    assert!(!mutator.heap().contains(ephemeron_holder_gc));
+    assert_eq!(mutator.heap().weak_candidate_count(), 0);
+    assert_eq!(mutator.heap().ephemeron_candidate_count(), 0);
 }
 
 #[test]

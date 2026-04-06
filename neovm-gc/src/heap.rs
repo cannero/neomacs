@@ -3,15 +3,15 @@ use core::marker::PhantomData;
 use core::ptr::NonNull;
 use core::slice;
 use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 use crate::background::{BackgroundCollectorConfig, BackgroundService, SharedHeap};
 use crate::barrier::{BarrierEvent, BarrierKind, RememberedEdge};
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState, MajorMarkUpdate};
 use crate::descriptor::{
-    EphemeronVisitor, GcErased, ObjectKey, Relocator, Trace, Tracer, TypeDesc, WeakProcessor,
-    fixed_type_desc,
+    EphemeronVisitor, GcErased, ObjectKey, Relocator, Trace, Tracer, TypeDesc, TypeFlags,
+    WeakProcessor, fixed_type_desc,
 };
 use crate::mark::MarkWorklist;
 use crate::mutator::Mutator;
@@ -78,6 +78,8 @@ pub struct Heap {
     descriptors: HashMap<TypeId, &'static TypeDesc>,
     objects: Vec<ObjectRecord>,
     object_index: ObjectIndex,
+    weak_candidates: Vec<ObjectKey>,
+    ephemeron_candidates: Vec<ObjectKey>,
     old_regions: Vec<OldRegion>,
     remembered_edges: Vec<RememberedEdge>,
     recent_barrier_events: Vec<BarrierEvent>,
@@ -139,6 +141,8 @@ impl Heap {
             descriptors: HashMap::default(),
             objects: Vec::new(),
             object_index: HashMap::default(),
+            weak_candidates: Vec::new(),
+            ephemeron_candidates: Vec::new(),
             old_regions: Vec::new(),
             remembered_edges: Vec::new(),
             recent_barrier_events: Vec::new(),
@@ -779,6 +783,8 @@ impl Heap {
         let index = self.objects.len() - 1;
         let object_key = self.objects[index].object_key();
         self.object_index.insert(object_key, index);
+        let desc = self.objects[index].header().desc();
+        self.record_descriptor_candidates(object_key, desc);
         if self.collector().has_active_major_mark() {
             self.mark_for_active_major_session(gc.erase());
             self.assist_major_mark_in_place();
@@ -1032,6 +1038,22 @@ impl Heap {
             .expect("mutator assist on active major-mark session should not fail");
     }
 
+    fn record_descriptor_candidates(&mut self, object_key: ObjectKey, desc: &'static TypeDesc) {
+        if desc.flags.contains(TypeFlags::WEAK) {
+            self.weak_candidates.push(object_key);
+        }
+        if desc.flags.contains(TypeFlags::EPHEMERON_KEY) {
+            self.ephemeron_candidates.push(object_key);
+        }
+    }
+
+    fn candidate_indices(&self, candidates: &[ObjectKey]) -> Vec<usize> {
+        candidates
+            .iter()
+            .filter_map(|key| self.object_index.get(key).copied())
+            .collect()
+    }
+
     fn for_each_global_source(&self, mut f: impl FnMut(GcErased)) {
         for root in self.roots.iter() {
             f(root);
@@ -1062,11 +1084,13 @@ impl Heap {
         worker_count: usize,
         slice_budget: usize,
     ) -> (u64, u64) {
+        let ephemeron_candidates = self.candidate_indices(&self.ephemeron_candidates);
         let mut mark_steps = 0u64;
         let mut mark_rounds = 0u64;
         loop {
             let mut visitor = MajorEphemeronTracer::new(tracer);
-            for object in &self.objects {
+            for &index in &ephemeron_candidates {
+                let object = &self.objects[index];
                 if object.is_marked() {
                     object.visit_ephemerons(&mut visitor);
                 }
@@ -1147,15 +1171,17 @@ impl Heap {
         tracer: &mut MinorTracer<'_>,
         worker_count: usize,
     ) -> bool {
-        let workers = worker_count.max(1).min(self.objects.len().max(1));
-        let chunk_size = self.objects.len().max(1).div_ceil(workers);
+        let ephemeron_candidates = Arc::new(self.candidate_indices(&self.ephemeron_candidates));
+        let workers = worker_count.max(1).min(ephemeron_candidates.len().max(1));
+        let chunk_size = ephemeron_candidates.len().max(1).div_ceil(workers);
         let shared = ParallelMarkShared::new(&self.objects, tracer.index);
         let worker_outputs = thread::scope(|scope| {
             let mut handles = Vec::with_capacity(workers);
             for worker_index in 0..workers {
                 let shared = shared;
+                let ephemeron_candidates = Arc::clone(&ephemeron_candidates);
                 let start = worker_index.saturating_mul(chunk_size);
-                let end = (start + chunk_size).min(self.objects.len());
+                let end = (start + chunk_size).min(ephemeron_candidates.len());
                 if start >= end {
                     continue;
                 }
@@ -1163,7 +1189,8 @@ impl Heap {
                     let mut worker = shared.minor_tracer(MarkWorklist::default());
                     let changed = {
                         let mut visitor = MinorEphemeronTracer::new(&mut worker);
-                        for object in &shared.objects()[start..end] {
+                        for &candidate_index in &ephemeron_candidates[start..end] {
+                            let object = &shared.objects()[candidate_index];
                             let survives =
                                 object.space() != SpaceKind::Nursery || object.is_marked();
                             if survives {
@@ -1234,6 +1261,8 @@ impl Heap {
         for index in start..self.objects.len() {
             let object_key = self.objects[index].object_key();
             self.object_index.insert(object_key, index);
+            let desc = self.objects[index].header().desc();
+            self.record_descriptor_candidates(object_key, desc);
         }
         Ok(EvacuationOutcome {
             forwarding,
@@ -1305,54 +1334,50 @@ impl Heap {
 
         self.object_index.clear();
         self.object_index.reserve(self.objects.len());
-        for (index, object) in self.objects.iter().enumerate() {
-            object.clear_mark();
-            self.object_index.insert(object.object_key(), index);
-            match object.space() {
+        self.weak_candidates.clear();
+        self.weak_candidates.reserve(self.objects.len());
+        self.ephemeron_candidates.clear();
+        self.ephemeron_candidates.reserve(self.objects.len());
+        for index in 0..self.objects.len() {
+            let (object_key, desc, space, total_size) = {
+                let object = &self.objects[index];
+                object.clear_mark();
+                (
+                    object.object_key(),
+                    object.header().desc(),
+                    object.space(),
+                    object.total_size(),
+                )
+            };
+            self.object_index.insert(object_key, index);
+            self.record_descriptor_candidates(object_key, desc);
+            match space {
                 SpaceKind::Nursery => {
-                    self.stats.nursery.live_bytes = self
-                        .stats
-                        .nursery
-                        .live_bytes
-                        .saturating_add(object.total_size());
+                    self.stats.nursery.live_bytes =
+                        self.stats.nursery.live_bytes.saturating_add(total_size);
                 }
                 SpaceKind::Old => {
-                    self.stats.old.live_bytes = self
-                        .stats
-                        .old
-                        .live_bytes
-                        .saturating_add(object.total_size());
+                    self.stats.old.live_bytes =
+                        self.stats.old.live_bytes.saturating_add(total_size);
                 }
                 SpaceKind::Pinned => {
-                    self.stats.pinned.live_bytes = self
-                        .stats
-                        .pinned
-                        .live_bytes
-                        .saturating_add(object.total_size());
+                    self.stats.pinned.live_bytes =
+                        self.stats.pinned.live_bytes.saturating_add(total_size);
                 }
                 SpaceKind::Large => {
-                    self.stats.large.live_bytes = self
-                        .stats
-                        .large
-                        .live_bytes
-                        .saturating_add(object.total_size());
-                    self.stats.large.reserved_bytes = self
-                        .stats
-                        .large
-                        .reserved_bytes
-                        .saturating_add(object.total_size());
+                    self.stats.large.live_bytes =
+                        self.stats.large.live_bytes.saturating_add(total_size);
+                    self.stats.large.reserved_bytes =
+                        self.stats.large.reserved_bytes.saturating_add(total_size);
                 }
                 SpaceKind::Immortal => {
-                    self.stats.immortal.live_bytes = self
-                        .stats
-                        .immortal
-                        .live_bytes
-                        .saturating_add(object.total_size());
+                    self.stats.immortal.live_bytes =
+                        self.stats.immortal.live_bytes.saturating_add(total_size);
                     self.stats.immortal.reserved_bytes = self
                         .stats
                         .immortal
                         .reserved_bytes
-                        .saturating_add(object.total_size());
+                        .saturating_add(total_size);
                 }
             }
         }
@@ -1432,10 +1457,12 @@ impl Heap {
         forwarding: &ForwardingMap,
         index: &ObjectIndex,
     ) {
+        let weak_candidates = Arc::new(self.candidate_indices(&self.weak_candidates));
         let worker_count = worker_count.max(1);
-        if worker_count == 1 || self.objects.len() <= 1 {
+        if worker_count == 1 || weak_candidates.len() <= 1 {
             let mut processor = WeakRetention::new(&self.objects, index, forwarding, kind);
-            for object in &self.objects {
+            for &index in weak_candidates.iter() {
+                let object = &self.objects[index];
                 if Self::survives_collection_kind(kind, object) {
                     object.process_weak_edges(&mut processor);
                 }
@@ -1443,21 +1470,23 @@ impl Heap {
             return;
         }
 
-        let workers = worker_count.min(self.objects.len().max(1));
-        let chunk_size = self.objects.len().max(1).div_ceil(workers);
+        let workers = worker_count.min(weak_candidates.len().max(1));
+        let chunk_size = weak_candidates.len().max(1).div_ceil(workers);
         let shared = ParallelWeakShared::new(&self.objects, index, forwarding, kind);
         thread::scope(|scope| {
             let mut handles = Vec::with_capacity(workers);
             for worker_index in 0..workers {
                 let shared = shared;
+                let weak_candidates = Arc::clone(&weak_candidates);
                 let start = worker_index.saturating_mul(chunk_size);
-                let end = (start + chunk_size).min(self.objects.len());
+                let end = (start + chunk_size).min(weak_candidates.len());
                 if start >= end {
                     continue;
                 }
                 handles.push(scope.spawn(move || {
                     let mut processor = shared.processor();
-                    for object in &shared.objects()[start..end] {
+                    for &candidate_index in &weak_candidates[start..end] {
+                        let object = &shared.objects()[candidate_index];
                         if Heap::survives_collection_kind(kind, object) {
                             object.process_weak_edges(&mut processor);
                         }
@@ -1501,6 +1530,16 @@ impl Heap {
     #[cfg(test)]
     pub(crate) fn contains<T>(&self, gc: crate::root::Gc<T>) -> bool {
         self.object_index.contains_key(&gc.erase().object_key())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn weak_candidate_count(&self) -> usize {
+        self.weak_candidates.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn ephemeron_candidate_count(&self) -> usize {
+        self.ephemeron_candidates.len()
     }
 
     #[cfg(test)]
