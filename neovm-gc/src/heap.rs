@@ -83,6 +83,16 @@ pub struct Heap {
     collector: CollectorState,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct HeapSharedSnapshot {
+    pub(crate) stats: HeapStats,
+    pub(crate) recommended_plan: CollectionPlan,
+    pub(crate) recommended_background_plan: Option<CollectionPlan>,
+    pub(crate) last_completed_plan: Option<CollectionPlan>,
+    pub(crate) active_major_mark_plan: Option<CollectionPlan>,
+    pub(crate) major_mark_progress: Option<MajorMarkProgress>,
+}
+
 // SAFETY: `Heap` owns all heap allocations and its raw pointers are internal references into that
 // owned storage or static descriptors. Sending a `Heap` to another thread does not invalidate those
 // pointers. Concurrent access is still not allowed without external synchronization, so `Heap` is
@@ -151,6 +161,17 @@ impl Heap {
     /// Return current heap statistics.
     pub fn stats(&self) -> HeapStats {
         self.stats
+    }
+
+    pub(crate) fn shared_snapshot(&self) -> HeapSharedSnapshot {
+        HeapSharedSnapshot {
+            stats: self.stats(),
+            recommended_plan: self.recommended_plan(),
+            recommended_background_plan: self.recommended_background_plan(),
+            last_completed_plan: self.last_completed_plan(),
+            active_major_mark_plan: self.active_major_mark_plan(),
+            major_mark_progress: self.major_mark_progress(),
+        }
     }
 
     /// Build a scheduler-visible collection plan from current heap state.

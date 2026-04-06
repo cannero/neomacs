@@ -1,4 +1,4 @@
-use crate::heap::{AllocError, Heap};
+use crate::heap::{AllocError, Heap, HeapSharedSnapshot};
 use crate::mutator::Mutator;
 use crate::plan::{BackgroundCollectionStatus, CollectionKind, CollectionPlan, MajorMarkProgress};
 use crate::runtime::CollectorRuntime;
@@ -228,14 +228,7 @@ impl SharedHeapSignal {
 
 impl SharedHeapSnapshot {
     fn capture(heap: &Heap) -> Self {
-        Self {
-            stats: heap.stats(),
-            recommended_plan: heap.recommended_plan(),
-            recommended_background_plan: heap.recommended_background_plan(),
-            last_completed_plan: heap.last_completed_plan(),
-            active_major_mark_plan: heap.active_major_mark_plan(),
-            major_mark_progress: heap.major_mark_progress(),
-        }
+        Self::from(heap.shared_snapshot())
     }
 
     fn public_status(&self) -> SharedHeapStatus {
@@ -246,6 +239,19 @@ impl SharedHeapSnapshot {
             last_completed_plan: self.last_completed_plan.clone(),
             active_major_mark_plan: self.active_major_mark_plan.clone(),
             major_mark_progress: self.major_mark_progress,
+        }
+    }
+}
+
+impl From<HeapSharedSnapshot> for SharedHeapSnapshot {
+    fn from(snapshot: HeapSharedSnapshot) -> Self {
+        Self {
+            stats: snapshot.stats,
+            recommended_plan: snapshot.recommended_plan,
+            recommended_background_plan: snapshot.recommended_background_plan,
+            last_completed_plan: snapshot.last_completed_plan,
+            active_major_mark_plan: snapshot.active_major_mark_plan,
+            major_mark_progress: snapshot.major_mark_progress,
         }
     }
 }

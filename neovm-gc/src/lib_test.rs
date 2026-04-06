@@ -5499,6 +5499,55 @@ fn shared_background_status_matches_shared_heap_status_background_view() {
 }
 
 #[test]
+fn heap_shared_snapshot_matches_shared_status_view() {
+    let shared = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        old: crate::spaces::OldGenConfig {
+            concurrent_mark_workers: 2,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for byte in 0..8u8 {
+                mutator
+                    .alloc(&mut scope, OldLeaf([byte; 32]))
+                    .expect("alloc old leaf");
+            }
+        })
+        .expect("seed old objects");
+
+    let snapshot = shared
+        .with_heap(|heap| heap.shared_snapshot())
+        .expect("capture heap shared snapshot");
+    let status = shared.status().expect("read shared status");
+
+    assert_eq!(snapshot.stats, status.stats);
+    assert_eq!(snapshot.recommended_plan, status.recommended_plan);
+    assert_eq!(
+        snapshot.recommended_background_plan,
+        status.recommended_background_plan
+    );
+    assert_eq!(snapshot.last_completed_plan, status.last_completed_plan);
+    assert_eq!(
+        snapshot.active_major_mark_plan,
+        status.active_major_mark_plan
+    );
+    assert_eq!(snapshot.major_mark_progress, status.major_mark_progress);
+}
+
+#[test]
 fn shared_background_observation_stays_stable_under_lock_and_refreshes_on_drop() {
     let shared = Heap::new(HeapConfig {
         nursery: NurseryConfig {
