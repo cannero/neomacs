@@ -4,6 +4,8 @@ use crate::background::{
     SharedBackgroundService, SharedBackgroundStatus, SharedBackgroundWaitResult,
     SharedCollectorHandle, SharedHeap, SharedHeapError, SharedHeapStatus, SharedRuntimeHandle,
 };
+use crate::collector_policy::refresh_cached_plans as refresh_cached_collector_plans;
+use crate::collector_session;
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
 use crate::heap::{AllocError, Heap};
 use crate::plan::{
@@ -441,7 +443,21 @@ impl SharedCollectorRuntime {
     /// Begin a persistent major-mark session for one scheduler-provided plan.
     pub fn begin_major_mark(&self, plan: CollectionPlan) -> Result<(), SharedBackgroundError> {
         self.with_heap_read_collector_update(|heap, collector| {
-            heap.begin_major_mark_with_collector(collector, plan)
+            collector_session::begin_major_mark(
+                collector,
+                heap.objects(),
+                &heap.indexes().object_index,
+                plan,
+                heap.global_sources(),
+            )?;
+            refresh_cached_collector_plans(
+                collector,
+                &heap.storage_stats(),
+                heap.old_gen(),
+                heap.old_config(),
+                |kind| heap.plan_for(kind),
+            );
+            Ok(())
         })
         .map_err(Self::map_shared_heap_error)?
         .map_err(SharedBackgroundError::Collection)
@@ -450,7 +466,21 @@ impl SharedCollectorRuntime {
     /// Begin a persistent major-mark session without blocking on heap contention.
     pub fn try_begin_major_mark(&self, plan: CollectionPlan) -> Result<(), SharedBackgroundError> {
         self.try_with_heap_read_collector_update(|heap, collector| {
-            heap.begin_major_mark_with_collector(collector, plan)
+            collector_session::begin_major_mark(
+                collector,
+                heap.objects(),
+                &heap.indexes().object_index,
+                plan,
+                heap.global_sources(),
+            )?;
+            refresh_cached_collector_plans(
+                collector,
+                &heap.storage_stats(),
+                heap.old_gen(),
+                heap.old_config(),
+                |kind| heap.plan_for(kind),
+            );
+            Ok(())
         })
         .map_err(Self::map_shared_heap_error)?
         .map_err(SharedBackgroundError::Collection)
@@ -462,7 +492,21 @@ impl SharedCollectorRuntime {
         &self,
     ) -> Result<Option<MajorMarkProgress>, SharedBackgroundError> {
         self.with_heap_read_collector_update(|heap, collector| {
-            heap.poll_active_major_mark_with_collector(collector)
+            let progress = collector_session::poll_active_major_mark_with_completion(
+                collector,
+                heap.objects(),
+                &heap.indexes().object_index,
+                |tracer, plan| heap.trace_major_ephemerons(tracer, plan),
+                |plan| heap.prepare_major_reclaim(plan),
+            )?;
+            refresh_cached_collector_plans(
+                collector,
+                &heap.storage_stats(),
+                heap.old_gen(),
+                heap.old_config(),
+                |kind| heap.plan_for(kind),
+            );
+            Ok(progress)
         })
         .map_err(Self::map_shared_heap_error)?
         .map_err(SharedBackgroundError::Collection)
@@ -474,7 +518,21 @@ impl SharedCollectorRuntime {
         &self,
     ) -> Result<Option<MajorMarkProgress>, SharedBackgroundError> {
         self.try_with_heap_read_collector_update(|heap, collector| {
-            heap.poll_active_major_mark_with_collector(collector)
+            let progress = collector_session::poll_active_major_mark_with_completion(
+                collector,
+                heap.objects(),
+                &heap.indexes().object_index,
+                |tracer, plan| heap.trace_major_ephemerons(tracer, plan),
+                |plan| heap.prepare_major_reclaim(plan),
+            )?;
+            refresh_cached_collector_plans(
+                collector,
+                &heap.storage_stats(),
+                heap.old_gen(),
+                heap.old_config(),
+                |kind| heap.plan_for(kind),
+            );
+            Ok(progress)
         })
         .map_err(Self::map_shared_heap_error)?
         .map_err(SharedBackgroundError::Collection)
@@ -499,7 +557,21 @@ impl SharedCollectorRuntime {
         {
             return self
                 .with_heap_read_collector_update(|heap, collector| {
-                    heap.prepare_active_major_reclaim_with_collector(collector)
+                    let prepared = collector_session::prepare_active_major_reclaim_with_request(
+                        collector,
+                        heap.objects(),
+                        &heap.indexes().object_index,
+                        |tracer, plan| heap.trace_major_ephemerons(tracer, plan),
+                        |plan| heap.prepare_major_reclaim(plan),
+                    )?;
+                    refresh_cached_collector_plans(
+                        collector,
+                        &heap.storage_stats(),
+                        heap.old_gen(),
+                        heap.old_config(),
+                        |kind| heap.plan_for(kind),
+                    );
+                    Ok(prepared)
                 })
                 .map_err(Self::map_shared_heap_error)?
                 .map_err(SharedBackgroundError::Collection);
@@ -529,7 +601,21 @@ impl SharedCollectorRuntime {
         {
             return self
                 .try_with_heap_read_collector_update(|heap, collector| {
-                    heap.prepare_active_major_reclaim_with_collector(collector)
+                    let prepared = collector_session::prepare_active_major_reclaim_with_request(
+                        collector,
+                        heap.objects(),
+                        &heap.indexes().object_index,
+                        |tracer, plan| heap.trace_major_ephemerons(tracer, plan),
+                        |plan| heap.prepare_major_reclaim(plan),
+                    )?;
+                    refresh_cached_collector_plans(
+                        collector,
+                        &heap.storage_stats(),
+                        heap.old_gen(),
+                        heap.old_config(),
+                        |kind| heap.plan_for(kind),
+                    );
+                    Ok(prepared)
                 })
                 .map_err(Self::map_shared_heap_error)?
                 .map_err(SharedBackgroundError::Collection);

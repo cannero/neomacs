@@ -9,9 +9,8 @@ use crate::collector_exec::{
     collect_global_sources, execute_collection_plan, prepare_full_reclaim_for_plan,
     prepare_major_reclaim_for_plan, trace_major_ephemerons_for_candidates,
 };
-use crate::collector_policy::refresh_cached_plans as refresh_cached_collector_plans;
 use crate::collector_session::{self, build_prepared_active_reclaim, prepare_active_reclaim};
-use crate::collector_state::{CollectorSharedSnapshot, CollectorState, CollectorStateHandle};
+use crate::collector_state::{CollectorSharedSnapshot, CollectorStateHandle};
 use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
 use crate::index_state::HeapIndexState;
 use crate::mutator::Mutator;
@@ -143,6 +142,26 @@ impl Heap {
 
     pub(crate) fn collector_handle(&self) -> CollectorStateHandle {
         self.collector.clone()
+    }
+
+    pub(crate) fn global_sources(&self) -> Vec<GcErased> {
+        collect_global_sources(&self.roots, &self.objects)
+    }
+
+    pub(crate) fn objects(&self) -> &[ObjectRecord] {
+        &self.objects
+    }
+
+    pub(crate) fn indexes(&self) -> &HeapIndexState {
+        &self.indexes
+    }
+
+    pub(crate) fn old_gen(&self) -> &OldGenState {
+        &self.old_gen
+    }
+
+    pub(crate) fn old_config(&self) -> &OldGenConfig {
+        &self.config.old
     }
 
     /// Return the heap configuration.
@@ -299,28 +318,6 @@ impl Heap {
         )
     }
 
-    pub(crate) fn begin_major_mark_with_collector(
-        &self,
-        collector: &mut CollectorState,
-        plan: CollectionPlan,
-    ) -> Result<(), AllocError> {
-        collector_session::begin_major_mark(
-            collector,
-            &self.objects,
-            &self.indexes.object_index,
-            plan,
-            collect_global_sources(&self.roots, &self.objects),
-        )?;
-        refresh_cached_collector_plans(
-            collector,
-            &self.storage_stats(),
-            &self.old_gen,
-            &self.config.old,
-            |kind| self.plan_for(kind),
-        );
-        Ok(())
-    }
-
     /// Advance one slice of the current persistent major-mark session.
     pub fn advance_major_mark(&self) -> Result<MajorMarkProgress, AllocError> {
         let progress = self.collector.assist_active_major_mark_slices_and_refresh(
@@ -424,85 +421,6 @@ impl Heap {
                 &self.config.old,
                 |kind| self.plan_for(kind),
             )
-    }
-
-    pub(crate) fn poll_active_major_mark_with_collector(
-        &self,
-        collector: &mut CollectorState,
-    ) -> Result<Option<MajorMarkProgress>, AllocError> {
-        let progress = collector_session::poll_active_major_mark_with_completion(
-            collector,
-            &self.objects,
-            &self.indexes.object_index,
-            |tracer, plan| {
-                trace_major_ephemerons_for_candidates(
-                    &self.objects,
-                    &self.indexes.object_index,
-                    &self.indexes.ephemeron_candidates,
-                    tracer,
-                    plan.worker_count.max(1),
-                    plan.mark_slice_budget,
-                )
-            },
-            |plan| {
-                prepare_major_reclaim_for_plan(
-                    plan,
-                    &self.objects,
-                    &self.indexes,
-                    &self.old_gen,
-                    &self.config.old,
-                )
-            },
-        )?;
-        let Some(progress) = progress else {
-            return Ok(None);
-        };
-        refresh_cached_collector_plans(
-            collector,
-            &self.storage_stats(),
-            &self.old_gen,
-            &self.config.old,
-            |kind| self.plan_for(kind),
-        );
-        Ok(Some(progress))
-    }
-
-    pub(crate) fn prepare_active_major_reclaim_with_collector(
-        &self,
-        collector: &mut CollectorState,
-    ) -> Result<bool, AllocError> {
-        let prepared = collector_session::prepare_active_major_reclaim_with_request(
-            collector,
-            &self.objects,
-            &self.indexes.object_index,
-            |tracer, plan| {
-                trace_major_ephemerons_for_candidates(
-                    &self.objects,
-                    &self.indexes.object_index,
-                    &self.indexes.ephemeron_candidates,
-                    tracer,
-                    plan.worker_count.max(1),
-                    plan.mark_slice_budget,
-                )
-            },
-            |plan| {
-                prepare_major_reclaim_for_plan(
-                    plan,
-                    &self.objects,
-                    &self.indexes,
-                    &self.old_gen,
-                    &self.config.old,
-                )
-            },
-        )?;
-        refresh_cached_collector_plans(
-            collector,
-            &self.storage_stats(),
-            &self.old_gen,
-            &self.config.old,
-            |kind| self.plan_for(kind),
-        );
-        Ok(prepared)
     }
 
     /// Finish the active major collection if its mark work is fully drained.
@@ -989,13 +907,28 @@ impl Heap {
             .map(|&index| self.objects[index].space())
     }
 
-    fn prepare_major_reclaim(&mut self, plan: &CollectionPlan) -> PreparedReclaim {
+    pub(crate) fn prepare_major_reclaim(&self, plan: &CollectionPlan) -> PreparedReclaim {
         prepare_major_reclaim_for_plan(
             plan,
             &self.objects,
             &self.indexes,
             &self.old_gen,
             &self.config.old,
+        )
+    }
+
+    pub(crate) fn trace_major_ephemerons(
+        &self,
+        tracer: &mut crate::collector_exec::MarkTracer<'_>,
+        plan: &CollectionPlan,
+    ) -> (u64, u64) {
+        trace_major_ephemerons_for_candidates(
+            &self.objects,
+            &self.indexes.object_index,
+            &self.indexes.ephemeron_candidates,
+            tracer,
+            plan.worker_count.max(1),
+            plan.mark_slice_budget,
         )
     }
 
