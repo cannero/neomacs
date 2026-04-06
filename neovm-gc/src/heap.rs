@@ -16,7 +16,7 @@ use crate::collector_session::{
     poll_active_major_mark_round, prepare_active_reclaim,
 };
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
-use crate::descriptor::{GcErased, Trace, Tracer, TypeDesc, fixed_type_desc};
+use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
 use crate::index_state::{ForwardingMap, HeapIndexState, ObjectIndex};
 use crate::mark::MarkWorklist;
 use crate::mutator::Mutator;
@@ -362,7 +362,7 @@ impl Heap {
             &self.objects,
             &self.indexes.object_index,
             plan,
-            |tracer| self.for_each_global_source(|object| tracer.mark_erased(object)),
+            self.global_sources(),
         )?;
         let recommended_plan = self.compute_recommended_plan_from_collector(&collector);
         let recommended_background_plan =
@@ -1163,15 +1163,13 @@ impl Heap {
             .expect("mutator assist on active major-mark session should not fail");
     }
 
-    fn for_each_global_source(&self, mut f: impl FnMut(GcErased)) {
-        for root in self.roots.iter() {
-            f(root);
-        }
-        for object in &self.objects {
-            if object.space() == SpaceKind::Immortal {
-                f(object.erased());
-            }
-        }
+    fn global_sources(&self) -> impl Iterator<Item = GcErased> + '_ {
+        self.roots.iter().chain(
+            self.objects
+                .iter()
+                .filter(|object| object.space() == SpaceKind::Immortal)
+                .map(ObjectRecord::erased),
+        )
     }
 
     fn trace_major(
@@ -1185,12 +1183,7 @@ impl Heap {
             index,
             worker_count,
             slice_budget,
-            self.roots.iter().chain(
-                self.objects
-                    .iter()
-                    .filter(|object| object.space() == SpaceKind::Immortal)
-                    .map(ObjectRecord::erased),
-            ),
+            self.global_sources(),
         )
     }
 
@@ -1210,12 +1203,7 @@ impl Heap {
             &ephemeron_candidates,
             worker_count,
             slice_budget,
-            self.roots.iter().chain(
-                self.objects
-                    .iter()
-                    .filter(|object| object.space() == SpaceKind::Immortal)
-                    .map(ObjectRecord::erased),
-            ),
+            self.global_sources(),
         )
     }
 

@@ -1,3 +1,4 @@
+use crate::descriptor::Tracer;
 use std::time::{Duration, Instant};
 
 use crate::collector_exec::MarkTracer;
@@ -27,7 +28,7 @@ pub(crate) fn begin_major_mark(
     objects: &[ObjectRecord],
     index: &ObjectIndex,
     plan: CollectionPlan,
-    seed_roots: impl FnOnce(&mut MarkTracer<'_>),
+    sources: impl IntoIterator<Item = crate::descriptor::GcErased>,
 ) -> Result<(), AllocError> {
     if collector.has_active_major_mark() {
         return Err(AllocError::CollectionInProgress);
@@ -47,7 +48,9 @@ pub(crate) fn begin_major_mark(
     }
 
     let mut tracer = MarkTracer::new(objects, index);
-    seed_roots(&mut tracer);
+    for source in sources {
+        tracer.mark_erased(source);
+    }
     collector.begin_major_mark(plan, tracer.into_worklist());
     Ok(())
 }

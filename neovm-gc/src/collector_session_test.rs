@@ -1,8 +1,11 @@
 use super::*;
+use crate::descriptor::{Relocator, Trace, Tracer, fixed_type_desc};
 use crate::mark::MarkWorklist;
+use crate::object::{ObjectRecord, SpaceKind};
 use crate::plan::{CollectionKind, CollectionPhase, CollectionPlan};
 use crate::reclaim::{PreparedReclaim, PreparedReclaimSurvivor};
 use crate::spaces::OldRegionCollectionStats;
+use std::collections::HashMap;
 
 fn major_plan() -> CollectionPlan {
     CollectionPlan {
@@ -49,6 +52,39 @@ fn prepared_reclaim() -> PreparedReclaim {
         large_live_bytes: 0,
         immortal_live_bytes: 0,
     }
+}
+
+#[derive(Debug)]
+struct Leaf;
+
+unsafe impl Trace for Leaf {
+    fn trace(&self, _tracer: &mut dyn Tracer) {}
+
+    fn relocate(&self, _relocator: &mut dyn Relocator) {}
+}
+
+#[test]
+fn begin_major_mark_seeds_sources_into_initial_worklist() {
+    let mut state = CollectorState::default();
+    let desc = Box::leak(Box::new(fixed_type_desc::<Leaf>()));
+    let object =
+        ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate pinned leaf");
+    let index = [(object.object_key(), 0usize)]
+        .into_iter()
+        .collect::<HashMap<_, _>>();
+    let objects = [object];
+
+    begin_major_mark(
+        &mut state,
+        &objects,
+        &index,
+        major_plan(),
+        [objects[0].erased()],
+    )
+    .expect("begin major mark");
+
+    let progress = state.major_mark_progress().expect("major mark progress");
+    assert_eq!(progress.remaining_work, 1);
 }
 
 #[test]
