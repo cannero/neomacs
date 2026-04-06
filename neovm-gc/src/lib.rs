@@ -24,9 +24,9 @@ pub use background::{
     BackgroundCollectionRuntime, BackgroundCollector, BackgroundCollectorConfig,
     BackgroundCollectorStats, BackgroundService, BackgroundWorker, BackgroundWorkerConfig,
     BackgroundWorkerError, BackgroundWorkerStats, BackgroundWorkerStatus, SharedBackgroundError,
-    SharedBackgroundService, SharedBackgroundServiceStatus, SharedBackgroundStatus,
-    SharedBackgroundWaitResult, SharedHeap, SharedHeapAccessError, SharedHeapError,
-    SharedHeapStatus,
+    SharedBackgroundObservation, SharedBackgroundService, SharedBackgroundServiceStatus,
+    SharedBackgroundStatus, SharedBackgroundWaitResult, SharedHeap, SharedHeapAccessError,
+    SharedHeapError, SharedHeapStatus,
 };
 pub use barrier::{BarrierEvent, BarrierKind, RememberedEdge};
 pub use descriptor::{

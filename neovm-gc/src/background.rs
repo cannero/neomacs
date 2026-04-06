@@ -113,6 +113,15 @@ pub struct SharedBackgroundStatus {
     pub major_mark_progress: Option<MajorMarkProgress>,
 }
 
+/// One consistent observation of background epoch and background-visible shared heap state.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SharedBackgroundObservation {
+    /// Background-state change epoch associated with this observation.
+    pub epoch: u64,
+    /// Background-collector-visible state observed at that epoch.
+    pub status: SharedBackgroundStatus,
+}
+
 /// Result of waiting for one background-collector-visible shared heap state change.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SharedBackgroundWaitResult {
@@ -457,6 +466,19 @@ impl SharedHeap {
         self.read_background_snapshot(Clone::clone)
     }
 
+    fn observe_background_snapshot(
+        &self,
+    ) -> Result<(u64, SharedBackgroundSnapshot), SharedHeapError> {
+        loop {
+            let before_epoch = self.background_signal.current_epoch()?;
+            let snapshot = self.background_snapshot()?;
+            let after_epoch = self.background_signal.current_epoch()?;
+            if before_epoch == after_epoch {
+                return Ok((after_epoch, snapshot));
+            }
+        }
+    }
+
     fn wait_for_background_change_internal(
         &self,
         observed_epoch: &mut u64,
@@ -651,6 +673,16 @@ impl SharedHeap {
     /// Return background-collector-visible shared heap state from the latest shared snapshot.
     pub fn background_status(&self) -> Result<SharedBackgroundStatus, SharedHeapError> {
         self.read_background_snapshot(|snapshot| SharedBackgroundStatus::from(snapshot))
+    }
+
+    /// Return one consistent observation of background epoch and background-visible shared heap
+    /// state.
+    pub fn background_observation(&self) -> Result<SharedBackgroundObservation, SharedHeapError> {
+        let (epoch, snapshot) = self.observe_background_snapshot()?;
+        Ok(SharedBackgroundObservation {
+            epoch,
+            status: SharedBackgroundStatus::from(&snapshot),
+        })
     }
 
     /// Return the last completed plan, if any.
@@ -1284,6 +1316,19 @@ impl SharedBackgroundService {
         })
     }
 
+    /// Return one consistent observation of background epoch and background-visible shared heap
+    /// state for this service.
+    pub fn background_observation(
+        &self,
+    ) -> Result<SharedBackgroundObservation, SharedBackgroundError> {
+        self.heap
+            .background_observation()
+            .map_err(|error| match error {
+                SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,
+                SharedHeapError::WouldBlock => SharedBackgroundError::WouldBlock,
+            })
+    }
+
     /// Wait for one background-collector-visible shared heap state change for this service.
     pub fn wait_for_background_change(
         &self,
@@ -1507,33 +1552,20 @@ fn worker_loop(
     stats: Arc<BackgroundWorkerCounters>,
 ) -> Result<(), BackgroundWorkerError> {
     let mut collector = BackgroundCollector::new(config.collector);
-    let mut observed_signal_epoch = shared
-        .background_epoch()
-        .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-    let mut observed_background = shared
-        .background_snapshot()
+    let (mut observed_signal_epoch, mut observed_background) = shared
+        .observe_background_snapshot()
         .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
 
     let sync_observed_background = |shared: &SharedHeap,
                                     observed_signal_epoch: &mut u64,
                                     observed_background: &mut SharedBackgroundSnapshot|
      -> Result<(), BackgroundWorkerError> {
-        loop {
-            let before = shared
-                .background_snapshot()
-                .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-            let epoch = shared
-                .background_epoch()
-                .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-            let after = shared
-                .background_snapshot()
-                .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
-            if before == after {
-                *observed_signal_epoch = epoch;
-                *observed_background = after;
-                return Ok(());
-            }
-        }
+        let (epoch, snapshot) = shared
+            .observe_background_snapshot()
+            .map_err(|_| BackgroundWorkerError::LockPoisoned)?;
+        *observed_signal_epoch = epoch;
+        *observed_background = snapshot;
+        Ok(())
     };
 
     let wait_for_signal = |stats: &Arc<BackgroundWorkerCounters>,

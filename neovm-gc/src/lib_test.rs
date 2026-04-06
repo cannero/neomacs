@@ -5499,6 +5499,53 @@ fn shared_background_status_matches_shared_heap_status_background_view() {
 }
 
 #[test]
+fn shared_background_observation_stays_stable_under_lock_and_refreshes_on_drop() {
+    let shared = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        old: crate::spaces::OldGenConfig {
+            concurrent_mark_workers: 2,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+
+    let before = shared
+        .background_observation()
+        .expect("read shared background observation before lock");
+    assert!(before.status.recommended_background_plan.is_none());
+
+    {
+        let mut heap = shared.lock().expect("lock shared heap");
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        for byte in 0..8u8 {
+            mutator
+                .alloc(&mut scope, OldLeaf([byte; 32]))
+                .expect("alloc old leaf");
+        }
+
+        let during = shared
+            .background_observation()
+            .expect("read shared background observation while heap lock held");
+        assert_eq!(during, before);
+    }
+
+    let after = shared
+        .background_observation()
+        .expect("read shared background observation after guard drop");
+    assert!(after.epoch > before.epoch);
+    assert!(after.status.recommended_background_plan.is_some());
+}
+
+#[test]
 fn shared_background_service_wait_for_background_change_reports_old_work_change() {
     let shared = Heap::new(HeapConfig {
         nursery: NurseryConfig {
