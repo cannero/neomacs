@@ -1511,16 +1511,17 @@ impl Heap {
         &mut self,
         prepared_reclaim: PreparedReclaim,
     ) -> (u64, OldRegionCollectionStats) {
-        let mut rebuilt_objects = Vec::with_capacity(prepared_reclaim.survivors.len());
         let mut finalized_objects = 0u64;
         let mut survivor_iter = prepared_reclaim.survivors.iter().peekable();
         let mut finalize_iter = prepared_reclaim.finalize_indices.iter().copied().peekable();
-
-        for (object_index, mut object) in core::mem::take(&mut self.objects).into_iter().enumerate()
-        {
+        let mut object_index = 0usize;
+        let mut rebuilt_objects = core::mem::take(&mut self.objects);
+        rebuilt_objects.retain_mut(|object| {
+            let current_index = object_index;
+            object_index = object_index.saturating_add(1);
             let should_finalize = finalize_iter
                 .peek()
-                .is_some_and(|&pending_index| pending_index == object_index);
+                .is_some_and(|&pending_index| pending_index == current_index);
             if should_finalize {
                 finalize_iter.next();
                 if object.run_finalizer() {
@@ -1529,17 +1530,17 @@ impl Heap {
             }
 
             let Some(survivor) =
-                survivor_iter.next_if(|survivor| survivor.object_index == object_index)
+                survivor_iter.next_if(|survivor| survivor.object_index == current_index)
             else {
-                continue;
+                return false;
             };
 
             object.clear_mark();
             if let Some(placement) = survivor.old_region_placement {
                 object.set_old_region_placement(placement);
             }
-            rebuilt_objects.push(object);
-        }
+            true
+        });
         debug_assert!(
             survivor_iter.next().is_none(),
             "prepared reclaim survivors should all be drained during finish"
