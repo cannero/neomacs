@@ -246,6 +246,21 @@ impl SharedCollectorRuntime {
         {
             return Ok(false);
         }
+        if snapshot
+            .active_major_mark_plan
+            .as_ref()
+            .is_some_and(|plan| plan.kind == crate::plan::CollectionKind::Major)
+        {
+            let (prepared, collector_snapshot) = self
+                .heap
+                .with_heap_read(|heap| heap.prepare_active_major_reclaim_with_snapshot())
+                .map_err(Self::map_shared_heap_error)?
+                .map_err(SharedBackgroundError::Collection)?;
+            self.heap
+                .publish_collector_snapshot(collector_snapshot)
+                .map_err(Self::map_shared_heap_error)?;
+            return Ok(prepared);
+        }
         self.heap
             .with_runtime(|runtime| runtime.prepare_active_reclaim_if_needed())
             .map_err(Self::map_shared_heap_error)?
@@ -264,6 +279,21 @@ impl SharedCollectorRuntime {
             .is_some_and(|progress| !progress.completed)
         {
             return Ok(false);
+        }
+        if snapshot
+            .active_major_mark_plan
+            .as_ref()
+            .is_some_and(|plan| plan.kind == crate::plan::CollectionKind::Major)
+        {
+            let (prepared, collector_snapshot) = self
+                .heap
+                .try_with_heap_read(|heap| heap.prepare_active_major_reclaim_with_snapshot())
+                .map_err(Self::map_shared_heap_error)?
+                .map_err(SharedBackgroundError::Collection)?;
+            self.heap
+                .publish_collector_snapshot(collector_snapshot)
+                .map_err(Self::map_shared_heap_error)?;
+            return Ok(prepared);
         }
         self.heap
             .try_with_runtime(|runtime| runtime.prepare_active_reclaim_if_needed())

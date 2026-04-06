@@ -599,6 +599,55 @@ impl Heap {
         Ok((Some(progress), collector.shared_snapshot()))
     }
 
+    pub(crate) fn prepare_active_major_reclaim_with_snapshot(
+        &self,
+    ) -> Result<(bool, CollectorSharedSnapshot), AllocError> {
+        let mut collector = self.collector();
+        let plan = collector.active_major_mark_needs_reclaim_prep_plan();
+        let Some(plan) = plan else {
+            return Ok((false, collector.shared_snapshot()));
+        };
+        if plan.kind != CollectionKind::Major {
+            return Ok((false, collector.shared_snapshot()));
+        }
+
+        let mut mark_steps_delta = 0u64;
+        let mut mark_rounds_delta = 0u64;
+        if !collector.active_major_mark_ephemerons_processed() {
+            let mut tracer = MarkTracer::with_worklist(
+                &self.objects,
+                &self.object_index,
+                MarkWorklist::default(),
+            );
+            let (ephemeron_steps, ephemeron_rounds) = self.trace_major_ephemerons(
+                &mut tracer,
+                plan.worker_count.max(1),
+                plan.mark_slice_budget,
+            );
+            mark_steps_delta = mark_steps_delta.saturating_add(ephemeron_steps);
+            mark_rounds_delta = mark_rounds_delta.saturating_add(ephemeron_rounds);
+        }
+
+        let empty_forwarding: ForwardingMap = HashMap::new();
+        self.process_weak_references(
+            CollectionKind::Major,
+            plan.worker_count.max(1),
+            &empty_forwarding,
+            &self.object_index,
+        );
+        let prepared_reclaim = self.prepare_reclaim(CollectionKind::Major, &plan);
+        let prepared = collector.complete_active_major_reclaim_prep(
+            mark_steps_delta,
+            mark_rounds_delta,
+            prepared_reclaim,
+        );
+        let recommended_plan = self.compute_recommended_plan_from_collector(&collector);
+        let recommended_background_plan =
+            self.compute_recommended_background_plan_from_collector(&collector);
+        collector.set_cached_plans(recommended_plan, recommended_background_plan);
+        Ok((prepared, collector.shared_snapshot()))
+    }
+
     /// Finish the active major collection if its mark work is fully drained.
     pub fn finish_active_major_collection_if_ready(
         &mut self,
