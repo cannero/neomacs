@@ -756,7 +756,7 @@ fn create_startup_evaluator_for_mode(mode: RuntimeMode, startup: &StartupOptions
                 BOOTSTRAP_CORE_FEATURES,
                 startup.dump_file_override.as_deref(),
             )
-            .unwrap_or_else(|_| panic!("bootstrap image should load; see log for details"))
+            .unwrap_or_else(|e| panic!("bootstrap image should load: {e:?}"))
         }
         RuntimeMode::FinalRun => neovm_core::emacs_core::load::load_runtime_image_with_features(
             RuntimeImageRole::Final,
@@ -818,6 +818,10 @@ pub fn run(mode: RuntimeMode) {
     // normal-top-level → command-line → init → Doom hooks) can exhaust
     // the default 8 MB stack.
     increase_stack_limit();
+
+    // Initialize tracing subscriber as early as possible so all log
+    // messages (including pdump load errors) are visible.
+    neomacs_display_runtime::init_logging();
 
     if let Some(action) = classify_early_cli_action(std::env::args()) {
         match action {
