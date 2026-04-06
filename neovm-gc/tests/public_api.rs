@@ -3658,6 +3658,62 @@ fn public_api_shared_background_service_wait_for_change_delegates_to_shared_heap
 }
 
 #[test]
+fn public_api_shared_background_status_matches_shared_heap_status_background_view() {
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            region_bytes: 512,
+            line_bytes: 16,
+            concurrent_mark_workers: 2,
+            mutator_assist_slices: 0,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for byte in 0..16u8 {
+                mutator
+                    .alloc(&mut scope, OldLeaf([byte; 32]))
+                    .expect("alloc old leaf");
+            }
+        })
+        .expect("seed old objects");
+    let mut service = shared.background_service(neovm_gc::BackgroundCollectorConfig {
+        auto_finish_when_ready: false,
+        ..neovm_gc::BackgroundCollectorConfig::default()
+    });
+    let _ = service.tick().expect("advance shared background service");
+
+    let heap_status = shared.status().expect("read shared heap status");
+    let background_status = shared
+        .background_status()
+        .expect("read shared background status");
+
+    assert_eq!(
+        background_status.recommended_background_plan,
+        heap_status.recommended_background_plan
+    );
+    assert_eq!(
+        background_status.active_major_mark_plan,
+        heap_status.active_major_mark_plan
+    );
+    assert_eq!(
+        background_status.major_mark_progress,
+        heap_status.major_mark_progress
+    );
+}
+
+#[test]
 fn public_api_shared_background_service_wait_for_background_change_reports_old_work_change() {
     let shared = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
