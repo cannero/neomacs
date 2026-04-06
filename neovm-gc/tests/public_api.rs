@@ -3586,6 +3586,110 @@ fn public_api_shared_collector_runtime_can_finish_after_read_lock_is_released() 
 }
 
 #[test]
+fn public_api_shared_collector_runtime_background_observation_stays_stable_under_lock_and_refreshes_on_drop()
+ {
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            concurrent_mark_workers: 2,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    let runtime = shared.collector_runtime();
+
+    let before = runtime
+        .background_observation()
+        .expect("read shared collector runtime background observation before lock");
+    assert!(before.status.recommended_background_plan.is_none());
+
+    {
+        let mut heap = shared.lock().expect("lock shared heap");
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        for byte in 0..8u8 {
+            mutator
+                .alloc(&mut scope, OldLeaf([byte; 32]))
+                .expect("alloc old leaf");
+        }
+
+        let during = runtime
+            .background_observation()
+            .expect("read shared collector runtime background observation while heap lock held");
+        assert_eq!(during, before);
+    }
+
+    let after = runtime
+        .background_observation()
+        .expect("read shared collector runtime background observation after guard drop");
+    assert!(after.epoch > before.epoch);
+    assert!(after.status.recommended_background_plan.is_some());
+}
+
+#[test]
+fn public_api_shared_collector_runtime_wait_for_background_change_reports_old_work_change() {
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            region_bytes: 512,
+            line_bytes: 16,
+            concurrent_mark_workers: 2,
+            mutator_assist_slices: 0,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+    let runtime = shared.collector_runtime();
+    let observed_epoch = runtime
+        .background_epoch()
+        .expect("read initial shared collector runtime background epoch");
+    let observed_status = runtime
+        .background_status()
+        .expect("read initial shared collector runtime background status");
+    let waking_shared = shared.clone();
+    let waiter = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(10));
+        waking_shared
+            .with_mutator(|mutator| {
+                let mut scope = mutator.handle_scope();
+                for byte in 0..16u8 {
+                    mutator
+                        .alloc(&mut scope, OldLeaf([byte; 32]))
+                        .expect("alloc old leaf");
+                }
+            })
+            .expect("mutate shared heap");
+    });
+
+    let wake = runtime
+        .wait_for_background_change(observed_epoch, &observed_status, Duration::from_secs(1))
+        .expect("wait for shared collector runtime background-state change");
+    waiter.join().expect("join waking thread");
+
+    assert!(wake.signal_changed);
+    assert!(wake.background_changed);
+    assert!(wake.next_epoch > observed_epoch);
+    assert_ne!(wake.status, observed_status);
+    assert!(wake.status.recommended_background_plan.is_some());
+}
+
+#[test]
 fn public_api_shared_try_with_mutator_reports_would_block_when_heap_is_read_locked() {
     let shared = neovm_gc::SharedHeap::new(HeapConfig::default());
     let _guard = shared.read().expect("read-lock shared heap");
