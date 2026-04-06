@@ -940,6 +940,45 @@ impl BackgroundCollector {
         })
     }
 
+    pub(crate) fn try_tick_with_rounds(
+        &mut self,
+        mut tick_round: impl FnMut(
+            &mut Self,
+        ) -> Result<BackgroundCollectionStatus, SharedBackgroundError>,
+    ) -> Result<BackgroundCollectionStatus, SharedBackgroundError> {
+        self.begin_tick();
+
+        let rounds = self.config.max_rounds_per_tick.max(1);
+        let mut total_drained_objects = 0usize;
+        let mut last_progress = None;
+        for _ in 0..rounds {
+            match tick_round(self) {
+                Ok(BackgroundCollectionStatus::Idle) => break,
+                Ok(BackgroundCollectionStatus::Finished(cycle)) => {
+                    return Ok(BackgroundCollectionStatus::Finished(cycle));
+                }
+                Ok(BackgroundCollectionStatus::Progress(progress)) => {
+                    last_progress = Some(Self::aggregate_progress(
+                        &mut total_drained_objects,
+                        progress,
+                    ));
+                }
+                Ok(BackgroundCollectionStatus::ReadyToFinish(progress)) => {
+                    return Ok(BackgroundCollectionStatus::ReadyToFinish(
+                        Self::aggregate_progress(&mut total_drained_objects, progress),
+                    ));
+                }
+                Err(SharedBackgroundError::WouldBlock) if last_progress.is_some() => break,
+                Err(error) => return Err(error),
+            }
+        }
+
+        Ok(match last_progress {
+            Some(progress) => BackgroundCollectionStatus::Progress(progress),
+            None => BackgroundCollectionStatus::Idle,
+        })
+    }
+
     fn snapshot_tick(
         &mut self,
         snapshot: &SharedBackgroundSnapshot,
@@ -976,7 +1015,7 @@ impl BackgroundCollector {
         heap: &SharedHeap,
     ) -> Result<BackgroundCollectionStatus, SharedBackgroundError> {
         let heap = heap.clone();
-        self.tick_with_rounds(|collector| {
+        self.try_tick_with_rounds(|collector| {
             heap.try_with_runtime(|runtime| collector.tick_round(runtime))
                 .map_err(|error| match error {
                     SharedHeapError::LockPoisoned => SharedBackgroundError::LockPoisoned,

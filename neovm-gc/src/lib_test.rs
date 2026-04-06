@@ -1902,6 +1902,56 @@ fn background_collector_tick_aggregates_multiple_rounds() {
 }
 
 #[test]
+fn background_collector_try_tick_preserves_partial_progress_before_would_block() {
+    let mut collector = BackgroundCollector::new(BackgroundCollectorConfig {
+        auto_start_concurrent: false,
+        auto_finish_when_ready: true,
+        max_rounds_per_tick: 2,
+    });
+    let mut attempt = 0usize;
+
+    let status = collector.try_tick_with_rounds(|_| {
+        attempt = attempt.saturating_add(1);
+        match attempt {
+            1 => Ok(BackgroundCollectionStatus::Progress(MajorMarkProgress {
+                completed: false,
+                drained_objects: 2,
+                mark_steps: 1,
+                mark_rounds: 1,
+                remaining_work: 3,
+            })),
+            2 => Err(SharedBackgroundError::WouldBlock),
+            _ => unreachable!("only two attempts expected"),
+        }
+    });
+
+    match status {
+        Ok(BackgroundCollectionStatus::Progress(progress)) => {
+            assert_eq!(progress.drained_objects, 2);
+            assert_eq!(progress.mark_steps, 1);
+            assert_eq!(progress.mark_rounds, 1);
+            assert_eq!(progress.remaining_work, 3);
+        }
+        other => panic!("expected partial progress before contention, got {other:?}"),
+    }
+    assert_eq!(collector.stats().ticks, 1);
+}
+
+#[test]
+fn background_collector_try_tick_returns_would_block_without_progress() {
+    let mut collector = BackgroundCollector::new(BackgroundCollectorConfig {
+        auto_start_concurrent: false,
+        auto_finish_when_ready: true,
+        max_rounds_per_tick: 2,
+    });
+
+    let status = collector.try_tick_with_rounds(|_| Err(SharedBackgroundError::WouldBlock));
+
+    assert_eq!(status, Err(SharedBackgroundError::WouldBlock));
+    assert_eq!(collector.stats().ticks, 1);
+}
+
+#[test]
 fn background_collector_can_leave_ready_session_for_explicit_finish() {
     let mut heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {
