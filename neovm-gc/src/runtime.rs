@@ -141,6 +141,18 @@ impl<'heap> CollectorRuntime<'heap> {
         let Some(plan) = self.heap.allocation_pressure_plan(space, bytes) else {
             return Ok(());
         };
+        self.dispatch_collection_plan(plan)
+    }
+
+    /// Dispatch one [`CollectionPlan`] either as a background
+    /// concurrent major-mark session or as an immediate synchronous
+    /// `execute_plan`. Used by both the static pressure path and
+    /// the pacer-driven trigger so they pick the same path for the
+    /// same plan kind.
+    pub(crate) fn dispatch_collection_plan(
+        &mut self,
+        plan: CollectionPlan,
+    ) -> Result<(), AllocError> {
         if plan.concurrent && matches!(plan.kind, CollectionKind::Major | CollectionKind::Full) {
             self.begin_major_mark(plan)
         } else {
@@ -179,7 +191,12 @@ impl<'heap> CollectorRuntime<'heap> {
                         .allocation_pressure_plan(space, total_bytes)
                         .is_none()
                 {
-                    self.collect(CollectionKind::Major)?;
+                    // Honor the heap's `concurrent_mark_workers`
+                    // configuration: a pacer-driven major should
+                    // start a background mark session when the
+                    // static path would have done so.
+                    let plan = self.heap.plan_for(CollectionKind::Major);
+                    self.dispatch_collection_plan(plan)?;
                 }
             }
             crate::pacer::PacerDecision::TriggerMinor => {
@@ -189,7 +206,11 @@ impl<'heap> CollectorRuntime<'heap> {
                         .allocation_pressure_plan(space, total_bytes)
                         .is_none()
                 {
-                    self.collect(CollectionKind::Minor)?;
+                    // Minor plans are never concurrent, so this
+                    // dispatches to execute_plan via
+                    // dispatch_collection_plan unconditionally.
+                    let plan = self.heap.plan_for(CollectionKind::Minor);
+                    self.dispatch_collection_plan(plan)?;
                 }
             }
             crate::pacer::PacerDecision::Continue => {}

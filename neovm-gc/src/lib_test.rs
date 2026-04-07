@@ -11425,6 +11425,74 @@ fn pacer_config_is_honored_when_supplied_via_heap_config() {
 }
 
 #[test]
+fn pacer_driven_major_starts_background_session_when_concurrent_workers_configured() {
+    // When the heap is configured with concurrent_mark_workers > 1,
+    // the major plan reports concurrent=true and a pacer-driven
+    // major must dispatch through begin_major_mark instead of
+    // running synchronously. We verify this by:
+    //   - Configuring concurrent_mark_workers = 2 so the plan is
+    //     concurrent.
+    //   - Setting a tight pacer trigger so allocations fire the
+    //     pacer's TriggerMajor decision.
+    //   - Asserting that after enough allocations, an active
+    //     major-mark plan is observable through the heap.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            // Big nursery so the static path never fires.
+            semispace_bytes: 16 * 1024 * 1024,
+            promotion_age: 1,
+            ..NurseryConfig::default()
+        },
+        old: crate::spaces::OldGenConfig {
+            concurrent_mark_workers: 2,
+            ..crate::spaces::OldGenConfig::default()
+        },
+        pacer: PacerConfig {
+            target_pause: Duration::from_secs(1),
+            heap_growth_target_ratio: 2.0,
+            min_trigger_bytes: 256,
+            ..PacerConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+
+    // Confirm the heap's plan_for(Major) is indeed concurrent so
+    // the test premise is valid.
+    let plan = heap.plan_for(CollectionKind::Major);
+    assert!(
+        plan.concurrent,
+        "expected concurrent_mark_workers=2 to produce a concurrent \
+         major plan"
+    );
+
+    // Allocate enough to trip the pacer trigger.
+    let mut mutator = heap.mutator();
+    {
+        let mut scope = mutator.handle_scope();
+        for i in 0..256 {
+            let _leaf = mutator
+                .alloc_auto(&mut scope, Leaf(i as u64))
+                .expect("alloc auto leaf");
+            // Once a major-mark session is active we can stop
+            // allocating; the rest of the test is observation.
+            if mutator.heap().active_major_mark_plan().is_some() {
+                break;
+            }
+        }
+    }
+
+    // The pacer-driven path should have started a major-mark
+    // session via begin_major_mark, so the heap reports an
+    // active major-mark plan with concurrent = true.
+    let active = heap
+        .active_major_mark_plan()
+        .expect("expected pacer-driven concurrent major to start a \
+                 major-mark session");
+    assert!(active.concurrent);
+    assert_eq!(active.kind, CollectionKind::Major);
+}
+
+#[test]
 fn pacer_in_heap_triggers_minor_via_nursery_soft_threshold() {
     // Configure the heap so pacer-driven minor is the only path that
     // can fire a minor: a very large static nursery semispace
