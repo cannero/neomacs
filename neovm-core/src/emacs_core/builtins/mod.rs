@@ -7170,8 +7170,10 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     defsubr_pure!(ctx, "closurep", super::builtins_extra::builtin_closurep);
     defsubr_pure!(ctx, "natnump", super::builtins_extra::builtin_natnump);
-    defsubr_pure!(ctx, "fixnump", super::builtins_extra::builtin_fixnump);
-    defsubr_pure!(ctx, "bignump", super::builtins_extra::builtin_bignump);
+    // GNU defines `fixnump` and `bignump` in `lisp/subr.el` (not in C),
+    // so they must come from the loaded Lisp source — registering Rust
+    // subrs here would shadow the elisp definitions and make
+    // `(subrp (symbol-function 'fixnump))` return t instead of nil.
     defsubr_pure!(
         ctx,
         "user-login-name",

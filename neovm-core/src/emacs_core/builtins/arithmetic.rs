@@ -415,8 +415,12 @@ fn integer_remainder(num: &Value, den: &Value, modulo: bool) -> EvalResult {
         }
         return Ok(Value::make_integer(r));
     }
-    let a = expect_integer_or_marker(num)?;
-    let b = expect_integer_or_marker(den)?;
+    // GNU `Fmod` (data.c:3412) does CHECK_NUMBER_COERCE_MARKER on both
+    // operands first, so non-numeric values must signal
+    // `number-or-marker-p`, not `integer-or-marker-p`. Mirror that by
+    // routing through the after-number-check helper.
+    let a = expect_integer_or_marker_after_number_check(num)?;
+    let b = expect_integer_or_marker_after_number_check(den)?;
     if b == 0 {
         return Err(signal("arith-error", vec![]));
     }
@@ -1220,6 +1224,11 @@ pub(crate) fn builtin_log(args: Vec<Value>) -> EvalResult {
 /// which used to return 0 because `2_i64.wrapping_pow(100)` wraps.
 pub(crate) fn builtin_expt(args: Vec<Value>) -> EvalResult {
     expect_args("expt", &args, 2)?;
+    // GNU `Fexpt` (data.c) does CHECK_NUMBER on both args first, so any
+    // non-numeric argument must signal `numberp`, not the more specific
+    // type checks the integer/float dispatch would otherwise emit.
+    let _ = expect_number(&args[0])?;
+    let _ = expect_number(&args[1])?;
     if has_float(&args) {
         let base = expect_number(&args[0])?;
         let exp = expect_number(&args[1])?;

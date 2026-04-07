@@ -4491,7 +4491,7 @@ fn command_remapping_nil_and_keymap_type_checks() {
 fn command_remapping_integer_position_range_and_ordering_semantics() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
-        eval_one(
+        bootstrap_eval_one(
             r#"(with-temp-buffer
                  (let ((err (condition-case e
                                 (command-remapping 'ignore 0)
@@ -4501,7 +4501,7 @@ fn command_remapping_integer_position_range_and_ordering_semantics() {
         "OK (args-out-of-range t 0)"
     );
     assert_eq!(
-        eval_one(
+        bootstrap_eval_one(
             r#"(with-temp-buffer
                  (let ((err (condition-case e
                                 (command-remapping 'ignore -1)
@@ -4511,7 +4511,7 @@ fn command_remapping_integer_position_range_and_ordering_semantics() {
         "OK (args-out-of-range t -1)"
     );
     assert_eq!(
-        eval_one(
+        bootstrap_eval_one(
             r#"(with-temp-buffer
                  (let ((err (condition-case e
                                 (command-remapping 'ignore 2)
@@ -4521,7 +4521,7 @@ fn command_remapping_integer_position_range_and_ordering_semantics() {
         "OK (args-out-of-range t 2)"
     );
     assert_eq!(
-        eval_one(
+        bootstrap_eval_one(
             r#"(with-temp-buffer
                  (let ((m (make-sparse-keymap)))
                    (define-key m [remap ignore] 'self-insert-command)
@@ -4538,7 +4538,7 @@ fn command_remapping_integer_position_range_and_ordering_semantics() {
         "OK (self-insert-command self-insert-command self-insert-command self-insert-command self-insert-command self-insert-command self-insert-command self-insert-command)"
     );
     assert_eq!(
-        eval_one(
+        bootstrap_eval_one(
             r#"(with-temp-buffer
                  (let ((err (condition-case e
                                 (command-remapping nil 0)
@@ -4548,7 +4548,7 @@ fn command_remapping_integer_position_range_and_ordering_semantics() {
         "OK (args-out-of-range t 0)"
     );
     assert_eq!(
-        eval_one(
+        bootstrap_eval_one(
             r#"(with-temp-buffer
                  (condition-case e
                      (command-remapping 'ignore 0 t)
@@ -4557,7 +4557,7 @@ fn command_remapping_integer_position_range_and_ordering_semantics() {
         "OK (wrong-type-argument keymapp t)"
     );
     assert_eq!(
-        eval_one("(with-temp-buffer (command-remapping 0 0))"),
+        bootstrap_eval_one("(with-temp-buffer (command-remapping 0 0))"),
         "OK nil"
     );
 }
@@ -4662,7 +4662,7 @@ fn command_remapping_global_map_remap_binding() {
 fn command_remapping_prefers_local_map_when_keymap_omitted_or_nil() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
-        eval_one(
+        bootstrap_eval_one(
             r#"(let ((g (make-sparse-keymap))
                      (l (make-sparse-keymap)))
                  (use-global-map g)
@@ -4673,7 +4673,7 @@ fn command_remapping_prefers_local_map_when_keymap_omitted_or_nil() {
         "OK self-insert-command"
     );
     assert_eq!(
-        eval_one(
+        bootstrap_eval_one(
             r#"(let ((g (make-sparse-keymap))
                      (l (make-sparse-keymap)))
                  (use-global-map g)
@@ -4684,7 +4684,7 @@ fn command_remapping_prefers_local_map_when_keymap_omitted_or_nil() {
         "OK self-insert-command"
     );
     assert_eq!(
-        eval_one(
+        bootstrap_eval_one(
             r#"(let ((g (make-sparse-keymap))
                      (l (make-sparse-keymap)))
                  (use-global-map g)
@@ -4696,7 +4696,7 @@ fn command_remapping_prefers_local_map_when_keymap_omitted_or_nil() {
         "OK self-insert-command"
     );
     assert_eq!(
-        eval_one(
+        bootstrap_eval_one(
             r#"(let ((g (make-sparse-keymap))
                      (l (make-sparse-keymap)))
                  (use-global-map g)
@@ -4707,7 +4707,7 @@ fn command_remapping_prefers_local_map_when_keymap_omitted_or_nil() {
         "OK self-insert-command"
     );
     assert_eq!(
-        eval_one(
+        bootstrap_eval_one(
             r#"(with-temp-buffer
                  (let ((g (make-sparse-keymap))
                        (l (make-sparse-keymap)))

@@ -7327,12 +7327,13 @@ fn vm_compose_region_internal_uses_shared_buffer_state() {
 #[test]
 fn vm_when_unless() {
     crate::test_utils::init_test_tracing();
-    // when/unless are compiled as native syntax by the bytecode compiler,
-    // so they still work in vm_eval_str even without bootstrap.
-    assert_eq!(vm_eval_str("(when t 1 2 3)"), "OK 3");
-    assert_eq!(vm_eval_str("(when nil 1 2 3)"), "OK nil");
-    assert_eq!(vm_eval_str("(unless nil 1 2 3)"), "OK 3");
-    assert_eq!(vm_eval_str("(unless t 1 2 3)"), "OK nil");
+    // when/unless are macros defined in subr.el, so they require the
+    // runtime-startup bootstrap context to be available — the bare
+    // bytecode compiler does not know about them as native syntax.
+    assert_eq!(vm_bootstrap_eval_str("(when t 1 2 3)"), "OK 3");
+    assert_eq!(vm_bootstrap_eval_str("(when nil 1 2 3)"), "OK nil");
+    assert_eq!(vm_bootstrap_eval_str("(unless nil 1 2 3)"), "OK 3");
+    assert_eq!(vm_bootstrap_eval_str("(unless t 1 2 3)"), "OK nil");
 }
 
 #[test]

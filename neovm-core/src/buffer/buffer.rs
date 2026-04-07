@@ -2903,14 +2903,22 @@ impl BufferManager {
             .filter_map(|(id, buffer)| buffer.base_buffer.map(|base_id| (*id, base_id)))
             .collect();
         for (buffer_id, base_id) in indirect_buffers {
-            let Some(root) = buffers.get(&base_id).cloned() else {
-                continue;
+            // Borrow base buffer's text/undo state directly from the
+            // map. `BufferText::Clone` is a deep clone (it allocates a
+            // fresh `Rc<RefCell<BufferTextStorage>>`), so cloning a
+            // base Buffer first and then `shared_clone`ing its text
+            // would link the indirect buffer to the *temporary* base,
+            // not the one in `buffers`. Use `shared_clone` directly on
+            // the base buffer's `BufferText` to preserve Rc identity.
+            let (shared_text, shared_undo) = match buffers.get(&base_id) {
+                Some(root) => (root.text.shared_clone(), root.undo_state.clone()),
+                None => continue,
             };
             let Some(buffer) = buffers.get_mut(&buffer_id) else {
                 continue;
             };
-            buffer.text = root.text.shared_clone();
-            buffer.undo_state = root.undo_state.clone();
+            buffer.text = shared_text;
+            buffer.undo_state = shared_undo;
         }
 
         let mut manager = Self {

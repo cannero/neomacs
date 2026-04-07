@@ -513,7 +513,7 @@ fn upcase_initials_region_unicode_armenian_titlecase() {
 #[test]
 fn upcase_region_noncontiguous_requires_mark() {
     crate::test_utils::init_test_tracing();
-    let result = eval_one(
+    let result = bootstrap_eval_one(
         r#"(with-temp-buffer
              (insert "abc")
              (upcase-region 1 3 t))"#,
@@ -765,7 +765,7 @@ fn transpose_words_basic() {
 #[test]
 fn transpose_words_not_enough_words_errors() {
     crate::test_utils::init_test_tracing();
-    let result = eval_one(
+    let result = bootstrap_eval_one(
         r#"(with-temp-buffer
              (insert "aa")
              (goto-char 0)

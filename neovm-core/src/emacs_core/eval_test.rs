@@ -3865,7 +3865,8 @@ fn defvar_and_defconst_error_payloads_match_oracle_edges() {
 #[test]
 fn setq_local_makes_binding_buffer_local() {
     crate::test_utils::init_test_tracing();
-    let result = eval_one("(with-temp-buffer (set (make-local-variable 'vm-x) 7) vm-x)");
+    let result =
+        bootstrap_eval_one("(with-temp-buffer (set (make-local-variable 'vm-x) 7) vm-x)");
     assert_eq!(result, "OK 7");
 }
 
@@ -6999,7 +7000,7 @@ fn compare_buffer_substrings_respects_case_fold_search() {
 fn field_builtins_match_gnu_property_boundary_semantics() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
-        eval_one(
+        bootstrap_eval_one(
             r#"(with-temp-buffer
                  (list
                   (progn
@@ -7045,7 +7046,7 @@ fn field_builtins_match_gnu_property_boundary_semantics() {
 fn constrain_to_field_matches_gnu_boundary_and_capture_semantics() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
-        eval_one(
+        bootstrap_eval_one(
             r#"(with-temp-buffer
                  (list
                   (progn
@@ -7081,7 +7082,7 @@ fn constrain_to_field_matches_gnu_boundary_and_capture_semantics() {
 fn replace_region_contents_preserves_source_properties_and_rejects_self_buffer() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
-        eval_one(
+        bootstrap_eval_one(
             r#"(with-temp-buffer
                  (let ((src (get-buffer-create "*rrc-src*"))
                        (s (propertize "CD" 'face 'bold)))

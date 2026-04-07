@@ -312,11 +312,15 @@ fn pure_dispatch_typed_numeric_symbol_rejections_use_number_or_marker_p() {
             .expect_err("numeric builtin should reject non-numeric symbols");
         match err {
             Flow::Signal(sig) => {
-                assert_eq!(sig.symbol_name(), "wrong-type-argument");
+                assert_eq!(sig.symbol_name(), "wrong-type-argument", "name={name}");
+                let actual_name = sig.data[0].as_symbol_name().map(String::from);
                 assert_eq!(
-                    sig.data,
-                    vec![Value::symbol("number-or-marker-p"), symbol_arg]
+                    actual_name.as_deref(),
+                    Some("number-or-marker-p"),
+                    "name={name}, full data={:?}",
+                    sig.data
                 );
+                assert_eq!(sig.data[1], symbol_arg, "name={name}");
             }
             other => panic!("unexpected flow: {other:?}"),
         }
@@ -438,11 +442,17 @@ fn pure_dispatch_typed_append_flattens_bytecode_slots() {
         .expect("builtin append should resolve")
         .expect("builtin append should evaluate");
     let slots = list_to_vec(&result).expect("bytecode append should produce a proper list");
-    assert_eq!(slots.len(), 4);
+    // GNU bytecode objects always expose slots 0-4 (advice--p reads
+    // slot 4 unconditionally), so the closure vector is 5 wide even
+    // without an interactive form. Mirrored in
+    // bytecode_to_closure_vector (cons_list.rs).
+    assert_eq!(slots.len(), 5);
     assert!((slots[0].is_cons() || slots[0].is_nil()));
     assert!((slots[1].is_nil() || slots[1].is_string()));
     assert!(slots[2].is_vector());
     assert!(slots[3].is_fixnum());
+    // Slot 4: docstring/(fn ...) annotation; nil when neither is set.
+    assert!(slots[4].is_nil() || slots[4].is_string() || slots[4].is_cons());
 }
 
 #[test]
@@ -489,11 +499,15 @@ fn pure_dispatch_typed_vconcat_flattens_bytecode_slots() {
         panic!("expected vector result, got {result:?}");
     };
     let slots = result.as_vector_data().unwrap().clone();
-    assert_eq!(slots.len(), 4);
+    // GNU bytecode objects always expose slots 0-4 (advice--p reads
+    // slot 4 unconditionally), so vconcat over a bytecode closure
+    // produces a 5-wide vector even without an interactive form.
+    assert_eq!(slots.len(), 5);
     assert!((slots[0].is_cons() || slots[0].is_nil()));
     assert!((slots[1].is_nil() || slots[1].is_string()));
     assert!(slots[2].is_vector());
     assert!(slots[3].is_fixnum());
+    assert!(slots[4].is_nil() || slots[4].is_string() || slots[4].is_cons());
 }
 
 #[test]

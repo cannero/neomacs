@@ -398,18 +398,22 @@ fn define_error_wrong_type_name() {
 }
 
 #[test]
-fn define_error_wrong_type_message() {
+fn define_error_accepts_non_string_message() {
+    // GNU emacs 31.0.50 verified: define-error does NOT type-check
+    // its MESSAGE argument; (define-error 'foo 42) returns 42.
     crate::test_utils::init_test_tracing();
-    let results = bootstrap_eval_all(r#"(condition-case err (define-error 'foo 42) (error err))"#);
-    assert_eq!(results[0], "OK (wrong-type-argument stringp 42)");
+    let results = bootstrap_eval_all(r#"(define-error 'foo 42)"#);
+    assert_eq!(results[0], "OK 42");
 }
 
 #[test]
 fn define_error_too_many_args() {
+    // GNU emacs 31.0.50 verified: define-error has arity (2 . 3),
+    // so wrong-arity errors carry the (MIN . MAX) tuple.
     crate::test_utils::init_test_tracing();
     let results =
         bootstrap_eval_all(r#"(condition-case err (define-error 'x "X" 'error 99) (error err))"#);
-    assert_eq!(results[0], "OK (wrong-number-of-arguments define-error 4)");
+    assert_eq!(results[0], "OK (wrong-number-of-arguments (2 . 3) 4)");
 }
 
 // =======================================================================

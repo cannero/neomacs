@@ -625,27 +625,9 @@ pub(crate) fn builtin_user_full_name(args: Vec<Value>) -> EvalResult {
 }
 
 /// `(system-name)` -> string.
-///
-/// `(fixnump OBJ)` — return t if OBJ is a fixnum (small integer).
-///
-/// Mirrors GNU `Ffixnump` (`src/data.c`). Now that bignums are real,
-/// this is *not* the same as `integerp` — `fixnump` returns nil for a
-/// bignum even though `integerp` returns t.
-pub(crate) fn builtin_fixnump(args: Vec<Value>) -> EvalResult {
-    expect_args("fixnump", &args, 1)?;
-    Ok(Value::bool_val(args[0].is_fixnum()))
-}
-
-/// `(bignump OBJ)` — return t if OBJ is a bignum.
-///
-/// Mirrors GNU `Fbignump` (`src/data.c`) and the `BIGNUMP` predicate.
-/// Now that NeoMacs allocates real bignum objects via
-/// [`Value::make_integer`] / [`Value::bignum`], this checks the
-/// underlying veclike type tag instead of always returning nil.
-pub(crate) fn builtin_bignump(args: Vec<Value>) -> EvalResult {
-    expect_args("bignump", &args, 1)?;
-    Ok(Value::bool_val(args[0].is_bignum()))
-}
+// `fixnump` and `bignump` are not Rust subrs: GNU defines them in
+// `lisp/subr.el` and so must we, otherwise `(subrp (symbol-function
+// 'fixnump))` returns the wrong value.
 
 /// GNU editfns.c:1283 — returns the host name via `gethostname(2)`,
 /// replacing spaces and tabs with `-`.

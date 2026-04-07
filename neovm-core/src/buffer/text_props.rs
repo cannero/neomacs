@@ -833,8 +833,12 @@ mod tests {
         let mut table = TextPropertyTable::new();
         table.put_property(5, 10, "face", Value::symbol("bold"));
 
-        // At exclusive end of interval
-        assert_eq!(table.previous_property_change(10), Some(10));
+        // At exclusive end of interval. GNU-verified via
+        // `(previous-property-change 11)` with a `[6,11)` interval:
+        // GNU returns 6 (the start), i.e. the position at the
+        // exclusive end is treated as the scan still inside the run
+        // going backward, so the change is at the interval start.
+        assert_eq!(table.previous_property_change(10), Some(5));
     }
 
     #[test]
