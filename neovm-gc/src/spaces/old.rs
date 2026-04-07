@@ -519,6 +519,43 @@ impl OldGenState {
         ))
     }
 
+    /// Allocate directly into a newly-created block, bypassing the
+    /// hole-filling search over existing blocks that
+    /// [`try_alloc_in_block`] performs.
+    ///
+    /// Used by the upcoming physical-compaction pass: compaction
+    /// evacuates survivors from sparse source blocks into fresh
+    /// target blocks, and must never accidentally pick one of the
+    /// source blocks itself as the target. `alloc_in_fresh_block`
+    /// side-steps that risk by always creating a brand-new block
+    /// sized to the larger of `config.region_bytes` and
+    /// `layout.size()`.
+    ///
+    /// Returns `None` if the underlying `OldBlock::try_alloc` fails
+    /// on the fresh block (e.g. layout overflow); in the normal case
+    /// a brand-new block is guaranteed to have room.
+    #[allow(dead_code)]
+    pub(crate) fn alloc_in_fresh_block(
+        &mut self,
+        config: &OldGenConfig,
+        layout: core::alloc::Layout,
+    ) -> Option<(OldBlockPlacement, core::ptr::NonNull<u8>)> {
+        let capacity = config.region_bytes.max(layout.size());
+        let line_bytes = config.line_bytes.max(1);
+        let mut block = OldBlock::new(capacity, line_bytes);
+        let (offset, ptr) = block.try_alloc(layout)?;
+        let block_index = self.blocks.len();
+        self.blocks.push(block);
+        Some((
+            OldBlockPlacement {
+                block_index,
+                offset_bytes: offset,
+                total_size: layout.size(),
+            },
+            ptr,
+        ))
+    }
+
     /// Number of physical blocks currently in the pool.
     #[allow(dead_code)]
     pub(crate) fn block_count(&self) -> usize {

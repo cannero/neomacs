@@ -61,6 +61,45 @@ fn old_block_accounting_fields_start_zero_and_update_on_record() {
 }
 
 #[test]
+fn alloc_in_fresh_block_always_creates_new_block_bypassing_holes() {
+    // Two existing blocks in the pool, both with room to spare.
+    // alloc_in_fresh_block must still create a brand-new third
+    // block rather than filling a hole in one of the existing two.
+    let mut old_gen = OldGenState::default();
+    let config = OldGenConfig {
+        region_bytes: 4096,
+        line_bytes: 16,
+        ..OldGenConfig::default()
+    };
+    // Seed the pool with two existing blocks via the hole-filling
+    // allocator.
+    let layout = Layout::from_size_align(64, 16).unwrap();
+    let (first_placement, _) = old_gen
+        .try_alloc_in_block(&config, layout)
+        .expect("first alloc");
+    assert_eq!(first_placement.block_index, 0);
+    // Force a second block by filling the first one via an extra
+    // alloc that cannot fit alongside the first in the same block
+    // tail. The hole-filling allocator will append to block 0 as
+    // long as lines are free, so we instead call
+    // alloc_in_fresh_block once to guarantee block 1 exists.
+    let (second_placement, _) = old_gen
+        .alloc_in_fresh_block(&config, layout)
+        .expect("second fresh-block alloc");
+    assert_eq!(second_placement.block_index, 1);
+    assert_eq!(old_gen.block_count(), 2);
+
+    // Now ask for a fresh block while block 0 and block 1 still
+    // have plenty of room. The fresh-block path must append a
+    // NEW block at index 2 instead of hole-filling into 0 or 1.
+    let (third_placement, _) = old_gen
+        .alloc_in_fresh_block(&config, layout)
+        .expect("third fresh-block alloc");
+    assert_eq!(third_placement.block_index, 2);
+    assert_eq!(old_gen.block_count(), 3);
+}
+
+#[test]
 fn old_block_try_alloc_advances_used_bytes_high_water_mark() {
     let mut block = OldBlock::new(1024, 16);
     let layout = Layout::from_size_align(32, 8).unwrap();
