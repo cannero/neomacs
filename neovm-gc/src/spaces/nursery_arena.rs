@@ -196,6 +196,12 @@ pub(crate) struct NurseryState {
     capacity: usize,
 }
 
+// `from_space` / `to_space` are standard semispace-collector
+// terminology (from-space holds live records, to-space is the
+// evacuation destination), not Rust-style `from_*` conversion
+// constructors. Suppress clippy::wrong_self_convention so the
+// methods can keep their idiomatic GC names.
+#[allow(clippy::wrong_self_convention)]
 impl NurseryState {
     pub(crate) fn new(capacity_bytes: usize) -> Self {
         Self {
