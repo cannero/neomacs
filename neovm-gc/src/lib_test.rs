@@ -1800,6 +1800,67 @@ fn finish_active_major_collection_prepares_full_reclaim_before_commit() {
 }
 
 #[test]
+fn pause_histogram_records_samples_from_completed_cycles() {
+    let mut heap = Heap::new(HeapConfig::default());
+
+    // Empty histogram at heap start.
+    let empty = heap.pause_histogram();
+    assert_eq!(empty.sample_count, 0);
+    assert_eq!(empty.total_samples, 0);
+
+    // Run a few small minor collections; each completion records its
+    // measured pause_nanos into the rolling window.
+    for _ in 0..5 {
+        let mut mutator = heap.mutator();
+        {
+            let mut scope = mutator.handle_scope();
+            for _ in 0..8usize {
+                let _leaf = mutator
+                    .alloc(&mut scope, Leaf(17))
+                    .expect("alloc leaf");
+            }
+        }
+        mutator
+            .collect(CollectionKind::Minor)
+            .expect("run minor collect");
+    }
+
+    let snapshot = heap.pause_histogram();
+    assert!(
+        snapshot.sample_count >= 5,
+        "expected at least 5 pause samples, got {}",
+        snapshot.sample_count
+    );
+    assert!(
+        snapshot.total_samples >= 5,
+        "expected at least 5 total samples, got {}",
+        snapshot.total_samples
+    );
+    assert!(
+        snapshot.max_nanos > 0,
+        "expected non-zero max pause, got 0"
+    );
+    assert!(
+        snapshot.p50_nanos <= snapshot.p95_nanos,
+        "p50 ({}) must be <= p95 ({})",
+        snapshot.p50_nanos,
+        snapshot.p95_nanos
+    );
+    assert!(
+        snapshot.p95_nanos <= snapshot.p99_nanos,
+        "p95 ({}) must be <= p99 ({})",
+        snapshot.p95_nanos,
+        snapshot.p99_nanos
+    );
+    assert!(
+        snapshot.p99_nanos <= snapshot.max_nanos,
+        "p99 ({}) must be <= max ({})",
+        snapshot.p99_nanos,
+        snapshot.max_nanos
+    );
+}
+
+#[test]
 fn collector_runtime_prepare_active_reclaim_moves_full_session_to_reclaim() {
     let mut heap = Heap::new(HeapConfig {
         nursery: NurseryConfig {

@@ -6,6 +6,7 @@ use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
 use crate::index_state::HeapIndexState;
 use crate::mutator::Mutator;
 use crate::object::{ObjectRecord, SpaceKind};
+use crate::pause_stats::{PauseHistogram, PauseStatsHandle};
 use crate::plan::{
     CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress, RuntimeWorkStatus,
 };
@@ -79,6 +80,7 @@ pub struct Heap {
     recent_barrier_events: Vec<BarrierEvent>,
     runtime_state: RuntimeStateHandle,
     collector: CollectorStateHandle,
+    pause_stats: PauseStatsHandle,
 }
 
 // SAFETY: `Heap` owns all heap allocations and its raw pointers are internal references into that
@@ -124,6 +126,7 @@ impl Heap {
             recent_barrier_events: Vec::new(),
             runtime_state: RuntimeStateHandle::default(),
             collector: CollectorStateHandle::default(),
+            pause_stats: PauseStatsHandle::new(),
         };
         heap.refresh_recommended_plans();
         heap
@@ -501,6 +504,20 @@ impl Heap {
 
     pub(crate) fn record_collection_stats(&mut self, cycle: CollectionStats) {
         self.stats.collections.saturating_add_assign(cycle);
+        if cycle.pause_nanos > 0 {
+            self.pause_stats.record(cycle.pause_nanos);
+        }
+    }
+
+    /// Return a snapshot of recent stop-the-world pause statistics (P50/P95/P99
+    /// of pause nanoseconds over a bounded rolling window).
+    pub fn pause_histogram(&self) -> PauseHistogram {
+        self.pause_stats.snapshot()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn pause_stats_handle(&self) -> PauseStatsHandle {
+        self.pause_stats.clone()
     }
 
     #[cfg(test)]
