@@ -507,16 +507,17 @@ pub(crate) fn execute_collection_plan(
                 &indexes.object_index,
             );
             record_phase(CollectionPhase::Reclaim);
-            let runtime_state = runtime_state.clone();
+            let runtime_state_for_callback = runtime_state.clone();
             let rebuild = rebuild_minor_after_collection(
                 objects,
                 indexes,
                 old_gen,
                 old_config,
                 stats,
+                runtime_state,
                 plan.kind,
                 Some(plan.clone()),
-                move |object| runtime_state.enqueue_pending_finalizer(object),
+                move |object| runtime_state_for_callback.enqueue_pending_finalizer(object),
             );
             // Now that dead nursery records are dropped and survivors
             // have been copied into the to-space arena, swap from- and
@@ -539,18 +540,19 @@ pub(crate) fn execute_collection_plan(
             let prepared_reclaim =
                 prepare_major_reclaim_for_plan(plan, objects, indexes, old_gen, old_config);
             record_phase(CollectionPhase::Reclaim);
-            let runtime_state = runtime_state.clone();
+            let runtime_state_for_callback = runtime_state.clone();
             Ok(finish_prepared_reclaim_cycle(
                 objects,
                 indexes,
                 old_gen,
                 stats,
+                runtime_state,
                 before_bytes,
                 mark_steps,
                 mark_rounds,
                 saturating_duration_nanos(reclaim_prepare_start.elapsed()),
                 prepared_reclaim,
-                move |object| runtime_state.enqueue_pending_finalizer(object),
+                move |object| runtime_state_for_callback.enqueue_pending_finalizer(object),
             ))
         }
         CollectionKind::Full => {
@@ -568,18 +570,19 @@ pub(crate) fn execute_collection_plan(
                 |phase| record_phase(phase),
             )?;
             record_phase(CollectionPhase::Reclaim);
-            let runtime_state = runtime_state.clone();
+            let runtime_state_for_callback = runtime_state.clone();
             let cycle = finish_prepared_reclaim_cycle(
                 objects,
                 indexes,
                 old_gen,
                 stats,
+                runtime_state,
                 before_bytes,
                 mark_steps,
                 mark_rounds,
                 saturating_duration_nanos(reclaim_prepare_start.elapsed()),
                 prepared_reclaim,
-                move |object| runtime_state.enqueue_pending_finalizer(object),
+                move |object| runtime_state_for_callback.enqueue_pending_finalizer(object),
             );
             // Full collection also evacuates the nursery; swap and
             // reset like a minor does.

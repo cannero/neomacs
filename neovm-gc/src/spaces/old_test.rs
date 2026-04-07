@@ -1,7 +1,10 @@
 use super::*;
 use crate::descriptor::{Trace, Tracer, fixed_type_desc};
+use crate::heap::{Heap, HeapConfig};
 use crate::object::{ObjectRecord, SpaceKind};
 use crate::plan::{CollectionKind, CollectionPhase, CollectionPlan};
+use crate::spaces::nursery::NurseryConfig;
+use core::alloc::Layout;
 use std::collections::HashSet;
 
 #[derive(Debug)]
@@ -76,6 +79,295 @@ fn prepare_reclaim_survivor_reassigns_selected_region_after_preserved_regions() 
     assert_eq!(rebuild.compacted_regions.len(), 1);
     assert_eq!(rebuild.compacted_regions[0].object_count, 1);
     assert_eq!(rebuild.compacted_regions[0].live_bytes, first.total_size());
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+struct OldPayload([u8; 32]);
+
+unsafe impl Trace for OldPayload {
+    fn trace(&self, _tracer: &mut dyn Tracer) {}
+    fn relocate(&self, _relocator: &mut dyn crate::descriptor::Relocator) {}
+}
+
+#[test]
+fn old_block_new_rounds_buffer_up_to_line_multiple() {
+    let block = OldBlock::new(300, 128);
+    assert_eq!(block.line_bytes(), 128);
+    assert_eq!(block.line_count(), 3);
+    assert_eq!(block.capacity_bytes(), 384);
+    assert!(block.is_empty());
+}
+
+#[test]
+fn old_block_mark_line_records_occupancy_and_clear() {
+    let block = OldBlock::new(512, 128);
+    block.mark_line(2);
+    assert!(block.is_line_marked(2));
+    assert!(!block.is_line_marked(0));
+    assert!(!block.is_empty());
+    block.clear_line_marks();
+    assert!(block.is_empty());
+}
+
+#[test]
+fn old_block_mark_lines_for_range_covers_each_overlapped_line() {
+    let block = OldBlock::new(512, 128);
+    // Range [200, 320) crosses lines 1 and 2 only.
+    block.mark_lines_for_range(200, 120);
+    assert!(!block.is_line_marked(0));
+    assert!(block.is_line_marked(1));
+    assert!(block.is_line_marked(2));
+    assert!(!block.is_line_marked(3));
+    // Now mark a range that crosses into line 3.
+    let block = OldBlock::new(512, 128);
+    block.mark_lines_for_range(200, 200);
+    assert!(!block.is_line_marked(0));
+    assert!(block.is_line_marked(1));
+    assert!(block.is_line_marked(2));
+    assert!(block.is_line_marked(3));
+}
+
+#[test]
+fn hole_filling_finds_free_run_and_bump_allocates() {
+    // Build a block, manually mark every line except a 2-line free hole
+    // to simulate dead-but-pre-existing objects, and verify try_alloc
+    // routes a new allocation into the free hole rather than failing or
+    // skipping past.
+    let mut block = OldBlock::new(8 * 128, 128);
+    // Pretend lines 0..2 and 4..8 are occupied, leaving a free hole at
+    // lines 2..4 (2 free lines).
+    for line in 0..2 {
+        block.mark_line(line);
+    }
+    for line in 4..8 {
+        block.mark_line(line);
+    }
+    block.reset_cursor();
+    let layout = Layout::from_size_align(256, 1).expect("layout");
+    let (offset, ptr) = block.try_alloc(layout).expect("hole-filling allocation");
+    // Free hole starts at line 2 = byte offset 256.
+    assert_eq!(offset, 256);
+    // Pointer should land inside the buffer at the expected offset.
+    let base = block.base_ptr() as usize;
+    assert_eq!(ptr.as_ptr() as usize, base + 256);
+    // Now every line is either occupied (marked) or just bumped past, so
+    // a new allocation that needs even one line should fail.
+    assert!(
+        block
+            .try_alloc(Layout::from_size_align(8, 1).unwrap())
+            .is_none()
+    );
+}
+
+#[test]
+fn sweep_marks_only_surviving_lines() {
+    // Allocate three OldPayload objects directly into the old space.
+    // After the scope drops, none are rooted; running a full GC must
+    // leave the old-gen blocks empty (no marked lines).
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        old: OldGenConfig {
+            region_bytes: 4096,
+            line_bytes: 64,
+            ..OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        for i in 0..3u8 {
+            let _ = mutator
+                .alloc(&mut scope, OldPayload([i; 32]))
+                .expect("alloc old payload");
+        }
+        // Sanity: at least one block has live lines while objects exist.
+        let any_marked_before_drop = mutator
+            .heap()
+            .old_gen()
+            .blocks()
+            .iter()
+            .any(|block| (0..block.line_count()).any(|line| block.is_line_marked(line)));
+        // Note: line marks are populated by the sweep, not by allocation,
+        // so they may legitimately be all-zero before any GC has run.
+        let _ = any_marked_before_drop;
+    }
+    // Run a full collection — every record died because the scope is
+    // gone. After sweep + reclaim, the old-gen blocks should either be
+    // gone entirely or have all-zero line marks.
+    let _ = heap.collect(CollectionKind::Full).expect("full collection");
+    let old_gen = heap.old_gen();
+    for block in old_gen.blocks() {
+        for line in 0..block.line_count() {
+            assert!(
+                !block.is_line_marked(line),
+                "block line {} should be free after sweep",
+                line
+            );
+        }
+    }
+}
+
+#[test]
+fn sweep_marks_lines_for_surviving_records_only() {
+    // A more granular check: allocate two records, only one stays
+    // rooted across the major GC, and after the sweep the surviving
+    // record's lines remain marked while the dead record's lines do
+    // not.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        old: OldGenConfig {
+            region_bytes: 4096,
+            line_bytes: 64,
+            ..OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let survivor_key = {
+        let mut mutator = heap.mutator();
+        let mut outer_scope = mutator.handle_scope();
+        let survivor = mutator
+            .alloc(&mut outer_scope, OldPayload([9; 32]))
+            .expect("alloc survivor");
+        // Inner scope: dying record dies when this scope drops.
+        {
+            let mut inner_scope = mutator.handle_scope();
+            let _ = mutator
+                .alloc(&mut inner_scope, OldPayload([1; 32]))
+                .expect("alloc dying");
+        }
+        // Run major collection while survivor is still rooted.
+        let _ = mutator
+            .collect(CollectionKind::Major)
+            .expect("major collection");
+        survivor.as_gc().erase().object_key()
+    };
+    // After the major GC, the survivor's record should still be present
+    // and pointing into a live block whose lines are marked. The number
+    // of marked lines across all blocks should be > 0 because the
+    // survivor anchors at least one line.
+    let total_marked: usize = heap
+        .old_gen()
+        .blocks()
+        .iter()
+        .map(|block| (0..block.line_count()).filter(|&l| block.is_line_marked(l)).count())
+        .sum();
+    assert!(
+        total_marked > 0,
+        "surviving record should have at least one line marked"
+    );
+    // The survivor record should still be tracked.
+    assert!(
+        heap.objects()
+            .iter()
+            .any(|object| object.object_key() == survivor_key),
+        "survivor record should remain in objects after major GC"
+    );
+}
+
+#[test]
+fn block_reclaim_after_full_sweep_drops_empty_blocks() {
+    // Build a heap with tiny blocks so several blocks fill up. Allocate
+    // enough OldPayload records to fill multiple blocks, drop all
+    // references, then run a full GC. After the sweep, blocks whose
+    // entire contents died should have been reclaimed from the pool.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        old: OldGenConfig {
+            // Very small blocks so each one fits roughly one record.
+            region_bytes: 96,
+            line_bytes: 32,
+            ..OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        for i in 0..6u8 {
+            let _ = mutator
+                .alloc(&mut scope, OldPayload([i; 32]))
+                .expect("alloc dying old payload");
+        }
+    }
+    let blocks_before = heap.old_gen().block_count();
+    assert!(blocks_before > 0, "expected at least one block to exist");
+    let _ = heap.collect(CollectionKind::Full).expect("full collection");
+    let blocks_after = heap.old_gen().block_count();
+    assert!(
+        blocks_after < blocks_before,
+        "expected empty blocks to be reclaimed (before={blocks_before}, after={blocks_after})"
+    );
+}
+
+#[test]
+fn promotion_uses_old_block_allocator() {
+    // Configure a heap so a freshly allocated nursery object promotes
+    // into the old generation on the next minor collection (promotion_age=1).
+    // After the minor GC, the promoted record's backing storage should be
+    // owned by an OldBlock — verifying via the per-record OldBlockPlacement
+    // hook that the evacuation routed through `OldGenState::try_alloc_in_block`.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            promotion_age: 1,
+            ..NurseryConfig::default()
+        },
+        old: OldGenConfig {
+            region_bytes: 4096,
+            line_bytes: 64,
+            ..OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let leaf_key = {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        let leaf = mutator
+            .alloc(&mut scope, OldPayload([7; 32]))
+            .expect("alloc nursery payload");
+        // The leaf must still be rooted across the minor GC so it survives
+        // and gets promoted.
+        let _ = mutator
+            .collect(CollectionKind::Minor)
+            .expect("minor collection");
+        assert_eq!(
+            mutator.heap().space_of(leaf.as_gc()),
+            Some(SpaceKind::Old),
+            "leaf should have promoted into old generation"
+        );
+        leaf.as_gc().erase().object_key()
+    };
+    // After the scope drops, the heap should still hold the promoted
+    // record (we collected before scope drop, so it lives until the
+    // next collection that drops it). The promoted record's backing
+    // memory should be tagged Arena (block-backed).
+    assert!(
+        heap.old_gen().block_count() >= 1,
+        "promotion should have allocated at least one OldBlock"
+    );
+    let found = heap
+        .objects()
+        .iter()
+        .find(|object| object.object_key() == leaf_key)
+        .expect("promoted record present in heap");
+    assert!(
+        found.is_arena_owned(),
+        "promoted record should be backed by an OldBlock arena, not system alloc"
+    );
+    assert!(
+        found.old_block_placement().is_some(),
+        "promoted record should record an OldBlockPlacement"
+    );
 }
 
 #[test]

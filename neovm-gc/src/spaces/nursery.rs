@@ -109,10 +109,11 @@ fn evacuate_marked_nursery_serial(
                 nursery_config.promotion_age,
             );
             // Survivors that remain in the nursery are copied into the
-            // to-space arena via bump allocation. If the to-space arena
-            // cannot satisfy the layout (shouldn't happen under normal
-            // operation since to-space is sized like from-space), fall
-            // back to a system allocation so the copy still succeeds.
+            // to-space arena via bump allocation. Promotions into the old
+            // generation route through the block allocator first so the
+            // physical bytes live inside an `OldBlock`. Both fall back to
+            // a system allocation if the relevant arena/block pool can't
+            // service the layout, mirroring the direct-allocation path.
             let new_record = if target_space == SpaceKind::Nursery {
                 let layout = core::alloc::Layout::from_size_align(
                     object.total_size(),
@@ -123,6 +124,22 @@ fn evacuate_marked_nursery_serial(
                     Some(base) => unsafe {
                         object.evacuate_to_arena_slot(target_space, base)?
                     },
+                    None => object.evacuate_to_space(target_space)?,
+                }
+            } else if target_space == SpaceKind::Old {
+                let layout = core::alloc::Layout::from_size_align(
+                    object.total_size(),
+                    object.layout_align(),
+                )
+                .map_err(|_| AllocError::LayoutOverflow)?;
+                match old_gen.try_alloc_in_block(old_config, layout) {
+                    Some((placement, base)) => {
+                        let mut record = unsafe {
+                            object.evacuate_to_arena_slot(target_space, base)?
+                        };
+                        record.set_old_block_placement(placement);
+                        record
+                    }
                     None => object.evacuate_to_space(target_space)?,
                 }
             } else {

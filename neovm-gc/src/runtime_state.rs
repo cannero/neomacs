@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError, TryLockResult};
 
-use crate::object::ObjectRecord;
+use crate::object::{ObjectRecord, OldBlockPlacement};
 use crate::plan::RuntimeWorkStatus;
 use crate::stats::HeapStats;
 
@@ -46,6 +46,41 @@ impl RuntimeStateHandle {
 
     pub(crate) fn enqueue_pending_finalizer(&self, object: ObjectRecord) -> u64 {
         self.lock().enqueue_pending_finalizer(object)
+    }
+
+    /// Snapshot the `OldBlockPlacement`s of every pending finalizer record.
+    /// Used by the post-sweep block reclaim path so that blocks pinned by
+    /// queued finalizers stay live even though their owning record is no
+    /// longer in the main `objects` vector.
+    pub(crate) fn snapshot_pending_finalizer_block_placements(&self) -> Vec<OldBlockPlacement> {
+        let state = self.lock();
+        state
+            .pending_finalizers
+            .iter()
+            .filter_map(|object| object.old_block_placement())
+            .collect()
+    }
+
+    /// Apply a `(old block index -> new block index)` remap to every
+    /// pending finalizer's `OldBlockPlacement`. Used after empty-block
+    /// reclaim renumbers the surviving blocks.
+    pub(crate) fn rebind_pending_finalizer_block_indices(&self, remap: &[Option<usize>]) {
+        let mut state = self.lock();
+        for object in state.pending_finalizers.iter_mut() {
+            let Some(placement) = object.old_block_placement() else {
+                continue;
+            };
+            let Some(&Some(new_index)) = remap.get(placement.block_index) else {
+                continue;
+            };
+            if new_index == placement.block_index {
+                continue;
+            }
+            object.set_old_block_placement(OldBlockPlacement {
+                block_index: new_index,
+                ..placement
+            });
+        }
     }
 
     pub(crate) fn drain_pending_finalizers(&self) -> u64 {

@@ -200,16 +200,20 @@ impl<'heap> CollectorRuntime<'heap> {
                     .old_gen_mut()
                     .try_alloc_in_block(&old_config, layout)
                 {
-                    Some(base) => unsafe {
-                        crate::object::ObjectRecord::allocate_in_arena::<T>(
-                            desc,
-                            space,
-                            base,
-                            layout,
-                            payload_offset,
-                            value,
-                        )
-                    },
+                    Some((placement, base)) => {
+                        let mut record = unsafe {
+                            crate::object::ObjectRecord::allocate_in_arena::<T>(
+                                desc,
+                                space,
+                                base,
+                                layout,
+                                payload_offset,
+                                value,
+                            )
+                        };
+                        record.set_old_block_placement(placement);
+                        record
+                    }
                     None => crate::object::ObjectRecord::allocate(desc, space, value)?,
                 }
             }
@@ -634,18 +638,20 @@ impl<'heap> CollectorRuntime<'heap> {
         pause_start: Instant,
     ) -> CollectionStats {
         let runtime_state = self.heap.runtime_state_handle();
+        let runtime_state_for_callback = runtime_state.clone();
         let (objects, indexes, old_gen, stats) = self.heap.finished_reclaim_commit_parts();
         let mut cycle = finish_prepared_reclaim_cycle(
             objects,
             indexes,
             old_gen,
             stats,
+            &runtime_state,
             before_bytes,
             finished.mark_steps,
             finished.mark_rounds,
             finished.reclaim_prepare_nanos,
             finished.prepared_reclaim,
-            move |object| runtime_state.enqueue_pending_finalizer(object),
+            move |object| runtime_state_for_callback.enqueue_pending_finalizer(object),
         );
         cycle.pause_nanos = pause_start.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
         self.record_completed_cycle(cycle, finished.completed_plan);

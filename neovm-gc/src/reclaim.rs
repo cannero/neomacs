@@ -1,7 +1,8 @@
 use crate::heap::AllocError;
 use crate::index_state::{HeapIndexState, PreparedIndexReclaim};
-use crate::object::{ObjectRecord, OldRegionPlacement, SpaceKind};
+use crate::object::{ObjectRecord, OldBlockPlacement, OldRegionPlacement, SpaceKind};
 use crate::plan::{CollectionKind, CollectionPlan};
+use crate::runtime_state::RuntimeStateHandle;
 use crate::spaces::{OldGenConfig, OldGenState, OldRegionCollectionStats, PreparedOldGenReclaim};
 use crate::stats::{CollectionStats, HeapStats, PreparedHeapStats};
 
@@ -191,11 +192,60 @@ pub(crate) fn commit_prepared_reclaim_objects(
     (rebuilt_objects, queued_finalizers)
 }
 
+/// Rebuild old-block line marks from currently surviving records and pending
+/// finalizers, then drop blocks whose line marks are entirely empty. Surviving
+/// records' `OldBlockPlacement::block_index` values are rebound through the
+/// new block index map after empty blocks are dropped.
+pub(crate) fn rebuild_line_marks_and_reclaim_empty_old_blocks(
+    objects: &mut [ObjectRecord],
+    old_gen: &mut OldGenState,
+    runtime_state: &RuntimeStateHandle,
+) -> usize {
+    // Snapshot pending finalizer placements first so blocks they pin stay
+    // marked even though their owning records are no longer in `objects`.
+    let pending_placements = runtime_state.snapshot_pending_finalizer_block_placements();
+    old_gen.clear_all_block_line_marks();
+    for object in objects.iter() {
+        if let Some(placement) = object.old_block_placement() {
+            old_gen.mark_block_lines_for_placement(placement);
+        }
+    }
+    for placement in &pending_placements {
+        old_gen.mark_block_lines_for_placement(*placement);
+    }
+
+    let remap = old_gen.drop_unused_blocks_with_remap();
+    let dropped = remap.iter().filter(|entry| entry.is_none()).count();
+    if dropped == 0 {
+        return 0;
+    }
+
+    // Apply remap to surviving records.
+    for object in objects.iter_mut() {
+        let Some(placement) = object.old_block_placement() else {
+            continue;
+        };
+        let Some(&Some(new_index)) = remap.get(placement.block_index) else {
+            // Should not happen for live records, but stay defensive.
+            continue;
+        };
+        if new_index != placement.block_index {
+            object.set_old_block_placement(OldBlockPlacement {
+                block_index: new_index,
+                ..placement
+            });
+        }
+    }
+    runtime_state.rebind_pending_finalizer_block_indices(&remap);
+    dropped
+}
+
 pub(crate) fn apply_prepared_reclaim(
     objects: &mut Vec<ObjectRecord>,
     indexes: &mut HeapIndexState,
     old_gen: &mut OldGenState,
     stats: &mut HeapStats,
+    runtime_state: &RuntimeStateHandle,
     prepared_reclaim: PreparedReclaim,
     enqueue_pending_finalizer: impl FnMut(ObjectRecord) -> u64,
 ) -> ReclaimCommitResult {
@@ -211,8 +261,12 @@ pub(crate) fn apply_prepared_reclaim(
     } = prepared_reclaim;
     *objects = rebuilt_objects;
     let old_region_stats = old_gen.apply_prepared_reclaim(prepared_old_gen);
-    let old_reserved_bytes = old_gen.reserved_bytes();
     indexes.apply_prepared_reclaim(prepared_indexes);
+    // Rebuild line marks across surviving block-backed records (and any
+    // pending finalizer placements that still pin a block), then drop
+    // every block whose lines remain entirely free.
+    rebuild_line_marks_and_reclaim_empty_old_blocks(objects, old_gen, runtime_state);
+    let old_reserved_bytes = old_gen.reserved_bytes();
     let after_bytes = prepared_stats.apply_space_rebuild(stats, old_reserved_bytes);
     ReclaimCommitResult {
         queued_finalizers,
@@ -226,6 +280,7 @@ pub(crate) fn finish_prepared_reclaim_cycle(
     indexes: &mut HeapIndexState,
     old_gen: &mut OldGenState,
     stats: &mut HeapStats,
+    runtime_state: &RuntimeStateHandle,
     before_bytes: usize,
     mark_steps: u64,
     mark_rounds: u64,
@@ -239,6 +294,7 @@ pub(crate) fn finish_prepared_reclaim_cycle(
         indexes,
         old_gen,
         stats,
+        runtime_state,
         prepared_reclaim,
         enqueue_pending_finalizer,
     );
@@ -260,6 +316,7 @@ pub(crate) fn sweep_minor_and_rebuild_post_collection(
     old_gen: &mut OldGenState,
     old_config: &OldGenConfig,
     stats: &mut HeapStats,
+    runtime_state: &RuntimeStateHandle,
     kind: CollectionKind,
     completed_plan: Option<CollectionPlan>,
     mut enqueue_pending_finalizer: impl FnMut(ObjectRecord) -> u64,
@@ -305,6 +362,9 @@ pub(crate) fn sweep_minor_and_rebuild_post_collection(
     if let Some(rebuilt_old_regions) = rebuilt_old_regions {
         old_gen.regions = rebuilt_old_regions;
     }
+    // Rebuild block-level line marks from surviving records (and pending
+    // finalizers) and reclaim any block whose lines remain entirely free.
+    rebuild_line_marks_and_reclaim_empty_old_blocks(objects, old_gen, runtime_state);
     let after_bytes = rebuilt_stats.apply_space_rebuild(stats, old_gen.reserved_bytes());
     indexes.retain_remembered_edges_for_post_sweep_objects(objects);
     MinorRebuildResult {

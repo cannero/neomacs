@@ -1,6 +1,7 @@
+use core::sync::atomic::{AtomicU8, Ordering};
 use std::collections::{HashMap, HashSet};
 
-use crate::object::{ObjectRecord, OldRegionPlacement, SpaceKind};
+use crate::object::{ObjectRecord, OldBlockPlacement, OldRegionPlacement, SpaceKind};
 use crate::plan::{CollectionKind, CollectionPlan};
 use crate::reclaim::PreparedReclaimSurvivor;
 use crate::stats::OldRegionStats;
@@ -38,47 +39,204 @@ impl Default for OldGenConfig {
     }
 }
 
-/// A single old-generation block with its backing buffer and a bump
-/// cursor. Phase 2 MVP — objects directly allocated into the old
-/// generation are bump-allocated from a block's buffer. Line marking
-/// and selective evacuation remain future work.
+/// A single old-generation Immix-style block.
+///
+/// Each block owns a contiguous backing buffer divided into fixed-size
+/// lines. The block tracks per-line occupancy with `line_marks` so the
+/// post-sweep allocator can find runs of free lines (Immix hole filling)
+/// before falling back to a fresh block.
+///
+/// `cursor` is a hint into the byte buffer where the next allocation scan
+/// starts. After a sweep the cursor is reset to zero so the allocator can
+/// see freshly opened holes near the front of the block.
 #[derive(Debug)]
 pub(crate) struct OldBlock {
     buffer: Box<[u8]>,
+    line_marks: Box<[AtomicU8]>,
+    line_bytes: usize,
     cursor: usize,
 }
 
 impl OldBlock {
-    pub(crate) fn new(capacity_bytes: usize) -> Self {
-        let buffer: Box<[u8]> = vec![0u8; capacity_bytes].into_boxed_slice();
-        Self { buffer, cursor: 0 }
+    /// Construct a new block whose backing buffer is at least
+    /// `capacity_bytes` long, rounded up to a whole number of `line_bytes`
+    /// lines (and at least one line so degenerate configurations stay
+    /// well-defined).
+    pub(crate) fn new(capacity_bytes: usize, line_bytes: usize) -> Self {
+        let line_bytes = line_bytes.max(1);
+        let line_count = capacity_bytes.div_ceil(line_bytes).max(1);
+        let buffer_len = line_count.saturating_mul(line_bytes);
+        let buffer: Box<[u8]> = vec![0u8; buffer_len].into_boxed_slice();
+        let mut marks = Vec::with_capacity(line_count);
+        for _ in 0..line_count {
+            marks.push(AtomicU8::new(0));
+        }
+        Self {
+            buffer,
+            line_marks: marks.into_boxed_slice(),
+            line_bytes,
+            cursor: 0,
+        }
     }
 
-    pub(crate) fn try_alloc(&mut self, layout: core::alloc::Layout) -> Option<core::ptr::NonNull<u8>> {
+    /// Total backing buffer length in bytes.
+    #[allow(dead_code)]
+    pub(crate) fn capacity_bytes(&self) -> usize {
+        self.buffer.len()
+    }
+
+    /// Number of lines in the block.
+    pub(crate) fn line_count(&self) -> usize {
+        self.line_marks.len()
+    }
+
+    /// Bytes per line.
+    #[allow(dead_code)]
+    pub(crate) fn line_bytes(&self) -> usize {
+        self.line_bytes
+    }
+
+    /// Base pointer of the backing buffer (read-only). The pointer remains
+    /// valid for the lifetime of the block.
+    #[allow(dead_code)]
+    pub(crate) fn base_ptr(&self) -> *const u8 {
+        self.buffer.as_ptr()
+    }
+
+    /// Mark the line at `index` as occupied. Out-of-range indices are
+    /// silently ignored.
+    pub(crate) fn mark_line(&self, index: usize) {
+        if let Some(slot) = self.line_marks.get(index) {
+            slot.store(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Test whether the line at `index` is currently marked occupied.
+    pub(crate) fn is_line_marked(&self, index: usize) -> bool {
+        self.line_marks
+            .get(index)
+            .map(|slot| slot.load(Ordering::Relaxed) != 0)
+            .unwrap_or(false)
+    }
+
+    /// Mark every line covered by the byte range `[offset, offset + size)`
+    /// as occupied. Sweep walks surviving block-backed records and calls
+    /// this for each one to rebuild the line occupancy map.
+    pub(crate) fn mark_lines_for_range(&self, offset: usize, size: usize) {
+        if size == 0 {
+            return;
+        }
+        let start_line = offset / self.line_bytes;
+        let end_byte = offset.saturating_add(size).saturating_sub(1);
+        let end_line = end_byte / self.line_bytes;
+        let last_line = self.line_count().saturating_sub(1);
+        let end_line = end_line.min(last_line);
+        for line in start_line..=end_line {
+            self.mark_line(line);
+        }
+    }
+
+    /// Clear every line mark in the block.
+    pub(crate) fn clear_line_marks(&self) {
+        for slot in self.line_marks.iter() {
+            slot.store(0, Ordering::Relaxed);
+        }
+    }
+
+    /// True when no line is marked as occupied. Empty blocks are reclaimed
+    /// after the sweep.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.line_marks
+            .iter()
+            .all(|slot| slot.load(Ordering::Relaxed) == 0)
+    }
+
+    /// Reset the bump cursor back to the start of the block.
+    pub(crate) fn reset_cursor(&mut self) {
+        self.cursor = 0;
+    }
+
+    /// Try to allocate `layout.size()` bytes from the block using
+    /// hole-filling. The implementation scans `line_marks` starting at
+    /// the current cursor for the first run of `ceil(size / line_bytes)`
+    /// consecutive free lines. On success the cursor advances past the
+    /// allocation and the function returns the offset of the placement
+    /// inside the buffer plus a `NonNull<u8>` to that slot.
+    pub(crate) fn try_alloc(
+        &mut self,
+        layout: core::alloc::Layout,
+    ) -> Option<(usize, core::ptr::NonNull<u8>)> {
         let size = layout.size();
-        let align = layout.align().max(1);
-        let base = self.buffer.as_ptr() as usize;
-        let current = base.checked_add(self.cursor)?;
-        let mask = align - 1;
-        let aligned = current.checked_add(mask).map(|v| v & !mask)?;
-        let padding = aligned.checked_sub(base)?;
-        let end = padding.checked_add(size)?;
-        if end > self.buffer.len() {
+        if size == 0 {
             return None;
         }
-        let ptr = aligned as *mut u8;
-        self.cursor = end;
-        core::ptr::NonNull::new(ptr)
+        if size > self.buffer.len() {
+            return None;
+        }
+        let lines_needed = size.div_ceil(self.line_bytes).max(1);
+        let line_count = self.line_count();
+        if lines_needed > line_count {
+            return None;
+        }
+
+        let cursor_line = self.cursor.div_ceil(self.line_bytes);
+        let mut search_line = cursor_line;
+        while search_line + lines_needed <= line_count {
+            // Skip over any occupied lines to reach the next free run.
+            while search_line + lines_needed <= line_count
+                && self.is_line_marked(search_line)
+            {
+                search_line += 1;
+            }
+            if search_line + lines_needed > line_count {
+                break;
+            }
+            // Check whether `lines_needed` consecutive lines are free here.
+            let mut run_end = search_line;
+            while run_end < line_count
+                && !self.is_line_marked(run_end)
+                && run_end - search_line < lines_needed
+            {
+                run_end += 1;
+            }
+            if run_end - search_line >= lines_needed {
+                let offset = search_line * self.line_bytes;
+                let alloc_end = offset + size;
+                if alloc_end > self.buffer.len() {
+                    return None;
+                }
+                // Honour the requested alignment if it exceeds line alignment.
+                // Line starts are at line_bytes-multiples of the buffer base
+                // pointer, so most use cases are already covered, but a tiny
+                // re-check guards against pathological alignment requests.
+                let base_addr = self.buffer.as_ptr() as usize;
+                let slot_addr = base_addr + offset;
+                if slot_addr % layout.align().max(1) != 0 {
+                    // The requested alignment exceeds line alignment; skip
+                    // this run and keep searching.
+                    search_line = run_end;
+                    continue;
+                }
+                let after_lines = offset + lines_needed * self.line_bytes;
+                self.cursor = after_lines.min(self.buffer.len());
+                // SAFETY: offset is in-range; the buffer outlives the block.
+                let raw = unsafe { (self.buffer.as_ptr() as *mut u8).add(offset) };
+                let ptr = core::ptr::NonNull::new(raw)?;
+                return Some((offset, ptr));
+            }
+            search_line = run_end;
+        }
+        None
     }
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct OldGenState {
     pub(crate) regions: Vec<OldRegion>,
-    /// Block buffer pool (Phase 2 MVP). Blocks are allocated on demand
-    /// when direct old-gen allocation needs fresh backing storage, and
-    /// they are dropped only when the `OldGenState` itself drops —
-    /// per-block reclaim after sweep is deferred to a later phase.
+    /// Block buffer pool. Blocks are allocated on demand when direct old-gen
+    /// allocation or nursery promotion needs fresh backing storage, and the
+    /// post-sweep reclaim path drops blocks whose line marks are entirely
+    /// empty (Immix-style block reclaim).
     blocks: Vec<OldBlock>,
 }
 
@@ -132,30 +290,181 @@ impl OldGenState {
         self.make_placement(config, region_index, offset, bytes)
     }
 
-    /// Phase 2 MVP block allocation. Returns a bump-allocated pointer
-    /// inside one of the owned `OldBlock` buffers, sized to `layout`.
-    /// Returns `None` if the layout cannot be satisfied even by a
-    /// fresh block (e.g. `layout.size() > config.region_bytes`).
+    /// Phase 2 Immix-style block allocation. Walks every block looking for
+    /// a hole large enough to fit `layout` (hole-filling), and on failure
+    /// allocates a fresh block sized to the larger of `config.region_bytes`
+    /// and `layout.size()`. Returns the placement (block index plus byte
+    /// offset) and a `NonNull<u8>` to the placement slot.
     pub(crate) fn try_alloc_in_block(
         &mut self,
         config: &OldGenConfig,
         layout: core::alloc::Layout,
-    ) -> Option<core::ptr::NonNull<u8>> {
-        // First try the most-recently-used block so hot allocations
-        // stay in the same cache line region.
-        if let Some(last) = self.blocks.last_mut()
-            && let Some(ptr) = last.try_alloc(layout)
-        {
-            return Some(ptr);
+    ) -> Option<(OldBlockPlacement, core::ptr::NonNull<u8>)> {
+        // Try every existing block from oldest to newest. Hot allocation
+        // benefits from staying in the most recently used block first, but
+        // hole filling improves overall density at the cost of one extra
+        // pass — start the search at the beginning so we always re-use the
+        // earliest available hole, mirroring the Immix paper recommendation.
+        for index in 0..self.blocks.len() {
+            if let Some((offset, ptr)) = self.blocks[index].try_alloc(layout) {
+                let placement = OldBlockPlacement {
+                    block_index: index,
+                    offset_bytes: offset,
+                    total_size: layout.size(),
+                };
+                return Some((placement, ptr));
+            }
         }
 
-        // Allocate a new block sized to the larger of the configured
-        // region size and the requested layout.
+        // No existing block had room — allocate a new block sized to
+        // the larger of the configured region size and the requested
+        // layout.
         let capacity = config.region_bytes.max(layout.size());
-        let mut block = OldBlock::new(capacity);
-        let ptr = block.try_alloc(layout)?;
+        let line_bytes = config.line_bytes.max(1);
+        let mut block = OldBlock::new(capacity, line_bytes);
+        let (offset, ptr) = block.try_alloc(layout)?;
+        let block_index = self.blocks.len();
         self.blocks.push(block);
-        Some(ptr)
+        Some((
+            OldBlockPlacement {
+                block_index,
+                offset_bytes: offset,
+                total_size: layout.size(),
+            },
+            ptr,
+        ))
+    }
+
+    /// Number of physical blocks currently in the pool.
+    #[allow(dead_code)]
+    pub(crate) fn block_count(&self) -> usize {
+        self.blocks.len()
+    }
+
+    /// Borrow the block at `index`.
+    #[allow(dead_code)]
+    pub(crate) fn block(&self, index: usize) -> Option<&OldBlock> {
+        self.blocks.get(index)
+    }
+
+    /// Iterate over every block in the pool.
+    #[allow(dead_code)]
+    pub(crate) fn blocks(&self) -> &[OldBlock] {
+        &self.blocks
+    }
+
+    /// Clear every line mark across every block. Called at the start of
+    /// the post-sweep rebuild so the survivor walk can re-mark only the
+    /// lines that still hold live objects.
+    pub(crate) fn clear_all_block_line_marks(&self) {
+        for block in &self.blocks {
+            block.clear_line_marks();
+        }
+    }
+
+    /// Mark the lines covered by `placement` in the corresponding block.
+    pub(crate) fn mark_block_lines_for_placement(&self, placement: OldBlockPlacement) {
+        if let Some(block) = self.blocks.get(placement.block_index) {
+            block.mark_lines_for_range(placement.offset_bytes, placement.total_size);
+        }
+    }
+
+    /// Drop blocks whose line marks are entirely zero (no surviving objects).
+    /// Returns the number of reclaimed blocks. The remaining blocks are
+    /// renumbered, so the caller is responsible for re-binding any
+    /// `OldBlockPlacement::block_index` values that survive across reclaim
+    /// (the post-sweep rebuild path performs this re-binding before
+    /// committing).
+    #[allow(dead_code)]
+    pub(crate) fn reclaim_empty_blocks(&mut self) -> Vec<usize> {
+        let mut reclaimed = Vec::new();
+        let mut keep_mask = Vec::with_capacity(self.blocks.len());
+        for block in &self.blocks {
+            keep_mask.push(!block.is_empty());
+        }
+        for (index, &keep) in keep_mask.iter().enumerate() {
+            if !keep {
+                reclaimed.push(index);
+            }
+        }
+        if reclaimed.is_empty() {
+            return reclaimed;
+        }
+        let mut next = 0usize;
+        self.blocks.retain(|_| {
+            let keep = keep_mask[next];
+            next += 1;
+            keep
+        });
+        // Reset cursors on the surviving blocks so newly opened holes are
+        // visible to the next allocation cycle.
+        for block in &mut self.blocks {
+            block.reset_cursor();
+        }
+        reclaimed
+    }
+
+    /// Reset every block's bump cursor without dropping any blocks. This is
+    /// called at the start of the post-sweep allocation cycle so the next
+    /// allocation walks line marks from offset 0.
+    pub(crate) fn reset_block_cursors(&mut self) {
+        for block in &mut self.blocks {
+            block.reset_cursor();
+        }
+    }
+
+    /// Compute a remapping that drops empty blocks and rewrites surviving
+    /// indices into a contiguous 0..N range. Returns `(new_indices, dropped)`
+    /// where `new_indices[old] == Some(new)` if the block survives or `None`
+    /// if it was dropped.
+    pub(crate) fn compute_block_index_remap(&self) -> (Vec<Option<usize>>, usize) {
+        let mut new_indices = Vec::with_capacity(self.blocks.len());
+        let mut next = 0usize;
+        let mut dropped = 0usize;
+        for block in &self.blocks {
+            if block.is_empty() {
+                new_indices.push(None);
+                dropped += 1;
+            } else {
+                new_indices.push(Some(next));
+                next += 1;
+            }
+        }
+        (new_indices, dropped)
+    }
+
+    /// Drop blocks whose line marks are completely empty after a sweep.
+    /// Returns a remap from old block indices to new block indices (or
+    /// `None` if the block was dropped) so the caller can rebind any
+    /// surviving `OldBlockPlacement::block_index` values that were stored
+    /// outside the block pool.
+    ///
+    /// IMPORTANT: callers must mark the lines of every record that anchors
+    /// a block — including pending finalizers — before invoking this
+    /// function. A block is reclaimed iff none of its lines are marked.
+    pub(crate) fn drop_unused_blocks_with_remap(&mut self) -> Vec<Option<usize>> {
+        let (remap, dropped) = self.compute_block_index_remap();
+        if dropped == 0 {
+            self.reset_block_cursors();
+            return remap;
+        }
+
+        let mut next = 0usize;
+        let mut keep_mask = Vec::with_capacity(self.blocks.len());
+        for entry in &remap {
+            keep_mask.push(entry.is_some());
+        }
+        self.blocks.retain(|_| {
+            let keep = keep_mask[next];
+            next += 1;
+            keep
+        });
+
+        // Reset cursors on the surviving blocks so newly opened holes are
+        // visible to the next allocation cycle.
+        self.reset_block_cursors();
+
+        remap
     }
 
     pub(crate) fn record_object(&mut self, object: &ObjectRecord) {
