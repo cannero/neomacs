@@ -1,11 +1,6 @@
-use core::any::TypeId;
-use core::ptr::NonNull;
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
-
 use crate::background::{BackgroundCollectorConfig, BackgroundService, SharedHeap};
 use crate::barrier::{BarrierEvent, BarrierKind};
-use crate::collector_exec::{collect_global_sources, execute_collection_plan};
+use crate::collector_exec::collect_global_sources;
 use crate::collector_state::{CollectorSharedSnapshot, CollectorStateHandle};
 use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
 use crate::index_state::HeapIndexState;
@@ -22,6 +17,9 @@ use crate::spaces::{
     PinnedSpaceConfig,
 };
 use crate::stats::{CollectionStats, HeapStats, OldRegionStats};
+use core::any::TypeId;
+use core::ptr::NonNull;
+use std::collections::HashMap;
 
 /// Heap creation configuration.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -159,7 +157,7 @@ impl Heap {
         &self.config.old
     }
 
-    pub(crate) fn full_reclaim_parts(
+    pub(crate) fn collection_exec_parts(
         &mut self,
     ) -> (
         &mut RootStack,
@@ -475,44 +473,6 @@ impl Heap {
         CollectorRuntime::new(self).execute_plan(plan)
     }
 
-    pub(crate) fn execute_plan_in_place(
-        &mut self,
-        plan: CollectionPlan,
-    ) -> Result<CollectionStats, AllocError> {
-        if self.collector.has_active_major_mark() {
-            return Err(AllocError::CollectionInProgress);
-        }
-        let pause_start = Instant::now();
-        self.collector.clear_recent_phase_trace();
-        let mut phases = Vec::new();
-        let mut cycle = execute_collection_plan(
-            &plan,
-            &mut self.roots,
-            &mut self.objects,
-            &mut self.indexes,
-            &mut self.old_gen,
-            &self.config.old,
-            &self.config.nursery,
-            &mut self.stats,
-            &self.runtime_state,
-            |phase| phases.push(phase),
-        )?;
-        self.collector.push_phases(phases);
-        cycle.pause_nanos = Self::saturating_duration_nanos(pause_start.elapsed());
-        self.record_collection_stats(cycle);
-        self.collector.record_completed_plan(
-            CollectionPlan {
-                phase: CollectionPhase::Reclaim,
-                ..plan
-            },
-            &self.storage_stats(),
-            &self.old_gen,
-            &self.config.old,
-            |kind| self.plan_for(kind),
-        );
-        Ok(cycle)
-    }
-
     pub(crate) fn alloc_typed<'scope, T: Trace + 'static>(
         &mut self,
         scope: &mut HandleScope<'scope, '_>,
@@ -790,10 +750,6 @@ impl Heap {
 
     pub(crate) fn record_collection_stats(&mut self, cycle: CollectionStats) {
         self.stats.collections.saturating_add_assign(cycle);
-    }
-
-    fn saturating_duration_nanos(duration: Duration) -> u64 {
-        duration.as_nanos().min(u128::from(u64::MAX)) as u64
     }
 
     #[cfg(test)]

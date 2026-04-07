@@ -5,7 +5,7 @@ use crate::background::{
     SharedCollectorHandle, SharedHeap, SharedHeapError, SharedHeapStatus, SharedRuntimeHandle,
 };
 use crate::collector_exec::{
-    prepare_major_reclaim_for_plan, trace_major_ephemerons_for_candidates,
+    execute_collection_plan, prepare_major_reclaim_for_plan, trace_major_ephemerons_for_candidates,
 };
 use crate::collector_policy::refresh_cached_plans as refresh_cached_collector_plans;
 use crate::collector_session::{self, build_prepared_active_reclaim, prepare_active_reclaim};
@@ -91,7 +91,42 @@ impl<'heap> CollectorRuntime<'heap> {
 
     /// Execute one scheduler-provided collection plan.
     pub fn execute_plan(&mut self, plan: CollectionPlan) -> Result<CollectionStats, AllocError> {
-        self.heap.execute_plan_in_place(plan)
+        if self.heap.collector_handle().has_active_major_mark() {
+            return Err(AllocError::CollectionInProgress);
+        }
+
+        let pause_start = Instant::now();
+        self.heap.collector_handle().clear_recent_phase_trace();
+        let runtime_state = self.heap.runtime_state_handle();
+        let mut phases = Vec::new();
+        let (roots, objects, indexes, old_gen, stats, old_config, nursery_config) =
+            self.heap.collection_exec_parts();
+        let mut cycle = execute_collection_plan(
+            &plan,
+            roots,
+            objects,
+            indexes,
+            old_gen,
+            old_config,
+            nursery_config,
+            stats,
+            &runtime_state,
+            |phase| phases.push(phase),
+        )?;
+        self.heap.collector_handle().push_phases(phases);
+        cycle.pause_nanos = pause_start.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
+        self.heap.record_collection_stats(cycle);
+        self.heap.collector_handle().record_completed_plan(
+            CollectionPlan {
+                phase: CollectionPhase::Reclaim,
+                ..plan
+            },
+            &self.heap.storage_stats(),
+            self.heap.old_gen(),
+            self.heap.old_config(),
+            |kind| self.heap.plan_for(kind),
+        );
+        Ok(cycle)
     }
 
     /// Begin a persistent major-mark session for one scheduler-provided plan.
@@ -339,7 +374,7 @@ impl<'heap> CollectorRuntime<'heap> {
             CollectionKind::Full => {
                 let mut phases = Vec::new();
                 let (roots, objects, indexes, old_gen, stats, old_config, nursery_config) =
-                    self.heap.full_reclaim_parts();
+                    self.heap.collection_exec_parts();
                 let prepared = crate::collector_exec::prepare_full_reclaim_for_plan(
                     plan,
                     roots,
