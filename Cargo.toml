@@ -75,7 +75,7 @@ allsorts = "0.16.1"
 # wraps GMP. We disable rug's default features so only the `integer`
 # module is built — we don't need MPFR (rationals/floats) here, since
 # elisp bignums are integers and elisp floats stay as f64.
-rug = { version = "1", default-features = false, features = ["integer"] }
+rug = { version = "1", default-features = false, features = ["integer", "std"] }
 # We pin gmp-mpfr-sys (rug's underlying FFI crate) so we can enable its
 # `use-system-libs` feature, which links against the libgmp shipped by
 # our nix devShell instead of building GMP from source. Building GMP

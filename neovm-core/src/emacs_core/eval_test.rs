@@ -3205,6 +3205,46 @@ fn reader_recognizes_bignum_literals() {
     assert_eq!(eval_one("(bignump 1267650600228229401496703205376)"), "OK t");
 }
 
+/// Regression for the printer side of audit §1.1: bignums must
+/// round-trip through prin1, number-to-string, format %d/%x/%o, and
+/// string-to-number. Mirrors GNU Emacs's bignum print/parse symmetry.
+#[test]
+fn bignum_round_trips_through_print_and_parse() {
+    crate::test_utils::init_test_tracing();
+    // prin1 of a literal bignum.
+    assert_eq!(
+        eval_one("(prin1-to-string 1267650600228229401496703205376)"),
+        "OK \"1267650600228229401496703205376\""
+    );
+    // number-to-string on a bignum.
+    assert_eq!(
+        eval_one("(number-to-string (ash 1 100))"),
+        "OK \"1267650600228229401496703205376\""
+    );
+    // format %d on a bignum.
+    assert_eq!(
+        eval_one("(format \"%d\" (ash 1 100))"),
+        "OK \"1267650600228229401496703205376\""
+    );
+    // format %x on a bignum.
+    assert_eq!(
+        eval_one("(format \"%x\" (ash 1 100))"),
+        "OK \"10000000000000000000000000\""
+    );
+    // string-to-number reads a bignum literal.
+    assert_eq!(
+        eval_one("(string-to-number \"1267650600228229401496703205376\")"),
+        "OK 1267650600228229401496703205376"
+    );
+    // Parse → arithmetic → print round-trip.
+    assert_eq!(
+        eval_one(
+            "(number-to-string (* (string-to-number \"1267650600228229401496703205376\") 2))"
+        ),
+        "OK \"2535301200456458802993406410752\""
+    );
+}
+
 #[test]
 fn substring_accepts_vectors_like_gnu_emacs() {
     crate::test_utils::init_test_tracing();

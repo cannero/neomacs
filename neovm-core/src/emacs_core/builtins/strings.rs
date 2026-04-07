@@ -408,14 +408,20 @@ pub(crate) fn builtin_string_to_number(args: Vec<Value>) -> EvalResult {
                     return Ok(Value::make_float(f));
                 }
             } else {
-                // Parse integer part only (stop at dot if present)
+                // Parse integer part only (stop at dot if present).
+                // Funnel through Value::make_integer so values that
+                // exceed fixnum range come back as bignums (mirrors
+                // GNU string_to_number which uses bignum_make).
                 let int_token = if let Some(dot_pos) = token.find('.') {
                     &token[..dot_pos]
                 } else {
                     token
                 };
                 if let Ok(n) = int_token.parse::<i64>() {
-                    return Ok(Value::fixnum(n));
+                    return Ok(Value::make_integer(rug::Integer::from(n)));
+                }
+                if let Ok(parsed) = rug::Integer::parse(int_token) {
+                    return Ok(Value::make_integer(rug::Integer::from(parsed)));
                 }
             }
         }
@@ -444,18 +450,37 @@ pub(crate) fn builtin_string_to_number(args: Vec<Value>) -> EvalResult {
         if pos > digit_start {
             let token = &s[digit_start..pos];
             if let Ok(parsed) = i64::from_str_radix(token, base as u32) {
-                return Ok(Value::fixnum(if negative { -parsed } else { parsed }));
+                return Ok(Value::make_integer(rug::Integer::from(if negative {
+                    -parsed
+                } else {
+                    parsed
+                })));
+            }
+            // Overflow — fall back to GMP for bignum literal in given base.
+            let mut signed = String::with_capacity(token.len() + 1);
+            if negative {
+                signed.push('-');
+            }
+            signed.push_str(token);
+            if let Ok(parsed) = rug::Integer::parse_radix(&signed, base as i32) {
+                return Ok(Value::make_integer(rug::Integer::from(parsed)));
             }
         }
     }
     Ok(Value::fixnum(0))
 }
 
+/// `(number-to-string NUMBER)` — mirrors GNU `Fnumber_to_string`
+/// (`src/data.c`). Bignums format via `rug::Integer`'s Display, which
+/// uses `mpz_get_str` under the hood.
 pub(crate) fn builtin_number_to_string(args: Vec<Value>) -> EvalResult {
     expect_args("number-to-string", &args, 1)?;
     match args[0].kind() {
         ValueKind::Fixnum(n) => Ok(Value::string(n.to_string())),
         ValueKind::Float => Ok(Value::string(super::print::format_float(args[0].xfloat()))),
+        ValueKind::Veclike(VecLikeType::Bignum) => {
+            Ok(Value::string(args[0].as_bignum().unwrap().to_string()))
+        }
         _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("numberp"), args[0]],
@@ -885,6 +910,53 @@ fn format_int_spec(n: i64, spec: &FormatSpec) -> String {
     apply_width(&s, spec)
 }
 
+/// Format a bignum for `%d` / `%o` / `%x` / `%X` specs. Mirrors the
+/// `format_int_spec` fixnum path but uses `rug::Integer::to_string_radix`
+/// for the underlying numeric conversion. The flag/width/precision
+/// handling is identical.
+fn format_bignum_spec(n: &rug::Integer, spec: &FormatSpec) -> String {
+    let negative = n.cmp0().is_lt();
+    let s = match spec.conversion {
+        'd' => {
+            // rug already prints the leading minus for negatives.
+            let body = n.to_string();
+            if !negative && spec.plus {
+                format!("+{}", body)
+            } else if !negative && spec.space {
+                format!(" {}", body)
+            } else {
+                body
+            }
+        }
+        'o' | 'x' | 'X' => {
+            let radix: i32 = match spec.conversion {
+                'o' => 8,
+                'x' | 'X' => 16,
+                _ => unreachable!(),
+            };
+            let abs = rug::Integer::from(n.abs_ref());
+            let mut digits = abs.to_string_radix(radix);
+            if spec.conversion == 'X' {
+                digits.make_ascii_uppercase();
+            }
+            let prefix = if spec.sharp && !abs.is_zero() {
+                match spec.conversion {
+                    'o' => "0",
+                    'x' => "0x",
+                    'X' => "0X",
+                    _ => "",
+                }
+            } else {
+                ""
+            };
+            let sign = if negative { "-" } else { "" };
+            format!("{}{}{}", sign, prefix, digits)
+        }
+        _ => n.to_string(),
+    };
+    apply_width(&s, spec)
+}
+
 /// Normalize Rust scientific notation to match C printf: sign always
 /// present, at least two exponent digits (e.g. `e0` -> `e+00`).
 fn normalize_exp_notation(s: &str) -> String {
@@ -1030,15 +1102,30 @@ fn do_format(
                 format_string_spec(&s, &spec)
             }
             'd' | 'o' | 'x' | 'X' => {
-                let n = match args[arg_idx].kind() {
-                    ValueKind::Fixnum(i) => i,
-                    ValueKind::Float => args[arg_idx].xfloat() as i64,
+                let formatted = match args[arg_idx].kind() {
+                    ValueKind::Fixnum(i) => format_int_spec(i, &spec),
+                    ValueKind::Float => {
+                        // GNU `Fformat` accepts a float for %d/%o/%x/%X
+                        // by promoting it to a bignum via double_to_integer.
+                        // We mirror that here so very large floats don't
+                        // saturate at i64::MAX.
+                        let f = args[arg_idx].xfloat();
+                        if !f.is_finite() {
+                            return Err(format_spec_type_mismatch_error());
+                        }
+                        let big = rug::Integer::from_f64(f)
+                            .ok_or_else(format_spec_type_mismatch_error)?;
+                        format_bignum_spec(&big, &spec)
+                    }
+                    ValueKind::Veclike(VecLikeType::Bignum) => {
+                        format_bignum_spec(args[arg_idx].as_bignum().unwrap(), &spec)
+                    }
                     _ => {
                         return Err(format_spec_type_mismatch_error());
                     }
                 };
                 arg_idx += 1;
-                format_int_spec(n, &spec)
+                formatted
             }
             'f' | 'e' | 'E' | 'g' | 'G' => {
                 let f =
