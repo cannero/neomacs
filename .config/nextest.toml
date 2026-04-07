@@ -6,11 +6,6 @@ experimental = ["wrapper-scripts"]
 [scripts.wrapper.memory-limit]
 command = 'prlimit --as=8589934592 --'
 
-[test-groups]
-# neovm-gc now has a large integration-style suite. Keep aggregate memory bounded even though
-# each test is already individually wrapped by the memory-limit script above.
-neovm-gc-memory = { max-threads = 4 }
-
 [profile.default]
 # Many tests use the bootstrap evaluator (which loads 122 .el files)
 # even without "bootstrap" in their name. 120s covers the ~63s
@@ -21,32 +16,3 @@ slow-timeout = { period = "120s", terminate-after = 1 }
 [[profile.default.scripts]]
 filter = 'all()'
 run-wrapper = 'memory-limit'
-
-# Oracle tests get longer timeouts
-[[profile.default.overrides]]
-filter = 'test(/^emacs_core::oracle_test::/)'
-slow-timeout = { period = "120s", terminate-after = 1 }
-
-# Bootstrap tests — conservative GC reduced debug from ~590s to ~55s
-[[profile.default.overrides]]
-filter = 'test(bootstrap) | test(pdump) | test(loadup)'
-slow-timeout = { period = "120s", terminate-after = 1 }
-threads-required = 1
-
-# GNU-vs-NeoVM compatibility integration tests
-[[profile.default.overrides]]
-filter = 'package(=neovm-core) and test(/compat_.*_matches_gnu_emacs/)'
-slow-timeout = { period = "120s", terminate-after = 1 }
-
-# Loadup bootstrap: ~2s release, ~55s debug
-[[profile.default.overrides]]
-filter = 'package(=neovm-core) and test(=emacs_core::load::tests::neovm_loadup_bootstrap)'
-slow-timeout = { period = "120s", terminate-after = 1 }
-
-[[profile.default.overrides]]
-filter = 'package(=neovm-gc)'
-test-group = 'neovm-gc-memory'
-
-[[profile.default.overrides]]
-filter = 'package(=neovm-gc) and test(/background_worker_.*/)'
-threads-required = 'num-test-threads'
