@@ -30,6 +30,26 @@ use crate::window::WindowId;
 pub const BUFFER_SLOT_COUNT: usize = 50;
 
 // ---------------------------------------------------------------------------
+// Phase 8b slot offset constants for the four hardcoded Buffer fields
+// that will migrate from direct struct fields to slot accessors in
+// follow-up commits. Mirrors GNU `buffer.c:5056-5500` where each
+// `DEFVAR_PER_BUFFER` assigns a stable slot index.
+// ---------------------------------------------------------------------------
+
+/// Slot index for `buffer-file-name`. Mirrors GNU's slot for the
+/// `file_name_` field in `struct buffer` (`buffer.h:319`).
+pub const BUFFER_SLOT_FILE_NAME: usize = 0;
+/// Slot index for `buffer-auto-save-file-name`. Mirrors GNU's
+/// `auto_save_file_name_` (`buffer.h:323`).
+pub const BUFFER_SLOT_AUTO_SAVE_FILE_NAME: usize = 1;
+/// Slot index for `buffer-read-only`. Mirrors GNU's `read_only_`
+/// (`buffer.h:338`).
+pub const BUFFER_SLOT_READ_ONLY: usize = 2;
+/// Slot index for `enable-multibyte-characters`. Mirrors GNU's
+/// `enable_multibyte_characters_` (`buffer.h:346`).
+pub const BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS: usize = 3;
+
+// ---------------------------------------------------------------------------
 // BufferId
 // ---------------------------------------------------------------------------
 
@@ -242,6 +262,58 @@ impl Buffer {
             syntax_table: SyntaxTable::new_standard(),
             undo_state: SharedUndoState::new(),
         }
+    }
+
+    // -- Slot accessors for the four hardcoded fields targeted by
+    // -- Phase 8b of the symbol-redirect refactor. These wrap the
+    // -- current `file_name` / `auto_save_file_name` / `read_only` /
+    // -- `multibyte` struct fields so that future commits can flip
+    // -- the storage to `self.slots[OFFSET]` without touching every
+    // -- call site again. The accessors are preparation-only: the
+    // -- backing storage is still the struct fields.
+
+    /// Read `buffer-file-name` via the Phase 8b accessor. Currently
+    /// delegates to the legacy [`Self::file_name`] field; Phase 8b.2
+    /// will flip the storage to [`Self::slots`].
+    pub fn get_file_name(&self) -> Option<&str> {
+        self.file_name.as_deref()
+    }
+
+    /// Write `buffer-file-name`. Mirrors GNU `bset_filename`
+    /// (`buffer.c`). See [`Self::get_file_name`] for the storage
+    /// plan.
+    pub fn set_file_name_value(&mut self, v: Option<String>) {
+        self.file_name = v;
+    }
+
+    /// Read `buffer-auto-save-file-name` via the Phase 8b accessor.
+    pub fn get_auto_save_file_name(&self) -> Option<&str> {
+        self.auto_save_file_name.as_deref()
+    }
+
+    /// Write `buffer-auto-save-file-name`.
+    pub fn set_auto_save_file_name_value(&mut self, v: Option<String>) {
+        self.auto_save_file_name = v;
+    }
+
+    /// Read `buffer-read-only` via the Phase 8b accessor.
+    pub fn get_read_only(&self) -> bool {
+        self.read_only
+    }
+
+    /// Write `buffer-read-only`.
+    pub fn set_read_only_value(&mut self, v: bool) {
+        self.read_only = v;
+    }
+
+    /// Read `enable-multibyte-characters` via the Phase 8b accessor.
+    pub fn get_multibyte(&self) -> bool {
+        self.multibyte
+    }
+
+    /// Write `enable-multibyte-characters`.
+    pub fn set_multibyte_value(&mut self, v: bool) {
+        self.multibyte = v;
     }
 
     // -- Point queries -------------------------------------------------------
