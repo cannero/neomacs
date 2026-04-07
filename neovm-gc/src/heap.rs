@@ -29,7 +29,7 @@ use std::collections::HashMap;
 /// `PacerConfig` carries `f64` fields (allocation rates, ratios).
 /// `PartialEq` is still implemented so callers can compare configs
 /// for testing.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct HeapConfig {
     /// Nursery configuration.
     pub nursery: NurseryConfig,
@@ -44,18 +44,6 @@ pub struct HeapConfig {
     /// conservative trigger thresholds. The pacer can also be
     /// reconfigured after construction via [`Heap::set_pacer_config`].
     pub pacer: PacerConfig,
-}
-
-impl Default for HeapConfig {
-    fn default() -> Self {
-        Self {
-            nursery: NurseryConfig::default(),
-            old: OldGenConfig::default(),
-            pinned: PinnedSpaceConfig::default(),
-            large: LargeObjectSpaceConfig::default(),
-            pacer: PacerConfig::default(),
-        }
-    }
 }
 
 /// Allocation error for the managed heap.
