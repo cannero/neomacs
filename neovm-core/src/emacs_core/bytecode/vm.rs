@@ -298,57 +298,29 @@ impl<'a> Vm<'a> {
             self.ctx.bc_buf.push(rest_list);
         }
 
-        // Push a dynamic frame mapping param names -> values so that inner
-        // closures and VarRef lookups can find parameters by name.
+        // GNU's bytecode stores lexical params at known stack positions; the
+        // byte-compiler emits `byte-stack-ref` for every lexical reference,
+        // so the param names are NOT looked up at runtime and don't need any
+        // environment entry.  Dynamic params, on the other hand, are
+        // referenced via `byte-varref` and must be specbound on the
+        // function's specpdl span.  This split mirrors `byte-compile-bind`
+        // in bytecomp.el and matches GNU's `funcall_lambda` (eval.c) ->
+        // `exec_byte_code` (bytecode.c).  Building an intermediate
+        // OrderedRuntimeBindingMap of params per call (which the previous
+        // code did even for the lexical case) is dead work that dominated
+        // debug-build batch-byte-compile runtime.
         let has_named_params = nonrest > 0 || has_rest;
         if has_named_params {
-            let mut frame = OrderedRuntimeBindingMap::new();
-            let mut arg_idx = 0;
-            for param in &func.params.required {
-                frame.insert(
-                    *param,
-                    if arg_idx < nargs {
-                        args[arg_idx]
-                    } else {
-                        Value::NIL
-                    },
-                );
-                arg_idx += 1;
-            }
-            for param in &func.params.optional {
-                frame.insert(
-                    *param,
-                    if arg_idx < nargs {
-                        args[arg_idx]
-                    } else {
-                        Value::NIL
-                    },
-                );
-                arg_idx += 1;
-            }
-            if let Some(rest_name) = func.params.rest {
-                let rest_args: Vec<Value> = if arg_idx < nargs {
-                    args[arg_idx..].to_vec()
-                } else {
-                    vec![]
-                };
-                frame.insert(rest_name, Value::list(rest_args));
-            }
-
             if func.lexical || func.env.is_some() {
-                // Lexical bytecode functions prepend parameter bindings onto
-                // the current lexical environment, starting from the captured
-                // closure env when one exists.
+                // Lexical bytecode functions: params live on bc_buf at the
+                // bottom of the frame.  Just install the captured closure
+                // env (if any) and run; the body's stack-ref opcodes find
+                // the params via frame_base.
                 let saved_lexenv = if let Some(env) = func.env {
                     std::mem::replace(&mut self.ctx.lexenv, env)
                 } else {
                     self.ctx.lexenv
                 };
-                for (sym_id, val) in frame.iter() {
-                    if let Some(val) = val.as_value() {
-                        self.ctx.lexenv = lexenv_prepend(self.ctx.lexenv, *sym_id, val);
-                    }
-                }
                 let result = self.run_loop(func, frame_base, &mut pc, &mut handlers, &mut specpdl);
                 self.ctx.truncate_condition_stack(condition_stack_base);
                 self.ctx.lexenv = saved_lexenv;
@@ -358,16 +330,52 @@ impl<'a> Vm<'a> {
                 return merge_result_with_cleanup(result, cleanup);
             }
 
+            // Dynamic bytecode functions: each param needs a specbind so
+            // that varref opcodes inside the body can find it via the
+            // obarray.  Bind params directly from `args`/the rest list with
+            // no intermediate map.
             let specpdl_count = self.ctx.specpdl.len();
-            for (sym_id, val) in frame.iter() {
-                if let Some(val) = val.as_value() {
-                    crate::emacs_core::eval::specbind_in_state(
-                        &mut self.ctx.obarray,
-                        &mut self.ctx.specpdl,
-                        *sym_id,
-                        val,
-                    );
-                }
+            let mut arg_idx = 0;
+            for param in &func.params.required {
+                let val = if arg_idx < nargs {
+                    args[arg_idx]
+                } else {
+                    Value::NIL
+                };
+                crate::emacs_core::eval::specbind_in_state(
+                    &mut self.ctx.obarray,
+                    &mut self.ctx.specpdl,
+                    *param,
+                    val,
+                );
+                arg_idx += 1;
+            }
+            for param in &func.params.optional {
+                let val = if arg_idx < nargs {
+                    args[arg_idx]
+                } else {
+                    Value::NIL
+                };
+                crate::emacs_core::eval::specbind_in_state(
+                    &mut self.ctx.obarray,
+                    &mut self.ctx.specpdl,
+                    *param,
+                    val,
+                );
+                arg_idx += 1;
+            }
+            if let Some(rest_name) = func.params.rest {
+                let rest_list = if arg_idx < nargs {
+                    Value::list(args[arg_idx..].to_vec())
+                } else {
+                    Value::NIL
+                };
+                crate::emacs_core::eval::specbind_in_state(
+                    &mut self.ctx.obarray,
+                    &mut self.ctx.specpdl,
+                    rest_name,
+                    rest_list,
+                );
             }
             let result = self.run_loop(func, frame_base, &mut pc, &mut handlers, &mut specpdl);
             self.ctx.truncate_condition_stack(condition_stack_base);
@@ -512,17 +520,17 @@ impl<'a> Vm<'a> {
 
                 // -- Variable access --
                 Op::VarRef(idx) => {
-                    let name = sym_name(constants, *idx);
-                    let val = vm_try!(self.lookup_var(&name));
+                    let name_id = sym_id_at(constants, *idx);
+                    let val = vm_try!(self.lookup_var_id(name_id));
                     stk_push!(val);
                 }
                 Op::VarSet(idx) => {
-                    let name = sym_name(constants, *idx);
+                    let name_id = sym_id_at(constants, *idx);
                     let val = stk!().pop().unwrap_or(Value::NIL);
                     let extra = [val];
                     vm_try!(
                         self.with_frame_roots(func, handlers, specpdl, &extra, |vm| vm
-                            .assign_var(&name, val),)
+                            .assign_var_id(name_id, val),)
                     );
                 }
                 Op::VarBind(idx) => {
@@ -544,9 +552,8 @@ impl<'a> Vm<'a> {
                     // cconv.el — declared special locally but not globally) to
                     // the lexenv, where they are invisible to other functions
                     // called from the let body and surface as `void-variable`.
-                    let name = sym_name(constants, *idx);
+                    let name_id = sym_id_at(constants, *idx);
                     let val = stk!().pop().unwrap_or(Value::NIL);
-                    let name_id = intern(&name);
                     let specpdl_count = self.ctx.specpdl.len();
                     self.ctx.specbind(name_id, val);
                     specpdl.push(VmUnwindEntry::DynamicBinding { specpdl_count });
@@ -2051,6 +2058,81 @@ impl<'a> Vm<'a> {
             }
             _ => {}
         }
+    }
+
+    /// Variable reference by SymId — used by `Op::VarRef` to skip the
+    /// `intern(name)` and `as_symbol_name() -> resolve_sym` round-trips
+    /// that show up as the dominant cost in debug-build profiles.
+    /// The bytecode constant is already a `Value::Symbol(SymId)`, so
+    /// the SymId is available for free at the call site.
+    fn lookup_var_id(&mut self, name_id: SymId) -> EvalResult {
+        let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
+            &self.ctx.obarray,
+            name_id,
+        )?;
+        // Match GNU eval_sub: lexical environment lookup happens before
+        // alias resolution fallback and does not rescan declared-special
+        // flags.
+        if let Some(val) = self.ctx.lexenv_lookup_cached_in(self.ctx.lexenv, name_id) {
+            return Ok(val);
+        }
+        if resolved != name_id
+            && let Some(val) = self.ctx.lexenv_lookup_cached_in(self.ctx.lexenv, resolved)
+        {
+            return Ok(val);
+        }
+
+        // Current buffer-local binding.  Only resolve the name string
+        // when the buffer actually has a local binding to look up.
+        if crate::emacs_core::builtins::is_canonical_symbol_id(resolved)
+            && let Some(buf) = self.ctx.buffers.current_buffer()
+        {
+            let resolved_name = resolve_sym(resolved);
+            if let Some(binding) = buf.get_buffer_local_binding(resolved_name) {
+                return binding
+                    .as_value()
+                    .or_else(|| {
+                        (resolved_name == "buffer-undo-list")
+                            .then(|| buf.buffer_local_value(resolved_name))
+                            .flatten()
+                    })
+                    .ok_or_else(|| {
+                        signal("void-variable", vec![Value::from_sym_id(name_id)])
+                    });
+            }
+        }
+
+        // Obarray top-level value.
+        if let Some(val) = self.ctx.obarray.symbol_value_id(resolved) {
+            return Ok(*val);
+        }
+
+        Err(signal("void-variable", vec![Value::from_sym_id(name_id)]))
+    }
+
+    /// Variable assignment by SymId — counterpart to `lookup_var_id`.
+    fn assign_var_id(&mut self, name_id: SymId, value: Value) -> Result<(), Flow> {
+        let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
+            &self.ctx.obarray,
+            name_id,
+        )?;
+        if let Some(cell_id) = self.ctx.lexenv_assq_cached_in(self.ctx.lexenv, name_id) {
+            lexenv_set(cell_id, value);
+            return Ok(());
+        }
+        if resolved != name_id
+            && let Some(cell_id) = self.ctx.lexenv_assq_cached_in(self.ctx.lexenv, resolved)
+        {
+            lexenv_set(cell_id, value);
+            return Ok(());
+        }
+
+        if self.ctx.obarray.is_constant_id(resolved) {
+            return Err(signal("setting-constant", vec![Value::from_sym_id(name_id)]));
+        }
+
+        crate::emacs_core::eval::set_runtime_binding_in_state(&mut *self.ctx, resolved, value);
+        self.run_variable_watchers_by_id(resolved, &value, &Value::NIL, "set")
     }
 
     fn lookup_var(&mut self, name: &str) -> EvalResult {
@@ -4764,6 +4846,23 @@ fn sym_name(constants: &[Value], idx: u16) -> String {
         .and_then(|v| v.as_symbol_name())
         .unwrap_or("nil")
         .to_string()
+}
+
+/// Extract a `SymId` from a bytecode constants vector entry without
+/// going through the global string interner.
+///
+/// `Op::VarRef` / `Op::VarSet` / `Op::VarBind` all reference variables
+/// by index into the function's constants table.  Each constant is
+/// already a `Value::Symbol(SymId)`, so we can extract the SymId via a
+/// pure tag inspection.  Going through `as_symbol_name() -> &str ->
+/// intern() -> SymId` instead would acquire the global interner
+/// `RwLock` twice per opcode, which dominated debug-build runtime when
+/// the byte-compiler iterated over hot loops.
+fn sym_id_at(constants: &[Value], idx: u16) -> SymId {
+    constants
+        .get(idx as usize)
+        .and_then(|v| v.as_symbol_id())
+        .unwrap_or_else(|| intern("nil"))
 }
 #[cfg(test)]
 #[path = "vm_test.rs"]

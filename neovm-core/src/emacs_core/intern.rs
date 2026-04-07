@@ -6,8 +6,10 @@
 //! single append-only process interner, while tests can still instantiate local
 //! `StringInterner`s directly for unit coverage.
 
+use parking_lot::RwLock;
 use rustc_hash::FxHashMap;
-use std::sync::{OnceLock, RwLock};
+use std::cell::RefCell;
+use std::sync::OnceLock;
 
 /// A compact handle to an interned string. Copy, 4 bytes.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -149,25 +151,19 @@ fn global_interner() -> &'static RwLock<StringInterner> {
 }
 
 pub(crate) fn dump_runtime_interner() -> StringInterner {
-    let interner = global_interner()
-        .read()
-        .expect("global interner poisoned during dump");
+    let interner = global_interner().read();
     StringInterner::from_strings(interner.strings().iter().map(|s| (*s).to_owned()).collect())
 }
 
 pub(crate) fn ensure_runtime_interner(strings: &[String]) {
-    let mut interner = global_interner()
-        .write()
-        .expect("global interner poisoned during restore");
+    let mut interner = global_interner().write();
     interner.ensure_from_strings(strings);
 }
 
 /// Intern a string using the global runtime interner.
 #[inline]
 pub fn intern(s: &str) -> SymId {
-    let mut interner = global_interner()
-        .write()
-        .expect("global interner poisoned during intern");
+    let mut interner = global_interner().write();
     interner.intern(s)
 }
 
@@ -175,34 +171,26 @@ pub fn intern(s: &str) -> SymId {
 /// Always creates a new unique SymId, never reuses an existing one.
 #[inline]
 pub fn intern_uninterned(s: &str) -> SymId {
-    let mut interner = global_interner()
-        .write()
-        .expect("global interner poisoned during uninterned symbol creation");
+    let mut interner = global_interner().write();
     interner.intern_uninterned(s)
 }
 
 /// Look up the canonical interned id for a string without interning it.
 #[inline]
 pub fn lookup_interned(s: &str) -> Option<SymId> {
-    let interner = global_interner()
-        .read()
-        .expect("global interner poisoned during lookup");
+    let interner = global_interner().read();
     interner.lookup(s)
 }
 
 #[inline]
 pub fn is_canonical_id(id: SymId) -> bool {
-    let interner = global_interner()
-        .read()
-        .expect("global interner poisoned during canonical-id lookup");
+    let interner = global_interner().read();
     interner.is_canonical_id(id)
 }
 
 #[inline]
 pub fn resolve_sym_metadata(id: SymId) -> (&'static str, bool) {
-    let interner = global_interner()
-        .read()
-        .expect("global interner poisoned during metadata lookup");
+    let interner = global_interner().read();
     (interner.resolve(id), interner.is_canonical_id(id))
 }
 
@@ -210,10 +198,54 @@ pub fn resolve_sym_metadata(id: SymId) -> (&'static str, bool) {
 ///
 #[inline]
 pub fn resolve_sym(id: SymId) -> &'static str {
-    let interner = global_interner()
-        .read()
-        .expect("global interner poisoned during resolve");
-    interner.resolve(id)
+    if let Some(s) = thread_local_resolve(id) {
+        return s;
+    }
+    let interner = global_interner().read();
+    let s = interner.resolve(id);
+    drop(interner);
+    thread_local_record(id, s);
+    s
+}
+
+// ---------------------------------------------------------------------------
+// Thread-local lockless cache for SymId -> &'static str
+// ---------------------------------------------------------------------------
+//
+// `resolve_sym` is called from many bytecode hot paths (e.g. `is_keyword`,
+// debug formatting) and acquiring the global RwLock — even with parking_lot
+// — is many extra atomic ops per call.  Once a SymId is interned, the
+// underlying `&'static str` is permanently valid (the strings are Box::leaked
+// into static storage), so the (id -> str) mapping is monotonic and stable
+// for the lifetime of the process.  We can therefore safely cache it
+// per-thread without any locks.
+//
+// The cache is a `RefCell<Vec<Option<&'static str>>>`, lazily extended.  A
+// hit is one bounds check + one Option compare; a miss falls back through
+// the global interner, populates the cache, and returns the string.
+
+thread_local! {
+    static SYM_NAME_CACHE: RefCell<Vec<Option<&'static str>>> = const { RefCell::new(Vec::new()) };
+}
+
+#[inline]
+fn thread_local_resolve(id: SymId) -> Option<&'static str> {
+    SYM_NAME_CACHE.with(|cache| {
+        let cache = cache.borrow();
+        cache.get(id.0 as usize).and_then(|slot| *slot)
+    })
+}
+
+#[inline]
+fn thread_local_record(id: SymId, name: &'static str) {
+    SYM_NAME_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let idx = id.0 as usize;
+        if cache.len() <= idx {
+            cache.resize(idx + 1, None);
+        }
+        cache[idx] = Some(name);
+    });
 }
 
 /// Resolve a SymId to its string using the global runtime interner.
@@ -223,9 +255,7 @@ pub fn resolve_sym(id: SymId) -> &'static str {
 /// structured error instead of aborting the process on malformed runtime data.
 #[inline]
 pub fn try_resolve_sym(id: SymId) -> Option<&'static str> {
-    let interner = global_interner()
-        .read()
-        .expect("global interner poisoned during resolve");
+    let interner = global_interner().read();
     interner.strings().get(id.0 as usize).copied()
 }
 #[cfg(test)]

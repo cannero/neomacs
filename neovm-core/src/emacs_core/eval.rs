@@ -44,7 +44,16 @@ const EVAL_STACK_RED_ZONE: usize = 128 * 1024;
 const EVAL_STACK_SEGMENT: usize = 2 * 1024 * 1024;
 const STACK_GROWTH_PROBE_START_DEPTH: usize = 16;
 const STACK_GROWTH_PROBE_INTERVAL: usize = 16;
-const NAMED_CALL_CACHE_CAPACITY: usize = 8;
+/// Capacity of the per-Context cache mapping symbol → resolved call
+/// target.  The cache is keyed by `function_epoch` and invalidated
+/// whenever the obarray's function cells change.  GNU Emacs has no such
+/// cache (its dispatcher walks the symbol's function cell directly per
+/// call), but in NeoMacs's debug build a fast path that avoids
+/// `resolve_sym`/`intern` lock acquisitions per call is a major win
+/// for byte-compiler workloads.  4096 entries comfortably covers the
+/// distinct functions called during batch-byte-compile so the cache
+/// never thrashes once warmed.
+const NAMED_CALL_CACHE_CAPACITY: usize = 4096;
 const LEXENV_ASSQ_CACHE_CAPACITY: usize = 8;
 const LEXENV_SPECIAL_CACHE_CAPACITY: usize = 8;
 const GC_DEFAULT_THRESHOLD_BYTES: usize = 100_000 * std::mem::size_of::<usize>();
@@ -53,12 +62,27 @@ const GC_HI_THRESHOLD_BYTES: usize = (i64::MAX as usize) / 2;
 pub(crate) const INTERNAL_COMPILER_FUNCTION_OVERRIDES: &str =
     "internal--compiler-function-overrides";
 
+/// Cached SymId for `internal--compiler-function-overrides`.
+///
+/// `compiler_function_overrides_active_in_obarray` is called from
+/// `resolve_named_call_target_by_id` on every funcall.  The previous
+/// implementation re-interned the string each call, which acquires the
+/// global interner write lock — even after `parking_lot::RwLock`, that
+/// is many extra atomic ops per call and shows up as the dominant cost
+/// in debug-build batch-byte-compile profiles.  Cache the SymId once
+/// and use the `_id`-suffixed obarray accessor that bypasses intern.
+fn internal_compiler_function_overrides_sym() -> SymId {
+    static SYM: OnceLock<SymId> = OnceLock::new();
+    *SYM.get_or_init(|| intern(INTERNAL_COMPILER_FUNCTION_OVERRIDES))
+}
+
 pub(crate) fn compiler_function_override_in_obarray(
     obarray: &Obarray,
     sym_id: SymId,
 ) -> Option<Value> {
+    let overrides_sym = internal_compiler_function_overrides_sym();
     let mut cursor = obarray
-        .symbol_value(INTERNAL_COMPILER_FUNCTION_OVERRIDES)
+        .symbol_value_id(overrides_sym)
         .copied()
         .unwrap_or(Value::NIL);
     while cursor.is_cons() {
@@ -72,8 +96,9 @@ pub(crate) fn compiler_function_override_in_obarray(
 }
 
 pub(crate) fn compiler_function_overrides_active_in_obarray(obarray: &Obarray) -> bool {
+    let overrides_sym = internal_compiler_function_overrides_sym();
     obarray
-        .symbol_value(INTERNAL_COMPILER_FUNCTION_OVERRIDES)
+        .symbol_value_id(overrides_sym)
         .copied()
         .unwrap_or(Value::NIL)
         .is_cons()
@@ -463,8 +488,7 @@ enum NamedCallTarget {
 }
 
 #[derive(Clone, Debug)]
-struct NamedCallCache {
-    symbol: SymId,
+struct NamedCallCacheEntry {
     function_epoch: u64,
     target: NamedCallTarget,
 }
@@ -1172,8 +1196,11 @@ pub struct Context {
     /// self.lexenv with a closure's captured env, the old lexenv is pushed
     /// here so GC can still scan it.  Popped when apply_lambda restores.
     saved_lexenvs: Vec<Value>,
-    /// Small hot cache for named callable resolution in `funcall`/`apply`.
-    named_call_cache: Vec<NamedCallCache>,
+    /// Hot cache for named callable resolution in `funcall`/`apply`.
+    /// Keyed by symbol id; entries are validated against the obarray's
+    /// `function_epoch` so that any `defalias` / `fset` / autoload
+    /// installation immediately invalidates stale lookups.
+    named_call_cache: HashMap<SymId, NamedCallCacheEntry>,
     /// Small hot cache for GNU-shaped lexical env alist lookups.
     lexenv_assq_cache: RefCell<Vec<LexenvAssqCacheEntry>>,
     /// Small hot cache for GNU-shaped lexical special declarations.
@@ -3614,7 +3641,7 @@ impl Context {
             next_resume_id: 1,
             pending_safe_funcalls: Vec::new(),
             saved_lexenvs: Vec::new(),
-            named_call_cache: Vec::with_capacity(NAMED_CALL_CACHE_CAPACITY),
+            named_call_cache: HashMap::with_capacity(NAMED_CALL_CACHE_CAPACITY),
             lexenv_assq_cache: RefCell::new(Vec::with_capacity(LEXENV_ASSQ_CACHE_CAPACITY)),
             lexenv_special_cache: RefCell::new(Vec::with_capacity(LEXENV_SPECIAL_CACHE_CAPACITY)),
 
@@ -3747,7 +3774,7 @@ impl Context {
             next_resume_id: 1,
             pending_safe_funcalls: Vec::new(),
             saved_lexenvs: Vec::new(),
-            named_call_cache: Vec::with_capacity(NAMED_CALL_CACHE_CAPACITY),
+            named_call_cache: HashMap::with_capacity(NAMED_CALL_CACHE_CAPACITY),
             lexenv_assq_cache: RefCell::new(Vec::with_capacity(LEXENV_ASSQ_CACHE_CAPACITY)),
             lexenv_special_cache: RefCell::new(Vec::with_capacity(LEXENV_SPECIAL_CACHE_CAPACITY)),
 
@@ -3869,8 +3896,8 @@ impl Context {
         }
 
         // Named call cache — holds a Value when target is Obarray(val)
-        for cache in &self.named_call_cache {
-            if let NamedCallTarget::Obarray(val) = &cache.target {
+        for entry in self.named_call_cache.values() {
+            if let NamedCallTarget::Obarray(val) = &entry.target {
                 roots.push(*val);
             }
         }
@@ -8344,62 +8371,63 @@ impl Context {
             compiler_function_overrides_active_in_obarray(&self.obarray);
         let function_epoch = self.obarray.function_epoch();
         if !compiler_overrides_active {
-            if self
-                .named_call_cache
-                .first()
-                .is_some_and(|cache| cache.function_epoch != function_epoch)
+            // Fast path: a HashMap lookup that returns the cached target
+            // when the function epoch hasn't moved.  An epoch mismatch
+            // signals that some `defalias`/`fset`/autoload installation
+            // happened since the cached entry was recorded; in that case
+            // fall through and replace the entry below.
+            if let Some(entry) = self.named_call_cache.get(&sym_id)
+                && entry.function_epoch == function_epoch
             {
-                self.named_call_cache.clear();
-            }
-            if let Some(cache) = self
-                .named_call_cache
-                .iter()
-                .find(|cache| cache.symbol == sym_id && cache.function_epoch == function_epoch)
-            {
-                return cache.target.clone();
+                return entry.target.clone();
             }
         }
 
-        let name = resolve_sym(sym_id);
-        let target =
-            if let Some(func) = compiler_function_override_in_obarray(&self.obarray, sym_id) {
-                NamedCallTarget::Obarray(func)
-            } else if let Some(func) = self.obarray.symbol_function_id(sym_id).cloned() {
-                match func.kind() {
-                    ValueKind::Nil => NamedCallTarget::Void,
-                    // `(fset 'foo (symbol-function 'foo))` writes `#<subr foo>` into
-                    // the function cell. Treat this as a direct builtin/special-form
-                    // callable, not an obarray indirection cycle.
-                    ValueKind::Veclike(VecLikeType::Subr)
-                        if resolve_sym(func.as_subr_id().unwrap()) == name =>
+        let target = if let Some(func) =
+            compiler_function_override_in_obarray(&self.obarray, sym_id)
+        {
+            NamedCallTarget::Obarray(func)
+        } else if let Some(func) = self.obarray.symbol_function_id(sym_id).cloned() {
+            match func.kind() {
+                ValueKind::Nil => NamedCallTarget::Void,
+                // `(fset 'foo (symbol-function 'foo))` writes `#<subr foo>` into
+                // the function cell. Treat this as a direct builtin/special-form
+                // callable, not an obarray indirection cycle.
+                ValueKind::Veclike(VecLikeType::Subr)
+                    if func.as_subr_id() == Some(sym_id) =>
+                {
+                    let name = resolve_sym(sym_id);
+                    match super::subr_info::subr_dispatch_kind_from_value(&func)
+                        .unwrap_or_else(|| super::subr_info::compat_subr_dispatch_kind(name))
                     {
-                        match super::subr_info::subr_dispatch_kind_from_value(&func)
-                            .unwrap_or_else(|| super::subr_info::compat_subr_dispatch_kind(name))
-                        {
-                            SubrDispatchKind::Builtin => NamedCallTarget::Builtin,
-                            SubrDispatchKind::ContextCallable => NamedCallTarget::ContextCallable,
-                            SubrDispatchKind::SpecialForm => NamedCallTarget::SpecialForm,
-                        }
+                        SubrDispatchKind::Builtin => NamedCallTarget::Builtin,
+                        SubrDispatchKind::ContextCallable => NamedCallTarget::ContextCallable,
+                        SubrDispatchKind::SpecialForm => NamedCallTarget::SpecialForm,
                     }
-                    _ => NamedCallTarget::Obarray(func),
                 }
-            } else if self.obarray.is_function_unbound_id(sym_id) {
-                NamedCallTarget::Void
-            } else if self.has_registered_subr(intern(name)) {
-                NamedCallTarget::Builtin
-            } else {
-                NamedCallTarget::Void
-            };
+                _ => NamedCallTarget::Obarray(func),
+            }
+        } else if self.obarray.is_function_unbound_id(sym_id) {
+            NamedCallTarget::Void
+        } else if self.has_registered_subr(sym_id) {
+            NamedCallTarget::Builtin
+        } else {
+            NamedCallTarget::Void
+        };
 
         if !compiler_overrides_active {
-            if self.named_call_cache.len() == NAMED_CALL_CACHE_CAPACITY {
-                self.named_call_cache.remove(0);
+            // Cap the cache to avoid unbounded growth on pathologic
+            // workloads.  Past the cap we just stop caching new entries
+            // — better to take an O(1) miss than to evict a hot entry.
+            if self.named_call_cache.len() < NAMED_CALL_CACHE_CAPACITY {
+                self.named_call_cache.insert(
+                    sym_id,
+                    NamedCallCacheEntry {
+                        function_epoch,
+                        target: target.clone(),
+                    },
+                );
             }
-            self.named_call_cache.push(NamedCallCache {
-                symbol: sym_id,
-                function_epoch,
-                target: target.clone(),
-            });
         }
 
         target
@@ -8413,30 +8441,15 @@ impl Context {
     #[inline]
     fn store_named_call_cache(&mut self, symbol: SymId, target: NamedCallTarget) {
         let function_epoch = self.obarray.function_epoch();
-        if self
-            .named_call_cache
-            .first()
-            .is_some_and(|cache| cache.function_epoch != function_epoch)
-        {
-            self.named_call_cache.clear();
+        if self.named_call_cache.len() < NAMED_CALL_CACHE_CAPACITY {
+            self.named_call_cache.insert(
+                symbol,
+                NamedCallCacheEntry {
+                    function_epoch,
+                    target,
+                },
+            );
         }
-        if let Some(slot) = self
-            .named_call_cache
-            .iter_mut()
-            .find(|cache| cache.symbol == symbol)
-        {
-            slot.function_epoch = function_epoch;
-            slot.target = target;
-            return;
-        }
-        if self.named_call_cache.len() == NAMED_CALL_CACHE_CAPACITY {
-            self.named_call_cache.remove(0);
-        }
-        self.named_call_cache.push(NamedCallCache {
-            symbol,
-            function_epoch,
-            target,
-        });
     }
 
     #[inline]
