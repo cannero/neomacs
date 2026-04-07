@@ -64,7 +64,7 @@ impl<'heap> Mutator<'heap> {
 
     /// Run one collection cycle against this mutator's heap.
     pub fn collect(&mut self, kind: CollectionKind) -> Result<CollectionStats, AllocError> {
-        self.heap.collect(kind)
+        self.heap.collector_runtime().collect(kind)
     }
 
     /// Return the number of queued finalizers waiting to run.
@@ -109,7 +109,7 @@ impl<'heap> Mutator<'heap> {
 
     /// Execute one scheduler-provided collection plan.
     pub fn execute_plan(&mut self, plan: CollectionPlan) -> Result<CollectionStats, AllocError> {
-        self.heap.execute_plan(plan)
+        self.heap.collector_runtime().execute_plan(plan)
     }
 
     /// Begin a persistent major-mark session for one scheduler-provided plan.

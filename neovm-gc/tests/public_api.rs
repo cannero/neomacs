@@ -1391,6 +1391,31 @@ fn public_api_collector_runtime_advance_major_mark_reports_progress() {
 }
 
 #[test]
+fn public_api_collector_runtime_execute_plan_runs_minor_collection() {
+    let mut heap = Heap::new(HeapConfig::default());
+    {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        mutator.alloc(&mut scope, Leaf(7)).expect("alloc leaf");
+    }
+
+    let plan = heap.plan_for(CollectionKind::Minor);
+    let cycle = heap
+        .collector_runtime()
+        .execute_plan(plan.clone())
+        .expect("execute minor plan through runtime");
+
+    assert_eq!(cycle.minor_collections, 1);
+    assert_eq!(
+        heap.last_completed_plan(),
+        Some(neovm_gc::CollectionPlan {
+            phase: CollectionPhase::Reclaim,
+            ..plan
+        })
+    );
+}
+
+#[test]
 fn public_api_heap_advance_major_mark_reports_progress_directly() {
     let mut heap = Heap::new(HeapConfig::default());
     let plan = {

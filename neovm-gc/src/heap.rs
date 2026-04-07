@@ -422,14 +422,18 @@ impl Heap {
 
     /// Run one stop-the-world collection cycle.
     pub fn collect(&mut self, kind: CollectionKind) -> Result<CollectionStats, AllocError> {
-        if self.collector.has_active_major_mark() {
-            return Err(AllocError::CollectionInProgress);
-        }
-        self.execute_plan(self.plan_for(kind))
+        CollectorRuntime::new(self).collect(kind)
     }
 
     /// Execute one scheduler-provided collection plan.
     pub fn execute_plan(&mut self, plan: CollectionPlan) -> Result<CollectionStats, AllocError> {
+        CollectorRuntime::new(self).execute_plan(plan)
+    }
+
+    pub(crate) fn execute_plan_in_place(
+        &mut self,
+        plan: CollectionPlan,
+    ) -> Result<CollectionStats, AllocError> {
         if self.collector.has_active_major_mark() {
             return Err(AllocError::CollectionInProgress);
         }

@@ -9,7 +9,7 @@ use crate::collector_session::{self, build_prepared_active_reclaim, prepare_acti
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
 use crate::heap::{AllocError, Heap};
 use crate::plan::{
-    BackgroundCollectionStatus, CollectionPhase, CollectionPlan, MajorMarkProgress,
+    BackgroundCollectionStatus, CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress,
     RuntimeWorkStatus,
 };
 use crate::stats::{CollectionStats, HeapStats};
@@ -73,6 +73,16 @@ impl<'heap> CollectorRuntime<'heap> {
     /// Return progress for the active major-mark session, if any.
     pub fn major_mark_progress(&self) -> Option<MajorMarkProgress> {
         self.heap.major_mark_progress()
+    }
+
+    /// Run one stop-the-world collection cycle.
+    pub fn collect(&mut self, kind: CollectionKind) -> Result<CollectionStats, AllocError> {
+        self.execute_plan(self.heap.plan_for(kind))
+    }
+
+    /// Execute one scheduler-provided collection plan.
+    pub fn execute_plan(&mut self, plan: CollectionPlan) -> Result<CollectionStats, AllocError> {
+        self.heap.execute_plan_in_place(plan)
     }
 
     /// Begin a persistent major-mark session for one scheduler-provided plan.
