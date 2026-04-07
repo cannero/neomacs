@@ -764,7 +764,7 @@ fn dump_buffer(buf: &Buffer) -> DumpBuffer {
         last_window_start: Some(buf.last_window_start),
         read_only: buf.read_only,
         multibyte: buf.multibyte,
-        file_name: buf.file_name_legacy.clone(),
+        file_name: buf.file_name_owned(),
         auto_save_file_name: buf.auto_save_file_name.clone(),
         markers: if is_shared_text_owner {
             buf.text
@@ -2223,7 +2223,6 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         inhibit_buffer_hooks: false,
         read_only: db.read_only,
         multibyte: db.multibyte,
-        file_name_legacy: db.file_name.clone(),
         auto_save_file_name: db.auto_save_file_name.clone(),
         state_markers: match (db.state_pt_marker, db.state_begv_marker, db.state_zv_marker) {
             (Some(pt_marker), Some(begv_marker), Some(zv_marker)) => {
@@ -2241,9 +2240,20 @@ fn load_buffer(db: &DumpBuffer) -> Buffer {
         // doesn't yet round-trip this (Phase 11 bumps the dump
         // version); fresh-load buffers start empty.
         local_var_alist: crate::emacs_core::value::Value::NIL,
-        // Phase 8a: BUFFER_OBJFWD slot table. Same story —
-        // Phase 11 will round-trip slot values through pdump.
-        slots: [crate::emacs_core::value::Value::NIL; crate::buffer::buffer::BUFFER_SLOT_COUNT],
+        // Phase 8a: BUFFER_OBJFWD slot table. Phase 8b migrated
+        // the `file_name` field into
+        // `slots[BUFFER_SLOT_FILE_NAME]`, so seed it from the
+        // dump's `file_name` field. Phase 11 will round-trip the
+        // other slot values through pdump natively.
+        slots: {
+            let mut s = [crate::emacs_core::value::Value::NIL;
+                crate::buffer::buffer::BUFFER_SLOT_COUNT];
+            if let Some(ref fname) = db.file_name {
+                s[crate::buffer::buffer::BUFFER_SLOT_FILE_NAME] =
+                    crate::emacs_core::value::Value::string(fname);
+            }
+            s
+        },
         overlays: OverlayList::from_dump(
             db.overlays
                 .overlays

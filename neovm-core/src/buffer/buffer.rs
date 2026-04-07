@@ -190,14 +190,6 @@ pub struct Buffer {
     pub read_only: bool,
     /// Multi-byte encoding flag.  Always `true` for now.
     pub multibyte: bool,
-    /// Associated file path, if any.
-    ///
-    /// **Phase 8b migration note**: renamed from `file_name` to
-    /// `file_name_legacy` so the compiler flags every direct access.
-    /// New code should use [`Self::get_file_name`] /
-    /// [`Self::set_file_name_value`]. A later commit flips the
-    /// storage to [`Self::slots`] and deletes this field.
-    pub file_name_legacy: Option<String>,
     /// Associated auto-save file path, if any.
     pub auto_save_file_name: Option<String>,
     /// GNU-style noncurrent PT/BEGV/ZV markers for buffers that share text.
@@ -258,7 +250,6 @@ impl Buffer {
             inhibit_buffer_hooks: false,
             read_only: false,
             multibyte: true,
-            file_name_legacy: None,
             auto_save_file_name: None,
             state_markers: None,
             locals: BufferLocals::new(),
@@ -271,31 +262,31 @@ impl Buffer {
     }
 
     // -- Slot accessors for the four hardcoded fields targeted by
-    // -- Phase 8b of the symbol-redirect refactor. These wrap the
-    // -- current `file_name` / `auto_save_file_name` / `read_only` /
-    // -- `multibyte` struct fields so that future commits can flip
-    // -- the storage to `self.slots[OFFSET]` without touching every
-    // -- call site again. The accessors are preparation-only: the
-    // -- backing storage is still the struct fields.
+    // -- Phase 8b of the symbol-redirect refactor. `file_name` now
+    // -- lives in [`Self::slots`] at [`BUFFER_SLOT_FILE_NAME`],
+    // -- mirroring GNU's `BVAR(buffer, filename)`. The other three
+    // -- (`auto_save_file_name` / `read_only` / `multibyte`) still
+    // -- have struct fields during the staggered migration.
 
-    /// Read `buffer-file-name` via the Phase 8b accessor. Currently
-    /// delegates to the legacy [`Self::file_name_legacy`] field;
-    /// Phase 8b.2 will flip the storage to [`Self::slots`].
+    /// Read `buffer-file-name`, mirroring GNU `BVAR(buf, filename)`
+    /// (`buffer.h:319`). Returns `None` when the slot holds nil.
     pub fn get_file_name(&self) -> Option<&str> {
-        self.file_name_legacy.as_deref()
+        self.slots[BUFFER_SLOT_FILE_NAME].as_str()
     }
 
     /// Clone `buffer-file-name` as an `Option<String>`. Convenience
     /// for code that needs owned storage.
     pub fn file_name_owned(&self) -> Option<String> {
-        self.file_name_legacy.clone()
+        self.slots[BUFFER_SLOT_FILE_NAME].as_str_owned()
     }
 
     /// Write `buffer-file-name`. Mirrors GNU `bset_filename`
-    /// (`buffer.c`). See [`Self::get_file_name`] for the storage
-    /// plan.
+    /// (`buffer.c`). `None` stores `nil` in the slot.
     pub fn set_file_name_value(&mut self, v: Option<String>) {
-        self.file_name_legacy = v;
+        self.slots[BUFFER_SLOT_FILE_NAME] = match v {
+            Some(s) => Value::string(&s),
+            None => Value::NIL,
+        };
     }
 
     /// Read `buffer-auto-save-file-name` via the Phase 8b accessor.
@@ -960,11 +951,15 @@ impl Buffer {
 
     pub fn set_buffer_local(&mut self, name: &str, value: Value) {
         if name == "buffer-file-name" {
-            self.file_name_legacy = match value.kind() {
-                ValueKind::String => value.as_str_owned(),
-                ValueKind::Nil => None,
-                _ => self.file_name_legacy.take(),
-            };
+            match value.kind() {
+                ValueKind::String => {
+                    self.slots[BUFFER_SLOT_FILE_NAME] = value;
+                }
+                ValueKind::Nil => {
+                    self.slots[BUFFER_SLOT_FILE_NAME] = Value::NIL;
+                }
+                _ => {}
+            }
         }
         if name == "buffer-auto-save-file-name" {
             self.auto_save_file_name = match value.kind() {
@@ -985,7 +980,7 @@ impl Buffer {
 
     pub fn set_buffer_local_void(&mut self, name: &str) {
         if name == "buffer-file-name" {
-            self.file_name_legacy = None;
+            self.slots[BUFFER_SLOT_FILE_NAME] = Value::NIL;
         }
         if name == "buffer-auto-save-file-name" {
             self.auto_save_file_name = None;
@@ -1025,10 +1020,7 @@ impl Buffer {
             return Some(RuntimeBindingValue::Bound(self.get_undo_list()));
         }
         if name == "buffer-file-name" {
-            return Some(match &self.file_name_legacy {
-                Some(file_name) => RuntimeBindingValue::Bound(Value::string(file_name)),
-                None => RuntimeBindingValue::Bound(Value::NIL),
-            });
+            return Some(RuntimeBindingValue::Bound(self.slots[BUFFER_SLOT_FILE_NAME]));
         }
         if name == "buffer-auto-save-file-name" {
             return Some(match &self.auto_save_file_name {
@@ -1231,7 +1223,7 @@ impl BufferManager {
         indirect.chars_modified_tick = root.chars_modified_tick;
         indirect.save_modified_tick = root.save_modified_tick;
         indirect.autosave_modified_tick = root.autosave_modified_tick;
-        indirect.file_name_legacy = None;
+        indirect.slots[BUFFER_SLOT_FILE_NAME] = Value::NIL;
         if !clone {
             indirect.overlays = OverlayList::new();
             indirect.mark = None;
@@ -2083,7 +2075,7 @@ impl BufferManager {
 
     pub fn set_buffer_file_name(&mut self, id: BufferId, file_name: Option<String>) -> Option<()> {
         let buf = self.buffers.get_mut(&id)?;
-        buf.file_name_legacy = file_name.clone();
+        buf.set_file_name_value(file_name.clone());
         match file_name {
             Some(file_name) => {
                 buf.locals.set_raw_binding(
@@ -2647,7 +2639,7 @@ mod tests {
         assert!(!buf.is_modified());
         assert!(!buf.read_only);
         assert!(buf.multibyte);
-        assert!(buf.file_name_legacy.is_none());
+        assert!(buf.get_file_name().is_none());
         assert!(buf.mark().is_none());
     }
 
@@ -3259,14 +3251,14 @@ mod tests {
         assert_eq!(buf.buffer_local_value("buffer-file-name"), Some(Value::NIL));
 
         buf.set_buffer_local("buffer-file-name", Value::string("/tmp/demo.txt"));
-        assert_eq!(buf.file_name_legacy.as_deref(), Some("/tmp/demo.txt"));
+        assert_eq!(buf.get_file_name(), Some("/tmp/demo.txt"));
         assert_eq!(
             buf.buffer_local_value("buffer-file-name"),
             Some(Value::string("/tmp/demo.txt"))
         );
 
         buf.set_buffer_local("buffer-file-name", Value::NIL);
-        assert_eq!(buf.file_name_legacy, None);
+        assert_eq!(buf.get_file_name(), None);
         assert_eq!(buf.buffer_local_value("buffer-file-name"), Some(Value::NIL));
     }
 
