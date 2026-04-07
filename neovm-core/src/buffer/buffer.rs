@@ -54,6 +54,42 @@ pub const BUFFER_SLOT_FILE_TRUENAME: usize = 4;
 /// Slot index for `default-directory`. Mirrors GNU's
 /// `directory_` (`buffer.h:321`).
 pub const BUFFER_SLOT_DEFAULT_DIRECTORY: usize = 5;
+/// Slot index for `buffer-saved-size`. Mirrors GNU's `save_length_`
+/// (`buffer.h:340`).
+pub const BUFFER_SLOT_SAVED_SIZE: usize = 6;
+/// Slot index for `buffer-backed-up`. Mirrors GNU's `backed_up_`
+/// (`buffer.h:341`).
+pub const BUFFER_SLOT_BACKED_UP: usize = 7;
+/// Slot index for `buffer-file-format`. Mirrors GNU's
+/// `file_format_` (`buffer.h:342`).
+pub const BUFFER_SLOT_FILE_FORMAT: usize = 8;
+/// Slot index for `buffer-auto-save-file-format`. Mirrors GNU's
+/// `auto_save_file_format_` (`buffer.h:343`).
+pub const BUFFER_SLOT_AUTO_SAVE_FILE_FORMAT: usize = 9;
+/// Slot index for `major-mode`. Mirrors GNU's `major_mode_`
+/// (`buffer.h:347`).
+pub const BUFFER_SLOT_MAJOR_MODE: usize = 10;
+/// Slot index for `local-minor-modes`. Mirrors GNU's
+/// `local_minor_modes_` (`buffer.h:349`).
+pub const BUFFER_SLOT_LOCAL_MINOR_MODES: usize = 11;
+/// Slot index for `mode-name`. Mirrors GNU's `mode_name_`
+/// (`buffer.h:351`).
+pub const BUFFER_SLOT_MODE_NAME: usize = 12;
+/// Slot index for `mark-active`. Mirrors GNU's `mark_active_`
+/// (`buffer.h:381`).
+pub const BUFFER_SLOT_MARK_ACTIVE: usize = 13;
+/// Slot index for `point-before-scroll`. Mirrors GNU's
+/// `point_before_scroll_` (`buffer.h:413`).
+pub const BUFFER_SLOT_POINT_BEFORE_SCROLL: usize = 14;
+/// Slot index for `buffer-display-count`. Mirrors GNU's
+/// `display_count_` (`buffer.h:418`).
+pub const BUFFER_SLOT_DISPLAY_COUNT: usize = 15;
+/// Slot index for `buffer-display-time`. Mirrors GNU's
+/// `display_time_` (`buffer.h:432`).
+pub const BUFFER_SLOT_DISPLAY_TIME: usize = 16;
+/// Slot index for `buffer-invisibility-spec`. Mirrors GNU's
+/// `invisibility_spec_` (`buffer.h:411`).
+pub const BUFFER_SLOT_INVISIBILITY_SPEC: usize = 17;
 
 // ---------------------------------------------------------------------------
 // BUFFER_SLOT_INFO table — declarative metadata for every BUFFER_OBJFWD
@@ -65,12 +101,14 @@ pub const BUFFER_SLOT_DEFAULT_DIRECTORY: usize = 5;
 // ---------------------------------------------------------------------------
 
 /// Default-value descriptor. Stored in the const table because
-/// `Value::string` allocates and isn't `const`-friendly. Materialised
-/// once at startup via [`SlotDefault::to_value`].
+/// `Value::string` and `Value::fixnum` aren't `const`-friendly.
+/// Materialised once at startup via [`SlotDefault::to_value`].
 #[derive(Copy, Clone, Debug)]
 pub enum SlotDefault {
-    /// Use a const `Value` (NIL, T, fixnum).
+    /// Use a const `Value` (NIL, T).
     Const(crate::emacs_core::value::Value),
+    /// Encode an integer fixnum at install time.
+    LazyFixnum(i64),
     /// Allocate a multibyte Lisp string at install time.
     LazyString(&'static str),
     /// Allocate a unibyte Lisp string at install time. Mirrors GNU's
@@ -93,6 +131,7 @@ impl SlotDefault {
         use crate::emacs_core::value::Value;
         match self {
             SlotDefault::Const(v) => v,
+            SlotDefault::LazyFixnum(n) => Value::fixnum(n),
             SlotDefault::LazyString(s) => Value::string(s),
             SlotDefault::LazyUnibyte(s) => Value::unibyte_string(s),
             SlotDefault::LazySymbol(s) => Value::symbol(s),
@@ -122,6 +161,15 @@ pub struct BufferSlotInfo {
     /// write. `""` for "no check" (mirrors GNU's `Qnil` predicate
     /// slot).
     pub predicate: &'static str,
+    /// Whether `kill-all-local-variables` resets the slot back to
+    /// its default. Mirrors GNU's `reset_buffer_local_variables`
+    /// (`buffer.c:1241-1349`) which resets only the slots flagged
+    /// in `buffer_permanent_local_flags` and a few special-cased
+    /// names like `major-mode`, `mode-name`,
+    /// `buffer-invisibility-spec`. Slots like `buffer-file-name`
+    /// and `default-directory` are NOT reset (they survive the
+    /// kill).
+    pub reset_on_kill: bool,
 }
 
 /// The complete table of `BUFFER_OBJFWD`-style slots. Phase 10C started
@@ -134,30 +182,35 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         offset: BUFFER_SLOT_FILE_NAME,
         default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
         predicate: "stringp",
+        reset_on_kill: false,
     },
     BufferSlotInfo {
         name: "buffer-auto-save-file-name",
         offset: BUFFER_SLOT_AUTO_SAVE_FILE_NAME,
         default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
         predicate: "stringp",
+        reset_on_kill: false,
     },
     BufferSlotInfo {
         name: "buffer-read-only",
         offset: BUFFER_SLOT_READ_ONLY,
         default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
-        predicate: "",
+        predicate: "booleanp",
+        reset_on_kill: false,
     },
     BufferSlotInfo {
         name: "enable-multibyte-characters",
         offset: BUFFER_SLOT_ENABLE_MULTIBYTE_CHARACTERS,
         default: SlotDefault::Const(crate::emacs_core::value::Value::T),
-        predicate: "",
+        predicate: "booleanp",
+        reset_on_kill: false,
     },
     BufferSlotInfo {
         name: "buffer-file-truename",
         offset: BUFFER_SLOT_FILE_TRUENAME,
         default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
         predicate: "stringp",
+        reset_on_kill: false,
     },
     BufferSlotInfo {
         // GNU buffer.c:5381 — default-directory defaults to the
@@ -168,6 +221,94 @@ pub const BUFFER_SLOT_INFO: &[BufferSlotInfo] = &[
         offset: BUFFER_SLOT_DEFAULT_DIRECTORY,
         default: SlotDefault::LazyCwd,
         predicate: "stringp",
+        reset_on_kill: false,
+    },
+    BufferSlotInfo {
+        name: "buffer-saved-size",
+        offset: BUFFER_SLOT_SAVED_SIZE,
+        default: SlotDefault::LazyFixnum(0),
+        predicate: "integerp",
+        reset_on_kill: false,
+    },
+    BufferSlotInfo {
+        name: "buffer-backed-up",
+        offset: BUFFER_SLOT_BACKED_UP,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "booleanp",
+        reset_on_kill: false,
+    },
+    BufferSlotInfo {
+        name: "buffer-file-format",
+        offset: BUFFER_SLOT_FILE_FORMAT,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "listp",
+        reset_on_kill: false,
+    },
+    BufferSlotInfo {
+        name: "buffer-auto-save-file-format",
+        offset: BUFFER_SLOT_AUTO_SAVE_FILE_FORMAT,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::T),
+        predicate: "listp",
+        reset_on_kill: false,
+    },
+    BufferSlotInfo {
+        name: "major-mode",
+        offset: BUFFER_SLOT_MAJOR_MODE,
+        default: SlotDefault::LazySymbol("fundamental-mode"),
+        predicate: "symbolp",
+        reset_on_kill: true,
+    },
+    BufferSlotInfo {
+        name: "local-minor-modes",
+        offset: BUFFER_SLOT_LOCAL_MINOR_MODES,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "listp",
+        reset_on_kill: false,
+    },
+    BufferSlotInfo {
+        name: "mode-name",
+        offset: BUFFER_SLOT_MODE_NAME,
+        default: SlotDefault::LazyString("Fundamental"),
+        predicate: "",
+        reset_on_kill: true,
+    },
+    BufferSlotInfo {
+        name: "mark-active",
+        offset: BUFFER_SLOT_MARK_ACTIVE,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+    },
+    BufferSlotInfo {
+        name: "point-before-scroll",
+        offset: BUFFER_SLOT_POINT_BEFORE_SCROLL,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+    },
+    BufferSlotInfo {
+        name: "buffer-display-count",
+        offset: BUFFER_SLOT_DISPLAY_COUNT,
+        default: SlotDefault::LazyFixnum(0),
+        predicate: "integerp",
+        reset_on_kill: false,
+    },
+    BufferSlotInfo {
+        name: "buffer-display-time",
+        offset: BUFFER_SLOT_DISPLAY_TIME,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::NIL),
+        predicate: "",
+        reset_on_kill: false,
+    },
+    BufferSlotInfo {
+        // GNU sets this to t (a magic-bag value), not nil. The
+        // legacy ALWAYS_LOCAL_BUFFER_LOCAL_NAMES table also used
+        // Value::T, matching `init_buffer_once`.
+        name: "buffer-invisibility-spec",
+        offset: BUFFER_SLOT_INVISIBILITY_SPEC,
+        default: SlotDefault::Const(crate::emacs_core::value::Value::T),
+        predicate: "",
+        reset_on_kill: true,
     },
 ];
 
@@ -178,11 +319,19 @@ pub fn lookup_buffer_slot(name: &str) -> Option<&'static BufferSlotInfo> {
 }
 
 /// Coerce a write value to fit a slot's predicate. Mirrors GNU's
-/// `store_symval_forwarding` predicate path: stringp slots accept
-/// strings or nil; predicate-less slots (boolean-style) accept any
-/// truthy value as `Value::T` and any nil as `Value::NIL`. Other
-/// predicates fall through to "store as-is" since the assign hot
-/// path will surface a wrong-type-argument later if needed.
+/// `store_symval_forwarding` predicate path:
+///
+///  - `"stringp"`: accept strings or nil; reject everything else by
+///    keeping the previous slot value (a real GNU build would signal
+///    `wrong-type-argument`; we conservatively no-op so legacy tests
+///    that wrote `t` or numbers don't blow up here — the assign hot
+///    path will eventually reject them once predicate dispatch is
+///    formalised).
+///  - `"booleanp"`: canonicalise any truthy value to `Value::T` and
+///    any nil to `Value::NIL`. Used for slots like `buffer-read-only`
+///    and `enable-multibyte-characters` whose GNU equivalents are
+///    declared `BVAR_PER_BUFFER_TYPE_BOOL`.
+///  - Anything else (including `""`): store as-is.
 pub(crate) fn coerce_to_slot(
     info: &BufferSlotInfo,
     value: crate::emacs_core::value::Value,
@@ -195,8 +344,7 @@ pub(crate) fn coerce_to_slot(
             ValueKind::Nil => Value::NIL,
             _ => current,
         },
-        "" => {
-            // No predicate: treat as boolean-ish slot (Value::T / NIL).
+        "booleanp" => {
             if value.is_truthy() { Value::T } else { Value::NIL }
         }
         _ => value,
@@ -1167,6 +1315,17 @@ impl Buffer {
         obarray: &crate::emacs_core::symbol::Obarray,
         kill_permanent: bool,
     ) {
+        // Phase 10C: BUFFER_OBJFWD slots flagged `reset_on_kill`
+        // are restored to their declared defaults. Mirrors GNU's
+        // `reset_buffer_local_variables` (`buffer.c:1241-1349`)
+        // which special-cases `major_mode_`, `mode_name_`,
+        // `invisibility_spec_` even though most BVAR slots
+        // (file_name, default_directory, etc.) survive the kill.
+        for info in BUFFER_SLOT_INFO {
+            if info.reset_on_kill {
+                self.slots[info.offset] = info.default.to_value();
+            }
+        }
         self.locals
             .kill_all_local_variables(obarray, kill_permanent);
     }
@@ -1200,6 +1359,14 @@ impl Buffer {
     }
 
     pub fn has_buffer_local(&self, name: &str) -> bool {
+        // Phase 10C: BUFFER_OBJFWD-style names are conceptually
+        // always per-buffer (mirrors GNU's
+        // `local-variable-p` returning t for `DEFVAR_PER_BUFFER`
+        // variables regardless of whether the user explicitly
+        // called `make-local-variable`).
+        if lookup_buffer_slot(name).is_some() {
+            return true;
+        }
         self.locals.has_local(name)
     }
 

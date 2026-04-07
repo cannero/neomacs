@@ -22,23 +22,10 @@ struct ConditionalSlotSpec {
 // Phase 10C: names that have migrated to `Buffer::slots[]` via
 // `BUFFER_SLOT_INFO` are not in this list -- they live exclusively
 // in the slot table and the BufferLocals path no longer mirrors them.
-// Migrated so far: buffer-file-name, buffer-auto-save-file-name,
-// buffer-read-only, enable-multibyte-characters, buffer-file-truename,
-// default-directory.
+// Only `buffer-undo-list` remains here because the undo state has its
+// own dedicated `SharedUndoState` storage and is not a simple slot.
 const ALWAYS_LOCAL_BUFFER_LOCAL_NAMES: &[&str] = &[
     "buffer-undo-list",
-    "buffer-saved-size",
-    "buffer-backed-up",
-    "buffer-file-format",
-    "buffer-auto-save-file-format",
-    "major-mode",
-    "local-minor-modes",
-    "mode-name",
-    "mark-active",
-    "point-before-scroll",
-    "buffer-display-count",
-    "buffer-display-time",
-    "buffer-invisibility-spec",
 ];
 
 // GNU buffer.c init_buffer_once: slots assigned an idx in buffer_local_flags
@@ -233,18 +220,6 @@ const CONDITIONAL_SLOT_BUFFER_LOCAL_SPECS: &[ConditionalSlotSpec] = &[
 fn always_local_default_binding(name: &str) -> Option<RuntimeBindingValue> {
     let value = match name {
         "buffer-undo-list" => Value::NIL,
-        "buffer-saved-size" => Value::fixnum(0),
-        "buffer-backed-up" => Value::NIL,
-        "buffer-file-format" => Value::NIL,
-        "buffer-auto-save-file-format" => Value::T,
-        "major-mode" => Value::symbol("fundamental-mode"),
-        "local-minor-modes" => Value::NIL,
-        "mode-name" => Value::string("Fundamental"),
-        "mark-active" => Value::NIL,
-        "point-before-scroll" => Value::NIL,
-        "buffer-display-count" => Value::fixnum(0),
-        "buffer-display-time" => Value::NIL,
-        "buffer-invisibility-spec" => Value::T,
         _ => return None,
     };
     Some(RuntimeBindingValue::Bound(value))
