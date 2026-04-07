@@ -3333,17 +3333,22 @@ fn read_from_buffer_invalid_hash_dispatch_reports_post_consumption_column_like_g
 #[test]
 fn read_from_string_hash_bracket_preserves_vector() {
     crate::test_utils::init_test_tracing();
+    // GNU verified: `(type-of (car (read-from-string "#[...]")))` is
+    // `byte-code-function`, not `vector`. Mirror GNU here — the
+    // bytecode literal reader is supposed to round-trip back to a
+    // bytecode object.
     let mut ev = Context::new();
     let input = "#[nil \"\\300\\207\" [0] 1]";
     let result = builtin_read_from_string(&mut ev, vec![Value::string(input)]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
             let pair_car = result.cons_car();
-            let pair_cdr = result.cons_cdr();
-            assert!(matches!(
-                pair_car.kind(),
-                ValueKind::Veclike(VecLikeType::Vector)
-            ));
+            let _pair_cdr = result.cons_cdr();
+            assert!(
+                pair_car.is_bytecode(),
+                "expected byte-code-function, got {:?}",
+                pair_car.kind()
+            );
         }
         other => panic!("Expected cons from read-from-string, got {other:?}"),
     }

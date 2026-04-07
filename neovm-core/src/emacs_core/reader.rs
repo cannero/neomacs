@@ -369,7 +369,26 @@ pub(crate) fn read_from_string_impl(
             vec![Value::string("End of file during parsing")],
         ));
     }
-    let (value, end_pos) = super::value_reader::read_one(substring, 0)
+
+    // Mirror GNU `Fread_from_string` (`src/lread.c`): the `#$` reader
+    // shorthand expands to the *current* value of the elisp variable
+    // `load-file-name`. NeoVM's reader keeps this in a thread-local
+    // (set by `with_load_context` in load.rs); when called from
+    // `read-from-string` outside of a load, the elisp obarray binding
+    // is the only source of truth, so bridge it across before reading.
+    let saved_reader_load_file_name = super::value_reader::get_reader_load_file_name_public();
+    let load_file_name_value = obarray.symbol_value("load-file-name").copied();
+    let load_file_name_for_reader = match load_file_name_value {
+        Some(v) if !v.is_nil() => Some(v),
+        _ => None,
+    };
+    super::value_reader::set_reader_load_file_name(load_file_name_for_reader);
+
+    let read_result = super::value_reader::read_one(substring, 0);
+
+    super::value_reader::set_reader_load_file_name(saved_reader_load_file_name);
+
+    let (value, end_pos) = read_result
         .map_err(|e| {
             if e.message.contains("unterminated") || e.message.contains("end of input") {
                 signal(

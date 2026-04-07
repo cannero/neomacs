@@ -2965,42 +2965,59 @@ fn basic_arithmetic() {
 #[test]
 fn arithmetic_promotes_to_bignum_on_overflow() {
     crate::test_utils::init_test_tracing();
+    // bignump / fixnump come from subr.el — and mixing bare eval_one
+    // with bootstrap_eval_one in the same #[test] pollutes the global
+    // interner before the dump load asserts slot-by-slot agreement.
+    // Use the bootstrap context for everything.
+    //
     // (+ most-positive-fixnum 1) — used to wrap to most-negative-fixnum.
     assert_eq!(
-        eval_one("(+ most-positive-fixnum 1)"),
+        bootstrap_eval_one("(+ most-positive-fixnum 1)"),
         "OK 2305843009213693952"
     );
     // 1+ on the same value.
-    assert_eq!(eval_one("(1+ most-positive-fixnum)"), "OK 2305843009213693952");
+    assert_eq!(
+        bootstrap_eval_one("(1+ most-positive-fixnum)"),
+        "OK 2305843009213693952"
+    );
     // (* most-positive-fixnum 2) — used to wrap.
     assert_eq!(
-        eval_one("(* most-positive-fixnum 2)"),
+        bootstrap_eval_one("(* most-positive-fixnum 2)"),
         "OK 4611686018427387902"
     );
     // (- most-negative-fixnum 1).
     assert_eq!(
-        eval_one("(- most-negative-fixnum 1)"),
+        bootstrap_eval_one("(- most-negative-fixnum 1)"),
         "OK -2305843009213693953"
     );
     // 1- on most-negative-fixnum.
     assert_eq!(
-        eval_one("(1- most-negative-fixnum)"),
+        bootstrap_eval_one("(1- most-negative-fixnum)"),
         "OK -2305843009213693953"
     );
     // Unary negate of most-negative-fixnum: -MIN_FIXNUM > MAX_FIXNUM.
     assert_eq!(
-        eval_one("(- most-negative-fixnum)"),
+        bootstrap_eval_one("(- most-negative-fixnum)"),
         "OK 2305843009213693952"
     );
     // Round-trip: a bignum in + with a fixnum stays a bignum.
     assert_eq!(
-        eval_one("(+ (1+ most-positive-fixnum) 1)"),
+        bootstrap_eval_one("(+ (1+ most-positive-fixnum) 1)"),
         "OK 2305843009213693953"
     );
     // bignump / integerp / fixnump on the result.
-    assert_eq!(eval_one("(bignump (1+ most-positive-fixnum))"), "OK t");
-    assert_eq!(eval_one("(integerp (1+ most-positive-fixnum))"), "OK t");
-    assert_eq!(eval_one("(fixnump (1+ most-positive-fixnum))"), "OK nil");
+    assert_eq!(
+        bootstrap_eval_one("(bignump (1+ most-positive-fixnum))"),
+        "OK t"
+    );
+    assert_eq!(
+        bootstrap_eval_one("(integerp (1+ most-positive-fixnum))"),
+        "OK t"
+    );
+    assert_eq!(
+        bootstrap_eval_one("(fixnump (1+ most-positive-fixnum))"),
+        "OK nil"
+    );
 }
 
 /// Regression for audit §2.4: `/` must not signal `overflow-error` on
@@ -3190,33 +3207,43 @@ fn comparisons_are_exact_for_bignums() {
 #[test]
 fn reader_recognizes_bignum_literals() {
     crate::test_utils::init_test_tracing();
+    // bignump comes from subr.el; mixing bare and bootstrap contexts
+    // in one #[test] pollutes the global interner across the dump
+    // load barrier, so bootstrap everything.
+    //
     // Just over the fixnum boundary (2^61).
-    assert_eq!(eval_one("4611686018427387904"), "OK 4611686018427387904");
     assert_eq!(
-        eval_one("-4611686018427387905"),
+        bootstrap_eval_one("4611686018427387904"),
+        "OK 4611686018427387904"
+    );
+    assert_eq!(
+        bootstrap_eval_one("-4611686018427387905"),
         "OK -4611686018427387905"
     );
     // Larger than i64 — has to come back as a bignum.
     assert_eq!(
-        eval_one("12345678901234567890"),
+        bootstrap_eval_one("12345678901234567890"),
         "OK 12345678901234567890"
     );
     assert_eq!(
-        eval_one("-12345678901234567890"),
+        bootstrap_eval_one("-12345678901234567890"),
         "OK -12345678901234567890"
     );
     // 2^100 by literal.
     assert_eq!(
-        eval_one("1267650600228229401496703205376"),
+        bootstrap_eval_one("1267650600228229401496703205376"),
         "OK 1267650600228229401496703205376"
     );
     // Reader-produced bignum participates correctly in arithmetic.
     assert_eq!(
-        eval_one("(+ 1267650600228229401496703205376 1)"),
+        bootstrap_eval_one("(+ 1267650600228229401496703205376 1)"),
         "OK 1267650600228229401496703205377"
     );
     // bignump on a literal.
-    assert_eq!(eval_one("(bignump 1267650600228229401496703205376)"), "OK t");
+    assert_eq!(
+        bootstrap_eval_one("(bignump 1267650600228229401496703205376)"),
+        "OK t"
+    );
 }
 
 /// Regression for the symbol-redirect refactor §7.3 (Phase 7).

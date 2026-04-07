@@ -145,15 +145,20 @@ fn eval_context_printer_renders_terminal_thread_handles_consistently() -> Result
 #[test]
 fn eval_context_printer_matches_gnu_backquote_shorthand_rules() {
     crate::test_utils::init_test_tracing();
+    // GNU verified via:
+    //   (prin1-to-string (list '\` (list 'a (list '\, 'x))))
+    //   => "`(a ,x)"
+    // The reader-shorthand form is the canonical print of the
+    // (` (a (, x))) form, *not* the verbatim escaped one.
     let eval = Context::new();
     let raw_unquote = Value::list(vec![Value::symbol(","), Value::symbol("x")]);
     let nested = Value::list(vec![
         Value::symbol("`"),
         Value::list(vec![Value::symbol("a"), raw_unquote]),
     ]);
-    assert_eq!(print_value_with_eval(&eval, &nested), "(\\` (a (\\, x)))");
+    assert_eq!(print_value_with_eval(&eval, &nested), "`(a ,x)");
     assert_eq!(
         String::from_utf8(print_value_bytes_with_eval(&eval, &nested)).unwrap(),
-        "(\\` (a (\\, x)))"
+        "`(a ,x)"
     );
 }

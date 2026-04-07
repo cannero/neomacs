@@ -528,8 +528,12 @@ fn mixed_types() {
 #[test]
 fn dollar_hash_load_file_name() {
     crate::test_utils::init_test_tracing();
+    // GNU `Fread_from_string` (`src/lread.c`) expands `#$` to the
+    // *value* of `load-file-name`, not the symbol. With no load
+    // context active and no obarray binding bridged in (the bare
+    // `read_one` path doesn't see an obarray), the result is nil.
     let v = read1("#$");
-    assert!(v.is_symbol_named("load-file-name"));
+    assert!(v.is_nil(), "expected nil, got {v:?}");
 }
 
 /// Read forms from window.elc until form 22 (the form that loadup
