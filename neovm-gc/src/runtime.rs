@@ -119,6 +119,25 @@ impl<'heap> CollectorRuntime<'heap> {
             |phase| phases.push(phase),
         )?;
         self.heap.collector_handle().push_phases(phases);
+        // Physical compaction hook (physical-compaction step 6).
+        //
+        // After a synchronous major or full cycle commits, run
+        // physical old-gen compaction if the heap is configured
+        // for it. The hook is gated on
+        // `physical_compaction_density_threshold > 0.0`, so
+        // heaps with the default 0.0 threshold see no behavior
+        // change. A matching hook in
+        // `commit_finished_active_collection` covers the
+        // background concurrent path.
+        if matches!(plan.kind, CollectionKind::Major | CollectionKind::Full) {
+            let density_threshold = self
+                .heap
+                .old_config()
+                .physical_compaction_density_threshold;
+            if density_threshold > 0.0 {
+                self.heap.compact_old_gen_physical(density_threshold);
+            }
+        }
         cycle.pause_nanos = pause_start.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
         self.record_completed_cycle(
             cycle,
@@ -718,6 +737,24 @@ impl<'heap> CollectorRuntime<'heap> {
             finished.prepared_reclaim,
             move |object| runtime_state_for_callback.enqueue_pending_finalizer(object),
         );
+        // Physical compaction hook (physical-compaction step 6).
+        //
+        // After the major reclaim commits, the objects vec
+        // contains only survivors of the mark phase. Walk the
+        // sparse old-gen blocks and physically evacuate every
+        // live record whose home block is at or below the
+        // configured density threshold. This genuinely moves
+        // bytes: the source blocks become empty and get dropped
+        // by the next sweep. The threshold defaults to 0.0
+        // (disabled) so existing workloads that do not opt in
+        // see no behavior change.
+        let density_threshold = self
+            .heap
+            .old_config()
+            .physical_compaction_density_threshold;
+        if density_threshold > 0.0 {
+            self.heap.compact_old_gen_physical(density_threshold);
+        }
         cycle.pause_nanos = pause_start.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
         self.record_completed_cycle(cycle, finished.completed_plan);
         cycle
