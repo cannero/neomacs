@@ -371,6 +371,23 @@ impl Heap {
         (frag, moved)
     }
 
+    /// Predicate-only version of [`Heap::compact_old_gen_if_fragmented`]:
+    /// returns `true` when the current old-gen fragmentation
+    /// ratio is at or above `fragmentation_threshold` AND at
+    /// least one block exists in the pool. Callers (schedulers,
+    /// pacers, background workers) can use this as a cheap
+    /// "should I run compaction now?" check before grabbing the
+    /// heap lock for an actual compact call.
+    ///
+    /// The check is read-only on the heap state and never
+    /// allocates.
+    pub fn should_compact_old_gen(&self, fragmentation_threshold: f64) -> bool {
+        if self.old_gen.block_count() == 0 {
+            return false;
+        }
+        self.old_gen_fragmentation_ratio() >= fragmentation_threshold
+    }
+
     pub(crate) fn collection_exec_parts(
         &mut self,
     ) -> (

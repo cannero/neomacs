@@ -499,6 +499,51 @@ fn mutator_fragmentation_wrappers_delegate_to_heap() {
 }
 
 #[test]
+fn should_compact_old_gen_false_on_empty_heap_at_any_threshold() {
+    let heap = Heap::new(HeapConfig::default());
+    assert!(!heap.should_compact_old_gen(0.0));
+    assert!(!heap.should_compact_old_gen(0.5));
+    assert!(!heap.should_compact_old_gen(1.0));
+}
+
+#[test]
+fn should_compact_old_gen_returns_true_when_fragmentation_meets_threshold() {
+    // After allocating into a block, the line-rounding overhead
+    // already creates some fragmentation, so a low threshold
+    // should return true.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..NurseryConfig::default()
+        },
+        old: OldGenConfig {
+            region_bytes: 1024,
+            line_bytes: 16,
+            concurrent_mark_workers: 1,
+            ..OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    {
+        let mut mutator = heap.mutator();
+        let mut scope = mutator.handle_scope();
+        let _ = mutator.alloc(&mut scope, OldChunk([0; 32]));
+    }
+    let frag = heap.old_gen_fragmentation_ratio();
+    if frag > 0.0 {
+        // At any threshold below the actual fragmentation, the
+        // predicate should fire.
+        assert!(heap.should_compact_old_gen(frag));
+        assert!(heap.should_compact_old_gen(frag / 2.0));
+    }
+    // At a threshold strictly above the actual fragmentation
+    // the predicate should NOT fire.
+    if frag < 1.0 {
+        assert!(!heap.should_compact_old_gen(1.0));
+    }
+}
+
+#[test]
 fn old_gen_fragmentation_ratio_is_zero_on_empty_heap() {
     let heap = Heap::new(HeapConfig::default());
     assert_eq!(heap.old_gen_fragmentation_ratio(), 0.0);
