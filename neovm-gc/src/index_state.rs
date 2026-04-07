@@ -5,6 +5,7 @@ use crate::descriptor::{GcErased, ObjectKey, TypeDesc, TypeFlags};
 use crate::object::{ObjectRecord, SpaceKind};
 use crate::plan::CollectionKind;
 use crate::reclaim::PreparedReclaimSurvivor;
+use crate::stats::HeapStats;
 
 pub(crate) type ObjectIndex = HashMap<ObjectKey, usize>;
 pub(crate) type ForwardingMap = HashMap<ObjectKey, GcErased>;
@@ -132,6 +133,14 @@ impl RememberedSetState {
 }
 
 impl HeapIndexState {
+    pub(crate) fn apply_storage_stats(&self, stats: &mut HeapStats) {
+        stats.remembered_edges = self.remembered.edges.len();
+        stats.remembered_owners = self.remembered.owners.len();
+        stats.finalizable_candidates = self.finalizable_candidates.len();
+        stats.weak_candidates = self.weak_candidates.len();
+        stats.ephemeron_candidates = self.ephemeron_candidates.len();
+    }
+
     pub(crate) fn record_allocated_object(
         &mut self,
         object_key: ObjectKey,
@@ -273,7 +282,8 @@ impl HeapIndexState {
 
 impl PostSweepIndexRebuild {
     pub(crate) fn should_enqueue_finalizer(&self, object: &ObjectRecord) -> bool {
-        self.finalizable_candidates.contains(&object.object_key()) && !object.header().is_moved_out()
+        self.finalizable_candidates.contains(&object.object_key())
+            && !object.header().is_moved_out()
     }
 }
 

@@ -198,6 +198,34 @@ impl HeapStats {
             .saturating_add(self.large.live_bytes)
             .saturating_add(self.immortal.live_bytes)
     }
+
+    pub(crate) fn record_allocation(
+        &mut self,
+        space: SpaceKind,
+        bytes: usize,
+        old_reserved_bytes: usize,
+    ) {
+        match space {
+            SpaceKind::Nursery => {
+                self.nursery.live_bytes = self.nursery.live_bytes.saturating_add(bytes);
+            }
+            SpaceKind::Old => {
+                self.old.live_bytes = self.old.live_bytes.saturating_add(bytes);
+                self.old.reserved_bytes = old_reserved_bytes;
+            }
+            SpaceKind::Pinned => {
+                self.pinned.live_bytes = self.pinned.live_bytes.saturating_add(bytes);
+            }
+            SpaceKind::Large => {
+                self.large.live_bytes = self.large.live_bytes.saturating_add(bytes);
+                self.large.reserved_bytes = self.large.reserved_bytes.saturating_add(bytes);
+            }
+            SpaceKind::Immortal => {
+                self.immortal.live_bytes = self.immortal.live_bytes.saturating_add(bytes);
+                self.immortal.reserved_bytes = self.immortal.reserved_bytes.saturating_add(bytes);
+            }
+        }
+    }
 }
 
 impl PreparedHeapStats {

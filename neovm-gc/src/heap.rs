@@ -214,19 +214,13 @@ impl Heap {
     /// Return current heap statistics.
     pub fn stats(&self) -> HeapStats {
         let mut stats = self.storage_stats();
-        let (finalizers_run, pending_finalizers) = self.runtime_state.snapshot();
-        stats.finalizers_run = finalizers_run;
-        stats.pending_finalizers = pending_finalizers;
+        self.runtime_state.apply_runtime_stats(&mut stats);
         stats
     }
 
     pub(crate) fn storage_stats(&self) -> HeapStats {
         let mut stats = self.stats;
-        stats.remembered_edges = self.indexes.remembered.edges.len();
-        stats.remembered_owners = self.indexes.remembered.owners.len();
-        stats.finalizable_candidates = self.indexes.finalizable_candidates.len();
-        stats.weak_candidates = self.indexes.weak_candidates.len();
-        stats.ephemeron_candidates = self.indexes.ephemeron_candidates.len();
+        self.indexes.apply_storage_stats(&mut stats);
         stats
     }
 
@@ -443,7 +437,8 @@ impl Heap {
                 .record_allocated_object(&self.config.old, &mut record);
         }
         let gc = unsafe { crate::root::Gc::from_erased(record.erased()) };
-        self.account_allocation(space, total_size);
+        self.stats
+            .record_allocation(space, total_size, self.old_gen.reserved_bytes());
         self.objects.push(record);
         let index = self.objects.len() - 1;
         let object_key = self.objects[index].object_key();
@@ -547,32 +542,6 @@ impl Heap {
                     return Ok(SpaceKind::Pinned);
                 }
                 Ok(SpaceKind::Nursery)
-            }
-        }
-    }
-
-    fn account_allocation(&mut self, space: SpaceKind, bytes: usize) {
-        match space {
-            SpaceKind::Nursery => {
-                self.stats.nursery.live_bytes = self.stats.nursery.live_bytes.saturating_add(bytes);
-            }
-            SpaceKind::Old => {
-                self.stats.old.live_bytes = self.stats.old.live_bytes.saturating_add(bytes);
-                self.stats.old.reserved_bytes = self.old_gen.reserved_bytes();
-            }
-            SpaceKind::Pinned => {
-                self.stats.pinned.live_bytes = self.stats.pinned.live_bytes.saturating_add(bytes);
-            }
-            SpaceKind::Large => {
-                self.stats.large.live_bytes = self.stats.large.live_bytes.saturating_add(bytes);
-                self.stats.large.reserved_bytes =
-                    self.stats.large.reserved_bytes.saturating_add(bytes);
-            }
-            SpaceKind::Immortal => {
-                self.stats.immortal.live_bytes =
-                    self.stats.immortal.live_bytes.saturating_add(bytes);
-                self.stats.immortal.reserved_bytes =
-                    self.stats.immortal.reserved_bytes.saturating_add(bytes);
             }
         }
     }

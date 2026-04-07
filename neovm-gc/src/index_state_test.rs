@@ -214,3 +214,39 @@ fn begin_post_sweep_rebuild_preserves_dead_finalizable_membership() {
     assert!(indexes.object_index.is_empty());
     assert!(indexes.finalizable_candidates.is_empty());
 }
+
+#[test]
+fn heap_index_state_apply_storage_stats_reports_candidate_and_remembered_counts() {
+    let desc = leaf_desc();
+    let owner = ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate owner");
+    let target =
+        ObjectRecord::allocate(desc, SpaceKind::Nursery, Leaf).expect("allocate nursery target");
+    let finalizable =
+        ObjectRecord::allocate(finalizable_leaf_desc(), SpaceKind::Pinned, FinalizableLeaf)
+            .expect("allocate finalizable");
+    let weak_ephemeron = ObjectRecord::allocate(
+        weak_ephemeron_leaf_desc(),
+        SpaceKind::Old,
+        WeakEphemeronLeaf,
+    )
+    .expect("allocate weak ephemeron");
+    let mut indexes = HeapIndexState::default();
+    indexes.record_allocated_object(owner.object_key(), 0, desc);
+    indexes.record_allocated_object(target.object_key(), 1, desc);
+    indexes.record_allocated_object(finalizable.object_key(), 2, finalizable.header().desc());
+    indexes.record_allocated_object(
+        weak_ephemeron.object_key(),
+        3,
+        weak_ephemeron.header().desc(),
+    );
+    indexes.record_remembered_edge(owner.erased(), target.erased());
+
+    let mut stats = crate::stats::HeapStats::default();
+    indexes.apply_storage_stats(&mut stats);
+
+    assert_eq!(stats.remembered_edges, 1);
+    assert_eq!(stats.remembered_owners, 1);
+    assert_eq!(stats.finalizable_candidates, 1);
+    assert_eq!(stats.weak_candidates, 1);
+    assert_eq!(stats.ephemeron_candidates, 1);
+}

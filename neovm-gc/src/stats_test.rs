@@ -180,3 +180,23 @@ fn prepared_heap_stats_apply_reclaim_updates_space_live_and_reserved_bytes() {
     assert_eq!(stats.immortal.live_bytes, 13);
     assert_eq!(stats.immortal.reserved_bytes, 13);
 }
+
+#[test]
+fn heap_stats_record_allocation_updates_live_and_reserved_bytes() {
+    let mut stats = HeapStats::default();
+
+    stats.record_allocation(SpaceKind::Nursery, 3, 0);
+    stats.record_allocation(SpaceKind::Old, 5, 17);
+    stats.record_allocation(SpaceKind::Pinned, 7, 0);
+    stats.record_allocation(SpaceKind::Large, 11, 0);
+    stats.record_allocation(SpaceKind::Immortal, 13, 0);
+
+    assert_eq!(stats.nursery.live_bytes, 3);
+    assert_eq!(stats.old.live_bytes, 5);
+    assert_eq!(stats.old.reserved_bytes, 17);
+    assert_eq!(stats.pinned.live_bytes, 7);
+    assert_eq!(stats.large.live_bytes, 11);
+    assert_eq!(stats.large.reserved_bytes, 11);
+    assert_eq!(stats.immortal.live_bytes, 13);
+    assert_eq!(stats.immortal.reserved_bytes, 13);
+}

@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex, MutexGuard, TryLockError, TryLockResult};
 
 use crate::object::ObjectRecord;
 use crate::plan::RuntimeWorkStatus;
+use crate::stats::HeapStats;
 
 #[derive(Debug, Default)]
 pub(crate) struct RuntimeState {
@@ -35,6 +36,12 @@ impl RuntimeStateHandle {
 
     pub(crate) fn runtime_work_status(&self) -> RuntimeWorkStatus {
         RuntimeWorkStatus::from_pending_finalizers(self.pending_finalizer_count())
+    }
+
+    pub(crate) fn apply_runtime_stats(&self, stats: &mut HeapStats) {
+        let (finalizers_run, pending_finalizers) = self.snapshot();
+        stats.finalizers_run = finalizers_run;
+        stats.pending_finalizers = pending_finalizers;
     }
 
     pub(crate) fn enqueue_pending_finalizer(&self, object: ObjectRecord) -> u64 {
