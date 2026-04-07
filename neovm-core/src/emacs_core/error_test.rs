@@ -32,7 +32,7 @@ fn list_prints_buffers_with_names_in_eval_context() -> Result<(), EvalError> {
 #[test]
 fn eval_context_printer_renders_killed_buffer_handles() -> Result<(), EvalError> {
     crate::test_utils::init_test_tracing();
-    let mut eval = Context::new();
+    let mut eval = crate::test_utils::runtime_startup_context();
     let value = eval.eval_str(
         "(with-temp-buffer
            (condition-case err

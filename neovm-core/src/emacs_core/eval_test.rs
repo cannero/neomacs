@@ -6877,7 +6877,7 @@ fn insert_read_only_shape_and_noop_cases_match_gnu() {
 #[test]
 fn lexical_inhibit_read_only_binding_overrides_buffer_read_only() {
     crate::test_utils::init_test_tracing();
-    let mut ev = Context::new();
+    let mut ev = crate::test_utils::runtime_startup_context();
     ev.set_lexical_binding(true);
     let result = ev.eval_str(r#"(with-temp-buffer
            (setq buffer-read-only t)

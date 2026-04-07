@@ -2824,7 +2824,7 @@ fn with_output_to_string_captures_print_output() {
 #[test]
 fn with_output_to_string_keeps_explicit_destination_working() {
     crate::test_utils::init_test_tracing();
-    let mut ev = Context::new();
+    let mut ev = crate::test_utils::runtime_startup_context();
     let result = ev.eval_str(r#"(with-temp-buffer
              (let ((buf (current-buffer)))
                (with-output-to-string

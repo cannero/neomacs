@@ -2392,7 +2392,7 @@ fn command_execute_builtin_delete_char_uses_default_prefix_arg() {
 #[test]
 fn call_interactively_builtin_delete_char_uses_default_prefix_arg() {
     crate::test_utils::init_test_tracing();
-    let mut ev = Context::new();
+    let mut ev = crate::test_utils::runtime_startup_context();
     let results = eval_all_with(
         &mut ev,
         r#"(with-temp-buffer
@@ -2530,7 +2530,7 @@ fn command_execute_builtin_upcase_word_uses_default_prefix_arg() {
 #[test]
 fn call_interactively_builtin_capitalize_word_uses_default_prefix_arg() {
     crate::test_utils::init_test_tracing();
-    let mut ev = Context::new();
+    let mut ev = crate::test_utils::runtime_startup_context();
     let results = eval_all_with(
         &mut ev,
         r#"(with-temp-buffer
@@ -2900,7 +2900,7 @@ fn command_execute_builtin_kill_ring_save_without_mark_signals_error() {
 #[test]
 fn call_interactively_builtin_kill_ring_save_without_mark_signals_error() {
     crate::test_utils::init_test_tracing();
-    let mut ev = Context::new();
+    let mut ev = crate::test_utils::runtime_startup_context();
     let results = eval_all_with(
         &mut ev,
         r#"(with-temp-buffer
@@ -2936,7 +2936,7 @@ fn command_execute_builtin_copy_region_as_kill_without_mark_signals_error() {
 #[test]
 fn call_interactively_builtin_copy_region_as_kill_without_mark_signals_error() {
     crate::test_utils::init_test_tracing();
-    let mut ev = Context::new();
+    let mut ev = crate::test_utils::runtime_startup_context();
     let results = eval_all_with(
         &mut ev,
         r#"(with-temp-buffer
@@ -3969,7 +3969,7 @@ fn self_insert_command_argument_validation() {
 #[test]
 fn self_insert_command_uses_last_command_event_character() {
     crate::test_utils::init_test_tracing();
-    let mut ev = Context::new();
+    let mut ev = crate::test_utils::runtime_startup_context();
     let results = eval_all_with(
         &mut ev,
         r#"(with-temp-buffer
@@ -3986,7 +3986,7 @@ fn self_insert_command_non_character_second_arg_beeps() {
     // If C is not a character (like `t`), GNU calls bitch_at_user() (beep)
     // and does not insert anything.  Buffer remains empty.
     crate::test_utils::init_test_tracing();
-    let mut ev = Context::new();
+    let mut ev = crate::test_utils::runtime_startup_context();
     let results = eval_all_with(
         &mut ev,
         r#"(with-temp-buffer

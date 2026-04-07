@@ -158,7 +158,7 @@ fn eval_all(ev: &mut Context, src: &str) -> Vec<String> {
 #[test]
 fn eval_column_and_indentation_subset() {
     crate::test_utils::init_test_tracing();
-    let mut ev = super::super::eval::Context::new();
+    let mut ev = crate::test_utils::runtime_startup_context();
     let col = ev.eval_str(
         r#"(with-temp-buffer (insert "abc") (goto-char (+ (point-min) 2)) (current-column))"#,
     )
@@ -199,7 +199,7 @@ fn eval_move_to_column_wholenump_validation() {
 #[test]
 fn eval_move_to_column_force_subset() {
     crate::test_utils::init_test_tracing();
-    let mut ev = super::super::eval::Context::new();
+    let mut ev = crate::test_utils::runtime_startup_context();
     let first = ev.eval_str(
         r#"(with-temp-buffer
           (insert "abc")
@@ -542,7 +542,7 @@ fn indent_for_tab_command_inserts_tab() {
 #[test]
 fn eval_indent_to_inserts_padding_and_returns_column() {
     crate::test_utils::init_test_tracing();
-    let mut ev = super::super::eval::Context::new();
+    let mut ev = crate::test_utils::runtime_startup_context();
     let first = ev.eval_str(
         r#"(with-temp-buffer
              (insert "abcdef")
@@ -567,7 +567,7 @@ fn eval_indent_to_inserts_padding_and_returns_column() {
 #[test]
 fn eval_indent_to_rejects_non_fixnump_minimum() {
     crate::test_utils::init_test_tracing();
-    let mut ev = super::super::eval::Context::new();
+    let mut ev = crate::test_utils::runtime_startup_context();
     let results = ev.eval_str_each(
         r#"(with-temp-buffer (condition-case err (indent-to 4 nil) (error err)))
            (with-temp-buffer (condition-case err (indent-to 4 "x") (error err)))
@@ -588,7 +588,7 @@ fn eval_indent_to_rejects_non_fixnump_minimum() {
 #[test]
 fn eval_indent_builtins_respect_dynamic_and_buffer_local_settings() {
     crate::test_utils::init_test_tracing();
-    let mut ev = super::super::eval::Context::new();
+    let mut ev = crate::test_utils::runtime_startup_context();
     let results = ev.eval_str_each(
         r#"(let ((tab-width 4))
              (with-temp-buffer
@@ -638,7 +638,7 @@ fn indent_for_tab_command_normalizes_leading_whitespace_at_point() {
 #[test]
 fn save_restriction_restores_full_buffer_after_widen_insert() {
     crate::test_utils::init_test_tracing();
-    let mut ev = super::super::eval::Context::new();
+    let mut ev = crate::test_utils::runtime_startup_context();
     let value = ev.eval_str(
         r#"(with-temp-buffer
              (insert "x")
