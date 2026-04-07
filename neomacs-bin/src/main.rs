@@ -815,10 +815,9 @@ pub fn run(mode: RuntimeMode) {
     // the default 8 MB stack.
     increase_stack_limit();
 
-    // Initialize tracing subscriber as early as possible so all log
-    // messages (including pdump load errors) are visible.
-    neomacs_display_runtime::init_logging();
-
+    // Handle --help / --version with no logging side effects (so e.g.
+    // `NEOMACS_LOG_TO_FILE=1 neomacs --help` does not create a stray
+    // neomacs-{pid}.log file).
     if let Some(action) = classify_early_cli_action(std::env::args()) {
         match action {
             EarlyCliAction::PrintHelp { program } => {
@@ -831,6 +830,12 @@ pub fn run(mode: RuntimeMode) {
         return;
     }
 
+    // Initialize tracing as early as the real startup path begins, so
+    // pdump load errors and other startup diagnostics are visible. The
+    // returned guard must live until `run` returns to flush the file
+    // appender on shutdown when `NEOMACS_LOG_TO_FILE=1`.
+    let _logging_guard = neovm_core::logging::init();
+
     let startup = parse_startup_options(std::env::args()).unwrap_or_else(|message| {
         eprintln!("{message}");
         std::process::exit(1);
@@ -842,9 +847,6 @@ pub fn run(mode: RuntimeMode) {
         run_temacs_dump_mode(temacs_mode, &startup);
         return;
     }
-
-    // 1. Initialize logging
-    neomacs_display_runtime::init_logging();
 
     tracing::info!(
         "{} {} starting (pure Rust, backend={}, pid={}, mode={:?}, image={:?})",
@@ -1151,7 +1153,9 @@ fn tty_shutdown_terminal() {
 }
 
 fn run_temacs_dump_mode(dump_mode: LoadupDumpMode, startup: &StartupOptions) {
-    neomacs_display_runtime::init_logging();
+    // Logging is already initialized by `run()` before this function is
+    // called; calling `init()` again here is redundant (it would be a
+    // no-op anyway because the global subscriber is set once).
     tracing::info!(
         "{} {} starting raw loadup dump (dump-mode={}, pid={})",
         RuntimeMode::Raw.binary_name(),

@@ -34,8 +34,9 @@ neomacs-renderer-wgpu = { path = "neomacs-renderer-wgpu", version = "0.0.1", def
 
 # Logging / tracing
 tracing = { version = "0.1", features = ["attributes"] }
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry"] }
 tracing-log = "0.2"
+tracing-appender = "0.2"
 
 # Concurrency & threading
 crossbeam-channel = "0.5"

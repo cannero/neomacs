@@ -89,18 +89,12 @@ fn oracle_timing_enabled() -> bool {
 }
 
 fn ensure_oracle_timing_tracing() {
-    static INIT: OnceLock<()> = OnceLock::new();
     if !oracle_timing_enabled() {
         return;
     }
-    INIT.get_or_init(|| {
-        let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(filter)
-            .with_test_writer()
-            .try_init();
-    });
+    // `init_for_tests` is itself idempotent and never touches the
+    // filesystem, so we don't need a separate OnceLock guard here.
+    neovm_core::logging::init_for_tests();
 }
 
 macro_rules! return_if_neovm_enable_oracle_proptest_not_set {

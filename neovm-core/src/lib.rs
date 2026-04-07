@@ -5,6 +5,7 @@ pub mod face;
 pub mod gc_trace;
 pub mod heap_types;
 pub mod keyboard;
+pub mod logging;
 pub mod tagged;
 #[cfg(test)]
 pub mod test_utils;

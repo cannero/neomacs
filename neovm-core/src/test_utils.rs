@@ -13,12 +13,10 @@ use std::path::PathBuf;
 
 /// Initialize the tracing subscriber for test output.
 ///
-/// Reads `RUST_LOG` env var for filter level (default: `info`).
-/// Uses `with_test_writer()` so output is captured by the test runner
-/// and shown on failure.
-///
-/// Safe to call multiple times — `try_init()` silently no-ops if
-/// already initialized.
+/// Thin wrapper around [`crate::logging::init_for_tests`] kept for the
+/// many existing call sites in this crate's test files. Tests never
+/// write to a log file regardless of `NEOMACS_LOG_TO_FILE` — output is
+/// always routed through the test harness's writer.
 ///
 /// # Usage
 /// Call at the start of any test that needs tracing:
@@ -30,13 +28,7 @@ use std::path::PathBuf;
 /// }
 /// ```
 pub fn init_test_tracing() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("debug")),
-        )
-        .with_test_writer()
-        .try_init();
+    crate::logging::init_for_tests();
 }
 
 /// Load a small GNU Lisp runtime that is sufficient for tests that need

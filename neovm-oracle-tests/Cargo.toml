@@ -12,7 +12,6 @@ libc.workspace = true
 proptest.workspace = true
 tempfile.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
 
 [lints.rust]
 unused_imports = "allow"

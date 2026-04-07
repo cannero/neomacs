@@ -39,6 +39,5 @@ neovm-core.workspace = true
 
 # Utilities
 tracing.workspace = true
-tracing-subscriber.workspace = true
 crossbeam-channel.workspace = true
 libc.workspace = true

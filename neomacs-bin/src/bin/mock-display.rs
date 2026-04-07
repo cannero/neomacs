@@ -106,12 +106,7 @@ fn run_gui(demo: &str) {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("warn".parse().unwrap()),
-        )
-        .init();
+    let _logging_guard = neovm_core::logging::init();
 
     // Use logical pixels (winit handles DPI scaling internally).
     // The render thread's scale_factor from winit converts logical → physical.

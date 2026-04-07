@@ -35,32 +35,12 @@ pub mod layout {
 pub use crate::backend::DisplayBackend;
 pub use crate::core::*;
 pub use crate::text::TextEngine;
-use std::sync::Once;
 
 /// Library version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// NeoVM core backend selected at compile time.
 pub const CORE_BACKEND: &str = "rust";
-
-static LOGGING_INIT: Once = Once::new();
-
-/// Initialize tracing + log bridge once per process.
-///
-/// This forwards crates using the `log` facade (e.g. cosmic-text) into the
-/// tracing subscriber configured via `RUST_LOG`.
-pub fn init_logging() {
-    LOGGING_INIT.call_once(|| {
-        let _ = tracing_log::LogTracer::init();
-        let _ = tracing_subscriber::fmt()
-            .with_writer(std::io::stderr)
-            .with_env_filter(
-                tracing_subscriber::EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-            )
-            .try_init();
-    });
-}
 
 /// Read GPU power preference from `NEOMACS_GPU` environment variable.
 ///
@@ -91,9 +71,12 @@ pub fn gpu_power_preference() -> wgpu::PowerPreference {
     }
 }
 
-/// Initialize the display engine
+/// Initialize the display engine.
+///
+/// Logging is initialized separately by the binary entry point via
+/// `neovm_core::logging::init()` and is assumed to already be set up
+/// when this function runs.
 pub fn init() -> Result<(), DisplayError> {
-    init_logging();
     tracing::info!(
         "Neomacs display engine v{} initializing (wgpu backend)",
         VERSION
