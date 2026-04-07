@@ -19,10 +19,10 @@
 //! In wall-clock terms the mark thread runs in parallel with the mutator
 //! most of the time, but there *are* short interleaved pauses when the
 //! mutator decides to take the write lock to allocate, mutate, or finish
-//! the cycle. The SATB write barrier
-//! ([`crate::heap::Heap::record_active_major_post_write`]) keeps the
-//! pre-mutation snapshot reachable so the marker never loses live edges
-//! that the mutator overwrites concurrently.
+//! the cycle. The SATB write barrier (see [`crate::barrier`] and
+//! `CollectorRuntime::record_post_write` on the crate-internal side)
+//! keeps the pre-mutation snapshot reachable so the marker never loses
+//! live edges that the mutator overwrites concurrently.
 //!
 //! Achieving full lock-free concurrent marking would additionally require:
 //!
