@@ -64,8 +64,10 @@ fn trace_collection_records_major_phases() {
         ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate pinned leaf");
     let source = object.erased();
     let objects = vec![object];
-    let mut indexes = HeapIndexState::default();
-    indexes.object_index = object_index_for(&objects);
+    let indexes = HeapIndexState {
+        object_index: object_index_for(&objects),
+        ..HeapIndexState::default()
+    };
     let mut phases = Vec::new();
 
     let (steps, rounds) = super::trace_collection(
@@ -113,8 +115,10 @@ fn execute_collection_plan_records_minor_phases() {
     let object_size = object.total_size();
     let source = object.erased();
     let mut objects = vec![object];
-    let mut indexes = HeapIndexState::default();
-    indexes.object_index = object_index_for(&objects);
+    let mut indexes = HeapIndexState {
+        object_index: object_index_for(&objects),
+        ..HeapIndexState::default()
+    };
     let mut roots = RootStack::default();
     roots.push(source);
     let mut old_gen = OldGenState::default();
