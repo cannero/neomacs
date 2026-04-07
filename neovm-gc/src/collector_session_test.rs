@@ -43,7 +43,6 @@ fn prepared_reclaim() -> PreparedReclaim {
             object_index: 0,
             old_region_placement: None,
         }],
-        finalize_indices: Vec::new(),
         stats: PreparedHeapStats::default(),
     }
 }

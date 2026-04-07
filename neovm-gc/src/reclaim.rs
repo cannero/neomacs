@@ -16,16 +16,17 @@ pub(crate) struct PreparedReclaimSurvivor {
 pub(crate) struct PreparedReclaim {
     pub(crate) promoted_bytes: usize,
     pub(crate) old_gen: PreparedOldGenReclaim,
+    /// Per-subsystem reclaim state assembled under `HeapIndexState`.
+    /// This is the single source of truth for finalize_indices and the
+    /// rebuilt candidate lists — `commit_prepared_reclaim_objects` reads
+    /// `indexes.finalize_indices` directly rather than duplicating it at
+    /// the top level.
     pub(crate) indexes: PreparedIndexReclaim,
     /// Survivors in ascending original `object_index` order.
     ///
     /// `commit_prepared_reclaim_objects` drains this in lockstep with the original
     /// `objects` vector, so ordering is part of the prepared-state contract.
     pub(crate) survivors: Vec<PreparedReclaimSurvivor>,
-    /// Dead finalizable object indices in ascending original `object_index`
-    /// order. `commit_prepared_reclaim_objects` drains these into the
-    /// pending-finalizer queue in lockstep with the original `objects` vector.
-    pub(crate) finalize_indices: Vec<usize>,
     pub(crate) stats: PreparedHeapStats,
 }
 
@@ -82,13 +83,11 @@ pub(crate) fn prepare_reclaim(
 
     let prepared_old_gen = OldGenState::finish_prepared_rebuild(rebuild, &mut survivors);
     let prepared_indexes = indexes.prepare_reclaim_state(objects, &survivors, kind);
-    let finalize_indices = prepared_indexes.finalize_indices.clone();
     PreparedReclaim {
         promoted_bytes: 0,
         old_gen: prepared_old_gen,
         indexes: prepared_indexes,
         survivors,
-        finalize_indices,
         stats: prepared_stats,
     }
 }
@@ -133,6 +132,7 @@ pub(crate) fn commit_prepared_reclaim_objects(
     );
     debug_assert!(
         prepared_reclaim
+            .indexes
             .finalize_indices
             .windows(2)
             .all(|window| window[0] < window[1]),
@@ -141,7 +141,12 @@ pub(crate) fn commit_prepared_reclaim_objects(
 
     let mut queued_finalizers = 0u64;
     let mut survivor_iter = prepared_reclaim.survivors.iter().peekable();
-    let mut finalize_iter = prepared_reclaim.finalize_indices.iter().copied().peekable();
+    let mut finalize_iter = prepared_reclaim
+        .indexes
+        .finalize_indices
+        .iter()
+        .copied()
+        .peekable();
     let mut object_index = 0usize;
     let mut rebuilt_objects = Vec::with_capacity(old_objects.len());
 

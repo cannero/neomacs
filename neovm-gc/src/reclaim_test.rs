@@ -26,7 +26,6 @@ fn prepared_reclaim() -> PreparedReclaim {
         old_gen: PreparedOldGenReclaim::default(),
         indexes: PreparedIndexReclaim::default(),
         survivors: Vec::new(),
-        finalize_indices: Vec::new(),
         stats: PreparedHeapStats::default(),
     }
 }

@@ -49,7 +49,28 @@ impl RuntimeStateHandle {
     }
 
     pub(crate) fn drain_pending_finalizers(&self) -> u64 {
-        self.lock().drain_pending_finalizers()
+        // Take the pending list out of the state under the lock, then
+        // release the lock before running user-defined finalizer code.
+        //
+        // Holding the lock across `run_finalizer()` would be a reentry
+        // deadlock risk: a finalizer that touches the heap (e.g. by
+        // observing `pending_finalizer_count()` or queueing more work)
+        // would re-enter this handle through another `lock()` call.
+        let pending = {
+            let mut state = self.lock();
+            core::mem::take(&mut state.pending_finalizers)
+        };
+        let mut ran = 0u64;
+        for object in pending {
+            if object.run_finalizer() {
+                ran = ran.saturating_add(1);
+            }
+        }
+        if ran > 0 {
+            let mut state = self.lock();
+            state.finalizers_run = state.finalizers_run.saturating_add(ran);
+        }
+        ran
     }
 
     pub(crate) fn with_state<R>(&self, f: impl FnOnce(&mut RuntimeState) -> R) -> R {
