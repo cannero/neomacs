@@ -54,9 +54,9 @@ fn old_block_accounting_fields_start_zero_and_update_on_record() {
     block.clear_live_accounting();
     assert_eq!(block.live_bytes(), 0);
     assert_eq!(block.object_count(), 0);
-    // clear_live_accounting is a LIVE counter reset, not a
-    // backing-buffer clear; used_bytes intentionally stays at its
-    // high-water mark.
+    // clear_live_accounting resets live counters only; used_bytes
+    // is a high-water mark of the physical layout and does not
+    // shrink just because live counters were reset.
     assert_eq!(block.used_bytes(), 112);
 }
 
@@ -74,14 +74,18 @@ fn old_block_try_alloc_advances_used_bytes_high_water_mark() {
 }
 
 #[test]
-fn old_block_occupied_line_count_reflects_marked_lines() {
-    let block = OldBlock::new(1024, 16);
+fn old_block_occupied_line_count_reflects_recorded_placements() {
+    let mut block = OldBlock::new(1024, 16);
     assert_eq!(block.occupied_line_count(), 0);
-    block.mark_line(0);
-    block.mark_line(5);
-    block.mark_line(10);
+    // A 32-byte placement at offset 0 spans lines 0 and 1.
+    block.record_object_accounting(0, 32);
+    assert_eq!(block.occupied_line_count(), 2);
+    // A 16-byte placement at offset 80 lands on line 5.
+    block.record_object_accounting(80, 16);
     assert_eq!(block.occupied_line_count(), 3);
-    block.clear_line_marks();
+    // clear_live_accounting drops the occupied_lines set along
+    // with the live counters.
+    block.clear_live_accounting();
     assert_eq!(block.occupied_line_count(), 0);
 }
 

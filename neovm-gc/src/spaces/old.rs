@@ -71,6 +71,16 @@ pub(crate) struct OldBlock {
     /// Count of live objects currently placed in the block. Mirrors
     /// `OldRegion::object_count`. Updated alongside `live_bytes`.
     object_count: usize,
+    /// Set of line indices that contain at least one live object.
+    /// Distinct from `line_marks`: the atomic `line_marks` array is
+    /// set only during sweep (by the post-sweep survivor walk), while
+    /// this `HashSet` mirrors the exact semantics of
+    /// `OldRegion::occupied_lines` — updated at allocation time by
+    /// `record_object_accounting` so `region_stats` can report
+    /// `occupied_lines` without a sweep having run yet. A later
+    /// consolidation can fold this into `line_marks` once the
+    /// sweep path is also migrated.
+    occupied_lines: HashSet<usize>,
     /// Per-block card table covering the backing buffer. The write barrier
     /// dirties cards through this table when the owner of an old-to-young
     /// edge lives inside the block; the minor GC root scan walks the dirty
@@ -112,6 +122,7 @@ impl OldBlock {
             used_bytes: 0,
             live_bytes: 0,
             object_count: 0,
+            occupied_lines: HashSet::new(),
             card_table,
             object_starts,
         }
@@ -146,42 +157,55 @@ impl OldBlock {
         self.used_bytes
     }
 
-    /// Count the number of lines currently marked occupied.
-    /// Equivalent to `OldRegion::occupied_lines.len()` but computed
-    /// from the live `line_marks` atomic array, so it reflects the
-    /// post-sweep occupancy without maintaining a duplicate set.
+    /// Number of lines currently containing at least one live
+    /// object, as tracked by the allocation-time `occupied_lines`
+    /// set. Distinct from [`line_marks`]: this reflects what
+    /// `record_object_accounting` has recorded, while `line_marks`
+    /// is populated only during post-sweep rebuild.
     #[allow(dead_code)]
     pub(crate) fn occupied_line_count(&self) -> usize {
-        self.line_marks
-            .iter()
-            .filter(|slot| slot.load(Ordering::Relaxed) != 0)
-            .count()
+        self.occupied_lines.len()
     }
 
     /// Record a newly-placed live object in the block's accounting
-    /// counters. Bumps `live_bytes` and `object_count` and lifts
-    /// `used_bytes` to cover the object's tail. Line marks remain
-    /// the responsibility of [`mark_lines_for_range`] and are not
-    /// touched here so callers can keep the two concerns
-    /// independent during the unification migration.
+    /// counters. Bumps `live_bytes`, `object_count`, lifts
+    /// `used_bytes` to cover the object's tail, and inserts every
+    /// line the object overlaps into the `occupied_lines` set. This
+    /// mirrors the exact semantics of the legacy
+    /// `OldRegion::live_bytes` / `object_count` / `occupied_lines`
+    /// accounting so `region_stats()` can be migrated to compute
+    /// from blocks in step 4 without any behavior change.
     #[allow(dead_code)]
     pub(crate) fn record_object_accounting(&mut self, offset: usize, size: usize) {
+        if size == 0 {
+            return;
+        }
         self.live_bytes = self.live_bytes.saturating_add(size);
         self.object_count = self.object_count.saturating_add(1);
         let end = offset.saturating_add(size);
         if end > self.used_bytes {
             self.used_bytes = end.min(self.buffer.len());
         }
+        let first_line = offset / self.line_bytes;
+        let last_byte = end.saturating_sub(1);
+        let last_line = last_byte / self.line_bytes;
+        for line in first_line..=last_line {
+            self.occupied_lines.insert(line);
+        }
     }
 
     /// Clear the live-object accounting counters without touching
     /// the backing buffer or line marks. Invoked at the start of a
     /// sweep-driven rebuild, right before the survivor walk
-    /// re-populates them via [`record_object_accounting`].
+    /// re-populates them via [`record_object_accounting`]. Leaves
+    /// `used_bytes` at its current high-water mark — the block's
+    /// physical layout does not shrink even after dead objects are
+    /// reclaimed.
     #[allow(dead_code)]
     pub(crate) fn clear_live_accounting(&mut self) {
         self.live_bytes = 0;
         self.object_count = 0;
+        self.occupied_lines.clear();
     }
 
     /// Read-only view of the per-card object-start index. Each entry is
@@ -574,6 +598,33 @@ impl OldGenState {
     pub(crate) fn clear_all_block_object_starts(&mut self) {
         for block in &mut self.blocks {
             block.clear_object_starts();
+        }
+    }
+
+    /// Clear the live-object accounting counters (`live_bytes`,
+    /// `object_count`, `occupied_lines`) on every block in the
+    /// pool. Invoked at the start of the post-sweep rebuild so the
+    /// survivor walk can repopulate the counters from the new
+    /// layout via `record_block_object_accounting_for_placement`.
+    pub(crate) fn clear_all_block_live_accounting(&mut self) {
+        for block in &mut self.blocks {
+            block.clear_live_accounting();
+        }
+    }
+
+    /// Record a surviving block-backed object into the block's
+    /// live accounting counters (`live_bytes`, `object_count`,
+    /// `occupied_lines`). Mirrors
+    /// `record_block_object_start_for_placement` and
+    /// `mark_block_lines_for_placement`: these three helpers are
+    /// called in lockstep by the post-sweep rebuild for every
+    /// surviving record.
+    pub(crate) fn record_block_object_accounting_for_placement(
+        &mut self,
+        placement: OldBlockPlacement,
+    ) {
+        if let Some(block) = self.blocks.get_mut(placement.block_index) {
+            block.record_object_accounting(placement.offset_bytes, placement.total_size);
         }
     }
 
