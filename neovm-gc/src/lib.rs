@@ -40,30 +40,55 @@
 //!
 //! [`SharedHeap::status`]: background::SharedHeap::status
 
+/// Shared/background collector surfaces (`SharedHeap`,
+/// background worker, lock-free status snapshots).
 pub mod background;
+/// Write-barrier event types and remembered-set edge metadata.
 pub mod barrier;
 pub(crate) mod card_table;
 mod collector_exec;
 mod collector_policy;
 mod collector_session;
 mod collector_state;
+/// Phase 5 dedicated concurrent-marker scaffold built on top of
+/// `BackgroundWorker`.
 pub mod concurrent_marker;
+/// Type descriptors and tracing/relocation traits the collector
+/// dispatches through (`Trace`, `Tracer`, `Relocator`,
+/// `TypeDesc`, `MovePolicy`).
 pub mod descriptor;
+/// Strong managed-edge helper used inside `Trace`-implementing
+/// records (`EdgeCell`).
 pub mod edge;
+/// The owned `Heap` type plus its configuration and allocation
+/// errors.
 pub mod heap;
 mod index_state;
 mod mark;
+/// `Mutator<'heap>` — the only allocating view onto a `Heap`.
 pub mod mutator;
 mod object;
+/// Adaptive Go-style pacer with EWMA trigger thresholds.
 pub mod pacer;
 mod pause_stats;
+/// Collection plans the collector consumes
+/// (`CollectionKind`, `CollectionPlan`, `CollectionPhase`,
+/// `RuntimeWorkStatus`, etc.).
 pub mod plan;
 mod reclaim;
+/// Rooted handles (`Gc`, `Root`, `HandleScope`, `RootStack`).
 pub mod root;
+/// Runtime collector entry points used inside the heap mutator
+/// closures (`CollectorRuntime`, `SharedCollectorRuntime`).
 pub mod runtime;
 mod runtime_state;
+/// Per-space configuration and metadata
+/// (`NurseryConfig`, `OldGenConfig`, `PinnedSpaceConfig`,
+/// `LargeObjectSpaceConfig`).
 pub mod spaces;
+/// Per-space statistics and rolling collection counters.
 pub mod stats;
+/// Weak reference, weak map, and ephemeron primitives.
 pub mod weak;
 
 pub use background::{

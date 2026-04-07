@@ -238,6 +238,14 @@ pub(crate) fn allocation_layout_for<T>() -> Result<(Layout, usize), AllocError> 
     Ok((layout.pad_to_align(), payload_offset))
 }
 
+/// Estimated allocation footprint of a `T`-payload `ObjectRecord`,
+/// including the header and any line/alignment padding the
+/// allocator pipeline will pad up to. Returns `Err(LayoutOverflow)`
+/// if the layout cannot be computed.
+///
+/// Useful for callers (e.g. the pacer's allocation accounting)
+/// that need to know how many bytes a `Heap::alloc::<T>()` will
+/// charge against the heap before actually allocating.
 pub fn estimated_allocation_size<T>() -> Result<usize, AllocError> {
     allocation_layout_for::<T>().map(|(layout, _)| layout.size())
 }
