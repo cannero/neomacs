@@ -624,7 +624,14 @@ fn copy_syntax_table_returns_fresh_syntax_table() {
 
     match (source.kind(), copied.kind()) {
         (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector)) => {
-            assert_ne!(source, copied)
+            // `assert_ne!(source, copied)` would compare via the
+            // structural `equal` impl on TaggedValue and pass
+            // accidentally; use `eq_value` (identity / pointer equality)
+            // to assert the copy actually allocated a fresh vector.
+            assert!(
+                !crate::emacs_core::value::eq_value(&source, &copied),
+                "expected fresh allocation, got identity-equal"
+            );
         }
         other => panic!("expected vector-backed char tables, got {other:?}"),
     }

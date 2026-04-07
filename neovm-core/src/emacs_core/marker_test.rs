@@ -128,10 +128,16 @@ fn builtin_copy_marker_from_marker() {
 #[test]
 fn builtin_copy_marker_from_integer() {
     crate::test_utils::init_test_tracing();
+    // GNU verified: `(copy-marker 99)` produces a marker bound to the
+    // current buffer (clamped to point-min/point-max). It is *not* a
+    // bufferless marker like `(make-marker)`. Mirror that.
     let copy = call_copy_marker(vec![Value::fixnum(99)]).unwrap();
     assert!(is_marker(&copy));
     assert!(marker_position_value(&copy).is_fixnum());
-    assert!(marker_buffer_value(&copy).is_nil());
+    assert!(
+        !marker_buffer_value(&copy).is_nil(),
+        "copy-marker on an integer must bind to the current buffer"
+    );
 }
 
 #[test]

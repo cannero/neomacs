@@ -701,13 +701,17 @@ fn read_char_exclusive_skips_non_character_and_leaves_tail() {
 #[test]
 fn get_load_suffixes_returns_list() {
     crate::test_utils::init_test_tracing();
-    // The stateless variant is hardcoded to return (".el" "") matching
-    // NeoVM's default load-suffixes and load-file-rep-suffixes.
+    // GNU `Fget_load_suffixes` (lread.c) cross-products
+    // `load-suffixes` (".elc", ".el") with `load-file-rep-suffixes`
+    // (""). Our stateless variant mirrors this with the
+    // (".elc", ".el", "") tuple. The earlier two-element expectation
+    // predates .elc support.
     let result = builtin_get_load_suffixes(vec![]).unwrap();
     let items = list_to_vec(&result).unwrap();
-    assert_eq!(items.len(), 2);
-    assert_eq!(items[0].as_str(), Some(".el"));
-    assert_eq!(items[1].as_str(), Some(""));
+    assert_eq!(items.len(), 3);
+    assert_eq!(items[0].as_str(), Some(".elc"));
+    assert_eq!(items[1].as_str(), Some(".el"));
+    assert_eq!(items[2].as_str(), Some(""));
 }
 
 #[test]

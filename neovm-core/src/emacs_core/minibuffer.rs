@@ -1299,9 +1299,8 @@ fn value_to_string_list(val: &Value) -> Vec<String> {
                     // Alist entry: (STRING . _)
                     ValueKind::Cons => {
                         let pair_car = item.cons_car();
-                        let pair_cdr = item.cons_cdr();
                         match pair_car.kind() {
-                            ValueKind::String => Some(item.as_str().unwrap().to_owned()),
+                            ValueKind::String => Some(pair_car.as_str().unwrap().to_owned()),
                             ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
                             _ => None,
                         }
