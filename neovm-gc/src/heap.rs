@@ -5,7 +5,7 @@ use crate::collector_state::{CollectorSharedSnapshot, CollectorStateHandle};
 use crate::descriptor::{GcErased, Trace, TypeDesc, fixed_type_desc};
 use crate::index_state::HeapIndexState;
 use crate::mutator::Mutator;
-use crate::object::{ObjectRecord, SpaceKind, estimated_allocation_size};
+use crate::object::{ObjectRecord, SpaceKind};
 use crate::plan::{
     CollectionKind, CollectionPhase, CollectionPlan, MajorMarkProgress, RuntimeWorkStatus,
 };
@@ -439,16 +439,6 @@ impl Heap {
         CollectorRuntime::new(self).execute_plan(plan)
     }
 
-    pub(crate) fn typed_allocation_profile<T: Trace + 'static>(
-        &mut self,
-    ) -> Result<(&'static TypeDesc, SpaceKind, usize), AllocError> {
-        let desc = self.descriptor_for::<T>();
-        let payload_bytes = core::mem::size_of::<T>();
-        let total_bytes = estimated_allocation_size::<T>()?;
-        let space = self.select_space(desc, payload_bytes)?;
-        Ok((desc, space, total_bytes))
-    }
-
     pub(crate) fn push_barrier_event(
         &mut self,
         kind: BarrierKind,
@@ -485,44 +475,12 @@ impl Heap {
         self.collector.has_prepared_full_reclaim()
     }
 
-    fn descriptor_for<T: Trace + 'static>(&mut self) -> &'static TypeDesc {
+    pub(crate) fn descriptor_for<T: Trace + 'static>(&mut self) -> &'static TypeDesc {
         let type_id = TypeId::of::<T>();
         *self
             .descriptors
             .entry(type_id)
             .or_insert_with(|| Box::leak(Box::new(fixed_type_desc::<T>())))
-    }
-
-    fn select_space(
-        &self,
-        desc: &'static TypeDesc,
-        payload_bytes: usize,
-    ) -> Result<SpaceKind, AllocError> {
-        use crate::descriptor::MovePolicy;
-
-        match desc.move_policy {
-            MovePolicy::Pinned => Ok(SpaceKind::Pinned),
-            MovePolicy::LargeObject => Ok(SpaceKind::Large),
-            MovePolicy::Immortal => Ok(SpaceKind::Immortal),
-            MovePolicy::Movable => {
-                if payload_bytes >= self.config.large.threshold_bytes {
-                    return Ok(SpaceKind::Large);
-                }
-                if payload_bytes > self.config.nursery.max_regular_object_bytes {
-                    return Ok(SpaceKind::Old);
-                }
-                Ok(SpaceKind::Nursery)
-            }
-            MovePolicy::PromoteToPinned => {
-                if payload_bytes >= self.config.large.threshold_bytes {
-                    return Ok(SpaceKind::Large);
-                }
-                if payload_bytes > self.config.nursery.max_regular_object_bytes {
-                    return Ok(SpaceKind::Pinned);
-                }
-                Ok(SpaceKind::Nursery)
-            }
-        }
     }
 
     pub(crate) fn allocation_pressure_plan(

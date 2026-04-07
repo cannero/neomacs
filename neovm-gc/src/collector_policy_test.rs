@@ -1,11 +1,12 @@
 use super::*;
 use crate::collector_state::CollectorState;
-use crate::descriptor::{Trace, Tracer, fixed_type_desc};
+use crate::descriptor::{MovePolicy, Trace, Tracer, fixed_type_desc};
+use crate::heap::HeapConfig;
 use crate::mark::MarkWorklist;
 use crate::object::{ObjectRecord, SpaceKind};
 use crate::plan::{CollectionKind, CollectionPhase};
-use crate::spaces::NurseryConfig;
 use crate::spaces::old::OldRegion;
+use crate::spaces::{LargeObjectSpaceConfig, NurseryConfig};
 use crate::stats::{HeapStats, SpaceStats};
 
 fn plan_for(kind: CollectionKind) -> CollectionPlan {
@@ -34,6 +35,46 @@ unsafe impl Trace for Leaf {
 
 fn leaf_desc() -> &'static crate::descriptor::TypeDesc {
     Box::leak(Box::new(fixed_type_desc::<Leaf>()))
+}
+
+#[derive(Debug)]
+struct PinnedLeaf;
+
+unsafe impl Trace for PinnedLeaf {
+    fn trace(&self, _tracer: &mut dyn Tracer) {}
+
+    fn relocate(&self, _relocator: &mut dyn crate::descriptor::Relocator) {}
+
+    fn move_policy() -> MovePolicy
+    where
+        Self: Sized,
+    {
+        MovePolicy::Pinned
+    }
+}
+
+fn pinned_leaf_desc() -> &'static crate::descriptor::TypeDesc {
+    Box::leak(Box::new(fixed_type_desc::<PinnedLeaf>()))
+}
+
+#[derive(Debug)]
+struct PromoteToPinnedLeaf;
+
+unsafe impl Trace for PromoteToPinnedLeaf {
+    fn trace(&self, _tracer: &mut dyn Tracer) {}
+
+    fn relocate(&self, _relocator: &mut dyn crate::descriptor::Relocator) {}
+
+    fn move_policy() -> MovePolicy
+    where
+        Self: Sized,
+    {
+        MovePolicy::PromoteToPinned
+    }
+}
+
+fn promote_to_pinned_leaf_desc() -> &'static crate::descriptor::TypeDesc {
+    Box::leak(Box::new(fixed_type_desc::<PromoteToPinnedLeaf>()))
 }
 
 #[test]
@@ -192,6 +233,42 @@ fn allocation_pressure_plan_uses_space_thresholds() {
         .expect("large pressure")
         .kind,
         CollectionKind::Full
+    );
+}
+
+#[test]
+fn select_allocation_space_uses_move_policy_and_size_thresholds() {
+    let config = HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 16,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: 32,
+            ..LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    };
+
+    assert_eq!(
+        select_allocation_space(&config, pinned_leaf_desc(), 8),
+        SpaceKind::Pinned
+    );
+    assert_eq!(
+        select_allocation_space(&config, leaf_desc(), 8),
+        SpaceKind::Nursery
+    );
+    assert_eq!(
+        select_allocation_space(&config, leaf_desc(), 20),
+        SpaceKind::Old
+    );
+    assert_eq!(
+        select_allocation_space(&config, leaf_desc(), 40),
+        SpaceKind::Large
+    );
+    assert_eq!(
+        select_allocation_space(&config, promote_to_pinned_leaf_desc(), 20),
+        SpaceKind::Pinned
     );
 }
 

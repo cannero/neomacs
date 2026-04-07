@@ -11,7 +11,7 @@ use crate::collector_exec::{
 use crate::collector_policy::refresh_cached_plans as refresh_cached_collector_plans;
 use crate::collector_session::{self, build_prepared_active_reclaim, prepare_active_reclaim};
 use crate::collector_state::{CollectorSharedSnapshot, CollectorState};
-use crate::descriptor::GcErased;
+use crate::descriptor::{GcErased, TypeDesc};
 use crate::heap::{AllocError, Heap};
 use crate::object::SpaceKind;
 use crate::plan::{
@@ -153,7 +153,7 @@ impl<'heap> CollectorRuntime<'heap> {
         if self.heap.prepared_full_reclaim_active() {
             return Err(AllocError::CollectionInProgress);
         }
-        let (_, space, total_bytes) = self.heap.typed_allocation_profile::<T>()?;
+        let (_, space, total_bytes) = self.typed_allocation_profile::<T>()?;
         self.service_allocation_pressure(space, total_bytes)
     }
 
@@ -165,7 +165,7 @@ impl<'heap> CollectorRuntime<'heap> {
         if self.heap.prepared_full_reclaim_active() {
             return Err(AllocError::CollectionInProgress);
         }
-        let (desc, space, _) = self.heap.typed_allocation_profile::<T>()?;
+        let (desc, space, _) = self.typed_allocation_profile::<T>()?;
         let mut record = crate::object::ObjectRecord::allocate(desc, space, value)?;
         let total_size = record.header().total_size();
         let (objects, indexes, old_gen, stats, old_config) = self.heap.allocation_commit_parts();
@@ -196,6 +196,20 @@ impl<'heap> CollectorRuntime<'heap> {
             self.heap.refresh_recommended_plans();
         }
         Ok(scope.root(gc))
+    }
+
+    fn typed_allocation_profile<T: crate::descriptor::Trace + 'static>(
+        &mut self,
+    ) -> Result<(&'static TypeDesc, SpaceKind, usize), AllocError> {
+        let desc = self.heap.descriptor_for::<T>();
+        let payload_bytes = core::mem::size_of::<T>();
+        let total_bytes = crate::object::estimated_allocation_size::<T>()?;
+        let space = crate::collector_policy::select_allocation_space(
+            self.heap.config(),
+            desc,
+            payload_bytes,
+        );
+        Ok((desc, space, total_bytes))
     }
 
     pub(crate) fn root_during_active_major_mark(&mut self, object: GcErased) {

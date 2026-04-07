@@ -1,4 +1,6 @@
 use crate::collector_state::CollectorState;
+use crate::descriptor::{MovePolicy, TypeDesc};
+use crate::heap::HeapConfig;
 use crate::object::{ObjectRecord, SpaceKind};
 use crate::plan::{CollectionKind, CollectionPlan};
 use crate::spaces::{
@@ -67,6 +69,36 @@ pub(crate) fn build_plan(
                 estimated_compaction_bytes,
                 estimated_reclaim_bytes,
             }
+        }
+    }
+}
+
+pub(crate) fn select_allocation_space(
+    config: &HeapConfig,
+    desc: &'static TypeDesc,
+    payload_bytes: usize,
+) -> SpaceKind {
+    match desc.move_policy {
+        MovePolicy::Pinned => SpaceKind::Pinned,
+        MovePolicy::LargeObject => SpaceKind::Large,
+        MovePolicy::Immortal => SpaceKind::Immortal,
+        MovePolicy::Movable => {
+            if payload_bytes >= config.large.threshold_bytes {
+                return SpaceKind::Large;
+            }
+            if payload_bytes > config.nursery.max_regular_object_bytes {
+                return SpaceKind::Old;
+            }
+            SpaceKind::Nursery
+        }
+        MovePolicy::PromoteToPinned => {
+            if payload_bytes >= config.large.threshold_bytes {
+                return SpaceKind::Large;
+            }
+            if payload_bytes > config.nursery.max_regular_object_bytes {
+                return SpaceKind::Pinned;
+            }
+            SpaceKind::Nursery
         }
     }
 }
