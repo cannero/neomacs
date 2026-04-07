@@ -133,6 +133,16 @@ impl RememberedSetState {
 }
 
 impl HeapIndexState {
+    pub(crate) fn space_for_erased(
+        &self,
+        objects: &[ObjectRecord],
+        object: GcErased,
+    ) -> Option<SpaceKind> {
+        self.object_index
+            .get(&object.object_key())
+            .map(|&index| objects[index].space())
+    }
+
     pub(crate) fn apply_storage_stats(&self, stats: &mut HeapStats) {
         stats.remembered_edges = self.remembered.edges.len();
         stats.remembered_owners = self.remembered.owners.len();
@@ -176,6 +186,28 @@ impl HeapIndexState {
 
     pub(crate) fn record_remembered_edge(&mut self, owner: GcErased, target: GcErased) {
         self.remembered.record_edge(owner, target);
+    }
+
+    pub(crate) fn record_remembered_edge_if_needed(
+        &mut self,
+        objects: &[ObjectRecord],
+        owner: GcErased,
+        new_value: Option<GcErased>,
+    ) {
+        let Some(owner_space) = self.space_for_erased(objects, owner) else {
+            return;
+        };
+        let Some(target) = new_value else {
+            return;
+        };
+        let Some(target_space) = self.space_for_erased(objects, target) else {
+            return;
+        };
+
+        let owner_is_old = owner_space != SpaceKind::Nursery && owner_space != SpaceKind::Immortal;
+        if owner_is_old && target_space == SpaceKind::Nursery {
+            self.record_remembered_edge(owner, target);
+        }
     }
 
     pub(crate) fn reset_candidate_indexes(&mut self, capacity: usize) {

@@ -250,3 +250,36 @@ fn heap_index_state_apply_storage_stats_reports_candidate_and_remembered_counts(
     assert_eq!(stats.weak_candidates, 1);
     assert_eq!(stats.ephemeron_candidates, 1);
 }
+
+#[test]
+fn heap_index_state_record_remembered_edge_if_needed_only_keeps_old_to_nursery() {
+    let desc = leaf_desc();
+    let owner = ObjectRecord::allocate(desc, SpaceKind::Pinned, Leaf).expect("allocate owner");
+    let nursery_target =
+        ObjectRecord::allocate(desc, SpaceKind::Nursery, Leaf).expect("allocate nursery target");
+    let old_target =
+        ObjectRecord::allocate(desc, SpaceKind::Old, Leaf).expect("allocate old target");
+    let objects = vec![owner, nursery_target, old_target];
+    let mut indexes = HeapIndexState::default();
+    for (index, object) in objects.iter().enumerate() {
+        indexes.record_allocated_object(object.object_key(), index, desc);
+    }
+
+    indexes.record_remembered_edge_if_needed(
+        &objects,
+        objects[0].erased(),
+        Some(objects[1].erased()),
+    );
+    indexes.record_remembered_edge_if_needed(
+        &objects,
+        objects[0].erased(),
+        Some(objects[2].erased()),
+    );
+
+    assert_eq!(indexes.remembered.edges.len(), 1);
+    assert_eq!(indexes.remembered.owners, vec![objects[0].object_key()]);
+    assert_eq!(
+        indexes.remembered.edges[0].target.erase().object_key(),
+        objects[1].object_key()
+    );
+}

@@ -486,20 +486,8 @@ impl Heap {
         owner: GcErased,
         new_value: Option<GcErased>,
     ) {
-        let Some(owner_space) = self.space_for_erased(owner) else {
-            return;
-        };
-        let Some(target) = new_value else {
-            return;
-        };
-        let Some(target_space) = self.space_for_erased(target) else {
-            return;
-        };
-
-        let owner_is_old = owner_space != SpaceKind::Nursery && owner_space != SpaceKind::Immortal;
-        if owner_is_old && target_space == SpaceKind::Nursery {
-            self.indexes.record_remembered_edge(owner, target);
-        }
+        self.indexes
+            .record_remembered_edge_if_needed(&self.objects, owner, new_value);
     }
 
     pub(crate) fn prepared_full_reclaim_active(&self) -> bool {
@@ -593,13 +581,6 @@ impl Heap {
         self.indexes
             .object_index
             .get(&gc.erase().object_key())
-            .map(|&index| self.objects[index].space())
-    }
-
-    pub(crate) fn space_for_erased(&self, object: GcErased) -> Option<SpaceKind> {
-        self.indexes
-            .object_index
-            .get(&object.object_key())
             .map(|&index| self.objects[index].space())
     }
 }
