@@ -19,14 +19,13 @@ struct ConditionalSlotSpec {
 // GNU buffer.c init_buffer_once: slots marked with -1 in buffer_local_flags are
 // always buffer-local in every live buffer.
 //
-// Phase 10 sub-phase A: the four BUFFER_OBJFWD-style names
-// (`buffer-file-name`, `buffer-auto-save-file-name`,
-// `buffer-read-only`, `enable-multibyte-characters`) are not in this
-// list — they live exclusively in `Buffer::slots[]` after Phase 8b
-// and the BufferLocals path no longer mirrors them.
+// Phase 10C: names that have migrated to `Buffer::slots[]` via
+// `BUFFER_SLOT_INFO` are not in this list -- they live exclusively
+// in the slot table and the BufferLocals path no longer mirrors them.
+// Migrated so far: buffer-file-name, buffer-auto-save-file-name,
+// buffer-read-only, enable-multibyte-characters, buffer-file-truename,
+// default-directory.
 const ALWAYS_LOCAL_BUFFER_LOCAL_NAMES: &[&str] = &[
-    "buffer-file-truename",
-    "default-directory",
     "buffer-undo-list",
     "buffer-saved-size",
     "buffer-backed-up",
@@ -231,20 +230,8 @@ const CONDITIONAL_SLOT_BUFFER_LOCAL_SPECS: &[ConditionalSlotSpec] = &[
     },
 ];
 
-fn default_directory_value() -> Value {
-    let mut cwd = std::env::current_dir()
-        .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| "/".to_string());
-    if !cwd.ends_with('/') {
-        cwd.push('/');
-    }
-    Value::string(cwd)
-}
-
 fn always_local_default_binding(name: &str) -> Option<RuntimeBindingValue> {
     let value = match name {
-        "buffer-file-truename" => Value::NIL,
-        "default-directory" => default_directory_value(),
         "buffer-undo-list" => Value::NIL,
         "buffer-saved-size" => Value::fixnum(0),
         "buffer-backed-up" => Value::NIL,
