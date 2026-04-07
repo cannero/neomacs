@@ -609,12 +609,15 @@ impl Heap {
         self.pacer.clone()
     }
 
-    /// Override the pacer's configuration. Replaces the existing pacer
-    /// with a fresh one constructed from `config`. Intended for tests
-    /// and tuning experiments — production code should set the config
-    /// once during heap construction.
+    /// Override the pacer's configuration in place. Preserves the
+    /// pacer's accumulated runtime state (EWMA estimates, observed
+    /// cycles, next-trigger threshold) so production callers can
+    /// retune the pacer without losing its history.
+    ///
+    /// All cloned [`Pacer`] handles see the new config because they
+    /// share the same `Arc<Mutex<PacerState>>`.
     pub fn set_pacer_config(&mut self, config: PacerConfig) {
-        self.pacer = Pacer::new(config);
+        self.pacer.update_config(config);
     }
 
     #[cfg(test)]

@@ -135,15 +135,17 @@ pub enum PacerDecision {
 
 /// Adaptive GC pacer state.
 ///
-/// Cheap to clone: the inner state is `Arc<Mutex<...>>`.
+/// Cheap to clone: the inner state is `Arc<Mutex<...>>`. Config and
+/// runtime state both live behind the same lock so [`Pacer::clone`]s
+/// observe each other's [`Pacer::update_config`] calls.
 #[derive(Clone, Debug)]
 pub struct Pacer {
-    config: PacerConfig,
     state: Arc<Mutex<PacerState>>,
 }
 
 #[derive(Debug)]
 struct PacerState {
+    config: PacerConfig,
     last_allocation_rate_bps: f64,
     last_mark_rate_bps: f64,
     last_live_bytes: usize,
@@ -162,6 +164,7 @@ impl Pacer {
     /// before the heap grows past the floor.
     pub fn new(config: PacerConfig) -> Self {
         let state = PacerState {
+            config,
             last_allocation_rate_bps: 0.0,
             last_mark_rate_bps: 0.0,
             last_live_bytes: 0,
@@ -174,14 +177,26 @@ impl Pacer {
             bytes_allocated_to_nursery_since_last_minor: 0,
         };
         Self {
-            config,
             state: Arc::new(Mutex::new(state)),
         }
     }
 
-    /// Returns the configuration the pacer was constructed with.
+    /// Returns a snapshot of the pacer's current configuration.
     pub fn config(&self) -> PacerConfig {
-        self.config
+        self.lock().config
+    }
+
+    /// Replace the pacer's configuration in place. Preserves all
+    /// accumulated runtime state (EWMA estimates, observed cycles,
+    /// pacer counters, next-major-trigger threshold). Use this for
+    /// runtime tuning when the new config should take effect on the
+    /// next decision without resetting the pacer's history.
+    ///
+    /// All cloned [`Pacer`] handles see the new config because they
+    /// share the same `Arc<Mutex<PacerState>>`.
+    pub fn update_config(&self, config: PacerConfig) {
+        let mut state = self.lock();
+        state.config = config;
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, PacerState> {
@@ -214,7 +229,7 @@ impl Pacer {
                 .bytes_allocated_to_nursery_since_last_minor
                 .saturating_add(bytes);
         }
-        Self::compute_decision(&self.config, &state)
+        Self::compute_decision(&state)
     }
 
     /// Re-evaluate the current pacer state without advancing it.
@@ -225,10 +240,10 @@ impl Pacer {
     /// between recording the allocation and acting on the pacer).
     pub fn decision(&self) -> PacerDecision {
         let state = self.lock();
-        Self::compute_decision(&self.config, &state)
+        Self::compute_decision(&state)
     }
 
-    fn compute_decision(config: &PacerConfig, state: &PacerState) -> PacerDecision {
+    fn compute_decision(state: &PacerState) -> PacerDecision {
         // Major check has priority — when both thresholds are
         // exceeded the bigger collection wins. The minor would only
         // be wasted work in that case.
@@ -238,9 +253,9 @@ impl Pacer {
         if projected_live >= state.next_major_trigger_bytes {
             return PacerDecision::TriggerMajor;
         }
-        if config.nursery_soft_trigger_bytes > 0
+        if state.config.nursery_soft_trigger_bytes > 0
             && state.bytes_allocated_to_nursery_since_last_minor
-                >= config.nursery_soft_trigger_bytes
+                >= state.config.nursery_soft_trigger_bytes
         {
             return PacerDecision::TriggerMinor;
         }
@@ -274,10 +289,13 @@ impl Pacer {
         live_bytes_after: usize,
         now: Instant,
     ) {
-        let alpha = self.config.ewma_alpha.clamp(f64::MIN_POSITIVE, 1.0);
-        let target_pause_nanos = duration_as_nanos_u64(self.config.target_pause);
-        let target_pause_secs = nanos_as_secs_f64(target_pause_nanos);
         let mut state = self.lock();
+        // Read config out of state under the same lock so any
+        // concurrent update_config call observes a consistent view.
+        let config = state.config;
+        let alpha = config.ewma_alpha.clamp(f64::MIN_POSITIVE, 1.0);
+        let target_pause_nanos = duration_as_nanos_u64(config.target_pause);
+        let target_pause_secs = nanos_as_secs_f64(target_pause_nanos);
 
         // 1. Mark rate (bytes per second processed by the marker).
         if cycle.pause_nanos > 0 {
@@ -330,8 +348,8 @@ impl Pacer {
         // return 0 are not applied to the running minimum.
         let target_growth = compute_target_growth(
             live_bytes_after,
-            self.config.heap_growth_target_ratio,
-            self.config.min_trigger_bytes,
+            config.heap_growth_target_ratio,
+            config.min_trigger_bytes,
         );
         let max_safe_growth =
             compute_max_safe_growth(state.last_mark_rate_bps, target_pause_secs);
@@ -339,7 +357,7 @@ impl Pacer {
             live_bytes_after,
             state.last_allocation_rate_bps,
             state.last_mark_rate_bps,
-            self.config.target_gc_cpu_fraction,
+            config.target_gc_cpu_fraction,
         );
         let mut chosen_growth = target_growth;
         if max_safe_growth > 0 {
@@ -348,7 +366,7 @@ impl Pacer {
         if cpu_aware_growth > 0 {
             chosen_growth = chosen_growth.min(cpu_aware_growth);
         }
-        let chosen_growth = chosen_growth.max(self.config.min_trigger_bytes);
+        let chosen_growth = chosen_growth.max(config.min_trigger_bytes);
         state.next_major_trigger_bytes = live_bytes_after.saturating_add(chosen_growth);
 
         // 5. Reset allocation accounting for the new window.
@@ -833,6 +851,70 @@ mod tests {
         });
         let decision = pacer.record_allocation(2048, SpaceKind::Nursery);
         assert_eq!(decision, PacerDecision::TriggerMajor);
+    }
+
+    #[test]
+    fn pacer_update_config_preserves_runtime_state() {
+        // Build a pacer, run a completed cycle so EWMA state and
+        // counters get populated, then call update_config and
+        // verify that all the runtime state survives the swap.
+        let pacer = Pacer::new(PacerConfig {
+            min_trigger_bytes: 256,
+            ..PacerConfig::default()
+        });
+        let cycle = cycle_with_pause(1_000_000);
+        pacer.record_completed_cycle(&cycle, 4096);
+        pacer.record_allocation(128, SpaceKind::Old);
+
+        let before = pacer.stats();
+        assert_eq!(before.observed_cycles, 1);
+        assert_eq!(before.last_live_bytes, 4096);
+        let before_trigger = before.next_major_trigger_bytes;
+        let before_mark_rate = before.mark_rate_bps;
+
+        // Update config to a totally different growth ratio. The
+        // EWMA state and observed_cycles must NOT reset.
+        pacer.update_config(PacerConfig {
+            min_trigger_bytes: 8192,
+            heap_growth_target_ratio: 8.0,
+            ..PacerConfig::default()
+        });
+        let after = pacer.stats();
+        assert_eq!(after.observed_cycles, 1, "observed_cycles preserved");
+        assert_eq!(after.last_live_bytes, 4096, "last_live_bytes preserved");
+        assert_eq!(after.mark_rate_bps, before_mark_rate, "mark_rate preserved");
+        // The next-trigger value is NOT recomputed by update_config
+        // (only by the next record_completed_cycle), so it stays at
+        // the previous cycle's value.
+        assert_eq!(
+            after.next_major_trigger_bytes,
+            before_trigger,
+            "next_major_trigger_bytes preserved until next cycle"
+        );
+        // The new config IS observable.
+        let cfg = pacer.config();
+        assert_eq!(cfg.min_trigger_bytes, 8192);
+        assert!((cfg.heap_growth_target_ratio - 8.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn pacer_clones_share_config_updates() {
+        // Pacer clones share the same Arc<Mutex<PacerState>>, so
+        // updating config on one handle is visible from another.
+        let pacer = Pacer::new(PacerConfig::default());
+        let clone = pacer.clone();
+        pacer.update_config(PacerConfig {
+            nursery_soft_trigger_bytes: 4321,
+            ..PacerConfig::default()
+        });
+        assert_eq!(clone.config().nursery_soft_trigger_bytes, 4321);
+        // And the clone's record_allocation honors the new config.
+        let decision = clone.record_allocation(usize::MAX / 2, SpaceKind::Nursery);
+        // usize::MAX / 2 with default min_trigger_bytes (1 MiB)
+        // crosses the major threshold, but it should NOT trigger
+        // minor first because Major has priority. Verify the
+        // returned decision is sane.
+        assert_ne!(decision, PacerDecision::Continue);
     }
 
     #[test]

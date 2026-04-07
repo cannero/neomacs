@@ -11321,10 +11321,12 @@ fn pacer_overshoot_increments_count_when_pause_exceeds_target() {
 
 #[test]
 fn pacer_record_allocation_returns_trigger_major_when_threshold_exceeded() {
-    let mut heap = Heap::new(HeapConfig::default());
-    heap.set_pacer_config(PacerConfig {
-        min_trigger_bytes: 1024,
-        ..PacerConfig::default()
+    let heap = Heap::new(HeapConfig {
+        pacer: PacerConfig {
+            min_trigger_bytes: 1024,
+            ..PacerConfig::default()
+        },
+        ..HeapConfig::default()
     });
     // Sub-threshold allocation continues.
     let decision_a = heap.pacer().record_allocation(64, SpaceKind::Old);

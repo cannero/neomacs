@@ -8174,7 +8174,7 @@ fn public_api_shared_status_reports_pacer_telemetry() {
     // allocations push the pacer past min_trigger_bytes and force a
     // major. Read the SharedHeapStatus through the lock-free path
     // and assert it carries pacer state.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             // Big enough that the static nursery pressure path
             // never fires.
@@ -8182,13 +8182,13 @@ fn public_api_shared_status_reports_pacer_telemetry() {
             promotion_age: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
         },
+        pacer: PacerConfig {
+            target_pause: Duration::from_secs(1),
+            heap_growth_target_ratio: 2.0,
+            min_trigger_bytes: 256,
+            ..PacerConfig::default()
+        },
         ..HeapConfig::default()
-    });
-    heap.set_pacer_config(PacerConfig {
-        target_pause: Duration::from_secs(1),
-        heap_growth_target_ratio: 2.0,
-        min_trigger_bytes: 256,
-        ..PacerConfig::default()
     });
     let shared = heap.into_shared();
 
@@ -8233,19 +8233,19 @@ fn public_api_shared_pacer_stats_accessor_reads_lock_free() {
     // Build a shared heap with a tight pacer trigger, run some
     // allocations through the shared mutator, and read the pacer
     // snapshot via the dedicated SharedHeap::pacer_stats accessor.
-    let mut heap = Heap::new(HeapConfig {
+    let heap = Heap::new(HeapConfig {
         nursery: neovm_gc::spaces::NurseryConfig {
             semispace_bytes: 16 * 1024 * 1024,
             promotion_age: 1,
             ..neovm_gc::spaces::NurseryConfig::default()
         },
+        pacer: PacerConfig {
+            target_pause: Duration::from_secs(1),
+            heap_growth_target_ratio: 2.0,
+            min_trigger_bytes: 256,
+            ..PacerConfig::default()
+        },
         ..HeapConfig::default()
-    });
-    heap.set_pacer_config(PacerConfig {
-        target_pause: Duration::from_secs(1),
-        heap_growth_target_ratio: 2.0,
-        min_trigger_bytes: 256,
-        ..PacerConfig::default()
     });
     let shared = heap.into_shared();
 
