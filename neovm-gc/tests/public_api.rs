@@ -1,7 +1,8 @@
 use neovm_gc::{
-    BarrierKind, CollectionKind, CollectionPhase, EdgeCell, Ephemeron, EphemeronVisitor, Heap,
-    HeapConfig, MovePolicy, PacerConfig, Relocator, RuntimeWorkStatus, Trace, Tracer, TypeFlags,
-    Weak, WeakCell, WeakProcessor, estimated_allocation_size,
+    BarrierKind, CollectionKind, CollectionPhase, ConcurrentMarker, ConcurrentMarkerConfig,
+    EdgeCell, Ephemeron, EphemeronVisitor, Heap, HeapConfig, MovePolicy, PacerConfig, Relocator,
+    RuntimeWorkStatus, Trace, Tracer, TypeFlags, Weak, WeakCell, WeakProcessor,
+    estimated_allocation_size,
 };
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -8225,6 +8226,130 @@ fn public_api_shared_status_reports_pacer_telemetry() {
         "expected pacer next-major trigger to be at least the \
          configured min_trigger_bytes floor, got {}",
         after.pacer.next_major_trigger_bytes
+    );
+}
+
+#[derive(Debug)]
+struct PublicApiImmortalLeaf(#[allow(dead_code)] u64);
+
+unsafe impl Trace for PublicApiImmortalLeaf {
+    fn trace(&self, _tracer: &mut dyn Tracer) {}
+    fn relocate(&self, _relocator: &mut dyn Relocator) {}
+    fn move_policy() -> MovePolicy
+    where
+        Self: Sized,
+    {
+        MovePolicy::Immortal
+    }
+}
+
+#[test]
+fn public_api_concurrent_marker_drives_major_mark_to_completion() {
+    // Build a shared heap configured for concurrent marking
+    // (concurrent_mark_workers > 1) and a small region size so a
+    // handful of leaves spread across multiple old blocks. Allocate
+    // a batch of immortal leaves through the shared mutator, then
+    // drive a major-mark cycle to completion via ConcurrentMarker
+    // spawned through the public API. We use immortal leaves so the
+    // marker has real survivors to drain instead of an empty
+    // worklist.
+    let shared = Heap::new(HeapConfig {
+        nursery: neovm_gc::spaces::NurseryConfig {
+            max_regular_object_bytes: 1,
+            ..neovm_gc::spaces::NurseryConfig::default()
+        },
+        large: neovm_gc::spaces::LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..neovm_gc::spaces::LargeObjectSpaceConfig::default()
+        },
+        old: neovm_gc::spaces::OldGenConfig {
+            region_bytes: 4096,
+            line_bytes: 16,
+            concurrent_mark_workers: 2,
+            mutator_assist_slices: 0,
+            ..neovm_gc::spaces::OldGenConfig::default()
+        },
+        ..HeapConfig::default()
+    })
+    .into_shared();
+
+    // Allocate a small batch of immortal objects so the marker has
+    // real work to drain.
+    shared
+        .with_mutator(|mutator| {
+            let mut scope = mutator.handle_scope();
+            for byte in 0..32u64 {
+                let _leaf = mutator
+                    .alloc(&mut scope, PublicApiImmortalLeaf(byte))
+                    .expect("alloc immortal leaf");
+            }
+        })
+        .expect("seed shared heap with immortal leaves");
+
+    // Spawn the dedicated mark thread via the public API.
+    let marker =
+        ConcurrentMarker::start(shared.clone(), ConcurrentMarkerConfig::default());
+
+    // Open a major-mark session through the mutator surface so the
+    // marker has something to drive. Use a tiny mark_slice_budget so
+    // the marker has to drain the worklist in many small slices.
+    shared
+        .with_mutator(|mutator| {
+            let plan = neovm_gc::CollectionPlan {
+                mark_slice_budget: 1,
+                ..mutator.plan_for(CollectionKind::Major)
+            };
+            mutator
+                .begin_major_mark(plan)
+                .expect("begin major mark for concurrent marker test");
+        })
+        .expect("start major-mark session for concurrent marker test");
+
+    // Wait up to 5s for the marker to drive the cycle to
+    // completion (or auto-commit) and confirm the wait succeeded.
+    let drained = marker
+        .wait_for_mark_complete(Duration::from_secs(5))
+        .expect("wait for concurrent marker cycle");
+    assert!(
+        drained,
+        "concurrent marker did not drain or commit the cycle before timeout"
+    );
+
+    // The marker auto-commits the cycle. Spin briefly until the
+    // shared heap reports a Major as the most recently completed
+    // plan.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let last_kind = shared
+            .last_completed_plan()
+            .expect("inspect last completed plan after concurrent mark")
+            .map(|plan| plan.kind);
+        if last_kind == Some(CollectionKind::Major) {
+            break;
+        }
+        if Instant::now() >= deadline {
+            panic!(
+                "concurrent marker did not commit a major cycle before timeout, \
+                 last_kind = {:?}",
+                last_kind
+            );
+        }
+        thread::sleep(Duration::from_millis(1));
+    }
+
+    // Stop and join the marker; verify it recorded ticks and at
+    // least one finished session.
+    marker.request_stop();
+    let stats = marker.join().expect("join concurrent marker");
+    assert!(
+        stats.ticks > 0,
+        "concurrent marker must record at least one tick, got {:?}",
+        stats
+    );
+    assert!(
+        stats.sessions_completed >= 1,
+        "concurrent marker must report a finished session, got {:?}",
+        stats
     );
 }
 
