@@ -1122,14 +1122,13 @@ fn make_temp_name_suffix() -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// Context-aware variant of `expand-file-name` that falls back to dynamic
-/// `default-directory` when DEFAULT-DIRECTORY is omitted or nil.
-pub(crate) fn builtin_expand_file_name_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
+/// `(expand-file-name NAME &optional DEFAULT-DIRECTORY)` — falls back
+/// to dynamic `default-directory` when DEFAULT-DIRECTORY is omitted
+/// or nil.
+pub(crate) fn builtin_expand_file_name(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "expand-file-name", &args)? {
+        return Ok(result);
+    }
     expect_min_args("expand-file-name", &args, 1)?;
     if args.len() > 2 {
         return Err(signal(
@@ -1143,17 +1142,17 @@ pub(crate) fn builtin_expand_file_name_impl(
     let name = expect_string_strict(&args[0])?;
     let default_dir = if let Some(arg) = args.get(1) {
         match arg.kind() {
-            ValueKind::Nil => default_directory_in_state(obarray, dynamic, buffers),
+            ValueKind::Nil => default_directory_in_state(&eval.obarray, &[], &eval.buffers),
             ValueKind::String => Some(arg.as_str().unwrap().to_owned()),
             _ => Some("/".to_string()),
         }
     } else {
-        default_directory_in_state(obarray, dynamic, buffers)
+        default_directory_in_state(&eval.obarray, &[], &eval.buffers)
     };
 
     let result = expand_file_name(&name, default_dir.as_deref());
     // Preserve the multibyte flag of the input: if the input name was
-    // unibyte (or the result is pure ASCII), return unibyte.  This
+    // unibyte (or the result is pure ASCII), return unibyte. This
     // matches GNU Emacs where expand-file-name preserves the encoding
     // and avoids "default-directory must be unibyte" errors during dump.
     let input_multibyte = args[0].string_is_multibyte();
@@ -1162,13 +1161,6 @@ pub(crate) fn builtin_expand_file_name_impl(
     } else {
         Ok(Value::unibyte_string(result))
     }
-}
-
-pub(crate) fn builtin_expand_file_name(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    if let Some(result) = dispatch_file_handler(eval, "expand-file-name", &args)? {
-        return Ok(result);
-    }
-    builtin_expand_file_name_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (make-temp-name PREFIX) -> string
@@ -1266,14 +1258,12 @@ pub(crate) fn builtin_make_nearby_temp_file(eval: &mut Context, args: Vec<Value>
     Ok(Value::string(path))
 }
 
-/// Context-aware variant of `file-truename` that resolves relative
-/// filenames against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_truename_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
+/// `(file-truename FILENAME)` — resolves FILENAME against
+/// dynamic/default `default-directory` and follows symlinks.
+pub(crate) fn builtin_file_truename(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "file-truename", &args)? {
+        return Ok(result);
+    }
     expect_min_args("file-truename", &args, 1)?;
     if args.len() > 3 {
         return Err(signal(
@@ -1292,15 +1282,8 @@ pub(crate) fn builtin_file_truename_impl(
 
     Ok(Value::string(file_truename(
         &filename,
-        default_directory_in_state(obarray, dynamic, buffers).as_deref(),
+        default_directory_in_state(&eval.obarray, &[], &eval.buffers).as_deref(),
     )))
-}
-
-pub(crate) fn builtin_file_truename(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    if let Some(result) = dispatch_file_handler(eval, "file-truename", &args)? {
-        return Ok(result);
-    }
-    builtin_file_truename_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (file-name-directory FILENAME) -> string or nil
@@ -1562,17 +1545,13 @@ fn delete_file_compat(filename: &str) -> Result<(), Flow> {
     }
 }
 
-/// Context-aware variant of `access-file` that resolves relative paths
-/// against dynamic/default `default-directory`.
-pub(crate) fn builtin_access_file_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
+/// `(access-file FILENAME STRING)`
+pub(crate) fn builtin_access_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "access-file", &args)? {
+        return Ok(result);
+    }
     expect_args("access-file", &args, 2)?;
-    let filename =
-        resolve_filename_in_state(obarray, dynamic, buffers, &expect_string_strict(&args[0])?);
+    let filename = resolve_filename_for_eval(eval, &expect_string_strict(&args[0])?);
     let operation = expect_string_strict(&args[1])?;
     match fs::metadata(&filename) {
         Ok(_) => Ok(Value::NIL),
@@ -1580,90 +1559,42 @@ pub(crate) fn builtin_access_file_impl(
     }
 }
 
-pub(crate) fn builtin_access_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    if let Some(result) = dispatch_file_handler(eval, "access-file", &args)? {
-        return Ok(result);
-    }
-    builtin_access_file_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
 /// Context-aware variant of `file-exists-p` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_exists_p_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("file-exists-p", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    Ok(Value::bool_val(file_exists_p(&filename)))
-}
-
 pub(crate) fn builtin_file_exists_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     if let Some(result) = dispatch_file_handler(eval, "file-exists-p", &args)? {
         return Ok(result);
     }
-    builtin_file_exists_p_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// Context-aware variant of `file-readable-p` that resolves relative paths
-/// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_readable_p_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("file-readable-p", &args, 1)?;
+    expect_args("file-exists-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    Ok(Value::bool_val(file_readable_p(&filename)))
+    let filename = resolve_filename_for_eval(eval, &filename);
+    Ok(Value::bool_val(file_exists_p(&filename)))
 }
 
+/// `(file-readable-p FILENAME)` — resolves FILENAME against
+/// dynamic/default `default-directory`.
 pub(crate) fn builtin_file_readable_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     if let Some(result) = dispatch_file_handler(eval, "file-readable-p", &args)? {
         return Ok(result);
     }
-    builtin_file_readable_p_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// Context-aware variant of `file-writable-p` that resolves relative paths
-/// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_writable_p_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("file-writable-p", &args, 1)?;
+    expect_args("file-readable-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    Ok(Value::bool_val(file_writable_p(&filename)))
+    let filename = resolve_filename_for_eval(eval, &filename);
+    Ok(Value::bool_val(file_readable_p(&filename)))
 }
 
+/// `(file-writable-p FILENAME)`
 pub(crate) fn builtin_file_writable_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     if let Some(result) = dispatch_file_handler(eval, "file-writable-p", &args)? {
         return Ok(result);
     }
-    builtin_file_writable_p_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// Context-aware variant of `file-accessible-directory-p` that resolves
-/// relative paths against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_accessible_directory_p_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("file-accessible-directory-p", &args, 1)?;
+    expect_args("file-writable-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    Ok(Value::bool_val(file_accessible_directory_p(&filename)))
+    let filename = resolve_filename_for_eval(eval, &filename);
+    Ok(Value::bool_val(file_writable_p(&filename)))
 }
 
+/// `(file-accessible-directory-p FILENAME)`
 pub(crate) fn builtin_file_accessible_directory_p(
     eval: &mut Context,
     args: Vec<Value>,
@@ -1671,48 +1602,34 @@ pub(crate) fn builtin_file_accessible_directory_p(
     if let Some(result) = dispatch_file_handler(eval, "file-accessible-directory-p", &args)? {
         return Ok(result);
     }
-    builtin_file_accessible_directory_p_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// Context-aware variant of `file-executable-p` that resolves relative paths
-/// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_executable_p_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("file-executable-p", &args, 1)?;
+    expect_args("file-accessible-directory-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    Ok(Value::bool_val(file_executable_p(&filename)))
+    let filename = resolve_filename_for_eval(eval, &filename);
+    Ok(Value::bool_val(file_accessible_directory_p(&filename)))
 }
 
+/// `(file-executable-p FILENAME)`
 pub(crate) fn builtin_file_executable_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     if let Some(result) = dispatch_file_handler(eval, "file-executable-p", &args)? {
         return Ok(result);
     }
-    builtin_file_executable_p_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-pub(crate) fn builtin_file_acl_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("file-acl", &args, 1)?;
+    expect_args("file-executable-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    let _filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    Ok(Value::NIL)
+    let filename = resolve_filename_for_eval(eval, &filename);
+    Ok(Value::bool_val(file_executable_p(&filename)))
 }
 
-/// Context-aware variant of `file-acl`.
+/// `(file-acl FILENAME)` — stub returning nil. Native ACL support
+/// is not yet implemented in NeoMacs; the dispatch path lets a
+/// handler intercept first.
 pub(crate) fn builtin_file_acl(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     if let Some(result) = dispatch_file_handler(eval, "file-acl", &args)? {
         return Ok(result);
     }
-    builtin_file_acl_impl(&eval.obarray, &[], &eval.buffers, args)
+    expect_args("file-acl", &args, 1)?;
+    let filename = expect_string_strict(&args[0])?;
+    let _filename = resolve_filename_for_eval(eval, &filename);
+    Ok(Value::NIL)
 }
 
 /// (set-file-acl FILENAME ACL) -> nil
@@ -1723,50 +1640,32 @@ pub(crate) fn builtin_set_file_acl(args: Vec<Value>) -> EvalResult {
     Ok(Value::NIL)
 }
 
-/// Context-aware variant of `file-locked-p` that resolves relative paths
-/// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_locked_p_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("file-locked-p", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    Ok(Value::bool_val(file_locked_p(&filename)))
-}
-
+/// `(file-locked-p FILENAME)`
 pub(crate) fn builtin_file_locked_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     if let Some(result) = dispatch_file_handler(eval, "file-locked-p", &args)? {
         return Ok(result);
     }
-    builtin_file_locked_p_impl(&eval.obarray, &[], &eval.buffers, args)
+    expect_args("file-locked-p", &args, 1)?;
+    let filename = expect_string_strict(&args[0])?;
+    let filename = resolve_filename_for_eval(eval, &filename);
+    Ok(Value::bool_val(file_locked_p(&filename)))
 }
 
-pub(crate) fn builtin_file_selinux_context_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
+/// `(file-selinux-context FILENAME)` — stub returning a four-element
+/// nil list, matching GNU's "no SELinux on this system" shape.
+pub(crate) fn builtin_file_selinux_context(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "file-selinux-context", &args)? {
+        return Ok(result);
+    }
     expect_args("file-selinux-context", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    let _filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
+    let _filename = resolve_filename_for_eval(eval, &filename);
     Ok(Value::list(vec![
         Value::NIL,
         Value::NIL,
         Value::NIL,
         Value::NIL,
     ]))
-}
-
-/// Context-aware variant of `file-selinux-context`.
-pub(crate) fn builtin_file_selinux_context(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    if let Some(result) = dispatch_file_handler(eval, "file-selinux-context", &args)? {
-        return Ok(result);
-    }
-    builtin_file_selinux_context_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 /// (set-file-selinux-context FILENAME CONTEXT) -> nil
@@ -1777,17 +1676,14 @@ pub(crate) fn builtin_set_file_selinux_context(args: Vec<Value>) -> EvalResult {
     Ok(Value::NIL)
 }
 
-/// Context-aware variant of `file-system-info` that resolves relative paths
-/// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_system_info_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
+/// `(file-system-info FILENAME)`
+pub(crate) fn builtin_file_system_info(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "file-system-info", &args)? {
+        return Ok(result);
+    }
     expect_args("file-system-info", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
+    let filename = resolve_filename_for_eval(eval, &filename);
     let (total, free, avail) = file_system_info(&filename)?;
     Ok(Value::list(vec![
         Value::fixnum(total),
@@ -1796,100 +1692,51 @@ pub(crate) fn builtin_file_system_info_impl(
     ]))
 }
 
-pub(crate) fn builtin_file_system_info(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    if let Some(result) = dispatch_file_handler(eval, "file-system-info", &args)? {
-        return Ok(result);
-    }
-    builtin_file_system_info_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// Context-aware variant of `file-directory-p` that resolves relative paths
-/// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_directory_p_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("file-directory-p", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    Ok(Value::bool_val(file_directory_p(&filename)))
-}
-
+/// `(file-directory-p FILENAME)`
 pub(crate) fn builtin_file_directory_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     if let Some(result) = dispatch_file_handler(eval, "file-directory-p", &args)? {
         return Ok(result);
     }
-    builtin_file_directory_p_impl(&eval.obarray, &[], &eval.buffers, args)
+    expect_args("file-directory-p", &args, 1)?;
+    let filename = expect_string_strict(&args[0])?;
+    let filename = resolve_filename_for_eval(eval, &filename);
+    Ok(Value::bool_val(file_directory_p(&filename)))
 }
 
 /// Context-aware variant of `file-regular-p` that resolves relative paths
 /// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_regular_p_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("file-regular-p", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    Ok(Value::bool_val(file_regular_p(&filename)))
-}
-
+/// `(file-regular-p FILENAME)`
 pub(crate) fn builtin_file_regular_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     if let Some(result) = dispatch_file_handler(eval, "file-regular-p", &args)? {
         return Ok(result);
     }
-    builtin_file_regular_p_impl(&eval.obarray, &[], &eval.buffers, args)
+    expect_args("file-regular-p", &args, 1)?;
+    let filename = expect_string_strict(&args[0])?;
+    let filename = resolve_filename_for_eval(eval, &filename);
+    Ok(Value::bool_val(file_regular_p(&filename)))
 }
 
-/// Context-aware variant of `file-symlink-p` that resolves relative paths
-/// against dynamic/default `default-directory`.
+/// `(file-symlink-p FILENAME)`
 ///
 /// Mirrors GNU `Ffile_symlink_p` (`src/fileio.c:3160`): returns the
 /// link target as a string when FILENAME is a symbolic link, nil
-/// otherwise.  Previously this returned `Value::bool_val(...)` (audit
+/// otherwise. Previously this returned `Value::bool_val(...)` (audit
 /// §10.3) which was a data-type bug — code that uses the result as a
-/// path (e.g. `(file-symlink-p f)` → expand-file-name → readlink
-/// chains) was always broken because it got `t` instead of a string.
-pub(crate) fn builtin_file_symlink_p_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
+/// path was always broken because it got `t` instead of a string.
+pub(crate) fn builtin_file_symlink_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "file-symlink-p", &args)? {
+        return Ok(result);
+    }
     expect_args("file-symlink-p", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
+    let filename = resolve_filename_for_eval(eval, &filename);
     Ok(match file_symlink_target(&filename) {
         Some(target) => Value::string(target),
         None => Value::NIL,
     })
 }
 
-pub(crate) fn builtin_file_symlink_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    if let Some(result) = dispatch_file_handler(eval, "file-symlink-p", &args)? {
-        return Ok(result);
-    }
-    builtin_file_symlink_p_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// Context-aware variant of `file-name-case-insensitive-p` that resolves
-/// relative paths against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_name_case_insensitive_p_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("file-name-case-insensitive-p", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    Ok(Value::bool_val(file_name_case_insensitive_p(&filename)))
-}
-
+/// `(file-name-case-insensitive-p FILENAME)`
 pub(crate) fn builtin_file_name_case_insensitive_p(
     eval: &mut Context,
     args: Vec<Value>,
@@ -1897,38 +1744,31 @@ pub(crate) fn builtin_file_name_case_insensitive_p(
     if let Some(result) = dispatch_file_handler(eval, "file-name-case-insensitive-p", &args)? {
         return Ok(result);
     }
-    builtin_file_name_case_insensitive_p_impl(&eval.obarray, &[], &eval.buffers, args)
+    expect_args("file-name-case-insensitive-p", &args, 1)?;
+    let filename = expect_string_strict(&args[0])?;
+    let filename = resolve_filename_for_eval(eval, &filename);
+    Ok(Value::bool_val(file_name_case_insensitive_p(&filename)))
 }
 
-/// Context-aware variant of `file-newer-than-file-p` that resolves
-/// relative paths against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_newer_than_file_p_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("file-newer-than-file-p", &args, 2)?;
-    let file1 = expect_string_strict(&args[0])?;
-    let file2 = expect_string_strict(&args[1])?;
-    let file1 = resolve_filename_in_state(obarray, dynamic, buffers, &file1);
-    let file2 = resolve_filename_in_state(obarray, dynamic, buffers, &file2);
-    Ok(Value::bool_val(file_newer_than_file_p(&file1, &file2)))
-}
-
+/// `(file-newer-than-file-p FILE1 FILE2)`
 pub(crate) fn builtin_file_newer_than_file_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     if let Some(result) = dispatch_file_handler_two_arg(eval, "file-newer-than-file-p", &args)? {
         return Ok(result);
     }
-    builtin_file_newer_than_file_p_impl(&eval.obarray, &[], &eval.buffers, args)
+    expect_args("file-newer-than-file-p", &args, 2)?;
+    let file1 = expect_string_strict(&args[0])?;
+    let file2 = expect_string_strict(&args[1])?;
+    let file1 = resolve_filename_for_eval(eval, &file1);
+    let file2 = resolve_filename_for_eval(eval, &file2);
+    Ok(Value::bool_val(file_newer_than_file_p(&file1, &file2)))
 }
 
-pub(crate) fn builtin_file_modes_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
+/// `(file-modes FILENAME &optional FLAG)` — returns the file's
+/// mode bits as an integer, or nil if FILENAME is missing.
+pub(crate) fn builtin_file_modes(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "file-modes", &args)? {
+        return Ok(result);
+    }
     expect_min_args("file-modes", &args, 1)?;
     if args.len() > 2 {
         return Err(signal(
@@ -1940,28 +1780,18 @@ pub(crate) fn builtin_file_modes_impl(
         ));
     }
     let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
+    let filename = resolve_filename_for_eval(eval, &filename);
     match file_modes(&filename) {
         Some(mode) => Ok(Value::fixnum(mode as i64)),
         None => Ok(Value::NIL),
     }
 }
 
-/// Context-aware variant of `file-modes` that resolves relative paths
-/// against dynamic/default `default-directory`.
-pub(crate) fn builtin_file_modes(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    if let Some(result) = dispatch_file_handler(eval, "file-modes", &args)? {
+/// `(set-file-modes FILENAME MODE &optional FLAG)`
+pub(crate) fn builtin_set_file_modes(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "set-file-modes", &args)? {
         return Ok(result);
     }
-    builtin_file_modes_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-pub(crate) fn builtin_set_file_modes_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_min_args("set-file-modes", &args, 2)?;
     if args.len() > 3 {
         return Err(signal(
@@ -1973,7 +1803,7 @@ pub(crate) fn builtin_set_file_modes_impl(
         ));
     }
     let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
+    let filename = resolve_filename_for_eval(eval, &filename);
     let mode = expect_fixnum(&args[1])?;
     #[cfg(unix)]
     {
@@ -1995,21 +1825,11 @@ pub(crate) fn builtin_set_file_modes_impl(
     Ok(Value::NIL)
 }
 
-/// Context-aware variant of `set-file-modes` that resolves relative paths
-/// against dynamic/default `default-directory`.
-pub(crate) fn builtin_set_file_modes(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    if let Some(result) = dispatch_file_handler(eval, "set-file-modes", &args)? {
+/// `(set-file-times FILENAME &optional TIME FLAG)`
+pub(crate) fn builtin_set_file_times(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "set-file-times", &args)? {
         return Ok(result);
     }
-    builtin_set_file_modes_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-pub(crate) fn builtin_set_file_times_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_min_args("set-file-times", &args, 1)?;
     if args.len() > 3 {
         return Err(signal(
@@ -2021,7 +1841,7 @@ pub(crate) fn builtin_set_file_times_impl(
         ));
     }
     let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
+    let filename = resolve_filename_for_eval(eval, &filename);
     let timestamp = if args.len() > 1 && !args[1].is_nil() {
         Some(parse_timestamp_arg(&args[1])?)
     } else {
@@ -2030,15 +1850,6 @@ pub(crate) fn builtin_set_file_times_impl(
     let nofollow = args.get(2).is_some_and(|flag| !flag.is_nil());
     set_file_times_compat(&filename, timestamp, nofollow)?;
     Ok(Value::T)
-}
-
-/// Context-aware variant of `set-file-times` that resolves relative paths
-/// against dynamic/default `default-directory`.
-pub(crate) fn builtin_set_file_times(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    if let Some(result) = dispatch_file_handler(eval, "set-file-times", &args)? {
-        return Ok(result);
-    }
-    builtin_set_file_times_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 fn validate_optional_buffer_arg_in_state(
@@ -2098,32 +1909,18 @@ pub(crate) fn builtin_visited_file_modtime(args: Vec<Value>) -> EvalResult {
     Ok(Value::fixnum(0))
 }
 
-/// (verify-visited-file-modtime &optional BUFFER) -> t
+/// `(verify-visited-file-modtime &optional BUFFER)` — stub returning t.
 pub(crate) fn builtin_verify_visited_file_modtime(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_verify_visited_file_modtime_impl(&eval.buffers, args)
-}
-
-/// (set-visited-file-modtime &optional TIME-LIST) -> nil
-pub(crate) fn builtin_set_visited_file_modtime(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_set_visited_file_modtime_impl(&eval.buffers, args)
-}
-
-pub(crate) fn builtin_verify_visited_file_modtime_impl(
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_max_args("verify-visited-file-modtime", &args, 1)?;
-    validate_optional_buffer_arg_in_state(buffers, args.first())?;
+    validate_optional_buffer_arg_in_state(&eval.buffers, args.first())?;
     Ok(Value::T)
 }
 
-pub(crate) fn builtin_set_visited_file_modtime_impl(
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
+/// `(set-visited-file-modtime &optional TIME-LIST)` — stub returning nil.
+pub(crate) fn builtin_set_visited_file_modtime(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     expect_max_args("set-visited-file-modtime", &args, 1)?;
     if let Some(arg) = args.first() {
         if !arg.is_nil() {
@@ -2132,7 +1929,8 @@ pub(crate) fn builtin_set_visited_file_modtime_impl(
         }
     }
 
-    let file_name = buffers
+    let file_name = eval
+        .buffers
         .current_buffer()
         .and_then(|buf| buf.file_name.clone());
     if file_name.is_none() {
@@ -2189,49 +1987,30 @@ pub(crate) fn builtin_delete_file(eval: &mut Context, args: Vec<Value>) -> EvalR
     Ok(Value::NIL)
 }
 
-/// Context-aware variant of `delete-file-internal` that resolves relative
-/// paths against dynamic/default `default-directory`.
-pub(crate) fn builtin_delete_file_internal_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("delete-file-internal", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    delete_file_compat(&filename)?;
-    Ok(Value::NIL)
-}
-
+/// `(delete-file-internal FILENAME)` — internal primitive used by
+/// the elisp `delete-file` wrapper.
 pub(crate) fn builtin_delete_file_internal(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     if let Some(result) = dispatch_file_handler(eval, "delete-file", &args)? {
         return Ok(result);
     }
-    builtin_delete_file_internal_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// Context-aware variant of `delete-directory-internal` that resolves
-/// relative paths against dynamic/default `default-directory`.
-pub(crate) fn builtin_delete_directory_internal_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_args("delete-directory-internal", &args, 1)?;
-    let directory = expect_string_strict(&args[0])?;
-    let directory = resolve_filename_in_state(obarray, dynamic, buffers, &directory);
-    fs::remove_dir(&directory)
-        .map_err(|err| signal_file_io_path(err, "Removing directory", &directory))?;
+    expect_args("delete-file-internal", &args, 1)?;
+    let filename = expect_string_strict(&args[0])?;
+    let filename = resolve_filename_for_eval(eval, &filename);
+    delete_file_compat(&filename)?;
     Ok(Value::NIL)
 }
 
+/// `(delete-directory-internal DIRECTORY)`
 pub(crate) fn builtin_delete_directory_internal(
     eval: &mut Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_delete_directory_internal_impl(&eval.obarray, &[], &eval.buffers, args)
+    expect_args("delete-directory-internal", &args, 1)?;
+    let directory = expect_string_strict(&args[0])?;
+    let directory = resolve_filename_for_eval(eval, &directory);
+    fs::remove_dir(&directory)
+        .map_err(|err| signal_file_io_path(err, "Removing directory", &directory))?;
+    Ok(Value::NIL)
 }
 
 /// Context-aware variant of `delete-directory` that resolves relative paths
@@ -2262,14 +2041,11 @@ pub(crate) fn builtin_delete_directory(eval: &mut Context, args: Vec<Value>) -> 
     Ok(Value::NIL)
 }
 
-/// Context-aware variant of `make-symbolic-link` that resolves relative
-/// target/link paths against dynamic/default `default-directory`.
-pub(crate) fn builtin_make_symbolic_link_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
+/// `(make-symbolic-link TARGET LINKNAME &optional OK-IF-EXISTS)`
+pub(crate) fn builtin_make_symbolic_link(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler_two_arg(eval, "make-symbolic-link", &args)? {
+        return Ok(result);
+    }
     expect_min_args("make-symbolic-link", &args, 2)?;
     if args.len() > 3 {
         return Err(signal(
@@ -2280,10 +2056,8 @@ pub(crate) fn builtin_make_symbolic_link_impl(
             ],
         ));
     }
-    let target =
-        resolve_filename_in_state(obarray, dynamic, buffers, &expect_string_strict(&args[0])?);
-    let linkname =
-        resolve_filename_in_state(obarray, dynamic, buffers, &expect_string_strict(&args[1])?);
+    let target = resolve_filename_for_eval(eval, &expect_string_strict(&args[0])?);
+    let linkname = resolve_filename_for_eval(eval, &expect_string_strict(&args[1])?);
     let ok_if_exists = args.get(2).is_some_and(|value| value.is_truthy());
 
     #[cfg(unix)]
@@ -2309,21 +2083,11 @@ pub(crate) fn builtin_make_symbolic_link_impl(
     }
 }
 
-pub(crate) fn builtin_make_symbolic_link(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    if let Some(result) = dispatch_file_handler_two_arg(eval, "make-symbolic-link", &args)? {
+/// `(rename-file FROM TO &optional OK-IF-EXISTS)`
+pub(crate) fn builtin_rename_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler_two_arg(eval, "rename-file", &args)? {
         return Ok(result);
     }
-    builtin_make_symbolic_link_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// Context-aware variant of `rename-file` that resolves relative paths
-/// against dynamic/default `default-directory`.
-pub(crate) fn builtin_rename_file_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_min_args("rename-file", &args, 2)?;
     if args.len() > 3 {
         return Err(signal(
@@ -2334,9 +2098,8 @@ pub(crate) fn builtin_rename_file_impl(
             ],
         ));
     }
-    let from =
-        resolve_filename_in_state(obarray, dynamic, buffers, &expect_string_strict(&args[0])?);
-    let to = resolve_filename_in_state(obarray, dynamic, buffers, &expect_string_strict(&args[1])?);
+    let from = resolve_filename_for_eval(eval, &expect_string_strict(&args[0])?);
+    let to = resolve_filename_for_eval(eval, &expect_string_strict(&args[1])?);
     let ok_if_exists = args.get(2).is_some_and(|value| value.is_truthy());
     if fs::symlink_metadata(&to).is_ok() {
         if ok_if_exists {
@@ -2357,21 +2120,11 @@ pub(crate) fn builtin_rename_file_impl(
     Ok(Value::NIL)
 }
 
-pub(crate) fn builtin_rename_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    if let Some(result) = dispatch_file_handler_two_arg(eval, "rename-file", &args)? {
+/// `(copy-file FROM TO &optional OK-IF-EXISTS KEEP-TIME PRESERVE-UID-GID PRESERVE-PERMISSIONS)`
+pub(crate) fn builtin_copy_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler_two_arg(eval, "copy-file", &args)? {
         return Ok(result);
     }
-    builtin_rename_file_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// Context-aware variant of `copy-file` that resolves relative paths
-/// against dynamic/default `default-directory`.
-pub(crate) fn builtin_copy_file_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_min_args("copy-file", &args, 2)?;
     if args.len() > 6 {
         return Err(signal(
@@ -2379,9 +2132,8 @@ pub(crate) fn builtin_copy_file_impl(
             vec![Value::symbol("copy-file"), Value::fixnum(args.len() as i64)],
         ));
     }
-    let from =
-        resolve_filename_in_state(obarray, dynamic, buffers, &expect_string_strict(&args[0])?);
-    let to = resolve_filename_in_state(obarray, dynamic, buffers, &expect_string_strict(&args[1])?);
+    let from = resolve_filename_for_eval(eval, &expect_string_strict(&args[0])?);
+    let to = resolve_filename_for_eval(eval, &expect_string_strict(&args[1])?);
     let ok_if_exists = args.get(2).is_some_and(|value| value.is_truthy());
     if fs::symlink_metadata(&to).is_ok() && !ok_if_exists {
         return Err(signal(
@@ -2398,21 +2150,11 @@ pub(crate) fn builtin_copy_file_impl(
     Ok(Value::NIL)
 }
 
-pub(crate) fn builtin_copy_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    if let Some(result) = dispatch_file_handler_two_arg(eval, "copy-file", &args)? {
+/// `(add-name-to-file OLDNAME NEWNAME &optional OK-IF-EXISTS)`
+pub(crate) fn builtin_add_name_to_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler_two_arg(eval, "add-name-to-file", &args)? {
         return Ok(result);
     }
-    builtin_copy_file_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// Context-aware variant of `add-name-to-file` that resolves relative paths
-/// against dynamic/default `default-directory`.
-pub(crate) fn builtin_add_name_to_file_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_min_args("add-name-to-file", &args, 2)?;
     if args.len() > 3 {
         return Err(signal(
@@ -2423,10 +2165,8 @@ pub(crate) fn builtin_add_name_to_file_impl(
             ],
         ));
     }
-    let oldname =
-        resolve_filename_in_state(obarray, dynamic, buffers, &expect_string_strict(&args[0])?);
-    let newname =
-        resolve_filename_in_state(obarray, dynamic, buffers, &expect_string_strict(&args[1])?);
+    let oldname = resolve_filename_for_eval(eval, &expect_string_strict(&args[0])?);
+    let newname = resolve_filename_for_eval(eval, &expect_string_strict(&args[1])?);
     let ok_if_exists = args.get(2).is_some_and(|value| value.is_truthy());
     if ok_if_exists && fs::symlink_metadata(&newname).is_ok() {
         fs::remove_file(&newname)
@@ -2437,54 +2177,29 @@ pub(crate) fn builtin_add_name_to_file_impl(
     Ok(Value::NIL)
 }
 
-pub(crate) fn builtin_add_name_to_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    if let Some(result) = dispatch_file_handler_two_arg(eval, "add-name-to-file", &args)? {
+/// `(make-directory-internal DIRECTORY)` — internal primitive for the
+/// elisp `make-directory` wrapper. GNU dispatches the handler at the
+/// `make-directory` level via Qmake_directory; we mirror that so
+/// callers that go through the internal entry point still see the
+/// handler.
+pub(crate) fn builtin_make_directory_internal(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "make-directory", &args)? {
         return Ok(result);
     }
-    builtin_add_name_to_file_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-/// Context-aware variant of `make-directory-internal` that resolves relative
-/// paths against dynamic/default `default-directory`.
-pub(crate) fn builtin_make_directory_internal_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
     expect_args("make-directory-internal", &args, 1)?;
     let dir = expect_string_strict(&args[0])?;
-    let dir = resolve_filename_in_state(obarray, dynamic, buffers, &dir);
+    let dir = resolve_filename_for_eval(eval, &dir);
     make_directory(&dir, false).map_err(|e| signal_file_io_path(e, "Creating directory", &dir))?;
     Ok(Value::NIL)
 }
 
-pub(crate) fn builtin_make_directory_internal(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    // make-directory-internal is the primitive that the elisp
-    // make-directory wrapper calls; GNU dispatches the handler at
-    // the make-directory level via Qmake_directory. Mirror that
-    // here so internal callers also see the handler.
-    if let Some(result) = dispatch_file_handler(eval, "make-directory", &args)? {
-        return Ok(result);
-    }
-    builtin_make_directory_internal_impl(&eval.obarray, &[], &eval.buffers, args)
-}
-
-pub(crate) fn builtin_find_file_name_handler_impl(
-    obarray: &Obarray,
-    _dynamic: &[OrderedRuntimeBindingMap],
-    _buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
+/// `(find-file-name-handler FILENAME OPERATION)` — public elisp
+/// surface for the [`find_file_name_handler`] dispatch helper.
+pub(crate) fn builtin_find_file_name_handler(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     expect_args("find-file-name-handler", &args, 2)?;
     let filename = expect_string_strict(&args[0])?;
     let operation = args[1];
-    Ok(find_file_name_handler(obarray, &filename, operation))
-}
-
-/// Context-aware variant of `find-file-name-handler`.
-pub(crate) fn builtin_find_file_name_handler(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    builtin_find_file_name_handler_impl(&eval.obarray, &[], &eval.buffers, args)
+    Ok(find_file_name_handler(&eval.obarray, &filename, operation))
 }
 
 /// Walk `file-name-handler-alist` looking for a handler matching FILENAME
@@ -2670,14 +2385,11 @@ pub(crate) fn dispatch_file_handler_two_arg(
     Ok(None)
 }
 
-/// Context-aware variant of `directory-files` that resolves relative DIR
-/// against dynamic/default `default-directory`.
-pub(crate) fn builtin_directory_files_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> EvalResult {
+/// `(directory-files DIRECTORY &optional FULL MATCH NOSORT COUNT)`
+pub(crate) fn builtin_directory_files(eval: &mut Context, args: Vec<Value>) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "directory-files", &args)? {
+        return Ok(result);
+    }
     expect_min_args("directory-files", &args, 1)?;
     if args.len() > 5 {
         return Err(signal(
@@ -2688,8 +2400,7 @@ pub(crate) fn builtin_directory_files_impl(
             ],
         ));
     }
-    let dir =
-        resolve_filename_in_state(obarray, dynamic, buffers, &expect_string_strict(&args[0])?);
+    let dir = resolve_filename_for_eval(eval, &expect_string_strict(&args[0])?);
     let full = args.get(1).is_some_and(|v| v.is_truthy());
     let match_pattern = if let Some(val) = args.get(2) {
         if val.is_truthy() {
@@ -2704,7 +2415,7 @@ pub(crate) fn builtin_directory_files_impl(
     let count = if let Some(val) = args.get(4) {
         match val.kind() {
             ValueKind::Fixnum(n) if n >= 0 => Some(n as usize),
-            other => {
+            _other => {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("natnump"), *val],
@@ -2718,13 +2429,6 @@ pub(crate) fn builtin_directory_files_impl(
     let files = directory_files(&dir, full, match_pattern.as_deref(), nosort, count)
         .map_err(|e| signal_directory_files_error(e, &dir))?;
     Ok(Value::list(files.into_iter().map(Value::string).collect()))
-}
-
-pub(crate) fn builtin_directory_files(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    if let Some(result) = dispatch_file_handler(eval, "directory-files", &args)? {
-        return Ok(result);
-    }
-    builtin_directory_files_impl(&eval.obarray, &[], &eval.buffers, args)
 }
 
 // ===========================================================================
@@ -2929,24 +2633,57 @@ fn decode_insert_file_contents(
     }
 }
 
-pub(crate) fn builtin_insert_file_contents_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &mut crate::buffer::BufferManager,
-    source_load_context: bool,
-    coding_system_for_read: Option<&str>,
+/// `(insert-file-contents FILENAME &optional VISIT BEG END REPLACE)`
+///
+/// Read file FILENAME and insert its contents into the current buffer
+/// at point. Returns a list of `(FILENAME LENGTH)`. Mirrors GNU's
+/// `Finsert_file_contents` (`src/fileio.c`).
+pub(crate) fn builtin_insert_file_contents(
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
-) -> Result<(Value, String), Flow> {
+) -> EvalResult {
+    if let Some(result) = dispatch_file_handler(eval, "insert-file-contents", &args)? {
+        return Ok(result);
+    }
     expect_min_args("insert-file-contents", &args, 1)?;
     expect_max_args("insert-file-contents", &args, 5)?;
+
+    let coding_val = eval.visible_variable_value_or_nil("coding-system-for-read");
+    let coding_system_for_read: Option<String> = match coding_val.kind() {
+        ValueKind::Nil => None,
+        ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
+        ValueKind::String => Some(coding_val.as_str().unwrap().to_owned()),
+        _ => None,
+    };
+    let source_load_context = eval
+        .visible_variable_value_or_nil("set-auto-coding-for-load")
+        .is_truthy();
+
     let filename = expect_string_strict(&args[0])?;
-    let resolved = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
+    let resolved = resolve_filename_for_eval(eval, &filename);
     let visit = args.get(1).is_some_and(|v| v.is_truthy());
     let replace_requested = args.get(4).is_some_and(|v| !v.is_nil());
-    let current_id = current_buffer_id_or_error(buffers)?;
 
+    // Snapshot buffer state before the file read for modification hooks.
+    let pre_state = eval.buffers.current_buffer().map(|buf| {
+        if replace_requested {
+            (
+                buf.point_min_byte(),
+                buf.point_max_byte(),
+                super::editfns::byte_span_char_len(buf, buf.point_min_byte(), buf.point_max_byte()),
+            )
+        } else {
+            (buf.pt, buf.pt, 0)
+        }
+    });
+    if let Some((beg, end, _old_len)) = pre_state {
+        super::editfns::signal_before_change(eval, beg, end)?;
+    }
+
+    let current_id = current_buffer_id_or_error(&eval.buffers)?;
     {
-        let buf = buffers
+        let buf = eval
+            .buffers
             .get(current_id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         if visit
@@ -2973,7 +2710,7 @@ pub(crate) fn builtin_insert_file_contents_impl(
                 )],
             ));
         }
-        if crate::emacs_core::editfns::buffer_read_only_active_in_state(obarray, dynamic, buf) {
+        if crate::emacs_core::editfns::buffer_read_only_active_in_state(&eval.obarray, &[], buf) {
             return Err(signal(
                 "buffer-read-only",
                 vec![Value::make_buffer(current_id)],
@@ -2990,7 +2727,7 @@ pub(crate) fn builtin_insert_file_contents_impl(
     } else {
         0
     };
-    let mut end = if args.get(3).is_some_and(|v| !v.is_nil()) {
+    let mut end_off = if args.get(3).is_some_and(|v| !v.is_nil()) {
         expect_file_offset(args.get(3).expect("checked above"))?
     } else {
         file_len
@@ -3006,15 +2743,16 @@ pub(crate) fn builtin_insert_file_contents_impl(
             ],
         ));
     }
-    if end > file_len {
-        end = file_len;
+    if end_off > file_len {
+        end_off = file_len;
     }
-    if end < begin {
-        end = begin;
+    if end_off < begin {
+        end_off = begin;
     }
 
-    let slice = &contents_bytes[begin as usize..end as usize];
-    let multibyte = buffers
+    let slice = &contents_bytes[begin as usize..end_off as usize];
+    let multibyte = eval
+        .buffers
         .get(current_id)
         .map(|buffer| buffer.multibyte)
         .unwrap_or(true);
@@ -3022,79 +2760,29 @@ pub(crate) fn builtin_insert_file_contents_impl(
         slice,
         multibyte,
         source_load_context,
-        coding_system_for_read,
+        coding_system_for_read.as_deref(),
     )?;
     let char_count = contents.chars().count() as i64;
 
     insert_file_contents_into_current_buffer_in_state(
-        buffers,
+        &mut eval.buffers,
         current_id,
         &contents,
         replace_requested,
     )?;
 
     if visit {
-        let _ = buffers.set_buffer_file_name(current_id, Some(resolved.clone()));
-        let _ = buffers.set_buffer_modified_flag(current_id, false);
+        let _ = eval
+            .buffers
+            .set_buffer_file_name(current_id, Some(resolved.clone()));
+        let _ = eval.buffers.set_buffer_modified_flag(current_id, false);
     }
 
-    Ok((
-        Value::list(vec![Value::string(resolved), Value::fixnum(char_count)]),
-        used_coding,
-    ))
-}
-
-/// (insert-file-contents FILENAME &optional VISIT BEG END REPLACE) -> (FILENAME LENGTH)
-///
-/// Read file FILENAME and insert its contents into the current buffer at point.
-/// Returns a list of the absolute filename and the number of characters inserted.
-pub(crate) fn builtin_insert_file_contents(
-    eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    if let Some(result) = dispatch_file_handler(eval, "insert-file-contents", &args)? {
-        return Ok(result);
-    }
-    let coding_val = eval.visible_variable_value_or_nil("coding-system-for-read");
-    let coding_system_for_read = match coding_val.kind() {
-        ValueKind::Nil => None,
-        ValueKind::Symbol(id) => Some(resolve_sym(id).to_owned()),
-        ValueKind::String => Some(coding_val.as_str().unwrap().to_owned()),
-        _ => None,
-    };
-    let source_load_context = eval
-        .visible_variable_value_or_nil("set-auto-coding-for-load")
-        .is_truthy();
-
-    // Snapshot buffer state before the file read for modification hooks.
-    let replace_requested = args.get(4).is_some_and(|v| !v.is_nil());
-    let pre_state = eval.buffers.current_buffer().map(|buf| {
-        if replace_requested {
-            (
-                buf.point_min_byte(),
-                buf.point_max_byte(),
-                super::editfns::byte_span_char_len(buf, buf.point_min_byte(), buf.point_max_byte()),
-            )
-        } else {
-            (buf.pt, buf.pt, 0)
-        }
-    });
-    if let Some((beg, end, _old_len)) = pre_state {
-        super::editfns::signal_before_change(eval, beg, end)?;
-    }
-
-    let (value, used_coding) = builtin_insert_file_contents_impl(
-        &eval.obarray,
-        &[],
-        &mut eval.buffers,
-        source_load_context,
-        coding_system_for_read.as_deref(),
-        args,
-    )?;
+    let value = Value::list(vec![Value::string(resolved), Value::fixnum(char_count)]);
     eval.set_variable("last-coding-system-used", Value::symbol(&used_coding));
 
     // Fire after-change hooks.
-    if let Some((beg, old_end, old_len)) = pre_state {
+    if let Some((beg, _old_end, old_len)) = pre_state {
         let new_end = eval
             .buffers
             .current_buffer()
@@ -3258,83 +2946,7 @@ fn backup_file_before_save(
     }
 }
 
-pub(crate) fn builtin_write_region_impl(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &mut crate::buffer::BufferManager,
-    args: Vec<Value>,
-) -> Result<(Value, String), Flow> {
-    expect_min_args("write-region", &args, 3)?;
-    expect_max_args("write-region", &args, 7)?;
-    let filename = expect_string_strict(&args[2])?;
-    let resolved = resolve_filename_in_state(obarray, dynamic, buffers, &filename);
-    let append_mode = match args.get(3) {
-        Some(value) if value.is_fixnum() || value.is_char() => {
-            FileWriteMode::Seek(expect_file_offset(value)? as u64)
-        }
-        Some(value) if value.is_truthy() => FileWriteMode::Append,
-        _ => FileWriteMode::Truncate,
-    };
-    let visit_path = match args.get(4) {
-        Some(v) if v.is_t() => Some(resolved.clone()),
-        Some(v) if v.is_string() => Some(resolve_filename_in_state(
-            obarray,
-            dynamic,
-            buffers,
-            &expect_string_strict(v)?,
-        )),
-        _ => None,
-    };
-    let current_id = current_buffer_id_or_error(buffers)?;
-
-    if visit_path.is_some() {
-        let buf = buffers
-            .get(current_id)
-            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-        if buf.base_buffer.is_some() {
-            return Err(signal(
-                "error",
-                vec![Value::string(
-                    "Cannot do file visiting in an indirect buffer",
-                )],
-            ));
-        }
-    }
-
-    // --- Backup before save ---
-    // Only for truncate mode (not append/seek) when visiting the file
-    if matches!(append_mode, FileWriteMode::Truncate) {
-        backup_file_before_save(obarray, buffers, current_id, &resolved);
-    }
-
-    let content = write_region_content_in_state(buffers, current_id, &args[0], args.get(1))?;
-
-    // --- Fix 1: Encode using the appropriate coding system ---
-    // Priority: coding-system-for-write > buffer-file-coding-system > utf-8
-    let coding_system = resolve_write_coding_system(obarray, buffers, current_id);
-    let encoded_bytes = crate::encoding::encode_string(&content, &coding_system);
-
-    // --- Write encoded bytes and handle fsync (Fix 2) ---
-    let file = write_bytes_to_file_with_mode(&encoded_bytes, &resolved, append_mode)
-        .map_err(|e| signal_file_io_path(e, "Writing to", &resolved))?;
-
-    // Fix 2: fsync after write unless write-region-inhibit-fsync is non-nil
-    let inhibit_fsync = obarray
-        .symbol_value("write-region-inhibit-fsync")
-        .is_some_and(|v| v.is_truthy());
-    if !inhibit_fsync {
-        file.sync_all()
-            .map_err(|e| signal_file_io_path(e, "Writing to", &resolved))?;
-    }
-    drop(file);
-
-    if let Some(visit_path) = visit_path {
-        let _ = buffers.set_buffer_file_name(current_id, Some(visit_path));
-        let _ = buffers.set_buffer_modified_flag(current_id, false);
-    }
-
-    Ok((Value::NIL, coding_system))
-}
+// (write-region body now lives inline in builtin_write_region below.)
 
 /// Resolve the coding system to use for writing.
 ///
@@ -3388,17 +3000,18 @@ fn coding_system_value_to_name(val: &Value) -> Option<String> {
     }
 }
 
-/// (write-region START END FILENAME &optional APPEND VISIT) -> nil
+/// `(write-region START END FILENAME &optional APPEND VISIT LOCKNAME MUSTBENEW)`
 ///
-/// Write the region between START and END to FILENAME.
-/// If START is nil, writes the entire buffer.
+/// Write the region between START and END to FILENAME. If START is
+/// nil, writes the entire buffer. Mirrors GNU `Fwrite_region`
+/// (`src/fileio.c`).
 pub(crate) fn builtin_write_region(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     // The filename is at args[2], not args[0]. Mirrors GNU
     // `Fwrite_region`'s `Ffind_file_name_handler (filename, Qwrite_region)`
-    // dispatch (`src/fileio.c`).
+    // dispatch.
     if let Some(filename_val) = args.get(2) {
         if let Some(filename) = filename_val.as_str() {
             let op = Value::symbol("write-region");
@@ -3411,10 +3024,79 @@ pub(crate) fn builtin_write_region(
             }
         }
     }
-    let (value, used_coding) =
-        builtin_write_region_impl(&eval.obarray, &[], &mut eval.buffers, args)?;
-    eval.set_variable("last-coding-system-used", Value::symbol(&used_coding));
-    Ok(value)
+
+    expect_min_args("write-region", &args, 3)?;
+    expect_max_args("write-region", &args, 7)?;
+    let filename = expect_string_strict(&args[2])?;
+    let resolved = resolve_filename_for_eval(eval, &filename);
+    let append_mode = match args.get(3) {
+        Some(value) if value.is_fixnum() || value.is_char() => {
+            FileWriteMode::Seek(expect_file_offset(value)? as u64)
+        }
+        Some(value) if value.is_truthy() => FileWriteMode::Append,
+        _ => FileWriteMode::Truncate,
+    };
+    let visit_path = match args.get(4) {
+        Some(v) if v.is_t() => Some(resolved.clone()),
+        Some(v) if v.is_string() => Some(resolve_filename_for_eval(
+            eval,
+            &expect_string_strict(v)?,
+        )),
+        _ => None,
+    };
+    let current_id = current_buffer_id_or_error(&eval.buffers)?;
+
+    if visit_path.is_some() {
+        let buf = eval
+            .buffers
+            .get(current_id)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        if buf.base_buffer.is_some() {
+            return Err(signal(
+                "error",
+                vec![Value::string(
+                    "Cannot do file visiting in an indirect buffer",
+                )],
+            ));
+        }
+    }
+
+    // --- Backup before save ---
+    // Only for truncate mode (not append/seek) when visiting the file.
+    if matches!(append_mode, FileWriteMode::Truncate) {
+        backup_file_before_save(&eval.obarray, &mut eval.buffers, current_id, &resolved);
+    }
+
+    let content =
+        write_region_content_in_state(&eval.buffers, current_id, &args[0], args.get(1))?;
+
+    // --- Encode using the appropriate coding system ---
+    // Priority: coding-system-for-write > buffer-file-coding-system > utf-8
+    let coding_system = resolve_write_coding_system(&eval.obarray, &eval.buffers, current_id);
+    let encoded_bytes = crate::encoding::encode_string(&content, &coding_system);
+
+    // --- Write encoded bytes and handle fsync ---
+    let file = write_bytes_to_file_with_mode(&encoded_bytes, &resolved, append_mode)
+        .map_err(|e| signal_file_io_path(e, "Writing to", &resolved))?;
+
+    // fsync after write unless write-region-inhibit-fsync is non-nil.
+    let inhibit_fsync = eval
+        .obarray
+        .symbol_value("write-region-inhibit-fsync")
+        .is_some_and(|v| v.is_truthy());
+    if !inhibit_fsync {
+        file.sync_all()
+            .map_err(|e| signal_file_io_path(e, "Writing to", &resolved))?;
+    }
+    drop(file);
+
+    if let Some(visit_path) = visit_path {
+        let _ = eval.buffers.set_buffer_file_name(current_id, Some(visit_path));
+        let _ = eval.buffers.set_buffer_modified_flag(current_id, false);
+    }
+
+    eval.set_variable("last-coding-system-used", Value::symbol(&coding_system));
+    Ok(Value::NIL)
 }
 
 /// (find-file-noselect FILENAME &optional NOWARN RAWFILE) -> buffer
