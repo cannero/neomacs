@@ -452,8 +452,8 @@ impl SharedRuntimeHandle {
         }
     }
 
-    fn with_state<R>(&self, f: impl FnOnce(&mut RuntimeState) -> R) -> Result<R, SharedHeapError> {
-        Ok(self.state.with_state(f))
+    fn with_state<R>(&self, f: impl FnOnce(&mut RuntimeState) -> R) -> R {
+        self.state.with_state(f)
     }
 
     fn try_with_state<R>(
@@ -694,7 +694,7 @@ impl SharedRuntimeHandle {
                     pending_finalizers,
                 },
             )
-        })?;
+        });
         self.publish_snapshot(next_runtime_snapshot)?;
         Ok(ran)
     }

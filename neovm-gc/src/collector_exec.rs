@@ -740,7 +740,7 @@ pub(crate) fn execute_collection_plan(
                 nursery_config,
                 stats,
                 nursery,
-                |phase| record_phase(phase),
+                &mut record_phase,
             )?;
             record_phase(CollectionPhase::Reclaim);
             let runtime_state_for_callback = runtime_state.clone();
