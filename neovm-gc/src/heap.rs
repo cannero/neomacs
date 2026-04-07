@@ -856,8 +856,7 @@ impl Heap {
 
     pub(crate) fn descriptor_for<T: Trace + 'static>(&mut self) -> &'static TypeDesc {
         let type_id = TypeId::of::<T>();
-        *self
-            .descriptors
+        self.descriptors
             .entry(type_id)
             .or_insert_with(|| Box::leak(Box::new(fixed_type_desc::<T>())))
     }
