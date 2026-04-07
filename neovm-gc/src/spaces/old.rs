@@ -1,6 +1,7 @@
 use core::sync::atomic::{AtomicU8, Ordering};
 use std::collections::{HashMap, HashSet};
 
+use crate::card_table::CardTable;
 use crate::object::{ObjectRecord, OldBlockPlacement, OldRegionPlacement, SpaceKind};
 use crate::plan::{CollectionKind, CollectionPlan};
 use crate::reclaim::PreparedReclaimSurvivor;
@@ -55,6 +56,11 @@ pub(crate) struct OldBlock {
     line_marks: Box<[AtomicU8]>,
     line_bytes: usize,
     cursor: usize,
+    /// Per-block card table covering the backing buffer. The write barrier
+    /// dirties cards through this table when the owner of an old-to-young
+    /// edge lives inside the block; the minor GC root scan walks the dirty
+    /// cards to find old-gen objects that may reference young targets.
+    card_table: CardTable,
 }
 
 impl OldBlock {
@@ -71,12 +77,22 @@ impl OldBlock {
         for _ in 0..line_count {
             marks.push(AtomicU8::new(0));
         }
+        let base_addr = buffer.as_ptr() as usize;
+        let card_table = CardTable::with_default_card_size(base_addr, buffer_len);
         Self {
             buffer,
             line_marks: marks.into_boxed_slice(),
             line_bytes,
             cursor: 0,
+            card_table,
         }
+    }
+
+    /// Read-only access to the per-block card table. The remembered-set
+    /// write barrier and the minor GC root scan use this to dirty/scan
+    /// cards covering the block buffer.
+    pub(crate) fn card_table(&self) -> &CardTable {
+        &self.card_table
     }
 
     /// Total backing buffer length in bytes.
@@ -98,9 +114,15 @@ impl OldBlock {
 
     /// Base pointer of the backing buffer (read-only). The pointer remains
     /// valid for the lifetime of the block.
-    #[allow(dead_code)]
     pub(crate) fn base_ptr(&self) -> *const u8 {
         self.buffer.as_ptr()
+    }
+
+    /// True if the byte at `addr` (an absolute pointer-as-usize) lies
+    /// inside this block's backing buffer.
+    pub(crate) fn contains_addr(&self, addr: usize) -> bool {
+        let base = self.base_ptr() as usize;
+        addr >= base && addr < base + self.buffer.len()
     }
 
     /// Mark the line at `index` as occupied. Out-of-range indices are
@@ -348,9 +370,55 @@ impl OldGenState {
     }
 
     /// Iterate over every block in the pool.
-    #[allow(dead_code)]
     pub(crate) fn blocks(&self) -> &[OldBlock] {
         &self.blocks
+    }
+
+    /// Find the index of the block whose backing buffer contains `addr`.
+    /// Naive linear scan over the block pool — fine for the small block
+    /// counts the GC currently holds. The minor write barrier consults
+    /// this on every old-to-young edge mutation, so a future optimization
+    /// could replace this with an interval-tree or sorted-base lookup.
+    pub(crate) fn find_block_for_addr(&self, addr: usize) -> Option<usize> {
+        for (index, block) in self.blocks.iter().enumerate() {
+            if block.contains_addr(addr) {
+                return Some(index);
+            }
+        }
+        None
+    }
+
+    /// Mark the card containing `owner_addr` as dirty if `owner_addr`
+    /// falls inside one of the old-gen blocks. Returns true if a card
+    /// was set; false when the owner is not block-backed (e.g. it lives
+    /// in a pinned record, large-object space, or a system-allocated
+    /// fallback record). Callers fall back to the legacy
+    /// `RememberedSetState` for the false case.
+    pub(crate) fn record_write_barrier(&self, owner_addr: usize) -> bool {
+        let Some(index) = self.find_block_for_addr(owner_addr) else {
+            return false;
+        };
+        self.blocks[index].card_table().record_write(owner_addr);
+        true
+    }
+
+    /// Reset every per-block card table back to clean. Invoked at the
+    /// end of a minor collection after the dirty-card scan has produced
+    /// roots for the trace.
+    pub(crate) fn clear_all_dirty_cards(&self) {
+        for block in &self.blocks {
+            block.card_table().clear_all();
+        }
+    }
+
+    /// Total number of dirty cards across every block in the pool. Used
+    /// by tests to assert the write-barrier and post-collection clear
+    /// behaviors.
+    pub(crate) fn dirty_card_count(&self) -> usize {
+        self.blocks
+            .iter()
+            .map(|block| block.card_table().dirty_card_indices().len())
+            .sum()
     }
 
     /// Clear every line mark across every block. Called at the start of

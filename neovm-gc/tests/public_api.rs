@@ -556,7 +556,11 @@ fn public_api_full_collection_prunes_remembered_edges_for_dead_old_owner() {
         mutator.store_edge(&mid, 0, |link| &link.next, Some(child.as_gc()));
     }
 
-    assert_eq!(mutator.heap().remembered_edge_count(), 1);
+    // Phase 4: the live mid lives in a block-backed old region; the
+    // edge tracking goes through the per-block card table. Stats fold
+    // dirty cards into the legacy counters so observers see a unified
+    // view across both paths.
+    assert_eq!(mutator.heap().total_remembered_count(), 1);
     let stats = mutator.heap().stats();
     assert_eq!(stats.remembered_edges, 1);
     assert_eq!(stats.remembered_owners, 1);
@@ -564,7 +568,7 @@ fn public_api_full_collection_prunes_remembered_edges_for_dead_old_owner() {
 
     let cycle = mutator.collect(CollectionKind::Full).expect("full collect");
     assert_eq!(cycle.major_collections, 1);
-    assert_eq!(mutator.heap().remembered_edge_count(), 0);
+    assert_eq!(mutator.heap().total_remembered_count(), 0);
     let stats = mutator.heap().stats();
     assert_eq!(stats.remembered_edges, 0);
     assert_eq!(stats.remembered_owners, 0);

@@ -324,6 +324,89 @@ pub(crate) fn collect_global_sources(roots: &RootStack, objects: &[ObjectRecord]
         .collect()
 }
 
+/// Walk every old-gen block, enumerate dirty cards, and gather the
+/// `ObjectRecord` indices whose payload base falls inside any dirty
+/// card range. The resulting indices are treated as additional minor
+/// GC roots so the trace can pull live young targets out of mutated
+/// old-gen objects.
+///
+/// Naive O(blocks * dirty_cards * objects) implementation. A future
+/// optimization could maintain a per-card object-start index so the
+/// scan is O(dirty_cards) per block instead of O(objects) per card.
+pub(crate) fn collect_dirty_card_root_indices(
+    objects: &[ObjectRecord],
+    old_gen: &OldGenState,
+) -> Vec<usize> {
+    let mut roots = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for block in old_gen.blocks() {
+        let card_table = block.card_table();
+        for card_index in card_table.dirty_card_indices() {
+            let (card_start, card_end) = card_table.card_range(card_index);
+            for (object_index, record) in objects.iter().enumerate() {
+                let header_addr = record.erased().header().as_ptr() as usize;
+                if header_addr >= card_start && header_addr < card_end && seen.insert(object_index)
+                {
+                    roots.push(object_index);
+                }
+            }
+        }
+    }
+    roots
+}
+
+/// After a minor GC clears all dirty cards, walk every block-backed
+/// old-gen object whose payload still references a nursery survivor
+/// and re-mark its card so the next minor cycle picks the edge up
+/// again. This keeps the per-block card table consistent with the
+/// surviving old-to-young edges across multiple GC cycles.
+pub(crate) fn refresh_block_card_marks_after_minor(
+    objects: &[ObjectRecord],
+    object_index: &ObjectIndex,
+    old_gen: &OldGenState,
+) {
+    struct NurseryDetectTracer<'a> {
+        objects: &'a [ObjectRecord],
+        index: &'a ObjectIndex,
+        seen_nursery_target: bool,
+    }
+
+    impl Tracer for NurseryDetectTracer<'_> {
+        fn mark_erased(&mut self, object: GcErased) {
+            if self.seen_nursery_target {
+                return;
+            }
+            if let Some(&target_index) = self.index.get(&object.object_key()) {
+                if self.objects[target_index].space() == SpaceKind::Nursery {
+                    self.seen_nursery_target = true;
+                }
+            }
+        }
+    }
+
+    for record in objects.iter() {
+        if record.old_block_placement().is_none() {
+            continue;
+        }
+        if record.space() == SpaceKind::Nursery || record.space() == SpaceKind::Immortal {
+            continue;
+        }
+        if record.header().is_moved_out() {
+            continue;
+        }
+        let mut tracer = NurseryDetectTracer {
+            objects,
+            index: object_index,
+            seen_nursery_target: false,
+        };
+        record.trace_edges(&mut tracer);
+        if tracer.seen_nursery_target {
+            let owner_addr = record.erased().header().as_ptr() as usize;
+            old_gen.record_write_barrier(owner_addr);
+        }
+    }
+}
+
 pub(crate) fn trace_collection(
     plan: &CollectionPlan,
     objects: &[ObjectRecord],
@@ -480,7 +563,17 @@ pub(crate) fn execute_collection_plan(
         object.clear_mark();
     }
 
-    let sources = collect_global_sources(roots, objects);
+    let mut sources = collect_global_sources(roots, objects);
+    // Phase 4: dirty-card scan. For minor collections, walk every
+    // dirty card in every old-gen block and add the records living in
+    // those cards as additional roots so the trace picks up any
+    // young-target edges that mutators marked since the last cycle.
+    if matches!(plan.kind, CollectionKind::Minor) {
+        let dirty_card_root_indices = collect_dirty_card_root_indices(objects, old_gen);
+        for object_index in dirty_card_root_indices {
+            sources.push(objects[object_index].erased());
+        }
+    }
     let (mark_steps, mark_rounds) = trace_collection(plan, objects, indexes, &sources, |phase| {
         record_phase(phase)
     });
@@ -519,6 +612,15 @@ pub(crate) fn execute_collection_plan(
                 Some(plan.clone()),
                 move |object| runtime_state_for_callback.enqueue_pending_finalizer(object),
             );
+            // Phase 4: clear every per-block dirty card now that the
+            // minor scan has consumed them, then walk surviving block-
+            // backed old-gen objects and re-mark cards for any whose
+            // payload still references a nursery survivor. This
+            // re-establishes remembered tracking across cycles without
+            // requiring the mutator to redirty cards on edges that
+            // existed before the GC.
+            old_gen.clear_all_dirty_cards();
+            refresh_block_card_marks_after_minor(objects, &indexes.object_index, old_gen);
             // Now that dead nursery records are dropped and survivors
             // have been copied into the to-space arena, swap from- and
             // to-spaces so new allocations bump-alloc from the same
@@ -584,6 +686,13 @@ pub(crate) fn execute_collection_plan(
                 prepared_reclaim,
                 move |object| runtime_state_for_callback.enqueue_pending_finalizer(object),
             );
+            // Phase 4: full collection rebuilt the old-gen block pool
+            // and the nursery. Clear every dirty card and re-mark
+            // surviving block-backed owners that still reference a
+            // young object so the next minor cycle starts with a
+            // consistent card table.
+            old_gen.clear_all_dirty_cards();
+            refresh_block_card_marks_after_minor(objects, &indexes.object_index, old_gen);
             // Full collection also evacuates the nursery; swap and
             // reset like a minor does.
             nursery.swap_spaces_and_reset();

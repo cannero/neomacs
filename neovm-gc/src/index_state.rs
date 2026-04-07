@@ -5,6 +5,7 @@ use crate::descriptor::{GcErased, ObjectKey, TypeDesc, TypeFlags};
 use crate::object::{ObjectRecord, SpaceKind};
 use crate::plan::CollectionKind;
 use crate::reclaim::PreparedReclaimSurvivor;
+use crate::spaces::OldGenState;
 use crate::stats::HeapStats;
 
 pub(crate) type ObjectIndex = HashMap<ObjectKey, usize>;
@@ -151,6 +152,22 @@ impl HeapIndexState {
         stats.ephemeron_candidates = self.ephemeron_candidates.len();
     }
 
+    /// Fold dirty card counts (Phase 4 fast-path remembered set) into
+    /// the legacy `stats.remembered_edges` / `stats.remembered_owners`
+    /// counters so existing observers see a unified picture across both
+    /// paths. Each dirty card is counted as both one edge and one
+    /// owner approximation since the card represents at least one
+    /// pending old-to-young root in that region.
+    pub(crate) fn apply_dirty_card_storage_stats(
+        &self,
+        stats: &mut HeapStats,
+        old_gen: &OldGenState,
+    ) {
+        let dirty_cards = old_gen.dirty_card_count();
+        stats.remembered_edges = stats.remembered_edges.saturating_add(dirty_cards);
+        stats.remembered_owners = stats.remembered_owners.saturating_add(dirty_cards);
+    }
+
     pub(crate) fn record_allocated_object(
         &mut self,
         object_key: ObjectKey,
@@ -191,6 +208,7 @@ impl HeapIndexState {
     pub(crate) fn record_remembered_edge_if_needed(
         &mut self,
         objects: &[ObjectRecord],
+        old_gen: &OldGenState,
         owner: GcErased,
         new_value: Option<GcErased>,
     ) {
@@ -206,6 +224,18 @@ impl HeapIndexState {
 
         let owner_is_old = owner_space != SpaceKind::Nursery && owner_space != SpaceKind::Immortal;
         if owner_is_old && target_space == SpaceKind::Nursery {
+            // Phase 4: prefer marking the per-block card table over the
+            // dense Vec+HashSet remembered set. The card table tracks
+            // mutated regions in O(1) per write and rebuilds the
+            // owner-set lazily by walking dirty cards at the start of
+            // the next minor GC. The Vec+HashSet path remains as a
+            // fallback for non-block-backed owners (pinned space, large
+            // space, or system-allocated promotions that didn't fit any
+            // block hole).
+            let owner_addr = owner.header().as_ptr() as usize;
+            if old_gen.record_write_barrier(owner_addr) {
+                return;
+            }
             self.record_remembered_edge(owner, target);
         }
     }

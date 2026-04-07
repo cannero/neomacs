@@ -273,6 +273,12 @@ impl Heap {
     pub(crate) fn storage_stats(&self) -> HeapStats {
         let mut stats = self.stats;
         self.indexes.apply_storage_stats(&mut stats);
+        // Phase 4: fold dirty card counts into the legacy
+        // remembered_edges/remembered_owners counters so observers see
+        // a unified view across the legacy Vec+HashSet path and the
+        // per-block card-table fast path.
+        self.indexes
+            .apply_dirty_card_storage_stats(&mut stats, &self.old_gen);
         stats
     }
 
@@ -419,6 +425,20 @@ impl Heap {
         self.indexes.remembered.owners.len()
     }
 
+    /// Total dirty cards across every old-gen block. Combined with
+    /// `remembered_edge_count()` this gives the full picture of pending
+    /// old-to-young roots between collections.
+    pub fn dirty_card_count(&self) -> usize {
+        self.old_gen.dirty_card_count()
+    }
+
+    /// Total number of pending old-to-young roots, summed across both
+    /// the legacy `RememberedSetState` (used for non-block-backed
+    /// owners) and the per-block dirty-card tables (Phase 4 fast path).
+    pub fn total_remembered_count(&self) -> usize {
+        self.remembered_edge_count().saturating_add(self.dirty_card_count())
+    }
+
     /// Number of recent barrier events retained for diagnostics.
     pub fn barrier_event_count(&self) -> usize {
         self.recent_barrier_events.len()
@@ -499,8 +519,12 @@ impl Heap {
         owner: GcErased,
         new_value: Option<GcErased>,
     ) {
-        self.indexes
-            .record_remembered_edge_if_needed(&self.objects, owner, new_value);
+        self.indexes.record_remembered_edge_if_needed(
+            &self.objects,
+            &self.old_gen,
+            owner,
+            new_value,
+        );
     }
 
     pub(crate) fn prepared_full_reclaim_active(&self) -> bool {

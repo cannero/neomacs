@@ -265,13 +265,16 @@ fn heap_index_state_record_remembered_edge_if_needed_only_keeps_old_to_nursery()
         indexes.record_allocated_object(object.object_key(), index, desc);
     }
 
+    let old_gen = crate::spaces::OldGenState::default();
     indexes.record_remembered_edge_if_needed(
         &objects,
+        &old_gen,
         objects[0].erased(),
         Some(objects[1].erased()),
     );
     indexes.record_remembered_edge_if_needed(
         &objects,
+        &old_gen,
         objects[0].erased(),
         Some(objects[2].erased()),
     );

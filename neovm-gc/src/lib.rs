@@ -7,8 +7,7 @@
 
 pub mod background;
 pub mod barrier;
-#[cfg_attr(not(test), allow(dead_code))]
-mod card_table;
+pub(crate) mod card_table;
 mod collector_exec;
 mod collector_policy;
 mod collector_session;

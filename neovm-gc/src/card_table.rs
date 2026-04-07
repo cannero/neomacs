@@ -89,11 +89,13 @@ impl CardTable {
     }
 
     /// Number of cards in this table.
+    #[allow(dead_code)]
     pub(crate) fn card_count(&self) -> usize {
         self.cards.len()
     }
 
     /// Card size in bytes.
+    #[allow(dead_code)]
     pub(crate) fn card_size(&self) -> usize {
         self.card_size
     }
@@ -129,6 +131,7 @@ impl CardTable {
 
     /// Check whether the card containing `addr` is dirty. Returns
     /// `false` if `addr` is outside the covered range.
+    #[allow(dead_code)]
     pub(crate) fn is_dirty(&self, addr: usize) -> bool {
         let Some(index) = self.card_index_of(addr) else {
             return false;

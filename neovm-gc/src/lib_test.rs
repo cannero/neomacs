@@ -171,6 +171,29 @@ unsafe impl Trace for PairHolder {
 }
 
 #[derive(Debug)]
+struct PinnedHolder {
+    _pad: [u8; 32],
+    child: EdgeCell<Leaf>,
+}
+
+unsafe impl Trace for PinnedHolder {
+    fn trace(&self, tracer: &mut dyn Tracer) {
+        self.child.trace(tracer);
+    }
+
+    fn relocate(&self, relocator: &mut dyn Relocator) {
+        self.child.relocate(relocator);
+    }
+
+    fn move_policy() -> MovePolicy
+    where
+        Self: Sized,
+    {
+        MovePolicy::PromoteToPinned
+    }
+}
+
+#[derive(Debug)]
 struct LargeLeaf([u8; 80]);
 
 unsafe impl Trace for LargeLeaf {
@@ -562,10 +585,20 @@ fn remembered_owner_cache_deduplicates_multiple_edges_from_one_owner() {
     mutator.store_edge(&holder, 0, |holder| &holder.first, Some(first.as_gc()));
     mutator.store_edge(&holder, 1, |holder| &holder.second, Some(second.as_gc()));
 
-    assert_eq!(mutator.heap().remembered_edge_count(), 2);
-    assert_eq!(mutator.heap().remembered_owner_count(), 1);
+    // Phase 4: writes on a block-backed old-gen owner route to the
+    // per-block card table fast path instead of the legacy Vec+HashSet
+    // remembered set. Both store_edge calls land in the same card
+    // (the holder lives in one contiguous block placement), so the
+    // unified count is 1 even though two distinct edges were written.
+    // The legacy remembered_edge_count remains 0 for this owner.
+    assert_eq!(mutator.heap().remembered_edge_count(), 0);
+    assert_eq!(mutator.heap().remembered_owner_count(), 0);
+    assert_eq!(mutator.heap().dirty_card_count(), 1);
+    assert_eq!(mutator.heap().total_remembered_count(), 1);
     let stats = mutator.heap().stats();
-    assert_eq!(stats.remembered_edges, 2);
+    // apply_dirty_card_storage_stats folds dirty cards into the legacy
+    // counters so existing observers see the unified count.
+    assert_eq!(stats.remembered_edges, 1);
     assert_eq!(stats.remembered_owners, 1);
 }
 
@@ -2532,7 +2565,12 @@ fn collector_runtime_record_post_write_tracks_barrier_events_and_remembered_edge
         Some(target_gc.erase()),
     );
 
-    assert_eq!(heap.remembered_edge_count(), 1);
+    // Phase 4: the owner lives inside a block-backed old region, so the
+    // write barrier routes to the per-block card-table fast path. The
+    // legacy `remembered_edge_count` stays at 0 while the unified
+    // `total_remembered_count` reports the dirty card.
+    assert_eq!(heap.remembered_edge_count(), 0);
+    assert_eq!(heap.total_remembered_count(), 1);
     assert!(
         heap.recent_barrier_events()
             .iter()
@@ -5289,7 +5327,11 @@ fn minor_collection_traces_young_objects_reachable_from_old_objects() {
         mutator.heap().space_of(moved_child),
         Some(SpaceKind::Nursery)
     );
-    assert_eq!(mutator.heap().remembered_edge_count(), 1);
+    // Phase 4: the parent lives in a block-backed old region. The
+    // post-minor-GC card refresh re-marks the parent's card so the
+    // unified remembered count keeps the edge tracked across cycles
+    // even though the legacy Vec+HashSet path stays empty.
+    assert_eq!(mutator.heap().total_remembered_count(), 1);
     assert!(mutator.heap().barrier_event_count() > 0);
     assert_eq!(
         unsafe { parent.as_gc().as_non_null().as_ref() }
@@ -5448,7 +5490,10 @@ fn minor_collection_keeps_young_child_with_barrier_on_non_root_old_owner() {
         mutator.heap().space_of(moved_child),
         Some(SpaceKind::Nursery)
     );
-    assert_eq!(mutator.heap().remembered_edge_count(), 1);
+    // Phase 4: block-backed old owners now route through the per-block
+    // card-table fast path; the unified count covers both the legacy
+    // Vec path and the dirty cards.
+    assert_eq!(mutator.heap().total_remembered_count(), 1);
     assert!(mutator.heap().barrier_event_count() > 0);
 }
 
@@ -5508,12 +5553,19 @@ fn full_collection_prunes_remembered_edges_for_dead_old_owner() {
         mutator.store_edge(&mid, 0, |link| &link.next, Some(child.as_gc()));
     }
 
-    assert_eq!(mutator.heap().remembered_edge_count(), 1);
+    // Phase 4: the live mid lives in a block-backed old region, so the
+    // edge tracking goes through the per-block card table. The unified
+    // count covers both the legacy Vec path and the dirty cards.
+    assert_eq!(mutator.heap().total_remembered_count(), 1);
     drop(root_scope);
 
     let cycle = mutator.collect(CollectionKind::Full).expect("full collect");
     assert_eq!(cycle.major_collections, 1);
-    assert_eq!(mutator.heap().remembered_edge_count(), 0);
+    // After full GC the old root is dead, the surviving block-backed
+    // owners (if any) carry no live young references, and the post-
+    // collection card refresh leaves every card clean. Both the
+    // legacy Vec path and the unified count fall to zero.
+    assert_eq!(mutator.heap().total_remembered_count(), 0);
 }
 
 #[test]
@@ -10074,4 +10126,308 @@ fn background_worker_publishes_one_round_snapshot_between_multi_round_ticks() {
     worker.request_stop();
     let stats = worker.join().expect("join background worker");
     assert!(stats.collector.rounds >= 1);
+}
+
+// ---------------------------------------------------------------------
+// Phase 4: card-table write barrier and minor GC root scan
+// ---------------------------------------------------------------------
+
+#[test]
+fn card_barrier_sets_dirty_card_on_old_to_young_write() {
+    // PairHolder is large enough to skip the nursery (max_regular_object_bytes=8)
+    // and lands directly inside an old-gen block, so the write barrier should
+    // route through the per-block card table.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 8,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut scope = mutator.handle_scope();
+
+    let holder = mutator
+        .alloc(
+            &mut scope,
+            PairHolder {
+                _pad: [0; 32],
+                first: EdgeCell::default(),
+                second: EdgeCell::default(),
+            },
+        )
+        .expect("alloc block-backed parent");
+    let child = mutator
+        .alloc(&mut scope, Leaf(7))
+        .expect("alloc nursery child");
+
+    assert_eq!(
+        mutator.heap().space_of(holder.as_gc()),
+        Some(SpaceKind::Old)
+    );
+    assert_eq!(
+        mutator.heap().space_of(child.as_gc()),
+        Some(SpaceKind::Nursery)
+    );
+    assert_eq!(mutator.heap().dirty_card_count(), 0);
+
+    mutator.store_edge(&holder, 0, |holder| &holder.first, Some(child.as_gc()));
+
+    // Card-table fast path took the write; legacy Vec stays empty.
+    assert_eq!(mutator.heap().remembered_edge_count(), 0);
+    assert_eq!(mutator.heap().dirty_card_count(), 1);
+    assert_eq!(mutator.heap().total_remembered_count(), 1);
+}
+
+#[test]
+fn card_barrier_falls_back_to_remembered_set_for_pinned_owners() {
+    // PinnedHolder is `PromoteToPinned` and 48 bytes large, so direct
+    // allocation lands it in pinned space (not in an old-gen block).
+    // Writes against a pinned owner cannot be tracked by the per-block
+    // card table, so the barrier must fall back to the legacy
+    // Vec+HashSet remembered set.
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 16,
+            ..NurseryConfig::default()
+        },
+        pinned: crate::spaces::PinnedSpaceConfig {
+            reserved_bytes: 4096,
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut scope = mutator.handle_scope();
+
+    let holder = mutator
+        .alloc(
+            &mut scope,
+            PinnedHolder {
+                _pad: [0; 32],
+                child: EdgeCell::default(),
+            },
+        )
+        .expect("alloc pinned parent");
+    let child = mutator
+        .alloc(&mut scope, Leaf(11))
+        .expect("alloc nursery child");
+
+    assert_eq!(
+        mutator.heap().space_of(holder.as_gc()),
+        Some(SpaceKind::Pinned)
+    );
+    assert_eq!(
+        mutator.heap().space_of(child.as_gc()),
+        Some(SpaceKind::Nursery)
+    );
+
+    mutator.store_edge(&holder, 0, |holder| &holder.child, Some(child.as_gc()));
+
+    // Pinned owners aren't block-backed, so the card path returned
+    // false and the write fell back to the legacy remembered set.
+    assert_eq!(mutator.heap().remembered_edge_count(), 1);
+    assert_eq!(mutator.heap().dirty_card_count(), 0);
+}
+
+#[test]
+fn minor_gc_finds_young_target_via_dirty_card_scan() {
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 8,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut keep_scope = mutator.handle_scope();
+
+    let holder = mutator
+        .alloc(
+            &mut keep_scope,
+            PairHolder {
+                _pad: [0; 32],
+                first: EdgeCell::default(),
+                second: EdgeCell::default(),
+            },
+        )
+        .expect("alloc block-backed parent");
+    let child_gc = {
+        let mut child_scope = mutator.handle_scope();
+        let child = mutator
+            .alloc(&mut child_scope, Leaf(91))
+            .expect("alloc nursery child");
+        mutator.store_edge(&holder, 0, |holder| &holder.first, Some(child.as_gc()));
+        child.as_gc()
+    };
+
+    assert_eq!(mutator.heap().dirty_card_count(), 1);
+
+    let cycle = mutator
+        .collect(CollectionKind::Minor)
+        .expect("minor collect");
+    assert_eq!(cycle.minor_collections, 1);
+
+    // The dirty-card scan should have promoted the holder as a root,
+    // which kept the child alive (it survives in nursery as a fresh
+    // age-0 object). The original child id no longer maps because the
+    // survivor was relocated, but the holder's `first` edge now points
+    // at the moved child.
+    assert!(!mutator.heap().contains(child_gc));
+    let moved_child = unsafe { holder.as_gc().as_non_null().as_ref() }
+        .first
+        .get()
+        .expect("first child");
+    assert!(mutator.heap().contains(moved_child));
+    assert_eq!(unsafe { moved_child.as_non_null().as_ref() }.0, 91);
+}
+
+#[test]
+fn minor_gc_clears_cards_after_sweep() {
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 8,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut keep_scope = mutator.handle_scope();
+
+    let holder = mutator
+        .alloc(
+            &mut keep_scope,
+            PairHolder {
+                _pad: [0; 32],
+                first: EdgeCell::default(),
+                second: EdgeCell::default(),
+            },
+        )
+        .expect("alloc block-backed parent");
+
+    // Allocate a transient nursery target whose root drops before the
+    // GC, so the post-collection card refresh observes no surviving
+    // young reference and leaves the parent's card clean.
+    {
+        let mut throwaway = mutator.handle_scope();
+        let child = mutator
+            .alloc(&mut throwaway, Leaf(33))
+            .expect("alloc transient nursery child");
+        mutator.store_edge(&holder, 0, |holder| &holder.first, Some(child.as_gc()));
+        unsafe {
+            holder.as_gc().as_non_null().as_ref().first.set(None);
+        }
+    }
+    // The barrier dirtied the parent's card before we cleared the slot,
+    // so a card stays dirty entering the minor cycle.
+    assert!(mutator.heap().dirty_card_count() >= 1);
+
+    mutator
+        .collect(CollectionKind::Minor)
+        .expect("minor collect");
+
+    // After the sweep + post-collection refresh: the parent has no
+    // young targets, so every card is clean.
+    assert_eq!(mutator.heap().dirty_card_count(), 0);
+    assert_eq!(mutator.heap().total_remembered_count(), 0);
+}
+
+#[test]
+fn dirty_card_scan_handles_object_at_card_boundary() {
+    // Allocate enough block-backed parents that they straddle multiple
+    // 512-byte card boundaries inside the same block. We then dirty
+    // the cards covering the head of one parent and the tail of the
+    // following parent and verify the dirty-card scan picks both up
+    // (the iteration would otherwise undercount when an object header
+    // sits exactly on a card boundary).
+    let mut heap = Heap::new(HeapConfig {
+        nursery: NurseryConfig {
+            max_regular_object_bytes: 8,
+            ..NurseryConfig::default()
+        },
+        large: LargeObjectSpaceConfig {
+            threshold_bytes: usize::MAX,
+            ..LargeObjectSpaceConfig::default()
+        },
+        ..HeapConfig::default()
+    });
+    let mut mutator = heap.mutator();
+    let mut keep_scope = mutator.handle_scope();
+
+    // Each PairHolder is around 64 bytes; allocating ~16 of them
+    // virtually guarantees we cross at least one 512-byte card edge.
+    let mut holders = Vec::new();
+    for _ in 0..16 {
+        let holder = mutator
+            .alloc(
+                &mut keep_scope,
+                PairHolder {
+                    _pad: [0; 32],
+                    first: EdgeCell::default(),
+                    second: EdgeCell::default(),
+                },
+            )
+            .expect("alloc block-backed parent");
+        assert_eq!(
+            mutator.heap().space_of(holder.as_gc()),
+            Some(SpaceKind::Old)
+        );
+        holders.push(holder);
+    }
+
+    let child_a = mutator
+        .alloc(&mut keep_scope, Leaf(50))
+        .expect("alloc nursery child a");
+    let child_b = mutator
+        .alloc(&mut keep_scope, Leaf(51))
+        .expect("alloc nursery child b");
+
+    // Dirty cards by mutating the first and last holders (most likely
+    // to land in distinct card buckets).
+    mutator.store_edge(&holders[0], 0, |h| &h.first, Some(child_a.as_gc()));
+    mutator.store_edge(
+        &holders[holders.len() - 1],
+        0,
+        |h| &h.first,
+        Some(child_b.as_gc()),
+    );
+
+    let dirty = mutator.heap().dirty_card_count();
+    assert!(dirty >= 1);
+
+    let cycle = mutator
+        .collect(CollectionKind::Minor)
+        .expect("minor collect");
+    assert_eq!(cycle.minor_collections, 1);
+
+    // Both children must have survived. We re-read them through their
+    // respective parents because the original Gcs may now point at
+    // relocated nursery survivors.
+    let moved_a = unsafe { holders[0].as_gc().as_non_null().as_ref() }
+        .first
+        .get()
+        .expect("first child of holder[0]");
+    let moved_b = unsafe { holders[holders.len() - 1].as_gc().as_non_null().as_ref() }
+        .first
+        .get()
+        .expect("first child of holder[last]");
+    assert!(mutator.heap().contains(moved_a));
+    assert!(mutator.heap().contains(moved_b));
+    assert_eq!(unsafe { moved_a.as_non_null().as_ref() }.0, 50);
+    assert_eq!(unsafe { moved_b.as_non_null().as_ref() }.0, 51);
 }
