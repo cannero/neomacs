@@ -4317,10 +4317,6 @@ fn partial_bootstrap_load_with_code_conversion_swallows_footer_local_variables_e
         "OK t",
         "source load path should demote footer local variable parse errors"
     );
-    assert!(
-        path.with_extension("neobc").exists(),
-        "load-with-code-conversion should share source-file neobc cache writes"
-    );
 }
 
 #[test]

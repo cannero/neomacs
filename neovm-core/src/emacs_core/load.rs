@@ -993,7 +993,7 @@ where
 ///
 /// Reads one form at a time from `content`, optionally macro-expands it via
 /// `macroexpand_fn`, evaluates it, then advances to the next form. No
-/// parse-all-first, no neobc cache, no macro expansion cache.
+/// parse-all-first, no compilation cache, no macro expansion cache.
 ///
 /// This matches the structure of `readevalloop` in GNU Emacs `lread.c`.
 fn streaming_readevalloop(

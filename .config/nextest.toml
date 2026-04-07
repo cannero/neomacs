@@ -33,11 +33,6 @@ filter = 'test(bootstrap) | test(pdump) | test(loadup)'
 slow-timeout = { period = "120s", terminate-after = 1 }
 threads-required = 1
 
-# Compiled .neobc runtime-surface tests
-[[profile.default.overrides]]
-filter = 'package(=neovm-core) and test(/compiled_neobc_.*/)'
-slow-timeout = { period = "120s", terminate-after = 1 }
-
 # GNU-vs-NeoVM compatibility integration tests
 [[profile.default.overrides]]
 filter = 'package(=neovm-core) and test(/compat_.*_matches_gnu_emacs/)'

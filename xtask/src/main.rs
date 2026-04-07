@@ -527,7 +527,7 @@ Build the GNU-shaped Neomacs runtime pipeline:
   1. cargo build -p neomacs-bin [--release]
   2. neomacs-temacs --temacs=pbootstrap
   3. bootstrap-neomacs generates loaddefs / ldefs-boot
-  4. bootstrap-neomacs warms the GNU COMPILE_FIRST set into .neobc cache files
+  4. bootstrap-neomacs byte-compiles the GNU COMPILE_FIRST set into .elc files
   5. neomacs-temacs --temacs=pdump
 
 Options:
