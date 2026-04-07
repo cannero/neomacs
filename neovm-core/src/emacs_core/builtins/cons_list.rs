@@ -382,10 +382,22 @@ pub(crate) fn builtin_length(args: Vec<Value>) -> EvalResult {
         }
         ValueKind::Cons => match list_length(&args[0]) {
             Some(n) => Ok(Value::fixnum(n as i64)),
-            None => Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("listp"), args[0]],
-            )),
+            None => {
+                // Mirrors GNU `Flength` which walks the cons list
+                // until a non-cons cdr is found, and signals
+                // `(wrong-type-argument listp TAIL)` where TAIL is
+                // the offending non-nil non-cons cell (not the
+                // whole list). Verified via the GNU emacs binary:
+                // `(length '(1 . 2))` → `(wrong-type-argument listp 2)`.
+                let mut cursor = args[0];
+                while cursor.is_cons() {
+                    cursor = cursor.cons_cdr();
+                }
+                Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("listp"), cursor],
+                ))
+            }
         },
         ValueKind::String => Ok(Value::fixnum(
             storage_char_len(args[0].as_str().unwrap()) as i64

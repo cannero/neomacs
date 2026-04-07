@@ -6058,12 +6058,64 @@ impl Context {
             return self.eval_sub(expanded);
         }
 
-        // GNU eval_sub direct-call path reports `wrong-number-of-arguments`
-        // with the symbol name in data[0], not the `#<subr NAME>` value
-        // that funcall would emit. Capture the surface symbol name (the
-        // car of the form) so we can undo the funcall-style rewrite
-        // applied by `apply_subr_object_by_id` for that error path.
-        let direct_call_name: Option<String> = sym_id.map(|id| resolve_sym(id).to_owned());
+        // GNU eval.c:2606-2614: for SUBRP `fun`, check arity
+        // against the raw `original_args` count BEFORE any arg
+        // evaluation, and on mismatch signal
+        // `(wrong-number-of-arguments original_fun numargs)` where
+        // `original_fun` is the XCAR of the form (the surface
+        // symbol, not the resolved subr value). This is how GNU
+        // gets `(wrong-number-of-arguments car 0)` for a direct
+        // `(car)` call -- the arity check runs inline in eval_sub
+        // and never reaches `funcall_subr` which would have emitted
+        // `#<subr car>` via `XSETSUBR`.
+        //
+        // For non-subrs (closures, bytecode, lambdas, cons forms)
+        // the dispatch falls through to the normal apply path,
+        // which signals with `fun` itself -- also matching GNU
+        // funcall_lambda and funcall_subr.
+        if let Some(subr_id) = func.as_subr_id()
+            && !self.subr_is_special_form_id(subr_id)
+            && let Some(subr_slot) = self.subr_slot(subr_id)
+        {
+            let numargs = match list_length(&original_args) {
+                Some(n) => n,
+                None => {
+                    return Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("listp"), original_args],
+                    ));
+                }
+            };
+            let min = subr_slot.min_args as usize;
+            let max_ok = match subr_slot.max_args {
+                Some(m) => numargs <= m as usize,
+                None => true, // &rest / MANY
+            };
+            if numargs < min || !max_ok {
+                return Err(signal(
+                    "wrong-number-of-arguments",
+                    vec![original_fun, Value::fixnum(numargs as i64)],
+                ));
+            }
+        }
+
+        // GNU eval.c:2716-2726: when `fun` is not a subr, closure,
+        // bytecode, or cons-shaped lambda/autoload/macro, signal
+        // `(invalid-function original_fun)` with the SURFACE
+        // symbol. Verified against emacs 31.0.50:
+        //   (fset 'vm-fsetint 1)
+        //   (condition-case e (vm-fsetint) (error e))
+        //     → (invalid-function vm-fsetint)
+        //
+        // The check runs inline in eval_sub so the dispatcher
+        // `funcall_general` never sees the invalid value and
+        // never emits the resolved fncell contents as signal data.
+        if !self.function_value_is_callable(&func) {
+            if func.is_nil() {
+                return Err(signal("void-function", vec![original_fun]));
+            }
+            return Err(signal("invalid-function", vec![original_fun]));
+        }
 
         // Regular function call: evaluate args, then apply
         // (GNU eval.c:2625-2715)
@@ -6077,12 +6129,7 @@ impl Context {
             cursor = cursor.cons_cdr();
         }
 
-        let result = self.apply(func, args);
-        if let Some(name) = direct_call_name {
-            result.map_err(|flow| undo_wrong_arity_function_object_rewrite(flow, &name))
-        } else {
-            result
-        }
+        self.apply(func, args)
     }
 
     /// Legacy eval_value: delegates to eval_sub.
@@ -8428,12 +8475,45 @@ impl Context {
         result
     }
 
+    /// GNU funcall_subr (eval.c:3266-3280) pre-checks arity and
+    /// signals `(wrong-number-of-arguments #<subr NAME> NUMARGS)`
+    /// with the SUBR value. Call this before dispatching to a
+    /// builtin so the check matches GNU's `funcall_subr` exactly
+    /// and we never depend on the builtin's expect_args helper
+    /// (which would emit `Value::symbol(name)` instead of the
+    /// subr value).
+    ///
+    /// Returns `Some(Flow::Signal)` on arity mismatch, `None` when
+    /// the arity is acceptable or the subr has no explicit arity
+    /// registered (opt-out).
+    #[inline]
+    fn check_funcall_subr_arity(&self, sym_id: SymId, nargs: usize) -> Option<Flow> {
+        let subr_slot = self.subr_slot(sym_id)?;
+        let min = subr_slot.min_args as usize;
+        let max = subr_slot.max_args.map(|m| m as usize);
+        // Opt-out: a subr registered with (0, None) has declared
+        // "I do my own arity check". Keep the legacy behaviour for
+        // those until each one is migrated explicitly.
+        if min == 0 && max.is_none() {
+            return None;
+        }
+        let arity_bad = nargs < min || max.is_some_and(|m| nargs > m);
+        if arity_bad {
+            Some(signal(
+                "wrong-number-of-arguments",
+                vec![Value::subr(sym_id), Value::fixnum(nargs as i64)],
+            ))
+        } else {
+            None
+        }
+    }
+
     #[inline]
     fn apply_subr_object_by_id(
         &mut self,
         sym_id: SymId,
         args: Vec<Value>,
-        rewrite_builtin_wrong_arity: bool,
+        _rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
         let name = resolve_sym(sym_id);
         if self.subr_is_special_form_id(sym_id) {
@@ -8442,14 +8522,11 @@ impl Context {
         if self.subr_is_context_callable_id(sym_id) {
             return self.apply_evaluator_callable_by_id(sym_id, args);
         }
+        if let Some(flow) = self.check_funcall_subr_arity(sym_id, args.len()) {
+            return Err(flow);
+        }
         if let Some(result) = builtins::dispatch_builtin_by_id(self, sym_id, args) {
-            // Validate throws from builtins against the shared catch stack.
-            let result = result.map_err(|flow| self.validate_throw(flow));
-            if rewrite_builtin_wrong_arity {
-                result.map_err(|flow| rewrite_wrong_arity_function_object(flow, name))
-            } else {
-                result
-            }
+            result.map_err(|flow| self.validate_throw(flow))
         } else {
             Err(signal("void-function", vec![Value::symbol(name)]))
         }
@@ -8613,34 +8690,23 @@ impl Context {
                     }
                     other => other,
                 };
-                if let Some(target) = alias_target {
-                    if rewrite_builtin_wrong_arity {
-                        result
-                    } else {
-                        result.map_err(|flow| {
-                            rewrite_wrong_arity_alias_function_object(flow, name, &target)
-                        })
-                    }
-                } else {
-                    result
-                }
+                let _ = alias_target;
+                result
             }
             NamedCallTarget::ContextCallable => {
-                let wrong_arity_callee = if rewrite_builtin_wrong_arity {
-                    Value::subr(sym_id)
-                } else {
-                    Value::symbol(name)
-                };
-                self.apply_evaluator_callable(name, args, wrong_arity_callee)
+                // GNU-faithful: Ffuncall emits `#<subr NAME>` in
+                // wrong-arity signals via XSETSUBR.
+                self.apply_evaluator_callable(name, args, Value::subr(sym_id))
             }
             NamedCallTarget::Builtin => {
+                // GNU-faithful pre-check via check_funcall_subr_arity
+                // replaces the post-hoc rewrite helper. See
+                // apply_subr_object_by_id for the design note.
+                if let Some(flow) = self.check_funcall_subr_arity(sym_id, args.len()) {
+                    return Err(flow);
+                }
                 if let Some(result) = builtins::dispatch_builtin_by_id(self, sym_id, args) {
-                    let result = result.map_err(|flow| self.validate_throw(flow));
-                    if rewrite_builtin_wrong_arity {
-                        result.map_err(|flow| rewrite_wrong_arity_function_object(flow, name))
-                    } else {
-                        result
-                    }
+                    result.map_err(|flow| self.validate_throw(flow))
                 } else {
                     self.store_named_call_cache(sym_id, NamedCallTarget::Void);
                     Err(signal("void-function", vec![Value::symbol(name)]))
@@ -8689,36 +8755,24 @@ impl Context {
                     }
                     other => other,
                 };
-                if let Some(target) = alias_target {
-                    if rewrite_builtin_wrong_arity {
-                        result
-                    } else {
-                        result.map_err(|flow| {
-                            rewrite_wrong_arity_alias_function_object(flow, name, &target)
-                        })
-                    }
-                } else {
-                    result
-                }
+                let _ = alias_target;
+                result
             }
             NamedCallTarget::ContextCallable => {
-                let wrong_arity_callee = if rewrite_builtin_wrong_arity {
-                    Value::subr(intern(name))
-                } else {
-                    Value::symbol(name)
-                };
-                self.apply_evaluator_callable(name, args, wrong_arity_callee)
+                // GNU-faithful: Ffuncall emits `#<subr NAME>` in
+                // wrong-arity signals via XSETSUBR.
+                self.apply_evaluator_callable(name, args, Value::subr(intern(name)))
             }
             NamedCallTarget::Builtin => {
+                // GNU-faithful pre-check via check_funcall_subr_arity.
+                let sym_id = intern(name);
+                if let Some(flow) = self.check_funcall_subr_arity(sym_id, args.len()) {
+                    return Err(flow);
+                }
                 if let Some(result) = builtins::dispatch_builtin(self, name, args) {
-                    let result = result.map_err(|flow| self.validate_throw(flow));
-                    if rewrite_builtin_wrong_arity {
-                        result.map_err(|flow| rewrite_wrong_arity_function_object(flow, name))
-                    } else {
-                        result
-                    }
+                    result.map_err(|flow| self.validate_throw(flow))
                 } else {
-                    self.store_named_call_cache(intern(name), NamedCallTarget::Void);
+                    self.store_named_call_cache(sym_id, NamedCallTarget::Void);
                     Err(signal("void-function", vec![Value::symbol(name)]))
                 }
             }
@@ -8738,12 +8792,12 @@ impl Context {
         // backed by builtins. Keep the autoload shape while preserving callability.
         let sym_id = intern(name);
         if self.has_registered_subr(sym_id) {
+            // GNU-faithful pre-check via check_funcall_subr_arity.
+            if let Some(flow) = self.check_funcall_subr_arity(sym_id, args.len()) {
+                return Err(flow);
+            }
             if let Some(result) = builtins::dispatch_builtin_by_id(self, sym_id, args.clone()) {
-                return if rewrite_builtin_wrong_arity {
-                    result.map_err(|flow| rewrite_wrong_arity_function_object(flow, name))
-                } else {
-                    result
-                };
+                return result;
             }
         }
 
@@ -10021,82 +10075,6 @@ impl Context {
         Ok(value)
     }
 
-}
-
-fn rewrite_wrong_arity_function_object(flow: Flow, name: &str) -> Flow {
-    // GNU `Ffuncall` reports `wrong-number-of-arguments` with the
-    // SUBR value in data[0] (e.g.
-    // `(funcall (function defalias))` →
-    // `(wrong-number-of-arguments #<subr defalias> 0)`).
-    // In contrast, a direct `(defalias)` form reports the SYMBOL
-    // name (`(wrong-number-of-arguments defalias 0)`).
-    //
-    // The dispatch helpers below set `rewrite_builtin_wrong_arity`
-    // to true on the funcall path; this helper performs the
-    // symbol→subr rewrite. The eval_sub direct-call path uses
-    // `undo_wrong_arity_function_object_rewrite` afterwards to
-    // restore the symbol form.
-    match flow {
-        Flow::Signal(mut sig) => {
-            if sig.symbol_name() == "wrong-number-of-arguments"
-                && sig.raw_data.is_none()
-                && !sig.data.is_empty()
-                && sig.data[0].as_symbol_name() == Some(name)
-            {
-                sig.data[0] = Value::subr(intern(name));
-            }
-            Flow::Signal(sig)
-        }
-        other => other,
-    }
-}
-
-/// Inverse of `rewrite_wrong_arity_function_object` for the eval_sub
-/// direct-call path. GNU's eval_sub reports
-/// `(wrong-number-of-arguments NAME N)` with NAME as a symbol,
-/// while funcall reports it as `#<subr NAME>`. NeoMacs's apply
-/// dispatch always goes through the funcall-style rewrite, so we
-/// undo it here when the call originated from eval_sub.
-fn undo_wrong_arity_function_object_rewrite(flow: Flow, name: &str) -> Flow {
-    match flow {
-        Flow::Signal(mut sig) => {
-            if sig.symbol_name() == "wrong-number-of-arguments"
-                && sig.raw_data.is_none()
-                && !sig.data.is_empty()
-                && let ValueKind::Veclike(VecLikeType::Subr) = sig.data[0].kind()
-                && let Some(id) = sig.data[0].as_subr_id()
-                && resolve_sym(id) == name
-            {
-                sig.data[0] = Value::symbol(name);
-            }
-            Flow::Signal(sig)
-        }
-        other => other,
-    }
-}
-
-fn rewrite_wrong_arity_alias_function_object(flow: Flow, alias: &str, target: &str) -> Flow {
-    match flow {
-        Flow::Signal(mut sig) => {
-            let target_is_payload = sig.data.first().is_some_and(|value| match value.kind() {
-                ValueKind::Veclike(VecLikeType::Subr) => {
-                    let id = value.as_subr_id().unwrap();
-                    resolve_sym(id) == target || resolve_sym(id) == alias
-                }
-                _ => {
-                    value.as_symbol_name() == Some(target) || value.as_symbol_name() == Some(alias)
-                }
-            });
-            if sig.symbol_name() == "wrong-number-of-arguments"
-                && !sig.data.is_empty()
-                && target_is_payload
-            {
-                sig.data[0] = Value::symbol(alias);
-            }
-            Flow::Signal(sig)
-        }
-        other => other,
-    }
 }
 
 
